@@ -1,0 +1,29 @@
+{
+  "name": "vitest-native",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "apps/*"],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "bun run --filter vitest-native build",
+    "test": "bun run --filter vitest-native test",
+    "test:example": "bun run build && bun run --filter '@vitest-native/example' test",
+    "lint": "oxlint --deny-warnings packages/vitest-native/src/ packages/vitest-native/tests/",
+    "format": "oxfmt --write packages/vitest-native/src/ packages/vitest-native/tests/",
+    "format:check": "oxfmt --check packages/vitest-native/src/ packages/vitest-native/tests/",
+    "typecheck": "bun run --filter vitest-native typecheck",
+    "clean": "bun run --filter vitest-native clean"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.30.0",
+    "@types/node": "^25.3.5",
+    "@types/react": "^19.2.14",
+    "oxfmt": "^0.36.0",
+    "oxlint": "^1.51.0",
+    "tsdown": "^0.21.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.0.0"
+  }
+}

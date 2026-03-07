@@ -1,0 +1,128 @@
+{
+  "name": "vitest-native",
+  "version": "0.1.3",
+  "type": "module",
+  "description": "A Vitest plugin for React Native. One install, zero config.",
+  "license": "MIT",
+  "author": "Daniel Fry",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/danfry1/vitest-native.git",
+    "directory": "packages/vitest-native"
+  },
+  "homepage": "https://github.com/danfry1/vitest-native#readme",
+  "bugs": {
+    "url": "https://github.com/danfry1/vitest-native/issues"
+  },
+  "keywords": [
+    "vitest",
+    "react-native",
+    "testing",
+    "mock",
+    "vite",
+    "plugin",
+    "expo",
+    "react"
+  ],
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./helpers": {
+      "import": {
+        "types": "./dist/helpers.d.mts",
+        "default": "./dist/helpers.mjs"
+      },
+      "require": {
+        "types": "./dist/helpers.d.cts",
+        "default": "./dist/helpers.cjs"
+      }
+    },
+    "./setup": {
+      "import": {
+        "types": "./dist/setup.d.mts",
+        "default": "./dist/setup.mjs"
+      },
+      "require": {
+        "types": "./dist/setup.d.cts",
+        "default": "./dist/setup.cjs"
+      }
+    },
+    "./serializer": {
+      "import": {
+        "types": "./dist/serializer.d.mts",
+        "default": "./dist/serializer.mjs"
+      },
+      "require": {
+        "types": "./dist/serializer.d.cts",
+        "default": "./dist/serializer.cjs"
+      }
+    },
+    "./presets": {
+      "import": {
+        "types": "./dist/presets.d.mts",
+        "default": "./dist/presets.mjs"
+      },
+      "require": {
+        "types": "./dist/presets.d.cts",
+        "default": "./dist/presets.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "vite": ">=5",
+    "vitest": ">=4",
+    "@testing-library/react-native": ">=12"
+  },
+  "peerDependenciesMeta": {
+    "@testing-library/react-native": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@testing-library/react-native": "^12.9.0",
+    "@types/node": "^25.3.5",
+    "@types/react": "^19.2.14",
+    "react": "^19.0.0",
+    "react-native": "^0.84.1",
+    "react-test-renderer": "^19.0.0",
+    "tsdown": "^0.21.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0",
+    "vitest": "^4.0.0"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run",
+    "lint": "oxlint --deny-warnings src/ tests/",
+    "format": "oxfmt --write src/ tests/",
+    "format:check": "oxfmt --check src/ tests/",
+    "check-compat": "bun scripts/check-compat.ts",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "bun run build && bun run test && bun run lint && bun run typecheck"
+  }
+}

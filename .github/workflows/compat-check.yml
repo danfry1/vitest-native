@@ -1,0 +1,62 @@
+name: Compatibility Check
+
+on:
+  schedule:
+    # Every Monday at 9am UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+jobs:
+  check-latest-rn:
+    name: Check against latest React Native
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install with latest react-native
+        run: |
+          bun install --frozen-lockfile
+          bun add -d react-native@latest --cwd packages/vitest-native
+
+      - name: Build
+        run: bun run --filter vitest-native build
+
+      - name: Run tests
+        run: bun run --filter vitest-native test
+
+      - name: Check API compatibility
+        run: bun run --filter vitest-native check-compat
+
+      - name: Create issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        env:
+          RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        with:
+          script: |
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'compat-check',
+            });
+            if (issues.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: 'Compatibility gap detected with latest react-native',
+                body: [
+                  'The weekly compatibility check found new React Native exports that are not mocked.',
+                  '',
+                  `See the [failed run](${process.env.RUN_URL}) for details.`,
+                  '',
+                  'Run `bun run --filter vitest-native check-compat` locally to see the gaps.',
+                ].join('\n'),
+                labels: ['compat-check'],
+              });
+            }
