@@ -106,6 +106,32 @@ g.IS_REACT_NATIVE_TEST_ENVIRONMENT = true;
 
 const rnMock = buildReactNativeMock(platform);
 
+// --- 2a. Load real RN modules (hybrid architecture) ---
+// For pure-JS modules where the real RN code has no native dependencies,
+// load the actual source (Flow-stripped by the CJS bridge's require hook)
+// instead of our hand-written mocks. This guarantees behavioral parity.
+//
+// Resolution must happen BEFORE the CJS bridge is installed (the bridge
+// intercepts all react-native/* requires). Loading must happen AFTER
+// (the bridge's .js extension hook strips Flow types from require chains).
+
+const projectRoot = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
+const projectReq = createRequire(path.join(projectRoot, "package.json"));
+
+/** Resolve subpath to absolute path BEFORE CJS bridge intercepts react-native/. */
+function resolveRealPath(rnSubpath: string): string | null {
+  try {
+    return projectReq.resolve(rnSubpath);
+  } catch {
+    return null;
+  }
+}
+
+// Resolve real module paths before installing the CJS bridge
+const realModulePaths = {
+  Easing: resolveRealPath("react-native/Libraries/Animated/Easing"),
+};
+
 // Merge any user-provided mock overrides
 if (Object.keys(customMocks).length > 0) {
   Object.assign(rnMock, customMocks);
@@ -115,7 +141,25 @@ if (Object.keys(customMocks).length > 0) {
 // virtual modules (react-native/* subpath ESM imports read this).
 g.__vitest_native_mock = rnMock;
 
+// Install CJS bridge — includes Flow stripping hook for require() chains.
 installCjsBridge(rnMock);
+
+// Now load real modules using the absolute paths (bypasses _resolveFilename
+// interception) with Flow stripping active.
+for (const [name, realPath] of Object.entries(realModulePaths)) {
+  if (!realPath) continue;
+  try {
+    const mod = require(realPath);
+    rnMock[name] = mod.default ?? mod;
+    if (diagnostics) {
+      console.log(`[vitest-native] Using real RN ${name} (Flow-stripped)`);
+    }
+  } catch (e) {
+    if (diagnostics) {
+      console.warn(`[vitest-native] Could not load real ${name}: ${(e as Error)?.message}`);
+    }
+  }
+}
 
 // --- 3. Register vi.mock('react-native') ---
 
@@ -135,8 +179,6 @@ function loadPresetFactory(exportName: string): (() => Preset) | null {
 
 function autoDetectPresets(): Preset[] {
   const detected: Preset[] = [];
-  const projectRoot = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
-  const projectReq = createRequire(path.join(projectRoot, "package.json"));
   for (const [pkgName, exportName] of Object.entries(AUTO_DETECT_PRESETS)) {
     try {
       projectReq.resolve(pkgName);

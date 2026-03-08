@@ -438,11 +438,20 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // The @flow pragma is used in all RN source files.
       if (!code.includes("@flow")) return undefined;
 
-      const stripped = flowRemoveTypes(code, { all: true });
-      return {
-        code: stripped.toString(),
-        map: stripped.generateMap(),
-      };
+      let strippedCode = flowRemoveTypes(code, { all: true }).toString();
+
+      // RN source mixes ESM exports with CJS require() calls. When Vite loads
+      // these as ESM, `require` is not available. Inject a shim using
+      // Node's createRequire so internal require() calls (e.g. Easing.js
+      // requiring ./bezier) resolve correctly.
+      if (strippedCode.includes("require(") && !strippedCode.includes("createRequire")) {
+        strippedCode =
+          `import { createRequire as __createRequire } from "module";\n` +
+          `const require = __createRequire(import.meta.url);\n` +
+          strippedCode;
+      }
+
+      return { code: strippedCode, map: null };
     },
   };
 }
