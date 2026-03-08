@@ -2,7 +2,17 @@ import React from "react";
 
 export function createTouchableWithoutFeedbackMock() {
   const TouchableWithoutFeedback = React.forwardRef((props: any, ref: any) => {
-    return React.createElement("TouchableWithoutFeedback", { ...props, ref });
+    const { disabled, accessibilityState, ...rest } = props;
+    const mergedA11yState =
+      disabled || accessibilityState
+        ? { ...accessibilityState, ...(disabled ? { disabled: true } : {}) }
+        : undefined;
+    return React.createElement("TouchableWithoutFeedback", {
+      accessible: true,
+      ...rest,
+      ...(mergedA11yState ? { accessibilityState: mergedA11yState } : {}),
+      ref,
+    });
   });
   TouchableWithoutFeedback.displayName = "TouchableWithoutFeedback";
   return TouchableWithoutFeedback;
