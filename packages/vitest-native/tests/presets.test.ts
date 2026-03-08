@@ -73,6 +73,49 @@ describe("preset: navigation", () => {
     expect(typeof ref.isReady).toBe("function");
     expect(typeof ref.getCurrentRoute).toBe("function");
   });
+
+  describe("@react-navigation/native-stack", () => {
+    const stackMock = preset.modules["@react-navigation/native-stack"].factory();
+
+    it("createNativeStackNavigator returns Navigator, Screen, Group", () => {
+      const stack = stackMock.createNativeStackNavigator();
+      expect(stack.Navigator).toBeDefined();
+      expect(stack.Screen).toBeDefined();
+      expect(stack.Group).toBeDefined();
+    });
+  });
+
+  describe("@react-navigation/bottom-tabs", () => {
+    const tabsMock = preset.modules["@react-navigation/bottom-tabs"].factory();
+
+    it("createBottomTabNavigator returns Navigator, Screen, Group", () => {
+      const tabs = tabsMock.createBottomTabNavigator();
+      expect(tabs.Navigator).toBeDefined();
+      expect(tabs.Screen).toBeDefined();
+      expect(tabs.Group).toBeDefined();
+    });
+  });
+
+  describe("@react-navigation/elements", () => {
+    const elementsMock = preset.modules["@react-navigation/elements"].factory();
+
+    it("Header components are renderable", () => {
+      expect(elementsMock.Header.displayName).toBe("Header");
+      expect(elementsMock.HeaderBackground.displayName).toBe("HeaderBackground");
+      expect(elementsMock.HeaderBackButton.displayName).toBe("HeaderBackButton");
+      expect(elementsMock.HeaderTitle.displayName).toBe("HeaderTitle");
+    });
+
+    it("useHeaderHeight returns a number", () => {
+      expect(elementsMock.useHeaderHeight()).toBe(64);
+    });
+
+    it("getHeaderTitle extracts title from options", () => {
+      expect(elementsMock.getHeaderTitle({ title: "Home" }, "Fallback")).toBe("Home");
+      expect(elementsMock.getHeaderTitle({}, "Fallback")).toBe("Fallback");
+      expect(elementsMock.getHeaderTitle({ headerTitle: "Custom" }, "Fallback")).toBe("Custom");
+    });
+  });
 });
 
 // --- Reanimated ---

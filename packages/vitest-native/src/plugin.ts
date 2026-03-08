@@ -193,17 +193,6 @@ const RN_EXPORT_NAMES = [
   "usePressability",
 ];
 
-/** Names of all built-in presets that can be reconstructed in the worker. */
-const BUILT_IN_PRESET_NAMES = new Set([
-  "reanimated",
-  "gestureHandler",
-  "safeAreaContext",
-  "navigation",
-  "asyncStorage",
-  "screens",
-  "expo",
-]);
-
 /** Check if a value (or any nested value) contains functions. */
 function containsFunctions(value: unknown, visited = new WeakSet()): boolean {
   if (typeof value === "function") return true;
@@ -225,18 +214,6 @@ function containsFunctions(value: unknown, visited = new WeakSet()): boolean {
  */
 export function reactNative(options?: VitestNativeOptions): Plugin {
   // --- Validate options eagerly so users get fast, clear errors ---
-
-  if (options?.presets) {
-    for (const preset of options.presets) {
-      if (!BUILT_IN_PRESET_NAMES.has(preset.name)) {
-        throw new Error(
-          `[vitest-native] Unknown preset "${preset.name}". ` +
-            `Only built-in presets are supported: ${[...BUILT_IN_PRESET_NAMES].join(", ")}. ` +
-            `For custom module mocking, use vi.mock() in a setup file.`,
-        );
-      }
-    }
-  }
 
   if (options?.mocks && containsFunctions(options.mocks)) {
     throw new Error(
@@ -338,7 +315,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       assetPattern = new RegExp(`\\.(${resolved.assetExts.join("|")})$`);
     },
 
-    resolveId(source) {
+    resolveId(source, importer) {
       // Redirect react-native root import to a virtual module.
       // The real mock is wired up by vi.mock() in the setup file.
       if (source === "react-native") {
@@ -353,6 +330,37 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // Redirect preset-provided modules to virtual stubs.
       if (presetModules.has(source)) {
         return `\0virtual:preset:${source}`;
+      }
+
+      // Layer 1: Metro-compatible extensionless resolution for node_modules.
+      // Many RN-ecosystem packages use extensionless imports internally
+      // (e.g. './utils' meaning './utils.js'). Metro resolves these natively,
+      // but Vite doesn't apply resolve.extensions inside node_modules.
+      // Try appending platform extensions in priority order.
+      if (
+        importer &&
+        importer.includes("node_modules") &&
+        source.startsWith(".") &&
+        !path.extname(source)
+      ) {
+        const importerDir = path.dirname(importer);
+        const absolute = path.resolve(importerDir, source);
+
+        // Try as a file with extensions
+        for (const ext of extensions) {
+          const candidate = absolute + ext;
+          if (fs.existsSync(candidate)) {
+            return candidate;
+          }
+        }
+
+        // Try as a directory with index file
+        for (const ext of extensions) {
+          const candidate = path.join(absolute, `index${ext}`);
+          if (fs.existsSync(candidate)) {
+            return candidate;
+          }
+        }
       }
 
       return undefined;

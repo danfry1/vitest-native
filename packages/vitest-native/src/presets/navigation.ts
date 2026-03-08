@@ -144,6 +144,106 @@ export function navigation(): Preset {
           };
         },
       },
+
+      "@react-navigation/native-stack": {
+        exports: ["createNativeStackNavigator"],
+        factory: () => {
+          function createNativeStackNavigator() {
+            return {
+              Navigator: React.forwardRef((props: any, ref: any) =>
+                React.createElement("NativeStackNavigator", { ...props, ref }, props.children),
+              ),
+              Screen: React.forwardRef((props: any, ref: any) =>
+                React.createElement("Screen", { ...props, ref }, props.children),
+              ),
+              Group: React.forwardRef((props: any, ref: any) =>
+                React.createElement("Group", { ...props, ref }, props.children),
+              ),
+            };
+          }
+
+          return {
+            default: { createNativeStackNavigator },
+            createNativeStackNavigator,
+          };
+        },
+      },
+
+      "@react-navigation/bottom-tabs": {
+        exports: ["createBottomTabNavigator"],
+        factory: () => {
+          function createBottomTabNavigator() {
+            return {
+              Navigator: React.forwardRef((props: any, ref: any) =>
+                React.createElement("BottomTabNavigator", { ...props, ref }, props.children),
+              ),
+              Screen: React.forwardRef((props: any, ref: any) =>
+                React.createElement("Screen", { ...props, ref }, props.children),
+              ),
+              Group: React.forwardRef((props: any, ref: any) =>
+                React.createElement("Group", { ...props, ref }, props.children),
+              ),
+            };
+          }
+
+          return {
+            default: { createBottomTabNavigator },
+            createBottomTabNavigator,
+          };
+        },
+      },
+
+      "@react-navigation/elements": {
+        exports: [
+          "Header",
+          "HeaderBackground",
+          "HeaderBackButton",
+          "HeaderTitle",
+          "HeaderBackContext",
+          "HeaderShownContext",
+          "HeaderHeightContext",
+          "useHeaderHeight",
+          "getDefaultHeaderHeight",
+          "getHeaderTitle",
+        ],
+        factory: () => {
+          const Header = React.forwardRef((props: any, ref: any) =>
+            React.createElement("Header", { ...props, ref }, props.children),
+          );
+          (Header as any).displayName = "Header";
+
+          const HeaderBackground = React.forwardRef((props: any, ref: any) =>
+            React.createElement("HeaderBackground", { ...props, ref }, props.children),
+          );
+          (HeaderBackground as any).displayName = "HeaderBackground";
+
+          const HeaderBackButton = React.forwardRef((props: any, ref: any) =>
+            React.createElement("HeaderBackButton", { ...props, ref }),
+          );
+          (HeaderBackButton as any).displayName = "HeaderBackButton";
+
+          const HeaderTitle = React.forwardRef((props: any, ref: any) =>
+            React.createElement("HeaderTitle", { ...props, ref }, props.children),
+          );
+          (HeaderTitle as any).displayName = "HeaderTitle";
+
+          return {
+            default: { Header, HeaderBackground, HeaderBackButton, HeaderTitle },
+            Header,
+            HeaderBackground,
+            HeaderBackButton,
+            HeaderTitle,
+            HeaderBackContext: React.createContext(undefined as any),
+            HeaderShownContext: React.createContext(true),
+            HeaderHeightContext: React.createContext(64),
+            useHeaderHeight: () => 64,
+            getDefaultHeaderHeight: vi.fn(() => 64),
+            getHeaderTitle: vi.fn(
+              (options: any, fallback: string) => options?.headerTitle ?? options?.title ?? fallback,
+            ),
+          };
+        },
+      },
     },
   };
 }
