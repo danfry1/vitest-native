@@ -10,7 +10,7 @@ export function createPlatformMock(os: "ios" | "android" = "ios") {
     isVision: false,
     isTesting: true,
     select: vi.fn((specifics: Record<string, any>) => {
-      return specifics[os] ?? specifics.default;
+      return specifics[os] ?? specifics.native ?? specifics.default;
     }),
     constants: {
       reactNativeVersion: { major: 0, minor: 76, patch: 0 },
