@@ -426,6 +426,22 @@ export function buildReactNativeMock(platform: "ios" | "android" = "ios") {
   // Wire PixelRatio to read from Dimensions dynamically
   mock.PixelRatio = createPixelRatioMock(() => mock.Dimensions.get("window"));
 
+  // Wire Appearance.setColorScheme → useColorScheme so dark mode propagates
+  const origSetColorScheme = mock.Appearance.setColorScheme;
+  mock.Appearance.setColorScheme = vi.fn((scheme: "light" | "dark") => {
+    origSetColorScheme(scheme);
+    mock.useColorScheme._setScheme(scheme);
+  });
+
+  // Wire Dimensions.set → useWindowDimensions so responsive layouts propagate
+  const origDimensionsSet = mock.Dimensions.set;
+  mock.Dimensions.set = vi.fn((dims: any) => {
+    origDimensionsSet(dims);
+    if (dims.window) {
+      mock.useWindowDimensions._setDimensions(dims.window);
+    }
+  });
+
   // Set default to self for `import RN from 'react-native'` compat
   mock.default = mock;
 

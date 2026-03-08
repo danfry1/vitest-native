@@ -185,9 +185,27 @@ export function createAnimatedMock() {
       }),
     ),
     decay: vi.fn((_value: any, _config: any) => createAnimation()),
-    sequence: vi.fn((_animations: any[]) => createAnimation()),
-    parallel: vi.fn((_animations: any[]) => createAnimation()),
-    stagger: vi.fn((_time: number, _animations: any[]) => createAnimation()),
+    sequence: vi.fn((animations: any[]) =>
+      createAnimation(() => {
+        for (const anim of animations) {
+          anim?.start?.();
+        }
+      }),
+    ),
+    parallel: vi.fn((animations: any[]) =>
+      createAnimation(() => {
+        for (const anim of animations) {
+          anim?.start?.();
+        }
+      }),
+    ),
+    stagger: vi.fn((_time: number, animations: any[]) =>
+      createAnimation(() => {
+        for (const anim of animations) {
+          anim?.start?.();
+        }
+      }),
+    ),
     loop: vi.fn((_animation: any, _config?: any) => createAnimation()),
     delay: vi.fn((_time: number) => createAnimation()),
     add: vi.fn((a: any, b: any) => {
