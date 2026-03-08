@@ -124,6 +124,23 @@ function createProcessColorMock() {
         const alpha = parseInt(hex8[1].slice(6, 8), 16);
         return ((alpha << 24) + rgb) >>> 0;
       }
+
+      // rgb(r, g, b) → 0xFFRRGGBB
+      const rgbMatch = lower.match(/^rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$/);
+      if (rgbMatch) {
+        const [, r, g, b] = rgbMatch;
+        return ((0xff << 24) + (parseInt(r) << 16) + (parseInt(g) << 8) + parseInt(b)) >>> 0;
+      }
+
+      // rgba(r, g, b, a) → 0xAARRGGBB
+      const rgbaMatch = lower.match(
+        /^rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)$/,
+      );
+      if (rgbaMatch) {
+        const [, r, g, b, a] = rgbaMatch;
+        const alpha = Math.round(parseFloat(a) * 255);
+        return ((alpha << 24) + (parseInt(r) << 16) + (parseInt(g) << 8) + parseInt(b)) >>> 0;
+      }
     }
     return 0xff000000; // opaque black fallback
   });
