@@ -28,9 +28,19 @@ import {
   Image,
   ScrollView,
   FlatList,
+  SectionList,
   Modal,
   Button,
+  Switch,
   StatusBar,
+  SafeAreaView,
+  KeyboardAvoidingView,
+  ImageBackground,
+  RefreshControl,
+  ActivityIndicator,
+  TouchableOpacity,
+  TouchableHighlight,
+  TouchableWithoutFeedback,
   LogBox,
   AppState,
   Keyboard,
@@ -47,6 +57,7 @@ import {
   NativeModules,
   NativeEventEmitter,
   AppRegistry,
+  LayoutAnimation,
 } from "react-native";
 
 // ---------------------------------------------------------------------------
@@ -580,5 +591,278 @@ describe("API behavioral contracts", () => {
     it("registerComponent is callable", () => {
       expect(() => AppRegistry.registerComponent("App", () => View)).not.toThrow();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Text accessibility — ported from Libraries/Text/__tests__/Text-test.js
+//
+// Real RN Text auto-sets accessibilityRole="link" when onPress is provided,
+// unless disabled or an explicit accessibilityRole is set.
+// ---------------------------------------------------------------------------
+
+describe("Text accessibility (conformance)", () => {
+  it("has displayName", () => {
+    expect(Text.displayName).toBe("Text");
+  });
+
+  it("sets accessible={true} by default", () => {
+    render(<Text testID="t">Hello</Text>);
+    expect(screen.getByTestId("t").props.accessible).toBe(true);
+  });
+
+  it("auto-sets accessibilityRole='link' when onPress is provided", () => {
+    render(
+      <Text testID="t" onPress={() => {}}>
+        Clickable
+      </Text>,
+    );
+    expect(screen.getByTestId("t").props.accessibilityRole).toBe("link");
+  });
+
+  it("auto-sets accessibilityRole='link' when onLongPress is provided", () => {
+    render(
+      <Text testID="t" onLongPress={() => {}}>
+        Long Press
+      </Text>,
+    );
+    expect(screen.getByTestId("t").props.accessibilityRole).toBe("link");
+  });
+
+  it("respects explicit accessibilityRole", () => {
+    render(
+      <Text testID="t" accessibilityRole="button" onPress={() => {}}>
+        Explicit
+      </Text>,
+    );
+    expect(screen.getByTestId("t").props.accessibilityRole).toBe("button");
+  });
+
+  it("does not set accessibilityRole when disabled with onPress", () => {
+    render(
+      <Text testID="t" disabled onPress={() => {}}>
+        Disabled
+      </Text>,
+    );
+    expect(screen.getByTestId("t").props.accessibilityRole).toBeUndefined();
+  });
+
+  it("does not set accessibilityRole without press handlers", () => {
+    render(<Text testID="t">Plain text</Text>);
+    expect(screen.getByTestId("t").props.accessibilityRole).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TextInput — extended from TextInput-test.js
+// ---------------------------------------------------------------------------
+
+describe("TextInput extended (conformance)", () => {
+  it("has displayName", () => {
+    expect(TextInput.displayName).toBe("TextInput");
+  });
+
+  it("ref methods are callable", () => {
+    const ref = createRef<any>();
+    render(<TextInput ref={ref} />);
+    expect(() => ref.current.focus()).not.toThrow();
+    expect(() => ref.current.blur()).not.toThrow();
+    expect(() => ref.current.clear()).not.toThrow();
+    expect(() => ref.current.setNativeProps({})).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Component displayNames — all components should have displayName
+// ---------------------------------------------------------------------------
+
+describe("Component displayNames (conformance)", () => {
+  const componentMap: Record<string, any> = {
+    View,
+    Text,
+    TextInput,
+    Pressable,
+    Image,
+    ScrollView,
+    FlatList,
+    SectionList,
+    Modal,
+    Button,
+    Switch,
+    StatusBar,
+    SafeAreaView,
+    KeyboardAvoidingView,
+    ImageBackground,
+    RefreshControl,
+    ActivityIndicator,
+    TouchableOpacity,
+    TouchableHighlight,
+    TouchableWithoutFeedback,
+  };
+
+  for (const [name, component] of Object.entries(componentMap)) {
+    it(`${name} has displayName`, () => {
+      expect(component.displayName).toBe(name);
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// SectionList rendering — from FlatList-test.js patterns
+// ---------------------------------------------------------------------------
+
+describe("SectionList extended (conformance)", () => {
+  it("renders sections with data", () => {
+    const sections = [
+      { title: "A", data: [{ key: "1", text: "A1" }, { key: "2", text: "A2" }] },
+      { title: "B", data: [{ key: "3", text: "B1" }] },
+    ];
+    render(
+      <SectionList
+        sections={sections}
+        renderItem={({ item }) => <Text>{item.text}</Text>}
+        renderSectionHeader={({ section }) => <Text testID={`h-${section.title}`}>{section.title}</Text>}
+      />,
+    );
+    expect(screen.getByText("A1")).toBeTruthy();
+    expect(screen.getByText("A2")).toBeTruthy();
+    expect(screen.getByText("B1")).toBeTruthy();
+    expect(screen.getByTestId("h-A")).toBeTruthy();
+    expect(screen.getByTestId("h-B")).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LayoutAnimation — constants conformance
+// ---------------------------------------------------------------------------
+
+describe("LayoutAnimation (conformance)", () => {
+  it("configureNext is callable", () => {
+    expect(typeof LayoutAnimation.configureNext).toBe("function");
+  });
+
+  it("create returns animation config", () => {
+    const config = LayoutAnimation.create(300, "easeInEaseOut", "opacity");
+    expect(config).toHaveProperty("duration");
+    expect(config).toHaveProperty("create");
+    expect(config).toHaveProperty("update");
+  });
+
+  it("has Types constants", () => {
+    expect(LayoutAnimation.Types).toHaveProperty("spring");
+    expect(LayoutAnimation.Types).toHaveProperty("linear");
+    expect(LayoutAnimation.Types).toHaveProperty("easeInEaseOut");
+    expect(LayoutAnimation.Types).toHaveProperty("easeIn");
+    expect(LayoutAnimation.Types).toHaveProperty("easeOut");
+  });
+
+  it("has Properties constants", () => {
+    expect(LayoutAnimation.Properties).toHaveProperty("opacity");
+    expect(LayoutAnimation.Properties).toHaveProperty("scaleX");
+    expect(LayoutAnimation.Properties).toHaveProperty("scaleY");
+    expect(LayoutAnimation.Properties).toHaveProperty("scaleXY");
+  });
+
+  it("has Presets", () => {
+    expect(LayoutAnimation.Presets).toHaveProperty("easeInEaseOut");
+    expect(LayoutAnimation.Presets).toHaveProperty("linear");
+    expect(LayoutAnimation.Presets).toHaveProperty("spring");
+  });
+
+  it("Presets have correct structure", () => {
+    const preset = LayoutAnimation.Presets.easeInEaseOut;
+    expect(preset).toHaveProperty("duration");
+    expect(preset).toHaveProperty("create");
+    expect(preset).toHaveProperty("update");
+    expect(preset).toHaveProperty("delete");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AccessibilityInfo — extended conformance
+// ---------------------------------------------------------------------------
+
+describe("AccessibilityInfo extended (conformance)", () => {
+  it("isBoldTextEnabled returns promise", () => {
+    expect(AccessibilityInfo.isBoldTextEnabled()).toBeInstanceOf(Promise);
+  });
+
+  it("isGrayscaleEnabled returns promise", () => {
+    expect(AccessibilityInfo.isGrayscaleEnabled()).toBeInstanceOf(Promise);
+  });
+
+  it("isInvertColorsEnabled returns promise", () => {
+    expect(AccessibilityInfo.isInvertColorsEnabled()).toBeInstanceOf(Promise);
+  });
+
+  it("isReduceMotionEnabled returns promise", () => {
+    expect(AccessibilityInfo.isReduceMotionEnabled()).toBeInstanceOf(Promise);
+  });
+
+  it("isReduceTransparencyEnabled returns promise", () => {
+    expect(AccessibilityInfo.isReduceTransparencyEnabled()).toBeInstanceOf(Promise);
+  });
+
+  it("prefersCrossFadeTransitions returns promise", () => {
+    expect(AccessibilityInfo.prefersCrossFadeTransitions()).toBeInstanceOf(Promise);
+  });
+
+  it("setAccessibilityFocus is callable", () => {
+    expect(() => AccessibilityInfo.setAccessibilityFocus(1)).not.toThrow();
+  });
+
+  it("getRecommendedTimeoutMillis returns promise", () => {
+    expect(AccessibilityInfo.getRecommendedTimeoutMillis(5000)).toBeInstanceOf(Promise);
+  });
+
+  it("getRecommendedTimeoutMillis resolves with the input value", async () => {
+    const result = await AccessibilityInfo.getRecommendedTimeoutMillis(5000);
+    expect(result).toBe(5000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Touchable* components — accessible + disabled conformance
+// ---------------------------------------------------------------------------
+
+describe("TouchableOpacity accessibility (conformance)", () => {
+  it("sets accessible={true} by default", () => {
+    render(
+      <TouchableOpacity testID="to">
+        <Text>Tap</Text>
+      </TouchableOpacity>,
+    );
+    expect(screen.getByTestId("to").props.accessible).toBe(true);
+  });
+
+  it("disabled sets accessibilityState.disabled", () => {
+    render(
+      <TouchableOpacity testID="to" disabled>
+        <Text>Tap</Text>
+      </TouchableOpacity>,
+    );
+    expect(screen.getByTestId("to").props.accessibilityState).toEqual({ disabled: true });
+  });
+});
+
+describe("TouchableHighlight accessibility (conformance)", () => {
+  it("sets accessible={true} by default", () => {
+    render(
+      <TouchableHighlight testID="th" onPress={() => {}}>
+        <Text>Tap</Text>
+      </TouchableHighlight>,
+    );
+    expect(screen.getByTestId("th").props.accessible).toBe(true);
+  });
+});
+
+describe("TouchableWithoutFeedback accessibility (conformance)", () => {
+  it("sets accessible={true} by default", () => {
+    render(
+      <TouchableWithoutFeedback testID="twf">
+        <Text>Tap</Text>
+      </TouchableWithoutFeedback>,
+    );
+    expect(screen.getByTestId("twf").props.accessible).toBe(true);
   });
 });
