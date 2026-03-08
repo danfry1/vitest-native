@@ -4,6 +4,7 @@
  * callable methods, and expected return values — not just that they exist.
  */
 import { describe, it, expect } from "vitest";
+import React from "react";
 import {
   reanimated,
   gestureHandler,
@@ -199,23 +200,121 @@ describe("preset: navigation", () => {
 
   describe("@react-navigation/native-stack", () => {
     const stackMock = preset.modules["@react-navigation/native-stack"].factory();
+    const stack = stackMock.createNativeStackNavigator();
 
     it("createNativeStackNavigator returns Navigator, Screen, Group", () => {
-      const stack = stackMock.createNativeStackNavigator();
       expect(stack.Navigator).toBeDefined();
       expect(stack.Screen).toBeDefined();
       expect(stack.Group).toBeDefined();
+    });
+
+    it("Screen renders the component prop with route and navigation", () => {
+      let receivedProps: any = null;
+      const TestComp = (props: any) => {
+        receivedProps = props;
+        return React.createElement("View");
+      };
+      const { render } = require("@testing-library/react-native");
+      render(
+        React.createElement(stack.Screen, {
+          name: "Home",
+          component: TestComp,
+          initialParams: { id: 42 },
+        }),
+      );
+      expect(receivedProps).not.toBeNull();
+      expect(receivedProps.route.name).toBe("Home");
+      expect(receivedProps.route.key).toBe("Home");
+      expect(receivedProps.route.params).toEqual({ id: 42 });
+      expect(typeof receivedProps.navigation.navigate).toBe("function");
+      expect(typeof receivedProps.navigation.goBack).toBe("function");
+    });
+
+    it("useNavigation/useRoute inside a Screen match the Screen's props", () => {
+      let hookNav: any = null;
+      let hookRoute: any = null;
+      let propNav: any = null;
+      let propRoute: any = null;
+      const TestComp = (props: any) => {
+        propNav = props.navigation;
+        propRoute = props.route;
+        hookNav = mock.useNavigation();
+        hookRoute = mock.useRoute();
+        return React.createElement("View");
+      };
+      const { render } = require("@testing-library/react-native");
+      render(
+        React.createElement(stack.Screen, {
+          name: "Settings",
+          component: TestComp,
+          initialParams: { theme: "dark" },
+        }),
+      );
+      // Hooks should return the same navigation/route as the props
+      expect(hookNav).toBe(propNav);
+      expect(hookRoute).toBe(propRoute);
+      expect(hookRoute.name).toBe("Settings");
+      expect(hookRoute.params).toEqual({ theme: "dark" });
+    });
+
+    it("Screen calls render-function children with route and navigation", () => {
+      let receivedProps: any = null;
+      const { render } = require("@testing-library/react-native");
+      render(
+        React.createElement(stack.Screen, { name: "Detail" }, (props: any) => {
+          receivedProps = props;
+          return React.createElement("View");
+        }),
+      );
+      expect(receivedProps).not.toBeNull();
+      expect(receivedProps.route.name).toBe("Detail");
+      expect(typeof receivedProps.navigation.navigate).toBe("function");
+    });
+
+    it("Screen passes through plain children", () => {
+      const { render } = require("@testing-library/react-native");
+      const { toJSON } = render(
+        React.createElement(
+          stack.Screen,
+          { name: "Plain" },
+          React.createElement("View", { testID: "child" }),
+        ),
+      );
+      const tree = toJSON();
+      expect(tree.type).toBe("Screen");
+      expect(tree.children[0].type).toBe("View");
+      expect(tree.children[0].props.testID).toBe("child");
     });
   });
 
   describe("@react-navigation/bottom-tabs", () => {
     const tabsMock = preset.modules["@react-navigation/bottom-tabs"].factory();
+    const tabs = tabsMock.createBottomTabNavigator();
 
     it("createBottomTabNavigator returns Navigator, Screen, Group", () => {
-      const tabs = tabsMock.createBottomTabNavigator();
       expect(tabs.Navigator).toBeDefined();
       expect(tabs.Screen).toBeDefined();
       expect(tabs.Group).toBeDefined();
+    });
+
+    it("Screen renders the component prop with route and navigation", () => {
+      let receivedProps: any = null;
+      const TestComp = (props: any) => {
+        receivedProps = props;
+        return React.createElement("View");
+      };
+      const { render } = require("@testing-library/react-native");
+      render(
+        React.createElement(tabs.Screen, {
+          name: "Feed",
+          component: TestComp,
+          initialParams: { tab: "home" },
+        }),
+      );
+      expect(receivedProps).not.toBeNull();
+      expect(receivedProps.route.name).toBe("Feed");
+      expect(receivedProps.route.params).toEqual({ tab: "home" });
+      expect(typeof receivedProps.navigation.navigate).toBe("function");
     });
   });
 

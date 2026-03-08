@@ -19,6 +19,11 @@ const VIRTUAL_RN_PATH = "\0vitest-native:react-native";
 let originalResolveFilename: Function | null = null;
 let installed = false;
 
+// Single lookup table for all preset module redirections.
+// Maps exact module names to their virtual paths. Avoids wrapping
+// _resolveFilename in a new closure per preset (O(n) chain → O(1) Map).
+const presetRedirects = new Map<string, string>();
+
 export function installCjsBridge(mockObject: Record<string, any>): void {
   if (installed) return;
 
@@ -34,7 +39,7 @@ export function installCjsBridge(mockObject: Record<string, any>): void {
     syntheticModule.exports = mockObject;
     Module._cache[VIRTUAL_RN_PATH] = syntheticModule;
 
-    // 2. Patch _resolveFilename to redirect react-native requires
+    // 2. Patch _resolveFilename once — handles react-native and all presets
     originalResolveFilename = Module._resolveFilename;
     Module._resolveFilename = function (
       request: string,
@@ -42,16 +47,25 @@ export function installCjsBridge(mockObject: Record<string, any>): void {
       isMain: boolean,
       options: any,
     ) {
-      // Root react-native import — serve our full mock.
-      if (request === "react-native") {
+      // Root react-native import or subpath (react-native/Libraries/*, etc.)
+      if (request === "react-native" || request.startsWith("react-native/")) {
         return VIRTUAL_RN_PATH;
       }
-      // Subpath imports (react-native/Libraries/*, react-native/jest-preset, etc.)
-      // — also redirect to our mock. CJS consumers typically destructure what
-      // they need, and the root mock contains all public exports.
-      if (request.startsWith("react-native/")) {
-        return VIRTUAL_RN_PATH;
+
+      // Preset modules — O(1) exact match, then check for subpath imports
+      const exactMatch = presetRedirects.get(request);
+      if (exactMatch) return exactMatch;
+
+      // Subpath imports (e.g. @react-navigation/native/lib/...) — find the
+      // longest matching prefix. Since preset names contain slashes (scoped
+      // packages), we check if any registered preset is a prefix.
+      const slashIdx = request.indexOf("/", request.startsWith("@") ? request.indexOf("/") + 1 : 0);
+      if (slashIdx !== -1) {
+        const pkg = request.slice(0, slashIdx);
+        const subpathMatch = presetRedirects.get(pkg);
+        if (subpathMatch) return subpathMatch;
       }
+
       return (originalResolveFilename as Function).call(this, request, parent, isMain, options);
     };
 
@@ -79,6 +93,12 @@ export function uninstallCjsBridge(): void {
     // Remove synthetic module from cache
     delete Module._cache[VIRTUAL_RN_PATH];
 
+    // Remove all preset synthetic modules
+    for (const virtualPath of presetRedirects.values()) {
+      delete Module._cache[virtualPath];
+    }
+    presetRedirects.clear();
+
     installed = false;
   } catch (e) {
     if (process.env.VITEST_NATIVE_DIAGNOSTICS === "true") {
@@ -100,19 +120,8 @@ export function installPresetCjsBridge(moduleName: string, mockObject: Record<st
     syntheticModule.exports = mockObject;
     Module._cache[virtualPath] = syntheticModule;
 
-    // Extend the existing _resolveFilename patch (it's already installed by installCjsBridge)
-    const currentResolve = Module._resolveFilename;
-    Module._resolveFilename = function (
-      request: string,
-      parent: any,
-      isMain: boolean,
-      options: any,
-    ) {
-      if (request === moduleName || request.startsWith(`${moduleName}/`)) {
-        return virtualPath;
-      }
-      return currentResolve.call(this, request, parent, isMain, options);
-    };
+    // Register in the flat lookup table — no _resolveFilename wrapping needed.
+    presetRedirects.set(moduleName, virtualPath);
   } catch (e) {
     if (process.env.VITEST_NATIVE_DIAGNOSTICS === "true") {
       console.warn(

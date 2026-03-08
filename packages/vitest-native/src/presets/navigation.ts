@@ -2,7 +2,87 @@ import type { Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
 
+/** Builds a minimal navigation prop matching useNavigation()'s shape. */
+function createMockNavigation() {
+  return {
+    navigate: vi.fn(),
+    goBack: vi.fn(),
+    reset: vi.fn(),
+    setParams: vi.fn(),
+    setOptions: vi.fn(),
+    dispatch: vi.fn(),
+    canGoBack: vi.fn(() => false),
+    getParent: vi.fn(() => undefined),
+    getState: vi.fn(() => ({
+      index: 0,
+      key: "root",
+      routeNames: [],
+      routes: [],
+      type: "stack",
+      stale: false,
+    })),
+    isFocused: vi.fn(() => true),
+    addListener: vi.fn(() => vi.fn()),
+    removeListener: vi.fn(),
+    getId: vi.fn(() => undefined),
+  };
+}
+
+/**
+ * Creates a Screen component mock that handles all three React Navigation patterns:
+ * 1. <Screen component={Comp} /> — renders Comp with route & navigation props
+ * 2. <Screen>{(props) => <Comp />}</Screen> — calls render function
+ * 3. <Screen><Something /></Screen> — passes children through
+ *
+ * Accepts NavigationContext and NavigationRouteContext so that hooks like
+ * useNavigation() and useRoute() inside the screen component return values
+ * consistent with the route/navigation props passed to the component.
+ */
+function createMockScreen(
+  NavContext: React.Context<any>,
+  RouteContext: React.Context<any>,
+) {
+  const Screen = React.forwardRef(
+    ({ component: Component, children, ...rest }: any, ref: any) => {
+      const route = {
+        key: rest.name ?? "",
+        name: rest.name ?? "",
+        params: rest.initialParams,
+      };
+      const nav = createMockNavigation();
+      const content = Component
+        ? React.createElement(Component, { route, navigation: nav })
+        : typeof children === "function"
+          ? children({ route, navigation: nav })
+          : children;
+      return React.createElement(
+        "Screen",
+        { ...rest, ref },
+        React.createElement(
+          NavContext.Provider,
+          { value: nav },
+          React.createElement(RouteContext.Provider, { value: route }, content),
+        ),
+      );
+    },
+  );
+  (Screen as any).displayName = "Screen";
+  return Screen;
+}
+
 export function navigation(): Preset {
+  // Contexts are shared across all module factories in this preset so that
+  // MockScreen can provide them and useNavigation()/useRoute() can read them.
+  const NavigationContext = React.createContext(null as any);
+  const NavigationRouteContext = React.createContext(null as any);
+  const NavigationContainerRefContext = React.createContext(null as any);
+  const NavigationHelpersContext = React.createContext(null as any);
+  const CurrentRenderContext = React.createContext(undefined as any);
+  const ThemeContext = React.createContext({ dark: false, colors: {} } as any);
+  const PreventRemoveContext = React.createContext(null as any);
+
+  const Screen = createMockScreen(NavigationContext, NavigationRouteContext);
+
   return {
     name: "navigation",
     modules: {
@@ -76,30 +156,50 @@ export function navigation(): Preset {
             stale: false,
           }));
 
+          const defaultNavigation = {
+            navigate,
+            goBack,
+            reset,
+            setParams,
+            setOptions,
+            dispatch,
+            canGoBack,
+            getParent,
+            getState,
+            isFocused: vi.fn(() => true),
+            addListener: vi.fn(() => vi.fn()),
+            removeListener: vi.fn(),
+            getId: vi.fn(() => undefined),
+          };
+
+          const defaultRoute = {
+            key: "test-route-key",
+            name: "TestScreen",
+            params: {},
+          };
+
           function useNavigation() {
-            return {
-              navigate,
-              goBack,
-              reset,
-              setParams,
-              setOptions,
-              dispatch,
-              canGoBack,
-              getParent,
-              getState,
-              isFocused: vi.fn(() => true),
-              addListener: vi.fn(() => vi.fn()),
-              removeListener: vi.fn(),
-              getId: vi.fn(() => undefined),
-            };
+            // Inside a React component rendered within MockScreen, the context
+            // provides the screen-specific navigation object. Falls back to
+            // the default when called outside a component (e.g. in tests that
+            // call the mock directly) or when no Screen context is present.
+            try {
+              const ctx = React.useContext(NavigationContext);
+              if (ctx) return ctx;
+            } catch {
+              // useContext throws outside a render — fall through to default.
+            }
+            return defaultNavigation;
           }
 
           function useRoute() {
-            return {
-              key: "test-route-key",
-              name: "TestScreen",
-              params: {},
-            };
+            try {
+              const ctx = React.useContext(NavigationRouteContext);
+              if (ctx) return ctx;
+            } catch {
+              // useContext throws outside a render — fall through to default.
+            }
+            return defaultRoute;
           }
 
           function useFocusEffect(callback: () => any) {
@@ -134,14 +234,6 @@ export function navigation(): Preset {
           function useNavigationContainerRef() {
             return createNavigationContainerRef();
           }
-
-          const NavigationContext = React.createContext(null as any);
-          const NavigationRouteContext = React.createContext(null as any);
-          const NavigationContainerRefContext = React.createContext(null as any);
-          const NavigationHelpersContext = React.createContext(null as any);
-          const CurrentRenderContext = React.createContext(undefined as any);
-          const ThemeContext = React.createContext({ dark: false, colors: {} } as any);
-          const PreventRemoveContext = React.createContext(null as any);
 
           const defaultTheme = {
             dark: false,
@@ -266,9 +358,7 @@ export function navigation(): Preset {
               Navigator: React.forwardRef((props: any, ref: any) =>
                 React.createElement("NativeStackNavigator", { ...props, ref }, props.children),
               ),
-              Screen: React.forwardRef((props: any, ref: any) =>
-                React.createElement("Screen", { ...props, ref }, props.children),
-              ),
+              Screen,
               Group: React.forwardRef((props: any, ref: any) =>
                 React.createElement("Group", { ...props, ref }, props.children),
               ),
@@ -290,9 +380,7 @@ export function navigation(): Preset {
               Navigator: React.forwardRef((props: any, ref: any) =>
                 React.createElement("BottomTabNavigator", { ...props, ref }, props.children),
               ),
-              Screen: React.forwardRef((props: any, ref: any) =>
-                React.createElement("Screen", { ...props, ref }, props.children),
-              ),
+              Screen,
               Group: React.forwardRef((props: any, ref: any) =>
                 React.createElement("Group", { ...props, ref }, props.children),
               ),

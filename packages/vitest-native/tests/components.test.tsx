@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react-native";
-import { View, Text, TextInput, Pressable, Image, ScrollView } from "react-native";
+import { View, Text, TextInput, Pressable, Image, ScrollView, Button } from "react-native";
 
 describe("Component rendering", () => {
   it("renders View with children", () => {
@@ -51,5 +51,32 @@ describe("Component rendering", () => {
     );
     expect(screen.getByTestId("scroll")).toBeTruthy();
     expect(screen.getByText("Scrollable content")).toBeTruthy();
+  });
+
+  it("Button onPress fires when pressed via testID", () => {
+    const onPress = vi.fn();
+    render(<Button testID="my-btn" title="Tap me" onPress={onPress} />);
+    fireEvent.press(screen.getByTestId("my-btn"));
+    expect(onPress).toHaveBeenCalledTimes(1);
+  });
+
+  it("Button renders title text", () => {
+    render(<Button title="Submit" onPress={() => {}} />);
+    expect(screen.getByText("Submit")).toBeTruthy();
+  });
+
+  it("Button does not fire onPress when disabled", () => {
+    const onPress = vi.fn();
+    render(<Button testID="disabled-btn" title="Nope" onPress={onPress} disabled />);
+    fireEvent.press(screen.getByTestId("disabled-btn"));
+    expect(onPress).not.toHaveBeenCalled();
+  });
+
+  it("Button has accessibility props on the pressable element", () => {
+    render(<Button testID="a11y-btn" title="Action" onPress={() => {}} />);
+    const btn = screen.getByTestId("a11y-btn");
+    expect(btn.props.accessibilityRole).toBe("button");
+    expect(btn.props.accessible).toBe(true);
+    expect(btn.props.accessibilityLabel).toBe("Action");
   });
 });
