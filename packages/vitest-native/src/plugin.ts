@@ -429,29 +429,17 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     transform(code, id) {
       // Strip Flow type annotations from React Native source files.
       // RN's source is written in Flow and cannot be executed directly in Node.
-      // This transform enables the hybrid architecture: real RN JavaScript
-      // runs in tests, only the native bridge is mocked.
+      // Currently a no-op (all RN imports resolve to virtual modules), but
+      // enables future hybrid architecture where real RN JS runs in tests.
       if (!id.includes("node_modules")) return undefined;
       if (!id.includes("react-native") || !id.endsWith(".js")) return undefined;
-
-      // Only transform files that contain Flow annotations.
-      // The @flow pragma is used in all RN source files.
       if (!code.includes("@flow")) return undefined;
 
-      let strippedCode = flowRemoveTypes(code, { all: true }).toString();
-
-      // RN source mixes ESM exports with CJS require() calls. When Vite loads
-      // these as ESM, `require` is not available. Inject a shim using
-      // Node's createRequire so internal require() calls (e.g. Easing.js
-      // requiring ./bezier) resolve correctly.
-      if (strippedCode.includes("require(") && !strippedCode.includes("createRequire")) {
-        strippedCode =
-          `import { createRequire as __createRequire } from "module";\n` +
-          `const require = __createRequire(import.meta.url);\n` +
-          strippedCode;
-      }
-
-      return { code: strippedCode, map: null };
+      const stripped = flowRemoveTypes(code, { all: true });
+      return {
+        code: stripped.toString(),
+        map: stripped.generateMap(),
+      };
     },
   };
 }

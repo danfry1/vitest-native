@@ -14,13 +14,9 @@
  * cross-test contamination in parallel runs.
  */
 
-import flowRemoveTypes from "flow-remove-types";
-import fs from "node:fs";
-
 const VIRTUAL_RN_PATH = "\0vitest-native:react-native";
 
 let originalResolveFilename: Function | null = null;
-let originalJsExtension: Function | null = null;
 let installed = false;
 
 // Single lookup table for all preset module redirections.
@@ -73,44 +69,6 @@ export function installCjsBridge(mockObject: Record<string, any>): void {
       return (originalResolveFilename as Function).call(this, request, parent, isMain, options);
     };
 
-    // 3. Patch .js extension handler to strip Flow types from RN source files.
-    // When real RN modules are loaded via require() (e.g. Easing.js requiring
-    // ./bezier), Node's native require bypasses Vite's transform pipeline.
-    // This hook strips Flow types and converts ESM exports to CJS before execution.
-    originalJsExtension = Module._extensions[".js"];
-    Module._extensions[".js"] = function (mod: any, filename: string) {
-      if (
-        filename.includes("react-native") &&
-        filename.includes("Libraries") &&
-        filename.endsWith(".js")
-      ) {
-        const code = fs.readFileSync(filename, "utf-8");
-        if (code.includes("@flow")) {
-          let stripped = flowRemoveTypes(code, { all: true }).toString();
-          // Convert ESM exports to CJS so _compile can handle them.
-          // RN source mixes ESM exports with CJS require().
-          // Handle `export default function ...` and `export default identifier`
-          // Both `require()` and `require().default` must work.
-          stripped = stripped
-            .replace(/export\s+default\s+function\s+(\w+)/g, (_m, name) =>
-              `function ${name}`)
-            .replace(/export\s+default\s+(\w+)/g, (_m, name) =>
-              `module.exports = ${name}; module.exports.default = ${name}`)
-            .replace(/export\s+(?:type|interface)\s+[^;{]+(?:;|\{[^}]*\})/g, "")
-            .replace(/export\s+\{[^}]*\}/g, "");
-          // For `export default function`, the function is hoisted. Append
-          // the module.exports assignment if the default was a function declaration.
-          if (code.match(/export\s+default\s+function\s+(\w+)/)) {
-            const fnName = code.match(/export\s+default\s+function\s+(\w+)/)![1];
-            stripped += `\nmodule.exports = ${fnName}; module.exports.default = ${fnName};\n`;
-          }
-          mod._compile(stripped, filename);
-          return;
-        }
-      }
-      return (originalJsExtension as Function)(mod, filename);
-    };
-
     installed = true;
   } catch (e) {
     if (process.env.VITEST_NATIVE_DIAGNOSTICS === "true") {
@@ -130,12 +88,6 @@ export function uninstallCjsBridge(): void {
     if (originalResolveFilename) {
       Module._resolveFilename = originalResolveFilename;
       originalResolveFilename = null;
-    }
-
-    // Restore original .js extension handler
-    if (originalJsExtension) {
-      Module._extensions[".js"] = originalJsExtension;
-      originalJsExtension = null;
     }
 
     // Remove synthetic module from cache
