@@ -74,6 +74,64 @@ describe("preset: navigation", () => {
     expect(typeof ref.getCurrentRoute).toBe("function");
   });
 
+  it("useNavigationContainerRef returns a ref with navigation methods", () => {
+    const ref = mock.useNavigationContainerRef();
+    expect(typeof ref.navigate).toBe("function");
+    expect(typeof ref.goBack).toBe("function");
+    expect(typeof ref.isReady).toBe("function");
+    expect(typeof ref.getCurrentRoute).toBe("function");
+  });
+
+  it("useTheme returns a theme with colors", () => {
+    const theme = mock.useTheme();
+    expect(theme.dark).toBe(false);
+    expect(theme.colors).toBeDefined();
+    expect(theme.colors.primary).toBeDefined();
+    expect(theme.colors.background).toBeDefined();
+  });
+
+  it("ThemeProvider is a component", () => {
+    expect(typeof mock.ThemeProvider).toBe("function");
+  });
+
+  it("NavigationIndependentTree passes through children", () => {
+    const children = "test";
+    expect(mock.NavigationIndependentTree({ children })).toBe(children);
+  });
+
+  it("context providers are React contexts", () => {
+    expect(mock.NavigationContainerRefContext).toBeDefined();
+    expect(mock.NavigationHelpersContext).toBeDefined();
+    expect(mock.CurrentRenderContext).toBeDefined();
+    expect(mock.ThemeContext).toBeDefined();
+    expect(mock.PreventRemoveContext).toBeDefined();
+  });
+
+  it("BaseRouter has expected methods", () => {
+    expect(typeof mock.BaseRouter.getInitialState).toBe("function");
+    expect(typeof mock.BaseRouter.getStateForAction).toBe("function");
+    expect(typeof mock.BaseRouter.shouldActionChangeFocus).toBe("function");
+  });
+
+  it("utility functions are callable", () => {
+    expect(typeof mock.findFocusedRoute).toBe("function");
+    expect(typeof mock.getFocusedRouteNameFromRoute).toBe("function");
+    expect(typeof mock.getActionFromState).toBe("function");
+    expect(typeof mock.getPathFromState).toBe("function");
+    expect(typeof mock.getStateFromPath).toBe("function");
+    expect(typeof mock.validatePathConfig).toBe("function");
+  });
+
+  it("createNavigatorFactory and useNavigationBuilder are callable", () => {
+    expect(typeof mock.createNavigatorFactory).toBe("function");
+    expect(typeof mock.useNavigationBuilder).toBe("function");
+  });
+
+  it("BaseNavigationContainer is renderable", () => {
+    expect(mock.BaseNavigationContainer).toBeDefined();
+    expect((mock.BaseNavigationContainer as any).displayName).toBe("BaseNavigationContainer");
+  });
+
   describe("@react-navigation/native-stack", () => {
     const stackMock = preset.modules["@react-navigation/native-stack"].factory();
 

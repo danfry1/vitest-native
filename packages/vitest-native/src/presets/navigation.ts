@@ -8,21 +8,50 @@ export function navigation(): Preset {
     modules: {
       "@react-navigation/native": {
         exports: [
+          // @react-navigation/native
           "NavigationContainer",
+          "useLinkTo",
+          "Link",
+          // @react-navigation/core (re-exported by native)
           "useNavigation",
           "useRoute",
           "useFocusEffect",
           "useIsFocused",
           "useNavigationState",
+          "useNavigationContainerRef",
           "createNavigationContainerRef",
+          "createNavigatorFactory",
+          "useNavigationBuilder",
           "NavigationContext",
           "NavigationRouteContext",
+          "NavigationContainerRefContext",
+          "NavigationHelpersContext",
+          "CurrentRenderContext",
+          "ThemeContext",
+          "ThemeProvider",
+          "useTheme",
+          "NavigationIndependentTree",
+          "useNavigationIndependentTree",
+          "PreventRemoveContext",
+          "PreventRemoveProvider",
+          "usePreventRemove",
+          "usePreventRemoveContext",
           "CommonActions",
           "StackActions",
           "TabActions",
           "DrawerActions",
-          "useLinkTo",
-          "Link",
+          "findFocusedRoute",
+          "getFocusedRouteNameFromRoute",
+          "getActionFromState",
+          "getPathFromState",
+          "getStateFromPath",
+          "useStateForPath",
+          "validatePathConfig",
+          "BaseNavigationContainer",
+          "createComponentForStaticNavigation",
+          "createPathConfigForStaticNavigation",
+          // @react-navigation/routers (re-exported by core)
+          "BaseRouter",
         ],
         factory: () => {
           const NavigationContainer = React.forwardRef((props: any, ref: any) =>
@@ -102,8 +131,54 @@ export function navigation(): Preset {
             };
           }
 
+          function useNavigationContainerRef() {
+            return createNavigationContainerRef();
+          }
+
           const NavigationContext = React.createContext(null as any);
           const NavigationRouteContext = React.createContext(null as any);
+          const NavigationContainerRefContext = React.createContext(null as any);
+          const NavigationHelpersContext = React.createContext(null as any);
+          const CurrentRenderContext = React.createContext(undefined as any);
+          const ThemeContext = React.createContext({ dark: false, colors: {} } as any);
+          const PreventRemoveContext = React.createContext(null as any);
+
+          const defaultTheme = {
+            dark: false,
+            colors: {
+              primary: "rgb(0, 122, 255)",
+              background: "rgb(242, 242, 242)",
+              card: "rgb(255, 255, 255)",
+              text: "rgb(28, 28, 30)",
+              border: "rgb(216, 216, 216)",
+              notification: "rgb(255, 59, 48)",
+            },
+          };
+
+          function ThemeProvider({ value, children }: any) {
+            return React.createElement(ThemeContext.Provider, { value: value ?? defaultTheme }, children);
+          }
+
+          function useTheme() {
+            return defaultTheme;
+          }
+
+          function NavigationIndependentTree({ children }: any) {
+            return children;
+          }
+
+          function useNavigationIndependentTree() {
+            return true;
+          }
+
+          function PreventRemoveProvider({ children }: any) {
+            return children;
+          }
+
+          const BaseNavigationContainer = React.forwardRef((props: any, ref: any) =>
+            React.createElement("BaseNavigationContainer", { ...props, ref }, props.children),
+          );
+          (BaseNavigationContainer as any).displayName = "BaseNavigationContainer";
 
           return {
             default: { NavigationContainer },
@@ -113,9 +188,29 @@ export function navigation(): Preset {
             useFocusEffect,
             useIsFocused,
             useNavigationState,
+            useNavigationContainerRef,
             createNavigationContainerRef,
+            createNavigatorFactory: vi.fn(() => vi.fn()),
+            useNavigationBuilder: vi.fn(() => ({
+              state: getState(),
+              navigation: useNavigation(),
+              descriptors: {},
+              NavigationContent: ({ children }: any) => children,
+            })),
             NavigationContext,
             NavigationRouteContext,
+            NavigationContainerRefContext,
+            NavigationHelpersContext,
+            CurrentRenderContext,
+            ThemeContext,
+            ThemeProvider,
+            useTheme,
+            NavigationIndependentTree,
+            useNavigationIndependentTree,
+            PreventRemoveContext,
+            PreventRemoveProvider,
+            usePreventRemove: vi.fn(),
+            usePreventRemoveContext: vi.fn(() => null),
             CommonActions: {
               navigate: vi.fn(),
               reset: vi.fn(),
@@ -136,6 +231,24 @@ export function navigation(): Preset {
               closeDrawer: vi.fn(),
               toggleDrawer: vi.fn(),
               jumpTo: vi.fn(),
+            },
+            findFocusedRoute: vi.fn((state: any) => state?.routes?.[state?.index ?? 0]),
+            getFocusedRouteNameFromRoute: vi.fn((route: any) => route?.state?.routes?.[route?.state?.index ?? 0]?.name),
+            getActionFromState: vi.fn(() => undefined),
+            getPathFromState: vi.fn(() => "/"),
+            getStateFromPath: vi.fn(() => undefined),
+            useStateForPath: vi.fn(() => undefined),
+            validatePathConfig: vi.fn(),
+            BaseNavigationContainer,
+            createComponentForStaticNavigation: vi.fn(() => () => null),
+            createPathConfigForStaticNavigation: vi.fn(() => ({})),
+            BaseRouter: {
+              getInitialState: vi.fn(() => getState()),
+              getRehydratedState: vi.fn((state: any) => state),
+              getStateForRouteNamesChange: vi.fn((state: any) => state),
+              getStateForRouteFocus: vi.fn((state: any) => state),
+              getStateForAction: vi.fn((state: any) => state),
+              shouldActionChangeFocus: vi.fn(() => false),
             },
             useLinkTo: vi.fn(() => vi.fn()),
             Link: React.forwardRef((props: any, ref: any) =>

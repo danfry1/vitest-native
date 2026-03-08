@@ -1,5 +1,11 @@
 # vitest-native
 
+## 0.2.1
+
+### Patch Changes
+
+- Add missing `@react-navigation/core` re-exports to navigation preset, including `useNavigationContainerRef`, `useTheme`, `ThemeProvider`, `NavigationIndependentTree`, `useNavigationBuilder`, `BaseRouter`, and 20+ other exports. Fixes tests that depend on these being available from `@react-navigation/native`.
+
 ## 0.2.0
 
 ### Minor Changes
