@@ -82,9 +82,49 @@ function createAppRegistryMock() {
 }
 
 function createProcessColorMock() {
-  return vi.fn((color: any) => {
+  // Basic named colors → ARGB integers (matches RN's processColor-test.js)
+  const namedColors: Record<string, number> = {
+    red: 0xffff0000,
+    green: 0xff008000,
+    blue: 0xff0000ff,
+    white: 0xffffffff,
+    black: 0xff000000,
+    transparent: 0x00000000,
+    yellow: 0xffffff00,
+    cyan: 0xff00ffff,
+    magenta: 0xffff00ff,
+    orange: 0xffffa500,
+    purple: 0xff800080,
+    gray: 0xff808080,
+    grey: 0xff808080,
+  };
+
+  return vi.fn((color: any): number | null => {
     if (color == null) return null;
     if (typeof color === "number") return color;
+    if (typeof color === "string") {
+      const lower = color.toLowerCase().trim();
+      if (namedColors[lower] != null) return namedColors[lower];
+
+      // #RRGGBB → 0xFFRRGGBB
+      const hex6 = lower.match(/^#([0-9a-f]{6})$/);
+      if (hex6) return (0xff000000 + parseInt(hex6[1], 16)) >>> 0;
+
+      // #RGB → expand to #RRGGBB
+      const hex3 = lower.match(/^#([0-9a-f]{3})$/);
+      if (hex3) {
+        const [r, g, b] = hex3[1].split("");
+        return (0xff000000 + parseInt(`${r}${r}${g}${g}${b}${b}`, 16)) >>> 0;
+      }
+
+      // #RRGGBBAA → 0xAARRGGBB
+      const hex8 = lower.match(/^#([0-9a-f]{8})$/);
+      if (hex8) {
+        const rgb = parseInt(hex8[1].slice(0, 6), 16);
+        const alpha = parseInt(hex8[1].slice(6, 8), 16);
+        return ((alpha << 24) + rgb) >>> 0;
+      }
+    }
     return 0xff000000; // opaque black fallback
   });
 }
@@ -277,7 +317,7 @@ export function buildReactNativeMock(platform: "ios" | "android" = "ios") {
     Vibration: createVibrationMock(),
     PermissionsAndroid: createPermissionsAndroidMock(),
     Appearance: createAppearanceMock(),
-    PixelRatio: createPixelRatioMock(),
+    PixelRatio: undefined as any, // set below after Dimensions is available
     LayoutAnimation: createLayoutAnimationMock(),
     Clipboard: createClipboardMock(),
     Share: createShareMock(),
@@ -365,6 +405,9 @@ export function buildReactNativeMock(platform: "ios" | "android" = "ios") {
     // Default export for CJS compat
     default: undefined as any,
   };
+
+  // Wire PixelRatio to read from Dimensions dynamically
+  mock.PixelRatio = createPixelRatioMock(() => mock.Dimensions.get("window"));
 
   // Set default to self for `import RN from 'react-native'` compat
   mock.default = mock;

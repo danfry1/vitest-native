@@ -474,3 +474,383 @@ describe("Animated components (conformance)", () => {
     expect(AnimComp).toBeTruthy();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Animated timing/spring sets value — from Animated-test.js patterns
+//
+// In real RN (and its mock), animations synchronously set the value to
+// toValue when start() is called. This is critical for test assertions like:
+//   Animated.timing(val, {toValue: 1}).start();
+//   expect(val.getValue()).toBe(1);
+// ---------------------------------------------------------------------------
+
+describe("Animation drivers set value (conformance)", () => {
+  it("timing sets value to toValue on start", () => {
+    const val = new Animated.Value(0);
+    Animated.timing(val, { toValue: 42, duration: 300 }).start();
+    expect(val.getValue()).toBe(42);
+  });
+
+  it("spring sets value to toValue on start", () => {
+    const val = new Animated.Value(0);
+    Animated.spring(val, { toValue: 100 }).start();
+    expect(val.getValue()).toBe(100);
+  });
+
+  it("timing fires listeners when setting value", () => {
+    const val = new Animated.Value(0);
+    const listener = vi.fn();
+    val.addListener(listener);
+    Animated.timing(val, { toValue: 5, duration: 100 }).start();
+    expect(listener).toHaveBeenCalledWith({ value: 5 });
+  });
+
+  it("spring fires listeners when setting value", () => {
+    const val = new Animated.Value(0);
+    const listener = vi.fn();
+    val.addListener(listener);
+    Animated.spring(val, { toValue: 10 }).start();
+    expect(listener).toHaveBeenCalledWith({ value: 10 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Stop behavior — from Animated-test.js
+// ---------------------------------------------------------------------------
+
+describe("Animation stop behavior (conformance)", () => {
+  it("stop calls callback with {finished: false}", () => {
+    const val = new Animated.Value(0);
+    const anim = Animated.timing(val, { toValue: 1, duration: 300 });
+    const cb = vi.fn();
+    anim.stop(cb);
+    expect(cb).toHaveBeenCalledWith({ finished: false });
+  });
+
+  it("decay stop calls callback with {finished: false}", () => {
+    const val = new Animated.Value(0);
+    const anim = Animated.decay(val, { velocity: 1 });
+    const cb = vi.fn();
+    anim.stop(cb);
+    expect(cb).toHaveBeenCalledWith({ finished: false });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sequence / parallel edge cases — from Animated-test.js
+// ---------------------------------------------------------------------------
+
+describe("Sequence/parallel edge cases (conformance)", () => {
+  it("sequence with empty array completes with {finished: true}", () => {
+    const cb = vi.fn();
+    Animated.sequence([]).start(cb);
+    expect(cb).toHaveBeenCalledWith({ finished: true });
+  });
+
+  it("parallel with empty array completes with {finished: true}", () => {
+    const cb = vi.fn();
+    Animated.parallel([]).start(cb);
+    expect(cb).toHaveBeenCalledWith({ finished: true });
+  });
+
+  it("sequence chains animations and completes", () => {
+    const val = new Animated.Value(0);
+    const cb = vi.fn();
+    Animated.sequence([
+      Animated.timing(val, { toValue: 1, duration: 100 }),
+      Animated.timing(val, { toValue: 2, duration: 100 }),
+    ]).start(cb);
+    expect(cb).toHaveBeenCalledWith({ finished: true });
+  });
+
+  it("parallel runs animations and completes", () => {
+    const v1 = new Animated.Value(0);
+    const v2 = new Animated.Value(0);
+    const cb = vi.fn();
+    Animated.parallel([
+      Animated.timing(v1, { toValue: 1, duration: 100 }),
+      Animated.timing(v2, { toValue: 2, duration: 100 }),
+    ]).start(cb);
+    expect(cb).toHaveBeenCalledWith({ finished: true });
+  });
+
+  it("stagger completes", () => {
+    const val = new Animated.Value(0);
+    const cb = vi.fn();
+    Animated.stagger(50, [
+      Animated.timing(val, { toValue: 1, duration: 100 }),
+    ]).start(cb);
+    expect(cb).toHaveBeenCalledWith({ finished: true });
+  });
+
+  it("loop completes", () => {
+    const val = new Animated.Value(0);
+    const cb = vi.fn();
+    Animated.loop(
+      Animated.timing(val, { toValue: 1, duration: 100 }),
+    ).start(cb);
+    expect(cb).toHaveBeenCalledWith({ finished: true });
+  });
+
+  it("delay completes", () => {
+    const cb = vi.fn();
+    Animated.delay(100).start(cb);
+    expect(cb).toHaveBeenCalledWith({ finished: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Animated.Value offset behavior — from AnimatedValue-test.js
+// ---------------------------------------------------------------------------
+
+describe("Animated.Value offset (conformance)", () => {
+  it("setOffset does not throw", () => {
+    const val = new Animated.Value(10);
+    expect(() => val.setOffset(5)).not.toThrow();
+  });
+
+  it("flattenOffset does not throw", () => {
+    const val = new Animated.Value(10);
+    val.setOffset(5);
+    expect(() => val.flattenOffset()).not.toThrow();
+  });
+
+  it("extractOffset does not throw", () => {
+    const val = new Animated.Value(10);
+    expect(() => val.extractOffset()).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Animated.ValueXY additional — from Animated-test.js Vectors section
+// ---------------------------------------------------------------------------
+
+describe("Animated.ValueXY additional (conformance)", () => {
+  it("resetAnimation calls callback with {x, y}", () => {
+    const val = new Animated.ValueXY({ x: 5, y: 10 });
+    const cb = vi.fn();
+    val.resetAnimation(cb);
+    expect(cb).toHaveBeenCalledWith({ x: 5, y: 10 });
+  });
+
+  it("setOffset does not throw", () => {
+    const val = new Animated.ValueXY();
+    expect(() => val.setOffset({ x: 1, y: 2 })).not.toThrow();
+  });
+
+  it("flattenOffset does not throw", () => {
+    const val = new Animated.ValueXY();
+    expect(() => val.flattenOffset()).not.toThrow();
+  });
+
+  it("extractOffset does not throw", () => {
+    const val = new Animated.ValueXY();
+    expect(() => val.extractOffset()).not.toThrow();
+  });
+
+  it("addListener returns an object", () => {
+    const val = new Animated.ValueXY();
+    const result = val.addListener(vi.fn());
+    expect(result).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Animated.event value mapping — from Animated-test.js Events section
+//
+// Animated.event maps event data to Animated.Values. When the handler
+// is called with event args, it traverses the mapping and sets values.
+// ---------------------------------------------------------------------------
+
+describe("Animated.event value mapping (conformance)", () => {
+  it("maps event data to Animated.Value", () => {
+    const val = new Animated.Value(0);
+    const handler = Animated.event(
+      [{ nativeEvent: { contentOffset: { y: val } } }],
+      { useNativeDriver: false },
+    );
+    handler({ nativeEvent: { contentOffset: { y: 42 } } });
+    expect(val.getValue()).toBe(42);
+  });
+
+  it("maps multiple values from same event", () => {
+    const x = new Animated.Value(0);
+    const y = new Animated.Value(0);
+    const handler = Animated.event(
+      [{ nativeEvent: { contentOffset: { x, y } } }],
+      { useNativeDriver: false },
+    );
+    handler({ nativeEvent: { contentOffset: { x: 10, y: 20 } } });
+    expect(x.getValue()).toBe(10);
+    expect(y.getValue()).toBe(20);
+  });
+
+  it("calls listener if provided", () => {
+    const val = new Animated.Value(0);
+    const listener = vi.fn();
+    const handler = Animated.event(
+      [{ nativeEvent: { contentOffset: { y: val } } }],
+      { useNativeDriver: false, listener },
+    );
+    const event = { nativeEvent: { contentOffset: { y: 50 } } };
+    handler(event);
+    expect(listener).toHaveBeenCalledWith(event);
+  });
+
+  it("fires value listeners on mapping", () => {
+    const val = new Animated.Value(0);
+    const valListener = vi.fn();
+    val.addListener(valListener);
+    const handler = Animated.event(
+      [{ nativeEvent: { contentOffset: { y: val } } }],
+      { useNativeDriver: false },
+    );
+    handler({ nativeEvent: { contentOffset: { y: 99 } } });
+    expect(valListener).toHaveBeenCalledWith({ value: 99 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Interpolation edge cases — from Interpolation-test.js
+// ---------------------------------------------------------------------------
+
+describe("Animated interpolation edge cases (conformance)", () => {
+  it("works with defaults (identity mapping)", () => {
+    const val = new Animated.Value(0.5);
+    const interp = val.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0, 1],
+    });
+    expect(interp.getValue()).toBe(0.5);
+  });
+
+  it("works with output range", () => {
+    const val = new Animated.Value(1);
+    const interp = val.interpolate({
+      inputRange: [0, 1],
+      outputRange: [100, 200],
+    });
+    expect(interp.getValue()).toBe(200);
+  });
+
+  it("works with input range offset", () => {
+    const val = new Animated.Value(150);
+    const interp = val.interpolate({
+      inputRange: [100, 200],
+      outputRange: [0, 1],
+    });
+    expect(interp.getValue()).toBe(0.5);
+  });
+
+  it("clamps above input range", () => {
+    const val = new Animated.Value(2);
+    const interp = val.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0, 100],
+    });
+    // Default clamping: clamp to input max → output max
+    expect(interp.getValue()).toBe(100);
+  });
+
+  it("clamps below input range", () => {
+    const val = new Animated.Value(-1);
+    const interp = val.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0, 100],
+    });
+    expect(interp.getValue()).toBe(0);
+  });
+
+  it("works with multiple segments", () => {
+    const val = new Animated.Value(1.5);
+    const interp = val.interpolate({
+      inputRange: [0, 1, 2],
+      outputRange: [0, 50, 100],
+    });
+    expect(interp.getValue()).toBe(75);
+  });
+
+  it("works with negative output range", () => {
+    const val = new Animated.Value(0.5);
+    const interp = val.interpolate({
+      inputRange: [0, 1],
+      outputRange: [-100, 100],
+    });
+    expect(interp.getValue()).toBe(0);
+  });
+
+  it("works with reversed output range", () => {
+    const val = new Animated.Value(0.5);
+    const interp = val.interpolate({
+      inputRange: [0, 1],
+      outputRange: [100, 0],
+    });
+    expect(interp.getValue()).toBe(50);
+  });
+
+  it("handles collapsed input range (equal endpoints)", () => {
+    const val = new Animated.Value(5);
+    const interp = val.interpolate({
+      inputRange: [0, 10, 10],
+      outputRange: [0, 100, 200],
+    });
+    // Value 5 is in segment [0, 10] → output = 50
+    expect(interp.getValue()).toBe(50);
+  });
+
+  it("handles keyframes with 4+ segments", () => {
+    const val = new Animated.Value(3);
+    const interp = val.interpolate({
+      inputRange: [0, 1, 2, 3, 4],
+      outputRange: [0, 25, 50, 75, 100],
+    });
+    expect(interp.getValue()).toBe(75);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Animated.Color — basic conformance
+// ---------------------------------------------------------------------------
+
+describe("Animated.Color (conformance)", () => {
+  it("is a constructor", () => {
+    expect(new Animated.Color()).toBeInstanceOf(Animated.Color);
+  });
+
+  it("has r, g, b, a channels", () => {
+    const color = new Animated.Color();
+    expect(color.r).toBeDefined();
+    expect(color.g).toBeDefined();
+    expect(color.b).toBeDefined();
+    expect(color.a).toBeDefined();
+  });
+
+  it("stopAnimation is callable", () => {
+    const color = new Animated.Color();
+    const cb = vi.fn();
+    color.stopAnimation(cb);
+    expect(cb).toHaveBeenCalled();
+  });
+
+  it("resetAnimation is callable", () => {
+    const color = new Animated.Color();
+    const cb = vi.fn();
+    color.resetAnimation(cb);
+    expect(cb).toHaveBeenCalled();
+  });
+
+  it("setValue is callable", () => {
+    const color = new Animated.Color();
+    expect(() => color.setValue("red")).not.toThrow();
+  });
+
+  it("setOffset is callable", () => {
+    const color = new Animated.Color();
+    expect(() => color.setOffset({})).not.toThrow();
+  });
+
+  it("flattenOffset is callable", () => {
+    const color = new Animated.Color();
+    expect(() => color.flattenOffset()).not.toThrow();
+  });
+});

@@ -383,3 +383,152 @@ describe("Dimensions (conformance with RN)", () => {
     sub.remove();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Easing.bezier — ported from Libraries/Animated/__tests__/bezier-test.js
+//
+// These verify our bezier implementation matches the cubic bezier-easing
+// library that RN uses (https://github.com/gre/bezier-easing).
+// ---------------------------------------------------------------------------
+
+describe("Easing.bezier (conformance with RN)", () => {
+  it("is a function that returns a function", () => {
+    expect(typeof Easing.bezier).toBe("function");
+    expect(typeof Easing.bezier(0, 0, 1, 1)).toBe("function");
+  });
+
+  it("throws for x values outside [0, 1]", () => {
+    expect(() => Easing.bezier(0.5, 0.5, -5, 0.5)).toThrow();
+    expect(() => Easing.bezier(0.5, 0.5, 5, 0.5)).toThrow();
+    expect(() => Easing.bezier(-2, 0.5, 0.5, 0.5)).toThrow();
+    expect(() => Easing.bezier(2, 0.5, 0.5, 0.5)).toThrow();
+  });
+
+  it("allows y values outside [0, 1] (overshoot)", () => {
+    expect(() => Easing.bezier(0.5, -0.5, 0.5, 1.5)).not.toThrow();
+  });
+
+  it("linear bezier (0,0,1,1) matches identity", () => {
+    const linear = Easing.bezier(0, 0, 1, 1);
+    for (let i = 0; i <= 100; i++) {
+      const x = i / 100;
+      expect(linear(x)).toBeCloseTo(x, 3);
+    }
+  });
+
+  it("returns 0 at x=0 and 1 at x=1 for random curves", () => {
+    for (let i = 0; i < 10; i++) {
+      const a = Math.random();
+      const b = 2 * Math.random() - 0.5;
+      const c = Math.random();
+      const d = 2 * Math.random() - 0.5;
+      const easing = Easing.bezier(a, b, c, d);
+      expect(easing(0)).toBe(0);
+      expect(easing(1)).toBe(1);
+    }
+  });
+
+  it("symmetric curves have y ≈ 0.5 at x = 0.5", () => {
+    for (let i = 0; i < 10; i++) {
+      const a = Math.random();
+      const b = 2 * Math.random() - 0.5;
+      const c = 1 - a;
+      const d = 1 - b;
+      const easing = Easing.bezier(a, b, c, d);
+      expect(easing(0.5)).toBeCloseTo(0.5, 2);
+    }
+  });
+
+  it("two instances with same params produce same results", () => {
+    for (let i = 0; i < 10; i++) {
+      const a = Math.random();
+      const b = 2 * Math.random() - 0.5;
+      const c = Math.random();
+      const d = 2 * Math.random() - 0.5;
+      const e1 = Easing.bezier(a, b, c, d);
+      const e2 = Easing.bezier(a, b, c, d);
+      for (let j = 0; j <= 100; j++) {
+        const x = j / 100;
+        expect(e1(x)).toBeCloseTo(e2(x), 10);
+      }
+    }
+  });
+
+  it("projected curve is approximately inverse", () => {
+    for (let i = 0; i < 10; i++) {
+      const a = Math.random();
+      const b = Math.random();
+      const c = Math.random();
+      const d = Math.random();
+      const easing = Easing.bezier(a, b, c, d);
+      const projected = Easing.bezier(b, a, d, c);
+      for (let j = 0; j <= 100; j++) {
+        const x = j / 100;
+        expect(projected(easing(x))).toBeCloseTo(x, 2);
+      }
+    }
+  });
+
+  it("symmetric curves are symmetrical", () => {
+    for (let i = 0; i < 10; i++) {
+      const a = Math.random();
+      const b = 2 * Math.random() - 0.5;
+      const c = 1 - a;
+      const d = 1 - b;
+      const easing = Easing.bezier(a, b, c, d);
+      for (let j = 0; j <= 100; j++) {
+        const x = j / 100;
+        expect(easing(x)).toBeCloseTo(1 - easing(1 - x), 2);
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Easing.ease — should be bezier(0.42, 0, 1, 1) per RN source
+// ---------------------------------------------------------------------------
+
+describe("Easing.ease (conformance with RN)", () => {
+  it("satisfies boundary conditions", () => {
+    expect(Easing.ease(0)).toBe(0);
+    expect(Easing.ease(1)).toBe(1);
+  });
+
+  it("matches bezier(0.42, 0, 1, 1)", () => {
+    const expected = Easing.bezier(0.42, 0, 1, 1);
+    for (let i = 0; i <= 100; i++) {
+      const t = i / 100;
+      expect(Easing.ease(t)).toBeCloseTo(expected(t), 5);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PixelRatio ↔ Dimensions coupling — from RN's PixelRatio-test.js
+//
+// RN's PixelRatio.get() reads Dimensions.get('window').scale dynamically.
+// After Dimensions.set({window: {scale: X}}), PixelRatio.get() should return X.
+// ---------------------------------------------------------------------------
+
+describe("PixelRatio reads from Dimensions (conformance with RN)", () => {
+  it("PixelRatio.get() reflects Dimensions scale", () => {
+    Dimensions.set({ window: { width: 390, height: 844, scale: 2, fontScale: 1 } });
+    expect(PixelRatio.get()).toBe(2);
+  });
+
+  it("PixelRatio.getFontScale() reflects Dimensions fontScale", () => {
+    Dimensions.set({ window: { width: 390, height: 844, scale: 3, fontScale: 1.5 } });
+    expect(PixelRatio.getFontScale()).toBe(1.5);
+  });
+
+  it("getPixelSizeForLayoutSize uses current scale", () => {
+    Dimensions.set({ window: { width: 390, height: 844, scale: 2, fontScale: 1 } });
+    expect(PixelRatio.getPixelSizeForLayoutSize(100)).toBe(200);
+  });
+
+  it("roundToNearestPixel uses current scale", () => {
+    Dimensions.set({ window: { width: 390, height: 844, scale: 2, fontScale: 1 } });
+    // 8.4 * 2 = 16.8 → round → 17 → 17/2 = 8.5
+    expect(PixelRatio.roundToNearestPixel(8.4)).toBe(8.5);
+  });
+});

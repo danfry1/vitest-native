@@ -140,12 +140,19 @@ class AnimatedColor {
   }
 }
 
-function createAnimation() {
+function createAnimation(onStart?: () => void) {
+  let running = false;
   return {
     start: vi.fn((callback?: Function) => {
+      running = true;
+      onStart?.();
+      running = false;
       callback?.({ finished: true });
     }),
-    stop: vi.fn(),
+    stop: vi.fn((callback?: Function) => {
+      if (running) running = false;
+      callback?.({ finished: false });
+    }),
     reset: vi.fn(),
   };
 }
@@ -163,8 +170,20 @@ export function createAnimatedMock() {
     Value: AnimatedValue,
     ValueXY: AnimatedValueXY,
     Color: AnimatedColor,
-    timing: vi.fn((_value: any, _config: any) => createAnimation()),
-    spring: vi.fn((_value: any, _config: any) => createAnimation()),
+    timing: vi.fn((value: any, config: any) =>
+      createAnimation(() => {
+        if (value instanceof AnimatedValue && config?.toValue != null) {
+          value.setValue(config.toValue);
+        }
+      }),
+    ),
+    spring: vi.fn((value: any, config: any) =>
+      createAnimation(() => {
+        if (value instanceof AnimatedValue && config?.toValue != null) {
+          value.setValue(config.toValue);
+        }
+      }),
+    ),
     decay: vi.fn((_value: any, _config: any) => createAnimation()),
     sequence: vi.fn((_animations: any[]) => createAnimation()),
     parallel: vi.fn((_animations: any[]) => createAnimation()),
@@ -199,7 +218,31 @@ export function createAnimatedMock() {
       const aVal = a instanceof AnimatedValue ? a.getValue() : typeof a === "number" ? a : 0;
       return new AnimatedValue(Math.min(Math.max(aVal, min), max));
     }),
-    event: vi.fn((_argMapping: any[], _config?: any) => vi.fn()),
+    event: vi.fn((argMapping: any[], config?: any) => {
+      const handler = vi.fn((...args: any[]) => {
+        // Walk the arg mapping and extract values from the event args
+        argMapping.forEach((mapping, index) => {
+          if (mapping && args[index]) {
+            traverseMapping(mapping, args[index]);
+          }
+        });
+        config?.listener?.(...args);
+      });
+      function traverseMapping(mapping: any, value: any) {
+        if (mapping instanceof AnimatedValue && typeof value === "number") {
+          mapping.setValue(value);
+          return;
+        }
+        if (typeof mapping === "object" && mapping !== null && typeof value === "object" && value !== null) {
+          for (const key of Object.keys(mapping)) {
+            if (key in value) {
+              traverseMapping(mapping[key], value[key]);
+            }
+          }
+        }
+      }
+      return handler;
+    }),
     forkEvent: vi.fn(),
     unforkEvent: vi.fn(),
     createAnimatedComponent: vi.fn((component: any) => {
