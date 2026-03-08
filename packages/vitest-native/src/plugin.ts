@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
 import { createRequire } from "node:module";
+import flowRemoveTypes from "flow-remove-types";
 
 const DEFAULT_ASSET_EXTS = [
   "png",
@@ -37,21 +38,6 @@ function stripFsPrefix(id: string): string {
 
 import { AUTO_DETECT_PRESETS } from "./preset-map.js";
 
-/**
- * Check if a package is installed from the consumer's project root,
- * not from the plugin's own node_modules. This is critical for monorepos
- * and non-hoisted layouts (pnpm strict, yarn PnP).
- */
-function isPackageInstalled(packageName: string, projectRoot: string): boolean {
-  try {
-    const req = createRequire(path.join(projectRoot, "package.json"));
-    req.resolve(packageName);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function autoDetectPresets(diagnostics: boolean, projectRoot: string): Promise<Preset[]> {
   const detected: Preset[] = [];
   // Lazy import avoids pulling vitest into the Vite main process at module
@@ -60,8 +46,16 @@ async function autoDetectPresets(diagnostics: boolean, projectRoot: string): Pro
   // defers this until configResolved, where Vitest is initialized.
   const presetFactories = (await import("./presets/index.js")) as Record<string, unknown>;
 
+  // Single require instance for all package checks — avoids creating one per package.
+  const req = createRequire(path.join(projectRoot, "package.json"));
+
   for (const [pkgName, exportName] of Object.entries(AUTO_DETECT_PRESETS)) {
-    if (isPackageInstalled(pkgName, projectRoot)) {
+    let installed = false;
+    try {
+      req.resolve(pkgName);
+      installed = true;
+    } catch {}
+    if (installed) {
       const factory = presetFactories[exportName];
       if (typeof factory === "function") {
         detected.push(factory());
@@ -237,6 +231,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   const presetExportNames = new Map<string, string[]>();
   let assetPattern: RegExp;
 
+  // Caches for hot paths — resolveId and load are called for every import.
+  const resolveCache = new Map<string, string | undefined>();
+  const virtualCodeCache = new Map<string, string>();
+
   // Resolve the setup file eagerly (it's relative to the plugin, not the consumer).
   const thisDir = path.dirname(fileURLToPath(import.meta.url));
   let setupFilePath = path.resolve(thisDir, "setup.mjs");
@@ -343,6 +341,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         source.startsWith(".") &&
         !path.extname(source)
       ) {
+        const cacheKey = `${importer}\0${source}`;
+        const cached = resolveCache.get(cacheKey);
+        if (cached !== undefined) return cached;
+
         const importerDir = path.dirname(importer);
         const absolute = path.resolve(importerDir, source);
 
@@ -350,6 +352,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         for (const ext of extensions) {
           const candidate = absolute + ext;
           if (fs.existsSync(candidate)) {
+            resolveCache.set(cacheKey, candidate);
             return candidate;
           }
         }
@@ -358,9 +361,13 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         for (const ext of extensions) {
           const candidate = path.join(absolute, `index${ext}`);
           if (fs.existsSync(candidate)) {
+            resolveCache.set(cacheKey, candidate);
             return candidate;
           }
         }
+
+        // Cache misses too to avoid re-scanning the filesystem.
+        resolveCache.set(cacheKey, undefined);
       }
 
       return undefined;
@@ -376,25 +383,36 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // Subpath imports (react-native/Libraries/*, react-native/jest-preset, etc.)
       // Re-export everything from the root mock stored on globalThis by setup.ts.
       // By the time test code evaluates these, setup.ts has already run.
+      // Code is identical for all subpaths so we cache it once.
       if (id.startsWith("\0virtual:rn-subpath:")) {
-        return [
-          `const _rn = globalThis.__vitest_native_mock || {};`,
-          ...RN_EXPORT_NAMES.map((n) => `export const ${n} = _rn['${n}'];`),
-          `export default _rn;`,
-        ].join("\n");
+        let code = virtualCodeCache.get("\0rn-subpath");
+        if (!code) {
+          code = [
+            `const _rn = globalThis.__vitest_native_mock || {};`,
+            ...RN_EXPORT_NAMES.map((n) => `export const ${n} = _rn['${n}'];`),
+            `export default _rn;`,
+          ].join("\n");
+          virtualCodeCache.set("\0rn-subpath", code);
+        }
+        return code;
       }
 
       // Preset virtual modules — serve named exports from the runtime mock
       // stored on globalThis by setup.ts. The export names are discovered
       // at config time by calling the preset factory.
       if (id.startsWith("\0virtual:preset:")) {
+        const cached = virtualCodeCache.get(id);
+        if (cached) return cached;
+
         const moduleName = id.slice("\0virtual:preset:".length);
         const exportNames = presetExportNames.get(moduleName) || [];
-        return [
+        const code = [
           `const _m = (globalThis.__vitest_native_preset_mocks || {})['${moduleName}'] || {};`,
           ...exportNames.map((n) => `export const ${n} = _m['${n}'];`),
           `export default _m;`,
         ].join("\n");
+        virtualCodeCache.set(id, code);
+        return code;
       }
 
       // Stub binary/font/media asset imports with their basename string,
@@ -406,6 +424,25 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       }
 
       return undefined;
+    },
+
+    transform(code, id) {
+      // Strip Flow type annotations from React Native source files.
+      // RN's source is written in Flow and cannot be executed directly in Node.
+      // This transform enables the hybrid architecture: real RN JavaScript
+      // runs in tests, only the native bridge is mocked.
+      if (!id.includes("node_modules")) return undefined;
+      if (!id.includes("react-native") || !id.endsWith(".js")) return undefined;
+
+      // Only transform files that contain Flow annotations.
+      // The @flow pragma is used in all RN source files.
+      if (!code.includes("@flow")) return undefined;
+
+      const stripped = flowRemoveTypes(code, { all: true });
+      return {
+        code: stripped.toString(),
+        map: stripped.generateMap(),
+      };
     },
   };
 }
