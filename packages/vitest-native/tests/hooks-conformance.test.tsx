@@ -6,15 +6,14 @@
  * that uses them and asserting on the output.
  */
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import React from "react";
-import { render, screen, act } from "@testing-library/react-native";
+import { render, screen } from "@testing-library/react-native";
 import {
   View,
   Text,
   useColorScheme,
   useWindowDimensions,
-  Appearance,
 } from "react-native";
 
 // ---------------------------------------------------------------------------

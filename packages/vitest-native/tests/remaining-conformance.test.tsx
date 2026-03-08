@@ -16,7 +16,6 @@ import {
   Text,
   View,
   Animated,
-  RefreshControl,
 } from "react-native";
 
 // ---------------------------------------------------------------------------
