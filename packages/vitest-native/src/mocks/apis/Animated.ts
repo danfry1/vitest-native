@@ -65,6 +65,10 @@ class AnimatedValue {
     callback?.(this._value);
   }
 
+  toJSON() {
+    return this._value;
+  }
+
   setOffset(_offset: number) {}
   flattenOffset() {}
   extractOffset() {}
@@ -261,7 +265,16 @@ export function createAnimatedMock() {
       }
       return handler;
     }),
-    forkEvent: vi.fn(),
+    forkEvent: vi.fn((handler: any, listener: Function) => {
+      return (...args: any[]) => {
+        if (typeof handler === "function") {
+          handler(...args);
+        } else if (handler && handler.__isNative) {
+          // Native event handler — skip
+        }
+        listener(...args);
+      };
+    }),
     unforkEvent: vi.fn(),
     createAnimatedComponent: vi.fn((component: any) => {
       const Wrapper = React.forwardRef((props: any, ref: any) => {
