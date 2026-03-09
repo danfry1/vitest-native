@@ -384,24 +384,24 @@ describe("Animated.Value interpolation (conformance)", () => {
     expect(interp.getValue()).toBe(50);
   });
 
-  it("clamps to input range", () => {
+  it("extends above input range by default", () => {
     const val = new Animated.Value(2);
     const interp = val.interpolate({
       inputRange: [0, 1],
       outputRange: [0, 100],
     });
-    // Clamped to input max (1) → output 100
-    expect(interp.getValue()).toBe(100);
+    // RN default is extend: linear extrapolation → 200
+    expect(interp.getValue()).toBe(200);
   });
 
-  it("clamps below input range", () => {
+  it("extends below input range by default", () => {
     const val = new Animated.Value(-1);
     const interp = val.interpolate({
       inputRange: [0, 1],
       outputRange: [0, 100],
     });
-    // Clamped to input min (0) → output 0
-    expect(interp.getValue()).toBe(0);
+    // RN default is extend: linear extrapolation → -100
+    expect(interp.getValue()).toBe(-100);
   });
 
   it("works with multiple segments", () => {
@@ -742,23 +742,24 @@ describe("Animated interpolation edge cases (conformance)", () => {
     expect(interp.getValue()).toBe(0.5);
   });
 
-  it("clamps above input range", () => {
+  it("extends above input range by default", () => {
     const val = new Animated.Value(2);
     const interp = val.interpolate({
       inputRange: [0, 1],
       outputRange: [0, 100],
     });
-    // Default clamping: clamp to input max → output max
-    expect(interp.getValue()).toBe(100);
+    // RN default is extend: linear extrapolation → 200
+    expect(interp.getValue()).toBe(200);
   });
 
-  it("clamps below input range", () => {
+  it("extends below input range by default", () => {
     const val = new Animated.Value(-1);
     const interp = val.interpolate({
       inputRange: [0, 1],
       outputRange: [0, 100],
     });
-    expect(interp.getValue()).toBe(0);
+    // RN default is extend: linear extrapolation → -100
+    expect(interp.getValue()).toBe(-100);
   });
 
   it("works with multiple segments", () => {

@@ -74,22 +74,24 @@ describe("Animated interpolation edge cases", () => {
     expect(interp.getValue()).toBe(0);
   });
 
-  it("interpolation clamps above max input", () => {
+  it("interpolation extends above max input by default", () => {
     const val = new Animated.Value(200);
     const interp = val.interpolate({
       inputRange: [0, 100],
       outputRange: [0, 1],
     });
-    expect(interp.getValue()).toBe(1);
+    // RN default is extend: linear extrapolation → 2
+    expect(interp.getValue()).toBe(2);
   });
 
-  it("interpolation clamps below min input", () => {
+  it("interpolation extends below min input by default", () => {
     const val = new Animated.Value(-50);
     const interp = val.interpolate({
       inputRange: [0, 100],
       outputRange: [0, 1],
     });
-    expect(interp.getValue()).toBe(0);
+    // RN default is extend: linear extrapolation → -0.5
+    expect(interp.getValue()).toBe(-0.5);
   });
 
   it("interpolation with 3-segment range", () => {

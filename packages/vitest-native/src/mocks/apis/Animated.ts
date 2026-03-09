@@ -1,6 +1,69 @@
 import React from "react";
 import { vi } from "vitest";
 
+function interpolateValue(
+  value: number,
+  inputRange: number[],
+  outputRange: number[],
+  extrapolate: string,
+  extrapolateLeft?: string,
+  extrapolateRight?: string,
+  easing?: (t: number) => number,
+): number {
+  // Find the segment
+  let i = 0;
+  for (; i < inputRange.length - 2; i++) {
+    if (value <= inputRange[i + 1]) break;
+  }
+  const inMin = inputRange[i];
+  const inMax = inputRange[i + 1];
+  const outMin = typeof outputRange[i] === "number" ? outputRange[i] : parseFloat(outputRange[i]) || 0;
+  const outMax = typeof outputRange[i + 1] === "number" ? outputRange[i + 1] : parseFloat(outputRange[i + 1]) || 0;
+
+  if (inMax === inMin) {
+    // Duplicate input range — snap to appropriate output
+    const result = value <= inMin ? outMin : outMax;
+    // Still apply extrapolation
+    if (value < inputRange[0]) {
+      const leftMode = extrapolateLeft || extrapolate;
+      if (leftMode === "clamp") return outputRange[0];
+      if (leftMode === "identity") return value;
+    }
+    if (value > inputRange[inputRange.length - 1]) {
+      const rightMode = extrapolateRight || extrapolate;
+      if (rightMode === "clamp") return outputRange[outputRange.length - 1];
+      if (rightMode === "identity") return value;
+    }
+    return result;
+  }
+
+  let t = (value - inMin) / (inMax - inMin);
+
+  // Apply easing
+  if (easing) {
+    t = easing(t);
+  }
+
+  let result = outMin + t * (outMax - outMin);
+
+  // Apply extrapolation
+  const leftMode = extrapolateLeft || extrapolate;
+  const rightMode = extrapolateRight || extrapolate;
+
+  if (value < inputRange[0]) {
+    if (leftMode === "clamp") return outputRange[0];
+    if (leftMode === "identity") return value;
+    // "extend" — result already extrapolated linearly
+  }
+  if (value > inputRange[inputRange.length - 1]) {
+    if (rightMode === "clamp") return outputRange[outputRange.length - 1];
+    if (rightMode === "identity") return value;
+    // "extend" — result already extrapolated linearly
+  }
+
+  return result;
+}
+
 class AnimatedValue {
   private _value: number;
   private _listeners: Map<string, Function> = new Map();
@@ -34,27 +97,12 @@ class AnimatedValue {
   }
 
   interpolate(config: any) {
-    const { inputRange, outputRange } = config || {};
+    const { inputRange, outputRange, extrapolate = "extend", extrapolateLeft, extrapolateRight, easing } = config || {};
     if (!inputRange || !outputRange || inputRange.length < 2 || outputRange.length < 2) {
       return new AnimatedValue(this._value);
     }
-    // Clamp to input range
-    const val = Math.max(inputRange[0], Math.min(inputRange[inputRange.length - 1], this._value));
-    // Find segment
-    let i = 0;
-    for (; i < inputRange.length - 2; i++) {
-      if (val <= inputRange[i + 1]) break;
-    }
-    const inMin = inputRange[i];
-    const inMax = inputRange[i + 1];
-    const outMin =
-      typeof outputRange[i] === "number" ? outputRange[i] : parseFloat(outputRange[i]) || 0;
-    const outMax =
-      typeof outputRange[i + 1] === "number"
-        ? outputRange[i + 1]
-        : parseFloat(outputRange[i + 1]) || 0;
-    const t = inMax === inMin ? 0 : (val - inMin) / (inMax - inMin);
-    return new AnimatedValue(outMin + t * (outMax - outMin));
+    const result = interpolateValue(this._value, inputRange, outputRange, extrapolate, extrapolateLeft, extrapolateRight, easing);
+    return new AnimatedValue(result);
   }
 
   stopAnimation(callback?: Function) {
