@@ -11,6 +11,7 @@ A Vitest plugin for React Native. One install, zero config.
 - [Quick Start](#quick-start)
 - [Plugin Options](#plugin-options)
 - [Mocked Components and APIs](#mocked-components-and-apis)
+- [React Native Test Suite Conformance](#react-native-test-suite-conformance)
 - [Test Helpers](#test-helpers)
 - [Auto-Detect Presets](#auto-detect-presets)
 - [RNTL Matchers](#rntl-matchers)
@@ -176,6 +177,20 @@ The plugin provides a complete mock of the `react-native` module. Every componen
 |---|---|
 | `useColorScheme` | `'light'` |
 | `useWindowDimensions` | `{ width: 390, height: 844, scale: 3, fontScale: 1 }` |
+
+---
+
+## React Native Test Suite Conformance
+
+vitest-native ports tests directly from React Native's own test suite to validate mock behavioral parity. These tests are the same assertions Meta uses to verify React Native itself:
+
+- **Easing** — all 24 easing curve tests including sample data for quad, cubic, sin, exp, circle, and back
+- **Bezier** — 9 cubic bezier mathematical property tests (symmetry, projection, boundary conditions)
+- **flattenStyle** — 12 style merging tests covering override precedence, reference identity, and recursive flattening
+- **processColor** — 9 color format conversion tests for named colors, RGB, RGBA, HSL, HSLA, and hex
+- **Interpolation** — 5 numeric range mapping tests for default, scaled, and multi-segment interpolation
+
+59 assertions ported from RN's own test suite, all passing.
 
 ---
 
