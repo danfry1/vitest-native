@@ -1,10 +1,14 @@
 import React from "react";
 import { vi } from "vitest";
 
+function toNum(v: any): number {
+  return typeof v === "number" ? v : parseFloat(v) || 0;
+}
+
 function interpolateValue(
   value: number,
   inputRange: number[],
-  outputRange: number[],
+  outputRange: any[],
   extrapolate: string,
   extrapolateLeft?: string,
   extrapolateRight?: string,
@@ -17,21 +21,20 @@ function interpolateValue(
   }
   const inMin = inputRange[i];
   const inMax = inputRange[i + 1];
-  const outMin = typeof outputRange[i] === "number" ? outputRange[i] : parseFloat(outputRange[i]) || 0;
-  const outMax = typeof outputRange[i + 1] === "number" ? outputRange[i + 1] : parseFloat(outputRange[i + 1]) || 0;
+  const outMin = toNum(outputRange[i]);
+  const outMax = toNum(outputRange[i + 1]);
 
   if (inMax === inMin) {
     // Duplicate input range — snap to appropriate output
     const result = value <= inMin ? outMin : outMax;
-    // Still apply extrapolation
     if (value < inputRange[0]) {
       const leftMode = extrapolateLeft || extrapolate;
-      if (leftMode === "clamp") return outputRange[0];
+      if (leftMode === "clamp") return toNum(outputRange[0]);
       if (leftMode === "identity") return value;
     }
     if (value > inputRange[inputRange.length - 1]) {
       const rightMode = extrapolateRight || extrapolate;
-      if (rightMode === "clamp") return outputRange[outputRange.length - 1];
+      if (rightMode === "clamp") return toNum(outputRange[outputRange.length - 1]);
       if (rightMode === "identity") return value;
     }
     return result;
@@ -51,12 +54,12 @@ function interpolateValue(
   const rightMode = extrapolateRight || extrapolate;
 
   if (value < inputRange[0]) {
-    if (leftMode === "clamp") return outputRange[0];
+    if (leftMode === "clamp") return toNum(outputRange[0]);
     if (leftMode === "identity") return value;
     // "extend" — result already extrapolated linearly
   }
   if (value > inputRange[inputRange.length - 1]) {
-    if (rightMode === "clamp") return outputRange[outputRange.length - 1];
+    if (rightMode === "clamp") return toNum(outputRange[outputRange.length - 1]);
     if (rightMode === "identity") return value;
     // "extend" — result already extrapolated linearly
   }
