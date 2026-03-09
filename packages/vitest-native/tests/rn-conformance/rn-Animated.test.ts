@@ -120,3 +120,49 @@ describe('Animated Events', () => {
     expect(listener2).toBeCalledWith({foo: 42});
   });
 });
+
+describe('Animated Diff Clamp', () => {
+  it('should get the proper value', () => {
+    const inputValues = [0, 20, 40, 30, 0, -40, -10, -20, 0];
+    const expectedValues = [0, 20, 20, 10, 0, 0, 20, 10, 20];
+    const value = new Animated.Value(0);
+    const diffClampValue = Animated.diffClamp(value, 0, 20);
+    for (let i = 0; i < inputValues.length; i++) {
+      value.setValue(inputValues[i]);
+      expect(diffClampValue.getValue()).toBe(expectedValues[i]);
+    }
+  });
+});
+
+describe('Animated Colors', () => {
+  it('should normalize colors', () => {
+    let color = new Animated.Color();
+    expect(color.__getValue()).toEqual('rgba(0, 0, 0, 1)');
+
+    color = new Animated.Color({r: 11, g: 22, b: 33, a: 1.0});
+    expect(color.__getValue()).toEqual('rgba(11, 22, 33, 1)');
+
+    color = new Animated.Color('rgba(255, 0, 0, 1.0)');
+    expect(color.__getValue()).toEqual('rgba(255, 0, 0, 1)');
+
+    color = new Animated.Color('#ff0000ff');
+    expect(color.__getValue()).toEqual('rgba(255, 0, 0, 1)');
+
+    color = new Animated.Color('red');
+    expect(color.__getValue()).toEqual('rgba(255, 0, 0, 1)');
+
+    color = new Animated.Color({
+      r: new Animated.Value(255),
+      g: new Animated.Value(0),
+      b: new Animated.Value(0),
+      a: new Animated.Value(1.0),
+    });
+    expect(color.__getValue()).toEqual('rgba(255, 0, 0, 1)');
+
+    color = new Animated.Color('unknown');
+    expect(color.__getValue()).toEqual('rgba(0, 0, 0, 1)');
+
+    color = new Animated.Color({key: 'value'} as any);
+    expect(color.__getValue()).toEqual('rgba(0, 0, 0, 1)');
+  });
+});

@@ -120,27 +120,111 @@ class AnimatedValueXY {
   }
 }
 
+const namedColorMap: Record<string, [number, number, number, number]> = {
+  red: [255, 0, 0, 1], green: [0, 128, 0, 1], blue: [0, 0, 255, 1],
+  white: [255, 255, 255, 1], black: [0, 0, 0, 1], transparent: [0, 0, 0, 0],
+  yellow: [255, 255, 0, 1], cyan: [0, 255, 255, 1], magenta: [255, 0, 255, 1],
+};
+
+function parseColorString(color: string): [number, number, number, number] {
+  const rgba = color.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+))?\s*\)$/);
+  if (rgba) return [parseInt(rgba[1]), parseInt(rgba[2]), parseInt(rgba[3]), rgba[4] != null ? parseFloat(rgba[4]) : 1];
+  const hex8 = color.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  if (hex8) return [parseInt(hex8[1], 16), parseInt(hex8[2], 16), parseInt(hex8[3], 16), parseInt(hex8[4], 16) / 255];
+  const hex6 = color.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  if (hex6) return [parseInt(hex6[1], 16), parseInt(hex6[2], 16), parseInt(hex6[3], 16), 1];
+  const named = namedColorMap[color.toLowerCase()];
+  if (named) return named;
+  return [0, 0, 0, 1];
+}
+
 class AnimatedColor {
   r: AnimatedValue;
   g: AnimatedValue;
   b: AnimatedValue;
   a: AnimatedValue;
+  private _listeners: Map<string, Function> = new Map();
+  private _listenerIdCounter = 0;
 
-  constructor() {
-    this.r = new AnimatedValue(0);
-    this.g = new AnimatedValue(0);
-    this.b = new AnimatedValue(0);
-    this.a = new AnimatedValue(1);
+  constructor(color?: any) {
+    if (typeof color === "string") {
+      const [r, g, b, a] = parseColorString(color);
+      this.r = new AnimatedValue(r);
+      this.g = new AnimatedValue(g);
+      this.b = new AnimatedValue(b);
+      this.a = new AnimatedValue(a);
+    } else if (color && typeof color === "object") {
+      const isAnimated = color.r instanceof AnimatedValue;
+      if (isAnimated) {
+        this.r = color.r;
+        this.g = color.g;
+        this.b = color.b;
+        this.a = color.a;
+      } else if (typeof color.r === "number") {
+        this.r = new AnimatedValue(color.r);
+        this.g = new AnimatedValue(color.g ?? 0);
+        this.b = new AnimatedValue(color.b ?? 0);
+        this.a = new AnimatedValue(color.a ?? 1);
+      } else {
+        this.r = new AnimatedValue(0);
+        this.g = new AnimatedValue(0);
+        this.b = new AnimatedValue(0);
+        this.a = new AnimatedValue(1);
+      }
+    } else {
+      this.r = new AnimatedValue(0);
+      this.g = new AnimatedValue(0);
+      this.b = new AnimatedValue(0);
+      this.a = new AnimatedValue(1);
+    }
   }
 
-  setValue(_value: any) {}
+  setValue(value: any) {
+    if (typeof value === "string") {
+      const [r, g, b, a] = parseColorString(value);
+      this.r.setValue(r);
+      this.g.setValue(g);
+      this.b.setValue(b);
+      this.a.setValue(a);
+    } else if (value && typeof value === "object" && typeof value.r === "number") {
+      this.r.setValue(value.r);
+      this.g.setValue(value.g ?? 0);
+      this.b.setValue(value.b ?? 0);
+      this.a.setValue(value.a ?? 1);
+    }
+    const colorStr = this.__getValue();
+    this._listeners.forEach((fn) => fn({ value: colorStr }));
+  }
+
+  __getValue(): string {
+    const r = Math.round(this.r.getValue());
+    const g = Math.round(this.g.getValue());
+    const b = Math.round(this.b.getValue());
+    const a = this.a.getValue();
+    return `rgba(${r}, ${g}, ${b}, ${a})`;
+  }
+
+  addListener(callback: Function): string {
+    const id = String(++this._listenerIdCounter);
+    this._listeners.set(id, callback);
+    return id;
+  }
+
+  removeListener(id: string) {
+    this._listeners.delete(id);
+  }
+
+  removeAllListeners() {
+    this._listeners.clear();
+  }
+
   setOffset(_offset: any) {}
   flattenOffset() {}
   stopAnimation(callback?: Function) {
-    callback?.(0);
+    callback?.(this.__getValue());
   }
   resetAnimation(callback?: Function) {
-    callback?.(0);
+    callback?.(this.__getValue());
   }
 }
 
@@ -237,8 +321,18 @@ export function createAnimatedMock() {
       return new AnimatedValue(((aVal % modulus) + modulus) % modulus);
     }),
     diffClamp: vi.fn((a: any, min: number, max: number) => {
-      const aVal = a instanceof AnimatedValue ? a.getValue() : typeof a === "number" ? a : 0;
-      return new AnimatedValue(Math.min(Math.max(aVal, min), max));
+      const result = new AnimatedValue(Math.min(Math.max(a instanceof AnimatedValue ? a.getValue() : 0, min), max));
+      if (a instanceof AnimatedValue) {
+        let lastInput = a.getValue();
+        let current = result.getValue();
+        a.addListener(({ value }: { value: number }) => {
+          const diff = value - lastInput;
+          lastInput = value;
+          current = Math.min(Math.max(current + diff, min), max);
+          result.setValue(current);
+        });
+      }
+      return result;
     }),
     event: vi.fn((argMapping: any[], config?: any) => {
       const handler = vi.fn((...args: any[]) => {
