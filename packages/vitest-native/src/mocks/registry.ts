@@ -81,6 +81,23 @@ function createAppRegistryMock() {
   };
 }
 
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  const sNorm = s / 100;
+  const lNorm = l / 100;
+  const c = (1 - Math.abs(2 * lNorm - 1)) * sNorm;
+  const hPrime = h / 60;
+  const x = c * (1 - Math.abs((hPrime % 2) - 1));
+  let r1 = 0, g1 = 0, b1 = 0;
+  if (hPrime < 1) { r1 = c; g1 = x; }
+  else if (hPrime < 2) { r1 = x; g1 = c; }
+  else if (hPrime < 3) { g1 = c; b1 = x; }
+  else if (hPrime < 4) { g1 = x; b1 = c; }
+  else if (hPrime < 5) { r1 = x; b1 = c; }
+  else { r1 = c; b1 = x; }
+  const m = lNorm - c / 2;
+  return [Math.round((r1 + m) * 255), Math.round((g1 + m) * 255), Math.round((b1 + m) * 255)];
+}
+
 function createProcessColorMock() {
   // Basic named colors → ARGB integers (matches RN's processColor-test.js)
   const namedColors: Record<string, number> = {
@@ -140,6 +157,25 @@ function createProcessColorMock() {
         const [, r, g, b, a] = rgbaMatch;
         const alpha = Math.round(parseFloat(a) * 255);
         return ((alpha << 24) + (parseInt(r) << 16) + (parseInt(g) << 8) + parseInt(b)) >>> 0;
+      }
+
+      // hsl(h, s%, l%) → 0xFFRRGGBB
+      const hslMatch = lower.match(/^hsl\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*\)$/);
+      if (hslMatch) {
+        const [, h, s, l] = hslMatch;
+        const [r, g, b] = hslToRgb(parseFloat(h), parseFloat(s), parseFloat(l));
+        return ((0xff << 24) + (r << 16) + (g << 8) + b) >>> 0;
+      }
+
+      // hsla(h, s%, l%, a) → 0xAARRGGBB
+      const hslaMatch = lower.match(
+        /^hsla\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*,\s*([\d.]+)\s*\)$/,
+      );
+      if (hslaMatch) {
+        const [, h, s, l, a] = hslaMatch;
+        const [r, g, b] = hslToRgb(parseFloat(h), parseFloat(s), parseFloat(l));
+        const alpha = Math.round(parseFloat(a) * 255);
+        return ((alpha << 24) + (r << 16) + (g << 8) + b) >>> 0;
       }
     }
     return 0xff000000; // opaque black fallback
