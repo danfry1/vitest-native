@@ -188,9 +188,10 @@ vitest-native ports tests directly from React Native's own test suite to validat
 - **Bezier** — 9 cubic bezier mathematical property tests (symmetry, projection, boundary conditions)
 - **flattenStyle** — 12 style merging tests covering override precedence, reference identity, and recursive flattening
 - **processColor** — 9 color format conversion tests for named colors, RGB, RGBA, HSL, HSLA, and hex
-- **Interpolation** — 5 numeric range mapping tests for default, scaled, and multi-segment interpolation
+- **Interpolation** — 9 numeric range mapping tests including extrapolate modes (extend/clamp/identity) and easing
+- **Animated** — 12 tests for listeners, setValue/removeListener, event mapping, forkEvent, Color normalization, and diffClamp tracking
 
-59 assertions ported from RN's own test suite, all passing.
+75 assertions ported from RN's own test suite, all passing.
 
 ---
 
