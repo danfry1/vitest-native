@@ -369,9 +369,9 @@ describe("Animated composition functions (conformance)", () => {
     expect(typeof anim.reset).toBe("function");
   });
 
-  it("loop start calls callback with finished:true", () => {
+  it("loop start calls callback with finished:true (finite)", () => {
     const cb = vi.fn();
-    Animated.loop(Animated.timing(new Animated.Value(0), { toValue: 1 })).start(cb);
+    Animated.loop(Animated.timing(new Animated.Value(0), { toValue: 1 }), { iterations: 1 }).start(cb);
     expect(cb).toHaveBeenCalledWith({ finished: true });
   });
 

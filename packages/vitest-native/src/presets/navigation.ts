@@ -98,6 +98,7 @@ export function navigation(): Preset {
           "useFocusEffect",
           "useIsFocused",
           "useNavigationState",
+          "useScrollToTop",
           "useNavigationContainerRef",
           "createNavigationContainerRef",
           "createNavigatorFactory",
@@ -342,6 +343,7 @@ export function navigation(): Preset {
               getStateForAction: vi.fn((state: any) => state),
               shouldActionChangeFocus: vi.fn(() => false),
             },
+            useScrollToTop: vi.fn(),
             useLinkTo: vi.fn(() => vi.fn()),
             Link: React.forwardRef((props: any, ref: any) =>
               React.createElement("Link", { ...props, ref }, props.children),
@@ -390,6 +392,28 @@ export function navigation(): Preset {
           return {
             default: { createBottomTabNavigator },
             createBottomTabNavigator,
+          };
+        },
+      },
+
+      "@react-navigation/drawer": {
+        exports: ["createDrawerNavigator"],
+        factory: () => {
+          function createDrawerNavigator() {
+            return {
+              Navigator: React.forwardRef((props: any, ref: any) =>
+                React.createElement("DrawerNavigator", { ...props, ref }, props.children),
+              ),
+              Screen,
+              Group: React.forwardRef((props: any, ref: any) =>
+                React.createElement("Group", { ...props, ref }, props.children),
+              ),
+            };
+          }
+
+          return {
+            default: { createDrawerNavigator },
+            createDrawerNavigator,
           };
         },
       },

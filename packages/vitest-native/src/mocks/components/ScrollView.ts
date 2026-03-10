@@ -3,6 +3,7 @@ import { vi } from "vitest";
 
 export function createScrollViewMock() {
   const ScrollView = React.forwardRef((props: any, ref: any) => {
+    const { children, refreshControl, ...rest } = props;
     const instanceMethods = {
       scrollTo: vi.fn(),
       scrollToEnd: vi.fn(),
@@ -14,7 +15,12 @@ export function createScrollViewMock() {
 
     React.useImperativeHandle(ref, () => instanceMethods);
 
-    return React.createElement("ScrollView", { ...props, ref });
+    return React.createElement(
+      "RCTScrollView",
+      { ...rest, ref },
+      refreshControl,
+      React.createElement("View", null, children),
+    );
   });
   ScrollView.displayName = "ScrollView";
   return ScrollView;

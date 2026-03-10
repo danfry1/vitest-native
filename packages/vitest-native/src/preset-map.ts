@@ -15,6 +15,7 @@ export const AUTO_DETECT_PRESETS = {
   "@react-navigation/native-stack": "navigation",
   "@react-navigation/bottom-tabs": "navigation",
   "@react-navigation/elements": "navigation",
+  "@react-navigation/drawer": "navigation",
   "@react-native-async-storage/async-storage": "asyncStorage",
   "react-native-screens": "screens",
   "expo-constants": "expo",

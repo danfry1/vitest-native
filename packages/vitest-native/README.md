@@ -189,9 +189,9 @@ vitest-native ports tests directly from React Native's own test suite to validat
 - **flattenStyle** — 12 style merging tests covering override precedence, reference identity, and recursive flattening
 - **processColor** — 9 color format conversion tests for named colors, RGB, RGBA, HSL, HSLA, and hex
 - **Interpolation** — 9 numeric range mapping tests including extrapolate modes (extend/clamp/identity) and easing
-- **Animated** — 12 tests for listeners, setValue/removeListener, event mapping, forkEvent, Color normalization, and diffClamp tracking
+- **Animated** — 36 tests for listeners, events, forkEvent, diffClamp, Color normalization, sequence chaining/interruption/restart, parallel start/stop/no-double-stop, loop iterations/indefinite/interrupt/resetBeforeIteration, delay in sequence, stagger, and value tracking
 
-75 assertions ported from RN's own test suite, all passing.
+99 assertions ported from RN's own test suite, all passing.
 
 ---
 
@@ -204,6 +204,7 @@ import {
   setPlatform,
   setDimensions,
   setColorScheme,
+  setInsets,
   mockNativeModule,
   resetAllMocks,
 } from 'vitest-native/helpers';
@@ -251,6 +252,19 @@ test('renders dark mode styles', () => {
 });
 ```
 
+### `setInsets(insets)`
+
+Update the safe area insets returned by `useSafeAreaInsets()` from `react-native-safe-area-context`. Requires the `safeAreaContext` preset to be active.
+
+```ts
+import { setInsets } from 'vitest-native/helpers';
+
+test('renders with no bottom inset (Android)', () => {
+  setInsets({ top: 24, bottom: 0 });
+  // useSafeAreaInsets() returns { top: 24, right: 0, bottom: 0, left: 0 }
+});
+```
+
 ### `mockNativeModule(name, impl)`
 
 Register a custom native module mock. The module becomes available via `NativeModules[name]`.
@@ -270,7 +284,7 @@ test('uses a custom native module', () => {
 
 ### `resetAllMocks()`
 
-Reset all mocks to their default state. Restores platform to iOS, dimensions to iPhone 14 Pro defaults (390x844), color scheme to `'light'`, clears all mock call history, and undoes any `mockNativeModule` calls.
+Reset all mocks to their default state. Restores platform to iOS, dimensions to iPhone 14 Pro defaults (390x844), color scheme to `'light'`, safe area insets to iPhone defaults, clears AsyncStorage data, clears all mock call history, and undoes any `mockNativeModule` calls.
 
 ```ts
 import { resetAllMocks } from 'vitest-native/helpers';

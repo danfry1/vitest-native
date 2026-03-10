@@ -200,8 +200,8 @@ try {
       hostComponentNames: {
         text: "Text",
         textInput: "TextInput",
-        switch: "Switch",
-        scrollView: "ScrollView",
+        switch: "RCTSwitch",
+        scrollView: "RCTScrollView",
         modal: "Modal",
         image: "Image",
         button: "Button",

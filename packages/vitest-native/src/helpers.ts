@@ -61,6 +61,19 @@ export function setColorScheme(scheme: "light" | "dark" | null): void {
   }
 }
 
+export function setInsets(insets: {
+  top?: number;
+  right?: number;
+  bottom?: number;
+  left?: number;
+}): void {
+  const presetMocks = (globalThis as any).__vitest_native_preset_mocks;
+  const safeArea = presetMocks?.["react-native-safe-area-context"];
+  if (safeArea?._setInsets) {
+    safeArea._setInsets(insets);
+  }
+}
+
 export function mockNativeModule(name: string, impl: Record<string, any>): void {
   const mock = getMock();
 
@@ -176,5 +189,14 @@ export function resetAllMocks(): void {
   if (originalNativeModules !== null) {
     mock.NativeModules = originalNativeModules;
     originalNativeModules = null;
+  }
+
+  // Reset preset mocks (AsyncStorage store, safe area insets, etc.)
+  const presetMocks = (globalThis as any).__vitest_native_preset_mocks;
+  if (presetMocks) {
+    for (const mod of Object.values(presetMocks) as any[]) {
+      if (mod?._reset) mod._reset();
+      if (mod?._resetStore) mod._resetStore();
+    }
   }
 }

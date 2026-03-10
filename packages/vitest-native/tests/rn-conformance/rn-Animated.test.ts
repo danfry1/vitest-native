@@ -134,6 +134,484 @@ describe('Animated Diff Clamp', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Animated Sequence — ported from Animated-test.js
+// ---------------------------------------------------------------------------
+
+describe('Animated Sequence', () => {
+  it('works with an empty sequence', () => {
+    const cb = vi.fn();
+    Animated.sequence([]).start(cb);
+    expect(cb).toBeCalledWith({ finished: true });
+  });
+
+  it('sequences well', () => {
+    const anim1 = { start: vi.fn() };
+    const anim2 = { start: vi.fn() };
+    const cb = vi.fn();
+
+    const seq = Animated.sequence([anim1 as any, anim2 as any]);
+
+    expect(anim1.start).not.toBeCalled();
+    expect(anim2.start).not.toBeCalled();
+
+    seq.start(cb);
+
+    expect(anim1.start).toBeCalled();
+    expect(anim2.start).not.toBeCalled();
+    expect(cb).not.toBeCalled();
+
+    anim1.start.mock.calls[0][0]({ finished: true });
+
+    expect(anim2.start).toBeCalled();
+    expect(cb).not.toBeCalled();
+
+    anim2.start.mock.calls[0][0]({ finished: true });
+    expect(cb).toBeCalledWith({ finished: true });
+  });
+
+  it('supports interrupting sequence', () => {
+    const anim1 = { start: vi.fn() };
+    const anim2 = { start: vi.fn() };
+    const cb = vi.fn();
+
+    Animated.sequence([anim1 as any, anim2 as any]).start(cb);
+
+    anim1.start.mock.calls[0][0]({ finished: false });
+
+    expect(anim1.start).toBeCalled();
+    expect(anim2.start).not.toBeCalled();
+    expect(cb).toBeCalledWith({ finished: false });
+  });
+
+  it('supports stopping sequence', () => {
+    const anim1 = { start: vi.fn(), stop: vi.fn() };
+    const anim2 = { start: vi.fn(), stop: vi.fn() };
+    const cb = vi.fn();
+
+    const seq = Animated.sequence([anim1 as any, anim2 as any]);
+    seq.start(cb);
+    seq.stop();
+
+    expect(anim1.stop).toBeCalled();
+    expect(anim2.stop).not.toBeCalled();
+    expect(cb).not.toBeCalled();
+
+    anim1.start.mock.calls[0][0]({ finished: false });
+
+    expect(cb).toBeCalledWith({ finished: false });
+  });
+
+  it('supports restarting sequence after stopped during execution', () => {
+    const anim1 = { start: vi.fn(), stop: vi.fn() };
+    const anim2 = { start: vi.fn(), stop: vi.fn() };
+    const cb = vi.fn();
+
+    const seq = Animated.sequence([anim1 as any, anim2 as any]);
+
+    seq.start(cb);
+
+    anim1.start.mock.calls[0][0]({ finished: true });
+    seq.stop();
+
+    expect(anim1.start).toHaveBeenCalledTimes(1);
+    expect(anim2.start).toHaveBeenCalledTimes(1);
+
+    seq.start(cb);
+
+    // after restart the sequence should resume from the anim2
+    expect(anim1.start).toHaveBeenCalledTimes(1);
+    expect(anim2.start).toHaveBeenCalledTimes(2);
+  });
+
+  it('supports restarting sequence after finished', () => {
+    const anim1 = { start: vi.fn(), stop: vi.fn() };
+    const anim2 = { start: vi.fn(), stop: vi.fn() };
+    const cb = vi.fn();
+
+    const seq = Animated.sequence([anim1 as any, anim2 as any]);
+
+    seq.start(cb);
+    anim1.start.mock.calls[0][0]({ finished: true });
+    anim2.start.mock.calls[0][0]({ finished: true });
+
+    expect(cb).toBeCalledWith({ finished: true });
+
+    seq.start(cb);
+
+    // sequence should successfully restart from anim1
+    expect(anim1.start).toHaveBeenCalledTimes(2);
+    expect(anim2.start).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Animated Parallel — ported from Animated-test.js
+// ---------------------------------------------------------------------------
+
+describe('Animated Parallel', () => {
+  it('works with an empty parallel', () => {
+    const cb = vi.fn();
+    Animated.parallel([]).start(cb);
+    expect(cb).toBeCalledWith({ finished: true });
+  });
+
+  it('works with an empty element in array', () => {
+    const anim1 = { start: vi.fn() };
+    const cb = vi.fn();
+    Animated.parallel([null as any, anim1 as any]).start(cb);
+
+    expect(anim1.start).toBeCalled();
+    anim1.start.mock.calls[0][0]({ finished: true });
+
+    expect(cb).toBeCalledWith({ finished: true });
+  });
+
+  it('parallelizes well', () => {
+    const anim1 = { start: vi.fn() };
+    const anim2 = { start: vi.fn() };
+    const cb = vi.fn();
+
+    const par = Animated.parallel([anim1 as any, anim2 as any]);
+
+    expect(anim1.start).not.toBeCalled();
+    expect(anim2.start).not.toBeCalled();
+
+    par.start(cb);
+
+    expect(anim1.start).toBeCalled();
+    expect(anim2.start).toBeCalled();
+    expect(cb).not.toBeCalled();
+
+    anim1.start.mock.calls[0][0]({ finished: true });
+    expect(cb).not.toBeCalled();
+
+    anim2.start.mock.calls[0][0]({ finished: true });
+    expect(cb).toBeCalledWith({ finished: true });
+  });
+
+  it('supports stopping parallel', () => {
+    const anim1 = { start: vi.fn(), stop: vi.fn() };
+    const anim2 = { start: vi.fn(), stop: vi.fn() };
+    const cb = vi.fn();
+
+    const par = Animated.parallel([anim1 as any, anim2 as any]);
+    par.start(cb);
+    par.stop();
+
+    expect(anim1.stop).toBeCalled();
+    expect(anim2.stop).toBeCalled();
+    expect(cb).not.toBeCalled();
+
+    anim1.start.mock.calls[0][0]({ finished: false });
+    expect(cb).not.toBeCalled();
+
+    anim2.start.mock.calls[0][0]({ finished: false });
+    expect(cb).toBeCalledWith({ finished: false });
+  });
+
+  it('does not call stop more than once when stopping', () => {
+    const anim1 = { start: vi.fn(), stop: vi.fn() };
+    const anim2 = { start: vi.fn(), stop: vi.fn() };
+    const anim3 = { start: vi.fn(), stop: vi.fn() };
+    const cb = vi.fn();
+
+    const par = Animated.parallel([anim1 as any, anim2 as any, anim3 as any]);
+    par.start(cb);
+
+    anim1.start.mock.calls[0][0]({ finished: false });
+
+    expect(anim1.stop.mock.calls.length).toBe(0);
+    expect(anim2.stop.mock.calls.length).toBe(1);
+    expect(anim3.stop.mock.calls.length).toBe(1);
+
+    anim2.start.mock.calls[0][0]({ finished: false });
+
+    expect(anim1.stop.mock.calls.length).toBe(0);
+    expect(anim2.stop.mock.calls.length).toBe(1);
+    expect(anim3.stop.mock.calls.length).toBe(1);
+
+    anim3.start.mock.calls[0][0]({ finished: false });
+
+    expect(anim1.stop.mock.calls.length).toBe(0);
+    expect(anim2.stop.mock.calls.length).toBe(1);
+    expect(anim3.stop.mock.calls.length).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Animated Loop — ported from Animated-test.js
+// ---------------------------------------------------------------------------
+
+describe('Animated Loop', () => {
+  it('loops indefinitely if config not specified', () => {
+    const animation = {
+      start: vi.fn(),
+      reset: vi.fn(),
+      _isUsingNativeDriver: () => false,
+    };
+    const cb = vi.fn();
+
+    const loop = Animated.loop(animation as any);
+
+    expect(animation.start).not.toBeCalled();
+
+    loop.start(cb);
+
+    expect(animation.start).toBeCalled();
+    expect(animation.reset).toHaveBeenCalledTimes(1);
+    expect(cb).not.toBeCalled();
+
+    animation.start.mock.calls[0][0]({ finished: true }); // End of loop 1
+    expect(animation.reset).toHaveBeenCalledTimes(2);
+    expect(cb).not.toBeCalled();
+
+    animation.start.mock.calls[0][0]({ finished: true }); // End of loop 2
+    expect(animation.reset).toHaveBeenCalledTimes(3);
+    expect(cb).not.toBeCalled();
+
+    animation.start.mock.calls[0][0]({ finished: true }); // End of loop 3
+    expect(animation.reset).toHaveBeenCalledTimes(4);
+    expect(cb).not.toBeCalled();
+  });
+
+  it('loops indefinitely if iterations is -1', () => {
+    const animation = {
+      start: vi.fn(),
+      reset: vi.fn(),
+      _isUsingNativeDriver: () => false,
+    };
+    const cb = vi.fn();
+
+    const loop = Animated.loop(animation as any, { iterations: -1 });
+
+    loop.start(cb);
+
+    expect(animation.start).toBeCalled();
+    expect(animation.reset).toHaveBeenCalledTimes(1);
+    expect(cb).not.toBeCalled();
+
+    animation.start.mock.calls[0][0]({ finished: true });
+    expect(animation.reset).toHaveBeenCalledTimes(2);
+    expect(cb).not.toBeCalled();
+
+    animation.start.mock.calls[0][0]({ finished: true });
+    expect(animation.reset).toHaveBeenCalledTimes(3);
+    expect(cb).not.toBeCalled();
+  });
+
+  it('loops three times if iterations is 3', () => {
+    const animation = {
+      start: vi.fn(),
+      reset: vi.fn(),
+      _isUsingNativeDriver: () => false,
+    };
+    const cb = vi.fn();
+
+    const loop = Animated.loop(animation as any, { iterations: 3 });
+
+    loop.start(cb);
+
+    expect(animation.start).toBeCalled();
+    expect(animation.reset).toHaveBeenCalledTimes(1);
+    expect(cb).not.toBeCalled();
+
+    animation.start.mock.calls[0][0]({ finished: true }); // End of loop 1
+    expect(animation.reset).toHaveBeenCalledTimes(2);
+    expect(cb).not.toBeCalled();
+
+    animation.start.mock.calls[0][0]({ finished: true }); // End of loop 2
+    expect(animation.reset).toHaveBeenCalledTimes(3);
+    expect(cb).not.toBeCalled();
+
+    animation.start.mock.calls[0][0]({ finished: true }); // End of loop 3
+    expect(animation.reset).toHaveBeenCalledTimes(3);
+    expect(cb).toBeCalledWith({ finished: true });
+  });
+
+  it('does not loop if iterations is 1', () => {
+    const animation = {
+      start: vi.fn(),
+      reset: vi.fn(),
+      _isUsingNativeDriver: () => false,
+    };
+    const cb = vi.fn();
+
+    const loop = Animated.loop(animation as any, { iterations: 1 });
+
+    loop.start(cb);
+
+    expect(animation.start).toBeCalled();
+    expect(cb).not.toBeCalled();
+
+    animation.start.mock.calls[0][0]({ finished: true });
+    expect(cb).toBeCalledWith({ finished: true });
+  });
+
+  it('does not animate if iterations is 0', () => {
+    const animation = {
+      start: vi.fn(),
+      reset: vi.fn(),
+      _isUsingNativeDriver: () => false,
+    };
+    const cb = vi.fn();
+
+    const loop = Animated.loop(animation as any, { iterations: 0 });
+
+    loop.start(cb);
+
+    expect(animation.start).not.toBeCalled();
+    expect(cb).toBeCalledWith({ finished: true });
+  });
+
+  it('supports interrupting an indefinite loop', () => {
+    const animation = {
+      start: vi.fn(),
+      reset: vi.fn(),
+      _isUsingNativeDriver: () => false,
+    };
+    const cb = vi.fn();
+
+    Animated.loop(animation as any).start(cb);
+    expect(animation.start).toBeCalled();
+    expect(animation.reset).toHaveBeenCalledTimes(1);
+    expect(cb).not.toBeCalled();
+
+    animation.start.mock.calls[0][0]({ finished: true }); // End of loop 1
+    expect(animation.reset).toHaveBeenCalledTimes(2);
+    expect(cb).not.toBeCalled();
+
+    animation.start.mock.calls[0][0]({ finished: false }); // Interrupt
+    expect(animation.reset).toHaveBeenCalledTimes(2);
+    expect(cb).toBeCalledWith({ finished: false });
+  });
+
+  it('supports stopping loop', () => {
+    const animation = {
+      start: vi.fn(),
+      stop: vi.fn(),
+      reset: vi.fn(),
+      _isUsingNativeDriver: () => false,
+    };
+    const cb = vi.fn();
+
+    const loop = Animated.loop(animation as any);
+    loop.start(cb);
+    loop.stop();
+
+    expect(animation.start).toBeCalled();
+    expect(animation.reset).toHaveBeenCalledTimes(1);
+    expect(animation.stop).toBeCalled();
+
+    animation.start.mock.calls[0][0]({ finished: false }); // Interrupt
+    expect(animation.reset).toHaveBeenCalledTimes(1);
+    expect(cb).toBeCalledWith({ finished: false });
+  });
+
+  it('does not reset if resetBeforeIteration is false', () => {
+    const animation = {
+      start: vi.fn(),
+      reset: vi.fn(),
+      _isUsingNativeDriver: () => false,
+    };
+    const cb = vi.fn();
+
+    const loop = Animated.loop(animation as any, { resetBeforeIteration: false });
+
+    loop.start(cb);
+
+    expect(animation.start).toBeCalled();
+    expect(animation.reset).not.toBeCalled();
+    expect(cb).not.toBeCalled();
+
+    animation.start.mock.calls[0][0]({ finished: true }); // End of loop 1
+    expect(animation.reset).not.toBeCalled();
+    expect(cb).not.toBeCalled();
+
+    animation.start.mock.calls[0][0]({ finished: true }); // End of loop 2
+    expect(animation.reset).not.toBeCalled();
+    expect(cb).not.toBeCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Animated Delays — ported from Animated-test.js
+// ---------------------------------------------------------------------------
+
+describe('Animated delays', () => {
+  it('should call anim after delay in sequence', () => {
+    const anim = { start: vi.fn(), stop: vi.fn() };
+    const cb = vi.fn();
+    Animated.sequence([Animated.delay(1000), anim as any]).start(cb);
+    expect(anim.start.mock.calls.length).toBe(1);
+    expect(cb).not.toBeCalled();
+    anim.start.mock.calls[0][0]({ finished: true });
+    expect(cb).toBeCalledWith({ finished: true });
+  });
+
+  it('should run stagger to end', () => {
+    const cb = vi.fn();
+    Animated.stagger(1000, [
+      Animated.delay(1000),
+      Animated.delay(1000),
+      Animated.delay(1000),
+    ]).start(cb);
+    expect(cb).toBeCalledWith({ finished: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Animated Tracking — ported from Animated-test.js
+// ---------------------------------------------------------------------------
+
+describe('Animated Tracking', () => {
+  it('should track values', () => {
+    const value1 = new Animated.Value(0);
+    const value2 = new Animated.Value(0);
+    Animated.timing(value2, {
+      toValue: value1 as any,
+      duration: 0,
+      useNativeDriver: false,
+    }).start();
+    value1.setValue(42);
+    expect(value2.getValue()).toBe(42);
+    value1.setValue(7);
+    expect(value2.getValue()).toBe(7);
+  });
+
+  it('should stop tracking when animated', () => {
+    const value1 = new Animated.Value(0);
+    const value2 = new Animated.Value(0);
+    Animated.timing(value2, {
+      toValue: value1 as any,
+      duration: 0,
+      useNativeDriver: false,
+    }).start();
+    value1.setValue(42);
+    expect(value2.getValue()).toBe(42);
+    Animated.timing(value2, {
+      toValue: 7,
+      duration: 0,
+      useNativeDriver: false,
+    }).start();
+    value1.setValue(1492);
+    expect(value2.getValue()).toBe(7);
+  });
+
+  it('should start tracking immediately on animation start', () => {
+    const value1 = new Animated.Value(42);
+    const value2 = new Animated.Value(0);
+    Animated.timing(value2, {
+      toValue: value1 as any,
+      duration: 0,
+      useNativeDriver: false,
+    }).start();
+    expect(value2.getValue()).toBe(42);
+    value1.setValue(7);
+    expect(value2.getValue()).toBe(7);
+  });
+});
+
 describe('Animated Colors', () => {
   it('should normalize colors', () => {
     let color = new Animated.Color();

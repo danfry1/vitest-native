@@ -71,6 +71,7 @@ class AnimatedValue {
   private _value: number;
   private _listeners: Map<string, Function> = new Map();
   private _listenerIdCounter = 0;
+  _tracking: { source: AnimatedValue; listenerId: string } | null = null;
 
   constructor(value: number = 0) {
     this._value = value;
@@ -280,16 +281,12 @@ class AnimatedColor {
 }
 
 function createAnimation(onStart?: () => void) {
-  let running = false;
   return {
     start: vi.fn((callback?: Function) => {
-      running = true;
       onStart?.();
-      running = false;
       callback?.({ finished: true });
     }),
     stop: vi.fn((callback?: Function) => {
-      if (running) running = false;
       callback?.({ finished: false });
     }),
     reset: vi.fn(),
@@ -304,49 +301,220 @@ function createAnimatedWrapper(displayName: string) {
   return Component;
 }
 
+function stopTracking(value: AnimatedValue) {
+  if (value._tracking) {
+    value._tracking.source.removeListener(value._tracking.listenerId);
+    value._tracking = null;
+  }
+}
+
+function startTracking(value: AnimatedValue, toValue: any) {
+  // Always stop previous tracking
+  stopTracking(value);
+
+  if (toValue instanceof AnimatedValue) {
+    // Track the source value
+    value.setValue(toValue.getValue());
+    const listenerId = toValue.addListener(({ value: v }: { value: number }) => {
+      value.setValue(v);
+    });
+    value._tracking = { source: toValue, listenerId };
+  } else {
+    value.setValue(toValue);
+  }
+}
+
 export function createAnimatedMock() {
   return {
     Value: AnimatedValue,
     ValueXY: AnimatedValueXY,
     Color: AnimatedColor,
-    timing: vi.fn((value: any, config: any) =>
-      createAnimation(() => {
+    timing: vi.fn((value: any, config: any) => {
+      return createAnimation(() => {
         if (value instanceof AnimatedValue && config?.toValue != null) {
-          value.setValue(config.toValue);
+          startTracking(value, config.toValue);
         }
-      }),
-    ),
-    spring: vi.fn((value: any, config: any) =>
-      createAnimation(() => {
+      });
+    }),
+    spring: vi.fn((value: any, config: any) => {
+      return createAnimation(() => {
         if (value instanceof AnimatedValue && config?.toValue != null) {
-          value.setValue(config.toValue);
+          startTracking(value, config.toValue);
         }
-      }),
-    ),
+      });
+    }),
     decay: vi.fn((_value: any, _config: any) => createAnimation()),
-    sequence: vi.fn((animations: any[]) =>
-      createAnimation(() => {
-        for (const anim of animations) {
-          anim?.start?.();
-        }
-      }),
-    ),
-    parallel: vi.fn((animations: any[]) =>
-      createAnimation(() => {
-        for (const anim of animations) {
-          anim?.start?.();
-        }
-      }),
-    ),
-    stagger: vi.fn((_time: number, animations: any[]) =>
-      createAnimation(() => {
-        for (const anim of animations) {
-          anim?.start?.();
-        }
-      }),
-    ),
-    loop: vi.fn((_animation: any, _config?: any) => createAnimation()),
-    delay: vi.fn((_time: number) => createAnimation()),
+    sequence: vi.fn((animations: any[]) => {
+      let current = 0;
+      let cb: Function | undefined;
+      return {
+        start: vi.fn((endCallback?: Function) => {
+          cb = endCallback;
+          if (animations.length === 0) {
+            cb?.({ finished: true });
+            return;
+          }
+          // If restarting after finish, reset to beginning
+          if (current >= animations.length) {
+            current = 0;
+          }
+          const runNext = (result: { finished: boolean }) => {
+            if (!result.finished) {
+              cb?.({ finished: false });
+              return;
+            }
+            current++;
+            if (current >= animations.length) {
+              cb?.({ finished: true });
+              return;
+            }
+            animations[current]?.start(runNext);
+          };
+          animations[current]?.start(runNext);
+        }),
+        stop: vi.fn(() => {
+          if (current < animations.length) {
+            animations[current]?.stop?.();
+          }
+        }),
+        reset: vi.fn(() => {
+          current = 0;
+          for (const anim of animations) {
+            anim?.reset?.();
+          }
+        }),
+      };
+    }),
+    parallel: vi.fn((animations: any[]) => {
+      let doneCount = 0;
+      let hasBeenStopped = false;
+      let cb: Function | undefined;
+      const validAnims = animations.filter(Boolean);
+      return {
+        start: vi.fn((endCallback?: Function) => {
+          cb = endCallback;
+          doneCount = 0;
+          hasBeenStopped = false;
+          if (validAnims.length === 0) {
+            cb?.({ finished: true });
+            return;
+          }
+          validAnims.forEach((anim) => {
+            anim.start((result: { finished: boolean }) => {
+              doneCount++;
+              if (!result.finished && !hasBeenStopped) {
+                hasBeenStopped = true;
+                // Stop all other animations that haven't finished
+                validAnims.forEach((other) => {
+                  if (other !== anim) {
+                    other.stop?.();
+                  }
+                });
+              }
+              if (doneCount >= validAnims.length) {
+                cb?.(result);
+              }
+            });
+          });
+        }),
+        stop: vi.fn(() => {
+          hasBeenStopped = true;
+          validAnims.forEach((anim) => {
+            anim.stop?.();
+          });
+        }),
+        reset: vi.fn(() => {
+          for (const anim of validAnims) {
+            anim?.reset?.();
+          }
+        }),
+      };
+    }),
+    stagger: vi.fn((_time: number, animations: any[]) => {
+      // In the mock, stagger behaves like parallel — all start immediately (synchronous)
+      const validAnims = animations.filter(Boolean);
+      let doneCount = 0;
+      let hasBeenStopped = false;
+      return {
+        start: vi.fn((endCallback?: Function) => {
+          doneCount = 0;
+          hasBeenStopped = false;
+          if (validAnims.length === 0) {
+            endCallback?.({ finished: true });
+            return;
+          }
+          validAnims.forEach((anim) => {
+            anim.start?.((result: { finished: boolean }) => {
+              doneCount++;
+              if (!result.finished && !hasBeenStopped) {
+                hasBeenStopped = true;
+                validAnims.forEach((other) => {
+                  if (other !== anim) other.stop?.();
+                });
+              }
+              if (doneCount >= validAnims.length) {
+                endCallback?.(result);
+              }
+            });
+          });
+        }),
+        stop: vi.fn(() => {
+          hasBeenStopped = true;
+          validAnims.forEach((anim) => anim.stop?.());
+        }),
+        reset: vi.fn(() => {
+          validAnims.forEach((anim) => anim.reset?.());
+        }),
+      };
+    }),
+    loop: vi.fn((animation: any, config?: any) => {
+      const iterations = config?.iterations;
+      const resetBeforeIteration = config?.resetBeforeIteration !== false;
+      let stopped = false;
+      let startCallback: Function | undefined;
+      return {
+        start: vi.fn((endCallback?: Function) => {
+          stopped = false;
+          startCallback = endCallback;
+          if (iterations === 0) {
+            endCallback?.({ finished: true });
+            return;
+          }
+          let iterationCount = 0;
+          const onIteration = (result: { finished: boolean }) => {
+            if (stopped || !result.finished) {
+              startCallback?.(result);
+              return;
+            }
+            iterationCount++;
+            if (iterations != null && iterations > 0 && iterationCount >= iterations) {
+              startCallback?.({ finished: true });
+              return;
+            }
+            // Continue looping
+            if (resetBeforeIteration) {
+              animation.reset?.();
+            }
+            animation.start(onIteration);
+          };
+          if (resetBeforeIteration) {
+            animation.reset?.();
+          }
+          animation.start(onIteration);
+        }),
+        stop: vi.fn(() => {
+          stopped = true;
+          animation.stop?.();
+        }),
+        reset: vi.fn(() => {
+          animation.reset?.();
+        }),
+      };
+    }),
+    delay: vi.fn((_time: number) => {
+      // Synchronous in mock — no real delay needed for testing
+      return createAnimation();
+    }),
     add: vi.fn((a: any, b: any) => {
       const aVal = a instanceof AnimatedValue ? a.getValue() : typeof a === "number" ? a : 0;
       const bVal = b instanceof AnimatedValue ? b.getValue() : typeof b === "number" ? b : 0;

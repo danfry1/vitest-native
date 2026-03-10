@@ -121,6 +121,22 @@ describe("Button (conformance)", () => {
     expect(screen.getByTestId("b").props.accessibilityState).toEqual({ disabled: true });
   });
 
+  it("disabled merges existing accessibilityState", () => {
+    render(
+      <Button
+        testID="b"
+        title="OK"
+        onPress={() => {}}
+        disabled
+        accessibilityState={{ selected: true }}
+      />,
+    );
+    expect(screen.getByTestId("b").props.accessibilityState).toEqual({
+      selected: true,
+      disabled: true,
+    });
+  });
+
   it("visible={false} Modal hides Button", () => {
     render(
       <Modal visible={false}>
@@ -196,6 +212,15 @@ describe("TextInput (conformance)", () => {
 // ---------------------------------------------------------------------------
 
 describe("ScrollView (conformance)", () => {
+  it("renders with the RNTL host type", () => {
+    const { toJSON } = render(
+      <ScrollView testID="sv">
+        <Text>Child</Text>
+      </ScrollView>,
+    );
+    expect(toJSON()?.type).toBe("RCTScrollView");
+  });
+
   it("exposes scrollTo as a function", () => {
     const ref = createRef<any>();
     render(<ScrollView ref={ref} />);
@@ -230,6 +255,13 @@ describe("ScrollView (conformance)", () => {
     const ref = createRef<any>();
     render(<ScrollView ref={ref} />);
     expect(typeof ref.current.setNativeProps).toBe("function");
+  });
+});
+
+describe("Switch (conformance)", () => {
+  it("renders with the RNTL host type", () => {
+    const { toJSON } = render(<Switch testID="sw" value={true} />);
+    expect(toJSON()?.type).toBe("RCTSwitch");
   });
 });
 

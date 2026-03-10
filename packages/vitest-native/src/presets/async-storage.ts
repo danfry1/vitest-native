@@ -98,6 +98,8 @@ export function asyncStorage(): Preset {
             multiRemove,
             multiMerge,
             flushGetRequests,
+            /** Internal: reset store between tests. Called by resetAllMocks(). */
+            _resetStore: () => store.clear(),
           };
 
           return {

@@ -583,11 +583,12 @@ describe("Sequence/parallel edge cases (conformance)", () => {
     expect(cb).toHaveBeenCalledWith({ finished: true });
   });
 
-  it("loop completes", () => {
+  it("loop completes with finite iterations", () => {
     const val = new Animated.Value(0);
     const cb = vi.fn();
     Animated.loop(
       Animated.timing(val, { toValue: 1, duration: 100 }),
+      { iterations: 1 },
     ).start(cb);
     expect(cb).toHaveBeenCalledWith({ finished: true });
   });

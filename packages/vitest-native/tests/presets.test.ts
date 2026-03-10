@@ -318,6 +318,27 @@ describe("preset: navigation", () => {
     });
   });
 
+  it("useScrollToTop is callable", () => {
+    expect(typeof mock.useScrollToTop).toBe("function");
+  });
+
+  it("DrawerActions has expected methods", () => {
+    expect(typeof mock.DrawerActions.openDrawer).toBe("function");
+    expect(typeof mock.DrawerActions.closeDrawer).toBe("function");
+    expect(typeof mock.DrawerActions.toggleDrawer).toBe("function");
+  });
+
+  describe("@react-navigation/drawer", () => {
+    const drawerMock = preset.modules["@react-navigation/drawer"].factory();
+    const drawer = drawerMock.createDrawerNavigator();
+
+    it("createDrawerNavigator returns Navigator, Screen, Group", () => {
+      expect(drawer.Navigator).toBeDefined();
+      expect(drawer.Screen).toBeDefined();
+      expect(drawer.Group).toBeDefined();
+    });
+  });
+
   describe("@react-navigation/elements", () => {
     const elementsMock = preset.modules["@react-navigation/elements"].factory();
 
@@ -450,6 +471,82 @@ describe("preset: reanimated", () => {
     expect(result).toBeDefined();
   });
 
+  it("all entering/exiting animations are chainable", () => {
+    const anims = [
+      "FadeIn", "FadeOut", "FadeInDown", "FadeInUp", "FadeInLeft", "FadeInRight",
+      "FadeOutDown", "FadeOutUp", "FadeOutLeft", "FadeOutRight",
+      "SlideInRight", "SlideInLeft", "SlideInUp", "SlideInDown",
+      "SlideOutRight", "SlideOutLeft", "SlideOutUp", "SlideOutDown",
+      "ZoomIn", "ZoomOut", "BounceIn", "BounceOut",
+      "BounceInDown", "BounceInUp", "BounceInLeft", "BounceInRight",
+      "FlipInEasyX", "FlipInEasyY", "FlipOutEasyX", "FlipOutEasyY",
+      "LightSpeedInLeft", "LightSpeedInRight", "LightSpeedOutLeft", "LightSpeedOutRight",
+      "PinwheelIn", "PinwheelOut",
+      "StretchInX", "StretchInY", "StretchOutX", "StretchOutY",
+      "RotateInDownLeft", "RotateInDownRight", "RotateInUpLeft", "RotateInUpRight",
+      "RotateOutDownLeft", "RotateOutDownRight", "RotateOutUpLeft", "RotateOutUpRight",
+    ];
+    for (const name of anims) {
+      const anim = mock[name];
+      expect(anim, `${name} should exist`).toBeDefined();
+      expect(typeof anim.duration, `${name}.duration should be a function`).toBe("function");
+      const chained = anim.duration(300);
+      expect(chained, `${name}.duration() should return self`).toBe(anim);
+    }
+  });
+
+  it("layout transitions are chainable", () => {
+    const transitions = [
+      "Layout", "LinearTransition", "SequencedTransition",
+      "FadingTransition", "JumpingTransition", "CurvedTransition", "EntryExitTransition",
+    ];
+    for (const name of transitions) {
+      expect(mock[name], `${name} should exist`).toBeDefined();
+      expect(typeof mock[name].duration, `${name}.duration`).toBe("function");
+    }
+  });
+
+  it("useAnimatedReaction is callable", () => {
+    expect(typeof mock.useAnimatedReaction).toBe("function");
+    expect(() => mock.useAnimatedReaction(() => 1, () => {})).not.toThrow();
+  });
+
+  it("useAnimatedKeyboard returns shared values", () => {
+    const keyboard = mock.useAnimatedKeyboard();
+    expect(keyboard.state).toBeDefined();
+    expect(keyboard.height).toBeDefined();
+    expect(keyboard.state.value).toBe(0);
+    expect(keyboard.height.value).toBe(0);
+  });
+
+  it("useReducedMotion returns false", () => {
+    expect(mock.useReducedMotion()).toBe(false);
+  });
+
+  it("useFrameCallback returns controller", () => {
+    const ctrl = mock.useFrameCallback(() => {});
+    expect(typeof ctrl.setActive).toBe("function");
+    expect(ctrl.isActive).toBe(false);
+  });
+
+  it("makeMutable creates a shared value", () => {
+    const sv = mock.makeMutable(42);
+    expect(sv.value).toBe(42);
+    sv.set(100);
+    expect(sv.value).toBe(100);
+  });
+
+  it("ReduceMotion has expected constants", () => {
+    expect(mock.ReduceMotion.System).toBe("system");
+    expect(mock.ReduceMotion.Always).toBe("always");
+    expect(mock.ReduceMotion.Never).toBe("never");
+  });
+
+  it("KeyboardState has expected constants", () => {
+    expect(mock.KeyboardState.OPEN).toBe(2);
+    expect(mock.KeyboardState.CLOSED).toBe(4);
+  });
+
   it("Extrapolation has expected constants", () => {
     expect(mock.Extrapolation.CLAMP).toBe("clamp");
     expect(mock.Extrapolation.EXTEND).toBe("extend");
@@ -554,6 +651,21 @@ describe("preset: safeAreaContext", () => {
     const Wrapped = mock.withSafeAreaInsets(Base);
     expect(Wrapped.displayName).toBe("withSafeAreaInsets(MyComp)");
   });
+
+  it("_setInsets updates insets returned by useSafeAreaInsets", () => {
+    mock._setInsets({ top: 0, bottom: 0 });
+    const insets = mock.useSafeAreaInsets();
+    expect(insets.top).toBe(0);
+    expect(insets.bottom).toBe(0);
+  });
+
+  it("_reset restores default insets", () => {
+    mock._setInsets({ top: 0, bottom: 0 });
+    mock._reset();
+    const insets = mock.useSafeAreaInsets();
+    expect(insets.top).toBe(47);
+    expect(insets.bottom).toBe(34);
+  });
 });
 
 // --- Async Storage ---
@@ -624,6 +736,15 @@ describe("preset: asyncStorage", () => {
     await mock.mergeItem("obj", JSON.stringify({ b: 3, c: 4 }));
     const result = JSON.parse((await mock.getItem("obj"))!);
     expect(result).toEqual({ a: 1, b: 3, c: 4 });
+  });
+
+  it("_resetStore clears all data between tests", async () => {
+    await mock.setItem("persist", "data");
+    mock._resetStore();
+    const result = await mock.getItem("persist");
+    expect(result).toBeNull();
+    const keys = await mock.getAllKeys();
+    expect(keys).toEqual([]);
   });
 });
 
