@@ -173,18 +173,14 @@ describe("Animated.sequence composition (conformance)", () => {
 
   it("sequence with single animation sets value", () => {
     const val = new Animated.Value(0);
-    Animated.sequence([
-      Animated.timing(val, { toValue: 42, useNativeDriver: false }),
-    ]).start();
+    Animated.sequence([Animated.timing(val, { toValue: 42, useNativeDriver: false })]).start();
     expect(val.getValue()).toBe(42);
   });
 
   it("sequence callback fires with finished:true", () => {
     const val = new Animated.Value(0);
     const cb = vi.fn();
-    Animated.sequence([
-      Animated.timing(val, { toValue: 1, useNativeDriver: false }),
-    ]).start(cb);
+    Animated.sequence([Animated.timing(val, { toValue: 1, useNativeDriver: false })]).start(cb);
     expect(cb).toHaveBeenCalledWith({ finished: true });
   });
 
@@ -229,9 +225,7 @@ describe("Animated.parallel composition (conformance)", () => {
   it("parallel callback fires with finished:true", () => {
     const cb = vi.fn();
     const a = new Animated.Value(0);
-    Animated.parallel([
-      Animated.timing(a, { toValue: 1, useNativeDriver: false }),
-    ]).start(cb);
+    Animated.parallel([Animated.timing(a, { toValue: 1, useNativeDriver: false })]).start(cb);
     expect(cb).toHaveBeenCalledWith({ finished: true });
   });
 

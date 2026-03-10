@@ -4,8 +4,7 @@ export function createTextMock() {
   const Text = React.forwardRef((props: any, ref: any) => {
     const { onPress, onLongPress, disabled, accessibilityRole, ...rest } = props;
     const isPressable = !disabled && (onPress || onLongPress);
-    const resolvedRole =
-      accessibilityRole ?? (isPressable ? "link" : undefined);
+    const resolvedRole = accessibilityRole ?? (isPressable ? "link" : undefined);
 
     return React.createElement("Text", {
       accessible: true,

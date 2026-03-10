@@ -430,10 +430,9 @@ describe("Animated.Value interpolation (conformance)", () => {
 describe("Animated.event (conformance)", () => {
   it("returns a function", () => {
     const val = new Animated.Value(0);
-    const handler = Animated.event(
-      [{ nativeEvent: { contentOffset: { y: val } } }],
-      { useNativeDriver: false },
-    );
+    const handler = Animated.event([{ nativeEvent: { contentOffset: { y: val } } }], {
+      useNativeDriver: false,
+    });
     expect(typeof handler).toBe("function");
   });
 });
@@ -577,19 +576,14 @@ describe("Sequence/parallel edge cases (conformance)", () => {
   it("stagger completes", () => {
     const val = new Animated.Value(0);
     const cb = vi.fn();
-    Animated.stagger(50, [
-      Animated.timing(val, { toValue: 1, duration: 100 }),
-    ]).start(cb);
+    Animated.stagger(50, [Animated.timing(val, { toValue: 1, duration: 100 })]).start(cb);
     expect(cb).toHaveBeenCalledWith({ finished: true });
   });
 
   it("loop completes with finite iterations", () => {
     const val = new Animated.Value(0);
     const cb = vi.fn();
-    Animated.loop(
-      Animated.timing(val, { toValue: 1, duration: 100 }),
-      { iterations: 1 },
-    ).start(cb);
+    Animated.loop(Animated.timing(val, { toValue: 1, duration: 100 }), { iterations: 1 }).start(cb);
     expect(cb).toHaveBeenCalledWith({ finished: true });
   });
 
@@ -666,10 +660,9 @@ describe("Animated.ValueXY additional (conformance)", () => {
 describe("Animated.event value mapping (conformance)", () => {
   it("maps event data to Animated.Value", () => {
     const val = new Animated.Value(0);
-    const handler = Animated.event(
-      [{ nativeEvent: { contentOffset: { y: val } } }],
-      { useNativeDriver: false },
-    );
+    const handler = Animated.event([{ nativeEvent: { contentOffset: { y: val } } }], {
+      useNativeDriver: false,
+    });
     handler({ nativeEvent: { contentOffset: { y: 42 } } });
     expect(val.getValue()).toBe(42);
   });
@@ -677,10 +670,9 @@ describe("Animated.event value mapping (conformance)", () => {
   it("maps multiple values from same event", () => {
     const x = new Animated.Value(0);
     const y = new Animated.Value(0);
-    const handler = Animated.event(
-      [{ nativeEvent: { contentOffset: { x, y } } }],
-      { useNativeDriver: false },
-    );
+    const handler = Animated.event([{ nativeEvent: { contentOffset: { x, y } } }], {
+      useNativeDriver: false,
+    });
     handler({ nativeEvent: { contentOffset: { x: 10, y: 20 } } });
     expect(x.getValue()).toBe(10);
     expect(y.getValue()).toBe(20);
@@ -689,10 +681,10 @@ describe("Animated.event value mapping (conformance)", () => {
   it("calls listener if provided", () => {
     const val = new Animated.Value(0);
     const listener = vi.fn();
-    const handler = Animated.event(
-      [{ nativeEvent: { contentOffset: { y: val } } }],
-      { useNativeDriver: false, listener },
-    );
+    const handler = Animated.event([{ nativeEvent: { contentOffset: { y: val } } }], {
+      useNativeDriver: false,
+      listener,
+    });
     const event = { nativeEvent: { contentOffset: { y: 50 } } };
     handler(event);
     expect(listener).toHaveBeenCalledWith(event);
@@ -702,10 +694,9 @@ describe("Animated.event value mapping (conformance)", () => {
     const val = new Animated.Value(0);
     const valListener = vi.fn();
     val.addListener(valListener);
-    const handler = Animated.event(
-      [{ nativeEvent: { contentOffset: { y: val } } }],
-      { useNativeDriver: false },
-    );
+    const handler = Animated.event([{ nativeEvent: { contentOffset: { y: val } } }], {
+      useNativeDriver: false,
+    });
     handler({ nativeEvent: { contentOffset: { y: 99 } } });
     expect(valListener).toHaveBeenCalledWith({ value: 99 });
   });

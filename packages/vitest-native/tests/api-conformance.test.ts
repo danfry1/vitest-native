@@ -174,9 +174,7 @@ describe("Platform (conformance with RN)", () => {
   });
 
   it("select returns native when no platform match", () => {
-    expect(Platform.select({ native: "native", default: "default" })).toBe(
-      "native",
-    );
+    expect(Platform.select({ native: "native", default: "default" })).toBe("native");
   });
 
   it("select returns default as last resort", () => {
@@ -311,9 +309,7 @@ describe("NativeEventEmitter (extended conformance)", () => {
   });
 
   it("constructor works with native module", () => {
-    expect(
-      () => new NativeEventEmitter(NativeModules.SomeModule),
-    ).not.toThrow();
+    expect(() => new NativeEventEmitter(NativeModules.SomeModule)).not.toThrow();
   });
 
   it("addListener returns subscription with remove", () => {

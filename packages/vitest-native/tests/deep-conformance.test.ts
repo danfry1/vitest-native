@@ -53,21 +53,21 @@ describe("UIManager (conformance)", () => {
   });
 
   it("setLayoutAnimationEnabledExperimental is callable", () => {
-    expect(() =>
-      UIManager.setLayoutAnimationEnabledExperimental(true),
-    ).not.toThrow();
+    expect(() => UIManager.setLayoutAnimationEnabledExperimental(true)).not.toThrow();
   });
 
   it("configureNextLayoutAnimation is callable", () => {
     expect(() =>
-      UIManager.configureNextLayoutAnimation({}, () => {}, () => {}),
+      UIManager.configureNextLayoutAnimation(
+        {},
+        () => {},
+        () => {},
+      ),
     ).not.toThrow();
   });
 
   it("dispatchViewManagerCommand is callable", () => {
-    expect(() =>
-      UIManager.dispatchViewManagerCommand(1, "focus", []),
-    ).not.toThrow();
+    expect(() => UIManager.dispatchViewManagerCommand(1, "focus", [])).not.toThrow();
   });
 
   it("setChildren, manageChildren, createView, updateView are callable", () => {
@@ -279,9 +279,7 @@ describe("InteractionManager (conformance)", () => {
 
   it("then() chains correctly", async () => {
     const chainFn = vi.fn(() => 42);
-    const result = await InteractionManager.runAfterInteractions(() => {}).then(
-      chainFn,
-    );
+    const result = await InteractionManager.runAfterInteractions(() => {}).then(chainFn);
     expect(chainFn).toHaveBeenCalled();
     expect(result).toBe(42);
   });

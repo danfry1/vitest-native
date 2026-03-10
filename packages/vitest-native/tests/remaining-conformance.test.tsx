@@ -9,14 +9,7 @@
 import { describe, it, expect, vi } from "vitest";
 import React, { createRef } from "react";
 import { render, screen } from "@testing-library/react-native";
-import {
-  FlatList,
-  Modal,
-  TextInput,
-  Text,
-  View,
-  Animated,
-} from "react-native";
+import { FlatList, Modal, TextInput, Text, View, Animated } from "react-native";
 
 // ---------------------------------------------------------------------------
 // FlatList
@@ -24,12 +17,7 @@ import {
 
 describe("FlatList (conformance)", () => {
   it("renders all items", () => {
-    render(
-      <FlatList
-        data={["A", "B", "C"]}
-        renderItem={({ item }: any) => <Text>{item}</Text>}
-      />,
-    );
+    render(<FlatList data={["A", "B", "C"]} renderItem={({ item }: any) => <Text>{item}</Text>} />);
     expect(screen.getByText("A")).toBeTruthy();
     expect(screen.getByText("B")).toBeTruthy();
     expect(screen.getByText("C")).toBeTruthy();
@@ -122,13 +110,7 @@ describe("FlatList (conformance)", () => {
 
   it("ref methods are available", () => {
     const ref = createRef<any>();
-    render(
-      <FlatList
-        ref={ref}
-        data={["A"]}
-        renderItem={({ item }: any) => <Text>{item}</Text>}
-      />,
-    );
+    render(<FlatList ref={ref} data={["A"]} renderItem={({ item }: any) => <Text>{item}</Text>} />);
     expect(typeof ref.current.scrollToEnd).toBe("function");
     expect(typeof ref.current.scrollToIndex).toBe("function");
     expect(typeof ref.current.scrollToItem).toBe("function");
@@ -344,9 +326,7 @@ describe("Animated.modulo edge cases (conformance)", () => {
 describe("Animated composition functions (conformance)", () => {
   it("loop returns animation with start/stop/reset", () => {
     const val = new Animated.Value(0);
-    const anim = Animated.loop(
-      Animated.timing(val, { toValue: 1, useNativeDriver: false }),
-    );
+    const anim = Animated.loop(Animated.timing(val, { toValue: 1, useNativeDriver: false }));
     expect(typeof anim.start).toBe("function");
     expect(typeof anim.stop).toBe("function");
     expect(typeof anim.reset).toBe("function");
@@ -371,7 +351,9 @@ describe("Animated composition functions (conformance)", () => {
 
   it("loop start calls callback with finished:true (finite)", () => {
     const cb = vi.fn();
-    Animated.loop(Animated.timing(new Animated.Value(0), { toValue: 1 }), { iterations: 1 }).start(cb);
+    Animated.loop(Animated.timing(new Animated.Value(0), { toValue: 1 }), { iterations: 1 }).start(
+      cb,
+    );
     expect(cb).toHaveBeenCalledWith({ finished: true });
   });
 

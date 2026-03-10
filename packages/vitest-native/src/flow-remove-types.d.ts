@@ -14,10 +14,7 @@ declare module "flow-remove-types" {
     pretty?: boolean;
   }
 
-  function flowRemoveTypes(
-    source: string,
-    options?: FlowRemoveTypesOptions,
-  ): FlowRemoveTypesResult;
+  function flowRemoveTypes(source: string, options?: FlowRemoveTypesOptions): FlowRemoveTypesResult;
 
   export default flowRemoveTypes;
 }

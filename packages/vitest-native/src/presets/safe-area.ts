@@ -84,7 +84,12 @@ export function safeAreaContext(): Preset {
             Rect: vi.fn(),
             Metrics: vi.fn(),
             /** Internal: update insets. Called by setInsets() helper. */
-            _setInsets: (insets: { top?: number; right?: number; bottom?: number; left?: number }) => {
+            _setInsets: (insets: {
+              top?: number;
+              right?: number;
+              bottom?: number;
+              left?: number;
+            }) => {
               Object.assign(state.insets, insets);
             },
             /** Internal: reset insets to defaults. Called by resetAllMocks(). */

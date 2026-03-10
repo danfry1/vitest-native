@@ -40,14 +40,14 @@ function repeat(n: number) {
   };
 }
 
-describe('bezier', function () {
-  it('should be a function', function () {
-    expect(typeof bezier === 'function').toBe(true);
+describe("bezier", function () {
+  it("should be a function", function () {
+    expect(typeof bezier === "function").toBe(true);
   });
-  it('should creates an object', function () {
-    expect(typeof bezier(0, 0, 1, 1) === 'function').toBe(true);
+  it("should creates an object", function () {
+    expect(typeof bezier(0, 0, 1, 1) === "function").toBe(true);
   });
-  it('should fail with wrong arguments', function () {
+  it("should fail with wrong arguments", function () {
     expect(function () {
       bezier(0.5, 0.5, -5, 0.5);
     }).toThrow();
@@ -61,14 +61,14 @@ describe('bezier', function () {
       bezier(2, 0.5, 0.5, 0.5);
     }).toThrow();
   });
-  describe('linear curves', function () {
-    it('should be linear', function () {
+  describe("linear curves", function () {
+    it("should be linear", function () {
       allEquals(bezier(0, 0, 1, 1), bezier(1, 1, 0, 0), 100);
       allEquals(bezier(0, 0, 1, 1), identity, 100);
     });
   });
-  describe('common properties', function () {
-    it('should be the right value at extremes', function () {
+  describe("common properties", function () {
+    it("should be the right value at extremes", function () {
       repeat(10)(function () {
         const a = Math.random(),
           b = 2 * Math.random() - 0.5,
@@ -80,7 +80,7 @@ describe('bezier', function () {
       });
     });
 
-    it('should approach the projected value of its x=y projected curve', function () {
+    it("should approach the projected value of its x=y projected curve", function () {
       repeat(10)(function () {
         const a = Math.random(),
           b = Math.random(),
@@ -95,8 +95,8 @@ describe('bezier', function () {
       });
     });
   });
-  describe('two same instances', function () {
-    it('should be strictly equals', function () {
+  describe("two same instances", function () {
+    it("should be strictly equals", function () {
       repeat(10)(function () {
         const a = Math.random(),
           b = 2 * Math.random() - 0.5,
@@ -106,8 +106,8 @@ describe('bezier', function () {
       });
     });
   });
-  describe('symmetric curves', function () {
-    it('should have a central value y~=0.5 at x=0.5', function () {
+  describe("symmetric curves", function () {
+    it("should have a central value y~=0.5 at x=0.5", function () {
       repeat(10)(function () {
         const a = Math.random(),
           b = 2 * Math.random() - 0.5,
@@ -117,7 +117,7 @@ describe('bezier', function () {
         assertClose(easing(0.5), 0.5, 2);
       });
     });
-    it('should be symmetrical', function () {
+    it("should be symmetrical", function () {
       repeat(10)(function () {
         const a = Math.random(),
           b = 2 * Math.random() - 0.5,

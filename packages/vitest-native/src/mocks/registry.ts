@@ -87,13 +87,28 @@ function hslToRgb(h: number, s: number, l: number): [number, number, number] {
   const c = (1 - Math.abs(2 * lNorm - 1)) * sNorm;
   const hPrime = h / 60;
   const x = c * (1 - Math.abs((hPrime % 2) - 1));
-  let r1 = 0, g1 = 0, b1 = 0;
-  if (hPrime < 1) { r1 = c; g1 = x; }
-  else if (hPrime < 2) { r1 = x; g1 = c; }
-  else if (hPrime < 3) { g1 = c; b1 = x; }
-  else if (hPrime < 4) { g1 = x; b1 = c; }
-  else if (hPrime < 5) { r1 = x; b1 = c; }
-  else { r1 = c; b1 = x; }
+  let r1 = 0,
+    g1 = 0,
+    b1 = 0;
+  if (hPrime < 1) {
+    r1 = c;
+    g1 = x;
+  } else if (hPrime < 2) {
+    r1 = x;
+    g1 = c;
+  } else if (hPrime < 3) {
+    g1 = c;
+    b1 = x;
+  } else if (hPrime < 4) {
+    g1 = x;
+    b1 = c;
+  } else if (hPrime < 5) {
+    r1 = x;
+    b1 = c;
+  } else {
+    r1 = c;
+    b1 = x;
+  }
   const m = lNorm - c / 2;
   return [Math.round((r1 + m) * 255), Math.round((g1 + m) * 255), Math.round((b1 + m) * 255)];
 }
@@ -150,9 +165,7 @@ function createProcessColorMock() {
       }
 
       // rgba(r, g, b, a) → 0xAARRGGBB
-      const rgbaMatch = lower.match(
-        /^rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)$/,
-      );
+      const rgbaMatch = lower.match(/^rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)$/);
       if (rgbaMatch) {
         const [, r, g, b, a] = rgbaMatch;
         const alpha = Math.round(parseFloat(a) * 255);

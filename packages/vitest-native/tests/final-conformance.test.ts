@@ -10,12 +10,7 @@
 import { describe, it, expect, vi } from "vitest";
 import React from "react";
 import { render, screen } from "@testing-library/react-native";
-import {
-  PermissionsAndroid,
-  NativeEventEmitter,
-  ActionSheetIOS,
-  Pressable,
-} from "react-native";
+import { PermissionsAndroid, NativeEventEmitter, ActionSheetIOS, Pressable } from "react-native";
 
 // Access internals via the registry for non-exported mocks
 import {
@@ -30,18 +25,12 @@ import {
 
 describe("PermissionsAndroid (conformance)", () => {
   it("PERMISSIONS contains standard Android permissions", () => {
-    expect(PermissionsAndroid.PERMISSIONS.CAMERA).toBe(
-      "android.permission.CAMERA",
-    );
+    expect(PermissionsAndroid.PERMISSIONS.CAMERA).toBe("android.permission.CAMERA");
     expect(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION).toBe(
       "android.permission.ACCESS_FINE_LOCATION",
     );
-    expect(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO).toBe(
-      "android.permission.RECORD_AUDIO",
-    );
-    expect(PermissionsAndroid.PERMISSIONS.READ_CONTACTS).toBe(
-      "android.permission.READ_CONTACTS",
-    );
+    expect(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO).toBe("android.permission.RECORD_AUDIO");
+    expect(PermissionsAndroid.PERMISSIONS.READ_CONTACTS).toBe("android.permission.READ_CONTACTS");
     expect(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS).toBe(
       "android.permission.POST_NOTIFICATIONS",
     );
@@ -54,16 +43,12 @@ describe("PermissionsAndroid (conformance)", () => {
   });
 
   it("check resolves to true", async () => {
-    const result = await PermissionsAndroid.check(
-      PermissionsAndroid.PERMISSIONS.CAMERA,
-    );
+    const result = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.CAMERA);
     expect(result).toBe(true);
   });
 
   it("request resolves to 'granted'", async () => {
-    const result = await PermissionsAndroid.request(
-      PermissionsAndroid.PERMISSIONS.CAMERA,
-    );
+    const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA);
     expect(result).toBe("granted");
   });
 
@@ -294,16 +279,12 @@ describe("ActionSheetIOS (conformance)", () => {
 
 describe("Pressable accessibility (conformance)", () => {
   it("is accessible by default", () => {
-    render(
-      React.createElement(Pressable, { testID: "press" }),
-    );
+    render(React.createElement(Pressable, { testID: "press" }));
     expect(screen.getByTestId("press").props.accessible).toBe(true);
   });
 
   it("disabled prop sets accessibilityState.disabled", () => {
-    render(
-      React.createElement(Pressable, { testID: "press", disabled: true }),
-    );
+    render(React.createElement(Pressable, { testID: "press", disabled: true }));
     expect(screen.getByTestId("press").props.accessibilityState).toEqual({
       disabled: true,
     });
@@ -324,12 +305,8 @@ describe("Pressable accessibility (conformance)", () => {
   });
 
   it("no accessibilityState when not disabled and none provided", () => {
-    render(
-      React.createElement(Pressable, { testID: "press" }),
-    );
-    expect(
-      screen.getByTestId("press").props.accessibilityState,
-    ).toBeUndefined();
+    render(React.createElement(Pressable, { testID: "press" }));
+    expect(screen.getByTestId("press").props.accessibilityState).toBeUndefined();
   });
 
   it("passes through accessibilityState when not disabled", () => {

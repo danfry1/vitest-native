@@ -473,18 +473,54 @@ describe("preset: reanimated", () => {
 
   it("all entering/exiting animations are chainable", () => {
     const anims = [
-      "FadeIn", "FadeOut", "FadeInDown", "FadeInUp", "FadeInLeft", "FadeInRight",
-      "FadeOutDown", "FadeOutUp", "FadeOutLeft", "FadeOutRight",
-      "SlideInRight", "SlideInLeft", "SlideInUp", "SlideInDown",
-      "SlideOutRight", "SlideOutLeft", "SlideOutUp", "SlideOutDown",
-      "ZoomIn", "ZoomOut", "BounceIn", "BounceOut",
-      "BounceInDown", "BounceInUp", "BounceInLeft", "BounceInRight",
-      "FlipInEasyX", "FlipInEasyY", "FlipOutEasyX", "FlipOutEasyY",
-      "LightSpeedInLeft", "LightSpeedInRight", "LightSpeedOutLeft", "LightSpeedOutRight",
-      "PinwheelIn", "PinwheelOut",
-      "StretchInX", "StretchInY", "StretchOutX", "StretchOutY",
-      "RotateInDownLeft", "RotateInDownRight", "RotateInUpLeft", "RotateInUpRight",
-      "RotateOutDownLeft", "RotateOutDownRight", "RotateOutUpLeft", "RotateOutUpRight",
+      "FadeIn",
+      "FadeOut",
+      "FadeInDown",
+      "FadeInUp",
+      "FadeInLeft",
+      "FadeInRight",
+      "FadeOutDown",
+      "FadeOutUp",
+      "FadeOutLeft",
+      "FadeOutRight",
+      "SlideInRight",
+      "SlideInLeft",
+      "SlideInUp",
+      "SlideInDown",
+      "SlideOutRight",
+      "SlideOutLeft",
+      "SlideOutUp",
+      "SlideOutDown",
+      "ZoomIn",
+      "ZoomOut",
+      "BounceIn",
+      "BounceOut",
+      "BounceInDown",
+      "BounceInUp",
+      "BounceInLeft",
+      "BounceInRight",
+      "FlipInEasyX",
+      "FlipInEasyY",
+      "FlipOutEasyX",
+      "FlipOutEasyY",
+      "LightSpeedInLeft",
+      "LightSpeedInRight",
+      "LightSpeedOutLeft",
+      "LightSpeedOutRight",
+      "PinwheelIn",
+      "PinwheelOut",
+      "StretchInX",
+      "StretchInY",
+      "StretchOutX",
+      "StretchOutY",
+      "RotateInDownLeft",
+      "RotateInDownRight",
+      "RotateInUpLeft",
+      "RotateInUpRight",
+      "RotateOutDownLeft",
+      "RotateOutDownRight",
+      "RotateOutUpLeft",
+      "RotateOutUpRight",
     ];
     for (const name of anims) {
       const anim = mock[name];
@@ -497,8 +533,13 @@ describe("preset: reanimated", () => {
 
   it("layout transitions are chainable", () => {
     const transitions = [
-      "Layout", "LinearTransition", "SequencedTransition",
-      "FadingTransition", "JumpingTransition", "CurvedTransition", "EntryExitTransition",
+      "Layout",
+      "LinearTransition",
+      "SequencedTransition",
+      "FadingTransition",
+      "JumpingTransition",
+      "CurvedTransition",
+      "EntryExitTransition",
     ];
     for (const name of transitions) {
       expect(mock[name], `${name} should exist`).toBeDefined();
@@ -508,7 +549,12 @@ describe("preset: reanimated", () => {
 
   it("useAnimatedReaction is callable", () => {
     expect(typeof mock.useAnimatedReaction).toBe("function");
-    expect(() => mock.useAnimatedReaction(() => 1, () => {})).not.toThrow();
+    expect(() =>
+      mock.useAnimatedReaction(
+        () => 1,
+        () => {},
+      ),
+    ).not.toThrow();
   });
 
   it("useAnimatedKeyboard returns shared values", () => {

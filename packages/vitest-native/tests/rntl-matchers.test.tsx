@@ -31,18 +31,30 @@ import {
 
 describe("toBeVisible", () => {
   it("visible by default", () => {
-    render(<View testID="v"><Text>Hi</Text></View>);
+    render(
+      <View testID="v">
+        <Text>Hi</Text>
+      </View>,
+    );
     expect(screen.getByTestId("v")).toBeVisible();
   });
 
   it("hidden via display: none is excluded from default queries", () => {
-    render(<View testID="v" style={{ display: "none" }}><Text>Hi</Text></View>);
+    render(
+      <View testID="v" style={{ display: "none" }}>
+        <Text>Hi</Text>
+      </View>,
+    );
     // RNTL v12+ excludes hidden elements from queries by default
     expect(screen.queryByTestId("v")).toBeNull();
   });
 
   it("hidden via opacity: 0 is not visible", () => {
-    render(<View testID="v" style={{ opacity: 0 }}><Text>Hi</Text></View>);
+    render(
+      <View testID="v" style={{ opacity: 0 }}>
+        <Text>Hi</Text>
+      </View>,
+    );
     expect(screen.getByTestId("v")).not.toBeVisible();
   });
 
@@ -147,12 +159,20 @@ describe("toHaveStyle", () => {
 
 describe("toBeEnabled / toBeDisabled", () => {
   it("Pressable enabled by default", () => {
-    render(<Pressable testID="p"><Text>Press</Text></Pressable>);
+    render(
+      <Pressable testID="p">
+        <Text>Press</Text>
+      </Pressable>,
+    );
     expect(screen.getByTestId("p")).toBeEnabled();
   });
 
   it("Pressable disabled", () => {
-    render(<Pressable testID="p" disabled><Text>Press</Text></Pressable>);
+    render(
+      <Pressable testID="p" disabled>
+        <Text>Press</Text>
+      </Pressable>,
+    );
     expect(screen.getByTestId("p")).toBeDisabled();
   });
 
@@ -178,7 +198,11 @@ describe("toBeEmptyElement", () => {
   });
 
   it("View with children is not empty", () => {
-    render(<View testID="v"><Text>Hi</Text></View>);
+    render(
+      <View testID="v">
+        <Text>Hi</Text>
+      </View>,
+    );
     expect(screen.getByTestId("v")).not.toBeEmptyElement();
   });
 });
@@ -240,9 +264,7 @@ describe("accessibility matchers", () => {
   });
 
   it("toHaveAccessibilityValue with text value", () => {
-    render(
-      <View testID="v" accessibilityValue={{ text: "high" }} />,
-    );
+    render(<View testID="v" accessibilityValue={{ text: "high" }} />);
     expect(screen.getByTestId("v")).toHaveAccessibilityValue({ text: "high" });
   });
 });
@@ -273,12 +295,20 @@ describe("RNTL query types", () => {
   });
 
   it("getByRole", () => {
-    render(<Pressable accessibilityRole="button"><Text>Click</Text></Pressable>);
+    render(
+      <Pressable accessibilityRole="button">
+        <Text>Click</Text>
+      </Pressable>,
+    );
     expect(screen.getByRole("button")).toBeTruthy();
   });
 
   it("getByLabelText", () => {
-    render(<Pressable accessibilityLabel="Submit form"><Text>Submit</Text></Pressable>);
+    render(
+      <Pressable accessibilityLabel="Submit form">
+        <Text>Submit</Text>
+      </Pressable>,
+    );
     expect(screen.getByLabelText("Submit form")).toBeTruthy();
   });
 
@@ -309,13 +339,12 @@ describe("RNTL query types", () => {
 
 describe("FlatList rendering", () => {
   it("renders items", () => {
-    const data = [{ key: "1", title: "Item 1" }, { key: "2", title: "Item 2" }];
+    const data = [
+      { key: "1", title: "Item 1" },
+      { key: "2", title: "Item 2" },
+    ];
     render(
-      <FlatList
-        testID="list"
-        data={data}
-        renderItem={({ item }) => <Text>{item.title}</Text>}
-      />,
+      <FlatList testID="list" data={data} renderItem={({ item }) => <Text>{item.title}</Text>} />,
     );
     expect(screen.getByText("Item 1")).toBeTruthy();
     expect(screen.getByText("Item 2")).toBeTruthy();

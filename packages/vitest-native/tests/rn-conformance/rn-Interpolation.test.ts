@@ -9,8 +9,8 @@ function createInterpolation(config: any) {
   };
 }
 
-describe('Interpolation', () => {
-  it('should work with defaults', () => {
+describe("Interpolation", () => {
+  it("should work with defaults", () => {
     const interpolation = createInterpolation({
       inputRange: [0, 1],
       outputRange: [0, 1],
@@ -22,7 +22,7 @@ describe('Interpolation', () => {
     expect(interpolation(1)).toBe(1);
   });
 
-  it('should work with output range', () => {
+  it("should work with output range", () => {
     const interpolation = createInterpolation({
       inputRange: [0, 1],
       outputRange: [100, 200],
@@ -34,7 +34,7 @@ describe('Interpolation', () => {
     expect(interpolation(1)).toBe(200);
   });
 
-  it('should work with input range', () => {
+  it("should work with input range", () => {
     const interpolation = createInterpolation({
       inputRange: [100, 200],
       outputRange: [0, 1],
@@ -47,13 +47,13 @@ describe('Interpolation', () => {
   });
 
   // Skip: our mock doesn't validate monotonic input ranges
-  it.skip('should throw for non monotonic input ranges', () => {});
+  it.skip("should throw for non monotonic input ranges", () => {});
 
-  it('should work with empty input range', () => {
+  it("should work with empty input range", () => {
     const interpolation = createInterpolation({
       inputRange: [0, 10, 10],
       outputRange: [1, 2, 3],
-      extrapolate: 'extend',
+      extrapolate: "extend",
     });
 
     expect(interpolation(0)).toBe(1);
@@ -63,11 +63,11 @@ describe('Interpolation', () => {
     expect(interpolation(15)).toBe(3);
   });
 
-  it('should work with empty output range', () => {
+  it("should work with empty output range", () => {
     const interpolation = createInterpolation({
       inputRange: [1, 2, 3],
       outputRange: [0, 10, 10],
-      extrapolate: 'extend',
+      extrapolate: "extend",
     });
 
     expect(interpolation(0)).toBe(-10);
@@ -78,7 +78,7 @@ describe('Interpolation', () => {
     expect(interpolation(4)).toBe(10);
   });
 
-  it('should work with easing', () => {
+  it("should work with easing", () => {
     const interpolation = createInterpolation({
       inputRange: [0, 1],
       outputRange: [0, 1],
@@ -91,11 +91,11 @@ describe('Interpolation', () => {
     expect(interpolation(1)).toBe(1);
   });
 
-  it('should work with extrapolate', () => {
+  it("should work with extrapolate", () => {
     let interpolation = createInterpolation({
       inputRange: [0, 1],
       outputRange: [0, 1],
-      extrapolate: 'extend',
+      extrapolate: "extend",
       easing: Easing.quad,
     });
 
@@ -105,7 +105,7 @@ describe('Interpolation', () => {
     interpolation = createInterpolation({
       inputRange: [0, 1],
       outputRange: [0, 1],
-      extrapolate: 'clamp',
+      extrapolate: "clamp",
       easing: Easing.quad,
     });
 
@@ -115,7 +115,7 @@ describe('Interpolation', () => {
     interpolation = createInterpolation({
       inputRange: [0, 1],
       outputRange: [0, 1],
-      extrapolate: 'identity',
+      extrapolate: "identity",
       easing: Easing.quad,
     });
 
@@ -123,7 +123,7 @@ describe('Interpolation', () => {
     expect(interpolation(2)).toBe(2);
   });
 
-  it('should work with keyframes without extrapolate', () => {
+  it("should work with keyframes without extrapolate", () => {
     const interpolation = createInterpolation({
       inputRange: [0, 10, 100, 1000],
       outputRange: [0, 5, 50, 500],
@@ -140,61 +140,61 @@ describe('Interpolation', () => {
     expect(interpolation(2000)).toBe(1000);
   });
 
-  it('should work with keyframes with extrapolate', () => {
+  it("should work with keyframes with extrapolate", () => {
     const interpolation = createInterpolation({
       inputRange: [0, 1, 2],
       outputRange: [0.2, 1, 0.2],
-      extrapolate: 'clamp',
+      extrapolate: "clamp",
     });
 
     expect(interpolation(5)).toBeCloseTo(0.2);
   });
 
   // Skip: our mock doesn't validate infinite input ranges
-  it.skip('should throw for an infinite input range', () => {});
+  it.skip("should throw for an infinite input range", () => {});
 
   // Skip: our mock doesn't support Infinity ranges with easing
-  it.skip('should work with negative infinite', () => {});
+  it.skip("should work with negative infinite", () => {});
 
   // Skip: our mock doesn't support Infinity ranges with easing
-  it.skip('should work with positive infinite', () => {});
+  it.skip("should work with positive infinite", () => {});
 
   // Skip: our mock doesn't support string output range interpolation
-  it.skip('should work with output ranges as string', () => {});
+  it.skip("should work with output ranges as string", () => {});
 
   // Skip: our mock doesn't support string output range interpolation
-  it.skip('should work with output ranges as short hex string', () => {});
+  it.skip("should work with output ranges as short hex string", () => {});
 
   // Skip: our mock doesn't support string output range interpolation
-  it.skip('should work with output ranges as long hex string', () => {});
+  it.skip("should work with output ranges as long hex string", () => {});
 
   // Skip: our mock doesn't support string output range interpolation
-  it.skip('should work with output ranges with mixed hex and rgba strings', () => {});
+  it.skip("should work with output ranges with mixed hex and rgba strings", () => {});
 
   // Skip: our mock doesn't support string output range interpolation
-  it.skip('should work with negative and decimal values in string ranges', () => {});
+  it.skip("should work with negative and decimal values in string ranges", () => {});
 
   // Skip: our mock doesn't validate string inputs
-  it.skip('should crash when chaining an interpolation that returns a string', () => {});
+  it.skip("should crash when chaining an interpolation that returns a string", () => {});
 
   // Skip: our mock doesn't support color pattern interpolation
-  it.skip('should support a mix of color patterns', () => {});
+  it.skip("should support a mix of color patterns", () => {});
 
   // Skip: our mock doesn't support string output range validation
-  it.skip('should crash when defining output range with different pattern', () => {});
+  it.skip("should crash when defining output range with different pattern", () => {});
 
   // Skip: our mock doesn't support string suffix interpolation
-  it.skip('should interpolate values with arbitrary suffixes', () => {});
+  it.skip("should interpolate values with arbitrary suffixes", () => {});
 
   // Skip: our mock doesn't support string format interpolation
-  it.skip('should interpolate numeric values of arbitrary format', () => {});
+  it.skip("should interpolate numeric values of arbitrary format", () => {});
 
   // Skip: our mock doesn't support color alpha rounding
-  it.skip('should round the alpha channel of a color to the nearest thousandth', () => {});
+  it.skip("should round the alpha channel of a color to the nearest thousandth", () => {});
 
   // Skip: our mock doesn't support PlatformColor interpolation
-  it.skip('should work with PlatformColor', () => {});
+  it.skip("should work with PlatformColor", () => {});
 
   // Skip: uses __getNativeConfig() internal
-  it.skip('should convert values to numbers in the native config', () => {});
+  it.skip("should convert values to numbers in the native config", () => {});
 });

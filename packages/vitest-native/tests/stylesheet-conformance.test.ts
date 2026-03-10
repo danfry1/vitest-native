@@ -125,16 +125,8 @@ describe("StyleSheet.flatten (conformance with RN)", () => {
     } as any);
 
     const style = { styleA: "overrideA" };
-    const AthenB = StyleSheet.flatten([
-      fixture.elementA,
-      fixture.elementB,
-      style,
-    ]);
-    const BthenA = StyleSheet.flatten([
-      fixture.elementB,
-      fixture.elementA,
-      style,
-    ]);
+    const AthenB = StyleSheet.flatten([fixture.elementA, fixture.elementB, style]);
+    const BthenA = StyleSheet.flatten([fixture.elementB, fixture.elementA, style]);
 
     expect(AthenB).toEqual({
       styleA: "overrideA",
@@ -157,15 +149,8 @@ describe("StyleSheet.flatten (conformance with RN)", () => {
       },
     } as any);
 
-    const style = [
-      { styleA: "newA", styleB: "newB" },
-      { styleA: "newA2" },
-    ];
-    const result = StyleSheet.flatten([
-      fixture.elementA,
-      fixture.elementB,
-      style,
-    ]);
+    const style = [{ styleA: "newA", styleB: "newB" }, { styleA: "newA2" }];
+    const result = StyleSheet.flatten([fixture.elementA, fixture.elementB, style]);
     expect(result).toEqual({
       styleA: "newA2",
       styleB: "newB",

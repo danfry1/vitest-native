@@ -4,11 +4,7 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import {
-  Animated,
-  StyleSheet,
-  processColor,
-} from "react-native";
+import { Animated, StyleSheet, processColor } from "react-native";
 
 // ---------------------------------------------------------------------------
 // Animated.Value edge cases

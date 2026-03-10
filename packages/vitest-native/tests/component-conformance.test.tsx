@@ -66,12 +66,20 @@ import {
 
 describe("Pressable (conformance)", () => {
   it("renders with accessible={true} by default", () => {
-    render(<Pressable testID="p"><Text>Hi</Text></Pressable>);
+    render(
+      <Pressable testID="p">
+        <Text>Hi</Text>
+      </Pressable>,
+    );
     expect(screen.getByTestId("p").props.accessible).toBe(true);
   });
 
   it("disabled translates to accessibilityState.disabled", () => {
-    render(<Pressable testID="p" disabled><Text>Hi</Text></Pressable>);
+    render(
+      <Pressable testID="p" disabled>
+        <Text>Hi</Text>
+      </Pressable>,
+    );
     expect(screen.getByTestId("p").props.accessibilityState).toEqual({ disabled: true });
   });
 
@@ -322,12 +330,8 @@ describe("Image (conformance)", () => {
 describe("FlatList (conformance)", () => {
   it("renders all items", () => {
     const data = [{ key: "a" }, { key: "b" }, { key: "c" }];
-    const renderItem = vi.fn(({ item }: any) =>
-      React.createElement(Text, null, item.key),
-    );
-    render(
-      <FlatList data={data} renderItem={renderItem} />,
-    );
+    const renderItem = vi.fn(({ item }: any) => React.createElement(Text, null, item.key));
+    render(<FlatList data={data} renderItem={renderItem} />);
     expect(renderItem).toHaveBeenCalledTimes(3);
     expect(screen.getByText("a")).toBeTruthy();
     expect(screen.getByText("b")).toBeTruthy();
@@ -335,13 +339,7 @@ describe("FlatList (conformance)", () => {
   });
 
   it("renders ListEmptyComponent for empty data", () => {
-    render(
-      <FlatList
-        data={[]}
-        renderItem={() => null}
-        ListEmptyComponent={<Text>Empty</Text>}
-      />,
-    );
+    render(<FlatList data={[]} renderItem={() => null} ListEmptyComponent={<Text>Empty</Text>} />);
     expect(screen.getByText("Empty")).toBeTruthy();
   });
 
@@ -386,9 +384,7 @@ describe("FlatList (conformance)", () => {
 
   it("exposes ref methods", () => {
     const ref = createRef<any>();
-    render(
-      <FlatList ref={ref} data={[]} renderItem={() => null} />,
-    );
+    render(<FlatList ref={ref} data={[]} renderItem={() => null} />);
     expect(typeof ref.current.scrollToEnd).toBe("function");
     expect(typeof ref.current.scrollToIndex).toBe("function");
     expect(typeof ref.current.scrollToItem).toBe("function");
@@ -746,14 +742,22 @@ describe("Component displayNames (conformance)", () => {
 describe("SectionList extended (conformance)", () => {
   it("renders sections with data", () => {
     const sections = [
-      { title: "A", data: [{ key: "1", text: "A1" }, { key: "2", text: "A2" }] },
+      {
+        title: "A",
+        data: [
+          { key: "1", text: "A1" },
+          { key: "2", text: "A2" },
+        ],
+      },
       { title: "B", data: [{ key: "3", text: "B1" }] },
     ];
     render(
       <SectionList
         sections={sections}
         renderItem={({ item }) => <Text>{item.text}</Text>}
-        renderSectionHeader={({ section }) => <Text testID={`h-${section.title}`}>{section.title}</Text>}
+        renderSectionHeader={({ section }) => (
+          <Text testID={`h-${section.title}`}>{section.title}</Text>
+        )}
       />,
     );
     expect(screen.getByText("A1")).toBeTruthy();

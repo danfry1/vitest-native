@@ -30,13 +30,7 @@ function getSlope(aT: number, aA1: number, aA2: number) {
   return 3.0 * A(aA1, aA2) * aT * aT + 2.0 * B(aA1, aA2) * aT + C(aA1);
 }
 
-function binarySubdivide(
-  aX: number,
-  aA: number,
-  aB: number,
-  mX1: number,
-  mX2: number,
-) {
+function binarySubdivide(aX: number, aA: number, aB: number, mX1: number, mX2: number) {
   let currentX: number;
   let currentT: number;
   let i = 0;
@@ -50,19 +44,11 @@ function binarySubdivide(
     } else {
       low = currentT;
     }
-  } while (
-    Math.abs(currentX) > SUBDIVISION_PRECISION &&
-    ++i < SUBDIVISION_MAX_ITERATIONS
-  );
+  } while (Math.abs(currentX) > SUBDIVISION_PRECISION && ++i < SUBDIVISION_MAX_ITERATIONS);
   return currentT!;
 }
 
-function newtonRaphsonIterate(
-  aX: number,
-  aGuessT: number,
-  mX1: number,
-  mX2: number,
-) {
+function newtonRaphsonIterate(aX: number, aGuessT: number, mX1: number, mX2: number) {
   let guessT = aGuessT;
   for (let i = 0; i < NEWTON_ITERATIONS; ++i) {
     const currentSlope = getSlope(guessT, mX1, mX2);
@@ -73,12 +59,7 @@ function newtonRaphsonIterate(
   return guessT;
 }
 
-function bezier(
-  mX1: number,
-  mY1: number,
-  mX2: number,
-  mY2: number,
-): (x: number) => number {
+function bezier(mX1: number, mY1: number, mX2: number, mY2: number): (x: number) => number {
   if (!(mX1 >= 0 && mX1 <= 1 && mX2 >= 0 && mX2 <= 1)) {
     throw new Error("bezier x values must be in [0, 1] range");
   }
@@ -97,11 +78,7 @@ function bezier(
     let currentSample = 1;
     const lastSample = kSplineTableSize - 1;
 
-    for (
-      ;
-      currentSample !== lastSample && sampleValues[currentSample] <= aX;
-      ++currentSample
-    ) {
+    for (; currentSample !== lastSample && sampleValues[currentSample] <= aX; ++currentSample) {
       intervalStart += kSampleStepSize;
     }
     --currentSample;
@@ -117,13 +94,7 @@ function bezier(
     } else if (initialSlope === 0.0) {
       return guessForT;
     } else {
-      return binarySubdivide(
-        aX,
-        intervalStart,
-        intervalStart + kSampleStepSize,
-        mX1,
-        mX2,
-      );
+      return binarySubdivide(aX, intervalStart, intervalStart + kSampleStepSize, mX1, mX2);
     }
   }
 
@@ -149,16 +120,10 @@ export function createEasingMock() {
     sin: vi.fn((t: number) => 1 - Math.cos((t * Math.PI) / 2)),
     circle: vi.fn((t: number) => 1 - Math.sqrt(1 - t * t)),
     exp: vi.fn((t: number) => Math.pow(2, 10 * (t - 1))),
-    elastic: vi.fn(
-      (bounciness: number = 1) =>
-        (t: number) => {
-          const p = bounciness * Math.PI;
-          return (
-            1 -
-            Math.pow(Math.cos((t * Math.PI) / 2), 3) * Math.cos(t * p)
-          );
-        },
-    ),
+    elastic: vi.fn((bounciness: number = 1) => (t: number) => {
+      const p = bounciness * Math.PI;
+      return 1 - Math.pow(Math.cos((t * Math.PI) / 2), 3) * Math.cos(t * p);
+    }),
     back: vi.fn(
       (s: number = 1.70158) =>
         (t: number) =>
@@ -177,14 +142,9 @@ export function createEasingMock() {
       const t2 = t - 2.625 / 2.75;
       return 7.5625 * t2 * t2 + 0.984375;
     }),
-    bezier: vi.fn(
-      (x1: number, y1: number, x2: number, y2: number) =>
-        bezier(x1, y1, x2, y2),
-    ),
+    bezier: vi.fn((x1: number, y1: number, x2: number, y2: number) => bezier(x1, y1, x2, y2)),
     in: vi.fn((easing: Function) => easing),
-    out: vi.fn(
-      (easing: Function) => (t: number) => 1 - (easing as any)(1 - t),
-    ),
+    out: vi.fn((easing: Function) => (t: number) => 1 - (easing as any)(1 - t)),
     inOut: vi.fn((easing: Function) => (t: number) => {
       if (t < 0.5) return (easing as any)(t * 2) / 2;
       return 1 - (easing as any)((1 - t) * 2) / 2;

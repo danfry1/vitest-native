@@ -101,11 +101,26 @@ class AnimatedValue {
   }
 
   interpolate(config: any) {
-    const { inputRange, outputRange, extrapolate = "extend", extrapolateLeft, extrapolateRight, easing } = config || {};
+    const {
+      inputRange,
+      outputRange,
+      extrapolate = "extend",
+      extrapolateLeft,
+      extrapolateRight,
+      easing,
+    } = config || {};
     if (!inputRange || !outputRange || inputRange.length < 2 || outputRange.length < 2) {
       return new AnimatedValue(this._value);
     }
-    const result = interpolateValue(this._value, inputRange, outputRange, extrapolate, extrapolateLeft, extrapolateRight, easing);
+    const result = interpolateValue(
+      this._value,
+      inputRange,
+      outputRange,
+      extrapolate,
+      extrapolateLeft,
+      extrapolateRight,
+      easing,
+    );
     return new AnimatedValue(result);
   }
 
@@ -173,16 +188,34 @@ class AnimatedValueXY {
 }
 
 const namedColorMap: Record<string, [number, number, number, number]> = {
-  red: [255, 0, 0, 1], green: [0, 128, 0, 1], blue: [0, 0, 255, 1],
-  white: [255, 255, 255, 1], black: [0, 0, 0, 1], transparent: [0, 0, 0, 0],
-  yellow: [255, 255, 0, 1], cyan: [0, 255, 255, 1], magenta: [255, 0, 255, 1],
+  red: [255, 0, 0, 1],
+  green: [0, 128, 0, 1],
+  blue: [0, 0, 255, 1],
+  white: [255, 255, 255, 1],
+  black: [0, 0, 0, 1],
+  transparent: [0, 0, 0, 0],
+  yellow: [255, 255, 0, 1],
+  cyan: [0, 255, 255, 1],
+  magenta: [255, 0, 255, 1],
 };
 
 function parseColorString(color: string): [number, number, number, number] {
   const rgba = color.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+))?\s*\)$/);
-  if (rgba) return [parseInt(rgba[1]), parseInt(rgba[2]), parseInt(rgba[3]), rgba[4] != null ? parseFloat(rgba[4]) : 1];
+  if (rgba)
+    return [
+      parseInt(rgba[1]),
+      parseInt(rgba[2]),
+      parseInt(rgba[3]),
+      rgba[4] != null ? parseFloat(rgba[4]) : 1,
+    ];
   const hex8 = color.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
-  if (hex8) return [parseInt(hex8[1], 16), parseInt(hex8[2], 16), parseInt(hex8[3], 16), parseInt(hex8[4], 16) / 255];
+  if (hex8)
+    return [
+      parseInt(hex8[1], 16),
+      parseInt(hex8[2], 16),
+      parseInt(hex8[3], 16),
+      parseInt(hex8[4], 16) / 255,
+    ];
   const hex6 = color.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
   if (hex6) return [parseInt(hex6[1], 16), parseInt(hex6[2], 16), parseInt(hex6[3], 16), 1];
   const named = namedColorMap[color.toLowerCase()];
@@ -540,7 +573,9 @@ export function createAnimatedMock() {
       return new AnimatedValue(((aVal % modulus) + modulus) % modulus);
     }),
     diffClamp: vi.fn((a: any, min: number, max: number) => {
-      const result = new AnimatedValue(Math.min(Math.max(a instanceof AnimatedValue ? a.getValue() : 0, min), max));
+      const result = new AnimatedValue(
+        Math.min(Math.max(a instanceof AnimatedValue ? a.getValue() : 0, min), max),
+      );
       if (a instanceof AnimatedValue) {
         let lastInput = a.getValue();
         let current = result.getValue();
@@ -568,7 +603,12 @@ export function createAnimatedMock() {
           mapping.setValue(value);
           return;
         }
-        if (typeof mapping === "object" && mapping !== null && typeof value === "object" && value !== null) {
+        if (
+          typeof mapping === "object" &&
+          mapping !== null &&
+          typeof value === "object" &&
+          value !== null
+        ) {
           for (const key of Object.keys(mapping)) {
             if (key in value) {
               traverseMapping(mapping[key], value[key]);

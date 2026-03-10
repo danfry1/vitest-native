@@ -38,34 +38,29 @@ function createMockNavigation() {
  * useNavigation() and useRoute() inside the screen component return values
  * consistent with the route/navigation props passed to the component.
  */
-function createMockScreen(
-  NavContext: React.Context<any>,
-  RouteContext: React.Context<any>,
-) {
-  const Screen = React.forwardRef(
-    ({ component: Component, children, ...rest }: any, ref: any) => {
-      const route = {
-        key: rest.name ?? "",
-        name: rest.name ?? "",
-        params: rest.initialParams,
-      };
-      const nav = createMockNavigation();
-      const content = Component
-        ? React.createElement(Component, { route, navigation: nav })
-        : typeof children === "function"
-          ? children({ route, navigation: nav })
-          : children;
-      return React.createElement(
-        "Screen",
-        { ...rest, ref },
-        React.createElement(
-          NavContext.Provider,
-          { value: nav },
-          React.createElement(RouteContext.Provider, { value: route }, content),
-        ),
-      );
-    },
-  );
+function createMockScreen(NavContext: React.Context<any>, RouteContext: React.Context<any>) {
+  const Screen = React.forwardRef(({ component: Component, children, ...rest }: any, ref: any) => {
+    const route = {
+      key: rest.name ?? "",
+      name: rest.name ?? "",
+      params: rest.initialParams,
+    };
+    const nav = createMockNavigation();
+    const content = Component
+      ? React.createElement(Component, { route, navigation: nav })
+      : typeof children === "function"
+        ? children({ route, navigation: nav })
+        : children;
+    return React.createElement(
+      "Screen",
+      { ...rest, ref },
+      React.createElement(
+        NavContext.Provider,
+        { value: nav },
+        React.createElement(RouteContext.Provider, { value: route }, content),
+      ),
+    );
+  });
   (Screen as any).displayName = "Screen";
   return Screen;
 }
@@ -249,7 +244,11 @@ export function navigation(): Preset {
           };
 
           function ThemeProvider({ value, children }: any) {
-            return React.createElement(ThemeContext.Provider, { value: value ?? defaultTheme }, children);
+            return React.createElement(
+              ThemeContext.Provider,
+              { value: value ?? defaultTheme },
+              children,
+            );
           }
 
           function useTheme() {
@@ -326,7 +325,9 @@ export function navigation(): Preset {
               jumpTo: vi.fn(),
             },
             findFocusedRoute: vi.fn((state: any) => state?.routes?.[state?.index ?? 0]),
-            getFocusedRouteNameFromRoute: vi.fn((route: any) => route?.state?.routes?.[route?.state?.index ?? 0]?.name),
+            getFocusedRouteNameFromRoute: vi.fn(
+              (route: any) => route?.state?.routes?.[route?.state?.index ?? 0]?.name,
+            ),
             getActionFromState: vi.fn(() => undefined),
             getPathFromState: vi.fn(() => "/"),
             getStateFromPath: vi.fn(() => undefined),
@@ -464,7 +465,8 @@ export function navigation(): Preset {
             useHeaderHeight: () => 64,
             getDefaultHeaderHeight: vi.fn(() => 64),
             getHeaderTitle: vi.fn(
-              (options: any, fallback: string) => options?.headerTitle ?? options?.title ?? fallback,
+              (options: any, fallback: string) =>
+                options?.headerTitle ?? options?.title ?? fallback,
             ),
           };
         },

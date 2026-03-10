@@ -139,10 +139,7 @@ describe("Dark mode integration", () => {
   function ThemedScreen() {
     const scheme = useColorScheme();
     return (
-      <View
-        testID="screen"
-        style={{ backgroundColor: scheme === "dark" ? "#000" : "#fff" }}
-      >
+      <View testID="screen" style={{ backgroundColor: scheme === "dark" ? "#000" : "#fff" }}>
         <Text testID="theme">{scheme}</Text>
       </View>
     );
@@ -158,9 +155,7 @@ describe("Dark mode integration", () => {
 
   it("Appearance.getColorScheme matches useColorScheme", () => {
     render(<ThemedScreen />);
-    expect(screen.getByTestId("theme").props.children).toBe(
-      Appearance.getColorScheme(),
-    );
+    expect(screen.getByTestId("theme").props.children).toBe(Appearance.getColorScheme());
   });
 });
 
@@ -217,12 +212,7 @@ describe("Form handling integration", () => {
     const [submitted, setSubmitted] = useState(false);
     return (
       <View>
-        <TextInput
-          testID="input"
-          value={text}
-          onChangeText={setText}
-          placeholder="Enter text"
-        />
+        <TextInput testID="input" value={text} onChangeText={setText} placeholder="Enter text" />
         <Pressable
           testID="submit"
           onPress={() => {
@@ -265,10 +255,7 @@ describe("FlatList dynamic data integration", () => {
     const [items, setItems] = useState(["Buy milk", "Walk dog"]);
     return (
       <View>
-        <Pressable
-          testID="add"
-          onPress={() => setItems([...items, `Item ${items.length + 1}`])}
-        >
+        <Pressable testID="add" onPress={() => setItems([...items, `Item ${items.length + 1}`])}>
           <Text>Add</Text>
         </Pressable>
         <FlatList
@@ -403,13 +390,7 @@ describe("ToastAndroid (conformance)", () => {
 
   it("showWithGravityAndOffset is callable", () => {
     expect(() =>
-      ToastAndroid.showWithGravityAndOffset(
-        "Hello",
-        ToastAndroid.SHORT,
-        ToastAndroid.BOTTOM,
-        0,
-        0,
-      ),
+      ToastAndroid.showWithGravityAndOffset("Hello", ToastAndroid.SHORT, ToastAndroid.BOTTOM, 0, 0),
     ).not.toThrow();
   });
 });
@@ -458,9 +439,7 @@ describe("AccessibilityInfo (conformance)", () => {
   });
 
   it("announceForAccessibility is callable", () => {
-    expect(() =>
-      AccessibilityInfo.announceForAccessibility("Hello"),
-    ).not.toThrow();
+    expect(() => AccessibilityInfo.announceForAccessibility("Hello")).not.toThrow();
   });
 
   it("addEventListener returns subscription", () => {

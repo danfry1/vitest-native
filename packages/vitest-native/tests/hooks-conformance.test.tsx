@@ -9,12 +9,7 @@
 import { describe, it, expect } from "vitest";
 import React from "react";
 import { render, screen } from "@testing-library/react-native";
-import {
-  View,
-  Text,
-  useColorScheme,
-  useWindowDimensions,
-} from "react-native";
+import { View, Text, useColorScheme, useWindowDimensions } from "react-native";
 
 // ---------------------------------------------------------------------------
 // useColorScheme inside component

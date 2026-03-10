@@ -66,9 +66,7 @@ describe("ScrollView (conformance)", () => {
   });
 
   it("passes props through", () => {
-    render(
-      <ScrollView testID="scroll" horizontal showsHorizontalScrollIndicator={false} />,
-    );
+    render(<ScrollView testID="scroll" horizontal showsHorizontalScrollIndicator={false} />);
     const el = screen.getByTestId("scroll");
     expect(el.props.horizontal).toBe(true);
     expect(el.props.showsHorizontalScrollIndicator).toBe(false);
@@ -91,11 +89,7 @@ describe("ImageBackground (conformance)", () => {
 
   it("passes style to the outer container", () => {
     render(
-      <ImageBackground
-        testID="bg"
-        source={{ uri: "test" }}
-        style={{ width: 100, height: 100 }}
-      >
+      <ImageBackground testID="bg" source={{ uri: "test" }} style={{ width: 100, height: 100 }}>
         <Text>Content</Text>
       </ImageBackground>,
     );
@@ -137,9 +131,7 @@ describe("StatusBar (conformance)", () => {
   });
 
   it("setNetworkActivityIndicatorVisible is callable", () => {
-    expect(() =>
-      StatusBar.setNetworkActivityIndicatorVisible(true),
-    ).not.toThrow();
+    expect(() => StatusBar.setNetworkActivityIndicatorVisible(true)).not.toThrow();
   });
 
   it("pushStackEntry returns object", () => {
@@ -179,11 +171,7 @@ describe("Switch (conformance)", () => {
 
   it("passes trackColor and thumbColor", () => {
     render(
-      <Switch
-        testID="switch"
-        trackColor={{ false: "#ccc", true: "#0f0" }}
-        thumbColor="#fff"
-      />,
+      <Switch testID="switch" trackColor={{ false: "#ccc", true: "#0f0" }} thumbColor="#fff" />,
     );
     const el = screen.getByTestId("switch");
     expect(el.props.trackColor).toEqual({ false: "#ccc", true: "#0f0" });
@@ -263,9 +251,7 @@ describe("RefreshControl (conformance)", () => {
 
   it("passes onRefresh callback", () => {
     const handler = vi.fn();
-    render(
-      <RefreshControl testID="refresh" refreshing={false} onRefresh={handler} />,
-    );
+    render(<RefreshControl testID="refresh" refreshing={false} onRefresh={handler} />);
     expect(screen.getByTestId("refresh").props.onRefresh).toBe(handler);
   });
 });
@@ -277,10 +263,7 @@ describe("RefreshControl (conformance)", () => {
 describe("DrawerLayoutAndroid (conformance)", () => {
   it("renders children", () => {
     render(
-      <DrawerLayoutAndroid
-        testID="drawer"
-        renderNavigationView={() => <View />}
-      >
+      <DrawerLayoutAndroid testID="drawer" renderNavigationView={() => <View />}>
         <Text testID="content">Main</Text>
       </DrawerLayoutAndroid>,
     );
@@ -370,9 +353,7 @@ describe("Animated wrapper components (conformance)", () => {
   });
 
   it("Animated.Image renders", () => {
-    render(
-      <Animated.Image testID="ai" source={{ uri: "test" }} />,
-    );
+    render(<Animated.Image testID="ai" source={{ uri: "test" }} />);
     expect(screen.getByTestId("ai")).toBeTruthy();
   });
 

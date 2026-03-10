@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { Animated } from "react-native";
 
-describe('Animated', () => {
-  it('triggers callback when spring is at rest', () => {
+describe("Animated", () => {
+  it("triggers callback when spring is at rest", () => {
     const anim = new Animated.Value(0);
     const callback = vi.fn();
     Animated.spring(anim, {
@@ -13,23 +13,23 @@ describe('Animated', () => {
     expect(callback).toBeCalled();
   });
 
-  it('convert to JSON', () => {
-    expect(JSON.stringify(new Animated.Value(10))).toBe('10');
+  it("convert to JSON", () => {
+    expect(JSON.stringify(new Animated.Value(10))).toBe("10");
   });
 });
 
-describe('Animated Listeners', () => {
-  it('should get updates', () => {
+describe("Animated Listeners", () => {
+  it("should get updates", () => {
     const value1 = new Animated.Value(0);
     const listener = vi.fn();
     const id = value1.addListener(listener);
     value1.setValue(42);
     expect(listener.mock.calls.length).toBe(1);
-    expect(listener).toBeCalledWith({value: 42});
+    expect(listener).toBeCalledWith({ value: 42 });
     expect(value1.getValue()).toBe(42);
     value1.setValue(7);
     expect(listener.mock.calls.length).toBe(2);
-    expect(listener).toBeCalledWith({value: 7});
+    expect(listener).toBeCalledWith({ value: 7 });
     expect(value1.getValue()).toBe(7);
     value1.removeListener(id);
     value1.setValue(1492);
@@ -37,92 +37,92 @@ describe('Animated Listeners', () => {
     expect(value1.getValue()).toBe(1492);
   });
 
-  it('should removeAll', () => {
+  it("should removeAll", () => {
     const value1 = new Animated.Value(0);
     const listener = vi.fn();
     [1, 2, 3, 4].forEach(() => value1.addListener(listener));
     value1.setValue(42);
     expect(listener.mock.calls.length).toBe(4);
-    expect(listener).toBeCalledWith({value: 42});
+    expect(listener).toBeCalledWith({ value: 42 });
     value1.removeAllListeners();
     value1.setValue(7);
     expect(listener.mock.calls.length).toBe(4);
   });
 });
 
-describe('Animated Events', () => {
-  it('should map events', () => {
+describe("Animated Events", () => {
+  it("should map events", () => {
     const value = new Animated.Value(0);
-    const handler = Animated.event([null, {state: {foo: value}}], {
+    const handler = Animated.event([null, { state: { foo: value } }], {
       useNativeDriver: false,
     });
-    handler({bar: 'ignoreBar'}, {state: {baz: 'ignoreBaz', foo: 42}});
+    handler({ bar: "ignoreBar" }, { state: { baz: "ignoreBaz", foo: 42 } });
     expect(value.getValue()).toBe(42);
   });
 
-  it('should validate AnimatedValueXY mappings', () => {
-    const value = new Animated.ValueXY({x: 0, y: 0});
-    const handler = Animated.event([{state: value}], {
+  it("should validate AnimatedValueXY mappings", () => {
+    const value = new Animated.ValueXY({ x: 0, y: 0 });
+    const handler = Animated.event([{ state: value }], {
       useNativeDriver: false,
     });
-    handler({state: {x: 1, y: 2}});
+    handler({ state: { x: 1, y: 2 } });
     expect(value.x.getValue()).toBe(1);
     expect(value.y.getValue()).toBe(2);
   });
 
-  it('should call listeners', () => {
+  it("should call listeners", () => {
     const value = new Animated.Value(0);
     const listener = vi.fn();
-    const handler = Animated.event([{foo: value}], {
+    const handler = Animated.event([{ foo: value }], {
       listener,
       useNativeDriver: false,
     });
-    handler({foo: 42});
+    handler({ foo: 42 });
     expect(value.getValue()).toBe(42);
     expect(listener.mock.calls.length).toBe(1);
-    expect(listener).toBeCalledWith({foo: 42});
+    expect(listener).toBeCalledWith({ foo: 42 });
   });
 
-  it('should call forked event listeners, with Animated.event() listener', () => {
+  it("should call forked event listeners, with Animated.event() listener", () => {
     const value = new Animated.Value(0);
     const listener = vi.fn();
-    const handler = Animated.event([{foo: value}], {
+    const handler = Animated.event([{ foo: value }], {
       listener,
       useNativeDriver: false,
     });
     const listener2 = vi.fn();
     const forkedHandler = Animated.forkEvent(handler, listener2);
-    forkedHandler({foo: 42});
+    forkedHandler({ foo: 42 });
     expect(value.getValue()).toBe(42);
     expect(listener.mock.calls.length).toBe(1);
-    expect(listener).toBeCalledWith({foo: 42});
+    expect(listener).toBeCalledWith({ foo: 42 });
     expect(listener2.mock.calls.length).toBe(1);
-    expect(listener2).toBeCalledWith({foo: 42});
+    expect(listener2).toBeCalledWith({ foo: 42 });
   });
 
-  it('should call forked event listeners, with js listener', () => {
+  it("should call forked event listeners, with js listener", () => {
     const listener = vi.fn();
     const listener2 = vi.fn();
     const forkedHandler = Animated.forkEvent(listener, listener2);
-    forkedHandler({foo: 42});
+    forkedHandler({ foo: 42 });
     expect(listener.mock.calls.length).toBe(1);
-    expect(listener).toBeCalledWith({foo: 42});
+    expect(listener).toBeCalledWith({ foo: 42 });
     expect(listener2.mock.calls.length).toBe(1);
-    expect(listener2).toBeCalledWith({foo: 42});
+    expect(listener2).toBeCalledWith({ foo: 42 });
   });
 
-  it('should call forked event listeners, with undefined listener', () => {
+  it("should call forked event listeners, with undefined listener", () => {
     const listener = undefined;
     const listener2 = vi.fn();
     const forkedHandler = Animated.forkEvent(listener, listener2);
-    forkedHandler({foo: 42});
+    forkedHandler({ foo: 42 });
     expect(listener2.mock.calls.length).toBe(1);
-    expect(listener2).toBeCalledWith({foo: 42});
+    expect(listener2).toBeCalledWith({ foo: 42 });
   });
 });
 
-describe('Animated Diff Clamp', () => {
-  it('should get the proper value', () => {
+describe("Animated Diff Clamp", () => {
+  it("should get the proper value", () => {
     const inputValues = [0, 20, 40, 30, 0, -40, -10, -20, 0];
     const expectedValues = [0, 20, 20, 10, 0, 0, 20, 10, 20];
     const value = new Animated.Value(0);
@@ -138,14 +138,14 @@ describe('Animated Diff Clamp', () => {
 // Animated Sequence — ported from Animated-test.js
 // ---------------------------------------------------------------------------
 
-describe('Animated Sequence', () => {
-  it('works with an empty sequence', () => {
+describe("Animated Sequence", () => {
+  it("works with an empty sequence", () => {
     const cb = vi.fn();
     Animated.sequence([]).start(cb);
     expect(cb).toBeCalledWith({ finished: true });
   });
 
-  it('sequences well', () => {
+  it("sequences well", () => {
     const anim1 = { start: vi.fn() };
     const anim2 = { start: vi.fn() };
     const cb = vi.fn();
@@ -170,7 +170,7 @@ describe('Animated Sequence', () => {
     expect(cb).toBeCalledWith({ finished: true });
   });
 
-  it('supports interrupting sequence', () => {
+  it("supports interrupting sequence", () => {
     const anim1 = { start: vi.fn() };
     const anim2 = { start: vi.fn() };
     const cb = vi.fn();
@@ -184,7 +184,7 @@ describe('Animated Sequence', () => {
     expect(cb).toBeCalledWith({ finished: false });
   });
 
-  it('supports stopping sequence', () => {
+  it("supports stopping sequence", () => {
     const anim1 = { start: vi.fn(), stop: vi.fn() };
     const anim2 = { start: vi.fn(), stop: vi.fn() };
     const cb = vi.fn();
@@ -202,7 +202,7 @@ describe('Animated Sequence', () => {
     expect(cb).toBeCalledWith({ finished: false });
   });
 
-  it('supports restarting sequence after stopped during execution', () => {
+  it("supports restarting sequence after stopped during execution", () => {
     const anim1 = { start: vi.fn(), stop: vi.fn() };
     const anim2 = { start: vi.fn(), stop: vi.fn() };
     const cb = vi.fn();
@@ -224,7 +224,7 @@ describe('Animated Sequence', () => {
     expect(anim2.start).toHaveBeenCalledTimes(2);
   });
 
-  it('supports restarting sequence after finished', () => {
+  it("supports restarting sequence after finished", () => {
     const anim1 = { start: vi.fn(), stop: vi.fn() };
     const anim2 = { start: vi.fn(), stop: vi.fn() };
     const cb = vi.fn();
@@ -249,14 +249,14 @@ describe('Animated Sequence', () => {
 // Animated Parallel — ported from Animated-test.js
 // ---------------------------------------------------------------------------
 
-describe('Animated Parallel', () => {
-  it('works with an empty parallel', () => {
+describe("Animated Parallel", () => {
+  it("works with an empty parallel", () => {
     const cb = vi.fn();
     Animated.parallel([]).start(cb);
     expect(cb).toBeCalledWith({ finished: true });
   });
 
-  it('works with an empty element in array', () => {
+  it("works with an empty element in array", () => {
     const anim1 = { start: vi.fn() };
     const cb = vi.fn();
     Animated.parallel([null as any, anim1 as any]).start(cb);
@@ -267,7 +267,7 @@ describe('Animated Parallel', () => {
     expect(cb).toBeCalledWith({ finished: true });
   });
 
-  it('parallelizes well', () => {
+  it("parallelizes well", () => {
     const anim1 = { start: vi.fn() };
     const anim2 = { start: vi.fn() };
     const cb = vi.fn();
@@ -290,7 +290,7 @@ describe('Animated Parallel', () => {
     expect(cb).toBeCalledWith({ finished: true });
   });
 
-  it('supports stopping parallel', () => {
+  it("supports stopping parallel", () => {
     const anim1 = { start: vi.fn(), stop: vi.fn() };
     const anim2 = { start: vi.fn(), stop: vi.fn() };
     const cb = vi.fn();
@@ -310,7 +310,7 @@ describe('Animated Parallel', () => {
     expect(cb).toBeCalledWith({ finished: false });
   });
 
-  it('does not call stop more than once when stopping', () => {
+  it("does not call stop more than once when stopping", () => {
     const anim1 = { start: vi.fn(), stop: vi.fn() };
     const anim2 = { start: vi.fn(), stop: vi.fn() };
     const anim3 = { start: vi.fn(), stop: vi.fn() };
@@ -343,8 +343,8 @@ describe('Animated Parallel', () => {
 // Animated Loop — ported from Animated-test.js
 // ---------------------------------------------------------------------------
 
-describe('Animated Loop', () => {
-  it('loops indefinitely if config not specified', () => {
+describe("Animated Loop", () => {
+  it("loops indefinitely if config not specified", () => {
     const animation = {
       start: vi.fn(),
       reset: vi.fn(),
@@ -375,7 +375,7 @@ describe('Animated Loop', () => {
     expect(cb).not.toBeCalled();
   });
 
-  it('loops indefinitely if iterations is -1', () => {
+  it("loops indefinitely if iterations is -1", () => {
     const animation = {
       start: vi.fn(),
       reset: vi.fn(),
@@ -400,7 +400,7 @@ describe('Animated Loop', () => {
     expect(cb).not.toBeCalled();
   });
 
-  it('loops three times if iterations is 3', () => {
+  it("loops three times if iterations is 3", () => {
     const animation = {
       start: vi.fn(),
       reset: vi.fn(),
@@ -429,7 +429,7 @@ describe('Animated Loop', () => {
     expect(cb).toBeCalledWith({ finished: true });
   });
 
-  it('does not loop if iterations is 1', () => {
+  it("does not loop if iterations is 1", () => {
     const animation = {
       start: vi.fn(),
       reset: vi.fn(),
@@ -448,7 +448,7 @@ describe('Animated Loop', () => {
     expect(cb).toBeCalledWith({ finished: true });
   });
 
-  it('does not animate if iterations is 0', () => {
+  it("does not animate if iterations is 0", () => {
     const animation = {
       start: vi.fn(),
       reset: vi.fn(),
@@ -464,7 +464,7 @@ describe('Animated Loop', () => {
     expect(cb).toBeCalledWith({ finished: true });
   });
 
-  it('supports interrupting an indefinite loop', () => {
+  it("supports interrupting an indefinite loop", () => {
     const animation = {
       start: vi.fn(),
       reset: vi.fn(),
@@ -486,7 +486,7 @@ describe('Animated Loop', () => {
     expect(cb).toBeCalledWith({ finished: false });
   });
 
-  it('supports stopping loop', () => {
+  it("supports stopping loop", () => {
     const animation = {
       start: vi.fn(),
       stop: vi.fn(),
@@ -508,7 +508,7 @@ describe('Animated Loop', () => {
     expect(cb).toBeCalledWith({ finished: false });
   });
 
-  it('does not reset if resetBeforeIteration is false', () => {
+  it("does not reset if resetBeforeIteration is false", () => {
     const animation = {
       start: vi.fn(),
       reset: vi.fn(),
@@ -538,8 +538,8 @@ describe('Animated Loop', () => {
 // Animated Delays — ported from Animated-test.js
 // ---------------------------------------------------------------------------
 
-describe('Animated delays', () => {
-  it('should call anim after delay in sequence', () => {
+describe("Animated delays", () => {
+  it("should call anim after delay in sequence", () => {
     const anim = { start: vi.fn(), stop: vi.fn() };
     const cb = vi.fn();
     Animated.sequence([Animated.delay(1000), anim as any]).start(cb);
@@ -549,7 +549,7 @@ describe('Animated delays', () => {
     expect(cb).toBeCalledWith({ finished: true });
   });
 
-  it('should run stagger to end', () => {
+  it("should run stagger to end", () => {
     const cb = vi.fn();
     Animated.stagger(1000, [
       Animated.delay(1000),
@@ -564,8 +564,8 @@ describe('Animated delays', () => {
 // Animated Tracking — ported from Animated-test.js
 // ---------------------------------------------------------------------------
 
-describe('Animated Tracking', () => {
-  it('should track values', () => {
+describe("Animated Tracking", () => {
+  it("should track values", () => {
     const value1 = new Animated.Value(0);
     const value2 = new Animated.Value(0);
     Animated.timing(value2, {
@@ -579,7 +579,7 @@ describe('Animated Tracking', () => {
     expect(value2.getValue()).toBe(7);
   });
 
-  it('should stop tracking when animated', () => {
+  it("should stop tracking when animated", () => {
     const value1 = new Animated.Value(0);
     const value2 = new Animated.Value(0);
     Animated.timing(value2, {
@@ -598,7 +598,7 @@ describe('Animated Tracking', () => {
     expect(value2.getValue()).toBe(7);
   });
 
-  it('should start tracking immediately on animation start', () => {
+  it("should start tracking immediately on animation start", () => {
     const value1 = new Animated.Value(42);
     const value2 = new Animated.Value(0);
     Animated.timing(value2, {
@@ -612,22 +612,22 @@ describe('Animated Tracking', () => {
   });
 });
 
-describe('Animated Colors', () => {
-  it('should normalize colors', () => {
+describe("Animated Colors", () => {
+  it("should normalize colors", () => {
     let color = new Animated.Color();
-    expect(color.__getValue()).toEqual('rgba(0, 0, 0, 1)');
+    expect(color.__getValue()).toEqual("rgba(0, 0, 0, 1)");
 
-    color = new Animated.Color({r: 11, g: 22, b: 33, a: 1.0});
-    expect(color.__getValue()).toEqual('rgba(11, 22, 33, 1)');
+    color = new Animated.Color({ r: 11, g: 22, b: 33, a: 1.0 });
+    expect(color.__getValue()).toEqual("rgba(11, 22, 33, 1)");
 
-    color = new Animated.Color('rgba(255, 0, 0, 1.0)');
-    expect(color.__getValue()).toEqual('rgba(255, 0, 0, 1)');
+    color = new Animated.Color("rgba(255, 0, 0, 1.0)");
+    expect(color.__getValue()).toEqual("rgba(255, 0, 0, 1)");
 
-    color = new Animated.Color('#ff0000ff');
-    expect(color.__getValue()).toEqual('rgba(255, 0, 0, 1)');
+    color = new Animated.Color("#ff0000ff");
+    expect(color.__getValue()).toEqual("rgba(255, 0, 0, 1)");
 
-    color = new Animated.Color('red');
-    expect(color.__getValue()).toEqual('rgba(255, 0, 0, 1)');
+    color = new Animated.Color("red");
+    expect(color.__getValue()).toEqual("rgba(255, 0, 0, 1)");
 
     color = new Animated.Color({
       r: new Animated.Value(255),
@@ -635,12 +635,12 @@ describe('Animated Colors', () => {
       b: new Animated.Value(0),
       a: new Animated.Value(1.0),
     });
-    expect(color.__getValue()).toEqual('rgba(255, 0, 0, 1)');
+    expect(color.__getValue()).toEqual("rgba(255, 0, 0, 1)");
 
-    color = new Animated.Color('unknown');
-    expect(color.__getValue()).toEqual('rgba(0, 0, 0, 1)');
+    color = new Animated.Color("unknown");
+    expect(color.__getValue()).toEqual("rgba(0, 0, 0, 1)");
 
-    color = new Animated.Color({key: 'value'} as any);
-    expect(color.__getValue()).toEqual('rgba(0, 0, 0, 1)');
+    color = new Animated.Color({ key: "value" } as any);
+    expect(color.__getValue()).toEqual("rgba(0, 0, 0, 1)");
   });
 });

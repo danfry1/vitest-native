@@ -9,13 +9,7 @@
 import { describe, it, expect, vi } from "vitest";
 import React, { createRef } from "react";
 import { render, screen } from "@testing-library/react-native";
-import {
-  Button,
-  SectionList,
-  VirtualizedList,
-  Text,
-  View,
-} from "react-native";
+import { Button, SectionList, VirtualizedList, Text, View } from "react-native";
 
 // ---------------------------------------------------------------------------
 // Button
@@ -39,30 +33,19 @@ describe("Button (conformance)", () => {
 
   it("custom accessibilityLabel overrides title", () => {
     render(
-      <Button
-        title="Submit"
-        accessibilityLabel="Submit form"
-        onPress={() => {}}
-        testID="btn"
-      />,
+      <Button title="Submit" accessibilityLabel="Submit form" onPress={() => {}} testID="btn" />,
     );
-    expect(screen.getByTestId("btn").props.accessibilityLabel).toBe(
-      "Submit form",
-    );
+    expect(screen.getByTestId("btn").props.accessibilityLabel).toBe("Submit form");
   });
 
   it("disabled button does not have onPress handler", () => {
-    render(
-      <Button title="Disabled" onPress={() => {}} disabled testID="btn" />,
-    );
+    render(<Button title="Disabled" onPress={() => {}} disabled testID="btn" />);
     // When disabled, onPress is set to undefined
     expect(screen.getByTestId("btn").props.onPress).toBeUndefined();
   });
 
   it("disabled button sets accessibilityState.disabled", () => {
-    render(
-      <Button title="Disabled" onPress={() => {}} disabled testID="btn" />,
-    );
+    render(<Button title="Disabled" onPress={() => {}} disabled testID="btn" />);
     expect(screen.getByTestId("btn").props.accessibilityState).toEqual({
       disabled: true,
     });
@@ -76,9 +59,7 @@ describe("Button (conformance)", () => {
 
   it("enabled button has no accessibilityState", () => {
     render(<Button title="OK" onPress={() => {}} testID="btn" />);
-    expect(
-      screen.getByTestId("btn").props.accessibilityState,
-    ).toBeUndefined();
+    expect(screen.getByTestId("btn").props.accessibilityState).toBeUndefined();
   });
 
   it("color prop is applied to child Text style", () => {
@@ -124,12 +105,7 @@ describe("SectionList (conformance)", () => {
   });
 
   it("renders all items from all sections", () => {
-    render(
-      <SectionList
-        sections={sections}
-        renderItem={({ item }: any) => <Text>{item}</Text>}
-      />,
-    );
+    render(<SectionList sections={sections} renderItem={({ item }: any) => <Text>{item}</Text>} />);
     expect(screen.getByText("Apple")).toBeTruthy();
     expect(screen.getByText("Banana")).toBeTruthy();
     expect(screen.getByText("Carrot")).toBeTruthy();
@@ -142,9 +118,7 @@ describe("SectionList (conformance)", () => {
         sections={sections}
         renderItem={({ item }: any) => <Text>{item}</Text>}
         renderSectionFooter={({ section }: any) => (
-          <Text testID={`footer-${section.title}`}>
-            {section.data.length} items
-          </Text>
+          <Text testID={`footer-${section.title}`}>{section.data.length} items</Text>
         )}
       />,
     );
@@ -182,12 +156,7 @@ describe("SectionList (conformance)", () => {
 
   it("renderItem receives section and separators", () => {
     const renderItem = vi.fn(({ item }: any) => <Text>{item}</Text>);
-    render(
-      <SectionList
-        sections={[{ title: "A", data: ["x"] }]}
-        renderItem={renderItem}
-      />,
-    );
+    render(<SectionList sections={[{ title: "A", data: ["x"] }]} renderItem={renderItem} />);
     const call = renderItem.mock.calls[0][0];
     expect(call.item).toBe("x");
     expect(call.index).toBe(0);
@@ -295,10 +264,7 @@ describe("VirtualizedList (conformance)", () => {
 
   it("falls back to data.length when getItemCount not provided", () => {
     render(
-      <VirtualizedList
-        data={["A", "B"]}
-        renderItem={({ item }: any) => <Text>{item}</Text>}
-      />,
+      <VirtualizedList data={["A", "B"]} renderItem={({ item }: any) => <Text>{item}</Text>} />,
     );
     expect(screen.getByText("A")).toBeTruthy();
     expect(screen.getByText("B")).toBeTruthy();

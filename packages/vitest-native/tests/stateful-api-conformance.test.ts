@@ -374,15 +374,11 @@ describe("AppRegistry (conformance)", () => {
   });
 
   it("registerHeadlessTask is callable", () => {
-    expect(() =>
-      AppRegistry.registerHeadlessTask("Task", () => async () => {}),
-    ).not.toThrow();
+    expect(() => AppRegistry.registerHeadlessTask("Task", () => async () => {})).not.toThrow();
   });
 
   it("runApplication is callable", () => {
-    expect(() =>
-      AppRegistry.runApplication("App", { initialProps: {}, rootTag: 1 }),
-    ).not.toThrow();
+    expect(() => AppRegistry.runApplication("App", { initialProps: {}, rootTag: 1 })).not.toThrow();
   });
 });
 
