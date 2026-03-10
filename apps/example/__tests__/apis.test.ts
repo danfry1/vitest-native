@@ -140,7 +140,7 @@ describe('Animated API', () => {
 
   it('Value.interpolate clamps to input range', () => {
     const v = new Animated.Value(2);
-    const interpolated = v.interpolate({ inputRange: [0, 1], outputRange: [0, 100] });
+    const interpolated = v.interpolate({ inputRange: [0, 1], outputRange: [0, 100], extrapolate: 'clamp' });
     expect(interpolated.getValue()).toBe(100);
   });
 
