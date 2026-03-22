@@ -6,6 +6,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import flowRemoveTypes from "flow-remove-types";
+import { validatePeerDependency, warnUnknownOptions } from "./validate.js";
 
 const DEFAULT_ASSET_EXTS = [
   "png",
@@ -63,6 +64,8 @@ async function autoDetectPresets(diagnostics: boolean, projectRoot: string): Pro
           console.log(`[vitest-native] Auto-detected ${pkgName} → enabled ${exportName} preset`);
         }
       }
+    } else if (diagnostics) {
+      console.log(`[vitest-native] Checked for ${pkgName}: not found, skipping preset`);
     }
   }
   return detected;
@@ -224,6 +227,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     );
   }
 
+  if (options) {
+    warnUnknownOptions(options as unknown as Record<string, unknown>);
+  }
+
   // These are populated in configResolved once we know the project root.
   let resolved: ResolvedOptions;
   const presetModules = new Map<string, () => Record<string, any>>();
@@ -295,6 +302,29 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     },
 
     async configResolved(config) {
+      // Validate peer dependencies
+      const peers = [
+        { name: "vitest", range: "4.0.0" },
+        { name: "vite", range: "5.0.0" },
+        { name: "react", range: "18.0.0" },
+      ];
+      for (const { name, range } of peers) {
+        const error = validatePeerDependency(name, range, config.root);
+        if (error) {
+          console.error(`[vitest-native] ${error}`);
+        }
+      }
+
+      // Check optional RNTL version
+      const rntlError = validatePeerDependency(
+        "@testing-library/react-native",
+        "12.0.0",
+        config.root,
+      );
+      if (rntlError && !rntlError.includes("not found")) {
+        console.warn(`[vitest-native] ${rntlError}`);
+      }
+
       // Now we have the real project root — resolve options from consumer context.
       resolved = await resolveOptions(options, config.root);
 
