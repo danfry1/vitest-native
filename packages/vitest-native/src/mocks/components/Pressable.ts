@@ -9,6 +9,13 @@ export function createPressableMock() {
       disabled || accessibilityState
         ? { ...accessibilityState, ...(disabled ? { disabled: true } : {}) }
         : undefined;
+    // Strip press handlers when disabled to match real RN behavior.
+    if (disabled) {
+      delete rest.onPress;
+      delete rest.onPressIn;
+      delete rest.onPressOut;
+      delete rest.onLongPress;
+    }
     return React.createElement("Pressable", {
       accessible: true,
       ...rest,

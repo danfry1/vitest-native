@@ -7,6 +7,12 @@ export function createTouchableNativeFeedbackMock() {
       disabled || accessibilityState
         ? { ...accessibilityState, ...(disabled ? { disabled: true } : {}) }
         : undefined;
+    if (disabled) {
+      delete rest.onPress;
+      delete rest.onPressIn;
+      delete rest.onPressOut;
+      delete rest.onLongPress;
+    }
     return React.createElement("TouchableNativeFeedback", {
       accessible: true,
       ...rest,
