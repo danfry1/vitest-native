@@ -97,7 +97,23 @@ leaf host-component mocks (View/Text/Image/ScrollView/TextInput/Modal/...).
 so the boundary maintains itself upstream and tracks every RN version. This collapses our
 maintenance surface from "all of RN" (today's mock engine) to "a thin compatibility shim."
 
-### 4.4 Renderer
+### 4.4 The speed moat: shared RN runtime (`isolate: false`)
+
+Scale-benchmarked (40 component files / 80 real-RN render tests, warm):
+
+| Mode | Wall | CPU | Notes |
+|------|------|-----|-------|
+| `isolate: true` (default) | ~3.5s | ~20s | RN graph re-executed per file (jest pays this too → parity) |
+| **`isolate: false`** | **0.91s** | **4.3s** | RN graph loaded **once per worker, reused** → ~4× faster |
+
+Jest **structurally cannot** reuse the module graph across files (it re-requires the
+registry per file). A persistent Vitest worker can hold the RN runtime hot. This is our
+competitive moat. The `native` engine's headline feature is therefore **"isolated tests on
+a shared RN runtime"**: keep the expensive/stable RN graph hot, reset only the mutable bits
+between files (boundary mock state, timers, listeners, mounted React trees). Tractable
+because we own the boundary layer. Default-isolation remains available as the safe mode.
+
+### 4.5 Renderer
 
 Works today with `react-test-renderer@19`. Target **RNTL v14 + `universal-test-renderer`**
 (standalone, `react-reconciler`-based, explicitly Jest-or-Vitest) to shed the deprecated
@@ -135,8 +151,14 @@ full fidelity — that's what `native` is for.
   plugins / non-RN deps; scope hooks tightly to RN paths (done in spike).
 - **RN version churn.** Mitigated by reusing Meta's mocks (Phase 1) and version-keying the
   cache. Needs a CI matrix across RN versions (0.78 / 0.82 / 0.84+).
-- **Speed claim is not yet measured vs jest-expo.** Phase 2 benchmark is the proof; until
-  then we say "warm ~0.5s on the spike," not "Nx faster than Jest."
+- **Speed claim is not yet measured vs *live* jest-expo.** Scale benchmark shows ~4× via
+  shared runtime, but vs *known* jest behaviour, not a head-to-head. Phase 2 runs the real
+  bake-off.
+- **Shared-runtime test isolation (`isolate: false`).** The moat depends on reusing the RN
+  graph across files, which shares module state. Must reset mutable state between files
+  (boundary mock state, fake timers, event-emitter listeners, mounted trees, RN
+  module-level singletons like Dimensions/AppState) without re-executing the graph. This is
+  its own workstream and the main correctness risk of the headline feature.
 - **Windows path handling** in the hooks/resolver.
 - **New Architecture / Fabric specifics** as RN moves NA-only (0.82+): boundary stubs for
   `getEnforcing` are required (already handled in spike).
