@@ -100,3 +100,22 @@ describe("resolvePlatformFile", () => {
     expect(resolvePlatformFile(path.join(RN, "Libraries/Does/Not/Exist"))).toBe(null);
   });
 });
+
+import { reactNative } from "../src/index.js";
+
+describe("plugin engine routing", () => {
+  it("native engine sets RN external + a native setup file, and does NOT virtualize react-native", () => {
+    const plugin = reactNative({ engine: "native" }) as any;
+    const cfg = plugin.config({}, { command: "serve", mode: "test" });
+    const ext = cfg.test.server.deps.external.map(String).join(",");
+    expect(ext).toMatch(/react-native/);
+    expect(cfg.test.setupFiles.some((p: string) => p.includes("native"))).toBe(true);
+    // Under native, react-native must NOT be redirected to the mock virtual module.
+    expect(plugin.resolveId("react-native", undefined)).toBeUndefined();
+  });
+
+  it("mock engine still virtualizes react-native", () => {
+    const plugin = reactNative({ engine: "mock" }) as any;
+    expect(plugin.resolveId("react-native", undefined)).toBe("\0virtual:react-native");
+  });
+});

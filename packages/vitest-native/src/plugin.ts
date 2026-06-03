@@ -7,6 +7,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import flowRemoveTypes from "flow-remove-types";
 import { validatePeerDependency, warnUnknownOptions } from "./validate.js";
+import { nativeEngineConfig } from "./native/apply.js";
 
 const DEFAULT_ASSET_EXTS = [
   "png",
@@ -254,9 +255,16 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     }
   }
 
+  // Native-engine setup file (shipped verbatim as dist/native/setup.mjs; the src
+  // tree mirrors that layout so both built and source resolution find it here).
+  const nativeSetupPath = path.resolve(thisDir, "native/setup.mjs");
+
   // Platform extensions can be computed eagerly.
   const platform = options?.platform ?? "ios";
   const diagnostics = options?.diagnostics ?? false;
+  // Resolve the requested engine. 'auto' conservatively resolves to 'mock' today.
+  const requestedEngine = options?.engine ?? "auto";
+  const engine: "mock" | "native" = requestedEngine === "native" ? "native" : "mock";
   const extensions = getPlatformExtensions(platform);
 
   return {
@@ -279,6 +287,13 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         VITEST_NATIVE_PROJECT_ROOT: resolvedRoot,
       };
 
+      // Native engine: externalize RN so it loads through Node's single CJS graph,
+      // where the native setup file's hooks Flow-strip it and mock the boundary.
+      if (engine === "native") {
+        return nativeEngineConfig(nativeSetupPath, env);
+      }
+
+      // --- mock engine (existing behaviour) ---
       // Custom mock overrides (validated above to be serializable).
       if (options?.mocks && Object.keys(options.mocks).length > 0) {
         env.VITEST_NATIVE_MOCKS = JSON.stringify(options.mocks);
@@ -346,6 +361,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     },
 
     resolveId(source, importer) {
+      // Native engine handles RN entirely in Node's CJS graph — no virtualization.
+      if (engine === "native") return undefined;
+
       // Redirect react-native root import to a virtual module.
       // The real mock is wired up by vi.mock() in the setup file.
       if (source === "react-native") {
@@ -406,6 +424,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     },
 
     load(id) {
+      // Native engine serves RN from Node's CJS graph — nothing to load here.
+      if (engine === "native") return undefined;
+
       // The root react-native module — re-export nothing.
       // vi.mock('react-native') in setup.ts provides the actual mock.
       if (id === "\0virtual:react-native") {
@@ -459,6 +480,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     },
 
     transform(code, id) {
+      // Native engine Flow-strips RN in Node's loader hooks, not Vite's pipeline.
+      if (engine === "native") return undefined;
+
       // Strip Flow type annotations from React Native source files.
       // RN's source is written in Flow and cannot be executed directly in Node.
       // Currently a no-op (all RN imports resolve to virtual modules), but
