@@ -111,6 +111,7 @@ import { reactNative } from 'vitest-native';
 export default defineConfig({
   plugins: [
     reactNative({
+      engine: 'auto',          // 'auto' | 'mock' | 'native' (default: 'auto')
       platform: 'ios',        // 'ios' | 'android' (default: 'ios')
       presets: [],             // Preset[] -- omit for auto-detect
       mocks: {},               // Custom mock overrides for the react-native module
@@ -123,11 +124,27 @@ export default defineConfig({
 
 | Option | Type | Default | Description |
 |---|---|---|---|
+| `engine` | `'auto' \| 'mock' \| 'native'` | `'auto'` | How React Native is provided to your tests. See [`engine`](#engine) below. |
 | `platform` | `'ios' \| 'android'` | `'ios'` | Target platform. Controls `Platform.OS`, version defaults, and file extension resolution. |
 | `presets` | `Preset[]` | auto-detect | Built-in library presets. When omitted, installed packages are detected automatically. Only built-in presets are supported; for custom module mocking, use `vi.mock()` in a setup file. |
 | `mocks` | `Record<string, any>` | `{}` | JSON-serializable overrides merged into the `react-native` module mock. Function values are not supported; use `vi.mock()` in a setup file for function-based overrides. |
 | `diagnostics` | `boolean` | `false` | Log plugin activity to the console for debugging. |
 | `assetExts` | `string[]` | `[]` | Additional file extensions to stub as asset imports (beyond the built-in set). |
+
+### `engine`
+
+Choose how React Native is provided to your tests:
+
+- `'mock'` *(default today)* — a fast, pure-JS reimplementation of React Native.
+  Best for unit/logic tests.
+- `'native'` — runs the **real** React Native JS, mocking only the native boundary,
+  for Jest-level fidelity. Requires `@react-native/babel-preset` and `@babel/core`
+  in your project (present by default in React Native apps).
+- `'auto'` — picks automatically. Currently resolves to `'mock'`.
+
+```ts
+reactNative({ engine: 'native' })
+```
 
 ---
 

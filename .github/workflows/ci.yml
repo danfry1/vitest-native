@@ -44,6 +44,9 @@ jobs:
       - name: Test
         run: bun run test
 
+      - name: Native engine tests
+        run: bun run test:native
+
       - name: Test example app
         run: bun run test:example
 

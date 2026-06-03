@@ -38,7 +38,11 @@ export async function load(url, context, nextLoad) {
   if (norm.endsWith(".js")) {
     const src = fs.readFileSync(file, "utf8");
     if (isFlow(src))
-      return { format: "commonjs", source: transformRN(file, src, PROJECT_ROOT), shortCircuit: true };
+      return {
+        format: "commonjs",
+        source: transformRN(file, src, PROJECT_ROOT),
+        shortCircuit: true,
+      };
   }
   return nextLoad(url, context);
 }

@@ -9,6 +9,7 @@
   "scripts": {
     "build": "bun run --filter vitest-native build",
     "test": "bun run --filter vitest-native test",
+    "test:native": "bun run --filter vitest-native test:native",
     "test:example": "bun run build && bun run --filter '@vitest-native/example' test",
     "lint": "oxlint --deny-warnings packages/vitest-native/src/ packages/vitest-native/tests/",
     "format": "oxfmt --write packages/vitest-native/src/ packages/vitest-native/tests/",
