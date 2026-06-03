@@ -1,26 +1,32 @@
 import { describe, it, expect } from "vitest";
 import path from "node:path";
 import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 // @ts-expect-error — runtime .mjs, no types
 import { transformRN } from "../src/native/transform.mjs";
 
-// Resolve react-native's real on-disk location WITHOUT `require.resolve`: under
-// the default (mock-engine) Vitest config the plugin intercepts `react-native/*`
-// resolution even through node:module's createRequire, so we walk up node_modules
-// and follow the symlink with realpathSync instead.
-function resolveRNRoot(): string {
-  let dir = process.cwd();
+// Anchor all resolution to THIS test file's location (cwd-independent — vitest's
+// process.cwd() varies with where it was launched). Walk up from here looking for
+// a directory containing the target.
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+function findUp(rel: string, start: string): string {
+  let dir = start;
   for (;;) {
-    const pkg = path.join(dir, "node_modules", "react-native", "package.json");
-    if (fs.existsSync(pkg)) return path.dirname(fs.realpathSync(pkg));
+    const candidate = path.join(dir, rel);
+    if (fs.existsSync(candidate)) return candidate;
     const parent = path.dirname(dir);
-    if (parent === dir) throw new Error("react-native not found from " + process.cwd());
+    if (parent === dir) throw new Error(`${rel} not found from ${start}`);
     dir = parent;
   }
 }
 
-const RN = resolveRNRoot();
-const projectRoot = process.cwd();
+// Resolve react-native's real on-disk location WITHOUT `require.resolve`: under
+// the default (mock-engine) Vitest config the plugin intercepts `react-native/*`
+// resolution even through node:module's createRequire, so we walk node_modules
+// and follow the symlink with realpathSync instead.
+const RN = path.dirname(fs.realpathSync(findUp("node_modules/react-native/package.json", HERE)));
+// projectRoot = the dir owning package.json (where @react-native/babel-preset resolves).
+const projectRoot = path.dirname(findUp("package.json", HERE));
 
 describe("transformRN", () => {
   it("lowers RN 0.84 Flow component syntax to runnable JS", () => {
@@ -38,5 +44,45 @@ describe("transformRN", () => {
     const a = transformRN(file, src, projectRoot);
     const b = transformRN(file, src, projectRoot);
     expect(b).toBe(a);
+  });
+});
+
+// @ts-expect-error — runtime .mjs
+import { boundarySourceFor, isBoundary } from "../src/native/boundary.mjs";
+import Module from "node:module";
+
+function evalCjs(source: string): any {
+  const filename = path.join(projectRoot, "boundary-test.js");
+  const m = new Module(filename, null);
+  m.filename = filename;
+  // Give the virtual module real resolution paths so `require("react")` (used by
+  // the host-component mocks) resolves, mirroring how RN modules compile in prod.
+  // @ts-expect-error internal
+  m.paths = Module._nodeModulePaths(projectRoot);
+  // @ts-expect-error internal
+  m._compile(source, filename);
+  return m.exports;
+}
+
+describe("native boundary", () => {
+  it("identifies boundary modules by suffix", () => {
+    expect(isBoundary("/x/react-native/Libraries/TurboModule/TurboModuleRegistry.js")).toBe(true);
+    expect(isBoundary("/x/react-native/Libraries/StyleSheet/StyleSheet.js")).toBe(false);
+  });
+
+  it("TurboModuleRegistry mock never throws and returns constants", () => {
+    const src = boundarySourceFor("/x/react-native/Libraries/TurboModule/TurboModuleRegistry.js");
+    const mod = evalCjs(src!);
+    expect(typeof mod.getEnforcing).toBe("function");
+    const dev = mod.getEnforcing("DeviceInfo");
+    expect(dev.getConstants().Dimensions.window.width).toBe(390);
+  });
+
+  it("requireNativeComponent mock returns a host component factory", () => {
+    const src = boundarySourceFor(
+      "/x/react-native/Libraries/ReactNative/requireNativeComponent.js",
+    );
+    const mod = evalCjs(src!);
+    expect(typeof mod.default).toBe("function");
   });
 });
