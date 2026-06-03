@@ -86,3 +86,17 @@ describe("native boundary", () => {
     expect(typeof mod.default).toBe("function");
   });
 });
+
+// @ts-expect-error — runtime .mjs
+import { resolvePlatformFile } from "../src/native/resolve.mjs";
+
+describe("resolvePlatformFile", () => {
+  it("resolves a plain .js module that exists in RN", () => {
+    const base = path.join(RN, "Libraries/StyleSheet/StyleSheet");
+    expect(resolvePlatformFile(base)).toBe(base + ".js");
+  });
+
+  it("returns null when nothing matches", () => {
+    expect(resolvePlatformFile(path.join(RN, "Libraries/Does/Not/Exist"))).toBe(null);
+  });
+});
