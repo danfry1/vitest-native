@@ -212,6 +212,16 @@ export interface VitestNativeOptions {
   platform?: "ios" | "android";
 
   /**
+   * Test engine.
+   * - 'mock'   — pure-JS reimplementation of React Native (fastest, lower fidelity).
+   * - 'native' — runs real React Native JS, mocking only the native boundary
+   *              (Jest-level fidelity).
+   * - 'auto'   — picks an engine automatically. Currently resolves to 'mock'.
+   * Default: 'auto'.
+   */
+  engine?: "auto" | "mock" | "native";
+
+  /**
    * Built-in third-party library presets. When provided, only these presets
    * are used. When omitted, vitest-native auto-detects installed packages
    * and enables matching presets automatically.
@@ -250,6 +260,7 @@ export interface VitestNativeOptions {
 
 export interface ResolvedOptions {
   platform: "ios" | "android";
+  engine: "mock" | "native";
   diagnostics: boolean;
   extensions: string[];
   presets: Preset[];

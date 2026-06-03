@@ -77,6 +77,7 @@ async function resolveOptions(
 ): Promise<ResolvedOptions> {
   const platform = options.platform ?? "ios";
   const diagnostics = options.diagnostics ?? false;
+  const engine: "mock" | "native" = options.engine === "native" ? "native" : "mock";
   const userExts = (options.assetExts ?? []).map((e) => e.replace(/^\./, ""));
 
   // If user provided presets explicitly, use those. Otherwise auto-detect.
@@ -89,6 +90,7 @@ async function resolveOptions(
 
   return {
     platform,
+    engine,
     diagnostics,
     extensions: getPlatformExtensions(platform),
     presets,

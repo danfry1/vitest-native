@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 
-const KNOWN_OPTIONS = ["platform", "presets", "mocks", "diagnostics", "assetExts"];
+const KNOWN_OPTIONS = ["platform", "presets", "mocks", "diagnostics", "assetExts", "engine"];
 
 function satisfiesMinimum(version: string, minimum: string): boolean {
   const parse = (v: string) =>
