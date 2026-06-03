@@ -15,6 +15,7 @@ A Vitest plugin for React Native. One install, zero config.
 - [Test Helpers](#test-helpers)
 - [Auto-Detect Presets](#auto-detect-presets)
 - [RNTL Matchers](#rntl-matchers)
+- [Animated Matchers (Reanimated)](#animated-matchers-reanimated)
 - [Snapshot Serializer](#snapshot-serializer)
 - [Platform Extensions](#platform-extensions)
 - [Asset Stubs](#asset-stubs)
@@ -385,6 +386,77 @@ test('greeting is visible with correct style', () => {
   expect(text).toHaveStyle({ color: 'red' });
   expect(text).toHaveTextContent('Hello');
 });
+```
+
+---
+
+## Animated Matchers (Reanimated)
+
+`react-native-reanimated` ships `toHaveAnimatedStyle` and `toHaveAnimatedProps` through its Jest setup, which isn't available under Vitest. `vitest-native` registers Vitest-native equivalents automatically — no `setUpTests()` call or setup file needed.
+
+| Matcher | Description |
+|---|---|
+| `toHaveAnimatedStyle(style, config?)` | Element's (flattened) style contains the given entries. Pass `{ shouldMatchAllProps: true }` to require an exact match. |
+| `toHaveAnimatedProps(props)` | Element's animated props contain the given entries. |
+
+Because the `reanimated` preset resolves `useAnimatedStyle`/`useAnimatedProps` synchronously, the animated values land on the rendered element and these matchers read straight from it:
+
+```tsx
+import { render, screen } from '@testing-library/react-native';
+import Animated, { useSharedValue, useAnimatedStyle } from 'react-native-reanimated';
+
+function Skeleton({ visible }: { visible: boolean }) {
+  const opacity = useSharedValue(visible ? 1 : 0);
+  const style = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  return <Animated.View testID="bone" style={style} />;
+}
+
+test('starts with full opacity', () => {
+  render(<Skeleton visible />);
+  expect(screen.getByTestId('bone')).toHaveAnimatedStyle({ opacity: 1 });
+});
+```
+
+### Reanimated + Gesture Handler without manual mocks
+
+Both libraries are auto-detected, so a component using a `Gesture` + `GestureDetector` driving an animated style needs no `vi.mock()` calls:
+
+```tsx
+import { render, screen, fireEvent } from '@testing-library/react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { useSharedValue, useAnimatedStyle } from 'react-native-reanimated';
+
+function Card() {
+  const pressed = useSharedValue(false);
+  const style = useAnimatedStyle(() => ({ opacity: pressed.value ? 0.5 : 1 }));
+  const tap = Gesture.Tap().onStart(() => {
+    pressed.value = true;
+  });
+  return (
+    <GestureDetector gesture={tap}>
+      <Animated.View testID="card" style={style} />
+    </GestureDetector>
+  );
+}
+
+test('card renders at full opacity', () => {
+  render(<Card />);
+  expect(screen.getByTestId('card')).toHaveAnimatedStyle({ opacity: 1 });
+});
+```
+
+> RNGH's `Pressable` is also exported by the preset and mirrors React Native's `Pressable` (including not firing `onPress` when `disabled`), so you can swap `import { Pressable } from 'react-native-gesture-handler'` straight into tests.
+
+### TypeScript
+
+To type the matchers on `expect()`, add the matcher types to your `tsconfig.json`:
+
+```jsonc
+{
+  "compilerOptions": {
+    "types": ["vitest-native/matchers"]
+  }
+}
 ```
 
 ---

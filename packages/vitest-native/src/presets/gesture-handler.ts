@@ -1,6 +1,7 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
+import { createPressableMock } from "../mocks/components/Pressable.js";
 
 export function gestureHandler(): Preset {
   return {
@@ -30,6 +31,7 @@ export function gestureHandler(): Preset {
           "TouchableHighlight",
           "TouchableWithoutFeedback",
           "TouchableNativeFeedback",
+          "Pressable",
         ],
         factory: () => {
           const State = {
@@ -149,6 +151,9 @@ export function gestureHandler(): Preset {
             TouchableHighlight: createGestureHandler("GH-TouchableHighlight"),
             TouchableWithoutFeedback: createGestureHandler("GH-TouchableWithoutFeedback"),
             TouchableNativeFeedback: createGestureHandler("GH-TouchableNativeFeedback"),
+            // RNGH's Pressable mirrors RN's Pressable API. Reuse the RN mock so
+            // it inherits behaviors like suppressing press handlers when disabled.
+            Pressable: createPressableMock(),
           };
         },
       },

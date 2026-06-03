@@ -654,6 +654,11 @@ describe("preset: gestureHandler", () => {
     const MyComponent = () => null;
     expect(mock.gestureHandlerRootHOC(MyComponent)).toBe(MyComponent);
   });
+
+  it("exposes a Pressable component", () => {
+    expect(mock.Pressable).toBeDefined();
+    expect(mock.Pressable.displayName).toBe("Pressable");
+  });
 });
 
 // --- Safe Area Context ---
