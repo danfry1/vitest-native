@@ -105,14 +105,24 @@
     "react": ">=18",
     "vite": ">=5",
     "vitest": ">=4",
-    "@testing-library/react-native": ">=12"
+    "@testing-library/react-native": ">=12",
+    "@react-native/babel-preset": "*",
+    "@babel/core": "*"
   },
   "peerDependenciesMeta": {
     "@testing-library/react-native": {
       "optional": true
+    },
+    "@react-native/babel-preset": {
+      "optional": true
+    },
+    "@babel/core": {
+      "optional": true
     }
   },
   "devDependencies": {
+    "@babel/core": "^7.29.7",
+    "@react-native/babel-preset": "^0.85.3",
     "@testing-library/react-native": "^12.9.0",
     "@types/node": "^25.3.5",
     "@types/react": "^19.2.14",
@@ -127,6 +137,7 @@
   "scripts": {
     "build": "tsdown",
     "test": "vitest run",
+    "test:native": "vitest run --config tests-native/vitest.config.mts",
     "lint": "oxlint --deny-warnings src/ tests/",
     "format": "oxfmt --write src/ tests/",
     "format:check": "oxfmt --check src/ tests/",
