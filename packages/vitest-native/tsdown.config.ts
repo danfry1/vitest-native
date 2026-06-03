@@ -7,6 +7,7 @@ export default defineConfig({
     setup: 'src/setup.ts',
     serializer: 'src/serializer.ts',
     presets: 'src/presets/index.ts',
+    matchers: 'src/matchers/animated.ts',
   },
   format: ['esm', 'cjs'],
   dts: true,

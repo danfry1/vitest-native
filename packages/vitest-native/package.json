@@ -77,6 +77,16 @@
         "types": "./dist/presets.d.cts",
         "default": "./dist/presets.cjs"
       }
+    },
+    "./matchers": {
+      "import": {
+        "types": "./dist/matchers.d.mts",
+        "default": "./dist/matchers.mjs"
+      },
+      "require": {
+        "types": "./dist/matchers.d.cts",
+        "default": "./dist/matchers.cjs"
+      }
     }
   },
   "files": [

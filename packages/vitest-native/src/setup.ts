@@ -25,6 +25,7 @@ import path from "node:path";
 import type { Preset } from "./types.js";
 import { AUTO_DETECT_PRESETS } from "./preset-map.js";
 import { serializer as rnSerializer } from "./serializer.js";
+import { animatedMatchers } from "./matchers/animated.js";
 
 // --- Read options from process.env ---
 
@@ -246,11 +247,20 @@ try {
   }
 }
 
-// --- 7. Register snapshot serializer for readable RN component output ---
+// --- 7. Register reanimated-compatible matchers (toHaveAnimatedStyle, etc.) ---
+
+vitestExpect.extend(animatedMatchers as Record<string, (...args: any[]) => any>);
+if (diagnostics) {
+  console.log(
+    `[vitest-native] Registered ${Object.keys(animatedMatchers).length} animated matchers: ${Object.keys(animatedMatchers).join(", ")}`,
+  );
+}
+
+// --- 8. Register snapshot serializer for readable RN component output ---
 
 vitestExpect.addSnapshotSerializer(rnSerializer);
 
-// --- 8. Cleanup ---
+// --- 9. Cleanup ---
 
 afterAll(() => {
   uninstallCjsBridge();
