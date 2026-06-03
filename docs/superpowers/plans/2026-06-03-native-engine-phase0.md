@@ -133,14 +133,29 @@ Create `tests/native-unit.test.ts`:
 
 ```ts
 import { describe, it, expect } from "vitest";
-import { createRequire } from "node:module";
 import path from "node:path";
 import fs from "node:fs";
 // @ts-expect-error — runtime .mjs, no types
 import { transformRN } from "../src/native/transform.mjs";
 
-const require = createRequire(import.meta.url);
-const RN = path.dirname(require.resolve("react-native/package.json"));
+// IMPORTANT: this unit test runs under the default (mock-engine) Vitest config,
+// where the reactNative() plugin intercepts `react-native/*` resolution — even
+// through node:module's createRequire under vite-node. So `require.resolve(
+// "react-native/package.json")` returns a VIRTUAL id, not the real disk path.
+// Resolve the real on-disk dir via the node_modules symlink + realpathSync instead.
+// (@babel/core and @react-native/babel-preset are NOT intercepted, so transformRN's
+// own resolution works fine — only this test's RN-file lookup needs this.)
+function resolveRNRoot(): string {
+  let dir = process.cwd();
+  for (;;) {
+    const pkg = path.join(dir, "node_modules", "react-native", "package.json");
+    if (fs.existsSync(pkg)) return path.dirname(fs.realpathSync(pkg));
+    const parent = path.dirname(dir);
+    if (parent === dir) throw new Error("react-native not found from " + process.cwd());
+    dir = parent;
+  }
+}
+const RN = resolveRNRoot();
 const projectRoot = process.cwd();
 
 describe("transformRN", () => {
