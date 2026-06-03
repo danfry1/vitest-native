@@ -18,6 +18,11 @@ const DEVICE_CONSTANTS = JSON.stringify({
       screen: { width: 390, height: 844, scale: 3, fontScale: 1 },
     },
   },
+  I18nManager: {
+    isRTL: false,
+    doLeftAndRightSwapInRTL: true,
+    localeIdentifier: "en_US",
+  },
 });
 
 // A reusable mock-native-component factory, inlined into each source string that needs it.
@@ -38,7 +43,13 @@ const MOCK_NATIVE_COMPONENT = `
 const TURBO_STUB = `
   const __C = ${DEVICE_CONSTANTS};
   const turboStub = (name) => new Proxy({}, {
-    get: (_t, p) => (p === "getConstants" ? () => (__C[name] || {}) : () => undefined),
+    get: (_t, p) => {
+      if (p === "getConstants") return () => (__C[name] || {});
+      if (p === "getColorScheme") return () => "light";        // NativeAppearance
+      if (p === "addListener") return () => ({ remove: () => {} });
+      if (p === "removeListeners") return () => {};
+      return () => undefined;
+    },
   });
 `;
 
@@ -69,6 +80,28 @@ export const BOUNDARY_SOURCES = {
     module.exports = { __esModule: true, default: mockNativeComponent("RCTView"), __INTERNAL_VIEW_CONFIG: {}, Commands: {} };
   `,
   "Libraries/Core/InitializeCore.js": `module.exports = { __esModule: true, default: {} };`,
+  // RendererProxy re-exports RendererImplementation, which loads RN's native Fabric
+  // renderer (ReactNativeRenderer-dev.js) — that version-asserts react vs the bundled
+  // react-native-renderer and breaks SectionList/VirtualizedList. react-test-renderer
+  // does the real reconciliation, so we only need these imperative helpers as stubs.
+  // Mirrors react-native/jest/mocks/RendererProxy.js.
+  "Libraries/ReactNative/RendererProxy.js": `
+    module.exports = {
+      __esModule: true,
+      findNodeHandle: () => null,
+      findHostInstance_DEPRECATED: () => null,
+      dispatchCommand: () => {},
+      sendAccessibilityEvent: () => {},
+      getNodeFromInternalInstanceHandle: () => null,
+      getPublicInstanceFromInternalInstanceHandle: () => null,
+      getPublicInstanceFromRootTag: () => null,
+      isChildPublicInstance: () => false,
+      isProfilingRenderer: () => false,
+      renderElement: () => {},
+      unmountComponentAtNodeAndRemoveContainer: () => {},
+      unstable_batchedUpdates: (fn, a) => fn(a),
+    };
+  `,
   "Libraries/ReactNative/UIManager.js": `
     module.exports = { __esModule: true, default: new Proxy(
       { getViewManagerConfig: () => ({}), hasViewManagerConfig: () => true, getConstants: () => ({}) },
