@@ -1,0 +1,4 @@
+node_modules/
+shared/
+bun.lock
+.vite/
