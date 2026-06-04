@@ -97,21 +97,31 @@ leaf host-component mocks (View/Text/Image/ScrollView/TextInput/Modal/...).
 so the boundary maintains itself upstream and tracks every RN version. This collapses our
 maintenance surface from "all of RN" (today's mock engine) to "a thin compatibility shim."
 
-### 4.4 The speed moat: shared RN runtime (`isolate: false`)
+### 4.4 The speed moat: shared RN runtime (`isolate: false` + `pool: threads`) — SHIPPED
 
-Scale-benchmarked (40 component files / 80 real-RN render tests, warm):
+**Status: implemented as the native engine default** (`src/native/apply.ts`). See
+`docs/native-engine-performance.md` for the full performance model and
+`docs/engine-comparison-evidence.md` for measured head-to-head numbers.
 
-| Mode | Wall | CPU | Notes |
-|------|------|-----|-------|
-| `isolate: true` (default) | ~3.5s | ~20s | RN graph re-executed per file (jest pays this too → parity) |
-| **`isolate: false`** | **0.91s** | **4.3s** | RN graph loaded **once per worker, reused** → ~4× faster |
+Head-to-head vs jest (warm median; native = shipped default):
+
+| Suite | jest | native | native speedup |
+|-------|------|--------|----------------|
+| 25 files / 75 tests | 1.37s | 1.30s | 1.0× |
+| 60 files / 180 tests | 1.63s (cold 6.9s) | 1.40s (cold 3.79s) | 1.16× warm, 1.8× cold |
+| 100 files / 300 tests | 1.99s | 1.52s | 1.31× (lead widens) |
 
 Jest **structurally cannot** reuse the module graph across files (it re-requires the
-registry per file). A persistent Vitest worker can hold the RN runtime hot. This is our
-competitive moat. The `native` engine's headline feature is therefore **"isolated tests on
-a shared RN runtime"**: keep the expensive/stable RN graph hot, reset only the mutable bits
-between files (boundary mock state, timers, listeners, mounted React trees). Tractable
-because we own the boundary layer. Default-isolation remains available as the safe mode.
+registry per file → linear growth). The native engine runs `isolate: false` so RN's graph
+loads **once per worker** (Node's cache) and stays flat as the suite grows.
+
+**Correction to the original plan:** we expected `isolate: false` to need per-file
+state-reset machinery ("isolated tests on a shared RN runtime"). **It does not** — measured
+pollution probes showed that under `isolate:false`+`threads` in this setup, neither module
+state nor `globalThis` leaks across files (each test file gets a fresh vite-node module
+evaluation while externalized RN stays warm in Node's cache). So no reset layer was built.
+The **mock** engine, by contrast, *cannot* use `isolate:false` — its hand-written
+module-level state pollutes (verified 5 failures) — so mock stays `isolate:true`.
 
 ### 4.5 Renderer
 
@@ -130,20 +140,22 @@ full fidelity — that's what `native` is for.
 
 ## 6. Phasing
 
-- **Phase 0 — `native` MVP behind the flag.** Productionize the spike: the two hooks +
-  disk cache + boundary-as-a-module + platform resolution, wired through
-  `reactNative({ engine: 'native' })`. Port the spike tests; run RN's own conformance
-  suite under `native`. Ship `engine` option (default stays `mock`).
-- **Phase 1 — Fidelity + boundary reuse.** Replace hand-written boundary with a shim over
-  `react-native/jest/mocks/*`. Build a component coverage matrix (every core component
-  renders + behaves like real RN). RNTL v12/v14 compatibility tests.
-- **Phase 2 — `auto` + speed.** Per-glob engine selection; pre-built shipped transform
-  cache; a CI benchmark suite vs `jest-expo` to make the speed claim *measured*, not
-  hoped.
-- **Phase 3 — Ecosystem + flip.** Validate real-JS third-party libs (reanimated,
-  navigation, gesture-handler) under `native` (their real code runs — presets shrink to
-  native-bit stubs). Docs, migration guide from jest-expo, then flip `auto` default to
-  `native`.
+- **Phase 0 — `native` MVP — DONE.** Two hooks + disk cache + boundary module + platform
+  resolution, wired through `reactNative({ engine: 'native' })`. Spike tests + RN
+  conformance run under `native`. `engine` option shipped (default `auto`→`mock`).
+- **Phase 0.5 — Speed — DONE (ahead of plan).** Native defaults to `isolate:false` +
+  `pool:threads` + react `dedupe`; atomic transform-cache. Reproducible head-to-head
+  harness (`bench/`). **Result: native faster than jest by default, cold + warm, lead
+  widens with scale.** See `docs/native-engine-performance.md`. (The speed work originally
+  scoped for Phase 2 landed here; the feared state-reset workstream proved unnecessary.)
+- **Phase 1 — Fidelity + boundary reuse.** RNTL works + 20-component matrix + differential
+  suite landed. Remaining: replace the hand-written boundary with a shim over
+  `react-native/jest/mocks/*`; RNTL v14 compatibility; the cosmetic LogBox act() warning
+  (runtime `LogBox.ignoreAllLogs()` in setup).
+- **Phase 2 — `auto` + cold-start.** Per-glob engine selection; pre-shipped transform cache
+  (cuts cold further); RN-version CI matrix (0.78 / 0.82 / 0.84+).
+- **Phase 3 — Ecosystem + flip.** Validate real-JS third-party libs under `native`. Docs,
+  migration guide from jest-expo, then flip `auto` default to `native`.
 
 ## 7. Risks & open questions
 
@@ -151,14 +163,14 @@ full fidelity — that's what `native` is for.
   plugins / non-RN deps; scope hooks tightly to RN paths (done in spike).
 - **RN version churn.** Mitigated by reusing Meta's mocks (Phase 1) and version-keying the
   cache. Needs a CI matrix across RN versions (0.78 / 0.82 / 0.84+).
-- **Speed claim is not yet measured vs *live* jest-expo.** Scale benchmark shows ~4× via
-  shared runtime, but vs *known* jest behaviour, not a head-to-head. Phase 2 runs the real
-  bake-off.
-- **Shared-runtime test isolation (`isolate: false`).** The moat depends on reusing the RN
-  graph across files, which shares module state. Must reset mutable state between files
-  (boundary mock state, fake timers, event-emitter listeners, mounted trees, RN
-  module-level singletons like Dimensions/AppState) without re-executing the graph. This is
-  its own workstream and the main correctness risk of the headline feature.
+- **Speed claim — RESOLVED (measured head-to-head).** `bench/` runs jest RN-preset vs
+  native vs mock on an identical suite: native is faster cold + warm, lead widens with
+  scale (§4.4). A `jest-expo` variant (transforms more) would be friendlier still; worth
+  adding. Numbers are machine-dependent — re-run on CI before publishing exact figures.
+- **Shared-runtime test isolation (`isolate: false`) — RESOLVED.** Measured: no module-state
+  or `globalThis` leakage across files under `isolate:false`+`threads`, so no reset layer
+  was needed (see `docs/native-engine-performance.md` §2). Re-verify the pollution probes if
+  the pool type or vitest version changes.
 - **Windows path handling** in the hooks/resolver.
 - **New Architecture / Fabric specifics** as RN moves NA-only (0.82+): boundary stubs for
   `getEnforcing` are required (already handled in spike).

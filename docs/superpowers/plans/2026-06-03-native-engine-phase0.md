@@ -14,6 +14,28 @@
 
 ---
 
+> **POST-PHASE-0 ADDENDUM (2026-06-04) — what changed after this plan executed.** The tasks
+> below shipped as written (default isolation), then the speed work landed *ahead of
+> schedule* and changed two defaults. Treat the addendum as authoritative over the task
+> snippets where they differ. Full rationale: `docs/native-engine-performance.md`.
+>
+> 1. **`src/native/apply.ts` now sets `test.isolate: false` + `test.pool: "threads"`** (not
+>    default isolation). This makes RN load once per worker → native is *faster than jest*
+>    by default, lead widening with scale. **Measured safe:** no module-state/globalThis
+>    leakage across files under this config. User-overridable.
+> 2. **Both engine configs add `resolve.dedupe: ["react","react-test-renderer","react-is"]`**
+>    (apply.ts for native; `plugin.ts` mock branch) — fixes a null hooks dispatcher from
+>    duplicate React copies in fresh consumer projects.
+> 3. **`src/native/transform.mjs` cache write is atomic** (temp file + `renameSync`) — fixes
+>    a cold concurrency race (was intermittent partial-file parse failures). Preserve
+>    atomicity in any future cache work.
+> 4. The earlier idea that `isolate:false` needs **per-file state-reset machinery was
+>    dropped** — proven unnecessary by pollution probes. The **mock** engine, however, stays
+>    `isolate:true` (its module-level state pollutes; verified).
+> 5. Reproducible benchmark added at `bench/` (jest vs native vs mock).
+
+---
+
 ## File Structure
 
 All paths under `packages/vitest-native/`.
