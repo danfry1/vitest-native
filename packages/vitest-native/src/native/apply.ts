@@ -33,6 +33,7 @@ export function nativeEngineConfig(setupFilePath: string, env: Record<string, st
       // isolation still holds (module state AND globalThis), so this is safe —
       // users can override with `test.isolate: true` if a suite needs it.
       isolate: false,
+      pool: "threads",
       server: {
         deps: {
           external: [/[\\/]react-native[\\/]/, /[\\/]@react-native[\\/]/],
