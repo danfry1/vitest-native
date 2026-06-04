@@ -11,6 +11,7 @@ import crypto from "node:crypto";
 let _babel;
 let _preset;
 let _cacheDir;
+let _writeSeq = 0;
 const mem = new Map();
 
 function init(projectRoot) {
@@ -61,7 +62,16 @@ export function transformRN(file, src, projectRoot) {
     configFile: false,
     caller: { name: "metro", bundler: "metro", platform: "ios", supportsStaticESM: false },
   }).code;
-  fs.writeFileSync(cachePath, out);
+  // Atomic write: multiple worker threads may transform the same RN file
+  // concurrently on a cold cache. Write to a unique temp file then rename
+  // (atomic on POSIX same-dir) so a concurrent reader never sees a partial file.
+  const tmp = `${cachePath}.${process.pid}.${_writeSeq++}.tmp`;
+  try {
+    fs.writeFileSync(tmp, out);
+    fs.renameSync(tmp, cachePath);
+  } catch {
+    try { fs.rmSync(tmp, { force: true }); } catch {}
+  }
   mem.set(file, out);
   return out;
 }
