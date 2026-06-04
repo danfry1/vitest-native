@@ -310,6 +310,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         resolve: {
           extensions,
           conditions: ["react-native"],
+          // Single React instance across test code, the mock, and the renderer —
+          // avoids a null hooks dispatcher from duplicate react copies in some
+          // consumer projects (e.g. mock FlatList's useImperativeHandle).
+          dedupe: ["react", "react-test-renderer", "react-is"],
         },
         test: {
           setupFiles: [setupFilePath],
