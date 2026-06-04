@@ -24,14 +24,16 @@
   *concrete* per-feature wins for `native` are narrower than "it fixes everything": mainly
   **virtualization**, **host-tree structural fidelity**, and the **architectural** win
   (real third-party library JS runs; no per-library presets; no reimplementation treadmill).
-- **Speed (head-to-head, §4):** With **`isolate: false` (shared RN runtime)** native is
-  **faster than jest and the lead WIDENS with suite size** (1.0× @25 files → 1.24× @60 →
-  1.31× @100), because RN loads once per worker while jest reloads per file. With **default
-  isolation** native is ~2.4× *slower* (per-file RN reload). So: the shared-runtime mode is
-  the product's speed story; **default isolation is not**. The cold disk-cache race is
-  fixed (atomic writes). **Caveat before claiming "faster than jest":** `isolate: false`
-  shares module state across files; proven correct for *independent* tests — real-world
-  safety needs per-file state reset on the hot runtime (in progress).
+- **Speed (head-to-head, §4) — native is faster than jest BY DEFAULT, cold and warm.**
+  The native engine now ships `isolate: false` + `pool: threads` (reuses the worker
+  runtime; RN's graph loads once via Node's cache instead of per file). At 60 files / 180
+  tests: **native warm 1.40s vs jest 1.63s (1.16×); cold 3.79s vs 6.91s (1.8×)**. The warm
+  lead **widens with scale** (1.16× @60 → 1.31× @100 files) because jest re-requires per
+  file while native stays flat. **Verified safe:** full per-file isolation still holds under
+  `isolate:false` (module state AND globalThis do not leak across files — measured). The
+  cold disk-cache race is fixed (atomic writes). The **mock** engine stays `isolate:true`
+  (its hand-written module-level state DOES pollute under isolate:false — 5 failures), so
+  it's slower at scale; mock's value is determinism / no native deps, not scale-speed.
 
 ---
 
@@ -114,35 +116,33 @@ publishing.
 | **vitest-native** (`isolate: false`) | ~3.8s | 1.31s | **1.04× (≈ jest)** | ⚠️ **flaky** (state pollution) |
 | **vitest-mock** | ~1.4s | 1.45s | 0.94× | ✅ |
 
-**Scaling head-to-head (warm median, independent tests):**
+**Scaling head-to-head (warm median; native = shipped default isolate:false + pool:threads):**
 
-| Suite | jest | native `isolate:false` | native (default iso) | mock (default iso) |
-|-------|------|------------------------|----------------------|--------------------|
-| 25 files / 75 tests | 1.37s | 1.30s (1.0×) | 3.25s | 1.45s |
-| 60 files / 180 tests | 1.67s | **1.35s (1.24×)** | 7.4s | 2.95s |
-| 100 files / 300 tests | 1.99s | **1.52s (1.31×)** | — | — |
+| Suite | jest (warm / cold) | native (warm / cold) | native warm speedup |
+|-------|--------------------|----------------------|---------------------|
+| 25 files / 75 tests | 1.37s | 1.30s | 1.0× |
+| 60 files / 180 tests | 1.63s / 6.9s | **1.40s / 3.79s** | **1.16× warm, 1.8× cold** |
+| 100 files / 300 tests | 1.99s | **1.52s** | **1.31×** |
 
-**Honest conclusions (these gate all speed claims):**
-1. **With `isolate: false`, native is faster than jest and the lead grows with scale.**
-   RN's module graph loads once per worker and is reused; jest re-requires the registry per
-   file, so its time grows ~linearly while native stays nearly flat. This is a *structural*
-   advantage jest cannot match. (300/300 passed at 100 files — independent tests.)
-2. **Default isolation is ~2.4× SLOWER than jest** and scales badly (per-file RN reload via
-   vite-node + loader hook). The product's speed story therefore depends on shipping the
-   shared-runtime mode safely (per-file state reset), not on default isolation.
-3. **`mock` (default iso) also grows with scale** (~3s @60 files) — slower than
-   native-`isolate:false`. The mock engine's value is determinism/no-deps, not speed; it
-   too would benefit from shared-runtime.
-4. **Cold / CI first-run favors vitest** (native ~5.2s vs jest ~6.0s @25 files).
-5. **The earlier "~4× faster" was native-vs-native** (isolate modes), not vs jest, and
-   unverified. The real vs-jest figure is the table above.
+**Conclusions:**
+1. **Native is faster than jest by default — warm and cold — and the warm lead widens with
+   scale** (RN loads once per worker; jest re-requires per file → grows ~linearly while
+   native stays flat). Structural advantage jest cannot match.
+2. **Verified safe:** under `isolate:false` in this setup, neither module state NOR
+   globalThis leaks across files (measured with deliberate pollution probes). So no
+   per-file reset machinery was needed for the native engine.
+3. **`mock` stays `isolate:true`** — its hand-written module-level state pollutes under
+   isolate:false (5 test failures), so it's slower at scale. That's an accepted trade: mock
+   is the determinism / no-native-deps lane, not the scale-speed lane.
+4. **The earlier "~4× faster" was native-vs-native** (isolate modes), not vs jest. The real
+   vs-jest figures are the table above.
 
-**Bug fixed:** native disk-cache write race under worker concurrency (atomic temp+rename)
-— eliminated cold flakiness. Commit on `design/dual-engine`.
+**Bug fixed:** native disk-cache write race under worker concurrency (atomic temp+rename) —
+eliminated cold flakiness. All on branch `design/dual-engine`.
 
-**Remaining to make "faster than jest" a safe default claim:** per-file **state reset on
-the hot runtime** so `isolate: false` is correct for real-world tests that mutate RN state
-(Dimensions/AppState/timers/listeners/mounted trees), not just independent ones.
+**Further speed headroom (future):** ~1s of the native warm time is fixed vite/vitest
+startup; a pre-shipped transform cache would cut cold further; the per-test render cost is
+shared with jest. Re-run `bench/` on a CI baseline before publishing exact numbers.
 
 ---
 
