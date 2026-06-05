@@ -33,8 +33,8 @@ Testing React Native code with Jest has traditionally required a patchwork of co
 
 - **Real React Native, not just mocks.** The `native` engine runs React Native's real JavaScript — the same source that ships in your app — mocking only the native module boundary. Jest's preset replaces many components and modules (`View`, `Text`, `ScrollView`, `Linking`, `AccessibilityInfo`, `Image`, …) with stubs; the native engine runs the real ones. See [`engine`](#engine).
 - **Or a lightweight mock engine.** The `mock` engine reimplements React Native in pure JS with **zero extra dependencies** — 21 components and 25+ APIs, with full TypeScript types — for deterministic unit tests.
-- **The runner you already use.** If you use Vitest for web, test React Native with the same runner, config patterns, native ESM, and watch mode — no separate Jest setup to maintain.
-- **No Jest config patchwork.** Add one plugin instead of custom transformers, `transformIgnorePatterns`, and brittle `jest.setup.js` mock files.
+- **The runner you already use.** Already on Vitest for web? Write your React Native tests in the same runner — same config patterns, native ESM, and watch mode. (Best for new tests; an existing Jest suite is **not** a drop-in swap — it needs porting off `@react-native/jest-preset`, `@jest/globals`, and `jest.mock('react-native')`.)
+- **No Jest config patchwork.** For new tests, add one plugin instead of custom transformers, `transformIgnorePatterns`, and brittle `jest.setup.js` mock files.
 - **Auto-detect presets** *(mock engine).* The plugin scans your `node_modules` and automatically mocks third-party libraries like Reanimated, Gesture Handler, and Expo modules.
 - **Test helpers** *(mock engine).* Switch platform, dimensions, and color scheme in a single function call.
 
