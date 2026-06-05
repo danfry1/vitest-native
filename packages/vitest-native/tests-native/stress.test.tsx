@@ -158,11 +158,28 @@ describe("native engine: interaction flows", () => {
     expect(onScroll).toHaveBeenCalled();
   });
 
-  // KNOWN NUANCE (not a boundary gap): RNTL's fireEvent.scroll does not reach
-  // onScroll under the native engine, even though direct invocation and on-device
-  // both do. Likely an RNTL host-recognition detail with our mocked RCTScrollView
-  // host. Tracked for a dedicated RNTL-parity pass (compare against jest+RNTL).
-  it.todo("fireEvent.scroll(scrollView) should reach onScroll via RNTL");
+  // Previously a known nuance: RNTL's fireEvent.scroll didn't reach onScroll
+  // because real ScrollView attaches onStartShouldSetResponder (→false) to its
+  // host, which RNTL treats as a disabled touch responder. The native boundary
+  // now drops those responder-negotiation props from the RCTScrollView host
+  // (matching RN's own jest ScrollView mock), so fireEvent.scroll works.
+  it("fireEvent.scroll(scrollView) reaches onScroll via RNTL", () => {
+    const onScroll = vi.fn();
+    render(
+      <ScrollView onScroll={onScroll} testID="sv2">
+        <Text>content</Text>
+      </ScrollView>,
+    );
+    fireEvent.scroll(screen.getByTestId("sv2"), {
+      nativeEvent: {
+        contentOffset: { x: 0, y: 120 },
+        contentSize: { height: 600, width: 100 },
+        layoutMeasurement: { height: 100, width: 100 },
+      },
+    });
+    expect(onScroll).toHaveBeenCalledTimes(1);
+    expect(onScroll.mock.calls[0][0].nativeEvent.contentOffset.y).toBe(120);
+  });
 });
 
 describe("native engine: animations", () => {

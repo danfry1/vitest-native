@@ -1,0 +1,56 @@
+name: Native engine — RN version matrix
+
+# The native engine runs REAL React Native JS and mocks only the ~7-module native
+# boundary, so it is sensitive to RN-version drift (the boundary has broken before
+# on SectionList / RendererProxy changes between minors). This matrix runs the
+# native suite against every supported RN minor so drift is caught on each change.
+#
+# Supported range (verified): RN 0.81–0.84. 0.80 and earlier fail host-component
+# detection (a transform/syntax difference) and are below the floor.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    # Weekly, to catch new patch releases within the supported minors.
+    - cron: '0 9 * * 1'
+
+jobs:
+  native-matrix:
+    name: Native suite — RN ${{ matrix.rn }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      # Report every version independently rather than stopping at the first failure.
+      fail-fast: false
+      matrix:
+        rn: ['0.81', '0.82', '0.83', '0.84']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Pin react-native + babel-preset to ${{ matrix.rn }}
+        run: |
+          bun add -d "react-native@${{ matrix.rn }}" "@react-native/babel-preset@${{ matrix.rn }}" --cwd packages/vitest-native
+          node -e "console.log('react-native', require('./packages/vitest-native/node_modules/react-native/package.json').version)"
+          node -e "console.log('@react-native/babel-preset', require('./packages/vitest-native/node_modules/@react-native/babel-preset/package.json').version)"
+
+      - name: Build
+        run: bun run build
+
+      - name: Native engine tests
+        run: bun run test:native

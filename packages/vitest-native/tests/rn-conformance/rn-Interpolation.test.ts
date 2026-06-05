@@ -46,8 +46,11 @@ describe("Interpolation", () => {
     expect(interpolation(200)).toBe(1);
   });
 
-  // Skip: our mock doesn't validate monotonic input ranges
-  it.skip("should throw for non monotonic input ranges", () => {});
+  it("should throw for non monotonic input ranges", () => {
+    expect(() =>
+      createInterpolation({ inputRange: [0, 2, 1], outputRange: [0, 1, 2] })(1),
+    ).toThrow(/monotonically non-decreasing/);
+  });
 
   it("should work with empty input range", () => {
     const interpolation = createInterpolation({
@@ -150,14 +153,33 @@ describe("Interpolation", () => {
     expect(interpolation(5)).toBeCloseTo(0.2);
   });
 
-  // Skip: our mock doesn't validate infinite input ranges
-  it.skip("should throw for an infinite input range", () => {});
+  it("should throw for an infinite input range", () => {
+    expect(() =>
+      createInterpolation({ inputRange: [-Infinity, Infinity], outputRange: [0, 1] })(0),
+    ).toThrow();
+  });
 
-  // Skip: our mock doesn't support Infinity ranges with easing
-  it.skip("should work with negative infinite", () => {});
+  it("should work with negative infinite", () => {
+    const interpolation = createInterpolation({
+      inputRange: [-Infinity, 0],
+      outputRange: [0, 1],
+      easing: Easing.quad,
+    });
+    expect(interpolation(0)).toBe(0);
+    expect(interpolation(-1)).toBe(1);
+    expect(interpolation(-2)).toBe(4); // easing applied: (-(-2))^2 = 4
+  });
 
-  // Skip: our mock doesn't support Infinity ranges with easing
-  it.skip("should work with positive infinite", () => {});
+  it("should work with positive infinite", () => {
+    const interpolation = createInterpolation({
+      inputRange: [0, Infinity],
+      outputRange: [0, 1],
+      easing: Easing.quad,
+    });
+    expect(interpolation(0)).toBe(0);
+    expect(interpolation(2)).toBe(4); // (2-0)^2 = 4
+    expect(interpolation(3)).toBe(9);
+  });
 
   it("should work with output ranges as string", () => {
     const interpolation = createInterpolation({
@@ -189,37 +211,97 @@ describe("Interpolation", () => {
     expect(interpolation(1)).toBe("M40,40L40,60");
   });
 
-  // Hex color string interpolation (#fff -> rgba) is a separate follow-up; the
-  // generic string path above already covers deg/%/suffix and numeric formats.
-  it.skip("should work with output ranges as short hex string", () => {});
+  it("should work with output ranges as short hex string", () => {
+    const interpolation = createInterpolation({
+      inputRange: [0, 1],
+      outputRange: ["#fff", "#000"],
+    });
+    expect(interpolation(0)).toBe("rgba(255, 255, 255, 1)");
+    expect(interpolation(0.5)).toBe("rgba(128, 128, 128, 1)");
+    expect(interpolation(1)).toBe("rgba(0, 0, 0, 1)");
+  });
 
-  // Skip: hex color string interpolation follow-up
-  it.skip("should work with output ranges as long hex string", () => {});
+  it("should work with output ranges as long hex string", () => {
+    const interpolation = createInterpolation({
+      inputRange: [0, 1],
+      outputRange: ["#ff0000", "#0000ff"],
+    });
+    expect(interpolation(0)).toBe("rgba(255, 0, 0, 1)");
+    expect(interpolation(0.5)).toBe("rgba(128, 0, 128, 1)");
+    expect(interpolation(1)).toBe("rgba(0, 0, 255, 1)");
+  });
 
-  // Skip: hex color string interpolation follow-up
-  it.skip("should work with output ranges with mixed hex and rgba strings", () => {});
+  it("should work with output ranges with mixed hex and rgba strings", () => {
+    const interpolation = createInterpolation({
+      inputRange: [0, 1],
+      outputRange: ["#ff0000", "rgba(0, 0, 255, 0.5)"],
+    });
+    expect(interpolation(0)).toBe("rgba(255, 0, 0, 1)");
+    expect(interpolation(0.5)).toBe("rgba(128, 0, 128, 0.75)");
+    expect(interpolation(1)).toBe("rgba(0, 0, 255, 0.5)");
+  });
 
-  // Skip: our mock doesn't validate string inputs
-  it.skip("should crash when chaining an interpolation that returns a string", () => {});
+  it("should crash when chaining an interpolation that returns a string", () => {
+    const stringInterp = new Animated.Value(0).interpolate({
+      inputRange: [0, 1],
+      outputRange: ["0deg", "100deg"],
+    });
+    expect(() =>
+      stringInterp.interpolate({ inputRange: [0, 1], outputRange: [0, 1] }),
+    ).toThrow();
+  });
 
-  // Skip: our mock doesn't support color pattern interpolation
-  it.skip("should support a mix of color patterns", () => {});
+  it("should support a mix of color patterns", () => {
+    const interpolation = createInterpolation({
+      inputRange: [0, 1],
+      outputRange: ["red", "rgba(0, 0, 255, 1)"],
+    });
+    expect(interpolation(0)).toBe("rgba(255, 0, 0, 1)");
+    expect(interpolation(0.5)).toBe("rgba(128, 0, 128, 1)");
+    expect(interpolation(1)).toBe("rgba(0, 0, 255, 1)");
+  });
 
-  // Skip: our mock doesn't support string output range validation
-  it.skip("should crash when defining output range with different pattern", () => {});
+  it("should crash when defining output range with different pattern", () => {
+    // One element is a color, the other a plain numeric-suffix string.
+    expect(() =>
+      createInterpolation({ inputRange: [0, 1], outputRange: ["#fff", "20deg"] })(0),
+    ).toThrow();
+  });
 
-  // Skip: our mock doesn't support string suffix interpolation
-  it.skip("should interpolate values with arbitrary suffixes", () => {});
+  it("should interpolate values with arbitrary suffixes", () => {
+    const interpolation = createInterpolation({
+      inputRange: [0, 1],
+      outputRange: ["10rem", "20rem"],
+    });
+    expect(interpolation(0)).toBe("10rem");
+    expect(interpolation(0.5)).toBe("15rem");
+    expect(interpolation(1)).toBe("20rem");
+  });
 
-  // Skip: our mock doesn't support string format interpolation
-  it.skip("should interpolate numeric values of arbitrary format", () => {});
+  it("should interpolate numeric values of arbitrary format", () => {
+    const interpolation = createInterpolation({
+      inputRange: [0, 1],
+      outputRange: ["scale(1)", "scale(2)"],
+    });
+    expect(interpolation(0)).toBe("scale(1)");
+    expect(interpolation(0.5)).toBe("scale(1.5)");
+    expect(interpolation(1)).toBe("scale(2)");
+  });
 
-  // Skip: our mock doesn't support color alpha rounding
-  it.skip("should round the alpha channel of a color to the nearest thousandth", () => {});
+  it("should round the alpha channel of a color to the nearest thousandth", () => {
+    const interpolation = createInterpolation({
+      inputRange: [0, 1],
+      outputRange: ["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 1)"],
+    });
+    expect(interpolation(1 / 3)).toBe("rgba(0, 0, 0, 0.333)");
+  });
 
-  // Skip: our mock doesn't support PlatformColor interpolation
+  // Genuinely out of scope for the mock engine (kept skipped, honestly):
+  // - PlatformColor is an opaque native object; RN itself throws
+  //   "PlatformColors are not supported" in interpolation, so there's no
+  //   meaningful value to assert here.
   it.skip("should work with PlatformColor", () => {});
-
-  // Skip: uses __getNativeConfig() internal
+  // - __getNativeConfig() exposes the native-driver config, which the mock
+  //   engine does not model (there is no native animated graph).
   it.skip("should convert values to numbers in the native config", () => {});
 });

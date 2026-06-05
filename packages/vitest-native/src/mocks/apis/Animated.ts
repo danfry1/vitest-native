@@ -1,111 +1,240 @@
 import React from "react";
 import { vi } from "vitest";
 
-function toNum(v: any): number {
-  return typeof v === "number" ? v : parseFloat(v) || 0;
-}
+type Extrapolate = "extend" | "clamp" | "identity";
 
-function interpolateValue(
-  value: number,
-  inputRange: number[],
-  outputRange: any[],
-  extrapolate: string,
-  extrapolateLeft?: string,
-  extrapolateRight?: string,
-  easing?: (t: number) => number,
+const IDENTITY_EASING = (t: number) => t;
+
+// RN's single-segment interpolate (Libraries/Animated/nodes/AnimatedInterpolation.js),
+// including -Infinity / Infinity range handling.
+function interpolateSegment(
+  input: number,
+  inputMin: number,
+  inputMax: number,
+  outputMin: number,
+  outputMax: number,
+  easing: (t: number) => number,
+  extrapolateLeft: Extrapolate,
+  extrapolateRight: Extrapolate,
 ): number {
-  // Find the segment
-  let i = 0;
-  for (; i < inputRange.length - 2; i++) {
-    if (value <= inputRange[i + 1]) break;
-  }
-  const inMin = inputRange[i];
-  const inMax = inputRange[i + 1];
-  const outMin = toNum(outputRange[i]);
-  const outMax = toNum(outputRange[i + 1]);
+  let result = input;
 
-  if (inMax === inMin) {
-    // Duplicate input range — snap to appropriate output
-    const result = value <= inMin ? outMin : outMax;
-    if (value < inputRange[0]) {
-      const leftMode = extrapolateLeft || extrapolate;
-      if (leftMode === "clamp") return toNum(outputRange[0]);
-      if (leftMode === "identity") return value;
-    }
-    if (value > inputRange[inputRange.length - 1]) {
-      const rightMode = extrapolateRight || extrapolate;
-      if (rightMode === "clamp") return toNum(outputRange[outputRange.length - 1]);
-      if (rightMode === "identity") return value;
-    }
-    return result;
+  if (result < inputMin) {
+    if (extrapolateLeft === "identity") return result;
+    else if (extrapolateLeft === "clamp") result = inputMin;
+  }
+  if (result > inputMax) {
+    if (extrapolateRight === "identity") return result;
+    else if (extrapolateRight === "clamp") result = inputMax;
   }
 
-  let t = (value - inMin) / (inMax - inMin);
+  if (outputMin === outputMax) return outputMin;
+  if (inputMin === inputMax) return input <= inputMin ? outputMin : outputMax;
 
-  // Apply easing
-  if (easing) {
-    t = easing(t);
-  }
+  // Input range (handles infinite bounds).
+  if (inputMin === -Infinity) result = -result;
+  else if (inputMax === Infinity) result = result - inputMin;
+  else result = (result - inputMin) / (inputMax - inputMin);
 
-  let result = outMin + t * (outMax - outMin);
+  result = easing(result);
 
-  // Apply extrapolation
-  const leftMode = extrapolateLeft || extrapolate;
-  const rightMode = extrapolateRight || extrapolate;
-
-  if (value < inputRange[0]) {
-    if (leftMode === "clamp") return toNum(outputRange[0]);
-    if (leftMode === "identity") return value;
-    // "extend" — result already extrapolated linearly
-  }
-  if (value > inputRange[inputRange.length - 1]) {
-    if (rightMode === "clamp") return toNum(outputRange[outputRange.length - 1]);
-    if (rightMode === "identity") return value;
-    // "extend" — result already extrapolated linearly
-  }
+  // Output range (handles infinite bounds).
+  if (outputMin === -Infinity) result = -result;
+  else if (outputMax === Infinity) result = result + outputMin;
+  else result = result * (outputMax - outputMin) + outputMin;
 
   return result;
 }
 
-// Private-use-area sentinel marking a numeric slot in a string template (avoids
-// a control char in the reconstruction regex).
-const SLOT = "@@VN_SLOT@@";
-
-// Splits a string into its numeric slots and a reconstruction template, e.g.
-// "rgba(0, 100, 200, 0.5)" -> { numbers: [0,100,200,0.5], template: "rgba(<SLOT>, ...)" }.
-function parseStringPattern(str: string): { numbers: number[]; template: string } {
-  const numbers: number[] = [];
-  const template = str.replace(/-?\d+\.?\d*/g, (match) => {
-    numbers.push(parseFloat(match));
-    return SLOT;
-  });
-  return { numbers, template };
+// Pick the segment index for `input` (mirrors RN's findRange).
+function findRangeIndex(input: number, inputRange: number[]): number {
+  let i;
+  for (i = 1; i < inputRange.length - 1; ++i) {
+    if (inputRange[i] >= input) break;
+  }
+  return i - 1;
 }
 
-// Interpolates string output ranges by lerping each numeric slot independently
-// and reconstructing the string (matches RN: "0deg"->"360deg", "0%"->"100%",
-// arbitrary suffixes, and numeric formats like rgba(...)).
-function interpolateString(
+// Multi-segment numeric interpolation built on RN's single-segment primitive.
+function interpolateNumeric(
   value: number,
   inputRange: number[],
-  outputRange: string[],
-  extrapolate: string,
-  extrapolateLeft?: string,
-  extrapolateRight?: string,
-  easing?: (t: number) => number,
+  outputRange: number[],
+  extrapolate: Extrapolate,
+  extrapolateLeft: Extrapolate | undefined,
+  extrapolateRight: Extrapolate | undefined,
+  easing: (t: number) => number,
+): number {
+  const i = findRangeIndex(value, inputRange);
+  return interpolateSegment(
+    value,
+    inputRange[i],
+    inputRange[i + 1],
+    outputRange[i],
+    outputRange[i + 1],
+    easing,
+    extrapolateLeft ?? extrapolate,
+    extrapolateRight ?? extrapolate,
+  );
+}
+
+// Named colors used by RN's tests (RGBA components, alpha 0..1).
+const NAMED_COLORS: Record<string, [number, number, number, number]> = {
+  red: [255, 0, 0, 1],
+  green: [0, 128, 0, 1],
+  blue: [0, 0, 255, 1],
+  white: [255, 255, 255, 1],
+  black: [0, 0, 0, 1],
+  transparent: [0, 0, 0, 0],
+  yellow: [255, 255, 0, 1],
+  cyan: [0, 255, 255, 1],
+  magenta: [255, 0, 255, 1],
+  orange: [255, 165, 0, 1],
+  purple: [128, 0, 128, 1],
+  gray: [128, 128, 128, 1],
+  grey: [128, 128, 128, 1],
+};
+
+// Parse a color string to RGBA components ([r,g,b, a:0..1]) or null if not a
+// recognized color (so it falls through to the numeric-suffix string path).
+// Mirrors the subset of normalizeColor that RN's interpolation tests exercise.
+function colorToRgba(input: string): [number, number, number, number] | null {
+  const s = input.toLowerCase().trim();
+  if (NAMED_COLORS[s]) return [...NAMED_COLORS[s]];
+  let m: RegExpMatchArray | null;
+  if ((m = s.match(/^#([0-9a-f]{3})$/))) {
+    const [r, g, b] = m[1].split("");
+    return [parseInt(r + r, 16), parseInt(g + g, 16), parseInt(b + b, 16), 1];
+  }
+  if ((m = s.match(/^#([0-9a-f]{6})$/))) {
+    const n = m[1];
+    return [parseInt(n.slice(0, 2), 16), parseInt(n.slice(2, 4), 16), parseInt(n.slice(4, 6), 16), 1];
+  }
+  if ((m = s.match(/^#([0-9a-f]{8})$/))) {
+    const n = m[1];
+    return [
+      parseInt(n.slice(0, 2), 16),
+      parseInt(n.slice(2, 4), 16),
+      parseInt(n.slice(4, 6), 16),
+      parseInt(n.slice(6, 8), 16) / 255,
+    ];
+  }
+  if ((m = s.match(/^rgb\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\)$/))) {
+    return [+m[1], +m[2], +m[3], 1];
+  }
+  if ((m = s.match(/^rgba\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\)$/))) {
+    return [+m[1], +m[2], +m[3], +m[4]];
+  }
+  return null;
+}
+
+// Matches RN's numericComponentRegex (signed decimals incl. exponent notation).
+const NUMERIC_COMPONENT_RE = /[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/g;
+
+interface MappedComponents {
+  isColor: boolean;
+  components: Array<number | string>;
+}
+
+// Splits a string output value into a color (4 RGBA numbers) or an ordered list
+// of numeric + literal-string parts (mirrors RN's mapStringToNumericComponents).
+function mapStringToComponents(input: string): MappedComponents {
+  const rgba = colorToRgba(input);
+  if (rgba) return { isColor: true, components: rgba };
+
+  const components: Array<number | string> = [];
+  let lastMatchEnd = 0;
+  let match: RegExpExecArray | null;
+  NUMERIC_COMPONENT_RE.lastIndex = 0;
+  while ((match = NUMERIC_COMPONENT_RE.exec(input)) != null) {
+    if (match.index > lastMatchEnd) components.push(input.substring(lastMatchEnd, match.index));
+    components.push(parseFloat(match[0]));
+    lastMatchEnd = match.index + match[0].length;
+  }
+  if (components.length === 0) {
+    throw new Error("outputRange must contain color or value with numeric component");
+  }
+  if (lastMatchEnd < input.length) components.push(input.substring(lastMatchEnd, input.length));
+  return { isColor: false, components };
+}
+
+interface PreparedStringInterp {
+  isColor: boolean;
+  template: Array<number | string>;
+  perSlotRanges: number[][];
+}
+
+// Validate + pre-parse a string output range (eager, like RN's createStringInterpolation),
+// throwing the same invariants on inconsistent patterns.
+function prepareStringInterpolation(outputRange: string[]): PreparedStringInterp {
+  const mapped = outputRange.map(mapStringToComponents);
+  const isColor = mapped[0].isColor;
+  if (!mapped.every((o) => o.isColor === isColor)) {
+    throw new Error(
+      "All elements of output range should either be a color or a string with numeric components",
+    );
+  }
+  const first = mapped[0].components;
+  if (!mapped.every((o) => o.components.length === first.length)) {
+    throw new Error("All elements of output range should have the same number of components");
+  }
+  if (
+    !mapped.every((o) =>
+      o.components.every((c, i) => typeof c === "number" || c === first[i]),
+    )
+  ) {
+    throw new Error("All elements of output range should have the same non-numeric components");
+  }
+
+  const numericComponents = mapped.map((o) =>
+    isColor ? (o.components as number[]) : (o.components.filter((c) => typeof c === "number") as number[]),
+  );
+  const perSlotRanges = numericComponents[0].map((_, i) => numericComponents.map((c) => c[i]));
+  return { isColor, template: first, perSlotRanges };
+}
+
+// Compute the string/color result at `value` from the prepared interpolation.
+function interpolateString(
+  prepared: PreparedStringInterp,
+  value: number,
+  inputRange: number[],
+  extrapolate: Extrapolate,
+  extrapolateLeft: Extrapolate | undefined,
+  extrapolateRight: Extrapolate | undefined,
+  easing: (t: number) => number,
 ): string {
-  const first = parseStringPattern(outputRange[0]);
-  const perSlotRanges = first.numbers.map((_, idx) =>
-    outputRange.map((s) => parseStringPattern(s).numbers[idx]),
+  const slots = prepared.perSlotRanges.map((range) =>
+    interpolateNumeric(value, inputRange, range, extrapolate, extrapolateLeft, extrapolateRight, easing),
   );
-  const interpolated = perSlotRanges.map((range) =>
-    interpolateValue(value, inputRange, range, extrapolate, extrapolateLeft, extrapolateRight, easing),
-  );
-  let idx = 0;
-  return first.template.replaceAll(SLOT, () => {
-    const n = interpolated[idx++];
-    return Number.isInteger(n) ? String(n) : String(Math.round(n * 1000) / 1000);
-  });
+  if (prepared.isColor) {
+    // rgb channels are integers; alpha is rounded to the nearest thousandth.
+    const r = slots.map((v, i) => (i < 3 ? Math.round(v) : Math.round(v * 1000) / 1000));
+    return `rgba(${r[0]}, ${r[1]}, ${r[2]}, ${r[3]})`;
+  }
+  let i = 0;
+  return prepared.template.map((c) => (typeof c === "number" ? slots[i++] : c)).join("");
+}
+
+// Validate numeric input/output ranges (mirrors RN's checkValidRanges).
+function checkValidRanges(inputRange: number[], outputRange: unknown[]): void {
+  if (inputRange.length === 2 && inputRange[0] === -Infinity && inputRange[1] === Infinity) {
+    throw new Error("inputRange cannot be [-Infinity, Infinity]");
+  }
+  if (inputRange.length < 2) throw new Error("inputRange must have at least 2 elements");
+  for (let i = 1; i < inputRange.length; ++i) {
+    if (!(inputRange[i] >= inputRange[i - 1])) {
+      throw new Error("inputRange must be monotonically non-decreasing " + String(inputRange));
+    }
+  }
+  if (inputRange.length !== outputRange.length) {
+    throw new Error(
+      "inputRange (" +
+        inputRange.length +
+        ") and outputRange (" +
+        outputRange.length +
+        ") must have the same length",
+    );
+  }
 }
 
 class AnimatedValue {
@@ -148,22 +277,27 @@ class AnimatedValue {
       extrapolate = "extend",
       extrapolateLeft,
       extrapolateRight,
-      easing,
+      easing = IDENTITY_EASING,
     } = config || {};
     if (!inputRange || !outputRange || inputRange.length < 2 || outputRange.length < 2) {
       return new AnimatedValue(this._value);
     }
-    // String output ranges ("0deg" -> "360deg", "0%" -> "100%", rgba(...), ...)
-    // must preserve the unit/suffix. Return a live interpolation node whose
-    // getValue()/__getValue() yield the reconstructed string from the current
-    // source value, mirroring RN's AnimatedInterpolation surface.
+    // Validate ranges eagerly, like RN's createInterpolation (monotonic input,
+    // matched lengths, no [-Infinity, Infinity]).
+    checkValidRanges(inputRange, outputRange);
+
+    // String output ranges ("0deg" -> "360deg", rgba(...), arbitrary suffixes).
+    // Parse + validate the pattern eagerly, then return a live interpolation node
+    // whose getValue()/__getValue() reconstruct the string from the current source
+    // value, mirroring RN's AnimatedInterpolation surface.
     if (typeof outputRange[0] === "string") {
+      const prepared = prepareStringInterpolation(outputRange);
       // Arrow closes over `this`, so getValue() reads the live source value.
       const compute = () =>
         interpolateString(
+          prepared,
           this._value,
           inputRange,
-          outputRange,
           extrapolate,
           extrapolateLeft,
           extrapolateRight,
@@ -173,7 +307,11 @@ class AnimatedValue {
         getValue: compute,
         __getValue: compute,
         toJSON: compute,
-        interpolate: (inner: any) => new AnimatedValue(0).interpolate(inner),
+        // Chaining off a string/color interpolation is invalid in RN (the parent
+        // value is no longer numeric). Match that by throwing.
+        interpolate: () => {
+          throw new Error("Cannot chain an interpolation off a string-valued interpolation");
+        },
         addListener: () => "0",
         removeListener: () => {},
         removeAllListeners: () => {},
@@ -181,7 +319,7 @@ class AnimatedValue {
         resetAnimation: (cb?: Function) => cb?.(compute()),
       } as any;
     }
-    const result = interpolateValue(
+    const result = interpolateNumeric(
       this._value,
       inputRange,
       outputRange,

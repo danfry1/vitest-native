@@ -26,13 +26,34 @@ const DEVICE_CONSTANTS = JSON.stringify({
 });
 
 // A reusable mock-native-component factory, inlined into each source string that needs it.
+//
+// For RCTScrollView we drop the scroll-responder negotiation props that real
+// ScrollView attaches to its host (onStartShouldSetResponder &co). On a device
+// those drive the native gesture/responder system, which doesn't exist in tests.
+// More importantly, RNTL treats any host with onStartShouldSetResponder as a touch
+// responder and then gates events on its return value — RN's ScrollView returns
+// false, which makes RNTL's fireEvent.scroll a no-op. RN's own jest preset sidesteps
+// this by mocking ScrollView so the host never receives these props; we match that
+// effect at the host while keeping the real ScrollView component (so FlatList /
+// SectionList / VirtualizedList behavior stays intact).
 const MOCK_NATIVE_COMPONENT = `
   const React = require("react");
   let __tag = 1;
+  const __SCROLL_RESPONDER_PROPS = [
+    "onStartShouldSetResponder", "onStartShouldSetResponderCapture",
+    "onMoveShouldSetResponder", "onMoveShouldSetResponderCapture",
+  ];
   const mockNativeComponent = (viewName) => {
     const C = class extends React.Component {
       constructor(p) { super(p); this._nativeTag = __tag++; }
-      render() { return React.createElement(viewName, this.props, this.props.children); }
+      render() {
+        let props = this.props;
+        if (viewName === "RCTScrollView") {
+          props = Object.assign({}, this.props);
+          for (const k of __SCROLL_RESPONDER_PROPS) delete props[k];
+        }
+        return React.createElement(viewName, props, props.children);
+      }
       blur() {} focus() {} measure() {} measureInWindow() {} measureLayout() {} setNativeProps() {}
     };
     C.displayName = viewName === "RCTView" ? "View" : viewName;
@@ -111,6 +132,16 @@ export const BOUNDARY_SOURCES = {
     module.exports = { __esModule: true, default: mockNativeComponent("RCTView"), __INTERNAL_VIEW_CONFIG: {}, Commands: {} };
   `,
   "Libraries/Core/InitializeCore.js": `module.exports = { __esModule: true, default: {} };`,
+  // AppContainer (which RNTL's render mounts) renders <LogBoxNotificationContainer/>
+  // in dev. That component subscribes to LogBoxData and, in componentDidMount,
+  // schedules a setTimeout/ setImmediate setState — which fires AFTER the test's
+  // act() completes, producing the cosmetic "update to LogBoxStateSubscription not
+  // wrapped in act()" warning. It's dev-only notification UI with no role in tests,
+  // so stub it to render nothing. This removes the only mount of LogBoxStateSubscription,
+  // eliminating the out-of-act update at its source (jest's RN preset mocks LogBox similarly).
+  "Libraries/LogBox/LogBoxNotificationContainer.js": `
+    module.exports = { __esModule: true, default: function LogBoxNotificationContainer() { return null; } };
+  `,
   // RendererProxy re-exports RendererImplementation, which loads RN's native Fabric
   // renderer (ReactNativeRenderer-dev.js) — that version-asserts react vs the bundled
   // react-native-renderer and breaks SectionList/VirtualizedList. react-test-renderer
