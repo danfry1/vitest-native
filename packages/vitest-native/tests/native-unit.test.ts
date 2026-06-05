@@ -144,11 +144,15 @@ describe("native nudge", () => {
   it("auto prints no nudge when native deps are absent", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vn-nudge-"));
-    fs.writeFileSync(path.join(tmp, "package.json"), JSON.stringify({ name: "x", version: "0.0.0" }));
-    const plugin = reactNative({}) as any;
-    plugin.config({ root: tmp }, SERVE_ENV);
-    const nudges = log.mock.calls.filter((c) => String(c[0]).includes("native engine available"));
-    expect(nudges).toHaveLength(0);
-    log.mockRestore();
+    try {
+      fs.writeFileSync(path.join(tmp, "package.json"), JSON.stringify({ name: "x", version: "0.0.0" }));
+      const plugin = reactNative({}) as any;
+      plugin.config({ root: tmp }, SERVE_ENV);
+      const nudges = log.mock.calls.filter((c) => String(c[0]).includes("native engine available"));
+      expect(nudges).toHaveLength(0);
+    } finally {
+      log.mockRestore();
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });

@@ -263,7 +263,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // Platform extensions can be computed eagerly.
   const platform = options?.platform ?? "ios";
   const diagnostics = options?.diagnostics ?? false;
-  // Resolve the requested engine. 'auto' conservatively resolves to 'mock' today.
+  // Capture the user-requested engine; concrete resolution happens in config().
   const requestedEngine = options?.engine ?? "auto";
   // Resolved at config() time, once the consumer project root is known. Seeded to a
   // safe default so the hooks (resolveId/load/transform), which run after config(),
