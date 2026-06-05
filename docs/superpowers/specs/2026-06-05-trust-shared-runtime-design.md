@@ -17,12 +17,19 @@ runtime that is the engine's speed moat), so that:
    in §1 vs "flaky / state pollution" in §4/§6) is resolved with **committed, CI-enforced
    evidence** rather than a one-off measurement.
 
-Plus a paired DX fix: eliminate the cosmetic LogBox `"update to LogBoxStateSubscription
-was not wrapped in act(...)"` warning that makes a passing suite read as broken.
+The cosmetic LogBox `act()` warning was originally paired into this spec but, after
+investigation (§4.3), has no cheap fix and is **deferred** — it does not gate trust (all
+tests pass).
 
 This is the foundation spec of the "make it the ultimate RN testing tool" roadmap. The
 later specs (real `auto`/per-glob, boundary shim over Meta's `jest/mocks/*`, ship/docs)
 all assume the shared runtime is trustworthy.
+
+> **Investigation note (2026-06-05):** before planning, the shared-runtime risk was probed
+> empirically. Finding: **isolation already holds for every outcome-observable category**
+> (§4.2 table) because vite-node re-instantiates the module graph and globals per file. The
+> spec's original emphasis on a reset layer is therefore obsolete; this spec's real, smaller
+> deliverable is to **lock that guarantee in CI** so it cannot silently regress.
 
 ## 2. Background
 
@@ -74,42 +81,55 @@ per category (or a shared pollutant file + multiple asserters). Runs via the exi
 forever." It is also the regression guard for every future change to the boundary or RN
 version bump.
 
-### 4.2 Minimal reset layer — `src/native/reset.mjs`
+### 4.2 Reset layer — PROVEN UNNECESSARY (suite is the enforcement)
 
-A new runtime module wired into the native setup. It registers an `afterEach` (per-test —
-tightest scope; also covers per-file) that resets **only** the categories the suite proves
-leak. Built strictly via TDD: a category gets a reset *only after* its adversarial test
-fails without one.
+**Updated 2026-06-05 after investigation.** Adversarial probing under the *shipped* config
+(`isolate:false` + `pool:threads`, forced to a single worker with `singleThread` — the
+worst case for sharing) showed **no category leaks across files**:
 
-**Hard constraint:** reset MUST NOT re-execute or re-require the RN module graph — that
-would defeat the moat. It only mutates *live* singletons back to their boundary defaults
-and tears down accumulated subscriptions. Candidate resets (final set decided by the
-failing tests):
+| Category | Probe | Result |
+|----------|-------|--------|
+| RN module singletons | file A `Dimensions.set({width:999})` + `Appearance.setColorScheme('dark')` | file B sees 390 / light — **clean** |
+| Module identity | compare `Dimensions` object across files | **different instance** per file (graph re-instantiated per file) |
+| `globalThis` | file A writes `globalThis.__marker` | file B sees `undefined` — **clean** |
+| Emitter listeners | file A adds a `DeviceEventEmitter` listener | file B `listenerCount` = 0 — **clean** |
+| Fake timers | file A `vi.useFakeTimers()`, never restores | file B `vi.isFakeTimers()` = false — **clean** |
 
-- Re-seed `Dimensions` / `Appearance` / `AppState` / `I18nManager` / `PixelRatio` to the
-  boundary-default constants (call their public setters; do not reload).
-- `removeAllListeners()` on the known RN emitter singletons (DeviceEventEmitter, AppState,
-  Keyboard, Appearance). Between files this is safe — a fresh file must not depend on a
-  prior file's subscriptions.
-- Reset the boundary `mockNativeComponent` tag counter (exposed via a small reset export
-  from `boundary.mjs`) for deterministic host-tag snapshots.
-- Unmount tracked RTR renderers. RNTL v12 already auto-cleans via its own `afterEach`; for
-  raw `TestRenderer` tests, provide/encourage a tracked render helper, or document the
-  unmount requirement. (Decision deferred to the plan, guided by what category 5 reveals.)
+Mechanism: vite-node gives each test file a fresh module graph and fresh globals even under
+`isolate:false`; the speed comes from a warm worker + disk-cached Flow transforms, not a
+shared singleton. So **no `reset.mjs` is built**. The adversarial suite (§4.1) *is* the
+safety net: if a future RN bump, boundary edit, or config change ever introduces a leak, the
+suite fails in CI. A reset is added later **only if** the suite ever goes red — and then
+only for the proving category, never re-executing the RN graph.
 
-If a category proves **genuinely un-resettable** without graph re-exec (e.g. a value
-captured at import time), the fallback is to document it and, if material, allow that
-specific test file to opt into `isolate: true` — but the goal is zero such cases for the
-core surface.
+**If** a reset is ever needed (suite goes red in future), the hard constraint is: reset MUST
+NOT re-execute or re-require the RN module graph (that would defeat the moat) — it may only
+mutate *live* singletons back to boundary defaults (`Dimensions.set`,
+`Appearance.setColorScheme('light')`) and tear down subscriptions (`removeAllListeners()`),
+all of which were confirmed present on the real RN API this session. This is documented as
+the future pattern, not built now.
 
-### 4.3 LogBox fix
+### 4.3 LogBox act() warning — DEFERRED (empirically, no cheap fix)
 
-Call `LogBox.ignoreAllLogs()` from the native setup file (`src/native/setup.mjs`), using
-RN's **public** API. The evidence doc notes a blunt `LogBoxData` boundary mock breaks
-Modal/RNTL, so we do not mock the module — we suppress via the supported runtime call. If
-the `LogBoxStateSubscription` act() warning still surfaces from a path `ignoreAllLogs`
-doesn't cover, contain it via the public API (no internal patching). Verify Modal + RNTL
-still render after the change.
+**Updated 2026-06-05 after investigation.** The intended fix (`LogBox.ignoreAllLogs()` in
+setup) was tested and **does not work**. Measured this session under the native suite
+(baseline: 3 warnings):
+
+- `LogBox.ignoreAllLogs()` in `setup.mjs` (per the evidence doc's suggestion): **still 3**.
+- `LogBox.ignoreAllLogs()` synchronously at the top of an individual test file: **still
+  fires for that file**.
+- A no-op `Libraries/LogBox/LogBox.js` facade mock in the boundary (all `ILogBox` methods
+  no-ops): **still 3**, and all 39 tests stayed green.
+
+Root cause: the warning is a React state update inside `LogBoxStateSubscription`, which
+lives in `Libraries/LogBox/Data/LogBoxData.js` and is reached by a path that **bypasses the
+`LogBox.js` facade**. The only mock that would intercept it is a `LogBoxData` mock — which
+the evidence doc records as breaking Modal/RNTL. A correct fix therefore needs a careful,
+surgical `LogBoxData` shim validated against Modal + RNTL, which is its own focused effort.
+
+**Decision:** this warning is **cosmetic** (all 39 native tests pass) and is **deferred to a
+tracked follow-up**, not bundled into this foundational change. Recorded so the next
+attempt starts from these findings rather than re-deriving them.
 
 ### 4.4 Documentation reconciliation
 
@@ -119,41 +139,45 @@ Update the cache-race line if needed. Keep the honest tone of the doc.
 
 ## 5. Components & interfaces
 
-- `src/native/reset.mjs` — exports `installResetHooks()` (registers `afterEach`) and pure
-  helpers (`resetSingletons()`, `resetEmitters()`, `resetBoundaryState()`). Imported by
-  `setup.mjs`. Stateless across workers; safe to call repeatedly.
-- `src/native/boundary.mjs` — add a `resetBoundaryState()` export (e.g. reset the tag
-  counter) so reset can reach boundary-owned mutable state without reaching into internals.
-- `src/native/setup.mjs` — additionally `installResetHooks()` and `LogBox.ignoreAllLogs()`.
-- `tests-native/isolation/*` — the adversarial suite.
-- `tests-native/vitest.config.mts` — ensure `sequence: { shuffle: true }` for the isolation
-  run (or a dedicated config) without weakening the main native run.
+- `tests-native/isolation/*` — the adversarial suite (the deliverable). Paired
+  pollute/assert files per category from §3.
+- `tests-native/isolation.config.mts` — a dedicated config: `isolate:false` +
+  `pool:threads` with `singleThread: true` (forces worst-case sharing into one worker so a
+  leak cannot hide behind worker distribution) + `sequence: { shuffle: true }`. Separate from
+  the main `tests-native/vitest.config.mts` so the main run stays multi-worker/fast and
+  order-stable.
+- `package.json` — add `test:native:isolation` script.
+- `.github/workflows/ci.yml` — run the isolation suite (3 shuffle seeds) after the native
+  suite.
+- `docs/engine-comparison-evidence.md`, `docs/native-engine-performance.md` — reconcile to
+  the measured reality (§4.4).
 
-Each unit stays small and single-purpose: the suite *defines* isolation, `reset.mjs`
-*enforces* it, `boundary.mjs` *exposes* its own resettable state.
+No `reset.mjs` and no `setup.mjs`/`boundary.mjs` changes are built (see §4.2 — proven
+unnecessary). Each unit stays small: the suite *defines and enforces* isolation; nothing
+else changes in the runtime.
 
 ## 6. Testing strategy
 
-- **Primary:** the §3 adversarial suite, run under shuffled `isolate:false` across 3 seeds
-  in CI (`test:native`).
+- **Primary:** the §3 adversarial suite, run under shuffled single-worker `isolate:false`
+  across 3 seeds in CI.
 - **Regression:** the existing 39 native tests stay green; the mock engine remains
   `isolate:true` and is untouched (re-run its ~1,164 tests).
-- **Determinism:** run the isolation suite N× locally to confirm no flakiness.
-- TDD throughout: each reset is introduced only to make a specific failing isolation test
-  pass — no speculative reset code.
+- **Determinism:** run the isolation suite 3× locally across seeds to confirm no flakiness.
+- Each isolation test is a **characterization/locking test**: it asserts the isolation that
+  already holds, so its expected first-run result is PASS. Its value is regression
+  protection — it turns red the day a change breaks the moat's safety.
 
 ## 7. Risks & open questions
 
-- **Un-resettable state** captured at import time → surfaced by the suite; fallback is
-  per-file `isolate:true` opt-in for that case (goal: none on the core surface).
-- **RTR mounted-tree cleanup** for raw `TestRenderer` (non-RNTL) tests — exact mechanism
-  decided in the plan (tracked-renderer helper vs documented unmount).
-- **pool:threads vs forks** — confirm `afterEach` reset runs in the worker scope that holds
-  the shared graph; verify with the suite under the shipped pool config.
-- **LogBox** — confirm `ignoreAllLogs()` removes the act() warning without breaking
-  Modal/RNTL; if not, find the public containment point.
-- **Windows** — reset logic is JS-level (no paths), so low risk, but include in the matrix
-  later.
+- **False confidence from multi-worker distribution** — if the isolation suite ran
+  multi-worker, two files might never share a worker and a real leak could pass. Mitigated by
+  forcing `singleThread: true` in the isolation config (worst-case sharing).
+- **A category we didn't probe could leak** (e.g. `process.env`, real `setInterval`
+  handles). The suite should include a deliberate process-resource probe; if it ever leaks,
+  add the narrow reset per §4.2.
+- **LogBox act() warning** — deferred (§4.3); tracked as a separate follow-up with findings
+  recorded.
+- **Windows** — suite is JS-level (no paths); include in the RN-version/OS matrix later.
 
 ## 8. Non-goals (other roadmap specs)
 
@@ -166,11 +190,13 @@ Each unit stays small and single-purpose: the suite *defines* isolation, `reset.
 
 ## 9. Success criteria
 
-1. The adversarial isolation suite is green under shuffled `isolate:false` + `pool:threads`
-   across 3 seeds, in CI.
-2. No per-file reset re-executes the RN graph (the warm-speed benchmark in `bench/` is
-   unchanged within noise).
-3. The LogBox act() warning no longer appears in the native suite; Modal + RNTL still work.
-4. `docs/engine-comparison-evidence.md` no longer contradicts itself; `isolate:false` is
-   documented as CI-enforced-isolated.
-5. Existing 39 native tests and the full mock suite remain green.
+1. The adversarial isolation suite is green under shuffled single-worker `isolate:false`
+   across 3 seeds, in CI — covering all 7 §3 categories plus a process-resource probe.
+2. The suite is wired into CI and a `test:native:isolation` script; a deliberately
+   introduced leak (verified once during development) makes it go red.
+3. `docs/engine-comparison-evidence.md` and `docs/native-engine-performance.md` no longer
+   contradict themselves; `isolate:false` is documented as CI-enforced per-file-isolated,
+   with the correct mechanism (fresh graph per file + warm worker + cached transforms).
+4. Existing 39 native tests and the full mock suite remain green.
+5. The LogBox act() warning is recorded as a deferred follow-up with findings (§4.3) — out
+   of scope here.
