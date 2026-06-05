@@ -258,6 +258,21 @@ export interface VitestNativeOptions {
 
   /** Additional asset file extensions to stub (e.g. ['.lottie', '.m4b']) */
   assetExts?: string[];
+
+  /**
+   * `engine: 'native'` only. Names of additional node_modules packages whose
+   * source the native engine should transform (Flow/TS/JSX stripped) as it
+   * loads them. By default only `react-native` / `@react-native` are
+   * transformed; third-party RN libraries that ship untranspiled source
+   * (e.g. `react-native-reanimated`, `react-native-safe-area-context`) need to
+   * be listed here, analogous to Jest's `transformIgnorePatterns` allowlist.
+   *
+   * @example
+   * ```ts
+   * reactNative({ engine: 'native', transform: ['react-native-reanimated'] })
+   * ```
+   */
+  transform?: string[];
 }
 
 export interface ResolvedOptions {

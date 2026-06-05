@@ -131,6 +131,7 @@ export default defineConfig({
 | `mocks` | `Record<string, any>` | `{}` | JSON-serializable overrides merged into the `react-native` module mock. Function values are not supported; use `vi.mock()` in a setup file for function-based overrides. |
 | `diagnostics` | `boolean` | `false` | Log plugin activity to the console for debugging. |
 | `assetExts` | `string[]` | `[]` | Additional file extensions to stub as asset imports (beyond the built-in set). |
+| `transform` | `string[]` | `[]` | **`engine: 'native'` only.** Extra `node_modules` packages whose source the native engine should transform (Flow/TS/JSX stripped) as it loads them — for third-party RN libraries that ship untranspiled source (e.g. `react-native-reanimated`). Analogous to Jest's `transformIgnorePatterns` allowlist. |
 
 ### `engine`
 

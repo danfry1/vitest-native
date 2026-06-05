@@ -3,7 +3,23 @@
  * loads through Node's single CJS graph, where the native setup file's hooks
  * Flow-strip it and mock the native boundary.
  */
-export function nativeEngineConfig(setupFilePath: string, env: Record<string, string>) {
+/** Escape a package name for use inside a RegExp character-delimited path match. */
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function nativeEngineConfig(
+  setupFilePath: string,
+  env: Record<string, string>,
+  transformPkgs: string[] = [],
+) {
+  // Extra packages whose source the Node hooks should transform. They must also
+  // be externalized so they load through Node (where the hooks run) rather than
+  // Vite's pipeline. Passed to the hooks via env (globalThis doesn't cross the
+  // worker boundary).
+  const extraExternal = transformPkgs.map((p) => new RegExp(`[\\\\/]${escapeRe(p)}[\\\\/]`));
+  const fullEnv = { ...env };
+  if (transformPkgs.length > 0) fullEnv.VITEST_NATIVE_TRANSFORM = JSON.stringify(transformPkgs);
   return {
     resolve: {
       conditions: ["react-native"],
@@ -26,7 +42,7 @@ export function nativeEngineConfig(setupFilePath: string, env: Record<string, st
     },
     test: {
       setupFiles: [setupFilePath],
-      env,
+      env: fullEnv,
       // We intentionally do NOT force `isolate`, so Vitest's safe default
       // (`isolate: true`) applies: each test file gets a fresh module runner.
       //
@@ -41,7 +57,7 @@ export function nativeEngineConfig(setupFilePath: string, env: Record<string, st
       pool: "threads",
       server: {
         deps: {
-          external: [/[\\/]react-native[\\/]/, /[\\/]@react-native[\\/]/],
+          external: [/[\\/]react-native[\\/]/, /[\\/]@react-native[\\/]/, ...extraExternal],
         },
       },
     },

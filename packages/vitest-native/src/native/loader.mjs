@@ -6,12 +6,16 @@ import fs from "node:fs";
 import { transformRN, isFlow } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import { resolvePlatformFile } from "./resolve.mjs";
+import { buildPkgMatcher } from "./match.mjs";
 
 const RN_PATH = /[\\/](react-native|@react-native)[\\/]/;
+const TRANSFORMABLE = /\.(jsx?|tsx?|mjs|cjs)$/;
 let PROJECT_ROOT = process.cwd();
+let isExtra = () => false;
 
 export async function initialize(data) {
   if (data && data.projectRoot) PROJECT_ROOT = data.projectRoot;
+  if (data && data.transformPkgs) isExtra = buildPkgMatcher(data.transformPkgs);
 }
 
 export async function resolve(specifier, context, nextResolve) {
@@ -30,19 +34,28 @@ export async function load(url, context, nextLoad) {
   if (!url.startsWith("file:")) return nextLoad(url, context);
   const file = fileURLToPath(url);
   const norm = file.replace(/\\/g, "/");
-  if (!RN_PATH.test(norm)) return nextLoad(url, context);
+  const isRN = RN_PATH.test(norm);
+  if (!isRN && !isExtra(norm)) return nextLoad(url, context);
 
-  const boundary = boundarySourceFor(norm);
-  if (boundary != null) return { format: "commonjs", source: boundary, shortCircuit: true };
+  if (isRN) {
+    const boundary = boundarySourceFor(norm);
+    if (boundary != null) return { format: "commonjs", source: boundary, shortCircuit: true };
+    if (norm.endsWith(".js")) {
+      const src = fs.readFileSync(file, "utf8");
+      if (isFlow(src))
+        return {
+          format: "commonjs",
+          source: transformRN(file, src, PROJECT_ROOT),
+          shortCircuit: true,
+        };
+    }
+    return nextLoad(url, context);
+  }
 
-  if (norm.endsWith(".js")) {
+  // Configured third-party package: transform any JS/TS/JSX source to CJS.
+  if (TRANSFORMABLE.test(norm)) {
     const src = fs.readFileSync(file, "utf8");
-    if (isFlow(src))
-      return {
-        format: "commonjs",
-        source: transformRN(file, src, PROJECT_ROOT),
-        shortCircuit: true,
-      };
+    return { format: "commonjs", source: transformRN(file, src, PROJECT_ROOT), shortCircuit: true };
   }
   return nextLoad(url, context);
 }

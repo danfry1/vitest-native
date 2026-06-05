@@ -265,6 +265,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   const diagnostics = options?.diagnostics ?? false;
   // Capture the user-requested engine; concrete resolution happens in config().
   const requestedEngine = options?.engine ?? "auto";
+  // Extra node_modules packages the native engine should transform (Flow/TS/JSX).
+  const transformPkgs = (options?.transform ?? []).filter((p) => typeof p === "string" && p.length > 0);
   // Resolved at config() time, once the consumer project root is known. Seeded to a
   // safe default so the hooks (resolveId/load/transform), which run after config(),
   // never read undefined.
@@ -299,7 +301,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // Native engine: externalize RN so it loads through Node's single CJS graph,
       // where the native setup file's hooks Flow-strip it and mock the boundary.
       if (engine === "native") {
-        return nativeEngineConfig(nativeSetupPath, env);
+        return nativeEngineConfig(nativeSetupPath, env, transformPkgs);
       }
 
       // --- mock engine (existing behaviour) ---

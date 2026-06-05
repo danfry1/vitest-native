@@ -5,10 +5,15 @@ import { installGlobals } from "./globals.mjs";
 import { installRequireHooks } from "./hooks.mjs";
 
 const projectRoot = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
+// Extra node_modules packages to transform (from the plugin's `transform` option).
+let transformPkgs = [];
+try {
+  if (process.env.VITEST_NATIVE_TRANSFORM) transformPkgs = JSON.parse(process.env.VITEST_NATIVE_TRANSFORM);
+} catch {}
 
 installGlobals();
-register("./loader.mjs", import.meta.url, { data: { projectRoot } });
-installRequireHooks(projectRoot);
+register("./loader.mjs", import.meta.url, { data: { projectRoot, transformPkgs } });
+installRequireHooks(projectRoot, transformPkgs);
 
 // NOTE: a cosmetic React "update to LogBoxStateSubscription not wrapped in act()"
 // warning can appear when real RN emits a dev warning during an interaction. We
