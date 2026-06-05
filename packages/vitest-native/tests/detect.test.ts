@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
@@ -20,11 +20,12 @@ function findUp(rel: string, start: string): string {
 const PKG_DIR = path.dirname(findUp("package.json", HERE));
 
 // A fresh temp dir with an empty package.json: a root where the native deps do NOT resolve.
-function depsFreeRoot(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-detect-"));
-  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "x", version: "0.0.0" }));
-  return dir;
-}
+let emptyRoot: string;
+beforeAll(() => {
+  emptyRoot = fs.mkdtempSync(path.join(os.tmpdir(), "vn-detect-"));
+  fs.writeFileSync(path.join(emptyRoot, "package.json"), JSON.stringify({ name: "x", version: "0.0.0" }));
+});
+afterAll(() => fs.rmSync(emptyRoot, { recursive: true, force: true }));
 
 describe("detectEngine", () => {
   it("passes through explicit engines without a notice", () => {
@@ -44,11 +45,11 @@ describe("detectEngine", () => {
   it("auto resolves to native under the future v1 policy (one-line flip is locked)", () => {
     const d = detectEngine("auto", PKG_DIR, { autoPrefersNative: true });
     expect(d.engine).toBe("native");
-    expect(d.notice).toContain("native");
+    expect(d.notice).toContain("auto — found @react-native/babel-preset");
   });
 
   it("auto resolves to mock with no notice when native deps are absent", () => {
-    const d = detectEngine("auto", depsFreeRoot());
+    const d = detectEngine("auto", emptyRoot);
     expect(d.engine).toBe("mock");
     expect(d.nativeAvailable).toBe(false);
     expect(d.notice).toBeNull();
