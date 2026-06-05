@@ -1,6 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import path from "node:path";
 import fs from "node:fs";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 // @ts-expect-error — runtime .mjs, no types
 import { transformRN } from "../src/native/transform.mjs";
@@ -103,19 +104,51 @@ describe("resolvePlatformFile", () => {
 
 import { reactNative } from "../src/index.js";
 
+const SERVE_ENV = { command: "serve", mode: "test" } as const;
+
 describe("plugin engine routing", () => {
-  it("native engine sets RN external + a native setup file, and does NOT virtualize react-native", () => {
+  it("auto (default) resolves to mock today, even when native is available", () => {
+    const plugin = reactNative({}) as any;
+    const cfg = plugin.config({ root: projectRoot }, SERVE_ENV);
+    // mock config: no RN externalization, react-native is virtualized.
+    expect(cfg.test.server?.deps?.external).toBeUndefined();
+    expect(plugin.resolveId("react-native", undefined)).toBe("\0virtual:react-native");
+  });
+
+  it("explicit native sets RN external + a native setup file, and does NOT virtualize react-native", () => {
     const plugin = reactNative({ engine: "native" }) as any;
-    const cfg = plugin.config({}, { command: "serve", mode: "test" });
+    const cfg = plugin.config({ root: projectRoot }, SERVE_ENV);
     const ext = cfg.test.server.deps.external.map(String).join(",");
     expect(ext).toMatch(/react-native/);
     expect(cfg.test.setupFiles.some((p: string) => p.includes("native"))).toBe(true);
-    // Under native, react-native must NOT be redirected to the mock virtual module.
     expect(plugin.resolveId("react-native", undefined)).toBeUndefined();
   });
 
-  it("mock engine still virtualizes react-native", () => {
+  it("explicit mock virtualizes react-native", () => {
     const plugin = reactNative({ engine: "mock" }) as any;
+    plugin.config({ root: projectRoot }, SERVE_ENV);
     expect(plugin.resolveId("react-native", undefined)).toBe("\0virtual:react-native");
+  });
+});
+
+describe("native nudge", () => {
+  it("auto prints the native nudge once when the project is native-capable", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const plugin = reactNative({}) as any;
+    plugin.config({ root: projectRoot }, SERVE_ENV);
+    const nudges = log.mock.calls.filter((c) => String(c[0]).includes("native engine available"));
+    expect(nudges).toHaveLength(1);
+    log.mockRestore();
+  });
+
+  it("auto prints no nudge when native deps are absent", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vn-nudge-"));
+    fs.writeFileSync(path.join(tmp, "package.json"), JSON.stringify({ name: "x", version: "0.0.0" }));
+    const plugin = reactNative({}) as any;
+    plugin.config({ root: tmp }, SERVE_ENV);
+    const nudges = log.mock.calls.filter((c) => String(c[0]).includes("native engine available"));
+    expect(nudges).toHaveLength(0);
+    log.mockRestore();
   });
 });

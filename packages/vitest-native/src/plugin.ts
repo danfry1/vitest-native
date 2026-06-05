@@ -8,6 +8,7 @@ import { createRequire } from "node:module";
 import flowRemoveTypes from "flow-remove-types";
 import { validatePeerDependency, warnUnknownOptions } from "./validate.js";
 import { nativeEngineConfig } from "./native/apply.js";
+import { detectEngine } from "./native/detect.js";
 
 const DEFAULT_ASSET_EXTS = [
   "png",
@@ -264,7 +265,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   const diagnostics = options?.diagnostics ?? false;
   // Resolve the requested engine. 'auto' conservatively resolves to 'mock' today.
   const requestedEngine = options?.engine ?? "auto";
-  const engine: "mock" | "native" = requestedEngine === "native" ? "native" : "mock";
+  // Resolved at config() time, once the consumer project root is known. Seeded to a
+  // safe default so the hooks (resolveId/load/transform), which run after config(),
+  // never read undefined.
+  let engine: "mock" | "native" = requestedEngine === "native" ? "native" : "mock";
   const extensions = getPlatformExtensions(platform);
 
   return {
@@ -281,6 +285,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // This must happen here (not configResolved) because test.env
       // is captured before configResolved runs.
       const resolvedRoot = userConfig.root ? path.resolve(userConfig.root) : process.cwd();
+      // Resolve the concrete engine now that the project root is known, and surface
+      // the choice (auto -> native nudge today; auto-selection announcement post-v1).
+      const decision = detectEngine(requestedEngine, resolvedRoot);
+      engine = decision.engine;
+      if (decision.notice) console.log(decision.notice);
       const env: Record<string, string> = {
         VITEST_NATIVE_PLATFORM: platform,
         VITEST_NATIVE_DIAGNOSTICS: String(diagnostics),
@@ -348,6 +357,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
 
       // Now we have the real project root — resolve options from consumer context.
       resolved = await resolveOptions(options, config.root);
+      // The authoritative engine is the one decided in config(); keep ResolvedOptions in sync.
+      resolved.engine = engine;
 
       // Build preset module lookup and read static export names.
       // Export names are declared statically on each preset module so they
