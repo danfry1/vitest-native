@@ -216,7 +216,9 @@ export interface VitestNativeOptions {
    * - 'mock'   — pure-JS reimplementation of React Native (fastest, lower fidelity).
    * - 'native' — runs real React Native JS, mocking only the native boundary
    *              (Jest-level fidelity).
-   * - 'auto'   — picks an engine automatically. Currently resolves to 'mock'.
+   * - 'auto'   — picks automatically. Currently resolves to 'mock'; when
+   *              '@react-native/babel-preset' is present it recommends 'native'
+   *              (becomes the default in v1).
    * Default: 'auto'.
    */
   engine?: "auto" | "mock" | "native";

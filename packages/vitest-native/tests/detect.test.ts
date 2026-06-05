@@ -23,7 +23,10 @@ const PKG_DIR = path.dirname(findUp("package.json", HERE));
 let emptyRoot: string;
 beforeAll(() => {
   emptyRoot = fs.mkdtempSync(path.join(os.tmpdir(), "vn-detect-"));
-  fs.writeFileSync(path.join(emptyRoot, "package.json"), JSON.stringify({ name: "x", version: "0.0.0" }));
+  fs.writeFileSync(
+    path.join(emptyRoot, "package.json"),
+    JSON.stringify({ name: "x", version: "0.0.0" }),
+  );
 });
 afterAll(() => fs.rmSync(emptyRoot, { recursive: true, force: true }));
 

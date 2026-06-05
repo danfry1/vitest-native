@@ -135,12 +135,17 @@ export default defineConfig({
 
 Choose how React Native is provided to your tests:
 
-- `'mock'` *(default today)* — a fast, pure-JS reimplementation of React Native.
-  Best for unit/logic tests.
-- `'native'` — runs the **real** React Native JS, mocking only the native boundary,
-  for Jest-level fidelity. Requires `@react-native/babel-preset` and `@babel/core`
-  in your project (present by default in React Native apps).
-- `'auto'` — picks automatically. Currently resolves to `'mock'`.
+- `'native'` — runs the **real** React Native JS, mocking only the native boundary, for
+  Jest-level fidelity. Best for components, integration, RNTL, virtualized lists, and
+  anything where a false pass is costly. Requires `@react-native/babel-preset` and
+  `@babel/core` in your project (present by default in React Native apps).
+- `'mock'` — a fast, pure-JS reimplementation of React Native with **zero extra
+  dependencies**. Best for pure-logic/unit tests, maximum determinism, or when you can't
+  add the babel deps.
+- `'auto'` *(default)* — picks automatically. **Today it resolves to `'mock'`**; when
+  `@react-native/babel-preset` is detected it prints a one-line hint recommending
+  `engine: 'native'`. **In v1, `'auto'` will default to `'native'` when available** — set
+  `engine: 'mock'` to keep the current behavior.
 
 ```ts
 reactNative({ engine: 'native' })

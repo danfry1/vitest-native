@@ -70,7 +70,9 @@ export function transformRN(file, src, projectRoot) {
     fs.writeFileSync(tmp, out);
     fs.renameSync(tmp, cachePath);
   } catch {
-    try { fs.rmSync(tmp, { force: true }); } catch {}
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {}
   }
   mem.set(file, out);
   return out;
