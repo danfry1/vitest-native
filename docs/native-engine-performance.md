@@ -46,12 +46,21 @@ resolve: { dedupe: ["react", "react-test-renderer", "react-is"], /* ... */ }
   copies → null hooks dispatcher (`Cannot read properties of null (reading 'use...')`),
   e.g. on components using `useImperativeHandle`. Required, not optional.
 
-**Is `isolate: false` safe?** Yes, *measured* — not assumed. Deliberate pollution probes
-(`bench/`, since removed) showed that under `isolate:false`+`threads` in this setup, **neither
-module state NOR `globalThis` leaks across files** — each test file gets a fresh vite-node
-module evaluation while the expensive externalized RN stays warm in Node's cache. So **no
-per-file state-reset machinery is needed** for the native engine. (This contradicted an
-early assumption that we'd need reset logic — we verified instead.)
+**Is `isolate: false` safe?** Yes, *measured* — not assumed, and **total**. Re-probed
+2026-06-05 under the shipped config forced into a single worker (worst case for sharing):
+**RN module state, `globalThis`, `process.env`, and even a CJS sidecar in Node's
+`require.cache` all reset per file.** A cross-file leak is in fact **not constructible from
+test code** here. So **no per-file state-reset machinery is needed**.
+
+**Mechanism correction (measured, supersedes the "loads once" phrasing above):** RN module
+*state* is **fresh per file** — `Dimensions` is a distinct object per file and its values
+reset, so RN is **not** a shared singleton across files. vite-node re-initializes the test
+file's module world each file. The `isolate:false` win therefore comes from **reusing the
+worker thread + warm V8/JIT + the vite transform cache + the disk Flow-strip cache + not
+re-registering the loader/hooks per file** — *not* from sharing a live RN graph. Treat
+§1.3's "loads once per worker (Node's require cache)" as shorthand for "transforms/worker
+stay warm"; the mutable graph itself does not persist (which is exactly why isolation is
+total).
 
 ## 3. Why the mock engine stays `isolate: true`
 
@@ -79,8 +88,11 @@ future cache work must preserve atomicity.
   re-execution. The win is `isolate:false`, full stop.
 - **Do not mock `LogBoxData`/`LogBox` wholesale to silence the act() warning** — it breaks
   Modal + RNTL host-detection (real consumers; partial source-string mock isn't possible).
-  The act() warning is cosmetic; the correct fix is a runtime `LogBox.ignoreAllLogs()` in
-  setup, not a module mock.
+  The act() warning is cosmetic. **Note (2026-06-05): `LogBox.ignoreAllLogs()` in setup
+  *and* per-file, and a no-op `LogBox.js` facade mock, were all measured ineffective** — the
+  state update comes from `LogBoxData`, which the facade doesn't gate. A correct fix needs a
+  surgical `LogBoxData` shim validated against Modal/RNTL; deferred. (Earlier guidance here
+  said `ignoreAllLogs()` was the fix — it is not.)
 - **Do not assume `isolate:false` is unsafe** — it's measured-safe here. If you change pool
   type or vitest version, re-run the pollution probes before trusting it.
 

@@ -90,8 +90,11 @@ Backed by `tests-native/render.test.tsx`, `matrix.test.tsx`, `rntl.test.tsx`,
   message.
 - **Cosmetic only:** a React `"update to LogBoxStateSubscription was not wrapped in act()"`
   warning can appear when real RN emits a dev `console.warn` (e.g. SafeAreaView
-  deprecation) during interaction. Tests pass. A blunt `LogBoxData` mock breaks Modal/RNTL,
-  so the correct fix is a runtime `LogBox.ignoreAllLogs()` in setup (not yet done).
+  deprecation) during interaction. Tests pass. **Fix is non-trivial (deferred):** measured
+  2026-06-05, `LogBox.ignoreAllLogs()` (in setup *and* per-file) and a no-op `LogBox.js`
+  facade mock are all **ineffective** — the state update originates in `LogBoxData`, which
+  the `LogBox.js` facade doesn't gate and whose mock breaks Modal/RNTL. Needs a surgical
+  `LogBoxData` shim. See §6.7.
 - **Third-party libraries** (reanimated, navigation, gesture-handler): their *real* JS runs
   under `native` — a structural advantage over the mock engine's per-library presets — but
   breadth across versions is **not yet verified** (Phase 3).
@@ -113,8 +116,16 @@ publishing.
 |--------|------|---------------|----------------|-----------|
 | **jest** (RN preset) | ~6.0s | **1.37s** | 1.00× | ✅ |
 | **vitest-native** (default isolation) | ~5.2s | **3.25s** | **0.41× (2.4× slower)** | ✅ correct |
-| **vitest-native** (`isolate: false`) | ~3.8s | 1.31s | **1.04× (≈ jest)** | ⚠️ **flaky** (state pollution) |
+| **vitest-native** (`isolate: false`) | ~3.8s | 1.31s | **1.04× (≈ jest)** | ✅ correct (shipped default) |
 | **vitest-mock** | ~1.4s | 1.45s | 0.94× | ✅ |
+
+> **Note (updated 2026-06-05):** the "⚠️ flaky" once attached to the `isolate:false` row was
+> a **cold disk-cache write race** (concurrent workers reading a partial transform file),
+> **not** state pollution — fixed by atomic temp+rename writes (`src/native/transform.mjs`).
+> Cross-file **state isolation under `isolate:false` is total** (see §6.2): measured this
+> session, RN module state, `globalThis`, `process.env`, and even a CJS sidecar in Node's
+> `require.cache` all reset per file. `isolate:false` is the shipped native default and is
+> correct.
 
 **Scaling head-to-head (warm median; native = shipped default isolate:false + pool:threads):**
 
@@ -160,18 +171,27 @@ shared with jest. Re-run `bench/` on a CI baseline before publishing exact numbe
 
 ## 6. Open questions / not-yet-proven (do not claim these as facts)
 
-1. ~~Live jest head-to-head~~ **DONE (§4)** — result: vitest-native is *slower warm*,
-   *faster cold*. A `jest-expo` (not bare RN-preset) variant would likely be *slower* than
-   the baseline measured (it transforms more), i.e. friendlier to us — worth running too.
-2. **`isolate: false` correctness** — flaky today (state pollution). Needs per-file reset
-   (boundary mock state, fake timers, listeners, mounted trees, RN module-level
-   singletons). This + per-file overhead is the path to actually beating jest warm.
-3. **Native disk-cache write race** under worker concurrency (intermittent cold failure).
-3. **Third-party library breadth** under `native` (reanimated/navigation/gesture-handler
+1. ~~Live jest head-to-head~~ **DONE (§4)** — result (current default): native is *faster*
+   warm and cold (§1, §4). A `jest-expo` (not bare RN-preset) variant would likely be
+   *slower* than the baseline measured (it transforms more), i.e. friendlier to us — worth
+   running too.
+2. ~~**`isolate: false` correctness**~~ **RESOLVED (2026-06-05).** Measured total per-file
+   isolation under the shipped `isolate:false` + `pool:threads` config (forced into a single
+   worker — worst case): RN module state, `globalThis`, `process.env`, and a Node
+   `require.cache` CJS sidecar **all reset per file**. vite-node re-initializes the module
+   world per file; the speed comes from worker reuse + cached transforms + warm V8, not from
+   sharing mutable RN singletons. **No per-file reset machinery is needed**, and a leak is in
+   fact not constructible from test code. The earlier "needs reset" worry was wrong.
+3. ~~**Native disk-cache write race**~~ **FIXED** — atomic temp+rename writes in
+   `src/native/transform.mjs` (this was the real source of the earlier cold flakiness).
+4. **Third-party library breadth** under `native` (reanimated/navigation/gesture-handler
    across versions).
-4. **RN version matrix** (0.78 / 0.82 / 0.84+) for both the transform and the boundary set.
-5. **RNTL v14 + `universal-test-renderer`** integration (current evidence is RNTL v12 +
+5. **RN version matrix** (0.78 / 0.82 / 0.84+) for both the transform and the boundary set.
+6. **RNTL v14 + `universal-test-renderer`** integration (current evidence is RNTL v12 +
    `react-test-renderer`).
+7. **LogBox `act()` warning** — cosmetic (all tests pass); `LogBox.ignoreAllLogs()` and a
+   no-op `LogBox.js` facade mock were both measured **ineffective** (2026-06-05); the real
+   source is `LogBoxData`, whose mock breaks Modal/RNTL. Needs a surgical fix; deferred.
 
 ---
 
