@@ -67,6 +67,47 @@ function interpolateValue(
   return result;
 }
 
+// Private-use-area sentinel marking a numeric slot in a string template (avoids
+// a control char in the reconstruction regex).
+const SLOT = "@@VN_SLOT@@";
+
+// Splits a string into its numeric slots and a reconstruction template, e.g.
+// "rgba(0, 100, 200, 0.5)" -> { numbers: [0,100,200,0.5], template: "rgba(<SLOT>, ...)" }.
+function parseStringPattern(str: string): { numbers: number[]; template: string } {
+  const numbers: number[] = [];
+  const template = str.replace(/-?\d+\.?\d*/g, (match) => {
+    numbers.push(parseFloat(match));
+    return SLOT;
+  });
+  return { numbers, template };
+}
+
+// Interpolates string output ranges by lerping each numeric slot independently
+// and reconstructing the string (matches RN: "0deg"->"360deg", "0%"->"100%",
+// arbitrary suffixes, and numeric formats like rgba(...)).
+function interpolateString(
+  value: number,
+  inputRange: number[],
+  outputRange: string[],
+  extrapolate: string,
+  extrapolateLeft?: string,
+  extrapolateRight?: string,
+  easing?: (t: number) => number,
+): string {
+  const first = parseStringPattern(outputRange[0]);
+  const perSlotRanges = first.numbers.map((_, idx) =>
+    outputRange.map((s) => parseStringPattern(s).numbers[idx]),
+  );
+  const interpolated = perSlotRanges.map((range) =>
+    interpolateValue(value, inputRange, range, extrapolate, extrapolateLeft, extrapolateRight, easing),
+  );
+  let idx = 0;
+  return first.template.replaceAll(SLOT, () => {
+    const n = interpolated[idx++];
+    return Number.isInteger(n) ? String(n) : String(Math.round(n * 1000) / 1000);
+  });
+}
+
 class AnimatedValue {
   private _value: number;
   private _listeners: Map<string, Function> = new Map();
@@ -111,6 +152,34 @@ class AnimatedValue {
     } = config || {};
     if (!inputRange || !outputRange || inputRange.length < 2 || outputRange.length < 2) {
       return new AnimatedValue(this._value);
+    }
+    // String output ranges ("0deg" -> "360deg", "0%" -> "100%", rgba(...), ...)
+    // must preserve the unit/suffix. Return a live interpolation node whose
+    // getValue()/__getValue() yield the reconstructed string from the current
+    // source value, mirroring RN's AnimatedInterpolation surface.
+    if (typeof outputRange[0] === "string") {
+      // Arrow closes over `this`, so getValue() reads the live source value.
+      const compute = () =>
+        interpolateString(
+          this._value,
+          inputRange,
+          outputRange,
+          extrapolate,
+          extrapolateLeft,
+          extrapolateRight,
+          easing,
+        );
+      return {
+        getValue: compute,
+        __getValue: compute,
+        toJSON: compute,
+        interpolate: (inner: any) => new AnimatedValue(0).interpolate(inner),
+        addListener: () => "0",
+        removeListener: () => {},
+        removeAllListeners: () => {},
+        stopAnimation: (cb?: Function) => cb?.(compute()),
+        resetAnimation: (cb?: Function) => cb?.(compute()),
+      } as any;
     }
     const result = interpolateValue(
       this._value,

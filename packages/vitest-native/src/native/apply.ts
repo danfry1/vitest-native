@@ -27,12 +27,17 @@ export function nativeEngineConfig(setupFilePath: string, env: Record<string, st
     test: {
       setupFiles: [setupFilePath],
       env,
-      // Reuse the worker runtime across files: RN's module graph loads once
-      // (via Node's cache) instead of per file, so wall-time stays ~flat as the
-      // suite grows (jest re-requires per file). Measured: full per-file state
-      // isolation still holds (module state AND globalThis), so this is safe —
-      // users can override with `test.isolate: true` if a suite needs it.
-      isolate: false,
+      // We intentionally do NOT force `isolate`, so Vitest's safe default
+      // (`isolate: true`) applies: each test file gets a fresh module runner.
+      //
+      // `isolate: false` shares one worker so RN's module graph loads once and
+      // wall-time stays flat as the suite grows — but it LEAKS state across
+      // files that share a worker (proven by bench/leak: both user-module
+      // singletons and RN's own stateful APIs like DeviceEventEmitter carry over
+      // between files). That manifests as order-dependent, flaky failures. So
+      // `isolate: false` is an informed opt-in a consumer can set in their own
+      // config, not the default. (A future "hot runtime + surgical per-file
+      // reset" build will reclaim the speed safely.)
       pool: "threads",
       server: {
         deps: {

@@ -240,6 +240,14 @@ describe("StyleSheet constants (conformance)", () => {
     expect(StyleSheet.hairlineWidth).toBeLessThanOrEqual(1);
   });
 
+  it("hairlineWidth matches real RN: PixelRatio.roundToNearestPixel(0.4)", () => {
+    // Real RN (StyleSheetExports.js) computes it from the pixel ratio, not a
+    // hardcoded 0.5. At the default scale of 3 this is round(0.4*3)/3 = 1/3.
+    // Verified against real RN via the cross-check tool (bench/crosscheck).
+    expect(StyleSheet.hairlineWidth).toBeCloseTo(1 / 3, 10);
+    expect(StyleSheet.hairlineWidth).not.toBe(0.5);
+  });
+
   it("setStyleAttributePreprocessor is a function", () => {
     expect(typeof StyleSheet.setStyleAttributePreprocessor).toBe("function");
   });

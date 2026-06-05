@@ -159,20 +159,45 @@ describe("Interpolation", () => {
   // Skip: our mock doesn't support Infinity ranges with easing
   it.skip("should work with positive infinite", () => {});
 
-  // Skip: our mock doesn't support string output range interpolation
-  it.skip("should work with output ranges as string", () => {});
+  it("should work with output ranges as string", () => {
+    const interpolation = createInterpolation({
+      inputRange: [0, 1],
+      outputRange: ["0deg", "100deg"],
+    });
+    expect(interpolation(0)).toBe("0deg");
+    expect(interpolation(0.5)).toBe("50deg");
+    expect(interpolation(1)).toBe("100deg");
+  });
 
-  // Skip: our mock doesn't support string output range interpolation
+  it("should work with negative and decimal values in string ranges", () => {
+    const interpolation = createInterpolation({
+      inputRange: [0, 1],
+      outputRange: ["-100deg", "100deg"],
+    });
+    expect(interpolation(0)).toBe("-100deg");
+    expect(interpolation(0.5)).toBe("0deg");
+    expect(interpolation(1)).toBe("100deg");
+  });
+
+  it("should interpolate values with arbitrary suffixes (multi-slot)", () => {
+    const interpolation = createInterpolation({
+      inputRange: [0, 1],
+      outputRange: ["M20,20L20,80", "M40,40L40,60"],
+    });
+    expect(interpolation(0)).toBe("M20,20L20,80");
+    expect(interpolation(0.5)).toBe("M30,30L30,70");
+    expect(interpolation(1)).toBe("M40,40L40,60");
+  });
+
+  // Hex color string interpolation (#fff -> rgba) is a separate follow-up; the
+  // generic string path above already covers deg/%/suffix and numeric formats.
   it.skip("should work with output ranges as short hex string", () => {});
 
-  // Skip: our mock doesn't support string output range interpolation
+  // Skip: hex color string interpolation follow-up
   it.skip("should work with output ranges as long hex string", () => {});
 
-  // Skip: our mock doesn't support string output range interpolation
+  // Skip: hex color string interpolation follow-up
   it.skip("should work with output ranges with mixed hex and rgba strings", () => {});
-
-  // Skip: our mock doesn't support string output range interpolation
-  it.skip("should work with negative and decimal values in string ranges", () => {});
 
   // Skip: our mock doesn't validate string inputs
   it.skip("should crash when chaining an interpolation that returns a string", () => {});

@@ -373,7 +373,7 @@ export function buildReactNativeMock(platform: "ios" | "android" = "ios") {
     // APIs
     Platform: createPlatformMock(platform),
     Dimensions: createDimensionsMock(),
-    StyleSheet: createStyleSheetMock(),
+    StyleSheet: createStyleSheetMock(() => mock.Dimensions.get("window").scale),
     Animated: createAnimatedMock(),
     Alert: createAlertMock(),
     Linking: createLinkingMock(),

@@ -338,7 +338,9 @@ describe("StyleSheet", () => {
   it("has absoluteFill constants", () => {
     expect(StyleSheet.absoluteFill).toBeDefined();
     expect(StyleSheet.absoluteFillObject.position).toBe("absolute");
-    expect(StyleSheet.hairlineWidth).toBe(0.5);
+    // Real RN derives this from the pixel ratio (round(0.4*scale)/scale); at the
+    // default scale of 3 that is 1/3, not a hardcoded 0.5. See StyleSheet mock.
+    expect(StyleSheet.hairlineWidth).toBeCloseTo(1 / 3, 10);
   });
 });
 

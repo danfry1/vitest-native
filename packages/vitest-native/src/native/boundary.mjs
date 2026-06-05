@@ -42,13 +42,44 @@ const MOCK_NATIVE_COMPONENT = `
 
 const TURBO_STUB = `
   const __C = ${DEVICE_CONSTANTS};
+  // Native methods that return a Promise on the device (no callback arg). Without
+  // this, real RN code doing \`NativeModule.canOpenURL(url).then(...)\` would crash
+  // on \`undefined\`. Values are the no-native defaults.
+  const __ASYNC = {
+    // Linking
+    canOpenURL: false, getInitialURL: null, openURL: undefined, openSettings: undefined,
+    sendIntent: undefined, getString: "", getInitialState: null,
+    // Share
+    share: { action: "dismissedAction", activityType: null },
+    // Image loader (getSize resolves to a [width, height] TUPLE — RN destructures it)
+    getSize: [0, 0], getSizeWithHeaders: { width: 0, height: 0 },
+    prefetchImage: true, prefetchImageWithMetadata: true, queryCache: {},
+  };
+  // RN callback conventions are inconsistent: most native methods are success-first
+  // (e.g. getCurrentVoiceOverState(success, error)), but a few are error-first
+  // (e.g. showShareActionSheetWithOptions(options, error, success)). For the latter,
+  // the success callback is the LAST function arg.
+  const __SUCCESS_LAST = new Set(["showShareActionSheetWithOptions"]);
   const turboStub = (name) => new Proxy({}, {
     get: (_t, p) => {
       if (p === "getConstants") return () => (__C[name] || {});
       if (p === "getColorScheme") return () => "light";        // NativeAppearance
       if (p === "addListener") return () => ({ remove: () => {} });
       if (p === "removeListeners") return () => {};
-      return () => undefined;
+      return (...args) => {
+        // Callback-style native methods resolve via a callback argument. Invoke the
+        // success callback so JS Promises that wrap these settle instead of hanging.
+        const fns = args.filter((a) => typeof a === "function");
+        if (fns.length) {
+          const cb = typeof p === "string" && __SUCCESS_LAST.has(p) ? fns[fns.length - 1] : fns[0];
+          return cb(false);
+        }
+        // Promise-returning native methods must yield a Promise, not undefined.
+        if (typeof p === "string" && Object.prototype.hasOwnProperty.call(__ASYNC, p)) {
+          return Promise.resolve(__ASYNC[p]);
+        }
+        return undefined;
+      };
     },
   });
 `;
