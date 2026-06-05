@@ -10,20 +10,24 @@ export default defineConfig({
     serializer: 'src/serializer.ts',
     presets: 'src/presets/index.ts',
     matchers: 'src/matchers/animated.ts',
+    'jest-compat': 'src/jest-compat/index.ts',
   },
   format: ['esm', 'cjs'],
   dts: true,
   clean: true,
   external: ['react', 'react-native', 'vitest', 'vite', '@testing-library/react-native', '@testing-library/react-native/build/matchers/extend-expect', '@testing-library/react-native/build/matchers', 'react-test-renderer'],
   hooks: {
-    // The native runtime is plain .mjs loaded by Node at runtime (incl. via
-    // module.register), so it must ship verbatim rather than being bundled.
+    // The native runtime + jest-compat shims are plain .mjs loaded by Node at
+    // runtime (native: via module.register; jest-compat: as setup file / alias
+    // targets resolved by Vite), so they must ship verbatim rather than bundled.
     'build:done': () => {
-      const srcDir = path.resolve('src/native');
-      const outDir = path.resolve('dist/native');
-      fs.mkdirSync(outDir, { recursive: true });
-      for (const f of fs.readdirSync(srcDir)) {
-        if (f.endsWith('.mjs')) fs.copyFileSync(path.join(srcDir, f), path.join(outDir, f));
+      for (const sub of ['native', 'jest-compat']) {
+        const srcDir = path.resolve('src', sub);
+        const outDir = path.resolve('dist', sub);
+        fs.mkdirSync(outDir, { recursive: true });
+        for (const f of fs.readdirSync(srcDir)) {
+          if (f.endsWith('.mjs')) fs.copyFileSync(path.join(srcDir, f), path.join(outDir, f));
+        }
       }
     },
   },

@@ -87,7 +87,20 @@
         "types": "./dist/matchers.d.cts",
         "default": "./dist/matchers.cjs"
       }
-    }
+    },
+    "./jest-compat": {
+      "import": {
+        "types": "./dist/jest-compat.d.mts",
+        "default": "./dist/jest-compat.mjs"
+      },
+      "require": {
+        "types": "./dist/jest-compat.d.cts",
+        "default": "./dist/jest-compat.cjs"
+      }
+    },
+    "./jest-compat/setup": "./dist/jest-compat/setup.mjs",
+    "./jest-compat/jest-globals": "./dist/jest-compat/jest-globals.mjs",
+    "./jest-compat/extend-expect-noop": "./dist/jest-compat/noop.mjs"
   },
   "files": [
     "dist",
@@ -123,11 +136,17 @@
   "devDependencies": {
     "@babel/core": "^7.29.7",
     "@react-native/babel-preset": "^0.85.3",
+    "@react-navigation/native": "^7.2.5",
+    "@react-navigation/native-stack": "^7.16.0",
     "@testing-library/react-native": "^12.9.0",
     "@types/node": "^25.3.5",
     "@types/react": "^19.2.14",
     "react": "^19.0.0",
     "react-native": "^0.84.1",
+    "react-native-gesture-handler": "^3.0.0",
+    "react-native-reanimated": "4.3.1",
+    "react-native-safe-area-context": "^5.8.0",
+    "react-native-worklets": "^0.9.1",
     "react-test-renderer": "^19.0.0",
     "tsdown": "^0.21.0",
     "typescript": "^5.7.0",

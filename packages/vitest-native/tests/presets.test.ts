@@ -455,6 +455,18 @@ describe("preset: reanimated", () => {
     expect(Animated.displayName).toBe("Animated(MyView)");
   });
 
+  it("exposes Animated.View/Text/Image/ScrollView/FlatList components", () => {
+    for (const name of ["View", "Text", "Image", "ScrollView", "FlatList"] as const) {
+      expect(mock[name]).toBeDefined();
+      // forwardRef components are objects with a render fn, not plain functions.
+      expect(["object", "function"]).toContain(typeof mock[name]);
+      expect(mock[name].displayName).toBe(`Animated.${name}`);
+    }
+    // default namespace mirrors the component set (matches `import Animated from`).
+    expect(mock.default.View).toBe(mock.View);
+    expect(typeof mock.default.createAnimatedComponent).toBe("function");
+  });
+
   it("interpolate is callable", () => {
     const result = mock.interpolate(0.5, [0, 1], [0, 100]);
     expect(typeof result).toBe("number");

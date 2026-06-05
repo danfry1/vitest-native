@@ -1,6 +1,26 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
+import { createRequire } from "node:module";
+import path from "node:path";
+
+/**
+ * Resolve the *active* React Native module — the mock under `engine: 'mock'`
+ * (intercepted by the CJS bridge) or real RN under `engine: 'native'` (served by
+ * the Node loader hooks). Cached. Lets the reanimated mock's `Animated.View`
+ * &co. wrap whichever RN component set is live, so the preset is engine-agnostic.
+ */
+let _rnCache: Record<string, any> | null = null;
+function getRN(): Record<string, any> {
+  if (_rnCache) return _rnCache;
+  try {
+    const base = path.join(process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd(), "package.json");
+    _rnCache = createRequire(base)("react-native");
+  } catch {
+    _rnCache = {};
+  }
+  return _rnCache!;
+}
 
 export function reanimated(): Preset {
   return {
@@ -27,6 +47,11 @@ export function reanimated(): Preset {
           "runOnJS",
           "runOnUI",
           "createAnimatedComponent",
+          "View",
+          "Text",
+          "Image",
+          "ScrollView",
+          "FlatList",
           "Easing",
           "FadeIn",
           "FadeOut",
@@ -215,6 +240,31 @@ export function reanimated(): Preset {
             return Animated;
           }
 
+          // Built-in animated components (Animated.View, Animated.Text, …). Each
+          // lazily wraps the *active* RN component at render time so it renders
+          // through the real RN host under the native engine, or the mock under
+          // the mock engine. Resolving lazily (not at factory time) avoids
+          // touching RN before the engine's hooks are installed.
+          function makeAnimatedHost(name: string) {
+            const Comp = React.forwardRef((props: any, ref: any) => {
+              const Base = getRN()[name];
+              if (!Base) {
+                throw new Error(
+                  `[vitest-native] reanimated preset: react-native '${name}' is unavailable`,
+                );
+              }
+              return React.createElement(Base, { ...props, ref });
+            });
+            Comp.displayName = `Animated.${name}`;
+            return Comp;
+          }
+
+          const View = makeAnimatedHost("View");
+          const Text = makeAnimatedHost("Text");
+          const Image = makeAnimatedHost("Image");
+          const ScrollView = makeAnimatedHost("ScrollView");
+          const FlatList = makeAnimatedHost("FlatList");
+
           // Helper to create chainable layout animation presets
           function createLayoutAnim() {
             const obj: any = {};
@@ -236,7 +286,12 @@ export function reanimated(): Preset {
           }
 
           return {
-            default: { createAnimatedComponent },
+            default: { createAnimatedComponent, View, Text, Image, ScrollView, FlatList },
+            View,
+            Text,
+            Image,
+            ScrollView,
+            FlatList,
             useSharedValue,
             useAnimatedStyle,
             useAnimatedProps,

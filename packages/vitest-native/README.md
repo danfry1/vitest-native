@@ -14,6 +14,7 @@ A Vitest plugin for React Native. Run your RN tests in Vitest — a real-RN engi
 - [React Native Test Suite Conformance](#react-native-test-suite-conformance)
 - [Test Helpers](#test-helpers)
 - [Auto-Detect Presets](#auto-detect-presets)
+- [Migrating from Jest](#migrating-from-jest)
 - [RNTL Matchers](#rntl-matchers)
 - [Animated Matchers (Reanimated)](#animated-matchers-reanimated)
 - [Snapshot Serializer](#snapshot-serializer)
@@ -384,6 +385,33 @@ export default defineConfig({
 | `presets.asyncStorage()` | @react-native-async-storage/async-storage |
 | `presets.screens()` | react-native-screens |
 | `presets.expo()` | Expo modules |
+
+Presets apply under **both** engines: the mock engine and `engine: 'native'` (where they shadow each
+library's native runtime — worklets, native modules — exactly as Jest does, while the surrounding tree
+renders through real React Native).
+
+---
+
+## Migrating from Jest
+
+vitest-native ships a small compat layer that clears the mechanical Jest-API coupling in an existing
+suite (the `jest` global, `@jest/globals`, jest-native's extend-expect):
+
+```ts
+// vitest.config.mts
+import { reactNative } from 'vitest-native';
+import { jestCompatAliases, jestCompatSetup } from 'vitest-native/jest-compat';
+
+export default defineConfig({
+  plugins: [reactNative({ engine: 'native' })],
+  resolve: { alias: { ...jestCompatAliases() } },
+  test: { globals: true, setupFiles: [jestCompatSetup] },
+});
+```
+
+This is **not** a turnkey drop-in — a real suite still needs a small per-suite cleanup (convert
+top-level `jest.mock` → `vi.mock`, RNTL ≥ 12, re-record snapshots once with `-u`). The full recipe,
+with a worked real-app example, is in **[docs/migrating-from-jest.md](docs/migrating-from-jest.md)**.
 
 ---
 
