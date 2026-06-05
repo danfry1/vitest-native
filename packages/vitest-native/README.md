@@ -143,9 +143,9 @@ Choose how React Native is provided to your tests:
   dependencies**. Best for pure-logic/unit tests, maximum determinism, or when you can't
   add the babel deps.
 - `'auto'` *(default)* — picks automatically. **Today it resolves to `'mock'`**; when
-  `@react-native/babel-preset` is detected it prints a one-line hint recommending
-  `engine: 'native'`. **In v1, `'auto'` will default to `'native'` when available** — set
-  `engine: 'mock'` to keep the current behavior.
+  `@react-native/babel-preset` is detected it still runs `'mock'` and prints a one-line hint
+  recommending `engine: 'native'`. **In v1, `'auto'` will default to `'native'` when
+  available** — set `engine: 'mock'` to keep the current behavior.
 
 ```ts
 reactNative({ engine: 'native' })
