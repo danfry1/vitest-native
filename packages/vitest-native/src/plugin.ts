@@ -291,7 +291,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // Capture the user-requested engine; concrete resolution happens in config().
   const requestedEngine = options?.engine ?? "auto";
   // Extra node_modules packages the native engine should transform (Flow/TS/JSX).
-  const transformPkgs = (options?.transform ?? []).filter((p) => typeof p === "string" && p.length > 0);
+  const transformPkgs = (options?.transform ?? []).filter(
+    (p) => typeof p === "string" && p.length > 0,
+  );
   // Resolved at config() time, once the consumer project root is known. Seeded to a
   // safe default so the hooks (resolveId/load/transform), which run after config(),
   // never read undefined.

@@ -47,9 +47,9 @@ describe("Interpolation", () => {
   });
 
   it("should throw for non monotonic input ranges", () => {
-    expect(() =>
-      createInterpolation({ inputRange: [0, 2, 1], outputRange: [0, 1, 2] })(1),
-    ).toThrow(/monotonically non-decreasing/);
+    expect(() => createInterpolation({ inputRange: [0, 2, 1], outputRange: [0, 1, 2] })(1)).toThrow(
+      /monotonically non-decreasing/,
+    );
   });
 
   it("should work with empty input range", () => {
@@ -246,9 +246,7 @@ describe("Interpolation", () => {
       inputRange: [0, 1],
       outputRange: ["0deg", "100deg"],
     });
-    expect(() =>
-      stringInterp.interpolate({ inputRange: [0, 1], outputRange: [0, 1] }),
-    ).toThrow();
+    expect(() => stringInterp.interpolate({ inputRange: [0, 1], outputRange: [0, 1] })).toThrow();
   });
 
   it("should support a mix of color patterns", () => {

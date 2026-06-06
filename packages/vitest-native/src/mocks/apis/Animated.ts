@@ -108,7 +108,12 @@ function colorToRgba(input: string): [number, number, number, number] | null {
   }
   if ((m = s.match(/^#([0-9a-f]{6})$/))) {
     const n = m[1];
-    return [parseInt(n.slice(0, 2), 16), parseInt(n.slice(2, 4), 16), parseInt(n.slice(4, 6), 16), 1];
+    return [
+      parseInt(n.slice(0, 2), 16),
+      parseInt(n.slice(2, 4), 16),
+      parseInt(n.slice(4, 6), 16),
+      1,
+    ];
   }
   if ((m = s.match(/^#([0-9a-f]{8})$/))) {
     const n = m[1];
@@ -178,16 +183,14 @@ function prepareStringInterpolation(outputRange: string[]): PreparedStringInterp
   if (!mapped.every((o) => o.components.length === first.length)) {
     throw new Error("All elements of output range should have the same number of components");
   }
-  if (
-    !mapped.every((o) =>
-      o.components.every((c, i) => typeof c === "number" || c === first[i]),
-    )
-  ) {
+  if (!mapped.every((o) => o.components.every((c, i) => typeof c === "number" || c === first[i]))) {
     throw new Error("All elements of output range should have the same non-numeric components");
   }
 
   const numericComponents = mapped.map((o) =>
-    isColor ? (o.components as number[]) : (o.components.filter((c) => typeof c === "number") as number[]),
+    isColor
+      ? (o.components as number[])
+      : (o.components.filter((c) => typeof c === "number") as number[]),
   );
   const perSlotRanges = numericComponents[0].map((_, i) => numericComponents.map((c) => c[i]));
   return { isColor, template: first, perSlotRanges };
@@ -204,7 +207,15 @@ function interpolateString(
   easing: (t: number) => number,
 ): string {
   const slots = prepared.perSlotRanges.map((range) =>
-    interpolateNumeric(value, inputRange, range, extrapolate, extrapolateLeft, extrapolateRight, easing),
+    interpolateNumeric(
+      value,
+      inputRange,
+      range,
+      extrapolate,
+      extrapolateLeft,
+      extrapolateRight,
+      easing,
+    ),
   );
   if (prepared.isColor) {
     // rgb channels are integers; alpha is rounded to the nearest thousandth.

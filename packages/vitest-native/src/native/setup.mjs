@@ -11,7 +11,8 @@ const diagnostics = process.env.VITEST_NATIVE_DIAGNOSTICS === "true";
 // Extra node_modules packages to transform (from the plugin's `transform` option).
 let transformPkgs = [];
 try {
-  if (process.env.VITEST_NATIVE_TRANSFORM) transformPkgs = JSON.parse(process.env.VITEST_NATIVE_TRANSFORM);
+  if (process.env.VITEST_NATIVE_TRANSFORM)
+    transformPkgs = JSON.parse(process.env.VITEST_NATIVE_TRANSFORM);
 } catch {}
 
 installGlobals();
