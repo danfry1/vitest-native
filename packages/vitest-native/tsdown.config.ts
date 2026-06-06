@@ -26,7 +26,10 @@ export default defineConfig({
         const outDir = path.resolve('dist', sub);
         fs.mkdirSync(outDir, { recursive: true });
         for (const f of fs.readdirSync(srcDir)) {
-          if (f.endsWith('.mjs')) fs.copyFileSync(path.join(srcDir, f), path.join(outDir, f));
+          // Ship runtime .mjs verbatim, plus hand-written .d.mts type stubs for them.
+          if (f.endsWith('.mjs') || f.endsWith('.d.mts')) {
+            fs.copyFileSync(path.join(srcDir, f), path.join(outDir, f));
+          }
         }
       }
     },

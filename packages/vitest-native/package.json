@@ -98,9 +98,18 @@
         "default": "./dist/jest-compat.cjs"
       }
     },
-    "./jest-compat/setup": "./dist/jest-compat/setup.mjs",
-    "./jest-compat/jest-globals": "./dist/jest-compat/jest-globals.mjs",
-    "./jest-compat/extend-expect-noop": "./dist/jest-compat/noop.mjs"
+    "./jest-compat/setup": {
+      "types": "./dist/jest-compat/setup.d.mts",
+      "default": "./dist/jest-compat/setup.mjs"
+    },
+    "./jest-compat/jest-globals": {
+      "types": "./dist/jest-compat/jest-globals.d.mts",
+      "default": "./dist/jest-compat/jest-globals.mjs"
+    },
+    "./jest-compat/extend-expect-noop": {
+      "types": "./dist/jest-compat/noop.d.mts",
+      "default": "./dist/jest-compat/noop.mjs"
+    }
   },
   "files": [
     "dist",
