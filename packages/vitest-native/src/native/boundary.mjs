@@ -43,7 +43,17 @@ const MOCK_NATIVE_COMPONENT = `
     "onStartShouldSetResponder", "onStartShouldSetResponderCapture",
     "onMoveShouldSetResponder", "onMoveShouldSetResponderCapture",
   ];
+  // RN's real TextInput renders its native input host as RCTSinglelineTextInputView /
+  // RCTMultilineTextInputView (iOS) or AndroidTextInput. But RNTL's host detection
+  // and userEvent (type/clear) + getByPlaceholderText key on the host name "TextInput"
+  // — the name jest's RN preset produces by mocking TextInput. Render these native
+  // input hosts as "TextInput" so RNTL recognises them, matching the jest preset.
+  const __TEXT_INPUT_VIEWS = new Set([
+    "RCTSinglelineTextInputView", "RCTMultilineTextInputView", "AndroidTextInput",
+    "RCTUITextField", "RCTUITextView",
+  ]);
   const mockNativeComponent = (viewName) => {
+    const hostName = __TEXT_INPUT_VIEWS.has(viewName) ? "TextInput" : viewName;
     const C = class extends React.Component {
       constructor(p) { super(p); this._nativeTag = __tag++; }
       render() {
@@ -52,11 +62,11 @@ const MOCK_NATIVE_COMPONENT = `
           props = Object.assign({}, this.props);
           for (const k of __SCROLL_RESPONDER_PROPS) delete props[k];
         }
-        return React.createElement(viewName, props, props.children);
+        return React.createElement(hostName, props, props.children);
       }
       blur() {} focus() {} measure() {} measureInWindow() {} measureLayout() {} setNativeProps() {}
     };
-    C.displayName = viewName === "RCTView" ? "View" : viewName;
+    C.displayName = viewName === "RCTView" ? "View" : hostName;
     return C;
   };
 `;

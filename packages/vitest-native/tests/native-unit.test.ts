@@ -102,6 +102,53 @@ describe("resolvePlatformFile", () => {
   });
 });
 
+// @ts-expect-error — runtime .mjs
+import * as nativeLoader from "../src/native/loader.mjs";
+
+describe("native preset redirect (ESM loader)", () => {
+  it("redirects a bare preset import to a synthetic preset URL", async () => {
+    await nativeLoader.initialize({
+      projectRoot,
+      transformPkgs: [],
+      presetExports: { "react-native-reanimated": ["useSharedValue", "View"] },
+    });
+    const result = await nativeLoader.resolve(
+      "react-native-reanimated",
+      { parentURL: undefined },
+      () => {
+        throw new Error("nextResolve should not be called for a preset package");
+      },
+    );
+    expect(result.shortCircuit).toBe(true);
+    expect(result.url).toBe("vitest-native-preset:react-native-reanimated");
+  });
+
+  it("serves ESM source that re-exports the runtime mock from globalThis", async () => {
+    const result = await nativeLoader.load(
+      "vitest-native-preset:react-native-reanimated",
+      {},
+      () => {
+        throw new Error("nextLoad should not be called for a preset URL");
+      },
+    );
+    expect(result.format).toBe("module");
+    expect(result.source).toContain("globalThis.__vitest_native_preset_mocks");
+    expect(result.source).toContain('export const useSharedValue = _m["useSharedValue"];');
+    expect(result.source).toContain('export const View = _m["View"];');
+    expect(result.source).toContain("export default _m;");
+  });
+
+  it("passes non-preset specifiers through to the next resolver", async () => {
+    const sentinel = { url: "file:///passthrough", shortCircuit: true };
+    const result = await nativeLoader.resolve(
+      "some-unrelated-package",
+      { parentURL: undefined },
+      () => sentinel,
+    );
+    expect(result).toBe(sentinel);
+  });
+});
+
 import { reactNative } from "../src/index.js";
 
 const SERVE_ENV = { command: "serve", mode: "test" } as const;

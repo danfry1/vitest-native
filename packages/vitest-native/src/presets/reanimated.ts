@@ -47,6 +47,9 @@ export function reanimated(): Preset {
           "runOnJS",
           "runOnUI",
           "createAnimatedComponent",
+          "addWhitelistedUIProps",
+          "addWhitelistedNativeProps",
+          "configureProps",
           "View",
           "Text",
           "Image",
@@ -232,6 +235,12 @@ export function reanimated(): Preset {
             return fn;
           }
 
+          // Init-time no-ops some libraries (and reanimated's own setup) call on
+          // the default export, e.g. `Reanimated.addWhitelistedUIProps(...)`.
+          function addWhitelistedUIProps(_props?: any) {}
+          function addWhitelistedNativeProps(_props?: any) {}
+          function configureProps() {}
+
           function createAnimatedComponent(component: any) {
             const Animated = React.forwardRef((props: any, ref: any) => {
               return React.createElement(component, { ...props, ref });
@@ -286,7 +295,20 @@ export function reanimated(): Preset {
           }
 
           return {
-            default: { createAnimatedComponent, View, Text, Image, ScrollView, FlatList },
+            default: {
+              createAnimatedComponent,
+              View,
+              Text,
+              Image,
+              ScrollView,
+              FlatList,
+              addWhitelistedUIProps,
+              addWhitelistedNativeProps,
+              configureProps,
+            },
+            addWhitelistedUIProps,
+            addWhitelistedNativeProps,
+            configureProps,
             View,
             Text,
             Image,

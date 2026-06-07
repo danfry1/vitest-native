@@ -10,15 +10,28 @@ import { buildPkgMatcher } from "./match.mjs";
 
 const RN_PATH = /[\\/](react-native|@react-native)[\\/]/;
 const TRANSFORMABLE = /\.(jsx?|tsx?|mjs|cjs)$/;
+// Synthetic URL scheme for preset mocks served to the ESM graph (see below).
+const PRESET_SCHEME = "vitest-native-preset:";
 let PROJECT_ROOT = process.cwd();
 let isExtra = () => false;
+// Preset package name → its mock's named-export list (from the preset definition).
+let presetExports = {};
 
 export async function initialize(data) {
   if (data && data.projectRoot) PROJECT_ROOT = data.projectRoot;
   if (data && data.transformPkgs) isExtra = buildPkgMatcher(data.transformPkgs);
+  if (data && data.presetExports) presetExports = data.presetExports;
 }
 
 export async function resolve(specifier, context, nextResolve) {
+  // Preset redirect (ESM): a bare import of a preset package — whether from the
+  // test graph or, crucially, nested inside an externalized third-party lib — is
+  // redirected to a synthetic module that re-exports the runtime preset mock. This
+  // mirrors the Vite plugin's virtual:preset modules for the Node ESM path.
+  if (Object.prototype.hasOwnProperty.call(presetExports, specifier)) {
+    return { url: PRESET_SCHEME + specifier, shortCircuit: true };
+  }
+
   const parent =
     context.parentURL && context.parentURL.startsWith("file:")
       ? fileURLToPath(context.parentURL)
@@ -31,6 +44,20 @@ export async function resolve(specifier, context, nextResolve) {
 }
 
 export async function load(url, context, nextLoad) {
+  // Serve the synthetic preset module. The generated source reads the mock built
+  // by the native setup file from globalThis (this source executes in the main
+  // realm, so globalThis is the populated one), mirroring the Vite virtual:preset.
+  if (url.startsWith(PRESET_SCHEME)) {
+    const pkg = url.slice(PRESET_SCHEME.length);
+    const names = presetExports[pkg] || [];
+    const source = [
+      `const _m = (globalThis.__vitest_native_preset_mocks || {})[${JSON.stringify(pkg)}] || {};`,
+      ...names.map((n) => `export const ${n} = _m[${JSON.stringify(n)}];`),
+      `export default _m;`,
+    ].join("\n");
+    return { format: "module", source, shortCircuit: true };
+  }
+
   if (!url.startsWith("file:")) return nextLoad(url, context);
   const file = fileURLToPath(url);
   const norm = file.replace(/\\/g, "/");

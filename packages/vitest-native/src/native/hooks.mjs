@@ -11,12 +11,31 @@ import { buildPkgMatcher } from "./match.mjs";
 const RN_PATH = /[\\/](react-native|@react-native)[\\/]/;
 
 let installed = false;
-export function installRequireHooks(projectRoot, transformPkgs = []) {
+export function installRequireHooks(projectRoot, transformPkgs = [], presetPkgs = []) {
   if (installed) return;
   installed = true;
 
   // Configured third-party packages to also transform (Flow/TS/JSX stripped).
   const isExtra = buildPkgMatcher(transformPkgs);
+
+  // Preset redirect (CJS): when an externalized third-party module require()s a
+  // preset package by its bare name (e.g. @gorhom/bottom-sheet → require(
+  // 'react-native-gesture-handler'), or moti → require('react-native-reanimated')),
+  // serve the runtime preset mock instead of loading the real native lib. The Vite
+  // plugin already redirects the app/test graph's *direct* imports; this closes the
+  // gap for nested requires that reach Node's CJS loader and would otherwise hit
+  // the real package's native runtime.
+  const presetSet = new Set(presetPkgs);
+  if (presetSet.size > 0) {
+    const origLoad = Module._load;
+    Module._load = function (request, parent, ...rest) {
+      if (presetSet.has(request)) {
+        const mocks = globalThis.__vitest_native_preset_mocks;
+        if (mocks && mocks[request]) return mocks[request];
+      }
+      return origLoad.call(this, request, parent, ...rest);
+    };
+  }
 
   const origResolve = Module._resolveFilename;
   Module._resolveFilename = function (request, parent, ...rest) {
