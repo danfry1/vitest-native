@@ -68,4 +68,18 @@ export function installRequireHooks(projectRoot, transformPkgs = [], presetPkgs 
     }
     return origJs(mod, filename);
   };
+
+  // Node's CJS loader has no `.ts`/`.tsx` handler, so a synchronous
+  // `jest.requireActual('./app/Component')` (common in migrated Jest suites, e.g.
+  // to spread a real module then override one export) fails to load app TypeScript.
+  // App/test code normally runs through Vite; these handlers only fire for Node
+  // requires (i.e. requireActual + its transitive requires). Transform via the
+  // project's RN Babel preset (strips TS + JSX → CJS).
+  for (const ext of [".ts", ".tsx"]) {
+    if (Module._extensions[ext]) continue;
+    Module._extensions[ext] = function (mod, filename) {
+      const src = fs.readFileSync(filename, "utf8");
+      return mod._compile(transformRN(filename, src, projectRoot), filename);
+    };
+  }
 }

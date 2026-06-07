@@ -19,4 +19,8 @@ export const AUTO_DETECT_PRESETS = {
   "@react-native-async-storage/async-storage": "asyncStorage",
   "react-native-screens": "screens",
   "expo-constants": "expo",
+  "react-native-device-info": "deviceInfo",
+  "react-native-mmkv": "mmkv",
+  "react-native-svg": "svg",
+  "react-native-webview": "webview",
 } as const satisfies Record<string, PresetName>;

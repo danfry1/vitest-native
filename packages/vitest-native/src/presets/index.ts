@@ -5,3 +5,7 @@ export { navigation } from "./navigation.js";
 export { asyncStorage } from "./async-storage.js";
 export { screens } from "./screens.js";
 export { expo } from "./expo.js";
+export { deviceInfo } from "./device-info.js";
+export { mmkv } from "./mmkv.js";
+export { svg } from "./svg.js";
+export { webview } from "./webview.js";

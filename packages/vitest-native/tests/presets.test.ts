@@ -13,6 +13,10 @@ import {
   asyncStorage,
   screens,
   expo,
+  deviceInfo,
+  mmkv,
+  svg,
+  webview,
 } from "../src/presets/index.js";
 
 // --- Navigation ---
@@ -952,5 +956,79 @@ describe("preset: expo", () => {
     it("setStatusBarHidden is callable", () => {
       expect(() => mock.setStatusBarHidden(true)).not.toThrow();
     });
+  });
+});
+
+// --- Device Info ---
+
+describe("preset: deviceInfo", () => {
+  const mock = deviceInfo().modules["react-native-device-info"].factory();
+
+  it("default object exposes string getters that don't crash on .toLowerCase()", () => {
+    expect(typeof mock.default.getBrandSync()).toBe("string");
+    expect(() => mock.default.getBrandSync().toLowerCase()).not.toThrow();
+  });
+
+  it("sync convenience methods return primitives (hasNotch, getDeviceType)", () => {
+    expect(typeof mock.default.hasNotch()).toBe("boolean");
+    expect(typeof mock.default.getDeviceType()).toBe("string");
+  });
+
+  it("named getUniqueIdSync returns a string; getUniqueId resolves", async () => {
+    expect(typeof mock.getUniqueIdSync()).toBe("string");
+    await expect(mock.getUniqueId()).resolves.toBeTypeOf("string");
+  });
+});
+
+// --- MMKV ---
+
+describe("preset: mmkv", () => {
+  const mock = mmkv().modules["react-native-mmkv"].factory();
+
+  it("MMKV instance round-trips values", () => {
+    const m = new mock.MMKV();
+    m.set("k", "v");
+    expect(m.getString("k")).toBe("v");
+    expect(m.contains("k")).toBe(true);
+    m.delete("k");
+    expect(m.getString("k")).toBeUndefined();
+  });
+
+  it("createMMKV returns independent stores", () => {
+    const a = mock.createMMKV();
+    const b = mock.createMMKV();
+    a.set("x", 1);
+    expect(a.getNumber("x")).toBe(1);
+    expect(b.getNumber("x")).toBeUndefined();
+  });
+
+  it("exposes the MMKV hooks", () => {
+    for (const h of ["useMMKVString", "useMMKVNumber", "useMMKVBoolean", "useMMKVObject"]) {
+      expect(typeof mock[h]).toBe("function");
+    }
+  });
+});
+
+// --- SVG ---
+
+describe("preset: svg", () => {
+  const mock = svg().modules["react-native-svg"].factory();
+
+  it("default is Svg; core elements are renderable host components", () => {
+    expect(mock.default).toBe(mock.Svg);
+    for (const name of ["Svg", "Path", "Circle", "Rect", "G", "Defs"] as const) {
+      expect(mock[name].displayName).toBe(name);
+    }
+  });
+});
+
+// --- WebView ---
+
+describe("preset: webview", () => {
+  const mock = webview().modules["react-native-webview"].factory();
+
+  it("exposes WebView as both default and named, renderable", () => {
+    expect(mock.default).toBe(mock.WebView);
+    expect(mock.WebView.displayName).toBe("WebView");
   });
 });

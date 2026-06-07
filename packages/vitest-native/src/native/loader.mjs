@@ -10,6 +10,27 @@ import { buildPkgMatcher } from "./match.mjs";
 
 const RN_PATH = /[\\/](react-native|@react-native)[\\/]/;
 const TRANSFORMABLE = /\.(jsx?|tsx?|mjs|cjs)$/;
+// Extensions/index candidates for bundler-style extensionless resolution.
+const RESOLVE_EXTS = [".js", ".cjs", ".mjs", ".json", ".jsx", ".ts", ".tsx"];
+
+/**
+ * Bundler-style resolution for an extensionless relative import: try `base+ext`
+ * then `base/index+ext`. Metro/webpack accept these; Node's strict ESM resolver
+ * doesn't, which breaks externalized libs that ship ESM with extensionless imports
+ * (e.g. @expo/vector-icons' `import './createIconSet'`, react-native-webview's
+ * `./WebView`). Returns the on-disk path, or null.
+ */
+function resolveExtensionless(base) {
+  for (const ext of RESOLVE_EXTS) {
+    const f = base + ext;
+    if (fs.existsSync(f)) return f;
+  }
+  for (const ext of RESOLVE_EXTS) {
+    const f = path.join(base, "index" + ext);
+    if (fs.existsSync(f)) return f;
+  }
+  return null;
+}
 // Synthetic URL scheme for preset mocks served to the ESM graph (see below).
 const PRESET_SCHEME = "vitest-native-preset:";
 let PROJECT_ROOT = process.cwd();
@@ -40,7 +61,19 @@ export async function resolve(specifier, context, nextResolve) {
     const hit = resolvePlatformFile(path.resolve(path.dirname(parent), specifier));
     if (hit) return { url: pathToFileURL(hit).href, shortCircuit: true };
   }
-  return nextResolve(specifier, context);
+
+  try {
+    return await nextResolve(specifier, context);
+  } catch (err) {
+    // Fallback: an extensionless relative import that Node's ESM resolver rejected
+    // but a bundler (Metro) would accept. Common in externalized RN libs shipping
+    // ESM with extensionless imports. Resolve it on disk ourselves.
+    if (parent && specifier.startsWith(".") && !path.extname(specifier)) {
+      const hit = resolveExtensionless(path.resolve(path.dirname(parent), specifier));
+      if (hit) return { url: pathToFileURL(hit).href, shortCircuit: true };
+    }
+    throw err;
+  }
 }
 
 export async function load(url, context, nextLoad) {
