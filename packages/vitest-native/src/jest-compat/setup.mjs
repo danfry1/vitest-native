@@ -5,12 +5,12 @@
 // `jest.useFakeTimers` etc.; Vitest exposes the same API as `vi` minus the sync
 // `requireActual`/`requireMock`, which we add here.
 //
-// LIMITATION (documented in the migration guide): top-level `jest.mock(...)` is
-// NOT hoisted by Vitest the way `vi.mock(...)` is — Vitest only hoists calls on
-// the `vi`/`vitest` identifier. A `jest.mock('react-native', factory)` at module
-// top level therefore runs AFTER imports and won't take effect. Convert those to
-// `vi.mock(...)` per suite. `jest.fn`, `jest.spyOn`, `jest.requireActual`,
-// `jest.useFakeTimers`, and `jest.mock` calls that don't depend on hoisting work.
+// Top-level `jest.mock(...)` hoisting: Vitest only hoists calls on the `vi`/
+// `vitest` identifier, so a raw `jest.mock('react-native', factory)` would run
+// AFTER imports and not apply. Add the `jestMockTransform()` plugin (exported from
+// this entry) to rewrite top-level jest.mock/unmock/doMock to the hoisted vi.*
+// form at transform time. `jest.fn`, `jest.spyOn`, `jest.requireActual`,
+// `jest.useFakeTimers` work at runtime via the `jest` global installed here.
 import { vi } from "vitest";
 import { createRequire } from "node:module";
 import path from "node:path";

@@ -1,8 +1,9 @@
 import { defineConfig } from "vitest/config";
 import { reactNative } from "../dist/index.mjs";
+import { jestMockTransform } from "../dist/jest-compat.mjs";
 
 export default defineConfig({
-  plugins: [reactNative({ engine: "native" })],
+  plugins: [reactNative({ engine: "native" }), jestMockTransform()],
   test: {
     globals: true,
     environment: "node",

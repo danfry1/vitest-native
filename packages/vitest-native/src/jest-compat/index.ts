@@ -20,6 +20,8 @@
  * ```
  */
 
+export { jestMockTransform } from "./transform.js";
+
 /** Setup-file specifier: gives the suite a `jest` global backed by Vitest's `vi`. */
 export const jestCompatSetup = "vitest-native/jest-compat/setup";
 

@@ -17,10 +17,10 @@ This guide is grounded in a real migration run against **react-native-paper 5.15
 // vitest.config.mts
 import { defineConfig } from "vitest/config";
 import { reactNative } from "vitest-native";
-import { jestCompatAliases, jestCompatSetup } from "vitest-native/jest-compat";
+import { jestCompatAliases, jestCompatSetup, jestMockTransform } from "vitest-native/jest-compat";
 
 export default defineConfig({
-  plugins: [reactNative({ engine: "native" })], // or "mock"
+  plugins: [reactNative({ engine: "native" }), jestMockTransform()], // or engine: "mock"
   resolve: {
     dedupe: ["react", "react-test-renderer", "react-is"],
     alias: { ...jestCompatAliases() },
@@ -38,11 +38,12 @@ What each piece does:
 | Piece | Clears |
 |---|---|
 | `jestCompatSetup` (a setup file) | Installs a `jest` global backed by Vitest's `vi`, plus the sync `jest.requireActual` / `jest.requireMock` that Vitest only ships as the async `vi.importActual`. |
+| `jestMockTransform()` (a plugin) | Rewrites top-level `jest.mock(...)` to a **hoisted** `vi.mock(...)` so it actually applies — see 2a. The single biggest mechanical blocker, automated. |
 | `jestCompatAliases()` → `@jest/globals` | Redirects `@jest/globals` (imported by **@testing-library/react-native < 12**) to a shim re-exporting Vitest's globals. |
 | `jestCompatAliases()` → `@testing-library/jest-native/extend-expect` | No-ops it — vitest-native already registers the jest-native matchers (`toHaveStyle`, `toBeVisible`, …). |
 
-After this, `jest.fn`, `jest.spyOn`, `jest.useFakeTimers`, `jest.requireActual`, and **non-hoisted**
-`jest.mock` calls work unchanged.
+After this, `jest.fn`, `jest.spyOn`, `jest.useFakeTimers`, `jest.requireActual`, and top-level
+`jest.mock` / `jest.unmock` / `jest.doMock` calls all work unchanged.
 
 ---
 
@@ -50,16 +51,17 @@ After this, `jest.fn`, `jest.spyOn`, `jest.useFakeTimers`, `jest.requireActual`,
 
 These are the things the compat layer **cannot** do for you. Each is small and mechanical.
 
-### 2a. Top-level `jest.mock(...)` → `vi.mock(...)`
+### 2a. Top-level `jest.mock(...)` — automated by `jestMockTransform()`
 Vitest only **hoists** mock calls made on the `vi` / `vitest` identifier. A top-level
-`jest.mock('react-native', factory)` runs *after* imports and silently won't apply. Convert
-top-level mocks:
+`jest.mock('react-native', factory)` would otherwise run *after* imports and silently not apply.
 
-```diff
-- jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'));
-+ vi.mock('react-native-reanimated', () => /* … */);
-```
-…but in most cases you can **delete** these entirely — see 2c.
+**`jestMockTransform()` (section 1) handles this for you** — it rewrites top-level
+`jest.mock` / `jest.unmock` / `jest.doMock` / `jest.doUnmock` to the hoisted `vi.*` form at
+transform time (length-preserving, so stack traces stay accurate). You can leave existing
+`jest.mock(...)` calls as-is. (Prefer it on the `jest`/`vi` identifier directly — it is not a
+general codemod for `jest.mock` aliased to another name.)
+
+…and in most cases you can **delete** third-party native-lib mocks entirely — see 2c.
 
 ### 2b. Upgrade RNTL to ≥ 12 (recommended)
 The `@jest/globals` alias unblocks RNTL < 12, but **upgrading to `@testing-library/react-native@^12`
