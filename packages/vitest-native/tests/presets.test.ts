@@ -671,6 +671,19 @@ describe("preset: gestureHandler", () => {
     expect(mock.Pressable).toBeDefined();
     expect(mock.Pressable.displayName).toBe("Pressable");
   });
+
+  it("exposes the Button components (RectButton, BaseButton, …)", () => {
+    for (const name of [
+      "RectButton",
+      "BaseButton",
+      "BorderlessButton",
+      "RawButton",
+      "PureNativeButton",
+    ] as const) {
+      expect(mock[name], `${name} should be defined`).toBeDefined();
+      expect(mock[name].displayName).toBe(name);
+    }
+  });
 });
 
 // --- Safe Area Context ---

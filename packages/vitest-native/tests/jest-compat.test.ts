@@ -105,4 +105,12 @@ describe("jest-compat: setup", () => {
     const React = jestGlobal!.requireActual("react") as { createElement: unknown };
     expect(typeof React.createElement).toBe("function");
   });
+
+  it("installs a global `require` so jest.mock factories can require() synchronously", async () => {
+    await import("../src/jest-compat/setup.mjs");
+    const req = (globalThis as { require?: (m: string) => unknown }).require;
+    expect(typeof req).toBe("function");
+    const React = req!("react") as { createElement: unknown };
+    expect(typeof React.createElement).toBe("function");
+  });
 });

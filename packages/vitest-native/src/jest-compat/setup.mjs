@@ -27,3 +27,9 @@ if (typeof vi.requireMock !== "function") vi.requireMock = (m) => require(m);
 if (typeof vi.setTimeout !== "function") vi.setTimeout = () => {};
 
 globalThis.jest = vi;
+
+// Jest test modules (and `jest.mock` factories) routinely call `require(...)`
+// synchronously — e.g. `jest.mock('x', () => require('react-native').View)`. ESM
+// test modules have no `require` binding, so provide a global one resolved from the
+// project root. Guarded so it never clobbers an existing CJS `require`.
+if (typeof globalThis.require !== "function") globalThis.require = require;

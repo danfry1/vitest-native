@@ -32,6 +32,11 @@ export function gestureHandler(): Preset {
           "TouchableWithoutFeedback",
           "TouchableNativeFeedback",
           "Pressable",
+          "RectButton",
+          "BaseButton",
+          "BorderlessButton",
+          "RawButton",
+          "PureNativeButton",
         ],
         factory: () => {
           const State = {
@@ -154,6 +159,14 @@ export function gestureHandler(): Preset {
             // RNGH's Pressable mirrors RN's Pressable API. Reuse the RN mock so
             // it inherits behaviors like suppressing press handlers when disabled.
             Pressable: createPressableMock(),
+            // Button components (gesture-handler/Button). Common in real apps
+            // (e.g. RectButton wrapped by Touchables). Render as host views that
+            // pass through children + handlers.
+            RectButton: createGestureHandler("RectButton"),
+            BaseButton: createGestureHandler("BaseButton"),
+            BorderlessButton: createGestureHandler("BorderlessButton"),
+            RawButton: createGestureHandler("RawButton"),
+            PureNativeButton: createGestureHandler("PureNativeButton"),
           };
         },
       },
