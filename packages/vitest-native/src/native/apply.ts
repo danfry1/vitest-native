@@ -21,6 +21,12 @@ export function nativeEngineConfig(
   const fullEnv = { ...env };
   if (transformPkgs.length > 0) fullEnv.VITEST_NATIVE_TRANSFORM = JSON.stringify(transformPkgs);
   return {
+    // Match React Native's Babel preset: the automatic JSX runtime, so app/test
+    // files that use JSX without importing React (RN's default style) compile to
+    // `react/jsx-runtime` calls instead of `React.createElement` (which would throw
+    // "React is not defined"). RN's own source is transformed by our Babel hooks,
+    // not esbuild; this governs the consumer's app + test files.
+    esbuild: { jsx: "automatic" },
     resolve: {
       conditions: ["react-native"],
       extensions: [
