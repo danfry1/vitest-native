@@ -6,43 +6,53 @@
 import { describe, it, expect, vi } from "vitest";
 import { jestCompatAliases, jestCompatSetup, jestMockTransform } from "../src/jest-compat/index.js";
 
-describe("jest-compat: jestMockTransform (hoistable jest.mock rewrite)", () => {
-  // The plugin's transform hook; call it directly with (code, id).
+describe("jest-compat: jestMockTransform (hoist + CJS interop)", () => {
+  // The plugin's transform hook needs a rollup-style `this.parse`; vitest runs in
+  // a Vite pipeline, so reuse the project's installed acorn via a tiny shim.
   const plugin = jestMockTransform();
+  // Reuse Vite's parseAst — the same parser rollup's `this.parse` uses in prod.
+  const { parseAst } = require("vite");
+  const parse = (code: string) => parseAst(code);
   const run = (code: string, id = "/proj/src/foo.test.tsx") => {
-    const t = plugin.transform as (this: unknown, c: string, i: string) => { code: string } | null;
-    return t.call({}, code, id);
+    const t = plugin.transform as (this: any, c: string, i: string) => { code: string } | null;
+    return t.call({ parse }, code, id);
   };
+  const hoistRe = /\b(?:vi|vitest)\s*\.\s*(?:mock|unmock|hoisted|doMock|doUnmock)\s*\(/;
 
-  it("rewrites hoistable jest.mock/unmock/doMock/doUnmock to vi, length-preserved", () => {
+  it("rewrites the jest object of hoistable calls to vi", () => {
     const out = run(
-      [
-        "jest.mock('react-native', () => ({}));",
-        "jest.unmock('x');",
-        "jest.doMock('y', () => ({}));",
-        "jest.doUnmock('z');",
-      ].join("\n"),
+      ["jest.unmock('x');", "jest.doUnmock('z');"].join("\n"),
     );
     expect(out).not.toBeNull();
     const lines = out!.code.split("\n");
-    expect(lines[0]).toBe("vi  .mock('react-native', () => ({}));");
-    expect(lines[1]).toBe("vi  .unmock('x');");
-    expect(lines[2]).toBe("vi  .doMock('y', () => ({}));");
-    expect(lines[3]).toBe("vi  .doUnmock('z');");
-    // length preserved per line (so source positions are unchanged, no map needed)
-    expect(lines[0].length).toBe("jest.mock('react-native', () => ({}));".length);
+    expect(lines[0]).toBe("vi.unmock('x');");
+    expect(lines[1]).toBe("vi.doUnmock('z');");
   });
 
-  it("matches Vitest's own hoist regex after rewrite", () => {
-    const hoistRe = /\b(?:vi|vitest)\s*\.\s*(?:mock|unmock|hoisted|doMock|doUnmock)\s*\(/;
-    const out = run("jest.mock('m', () => ({}))");
+  it("wraps mock/doMock factories with the CJS interop, and matches the hoist regex", () => {
+    const out = run("jest.mock('m', () => ({ a: 1 }))");
     expect(hoistRe.test(out!.code)).toBe(true);
+    expect(out!.code).toContain("globalThis.__vnInteropMock(");
+    // The original factory is preserved inside the wrapper.
+    expect(out!.code).toContain("() => ({ a: 1 })");
+    expect(out!.code).not.toContain("jest.mock");
+  });
+
+  it("wraps a function-returning factory too", () => {
+    const out = run("jest.mock('m', () => () => null)");
+    expect(out!.code).toContain("globalThis.__vnInteropMock(");
+    expect(hoistRe.test(out!.code)).toBe(true);
+  });
+
+  it("does NOT wrap unmock/doUnmock (no factory)", () => {
+    const out = run("jest.unmock('m')");
+    expect(out!.code).not.toContain("__vnInteropMock");
+    expect(out!.code).toBe("vi.unmock('m')");
   });
 
   it("leaves non-hoistable jest.* calls untouched", () => {
     const src = "const f = jest.fn(); jest.requireActual('react'); jest.mocked(f); jest.spyOn(o,'m');";
-    const out = run(src);
-    expect(out).toBeNull(); // nothing to rewrite → no transform
+    expect(run(src)).toBeNull();
   });
 
   it("ignores node_modules and non-source files", () => {
@@ -50,13 +60,46 @@ describe("jest-compat: jestMockTransform (hoistable jest.mock rewrite)", () => {
     expect(run("jest.mock('x', () => ({}))", "/proj/src/data.json")).toBeNull();
   });
 
-  it("rewrites jest.mock with surrounding whitespace forms (length preserved)", () => {
-    const src = "jest . mock ('x', () => ({}))";
-    const out = run(src);
-    expect(out!.code.length).toBe(src.length);
-    expect(out!.code.startsWith("vi  ")).toBe(true);
-    expect(/\bvi\s*\.\s*mock\s*\(/.test(out!.code)).toBe(true);
-    expect(out!.code).not.toContain("jest");
+  it("returns a sourcemap", () => {
+    const out = run("jest.mock('m', () => ({ a: 1 }))") as any;
+    expect(out.map).toBeTruthy();
+    expect(out.map.mappings).toBeTypeOf("string");
+  });
+});
+
+describe("jest-compat: jestMockInterop (CJS interop semantics)", () => {
+  let jestMockInterop: (m: unknown) => any;
+  it("loads the helper", async () => {
+    ({ jestMockInterop } = await import("../src/jest-compat/interop.mjs"));
+    expect(typeof jestMockInterop).toBe("function");
+  });
+
+  it("a named-only object becomes its own default export", () => {
+    const exports = { a: 1, b: 2 };
+    const ns = jestMockInterop(exports);
+    expect(ns.default).toBe(exports); // `import X from` → whole object
+    expect(ns.a).toBe(1); // `import { a }` still works
+  });
+
+  it("a function factory return is exposed as default", () => {
+    const Component = () => null;
+    const ns = jestMockInterop(Component);
+    expect(ns.default).toBe(Component);
+  });
+
+  it("respects an existing __esModule shape", () => {
+    const esm = { __esModule: true, default: "d", a: 1 };
+    expect(jestMockInterop(esm)).toBe(esm);
+  });
+
+  it("respects an explicit default key", () => {
+    const m = { default: "d", a: 1 };
+    expect(jestMockInterop(m)).toBe(m);
+  });
+
+  it("passes null/undefined through", () => {
+    expect(jestMockInterop(null)).toBeNull();
+    expect(jestMockInterop(undefined)).toBeUndefined();
   });
 });
 

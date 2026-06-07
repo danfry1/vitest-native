@@ -15,7 +15,7 @@ export default defineConfig({
   format: ['esm', 'cjs'],
   dts: true,
   clean: true,
-  external: ['react', 'react-native', 'vitest', 'vite', '@testing-library/react-native', '@testing-library/react-native/build/matchers/extend-expect', '@testing-library/react-native/build/matchers', 'react-test-renderer'],
+  external: ['react', 'react-native', 'vitest', 'vite', 'magic-string', '@testing-library/react-native', '@testing-library/react-native/build/matchers/extend-expect', '@testing-library/react-native/build/matchers', 'react-test-renderer'],
   hooks: {
     // The native runtime + jest-compat shims are plain .mjs loaded by Node at
     // runtime (native: via module.register; jest-compat: as setup file / alias

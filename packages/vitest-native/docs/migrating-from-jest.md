@@ -56,10 +56,19 @@ Vitest only **hoists** mock calls made on the `vi` / `vitest` identifier. A top-
 `jest.mock('react-native', factory)` would otherwise run *after* imports and silently not apply.
 
 **`jestMockTransform()` (section 1) handles this for you** — it rewrites top-level
-`jest.mock` / `jest.unmock` / `jest.doMock` / `jest.doUnmock` to the hoisted `vi.*` form at
-transform time (length-preserving, so stack traces stay accurate). You can leave existing
-`jest.mock(...)` calls as-is. (Prefer it on the `jest`/`vi` identifier directly — it is not a
-general codemod for `jest.mock` aliased to another name.)
+`jest.mock` / `jest.unmock` / `jest.doMock` / `jest.doUnmock` to the hoisted `vi.*` form, and
+runs each `mock`/`doMock` factory's return through **Jest's CommonJS interop** so the two most
+common Jest manual-mock shapes resolve the way they do under Jest:
+
+```ts
+jest.mock('./Icon', () => () => null);        // function factory → usable as `import Icon from`
+jest.mock('./api', () => ({ get: vi.fn() }));  // named-only → `import api from` gets the object
+```
+
+(Jest treats a factory return as `module.exports`; Vitest treats it as an ES namespace. The
+wrapper bridges that. A factory already returning an ES shape — `__esModule` or an explicit
+`default` — is left as-is.) So you can leave existing `jest.mock(...)` calls unchanged. It keys
+on the literal `jest.mock` member form, not `jest` aliased to another local name.
 
 …and in most cases you can **delete** third-party native-lib mocks entirely — see 2c.
 

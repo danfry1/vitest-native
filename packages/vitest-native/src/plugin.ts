@@ -360,7 +360,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // Match RN's Babel preset: automatic JSX runtime, so app/test files using
         // JSX without importing React compile to `react/jsx-runtime` rather than
         // `React.createElement` ("React is not defined").
-        esbuild: { jsx: "automatic" },
+        esbuild: { jsx: "automatic" as const },
         resolve: {
           extensions,
           conditions: ["react-native"],

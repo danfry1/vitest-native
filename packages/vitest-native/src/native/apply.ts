@@ -26,7 +26,7 @@ export function nativeEngineConfig(
     // `react/jsx-runtime` calls instead of `React.createElement` (which would throw
     // "React is not defined"). RN's own source is transformed by our Babel hooks,
     // not esbuild; this governs the consumer's app + test files.
-    esbuild: { jsx: "automatic" },
+    esbuild: { jsx: "automatic" as const },
     resolve: {
       conditions: ["react-native"],
       extensions: [

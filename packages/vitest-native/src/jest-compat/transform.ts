@@ -1,57 +1,99 @@
 import type { Plugin } from "vite";
+import MagicString from "magic-string";
 
-// Matches the `jest` identifier ONLY when it is the object of a *hoistable* mock
-// call: `jest.mock(` / `jest.unmock(` / `jest.doMock(` / `jest.doUnmock(` (with
-// optional whitespace). The lookahead leaves `jest.fn`, `jest.spyOn`,
-// `jest.mocked`, `jest.requireActual`, etc. untouched — those work at runtime via
-// the `jest` global installed by jestCompatSetup.
-const JEST_MOCK_CALL = /\bjest(?=\s*\.\s*(?:mock|unmock|doMock|doUnmock)\s*\()/g;
+// Hoistable jest mock methods (Vitest only hoists these on the vi/vitest object).
+const HOISTABLE = new Set(["mock", "unmock", "doMock", "doUnmock"]);
+// The ones that take a factory whose return needs Jest-style CJS interop.
+const WITH_FACTORY = new Set(["mock", "doMock"]);
 const TRANSFORMABLE = /\.(?:[cm]?[jt]sx?)$/;
+// Cheap pre-filter so we only parse files that actually use jest mock calls.
+const HAS_JEST_MOCK = /\bjest\s*\.\s*(?:mock|unmock|doMock|doUnmock)\s*\(/;
+
+/** Visit every node in an ESTree AST (depth-first), calling `fn` on each. */
+function walk(node: any, fn: (n: any) => void): void {
+  if (!node || typeof node.type !== "string") return;
+  fn(node);
+  for (const key in node) {
+    if (key === "type" || key === "start" || key === "end" || key === "loc") continue;
+    const child = node[key];
+    if (Array.isArray(child)) {
+      for (const c of child) if (c && typeof c.type === "string") walk(c, fn);
+    } else if (child && typeof child.type === "string") {
+      walk(child, fn);
+    }
+  }
+}
 
 /**
- * Vite plugin that rewrites a Jest suite's top-level `jest.mock(...)` to
- * `vi.mock(...)` so Vitest's hoister picks it up.
+ * Vite plugin that adapts a Jest suite's `jest.mock(...)` calls for Vitest:
  *
- * Why this is needed: Vitest only hoists mock calls made on the `vi` / `vitest`
- * identifier (above the imports). An existing suite's
- * `jest.mock('react-native', factory)` therefore runs *after* the imports and
- * silently never applies — the single biggest mechanical blocker to migrating a
- * real Jest suite. `jestCompatSetup` makes `jest` an alias of `vi` at runtime,
- * but runtime aliasing can't fix a *compile-time* hoist.
+ * 1. **Hoisting** — rewrites the `jest` object of `jest.mock`/`unmock`/`doMock`/
+ *    `doUnmock` to `vi`, so Vitest's hoister (which only recognises `vi`/`vitest`)
+ *    lifts them above the imports. Without this a top-level `jest.mock(...)` runs
+ *    after imports and silently doesn't apply.
  *
- * The rewrite is length-preserving — the 4-char `jest` token becomes `vi` + two
- * spaces — so every source position is unchanged and no sourcemap is required.
- * `vi  .mock(` is valid JS and matches Vitest's hoist regex (`vi\s*\.\s*mock`),
- * which then hoists and applies it exactly like a native `vi.mock`.
+ * 2. **CJS interop** — wraps each `jest.mock`/`doMock` factory so its return value
+ *    passes through Jest's `_interopRequireDefault` semantics (see interop.mjs).
+ *    Jest treats the factory return as `module.exports`; Vitest treats it as an ES
+ *    namespace. This bridges the two common Jest shapes that otherwise break:
+ *      jest.mock('m', () => Component)     // Vitest: "not returning an object"
+ *      jest.mock('m', () => ({ a, b }))    // Vitest: default import is undefined
+ *    A factory already returning an ES shape (`__esModule`/explicit `default`) is
+ *    passed through unchanged.
  *
- * Opt-in: add it to `plugins` after `reactNative()`, and pair it with
- * `jestCompatSetup` + `globals: true`.
- *
- * @example
- * ```ts
- * import { reactNative } from "vitest-native";
- * import { jestCompatSetup, jestMockTransform } from "vitest-native/jest-compat";
- * export default defineConfig({
- *   plugins: [reactNative({ engine: "native" }), jestMockTransform()],
- *   test: { globals: true, setupFiles: [jestCompatSetup] },
- * });
- * ```
+ * Opt-in: add after `reactNative()`; pair with `jestCompatSetup` + `globals: true`.
  */
 export function jestMockTransform(): Plugin {
   return {
     name: "vitest-native:jest-mock-hoist",
-    // Run before Vitest's own `vitest:mocks` hoist plugin (which is enforce:post),
-    // so it sees `vi.mock` rather than `jest.mock`.
-    enforce: "pre",
+    // No `enforce` (normal order): this must run AFTER Vite's esbuild strips
+    // TS/JSX (so `this.parse`, which is acorn, gets plain JS) but BEFORE Vitest's
+    // enforce:post `vitest:mocks` hoister. enforce:'pre' would see raw TSX and fail
+    // to parse; enforce:'post' could run after the hoister.
     transform(code: string, id: string) {
       if (id.includes("/node_modules/")) return null;
       const file = id.split("?")[0];
       if (!TRANSFORMABLE.test(file)) return null;
-      JEST_MOCK_CALL.lastIndex = 0;
-      if (!JEST_MOCK_CALL.test(code)) return null;
-      JEST_MOCK_CALL.lastIndex = 0;
-      // `jest` (4 chars) → `vi` + 2 spaces (4 chars): length- and position-preserving.
-      return { code: code.replace(JEST_MOCK_CALL, "vi  "), map: null };
+      if (!HAS_JEST_MOCK.test(code)) return null;
+
+      let ast: any;
+      try {
+        ast = this.parse(code);
+      } catch {
+        return null; // let the normal pipeline surface the syntax error
+      }
+
+      const s = new MagicString(code);
+      let changed = false;
+
+      walk(ast, (node) => {
+        if (node.type !== "CallExpression") return;
+        const callee = node.callee;
+        if (!callee || callee.type !== "MemberExpression" || callee.computed) return;
+        const obj = callee.object;
+        const prop = callee.property;
+        if (!obj || obj.type !== "Identifier" || obj.name !== "jest") return;
+        if (!prop || prop.type !== "Identifier" || !HOISTABLE.has(prop.name)) return;
+
+        // jest.<method> → vi.<method>
+        s.overwrite(obj.start, obj.end, "vi");
+        changed = true;
+
+        // Wrap a function factory so its return is run through Jest CJS interop.
+        if (WITH_FACTORY.has(prop.name) && node.arguments.length >= 2) {
+          const factory = node.arguments[1];
+          if (
+            factory.type === "ArrowFunctionExpression" ||
+            factory.type === "FunctionExpression"
+          ) {
+            s.appendLeft(factory.start, "() => globalThis.__vnInteropMock((");
+            s.appendRight(factory.end, ")())");
+          }
+        }
+      });
+
+      if (!changed) return null;
+      return { code: s.toString(), map: s.generateMap({ hires: true }) };
     },
   };
 }

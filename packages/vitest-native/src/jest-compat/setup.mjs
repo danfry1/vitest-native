@@ -14,6 +14,7 @@
 import { vi } from "vitest";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { jestMockInterop } from "./interop.mjs";
 
 // Resolve modules from the consumer project root, not this file's location, so
 // `jest.requireActual('some-project-dep')` resolves the same module the suite sees.
@@ -27,6 +28,11 @@ if (typeof vi.requireMock !== "function") vi.requireMock = (m) => require(m);
 if (typeof vi.setTimeout !== "function") vi.setTimeout = () => {};
 
 globalThis.jest = vi;
+
+// jest.mock factories are wrapped by jestMockTransform to route their return
+// value through Jest's CommonJS interop (so `import X from` sees the whole mock,
+// and `() => Component` factories work). The wrapper calls this global.
+if (typeof globalThis.__vnInteropMock !== "function") globalThis.__vnInteropMock = jestMockInterop;
 
 // Jest test modules (and `jest.mock` factories) routinely call `require(...)`
 // synchronously — e.g. `jest.mock('x', () => require('react-native').View)`. ESM

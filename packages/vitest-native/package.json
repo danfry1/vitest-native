@@ -175,6 +175,7 @@
     "prepublishOnly": "bun run build && bun run test && bun run lint && bun run typecheck"
   },
   "dependencies": {
-    "flow-remove-types": "^2.304.0"
+    "flow-remove-types": "^2.304.0",
+    "magic-string": "^0.30.21"
   }
 }

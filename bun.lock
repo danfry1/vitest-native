@@ -35,6 +35,7 @@
       "version": "0.3.0",
       "dependencies": {
         "flow-remove-types": "^2.304.0",
+        "magic-string": "^0.30.21",
       },
       "devDependencies": {
         "@babel/core": "^7.29.7",
