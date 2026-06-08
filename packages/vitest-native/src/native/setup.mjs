@@ -1,7 +1,9 @@
 // Native-engine setup file (injected into test.setupFiles by the plugin). Installs
 // globals, registers the ESM loader hook, installs the CJS require hooks, and
 // builds any third-party preset mocks the project uses.
-import { register } from "node:module";
+import { createRequire, register } from "node:module";
+import path from "node:path";
+import { expect } from "vitest";
 import { installGlobals } from "./globals.mjs";
 import { installRequireHooks } from "./hooks.mjs";
 import * as presetFactories from "../presets.mjs";
@@ -67,6 +69,30 @@ for (const { pkg, mod, presetName } of presetDefs) {
   g.__vitest_native_preset_mocks[pkg] = mod.factory();
   if (diagnostics) {
     console.log(`[vitest-native] (native) registered preset mock: ${pkg} (${presetName})`);
+  }
+}
+
+// --- RNTL built-in matchers (toBeOnTheScreen, toBeDisabled, toHaveStyle, …) ---
+// The mock engine's setup registers these; the native engine must too, or
+// `engine:'native'` users have no jest-native/RNTL matchers (and a jest-compat
+// migration is worse off — jestCompatAliases no-ops its extend-expect on the
+// promise that vitest-native registers them). Caught by the differential cross-check.
+try {
+  const req = createRequire(path.join(projectRoot, "package.json"));
+  const matchers = req("@testing-library/react-native/build/matchers");
+  const fns = {};
+  for (const [k, v] of Object.entries(matchers || {})) {
+    if (typeof v === "function" && k !== "__esModule") fns[k] = v;
+  }
+  if (Object.keys(fns).length > 0) {
+    expect.extend(fns);
+    if (diagnostics) {
+      console.log(`[vitest-native] (native) registered ${Object.keys(fns).length} RNTL matchers`);
+    }
+  }
+} catch (e) {
+  if (diagnostics) {
+    console.log(`[vitest-native] (native) could not load RNTL matchers: ${e?.message}`);
   }
 }
 

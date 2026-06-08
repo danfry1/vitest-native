@@ -255,6 +255,79 @@ probe("a11y-state-disabled", () => {
   return { state: screen.getByTestId("v").props.accessibilityState };
 });
 
+// --- assertion matchers (what every test actually asserts with) ---
+// Capture the matcher VERDICT (pass/fail) under each engine and compare. A
+// divergence means an assertion that passes under one engine fails under the other.
+function passes(fn: () => void): boolean {
+  try {
+    fn();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+probe("matcher-disabled-enabled", () => {
+  render(
+    <View>
+      <Pressable testID="off" disabled>
+        <Text>x</Text>
+      </Pressable>
+      <Pressable testID="on">
+        <Text>y</Text>
+      </Pressable>
+    </View>,
+  );
+  const off = screen.getByTestId("off");
+  const on = screen.getByTestId("on");
+  return {
+    offDisabled: passes(() => expect(off).toBeDisabled()),
+    offEnabled: passes(() => expect(off).toBeEnabled()),
+    onDisabled: passes(() => expect(on).toBeDisabled()),
+    onEnabled: passes(() => expect(on).toBeEnabled()),
+  };
+});
+
+probe("matcher-checked-switch", () => {
+  render(<Switch testID="s" value onValueChange={() => {}} />);
+  const el = screen.getByTestId("s");
+  return { checked: passes(() => expect(el).toBeChecked()) };
+});
+
+probe("matcher-text-content", () => {
+  render(<Text testID="t">hello world</Text>);
+  const el = screen.getByTestId("t");
+  return {
+    full: passes(() => expect(el).toHaveTextContent("hello world")),
+    partial: passes(() => expect(el).toHaveTextContent("world")),
+    miss: passes(() => expect(el).toHaveTextContent("nope")),
+  };
+});
+
+probe("matcher-style", () => {
+  render(<View testID="v" style={{ opacity: 0.5, marginTop: 8 }} />);
+  const el = screen.getByTestId("v");
+  return {
+    hit: passes(() => expect(el).toHaveStyle({ opacity: 0.5 })),
+    miss: passes(() => expect(el).toHaveStyle({ opacity: 1 })),
+  };
+});
+
+probe("matcher-display-value", () => {
+  render(<TextInput testID="i" value="preset" onChangeText={() => {}} />);
+  const el = screen.getByTestId("i");
+  return {
+    hit: passes(() => expect(el).toHaveDisplayValue("preset")),
+    miss: passes(() => expect(el).toHaveDisplayValue("other")),
+  };
+});
+
+probe("matcher-on-the-screen", () => {
+  render(<View testID="v" />);
+  const el = screen.getByTestId("v");
+  return { onScreen: passes(() => expect(el).toBeOnTheScreen()) };
+});
+
 // --- pure APIs ---
 probe("stylesheet-flatten", () => StyleSheet.flatten([{ margin: 1 }, { margin: 3, padding: 2 }]));
 probe("platform-os", () => ({ os: Platform.OS }));
