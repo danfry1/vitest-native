@@ -82,10 +82,7 @@ export function jestMockTransform(): Plugin {
         // Wrap a function factory so its return is run through Jest CJS interop.
         if (WITH_FACTORY.has(prop.name) && node.arguments.length >= 2) {
           const factory = node.arguments[1];
-          if (
-            factory.type === "ArrowFunctionExpression" ||
-            factory.type === "FunctionExpression"
-          ) {
+          if (factory.type === "ArrowFunctionExpression" || factory.type === "FunctionExpression") {
             s.appendLeft(factory.start, "() => globalThis.__vnInteropMock((");
             s.appendRight(factory.end, ")())");
           }
