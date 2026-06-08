@@ -141,6 +141,33 @@ export const BOUNDARY_SOURCES = {
     ${MOCK_NATIVE_COMPONENT}
     module.exports = { __esModule: true, default: mockNativeComponent("RCTView"), __INTERNAL_VIEW_CONFIG: {}, Commands: {} };
   `,
+  // TextInput: mirror react-native/jest/setup.js, which replaces the real TextInput
+  // with a passthrough host component (jest/mocks/TextInput, via mockComponent).
+  // The REAL TextInput's internal _onChange calls onChangeText from the native
+  // 'change' event — so running it under RNTL's userEvent.type (which dispatches
+  // BOTH 'change' and 'changeText' per keystroke) fires onChangeText TWICE. The
+  // passthrough mock puts props (incl. onChangeText) directly on the host, so each
+  // event fires its own handler once, matching jest-preset and real single-fire
+  // semantics. (Verified by the differential cross-check.)
+  "Libraries/Components/TextInput/TextInput.js": `
+    const React = require("react");
+    class TextInput extends React.Component {
+      blur() {} focus() {} clear() {}
+      isFocused() { return false; }
+      getNativeRef() { return null; }
+      measure() {} measureInWindow() {} measureLayout() {} setNativeProps() {}
+      render() { return React.createElement("TextInput", this.props, this.props.children); }
+    }
+    TextInput.displayName = "TextInput";
+    // Static API some code touches (TextInput.State.currentlyFocusedInput(), …).
+    TextInput.State = {
+      currentlyFocusedInput: () => null,
+      currentlyFocusedField: () => null,
+      focusTextInput: () => {},
+      blurTextInput: () => {},
+    };
+    module.exports = { __esModule: true, default: TextInput };
+  `,
   "Libraries/Core/InitializeCore.js": `module.exports = { __esModule: true, default: {} };`,
   // AppContainer (which RNTL's render mounts) renders <LogBoxNotificationContainer/>
   // in dev. That component subscribes to LogBoxData and, in componentDidMount,

@@ -152,15 +152,23 @@ probe("textinput-onchangetext", () => {
 });
 
 probe("textinput-usertype", async () => {
+  let calls = 0;
   let value = "";
   const user = userEvent.setup();
-  render(<TextInput testID="i" onChangeText={(t) => (value = t)} />);
+  render(
+    <TextInput
+      testID="i"
+      onChangeText={(t) => {
+        calls += 1;
+        value = t;
+      }}
+    />,
+  );
   await user.type(screen.getByTestId("i"), "hey");
-  // We compare the resulting value, not the onChangeText call count: the native
-  // engine currently fires onChangeText twice per keystroke (a known native-engine
-  // bug, tracked separately) while the mock fires once — that divergence is the
-  // native engine's, not the mock's, so it must not gate the cross-check.
-  return { value };
+  // Both calls (one onChangeText per keystroke — the native engine no longer
+  // double-fires now that TextInput is mocked at the boundary like jest's preset)
+  // and the final value must match.
+  return { calls, value };
 });
 
 probe("textinput-displayvalue", () => {
