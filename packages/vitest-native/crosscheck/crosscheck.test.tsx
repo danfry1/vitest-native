@@ -17,7 +17,18 @@
  */
 import { afterAll, afterEach, expect, test } from "vitest";
 import * as React from "react";
-import { Button, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  Button,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableHighlight,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View,
+} from "react-native";
 import { cleanup, fireEvent, render, screen, userEvent } from "@testing-library/react-native";
 import fs from "node:fs";
 
@@ -87,6 +98,45 @@ probe("pressable-disabled-suppresses-press", async () => {
     </Pressable>,
   );
   await user.press(screen.getByTestId("p"));
+  return { calls };
+});
+
+// Touchables share the same userEvent.press responder requirement as Pressable.
+probe("touchable-opacity-onpress", async () => {
+  let calls = 0;
+  const user = userEvent.setup();
+  render(
+    <TouchableOpacity testID="t" onPress={() => (calls += 1)}>
+      <Text>tap</Text>
+    </TouchableOpacity>,
+  );
+  await user.press(screen.getByTestId("t"));
+  return { calls };
+});
+
+probe("touchable-highlight-onpress", async () => {
+  let calls = 0;
+  const user = userEvent.setup();
+  render(
+    <TouchableHighlight testID="t" onPress={() => (calls += 1)}>
+      <Text>tap</Text>
+    </TouchableHighlight>,
+  );
+  await user.press(screen.getByTestId("t"));
+  return { calls };
+});
+
+probe("touchable-without-feedback-onpress", async () => {
+  let calls = 0;
+  const user = userEvent.setup();
+  render(
+    <TouchableWithoutFeedback testID="t" onPress={() => (calls += 1)}>
+      <View>
+        <Text>tap</Text>
+      </View>
+    </TouchableWithoutFeedback>,
+  );
+  await user.press(screen.getByTestId("t"));
   return { calls };
 });
 
