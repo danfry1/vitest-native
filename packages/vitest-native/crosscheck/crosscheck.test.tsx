@@ -19,9 +19,13 @@ import { afterAll, afterEach, expect, test } from "vitest";
 import * as React from "react";
 import {
   Button,
+  FlatList,
+  Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableHighlight,
@@ -146,6 +150,91 @@ probe("textinput-onchangetext", () => {
   fireEvent.changeText(screen.getByTestId("i"), "typed");
   return { value };
 });
+
+probe("textinput-usertype", async () => {
+  let value = "";
+  const user = userEvent.setup();
+  render(<TextInput testID="i" onChangeText={(t) => (value = t)} />);
+  await user.type(screen.getByTestId("i"), "hey");
+  // We compare the resulting value, not the onChangeText call count: the native
+  // engine currently fires onChangeText twice per keystroke (a known native-engine
+  // bug, tracked separately) while the mock fires once — that divergence is the
+  // native engine's, not the mock's, so it must not gate the cross-check.
+  return { value };
+});
+
+probe("textinput-displayvalue", () => {
+  render(<TextInput value="preset" onChangeText={() => {}} />);
+  return { found: !!screen.queryByDisplayValue("preset") };
+});
+
+probe("button-userpress", async () => {
+  let calls = 0;
+  const user = userEvent.setup();
+  render(<Button title="Go" onPress={() => (calls += 1)} />);
+  await user.press(screen.getByText("Go"));
+  return { calls };
+});
+
+// --- more components ---
+probe("switch-render", () => {
+  render(<Switch testID="sw" value onValueChange={() => {}} />);
+  const el = screen.getByTestId("sw");
+  return { role: el.props.accessibilityRole, value: el.props.value };
+});
+
+probe("flatlist-renders-items", () => {
+  render(
+    <FlatList
+      data={["a", "b", "c"]}
+      keyExtractor={(item) => item}
+      renderItem={({ item }) => <Text>{`item-${item}`}</Text>}
+    />,
+  );
+  return {
+    a: !!screen.queryByText("item-a"),
+    b: !!screen.queryByText("item-b"),
+    c: !!screen.queryByText("item-c"),
+  };
+});
+
+probe("scrollview-fireevent-scroll", () => {
+  let y = -1;
+  render(
+    <ScrollView testID="sv" onScroll={(e) => (y = e.nativeEvent.contentOffset.y)}>
+      <Text>content</Text>
+    </ScrollView>,
+  );
+  fireEvent.scroll(screen.getByTestId("sv"), {
+    nativeEvent: { contentOffset: { x: 0, y: 120 } },
+  });
+  return { y };
+});
+
+probe("modal-visible-children", () => {
+  // Probed by queryability (not toBeVisible — Modal's toBeVisible semantics are
+  // RN/RNTL-version-quirky). A freshly-rendered visible Modal exposes its children;
+  // a hidden one does not. Both engines must agree.
+  render(
+    <Modal visible>
+      <Text testID="mb">modal-body</Text>
+    </Modal>,
+  );
+  const whenVisible = !!screen.queryByTestId("mb");
+  cleanup();
+
+  render(
+    <Modal visible={false}>
+      <Text testID="mb">modal-body</Text>
+    </Modal>,
+  );
+  return { whenVisible, whenHidden: !!screen.queryByTestId("mb") };
+});
+
+// (Animated value internals like __getValue() are exercised by the conformance
+// suite — tests/rn-conformance/rn-Animated.test.ts, ported from RN's own tests —
+// rather than the cross-check, which focuses on observable component/interaction
+// behavior. The mock intentionally doesn't expose every internal accessor.)
 
 // --- accessibility props (what RNTL byRole / toBeDisabled depend on) ---
 probe("a11y-role", () => {
