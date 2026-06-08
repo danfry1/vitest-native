@@ -54,3 +54,6 @@ jobs:
 
       - name: Native engine tests
         run: bun run test:native
+
+      - name: Cross-check (mock ≡ real RN ${{ matrix.rn }})
+        run: bun run crosscheck

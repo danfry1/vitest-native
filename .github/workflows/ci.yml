@@ -47,6 +47,9 @@ jobs:
       - name: Native engine tests
         run: bun run test:native
 
+      - name: Cross-check (mock ≡ real RN)
+        run: bun run crosscheck
+
       - name: Test example app
         run: bun run test:example
 

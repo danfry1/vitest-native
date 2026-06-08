@@ -2,7 +2,10 @@
   "name": "vitest-native",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*", "apps/*"],
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "engines": {
     "node": ">=20.0.0"
   },
@@ -15,7 +18,8 @@
     "format": "oxfmt --write packages/vitest-native/src/ packages/vitest-native/tests/",
     "format:check": "oxfmt --check packages/vitest-native/src/ packages/vitest-native/tests/",
     "typecheck": "bun run --filter vitest-native typecheck",
-    "clean": "bun run --filter vitest-native clean"
+    "clean": "bun run --filter vitest-native clean",
+    "crosscheck": "bun run --filter vitest-native crosscheck"
   },
   "devDependencies": {
     "@changesets/cli": "^2.30.0",

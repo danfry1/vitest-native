@@ -172,7 +172,8 @@
     "check-compat": "bun scripts/check-compat.ts",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
-    "prepublishOnly": "bun run build && bun run test && bun run lint && bun run typecheck"
+    "prepublishOnly": "bun run build && bun run test && bun run lint && bun run typecheck",
+    "crosscheck": "node scripts/crosscheck.mjs"
   },
   "dependencies": {
     "flow-remove-types": "^2.304.0",
