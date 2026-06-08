@@ -6,6 +6,31 @@ handoff. Every claim below was verified this session (commits `aa871fa`, `39258a
 
 ---
 
+## UPDATE (2026-06-08): migration hardening + the missing proof, delivered
+
+The "decisive missing proof" below (a real production app's *existing* suite running
+under the plugin) now exists, and the systemic blockers it surfaced are fixed.
+
+**Two real-app migrations:**
+- **obytes template** (RN 0.81) — existing Jest suite → **39/40** under `engine:'native'`.
+- **Rocket.Chat** (RN 0.81, deeply Jest-coupled production chat app) — existing RNTL
+  suite → **0 → 79 tests** (10 files green). Full write-up + honest gaps:
+  [`real-app-validation/rocketchat.md`](real-app-validation/rocketchat.md).
+
+**Systemic fixes shipped (each test-covered):** transitive preset redirect through the
+Node require/loader hooks; `jest.mock` auto-hoisting + Jest CJS interop
+(`jestMockTransform` + `vitest-native/jest-compat`); automatic JSX runtime;
+extensionless-ESM resolution; TS-aware `jest.requireActual`; a `globalThis.expo` shim
+for `expo-modules-core`; and new presets (device-info, mmkv, svg, webview) +
+gesture-handler Buttons + reanimated completeness.
+
+**Net:** "migrating an existing jest suite (proven not turnkey)" → migratable with a
+documented pass rate; the remaining cost is per-suite native-lib mocks (libs with no
+preset) + app-specific test wiring, not plugin capability. The "NOT confident yet"
+framing below is **superseded** by this update; the P0/P1/P2 detail remains for context.
+
+---
+
 ## Where we are (honest)
 
 **Confident TODAY for:** new unit/logic tests (mock engine — 1181 tests, conformance
