@@ -206,3 +206,33 @@ describe("native nudge", () => {
     }
   });
 });
+
+// @ts-expect-error — runtime .mjs
+import { installGlobals } from "../src/native/globals.mjs";
+
+describe("native globals: globalThis.expo shim", () => {
+  it("installs a functional EventEmitter + NativeModule/SharedObject + helpers", () => {
+    installGlobals();
+    const expo = (globalThis as { expo?: any }).expo;
+    expect(typeof expo.EventEmitter).toBe("function");
+
+    const ee = new expo.EventEmitter();
+    let received: unknown;
+    const sub = ee.addListener("evt", (v: unknown) => {
+      received = v;
+    });
+    ee.emit("evt", 42);
+    expect(received).toBe(42);
+    sub.remove();
+    ee.emit("evt", 99);
+    expect(received).toBe(42); // listener removed
+
+    // NativeModule/SharedObject/SharedRef extend EventEmitter in expo's runtime.
+    expect(new expo.NativeModule()).toBeInstanceOf(expo.EventEmitter);
+    expect(new expo.SharedRef()).toBeInstanceOf(expo.SharedObject);
+
+    expect(expo.modules).toEqual({});
+    expect(typeof expo.uuidv4()).toBe("string");
+    expect(expo.getViewConfig()).toBeNull();
+  });
+});
