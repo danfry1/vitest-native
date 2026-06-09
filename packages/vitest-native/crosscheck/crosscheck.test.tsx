@@ -328,6 +328,69 @@ probe("matcher-on-the-screen", () => {
   return { onScreen: passes(() => expect(el).toBeOnTheScreen()) };
 });
 
+// --- accessibility queries (how tests find elements) ---
+probe("query-by-role", () => {
+  render(
+    <Pressable testID="p" accessibilityRole="button">
+      <Text>Save</Text>
+    </Pressable>,
+  );
+  return { found: !!screen.queryByRole("button") };
+});
+
+probe("query-by-role-name", () => {
+  render(<Pressable accessibilityRole="button" accessibilityLabel="Save" />);
+  return {
+    hit: !!screen.queryByRole("button", { name: "Save" }),
+    miss: !!screen.queryByRole("button", { name: "Cancel" }),
+  };
+});
+
+probe("query-by-label-text", () => {
+  render(<View testID="v" accessibilityLabel="Close dialog" />);
+  return {
+    hit: !!screen.queryByLabelText("Close dialog"),
+    miss: !!screen.queryByLabelText("Open dialog"),
+  };
+});
+
+probe("query-all-by-text", () => {
+  render(
+    <View>
+      <Text>row</Text>
+      <Text>row</Text>
+      <Text>row</Text>
+    </View>,
+  );
+  return { count: screen.queryAllByText("row").length };
+});
+
+// --- more events ---
+probe("textinput-focus-blur", () => {
+  let focus = 0;
+  let blur = 0;
+  render(
+    <TextInput testID="i" onFocus={() => (focus += 1)} onBlur={() => (blur += 1)} />,
+  );
+  fireEvent(screen.getByTestId("i"), "focus");
+  fireEvent(screen.getByTestId("i"), "blur");
+  return { focus, blur };
+});
+
+probe("view-onlayout", () => {
+  let width = -1;
+  render(
+    <View
+      testID="v"
+      onLayout={(e) => (width = e.nativeEvent.layout.width)}
+    />,
+  );
+  fireEvent(screen.getByTestId("v"), "layout", {
+    nativeEvent: { layout: { x: 0, y: 0, width: 320, height: 48 } },
+  });
+  return { width };
+});
+
 // --- pure APIs ---
 probe("stylesheet-flatten", () => StyleSheet.flatten([{ margin: 1 }, { margin: 3, padding: 2 }]));
 probe("platform-os", () => ({ os: Platform.OS }));
