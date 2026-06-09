@@ -19,11 +19,15 @@ import { afterAll, afterEach, expect, test } from "vitest";
 import * as React from "react";
 import {
   Button,
+  Dimensions,
   FlatList,
+  Image,
   Modal,
+  PixelRatio,
   Platform,
   Pressable,
   ScrollView,
+  SectionList,
   StyleSheet,
   Switch,
   Text,
@@ -391,7 +395,58 @@ probe("view-onlayout", () => {
   return { width };
 });
 
+// --- more components ---
+probe("text-onpress-role", () => {
+  render(
+    <Text testID="t" onPress={() => {}}>
+      link text
+    </Text>,
+  );
+  return { role: screen.getByTestId("t").props.accessibilityRole };
+});
+
+probe("image-render", () => {
+  render(<Image testID="img" source={{ uri: "https://example.com/x.png" }} accessibilityLabel="pic" />);
+  return {
+    found: !!screen.queryByTestId("img"),
+    byLabel: !!screen.queryByLabelText("pic"),
+  };
+});
+
+probe("sectionlist-render", () => {
+  render(
+    <SectionList
+      sections={[
+        { title: "A", data: ["a1", "a2"] },
+        { title: "B", data: ["b1"] },
+      ]}
+      keyExtractor={(item) => item}
+      renderItem={({ item }) => <Text>{`cell-${item}`}</Text>}
+      renderSectionHeader={({ section }) => <Text>{`hdr-${section.title}`}</Text>}
+    />,
+  );
+  return {
+    a1: !!screen.queryByText("cell-a1"),
+    b1: !!screen.queryByText("cell-b1"),
+    hdrA: !!screen.queryByText("hdr-A"),
+  };
+});
+
 // --- pure APIs ---
+probe("platform-select", () => ({
+  value: Platform.select({ ios: "i", android: "a", default: "d" }),
+}));
+
+probe("dimensions-window", () => {
+  const w = Dimensions.get("window");
+  return { width: w.width, height: w.height, scale: w.scale, fontScale: w.fontScale };
+});
+
+probe("pixelratio", () => ({
+  get: PixelRatio.get(),
+  fontScale: PixelRatio.getFontScale(),
+}));
+
 probe("stylesheet-flatten", () => StyleSheet.flatten([{ margin: 1 }, { margin: 3, padding: 2 }]));
 probe("platform-os", () => ({ os: Platform.OS }));
 probe("stylesheet-create-identity", () => {
