@@ -432,7 +432,30 @@ probe("sectionlist-render", () => {
   };
 });
 
+// --- stateful / controlled behavior ---
+// (NOTE: Switch toggling has a fireEvent-path divergence not gated here — the mock
+//  carries onValueChange directly on the host so `fireEvent(sw,'valueChange',v)`
+//  fires it, whereas real RN routes value changes through the native 'change' event.
+//  Same class as the Pressable fireEvent.press finding; tracked separately.)
+probe("controlled-textinput-rerender", () => {
+  const { rerender } = render(<TextInput testID="i" value="a" onChangeText={() => {}} />);
+  const before = !!screen.queryByDisplayValue("a");
+  rerender(<TextInput testID="i" value="ab" onChangeText={() => {}} />);
+  return { before, after: !!screen.queryByDisplayValue("ab") };
+});
+
+probe("query-by-hint-text", () => {
+  render(<View testID="v" accessibilityHint="Double tap to open" />);
+  return { found: !!screen.queryByHintText("Double tap to open") };
+});
+
 // --- pure APIs ---
+probe("stylesheet-helpers", () => ({
+  absolute: StyleSheet.absoluteFillObject,
+  hairline: StyleSheet.hairlineWidth,
+  composed: StyleSheet.flatten(StyleSheet.compose({ color: "red" }, { fontSize: 12 })),
+}));
+
 probe("platform-select", () => ({
   value: Platform.select({ ios: "i", android: "a", default: "d" }),
 }));
