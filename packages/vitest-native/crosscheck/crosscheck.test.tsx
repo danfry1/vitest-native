@@ -396,15 +396,10 @@ probe("view-onlayout", () => {
 });
 
 // --- more components ---
-probe("text-onpress-role", () => {
-  render(
-    <Text testID="t" onPress={() => {}}>
-      link text
-    </Text>,
-  );
-  return { role: screen.getByTestId("t").props.accessibilityRole };
-});
-
+// (NOTE: Text-with-onPress accessibilityRole is intentionally NOT gated — it's
+//  version-dependent. The mock sets role "link" (matches RN 0.84), but real RN
+//  0.81–0.83 don't set it. A single mock value can't match every RN minor, so this
+//  default is a poor cross-version invariant — surfaced by the RN-matrix cross-check.)
 probe("image-render", () => {
   render(<Image testID="img" source={{ uri: "https://example.com/x.png" }} accessibilityLabel="pic" />);
   return {
