@@ -1,12 +1,24 @@
-name: Native engine — RN version matrix
+name: Native engine — Vitest × RN matrix
 
-# The native engine runs REAL React Native JS and mocks only the ~7-module native
-# boundary, so it is sensitive to RN-version drift (the boundary has broken before
-# on SectionList / RendererProxy changes between minors). This matrix runs the
-# native suite against every supported RN minor so drift is caught on each change.
+# The native engine's trust rests on two moving dependencies, and this matrix
+# pins both axes so drift on either is caught on every change:
 #
-# Supported range (verified): RN 0.81–0.84. 0.80 and earlier fail host-component
-# detection (a transform/syntax difference) and are below the floor.
+#  • React Native (rows). The engine runs REAL RN JS and mocks only the ~7-module
+#    native boundary, so it is sensitive to RN-version drift (the boundary has
+#    broken before on SectionList / RendererProxy changes between minors).
+#    Supported range (verified): RN 0.81–0.84. 0.80 and earlier fail host-component
+#    detection and are below the floor; latest is canaried in compat-check.yml.
+#
+#  • Vitest (columns). Vitest churn is what bit-rotted the predecessor plugin
+#    (vitest-community/vitest-react-native) — and the hot runtime rides Vitest's
+#    @experimental internals (vitest/worker, ThreadsPoolWorker, poolRunner), the
+#    most churn-prone surface we depend on. 'pinned' is the lockfile floor and
+#    must pass (blocking). 'latest' is an early-warning canary: it may fail
+#    without failing the workflow (continue-on-error), so a Vitest release that
+#    breaks us surfaces here before users hit it.
+#
+# Every cell runs the native suite STOCK and HOT, plus the mock-vs-real-RN
+# cross-check — the full real-RN gate against that (Vitest, RN) pair.
 
 on:
   push:
@@ -15,19 +27,22 @@ on:
     branches: [main]
   workflow_dispatch:
   schedule:
-    # Weekly, to catch new patch releases within the supported minors.
+    # Weekly, to catch new Vitest releases and RN patch releases within range.
     - cron: '0 9 * * 1'
 
 jobs:
-  native-matrix:
-    name: Native suite — RN ${{ matrix.rn }}
+  matrix:
+    name: native+hot — vitest ${{ matrix.vitest }} × RN ${{ matrix.rn }}
     runs-on: ubuntu-latest
+    # Only the 'latest' Vitest column is allowed to fail (canary); 'pinned' blocks.
+    continue-on-error: ${{ matrix.vitest == 'latest' }}
 
     strategy:
-      # Report every version independently rather than stopping at the first failure.
+      # Report every cell independently rather than stopping at the first failure.
       fail-fast: false
       matrix:
         rn: ['0.81', '0.82', '0.83', '0.84']
+        vitest: ['pinned', 'latest']
 
     steps:
       - uses: actions/checkout@v4
@@ -46,14 +61,28 @@ jobs:
       - name: Pin react-native + babel-preset to ${{ matrix.rn }}
         run: |
           bun add -d "react-native@${{ matrix.rn }}" "@react-native/babel-preset@${{ matrix.rn }}" --cwd packages/vitest-native
-          node -e "console.log('react-native', require('./packages/vitest-native/node_modules/react-native/package.json').version)"
+
+      - name: Pin vitest to latest (canary column)
+        if: matrix.vitest == 'latest'
+        # Bump the coverage provider in lockstep — a mismatched @vitest/coverage-v8
+        # vs vitest fails to load (provider 4.1.x + runtime 4.0.x has bitten us).
+        run: |
+          bun add -d vitest@latest @vitest/coverage-v8@latest --cwd packages/vitest-native
+
+      - name: Resolved versions
+        run: |
+          node -e "console.log('react-native            ', require('./packages/vitest-native/node_modules/react-native/package.json').version)"
           node -e "console.log('@react-native/babel-preset', require('./packages/vitest-native/node_modules/@react-native/babel-preset/package.json').version)"
+          node -e "console.log('vitest                  ', require('./packages/vitest-native/node_modules/vitest/package.json').version)"
 
       - name: Build
         run: bun run build
 
-      - name: Native engine tests
+      - name: Native engine tests (stock isolate:true)
         run: bun run test:native
+
+      - name: Native engine tests (hot runtime)
+        run: bun run test:native:hot
 
       - name: Cross-check (mock ≡ real RN ${{ matrix.rn }})
         run: bun run crosscheck

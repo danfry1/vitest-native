@@ -167,6 +167,7 @@
     "build": "tsdown",
     "test": "vitest run",
     "test:native": "vitest run --config tests-native/vitest.config.mts",
+  "test:native:hot": "vitest run --config tests-native/vitest.hot.config.mts",
     "lint": "oxlint --deny-warnings src/ tests/",
     "format": "oxfmt --write src/ tests/",
     "format:check": "oxfmt --check src/ tests/",

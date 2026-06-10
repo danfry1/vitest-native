@@ -47,6 +47,12 @@ jobs:
       - name: Native engine tests
         run: bun run test:native
 
+      - name: Native engine tests (hot runtime)
+        # The hot runtime rides @experimental Vitest internals (vitest/worker,
+        # ThreadsPoolWorker, poolRunner) — the most churn-prone surface we depend
+        # on, so gate it on every PR, not just the weekly matrix.
+        run: bun run test:native:hot
+
       - name: Cross-check (mock ≡ real RN)
         run: bun run crosscheck
 
