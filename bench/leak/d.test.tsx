@@ -1,5 +1,5 @@
 import { store } from "./store";
-import { DeviceEventEmitter } from "react-native";
+import { DeviceEventEmitter, Dimensions } from "react-native";
 
 const FILE = "d";
 
@@ -16,4 +16,17 @@ test(`[${FILE}] user-module store starts clean`, () => {
 test(`[${FILE}] RN DeviceEventEmitter starts clean`, () => {
   expect(DeviceEventEmitter.listenerCount("leak-probe")).toBe(0);
   DeviceEventEmitter.addListener("leak-probe", () => {}); // dirty it for the next file
+});
+
+// Class C — globalThis pollution (test shims, polyfills, debug flags).
+test(`[${FILE}] globalThis starts clean`, () => {
+  expect((globalThis as any).__leakProbeGlobal).toBeUndefined();
+  (globalThis as any).__leakProbeGlobal = FILE; // dirty it for the next file
+});
+
+// Class D — resident RN module state mutated through a public API.
+// Dimensions.set persists in the worker's Node cache exactly like Class B.
+test(`[${FILE}] RN Dimensions starts clean`, () => {
+  expect(Dimensions.get("window").width).not.toBe(9999);
+  Dimensions.set({ window: { ...Dimensions.get("window"), width: 9999 } });
 });
