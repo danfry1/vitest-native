@@ -1,8 +1,8 @@
 {
   "name": "vitest-native",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
-  "description": "A Vitest plugin for React Native. One install, zero config.",
+  "description": "Run real React Native tests under Vitest. One install, zero config.",
   "license": "MIT",
   "author": "Daniel Fry",
   "repository": {

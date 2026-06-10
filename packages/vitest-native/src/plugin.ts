@@ -322,8 +322,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // This must happen here (not configResolved) because test.env
       // is captured before configResolved runs.
       const resolvedRoot = userConfig.root ? path.resolve(userConfig.root) : process.cwd();
-      // Resolve the concrete engine now that the project root is known, and surface
-      // the choice (auto -> native nudge today; auto-selection announcement post-v1).
+      // Resolve the concrete engine now that the project root is known. Default
+      // (auto) prefers native when RN's Babel deps resolve; silently, with a notice
+      // only when it must fall back to mock. See detect.ts / AUTO_PREFERS_NATIVE.
       const decision = detectEngine(requestedEngine, resolvedRoot);
       engine = decision.engine;
       if (decision.notice) console.log(decision.notice);

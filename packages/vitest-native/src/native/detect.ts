@@ -6,10 +6,12 @@ export type ResolvedEngine = "mock" | "native";
 
 /**
  * Whether `auto` prefers native when the project supports it.
- * v0.x: false — `auto` resolves to mock (non-breaking) and nudges toward native.
- * v1.0: flip to true to make native the zero-config default (major release).
+ * true (since 0.4.0) — native is the zero-config default: `reactNative()` runs
+ * real React Native whenever @react-native/babel-preset + @babel/core resolve.
+ * Falls back to the mock engine only when those deps are absent (with a notice).
+ * `engine: 'mock'` remains an explicit opt-in for pure-logic / no-RN-install runs.
  */
-export const AUTO_PREFERS_NATIVE = false;
+export const AUTO_PREFERS_NATIVE = true;
 
 export interface EngineDecision {
   engine: ResolvedEngine;
@@ -45,19 +47,20 @@ export function detectEngine(
   // requested === "auto"
   const prefersNative = opts?.autoPrefersNative ?? AUTO_PREFERS_NATIVE;
   if (prefersNative && nativeAvailable) {
-    return {
-      engine: "native",
-      nativeAvailable,
-      notice: "[vitest-native] engine: native (auto — found @react-native/babel-preset)",
-    };
+    // The happy path (real RN, deps present) is silent — elegance is no chatter.
+    return { engine: "native", nativeAvailable, notice: null };
   }
-  if (nativeAvailable) {
+  if (prefersNative) {
+    // Wanted native but can't: explain the fallback so the mock engine is never
+    // a silent surprise. (Silent when the user explicitly asked for mock above.)
     return {
       engine: "mock",
-      nativeAvailable,
+      nativeAvailable: false,
       notice:
-        "[vitest-native] native engine available — set engine:'native' for real-RN fidelity (becomes the default in v1)",
+        "[vitest-native] @react-native/babel-preset not found — using the mock engine. " +
+        "Install it (and @babel/core) to run real React Native, or set engine:'mock' to silence this.",
     };
   }
-  return { engine: "mock", nativeAvailable: false, notice: null };
+  // autoPrefersNative explicitly disabled → mock, no notice.
+  return { engine: "mock", nativeAvailable, notice: null };
 }

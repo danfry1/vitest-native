@@ -38,23 +38,24 @@ describe("detectEngine", () => {
     expect(detectEngine("mock", PKG_DIR).notice).toBeNull();
   });
 
-  it("auto resolves to mock today but nudges when native is available", () => {
+  it("auto resolves to native, silently, when native deps are available (default)", () => {
     const d = detectEngine("auto", PKG_DIR);
-    expect(d.engine).toBe("mock");
-    expect(d.nativeAvailable).toBe(true);
-    expect(d.notice).toContain("native engine available");
-  });
-
-  it("auto resolves to native under the future v1 policy (one-line flip is locked)", () => {
-    const d = detectEngine("auto", PKG_DIR, { autoPrefersNative: true });
     expect(d.engine).toBe("native");
-    expect(d.notice).toContain("auto — found @react-native/babel-preset");
+    expect(d.nativeAvailable).toBe(true);
+    expect(d.notice).toBeNull();
   });
 
-  it("auto resolves to mock with no notice when native deps are absent", () => {
+  it("auto falls back to mock with an explanatory notice when native deps are absent", () => {
     const d = detectEngine("auto", emptyRoot);
     expect(d.engine).toBe("mock");
     expect(d.nativeAvailable).toBe(false);
+    expect(d.notice).toContain("@react-native/babel-preset not found");
+  });
+
+  it("autoPrefersNative:false override resolves auto to mock with no notice", () => {
+    const d = detectEngine("auto", PKG_DIR, { autoPrefersNative: false });
+    expect(d.engine).toBe("mock");
+    expect(d.nativeAvailable).toBe(true);
     expect(d.notice).toBeNull();
   });
 });

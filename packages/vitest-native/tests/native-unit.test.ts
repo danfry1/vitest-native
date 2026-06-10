@@ -155,12 +155,14 @@ import { reactNative } from "../src/index.js";
 const SERVE_ENV = { command: "serve", mode: "test" } as const;
 
 describe("plugin engine routing", () => {
-  it("auto (default) resolves to mock today, even when native is available", async () => {
+  it("auto (default) resolves to native when the project is native-capable", async () => {
     const plugin = reactNative({}) as any;
     const cfg = await plugin.config({ root: projectRoot }, SERVE_ENV);
-    // mock config: no RN externalization, react-native is virtualized.
-    expect(cfg.test.server?.deps?.external).toBeUndefined();
-    expect(plugin.resolveId("react-native", undefined)).toBe("\0virtual:react-native");
+    // native config: RN is externalized (loads through Node) and NOT virtualized.
+    const ext = cfg.test.server.deps.external.map(String).join(",");
+    expect(ext).toMatch(/react-native/);
+    expect(cfg.test.setupFiles.some((p: string) => p.includes("native"))).toBe(true);
+    expect(plugin.resolveId("react-native", undefined)).toBeUndefined();
   });
 
   it("explicit native sets RN external + a native setup file, and does NOT virtualize react-native", async () => {
@@ -242,17 +244,17 @@ describe("plugin engine routing", () => {
   });
 });
 
-describe("native nudge", () => {
-  it("auto prints the native nudge once when the project is native-capable", async () => {
+describe("engine-selection notices", () => {
+  it("auto stays silent when it selects native (the happy path)", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const plugin = reactNative({}) as any;
     await plugin.config({ root: projectRoot }, SERVE_ENV);
-    const nudges = log.mock.calls.filter((c) => String(c[0]).includes("native engine available"));
-    expect(nudges).toHaveLength(1);
+    const notices = log.mock.calls.filter((c) => String(c[0]).includes("[vitest-native]"));
+    expect(notices).toHaveLength(0);
     log.mockRestore();
   });
 
-  it("auto prints no nudge when native deps are absent", async () => {
+  it("auto explains the mock fallback once when native deps are absent", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vn-nudge-"));
     try {
@@ -262,8 +264,10 @@ describe("native nudge", () => {
       );
       const plugin = reactNative({}) as any;
       await plugin.config({ root: tmp }, SERVE_ENV);
-      const nudges = log.mock.calls.filter((c) => String(c[0]).includes("native engine available"));
-      expect(nudges).toHaveLength(0);
+      const notices = log.mock.calls.filter((c) =>
+        String(c[0]).includes("@react-native/babel-preset not found"),
+      );
+      expect(notices).toHaveLength(1);
     } finally {
       log.mockRestore();
       fs.rmSync(tmp, { recursive: true, force: true });
