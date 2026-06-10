@@ -5,3 +5,8 @@ bun.lock
 
 # generated probe captures (cross-check / fidelity / leak harnesses)
 **/results.*.json
+
+# M4 scale benchmark: generated corpus + transient artifacts (harness source tracked)
+scale/__suite__/
+scale/run.log
+scale/results.json

@@ -57,15 +57,27 @@ Gotchas for the next session:
   passing-file output); vitest file order is unstable run-to-run, so pairwise repros
   mislead — use fixed batches and instrument the deployed dist copies directly.
 
-## Next: M4 — benchmark protocol (gates any claim change)
+## M4 — benchmark protocol ✅ DONE 2026-06-10
 
-Generated component-test suites (not the micro leak corpus) at 5/50/200 files ×
-1/8 workers, cold + warm, measuring: total wall, marginal per-file cost, peak RSS.
-Contenders: jest (bench has `jest.config.cjs` + RN 0.84 installed), native stock
-(isolate:true), native hot, mock engine. Build it under `bench/` (suggest
-`bench/scale/gen.mjs` emitting RNTL component tests). Only after these numbers:
-update README/positioning (see the honest-positioning rule: lead with measured
-claims only) and consider flipping `hotRuntime` default.
+Built under `bench/scale/` (`gen.mjs` RNTL corpus, `run.mjs` harness sweeping
+5/50/200 files × 1/8 workers cold+warm, 4 contenders; `results.json` artifact).
+Full numbers + sanctioned claims: **`docs/plans/2026-06-10-M4-benchmark-results.md`**.
+Headline: native hot beats jest **4.66× @1w / 3.02× @8w** at 200 files (marginal
+**5.4 / 2.6 ms/file** vs jest 36 / 14.5). Honest caveats baked into the doc: native
+stock isolate:true is SLOWEST; the **mock engine is slower than jest at scale** (also
+isolate:true) — do not sell mock as "the fast one".
+
+Working-tree note: M4 is UNCOMMITTED on `design/dual-engine` — new `bench/scale/*`
+(gen, run, 4 configs, results.json, run.log) + the two docs above + the M4-status
+edit in the design doc. `bench/node_modules/vitest-native/dist` is a stale COPY that
+must be refreshed from a fresh `bun run build` before any rerun
+(`rm -rf bench/node_modules/vitest-native/dist && cp -R packages/vitest-native/dist
+bench/node_modules/vitest-native/dist`). Suggested commit: `bench/scale/*` (minus
+run.log/results.json if you prefer not to track artifacts) + the M4 docs.
+
+Still open before flipping the `hotRuntime` default: it's now numbers-supported, but
+treat the flip as its own decision (keep the escape hatch). README/positioning update
+should quote ONLY the M4-sanctioned claims.
 
 ## Then: M5 — upstream RFC to Vitest
 

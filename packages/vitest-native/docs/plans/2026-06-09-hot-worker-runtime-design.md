@@ -291,10 +291,18 @@ fixed order = the adversarial case. jest baseline: 10/10.
   - **Unhandled late rejections**: parity with stock (same reporting behavior).
   - **Snapshots across files in one worker**: covered empirically by Rocket.Chat's
     Story Snapshots at exact parity in M2.
-- **M4 — Benchmark protocol → claims.** Generated suites at 5/50/200 files × 1/8
-  workers, cold + warm: jest, native isolate:true (today), native hot (new), mock.
-  Measure wall time, per-file marginal cost, peak RSS. README/positioning claims update
-  ONLY from these numbers (per the honest-positioning stance).
+- **M4 — Benchmark protocol → claims. ✅ DONE 2026-06-10.** Harness +
+  RNTL-component corpus under `bench/scale/` (`gen.mjs`, `run.mjs`, 4 configs);
+  raw artifact `bench/scale/results.json`; full write-up + sanctioned claims in
+  [2026-06-10-M4-benchmark-results.md](./2026-06-10-M4-benchmark-results.md).
+  Headline (Apple M5, 200 files): **native hot beats jest 4.66× @1 worker, 3.02×
+  @8 workers**, marginal **5.4/2.6 ms/file** vs jest's **36/14.5**. Key honest
+  findings: native stock isolate:true is the SLOWEST (225 ms/file — the per-file
+  RN-reload tax the hot runtime removes, 40× gap to hot @1w); the **mock engine is
+  slower than jest at scale** (124 ms/file — it also runs isolate:true, so mock is
+  NOT "the fast one"); hot's win scales with files≫workers; hot RSS ≤ jest
+  (2.7 vs 4.6 GB @8w). Fixed a real bug building it: jest's scale config needs
+  `rootDir`=bench so `babel.config.cjs` strips Flow from RN's `jest/setup.js`.
 - **M5 — Upstream write-up.** Document the pattern ("reusable workers with per-file
   module isolation") and open a Vitest discussion/RFC; our implementation is a
   real-world consumer of their experimental pool/worker API and the pattern is a
