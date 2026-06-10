@@ -284,6 +284,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // Native-engine setup file (shipped verbatim as dist/native/setup.mjs; the src
   // tree mirrors that layout so both built and source resolution find it here).
   const nativeSetupPath = path.resolve(thisDir, "native/setup.mjs");
+  // Hot-runtime worker entry + runner (shipped verbatim alongside the setup file).
+  const nativeWorkerPath = path.resolve(thisDir, "native/worker.mjs");
+  const nativeRunnerPath = path.resolve(thisDir, "native/runner.mjs");
 
   // Platform extensions can be computed eagerly.
   const platform = options?.platform ?? "ios";
@@ -294,6 +297,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   const transformPkgs = (options?.transform ?? []).filter(
     (p) => typeof p === "string" && p.length > 0,
   );
+  // Hot runtime (native engine only): persistent RN-hot workers with per-file
+  // isolation via the custom pool. Opt-in while it bakes (see design doc).
+  const hotRuntimeOpt = options?.hotRuntime ?? false;
+  const hotRuntime = hotRuntimeOpt !== false;
+  const hotRecycle = typeof hotRuntimeOpt === "object" ? hotRuntimeOpt : {};
   // Resolved at config() time, once the consumer project root is known. Seeded to a
   // safe default so the hooks (resolveId/load/transform), which run after config(),
   // never read undefined.
@@ -304,7 +312,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     name: "vitest-native",
     enforce: "pre",
 
-    config(userConfig, _env) {
+    async config(userConfig, _env) {
       // Serialize options that need to cross from the Vite main process
       // into Vitest worker processes. globalThis does NOT survive this
       // boundary — we use test.env to inject process.env vars instead.
@@ -340,10 +348,27 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         if (nativePresetNames.length > 0) {
           env.VITEST_NATIVE_PRESET_NAMES = JSON.stringify(nativePresetNames);
         }
-        return nativeEngineConfig(nativeSetupPath, env, transformPkgs);
+        // Lazy import: pulls in vitest/node, which only exists when running
+        // under Vitest (not plain Vite) — and only the hot runtime needs it.
+        const hot = hotRuntime
+          ? {
+              pool: (await import("./native/pool.js")).nativePool({
+                workerEntry: nativeWorkerPath,
+                recycleAfterFiles: hotRecycle.recycleAfterFiles,
+                memoryLimit: hotRecycle.memoryLimit,
+              }),
+              runnerPath: nativeRunnerPath,
+            }
+          : undefined;
+        return nativeEngineConfig(nativeSetupPath, env, transformPkgs, hot);
       }
 
       // --- mock engine (existing behaviour) ---
+      if (hotRuntime) {
+        console.warn(
+          `[vitest-native] 'hotRuntime' only applies to engine:'native' (resolved engine: '${engine}'); ignoring.`,
+        );
+      }
       // Custom mock overrides (validated above to be serializable).
       if (options?.mocks && Object.keys(options.mocks).length > 0) {
         env.VITEST_NATIVE_MOCKS = JSON.stringify(options.mocks);

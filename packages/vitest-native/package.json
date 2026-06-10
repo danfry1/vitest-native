@@ -150,6 +150,7 @@
     "@testing-library/react-native": "^12.9.0",
     "@types/node": "^25.3.5",
     "@types/react": "^19.2.14",
+    "@vitest/coverage-v8": "4.0.18",
     "react": "^19.0.0",
     "react-native": "^0.84.1",
     "react-native-gesture-handler": "^3.0.0",

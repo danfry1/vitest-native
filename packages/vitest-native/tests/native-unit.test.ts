@@ -154,41 +154,104 @@ import { reactNative } from "../src/index.js";
 const SERVE_ENV = { command: "serve", mode: "test" } as const;
 
 describe("plugin engine routing", () => {
-  it("auto (default) resolves to mock today, even when native is available", () => {
+  it("auto (default) resolves to mock today, even when native is available", async () => {
     const plugin = reactNative({}) as any;
-    const cfg = plugin.config({ root: projectRoot }, SERVE_ENV);
+    const cfg = await plugin.config({ root: projectRoot }, SERVE_ENV);
     // mock config: no RN externalization, react-native is virtualized.
     expect(cfg.test.server?.deps?.external).toBeUndefined();
     expect(plugin.resolveId("react-native", undefined)).toBe("\0virtual:react-native");
   });
 
-  it("explicit native sets RN external + a native setup file, and does NOT virtualize react-native", () => {
+  it("explicit native sets RN external + a native setup file, and does NOT virtualize react-native", async () => {
     const plugin = reactNative({ engine: "native" }) as any;
-    const cfg = plugin.config({ root: projectRoot }, SERVE_ENV);
+    const cfg = await plugin.config({ root: projectRoot }, SERVE_ENV);
     const ext = cfg.test.server.deps.external.map(String).join(",");
     expect(ext).toMatch(/react-native/);
     expect(cfg.test.setupFiles.some((p: string) => p.includes("native"))).toBe(true);
     expect(plugin.resolveId("react-native", undefined)).toBeUndefined();
   });
 
-  it("explicit mock virtualizes react-native", () => {
+  it("native + hotRuntime wires the custom pool and isolate:false scheduling", async () => {
+    const plugin = reactNative({ engine: "native", hotRuntime: true }) as any;
+    const cfg = await plugin.config({ root: projectRoot }, SERVE_ENV);
+    // Scheduling: isolate:false keeps workers alive; the worker entry flips
+    // isolate back on inside the worker (see src/native/worker.mjs).
+    expect(cfg.test.isolate).toBe(false);
+    expect(cfg.test.pool).toMatchObject({ name: "vitest-native" });
+    expect(typeof cfg.test.pool.createPoolWorker).toBe("function");
+    // The pool worker boots our hot entry, not Vitest's stock workers/threads.js.
+    const worker = cfg.test.pool.createPoolWorker({
+      distPath: "/tmp/unused",
+      project: {
+        vitest: { logger: { outputStream: process.stdout, errorStream: process.stderr } },
+      },
+      method: "run",
+      environment: { name: "node", options: null },
+      execArgv: [],
+      env: {},
+    });
+    expect(worker.name).toBe("vitest-native");
+    expect((worker as any).entrypoint).toMatch(/native[\\/]worker\.mjs$/);
+  });
+
+  it("hotRuntime object form wires recycling policy into the pool worker", async () => {
+    const plugin = reactNative({
+      engine: "native",
+      hotRuntime: { recycleAfterFiles: 2, memoryLimit: 1024 },
+    }) as any;
+    const cfg = await plugin.config({ root: projectRoot }, SERVE_ENV);
+    expect(cfg.test.runner).toMatch(/native[\\/]runner\.mjs$/);
+    const worker = cfg.test.pool.createPoolWorker({
+      distPath: "/tmp/unused",
+      project: {
+        vitest: { logger: { outputStream: process.stdout, errorStream: process.stderr } },
+      },
+      method: "run",
+      environment: { name: "node", options: null },
+      execArgv: [],
+      env: {},
+    });
+    // memoryLimit > 0 turns on worker heap reporting.
+    expect(worker.reportMemory).toBe(true);
+    const task = { context: { environment: { name: "node", options: null } } };
+    expect(worker.canReuse(task)).toBe(true);
+    // Two files through send() hit recycleAfterFiles=2 → worker retires.
+    // (send throws without a live thread; the file count is recorded first.)
+    for (const _ of [1, 2]) {
+      try {
+        worker.send({ type: "run", context: { files: ["a.test.ts"] } });
+      } catch {}
+    }
+    expect(worker.canReuse(task)).toBe(false);
+  });
+
+  it("hotRuntime without native engine warns and keeps the mock config", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const plugin = reactNative({ engine: "mock", hotRuntime: true }) as any;
+    const cfg = await plugin.config({ root: projectRoot }, SERVE_ENV);
+    expect(cfg.test.pool).toBeUndefined();
+    expect(warn.mock.calls.some((c) => String(c[0]).includes("hotRuntime"))).toBe(true);
+    warn.mockRestore();
+  });
+
+  it("explicit mock virtualizes react-native", async () => {
     const plugin = reactNative({ engine: "mock" }) as any;
-    plugin.config({ root: projectRoot }, SERVE_ENV);
+    await plugin.config({ root: projectRoot }, SERVE_ENV);
     expect(plugin.resolveId("react-native", undefined)).toBe("\0virtual:react-native");
   });
 });
 
 describe("native nudge", () => {
-  it("auto prints the native nudge once when the project is native-capable", () => {
+  it("auto prints the native nudge once when the project is native-capable", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const plugin = reactNative({}) as any;
-    plugin.config({ root: projectRoot }, SERVE_ENV);
+    await plugin.config({ root: projectRoot }, SERVE_ENV);
     const nudges = log.mock.calls.filter((c) => String(c[0]).includes("native engine available"));
     expect(nudges).toHaveLength(1);
     log.mockRestore();
   });
 
-  it("auto prints no nudge when native deps are absent", () => {
+  it("auto prints no nudge when native deps are absent", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vn-nudge-"));
     try {
@@ -197,7 +260,7 @@ describe("native nudge", () => {
         JSON.stringify({ name: "x", version: "0.0.0" }),
       );
       const plugin = reactNative({}) as any;
-      plugin.config({ root: tmp }, SERVE_ENV);
+      await plugin.config({ root: tmp }, SERVE_ENV);
       const nudges = log.mock.calls.filter((c) => String(c[0]).includes("native engine available"));
       expect(nudges).toHaveLength(0);
     } finally {

@@ -273,6 +273,23 @@ export interface VitestNativeOptions {
    * ```
    */
   transform?: string[];
+
+  /**
+   * `engine: 'native'` only. **Experimental.** Run tests in persistent
+   * RN-hot workers: React Native's module graph loads once per worker and
+   * stays resident across test files, while each file still gets a fresh
+   * Vitest module runner (per-file isolation of your app/test modules).
+   * Uses a custom Vitest pool + worker entry + runner; requires Vitest >= 4.
+   *
+   * Pass an object to tune worker recycling (self-defense against suites that
+   * leak process-wide resources the per-file reset can't reclaim):
+   * - `recycleAfterFiles`: retire a worker after it has run N test files.
+   * - `memoryLimit`: retire a worker when its JS heap (bytes) after a test
+   *   file meets or exceeds this value.
+   *
+   * Default: false (each file runs in a fresh worker; RN reloads per file).
+   */
+  hotRuntime?: boolean | { recycleAfterFiles?: number; memoryLimit?: number };
 }
 
 export interface ResolvedOptions {

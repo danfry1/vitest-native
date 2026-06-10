@@ -8,10 +8,13 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+import type { PoolRunnerInitializer } from "vitest/node";
+
 export function nativeEngineConfig(
   setupFilePath: string,
   env: Record<string, string>,
   transformPkgs: string[] = [],
+  hot?: { pool: PoolRunnerInitializer; runnerPath: string },
 ) {
   // Extra packages whose source the Node hooks should transform. They must also
   // be externalized so they load through Node (where the hooks run) rather than
@@ -49,18 +52,25 @@ export function nativeEngineConfig(
     test: {
       setupFiles: [setupFilePath],
       env: fullEnv,
-      // We intentionally do NOT force `isolate`, so Vitest's safe default
-      // (`isolate: true`) applies: each test file gets a fresh module runner.
+      // Without the hot runtime we intentionally do NOT force `isolate`, so
+      // Vitest's safe default (`isolate: true`) applies: each test file gets a
+      // fresh module runner — but also a fresh worker, so RN reloads per file.
       //
-      // `isolate: false` shares one worker so RN's module graph loads once and
-      // wall-time stays flat as the suite grows — but it LEAKS state across
-      // files that share a worker (proven by bench/leak: both user-module
-      // singletons and RN's own stateful APIs like DeviceEventEmitter carry over
-      // between files). That manifests as order-dependent, flaky failures. So
-      // `isolate: false` is an informed opt-in a consumer can set in their own
-      // config, not the default. (A future "hot runtime + surgical per-file
-      // reset" build will reclaim the speed safely.)
-      pool: "threads",
+      // Plain `isolate: false` shares one worker so RN loads once — but it
+      // LEAKS state across files sharing a worker (proven by bench/leak: both
+      // user-module singletons and RN's own stateful APIs like
+      // DeviceEventEmitter carry over). So it stays an informed opt-in.
+      //
+      // The hot runtime (`hotRuntime: true`) reclaims the speed safely:
+      // isolate:false here is only the SCHEDULING decision (keep workers
+      // alive); the custom pool's worker entry flips isolate back on inside
+      // the worker, so Vitest's own per-file module-runner reset still runs.
+      // The custom runner marks each file's import-phase boundary for the
+      // surgical reset (see runner.mjs + reset.mjs).
+      // See docs/plans/2026-06-09-hot-worker-runtime-design.md.
+      ...(hot
+        ? { pool: hot.pool, isolate: false, runner: hot.runnerPath }
+        : { pool: "threads" as const }),
       server: {
         deps: {
           external: [/[\\/]react-native[\\/]/, /[\\/]@react-native[\\/]/, ...extraExternal],

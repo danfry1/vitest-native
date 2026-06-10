@@ -10,10 +10,13 @@ import { buildPkgMatcher } from "./match.mjs";
 
 const RN_PATH = /[\\/](react-native|@react-native)[\\/]/;
 
-let installed = false;
-export function installRequireHooks(projectRoot, transformPkgs = [], presetPkgs = []) {
-  if (installed) return;
-  installed = true;
+// Guarded via globalThis, not module scope: under the hot runtime this module
+// can be evaluated twice in one worker (once by the worker entry through Node's
+// loader, once through Vitest's module runner when the setup file is inlined),
+// and the hooks must still install exactly once per worker.
+export function installRequireHooks(projectRoot, transformPkgs = []) {
+  if (globalThis.__vitest_native_require_hooks_installed) return;
+  globalThis.__vitest_native_require_hooks_installed = true;
 
   // Configured third-party packages to also transform (Flow/TS/JSX stripped).
   const isExtra = buildPkgMatcher(transformPkgs);
@@ -24,18 +27,15 @@ export function installRequireHooks(projectRoot, transformPkgs = [], presetPkgs 
   // serve the runtime preset mock instead of loading the real native lib. The Vite
   // plugin already redirects the app/test graph's *direct* imports; this closes the
   // gap for nested requires that reach Node's CJS loader and would otherwise hit
-  // the real package's native runtime.
-  const presetSet = new Set(presetPkgs);
-  if (presetSet.size > 0) {
-    const origLoad = Module._load;
-    Module._load = function (request, parent, ...rest) {
-      if (presetSet.has(request)) {
-        const mocks = globalThis.__vitest_native_preset_mocks;
-        if (mocks && mocks[request]) return mocks[request];
-      }
-      return origLoad.call(this, request, parent, ...rest);
-    };
-  }
+  // the real package's native runtime. The lookup is dynamic (no preset-name list
+  // captured at install time) so the hooks can install at hot-worker boot, before
+  // the setup file has built the preset mocks.
+  const origLoad = Module._load;
+  Module._load = function (request, parent, ...rest) {
+    const mocks = globalThis.__vitest_native_preset_mocks;
+    if (mocks && Object.prototype.hasOwnProperty.call(mocks, request)) return mocks[request];
+    return origLoad.call(this, request, parent, ...rest);
+  };
 
   const origResolve = Module._resolveFilename;
   Module._resolveFilename = function (request, parent, ...rest) {

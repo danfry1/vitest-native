@@ -3,10 +3,35 @@
 // builds any third-party preset mocks the project uses.
 import { createRequire, register } from "node:module";
 import path from "node:path";
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
 import { installGlobals } from "./globals.mjs";
 import { installRequireHooks } from "./hooks.mjs";
 import * as presetFactories from "../presets.mjs";
+
+// Hot runtime: surgical reset of state left by the PREVIOUS file. Setup files
+// are force-inlined by Vitest, so this body re-runs per test file even when the
+// rest of this package is externalized — making it the per-file hook. Installed
+// by worker.mjs (hot runtime only); a no-op everywhere else.
+if (globalThis.__vitest_native_hot_reset) {
+  // Vitest-level state first: in a fresh-worker-per-file world these die with
+  // the worker, but Vitest's own per-file loop never undoes them. Fake timers
+  // are the big one — jest suites enable them per file and rely on teardown;
+  // leaked into the next file they break React rendering entirely ("Can't
+  // access .root on unmounted test renderer" via RNTL).
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+  // NOTE on RNTL trees: when RNTL is inlined in the consumer graph it
+  // re-evaluates per file (fresh registry + fresh auto-cleanup) and needs no
+  // help. When RNTL is externalized/resident, trees from earlier files can
+  // stay mounted (auto-cleanup's afterEach only registers in the first file) —
+  // a memory accumulation, bounded by worker recycling, NOT a correctness
+  // leak (each file renders into fresh roots; cross-file listeners are removed
+  // by the reset below). Do NOT "fix" this by importing RNTL here or via Node
+  // require — both create instance/evaluation-order hazards that corrupt
+  // rendering (found via Rocket.Chat).
+  globalThis.__vitest_native_hot_reset();
+}
 
 const projectRoot = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
 const diagnostics = process.env.VITEST_NATIVE_DIAGNOSTICS === "true";
@@ -43,7 +68,6 @@ try {
 // hooks must be installed first.
 const presetDefs = []; // [{ pkg, mod, presetName }]
 const presetExports = {}; // pkg -> string[] (named exports, for the ESM loader)
-const presetPkgNames = []; // [pkg] (for the CJS require hook)
 for (const name of presetNames) {
   const factory = presetFactories[name];
   if (typeof factory !== "function") continue;
@@ -51,15 +75,21 @@ for (const name of presetNames) {
   for (const [pkg, mod] of Object.entries(preset.modules)) {
     presetDefs.push({ pkg, mod, presetName: preset.name });
     presetExports[pkg] = mod.exports || [];
-    presetPkgNames.push(pkg);
   }
 }
 
 installGlobals();
-register("./loader.mjs", import.meta.url, {
-  data: { projectRoot, transformPkgs, presetExports },
-});
-installRequireHooks(projectRoot, transformPkgs, presetPkgNames);
+// register() once per WORKER, not per file: under the hot runtime this setup
+// file re-evaluates per test file in a persistent worker, and re-registering
+// would stack a new loader-hook layer on every file. (installGlobals and
+// installRequireHooks are internally guarded the same way.)
+if (!globalThis.__vitest_native_loader_registered) {
+  globalThis.__vitest_native_loader_registered = true;
+  register("./loader.mjs", import.meta.url, {
+    data: { projectRoot, transformPkgs, presetExports },
+  });
+}
+installRequireHooks(projectRoot, transformPkgs);
 
 // Build the mock objects now that the require hooks are installed (preset
 // factories may lazily resolve react-native at render time).
