@@ -135,7 +135,8 @@ describe("native preset redirect (ESM loader)", () => {
     expect(result.source).toContain("globalThis.__vitest_native_preset_mocks");
     expect(result.source).toContain('export const useSharedValue = _m["useSharedValue"];');
     expect(result.source).toContain('export const View = _m["View"];');
-    expect(result.source).toContain("export default _m;");
+    // Honors a factory-provided default; falls back to the namespace object.
+    expect(result.source).toContain('export default ("default" in _m ? _m["default"] : _m);');
   });
 
   it("passes non-preset specifiers through to the next resolver", async () => {

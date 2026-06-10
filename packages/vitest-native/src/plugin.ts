@@ -528,7 +528,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         const code = [
           `const _m = (globalThis.__vitest_native_preset_mocks || {})['${moduleName}'] || {};`,
           ...exportNames.map((n) => `export const ${n} = _m['${n}'];`),
-          `export default _m;`,
+          // Honor a factory-provided default (e.g. svg's default Svg component);
+          // only fall back to the namespace object when the mock has none.
+          `export default ('default' in _m ? _m['default'] : _m);`,
         ].join("\n");
         virtualCodeCache.set(id, code);
         return code;
