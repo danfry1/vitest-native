@@ -395,6 +395,22 @@ Presets apply under **both** engines: the mock engine and `engine: 'native'` (wh
 library's native runtime — worklets, native modules — exactly as Jest does, while the surrounding tree
 renders through real React Native).
 
+### Expo
+
+The `expo` preset shadows the common Expo modules (`expo-constants`, `expo-status-bar`, `expo-font`,
+`expo-asset`, `expo-splash-screen`, `expo-linking`) the way `jest-expo` mocks them. A component that
+imports those renders under the native engine with no extra setup — there's a gated proof in
+`tests-native/expo.test.tsx`. Two honest caveats:
+
+- **Expo modules without a preset** (e.g. `expo-image`, `expo-haptics`) still need a `vi.mock` or a
+  custom preset, just as `jest-expo` ships a mock for each. The native engine externalizes them to
+  Node, so importing the real native module would fail without a stand-in.
+- **Expo SDK trails React Native.** Pin your `react-native` to the version your Expo SDK supports
+  (which is within this plugin's validated range), not the newest RN release.
+
+Full Expo-app validation (a real Expo project's suite end-to-end) is on the roadmap; today the
+guarantee is the presets above plus standard `vi.mock` for the rest.
+
 ---
 
 ## Migrating from `vitest-react-native`
