@@ -1,5 +1,6 @@
 {
   "name": "@vitest-native/example",
+  "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -17,6 +18,6 @@
     "vitest": "^4.0.0",
     "vitest-native": "workspace:*",
     "vite": "^6.0.0",
-    "typescript": "^5.7.0"
+    "typescript": "5.9.3"
   }
 }

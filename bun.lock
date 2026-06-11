@@ -5,18 +5,20 @@
     "": {
       "name": "vitest-native",
       "devDependencies": {
-        "@changesets/cli": "^2.30.0",
-        "@types/node": "^25.3.5",
-        "@types/react": "^19.2.14",
-        "oxfmt": "^0.36.0",
-        "oxlint": "^1.51.0",
-        "tsdown": "^0.21.0",
-        "typescript": "^5.7.0",
+        "@changesets/cli": "2.30.0",
+        "@types/node": "25.3.5",
+        "@types/react": "19.2.14",
+        "oxfmt": "0.36.0",
+        "oxlint": "1.51.0",
+        "syncpack": "15.3.1",
+        "tsdown": "0.21.0",
+        "typescript": "5.9.3",
         "vitest": "^4.0.0",
       },
     },
     "apps/example": {
       "name": "@vitest-native/example",
+      "version": "0.0.0",
       "dependencies": {
         "react": "^19.0.0",
         "react-native": "^0.84.1",
@@ -26,7 +28,7 @@
         "@react-native/babel-preset": "^0.85.3",
         "@testing-library/react-native": "^12.9.0",
         "react-test-renderer": "^19.0.0",
-        "typescript": "^5.7.0",
+        "typescript": "5.9.3",
         "vite": "^6.0.0",
         "vitest": "^4.0.0",
         "vitest-native": "workspace:*",
@@ -42,23 +44,23 @@
       "devDependencies": {
         "@babel/core": "^7.29.7",
         "@react-native/babel-preset": "^0.85.3",
-        "@react-navigation/native": "^7.2.5",
-        "@react-navigation/native-stack": "^7.16.0",
+        "@react-navigation/native": "7.2.5",
+        "@react-navigation/native-stack": "7.16.0",
         "@testing-library/react-native": "^12.9.0",
-        "@types/node": "^25.3.5",
-        "@types/react": "^19.2.14",
+        "@types/node": "25.3.5",
+        "@types/react": "19.2.14",
         "@vitest/coverage-v8": "4.0.18",
-        "expo-constants": "^56.0.18",
-        "expo-status-bar": "^56.0.4",
+        "expo-constants": "56.0.18",
+        "expo-status-bar": "56.0.4",
         "react": "^19.0.0",
         "react-native": "^0.84.1",
-        "react-native-gesture-handler": "^3.0.0",
+        "react-native-gesture-handler": "3.0.0",
         "react-native-reanimated": "4.3.1",
-        "react-native-safe-area-context": "^5.8.0",
-        "react-native-worklets": "^0.9.1",
+        "react-native-safe-area-context": "5.8.0",
+        "react-native-worklets": "0.9.1",
         "react-test-renderer": "^19.0.0",
-        "tsdown": "^0.21.0",
-        "typescript": "^5.7.0",
+        "tsdown": "0.21.0",
+        "typescript": "5.9.3",
         "vite": "^6.0.0",
         "vitest": "^4.0.0",
       },
@@ -1593,6 +1595,24 @@
     "supports-preserve-symlinks-flag": ["supports-preserve-symlinks-flag@1.0.0", "", {}, "sha512-ot0WnXS9fgdkgIcePe6RHNk1WA8+muPa6cSjeR3V8K27q9BB1rTE3R1p7Hv0z1ZyAc8s6Vvv8DIyWf681MAt0w=="],
 
     "synckit": ["synckit@0.11.13", "", { "dependencies": { "@pkgr/core": "^0.3.6" } }, "sha512-eNRKgb3z66Yp3D2CixVujOUvXLFUTij/zVnV8KRyvFdQwpz7I5DS8UfRkTeLzb64u+dkzDSdelE24izu+zSSUg=="],
+
+    "syncpack": ["syncpack@15.3.1", "", { "optionalDependencies": { "syncpack-darwin-arm64": "15.3.1", "syncpack-darwin-x64": "15.3.1", "syncpack-linux-arm64": "15.3.1", "syncpack-linux-arm64-musl": "15.3.1", "syncpack-linux-x64": "15.3.1", "syncpack-linux-x64-musl": "15.3.1", "syncpack-windows-arm64": "15.3.1", "syncpack-windows-x64": "15.3.1" }, "bin": { "syncpack": "index.cjs" } }, "sha512-0Z+/rwbskj+m5qW8caVbd59OwwXBcxRiDFk82Cb4tKGLPXmZn7Vjo7BnfxHwZqS51Ff+5TFgH5/iyXd24+G6YA=="],
+
+    "syncpack-darwin-arm64": ["syncpack-darwin-arm64@15.3.1", "", { "os": "darwin", "cpu": "arm64" }, "sha512-XvbaowC/fw+B7diOtoYjEtSWJVMEbJ7ZH72/TZIe73NwYwY7KFRMVefwxcJE29G+my4vaPmttf2Lbnri8pD6Jw=="],
+
+    "syncpack-darwin-x64": ["syncpack-darwin-x64@15.3.1", "", { "os": "darwin", "cpu": "x64" }, "sha512-KX5+fcHzaGugppyPV3se8iKoFYE5Jde3ZxN80dJKNejluP29rGmOQ1JNaVjy40nZInPNLKQ8LS0TMRtxIgh8ew=="],
+
+    "syncpack-linux-arm64": ["syncpack-linux-arm64@15.3.1", "", { "os": "linux", "cpu": "arm64" }, "sha512-5saJ4LnizTppqVLt49MKagTixDpuR+5MFweGCkoEAm4SikLqNfzkiEnHqVsjY3+BkCVtXf6DcR1OX6hwswNJ0A=="],
+
+    "syncpack-linux-arm64-musl": ["syncpack-linux-arm64-musl@15.3.1", "", { "os": "linux", "cpu": "arm64" }, "sha512-YslfJ1UndTwL000p0JTP/r8uwXJ4LfYeFBqAfRhLuWoJz8CO+yWyUl4VNdFNitSR1OOB/J7gc4q3jOsxh7kTOg=="],
+
+    "syncpack-linux-x64": ["syncpack-linux-x64@15.3.1", "", { "os": "linux", "cpu": "x64" }, "sha512-bk8keNTteQxXpKDc+Y3r3fE7IZn4cU61gq7ka4gPcBNvvMHOk8Pg71/qQEwN3zBtzAj6yF1Fyzb0NYK9Wo6EPQ=="],
+
+    "syncpack-linux-x64-musl": ["syncpack-linux-x64-musl@15.3.1", "", { "os": "linux", "cpu": "x64" }, "sha512-/mnWa3FmzJRsDLuqx6rzQIawV5ly1MFyUPxcZlaLX3FbxBryrVXJZZXGd0yJ9UTEKgE5UfRRQlS+ayeXvJbNew=="],
+
+    "syncpack-windows-arm64": ["syncpack-windows-arm64@15.3.1", "", { "os": "win32", "cpu": "arm64" }, "sha512-GIKQtpNl1Ox2gwBDlEXgL1rneMwUMG0E3eB+EjDKdh4kOJtO0DYduTgg10dmFk/i1ynKGvFtgvhN3VZAr75jgA=="],
+
+    "syncpack-windows-x64": ["syncpack-windows-x64@15.3.1", "", { "os": "win32", "cpu": "x64" }, "sha512-4Kl7gCFzaEF7IoHa3vcEHRPx1um8pnzEqidRyQProIJBROG4srgkyQkmwJUXbWzWJhAq2Ic0vtDUvzIXF2U/Dg=="],
 
     "term-size": ["term-size@2.2.1", "", {}, "sha512-wK0Ri4fOGjv/XPy8SBHZChl8CM7uMc5VML7SqiQ0zG7+J5Vr+RMQDoHa2CNT6KHUnTGIXH34UDMkPzAUyapBZg=="],
 

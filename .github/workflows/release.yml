@@ -5,44 +5,74 @@ on:
     tags:
       - 'v*'
 
-permissions:
-  contents: write
-  id-token: write
+permissions: read-all
 
 jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     if: github.repository == 'danfry1/vitest-native'
 
-    steps:
-      - uses: actions/checkout@v4
+    permissions:
+      contents: write
+      id-token: write
 
-      - uses: oven-sh/setup-bun@v2
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: latest
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      - run: npm i -g npm@latest
+      # npm >= 11.15 is required for staged publishing (`npm stage`).
+      - run: npm i -g npm@11.15.0
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Verify dependencies are pinned
+        run: bun run lint:deps
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test (mock engine)
+        run: bun run test
+
+      - name: Test (native engine)
+        run: bun run test:native
+
       - name: Build
         run: bun run build
 
-      - name: Test
-        run: bun run test
-
-      - name: Publish to npm
-        run: npm publish --provenance --access public
+      - name: Check package exports
         working-directory: packages/vitest-native
+        run: |
+          npm pack --ignore-scripts --pack-destination /tmp
+          # cjs-resolves-to-esm: the jest-compat runtime subpaths are intentionally
+          # ESM-only (they depend on vitest, which is ESM-only); CJS consumers use
+          # dynamic import. They are setup-file / Vite-alias targets, not typed imports.
+          npx --yes @arethetypeswrong/cli /tmp/vitest-native-*.tgz --ignore-rules no-resolution cjs-resolves-to-esm
+
+      - name: Stage publish to npm
+        working-directory: packages/vitest-native
+        # Uploads the tarball to npm's stage queue. Provenance is auto-generated
+        # via OIDC trusted publishing (id-token: write). The version is NOT
+        # installable until a maintainer approves it with a 2FA challenge:
+        #   npm stage approve <id>   (or approve on npmjs.com)
+        run: npm stage publish
+
+      - name: Staged-publish approval reminder
+        run: echo "::notice::Version staged to npm. Approve it (npm stage approve <id>, or on npmjs.com) with 2FA to make it installable."
 
       - name: Create GitHub Release
-        run: gh release create ${{ github.ref_name }} --generate-notes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: gh release create "$TAG_NAME" --generate-notes

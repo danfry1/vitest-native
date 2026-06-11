@@ -16,6 +16,7 @@
     "test:native:hot": "bun run --filter vitest-native test:native:hot",
     "test:example": "bun run build && bun run --filter '@vitest-native/example' test",
     "lint": "oxlint --deny-warnings packages/vitest-native/src/ packages/vitest-native/tests/",
+    "lint:deps": "syncpack lint",
     "format": "oxfmt --write packages/vitest-native/src/ packages/vitest-native/tests/",
     "format:check": "oxfmt --check packages/vitest-native/src/ packages/vitest-native/tests/",
     "typecheck": "bun run --filter vitest-native typecheck",
@@ -23,13 +24,14 @@
     "crosscheck": "bun run --filter vitest-native crosscheck"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.30.0",
-    "@types/node": "^25.3.5",
-    "@types/react": "^19.2.14",
-    "oxfmt": "^0.36.0",
-    "oxlint": "^1.51.0",
-    "tsdown": "^0.21.0",
-    "typescript": "^5.7.0",
+    "@changesets/cli": "2.30.0",
+    "@types/node": "25.3.5",
+    "@types/react": "19.2.14",
+    "oxfmt": "0.36.0",
+    "oxlint": "1.51.0",
+    "syncpack": "15.3.1",
+    "tsdown": "0.21.0",
+    "typescript": "5.9.3",
     "vitest": "^4.0.0"
   }
 }
