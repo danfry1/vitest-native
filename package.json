@@ -24,14 +24,14 @@
     "crosscheck": "bun run --filter vitest-native crosscheck"
   },
   "devDependencies": {
-    "@changesets/cli": "2.30.0",
-    "@types/node": "25.3.5",
+    "@changesets/cli": "2.31.0",
+    "@types/node": "25.9.1",
     "@types/react": "19.2.14",
-    "oxfmt": "0.36.0",
-    "oxlint": "1.51.0",
+    "oxfmt": "0.53.0",
+    "oxlint": "1.68.0",
     "syncpack": "15.3.1",
-    "tsdown": "0.21.0",
+    "tsdown": "0.22.2",
     "typescript": "5.9.3",
-    "vitest": "^4.0.0"
+    "vitest": "^4.1.8"
   }
 }
