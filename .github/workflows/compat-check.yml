@@ -19,6 +19,8 @@ jobs:
           node-version: '22'
 
       - name: Install with latest react-native
+        # Subject to the install-age gate (bunfig.toml): tests the newest RN that is
+        # at least 7 days old — i.e. the newest version we'd actually adopt.
         run: |
           bun install --frozen-lockfile
           bun add -d react-native@latest --cwd packages/vitest-native

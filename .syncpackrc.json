@@ -1,0 +1,32 @@
+{
+  "versionGroups": [
+    {
+      "label": "RN-ecosystem libs are intentionally wide peer ranges + pinned dev versions",
+      "dependencies": [
+        "react",
+        "react-dom",
+        "react-native",
+        "react-test-renderer",
+        "vite",
+        "vitest",
+        "@vitest/coverage-v8",
+        "@testing-library/react-native",
+        "@react-native/babel-preset",
+        "@babel/core"
+      ],
+      "isIgnored": true
+    }
+  ],
+  "semverGroups": [
+    {
+      "label": "devDependencies are pinned to exact versions (supply-chain hardening)",
+      "dependencyTypes": ["dev"],
+      "range": ""
+    },
+    {
+      "label": "runtime + peer deps keep author-defined ranges so consumers can dedupe",
+      "dependencyTypes": ["prod", "peer"],
+      "isIgnored": true
+    }
+  ]
+}

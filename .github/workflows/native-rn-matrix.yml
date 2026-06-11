@@ -58,14 +58,20 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # The install-age gate (bunfig.toml minimumReleaseAge) is respected here too:
+      # we deliberately stay >=7 days behind. RN 0.81-0.84 are long past that, and
+      # the canary resolves to the newest gate-allowed vitest (not bleeding-edge),
+      # which is exactly what we'd actually adopt.
       - name: Pin react-native + babel-preset to ${{ matrix.rn }}
         run: |
           bun add -d "react-native@${{ matrix.rn }}" "@react-native/babel-preset@${{ matrix.rn }}" --cwd packages/vitest-native
 
-      - name: Pin vitest to latest (canary column)
+      - name: Pin vitest to the newest gate-allowed version (canary column)
         if: matrix.vitest == 'latest'
         # Bump the coverage provider in lockstep — a mismatched @vitest/coverage-v8
         # vs vitest fails to load (provider 4.1.x + runtime 4.0.x has bitten us).
+        # `@latest` is subject to the 7-day gate, so this tests the newest version
+        # old enough for us to install, not an unvetted same-day release.
         run: |
           bun add -d vitest@latest @vitest/coverage-v8@latest --cwd packages/vitest-native
 
