@@ -5,9 +5,8 @@ couple to Jest at several levels (the `jest` global, `@jest/globals`, `jest.mock
 `@react-native/jest-preset`, jest-native matchers, recorded snapshots). The `vitest-native/jest-compat`
 layer clears the *API coupling* mechanically; the rest is a small, well-defined per-suite cleanup.
 
-This guide is grounded in a real migration run against **react-native-paper 5.15** — see
-[`real-app-validation/`](real-app-validation/) for the component-level proof and
-[`roadmap-to-confident-real-app-use.md`](roadmap-to-confident-real-app-use.md) for context.
+This guide is grounded in real migration runs against production apps — **react-native-paper**
+(fresh component tests), the **obytes template**, and **Rocket.Chat** (existing Jest suites).
 
 ---
 

@@ -1,5 +1,4 @@
-// Surgical per-file reset for the hot runtime (see worker.mjs, runner.mjs and
-// docs/plans/2026-06-09-hot-worker-runtime-design.md).
+// Surgical per-file reset for the hot runtime (see worker.mjs and runner.mjs).
 //
 // Vitest's own per-file reset (run with config.isolate flipped on by worker.mjs)
 // already re-evaluates everything in the module-runner graph — test files, app

@@ -4,4 +4,9 @@ dist/
 .tmp/
 .turbo
 .DS_Store
-docs/plans/
+
+# Internal development notes — never committed (kept locally / in a personal vault).
+# Product docs live next to the code (e.g. packages/vitest-native/docs/migrating-*.md).
+**/docs/plans/
+docs/superpowers/
+**/docs/real-app-validation/

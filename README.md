@@ -34,8 +34,7 @@ Two engines behind one plugin, so you choose the fidelity each suite needs:
 Migrating a large, deeply Jest-coupled suite *wholesale* is possible but **not turnkey** — see
 [Migrating from Jest](#migrating-from-jest). It's validated on real apps: a fresh-test run
 against react-native-paper (32/32) and existing-suite migrations of the
-[obytes template](https://github.com/obytes/react-native-template-obytes) (39/40) and
-Rocket.Chat (see `packages/vitest-native/docs/real-app-validation/`).
+[obytes template](https://github.com/obytes/react-native-template-obytes) (39/40) and Rocket.Chat.
 
 ## Quick Start
 
@@ -353,9 +352,8 @@ coupling; the rest is suite-specific.
 cost, better DX, real-RN fidelity when you want it) while your existing Jest suite keeps running
 on Jest. Migrate older tests as you touch them, rather than all at once.
 
-→ **Full guide + two real-app migration write-ups:**
-[`packages/vitest-native/docs/migrating-from-jest.md`](packages/vitest-native/docs/migrating-from-jest.md)
-and [`docs/real-app-validation/`](packages/vitest-native/docs/real-app-validation/).
+→ **Full guide:**
+[`packages/vitest-native/docs/migrating-from-jest.md`](packages/vitest-native/docs/migrating-from-jest.md).
 
 ## How it compares to Jest
 

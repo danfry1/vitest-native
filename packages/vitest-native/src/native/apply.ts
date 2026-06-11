@@ -67,7 +67,6 @@ export function nativeEngineConfig(
       // the worker, so Vitest's own per-file module-runner reset still runs.
       // The custom runner marks each file's import-phase boundary for the
       // surgical reset (see runner.mjs + reset.mjs).
-      // See docs/plans/2026-06-09-hot-worker-runtime-design.md.
       ...(hot
         ? { pool: hot.pool, isolate: false, runner: hot.runnerPath }
         : { pool: "threads" as const }),

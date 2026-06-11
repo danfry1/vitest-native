@@ -8,7 +8,7 @@
 // (mocker.reset + module-runner resetModules, inside its run() loop) is gated
 // on config.isolate, so we flip it back to true here, worker-side, after the
 // scheduling decision has already been made. Result: fresh user modules per
-// file, hot RN graph. See docs/plans/2026-06-09-hot-worker-runtime-design.md.
+// file, hot RN graph.
 import { createRequire } from "node:module";
 import path from "node:path";
 import { isMainThread, parentPort, threadId } from "node:worker_threads";
