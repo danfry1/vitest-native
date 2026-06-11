@@ -1,17 +1,27 @@
 # vitest-native
 
-Test React Native with Vitest — a fast pure-JS **mock** engine for everyday tests, and a
-real-React-Native **native** engine for when you need true fidelity. One plugin, you pick.
+Run your React Native tests under Vitest, against **real React Native** — the same JavaScript
+that ships in your app, mocking only the native-module boundary. That's the zero-config default.
+A fast pure-JS **mock** engine is available as an opt-in for RN-free unit tests. One plugin.
+
+> **Beta.** The native engine is validated against real apps (react-native-paper, the obytes
+> template, Rocket.Chat) across React Native 0.81–0.84, with a CI-gated behavioral cross-check
+> against real RN. Some APIs may still shift before 1.0.
+>
+> Maintained successor to
+> [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native)
+> — same core idea (externalize RN, run its real JS under Node), rebuilt for modern Vitest (4+).
+> Coming from it? See [Migrating from `vitest-react-native`](packages/vitest-native/docs/migrating-from-vitest-react-native.md).
 
 ## Why vitest-native
 
 Two engines behind one plugin, so you choose the fidelity each suite needs:
 
-- **`engine: 'mock'`** (default today) — a fast, zero-dependency pure-JS reimplementation of
-  React Native. Ideal for the ~90% of tests that render, query, and fire events.
-- **`engine: 'native'`** — runs **real React Native** JS, mocking only the thin native
+- **`engine: 'native'`** *(default)* — runs **real React Native** JS, mocking only the thin native
   boundary (the same modules Jest's preset mocks). Higher fidelity for accessibility, RN-API
-  behavior, integration, and avoiding mock drift.
+  behavior, integration, and avoiding mock drift. This is what `reactNative()` gives you.
+- **`engine: 'mock'`** — a fast, zero-dependency pure-JS reimplementation of React Native. The
+  opt-in escape hatch for pure-logic suites, environment control, and maximum determinism.
 
 **It's the strongest fit when you:**
 
@@ -74,27 +84,32 @@ describe('MyComponent', () => {
 - **Vitest** >= 4
 - **Vite** >= 5
 - **React** >= 18
-- **`engine: 'native'`** additionally needs `@react-native/babel-preset` + `@babel/core` (these
-  ship with React Native projects). The default mock engine needs no Babel.
+- **`engine: 'native'`** (the default) needs `@react-native/babel-preset` + `@babel/core` (these
+  ship with React Native projects). The opt-in mock engine needs no Babel.
+- **React Native** 0.81–0.84 validated (native engine).
 
 ## Choosing an engine
 
 ```ts
-reactNative({ engine: 'mock' })    // default today — fast pure-JS mock
-reactNative({ engine: 'native' })  // run real React Native; mock only the native boundary
-reactNative({ engine: 'auto' })    // resolves to mock today; nudges toward native
+reactNative()                      // default — real React Native (native), when its babel deps are present
+reactNative({ engine: 'native' })  // force real React Native; mock only the native boundary
+reactNative({ engine: 'mock' })    // opt in to the fast pure-JS mock
+reactNative({ engine: 'auto' })    // the default — native when available, else mock (with a one-line notice)
 ```
 
-Both engines use the same test API (RNTL, the helpers, the presets). Pick `native` for the
-tests where real-RN behavior matters; `mock` for fast, deterministic everyday tests.
+`reactNative()` with no options resolves to **native** whenever `@react-native/babel-preset` and
+`@babel/core` are present (i.e. any real RN app), falling back to `mock` only when they're absent.
+Both engines share the same test API (RNTL, the helpers, the presets). Reach for `mock` when you
+want no RN at all — fast, deterministic, environment-controllable.
 
 ## Features
 
 - **Zero config** — Plugin auto-injects setup files and configures RNTL. No manual `setupFiles` needed.
-- **Dual engine** — fast pure-JS `mock` for the common case; real-RN `native` for true fidelity.
+- **Real React Native by default** — `native` runs RN's real JS, mocking only the native boundary;
+  the opt-in `mock` engine is a fast pure-JS reimplementation for when you want no RN at all.
 - **Single package** — One install replaces three.
-- **No Babel for the mock engine** — the default engine is just Vite. (`native` Flow-strips real
-  RN via your project's Babel preset, the same toolchain RN already uses.)
+- **Same toolchain as RN** — `native` Flow-strips real React Native via your project's Babel preset,
+  the toolchain RN already uses. The `mock` engine needs no Babel — it's just Vite.
 - **100% public API coverage** (mock engine) — every stable React Native export is mocked.
 - **RNTL compatible** — Works with `@testing-library/react-native` automatically.
 - **Third-party presets** — auto-detected mocks for reanimated, gesture handler, safe area,
