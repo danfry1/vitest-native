@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { renderHook } from '@testing-library/react-native';
-import { useDimensions } from '../src/hooks/useDimensions';
+import { useDimensions } from '../../src/hooks/useDimensions';
 
 describe('useDimensions', () => {
   it('returns current window dimensions', () => {

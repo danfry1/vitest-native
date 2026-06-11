@@ -2,7 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react-native';
 import { describe, it, expect, vi } from 'vitest';
 import { Animated } from 'react-native';
-import { FeedList } from '../src/components/FeedList';
+import { FeedList } from '../../src/components/FeedList';
 
 const mockItems = [
   { id: '1', title: 'First Post', author: 'Alice', imageUrl: 'https://img/1.jpg', likes: 42 },
@@ -115,7 +115,7 @@ describe('FeedList', () => {
 
   it('Animated.Value works in card animations', () => {
     const val = new Animated.Value(1);
-    expect(val.getValue()).toBe(1);
+    expect(val.__getValue()).toBe(1);
   });
 
   it('Animated.spring creates animation', () => {

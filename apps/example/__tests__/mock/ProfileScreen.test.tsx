@@ -11,7 +11,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { setPlatform, setDimensions, setColorScheme, resetAllMocks } from 'vitest-native/helpers';
-import { ProfileScreen } from '../src/components/ProfileScreen';
+import { ProfileScreen } from '../../src/components/ProfileScreen';
 
 beforeEach(() => {
   vi.useFakeTimers();

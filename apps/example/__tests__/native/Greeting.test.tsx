@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import { describe, it, expect, vi } from 'vitest';
-import { Greeting } from '../src/components/Greeting';
+import { Greeting } from '../../src/components/Greeting';
 
 describe('Greeting', () => {
   it('renders the name', () => {
