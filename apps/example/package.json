@@ -7,8 +7,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "react": "^19.0.0",
-    "react-native": "^0.84.1"
+    "react": "^19.2.7",
+    "react-native": "^0.85.3"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",

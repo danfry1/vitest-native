@@ -26,7 +26,7 @@
   "devDependencies": {
     "@changesets/cli": "2.30.0",
     "@types/node": "25.3.5",
-    "@types/react": "19.2.14",
+    "@types/react": "19.2.16",
     "oxfmt": "0.36.0",
     "oxlint": "1.51.0",
     "syncpack": "15.3.1",
