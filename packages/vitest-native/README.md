@@ -4,7 +4,7 @@ Run your React Native tests under Vitest, against **real React Native** — the 
 
 > **Beta.** The real-RN engine is validated against real apps (react-native-paper, the obytes template, Rocket.Chat) across React Native 0.81–0.84, with a CI-gated behavioral cross-check against real RN. Some APIs may still shift before 1.0.
 >
-> Spiritual successor to [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native) — same core idea (externalize RN, run its real JS under Node), rebuilt for modern Vitest (4+).
+> Maintained successor to [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native) — same core idea (externalize RN, run its real JS under Node), rebuilt for modern Vitest (4+). Coming from it? See [Migrating from `vitest-react-native`](#migrating-from-vitest-react-native).
 
 ---
 
@@ -82,6 +82,7 @@ export default defineConfig({
 That is it. Write a test:
 
 ```tsx
+import { test, expect } from 'vitest';
 import { render, screen } from '@testing-library/react-native';
 import { View, Text } from 'react-native';
 
@@ -98,6 +99,9 @@ test('renders a greeting', () => {
   expect(screen.getByText('Hello, World')).toBeTruthy();
 });
 ```
+
+> Prefer Jest-style globals (`test`/`expect` without imports)? Set
+> `test: { globals: true }` in your Vitest config — vitest-native does not force it on.
 
 Run it:
 
