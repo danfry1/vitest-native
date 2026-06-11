@@ -152,7 +152,7 @@
     "@types/node": "25.3.5",
     "@types/react": "19.2.14",
     "@vitest/coverage-v8": "4.0.18",
-    "expo-constants": "56.0.18",
+    "expo-constants": "56.0.16",
     "expo-status-bar": "56.0.4",
     "react": "^19.0.0",
     "react-native": "^0.84.1",
