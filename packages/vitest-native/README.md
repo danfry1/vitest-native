@@ -18,7 +18,9 @@ Run your React Native tests under Vitest, against **real React Native** — the 
 - [React Native Test Suite Conformance](#react-native-test-suite-conformance)
 - [Test Helpers](#test-helpers)
 - [Auto-Detect Presets](#auto-detect-presets)
+- [Migrating from `vitest-react-native`](#migrating-from-vitest-react-native)
 - [Migrating from Jest](#migrating-from-jest)
+- [Troubleshooting](#troubleshooting)
 - [RNTL Matchers](#rntl-matchers)
 - [Animated Matchers (Reanimated)](#animated-matchers-reanimated)
 - [Snapshot Serializer](#snapshot-serializer)
@@ -395,6 +397,31 @@ renders through real React Native).
 
 ---
 
+## Migrating from `vitest-react-native`
+
+Used [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native)
+and it broke on a newer Vitest? `vitest-native` is the maintained continuation — same core
+architecture (externalize RN, run its real JS under Node, mock only the native boundary). For the
+common case it's a config swap:
+
+```diff
+- import reactNative from 'vitest-react-native';
+- import react from '@vitejs/plugin-react';
++ import { reactNative } from 'vitest-native';
+  import { defineConfig } from 'vitest/config';
+
+  export default defineConfig({
+-   plugins: [reactNative(), react()],
++   plugins: [reactNative()],
+  });
+```
+
+Named import, and drop `@vitejs/plugin-react` (vitest-native handles the JSX runtime itself). The
+full walkthrough — install, gotchas, what's the same — is in
+**[docs/migrating-from-vitest-react-native.md](docs/migrating-from-vitest-react-native.md)**.
+
+---
+
 ## Migrating from Jest
 
 vitest-native ships a small compat layer that clears the mechanical Jest-API coupling in an existing
@@ -415,6 +442,44 @@ export default defineConfig({
 This is **not** a turnkey drop-in — a real suite still needs a small per-suite cleanup (convert
 top-level `jest.mock` → `vi.mock`, RNTL ≥ 12, re-record snapshots once with `-u`). The full recipe,
 with a worked real-app example, is in **[docs/migrating-from-jest.md](docs/migrating-from-jest.md)**.
+
+---
+
+## Troubleshooting
+
+**`@react-native/babel-preset not found — using the mock engine`**
+You asked for the default (`auto`) engine but the native babel deps aren't installed, so it
+fell back to the mock engine. To run real React Native, install them:
+
+```bash
+npm i -D @react-native/babel-preset @babel/core
+```
+
+To silence the notice and stay on mock deliberately, set `reactNative({ engine: 'mock' })`.
+
+**`vi.mock('some-rn-library')` doesn't take effect (native engine)**
+Under `engine: 'native'`, React Native and its native-side libraries are *externalized* to Node,
+so they load outside Vite's module graph — and Vitest's mocker only intercepts modules inside that
+graph. Your **own** source modules mock normally; the gap is third-party RN-side packages. Options:
+
+- Use a **[preset](#auto-detect-presets)** if one exists (it shadows the library the way Jest does).
+- For a pure-JS library shipping untranspiled source, add it to the [`transform`](#plugin-options)
+  allowlist so the engine strips its Flow/TS as it loads.
+- Or test that boundary on the **mock engine**, where `vi.mock` applies normally.
+
+**`Unexpected token` / Flow syntax errors from a third-party library (native engine)**
+The require hook strips Flow/TS from `react-native` and active presets, but not from arbitrary
+packages. If a dependency ships untranspiled Flow/TS, add it to the
+[`transform`](#plugin-options) allowlist.
+
+**My `babel.config.js` plugin isn't running**
+Transforms go through Vite/esbuild, not Babel, so custom Babel plugins don't apply. JSX (automatic
+runtime) and RN/preset Flow-stripping are handled for you; for anything else, prefer a Vite plugin
+or a preset.
+
+**Snapshots differ after switching from Jest or the mock engine**
+Real RN computes host props (e.g. `<Text>`'s `accessible`, `allowFontScaling`) that mocks omit, so
+the tree is richer. Re-record once with `npx vitest -u` after migrating.
 
 ---
 
@@ -623,6 +688,8 @@ This prints details about which presets were detected, which modules are being m
 | `vite` | >= 5 |
 | `vitest` | >= 4 |
 | `node` | >= 20 |
+| `react-native` (native engine) | 0.81–0.84 validated |
+| `@react-native/babel-preset` (native engine) | `*` |
 | `@testing-library/react-native` (optional) | >= 12 |
 
 ---
