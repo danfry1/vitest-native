@@ -58,16 +58,19 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # --minimum-release-age=0 bypasses bunfig.toml's install-time age gate: this
+      # matrix deliberately installs specific (and, in the canary column, newest)
+      # versions to TEST them — the production supply-chain gate must not block that.
       - name: Pin react-native + babel-preset to ${{ matrix.rn }}
         run: |
-          bun add -d "react-native@${{ matrix.rn }}" "@react-native/babel-preset@${{ matrix.rn }}" --cwd packages/vitest-native
+          bun add -d "react-native@${{ matrix.rn }}" "@react-native/babel-preset@${{ matrix.rn }}" --cwd packages/vitest-native --minimum-release-age=0
 
       - name: Pin vitest to latest (canary column)
         if: matrix.vitest == 'latest'
         # Bump the coverage provider in lockstep — a mismatched @vitest/coverage-v8
         # vs vitest fails to load (provider 4.1.x + runtime 4.0.x has bitten us).
         run: |
-          bun add -d vitest@latest @vitest/coverage-v8@latest --cwd packages/vitest-native
+          bun add -d vitest@latest @vitest/coverage-v8@latest --cwd packages/vitest-native --minimum-release-age=0
 
       - name: Resolved versions
         run: |
