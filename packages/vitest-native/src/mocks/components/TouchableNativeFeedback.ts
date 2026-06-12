@@ -15,6 +15,8 @@ export function createTouchableNativeFeedbackMock() {
     }
     return React.createElement("TouchableNativeFeedback", {
       accessible: true,
+      // See pressableHost.ts: disabled must block press under RNTL >=14.
+      ...(disabled ? { pointerEvents: "none" } : {}),
       ...rest,
       ...(mergedA11yState ? { accessibilityState: mergedA11yState } : {}),
       ref,
