@@ -368,6 +368,13 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       };
       const reactNativeVersion = resolvePackageVersion("react-native", resolvedRoot);
       if (reactNativeVersion) env.VITEST_NATIVE_RN_VERSION = reactNativeVersion;
+      // Asset extensions for the Node require-hook to stub (matches the Vite-graph
+      // asset stubbing): a CJS `require('./logo.png')` reaching Node's loader must
+      // resolve to the basename string, not be compiled as JS.
+      env.VITEST_NATIVE_ASSET_EXTS = JSON.stringify([
+        ...DEFAULT_ASSET_EXTS,
+        ...(options?.assetExts ?? []).map((e) => e.replace(/^\./, "")),
+      ]);
       if (hotRuntime && hotRecycle.preserveGlobals?.length) {
         env.VITEST_NATIVE_HOT_PRESERVE_GLOBALS = JSON.stringify(hotRecycle.preserveGlobals);
       }

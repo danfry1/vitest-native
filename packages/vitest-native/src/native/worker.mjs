@@ -27,9 +27,14 @@ const platform = process.env.VITEST_NATIVE_PLATFORM === "android" ? "android" : 
 const reactNativeVersion = process.env.VITEST_NATIVE_RN_VERSION || "0.0.0";
 let transformPkgs = [];
 let preserveGlobals = [];
+let assetExts = [];
 try {
   if (process.env.VITEST_NATIVE_TRANSFORM)
     transformPkgs = JSON.parse(process.env.VITEST_NATIVE_TRANSFORM);
+} catch {}
+try {
+  if (process.env.VITEST_NATIVE_ASSET_EXTS)
+    assetExts = JSON.parse(process.env.VITEST_NATIVE_ASSET_EXTS);
 } catch {}
 try {
   if (process.env.VITEST_NATIVE_HOT_PRESERVE_GLOBALS)
@@ -48,7 +53,7 @@ if (diagnostics) {
 // listener tracking in reset.mjs, so RN's own boot state is preserved across
 // per-file resets rather than wrongly torn down with test pollution.
 installGlobals();
-installRequireHooks(projectRoot, transformPkgs, platform, reactNativeVersion);
+installRequireHooks(projectRoot, transformPkgs, platform, reactNativeVersion, assetExts);
 try {
   const req = createRequire(path.join(projectRoot, "package.json"));
   const RN = req("react-native");
