@@ -11,6 +11,19 @@
 - Reject mock-only `mocks` overrides under the native engine instead of silently
   ignoring them.
 
+### Mock engine
+
+- Block `onPress` on disabled `Pressable`/`Touchable*`/`Button` under
+  `@testing-library/react-native` v14. RNTL 14 resolves press handlers by walking
+  the composite fiber, which re-finds `onPress` on the wrapping `forwardRef` mock,
+  so the earlier host-prop stripping no longer blocked the press; disabled hosts
+  are now marked `pointerEvents: "none"` so RNTL's `isEventEnabled` rejects it
+  (no-op under RNTL ≤13). Thanks @jakeboone02.
+- Stop passing the `hostComponentNames` option to `configure()` on RNTL ≥14,
+  which removed it in favor of auto-detection; this silences an "Unknown
+  option(s) passed to configure" warning while preserving the option for
+  RNTL ≤13.
+
 ### Reliability
 
 - Fix hot-runtime cross-file leaks from import-time globals, direct environment
@@ -25,7 +38,8 @@
 ### Compatibility and release engineering
 
 - Validate packed release tarballs in bare RN 0.83/RNTL 12, Expo 56/RNTL 13,
-  Vite 8 monorepo/RNTL 14, and RN 0.86 Android consumers.
+  Vite 8 monorepo/RNTL 14, RN 0.86 Android, and a mock-engine RNTL 14 consumer
+  (the combination that guards the disabled-press fix above).
 - Support Vite 8's Oxc JSX configuration without the deprecated `esbuild`
   option, while retaining Vite 6–7 support.
 - Load RNTL matchers across the public, `build`, and `dist` layouts used by
