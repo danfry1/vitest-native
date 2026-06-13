@@ -1,4 +1,4 @@
-import type { Plugin } from "vite";
+import type { Plugin, UserConfig } from "vite";
 import type { VitestNativeOptions, ResolvedOptions, Preset } from "./types.js";
 import { getPlatformExtensions } from "./resolve.js";
 import { fileURLToPath } from "node:url";
@@ -6,8 +6,8 @@ import path from "node:path";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import flowRemoveTypes from "flow-remove-types";
-import { validatePeerDependency, warnUnknownOptions } from "./validate.js";
-import { nativeEngineConfig } from "./native/apply.js";
+import { validateOptions, validatePeerDependency, warnUnknownOptions } from "./validate.js";
+import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
 
 const DEFAULT_ASSET_EXTS = [
@@ -43,6 +43,7 @@ import { AUTO_DETECT_PRESETS } from "./preset-map.js";
 
 async function autoDetectPresets(diagnostics: boolean, projectRoot: string): Promise<Preset[]> {
   const detected: Preset[] = [];
+  const enabled = new Set<string>();
   // Lazy import avoids pulling vitest into the Vite main process at module
   // load time. The presets module imports vi from vitest at the top level,
   // which is only safe inside Vitest worker processes. Dynamic import()
@@ -59,9 +60,11 @@ async function autoDetectPresets(diagnostics: boolean, projectRoot: string): Pro
       installed = true;
     } catch {}
     if (installed) {
+      if (enabled.has(exportName)) continue;
       const factory = presetFactories[exportName];
       if (typeof factory === "function") {
         detected.push(factory());
+        enabled.add(exportName);
         if (diagnostics) {
           console.log(`[vitest-native] Auto-detected ${pkgName} → enabled ${exportName} preset`);
         }
@@ -71,6 +74,34 @@ async function autoDetectPresets(diagnostics: boolean, projectRoot: string): Pro
     }
   }
   return detected;
+}
+
+function resolvePackageVersion(packageName: string, projectRoot: string): string | null {
+  const req = createRequire(path.join(projectRoot, "package.json"));
+  try {
+    return (req(`${packageName}/package.json`) as { version?: string }).version ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function getJsxTransformConfig(projectRoot: string): JsxTransformConfig {
+  const viteVersion = resolvePackageVersion("vite", projectRoot);
+  const viteMajor = Number(viteVersion?.split(".")[0]);
+  return viteMajor >= 8
+    ? { oxc: { jsx: { runtime: "automatic" } } }
+    : { esbuild: { jsx: "automatic" } };
+}
+
+/**
+ * Vite 6/7 and Vite 8 expose mutually exclusive JSX config types:
+ * `esbuild.jsx` before Vite 8 and `oxc.jsx` from Vite 8 onward. The runtime
+ * version check above guarantees that only the matching shape is returned,
+ * but a build against any single Vite major cannot type the other major's
+ * valid config. Keep that unavoidable assertion at this compatibility edge.
+ */
+function asCompatibleViteConfig(config: object): Omit<UserConfig, "plugins"> {
+  return config as unknown as Omit<UserConfig, "plugins">;
 }
 
 /**
@@ -241,6 +272,11 @@ function containsFunctions(value: unknown, visited = new WeakSet()): boolean {
 export function reactNative(options?: VitestNativeOptions): Plugin {
   // --- Validate options eagerly so users get fast, clear errors ---
 
+  if (options) {
+    validateOptions(options as unknown as Record<string, unknown>);
+    warnUnknownOptions(options as unknown as Record<string, unknown>);
+  }
+
   if (options?.mocks && containsFunctions(options.mocks)) {
     throw new Error(
       `[vitest-native] The "mocks" option contains function values, which cannot be ` +
@@ -254,10 +290,6 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         `    return { ...actual, Alert: { alert: vi.fn() } };\n` +
         `  });`,
     );
-  }
-
-  if (options) {
-    warnUnknownOptions(options as unknown as Record<string, unknown>);
   }
 
   // These are populated in configResolved once we know the project root.
@@ -322,6 +354,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // This must happen here (not configResolved) because test.env
       // is captured before configResolved runs.
       const resolvedRoot = userConfig.root ? path.resolve(userConfig.root) : process.cwd();
+      const jsxTransform = getJsxTransformConfig(resolvedRoot);
       // Resolve the concrete engine now that the project root is known. Default
       // (auto) prefers native when RN's Babel deps resolve; silently, with a notice
       // only when it must fall back to mock. See detect.ts / AUTO_PREFERS_NATIVE.
@@ -333,10 +366,23 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         VITEST_NATIVE_DIAGNOSTICS: String(diagnostics),
         VITEST_NATIVE_PROJECT_ROOT: resolvedRoot,
       };
+      const reactNativeVersion = resolvePackageVersion("react-native", resolvedRoot);
+      if (reactNativeVersion) env.VITEST_NATIVE_RN_VERSION = reactNativeVersion;
+      if (hotRuntime && hotRecycle.preserveGlobals?.length) {
+        env.VITEST_NATIVE_HOT_PRESERVE_GLOBALS = JSON.stringify(hotRecycle.preserveGlobals);
+      }
 
       // Native engine: externalize RN so it loads through Node's single CJS graph,
       // where the native setup file's hooks Flow-strip it and mock the boundary.
       if (engine === "native") {
+        if (options?.mocks && Object.keys(options.mocks).length > 0) {
+          throw new Error(
+            `[vitest-native] The "mocks" option is only supported by engine:'mock'. ` +
+              `The native engine runs the real react-native module and cannot safely merge ` +
+              `arbitrary exports into it. Use vi.mock() in a setup file, ` +
+              `mockNativeModule() for native modules, or set engine:'mock'.`,
+          );
+        }
         // Third-party presets apply to the native engine too: native-runtime libs
         // (Reanimated worklets, gesture-handler natives) can't run in Node and must
         // be shadowed by the same self-contained mocks the mock engine uses. We
@@ -357,11 +403,14 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
                 workerEntry: nativeWorkerPath,
                 recycleAfterFiles: hotRecycle.recycleAfterFiles,
                 memoryLimit: hotRecycle.memoryLimit,
+                diagnostics,
               }),
               runnerPath: nativeRunnerPath,
             }
           : undefined;
-        return nativeEngineConfig(nativeSetupPath, env, transformPkgs, hot);
+        return asCompatibleViteConfig(
+          nativeEngineConfig(nativeSetupPath, env, extensions, transformPkgs, hot, jsxTransform),
+        );
       }
 
       // --- mock engine (existing behaviour) ---
@@ -382,38 +431,53 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         env.VITEST_NATIVE_PRESET_NAMES = JSON.stringify(options.presets.map((p) => p.name));
       }
 
-      return {
+      return asCompatibleViteConfig({
         // Match RN's Babel preset: automatic JSX runtime, so app/test files using
         // JSX without importing React compile to `react/jsx-runtime` rather than
         // `React.createElement` ("React is not defined").
-        esbuild: { jsx: "automatic" as const },
+        ...jsxTransform,
         resolve: {
           extensions,
           conditions: ["react-native"],
           // Single React instance across test code, the mock, and the renderer —
           // avoids a null hooks dispatcher from duplicate react copies in some
           // consumer projects (e.g. mock FlatList's useImperativeHandle).
-          dedupe: ["react", "react-test-renderer", "react-is"],
+          dedupe: ["react", "react-test-renderer", "test-renderer", "react-is"],
         },
         test: {
           setupFiles: [setupFilePath],
           env,
         },
-      };
+      });
     },
 
     async configResolved(config) {
       // Validate peer dependencies
       const peers = [
-        { name: "vitest", range: "4.0.0" },
-        { name: "vite", range: "5.0.0" },
-        { name: "react", range: "18.0.0" },
+        { name: "vitest", minimum: "4.0.0", maximumMajor: 5 },
+        {
+          name: "vite",
+          minimum: "6.4.2",
+          maximumMajor: 9,
+          minimumByMajor: { 6: "6.4.2", 7: "7.3.2", 8: "8.0.5" },
+        },
+        { name: "react", minimum: "18.0.0" },
       ];
-      for (const { name, range } of peers) {
-        const error = validatePeerDependency(name, range, config.root);
-        if (error) {
-          console.error(`[vitest-native] ${error}`);
-        }
+      const peerErrors: string[] = [];
+      for (const { name, minimum, maximumMajor, minimumByMajor } of peers) {
+        const error = validatePeerDependency(
+          name,
+          minimum,
+          config.root,
+          maximumMajor,
+          minimumByMajor,
+        );
+        if (error) peerErrors.push(error);
+      }
+      if (peerErrors.length > 0) {
+        throw new Error(
+          `[vitest-native] Unsupported peer dependencies:\n- ${peerErrors.join("\n- ")}`,
+        );
       }
 
       // Check optional RNTL version
@@ -421,6 +485,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         "@testing-library/react-native",
         "12.0.0",
         config.root,
+        15,
       );
       if (rntlError && !rntlError.includes("not found")) {
         console.warn(`[vitest-native] ${rntlError}`);
@@ -537,6 +602,13 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         return code;
       }
 
+      // Asset imports have the same stable semantics under both engines.
+      const fsPath = stripFsPrefix(id);
+      if (assetPattern.test(fsPath)) {
+        const basename = fsPath.split("/").pop() ?? fsPath;
+        return `export default "${basename}";`;
+      }
+
       // Native engine serves RN from Node's CJS graph — nothing else to load here.
       if (engine === "native") return undefined;
 
@@ -565,12 +637,6 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
 
       // Stub binary/font/media asset imports with their basename string,
       // matching React Native's packager behaviour.
-      const fsPath = stripFsPrefix(id);
-      if (assetPattern.test(fsPath)) {
-        const basename = fsPath.split("/").pop() ?? fsPath;
-        return `export default "${basename}";`;
-      }
-
       return undefined;
     },
 

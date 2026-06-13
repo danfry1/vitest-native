@@ -1,0 +1,8 @@
+# Normalize all text files to LF in the repository and check them out with LF
+# on every platform. GitHub's Windows runners default to core.autocrlf=true,
+# which would otherwise rewrite every file to CRLF on checkout and make the
+# oxfmt formatter check (and the native Node loader hooks) fail on Windows only.
+* text=auto eol=lf
+
+# Binary assets must never be line-ending normalized.
+*.png binary

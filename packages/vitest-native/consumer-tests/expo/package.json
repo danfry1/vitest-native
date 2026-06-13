@@ -1,0 +1,23 @@
+{
+  "name": "vitest-native-consumer-expo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@testing-library/react-native": "13.3.3",
+    "expo": "56.0.11",
+    "expo-constants": "56.0.18",
+    "expo-status-bar": "56.0.4",
+    "react": "19.2.4",
+    "react-native": "0.85.3",
+    "react-test-renderer": "19.2.4"
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.7",
+    "@react-native/babel-preset": "0.85.3",
+    "vite": "^7.3.2",
+    "vitest": "4.1.8"
+  }
+}

@@ -1,5 +1,43 @@
 # vitest-native
 
+## 0.5.0
+
+### Native engine
+
+- Propagate the configured iOS/Android platform through native resolution,
+  transformation caches, Babel caller metadata, and native boundary constants.
+- Bring assets, helper controls, native-module injection, animated matchers, and
+  snapshot serialization to the native engine contract.
+- Reject mock-only `mocks` overrides under the native engine instead of silently
+  ignoring them.
+
+### Reliability
+
+- Fix hot-runtime cross-file leaks from import-time globals, direct environment
+  mutations, and app-owned RN event listeners.
+- Add a dedicated one-worker hot-isolation gate, a generated 100-file soak,
+  end-to-end memory-triggered worker recycling, and Android platform-resolution
+  coverage.
+- Validate plugin and hot-runtime options eagerly with actionable errors.
+- Fail configuration for unsupported required Vite, Vitest, and React peers
+  instead of continuing after a console error.
+
+### Compatibility and release engineering
+
+- Validate packed release tarballs in bare RN 0.83/RNTL 12, Expo 56/RNTL 13,
+  Vite 8 monorepo/RNTL 14, and RN 0.86 Android consumers.
+- Support Vite 8's Oxc JSX configuration without the deprecated `esbuild`
+  option, while retaining Vite 6–7 support.
+- Load RNTL matchers across the public, `build`, and `dist` layouts used by
+  RNTL 12–14, and expose Vitest's `expect` for RNTL matcher registration without
+  enabling all Vitest globals.
+- Upgrade the validated baseline to Vitest 4.1.8, RN 0.85.3, and React 19.2,
+  with exact peer upper bounds for unsupported future majors.
+- Require patched Vite floors (^6.4.2, ^7.3.2, or ^8.0.5) and refresh build
+  tooling/transitive resolutions to remove known high-severity advisories.
+- Make Linux Node 20/22, macOS, Windows, packed consumers, the example app,
+  soak tests, cross-checks, and package export analysis blocking release gates.
+
 ## 0.4.1
 
 ### Patch Changes

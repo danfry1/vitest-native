@@ -31,6 +31,8 @@ import { animatedMatchers } from "./matchers/animated.js";
 
 const platform = (process.env.VITEST_NATIVE_PLATFORM as "ios" | "android") || "ios";
 const diagnostics = process.env.VITEST_NATIVE_DIAGNOSTICS === "true";
+const projectRoot = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
+const projectReq = createRequire(path.join(projectRoot, "package.json"));
 
 let customMocks: Record<string, any> = {};
 if (process.env.VITEST_NATIVE_MOCKS) {
@@ -100,6 +102,18 @@ Object.defineProperties(g, {
   },
 });
 
+// RNTL 13+ auto-registers its matchers against globalThis.expect when its
+// package entry is imported. Provide the same Vitest expect instance without
+// forcing the rest of `test.globals` on consumers.
+if (typeof g.expect === "undefined") {
+  Object.defineProperty(g, "expect", {
+    configurable: true,
+    enumerable: false,
+    value: vitestExpect,
+    writable: true,
+  });
+}
+
 g.IS_REACT_ACT_ENVIRONMENT = true;
 g.IS_REACT_NATIVE_TEST_ENVIRONMENT = true;
 
@@ -135,16 +149,17 @@ function loadPresetFactory(exportName: string): (() => Preset) | null {
 }
 
 function autoDetectPresets(): Preset[] {
-  const projectRoot = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
-  const projectReq = createRequire(path.join(projectRoot, "package.json"));
   const detected: Preset[] = [];
+  const enabled = new Set<string>();
   for (const [pkgName, exportName] of Object.entries(AUTO_DETECT_PRESETS)) {
     try {
       projectReq.resolve(pkgName);
+      if (enabled.has(exportName)) continue;
       // Package is installed — load and call our preset factory
       const factory = loadPresetFactory(exportName);
       if (factory) {
         detected.push(factory());
+        enabled.add(exportName);
         if (diagnostics) {
           console.log(`[vitest-native] Auto-detected ${pkgName} → enabled ${exportName} preset`);
         }
@@ -195,7 +210,7 @@ for (const preset of presets) {
 // --- 5. Configure @testing-library/react-native ---
 
 try {
-  const rntl = require("@testing-library/react-native");
+  const rntl = projectReq("@testing-library/react-native");
   if (rntl?.configure) {
     rntl.configure({
       hostComponentNames: {
@@ -223,7 +238,21 @@ try {
 // --- 6. Auto-register RNTL built-in matchers (toBeVisible, toHaveStyle, etc.) ---
 
 try {
-  const matchers = require("@testing-library/react-native/build/matchers");
+  let matchers: Record<string, unknown> | null = null;
+  let lastError: unknown;
+  for (const moduleId of [
+    "@testing-library/react-native/matchers",
+    "@testing-library/react-native/build/matchers",
+    "@testing-library/react-native/dist/matchers",
+  ]) {
+    try {
+      matchers = projectReq(moduleId);
+      break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (!matchers) throw lastError;
   if (matchers && Object.keys(matchers).length > 0) {
     // Filter to only actual matcher functions (skip __esModule, etc.)
     const matcherFns: Record<string, Function> = {};

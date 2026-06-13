@@ -12,6 +12,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { renderHook } from "@testing-library/react-native";
 import {
   processColor,
   Keyboard,
@@ -386,10 +387,9 @@ describe("useColorScheme (conformance)", () => {
     expect(typeof useColorScheme).toBe("function");
   });
 
-  it("returns a valid scheme when called outside component (fallback)", () => {
-    // Our mock catches the "not in component" error and returns the default
-    const result = useColorScheme();
-    expect(["light", "dark"]).toContain(result);
+  it("returns a valid scheme from a rendered hook", () => {
+    const { result } = renderHook(() => useColorScheme());
+    expect(["light", "dark"]).toContain(result.current);
   });
 });
 
@@ -402,14 +402,13 @@ describe("useWindowDimensions (conformance)", () => {
     expect(typeof useWindowDimensions).toBe("function");
   });
 
-  it("returns dimensions when called outside component (fallback)", () => {
-    // Our mock catches the "not in component" error and returns defaults
-    const result = useWindowDimensions();
-    expect(result).toHaveProperty("width");
-    expect(result).toHaveProperty("height");
-    expect(result).toHaveProperty("scale");
-    expect(result).toHaveProperty("fontScale");
-    expect(typeof result.width).toBe("number");
-    expect(typeof result.height).toBe("number");
+  it("returns dimensions from a rendered hook", () => {
+    const { result } = renderHook(() => useWindowDimensions());
+    expect(result.current).toHaveProperty("width");
+    expect(result.current).toHaveProperty("height");
+    expect(result.current).toHaveProperty("scale");
+    expect(result.current).toHaveProperty("fontScale");
+    expect(typeof result.current.width).toBe("number");
+    expect(typeof result.current.height).toBe("number");
   });
 });

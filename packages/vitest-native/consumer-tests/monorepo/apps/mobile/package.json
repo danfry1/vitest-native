@@ -1,0 +1,14 @@
+{
+  "name": "@consumer/mobile",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@testing-library/react-native": "14.0.0",
+    "react": "19.2.4",
+    "react-native": "0.85.3",
+    "test-renderer": "1.2.0"
+  }
+}

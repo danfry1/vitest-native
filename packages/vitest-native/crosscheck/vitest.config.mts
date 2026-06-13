@@ -13,6 +13,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
-    include: [path.join(here, "crosscheck.test.tsx")],
+    // Forward slashes: `include` entries are globs (tinyglobby treats "\" as an
+    // escape char, not a path separator), so a raw Windows path never matches.
+    include: [path.join(here, "crosscheck.test.tsx").replaceAll("\\", "/")],
   },
 });

@@ -8,8 +8,8 @@
  * Run: bun scripts/check-compat.ts
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
+import fs from "node:fs";
+import path from "node:path";
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -19,13 +19,13 @@ import path from 'node:path';
  * and add a mock. The script will catch it.
  */
 const KNOWN_SKIPPED = new Set([
-  'DevMenu',
-  'experimental_LayoutConformance',
-  'unstable_NativeText',
-  'unstable_NativeView',
-  'unstable_TextAncestorContext',
-  'unstable_VirtualView',
-  'VirtualViewMode',
+  "DevMenu",
+  "experimental_LayoutConformance",
+  "unstable_NativeText",
+  "unstable_NativeView",
+  "unstable_TextAncestorContext",
+  "unstable_VirtualView",
+  "VirtualViewMode",
 ]);
 
 // ─── Find react-native ──────────────────────────────────────────────────────
@@ -34,35 +34,33 @@ function findRNIndexPath(): string {
   const candidates: string[] = [];
 
   // bun workspace layout — scan .bun cache for react-native versions
-  const bunCacheDir = path.resolve('../../node_modules/.bun');
+  const bunCacheDir = path.resolve("../../node_modules/.bun");
   if (fs.existsSync(bunCacheDir)) {
     for (const entry of fs.readdirSync(bunCacheDir, { withFileTypes: true })) {
-      if (entry.isDirectory() && entry.name.startsWith('react-native@')) {
+      if (entry.isDirectory() && entry.name.startsWith("react-native@")) {
         candidates.push(
-          path.resolve(bunCacheDir, entry.name, 'node_modules/react-native/index.js'),
+          path.resolve(bunCacheDir, entry.name, "node_modules/react-native/index.js"),
         );
       }
     }
   }
 
   // standard hoisted
-  candidates.push(path.resolve('../../node_modules/react-native/index.js'));
+  candidates.push(path.resolve("../../node_modules/react-native/index.js"));
   // local
-  candidates.push(path.resolve('node_modules/react-native/index.js'));
+  candidates.push(path.resolve("node_modules/react-native/index.js"));
 
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) return candidate;
   }
 
-  throw new Error(
-    'Could not find react-native index.js. Run `bun install` first.',
-  );
+  throw new Error("Could not find react-native index.js. Run `bun install` first.");
 }
 
 // ─── Parse real RN exports ───────────────────────────────────────────────────
 
 function parseRNExports(indexPath: string): string[] {
-  const source = fs.readFileSync(indexPath, 'utf-8');
+  const source = fs.readFileSync(indexPath, "utf-8");
   const exports: string[] = [];
 
   // Match `get ExportName()` in the module.exports object
@@ -78,21 +76,21 @@ function parseRNExports(indexPath: string): string[] {
 // ─── Parse our mock registry ─────────────────────────────────────────────────
 
 function parseOurExports(): string[] {
-  const registryPath = path.resolve('src/mocks/registry.ts');
+  const registryPath = path.resolve("src/mocks/registry.ts");
   if (!fs.existsSync(registryPath)) {
     throw new Error(`Registry not found at ${registryPath}`);
   }
 
-  const source = fs.readFileSync(registryPath, 'utf-8');
+  const source = fs.readFileSync(registryPath, "utf-8");
 
   // Match top-level keys in the buildReactNativeMock return object.
   // These look like `    ExportName: createSomeMock(),` or `    ExportName: { ... },`
-  const inBuildFn = source.slice(source.indexOf('buildReactNativeMock'));
+  const inBuildFn = source.slice(source.indexOf("buildReactNativeMock"));
   const regex = /^\s{4}(\w+)\s*:/gm;
   const exports: string[] = [];
   let match: RegExpExecArray | null;
   while ((match = regex.exec(inBuildFn)) !== null) {
-    if (match[1] === 'default') continue;
+    if (match[1] === "default") continue;
     exports.push(match[1]);
   }
 
@@ -103,36 +101,40 @@ function parseOurExports(): string[] {
 
 function getDepVersion(depName: string): string | null {
   try {
-    const pkgPath = path.resolve('node_modules', depName, 'package.json');
+    const pkgPath = path.resolve("node_modules", depName, "package.json");
     if (fs.existsSync(pkgPath)) {
-      return JSON.parse(fs.readFileSync(pkgPath, 'utf-8')).version;
+      return JSON.parse(fs.readFileSync(pkgPath, "utf-8")).version;
     }
     // Also check bun cache
-    const bunCacheDir = path.resolve('../../node_modules/.bun');
+    const bunCacheDir = path.resolve("../../node_modules/.bun");
     if (fs.existsSync(bunCacheDir)) {
       for (const entry of fs.readdirSync(bunCacheDir, { withFileTypes: true })) {
         if (entry.isDirectory() && entry.name.startsWith(`${depName}@`)) {
-          const p = path.resolve(bunCacheDir, entry.name, 'node_modules', depName, 'package.json');
-          if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, 'utf-8')).version;
+          const p = path.resolve(bunCacheDir, entry.name, "node_modules", depName, "package.json");
+          if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, "utf-8")).version;
         }
       }
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return null;
 }
 
 // ─── Run check ───────────────────────────────────────────────────────────────
 
 function main() {
-  console.log('React Native API Compatibility Check\n');
+  console.log("React Native API Compatibility Check\n");
 
   // 1. Find and parse RN
   const rnPath = findRNIndexPath();
   const rnVersion = (() => {
     try {
-      const pkgPath = path.resolve(path.dirname(rnPath), 'package.json');
-      return JSON.parse(fs.readFileSync(pkgPath, 'utf-8')).version;
-    } catch { return 'unknown'; }
+      const pkgPath = path.resolve(path.dirname(rnPath), "package.json");
+      return JSON.parse(fs.readFileSync(pkgPath, "utf-8")).version;
+    } catch {
+      return "unknown";
+    }
   })();
   const rnExports = parseRNExports(rnPath);
   console.log(`  react-native ${rnVersion} — ${rnExports.length} exports`);
@@ -142,12 +144,12 @@ function main() {
   console.log(`  vitest-native — ${ourExports.length} mocked exports`);
 
   // 3. Dependency versions
-  const rntlVersion = getDepVersion('@testing-library/react-native');
+  const rntlVersion = getDepVersion("@testing-library/react-native");
   if (rntlVersion) console.log(`  @testing-library/react-native ${rntlVersion}`);
-  const reactVersion = getDepVersion('react');
+  const reactVersion = getDepVersion("react");
   if (reactVersion) console.log(`  react ${reactVersion}`);
 
-  console.log('');
+  console.log("");
 
   // 4. Find gaps
   const ourSet = new Set(ourExports);
@@ -165,7 +167,7 @@ function main() {
 
   // 5. Check for stale mocks
   const rnSet = new Set(rnExports);
-  const stale = ourExports.filter(e => !rnSet.has(e));
+  const stale = ourExports.filter((e) => !rnSet.has(e));
 
   // 6. Report
   if (skipped.length > 0) {
@@ -173,7 +175,7 @@ function main() {
     for (const s of skipped) {
       console.log(`  - ${s}`);
     }
-    console.log('');
+    console.log("");
   }
 
   if (stale.length > 0) {
@@ -181,12 +183,12 @@ function main() {
     for (const s of stale) {
       console.log(`  - ${s}`);
     }
-    console.log('  Consider removing these in the next major version.\n');
+    console.log("  Consider removing these in the next major version.\n");
   }
 
   if (missing.length === 0) {
     const covered = rnExports.length - skipped.length;
-    const coverage = (covered / rnExports.length * 100).toFixed(1);
+    const coverage = ((covered / rnExports.length) * 100).toFixed(1);
     console.log(`OK — All stable exports covered (${covered}/${rnExports.length}, ${coverage}%)`);
     process.exit(0);
   }
@@ -195,10 +197,10 @@ function main() {
   for (const m of missing) {
     console.log(`  - ${m}`);
   }
-  console.log('\nTo fix:');
-  console.log('  1. Add a mock to src/mocks/ and register it in src/mocks/registry.ts');
-  console.log('  2. Or add to KNOWN_SKIPPED in scripts/check-compat.ts if unstable/experimental');
-  console.log('');
+  console.log("\nTo fix:");
+  console.log("  1. Add a mock to src/mocks/ and register it in src/mocks/registry.ts");
+  console.log("  2. Or add to KNOWN_SKIPPED in scripts/check-compat.ts if unstable/experimental");
+  console.log("");
 
   process.exit(1);
 }

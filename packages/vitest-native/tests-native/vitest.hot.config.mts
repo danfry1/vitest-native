@@ -17,5 +17,6 @@ export default defineConfig({
     environment: "node",
     setupFiles: [path.resolve(here, "../dist/jest-compat/setup.mjs")],
     include: ["tests-native/*.test.tsx", "tests-native/*.test.ts"],
+    exclude: ["tests-native/android.test.ts"],
   },
 });

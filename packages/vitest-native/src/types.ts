@@ -215,10 +215,9 @@ export interface VitestNativeOptions {
    * Test engine.
    * - 'mock'   — pure-JS reimplementation of React Native (fastest, lower fidelity).
    * - 'native' — runs real React Native JS, mocking only the native boundary
-   *              (Jest-level fidelity).
-   * - 'auto'   — picks automatically. Currently resolves to 'mock'; when
-   *              '@react-native/babel-preset' is present it recommends 'native'
-   *              (becomes the default in v1).
+   *              (highest fidelity).
+   * - 'auto'   — resolves to 'native' when '@react-native/babel-preset' and
+   *              '@babel/core' are available, otherwise falls back to 'mock'.
    * Default: 'auto'.
    */
   engine?: "auto" | "mock" | "native";
@@ -241,7 +240,8 @@ export interface VitestNativeOptions {
   presets?: Preset[];
 
   /**
-   * Plain-data overrides merged into the react-native module mock.
+   * `engine: 'mock'` only. Plain-data overrides merged into the react-native
+   * module mock.
    * Values must be JSON-serializable (strings, numbers, booleans, plain
    * objects, arrays). Function values are not supported — use vi.mock()
    * in a setup file for function-based overrides.
@@ -283,13 +283,24 @@ export interface VitestNativeOptions {
    *
    * Pass an object to tune worker recycling (self-defense against suites that
    * leak process-wide resources the per-file reset can't reclaim):
-   * - `recycleAfterFiles`: retire a worker after it has run N test files.
-   * - `memoryLimit`: retire a worker when its JS heap (bytes) after a test
-   *   file meets or exceeds this value.
+   * - `recycleAfterFiles`: retire a worker after it has run N test files. This
+   *   is enforced between Vitest scheduler tasks; a single task containing
+   *   multiple files cannot be interrupted.
+   * - `memoryLimit`: retire a worker when its reported JS heap (bytes) meets
+   *   or exceeds this value, also between scheduler tasks.
+   * - `preserveGlobals`: exact globalThis property names intentionally owned
+   *   by resident external libraries. App/test globals are otherwise removed
+   *   between files. Storybook's preview registry is preserved automatically.
    *
    * Default: false (each file runs in a fresh worker; RN reloads per file).
    */
-  hotRuntime?: boolean | { recycleAfterFiles?: number; memoryLimit?: number };
+  hotRuntime?:
+    | boolean
+    | {
+        recycleAfterFiles?: number;
+        memoryLimit?: number;
+        preserveGlobals?: string[];
+      };
 }
 
 export interface ResolvedOptions {

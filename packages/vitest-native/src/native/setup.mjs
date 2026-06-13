@@ -7,6 +7,8 @@ import { expect, vi } from "vitest";
 import { installGlobals } from "./globals.mjs";
 import { installRequireHooks } from "./hooks.mjs";
 import * as presetFactories from "../presets.mjs";
+import { animatedMatchers } from "../matchers.mjs";
+import { serializer as rnSerializer } from "../serializer.mjs";
 
 // Hot runtime: surgical reset of state left by the PREVIOUS file. Setup files
 // are force-inlined by Vitest, so this body re-runs per test file even when the
@@ -35,6 +37,8 @@ if (globalThis.__vitest_native_hot_reset) {
 
 const projectRoot = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
 const diagnostics = process.env.VITEST_NATIVE_DIAGNOSTICS === "true";
+const platform = process.env.VITEST_NATIVE_PLATFORM === "android" ? "android" : "ios";
+const reactNativeVersion = process.env.VITEST_NATIVE_RN_VERSION || "0.0.0";
 // Extra node_modules packages to transform (from the plugin's `transform` option).
 let transformPkgs = [];
 try {
@@ -79,6 +83,16 @@ for (const name of presetNames) {
 }
 
 installGlobals();
+// RNTL 13+ auto-registers matchers through the global expect when imported.
+// Expose Vitest's expect only when the consumer has not enabled globals.
+if (typeof globalThis.expect === "undefined") {
+  Object.defineProperty(globalThis, "expect", {
+    configurable: true,
+    enumerable: false,
+    value: expect,
+    writable: true,
+  });
+}
 // register() once per WORKER, not per file: under the hot runtime this setup
 // file re-evaluates per test file in a persistent worker, and re-registering
 // would stack a new loader-hook layer on every file. (installGlobals and
@@ -86,10 +100,10 @@ installGlobals();
 if (!globalThis.__vitest_native_loader_registered) {
   globalThis.__vitest_native_loader_registered = true;
   register("./loader.mjs", import.meta.url, {
-    data: { projectRoot, transformPkgs, presetExports },
+    data: { projectRoot, platform, reactNativeVersion, transformPkgs, presetExports },
   });
 }
-installRequireHooks(projectRoot, transformPkgs);
+installRequireHooks(projectRoot, transformPkgs, platform, reactNativeVersion);
 
 // Build the mock objects now that the require hooks are installed (preset
 // factories may lazily resolve react-native at render time).
@@ -102,14 +116,82 @@ for (const { pkg, mod, presetName } of presetDefs) {
   }
 }
 
+// --- Shared test-helper control surface ---
+//
+// Helpers should manipulate the real RN modules where that is coherent. Platform
+// cannot be switched after module resolution: Platform.ios/Platform.android and
+// every platform-specific import have already been selected, so setPlatform()
+// reports a clear configuration error instead of creating a split-brain graph.
+const req = createRequire(path.join(projectRoot, "package.json"));
+const RN = req("react-native");
+const initialDimensions = {
+  window: { ...RN.Dimensions.get("window") },
+  screen: { ...RN.Dimensions.get("screen") },
+};
+const initialColorScheme = RN.Appearance.getColorScheme?.() ?? "light";
+
+function emitColorScheme(colorScheme) {
+  RN.Appearance.setColorScheme?.(colorScheme);
+  RN.DeviceEventEmitter.emit?.("appearanceChanged", { colorScheme });
+}
+
+g.__vitest_native_control = {
+  engine: "native",
+  setPlatform() {
+    throw new Error(
+      `[vitest-native] setPlatform() is only available with engine:'mock'. ` +
+        `The native engine selects platform files when the module graph loads. ` +
+        `Use reactNative({ platform: 'ios' | 'android' }) or separate Vitest projects.`,
+    );
+  },
+  setDimensions(dims) {
+    const next = { ...RN.Dimensions.get("window"), ...dims };
+    RN.Dimensions.set({ window: next, screen: next });
+  },
+  setColorScheme(colorScheme) {
+    emitColorScheme(colorScheme ?? "light");
+  },
+  mockNativeModule(name, implementation) {
+    g.__vitest_native_module_mocks[name] = implementation;
+  },
+  resetAllMocks() {
+    RN.Dimensions.set({
+      window: { ...initialDimensions.window },
+      screen: { ...initialDimensions.screen },
+    });
+    emitColorScheme(initialColorScheme);
+    for (const name of Object.keys(g.__vitest_native_module_mocks)) {
+      delete g.__vitest_native_module_mocks[name];
+    }
+    for (const presetMock of Object.values(g.__vitest_native_preset_mocks || {})) {
+      presetMock?._reset?.();
+      presetMock?._resetStore?.();
+    }
+    vi.clearAllMocks();
+  },
+};
+
 // --- RNTL built-in matchers (toBeOnTheScreen, toBeDisabled, toHaveStyle, …) ---
 // The mock engine's setup registers these; the native engine must too, or
 // `engine:'native'` users have no jest-native/RNTL matchers (and a jest-compat
 // migration is worse off — jestCompatAliases no-ops its extend-expect on the
 // promise that vitest-native registers them). Caught by the differential cross-check.
 try {
-  const req = createRequire(path.join(projectRoot, "package.json"));
-  const matchers = req("@testing-library/react-native/build/matchers");
+  let matchers = null;
+  let lastError;
+  for (const moduleId of [
+    "@testing-library/react-native/matchers",
+    "@testing-library/react-native/build/matchers",
+    "@testing-library/react-native/dist/matchers",
+  ]) {
+    try {
+      matchers = req(moduleId);
+      break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (!matchers) throw lastError;
   const fns = {};
   for (const [k, v] of Object.entries(matchers || {})) {
     if (typeof v === "function" && k !== "__esModule") fns[k] = v;
@@ -125,6 +207,9 @@ try {
     console.log(`[vitest-native] (native) could not load RNTL matchers: ${e?.message}`);
   }
 }
+
+expect.extend(animatedMatchers);
+expect.addSnapshotSerializer(rnSerializer);
 
 // NOTE: the cosmetic React "update to LogBoxStateSubscription not wrapped in
 // act()" warning (which used to appear on every interaction) is fixed at the

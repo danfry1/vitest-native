@@ -5,49 +5,71 @@
 // source, setup files. What it can NOT touch is state living in the worker's
 // resident Node require cache: React Native itself (externalized by design),
 // other externalized CJS deps, and our boundary mocks. This module covers that
-// gap with an import-phase/test-phase attribution model:
+// gap with a boot-baseline + import-attribution model:
 //
-//   THE ATTRIBUTION PROBLEM: a resident (externalized) library that lazily
-//   initializes during a file's IMPORT phase creates globals/listeners exactly
-//   once — tear those down and the library breaks for every later file, because
-//   its module init never re-runs (found the hard way: deleting Storybook's
-//   __STORYBOOK_ADDONS_PREVIEW registry made every later story render empty).
-//   State created during the TEST phase, by contrast, is pollution to remove.
+//   THE ATTRIBUTION PROBLEM: top-level code in an app/test module re-runs for
+//   every file and must be cleaned, while a resident externalized dependency
+//   initializes only once and may need to retain its process-wide state. A
+//   blanket "bless everything created during import" policy confuses the two
+//   and leaks app globals, env mutations, and listeners across files.
 //
 //   The split is observable: runner.mjs calls bless() from onBeforeRunFiles —
 //   after the test module (and its resident deps) finished importing, before
-//   any test runs. Everything present at bless() joins the baseline; everything
-//   that appears after it is test-phase pollution, reset by hotReset() at the
-//   NEXT file's setup. If bless() never fires (consumer overrode `runner`), the
-//   attribution-dependent teardowns stay disarmed — fail-open to stock
-//   isolate:false semantics rather than guessing.
+//   any test runs. Listener call sites inside node_modules are treated as
+//   resident import state; listeners created by app/test modules stay tracked
+//   and are removed at the NEXT file's setup. Globals and process.env always
+//   return to the worker boot baseline, with an explicit preserveGlobals escape
+//   hatch for external libraries that intentionally publish a global registry.
+//   If bless() never fires (consumer overrode `runner`), attribution-dependent
+//   teardowns stay disarmed — fail-open rather than guessing.
 //
 // Covered surfaces:
 //   1. RN event listeners — every NativeEventEmitter (AppState, Appearance,
 //      Keyboard, …) delegates to the RCTDeviceEventEmitter singleton, so one
 //      wrapped addListener tracks the whole RN JS event surface. Test-phase
-//      subscriptions are removed via their own public subscription.remove();
-//      import-phase subscriptions are blessed.
-//   2. RN module state with known mutation APIs (Dimensions.set) — restored
-//      from a boot-time snapshot (value-restore: no attribution needed).
-//   2b. process.env — restored to the last bless() snapshot.
-//   3. RNTL trees left mounted — RNTL is resident too, so its auto-cleanup
-//      afterEach (registered during the first file) never re-registers for
-//      later files; cleanup() is called explicitly.
+//      subscriptions are removed via their own public subscription.remove().
+//      Only import-phase subscriptions owned by node_modules are blessed.
+//   2. RN module state with known mutation APIs (Dimensions, Appearance) —
+//      restored from a boot-time snapshot (value-restore: no attribution needed).
+//   2b. process.env — restored to the worker boot snapshot.
+//   3. Vitest timers/global/env stubs — restored by setup.mjs before this reset.
 //   4. Boundary/preset mocks that registered callbacks in
 //      globalThis.__vitest_native_resets (none are stateful today; the
 //      registry is the extension point).
-//   5. globalThis keys added during the previous TEST phase — deleted. The
-//      baseline starts at the first per-file call (after Vitest injected its
-//      per-batch globals) and grows at every bless(). Mutations of
-//      pre-existing keys are not restored (documented v1 limitation).
+//   5. globalThis keys added by a file — deleted. The baseline starts at the
+//      first per-file call (after Vitest injected its per-batch globals) and
+//      never grows implicitly. Mutations of pre-existing keys are not restored
+//      (documented limitation).
 import { createRequire } from "node:module";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 // Keys owned by the harness or this plugin — never deleted by the globals diff.
-const PRESERVED_GLOBALS = /^(__vitest|__VITEST|__coverage__|__VITE)/;
-// Vitest-managed env keys change per task; leave them alone.
-const ENV_PRESERVED = /^VITEST_/;
+const HARNESS_GLOBALS = /^(__vitest_native_|__VITEST|__coverage__|__VITE)/;
+// Vitest updates these scheduler-owned values between tasks.
+const ENV_PRESERVED = new Set(["VITEST_POOL_ID", "VITEST_WORKER_ID"]);
+const RESET_FILE = fileURLToPath(import.meta.url).replaceAll("\\", "/");
+const DEFAULT_PRESERVED_GLOBALS = ["__STORYBOOK_ADDONS_PREVIEW"];
+
+function isResidentImportListener(stack, projectRoot) {
+  const root = projectRoot.replaceAll("\\", "/").replace(/\/$/, "");
+  let sawExternalFrame = false;
+
+  for (const rawLine of stack.split("\n").slice(1)) {
+    const line = rawLine.replaceAll("\\", "/");
+    if (line.includes(RESET_FILE)) continue;
+    if (!line.includes(`${root}/`)) continue;
+    if (line.includes("/node_modules/")) {
+      sawExternalFrame = true;
+      continue;
+    }
+    // A project-owned frame means this listener was created by app/test code,
+    // even when the call passed through React Native internals.
+    return false;
+  }
+
+  return sawExternalFrame;
+}
 
 /**
  * Called once at hot-worker boot, AFTER react-native has been preloaded and its
@@ -56,17 +78,20 @@ const ENV_PRESERVED = /^VITEST_/;
  * hotReset is invoked by setup.mjs at the top of every file; bless by
  * runner.mjs between a file's import phase and its first test.
  */
-export function installHotReset({ projectRoot, diagnostics }) {
+export function installHotReset({ projectRoot, diagnostics, preserveGlobals = [] }) {
   const req = createRequire(path.join(projectRoot, "package.json"));
   const RN = req("react-native");
+  const explicitlyPreserved = new Set([...DEFAULT_PRESERVED_GLOBALS, ...preserveGlobals]);
 
   // --- (1) Track listeners added to the RCTDeviceEventEmitter singleton ---
-  const tracked = new Set();
+  const tracked = new Map();
   const emitter = RN.DeviceEventEmitter;
   const origAddListener = emitter.addListener.bind(emitter);
   emitter.addListener = (type, listener, context) => {
     const sub = origAddListener(type, listener, context);
-    tracked.add(sub);
+    tracked.set(sub, {
+      residentImport: isResidentImportListener(new Error().stack || "", projectRoot),
+    });
     return sub;
   };
 
@@ -78,12 +103,16 @@ export function installHotReset({ projectRoot, diagnostics }) {
       screen: { ...RN.Dimensions.get("screen") },
     };
   } catch {}
+  let colorScheme = null;
+  try {
+    colorScheme = RN.Appearance.getColorScheme?.() ?? null;
+  } catch {}
 
-  // --- (2b) process.env snapshot, refreshed at every bless() ---
-  let envBaseline = { ...process.env };
+  // --- (2b) Fixed process.env worker-boot snapshot ---
+  const envBaseline = { ...process.env };
 
-  // --- (5) globalThis baseline: starts at the first per-file call, grows at
-  // every bless() ---
+  // --- (5) globalThis baseline: starts at the first per-file call and remains
+  // fixed. Explicitly preserved keys may join it at an import boundary. ---
   let globalBaseline = null;
 
   // Attribution-dependent teardowns run only once bless() has fired at least
@@ -93,11 +122,15 @@ export function installHotReset({ projectRoot, diagnostics }) {
   function bless() {
     armed = true;
     if (globalBaseline) {
-      for (const key of Reflect.ownKeys(globalThis)) globalBaseline.add(key);
+      for (const key of explicitlyPreserved) {
+        if (Object.hasOwn(globalThis, key)) globalBaseline.add(key);
+      }
     }
-    envBaseline = { ...process.env };
-    // Import-phase subscriptions are legitimate resident state — stop tracking.
-    tracked.clear();
+    // Resident external dependencies do not re-run, so retain only listeners
+    // whose import-time call stack belongs exclusively to node_modules.
+    for (const [sub, record] of tracked) {
+      if (record.residentImport) tracked.delete(sub);
+    }
   }
 
   function hotReset() {
@@ -120,6 +153,9 @@ export function installHotReset({ projectRoot, diagnostics }) {
         RN.Dimensions.set(dims);
       } catch {}
     }
+    try {
+      RN.Appearance.setColorScheme?.(colorScheme);
+    } catch {}
 
     // (4) Boundary/preset mock reset callbacks.
     const resets = globalThis.__vitest_native_resets;
@@ -134,28 +170,28 @@ export function installHotReset({ projectRoot, diagnostics }) {
     if (!armed) return; // no bless yet → cannot attribute; fail open
 
     // (1) Remove the previous file's test-phase RN event listeners.
-    for (const sub of tracked) {
+    for (const sub of tracked.keys()) {
       try {
         sub.remove();
       } catch {}
     }
     tracked.clear();
 
-    // (2b) Restore process.env to the last bless() snapshot.
+    // (2b) Restore process.env to the worker boot snapshot.
     for (const key of Object.keys(process.env)) {
-      if (ENV_PRESERVED.test(key)) continue;
+      if (ENV_PRESERVED.has(key)) continue;
       if (!(key in envBaseline)) delete process.env[key];
       else if (process.env[key] !== envBaseline[key]) process.env[key] = envBaseline[key];
     }
     for (const key of Object.keys(envBaseline)) {
-      if (!(key in process.env) && !ENV_PRESERVED.test(key)) process.env[key] = envBaseline[key];
+      if (!(key in process.env) && !ENV_PRESERVED.has(key)) process.env[key] = envBaseline[key];
     }
 
     // (5) Delete globals added during the previous test phase.
     const deleted = [];
     for (const key of Reflect.ownKeys(globalThis)) {
       if (globalBaseline.has(key)) continue;
-      if (typeof key === "string" && PRESERVED_GLOBALS.test(key)) continue;
+      if (typeof key === "string" && HARNESS_GLOBALS.test(key)) continue;
       try {
         delete globalThis[key];
         if (diagnostics) deleted.push(String(key));

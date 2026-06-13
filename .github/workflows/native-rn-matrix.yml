@@ -6,16 +6,15 @@ name: Native engine — Vitest × RN matrix
 #  • React Native (rows). The engine runs REAL RN JS and mocks only the ~7-module
 #    native boundary, so it is sensitive to RN-version drift (the boundary has
 #    broken before on SectionList / RendererProxy changes between minors).
-#    Supported range (verified): RN 0.81–0.84. 0.80 and earlier fail host-component
+#    Supported range (verified): RN 0.81–0.85. 0.80 and earlier fail host-component
 #    detection and are below the floor; latest is canaried in compat-check.yml.
 #
 #  • Vitest (columns). Vitest churn is what bit-rotted the predecessor plugin
 #    (vitest-community/vitest-react-native) — and the hot runtime rides Vitest's
 #    @experimental internals (vitest/worker, ThreadsPoolWorker, poolRunner), the
-#    most churn-prone surface we depend on. 'pinned' is the lockfile floor and
-#    must pass (blocking). 'latest' is an early-warning canary: it may fail
-#    without failing the workflow (continue-on-error), so a Vitest release that
-#    breaks us surfaces here before users hit it.
+#    most churn-prone surface we depend on. Both the lockfile version and newest
+#    Vitest 4.x release are blocking because the declared peer range promises all
+#    Vitest 4 releases. Vitest 5 is rejected until deliberately supported.
 #
 # Every cell runs the native suite STOCK and HOT, plus the mock-vs-real-RN
 # cross-check — the full real-RN gate against that (Vitest, RN) pair.
@@ -34,46 +33,39 @@ jobs:
   matrix:
     name: native+hot — vitest ${{ matrix.vitest }} × RN ${{ matrix.rn }}
     runs-on: ubuntu-latest
-    # Only the 'latest' Vitest column is allowed to fail (canary); 'pinned' blocks.
-    continue-on-error: ${{ matrix.vitest == 'latest' }}
-
     strategy:
       # Report every cell independently rather than stopping at the first failure.
       fail-fast: false
       matrix:
-        rn: ['0.81', '0.82', '0.83', '0.84']
-        vitest: ['pinned', 'latest']
+        rn: ['0.81', '0.82', '0.83', '0.84', '0.85']
+        vitest: ['locked', 'latest-supported']
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: latest
+          bun-version: 1.3.14
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: '22'
+          node-version: '22.13.0'
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
       # The install-age gate (bunfig.toml minimumReleaseAge) is respected here too:
-      # we deliberately stay >=7 days behind. RN 0.81-0.84 are long past that, and
-      # the canary resolves to the newest gate-allowed vitest (not bleeding-edge),
-      # which is exactly what we'd actually adopt.
+      # we deliberately stay >=7 days behind. RN 0.81-0.85 are long past that.
       - name: Pin react-native + babel-preset to ${{ matrix.rn }}
         run: |
           bun add -d "react-native@${{ matrix.rn }}" "@react-native/babel-preset@${{ matrix.rn }}" --cwd packages/vitest-native
 
-      - name: Pin vitest to the newest gate-allowed version (canary column)
-        if: matrix.vitest == 'latest'
+      - name: Pin Vitest to the newest supported 4.x release
+        if: matrix.vitest == 'latest-supported'
         # Bump the coverage provider in lockstep — a mismatched @vitest/coverage-v8
         # vs vitest fails to load (provider 4.1.x + runtime 4.0.x has bitten us).
-        # `@latest` is subject to the 7-day gate, so this tests the newest version
-        # old enough for us to install, not an unvetted same-day release.
         run: |
-          bun add -d vitest@latest @vitest/coverage-v8@latest --cwd packages/vitest-native
+          bun add -d "vitest@^4" "@vitest/coverage-v8@^4" --cwd packages/vitest-native
 
       - name: Resolved versions
         run: |
@@ -87,8 +79,17 @@ jobs:
       - name: Native engine tests (stock isolate:true)
         run: bun run test:native
 
+      - name: Native engine tests (Android resolution)
+        run: bun run test:native:android
+
       - name: Native engine tests (hot runtime)
         run: bun run test:native:hot
+
+      - name: Native engine hot-runtime isolation
+        run: bun run test:native:hot:isolation
+
+      - name: Native engine hot-runtime soak and recycling
+        run: bun run test:native:hot:soak
 
       - name: Cross-check (mock ≡ real RN ${{ matrix.rn }})
         run: bun run crosscheck

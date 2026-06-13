@@ -38,7 +38,7 @@ describe("engine:native runs REAL react-native", () => {
       tree = TestRenderer.create(
         React.createElement(FlatList, {
           data: [{ k: "a" }, { k: "b" }],
-          keyExtractor: (it: any) => it.k,
+          keyExtractor: (entry: any) => entry.k,
           renderItem: ({ item }: any) => React.createElement(Text, null, item.k),
         }),
       );

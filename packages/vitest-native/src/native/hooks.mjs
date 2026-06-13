@@ -14,7 +14,12 @@ const RN_PATH = /[\\/](react-native|@react-native)[\\/]/;
 // can be evaluated twice in one worker (once by the worker entry through Node's
 // loader, once through Vitest's module runner when the setup file is inlined),
 // and the hooks must still install exactly once per worker.
-export function installRequireHooks(projectRoot, transformPkgs = []) {
+export function installRequireHooks(
+  projectRoot,
+  transformPkgs = [],
+  platform = "ios",
+  reactNativeVersion = "0.0.0",
+) {
   if (globalThis.__vitest_native_require_hooks_installed) return;
   globalThis.__vitest_native_require_hooks_installed = true;
 
@@ -42,11 +47,14 @@ export function installRequireHooks(projectRoot, transformPkgs = []) {
     if (
       parent &&
       parent.filename &&
-      RN_PATH.test(parent.filename) &&
+      (RN_PATH.test(parent.filename) || isExtra(parent.filename)) &&
       request.startsWith(".") &&
       !path.extname(request)
     ) {
-      const hit = resolvePlatformFile(path.resolve(path.dirname(parent.filename), request));
+      const hit = resolvePlatformFile(
+        path.resolve(path.dirname(parent.filename), request),
+        platform,
+      );
       if (hit) return hit;
     }
     return origResolve.call(this, request, parent, ...rest);
@@ -55,16 +63,17 @@ export function installRequireHooks(projectRoot, transformPkgs = []) {
   const origJs = Module._extensions[".js"];
   Module._extensions[".js"] = function (mod, filename) {
     const norm = filename.replace(/\\/g, "/");
-    const boundary = boundarySourceFor(norm);
+    const boundary = boundarySourceFor(norm, platform, reactNativeVersion);
     if (boundary != null) return mod._compile(boundary, filename);
     if (RN_PATH.test(norm)) {
       const src = fs.readFileSync(filename, "utf8");
-      if (isFlow(src)) return mod._compile(transformRN(filename, src, projectRoot), filename);
+      if (isFlow(src))
+        return mod._compile(transformRN(filename, src, projectRoot, platform), filename);
     } else if (isExtra(norm)) {
       // Configured third-party packages: transform unconditionally — TS `import
       // type`/JSX aren't caught by isFlow, and babel passes plain JS through.
       const src = fs.readFileSync(filename, "utf8");
-      return mod._compile(transformRN(filename, src, projectRoot), filename);
+      return mod._compile(transformRN(filename, src, projectRoot, platform), filename);
     }
     return origJs(mod, filename);
   };
@@ -79,7 +88,7 @@ export function installRequireHooks(projectRoot, transformPkgs = []) {
     if (Module._extensions[ext]) continue;
     Module._extensions[ext] = function (mod, filename) {
       const src = fs.readFileSync(filename, "utf8");
-      return mod._compile(transformRN(filename, src, projectRoot), filename);
+      return mod._compile(transformRN(filename, src, projectRoot, platform), filename);
     };
   }
 }

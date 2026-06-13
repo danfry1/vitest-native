@@ -23,10 +23,17 @@ if (isMainThread || !parentPort) {
 
 const projectRoot = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
 const diagnostics = process.env.VITEST_NATIVE_DIAGNOSTICS === "true";
+const platform = process.env.VITEST_NATIVE_PLATFORM === "android" ? "android" : "ios";
+const reactNativeVersion = process.env.VITEST_NATIVE_RN_VERSION || "0.0.0";
 let transformPkgs = [];
+let preserveGlobals = [];
 try {
   if (process.env.VITEST_NATIVE_TRANSFORM)
     transformPkgs = JSON.parse(process.env.VITEST_NATIVE_TRANSFORM);
+} catch {}
+try {
+  if (process.env.VITEST_NATIVE_HOT_PRESERVE_GLOBALS)
+    preserveGlobals = JSON.parse(process.env.VITEST_NATIVE_HOT_PRESERVE_GLOBALS);
 } catch {}
 
 if (diagnostics) {
@@ -41,7 +48,7 @@ if (diagnostics) {
 // listener tracking in reset.mjs, so RN's own boot state is preserved across
 // per-file resets rather than wrongly torn down with test pollution.
 installGlobals();
-installRequireHooks(projectRoot, transformPkgs);
+installRequireHooks(projectRoot, transformPkgs, platform, reactNativeVersion);
 try {
   const req = createRequire(path.join(projectRoot, "package.json"));
   const RN = req("react-native");
@@ -56,7 +63,6 @@ try {
     "Keyboard",
     "Linking",
     "I18nManager",
-    "InteractionManager",
     "PixelRatio",
     "StyleSheet",
   ]) {
@@ -64,13 +70,19 @@ try {
       void RN[name];
     } catch {}
   }
+  // Appearance initializes its bridge listener only when getColorScheme() is
+  // first called. Do that before listener tracking starts so the resident RN
+  // listener is treated as worker boot state instead of test-file pollution.
+  try {
+    RN.Appearance.getColorScheme?.();
+  } catch {}
 } catch (error) {
   throw new Error(
     `[vitest-native] hot worker failed to preload react-native from ${projectRoot}: ${error?.message}`,
     { cause: error },
   );
 }
-const { hotReset, bless } = installHotReset({ projectRoot, diagnostics });
+const { hotReset, bless } = installHotReset({ projectRoot, diagnostics, preserveGlobals });
 globalThis.__vitest_native_hot_reset = hotReset; // invoked by setup.mjs per file
 globalThis.__vitest_native_hot_bless = bless; // invoked by runner.mjs after each import phase
 

@@ -16,7 +16,6 @@ import {
   Pressable,
   TextInput,
   Text,
-  View,
   Animated,
   Easing,
   NativeEventEmitter,
@@ -44,7 +43,11 @@ describe("native engine: async native modules", () => {
         }
       };
       // Either success or failure must fire — never hang.
-      Image.getSize("https://example.com/x.png", () => done(), () => done());
+      Image.getSize(
+        "https://example.com/x.png",
+        () => done(),
+        () => done(),
+      );
       setTimeout(done, 200);
     });
     expect(true).toBe(true);
@@ -58,13 +61,18 @@ describe("native engine: async native modules", () => {
 
 describe("native engine: scheduling + gestures", () => {
   it("InteractionManager.runAfterInteractions runs the task", async () => {
-    const task = vi.fn();
-    const handle = InteractionManager.runAfterInteractions(task);
-    expect(handle).toBeDefined();
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 0));
-    });
-    expect(task).toHaveBeenCalled();
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const task = vi.fn();
+      const handle = InteractionManager.runAfterInteractions(task);
+      expect(handle).toBeDefined();
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      expect(task).toHaveBeenCalled();
+    } finally {
+      warning.mockRestore();
+    }
   });
 
   it("PanResponder.create returns usable panHandlers", () => {
@@ -77,7 +85,9 @@ describe("native engine: scheduling + gestures", () => {
   });
 
   it("AppState.currentState is a sane default", () => {
-    expect(["active", "background", "inactive", "unknown"]).toContain(String(AppState.currentState ?? "active"));
+    expect(["active", "background", "inactive", "unknown"]).toContain(
+      String(AppState.currentState ?? "active"),
+    );
   });
 });
 
@@ -100,9 +110,7 @@ describe("native engine: component depth", () => {
 
   it("Pressable renders function children with pressed state", () => {
     render(
-      <Pressable testID="p">
-        {({ pressed }) => <Text>{pressed ? "down" : "up"}</Text>}
-      </Pressable>,
+      <Pressable testID="p">{({ pressed }) => <Text>{pressed ? "down" : "up"}</Text>}</Pressable>,
     );
     expect(screen.getByText("up")).toBeTruthy();
   });
@@ -129,11 +137,20 @@ describe("native engine: animation drivers", () => {
       Animated.sequence([
         Animated.spring(v, { toValue: 1, useNativeDriver: false }),
         Animated.parallel([
-          Animated.timing(w, { toValue: 1, duration: 10, easing: Easing.linear, useNativeDriver: false }),
+          Animated.timing(w, {
+            toValue: 1,
+            duration: 10,
+            easing: Easing.linear,
+            useNativeDriver: false,
+          }),
         ]),
       ]).start();
     }).not.toThrow();
-    expect(() => Animated.loop(Animated.timing(v, { toValue: 2, duration: 10, useNativeDriver: false })).start()).not.toThrow();
+    expect(() =>
+      Animated.loop(
+        Animated.timing(v, { toValue: 2, duration: 10, useNativeDriver: false }),
+      ).start(),
+    ).not.toThrow();
   });
 
   it("Animated.View renders with an animated style", () => {
@@ -157,7 +174,10 @@ describe("native engine: event emitters", () => {
   });
 
   it("NativeEventEmitter constructs and registers listeners", () => {
-    const emitter = new NativeEventEmitter({ addListener: () => {}, removeListeners: () => {} } as any);
+    const emitter = new NativeEventEmitter({
+      addListener: () => {},
+      removeListeners: () => {},
+    } as any);
     const sub = emitter.addListener("evt", () => {});
     expect(typeof sub.remove).toBe("function");
     sub.remove();
