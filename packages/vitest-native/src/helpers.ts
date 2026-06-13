@@ -15,10 +15,16 @@ function getMock(): Record<string, any> {
   return mock;
 }
 
+function getNativeControl(): Record<string, (...args: any[]) => any> | null {
+  return (globalThis as any).__vitest_native_control ?? null;
+}
+
 /** The original NativeModules instance, stored so resetAllMocks() can restore it. */
 let originalNativeModules: Record<string, any> | null = null;
 
 export function setPlatform(os: "ios" | "android"): void {
+  const native = getNativeControl();
+  if (native) return native.setPlatform(os);
   const mock = getMock();
   const platform = mock.Platform;
   platform.OS = os;
@@ -34,6 +40,8 @@ export function setDimensions(dims: {
   scale?: number;
   fontScale?: number;
 }): void {
+  const native = getNativeControl();
+  if (native) return native.setDimensions(dims);
   const mock = getMock();
 
   // Update Dimensions.get()
@@ -49,6 +57,8 @@ export function setDimensions(dims: {
 }
 
 export function setColorScheme(scheme: "light" | "dark" | null): void {
+  const native = getNativeControl();
+  if (native) return native.setColorScheme(scheme);
   const mock = getMock();
   const resolved = scheme ?? "light";
 
@@ -75,6 +85,8 @@ export function setInsets(insets: {
 }
 
 export function mockNativeModule(name: string, impl: Record<string, any>): void {
+  const native = getNativeControl();
+  if (native) return native.mockNativeModule(name, impl);
   const mock = getMock();
 
   // Store the original NativeModules on first call so resetAllMocks() can restore it
@@ -119,6 +131,8 @@ function clearMockFns(obj: Record<string, any>, visited = new Set()): void {
 }
 
 export function resetAllMocks(): void {
+  const native = getNativeControl();
+  if (native) return native.resetAllMocks();
   const mock = getMock();
   clearMockFns(mock);
 

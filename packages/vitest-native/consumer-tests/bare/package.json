@@ -1,0 +1,20 @@
+{
+  "name": "vitest-native-consumer-bare",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@testing-library/react-native": "12.9.0",
+    "react": "19.2.4",
+    "react-native": "0.83.9",
+    "react-test-renderer": "19.2.4"
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.7",
+    "@react-native/babel-preset": "0.83.9",
+    "vite": "^6.4.2",
+    "vitest": "4.1.8"
+  }
+}

@@ -21,6 +21,7 @@ export function installGlobals() {
   g.IS_REACT_ACT_ENVIRONMENT = true;
   g.IS_REACT_NATIVE_TEST_ENVIRONMENT = true;
   g.__fbBatchedBridgeConfig = { remoteModuleConfig: [], localModulesConfig: [] };
+  g.__vitest_native_module_mocks = g.__vitest_native_module_mocks || {};
 
   installExpoGlobal(g);
 }

@@ -3,6 +3,16 @@ import { StyleSheet, Platform } from "react-native";
 
 // Mirrors react-native's own StyleSheet/Platform expectations, run against REAL RN.
 describe("native-engine conformance (real RN)", () => {
+  it("exposes the stable absoluteFill style", () => {
+    expect(StyleSheet.absoluteFill).toEqual({
+      position: "absolute",
+      left: 0,
+      right: 0,
+      top: 0,
+      bottom: 0,
+    });
+  });
+
   it("StyleSheet.flatten merges in order", () => {
     expect(StyleSheet.flatten([{ a: 1 }, { a: 2, b: 3 }])).toEqual({ a: 2, b: 3 });
   });

@@ -13,6 +13,7 @@ let _preset;
 let _cacheDir;
 let _writeSeq = 0;
 const mem = new Map();
+const TRANSFORM_CACHE_VERSION = 2;
 
 function init(projectRoot) {
   if (_babel) return;
@@ -28,7 +29,11 @@ function init(projectRoot) {
     );
   }
   const presetVersion = req("@react-native/babel-preset/package.json").version;
-  _cacheDir = path.join(os.tmpdir(), "vitest-native-cache", presetVersion);
+  _cacheDir = path.join(
+    os.tmpdir(),
+    "vitest-native-cache",
+    `${presetVersion}-v${TRANSFORM_CACHE_VERSION}`,
+  );
   fs.mkdirSync(_cacheDir, { recursive: true });
 }
 
@@ -38,29 +43,30 @@ export function isFlow(src) {
 }
 
 /** Transform an RN source file to runnable CJS. Cached in-memory + on disk. */
-export function transformRN(file, src, projectRoot) {
+export function transformRN(file, src, projectRoot, platform = "ios") {
   init(projectRoot);
-  const memHit = mem.get(file);
+  const st = fs.statSync(file);
+  const memKey = `${platform}\0${file}\0${st.mtimeMs}\0${st.size}`;
+  const memHit = mem.get(memKey);
   if (memHit !== undefined) return memHit;
 
-  const st = fs.statSync(file);
   const key = crypto
     .createHash("sha1")
-    .update(file + ":" + st.mtimeMs + ":" + st.size)
+    .update(platform + ":" + file + ":" + st.mtimeMs + ":" + st.size)
     .digest("hex");
   const cachePath = path.join(_cacheDir, key + ".js");
   try {
     const cached = fs.readFileSync(cachePath, "utf8");
-    mem.set(file, cached);
+    mem.set(memKey, cached);
     return cached;
   } catch {}
 
   const out = _babel.transformSync(src, {
     filename: file,
-    presets: [_preset],
+    presets: [[_preset, { disableStaticViewConfigsCodegen: true }]],
     babelrc: false,
     configFile: false,
-    caller: { name: "metro", bundler: "metro", platform: "ios", supportsStaticESM: false },
+    caller: { name: "metro", bundler: "metro", platform, supportsStaticESM: false },
   }).code;
   // Atomic write: multiple worker threads may transform the same RN file
   // concurrently on a cold cache. Write to a unique temp file then rename
@@ -74,6 +80,6 @@ export function transformRN(file, src, projectRoot) {
       fs.rmSync(tmp, { force: true });
     } catch {}
   }
-  mem.set(file, out);
+  mem.set(memKey, out);
   return out;
 }

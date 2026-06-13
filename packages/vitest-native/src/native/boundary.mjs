@@ -3,27 +3,52 @@
 // expressed as CJS source strings so both transform hooks (loader + require) can
 // serve them identically. Mirrors react-native/jest/setup.js's mock set.
 
-const DEVICE_CONSTANTS = JSON.stringify({
-  PlatformConstants: {
-    forceTouchAvailable: false,
-    reactNativeVersion: { major: 0, minor: 84, patch: 1 },
-    osVersion: "17.0",
-    systemName: "iOS",
-    interfaceIdiom: "phone",
-    isTesting: true,
-  },
-  DeviceInfo: {
-    Dimensions: {
-      window: { width: 390, height: 844, scale: 3, fontScale: 1 },
-      screen: { width: 390, height: 844, scale: 3, fontScale: 1 },
+function parseVersion(version) {
+  const [major = 0, minor = 0, patch = 0] = String(version || "0.0.0")
+    .split(/[.-]/)
+    .map((part) => Number.parseInt(part, 10) || 0);
+  return { major, minor, patch };
+}
+
+function deviceConstants(platform, reactNativeVersion) {
+  const platformConstants =
+    platform === "android"
+      ? {
+          isTesting: true,
+          reactNativeVersion,
+          Version: 34,
+          Release: "14",
+          Serial: "unknown",
+          Fingerprint: "vitest-native",
+          Model: "vitest-native",
+          uiMode: "normal",
+          Brand: "generic",
+          Manufacturer: "generic",
+        }
+      : {
+          forceTouchAvailable: false,
+          reactNativeVersion,
+          osVersion: "17.0",
+          systemName: "iOS",
+          interfaceIdiom: "phone",
+          isTesting: true,
+        };
+
+  return {
+    PlatformConstants: platformConstants,
+    DeviceInfo: {
+      Dimensions: {
+        window: { width: 390, height: 844, scale: 3, fontScale: 1 },
+        screen: { width: 390, height: 844, scale: 3, fontScale: 1 },
+      },
     },
-  },
-  I18nManager: {
-    isRTL: false,
-    doLeftAndRightSwapInRTL: true,
-    localeIdentifier: "en_US",
-  },
-});
+    I18nManager: {
+      isRTL: false,
+      doLeftAndRightSwapInRTL: true,
+      localeIdentifier: "en_US",
+    },
+  };
+}
 
 // A reusable mock-native-component factory, inlined into each source string that needs it.
 //
@@ -71,8 +96,13 @@ const MOCK_NATIVE_COMPONENT = `
   };
 `;
 
-const TURBO_STUB = `
-  const __C = ${DEVICE_CONSTANTS};
+function turboStubSource(platform, version) {
+  const constants = JSON.stringify(deviceConstants(platform, parseVersion(version)));
+  return `
+  const __C = ${constants};
+  const __moduleMocks = () => globalThis.__vitest_native_module_mocks || {};
+  const getModuleMock = (name) =>
+    Object.prototype.hasOwnProperty.call(__moduleMocks(), name) ? __moduleMocks()[name] : null;
   // Native methods that return a Promise on the device (no callback arg). Without
   // this, real RN code doing \`NativeModule.canOpenURL(url).then(...)\` would crash
   // on \`undefined\`. Values are the no-native defaults.
@@ -114,17 +144,21 @@ const TURBO_STUB = `
     },
   });
 `;
+}
 
 export const BOUNDARY_SOURCES = {
-  "Libraries/TurboModule/TurboModuleRegistry.js": `
-    ${TURBO_STUB}
-    exports.get = (n) => turboStub(n);
-    exports.getEnforcing = (n) => turboStub(n);
+  "Libraries/TurboModule/TurboModuleRegistry.js": (platform, version) => `
+    ${turboStubSource(platform, version)}
+    exports.get = (n) => getModuleMock(n) || turboStub(n);
+    exports.getEnforcing = (n) => getModuleMock(n) || turboStub(n);
   `,
-  "Libraries/BatchedBridge/NativeModules.js": `
-    ${TURBO_STUB}
+  "Libraries/BatchedBridge/NativeModules.js": (platform, version) => `
+    ${turboStubSource(platform, version)}
     module.exports = { __esModule: true, default: new Proxy({}, {
-      get: (_t, n) => (typeof n === "string" ? turboStub(n) : undefined),
+      get: (_t, n) => {
+        if (typeof n !== "string") return undefined;
+        return getModuleMock(n) || turboStub(n);
+      },
     }) };
   `,
   "Libraries/NativeComponent/NativeComponentRegistry.js": `
@@ -217,9 +251,12 @@ export function isBoundary(normPath) {
 }
 
 /** Returns the CJS source for a boundary module, or null if not a boundary. */
-export function boundarySourceFor(normPath) {
+export function boundarySourceFor(normPath, platform = "ios", version = "0.0.0") {
   for (const s of SUFFIXES) {
-    if (normPath.endsWith("/react-native/" + s)) return BOUNDARY_SOURCES[s];
+    if (normPath.endsWith("/react-native/" + s)) {
+      const source = BOUNDARY_SOURCES[s];
+      return typeof source === "function" ? source(platform, version) : source;
+    }
   }
   return null;
 }

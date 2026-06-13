@@ -1,0 +1,1 @@
+export const platformFile = "android";

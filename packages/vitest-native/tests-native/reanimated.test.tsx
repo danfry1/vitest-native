@@ -9,7 +9,7 @@
  * package is present and correctly shadowed by the auto-detected preset — never
  * loaded (loading it would crash on the worklets native boundary).
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react-native";
 import { Text, Pressable } from "react-native";
@@ -55,6 +55,7 @@ describe("react-native-reanimated under native engine", () => {
     // If real reanimated had loaded, importing it would have thrown on worklets.
     expect(typeof useSharedValue).toBe("function");
     expect(typeof useAnimatedStyle).toBe("function");
+    // oxlint-disable-next-line import/no-named-as-default-member -- default API parity is intentional
     expect(typeof Animated.createAnimatedComponent).toBe("function");
   });
 
@@ -67,6 +68,7 @@ describe("react-native-reanimated under native engine", () => {
 
   it("createAnimatedComponent wraps a custom component", () => {
     const Custom = (props: any) => <Text {...props}>wrapped</Text>;
+    // oxlint-disable-next-line import/no-named-as-default-member -- default API parity is intentional
     const AnimatedCustom = Animated.createAnimatedComponent(Custom);
     render(<AnimatedCustom testID="custom" />);
     expect(screen.getByText("wrapped")).toBeTruthy();

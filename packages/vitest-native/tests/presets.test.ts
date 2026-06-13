@@ -18,6 +18,7 @@ import {
   svg,
   webview,
 } from "../src/presets/index.js";
+import { renderHook } from "@testing-library/react-native";
 
 // --- Navigation ---
 
@@ -26,7 +27,8 @@ describe("preset: navigation", () => {
   const mock = preset.modules["@react-navigation/native"].factory();
 
   it("useNavigation returns an object with navigate, goBack, reset", () => {
-    const nav = mock.useNavigation();
+    const { result } = renderHook(() => mock.useNavigation());
+    const nav = result.current;
     expect(typeof nav.navigate).toBe("function");
     expect(typeof nav.goBack).toBe("function");
     expect(typeof nav.reset).toBe("function");
@@ -37,13 +39,15 @@ describe("preset: navigation", () => {
   });
 
   it("navigate is callable as a mock", () => {
-    const nav = mock.useNavigation();
+    const { result } = renderHook(() => mock.useNavigation());
+    const nav = result.current;
     nav.navigate("Home", { id: 1 });
     expect(nav.navigate).toHaveBeenCalledWith("Home", { id: 1 });
   });
 
   it("useRoute returns route shape", () => {
-    const route = mock.useRoute();
+    const { result } = renderHook(() => mock.useRoute());
+    const route = result.current;
     expect(route).toHaveProperty("key");
     expect(route).toHaveProperty("name");
     expect(route).toHaveProperty("params");
@@ -160,13 +164,13 @@ describe("preset: navigation", () => {
   });
 
   it("useNavigationBuilder returns state, navigation, descriptors", () => {
-    const result = mock.useNavigationBuilder();
-    expect(result.state).toBeDefined();
-    expect(result.state.routes).toEqual([]);
-    expect(result.navigation).toBeDefined();
-    expect(typeof result.navigation.navigate).toBe("function");
-    expect(result.descriptors).toEqual({});
-    expect(typeof result.NavigationContent).toBe("function");
+    const { result } = renderHook(() => mock.useNavigationBuilder());
+    expect(result.current.state).toBeDefined();
+    expect(result.current.state.routes).toEqual([]);
+    expect(result.current.navigation).toBeDefined();
+    expect(typeof result.current.navigation.navigate).toBe("function");
+    expect(result.current.descriptors).toEqual({});
+    expect(typeof result.current.NavigationContent).toBe("function");
   });
 
   it("BaseNavigationContainer is renderable with displayName", () => {

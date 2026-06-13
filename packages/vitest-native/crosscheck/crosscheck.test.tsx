@@ -446,7 +446,9 @@ probe("query-by-hint-text", () => {
 
 // --- pure APIs ---
 probe("stylesheet-helpers", () => ({
-  absolute: StyleSheet.absoluteFillObject,
+  // RN 0.85 removed the deprecated absoluteFillObject alias. absoluteFill is
+  // the stable API shared by every RN version in the supported matrix.
+  absolute: StyleSheet.absoluteFill,
   hairline: StyleSheet.hairlineWidth,
   composed: StyleSheet.flatten(StyleSheet.compose({ color: "red" }, { fontSize: 12 })),
 }));

@@ -34,12 +34,16 @@ function resolveExtensionless(base) {
 // Synthetic URL scheme for preset mocks served to the ESM graph (see below).
 const PRESET_SCHEME = "vitest-native-preset:";
 let PROJECT_ROOT = process.cwd();
+let PLATFORM = "ios";
+let REACT_NATIVE_VERSION = "0.0.0";
 let isExtra = () => false;
 // Preset package name → its mock's named-export list (from the preset definition).
 let presetExports = {};
 
 export async function initialize(data) {
   if (data && data.projectRoot) PROJECT_ROOT = data.projectRoot;
+  if (data && data.platform === "android") PLATFORM = "android";
+  if (data && data.reactNativeVersion) REACT_NATIVE_VERSION = data.reactNativeVersion;
   if (data && data.transformPkgs) isExtra = buildPkgMatcher(data.transformPkgs);
   if (data && data.presetExports) presetExports = data.presetExports;
 }
@@ -57,8 +61,13 @@ export async function resolve(specifier, context, nextResolve) {
     context.parentURL && context.parentURL.startsWith("file:")
       ? fileURLToPath(context.parentURL)
       : null;
-  if (parent && RN_PATH.test(parent) && specifier.startsWith(".") && !path.extname(specifier)) {
-    const hit = resolvePlatformFile(path.resolve(path.dirname(parent), specifier));
+  if (
+    parent &&
+    (RN_PATH.test(parent) || isExtra(parent)) &&
+    specifier.startsWith(".") &&
+    !path.extname(specifier)
+  ) {
+    const hit = resolvePlatformFile(path.resolve(path.dirname(parent), specifier), PLATFORM);
     if (hit) return { url: pathToFileURL(hit).href, shortCircuit: true };
   }
 
@@ -100,14 +109,14 @@ export async function load(url, context, nextLoad) {
   if (!isRN && !isExtra(norm)) return nextLoad(url, context);
 
   if (isRN) {
-    const boundary = boundarySourceFor(norm);
+    const boundary = boundarySourceFor(norm, PLATFORM, REACT_NATIVE_VERSION);
     if (boundary != null) return { format: "commonjs", source: boundary, shortCircuit: true };
     if (norm.endsWith(".js")) {
       const src = fs.readFileSync(file, "utf8");
       if (isFlow(src))
         return {
           format: "commonjs",
-          source: transformRN(file, src, PROJECT_ROOT),
+          source: transformRN(file, src, PROJECT_ROOT, PLATFORM),
           shortCircuit: true,
         };
     }
@@ -117,7 +126,11 @@ export async function load(url, context, nextLoad) {
   // Configured third-party package: transform any JS/TS/JSX source to CJS.
   if (TRANSFORMABLE.test(norm)) {
     const src = fs.readFileSync(file, "utf8");
-    return { format: "commonjs", source: transformRN(file, src, PROJECT_ROOT), shortCircuit: true };
+    return {
+      format: "commonjs",
+      source: transformRN(file, src, PROJECT_ROOT, PLATFORM),
+      shortCircuit: true,
+    };
   }
   return nextLoad(url, context);
 }

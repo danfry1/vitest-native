@@ -36,6 +36,8 @@ export interface NativePoolOptions {
    * meets or exceeds this limit. 0 = never recycle by memory (default).
    */
   memoryLimit?: number;
+  /** Log when Vitest batches prevent a recycling threshold from being exact. */
+  diagnostics?: boolean;
 }
 
 function deepEqual(a: unknown, b: unknown): boolean {
@@ -63,9 +65,11 @@ class NativePoolWorker extends ThreadsPoolWorker {
   private environment: PoolOptions["environment"];
   private recycleAfterFiles: number;
   private memoryLimit: number;
+  private diagnostics: boolean;
   private filesRun = 0;
   private lastHeapUsed = 0;
   private memoryListenerAttached = false;
+  private batchWarningShown = false;
 
   constructor(options: PoolOptions, native: NativePoolOptions) {
     super(options);
@@ -73,6 +77,7 @@ class NativePoolWorker extends ThreadsPoolWorker {
     this.environment = options.environment;
     this.recycleAfterFiles = native.recycleAfterFiles ?? 0;
     this.memoryLimit = native.memoryLimit ?? 0;
+    this.diagnostics = native.diagnostics ?? false;
     this.reportMemory = this.memoryLimit > 0;
   }
 
@@ -91,8 +96,23 @@ class NativePoolWorker extends ThreadsPoolWorker {
   }
 
   override send(message: WorkerRequest): void {
-    // A single run message can carry a batch of files — count files, not messages.
+    // A single run message can carry a batch of files. Vitest only calls
+    // canReuse between scheduler tasks, so a multi-file task cannot be retired
+    // in the middle even if it crosses a configured threshold.
     if (message.type === "run" || message.type === "collect") {
+      if (
+        this.diagnostics &&
+        !this.batchWarningShown &&
+        message.context.files.length > 1 &&
+        (this.recycleAfterFiles > 0 || this.memoryLimit > 0)
+      ) {
+        this.batchWarningShown = true;
+        console.warn(
+          `[vitest-native] hot worker received a ${message.context.files.length}-file Vitest task; ` +
+            `recycling thresholds apply after the task completes. Use more than one worker ` +
+            `when strict per-file retirement is required.`,
+        );
+      }
       this.filesRun += message.context.files.length;
     }
     super.send(message);

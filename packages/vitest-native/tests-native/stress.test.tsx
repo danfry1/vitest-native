@@ -9,9 +9,7 @@ import { render, screen, fireEvent, act } from "@testing-library/react-native";
 import {
   View,
   Text,
-  TextInput,
   Switch,
-  Pressable,
   Modal,
   FlatList,
   ScrollView,
@@ -153,7 +151,11 @@ describe("native engine: interaction flows", () => {
     // proof the boundary + ScrollView wiring is correct.
     const host: any = screen.getByTestId("sv");
     host.props.onScroll({
-      nativeEvent: { contentOffset: { x: 0, y: 100 }, contentSize: { height: 500, width: 100 }, layoutMeasurement: { height: 100, width: 100 } },
+      nativeEvent: {
+        contentOffset: { x: 0, y: 100 },
+        contentSize: { height: 500, width: 100 },
+        layoutMeasurement: { height: 100, width: 100 },
+      },
     });
     expect(onScroll).toHaveBeenCalled();
   });
@@ -188,14 +190,18 @@ describe("native engine: animations", () => {
     try {
       const v = new Animated.Value(0);
       const done = vi.fn();
-      Animated.timing(v, { toValue: 100, duration: 200, easing: Easing.linear, useNativeDriver: false }).start(done);
+      Animated.timing(v, {
+        toValue: 100,
+        duration: 200,
+        easing: Easing.linear,
+        useNativeDriver: false,
+      }).start(done);
       act(() => {
         vi.advanceTimersByTime(250);
       });
-      let current = 0;
-      const id = v.addListener(({ value }) => (current = value));
+      const listener = vi.fn();
+      const id = v.addListener(listener);
       v.removeListener(id);
-      // Either the listener captured the end value or the value settled to toValue.
       expect(done).toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
@@ -204,7 +210,9 @@ describe("native engine: animations", () => {
 
   it("Animated.event + interpolation compute without throwing", () => {
     const v = new Animated.Value(0);
-    const handler = Animated.event([{ nativeEvent: { contentOffset: { y: v } } }], { useNativeDriver: false });
+    const handler = Animated.event([{ nativeEvent: { contentOffset: { y: v } } }], {
+      useNativeDriver: false,
+    });
     expect(() => handler({ nativeEvent: { contentOffset: { y: 42 } } })).not.toThrow();
     const opacity = v.interpolate({ inputRange: [0, 100], outputRange: [0, 1] });
     expect((opacity as any).__getValue?.() ?? (opacity as any).getValue?.()).toBeTypeOf("number");

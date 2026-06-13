@@ -27,8 +27,9 @@ npm i -D vitest-native @react-native/babel-preset @babel/core
 ```
 
 Keep your existing `vitest`, `vite`, `react`, `react-native`, and
-`@testing-library/react-native`. Requirements: **Vitest ≥ 4, Vite ≥ 5, React 19,
-React Native 0.81–0.84 (validated), RNTL ≥ 12.**
+`@testing-library/react-native`. Requirements: **Vitest 4.x, Vite ^6.4.2, ^7.3.2, or ^8.0.5, the React
+version required by your RN release, React Native 0.81–0.86 (validated), and
+RNTL 12–14.** RNTL 14 uses async rendering APIs and requires Node 22.13 or 24+.
 
 ## 2. Update `vitest.config`
 
@@ -89,7 +90,9 @@ Your existing tests render against real React Native exactly as before.
 - **Presets** auto-shadow common native libraries (Reanimated, Gesture Handler,
   Safe Area, Navigation, …) the way `jest` mocks them — no per-lib wiring.
 - An opt-in **hot runtime** (`reactNative({ hotRuntime: true })`) keeps RN warm
-  across files for large suites.
+  across files for large suites while resetting app/test modules and common
+  process-wide pollution between files. It uses Vitest's custom worker APIs and
+  remains experimental.
 
 ## Gotchas (the margins)
 

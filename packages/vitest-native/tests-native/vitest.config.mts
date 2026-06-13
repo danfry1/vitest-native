@@ -15,5 +15,6 @@ export default defineConfig({
     // jestMockTransform-wrapped factories call (exercised by jest-mock-hoist.test).
     setupFiles: [path.resolve(here, "../dist/jest-compat/setup.mjs")],
     include: ["tests-native/*.test.tsx", "tests-native/*.test.ts"],
+    exclude: ["tests-native/android.test.ts"],
   },
 });

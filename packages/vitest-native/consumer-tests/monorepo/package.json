@@ -1,0 +1,17 @@
+{
+  "name": "vitest-native-consumer-monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "type": "module",
+  "scripts": {
+    "test": "npm test --workspace @consumer/mobile"
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.7",
+    "@react-native/babel-preset": "0.85.3",
+    "vite": "^8.0.5",
+    "vitest": "4.1.8"
+  }
+}

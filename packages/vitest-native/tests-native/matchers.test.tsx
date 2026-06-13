@@ -21,4 +21,10 @@ describe("native engine: RNTL/jest-native matchers are registered", () => {
     expect(screen.getByTestId("label")).toHaveTextContent("label");
     expect(screen.getByTestId("in")).toHaveDisplayValue("typed");
   });
+
+  it("registers the package animated matchers under the native engine", () => {
+    render(<View testID="animated" style={{ opacity: 0.5 }} />);
+    expect(screen.getByTestId("animated")).toHaveAnimatedStyle({ opacity: 0.5 });
+    expect(screen.getByTestId("animated")).toHaveAnimatedProps({ testID: "animated" });
+  });
 });

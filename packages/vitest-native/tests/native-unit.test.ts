@@ -46,6 +46,23 @@ describe("transformRN", () => {
     const b = transformRN(file, src, projectRoot);
     expect(b).toBe(a);
   });
+
+  it("invalidates the in-memory transform cache when a watched file changes", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-transform-"));
+    const file = path.join(dir, "module.ts");
+    try {
+      fs.writeFileSync(file, "export default 1;");
+      const first = transformRN(file, fs.readFileSync(file, "utf8"), projectRoot);
+      fs.writeFileSync(file, "export default 2;");
+      const nextTime = new Date(Date.now() + 1000);
+      fs.utimesSync(file, nextTime, nextTime);
+      const second = transformRN(file, fs.readFileSync(file, "utf8"), projectRoot);
+      expect(second).not.toBe(first);
+      expect(second).toContain("2");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 // @ts-expect-error — runtime .mjs
@@ -99,6 +116,19 @@ describe("resolvePlatformFile", () => {
 
   it("returns null when nothing matches", () => {
     expect(resolvePlatformFile(path.join(RN, "Libraries/Does/Not/Exist"))).toBe(null);
+  });
+
+  it("resolves configured-platform TypeScript variants used by transform packages", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-resolve-"));
+    const base = path.join(dir, "module");
+    try {
+      fs.writeFileSync(base + ".ios.ts", "export default 'ios';");
+      fs.writeFileSync(base + ".android.tsx", "export default 'android';");
+      expect(resolvePlatformFile(base, "ios")).toBe(base + ".ios.ts");
+      expect(resolvePlatformFile(base, "android")).toBe(base + ".android.tsx");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -172,6 +202,16 @@ describe("plugin engine routing", () => {
     expect(ext).toMatch(/react-native/);
     expect(cfg.test.setupFiles.some((p: string) => p.includes("native"))).toBe(true);
     expect(plugin.resolveId("react-native", undefined)).toBeUndefined();
+  });
+
+  it("rejects mock-only top-level overrides when native is selected", async () => {
+    const plugin = reactNative({
+      engine: "native",
+      mocks: { AuditOverride: "configured" },
+    }) as any;
+    await expect(plugin.config({ root: projectRoot }, SERVE_ENV)).rejects.toThrow(
+      /only supported by engine:'mock'/,
+    );
   });
 
   it("native + hotRuntime wires the custom pool and isolate:false scheduling", async () => {

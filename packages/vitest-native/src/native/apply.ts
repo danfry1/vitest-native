@@ -10,11 +10,17 @@ function escapeRe(s: string): string {
 
 import type { PoolRunnerInitializer } from "vitest/node";
 
+export type JsxTransformConfig =
+  | { esbuild: { jsx: "automatic" } }
+  | { oxc: { jsx: { runtime: "automatic" } } };
+
 export function nativeEngineConfig(
   setupFilePath: string,
   env: Record<string, string>,
+  extensions: string[],
   transformPkgs: string[] = [],
   hot?: { pool: PoolRunnerInitializer; runnerPath: string },
+  jsxTransform: JsxTransformConfig = { esbuild: { jsx: "automatic" } },
 ) {
   // Extra packages whose source the Node hooks should transform. They must also
   // be externalized so they load through Node (where the hooks run) rather than
@@ -27,27 +33,16 @@ export function nativeEngineConfig(
     // Match React Native's Babel preset: the automatic JSX runtime, so app/test
     // files that use JSX without importing React (RN's default style) compile to
     // `react/jsx-runtime` calls instead of `React.createElement` (which would throw
-    // "React is not defined"). RN's own source is transformed by our Babel hooks,
-    // not esbuild; this governs the consumer's app + test files.
-    esbuild: { jsx: "automatic" as const },
+    // "React is not defined"). RN's own source is transformed by our Babel hooks;
+    // this governs the consumer's app + test files.
+    ...jsxTransform,
     resolve: {
       conditions: ["react-native"],
-      extensions: [
-        ".ios.tsx",
-        ".ios.ts",
-        ".ios.js",
-        ".native.tsx",
-        ".native.ts",
-        ".native.js",
-        ".tsx",
-        ".ts",
-        ".jsx",
-        ".js",
-      ],
+      extensions,
       // Ensure a single React instance across the test, RN, and the renderer —
       // a fresh consumer project can otherwise resolve duplicates and hit a null
       // hooks dispatcher ("Cannot read properties of null (reading 'use...')").
-      dedupe: ["react", "react-test-renderer", "react-is"],
+      dedupe: ["react", "react-test-renderer", "test-renderer", "react-is"],
     },
     test: {
       setupFiles: [setupFilePath],

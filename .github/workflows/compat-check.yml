@@ -8,22 +8,29 @@ on:
 
 jobs:
   check-latest-rn:
-    name: Check against latest React Native
+    name: Check against current React Native edge
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          node-version: '22'
+          bun-version: 1.3.14
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22.13.0'
 
       - name: Install with latest react-native
-        # Subject to the install-age gate (bunfig.toml): tests the newest RN that is
-        # at least 7 days old — i.e. the newest version we'd actually adopt.
+        # This scheduled edge job intentionally bypasses the seven-day adoption
+        # gate. Blocking release tests remain pinned and deterministic.
         run: |
           bun install --frozen-lockfile
-          bun add -d react-native@latest --cwd packages/vitest-native
+          bun add -d react-native@latest @react-native/babel-preset@latest --minimum-release-age=0 --cwd packages/vitest-native
+
+      - name: Resolved versions
+        run: |
+          node -e "console.log('react-native            ', require('./packages/vitest-native/node_modules/react-native/package.json').version)"
+          node -e "console.log('@react-native/babel-preset', require('./packages/vitest-native/node_modules/@react-native/babel-preset/package.json').version)"
 
       - name: Build
         run: bun run --filter vitest-native build
@@ -31,12 +38,27 @@ jobs:
       - name: Run tests
         run: bun run --filter vitest-native test
 
+      - name: Run native engine tests
+        run: bun run test:native
+
+      - name: Run Android resolution tests
+        run: bun run test:native:android
+
+      - name: Run native hot-runtime tests
+        run: bun run test:native:hot
+
+      - name: Run hot-runtime isolation tests
+        run: bun run test:native:hot:isolation
+
+      - name: Run hot-runtime soak and recycling
+        run: bun run test:native:hot:soak
+
       - name: Check API compatibility
         run: bun run --filter vitest-native check-compat
 
       - name: Create issue on failure
         if: failure()
-        uses: actions/github-script@v7
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
         env:
           RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         with:

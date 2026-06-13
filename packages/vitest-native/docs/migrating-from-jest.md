@@ -71,9 +71,11 @@ on the literal `jest.mock` member form, not `jest` aliased to another local name
 
 …and in most cases you can **delete** third-party native-lib mocks entirely — see 2c.
 
-### 2b. Upgrade RNTL to ≥ 12 (recommended)
+### 2b. Upgrade RNTL to 12–14 (recommended)
 The `@jest/globals` alias unblocks RNTL < 12, but **upgrading to `@testing-library/react-native@^12`
-is the cleaner fix** (12 dropped the `@jest/globals` dependency). vitest-native targets RNTL ≥ 12.
+is the cleaner fix** (12 dropped the `@jest/globals` dependency). vitest-native supports RNTL
+12–14. RNTL 14 requires Node 22.13 or 24+ and makes rendering APIs async, so await `render` and
+other APIs as described in its migration guide.
 
 ### 2c. Delete third-party native-lib mocks — they're automatic now
 You do **not** need `jest.mock('react-native-reanimated', …)`, safe-area's `jest/mock`,
@@ -108,7 +110,7 @@ no-op under the shim (use `test.testTimeout` in config or per-test `{ timeout }`
 
 ## 3. Suggested migration recipe
 
-1. Add the jest-compat config (section 1). Upgrade RNTL to ≥ 12 (2b).
+1. Add the jest-compat config (section 1). Upgrade RNTL to a supported 12–14 release (2b).
 2. Delete manual third-party native-lib mocks and `@react-native/jest-preset` (2c, 2e).
 3. Convert any **top-level** `jest.mock(...)` to `vi.mock(...)`; leave runtime `jest.*` as-is (2a).
 4. Run `vitest run -u` once to re-record snapshots (2d), then `vitest run` to confirm green.
@@ -116,7 +118,7 @@ no-op under the shim (use `test.testTimeout` in config or per-test `{ timeout }`
 
 ## 4. What "done" looks like
 
-A migrated suite runs under Vitest with: the jest-compat aliases + setup, RNTL ≥ 12, no manual
+A migrated suite runs under Vitest with: the jest-compat aliases + setup, RNTL 12–14, no manual
 third-party native mocks, top-level mocks converted, and snapshots re-recorded. You get Vitest's
 speed/watch/UI while keeping `engine: 'native'` real-RN fidelity (or `engine: 'mock'` for the fast
 path). The compat layer is intentionally small — it removes the mechanical Jest coupling so the only

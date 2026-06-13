@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import * as RN from "react-native";
@@ -58,7 +58,13 @@ describe("native engine: core component coverage matrix", () => {
   ];
   for (const [name, make] of cases) {
     it(`renders ${name}`, () => {
-      expect(() => renders(make())).not.toThrow();
+      const warning =
+        name === "SafeAreaView" ? vi.spyOn(console, "warn").mockImplementation(() => {}) : null;
+      try {
+        expect(() => renders(make())).not.toThrow();
+      } finally {
+        warning?.mockRestore();
+      }
     });
   }
 });
