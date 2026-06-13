@@ -552,9 +552,52 @@ function createAnimation(onStart?: () => void) {
   };
 }
 
+// Resolve an animated leaf (Value / Interpolation / Color) to its current plain
+// value. Real RN writes the *current* numeric/string value onto the host's style,
+// so a test asserting `toHaveStyle({ opacity: 0.3 })` against an Animated.Value(0.3)
+// must see the number, not the node.
+function resolveAnimatedLeaf(v: any): any {
+  if (v instanceof AnimatedValue) return v.getValue();
+  if (v && typeof v === "object" && typeof v.__getValue === "function") return v.__getValue();
+  if (v && typeof v === "object" && typeof v.getValue === "function") return v.getValue();
+  return v;
+}
+
+function resolveAnimatedStyle(style: any): any {
+  if (Array.isArray(style)) return style.map(resolveAnimatedStyle);
+  // The style itself might be an animated node (e.g. style={anim}).
+  const asLeaf = resolveAnimatedLeaf(style);
+  if (asLeaf !== style) return asLeaf;
+  if (style && typeof style === "object") {
+    const out: Record<string, any> = {};
+    for (const key of Object.keys(style)) {
+      const val = style[key];
+      if (key === "transform" && Array.isArray(val)) {
+        out[key] = val.map((t: any) =>
+          t && typeof t === "object" && !(t instanceof AnimatedValue)
+            ? Object.fromEntries(Object.keys(t).map((tk) => [tk, resolveAnimatedLeaf(t[tk])]))
+            : resolveAnimatedLeaf(t),
+        );
+      } else {
+        out[key] = resolveAnimatedLeaf(val);
+      }
+    }
+    return out;
+  }
+  return style;
+}
+
 function createAnimatedWrapper(displayName: string) {
+  // Render the *base* host (e.g. "Text", "View") — not "Animated.Text" — so RNTL's
+  // host-component detection (queryByText only descends into Text hosts) and real RN
+  // agree. The Animated.* component still carries its own displayName for identity.
+  const hostName = displayName.replace(/^Animated\./, "");
   const Component = React.forwardRef((props: any, ref: any) => {
-    return React.createElement(displayName, { ...props, ref });
+    if (props && props.style !== undefined) {
+      const { style, ...rest } = props;
+      return React.createElement(hostName, { ...rest, style: resolveAnimatedStyle(style), ref });
+    }
+    return React.createElement(hostName, { ...props, ref });
   });
   Component.displayName = displayName;
   return Component;
