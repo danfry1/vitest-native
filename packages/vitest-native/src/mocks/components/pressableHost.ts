@@ -38,6 +38,10 @@ export function buildPressableHostProps(props: any, ref: any): Record<string, an
 
   return {
     accessible: true,
+    // Disabled controls must not be touch targets. Host-prop stripping alone is not
+    // enough under RNTL >=14 (findEventHandlerFromFiber re-finds onPress on the
+    // composite mock); pointerEvents:"none" makes isEventEnabled() block the press.
+    ...(disabled ? { pointerEvents: "none" } : {}),
     ...pressProps,
     ...rest,
     ...(mergedA11yState ? { accessibilityState: mergedA11yState } : {}),
