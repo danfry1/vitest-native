@@ -23,4 +23,6 @@ export const AUTO_DETECT_PRESETS = {
   "react-native-mmkv": "mmkv",
   "react-native-svg": "svg",
   "react-native-webview": "webview",
+  "@react-native-vector-icons/common": "vectorIcons",
+  "react-native-vector-icons": "vectorIcons",
 } as const satisfies Record<string, PresetName>;

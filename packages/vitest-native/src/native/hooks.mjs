@@ -24,30 +24,15 @@ export function installRequireHooks(
   if (globalThis.__vitest_native_require_hooks_installed) return;
   globalThis.__vitest_native_require_hooks_installed = true;
 
-  // Asset requires (`require('./logo.png')`) reaching Node's CJS loader must be
-  // stubbed, not compiled — otherwise the binary falls through to the `.js`
-  // handler and throws "SyntaxError: Invalid or unexpected token". RN's packager
-  // and Jest's asset transform both stub these; the Vite graph already does too,
-  // so we match it here (module.exports = basename string) for the Node path.
-  //
-  // Fonts (.ttf/.otf/.woff*) are deliberately NOT stubbed on the Node path: font
-  // loaders like @react-native-vector-icons inspect the require() result, so a
-  // basename-string stub makes them proceed past their "is this font available?"
-  // guard and then crash on the (boundary-mocked) native font module. Leaving the
-  // font require to its normal resolution preserves their graceful degradation.
-  const NON_ASSET = new Set([
-    ".js",
-    ".cjs",
-    ".mjs",
-    ".ts",
-    ".tsx",
-    ".json",
-    ".node",
-    ".ttf",
-    ".otf",
-    ".woff",
-    ".woff2",
-  ]);
+  // Asset requires (`require('./logo.png')`, `require('./Icon.ttf')`) reaching
+  // Node's CJS loader must be stubbed, not compiled — otherwise the binary falls
+  // through to the `.js` handler and throws "SyntaxError: Invalid or unexpected
+  // token". RN's packager and Jest's asset transform both stub these (incl.
+  // fonts); the Vite graph already does too, so we match it here (module.exports =
+  // basename string) for the Node path. (Font-loading libraries like
+  // @react-native-vector-icons are shadowed by their preset, so they never inspect
+  // the stubbed font require.)
+  const NON_ASSET = new Set([".js", ".cjs", ".mjs", ".ts", ".tsx", ".json", ".node"]);
   for (const raw of assetExts) {
     const ext = "." + String(raw).replace(/^\./, "");
     if (NON_ASSET.has(ext) || Module._extensions[ext]) continue;
