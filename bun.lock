@@ -43,8 +43,8 @@
       },
       "devDependencies": {
         "@babel/core": "^7.29.7",
-        "@react-native-vector-icons/common": "^13.0.1",
-        "@react-native-vector-icons/material-icons": "^13.1.2",
+        "@react-native-vector-icons/common": "13.0.1",
+        "@react-native-vector-icons/material-icons": "13.1.2",
         "@react-native/babel-preset": "^0.85.3",
         "@react-navigation/native": "7.2.5",
         "@react-navigation/native-stack": "7.16.0",
