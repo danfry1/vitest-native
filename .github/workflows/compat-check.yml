@@ -6,10 +6,17 @@ on:
     - cron: '0 9 * * 1'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   check-latest-rn:
     name: Check against current React Native edge
     runs-on: ubuntu-latest
+    # github-script opens a tracking issue when the edge build breaks.
+    permissions:
+      contents: read
+      issues: write
 
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6

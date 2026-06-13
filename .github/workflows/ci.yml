@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   check:
     name: Full gate (${{ matrix.os }}, Node ${{ matrix.node-version }})

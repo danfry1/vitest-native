@@ -29,6 +29,9 @@ on:
     # Weekly, to catch new Vitest releases and RN patch releases within range.
     - cron: '0 9 * * 1'
 
+permissions:
+  contents: read
+
 jobs:
   matrix:
     name: native+hot — vitest ${{ matrix.vitest }} × RN ${{ matrix.rn }}
