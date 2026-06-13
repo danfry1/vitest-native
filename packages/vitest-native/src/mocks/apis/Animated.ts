@@ -124,10 +124,14 @@ function colorToRgba(input: string): [number, number, number, number] | null {
       parseInt(n.slice(6, 8), 16) / 255,
     ];
   }
-  if ((m = s.match(/^rgb\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\)$/))) {
+  // Strip whitespace once (linear) so the rgb()/rgba() patterns need no \s*
+  // groups; overlapping \s* caused polynomial backtracking (ReDoS) on malformed
+  // input like "rgb(9,9,9" followed by many spaces.
+  const compact = s.replace(/\s+/g, "");
+  if ((m = compact.match(/^rgb\(([\d.]+),([\d.]+),([\d.]+)\)$/))) {
     return [+m[1], +m[2], +m[3], 1];
   }
-  if ((m = s.match(/^rgba\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\)$/))) {
+  if ((m = compact.match(/^rgba\(([\d.]+),([\d.]+),([\d.]+),([\d.]+)\)$/))) {
     return [+m[1], +m[2], +m[3], +m[4]];
   }
   return null;
@@ -418,7 +422,11 @@ const namedColorMap: Record<string, [number, number, number, number]> = {
 };
 
 function parseColorString(color: string): [number, number, number, number] {
-  const rgba = color.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+))?\s*\)$/);
+  // Strip whitespace once (linear) so the rgb()/rgba() pattern needs no \s*
+  // groups; overlapping \s* caused polynomial backtracking (ReDoS) on malformed
+  // input like "rgb(9,9,9" followed by many spaces.
+  const compact = color.replace(/\s+/g, "");
+  const rgba = compact.match(/^rgba?\((\d+),(\d+),(\d+)(?:,([\d.]+))?\)$/);
   if (rgba)
     return [
       parseInt(rgba[1]),
