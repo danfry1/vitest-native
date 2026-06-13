@@ -13,7 +13,7 @@
   "devDependencies": {
     "@babel/core": "^7.29.7",
     "@react-native/babel-preset": "^0.85.3",
-    "@testing-library/react-native": "^12.9.0",
+    "@testing-library/react-native": "^14.0.0",
     "react-test-renderer": "^19.2.3",
     "typescript": "5.9.3",
     "vite": "^8.0.5",

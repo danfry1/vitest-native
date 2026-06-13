@@ -153,7 +153,7 @@
     "@react-native/babel-preset": "^0.85.3",
     "@react-navigation/native": "7.2.5",
     "@react-navigation/native-stack": "7.16.0",
-    "@testing-library/react-native": "^12.9.0",
+    "@testing-library/react-native": "^14.0.0",
     "@types/node": "25.3.5",
     "@types/react": "19.2.14",
     "@vitest/coverage-v8": "4.1.8",
