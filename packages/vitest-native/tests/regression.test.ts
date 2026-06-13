@@ -2,6 +2,7 @@
  * Regression tests for structural issues found in code review.
  * Each test guards against a specific bug that was fixed.
  */
+import path from "node:path";
 import { describe, it, expect } from "vitest";
 import { NativeModules, Platform } from "react-native";
 
@@ -99,8 +100,8 @@ describe("options transport via process.env", () => {
 
   it("VITEST_NATIVE_PROJECT_ROOT env var is set and is a valid path", () => {
     expect(process.env.VITEST_NATIVE_PROJECT_ROOT).toBeDefined();
-    // Should be an absolute path, not empty
-    expect(process.env.VITEST_NATIVE_PROJECT_ROOT!.startsWith("/")).toBe(true);
+    // Should be an absolute path, not empty (POSIX "/..." or Windows "C:\\...").
+    expect(path.isAbsolute(process.env.VITEST_NATIVE_PROJECT_ROOT!)).toBe(true);
   });
 });
 
