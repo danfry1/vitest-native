@@ -70,6 +70,12 @@ try {
       void RN[name];
     } catch {}
   }
+  // Appearance initializes its bridge listener only when getColorScheme() is
+  // first called. Do that before listener tracking starts so the resident RN
+  // listener is treated as worker boot state instead of test-file pollution.
+  try {
+    RN.Appearance.getColorScheme?.();
+  } catch {}
 } catch (error) {
   throw new Error(
     `[vitest-native] hot worker failed to preload react-native from ${projectRoot}: ${error?.message}`,

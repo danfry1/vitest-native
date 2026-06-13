@@ -1,4 +1,4 @@
-import type { Plugin } from "vite";
+import type { Plugin, UserConfig } from "vite";
 import type { VitestNativeOptions, ResolvedOptions, Preset } from "./types.js";
 import { getPlatformExtensions } from "./resolve.js";
 import { fileURLToPath } from "node:url";
@@ -91,6 +91,17 @@ function getJsxTransformConfig(projectRoot: string): JsxTransformConfig {
   return viteMajor >= 8
     ? { oxc: { jsx: { runtime: "automatic" } } }
     : { esbuild: { jsx: "automatic" } };
+}
+
+/**
+ * Vite 6/7 and Vite 8 expose mutually exclusive JSX config types:
+ * `esbuild.jsx` before Vite 8 and `oxc.jsx` from Vite 8 onward. The runtime
+ * version check above guarantees that only the matching shape is returned,
+ * but a build against any single Vite major cannot type the other major's
+ * valid config. Keep that unavoidable assertion at this compatibility edge.
+ */
+function asCompatibleViteConfig(config: object): Omit<UserConfig, "plugins"> {
+  return config as unknown as Omit<UserConfig, "plugins">;
 }
 
 /**
@@ -397,13 +408,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
               runnerPath: nativeRunnerPath,
             }
           : undefined;
-        return nativeEngineConfig(
-          nativeSetupPath,
-          env,
-          extensions,
-          transformPkgs,
-          hot,
-          jsxTransform,
+        return asCompatibleViteConfig(
+          nativeEngineConfig(nativeSetupPath, env, extensions, transformPkgs, hot, jsxTransform),
         );
       }
 
@@ -425,7 +431,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         env.VITEST_NATIVE_PRESET_NAMES = JSON.stringify(options.presets.map((p) => p.name));
       }
 
-      return {
+      return asCompatibleViteConfig({
         // Match RN's Babel preset: automatic JSX runtime, so app/test files using
         // JSX without importing React compile to `react/jsx-runtime` rather than
         // `React.createElement` ("React is not defined").
@@ -442,7 +448,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           setupFiles: [setupFilePath],
           env,
         },
-      };
+      });
     },
 
     async configResolved(config) {

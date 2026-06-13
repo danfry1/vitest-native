@@ -101,6 +101,11 @@ function turboStubSource(platform, version) {
   return `
   const __C = ${constants};
   const __moduleMocks = () => globalThis.__vitest_native_module_mocks || {};
+  const __boundaryState =
+    globalThis.__vitest_native_boundary_state ||
+    (globalThis.__vitest_native_boundary_state = Object.create(null));
+  const getBoundaryState = (name) =>
+    __boundaryState[name] || (__boundaryState[name] = Object.create(null));
   const getModuleMock = (name) =>
     Object.prototype.hasOwnProperty.call(__moduleMocks(), name) ? __moduleMocks()[name] : null;
   // Native methods that return a Promise on the device (no callback arg). Without
@@ -124,7 +129,15 @@ function turboStubSource(platform, version) {
   const turboStub = (name) => new Proxy({}, {
     get: (_t, p) => {
       if (p === "getConstants") return () => (__C[name] || {});
-      if (p === "getColorScheme") return () => "light";        // NativeAppearance
+      if (p === "getColorScheme") {
+        return () => getBoundaryState(name).colorScheme ?? "light";
+      }
+      if (p === "setColorScheme") {
+        return (colorScheme) => {
+          getBoundaryState(name).colorScheme =
+            colorScheme === "unspecified" || colorScheme == null ? "light" : colorScheme;
+        };
+      }
       if (p === "addListener") return () => ({ remove: () => {} });
       if (p === "removeListeners") return () => {};
       return (...args) => {

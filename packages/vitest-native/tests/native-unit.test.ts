@@ -96,6 +96,17 @@ describe("native boundary", () => {
     expect(dev.getConstants().Dimensions.window.width).toBe(390);
   });
 
+  it("keeps NativeAppearance state coherent across reads and writes", () => {
+    const src = boundarySourceFor("/x/react-native/Libraries/TurboModule/TurboModuleRegistry.js");
+    const mod = evalCjs(src!);
+    const appearance = mod.getEnforcing("Appearance");
+    expect(appearance.getColorScheme()).toBe("light");
+    appearance.setColorScheme("dark");
+    expect(appearance.getColorScheme()).toBe("dark");
+    appearance.setColorScheme("unspecified");
+    expect(appearance.getColorScheme()).toBe("light");
+  });
+
   it("requireNativeComponent mock returns a host component factory", () => {
     const src = boundarySourceFor(
       "/x/react-native/Libraries/ReactNative/requireNativeComponent.js",
@@ -193,6 +204,29 @@ describe("plugin engine routing", () => {
     expect(ext).toMatch(/react-native/);
     expect(cfg.test.setupFiles.some((p: string) => p.includes("native"))).toBe(true);
     expect(plugin.resolveId("react-native", undefined)).toBeUndefined();
+  });
+
+  it("uses Vite 8's Oxc JSX configuration", async () => {
+    const plugin = reactNative({ engine: "mock" }) as any;
+    const cfg = await plugin.config({ root: projectRoot }, SERVE_ENV);
+    expect(cfg.oxc).toEqual({ jsx: { runtime: "automatic" } });
+    expect(cfg.esbuild).toBeUndefined();
+  });
+
+  it("uses the legacy esbuild JSX configuration for Vite 6 and 7", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vn-vite-7-"));
+    try {
+      const viteDir = path.join(tmp, "node_modules", "vite");
+      fs.mkdirSync(viteDir, { recursive: true });
+      fs.writeFileSync(path.join(tmp, "package.json"), JSON.stringify({ name: "fixture" }));
+      fs.writeFileSync(path.join(viteDir, "package.json"), JSON.stringify({ version: "7.3.2" }));
+      const plugin = reactNative({ engine: "mock" }) as any;
+      const cfg = await plugin.config({ root: tmp }, SERVE_ENV);
+      expect(cfg.esbuild).toEqual({ jsx: "automatic" });
+      expect(cfg.oxc).toBeUndefined();
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 
   it("explicit native sets RN external + a native setup file, and does NOT virtualize react-native", async () => {

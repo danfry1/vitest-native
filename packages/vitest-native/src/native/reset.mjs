@@ -29,8 +29,8 @@
 //      wrapped addListener tracks the whole RN JS event surface. Test-phase
 //      subscriptions are removed via their own public subscription.remove().
 //      Only import-phase subscriptions owned by node_modules are blessed.
-//   2. RN module state with known mutation APIs (Dimensions.set) — restored
-//      from a boot-time snapshot (value-restore: no attribution needed).
+//   2. RN module state with known mutation APIs (Dimensions, Appearance) —
+//      restored from a boot-time snapshot (value-restore: no attribution needed).
 //   2b. process.env — restored to the worker boot snapshot.
 //   3. Vitest timers/global/env stubs — restored by setup.mjs before this reset.
 //   4. Boundary/preset mocks that registered callbacks in
@@ -103,6 +103,10 @@ export function installHotReset({ projectRoot, diagnostics, preserveGlobals = []
       screen: { ...RN.Dimensions.get("screen") },
     };
   } catch {}
+  let colorScheme = null;
+  try {
+    colorScheme = RN.Appearance.getColorScheme?.() ?? null;
+  } catch {}
 
   // --- (2b) Fixed process.env worker-boot snapshot ---
   const envBaseline = { ...process.env };
@@ -149,6 +153,9 @@ export function installHotReset({ projectRoot, diagnostics, preserveGlobals = []
         RN.Dimensions.set(dims);
       } catch {}
     }
+    try {
+      RN.Appearance.setColorScheme?.(colorScheme);
+    } catch {}
 
     // (4) Boundary/preset mock reset callbacks.
     const resets = globalThis.__vitest_native_resets;
