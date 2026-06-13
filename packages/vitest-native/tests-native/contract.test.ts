@@ -19,6 +19,15 @@ describe("native engine: shared package contract", () => {
     expect(asset).toBe("test-asset.png");
   });
 
+  it("stubs assets required through Node's CJS loader (not just Vite imports)", () => {
+    // RN components commonly do `const img = require('./logo.png')`. A literal
+    // require escapes Vite's asset handling and hits Node's loader; without an
+    // asset handler there it would compile the binary as JS and throw
+    // "SyntaxError: Invalid or unexpected token". Must match the import path.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    expect(require("./fixtures/test-asset.png")).toBe("test-asset.png");
+  });
+
   it("drives real Dimensions state through setDimensions", () => {
     setDimensions({ width: 768, height: 1024, scale: 2, fontScale: 1 });
     expect(Dimensions.get("window")).toMatchObject({

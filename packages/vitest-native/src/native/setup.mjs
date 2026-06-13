@@ -45,6 +45,12 @@ try {
   if (process.env.VITEST_NATIVE_TRANSFORM)
     transformPkgs = JSON.parse(process.env.VITEST_NATIVE_TRANSFORM);
 } catch {}
+// Asset extensions the Node require-hook should stub (matches the Vite graph).
+let assetExts = [];
+try {
+  if (process.env.VITEST_NATIVE_ASSET_EXTS)
+    assetExts = JSON.parse(process.env.VITEST_NATIVE_ASSET_EXTS);
+} catch {}
 
 // --- Third-party preset mocks ---
 //
@@ -103,7 +109,7 @@ if (!globalThis.__vitest_native_loader_registered) {
     data: { projectRoot, platform, reactNativeVersion, transformPkgs, presetExports },
   });
 }
-installRequireHooks(projectRoot, transformPkgs, platform, reactNativeVersion);
+installRequireHooks(projectRoot, transformPkgs, platform, reactNativeVersion, assetExts);
 
 // Build the mock objects now that the require hooks are installed (preset
 // factories may lazily resolve react-native at render time).
