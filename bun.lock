@@ -12,7 +12,7 @@
         "oxlint": "1.51.0",
         "syncpack": "15.3.1",
         "tsdown": "0.21.10",
-        "typescript": "5.9.3",
+        "typescript": "6.0.3",
         "vitest": "^4.1.8",
       },
     },
@@ -28,7 +28,7 @@
         "@react-native/babel-preset": "^0.85.3",
         "@testing-library/react-native": "^12.9.0",
         "react-test-renderer": "^19.2.3",
-        "typescript": "5.9.3",
+        "typescript": "6.0.3",
         "vite": "^8.0.5",
         "vitest": "^4.1.8",
         "vitest-native": "workspace:*",
@@ -60,7 +60,7 @@
         "react-native-worklets": "0.9.1",
         "react-test-renderer": "^19.2.3",
         "tsdown": "0.21.10",
-        "typescript": "5.9.3",
+        "typescript": "6.0.3",
         "vite": "^8.0.5",
         "vitest": "^4.1.8",
       },
@@ -1353,7 +1353,7 @@
 
     "type-fest": ["type-fest@0.7.1", "", {}, "sha512-Ne2YiiGN8bmrmJJEuTWTLJR32nh/JdL1+PSicowtNb0WFpn59GK8/lfD61bVtzguz7b3PBt74nxpv/Pw5po5Rg=="],
 
-    "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+    "typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
     "unconfig-core": ["unconfig-core@7.5.0", "", { "dependencies": { "@quansync/fs": "^1.0.0", "quansync": "^1.0.0" } }, "sha512-Su3FauozOGP44ZmKdHy2oE6LPjk51M/TRRjHv2HNCWiDvfvCoxC2lno6jevMA91MYAdCdwP05QnWdWpSbncX/w=="],
 

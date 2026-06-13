@@ -41,7 +41,7 @@
     "oxlint": "1.51.0",
     "syncpack": "15.3.1",
     "tsdown": "0.21.10",
-    "typescript": "5.9.3",
+    "typescript": "6.0.3",
     "vitest": "^4.1.8"
   }
 }

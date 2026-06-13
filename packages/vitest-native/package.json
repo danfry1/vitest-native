@@ -167,7 +167,7 @@
     "react-native-worklets": "0.9.1",
     "react-test-renderer": "^19.2.3",
     "tsdown": "0.21.10",
-    "typescript": "5.9.3",
+    "typescript": "6.0.3",
     "vite": "^8.0.5",
     "vitest": "^4.1.8"
   },
