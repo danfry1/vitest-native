@@ -44,7 +44,7 @@ try {
   if (!tarballName) throw new Error("npm pack did not produce a tarball");
   const tarball = path.join(packRoot, tarballName);
 
-  for (const fixture of ["bare", "expo", "monorepo", "current-rn"]) {
+  for (const fixture of ["bare", "expo", "monorepo", "current-rn", "mock-rntl14"]) {
     const fixtureRoot = path.join(tempRoot, fixture);
     fs.cpSync(path.join(fixturesRoot, fixture), fixtureRoot, { recursive: true });
     addPackedDependency(fixtureRoot, tarball);
