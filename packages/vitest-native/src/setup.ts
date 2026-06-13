@@ -211,7 +211,20 @@ for (const preset of presets) {
 
 try {
   const rntl = projectReq("@testing-library/react-native");
-  if (rntl?.configure) {
+  // RNTL >=14 removed the `hostComponentNames` configure option: it now
+  // auto-detects host components by rendering a probe (which works with the
+  // mock's host names). Passing the option there is a no-op that logs an
+  // "Unknown option(s) passed to configure" warning, so only set it for
+  // RNTL <=13. If the version can't be read, fall back to configuring it
+  // (the historical behavior, required by older RNTL).
+  let rntlMajor = 0;
+  try {
+    const { version } = projectReq("@testing-library/react-native/package.json") as {
+      version?: string;
+    };
+    rntlMajor = Number(String(version).split(".")[0]) || 0;
+  } catch {}
+  if (rntl?.configure && rntlMajor < 14) {
     rntl.configure({
       hostComponentNames: {
         text: "Text",
