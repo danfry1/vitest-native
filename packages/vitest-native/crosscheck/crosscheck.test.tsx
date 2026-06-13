@@ -18,10 +18,13 @@
 import { afterAll, afterEach, expect, test } from "vitest";
 import * as React from "react";
 import {
+  ActivityIndicator,
+  Animated,
   Button,
   Dimensions,
   FlatList,
   Image,
+  KeyboardAvoidingView,
   Modal,
   PixelRatio,
   Platform,
@@ -37,7 +40,7 @@ import {
   TouchableWithoutFeedback,
   View,
 } from "react-native";
-import { cleanup, fireEvent, render, screen, userEvent } from "@testing-library/react-native";
+import { cleanup, fireEvent, render, screen, userEvent, within } from "@testing-library/react-native";
 import fs from "node:fs";
 
 afterEach(cleanup);
@@ -243,10 +246,44 @@ probe("modal-visible-children", () => {
   return { whenVisible, whenHidden: !!screen.queryByTestId("mb") };
 });
 
-// (Animated value internals like __getValue() are exercised by the conformance
-// suite — tests/rn-conformance/rn-Animated.test.ts, ported from RN's own tests —
-// rather than the cross-check, which focuses on observable component/interaction
-// behavior. The mock intentionally doesn't expose every internal accessor.)
+// --- Animated (observable rendering/behavior only) ---
+// Animated value *internals* (__getValue(), interpolation math) are exercised by
+// the conformance suite — tests/rn-conformance/rn-Animated.test.ts. Here we gate
+// only what a real test observes: that Animated.* host components render and are
+// queryable, and that an Animated.Value drives a flattened style the same way under
+// both engines. Anything timer/RAF-driven (timing/spring over a duration) is left
+// out — it's nondeterministic across engines and belongs in the conformance suite.
+probe("animated-view-renders", () => {
+  render(<Animated.View testID="av" />);
+  return { found: !!screen.queryByTestId("av") };
+});
+
+probe("animated-text-renders", () => {
+  render(<Animated.Text>animated-copy</Animated.Text>);
+  return { found: !!screen.queryByText("animated-copy") };
+});
+
+probe("animated-image-renders", () => {
+  render(<Animated.Image testID="ai" source={{ uri: "https://example.com/a.png" }} />);
+  return { found: !!screen.queryByTestId("ai") };
+});
+
+probe("animated-scrollview-renders", () => {
+  render(
+    <Animated.ScrollView testID="asv">
+      <Text>scroll-body</Text>
+    </Animated.ScrollView>,
+  );
+  return { found: !!screen.queryByTestId("asv"), body: !!screen.queryByText("scroll-body") };
+});
+
+probe("animated-value-initial-style", () => {
+  // An Animated.Value at its initial value must resolve to that number in the
+  // flattened style a test would assert against (toHaveStyle relies on this).
+  const opacity = new Animated.Value(0.3);
+  render(<Animated.View testID="av" style={{ opacity }} />);
+  return { hit: passes(() => expect(screen.getByTestId("av")).toHaveStyle({ opacity: 0.3 })) };
+});
 
 // --- accessibility props (what RNTL byRole / toBeDisabled depend on) ---
 probe("a11y-role", () => {
@@ -472,6 +509,106 @@ probe("platform-os", () => ({ os: Platform.OS }));
 probe("stylesheet-create-identity", () => {
   const s = StyleSheet.create({ a: { flex: 1 } });
   return { a: s.a };
+});
+
+// --- more components ---
+probe("activityindicator-renders", () => {
+  render(<ActivityIndicator testID="spin" />);
+  return { found: !!screen.queryByTestId("spin") };
+});
+
+probe("keyboardavoidingview-children", () => {
+  render(
+    <KeyboardAvoidingView testID="kav">
+      <Text>kav-body</Text>
+    </KeyboardAvoidingView>,
+  );
+  return { found: !!screen.queryByTestId("kav"), body: !!screen.queryByText("kav-body") };
+});
+
+// --- composite / nested text matching (a core RNTL behavior tests rely on) ---
+probe("composite-text-match", () => {
+  // getByText must match across nested <Text> as one string ("Hello World").
+  render(
+    <Text testID="t">
+      Hello <Text>World</Text>
+    </Text>,
+  );
+  return {
+    composite: !!screen.queryByText("Hello World"),
+    substring: !!screen.queryByText("Hello", { exact: false }),
+    exactMiss: !!screen.queryByText("Hello"),
+  };
+});
+
+probe("query-by-text-regex", () => {
+  render(<Text>Order #4815162342</Text>);
+  return { found: !!screen.queryByText(/Order #\d+/) };
+});
+
+// --- within() scoping (scoped queries inside a subtree) ---
+probe("within-scoping", () => {
+  render(
+    <View>
+      <View testID="header">
+        <Text>Title</Text>
+      </View>
+      <View testID="footer">
+        <Text>Title</Text>
+      </View>
+    </View>,
+  );
+  const header = within(screen.getByTestId("header"));
+  return {
+    scopedHit: !!header.queryByText("Title"),
+    globalCount: screen.queryAllByText("Title").length,
+  };
+});
+
+probe("get-all-by-role-count", () => {
+  render(
+    <View>
+      <Pressable accessibilityRole="button">
+        <Text>One</Text>
+      </Pressable>
+      <Pressable accessibilityRole="button">
+        <Text>Two</Text>
+      </Pressable>
+    </View>,
+  );
+  return { count: screen.queryAllByRole("button").length };
+});
+
+// --- accessibility value (sliders / progress — toHaveAccessibilityValue) ---
+probe("accessibility-value", () => {
+  render(
+    <View
+      testID="slider"
+      accessibilityRole="adjustable"
+      accessibilityValue={{ min: 0, max: 100, now: 40 }}
+    />,
+  );
+  const el = screen.getByTestId("slider");
+  // Read fields individually — comparing the whole object is key-order-sensitive
+  // under JSON.stringify (an authoring artifact, not a behavior difference).
+  const v = el.props.accessibilityValue ?? {};
+  return {
+    min: v.min,
+    max: v.max,
+    now: v.now,
+    matcher: passes(() => expect(el).toHaveAccessibilityValue({ now: 40 })),
+  };
+});
+
+// --- toHaveProp (a generic matcher many suites use) ---
+probe("matcher-have-prop", () => {
+  render(<View testID="v" accessibilityLabel="hi" pointerEvents="none" />);
+  const el = screen.getByTestId("v");
+  return {
+    label: passes(() => expect(el).toHaveProp("accessibilityLabel", "hi")),
+    pointer: passes(() => expect(el).toHaveProp("pointerEvents", "none")),
+    miss: passes(() => expect(el).toHaveProp("accessibilityLabel", "bye")),
+  };
 });
 
 afterAll(() => {
