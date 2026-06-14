@@ -13,7 +13,7 @@ A fast pure-JS **mock** engine is available as an opt-in for RN-free unit tests.
 >
 > Maintained successor to
 > [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native)
-> — same core idea (externalize RN, run its real JS under Node), rebuilt for modern Vitest (4+).
+> — same core idea (externalize RN, run its real JS under Node), rebuilt for modern Vitest (v4).
 > Coming from it? See [Migrating from `vitest-react-native`](packages/vitest-native/docs/migrating-from-vitest-react-native.md).
 
 ## Why vitest-native

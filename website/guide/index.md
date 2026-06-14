@@ -2,7 +2,7 @@
 
 vitest-native runs your React Native tests under [Vitest](https://vitest.dev), against **real React Native** — the same JavaScript that ships in your app — mocking only the native-module boundary. That's the zero-config default. A fast pure-JS **mock** engine is available as an opt-in for RN-free unit tests. One plugin gives you both.
 
-It is the maintained successor to [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native) — same core idea (externalize React Native, run its real JS under Node), rebuilt for modern Vitest (4+).
+It is the maintained successor to [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native) — same core idea (externalize React Native, run its real JS under Node), rebuilt for modern Vitest (v4).
 
 ## The idea
 

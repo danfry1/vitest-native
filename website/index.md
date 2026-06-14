@@ -91,6 +91,6 @@ The reproducible guarantee is a **CI-gated behavioral cross-check**: 56 probes r
 
 We've also exercised the native engine against real apps in our own testing — a fresh test suite against **react-native-paper** passed cleanly, and we migrated existing Jest suites from the **obytes template** and **Rocket.Chat**. Those were local runs; the cross-check above is the part you can reproduce.
 
-> **Beta.** Some APIs may still shift before 1.0. Maintained successor to [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native) — same core idea, rebuilt for modern Vitest (4+).
+> **Beta.** Some APIs may still shift before 1.0. Maintained successor to [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native) — same core idea, rebuilt for modern Vitest (v4).
 
 [Get started →](/guide/)
