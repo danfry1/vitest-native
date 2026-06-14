@@ -40,11 +40,13 @@ Two engines behind one plugin, so you choose the fidelity each suite needs:
 Migrating a large, deeply Jest-coupled suite *wholesale* is possible but **not turnkey** — see
 [Migrating from Jest](#migrating-from-jest). As a real, reproducible data point:
 [react-native-paper](https://github.com/callstack/react-native-paper)'s own test suite runs
-**602 of 734 tests (~82%)** under the native engine with just a config swap + an RNTL version bump
-— the remaining failures are tests coupled to Jest's RN-mock internals (e.g. `View.prototype.measure`
-spies, a `jest.mock('react-native')` Animated override), not vitest-native bugs. The harness is
-public: [vitest-native-bakeoffs](https://github.com/danfry1/vitest-native-bakeoffs). We've also
-migrated existing Jest suites from the obytes template and Rocket.Chat in local testing.
+**625 of 734 tests (~85%)** under the native engine — no paper source changed, just an RNTL bump and
+the test config/setup. The remaining failures are tests coupled to Jest's RN-mock internals (e.g.
+`vi.spyOn(View.prototype, 'measure')`, deep `jest.mock('react-native/…')` of Appearance/Dimensions),
+not vitest-native bugs. The Expo-based [obytes template](https://github.com/obytes/react-native-template-obytes)
+runs **34 of 40 (~85%)** — a more deeply-coupled case needing a few library mocks. Both are public
+and reproducible: [vitest-native-bakeoffs](https://github.com/danfry1/vitest-native-bakeoffs). We've
+also migrated a Rocket.Chat suite in local testing.
 
 ## Quick Start
 
