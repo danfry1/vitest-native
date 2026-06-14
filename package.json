@@ -40,12 +40,13 @@
     "@changesets/cli": "2.30.0",
     "@types/node": "25.3.5",
     "@types/react": "19.2.14",
+    "oxc-minify": "0.134.0",
     "oxfmt": "0.36.0",
     "oxlint": "1.51.0",
     "syncpack": "15.3.1",
     "tsdown": "0.21.10",
     "typescript": "6.0.3",
-    "vitepress": "1.6.4",
+    "vitepress": "2.0.0-alpha.17",
     "vitest": "^4.1.8"
   }
 }
