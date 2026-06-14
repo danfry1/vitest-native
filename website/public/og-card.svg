@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0c1a1a"/>
+      <stop offset="1" stop-color="#081312"/>
+    </linearGradient>
+    <linearGradient id="g" x1="96" y1="232" x2="216" y2="340" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4ed8c8"/>
+      <stop offset="0.55" stop-color="#10b3a3"/>
+      <stop offset="1" stop-color="#fcc72b"/>
+    </linearGradient>
+    <linearGradient id="title" x1="96" y1="0" x2="900" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4ed8c8"/>
+      <stop offset="1" stop-color="#fcc72b"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect x="96" y="200" width="140" height="140" rx="32" fill="#10211f"/>
+  <path d="M120 272 L156 308 L212 240" fill="none" stroke="url(#g)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="280" y="300" font-family="Inter, system-ui, sans-serif" font-size="84" font-weight="800" fill="url(#title)">vitest-native</text>
+  <text x="284" y="368" font-family="Inter, system-ui, sans-serif" font-size="34" font-weight="500" fill="#c9d6d4">Test React Native with Vitest — against real React Native.</text>
+  <text x="284" y="418" font-family="Inter, system-ui, sans-serif" font-size="26" font-weight="400" fill="#7f9591">One plugin · two engines · mock only the native boundary</text>
+</svg>

@@ -31,7 +31,10 @@
     "format:check": "oxfmt --check packages/vitest-native/src/ packages/vitest-native/tests/ packages/vitest-native/consumer-tests/ packages/vitest-native/scripts/",
     "typecheck": "bun run --filter vitest-native typecheck",
     "clean": "bun run --filter vitest-native clean",
-    "crosscheck": "bun run --filter vitest-native crosscheck"
+    "crosscheck": "bun run --filter vitest-native crosscheck",
+    "dev:website": "vitepress dev website",
+    "build:website": "vitepress build website",
+    "preview:website": "vitepress preview website"
   },
   "devDependencies": {
     "@changesets/cli": "2.30.0",
@@ -42,6 +45,7 @@
     "syncpack": "15.3.1",
     "tsdown": "0.21.10",
     "typescript": "6.0.3",
+    "vitepress": "1.6.4",
     "vitest": "^4.1.8"
   }
 }

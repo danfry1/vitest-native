@@ -5,6 +5,10 @@ dist/
 .turbo
 .DS_Store
 
+# VitePress build artifacts
+website/.vitepress/cache/
+website/.vitepress/dist/
+
 # Internal development notes — never committed (kept locally / in a personal vault).
 # Product docs live next to the code (e.g. packages/vitest-native/docs/migrating-*.md).
 **/docs/plans/
