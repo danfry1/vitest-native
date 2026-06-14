@@ -8,9 +8,9 @@
 // (resident-library lazy init — must be preserved across files, it never
 // re-runs) and test-phase state (pollution the next file's reset removes).
 // See reset.mjs for the full attribution model.
-import { VitestTestRunner } from "vitest/runners";
+import { TestRunner } from "vitest";
 
-export default class NativeHotRunner extends VitestTestRunner {
+export default class NativeHotRunner extends TestRunner {
   async onBeforeRunFiles(files) {
     globalThis.__vitest_native_hot_bless?.();
     return super.onBeforeRunFiles?.(files);
