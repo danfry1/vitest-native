@@ -31,17 +31,22 @@
     "format:check": "oxfmt --check packages/vitest-native/src/ packages/vitest-native/tests/ packages/vitest-native/consumer-tests/ packages/vitest-native/scripts/",
     "typecheck": "bun run --filter vitest-native typecheck",
     "clean": "bun run --filter vitest-native clean",
-    "crosscheck": "bun run --filter vitest-native crosscheck"
+    "crosscheck": "bun run --filter vitest-native crosscheck",
+    "dev:website": "vitepress dev website",
+    "build:website": "vitepress build website",
+    "preview:website": "vitepress preview website"
   },
   "devDependencies": {
     "@changesets/cli": "2.30.0",
     "@types/node": "25.3.5",
     "@types/react": "19.2.14",
+    "oxc-minify": "0.134.0",
     "oxfmt": "0.36.0",
     "oxlint": "1.51.0",
     "syncpack": "15.3.1",
     "tsdown": "0.21.10",
     "typescript": "6.0.3",
+    "vitepress": "2.0.0-alpha.17",
     "vitest": "^4.1.8"
   }
 }

@@ -1,0 +1,59 @@
+/* ──────────────────────────────────────────────────────────────
+   vitest-native theme — refined VitePress.
+   A teal/cyan accent that bridges Vitest's yellow-green and React
+   Native's cyan, with the hero name running across that gradient.
+   ────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Teal accent; the dark shade reads on white for links/inline code. */
+  --vp-c-brand-1: #0d8276;
+  --vp-c-brand-2: #10b3a3;
+  --vp-c-brand-3: #10b3a3;
+  --vp-c-brand-soft: rgba(16, 179, 163, 0.14);
+
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(120deg, #10b3a3 10%, #3bc9db 50%, #c9a800);
+
+  --vp-home-hero-image-background-image: linear-gradient(120deg, rgba(16, 179, 163, 0.5), rgba(252, 199, 43, 0.45));
+  --vp-home-hero-image-filter: blur(48px);
+
+  --vp-custom-block-tip-border: transparent;
+  --vp-custom-block-tip-bg: var(--vp-c-brand-soft);
+  --vp-custom-block-tip-code-bg: rgba(16, 179, 163, 0.08);
+}
+
+.dark {
+  --vp-c-bg: #0c1a1a;
+  --vp-c-bg-alt: #081312;
+  --vp-c-bg-soft: #122625;
+  --vp-c-bg-elv: #122625;
+  /* Brighter teal/cyan for contrast on the dark background. */
+  --vp-c-brand-1: #4ed8c8;
+  --vp-c-brand-2: #10b3a3;
+  --vp-c-brand-3: #10b3a3;
+  --vp-c-brand-soft: rgba(16, 179, 163, 0.18);
+  --vp-home-hero-name-background: linear-gradient(120deg, #4ed8c8 10%, #fcc72b 90%);
+}
+
+/* Typography ---------------------------------------------------- */
+.vp-doc h1,
+.vp-doc h2 {
+  letter-spacing: -0.02em;
+}
+
+.vp-doc h2 {
+  margin-top: 2.75rem;
+  padding-top: 1.5rem;
+}
+
+/* Reference tables read better with a touch more breathing room. */
+.vp-doc table {
+  display: table;
+  width: 100%;
+}
+
+.vp-doc th {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
