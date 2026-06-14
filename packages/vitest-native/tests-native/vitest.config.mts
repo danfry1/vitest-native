@@ -16,5 +16,10 @@ export default defineConfig({
     setupFiles: [path.resolve(here, "../dist/jest-compat/setup.mjs")],
     include: ["tests-native/*.test.tsx", "tests-native/*.test.ts"],
     exclude: ["tests-native/android.test.ts"],
+    // Force the fixture lib to be externalized (loaded through Node, like a real
+    // node_modules dep) instead of inlined — so its `import { Appearance } from
+    // 'react-native'` exercises the loader's ESM facade. See
+    // ext-rn-named-import.test.ts.
+    server: { deps: { external: ["ext-rn-named-lib"] } },
   },
 });
