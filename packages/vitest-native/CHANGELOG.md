@@ -1,5 +1,50 @@
 # vitest-native
 
+## 0.6.0
+
+### Minor Changes
+
+- 3297e5b: Add a built-in `vectorIcons` preset for `@react-native-vector-icons` (v10+),
+  auto-detected like the other third-party presets.
+
+  The library's v10 icon sets (`@react-native-vector-icons/material-icons`, …) are
+  all built on the shared `@react-native-vector-icons/common` module, whose dynamic
+  font loader runs at import time and queries the native `ExpoFontLoader` — which
+  cannot exist in Node. Without shadowing, importing any icon set throws and the set
+  is wrongly reported "not available", so icons render nothing. The preset shadows
+  the single `common` module (the way jest mocks vector-icons) so `createIconSet(...)`
+  returns a lightweight Text-based stub that forwards `name`/`size`/`color`/`style`/
+  `testID` — fixing every icon set at once. The legacy `react-native-vector-icons`
+  package is mapped to the same preset.
+
+  Surfaced by the `@rneui/base` bake-off, where every `Icon` test failure traced to
+  this import-time crash.
+
+### Patch Changes
+
+- e333954: Fix two `Animated` mock fidelity gaps surfaced by the mock-vs-real-RN cross-check:
+
+  - `Animated.Text` (and the other `Animated.*` components) now render the base host
+    component (`Text`, `View`, …) instead of a host literally named `Animated.Text`,
+    so RNTL's `getByText`/`queryByText` can find their text children — matching real
+    React Native.
+  - An `Animated.Value` (or interpolation/color node) used in a `style` prop now
+    resolves to its current value on the host's style, so assertions like
+    `toHaveStyle({ opacity: 0.3 })` against `new Animated.Value(0.3)` pass — matching
+    how real React Native writes the live value onto the host.
+
+- Restore Vitest 4.0.x compatibility in the hot-runtime runner. 0.5.0 imported `TestRunner` from the `vitest` main entry, which only exists in 4.1+; on 4.0.x the hot runner threw `Class extends value undefined`. It now prefers the main-entry export and falls back to the (deprecated) `vitest/runners` subpath only when the main export is absent — so 4.1+ stays warning-free and 4.0.x works again.
+- 3297e5b: Native engine: stub asset `require()`s reaching Node's CJS loader. A literal
+  `const img = require('./logo.png')` or `require('./Icon.ttf')` (common in real RN
+  components) escapes Vite's asset handling and hits Node's loader, where the binary
+  was compiled as JS and threw `SyntaxError: Invalid or unexpected token`, taking
+  down the whole test file. The Node require-hook now stubs asset extensions
+  (images, media, and fonts) to their basename string, matching the Vite graph and
+  Metro/Jest behaviour.
+
+  Surfaced by a real bake-off of the `@rneui/base` (react-native-elements) Jest +
+  RNTL suite under the native engine.
+
 ## 0.5.0
 
 ### Native engine
@@ -64,7 +109,7 @@ Documentation fixes (the README is consumers' primary reference):
   note on the `globals: true` alternative.
 - **Installation** notes the companion dependencies the examples need
   (`@testing-library/react-native`; a real RN app already provides `react-native`
-  + `@react-native/babel-preset` + `@babel/core`).
+  - `@react-native/babel-preset` + `@babel/core`).
 - Corrected the RN-conformance count (118 ported: 115 passing, 3 documented skips).
 - "Spiritual successor" → "Maintained successor" wording, with a migration link.
 
