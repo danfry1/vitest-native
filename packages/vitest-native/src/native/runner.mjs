@@ -8,7 +8,18 @@
 // (resident-library lazy init — must be preserved across files, it never
 // re-runs) and test-phase state (pollution the next file's reset removes).
 // See reset.mjs for the full attribution model.
-import { TestRunner } from "vitest";
+// vitest >=4.1 exports TestRunner from the main entry; <4.1 only exposes it as
+// VitestTestRunner via the (now-deprecated) "vitest/runners" subpath. Prefer the
+// main entry so 4.1+ doesn't print a deprecation warning, and fall back for
+// 4.0.x — the deprecated path is imported ONLY when the main export is absent,
+// so 4.1+ never triggers the warning. A namespace import (not a named one) keeps
+// a missing export as `undefined` instead of an ESM link error on 4.0.x.
+import * as vitest from "vitest";
+
+let TestRunner = vitest.TestRunner;
+if (!TestRunner) {
+  ({ VitestTestRunner: TestRunner } = await import("vitest/runners"));
+}
 
 export default class NativeHotRunner extends TestRunner {
   async onBeforeRunFiles(files) {
