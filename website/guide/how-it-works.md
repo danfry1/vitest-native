@@ -23,9 +23,9 @@ The plugin auto-injects a setup file that:
 
 - registers all mocks,
 - sets React Native globals (`__DEV__`, `requestAnimationFrame`, etc.),
-- configures [`@testing-library/react-native`](https://callstack.github.io/react-native-testing-library/) with the correct host component names, if it's installed.
+- wires up [`@testing-library/react-native`](https://callstack.github.io/react-native-testing-library/) if it's installed — registering its matchers, and setting host component names for older RNTL (RNTL ≥ 12 auto-detects them against real RN host names).
 
-You do **not** add anything to `setupFiles` yourself, and you do **not** manually configure `hostComponentNames` — the plugin handles it.
+You do **not** add anything to `setupFiles` yourself, and you do **not** manually configure `hostComponentNames` — between the plugin and RNTL's own auto-detection, it's handled.
 
 ## The native engine, specifically
 

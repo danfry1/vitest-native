@@ -6,10 +6,10 @@ This means the plugin isn't configured. Ensure `reactNative()` is in your `vites
 
 ## RNTL queries not finding components
 
-The plugin auto-configures `@testing-library/react-native` with the correct host component names. If you're having issues:
+Host component names are handled for you — the plugin sets them for older RNTL, and RNTL ≥ 12 auto-detects them against real RN host names. If you're having issues:
 
 1. Make sure `@testing-library/react-native` is installed.
-2. **Don't** manually configure `hostComponentNames` — the plugin handles it. Removing a manual config often fixes this.
+2. **Don't** manually configure `hostComponentNames` — leave it to the plugin / RNTL's auto-detection. Removing a manual config often fixes this.
 
 ## Asset imports returning undefined
 

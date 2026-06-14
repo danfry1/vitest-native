@@ -1,12 +1,12 @@
 # API Coverage
 
-vitest-native mocks **100% of React Native's stable public API** (verified against RN 0.84) in the mock engine. The native engine runs real React Native, so coverage there is simply *all of RN*.
+vitest-native's mock engine covers **every stable React Native public export** — 82/82 stable exports as of RN 0.84, with 7 unstable/experimental internals intentionally skipped (see [Not covered](#not-covered)). Parity isn't a one-time claim: a CI-gated `check-compat` script diffs the mock against real RN's export list weekly and opens a tracking issue on any gap. The native engine runs real React Native, so coverage there is simply *all of RN*.
 
-## Components (26)
+## Components (27)
 
 `View`, `Text`, `TextInput`, `Image`, `ScrollView`, `FlatList`, `SectionList`, `VirtualizedList`, `VirtualizedSectionList`, `Modal`, `Pressable`, `Touchable`, `TouchableOpacity`, `TouchableHighlight`, `TouchableWithoutFeedback`, `TouchableNativeFeedback`, `ActivityIndicator`, `Button`, `Switch`, `RefreshControl`, `StatusBar`, `SafeAreaView`, `KeyboardAvoidingView`, `ImageBackground`, `InputAccessoryView`, `DrawerLayoutAndroid`, `ProgressBarAndroid`
 
-**Component instance methods** are supported via refs: `TextInput` (`focus`, `blur`, `clear`, `isFocused`), `ScrollView` (`scrollTo`, `scrollToEnd`), `FlatList`/`SectionList` (`scrollToIndex`, `scrollToOffset`, `scrollToEnd`, `recordInteraction`).
+**Component instance methods** are supported via refs: `TextInput` (`focus`, `blur`, `clear`, `isFocused`), `ScrollView` (`scrollTo`, `scrollToEnd`), `FlatList` (`scrollToIndex`, `scrollToOffset`, `scrollToEnd`, `recordInteraction`), `SectionList` (`scrollToIndex`, `scrollToLocation`, `scrollToEnd`, `recordInteraction`).
 
 ## APIs (30)
 
@@ -24,7 +24,7 @@ Full animation API including `timing`, `spring`, `decay`, `sequence`, `parallel`
 
 `NativeModules`, `TurboModuleRegistry`, `UIManager`, `NativeEventEmitter`, `NativeAppEventEmitter`, `NativeComponentRegistry`, `NativeDialogManagerAndroid`, `requireNativeComponent`
 
-## Utilities (7)
+## Utilities (11)
 
 `processColor`, `findNodeHandle`, `PlatformColor`, `DynamicColorIOS`, `RootTagContext`, `ReactNativeVersion`, `UTFSequence`, `codegenNativeCommands`, `codegenNativeComponent`, `registerCallableModule`, `unstable_batchedUpdates`
 

@@ -8,7 +8,7 @@ It is the maintained successor to [`vitest-community/vitest-react-native`](https
 
 React Native's JavaScript is a thin layer over native code that doesn't exist in Node. So to run RN tests off-device, *something* has to stand in for the native side. There are two ways to do that, and vitest-native gives you both behind one plugin:
 
-- **`engine: 'native'`** *(default)* — runs **real React Native** JS, mocking only the thin native boundary (the same modules Jest's preset mocks: `View`, `Text`, `UIManager`, `NativeModules`, …). Higher fidelity for accessibility, RN-API behavior, integration, and avoiding mock drift. This is what `reactNative()` gives you.
+- **`engine: 'native'`** *(default)* — runs **real React Native** JS, mocking only the thin native boundary (native modules, `UIManager`, and the native host-component registry — *not* the `View`/`Text`/`ScrollView` component JS, which runs for real). Jest's preset mocks a superset (it also swaps RN's core components for stand-ins), so the native engine has higher fidelity for accessibility, RN-API behavior, integration, and avoiding mock drift. This is what `reactNative()` gives you.
 - **`engine: 'mock'`** — a fast, zero-dependency pure-JS reimplementation of React Native. The opt-in escape hatch for pure-logic suites, environment control, and maximum determinism.
 
 Both engines share the same test API — [`@testing-library/react-native`](https://callstack.github.io/react-native-testing-library/) (RNTL), the [test helpers](/guide/helpers), and the [presets](/guide/presets) all work the same either way.
@@ -20,7 +20,7 @@ Both engines share the same test API — [`@testing-library/react-native`](https
 - **You already use Vitest** elsewhere and want one runner across your codebase.
 - **You want to adopt incrementally** — write new tests on vitest-native *alongside* your existing Jest suite, and migrate older tests as you touch them.
 
-Migrating a large, deeply Jest-coupled suite *wholesale* is possible but **not turnkey** — see [Migrating from Jest](/migration/from-jest). It's validated on real apps: a fresh-test run against react-native-paper (32/32) and existing-suite migrations of the [obytes template](https://github.com/obytes/react-native-template-obytes) (39/40) and Rocket.Chat.
+Migrating a large, deeply Jest-coupled suite *wholesale* is possible but **not turnkey** — see [Migrating from Jest](/migration/from-jest). In our own testing we've run it against real apps: a fresh test suite against react-native-paper passed cleanly, and we migrated existing Jest suites from the [obytes template](https://github.com/obytes/react-native-template-obytes) and Rocket.Chat. Those were local runs; the reproducible guarantee is the [cross-check](/guide/comparison#the-cross-check).
 
 ## What you get
 
@@ -36,7 +36,7 @@ Migrating a large, deeply Jest-coupled suite *wholesale* is possible but **not t
 - **TypeScript first** — full type safety across the entire API.
 
 ::: tip Beta
-The native engine is validated against real apps across React Native 0.81–0.84, with a CI-gated behavioral cross-check against real RN. Some APIs may still shift before 1.0.
+A CI-gated behavioral cross-check runs the same assertions under the mock engine and real React Native across React Native 0.81–0.85, failing the build on any divergence. Some APIs may still shift before 1.0.
 :::
 
 Next: [Installation](/guide/install) → [Quick Start](/guide/quick-start).

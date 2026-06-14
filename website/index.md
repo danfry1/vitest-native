@@ -21,7 +21,7 @@ hero:
       link: https://github.com/danfry1/vitest-native
 features:
   - title: Real React Native by default
-    details: The native engine runs RN's real JavaScript and mocks only the thin native boundary — the same modules Jest's preset mocks. Higher fidelity for accessibility, RN-API behavior, and integration, with no mock drift.
+    details: The native engine runs RN's real JavaScript and mocks only the thin native boundary — native modules and the host-component registry, not the View/Text component JS. Jest's preset mocks more, so the native engine has higher fidelity for accessibility, RN-API behavior, and integration, with no mock drift.
   - title: A fast mock engine, one flag away
     details: engine "mock" is a zero-dependency pure-JS reimplementation of React Native. Reach for it when you want maximum determinism and no RN at all — pure-logic suites, environment control.
   - title: Zero config
@@ -64,7 +64,7 @@ describe('MyComponent', () => {
 
 ## Two engines, one plugin
 
-vitest-native is the only React Native test runner that lets you **choose the fidelity each suite needs**:
+vitest-native lets you **choose the fidelity each suite needs** — real React Native, or a fast mock — from one plugin:
 
 |  | `engine: 'native'` *(default)* | `engine: 'mock'` |
 |---|---|---|
@@ -79,15 +79,17 @@ Both engines share the same test API (RNTL, the helpers, the presets). A CI-gate
 
 Jest with `@react-native/jest-preset` is the React Native standard and works well. Reach for vitest-native when you value:
 
-- **Fidelity choice** — Jest always mocks React Native. vitest-native lets you run *real* RN when a test needs true behavior, or a fast mock when it doesn't. This is the differentiator nothing else offers.
+- **Higher-fidelity option** — Jest's RN preset and vitest-native both run real RN JS and mock the native side, but Jest mocks more (it swaps RN's core components and a few APIs for passthrough stand-ins). vitest-native's `engine: 'native'` mocks only the deeper native boundary, so your tests run RN's *real* component JS — or drop to a fast full mock when you don't need that. [How the boundaries differ →](/guide/comparison#where-the-mock-boundary-sits)
 - **DX** — Vitest's watch mode, UI, and native ESM tooling.
 - **Unification** — one runner if you also test web or server code with Vitest.
 
 It is **not** primarily a speed play — choose it for the fidelity option and DX. [Read the full comparison →](/guide/comparison)
 
-## Validated on real apps
+## How it's verified
 
-The native engine is validated against real apps — **react-native-paper** (32/32 fresh tests), the **obytes template** (39/40), and **Rocket.Chat** — across React Native 0.81–0.84, with a CI-gated behavioral cross-check against real RN.
+The reproducible guarantee is a **CI-gated behavioral cross-check**: 56 probes run the same assertions under the mock engine **and** real React Native across React Native 0.81–0.85, and any divergence fails the build. Anyone can run it (`bun run crosscheck`). On top of that, the full CI gate runs lint, typecheck, build, and the mock + native + hot suites across an OS × Node matrix.
+
+We've also exercised the native engine against real apps in our own testing — a fresh test suite against **react-native-paper** passed cleanly, and we migrated existing Jest suites from the **obytes template** and **Rocket.Chat**. Those were local runs; the cross-check above is the part you can reproduce.
 
 > **Beta.** Some APIs may still shift before 1.0. Maintained successor to [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native) — same core idea, rebuilt for modern Vitest (4+).
 

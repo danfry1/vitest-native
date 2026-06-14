@@ -1,6 +1,6 @@
 # Choosing an Engine
 
-vitest-native ships **two engines behind one plugin**, so you choose the fidelity each suite needs. This is the core idea of the project — nothing else in the React Native testing space gives you the choice.
+vitest-native ships **two engines behind one plugin**, so you choose the fidelity each suite needs. This is the core idea of the project — pick real-RN fidelity or a fast mock per suite, without changing test runners.
 
 ## The two engines
 
@@ -15,7 +15,7 @@ reactNative({ engine: 'auto' })    // the default — native when available, els
 
 ## `engine: 'native'` — real React Native
 
-Runs **real React Native** JavaScript — the same code that ships in your app — and mocks only the thin native boundary (the same modules Jest's preset mocks).
+Runs **real React Native** JavaScript — the same code that ships in your app — and mocks only the thin native boundary (native modules, `UIManager`, and the native host-component registry; the `View`/`Text`/`ScrollView` component JS runs for real). Jest's preset mocks a superset of this — see [where the boundary sits](/guide/comparison#where-the-mock-boundary-sits).
 
 **Reach for it when you want:**
 
@@ -52,7 +52,7 @@ Both engines share the same test API. You can mix them across suites in the same
 
 ## Keeping the mock honest
 
-Because the mock is a reimplementation, it could drift from real RN behavior. A **CI-gated behavioral cross-check** runs the same assertions against both the mock and real RN across React Native 0.81–0.84, so divergences are caught before release. See [Comparison with Jest](/guide/comparison#the-cross-check) for how that trust mechanism works.
+Because the mock is a reimplementation, it could drift from real RN behavior. A **CI-gated behavioral cross-check** runs the same assertions against both the mock and real RN across React Native 0.81–0.85, so divergences are caught before release. See [Comparison with Jest](/guide/comparison#the-cross-check) for how that trust mechanism works.
 
 ## Hot runtime (experimental)
 
