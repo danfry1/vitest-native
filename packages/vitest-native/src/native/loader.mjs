@@ -125,9 +125,7 @@ export async function load(url, context, nextLoad) {
     if (RN_INDEX.test(norm)) {
       const src = fs.readFileSync(file, "utf8");
       const names = [
-        ...new Set(
-          [...src.matchAll(/\bget\s+([A-Za-z_$][\w$]*)\s*\(/g)].map((m) => m[1]),
-        ),
+        ...new Set([...src.matchAll(/\bget\s+([A-Za-z_$][\w$]*)\s*\(/g)].map((m) => m[1])),
       ].filter((n) => n !== "default" && n !== "__esModule");
       const facade = [
         `const { createRequire } = require("node:module");`,
