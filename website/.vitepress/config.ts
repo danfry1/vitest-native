@@ -42,7 +42,7 @@ export default defineConfig({
       {
         text: 'Resources',
         items: [
-          { text: 'Changelog', link: 'https://github.com/danfry1/vitest-native/blob/main/CHANGELOG.md' },
+          { text: 'Changelog', link: 'https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/CHANGELOG.md' },
           { text: 'npm', link: 'https://www.npmjs.com/package/vitest-native' },
           { text: 'llms.txt', link: '/llms.txt', target: '_blank' },
         ],
