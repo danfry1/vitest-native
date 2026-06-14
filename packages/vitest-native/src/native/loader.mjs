@@ -9,6 +9,8 @@ import { resolvePlatformFile } from "./resolve.mjs";
 import { buildPkgMatcher } from "./match.mjs";
 
 const RN_PATH = /[\\/](react-native|@react-native)[\\/]/;
+// React Native's main entry (`react-native/index.js`).
+const RN_INDEX = /[\\/]react-native[\\/]index\.js$/;
 const TRANSFORMABLE = /\.(jsx?|tsx?|mjs|cjs)$/;
 // Extensions/index candidates for bundler-style extensionless resolution.
 const RESOLVE_EXTS = [".js", ".cjs", ".mjs", ".json", ".jsx", ".ts", ".tsx"];
@@ -109,6 +111,31 @@ export async function load(url, context, nextLoad) {
   if (!isRN && !isExtra(norm)) return nextLoad(url, context);
 
   if (isRN) {
+    // RN's main index exports everything via lazy getters (`module.exports = {
+    // get Appearance() {…}, … }`). When Node imports that CommonJS module from an
+    // externalized ESM lib, cjs-module-lexer can't see getter exports, so
+    // `import { Appearance } from 'react-native'` throws "does not provide an
+    // export named 'Appearance'". Serve a thin CJS re-export of the real
+    // (Flow-stripped) index, plus a dead `0 && (module.exports = { … })` hint that
+    // cjs-module-lexer DOES recognize — so Node sees the named exports while the
+    // real getters stay lazy (no eager load of RN's whole surface). The require()
+    // of react-native here goes through the separate Module._extensions hook
+    // (hooks.mjs), not this loader, so there's no recursion. Names come from the
+    // index's own `get X()` declarations.
+    if (RN_INDEX.test(norm)) {
+      const src = fs.readFileSync(file, "utf8");
+      const names = [
+        ...new Set(
+          [...src.matchAll(/\bget\s+([A-Za-z_$][\w$]*)\s*\(/g)].map((m) => m[1]),
+        ),
+      ].filter((n) => n !== "default" && n !== "__esModule");
+      const facade = [
+        `const { createRequire } = require("node:module");`,
+        `module.exports = createRequire(${JSON.stringify(url)})(${JSON.stringify(file)});`,
+        `0 && (module.exports = { ${names.join(", ")} });`,
+      ].join("\n");
+      return { format: "commonjs", source: facade, shortCircuit: true };
+    }
     const boundary = boundarySourceFor(norm, PLATFORM, REACT_NATIVE_VERSION);
     if (boundary != null) return { format: "commonjs", source: boundary, shortCircuit: true };
     if (norm.endsWith(".js")) {
