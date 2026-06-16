@@ -278,6 +278,20 @@ function createUseAnimatedValueMock() {
   });
 }
 
+function createUseAnimatedValueXYMock() {
+  return vi.fn((initialValue?: { x: number; y: number }) => {
+    const AnimatedMod = createAnimatedMock();
+    return new AnimatedMod.ValueXY(initialValue);
+  });
+}
+
+function createUseAnimatedColorMock() {
+  return vi.fn((initialValue?: any) => {
+    const AnimatedMod = createAnimatedMock();
+    return new AnimatedMod.Color(initialValue);
+  });
+}
+
 // Re-export all factories
 export {
   // Components
@@ -405,6 +419,8 @@ export function buildReactNativeMock(platform: "ios" | "android" = "ios") {
     UIManager: createUIManagerMock(),
     NativeEventEmitter: createNativeEventEmitterMock(),
     NativeAppEventEmitter: createDeviceEventEmitterMock(),
+    // Generic event emitter base class (top-level export since RN 0.86)
+    EventEmitter: createNativeEventEmitterMock(),
     NativeComponentRegistry: createNativeComponentRegistryMock(),
     requireNativeComponent: createRequireNativeComponentMock(),
 
@@ -419,6 +435,8 @@ export function buildReactNativeMock(platform: "ios" | "android" = "ios") {
     Settings: createSettingsMock(),
     DeviceInfo: createDeviceInfoMock(),
     useAnimatedValue: createUseAnimatedValueMock(),
+    useAnimatedValueXY: createUseAnimatedValueXYMock(),
+    useAnimatedColor: createUseAnimatedColorMock(),
     RootTagContext: React.createContext(null as any),
     ReactNativeVersion: { major: 0, minor: 76, patch: 0 },
     Systrace: {

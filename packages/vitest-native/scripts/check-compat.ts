@@ -26,6 +26,14 @@ const KNOWN_SKIPPED = new Set([
   "unstable_TextAncestorContext",
   "unstable_VirtualView",
   "VirtualViewMode",
+  // Experimental virtualized-collection API (RN 0.86+)
+  "unstable_DEFAULT_INITIAL_NUM_TO_RENDER",
+  "unstable_VirtualArray",
+  "unstable_VirtualColumn",
+  "unstable_VirtualColumnGenerator",
+  "unstable_VirtualRow",
+  "unstable_createVirtualCollectionView",
+  "unstable_getScrollParent",
 ]);
 
 // ─── Find react-native ──────────────────────────────────────────────────────
