@@ -221,6 +221,7 @@ const RN_EXPORT_NAMES = [
   "UIManager",
   "NativeEventEmitter",
   "NativeAppEventEmitter",
+  "EventEmitter",
   "NativeComponentRegistry",
   "requireNativeComponent",
   // Additional
@@ -234,6 +235,8 @@ const RN_EXPORT_NAMES = [
   "Settings",
   "DeviceInfo",
   "useAnimatedValue",
+  "useAnimatedValueXY",
+  "useAnimatedColor",
   "RootTagContext",
   "ReactNativeVersion",
   "Systrace",

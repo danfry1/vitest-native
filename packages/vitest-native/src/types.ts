@@ -162,6 +162,7 @@ export interface ReactNativeMock {
   UIManager: Record<string, any>;
   NativeEventEmitter: new (...args: any[]) => any;
   NativeAppEventEmitter: Record<string, any>;
+  EventEmitter: new (...args: any[]) => any;
   NativeComponentRegistry: Record<string, any>;
   requireNativeComponent: Mock;
 
@@ -176,6 +177,8 @@ export interface ReactNativeMock {
   Settings: Record<string, Mock>;
   DeviceInfo: Record<string, any>;
   useAnimatedValue: Mock;
+  useAnimatedValueXY: Mock;
+  useAnimatedColor: Mock;
   RootTagContext: React.Context<any>;
   ReactNativeVersion: { major: number; minor: number; patch: number };
   Systrace: Record<string, Mock>;
