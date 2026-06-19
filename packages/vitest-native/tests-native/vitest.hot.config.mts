@@ -17,6 +17,7 @@ export default defineConfig({
     environment: "node",
     setupFiles: [path.resolve(here, "../dist/jest-compat/setup.mjs")],
     include: ["tests-native/*.test.tsx", "tests-native/*.test.ts"],
-    exclude: ["tests-native/android.test.ts"],
+    // See vitest.config.mts: these two require their own dedicated config files.
+    exclude: ["tests-native/android.test.ts", "tests-native/navigation-params.test.tsx"],
   },
 });

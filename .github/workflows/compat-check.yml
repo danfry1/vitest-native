@@ -48,6 +48,9 @@ jobs:
       - name: Run native engine tests
         run: bun run test:native
 
+      - name: Run navigation preset tests
+        run: bun run test:native:navigation
+
       - name: Run Android resolution tests
         run: bun run test:native:android
 

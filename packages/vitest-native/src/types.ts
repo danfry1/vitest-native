@@ -208,6 +208,30 @@ export interface PresetModule {
 export interface Preset {
   name: string;
   modules: Record<string, PresetModule>;
+  /**
+   * Optional JSON-serializable configuration for the preset. Presets are rebuilt
+   * inside Vitest worker processes from their `name`, so any options passed to a
+   * preset factory (e.g. `navigation({ defaultRouteParams })`) must be carried
+   * here to survive the main-process → worker boundary. Read by the native setup
+   * file and passed back into the factory in-worker. Must be JSON-serializable.
+   */
+  config?: Record<string, unknown>;
+}
+
+/** Options for the `navigation` preset. */
+export interface NavigationPresetOptions {
+  /**
+   * Params returned by the mocked `useRoute().params` (and used as a `<Screen>`'s
+   * fallback `initialParams`). Lets you test components that read route params at
+   * mount — e.g. `useRoute().params.id` — without a custom `vi.mock`. Must be
+   * JSON-serializable (it crosses the worker boundary).
+   *
+   * @example
+   * ```ts
+   * presets.navigation({ defaultRouteParams: { id: '1', mode: 'edit' } })
+   * ```
+   */
+  defaultRouteParams?: Record<string, unknown>;
 }
 
 export interface VitestNativeOptions {

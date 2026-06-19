@@ -161,6 +161,7 @@
     "@vitest/coverage-v8": "4.1.8",
     "expo-constants": "56.0.16",
     "expo-status-bar": "56.0.4",
+    "ext-platform-lib": "file:./tests-native/fixtures/ext-platform-lib",
     "ext-rn-named-lib": "file:./tests-native/fixtures/ext-rn-named-lib",
     "react": "^19.2.3",
     "react-native": "^0.85.3",
@@ -178,6 +179,7 @@
     "build": "tsdown",
     "test": "vitest run",
     "test:native": "vitest run --config tests-native/vitest.config.mts",
+    "test:native:navigation": "vitest run --config tests-native/vitest.navigation.config.mts",
     "test:native:android": "vitest run --config tests-native/vitest.android.config.mts",
     "test:native:hot": "vitest run --config tests-native/vitest.hot.config.mts",
     "test:native:hot:isolation": "vitest run --config tests-native/vitest.hot-isolation.config.mts",
@@ -189,7 +191,7 @@
     "check-compat": "bun scripts/check-compat.ts",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
-    "prepublishOnly": "bun run build && bun run test && bun run test:native && bun run test:native:android && bun run test:native:hot && bun run test:native:hot:isolation && bun run test:native:hot:soak && bun run crosscheck && bun run test:consumers && bun run lint && bun run typecheck",
+    "prepublishOnly": "bun run build && bun run test && bun run test:native && bun run test:native:navigation && bun run test:native:android && bun run test:native:hot && bun run test:native:hot:isolation && bun run test:native:hot:soak && bun run crosscheck && bun run test:consumers && bun run lint && bun run typecheck",
     "crosscheck": "node scripts/crosscheck.mjs"
   },
   "dependencies": {

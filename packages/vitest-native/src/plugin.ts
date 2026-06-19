@@ -405,6 +405,18 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         if (nativePresetNames.length > 0) {
           env.VITEST_NATIVE_PRESET_NAMES = JSON.stringify(nativePresetNames);
         }
+        // Per-preset config (e.g. navigation({ defaultRouteParams })) must travel to
+        // the worker, where presets are rebuilt from their name. Only explicitly
+        // configured presets carry config; auto-detected ones use their defaults.
+        if (options?.presets) {
+          const presetConfig: Record<string, Record<string, unknown>> = {};
+          for (const p of options.presets) {
+            if (p.config && Object.keys(p.config).length > 0) presetConfig[p.name] = p.config;
+          }
+          if (Object.keys(presetConfig).length > 0) {
+            env.VITEST_NATIVE_PRESET_CONFIG = JSON.stringify(presetConfig);
+          }
+        }
         // Lazy import: pulls in vitest/node, which only exists when running
         // under Vitest (not plain Vite) — and only the hot runtime needs it.
         const hot = hotRuntime
