@@ -105,7 +105,10 @@ export async function resolve(specifier, context, nextResolve) {
   if (resolved.url.endsWith(".json")) {
     return {
       ...resolved,
-      importAttributes: { ...(resolved.importAttributes ?? context.importAttributes), type: "json" },
+      importAttributes: {
+        ...(resolved.importAttributes ?? context.importAttributes),
+        type: "json",
+      },
       shortCircuit: true,
     };
   }

@@ -34,7 +34,8 @@ if (typeof vi.setTimeout !== "function") vi.setTimeout = () => {};
 // fake timers — so the raw `jest = vi` alias breaks them. Guard the two advance
 // methods to match Jest; everything else forwards to `vi` untouched.
 const TIMER_GUARDS = {
-  advanceTimersByTime: (...args) => (vi.isFakeTimers() ? vi.advanceTimersByTime(...args) : undefined),
+  advanceTimersByTime: (...args) =>
+    vi.isFakeTimers() ? vi.advanceTimersByTime(...args) : undefined,
   advanceTimersByTimeAsync: async (...args) =>
     vi.isFakeTimers() ? vi.advanceTimersByTimeAsync(...args) : undefined,
 };
