@@ -1,7 +1,9 @@
 // Flow-strips a React Native source file via the project's @react-native/babel-preset
-// (the only transformer that lowers RN's `component` syntax). Disk-cached by
-// path + mtime + size + preset version. Used by BOTH the loader hook (import) and
-// the require hook — they run in separate threads, so this module is stateless.
+// (the only transformer that lowers RN's `component` syntax). Used by BOTH the loader
+// hook (import) and the require hook, which run in separate threads: each gets its own
+// instance of this module, so the in-memory `mem` cache below is per-thread (no shared
+// mutable state to race on). The disk cache — keyed by path + mtime + size + preset
+// version — is the layer shared across them.
 import { createRequire } from "node:module";
 import path from "node:path";
 import fs from "node:fs";
