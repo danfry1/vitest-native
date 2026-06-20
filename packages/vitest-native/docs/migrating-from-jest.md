@@ -114,7 +114,9 @@ no-op under the shim (use `test.testTimeout` in config or per-test `{ timeout }`
 2. Delete manual third-party native-lib mocks and `@react-native/jest-preset` (2c, 2e).
 3. Convert any **top-level** `jest.mock(...)` to `vi.mock(...)`; leave runtime `jest.*` as-is (2a).
 4. Run `vitest run -u` once to re-record snapshots (2d), then `vitest run` to confirm green.
-5. Triage remaining failures — usually a missing query update or a suite-specific mock.
+5. Triage remaining failures — usually a missing query update or a suite-specific mock. For runtime
+   issues (large-suite memory limits, error-boundary console noise, overriding a preset's mock), see
+   the [Troubleshooting](../README.md#troubleshooting) section.
 
 ## 4. What "done" looks like
 

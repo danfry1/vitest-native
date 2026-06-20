@@ -573,6 +573,41 @@ preset.
 Real RN computes host props (e.g. `<Text>`'s `accessible`, `allowFontScaling`) that mocks omit, so
 the tree is richer. Re-record once with `npx vitest -u` after migrating.
 
+**`Worker terminated due to reaching memory limit` / `JS heap out of memory` (large native suites)**
+Every test file that renders real React Native loads a full renderer, so a large suite can grow a
+worker's heap past Node's default ceiling. Cap it with Vitest's per-worker limit — Vitest recycles a
+worker once its heap exceeds the limit, so growth never reaches the hard OOM:
+
+```ts
+// vitest.config.ts
+export default defineConfig({
+  test: { poolOptions: { threads: { memoryLimit: "512MB" } } },
+});
+```
+
+The experimental `reactNative({ hotRuntime: true })` also helps: it keeps React Native resident
+across files (loaded once per worker instead of per file) and recycles workers on a memory/file
+budget.
+
+**`Vitest caught N unhandled errors` in error-boundary tests**
+A test that intentionally throws inside a component (to exercise an error boundary) makes React log
+a "recovered from an error during concurrent rendering" message and Vitest count it — even though
+the boundary worked and the test passes. It's cosmetic and the assertions are unaffected. Silence it
+in a setup file if you like (e.g. filter the message in an `onConsoleLog`/`console.error` wrapper).
+
+**Overriding a preset's mock (e.g. navigation route params)**
+Auto-detected presets shadow a library with a built-in mock. To change what that mock returns for a
+test or project, `vi.mock` the module in a setup file and spread the preset's mock — presets expose
+the module to Vitest's graph, so `vi.mock` applies and `importOriginal()` returns the preset mock:
+
+```ts
+// vitest.setup.ts
+vi.mock("@react-navigation/native", async (importOriginal) => ({
+  ...(await importOriginal()),
+  useRoute: () => ({ key: "r", name: "Screen", params: { id: "1" } }),
+}));
+```
+
 ---
 
 ## RNTL Matchers
