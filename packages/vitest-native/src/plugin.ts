@@ -405,6 +405,18 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         if (nativePresetNames.length > 0) {
           env.VITEST_NATIVE_PRESET_NAMES = JSON.stringify(nativePresetNames);
         }
+        // Per-preset config (e.g. navigation({ defaultRouteParams })) must travel to
+        // the worker, where presets are rebuilt from their name. Only explicitly
+        // configured presets carry config; auto-detected ones use their defaults.
+        if (options?.presets) {
+          const presetConfig: Record<string, Record<string, unknown>> = {};
+          for (const p of options.presets) {
+            if (p.config && Object.keys(p.config).length > 0) presetConfig[p.name] = p.config;
+          }
+          if (Object.keys(presetConfig).length > 0) {
+            env.VITEST_NATIVE_PRESET_CONFIG = JSON.stringify(presetConfig);
+          }
+        }
         // Lazy import: pulls in vitest/node, which only exists when running
         // under Vitest (not plain Vite) — and only the hot runtime needs it.
         const hot = hotRuntime
@@ -654,10 +666,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // Native engine Flow-strips RN in Node's loader hooks, not Vite's pipeline.
       if (engine === "native") return undefined;
 
-      // Strip Flow type annotations from React Native source files.
-      // RN's source is written in Flow and cannot be executed directly in Node.
-      // Currently a no-op (all RN imports resolve to virtual modules), but
-      // enables future hybrid architecture where real RN JS runs in tests.
+      // Flow-strip inlined node_modules sources whose path contains "react-native"
+      // and that ship `@flow` — i.e. react-native-* ecosystem packages pulled into
+      // the Vite graph. (NOT react-native itself: under the mock engine its imports
+      // resolve to virtual modules via resolveId above and never reach here.) This
+      // is the mock engine's only Flow-stripping for such inlined packages, since
+      // Vite's own pipeline can't parse Flow.
       if (!id.includes("node_modules")) return undefined;
       if (!id.includes("react-native") || !id.endsWith(".js")) return undefined;
       if (!code.includes("@flow")) return undefined;

@@ -72,6 +72,13 @@ try {
   if (process.env.VITEST_NATIVE_PRESET_NAMES)
     presetNames = JSON.parse(process.env.VITEST_NATIVE_PRESET_NAMES);
 } catch {}
+// Per-preset config (preset name → JSON config), e.g. navigation route params.
+// Presets are rebuilt here from their name, so any factory options come via env.
+let presetConfig = {};
+try {
+  if (process.env.VITEST_NATIVE_PRESET_CONFIG)
+    presetConfig = JSON.parse(process.env.VITEST_NATIVE_PRESET_CONFIG);
+} catch {}
 
 // Discover preset module (package) names + their static export lists WITHOUT
 // building the mocks yet — building can lazily touch react-native, so the require
@@ -81,7 +88,7 @@ const presetExports = {}; // pkg -> string[] (named exports, for the ESM loader)
 for (const name of presetNames) {
   const factory = presetFactories[name];
   if (typeof factory !== "function") continue;
-  const preset = factory();
+  const preset = factory(presetConfig[name]);
   for (const [pkg, mod] of Object.entries(preset.modules)) {
     presetDefs.push({ pkg, mod, presetName: preset.name });
     presetExports[pkg] = mod.exports || [];
@@ -106,7 +113,7 @@ if (typeof globalThis.expect === "undefined") {
 if (!globalThis.__vitest_native_loader_registered) {
   globalThis.__vitest_native_loader_registered = true;
   register("./loader.mjs", import.meta.url, {
-    data: { projectRoot, platform, reactNativeVersion, transformPkgs, presetExports },
+    data: { projectRoot, platform, reactNativeVersion, transformPkgs, presetExports, assetExts },
   });
 }
 installRequireHooks(projectRoot, transformPkgs, platform, reactNativeVersion, assetExts);

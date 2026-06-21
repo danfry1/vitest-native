@@ -1,4 +1,4 @@
-import type { Preset } from "../types.js";
+import type { NavigationPresetOptions, Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
 
@@ -38,12 +38,16 @@ function createMockNavigation() {
  * useNavigation() and useRoute() inside the screen component return values
  * consistent with the route/navigation props passed to the component.
  */
-function createMockScreen(NavContext: React.Context<any>, RouteContext: React.Context<any>) {
+function createMockScreen(
+  NavContext: React.Context<any>,
+  RouteContext: React.Context<any>,
+  defaultRouteParams: Record<string, unknown>,
+) {
   const Screen = React.forwardRef(({ component: Component, children, ...rest }: any, ref: any) => {
     const route = {
       key: rest.name ?? "",
       name: rest.name ?? "",
-      params: rest.initialParams,
+      params: rest.initialParams ?? defaultRouteParams,
     };
     const nav = createMockNavigation();
     const content = Component
@@ -65,7 +69,14 @@ function createMockScreen(NavContext: React.Context<any>, RouteContext: React.Co
   return Screen;
 }
 
-export function navigation(): Preset {
+export function navigation(presetOptions: NavigationPresetOptions = {}): Preset {
+  // Route params returned by the default `useRoute()` (i.e. when a component is
+  // rendered outside a mock <Screen>) and used as a <Screen>'s fallback params.
+  // Configurable so components that read `useRoute().params.<x>` at mount can be
+  // tested without a custom vi.mock. Must be JSON-serializable: it crosses the
+  // worker boundary via the preset `config` below.
+  const defaultRouteParams = presetOptions.defaultRouteParams ?? {};
+
   // Contexts are shared across all module factories in this preset so that
   // MockScreen can provide them and useNavigation()/useRoute() can read them.
   const NavigationContext = React.createContext(null as any);
@@ -76,10 +87,11 @@ export function navigation(): Preset {
   const ThemeContext = React.createContext({ dark: false, colors: {} } as any);
   const PreventRemoveContext = React.createContext(null as any);
 
-  const Screen = createMockScreen(NavigationContext, NavigationRouteContext);
+  const Screen = createMockScreen(NavigationContext, NavigationRouteContext, defaultRouteParams);
 
   return {
     name: "navigation",
+    config: { defaultRouteParams },
     modules: {
       "@react-navigation/native": {
         exports: [
@@ -171,7 +183,7 @@ export function navigation(): Preset {
           const defaultRoute = {
             key: "test-route-key",
             name: "TestScreen",
-            params: {},
+            params: defaultRouteParams,
           };
 
           function useNavigation() {

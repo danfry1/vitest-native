@@ -739,6 +739,14 @@ export default defineConfig({
 });
 ```
 
+Platform resolution applies both to your app/test code (resolved by Vite) **and** to
+third-party `node_modules` packages with platform-specific files (e.g.
+`@react-navigation`'s `useLinking.native.js`). The latter matters because Vitest
+externalizes most `node_modules` dependencies — they load through Node, whose resolver
+has no notion of `.native.js`. The native engine fills that gap so externalized packages
+resolve the same `.native`/`.ios`/`.android` variant Metro would, instead of silently
+falling back to the default (often web) file.
+
 ---
 
 ## Asset Stubs

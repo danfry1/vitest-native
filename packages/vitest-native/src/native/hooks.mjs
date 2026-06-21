@@ -9,6 +9,11 @@ import { resolvePlatformFile } from "./resolve.mjs";
 import { buildPkgMatcher } from "./match.mjs";
 
 const RN_PATH = /[\\/](react-native|@react-native)[\\/]/;
+// Any file under a node_modules directory. Platform-extension resolution
+// (`.native.js` etc.) applies to every node_modules package, not just RN — matching
+// Metro, which resolves platform variants project-wide. See loader.mjs for the
+// ESM-path counterpart and the @react-navigation silent-failure this prevents.
+const NODE_MODULES = /[\\/]node_modules[\\/]/;
 
 // Guarded via globalThis, not module scope: under the hot runtime this module
 // can be evaluated twice in one worker (once by the worker entry through Node's
@@ -66,7 +71,9 @@ export function installRequireHooks(
     if (
       parent &&
       parent.filename &&
-      (RN_PATH.test(parent.filename) || isExtra(parent.filename)) &&
+      (NODE_MODULES.test(parent.filename) ||
+        RN_PATH.test(parent.filename) ||
+        isExtra(parent.filename)) &&
       request.startsWith(".") &&
       !path.extname(request)
     ) {

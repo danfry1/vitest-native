@@ -82,6 +82,9 @@ jobs:
       - name: Native engine tests (stock isolate:true)
         run: bun run test:native
 
+      - name: Native engine tests (navigation preset)
+        run: bun run test:native:navigation
+
       - name: Native engine tests (Android resolution)
         run: bun run test:native:android
 

@@ -9,6 +9,12 @@ import { resolvePlatformFile } from "./resolve.mjs";
 import { buildPkgMatcher } from "./match.mjs";
 
 const RN_PATH = /[\\/](react-native|@react-native)[\\/]/;
+// Any file living under a node_modules directory. Platform-extension resolution
+// (`.native.js` etc.) applies to every node_modules package, not just RN, matching
+// Metro — which resolves platform variants project-wide. (Without this, e.g.
+// `@react-navigation/native` silently loads its `.js`/web variant instead of
+// `.native.js`, breaking the navigation lifecycle with no error.)
+const NODE_MODULES = /[\\/]node_modules[\\/]/;
 // React Native's main entry (`react-native/index.js`).
 const RN_INDEX = /[\\/]react-native[\\/]index\.js$/;
 const TRANSFORMABLE = /\.(jsx?|tsx?|mjs|cjs)$/;
@@ -41,6 +47,8 @@ let REACT_NATIVE_VERSION = "0.0.0";
 let isExtra = () => false;
 // Preset package name → its mock's named-export list (from the preset definition).
 let presetExports = {};
+// Asset file extensions (without leading dot, lower-cased) the loader should stub.
+let assetExtSet = new Set();
 
 export async function initialize(data) {
   if (data && data.projectRoot) PROJECT_ROOT = data.projectRoot;
@@ -48,6 +56,8 @@ export async function initialize(data) {
   if (data && data.reactNativeVersion) REACT_NATIVE_VERSION = data.reactNativeVersion;
   if (data && data.transformPkgs) isExtra = buildPkgMatcher(data.transformPkgs);
   if (data && data.presetExports) presetExports = data.presetExports;
+  if (data && data.assetExts)
+    assetExtSet = new Set(data.assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
 }
 
 export async function resolve(specifier, context, nextResolve) {
@@ -65,7 +75,7 @@ export async function resolve(specifier, context, nextResolve) {
       : null;
   if (
     parent &&
-    (RN_PATH.test(parent) || isExtra(parent)) &&
+    (NODE_MODULES.test(parent) || RN_PATH.test(parent) || isExtra(parent)) &&
     specifier.startsWith(".") &&
     !path.extname(specifier)
   ) {
@@ -73,18 +83,36 @@ export async function resolve(specifier, context, nextResolve) {
     if (hit) return { url: pathToFileURL(hit).href, shortCircuit: true };
   }
 
+  let resolved;
   try {
-    return await nextResolve(specifier, context);
+    resolved = await nextResolve(specifier, context);
   } catch (err) {
     // Fallback: an extensionless relative import that Node's ESM resolver rejected
     // but a bundler (Metro) would accept. Common in externalized RN libs shipping
     // ESM with extensionless imports. Resolve it on disk ourselves.
     if (parent && specifier.startsWith(".") && !path.extname(specifier)) {
       const hit = resolveExtensionless(path.resolve(path.dirname(parent), specifier));
-      if (hit) return { url: pathToFileURL(hit).href, shortCircuit: true };
+      if (hit) resolved = { url: pathToFileURL(hit).href, shortCircuit: true };
     }
-    throw err;
+    if (!resolved) throw err;
   }
+
+  // JSON imports without an explicit `with { type: 'json' }` attribute throw
+  // ERR_IMPORT_ATTRIBUTE_MISSING on Node 22+. RN ecosystem packages do
+  // `import pkg from './package.json'` unconditionally (e.g. @react-navigation).
+  // Inject the attribute so Node's OWN native JSON module loader handles it —
+  // leaning on the platform rather than synthesizing a module source.
+  if (resolved.url.endsWith(".json")) {
+    return {
+      ...resolved,
+      importAttributes: {
+        ...(resolved.importAttributes ?? context.importAttributes),
+        type: "json",
+      },
+      shortCircuit: true,
+    };
+  }
+  return resolved;
 }
 
 export async function load(url, context, nextLoad) {
@@ -107,6 +135,23 @@ export async function load(url, context, nextLoad) {
   if (!url.startsWith("file:")) return nextLoad(url, context);
   const file = fileURLToPath(url);
   const norm = file.replace(/\\/g, "/");
+
+  // Asset imports (`import logo from './logo.png'`, `import font from './Icon.ttf'`)
+  // from ANY package: Node's ESM loader can't parse a binary asset as a module and
+  // throws. Stub to the basename string — matching the CJS require hook (hooks.mjs)
+  // and the Vite graph. Applies regardless of whether the importing package is RN
+  // or in `transform`, since assets are pulled in by ecosystem libs too (e.g.
+  // `@react-navigation/elements`' back-icon.png).
+  const ext = path.extname(norm).slice(1).toLowerCase();
+  if (ext && assetExtSet.has(ext)) {
+    const basename = norm.split("/").pop() || norm;
+    return {
+      format: "module",
+      source: `export default ${JSON.stringify(basename)};`,
+      shortCircuit: true,
+    };
+  }
+
   const isRN = RN_PATH.test(norm);
   if (!isRN && !isExtra(norm)) return nextLoad(url, context);
 

@@ -27,6 +27,21 @@ if (typeof vi.requireMock !== "function") vi.requireMock = (m) => require(m);
 // it at top level don't crash.
 if (typeof vi.setTimeout !== "function") vi.setTimeout = () => {};
 
+// `jest.advanceTimersByTime(Async)` is lenient in Jest: when fake timers are NOT
+// active it's effectively a no-op. Vitest's `vi.advanceTimersByTimeAsync` instead
+// throws "timers are not mocked". RNTL's `userEvent.setup({ advanceTimers })`
+// commonly receives this function and calls it even on suites that never enable
+// fake timers. Guard the two advance methods on `vi` itself (this file already
+// extends `vi` above) to match Jest's leniency — done on `vi` rather than a wrapper
+// so `globalThis.jest`, the `@jest/globals` shim (which exports `vi` as `jest`), and
+// direct `vi` usage stay the same object.
+const advanceTimersByTime = vi.advanceTimersByTime.bind(vi);
+const advanceTimersByTimeAsync = vi.advanceTimersByTimeAsync.bind(vi);
+vi.advanceTimersByTime = (...args) =>
+  vi.isFakeTimers() ? advanceTimersByTime(...args) : undefined;
+vi.advanceTimersByTimeAsync = async (...args) =>
+  vi.isFakeTimers() ? advanceTimersByTimeAsync(...args) : undefined;
+
 globalThis.jest = vi;
 
 // jest.mock factories are wrapped by jestMockTransform to route their return
