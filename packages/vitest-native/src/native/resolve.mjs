@@ -22,12 +22,30 @@ function extensionsFor(platform) {
   ];
 }
 
+// Per-worker resolution cache: `${platform}\0${absBase}` → resolved path | null.
+// Platform resolution is deterministic for a given on-disk layout, and Node's own
+// module cache already dedupes most re-resolution; this dedupes the rest (distinct
+// import edges resolving to the same base), so each base is scanned at most once per
+// worker instead of running up to ~24 `existsSync` calls every time. Negative
+// results are cached too. Lifetime is the worker process — like Vite's own
+// resolution cache, a newly-added platform variant is picked up on the next restart.
+const resolveCache = new Map();
+
 /**
  * Given an absolute base path with no extension (e.g. ".../Foo"), return the
  * first existing platform variant (".../Foo.ios.tsx", etc.) or directory index,
  * or null if none exist.
  */
 export function resolvePlatformFile(absBase, platform = "ios") {
+  const key = platform + "\0" + absBase;
+  const cached = resolveCache.get(key);
+  if (cached !== undefined) return cached;
+  const resolved = scanPlatformFile(absBase, platform);
+  resolveCache.set(key, resolved);
+  return resolved;
+}
+
+function scanPlatformFile(absBase, platform) {
   const extensions = extensionsFor(platform);
   for (const ext of extensions) {
     if (fs.existsSync(absBase + ext)) return absBase + ext;
