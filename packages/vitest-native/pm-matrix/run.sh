@@ -57,6 +57,13 @@ run_pm () {
 
   plant_split
   local rc_split; rc_split=$(find node_modules -path '*/react/package.json' | wc -l | tr -d ' ')
+  # Guard against a vacuous "split" run: if planting did not actually add a second
+  # physical react, the scenario is just a second clean install and a PASS proves
+  # nothing. Fail loudly instead.
+  if [ "$rc_split" -le "$rc_clean" ]; then
+    echo "$pm | clean(react=$rc_clean): — | split: PLANT FAILED (react still $rc_split, expected >$rc_clean)" | tee -a "$SUMMARY"
+    return
+  fi
   ./node_modules/.bin/vitest run >"$dir/test-split.log" 2>&1; local b=$?
 
   local sa sb; [ $a -eq 0 ] && sa=PASS || sa=FAIL; [ $b -eq 0 ] && sb=PASS || sb=FAIL

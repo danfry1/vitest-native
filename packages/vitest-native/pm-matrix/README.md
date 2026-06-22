@@ -32,14 +32,21 @@ the single instance at the Node boundary (the `REACT_SINGLETON` dedupe in
 ## Running
 
 ```bash
-bash pm-matrix/run.sh
+bun run test:pm-matrix   # or: bash pm-matrix/run.sh
 ```
 
 Requires `npm`, `pnpm`, and `bun` on `PATH` (missing managers are skipped). Installs run in a
-temp dir outside the repo. Expected result:
+temp dir outside the repo (printed at the end; not auto-removed, so logs can be inspected). The
+script exits non-zero if any scenario fails — including a `PLANT FAILED` guard that fires if the
+split-React planting did not actually add a second copy, so a "split" run can't pass vacuously.
+Expected result:
 
 ```
 npm  | clean(react=1): PASS | split(react=2): PASS
 pnpm | clean(react=1): PASS | split(react=2): PASS
 bun  | clean(react=1): PASS | split(react=2): PASS
 ```
+
+This runs in CI on every PR via `.github/workflows/pm-matrix.yml`, the regression guard for the
+React-singleton dedupe — the package's own native suite can't exercise it, since its `react` is
+never duplicated.

@@ -55,7 +55,10 @@ let presetExports = {};
 // Asset file extensions (without leading dot, lower-cased) the loader should stub.
 let assetExtSet = new Set();
 
-// Lazily-built canonical resolver + cache for the React singleton family.
+// Lazily-built canonical resolver + cache for the React singleton family. Lazy
+// (unlike hooks.mjs, which gets projectRoot as a call argument) because the
+// loader learns PROJECT_ROOT only in initialize(), which runs before the first
+// resolve() but after this module is evaluated.
 let _rootRequire = null;
 const reactSingletonCache = new Map();
 function resolveReactSingleton(specifier) {
