@@ -30,6 +30,10 @@ export function enableV8CompileCache() {
   if (typeof enable !== "function") return; // Node < 22.8: feature absent
   try {
     enable.call(nodeModule, path.join(os.tmpdir(), "vitest-native-cache-v8"));
+    // No atomic-write handling needed (unlike the transform cache, which writes
+    // executable source): Node CRC32-validates each compile-cache entry on read,
+    // so a torn or raced write from concurrent workers is a cache miss and a
+    // recompile, never a corruption-induced failure.
   } catch {
     // Read-only tmp, unsupported platform, etc. — caching is a pure optimization.
   }
