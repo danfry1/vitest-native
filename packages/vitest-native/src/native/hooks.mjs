@@ -14,6 +14,14 @@ const RN_PATH = /[\\/](react-native|@react-native)[\\/]/;
 // Metro, which resolves platform variants project-wide. See loader.mjs for the
 // ESM-path counterpart and the @react-navigation silent-failure this prevents.
 const NODE_MODULES = /[\\/]node_modules[\\/]/;
+// The React singleton family. React stores its hooks dispatcher (and other
+// internals) as module-level state, so two physical copies = two dispatchers =
+// "Invalid hook call". Vitest's `resolve.dedupe` enforces a single copy in the
+// Vite graph, but externalized RN loads through Node — outside that dedupe — so a
+// duplicated react on disk (monorepo, version skew, pnpm/bun strict stores) makes
+// RN bind a DIFFERENT react than the test/renderer and every render crashes. We
+// re-establish the single instance here, at the Node boundary.
+const REACT_SINGLETON = /^(react|react-is|scheduler)(\/|$)/;
 
 // Guarded via globalThis, not module scope: under the hot runtime this module
 // can be evaluated twice in one worker (once by the worker entry through Node's
@@ -66,8 +74,31 @@ export function installRequireHooks(
     return origLoad.call(this, request, parent, ...rest);
   };
 
+  // Canonical resolver rooted at the project, so React-family requests from
+  // anywhere in the externalized Node graph collapse onto the project's single
+  // copy (the same one the test/renderer graph uses). Resolutions are cached.
+  const rootRequire = Module.createRequire(path.join(projectRoot, "package.json"));
+  const reactSingletonCache = new Map();
+  function resolveReactSingleton(request) {
+    if (reactSingletonCache.has(request)) return reactSingletonCache.get(request);
+    let resolved = null;
+    try {
+      resolved = rootRequire.resolve(request);
+    } catch {}
+    reactSingletonCache.set(request, resolved);
+    return resolved;
+  }
+
   const origResolve = Module._resolveFilename;
   Module._resolveFilename = function (request, parent, ...rest) {
+    // React-singleton dedupe: a `react`/`react-is`/`scheduler` require reaching
+    // Node's loader comes from the externalized graph (the Vite graph never hits
+    // Module._resolveFilename). Pin it to the project's canonical copy so RN and
+    // the test share one React instance regardless of on-disk duplication.
+    if (REACT_SINGLETON.test(request)) {
+      const canonical = resolveReactSingleton(request);
+      if (canonical) return canonical;
+    }
     if (
       parent &&
       parent.filename &&

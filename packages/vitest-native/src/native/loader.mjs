@@ -1,6 +1,7 @@
 // Node ESM loader hook (registered via module.register). Intercepts import() of RN —
 // which Module._extensions cannot — Flow-stripping and serving boundary mock source.
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { createRequire } from "node:module";
 import path from "node:path";
 import fs from "node:fs";
 import { transformRN, isFlow } from "./transform.mjs";
@@ -17,6 +18,10 @@ const RN_PATH = /[\\/](react-native|@react-native)[\\/]/;
 const NODE_MODULES = /[\\/]node_modules[\\/]/;
 // React Native's main entry (`react-native/index.js`).
 const RN_INDEX = /[\\/]react-native[\\/]index\.js$/;
+// The React singleton family — see hooks.mjs. Externalized ESM libs that
+// `import React from 'react'` must bind the project's single copy too, or RN and
+// the test graph split React and every render throws "Invalid hook call".
+const REACT_SINGLETON = /^(react|react-is|scheduler)(\/|$)/;
 const TRANSFORMABLE = /\.(jsx?|tsx?|mjs|cjs)$/;
 // Extensions/index candidates for bundler-style extensionless resolution.
 const RESOLVE_EXTS = [".js", ".cjs", ".mjs", ".json", ".jsx", ".ts", ".tsx"];
@@ -50,6 +55,20 @@ let presetExports = {};
 // Asset file extensions (without leading dot, lower-cased) the loader should stub.
 let assetExtSet = new Set();
 
+// Lazily-built canonical resolver + cache for the React singleton family.
+let _rootRequire = null;
+const reactSingletonCache = new Map();
+function resolveReactSingleton(specifier) {
+  if (reactSingletonCache.has(specifier)) return reactSingletonCache.get(specifier);
+  if (!_rootRequire) _rootRequire = createRequire(path.join(PROJECT_ROOT, "package.json"));
+  let resolved = null;
+  try {
+    resolved = _rootRequire.resolve(specifier);
+  } catch {}
+  reactSingletonCache.set(specifier, resolved);
+  return resolved;
+}
+
 export async function initialize(data) {
   if (data && data.projectRoot) PROJECT_ROOT = data.projectRoot;
   if (data && data.platform === "android") PLATFORM = "android";
@@ -61,6 +80,14 @@ export async function initialize(data) {
 }
 
 export async function resolve(specifier, context, nextResolve) {
+  // React-singleton dedupe (ESM): pin any react/react-is/scheduler import from the
+  // externalized graph to the project's canonical copy, so RN and the test share
+  // one React instance regardless of on-disk duplication (see hooks.mjs).
+  if (REACT_SINGLETON.test(specifier)) {
+    const canonical = resolveReactSingleton(specifier);
+    if (canonical) return { url: pathToFileURL(canonical).href, shortCircuit: true };
+  }
+
   // Preset redirect (ESM): a bare import of a preset package — whether from the
   // test graph or, crucially, nested inside an externalized third-party lib — is
   // redirected to a synthetic module that re-exports the runtime preset mock. This
