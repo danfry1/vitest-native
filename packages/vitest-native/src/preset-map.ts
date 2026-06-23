@@ -25,4 +25,7 @@ export const AUTO_DETECT_PRESETS = {
   "react-native-webview": "webview",
   "@react-native-vector-icons/common": "vectorIcons",
   "react-native-vector-icons": "vectorIcons",
+  "@shopify/flash-list": "flashList",
+  "@gorhom/bottom-sheet": "bottomSheet",
+  "react-native-keyboard-controller": "keyboardController",
 } as const satisfies Record<string, PresetName>;

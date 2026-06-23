@@ -17,6 +17,9 @@ import {
   mmkv,
   svg,
   webview,
+  flashList,
+  bottomSheet,
+  keyboardController,
 } from "../src/presets/index.js";
 import { renderHook } from "@testing-library/react-native";
 
@@ -1034,5 +1037,148 @@ describe("preset: webview", () => {
   it("exposes WebView as both default and named, renderable", () => {
     expect(mock.default).toBe(mock.WebView);
     expect(mock.WebView.displayName).toBe("WebView");
+  });
+});
+
+// --- FlashList ---
+
+describe("preset: flashList", () => {
+  const mock = flashList().modules["@shopify/flash-list"].factory();
+
+  it("default is FlashList; all list variants are renderable host components", () => {
+    expect(mock.default).toBe(mock.FlashList);
+    for (const name of ["FlashList", "MasonryFlashList", "AnimatedFlashList"] as const) {
+      expect(mock[name].displayName).toBe(name);
+    }
+  });
+
+  it("renders each data row through renderItem", () => {
+    const { render } = require("@testing-library/react-native");
+    const { Text } = require("react-native");
+    const { getByText } = render(
+      React.createElement(mock.FlashList, {
+        data: ["alpha", "beta"],
+        renderItem: ({ item }: { item: string }) => React.createElement(Text, null, item),
+      }),
+    );
+    expect(getByText("alpha")).toBeTruthy();
+    expect(getByText("beta")).toBeTruthy();
+  });
+
+  it("renders ListEmptyComponent when data is empty", () => {
+    const { render } = require("@testing-library/react-native");
+    const { Text } = require("react-native");
+    const { getByText } = render(
+      React.createElement(mock.FlashList, {
+        data: [],
+        renderItem: () => null,
+        ListEmptyComponent: () => React.createElement(Text, null, "nothing here"),
+      }),
+    );
+    expect(getByText("nothing here")).toBeTruthy();
+  });
+
+  it("exposes the imperative scroll surface via ref", () => {
+    const { render } = require("@testing-library/react-native");
+    const ref = React.createRef<any>();
+    render(React.createElement(mock.FlashList, { data: [], renderItem: () => null, ref }));
+    for (const method of ["scrollToEnd", "scrollToIndex", "scrollToOffset", "recordInteraction"]) {
+      expect(typeof ref.current[method]).toBe("function");
+    }
+  });
+});
+
+// --- Bottom Sheet ---
+
+describe("preset: bottomSheet", () => {
+  const mock = bottomSheet().modules["@gorhom/bottom-sheet"].factory();
+
+  it("default is BottomSheet; containers are renderable host components", () => {
+    expect(mock.default.displayName).toBe("BottomSheet");
+    for (const name of [
+      "BottomSheetModal",
+      "BottomSheetView",
+      "BottomSheetScrollView",
+      "BottomSheetTextInput",
+      "BottomSheetModalProvider",
+    ] as const) {
+      expect(mock[name].displayName).toBe(name);
+    }
+  });
+
+  it("useBottomSheet exposes the sheet control methods + animated values", () => {
+    const { result } = renderHook(() => mock.useBottomSheet());
+    const sheet = result.current;
+    for (const method of ["expand", "collapse", "close", "snapToIndex", "forceClose"]) {
+      expect(typeof sheet[method]).toBe("function");
+    }
+    expect(sheet.animatedIndex).toEqual({ value: 0 });
+  });
+
+  it("useBottomSheetModal exposes dismiss/dismissAll as mocks", () => {
+    const { result } = renderHook(() => mock.useBottomSheetModal());
+    result.current.dismiss();
+    expect(result.current.dismiss).toHaveBeenCalled();
+    expect(typeof result.current.dismissAll).toBe("function");
+  });
+
+  it("config hooks return their input unchanged", () => {
+    const config = { damping: 80 };
+    expect(mock.useBottomSheetSpringConfigs(config)).toBe(config);
+    expect(mock.useBottomSheetTimingConfigs(config)).toBe(config);
+  });
+
+  it("BottomSheetModal ref exposes present/dismiss", () => {
+    const { render } = require("@testing-library/react-native");
+    const ref = React.createRef<any>();
+    render(React.createElement(mock.BottomSheetModal, { ref }));
+    expect(typeof ref.current.present).toBe("function");
+    expect(typeof ref.current.dismiss).toBe("function");
+  });
+});
+
+// --- Keyboard Controller ---
+
+describe("preset: keyboardController", () => {
+  const mock = keyboardController().modules["react-native-keyboard-controller"].factory();
+
+  it("containers are renderable host components", () => {
+    for (const name of [
+      "KeyboardProvider",
+      "KeyboardAvoidingView",
+      "KeyboardAwareScrollView",
+      "KeyboardStickyView",
+      "KeyboardToolbar",
+    ] as const) {
+      expect(mock[name].displayName).toBe(name);
+    }
+  });
+
+  it("KeyboardController exposes no-op imperative methods", () => {
+    expect(mock.KeyboardController.isVisible()).toBe(false);
+    mock.KeyboardController.dismiss();
+    expect(mock.KeyboardController.dismiss).toHaveBeenCalled();
+    expect(mock.KeyboardController.state()).toMatchObject({ height: 0, progress: 0 });
+  });
+
+  it("KeyboardEvents.addListener returns a removable subscription", () => {
+    const sub = mock.KeyboardEvents.addListener("keyboardWillShow", () => {});
+    expect(typeof sub.remove).toBe("function");
+  });
+
+  it("reanimated-backed hooks return inert shared-value shapes", () => {
+    const { result } = renderHook(() => mock.useReanimatedKeyboardAnimation());
+    expect(result.current.height).toEqual({ value: 0 });
+    expect(result.current.progress).toEqual({ value: 0 });
+  });
+
+  it("useKeyboardController returns enabled + setEnabled", () => {
+    const { result } = renderHook(() => mock.useKeyboardController());
+    expect(result.current.enabled).toBe(true);
+    expect(typeof result.current.setEnabled).toBe("function");
+  });
+
+  it("AndroidSoftInputModes exposes the adjust-resize constant", () => {
+    expect(mock.AndroidSoftInputModes.SOFT_INPUT_ADJUST_RESIZE).toBe(16);
   });
 });

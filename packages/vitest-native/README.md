@@ -464,6 +464,9 @@ export default defineConfig({
 | `presets.mmkv()`            | react-native-mmkv                         |
 | `presets.svg()`             | react-native-svg                          |
 | `presets.webview()`         | react-native-webview                      |
+| `presets.flashList()`       | @shopify/flash-list                       |
+| `presets.bottomSheet()`     | @gorhom/bottom-sheet                      |
+| `presets.keyboardController()` | react-native-keyboard-controller       |
 
 Presets apply under **both** engines: the mock engine and `engine: 'native'` (where they shadow each
 library's native runtime — worklets, native modules — exactly as Jest does, while the surrounding tree
