@@ -11,11 +11,12 @@ import { createTouchableHighlightMock } from "../mocks/components/TouchableHighl
 import { createTouchableWithoutFeedbackMock } from "../mocks/components/TouchableWithoutFeedback.js";
 
 // @gorhom/bottom-sheet renders through reanimated worklets + gesture-handler
-// natives that can't run in Node. Shadow it the way the library's own
-// `@gorhom/bottom-sheet/mock` does: the scrollable/input/touchable members are the
-// corresponding real React Native components (so their content is queryable and
-// they behave — changeText, list rows, …), the sheet containers render their
-// children with no-op imperative refs, and the constants/hooks are re-exported.
+// natives that can't run in Node. Shadow it after the library's own
+// `@gorhom/bottom-sheet/mock`: the scrollable/input/touchable members are backed by
+// the engine's own RN component mocks (the library's mock uses the real RN
+// components; the effect is the same — their content is queryable and they behave,
+// e.g. changeText and list rows), the sheet containers render their children with
+// no-op imperative refs, and the constants/hooks are re-exported.
 export function bottomSheet(): Preset {
   return {
     name: "bottomSheet",
@@ -84,7 +85,7 @@ export function bottomSheet(): Preset {
           // Public constant enums, matching the values in the real package.
           const constants = {
             SNAP_POINT_TYPE: { PROVIDED: 0, DYNAMIC: 1 },
-            SHEET_STATE: { CLOSED: 0, OPENED: 1, EXTENDED: 2 },
+            SHEET_STATE: { CLOSED: 0, OPENED: 1, EXTENDED: 2, OVER_EXTENDED: 3, FILL_PARENT: 4 },
             SCROLLABLE_TYPE: {
               UNDETERMINED: 0,
               VIEW: 1,
@@ -95,7 +96,15 @@ export function bottomSheet(): Preset {
             },
             SCROLLABLE_STATUS: { LOCKED: 0, UNLOCKED: 1, UNDETERMINED: 2 },
             ANIMATION_STATUS: { UNDETERMINED: 0, RUNNING: 1, STOPPED: 2, INTERRUPTED: 3 },
-            ANIMATION_SOURCE: { NONE: 0, MOUNT: 1, GESTURE: 2, USER: 3, KEYBOARD: 6 },
+            ANIMATION_SOURCE: {
+              NONE: 0,
+              MOUNT: 1,
+              GESTURE: 2,
+              USER: 3,
+              CONTAINER_RESIZE: 4,
+              SNAP_POINT_CHANGE: 5,
+              KEYBOARD: 6,
+            },
             ANIMATION_METHOD: { TIMING: 0, SPRING: 1 },
             KEYBOARD_STATUS: { UNDETERMINED: 0, SHOWN: 1, HIDDEN: 2 },
             GESTURE_SOURCE: { UNDETERMINED: 0, SCROLLABLE: 1, HANDLE: 2, CONTENT: 3 },

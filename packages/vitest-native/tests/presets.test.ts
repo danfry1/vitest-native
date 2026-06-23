@@ -1147,10 +1147,18 @@ describe("preset: bottomSheet", () => {
     expect(getByText("row-b")).toBeTruthy();
   });
 
-  it("exposes the public constant enums with real values", () => {
+  it("exposes the public constant enums with the real, complete values", () => {
     expect(mock.SNAP_POINT_TYPE).toEqual({ PROVIDED: 0, DYNAMIC: 1 });
-    expect(mock.SHEET_STATE.OPENED).toBe(1);
+    expect(mock.SHEET_STATE).toEqual({
+      CLOSED: 0,
+      OPENED: 1,
+      EXTENDED: 2,
+      OVER_EXTENDED: 3,
+      FILL_PARENT: 4,
+    });
     expect(mock.SCROLLABLE_TYPE.SCROLLVIEW).toBe(3);
+    expect(mock.ANIMATION_SOURCE.KEYBOARD).toBe(6);
+    expect(mock.ANIMATION_SOURCE.SNAP_POINT_CHANGE).toBe(5);
   });
 
   it("useBottomSheet exposes the sheet control methods + animated values", () => {
