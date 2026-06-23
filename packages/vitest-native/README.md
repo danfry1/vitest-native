@@ -451,22 +451,23 @@ export default defineConfig({
 
 ### Available Presets
 
-| Import                      | Function                                  |
-| --------------------------- | ----------------------------------------- |
-| `presets.reanimated()`      | react-native-reanimated                   |
-| `presets.gestureHandler()`  | react-native-gesture-handler              |
-| `presets.safeAreaContext()` | react-native-safe-area-context            |
-| `presets.navigation()`      | @react-navigation/native                  |
-| `presets.asyncStorage()`    | @react-native-async-storage/async-storage |
-| `presets.screens()`         | react-native-screens                      |
-| `presets.expo()`            | Expo modules                              |
-| `presets.deviceInfo()`      | react-native-device-info                  |
-| `presets.mmkv()`            | react-native-mmkv                         |
-| `presets.svg()`             | react-native-svg                          |
-| `presets.webview()`         | react-native-webview                      |
-| `presets.flashList()`       | @shopify/flash-list                       |
-| `presets.bottomSheet()`     | @gorhom/bottom-sheet                      |
-| `presets.keyboardController()` | react-native-keyboard-controller       |
+| Import                         | Function                                  |
+| ------------------------------ | ----------------------------------------- |
+| `presets.reanimated()`         | react-native-reanimated                   |
+| `presets.gestureHandler()`     | react-native-gesture-handler              |
+| `presets.safeAreaContext()`    | react-native-safe-area-context            |
+| `presets.navigation()`         | @react-navigation/native                  |
+| `presets.asyncStorage()`       | @react-native-async-storage/async-storage |
+| `presets.screens()`            | react-native-screens                      |
+| `presets.expo()`               | Expo modules                              |
+| `presets.deviceInfo()`         | react-native-device-info                  |
+| `presets.mmkv()`               | react-native-mmkv                         |
+| `presets.svg()`                | react-native-svg                          |
+| `presets.webview()`            | react-native-webview                      |
+| `presets.vectorIcons()`        | react-native-vector-icons                 |
+| `presets.flashList()`          | @shopify/flash-list                       |
+| `presets.bottomSheet()`        | @gorhom/bottom-sheet                      |
+| `presets.keyboardController()` | react-native-keyboard-controller          |
 
 Presets apply under **both** engines: the mock engine and `engine: 'native'` (where they shadow each
 library's native runtime — worklets, native modules — exactly as Jest does, while the surrounding tree

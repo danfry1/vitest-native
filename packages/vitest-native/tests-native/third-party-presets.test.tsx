@@ -12,12 +12,17 @@ import { describe, it, expect } from "vitest";
 import React from "react";
 import { render, screen } from "@testing-library/react-native";
 import { Text } from "react-native";
-import { FlashList } from "@shopify/flash-list";
-import BottomSheet, { BottomSheetView, BottomSheetModalProvider } from "@gorhom/bottom-sheet";
+import { FlashList, useRecyclingState, RenderTargetOptions } from "@shopify/flash-list";
+import BottomSheet, {
+  BottomSheetView,
+  BottomSheetModalProvider,
+  SNAP_POINT_TYPE,
+} from "@gorhom/bottom-sheet";
 import {
   KeyboardProvider,
   KeyboardAvoidingView,
   KeyboardController,
+  useKeyboardController,
 } from "react-native-keyboard-controller";
 
 describe("@shopify/flash-list under native engine", () => {
@@ -32,6 +37,11 @@ describe("@shopify/flash-list under native engine", () => {
     expect(screen.getByTestId("list")).toBeTruthy();
     expect(screen.getByText("one")).toBeTruthy();
     expect(screen.getByText("three")).toBeTruthy();
+  });
+
+  it("the v2 runtime exports are shadowed, not undefined", () => {
+    expect(typeof useRecyclingState).toBe("function");
+    expect(RenderTargetOptions.Cell).toBe("Cell");
   });
 });
 
@@ -49,6 +59,10 @@ describe("@gorhom/bottom-sheet under native engine", () => {
     expect(screen.getByTestId("sheet")).toBeTruthy();
     expect(screen.getByText("sheet content")).toBeTruthy();
   });
+
+  it("the constant enums are shadowed, not undefined", () => {
+    expect(SNAP_POINT_TYPE).toEqual({ PROVIDED: 0, DYNAMIC: 1 });
+  });
 });
 
 describe("react-native-keyboard-controller under native engine", () => {
@@ -64,5 +78,7 @@ describe("react-native-keyboard-controller under native engine", () => {
     expect(screen.getByText("typed")).toBeTruthy();
     expect(() => KeyboardController.dismiss()).not.toThrow();
     expect(KeyboardController.isVisible()).toBe(false);
+    expect(typeof KeyboardController.preload).toBe("function");
+    expect(typeof useKeyboardController).toBe("function");
   });
 });
