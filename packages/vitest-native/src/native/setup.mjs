@@ -6,6 +6,7 @@ import path from "node:path";
 import { expect, vi } from "vitest";
 import { installGlobals } from "./globals.mjs";
 import { installRequireHooks } from "./hooks.mjs";
+import { enableV8CompileCache } from "./compile-cache.mjs";
 import * as presetFactories from "../presets.mjs";
 import { animatedMatchers } from "../matchers.mjs";
 import { serializer as rnSerializer } from "../serializer.mjs";
@@ -95,6 +96,10 @@ for (const name of presetNames) {
   }
 }
 
+// Enable the V8 compile cache before RN is compiled (it loads when the test file
+// imports react-native, after this setup runs) so its bytecode is cached to disk
+// and reused on the next file/worker/run. Covers the stock (non-hot) path.
+enableV8CompileCache();
 installGlobals();
 // RNTL 13+ auto-registers matchers through the global expect when imported.
 // Expose Vitest's expect only when the consumer has not enabled globals.
