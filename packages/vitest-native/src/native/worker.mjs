@@ -16,6 +16,7 @@ import { init, runBaseTests, setupEnvironment } from "vitest/worker";
 import { installGlobals } from "./globals.mjs";
 import { installRequireHooks } from "./hooks.mjs";
 import { installHotReset } from "./reset.mjs";
+import { enableV8CompileCache } from "./compile-cache.mjs";
 
 if (isMainThread || !parentPort) {
   throw new Error("[vitest-native] hot worker entry must run in node:worker_threads");
@@ -52,6 +53,9 @@ if (diagnostics) {
 // guarded; doing them at boot lets RN preload BEFORE the globals baseline and
 // listener tracking in reset.mjs, so RN's own boot state is preserved across
 // per-file resets rather than wrongly torn down with test pollution.
+// Enable the V8 compile cache before any RN module compiles, so the resident
+// graph's bytecode is cached to disk for the next worker/run.
+enableV8CompileCache();
 installGlobals();
 installRequireHooks(projectRoot, transformPkgs, platform, reactNativeVersion, assetExts);
 try {
