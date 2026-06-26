@@ -403,7 +403,7 @@ bun run --filter vitest-native test
 
 ## Contributors
 
-Thanks to everyone who has contributed 💙
+Thanks to everyone who has contributed.
 
 [<img src="https://github.com/danfry1.png?size=80" width="56" height="56" alt="@danfry1" />](https://github.com/danfry1)
 [<img src="https://github.com/jakeboone02.png?size=80" width="56" height="56" alt="@jakeboone02" />](https://github.com/jakeboone02)
