@@ -238,6 +238,27 @@ describe("plugin engine routing", () => {
     expect(plugin.resolveId("react-native", undefined)).toBeUndefined();
   });
 
+  it("externalizes RN only under node_modules, not a project named react-native", async () => {
+    const plugin = reactNative({ engine: "native" }) as any;
+    const cfg = await plugin.config({ root: projectRoot }, SERVE_ENV);
+    const external: RegExp[] = cfg.test.server.deps.external;
+    const matches = (p: string) => external.some((re) => re instanceof RegExp && re.test(p));
+
+    // A repo literally named `react-native` (e.g. checked out at
+    // /home/runner/work/react-native/react-native/ in CI): test files must NOT be
+    // externalized, otherwise `.tsx` is sent raw to Node and vi.mock() stops hoisting.
+    expect(matches("/home/runner/work/react-native/react-native/__tests__/foo.test.tsx")).toBe(
+      false,
+    );
+    // Real RN (and @react-native/* scoped packages), including pnpm-nested layouts,
+    // must still be externalized.
+    expect(matches("/proj/node_modules/react-native/index.js")).toBe(true);
+    expect(matches("/proj/node_modules/@react-native/assets-registry/registry.js")).toBe(true);
+    expect(
+      matches("/proj/node_modules/.pnpm/react-native@0.81.0/node_modules/react-native/index.js"),
+    ).toBe(true);
+  });
+
   it("rejects mock-only top-level overrides when native is selected", async () => {
     const plugin = reactNative({
       engine: "native",
