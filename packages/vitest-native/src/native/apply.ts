@@ -67,7 +67,11 @@ export function nativeEngineConfig(
         : { pool: "threads" as const }),
       server: {
         deps: {
-          external: [/[\\/]node_modules[\\/]react-native[\\/]/, /[\\/]node_modules[\\/]@react-native[\\/]/, ...extraExternal],
+          external: [
+            /[\\/]node_modules[\\/]react-native[\\/]/,
+            /[\\/]node_modules[\\/]@react-native[\\/]/,
+            ...extraExternal,
+          ],
         },
       },
     },
