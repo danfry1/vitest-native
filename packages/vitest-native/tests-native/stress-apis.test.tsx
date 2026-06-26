@@ -125,7 +125,7 @@ describe("native engine: component depth", () => {
       }, []);
       return <TextInput ref={ref} testID="ti" />;
     }
-    await expect(render(<Field />)).resolves.toBeDefined();
+    expect(await render(<Field />)).toBeDefined();
   });
 });
 
