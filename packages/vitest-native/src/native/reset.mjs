@@ -116,7 +116,9 @@ export function makeRntlDrain(req, diagnostics = false) {
       cleanup();
     } catch (e) {
       if (diagnostics) {
-        console.log(`[vitest-native] (native) RNTL cleanup() threw during hot drain: ${e?.message}`);
+        console.log(
+          `[vitest-native] (native) RNTL cleanup() threw during hot drain: ${e?.message}`,
+        );
       }
     }
   };
