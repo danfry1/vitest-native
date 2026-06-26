@@ -96,21 +96,29 @@ class NativePoolWorker extends ThreadsPoolWorker {
   }
 
   override send(message: WorkerRequest): void {
-    // A single run message can carry a batch of files. Vitest only calls
-    // canReuse between scheduler tasks, so a multi-file task cannot be retired
-    // in the middle even if it crosses a configured threshold.
+    // A single run message can carry a batch of files. Vitest only consults
+    // canReuse BETWEEN scheduler tasks, so a multi-file task cannot be retired
+    // mid-batch even if it crosses a configured threshold. Vitest batches every
+    // file into ONE task precisely when isolate:false + maxWorkers===1 (its
+    // groupSpecs), which is the hot runtime's single-worker mode — so there a
+    // recycle limit can never fire. This is NOT a diagnostics-only detail: a user
+    // who set memoryLimit/recycleAfterFiles expecting a memory bound has none,
+    // silently. Warn unconditionally (once) so the false sense of safety is
+    // visible, with the concrete fix (run >1 worker → per-file tasks → recycling).
     if (message.type === "run" || message.type === "collect") {
       if (
-        this.diagnostics &&
         !this.batchWarningShown &&
         message.context.files.length > 1 &&
         (this.recycleAfterFiles > 0 || this.memoryLimit > 0)
       ) {
         this.batchWarningShown = true;
         console.warn(
-          `[vitest-native] hot worker received a ${message.context.files.length}-file Vitest task; ` +
-            `recycling thresholds apply after the task completes. Use more than one worker ` +
-            `when strict per-file retirement is required.`,
+          `[vitest-native] hotRuntime recycling (memoryLimit/recycleAfterFiles) is INACTIVE ` +
+            `here: Vitest batched ${message.context.files.length} files into one task, which ` +
+            `happens in single-worker mode (maxWorkers: 1) — so a worker can never be retired ` +
+            `between files and the memory bound cannot be enforced. Run with maxWorkers >= 2 ` +
+            `(or remove maxWorkers/fileParallelism: false) so each file is its own task and ` +
+            `recycling can fire.`,
         );
       }
       this.filesRun += message.context.files.length;

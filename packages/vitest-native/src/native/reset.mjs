@@ -51,6 +51,39 @@ const ENV_PRESERVED = new Set(["VITEST_POOL_ID", "VITEST_WORKER_ID"]);
 const RESET_FILE = fileURLToPath(import.meta.url).replaceAll("\\", "/");
 const DEFAULT_PRESERVED_GLOBALS = ["__STORYBOOK_ADDONS_PREVIEW"];
 
+/**
+ * Build a per-file drain for the resident RNTL's mounted-tree registry (its
+ * module-level cleanupQueue). `req` is a Node require created from the project
+ * root. Returns a function that, each call, reads RNTL's `cleanup` straight from
+ * the require cache and runs it — bounding the tree accumulation described at the
+ * call site in hotReset.
+ *
+ * SAFETY CONTRACT (the reason this is a standalone, unit-tested helper): it only
+ * ever acts on an ALREADY-resident instance read from `req.cache`, and NEVER
+ * force-loads RNTL. Loading a second RNTL instance into this realm corrupts
+ * rendering when the consumer INLINES RNTL in the module-runner graph (the fresh
+ * module-init reconfigures the shared act environment — found via the Rocket.Chat
+ * bake-off). When RNTL is inlined it lives in Vitest's module runner, not the
+ * Node require cache, so the lookup misses and this is a guaranteed no-op there;
+ * it does real work only in the externalized/resident case, which is the one
+ * that actually leaks. Resolution is side-effect-free; every step is guarded.
+ */
+export function makeRntlDrain(req) {
+  let entry = null;
+  try {
+    entry = req.resolve("@testing-library/react-native");
+  } catch {}
+  return function rntlCleanup() {
+    if (!entry) return;
+    const cleanup = req.cache?.[entry]?.exports?.cleanup;
+    if (typeof cleanup === "function") {
+      try {
+        cleanup();
+      } catch {}
+    }
+  };
+}
+
 function isResidentImportListener(stack, projectRoot) {
   const root = projectRoot.replaceAll("\\", "/").replace(/\/$/, "");
   let sawExternalFrame = false;
@@ -82,6 +115,9 @@ export function installHotReset({ projectRoot, diagnostics, preserveGlobals = []
   const req = createRequire(path.join(projectRoot, "package.json"));
   const RN = req("react-native");
   const explicitlyPreserved = new Set([...DEFAULT_PRESERVED_GLOBALS, ...preserveGlobals]);
+
+  // Per-file drain for the resident RNTL tree registry (see makeRntlDrain).
+  const rntlCleanup = makeRntlDrain(req);
 
   // --- (1) Track listeners added to the RCTDeviceEventEmitter singleton ---
   const tracked = new Map();
@@ -146,6 +182,10 @@ export function installHotReset({ projectRoot, diagnostics, preserveGlobals = []
     // use. Loading RNTL through Node from here created a second instance whose
     // act/auto-cleanup machinery corrupted rendering for every later file
     // when the consumer's graph inlines RNTL (found via Rocket.Chat).
+
+    // Drain the previous file's resident RNTL trees (memory bound; see
+    // rntlCleanup). Safe value-style op, no attribution needed.
+    rntlCleanup();
 
     // (2) Restore mutable resident RN state (value-restore, always safe).
     if (dims) {

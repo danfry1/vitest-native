@@ -399,3 +399,70 @@ describe("native globals: globalThis.expo shim", () => {
     expect(expo.getViewConfig()).toBeNull();
   });
 });
+
+// --- Hot runtime: resident-RNTL tree drain (makeRntlDrain) ---------------
+//
+// makeRntlDrain bounds the hot runtime's RNTL memory accumulation by re-running
+// RNTL's own cleanup() per file. Its safety contract is the load-bearing part:
+// it must act ONLY on an already-resident RNTL read from the require cache and
+// must NEVER force-load a second instance (which corrupts rendering when the
+// consumer inlines RNTL). These tests pin both the behavior and the contract
+// with a synthetic `req`, so they need neither React Native nor a renderer.
+describe("makeRntlDrain (hot-runtime RNTL tree drain)", () => {
+  // @ts-expect-error — runtime .mjs, no types
+  const importDrain = () => import("../src/native/reset.mjs");
+  const ENTRY = "/fake/node_modules/@testing-library/react-native/index.js";
+
+  function fakeReq({ resolves = true, cached = true, cleanup = vi.fn() } = {}) {
+    const loaded: string[] = [];
+    const req: any = (id: string) => {
+      loaded.push(id);
+      return {};
+    };
+    req.resolve = () => {
+      if (!resolves) throw new Error("cannot resolve");
+      return ENTRY;
+    };
+    req.cache = cached ? { [ENTRY]: { exports: { cleanup } } } : {};
+    req.__loaded = loaded;
+    return { req, cleanup };
+  }
+
+  it("calls the resident RNTL cleanup read from the require cache", async () => {
+    const { makeRntlDrain } = await importDrain();
+    const { req, cleanup } = fakeReq();
+    const drain = makeRntlDrain(req);
+    drain();
+    drain();
+    expect(cleanup).toHaveBeenCalledTimes(2);
+  });
+
+  it("never force-loads RNTL — a non-resident instance is a silent no-op", async () => {
+    const { makeRntlDrain } = await importDrain();
+    // Resolvable (installed) but NOT in the require cache: the inlined-RNTL case.
+    const { req } = fakeReq({ cached: false });
+    const drain = makeRntlDrain(req);
+    expect(() => drain()).not.toThrow();
+    // The contract: it must not require()/load RNTL to obtain a cleanup fn.
+    expect(req.__loaded).toEqual([]);
+  });
+
+  it("is a no-op when RNTL is not installed (resolve throws)", async () => {
+    const { makeRntlDrain } = await importDrain();
+    const { req, cleanup } = fakeReq({ resolves: false });
+    const drain = makeRntlDrain(req);
+    expect(() => drain()).not.toThrow();
+    expect(cleanup).not.toHaveBeenCalled();
+  });
+
+  it("swallows errors thrown by RNTL cleanup (best-effort drain)", async () => {
+    const { makeRntlDrain } = await importDrain();
+    const throwing = vi.fn(() => {
+      throw new Error("cleanup boom");
+    });
+    const { req } = fakeReq({ cleanup: throwing });
+    const drain = makeRntlDrain(req);
+    expect(() => drain()).not.toThrow();
+    expect(throwing).toHaveBeenCalledTimes(1);
+  });
+});

@@ -88,16 +88,23 @@ function runVitest(label, configName) {
   return {
     bootCount: output.match(bootPattern)?.length ?? 0,
     durationMs: Math.round(performance.now() - startedAt),
+    output,
   };
 }
 
 try {
   const longDirectory = path.join(generatedRoot, "long");
   const recycleDirectory = path.join(generatedRoot, "recycle");
+  const inertDirectory = path.join(generatedRoot, "inert");
   writeTestFiles(longDirectory, 100, "long");
   writeTestFiles(recycleDirectory, 12, "recycle");
+  writeTestFiles(inertDirectory, 8, "inert");
   writeConfig("long.config.mts", "long", true, 1);
   writeConfig("recycle.config.mts", "recycle", { memoryLimit: 1 }, 2);
+  // Single worker (maxWorkers: 1) WITH a recycle limit set: Vitest batches all
+  // files into one task, so the limit can never fire. The pool must warn that
+  // recycling is inactive rather than leave the user with a silent false bound.
+  writeConfig("inert.config.mts", "inert", { memoryLimit: 1 }, 1);
 
   const longRun = runVitest("hot-runtime longevity soak", "long.config.mts");
   if (longRun.bootCount !== 1) {
@@ -113,9 +120,23 @@ try {
     );
   }
 
+  const inertRun = runVitest("hot-runtime inert-recycle warning soak", "inert.config.mts");
+  if (inertRun.bootCount !== 1) {
+    throw new Error(
+      `inert-recycle soak expected one worker boot (single worker can't recycle), observed ${inertRun.bootCount}`,
+    );
+  }
+  if (!/hotRuntime recycling .* is INACTIVE/.test(inertRun.output)) {
+    throw new Error(
+      "inert-recycle soak expected a warning that recycling is INACTIVE under single-worker batching, " +
+        "but none was printed (the pool's false-safety warning regressed).",
+    );
+  }
+
   console.log(
     `\nHot-runtime soak passed: 100 files shared one worker in ${longRun.durationMs}ms; ` +
-      `memory recycling produced ${recycleRun.bootCount} worker boots in ${recycleRun.durationMs}ms.`,
+      `memory recycling produced ${recycleRun.bootCount} worker boots in ${recycleRun.durationMs}ms; ` +
+      `single-worker recycle limit warned as inactive.`,
   );
 } finally {
   fs.rmSync(generatedRoot, { force: true, recursive: true });

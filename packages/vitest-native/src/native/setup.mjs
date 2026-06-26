@@ -24,15 +24,13 @@ if (globalThis.__vitest_native_hot_reset) {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
-  // NOTE on RNTL trees: when RNTL is inlined in the consumer graph it
-  // re-evaluates per file (fresh registry + fresh auto-cleanup) and needs no
-  // help. When RNTL is externalized/resident, trees from earlier files can
-  // stay mounted (auto-cleanup's afterEach only registers in the first file) —
-  // a memory accumulation, bounded by worker recycling, NOT a correctness
-  // leak (each file renders into fresh roots; cross-file listeners are removed
-  // by the reset below). Do NOT "fix" this by importing RNTL here or via Node
-  // require — both create instance/evaluation-order hazards that corrupt
-  // rendering (found via Rocket.Chat).
+  // hotReset also drains the resident RNTL tree registry for the previous file
+  // (see reset.mjs): when RNTL is externalized/resident — the native-engine
+  // default — it loads once, so its auto-cleanup afterEach only registered
+  // during the first file and later files' rendered trees would otherwise stay
+  // mounted forever. That is a memory accumulation, NOT a correctness leak (each
+  // file renders into fresh roots; cross-file listeners are removed by the reset
+  // below).
   globalThis.__vitest_native_hot_reset();
 }
 
