@@ -18,12 +18,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # RNTL 14 (the lockfile version) requires Node >=22.13, so the Node 20 leg
-        # doubles as the lower-bound back-compat corner: it pins RNTL 13 — the version
-        # Node 20 users run — to prove the supported peer range (>=12 <15) and the
-        # Node floor both still hold. The hot runtime and cross-check are calibrated
-        # on the current RNTL and run only on the RNTL 14 legs (see step `if`s).
+        # RNTL 14 (the lockfile version) requires Node >=22.13, so the Node 20 legs
+        # double as the lower-bound back-compat corners: they pin RNTL 12 and 13 — the
+        # versions Node 20 users run — to prove the full supported peer range (>=12
+        # <15) and the Node floor on every push. The hot runtime and cross-check are
+        # calibrated on the current RNTL and run only on the RNTL 14 legs (step `if`s).
         include:
+          - os: ubuntu-latest
+            node-version: 20.19.4
+            rntl: '12'
           - os: ubuntu-latest
             node-version: 20.19.4
             rntl: '13'
