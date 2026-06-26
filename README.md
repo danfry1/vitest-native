@@ -401,6 +401,12 @@ bun run --filter vitest-native build
 bun run --filter vitest-native test
 ```
 
+## Contributors
+
+Thanks to everyone who has contributed 💙
+
+[![Contributors](https://contrib.rocks/image?repo=danfry1/vitest-native)](https://github.com/danfry1/vitest-native/graphs/contributors)
+
 ## License
 
 MIT
