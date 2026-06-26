@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react-native";
 import { View, Text, Pressable, TextInput } from "react-native";
+import { rntlMajor } from "../tests/support/rntl";
 
 function Counter() {
   const [n, setN] = React.useState(0);
@@ -47,8 +48,9 @@ describe("RNTL under native engine", () => {
     );
     // getByText flattens across the nested <Text> (RCTText + RCTVirtualText).
     expect(screen.getByText("Hello World")).toBeTruthy();
-    // The nested fragment is independently matchable too.
-    expect(screen.getByText("World")).toBeTruthy();
+    // RNTL >=14 exposes the nested fragment as an independently matchable text host;
+    // 12/13's react-test-renderer flattens it into the parent, so gate this.
+    if (rntlMajor >= 14) expect(screen.getByText("World")).toBeTruthy();
   });
 
   it("renders deeply nested <Text> without crashing", async () => {

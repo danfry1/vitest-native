@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react-native";
+import { rntlMajor } from "./support/rntl";
 import {
   View,
   Text,
@@ -81,7 +82,8 @@ describe("Component rendering", () => {
     const onPress = vi.fn();
     await render(<Button testID="disabled-btn" title="Nope" onPress={onPress} disabled />);
     await fireEvent.press(screen.getByTestId("disabled-btn"));
-    expect(onPress).not.toHaveBeenCalled();
+    // RNTL >=14 made fireEvent.press disabled-aware; 12/13 fire regardless.
+    if (rntlMajor >= 14) expect(onPress).not.toHaveBeenCalled();
   });
 
   it("Button has accessibility props on the pressable element", async () => {
@@ -100,7 +102,8 @@ describe("Component rendering", () => {
       </Pressable>,
     );
     await fireEvent.press(screen.getByTestId("disabled-pressable"));
-    expect(onPress).not.toHaveBeenCalled();
+    // RNTL >=14 made fireEvent.press disabled-aware; 12/13 fire regardless.
+    if (rntlMajor >= 14) expect(onPress).not.toHaveBeenCalled();
   });
 
   it("TouchableOpacity does not fire onPress when disabled", async () => {
@@ -111,7 +114,8 @@ describe("Component rendering", () => {
       </TouchableOpacity>,
     );
     await fireEvent.press(screen.getByTestId("disabled-to"));
-    expect(onPress).not.toHaveBeenCalled();
+    // RNTL >=14 made fireEvent.press disabled-aware; 12/13 fire regardless.
+    if (rntlMajor >= 14) expect(onPress).not.toHaveBeenCalled();
   });
 
   it("TouchableHighlight does not fire onPress when disabled", async () => {
@@ -122,7 +126,8 @@ describe("Component rendering", () => {
       </TouchableHighlight>,
     );
     await fireEvent.press(screen.getByTestId("disabled-th"));
-    expect(onPress).not.toHaveBeenCalled();
+    // RNTL >=14 made fireEvent.press disabled-aware; 12/13 fire regardless.
+    if (rntlMajor >= 14) expect(onPress).not.toHaveBeenCalled();
   });
 
   it("TouchableWithoutFeedback does not fire onPress when disabled", async () => {
@@ -133,7 +138,8 @@ describe("Component rendering", () => {
       </TouchableWithoutFeedback>,
     );
     await fireEvent.press(screen.getByTestId("disabled-twf"));
-    expect(onPress).not.toHaveBeenCalled();
+    // RNTL >=14 made fireEvent.press disabled-aware; 12/13 fire regardless.
+    if (rntlMajor >= 14) expect(onPress).not.toHaveBeenCalled();
   });
 
   it("TouchableNativeFeedback does not fire onPress when disabled", async () => {
@@ -144,6 +150,7 @@ describe("Component rendering", () => {
       </TouchableNativeFeedback>,
     );
     await fireEvent.press(screen.getByTestId("disabled-tnf"));
-    expect(onPress).not.toHaveBeenCalled();
+    // RNTL >=14 made fireEvent.press disabled-aware; 12/13 fire regardless.
+    if (rntlMajor >= 14) expect(onPress).not.toHaveBeenCalled();
   });
 });
