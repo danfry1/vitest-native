@@ -33,4 +33,30 @@ describe("RNTL under native engine", () => {
     await fireEvent.changeText(screen.getByPlaceholderText("name"), "hello");
     expect(onChange).toHaveBeenCalledWith("hello");
   });
+
+  // Real RN renders a nested <Text> as the host "RCTVirtualText". Under RNTL 14
+  // (test-renderer) a string child must live under a registered text host, so
+  // nested/composite text would crash ("Text strings must be rendered within a
+  // <Text> component") unless RCTVirtualText is registered as a text host. See the
+  // native setup. This is the case jest's flat "Text" mock never exercises.
+  it("renders nested <Text> and matches composite text", async () => {
+    await render(
+      <Text testID="outer">
+        Hello <Text>World</Text>
+      </Text>,
+    );
+    // getByText flattens across the nested <Text> (RCTText + RCTVirtualText).
+    expect(screen.getByText("Hello World")).toBeTruthy();
+    // The nested fragment is independently matchable too.
+    expect(screen.getByText("World")).toBeTruthy();
+  });
+
+  it("renders deeply nested <Text> without crashing", async () => {
+    await render(
+      <Text>
+        a<Text>b<Text>c</Text></Text>
+      </Text>,
+    );
+    expect(screen.getByText("abc")).toBeTruthy();
+  });
 });
