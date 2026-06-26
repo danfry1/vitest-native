@@ -4,9 +4,9 @@ import TestRenderer, { act } from "react-test-renderer";
 import { View, Text, StyleSheet, Platform, Animated, FlatList } from "react-native";
 
 describe("engine:native runs REAL react-native", () => {
-  it("renders the authentic RCT host tree with real Text props", () => {
+  it("renders the authentic RCT host tree with real Text props", async () => {
     let tree: any;
-    act(() => {
+    await act(() => {
       tree = TestRenderer.create(
         React.createElement(View, null, React.createElement(Text, null, "hello")),
       );
@@ -32,9 +32,9 @@ describe("engine:native runs REAL react-native", () => {
     expect(i.__getValue()).toBe(50);
   });
 
-  it("renders a real FlatList", () => {
+  it("renders a real FlatList", async () => {
     let tree: any;
-    act(() => {
+    await act(() => {
       tree = TestRenderer.create(
         React.createElement(FlatList, {
           data: [{ k: "a" }, { k: "b" }],

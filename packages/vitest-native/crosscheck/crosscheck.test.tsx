@@ -53,18 +53,18 @@ function probe(name: string, run: () => unknown | Promise<unknown>) {
 }
 
 // --- queries ---
-probe("text-renders", () => {
-  render(<Text>cross-check</Text>);
+probe("text-renders", async () => {
+  await render(<Text>cross-check</Text>);
   return { found: !!screen.queryByText("cross-check") };
 });
 
-probe("testid-query", () => {
-  render(<View testID="box" />);
+probe("testid-query", async () => {
+  await render(<View testID="box" />);
   return { found: !!screen.queryByTestId("box") };
 });
 
-probe("nested-text", () => {
-  render(
+probe("nested-text", async () => {
+  await render(
     <View>
       <Text>alpha</Text>
       <Text>beta</Text>
@@ -73,13 +73,13 @@ probe("nested-text", () => {
   return { alpha: !!screen.queryByText("alpha"), beta: !!screen.queryByText("beta") };
 });
 
-probe("placeholder-query", () => {
-  render(<TextInput placeholder="your name" />);
+probe("placeholder-query", async () => {
+  await render(<TextInput placeholder="your name" />);
   return { found: !!screen.queryByPlaceholderText("your name") };
 });
 
-probe("button-renders-title", () => {
-  render(<Button title="Submit" onPress={() => {}} />);
+probe("button-renders-title", async () => {
+  await render(<Button title="Submit" onPress={() => {}} />);
   return { found: !!screen.queryByText("Submit") };
 });
 
@@ -91,7 +91,7 @@ probe("button-renders-title", () => {
 probe("pressable-fires-onpress", async () => {
   let calls = 0;
   const user = userEvent.setup();
-  render(
+  await render(
     <Pressable testID="p" onPress={() => (calls += 1)}>
       <Text>tap</Text>
     </Pressable>,
@@ -103,7 +103,7 @@ probe("pressable-fires-onpress", async () => {
 probe("pressable-disabled-suppresses-press", async () => {
   let calls = 0;
   const user = userEvent.setup();
-  render(
+  await render(
     <Pressable testID="p" disabled onPress={() => (calls += 1)}>
       <Text>tap</Text>
     </Pressable>,
@@ -116,7 +116,7 @@ probe("pressable-disabled-suppresses-press", async () => {
 probe("touchable-opacity-onpress", async () => {
   let calls = 0;
   const user = userEvent.setup();
-  render(
+  await render(
     <TouchableOpacity testID="t" onPress={() => (calls += 1)}>
       <Text>tap</Text>
     </TouchableOpacity>,
@@ -128,7 +128,7 @@ probe("touchable-opacity-onpress", async () => {
 probe("touchable-highlight-onpress", async () => {
   let calls = 0;
   const user = userEvent.setup();
-  render(
+  await render(
     <TouchableHighlight testID="t" onPress={() => (calls += 1)}>
       <Text>tap</Text>
     </TouchableHighlight>,
@@ -140,7 +140,7 @@ probe("touchable-highlight-onpress", async () => {
 probe("touchable-without-feedback-onpress", async () => {
   let calls = 0;
   const user = userEvent.setup();
-  render(
+  await render(
     <TouchableWithoutFeedback testID="t" onPress={() => (calls += 1)}>
       <View>
         <Text>tap</Text>
@@ -151,10 +151,10 @@ probe("touchable-without-feedback-onpress", async () => {
   return { calls };
 });
 
-probe("textinput-onchangetext", () => {
+probe("textinput-onchangetext", async () => {
   let value = "";
-  render(<TextInput testID="i" onChangeText={(t) => (value = t)} />);
-  fireEvent.changeText(screen.getByTestId("i"), "typed");
+  await render(<TextInput testID="i" onChangeText={(t) => (value = t)} />);
+  await fireEvent.changeText(screen.getByTestId("i"), "typed");
   return { value };
 });
 
@@ -162,7 +162,7 @@ probe("textinput-usertype", async () => {
   let calls = 0;
   let value = "";
   const user = userEvent.setup();
-  render(
+  await render(
     <TextInput
       testID="i"
       onChangeText={(t) => {
@@ -178,28 +178,28 @@ probe("textinput-usertype", async () => {
   return { calls, value };
 });
 
-probe("textinput-displayvalue", () => {
-  render(<TextInput value="preset" onChangeText={() => {}} />);
+probe("textinput-displayvalue", async () => {
+  await render(<TextInput value="preset" onChangeText={() => {}} />);
   return { found: !!screen.queryByDisplayValue("preset") };
 });
 
 probe("button-userpress", async () => {
   let calls = 0;
   const user = userEvent.setup();
-  render(<Button title="Go" onPress={() => (calls += 1)} />);
+  await render(<Button title="Go" onPress={() => (calls += 1)} />);
   await user.press(screen.getByText("Go"));
   return { calls };
 });
 
 // --- more components ---
-probe("switch-render", () => {
-  render(<Switch testID="sw" value onValueChange={() => {}} />);
+probe("switch-render", async () => {
+  await render(<Switch testID="sw" value onValueChange={() => {}} />);
   const el = screen.getByTestId("sw");
   return { role: el.props.accessibilityRole, value: el.props.value };
 });
 
-probe("flatlist-renders-items", () => {
-  render(
+probe("flatlist-renders-items", async () => {
+  await render(
     <FlatList
       data={["a", "b", "c"]}
       keyExtractor={(item) => item}
@@ -213,32 +213,32 @@ probe("flatlist-renders-items", () => {
   };
 });
 
-probe("scrollview-fireevent-scroll", () => {
+probe("scrollview-fireevent-scroll", async () => {
   let y = -1;
-  render(
+  await render(
     <ScrollView testID="sv" onScroll={(e) => (y = e.nativeEvent.contentOffset.y)}>
       <Text>content</Text>
     </ScrollView>,
   );
-  fireEvent.scroll(screen.getByTestId("sv"), {
+  await fireEvent.scroll(screen.getByTestId("sv"), {
     nativeEvent: { contentOffset: { x: 0, y: 120 } },
   });
   return { y };
 });
 
-probe("modal-visible-children", () => {
+probe("modal-visible-children", async () => {
   // Probed by queryability (not toBeVisible — Modal's toBeVisible semantics are
   // RN/RNTL-version-quirky). A freshly-rendered visible Modal exposes its children;
   // a hidden one does not. Both engines must agree.
-  render(
+  await render(
     <Modal visible>
       <Text testID="mb">modal-body</Text>
     </Modal>,
   );
   const whenVisible = !!screen.queryByTestId("mb");
-  cleanup();
+  await cleanup();
 
-  render(
+  await render(
     <Modal visible={false}>
       <Text testID="mb">modal-body</Text>
     </Modal>,
@@ -253,23 +253,23 @@ probe("modal-visible-children", () => {
 // queryable, and that an Animated.Value drives a flattened style the same way under
 // both engines. Anything timer/RAF-driven (timing/spring over a duration) is left
 // out — it's nondeterministic across engines and belongs in the conformance suite.
-probe("animated-view-renders", () => {
-  render(<Animated.View testID="av" />);
+probe("animated-view-renders", async () => {
+  await render(<Animated.View testID="av" />);
   return { found: !!screen.queryByTestId("av") };
 });
 
-probe("animated-text-renders", () => {
-  render(<Animated.Text>animated-copy</Animated.Text>);
+probe("animated-text-renders", async () => {
+  await render(<Animated.Text>animated-copy</Animated.Text>);
   return { found: !!screen.queryByText("animated-copy") };
 });
 
-probe("animated-image-renders", () => {
-  render(<Animated.Image testID="ai" source={{ uri: "https://example.com/a.png" }} />);
+probe("animated-image-renders", async () => {
+  await render(<Animated.Image testID="ai" source={{ uri: "https://example.com/a.png" }} />);
   return { found: !!screen.queryByTestId("ai") };
 });
 
-probe("animated-scrollview-renders", () => {
-  render(
+probe("animated-scrollview-renders", async () => {
+  await render(
     <Animated.ScrollView testID="asv">
       <Text>scroll-body</Text>
     </Animated.ScrollView>,
@@ -277,22 +277,22 @@ probe("animated-scrollview-renders", () => {
   return { found: !!screen.queryByTestId("asv"), body: !!screen.queryByText("scroll-body") };
 });
 
-probe("animated-value-initial-style", () => {
+probe("animated-value-initial-style", async () => {
   // An Animated.Value at its initial value must resolve to that number in the
   // flattened style a test would assert against (toHaveStyle relies on this).
   const opacity = new Animated.Value(0.3);
-  render(<Animated.View testID="av" style={{ opacity }} />);
+  await render(<Animated.View testID="av" style={{ opacity }} />);
   return { hit: passes(() => expect(screen.getByTestId("av")).toHaveStyle({ opacity: 0.3 })) };
 });
 
 // --- accessibility props (what RNTL byRole / toBeDisabled depend on) ---
-probe("a11y-role", () => {
-  render(<Pressable testID="p" accessibilityRole="button" />);
+probe("a11y-role", async () => {
+  await render(<Pressable testID="p" accessibilityRole="button" />);
   return { role: screen.getByTestId("p").props.accessibilityRole };
 });
 
-probe("a11y-state-disabled", () => {
-  render(<View testID="v" accessibilityState={{ disabled: true }} />);
+probe("a11y-state-disabled", async () => {
+  await render(<View testID="v" accessibilityState={{ disabled: true }} />);
   return { state: screen.getByTestId("v").props.accessibilityState };
 });
 
@@ -308,8 +308,8 @@ function passes(fn: () => void): boolean {
   }
 }
 
-probe("matcher-disabled-enabled", () => {
-  render(
+probe("matcher-disabled-enabled", async () => {
+  await render(
     <View>
       <Pressable testID="off" disabled>
         <Text>x</Text>
@@ -329,14 +329,14 @@ probe("matcher-disabled-enabled", () => {
   };
 });
 
-probe("matcher-checked-switch", () => {
-  render(<Switch testID="s" value onValueChange={() => {}} />);
+probe("matcher-checked-switch", async () => {
+  await render(<Switch testID="s" value onValueChange={() => {}} />);
   const el = screen.getByTestId("s");
   return { checked: passes(() => expect(el).toBeChecked()) };
 });
 
-probe("matcher-text-content", () => {
-  render(<Text testID="t">hello world</Text>);
+probe("matcher-text-content", async () => {
+  await render(<Text testID="t">hello world</Text>);
   const el = screen.getByTestId("t");
   return {
     full: passes(() => expect(el).toHaveTextContent("hello world")),
@@ -345,8 +345,8 @@ probe("matcher-text-content", () => {
   };
 });
 
-probe("matcher-style", () => {
-  render(<View testID="v" style={{ opacity: 0.5, marginTop: 8 }} />);
+probe("matcher-style", async () => {
+  await render(<View testID="v" style={{ opacity: 0.5, marginTop: 8 }} />);
   const el = screen.getByTestId("v");
   return {
     hit: passes(() => expect(el).toHaveStyle({ opacity: 0.5 })),
@@ -354,8 +354,8 @@ probe("matcher-style", () => {
   };
 });
 
-probe("matcher-display-value", () => {
-  render(<TextInput testID="i" value="preset" onChangeText={() => {}} />);
+probe("matcher-display-value", async () => {
+  await render(<TextInput testID="i" value="preset" onChangeText={() => {}} />);
   const el = screen.getByTestId("i");
   return {
     hit: passes(() => expect(el).toHaveDisplayValue("preset")),
@@ -363,15 +363,15 @@ probe("matcher-display-value", () => {
   };
 });
 
-probe("matcher-on-the-screen", () => {
-  render(<View testID="v" />);
+probe("matcher-on-the-screen", async () => {
+  await render(<View testID="v" />);
   const el = screen.getByTestId("v");
   return { onScreen: passes(() => expect(el).toBeOnTheScreen()) };
 });
 
 // --- accessibility queries (how tests find elements) ---
-probe("query-by-role", () => {
-  render(
+probe("query-by-role", async () => {
+  await render(
     <Pressable testID="p" accessibilityRole="button">
       <Text>Save</Text>
     </Pressable>,
@@ -379,24 +379,24 @@ probe("query-by-role", () => {
   return { found: !!screen.queryByRole("button") };
 });
 
-probe("query-by-role-name", () => {
-  render(<Pressable accessibilityRole="button" accessibilityLabel="Save" />);
+probe("query-by-role-name", async () => {
+  await render(<Pressable accessibilityRole="button" accessibilityLabel="Save" />);
   return {
     hit: !!screen.queryByRole("button", { name: "Save" }),
     miss: !!screen.queryByRole("button", { name: "Cancel" }),
   };
 });
 
-probe("query-by-label-text", () => {
-  render(<View testID="v" accessibilityLabel="Close dialog" />);
+probe("query-by-label-text", async () => {
+  await render(<View testID="v" accessibilityLabel="Close dialog" />);
   return {
     hit: !!screen.queryByLabelText("Close dialog"),
     miss: !!screen.queryByLabelText("Open dialog"),
   };
 });
 
-probe("query-all-by-text", () => {
-  render(
+probe("query-all-by-text", async () => {
+  await render(
     <View>
       <Text>row</Text>
       <Text>row</Text>
@@ -407,26 +407,26 @@ probe("query-all-by-text", () => {
 });
 
 // --- more events ---
-probe("textinput-focus-blur", () => {
+probe("textinput-focus-blur", async () => {
   let focus = 0;
   let blur = 0;
-  render(
+  await render(
     <TextInput testID="i" onFocus={() => (focus += 1)} onBlur={() => (blur += 1)} />,
   );
-  fireEvent(screen.getByTestId("i"), "focus");
-  fireEvent(screen.getByTestId("i"), "blur");
+  await fireEvent(screen.getByTestId("i"), "focus");
+  await fireEvent(screen.getByTestId("i"), "blur");
   return { focus, blur };
 });
 
-probe("view-onlayout", () => {
+probe("view-onlayout", async () => {
   let width = -1;
-  render(
+  await render(
     <View
       testID="v"
       onLayout={(e) => (width = e.nativeEvent.layout.width)}
     />,
   );
-  fireEvent(screen.getByTestId("v"), "layout", {
+  await fireEvent(screen.getByTestId("v"), "layout", {
     nativeEvent: { layout: { x: 0, y: 0, width: 320, height: 48 } },
   });
   return { width };
@@ -437,16 +437,16 @@ probe("view-onlayout", () => {
 //  version-dependent. The mock sets role "link" (matches RN 0.84), but real RN
 //  0.81–0.83 don't set it. A single mock value can't match every RN minor, so this
 //  default is a poor cross-version invariant — surfaced by the RN-matrix cross-check.)
-probe("image-render", () => {
-  render(<Image testID="img" source={{ uri: "https://example.com/x.png" }} accessibilityLabel="pic" />);
+probe("image-render", async () => {
+  await render(<Image testID="img" source={{ uri: "https://example.com/x.png" }} accessibilityLabel="pic" />);
   return {
     found: !!screen.queryByTestId("img"),
     byLabel: !!screen.queryByLabelText("pic"),
   };
 });
 
-probe("sectionlist-render", () => {
-  render(
+probe("sectionlist-render", async () => {
+  await render(
     <SectionList
       sections={[
         { title: "A", data: ["a1", "a2"] },
@@ -469,15 +469,15 @@ probe("sectionlist-render", () => {
 //  carries onValueChange directly on the host so `fireEvent(sw,'valueChange',v)`
 //  fires it, whereas real RN routes value changes through the native 'change' event.
 //  Same class as the Pressable fireEvent.press finding; tracked separately.)
-probe("controlled-textinput-rerender", () => {
-  const { rerender } = render(<TextInput testID="i" value="a" onChangeText={() => {}} />);
+probe("controlled-textinput-rerender", async () => {
+  const { rerender } = await render(<TextInput testID="i" value="a" onChangeText={() => {}} />);
   const before = !!screen.queryByDisplayValue("a");
-  rerender(<TextInput testID="i" value="ab" onChangeText={() => {}} />);
+  await rerender(<TextInput testID="i" value="ab" onChangeText={() => {}} />);
   return { before, after: !!screen.queryByDisplayValue("ab") };
 });
 
-probe("query-by-hint-text", () => {
-  render(<View testID="v" accessibilityHint="Double tap to open" />);
+probe("query-by-hint-text", async () => {
+  await render(<View testID="v" accessibilityHint="Double tap to open" />);
   return { found: !!screen.queryByHintText("Double tap to open") };
 });
 
@@ -512,13 +512,13 @@ probe("stylesheet-create-identity", () => {
 });
 
 // --- more components ---
-probe("activityindicator-renders", () => {
-  render(<ActivityIndicator testID="spin" />);
+probe("activityindicator-renders", async () => {
+  await render(<ActivityIndicator testID="spin" />);
   return { found: !!screen.queryByTestId("spin") };
 });
 
-probe("keyboardavoidingview-children", () => {
-  render(
+probe("keyboardavoidingview-children", async () => {
+  await render(
     <KeyboardAvoidingView testID="kav">
       <Text>kav-body</Text>
     </KeyboardAvoidingView>,
@@ -527,9 +527,9 @@ probe("keyboardavoidingview-children", () => {
 });
 
 // --- composite / nested text matching (a core RNTL behavior tests rely on) ---
-probe("composite-text-match", () => {
+probe("composite-text-match", async () => {
   // getByText must match across nested <Text> as one string ("Hello World").
-  render(
+  await render(
     <Text testID="t">
       Hello <Text>World</Text>
     </Text>,
@@ -541,14 +541,14 @@ probe("composite-text-match", () => {
   };
 });
 
-probe("query-by-text-regex", () => {
-  render(<Text>Order #4815162342</Text>);
+probe("query-by-text-regex", async () => {
+  await render(<Text>Order #4815162342</Text>);
   return { found: !!screen.queryByText(/Order #\d+/) };
 });
 
 // --- within() scoping (scoped queries inside a subtree) ---
-probe("within-scoping", () => {
-  render(
+probe("within-scoping", async () => {
+  await render(
     <View>
       <View testID="header">
         <Text>Title</Text>
@@ -565,8 +565,8 @@ probe("within-scoping", () => {
   };
 });
 
-probe("get-all-by-role-count", () => {
-  render(
+probe("get-all-by-role-count", async () => {
+  await render(
     <View>
       <Pressable accessibilityRole="button">
         <Text>One</Text>
@@ -580,8 +580,8 @@ probe("get-all-by-role-count", () => {
 });
 
 // --- accessibility value (sliders / progress — toHaveAccessibilityValue) ---
-probe("accessibility-value", () => {
-  render(
+probe("accessibility-value", async () => {
+  await render(
     <View
       testID="slider"
       accessibilityRole="adjustable"
@@ -601,8 +601,8 @@ probe("accessibility-value", () => {
 });
 
 // --- toHaveProp (a generic matcher many suites use) ---
-probe("matcher-have-prop", () => {
-  render(<View testID="v" accessibilityLabel="hi" pointerEvents="none" />);
+probe("matcher-have-prop", async () => {
+  await render(<View testID="v" accessibilityLabel="hi" pointerEvents="none" />);
   const el = screen.getByTestId("v");
   return {
     label: passes(() => expect(el).toHaveProp("accessibilityLabel", "hi")),

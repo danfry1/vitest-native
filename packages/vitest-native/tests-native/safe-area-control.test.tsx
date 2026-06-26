@@ -17,9 +17,9 @@ afterEach(() => {
 });
 
 describe("native engine: setInsets drives the safe-area preset", () => {
-  it("returns the configured insets from useSafeAreaInsets()", () => {
+  it("returns the configured insets from useSafeAreaInsets()", async () => {
     setInsets({ top: 99, bottom: 7 });
-    render(
+    await render(
       <SafeAreaProvider>
         <Insets />
       </SafeAreaProvider>,

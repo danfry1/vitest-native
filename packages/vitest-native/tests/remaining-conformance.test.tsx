@@ -16,16 +16,18 @@ import { FlatList, Modal, TextInput, Text, View, Animated } from "react-native";
 // ---------------------------------------------------------------------------
 
 describe("FlatList (conformance)", () => {
-  it("renders all items", () => {
-    render(<FlatList data={["A", "B", "C"]} renderItem={({ item }: any) => <Text>{item}</Text>} />);
+  it("renders all items", async () => {
+    await render(
+      <FlatList data={["A", "B", "C"]} renderItem={({ item }: any) => <Text>{item}</Text>} />,
+    );
     expect(screen.getByText("A")).toBeTruthy();
     expect(screen.getByText("B")).toBeTruthy();
     expect(screen.getByText("C")).toBeTruthy();
   });
 
-  it("ItemSeparatorComponent appears between items only", () => {
+  it("ItemSeparatorComponent appears between items only", async () => {
     const Sep = () => <View testID="sep" />;
-    render(
+    await render(
       <FlatList
         data={["A", "B", "C"]}
         renderItem={({ item }: any) => <Text>{item}</Text>}
@@ -36,9 +38,9 @@ describe("FlatList (conformance)", () => {
     expect(screen.getAllByTestId("sep")).toHaveLength(2);
   });
 
-  it("no separators for single item", () => {
+  it("no separators for single item", async () => {
     const Sep = () => <View testID="sep" />;
-    render(
+    await render(
       <FlatList
         data={["Only"]}
         renderItem={({ item }: any) => <Text>{item}</Text>}
@@ -48,8 +50,8 @@ describe("FlatList (conformance)", () => {
     expect(screen.queryAllByTestId("sep")).toHaveLength(0);
   });
 
-  it("ListEmptyComponent renders for empty data", () => {
-    render(
+  it("ListEmptyComponent renders for empty data", async () => {
+    await render(
       <FlatList
         data={[]}
         renderItem={({ item }: any) => <Text>{item}</Text>}
@@ -59,8 +61,8 @@ describe("FlatList (conformance)", () => {
     expect(screen.getByTestId("empty")).toBeTruthy();
   });
 
-  it("ListEmptyComponent does not render when data exists", () => {
-    render(
+  it("ListEmptyComponent does not render when data exists", async () => {
+    await render(
       <FlatList
         data={["A"]}
         renderItem={({ item }: any) => <Text>{item}</Text>}
@@ -70,8 +72,8 @@ describe("FlatList (conformance)", () => {
     expect(screen.queryByTestId("empty")).toBeNull();
   });
 
-  it("ListHeaderComponent and ListFooterComponent render", () => {
-    render(
+  it("ListHeaderComponent and ListFooterComponent render", async () => {
+    await render(
       <FlatList
         data={["A"]}
         renderItem={({ item }: any) => <Text>{item}</Text>}
@@ -83,9 +85,9 @@ describe("FlatList (conformance)", () => {
     expect(screen.getByTestId("footer")).toBeTruthy();
   });
 
-  it("keyExtractor is called for each item", () => {
+  it("keyExtractor is called for each item", async () => {
     const keyExtractor = vi.fn((item: string) => `k-${item}`);
-    render(
+    await render(
       <FlatList
         data={["A", "B"]}
         renderItem={({ item }: any) => <Text>{item}</Text>}
@@ -96,9 +98,9 @@ describe("FlatList (conformance)", () => {
     expect(keyExtractor).toHaveBeenCalledWith("B", 1);
   });
 
-  it("renderItem receives item, index, and separators", () => {
+  it("renderItem receives item, index, and separators", async () => {
     const renderItem = vi.fn(({ item }: any) => <Text>{item}</Text>);
-    render(<FlatList data={["X"]} renderItem={renderItem} />);
+    await render(<FlatList data={["X"]} renderItem={renderItem} />);
     const call = renderItem.mock.calls[0][0];
     expect(call.item).toBe("X");
     expect(call.index).toBe(0);
@@ -108,9 +110,11 @@ describe("FlatList (conformance)", () => {
     expect(typeof call.separators.updateProps).toBe("function");
   });
 
-  it("ref methods are available", () => {
+  it("ref methods are available", async () => {
     const ref = createRef<any>();
-    render(<FlatList ref={ref} data={["A"]} renderItem={({ item }: any) => <Text>{item}</Text>} />);
+    await render(
+      <FlatList ref={ref} data={["A"]} renderItem={({ item }: any) => <Text>{item}</Text>} />,
+    );
     expect(typeof ref.current.scrollToEnd).toBe("function");
     expect(typeof ref.current.scrollToIndex).toBe("function");
     expect(typeof ref.current.scrollToItem).toBe("function");
@@ -119,8 +123,8 @@ describe("FlatList (conformance)", () => {
     expect(typeof ref.current.setNativeProps).toBe("function");
   });
 
-  it("handles null data gracefully", () => {
-    render(
+  it("handles null data gracefully", async () => {
+    await render(
       <FlatList
         data={null as any}
         renderItem={({ item }: any) => <Text>{item}</Text>}
@@ -136,8 +140,8 @@ describe("FlatList (conformance)", () => {
 // ---------------------------------------------------------------------------
 
 describe("Modal (conformance)", () => {
-  it("renders children when visible", () => {
-    render(
+  it("renders children when visible", async () => {
+    await render(
       <Modal visible={true}>
         <Text testID="content">Hello</Text>
       </Modal>,
@@ -145,8 +149,8 @@ describe("Modal (conformance)", () => {
     expect(screen.getByTestId("content")).toBeTruthy();
   });
 
-  it("does not render children when visible=false", () => {
-    render(
+  it("does not render children when visible=false", async () => {
+    await render(
       <Modal visible={false}>
         <Text testID="content">Hello</Text>
       </Modal>,
@@ -154,8 +158,8 @@ describe("Modal (conformance)", () => {
     expect(screen.queryByTestId("content")).toBeNull();
   });
 
-  it("defaults to visible when prop omitted", () => {
-    render(
+  it("defaults to visible when prop omitted", async () => {
+    await render(
       <Modal>
         <Text testID="content">Hello</Text>
       </Modal>,
@@ -163,8 +167,8 @@ describe("Modal (conformance)", () => {
     expect(screen.getByTestId("content")).toBeTruthy();
   });
 
-  it("passes additional props through", () => {
-    render(
+  it("passes additional props through", async () => {
+    await render(
       <Modal visible={true} testID="modal" animationType="slide">
         <Text>Content</Text>
       </Modal>,
@@ -178,33 +182,33 @@ describe("Modal (conformance)", () => {
 // ---------------------------------------------------------------------------
 
 describe("TextInput ref methods (conformance)", () => {
-  it("focus() is callable", () => {
+  it("focus() is callable", async () => {
     const ref = createRef<any>();
-    render(<TextInput ref={ref} testID="input" />);
+    await render(<TextInput ref={ref} testID="input" />);
     expect(() => ref.current.focus()).not.toThrow();
   });
 
-  it("blur() is callable", () => {
+  it("blur() is callable", async () => {
     const ref = createRef<any>();
-    render(<TextInput ref={ref} />);
+    await render(<TextInput ref={ref} />);
     expect(() => ref.current.blur()).not.toThrow();
   });
 
-  it("clear() is callable", () => {
+  it("clear() is callable", async () => {
     const ref = createRef<any>();
-    render(<TextInput ref={ref} />);
+    await render(<TextInput ref={ref} />);
     expect(() => ref.current.clear()).not.toThrow();
   });
 
-  it("isFocused() returns false by default", () => {
+  it("isFocused() returns false by default", async () => {
     const ref = createRef<any>();
-    render(<TextInput ref={ref} />);
+    await render(<TextInput ref={ref} />);
     expect(ref.current.isFocused()).toBe(false);
   });
 
-  it("setNativeProps() is callable", () => {
+  it("setNativeProps() is callable", async () => {
     const ref = createRef<any>();
-    render(<TextInput ref={ref} />);
+    await render(<TextInput ref={ref} />);
     expect(() => ref.current.setNativeProps({ text: "hello" })).not.toThrow();
   });
 });
@@ -214,13 +218,13 @@ describe("TextInput ref methods (conformance)", () => {
 // ---------------------------------------------------------------------------
 
 describe("Animated.createAnimatedComponent (conformance)", () => {
-  it("wraps a component and renders it", () => {
+  it("wraps a component and renders it", async () => {
     function MyComp(props: any) {
       return React.createElement("View", { testID: "inner", ...props });
     }
     MyComp.displayName = "MyComp";
     const AnimatedMyComp = Animated.createAnimatedComponent(MyComp);
-    render(React.createElement(AnimatedMyComp, { style: { opacity: 1 } }));
+    await render(React.createElement(AnimatedMyComp, { style: { opacity: 1 } }));
     expect(screen.getByTestId("inner")).toBeTruthy();
   });
 

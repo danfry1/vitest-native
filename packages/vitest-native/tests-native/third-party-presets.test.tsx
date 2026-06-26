@@ -26,8 +26,8 @@ import {
 } from "react-native-keyboard-controller";
 
 describe("@shopify/flash-list under native engine", () => {
-  it("renders each data row through renderItem (no native recycler loaded)", () => {
-    render(
+  it("renders each data row through renderItem (no native recycler loaded)", async () => {
+    await render(
       <FlashList
         testID="list"
         data={["one", "two", "three"]}
@@ -46,8 +46,8 @@ describe("@shopify/flash-list under native engine", () => {
 });
 
 describe("@gorhom/bottom-sheet under native engine", () => {
-  it("renders sheet content through real RN (collapsed sheet, content present)", () => {
-    render(
+  it("renders sheet content through real RN (collapsed sheet, content present)", async () => {
+    await render(
       <BottomSheetModalProvider>
         <BottomSheet>
           <BottomSheetView testID="sheet">
@@ -66,8 +66,8 @@ describe("@gorhom/bottom-sheet under native engine", () => {
 });
 
 describe("react-native-keyboard-controller under native engine", () => {
-  it("KeyboardProvider + KeyboardAvoidingView render children; KeyboardController is a no-op", () => {
-    render(
+  it("KeyboardProvider + KeyboardAvoidingView render children; KeyboardController is a no-op", async () => {
+    await render(
       <KeyboardProvider>
         <KeyboardAvoidingView testID="kav">
           <Text>typed</Text>

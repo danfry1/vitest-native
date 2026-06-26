@@ -3,9 +3,9 @@ import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import * as RN from "react-native";
 
-function renders(el: React.ReactElement) {
+async function renders(el: React.ReactElement) {
   let tree: any;
-  act(() => {
+  await act(() => {
     tree = TestRenderer.create(el);
   });
   return tree.toJSON();
@@ -61,7 +61,7 @@ describe("native engine: core component coverage matrix", () => {
       const warning =
         name === "SafeAreaView" ? vi.spyOn(console, "warn").mockImplementation(() => {}) : null;
       try {
-        expect(() => renders(make())).not.toThrow();
+        expect(async () => await renders(make())).not.toThrow();
       } finally {
         warning?.mockRestore();
       }

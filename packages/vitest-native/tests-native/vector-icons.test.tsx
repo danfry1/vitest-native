@@ -18,20 +18,20 @@ import { render, screen } from "@testing-library/react-native";
 import { MaterialIcons } from "@react-native-vector-icons/material-icons";
 
 describe("@react-native-vector-icons under native engine", () => {
-  it("renders an icon set without crashing on the native font loader", () => {
-    render(<MaterialIcons name="home" size={24} color="red" testID="home-icon" />);
+  it("renders an icon set without crashing on the native font loader", async () => {
+    await render(<MaterialIcons name="home" size={24} color="red" testID="home-icon" />);
     expect(screen.getByTestId("home-icon")).toBeTruthy();
   });
 
-  it("forwards size/color/style to the rendered host (queryable like real tests)", () => {
-    render(<MaterialIcons name="star" size={32} color="gold" testID="star-icon" />);
+  it("forwards size/color/style to the rendered host (queryable like real tests)", async () => {
+    await render(<MaterialIcons name="star" size={32} color="gold" testID="star-icon" />);
     const icon = screen.getByTestId("star-icon");
     // Flattened style carries the size/color the consumer passed.
     expect(icon).toHaveStyle({ fontSize: 32, color: "gold" });
   });
 
-  it("forwards onPress-related props (icon stays a usable element)", () => {
-    render(
+  it("forwards onPress-related props (icon stays a usable element)", async () => {
+    await render(
       <MaterialIcons name="settings" testID="settings-icon" accessibilityLabel="settings" />,
     );
     expect(screen.getByLabelText("settings")).toBeTruthy();

@@ -32,41 +32,41 @@ describe("Appearance → useColorScheme wiring (conformance)", () => {
     return <Text testID="scheme">{scheme}</Text>;
   }
 
-  it("useColorScheme reflects Appearance default", () => {
-    render(<ThemeDisplay />);
+  it("useColorScheme reflects Appearance default", async () => {
+    await render(<ThemeDisplay />);
     expect(screen.getByTestId("scheme").props.children).toBe("light");
     expect(Appearance.getColorScheme()).toBe("light");
   });
 
-  it("Appearance.setColorScheme propagates to useColorScheme", () => {
-    render(<ThemeDisplay />);
-    act(() => {
+  it("Appearance.setColorScheme propagates to useColorScheme", async () => {
+    await render(<ThemeDisplay />);
+    await act(() => {
       Appearance.setColorScheme("dark");
     });
     expect(screen.getByTestId("scheme").props.children).toBe("dark");
   });
 
-  it("Appearance.setColorScheme back to light propagates", () => {
-    render(<ThemeDisplay />);
-    act(() => {
+  it("Appearance.setColorScheme back to light propagates", async () => {
+    await render(<ThemeDisplay />);
+    await act(() => {
       Appearance.setColorScheme("dark");
     });
-    act(() => {
+    await act(() => {
       Appearance.setColorScheme("light");
     });
     expect(screen.getByTestId("scheme").props.children).toBe("light");
   });
 
-  it("Appearance change listeners still fire", () => {
+  it("Appearance change listeners still fire", async () => {
     const listener = vi.fn();
     Appearance.addChangeListener(listener);
-    act(() => {
+    await act(() => {
       Appearance.setColorScheme("dark");
     });
     expect(listener).toHaveBeenCalledWith({ colorScheme: "dark" });
   });
 
-  it("multiple components all update on scheme change", () => {
+  it("multiple components all update on scheme change", async () => {
     function ThemeA() {
       const s = useColorScheme();
       return <Text testID="a">{s}</Text>;
@@ -75,13 +75,13 @@ describe("Appearance → useColorScheme wiring (conformance)", () => {
       const s = useColorScheme();
       return <Text testID="b">{s}</Text>;
     }
-    render(
+    await render(
       <View>
         <ThemeA />
         <ThemeB />
       </View>,
     );
-    act(() => {
+    await act(() => {
       Appearance.setColorScheme("dark");
     });
     expect(screen.getByTestId("a").props.children).toBe("dark");
@@ -108,32 +108,32 @@ describe("Dimensions → useWindowDimensions wiring (conformance)", () => {
     );
   }
 
-  it("useWindowDimensions reflects Dimensions defaults", () => {
-    render(<DimensionsDisplay />);
+  it("useWindowDimensions reflects Dimensions defaults", async () => {
+    await render(<DimensionsDisplay />);
     expect(screen.getByTestId("w").props.children).toBe("390");
     expect(screen.getByTestId("h").props.children).toBe("844");
   });
 
-  it("Dimensions.set propagates to useWindowDimensions", () => {
-    render(<DimensionsDisplay />);
-    act(() => {
+  it("Dimensions.set propagates to useWindowDimensions", async () => {
+    await render(<DimensionsDisplay />);
+    await act(() => {
       Dimensions.set({ window: { width: 768, height: 1024 } });
     });
     expect(screen.getByTestId("w").props.children).toBe("768");
     expect(screen.getByTestId("h").props.children).toBe("1024");
   });
 
-  it("Dimensions change listeners still fire", () => {
+  it("Dimensions change listeners still fire", async () => {
     const listener = vi.fn();
     Dimensions.addEventListener("change", listener);
-    act(() => {
+    await act(() => {
       Dimensions.set({ window: { width: 500 } });
     });
     expect(listener).toHaveBeenCalledOnce();
   });
 
-  it("Dimensions.get reflects the updated values", () => {
-    act(() => {
+  it("Dimensions.get reflects the updated values", async () => {
+    await act(() => {
       Dimensions.set({ window: { width: 500, height: 600 } });
     });
     const win = Dimensions.get("window");
@@ -141,15 +141,15 @@ describe("Dimensions → useWindowDimensions wiring (conformance)", () => {
     expect(win.height).toBe(600);
   });
 
-  it("responsive component updates on dimension change", () => {
+  it("responsive component updates on dimension change", async () => {
     function ResponsiveLayout() {
       const { width } = useWindowDimensions();
       const layout = width >= 768 ? "tablet" : "phone";
       return <Text testID="layout">{layout}</Text>;
     }
-    render(<ResponsiveLayout />);
+    await render(<ResponsiveLayout />);
     expect(screen.getByTestId("layout").props.children).toBe("phone");
-    act(() => {
+    await act(() => {
       Dimensions.set({ window: { width: 1024, height: 768 } });
     });
     expect(screen.getByTestId("layout").props.children).toBe("tablet");

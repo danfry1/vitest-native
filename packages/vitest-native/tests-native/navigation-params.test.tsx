@@ -14,8 +14,8 @@ function RouteParamsProbe() {
 }
 
 describe("navigation preset defaultRouteParams", () => {
-  it("returns the configured params from useRoute() (across the worker boundary)", () => {
-    render(<RouteParamsProbe />);
+  it("returns the configured params from useRoute() (across the worker boundary)", async () => {
+    await render(<RouteParamsProbe />);
     expect(screen.getByText("id=42 mode=edit")).toBeTruthy();
   });
 });

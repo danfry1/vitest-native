@@ -65,8 +65,8 @@ import {
 // ---------------------------------------------------------------------------
 
 describe("Pressable (conformance)", () => {
-  it("renders with accessible={true} by default", () => {
-    render(
+  it("renders with accessible={true} by default", async () => {
+    await render(
       <Pressable testID="p">
         <Text>Hi</Text>
       </Pressable>,
@@ -74,8 +74,8 @@ describe("Pressable (conformance)", () => {
     expect(screen.getByTestId("p").props.accessible).toBe(true);
   });
 
-  it("disabled translates to accessibilityState.disabled", () => {
-    render(
+  it("disabled translates to accessibilityState.disabled", async () => {
+    await render(
       <Pressable testID="p" disabled>
         <Text>Hi</Text>
       </Pressable>,
@@ -83,8 +83,8 @@ describe("Pressable (conformance)", () => {
     expect(screen.getByTestId("p").props.accessibilityState).toEqual({ disabled: true });
   });
 
-  it("disabled merges with existing accessibilityState", () => {
-    render(
+  it("disabled merges with existing accessibilityState", async () => {
+    await render(
       <Pressable testID="p" disabled accessibilityState={{ checked: true }}>
         <Text>Hi</Text>
       </Pressable>,
@@ -94,8 +94,8 @@ describe("Pressable (conformance)", () => {
     expect(state.checked).toBe(true);
   });
 
-  it("passes accessibilityState through when not disabled", () => {
-    render(
+  it("passes accessibilityState through when not disabled", async () => {
+    await render(
       <Pressable testID="p" accessibilityState={{ checked: true }}>
         <Text>Hi</Text>
       </Pressable>,
@@ -109,28 +109,28 @@ describe("Pressable (conformance)", () => {
 // ---------------------------------------------------------------------------
 
 describe("Button (conformance)", () => {
-  it("renders with accessible={true}", () => {
-    render(<Button testID="b" title="OK" onPress={() => {}} />);
+  it("renders with accessible={true}", async () => {
+    await render(<Button testID="b" title="OK" onPress={() => {}} />);
     expect(screen.getByTestId("b").props.accessible).toBe(true);
   });
 
-  it("renders title as accessibilityLabel", () => {
-    render(<Button testID="b" title="Submit" onPress={() => {}} />);
+  it("renders title as accessibilityLabel", async () => {
+    await render(<Button testID="b" title="Submit" onPress={() => {}} />);
     expect(screen.getByTestId("b").props.accessibilityLabel).toBe("Submit");
   });
 
-  it("renders accessibilityRole=button", () => {
-    render(<Button testID="b" title="OK" onPress={() => {}} />);
+  it("renders accessibilityRole=button", async () => {
+    await render(<Button testID="b" title="OK" onPress={() => {}} />);
     expect(screen.getByTestId("b").props.accessibilityRole).toBe("button");
   });
 
-  it("disabled sets accessibilityState.disabled", () => {
-    render(<Button testID="b" title="OK" onPress={() => {}} disabled />);
+  it("disabled sets accessibilityState.disabled", async () => {
+    await render(<Button testID="b" title="OK" onPress={() => {}} disabled />);
     expect(screen.getByTestId("b").props.accessibilityState).toEqual({ disabled: true });
   });
 
-  it("disabled merges existing accessibilityState", () => {
-    render(
+  it("disabled merges existing accessibilityState", async () => {
+    await render(
       <Button
         testID="b"
         title="OK"
@@ -145,8 +145,8 @@ describe("Button (conformance)", () => {
     });
   });
 
-  it("visible={false} Modal hides Button", () => {
-    render(
+  it("visible={false} Modal hides Button", async () => {
+    await render(
       <Modal visible={false}>
         <Button testID="b" title="OK" onPress={() => {}} />
       </Modal>,
@@ -160,8 +160,8 @@ describe("Button (conformance)", () => {
 // ---------------------------------------------------------------------------
 
 describe("Modal (conformance)", () => {
-  it("renders children when visible", () => {
-    render(
+  it("renders children when visible", async () => {
+    await render(
       <Modal visible={true}>
         <View testID="inside" />
       </Modal>,
@@ -169,8 +169,8 @@ describe("Modal (conformance)", () => {
     expect(screen.getByTestId("inside")).toBeTruthy();
   });
 
-  it("returns null when visible={false}", () => {
-    render(
+  it("returns null when visible={false}", async () => {
+    await render(
       <Modal visible={false}>
         <View testID="inside" />
       </Modal>,
@@ -178,8 +178,8 @@ describe("Modal (conformance)", () => {
     expect(screen.queryByTestId("inside")).toBeNull();
   });
 
-  it("defaults to visible={true}", () => {
-    render(
+  it("defaults to visible={true}", async () => {
+    await render(
       <Modal>
         <View testID="inside" />
       </Modal>,
@@ -193,24 +193,24 @@ describe("Modal (conformance)", () => {
 // ---------------------------------------------------------------------------
 
 describe("TextInput (conformance)", () => {
-  it("exposes focus, blur, clear, isFocused as functions", () => {
+  it("exposes focus, blur, clear, isFocused as functions", async () => {
     const ref = createRef<any>();
-    render(<TextInput ref={ref} />);
+    await render(<TextInput ref={ref} />);
     expect(typeof ref.current.focus).toBe("function");
     expect(typeof ref.current.blur).toBe("function");
     expect(typeof ref.current.clear).toBe("function");
     expect(typeof ref.current.isFocused).toBe("function");
   });
 
-  it("isFocused returns a boolean", () => {
+  it("isFocused returns a boolean", async () => {
     const ref = createRef<any>();
-    render(<TextInput ref={ref} />);
+    await render(<TextInput ref={ref} />);
     expect(typeof ref.current.isFocused()).toBe("boolean");
   });
 
-  it("setNativeProps is available", () => {
+  it("setNativeProps is available", async () => {
     const ref = createRef<any>();
-    render(<TextInput ref={ref} />);
+    await render(<TextInput ref={ref} />);
     expect(typeof ref.current.setNativeProps).toBe("function");
   });
 });
@@ -220,8 +220,8 @@ describe("TextInput (conformance)", () => {
 // ---------------------------------------------------------------------------
 
 describe("ScrollView (conformance)", () => {
-  it("renders with the RNTL host type", () => {
-    const { toJSON } = render(
+  it("renders with the RNTL host type", async () => {
+    const { toJSON } = await render(
       <ScrollView testID="sv">
         <Text>Child</Text>
       </ScrollView>,
@@ -229,46 +229,46 @@ describe("ScrollView (conformance)", () => {
     expect(toJSON()?.type).toBe("RCTScrollView");
   });
 
-  it("exposes scrollTo as a function", () => {
+  it("exposes scrollTo as a function", async () => {
     const ref = createRef<any>();
-    render(<ScrollView ref={ref} />);
+    await render(<ScrollView ref={ref} />);
     expect(typeof ref.current.scrollTo).toBe("function");
   });
 
-  it("exposes scrollToEnd as a function", () => {
+  it("exposes scrollToEnd as a function", async () => {
     const ref = createRef<any>();
-    render(<ScrollView ref={ref} />);
+    await render(<ScrollView ref={ref} />);
     expect(typeof ref.current.scrollToEnd).toBe("function");
   });
 
-  it("exposes flashScrollIndicators", () => {
+  it("exposes flashScrollIndicators", async () => {
     const ref = createRef<any>();
-    render(<ScrollView ref={ref} />);
+    await render(<ScrollView ref={ref} />);
     expect(typeof ref.current.flashScrollIndicators).toBe("function");
   });
 
-  it("exposes getScrollResponder", () => {
+  it("exposes getScrollResponder", async () => {
     const ref = createRef<any>();
-    render(<ScrollView ref={ref} />);
+    await render(<ScrollView ref={ref} />);
     expect(typeof ref.current.getScrollResponder).toBe("function");
   });
 
-  it("exposes getInnerViewNode", () => {
+  it("exposes getInnerViewNode", async () => {
     const ref = createRef<any>();
-    render(<ScrollView ref={ref} />);
+    await render(<ScrollView ref={ref} />);
     expect(typeof ref.current.getInnerViewNode).toBe("function");
   });
 
-  it("exposes setNativeProps", () => {
+  it("exposes setNativeProps", async () => {
     const ref = createRef<any>();
-    render(<ScrollView ref={ref} />);
+    await render(<ScrollView ref={ref} />);
     expect(typeof ref.current.setNativeProps).toBe("function");
   });
 });
 
 describe("Switch (conformance)", () => {
-  it("renders with the RNTL host type", () => {
-    const { toJSON } = render(<Switch testID="sw" value={true} />);
+  it("renders with the RNTL host type", async () => {
+    const { toJSON } = await render(<Switch testID="sw" value={true} />);
     expect(toJSON()?.type).toBe("RCTSwitch");
   });
 });
@@ -328,23 +328,25 @@ describe("Image (conformance)", () => {
 // ---------------------------------------------------------------------------
 
 describe("FlatList (conformance)", () => {
-  it("renders all items", () => {
+  it("renders all items", async () => {
     const data = [{ key: "a" }, { key: "b" }, { key: "c" }];
     const renderItem = vi.fn(({ item }: any) => React.createElement(Text, null, item.key));
-    render(<FlatList data={data} renderItem={renderItem} />);
+    await render(<FlatList data={data} renderItem={renderItem} />);
     expect(renderItem).toHaveBeenCalledTimes(3);
     expect(screen.getByText("a")).toBeTruthy();
     expect(screen.getByText("b")).toBeTruthy();
     expect(screen.getByText("c")).toBeTruthy();
   });
 
-  it("renders ListEmptyComponent for empty data", () => {
-    render(<FlatList data={[]} renderItem={() => null} ListEmptyComponent={<Text>Empty</Text>} />);
+  it("renders ListEmptyComponent for empty data", async () => {
+    await render(
+      <FlatList data={[]} renderItem={() => null} ListEmptyComponent={<Text>Empty</Text>} />,
+    );
     expect(screen.getByText("Empty")).toBeTruthy();
   });
 
-  it("renders ListHeaderComponent", () => {
-    render(
+  it("renders ListHeaderComponent", async () => {
+    await render(
       <FlatList
         data={[]}
         renderItem={() => null}
@@ -355,8 +357,8 @@ describe("FlatList (conformance)", () => {
     expect(screen.getByText("Header")).toBeTruthy();
   });
 
-  it("renders ListFooterComponent", () => {
-    render(
+  it("renders ListFooterComponent", async () => {
+    await render(
       <FlatList
         data={[]}
         renderItem={() => null}
@@ -367,10 +369,10 @@ describe("FlatList (conformance)", () => {
     expect(screen.getByText("Footer")).toBeTruthy();
   });
 
-  it("uses keyExtractor", () => {
+  it("uses keyExtractor", async () => {
     const keyExtractor = vi.fn((item: any) => item.id);
     const data = [{ id: "x" }, { id: "y" }];
-    render(
+    await render(
       <FlatList
         data={data}
         renderItem={({ item }: any) => <Text>{item.id}</Text>}
@@ -382,9 +384,9 @@ describe("FlatList (conformance)", () => {
     expect(keyExtractor).toHaveBeenCalledWith({ id: "y" }, 1);
   });
 
-  it("exposes ref methods", () => {
+  it("exposes ref methods", async () => {
     const ref = createRef<any>();
-    render(<FlatList ref={ref} data={[]} renderItem={() => null} />);
+    await render(<FlatList ref={ref} data={[]} renderItem={() => null} />);
     expect(typeof ref.current.scrollToEnd).toBe("function");
     expect(typeof ref.current.scrollToIndex).toBe("function");
     expect(typeof ref.current.scrollToItem).toBe("function");
@@ -394,9 +396,9 @@ describe("FlatList (conformance)", () => {
     expect(typeof ref.current.setNativeProps).toBe("function");
   });
 
-  it("renders ItemSeparatorComponent between items", () => {
+  it("renders ItemSeparatorComponent between items", async () => {
     const data = [{ key: "a" }, { key: "b" }, { key: "c" }];
-    render(
+    await render(
       <FlatList
         data={data}
         renderItem={({ item }: any) => <Text>{item.key}</Text>}
@@ -634,13 +636,13 @@ describe("Text accessibility (conformance)", () => {
     expect(Text.displayName).toBe("Text");
   });
 
-  it("sets accessible={true} by default", () => {
-    render(<Text testID="t">Hello</Text>);
+  it("sets accessible={true} by default", async () => {
+    await render(<Text testID="t">Hello</Text>);
     expect(screen.getByTestId("t").props.accessible).toBe(true);
   });
 
-  it("auto-sets accessibilityRole='link' when onPress is provided", () => {
-    render(
+  it("auto-sets accessibilityRole='link' when onPress is provided", async () => {
+    await render(
       <Text testID="t" onPress={() => {}}>
         Clickable
       </Text>,
@@ -648,8 +650,8 @@ describe("Text accessibility (conformance)", () => {
     expect(screen.getByTestId("t").props.accessibilityRole).toBe("link");
   });
 
-  it("auto-sets accessibilityRole='link' when onLongPress is provided", () => {
-    render(
+  it("auto-sets accessibilityRole='link' when onLongPress is provided", async () => {
+    await render(
       <Text testID="t" onLongPress={() => {}}>
         Long Press
       </Text>,
@@ -657,8 +659,8 @@ describe("Text accessibility (conformance)", () => {
     expect(screen.getByTestId("t").props.accessibilityRole).toBe("link");
   });
 
-  it("respects explicit accessibilityRole", () => {
-    render(
+  it("respects explicit accessibilityRole", async () => {
+    await render(
       <Text testID="t" accessibilityRole="button" onPress={() => {}}>
         Explicit
       </Text>,
@@ -666,8 +668,8 @@ describe("Text accessibility (conformance)", () => {
     expect(screen.getByTestId("t").props.accessibilityRole).toBe("button");
   });
 
-  it("does not set accessibilityRole when disabled with onPress", () => {
-    render(
+  it("does not set accessibilityRole when disabled with onPress", async () => {
+    await render(
       <Text testID="t" disabled onPress={() => {}}>
         Disabled
       </Text>,
@@ -675,8 +677,8 @@ describe("Text accessibility (conformance)", () => {
     expect(screen.getByTestId("t").props.accessibilityRole).toBeUndefined();
   });
 
-  it("does not set accessibilityRole without press handlers", () => {
-    render(<Text testID="t">Plain text</Text>);
+  it("does not set accessibilityRole without press handlers", async () => {
+    await render(<Text testID="t">Plain text</Text>);
     expect(screen.getByTestId("t").props.accessibilityRole).toBeUndefined();
   });
 });
@@ -690,9 +692,9 @@ describe("TextInput extended (conformance)", () => {
     expect(TextInput.displayName).toBe("TextInput");
   });
 
-  it("ref methods are callable", () => {
+  it("ref methods are callable", async () => {
     const ref = createRef<any>();
-    render(<TextInput ref={ref} />);
+    await render(<TextInput ref={ref} />);
     expect(() => ref.current.focus()).not.toThrow();
     expect(() => ref.current.blur()).not.toThrow();
     expect(() => ref.current.clear()).not.toThrow();
@@ -740,7 +742,7 @@ describe("Component displayNames (conformance)", () => {
 // ---------------------------------------------------------------------------
 
 describe("SectionList extended (conformance)", () => {
-  it("renders sections with data", () => {
+  it("renders sections with data", async () => {
     const sections = [
       {
         title: "A",
@@ -751,7 +753,7 @@ describe("SectionList extended (conformance)", () => {
       },
       { title: "B", data: [{ key: "3", text: "B1" }] },
     ];
-    render(
+    await render(
       <SectionList
         sections={sections}
         renderItem={({ item }) => <Text>{item.text}</Text>}
@@ -862,8 +864,8 @@ describe("AccessibilityInfo extended (conformance)", () => {
 // ---------------------------------------------------------------------------
 
 describe("TouchableOpacity accessibility (conformance)", () => {
-  it("sets accessible={true} by default", () => {
-    render(
+  it("sets accessible={true} by default", async () => {
+    await render(
       <TouchableOpacity testID="to">
         <Text>Tap</Text>
       </TouchableOpacity>,
@@ -871,8 +873,8 @@ describe("TouchableOpacity accessibility (conformance)", () => {
     expect(screen.getByTestId("to").props.accessible).toBe(true);
   });
 
-  it("disabled sets accessibilityState.disabled", () => {
-    render(
+  it("disabled sets accessibilityState.disabled", async () => {
+    await render(
       <TouchableOpacity testID="to" disabled>
         <Text>Tap</Text>
       </TouchableOpacity>,
@@ -882,8 +884,8 @@ describe("TouchableOpacity accessibility (conformance)", () => {
 });
 
 describe("TouchableHighlight accessibility (conformance)", () => {
-  it("sets accessible={true} by default", () => {
-    render(
+  it("sets accessible={true} by default", async () => {
+    await render(
       <TouchableHighlight testID="th" onPress={() => {}}>
         <Text>Tap</Text>
       </TouchableHighlight>,
@@ -893,8 +895,8 @@ describe("TouchableHighlight accessibility (conformance)", () => {
 });
 
 describe("TouchableWithoutFeedback accessibility (conformance)", () => {
-  it("sets accessible={true} by default", () => {
-    render(
+  it("sets accessible={true} by default", async () => {
+    await render(
       <TouchableWithoutFeedback testID="twf">
         <Text>Tap</Text>
       </TouchableWithoutFeedback>,

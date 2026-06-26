@@ -71,30 +71,30 @@ describe("native engine: stateful native APIs", () => {
 });
 
 describe("native engine: hooks", () => {
-  it("useWindowDimensions returns live dimensions", () => {
+  it("useWindowDimensions returns live dimensions", async () => {
     let dims: { width: number; height: number } | null = null;
     function C() {
       dims = useWindowDimensions();
       return <Text>{`${dims.width}x${dims.height}`}</Text>;
     }
-    render(<C />);
+    await render(<C />);
     expect(dims!.width).toBeGreaterThan(0);
     expect(dims!.height).toBeGreaterThan(0);
   });
 
-  it("useColorScheme returns a scheme or null", () => {
+  it("useColorScheme returns a scheme or null", async () => {
     let scheme: unknown;
     function C() {
       scheme = useColorScheme();
       return <Text>scheme</Text>;
     }
-    render(<C />);
+    await render(<C />);
     expect(scheme === "light" || scheme === "dark" || scheme == null).toBe(true);
   });
 });
 
 describe("native engine: interaction flows", () => {
-  it("Switch toggles via onValueChange", () => {
+  it("Switch toggles via onValueChange", async () => {
     function Toggle() {
       const [on, setOn] = React.useState(false);
       return (
@@ -104,13 +104,13 @@ describe("native engine: interaction flows", () => {
         </View>
       );
     }
-    render(<Toggle />);
+    await render(<Toggle />);
     expect(screen.getByText("OFF")).toBeTruthy();
-    fireEvent(screen.getByTestId("sw"), "valueChange", true);
+    await fireEvent(screen.getByTestId("sw"), "valueChange", true);
     expect(screen.getByText("ON")).toBeTruthy();
   });
 
-  it("Modal honors the visible prop", () => {
+  it("Modal honors the visible prop", async () => {
     function M({ open }: { open: boolean }) {
       return (
         <Modal visible={open}>
@@ -118,14 +118,14 @@ describe("native engine: interaction flows", () => {
         </Modal>
       );
     }
-    const { rerender, queryByText } = render(<M open={false} />);
-    rerender(<M open />);
+    const { rerender, queryByText } = await render(<M open={false} />);
+    await rerender(<M open />);
     expect(queryByText("modal-body")).toBeTruthy();
   });
 
-  it("FlatList renders items and fires onRefresh via RefreshControl", () => {
+  it("FlatList renders items and fires onRefresh via RefreshControl", async () => {
     const onRefresh = vi.fn();
-    render(
+    await render(
       <FlatList
         data={[1, 2, 3]}
         keyExtractor={(x) => String(x)}
@@ -134,13 +134,13 @@ describe("native engine: interaction flows", () => {
       />,
     );
     expect(screen.getByText("item-1")).toBeTruthy();
-    fireEvent(screen.getByTestId("rc"), "refresh");
+    await fireEvent(screen.getByTestId("rc"), "refresh");
     expect(onRefresh).toHaveBeenCalled();
   });
 
-  it("ScrollView renders content and wires onScroll to the host", () => {
+  it("ScrollView renders content and wires onScroll to the host", async () => {
     const onScroll = vi.fn();
-    render(
+    await render(
       <ScrollView onScroll={onScroll} testID="sv">
         <Text>content</Text>
       </ScrollView>,
@@ -165,14 +165,14 @@ describe("native engine: interaction flows", () => {
   // host, which RNTL treats as a disabled touch responder. The native boundary
   // now drops those responder-negotiation props from the RCTScrollView host
   // (matching RN's own jest ScrollView mock), so fireEvent.scroll works.
-  it("fireEvent.scroll(scrollView) reaches onScroll via RNTL", () => {
+  it("fireEvent.scroll(scrollView) reaches onScroll via RNTL", async () => {
     const onScroll = vi.fn();
-    render(
+    await render(
       <ScrollView onScroll={onScroll} testID="sv2">
         <Text>content</Text>
       </ScrollView>,
     );
-    fireEvent.scroll(screen.getByTestId("sv2"), {
+    await fireEvent.scroll(screen.getByTestId("sv2"), {
       nativeEvent: {
         contentOffset: { x: 0, y: 120 },
         contentSize: { height: 600, width: 100 },
@@ -185,7 +185,7 @@ describe("native engine: interaction flows", () => {
 });
 
 describe("native engine: animations", () => {
-  it("Animated.timing drives a JS-driven value to completion", () => {
+  it("Animated.timing drives a JS-driven value to completion", async () => {
     vi.useFakeTimers();
     try {
       const v = new Animated.Value(0);
@@ -196,7 +196,7 @@ describe("native engine: animations", () => {
         easing: Easing.linear,
         useNativeDriver: false,
       }).start(done);
-      act(() => {
+      await act(() => {
         vi.advanceTimersByTime(250);
       });
       const listener = vi.fn();

@@ -18,8 +18,8 @@ import { FlatList, Text } from "react-native";
 const h = React.createElement;
 
 describe("mock divergence: FlatList does NOT virtualize", () => {
-  function renderList(n: number) {
-    return render(
+  async function renderList(n: number) {
+    return await render(
       h(FlatList, {
         data: Array.from({ length: n }, (_, i) => i),
         keyExtractor: (i: any) => String(i),
@@ -28,24 +28,24 @@ describe("mock divergence: FlatList does NOT virtualize", () => {
     );
   }
 
-  it("renders the ENTIRE list (real RN renders ~10) — FALSE-PASS risk", () => {
-    renderList(100);
+  it("renders the ENTIRE list (real RN renders ~10) — FALSE-PASS risk", async () => {
+    await renderList(100);
     let rendered = 0;
     for (let i = 0; i < 100; i++) if (screen.queryByText(`item-${i}`)) rendered++;
     // The mock has no virtualization: all 100 mount. Real RN mounts ~10.
     expect(rendered).toBe(100);
   });
 
-  it("finds an item far past the window that a device never mounts — FALSE PASS", () => {
-    renderList(100);
+  it("finds an item far past the window that a device never mounts — FALSE PASS", async () => {
+    await renderList(100);
     // Under mock this passes; on a device (and under engine:'native') item-99 is absent.
     expect(screen.getByText("item-99")).toBeTruthy();
   });
 });
 
 describe("mock divergence: simplified host tree", () => {
-  it("Text renders as a bare 'Text' host (real RN: 'RCTText')", () => {
-    render(h(Text, null, "hi") as any);
+  it("Text renders as a bare 'Text' host (real RN: 'RCTText')", async () => {
+    await render(h(Text, null, "hi") as any);
     const host = screen.getByText("hi");
     // Mock uses the JS component name; real RN uses the native view name RCTText.
     expect(host.type).toBe("Text");

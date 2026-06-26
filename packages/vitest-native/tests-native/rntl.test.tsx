@@ -16,21 +16,21 @@ function Counter() {
 }
 
 describe("RNTL under native engine", () => {
-  it("renders and queries by text", () => {
-    render(<Counter />);
+  it("renders and queries by text", async () => {
+    await render(<Counter />);
     expect(screen.getByText("count: 0")).toBeTruthy();
   });
 
-  it("fireEvent.press updates state (real Pressable + React)", () => {
-    render(<Counter />);
-    fireEvent.press(screen.getByText("increment"));
+  it("fireEvent.press updates state (real Pressable + React)", async () => {
+    await render(<Counter />);
+    await fireEvent.press(screen.getByText("increment"));
     expect(screen.getByText("count: 1")).toBeTruthy();
   });
 
-  it("TextInput onChangeText fires", () => {
+  it("TextInput onChangeText fires", async () => {
     const onChange = vi.fn();
-    render(<TextInput placeholder="name" onChangeText={onChange} />);
-    fireEvent.changeText(screen.getByPlaceholderText("name"), "hello");
+    await render(<TextInput placeholder="name" onChangeText={onChange} />);
+    await fireEvent.changeText(screen.getByPlaceholderText("name"), "hello");
     expect(onChange).toHaveBeenCalledWith("hello");
   });
 });

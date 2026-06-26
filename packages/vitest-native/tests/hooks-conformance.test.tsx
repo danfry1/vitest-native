@@ -21,14 +21,14 @@ describe("useColorScheme in component (conformance)", () => {
     return <Text testID="scheme">{scheme}</Text>;
   }
 
-  it("returns a valid color scheme", () => {
-    render(<ColorSchemeDisplay />);
+  it("returns a valid color scheme", async () => {
+    await render(<ColorSchemeDisplay />);
     const text = screen.getByTestId("scheme");
     expect(["light", "dark"]).toContain(text.props.children);
   });
 
-  it("defaults to 'light'", () => {
-    render(<ColorSchemeDisplay />);
+  it("defaults to 'light'", async () => {
+    await render(<ColorSchemeDisplay />);
     expect(screen.getByTestId("scheme").props.children).toBe("light");
   });
 });
@@ -50,24 +50,24 @@ describe("useWindowDimensions in component (conformance)", () => {
     );
   }
 
-  it("returns width and height as numbers", () => {
-    render(<DimensionsDisplay />);
+  it("returns width and height as numbers", async () => {
+    await render(<DimensionsDisplay />);
     const width = Number(screen.getByTestId("width").props.children);
     const height = Number(screen.getByTestId("height").props.children);
     expect(width).toBeGreaterThan(0);
     expect(height).toBeGreaterThan(0);
   });
 
-  it("returns scale and fontScale", () => {
-    render(<DimensionsDisplay />);
+  it("returns scale and fontScale", async () => {
+    await render(<DimensionsDisplay />);
     const scale = Number(screen.getByTestId("scale").props.children);
     const fontScale = Number(screen.getByTestId("fontScale").props.children);
     expect(scale).toBeGreaterThan(0);
     expect(fontScale).toBeGreaterThan(0);
   });
 
-  it("returns default dimensions (390x844)", () => {
-    render(<DimensionsDisplay />);
+  it("returns default dimensions (390x844)", async () => {
+    await render(<DimensionsDisplay />);
     expect(screen.getByTestId("width").props.children).toBe("390");
     expect(screen.getByTestId("height").props.children).toBe("844");
   });
@@ -95,13 +95,13 @@ describe("Combined hooks in component (conformance)", () => {
     );
   }
 
-  it("renders with hook values", () => {
-    render(<AppContainer />);
+  it("renders with hook values", async () => {
+    await render(<AppContainer />);
     expect(screen.getByTestId("info").props.children).toBe("light-narrow");
   });
 
-  it("container has correct background", () => {
-    render(<AppContainer />);
+  it("container has correct background", async () => {
+    await render(<AppContainer />);
     expect(screen.getByTestId("container").props.style).toEqual(
       expect.objectContaining({ backgroundColor: "#fff" }),
     );

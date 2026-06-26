@@ -45,8 +45,8 @@ function Toggle() {
 }
 
 describe("react-native-reanimated under native engine", () => {
-  it("Animated.View renders through real RN (queryable by testID + child text)", () => {
-    render(<Box />);
+  it("Animated.View renders through real RN (queryable by testID + child text)", async () => {
+    await render(<Box />);
     expect(screen.getByTestId("box")).toBeTruthy();
     expect(screen.getByText("hi")).toBeTruthy();
   });
@@ -59,18 +59,18 @@ describe("react-native-reanimated under native engine", () => {
     expect(typeof Animated.createAnimatedComponent).toBe("function");
   });
 
-  it("withTiming + runOnJS drive a real state update via real Pressable", () => {
-    render(<Toggle />);
+  it("withTiming + runOnJS drive a real state update via real Pressable", async () => {
+    await render(<Toggle />);
     expect(screen.getByText("idle")).toBeTruthy();
-    fireEvent.press(screen.getByText("idle"));
+    await fireEvent.press(screen.getByText("idle"));
     expect(screen.getByText("done")).toBeTruthy();
   });
 
-  it("createAnimatedComponent wraps a custom component", () => {
+  it("createAnimatedComponent wraps a custom component", async () => {
     const Custom = (props: any) => <Text {...props}>wrapped</Text>;
     // oxlint-disable-next-line import/no-named-as-default-member -- default API parity is intentional
     const AnimatedCustom = Animated.createAnimatedComponent(Custom);
-    render(<AnimatedCustom testID="custom" />);
+    await render(<AnimatedCustom testID="custom" />);
     expect(screen.getByText("wrapped")).toBeTruthy();
   });
 });

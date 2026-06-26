@@ -92,8 +92,8 @@ describe("native engine: scheduling + gestures", () => {
 });
 
 describe("native engine: component depth", () => {
-  it("SectionList renders section headers and rows", () => {
-    render(
+  it("SectionList renders section headers and rows", async () => {
+    await render(
       <SectionList
         sections={[
           { title: "A", data: ["a1", "a2"] },
@@ -108,14 +108,14 @@ describe("native engine: component depth", () => {
     expect(screen.getByText("row-a1")).toBeTruthy();
   });
 
-  it("Pressable renders function children with pressed state", () => {
-    render(
+  it("Pressable renders function children with pressed state", async () => {
+    await render(
       <Pressable testID="p">{({ pressed }) => <Text>{pressed ? "down" : "up"}</Text>}</Pressable>,
     );
     expect(screen.getByText("up")).toBeTruthy();
   });
 
-  it("TextInput imperative ref methods do not throw", () => {
+  it("TextInput imperative ref methods do not throw", async () => {
     function Field() {
       const ref = React.useRef<any>(null);
       React.useEffect(() => {
@@ -125,7 +125,7 @@ describe("native engine: component depth", () => {
       }, []);
       return <TextInput ref={ref} testID="ti" />;
     }
-    expect(() => render(<Field />)).not.toThrow();
+    await expect(render(<Field />)).resolves.toBeDefined();
   });
 });
 
@@ -153,9 +153,9 @@ describe("native engine: animation drivers", () => {
     ).not.toThrow();
   });
 
-  it("Animated.View renders with an animated style", () => {
+  it("Animated.View renders with an animated style", async () => {
     const opacity = new Animated.Value(0.5);
-    render(
+    await render(
       <Animated.View style={{ opacity }} testID="av">
         <Text>fade</Text>
       </Animated.View>,
