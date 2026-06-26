@@ -7,8 +7,8 @@ import { Pressable, Text, TextInput, View } from "react-native";
 // migrations whose extend-expect is no-op'd — have no toBeOnTheScreen/toBeDisabled/
 // toHaveStyle/etc. (regression for the gap the differential cross-check surfaced).
 describe("native engine: RNTL/jest-native matchers are registered", () => {
-  it("toBeOnTheScreen / toBeDisabled / toHaveTextContent / toHaveDisplayValue work", () => {
-    render(
+  it("toBeOnTheScreen / toBeDisabled / toHaveTextContent / toHaveDisplayValue work", async () => {
+    await render(
       <View>
         <Pressable testID="btn" disabled>
           <Text testID="label">label</Text>
@@ -22,8 +22,8 @@ describe("native engine: RNTL/jest-native matchers are registered", () => {
     expect(screen.getByTestId("in")).toHaveDisplayValue("typed");
   });
 
-  it("registers the package animated matchers under the native engine", () => {
-    render(<View testID="animated" style={{ opacity: 0.5 }} />);
+  it("registers the package animated matchers under the native engine", async () => {
+    await render(<View testID="animated" style={{ opacity: 0.5 }} />);
     expect(screen.getByTestId("animated")).toHaveAnimatedStyle({ opacity: 0.5 });
     expect(screen.getByTestId("animated")).toHaveAnimatedProps({ testID: "animated" });
   });

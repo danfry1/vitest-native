@@ -29,8 +29,8 @@ describe("preset: navigation", () => {
   const preset = navigation();
   const mock = preset.modules["@react-navigation/native"].factory();
 
-  it("useNavigation returns an object with navigate, goBack, reset", () => {
-    const { result } = renderHook(() => mock.useNavigation());
+  it("useNavigation returns an object with navigate, goBack, reset", async () => {
+    const { result } = await renderHook(() => mock.useNavigation());
     const nav = result.current;
     expect(typeof nav.navigate).toBe("function");
     expect(typeof nav.goBack).toBe("function");
@@ -41,15 +41,15 @@ describe("preset: navigation", () => {
     expect(typeof nav.getId).toBe("function");
   });
 
-  it("navigate is callable as a mock", () => {
-    const { result } = renderHook(() => mock.useNavigation());
+  it("navigate is callable as a mock", async () => {
+    const { result } = await renderHook(() => mock.useNavigation());
     const nav = result.current;
     nav.navigate("Home", { id: 1 });
     expect(nav.navigate).toHaveBeenCalledWith("Home", { id: 1 });
   });
 
-  it("useRoute returns route shape", () => {
-    const { result } = renderHook(() => mock.useRoute());
+  it("useRoute returns route shape", async () => {
+    const { result } = await renderHook(() => mock.useRoute());
     const route = result.current;
     expect(route).toHaveProperty("key");
     expect(route).toHaveProperty("name");
@@ -166,8 +166,8 @@ describe("preset: navigation", () => {
     expect(typeof mock.createNavigatorFactory()).toBe("function");
   });
 
-  it("useNavigationBuilder returns state, navigation, descriptors", () => {
-    const { result } = renderHook(() => mock.useNavigationBuilder());
+  it("useNavigationBuilder returns state, navigation, descriptors", async () => {
+    const { result } = await renderHook(() => mock.useNavigationBuilder());
     expect(result.current.state).toBeDefined();
     expect(result.current.state.routes).toEqual([]);
     expect(result.current.navigation).toBeDefined();
@@ -219,14 +219,14 @@ describe("preset: navigation", () => {
       expect(stack.Group).toBeDefined();
     });
 
-    it("Screen renders the component prop with route and navigation", () => {
+    it("Screen renders the component prop with route and navigation", async () => {
       let receivedProps: any = null;
       const TestComp = (props: any) => {
         receivedProps = props;
         return React.createElement("View");
       };
       const { render } = require("@testing-library/react-native");
-      render(
+      await render(
         React.createElement(stack.Screen, {
           name: "Home",
           component: TestComp,
@@ -241,7 +241,7 @@ describe("preset: navigation", () => {
       expect(typeof receivedProps.navigation.goBack).toBe("function");
     });
 
-    it("useNavigation/useRoute inside a Screen match the Screen's props", () => {
+    it("useNavigation/useRoute inside a Screen match the Screen's props", async () => {
       let hookNav: any = null;
       let hookRoute: any = null;
       let propNav: any = null;
@@ -254,7 +254,7 @@ describe("preset: navigation", () => {
         return React.createElement("View");
       };
       const { render } = require("@testing-library/react-native");
-      render(
+      await render(
         React.createElement(stack.Screen, {
           name: "Settings",
           component: TestComp,
@@ -268,10 +268,10 @@ describe("preset: navigation", () => {
       expect(hookRoute.params).toEqual({ theme: "dark" });
     });
 
-    it("Screen calls render-function children with route and navigation", () => {
+    it("Screen calls render-function children with route and navigation", async () => {
       let receivedProps: any = null;
       const { render } = require("@testing-library/react-native");
-      render(
+      await render(
         React.createElement(stack.Screen, { name: "Detail" }, (props: any) => {
           receivedProps = props;
           return React.createElement("View");
@@ -282,9 +282,9 @@ describe("preset: navigation", () => {
       expect(typeof receivedProps.navigation.navigate).toBe("function");
     });
 
-    it("Screen passes through plain children", () => {
+    it("Screen passes through plain children", async () => {
       const { render } = require("@testing-library/react-native");
-      const { toJSON } = render(
+      const { toJSON } = await render(
         React.createElement(
           stack.Screen,
           { name: "Plain" },
@@ -308,14 +308,14 @@ describe("preset: navigation", () => {
       expect(tabs.Group).toBeDefined();
     });
 
-    it("Screen renders the component prop with route and navigation", () => {
+    it("Screen renders the component prop with route and navigation", async () => {
       let receivedProps: any = null;
       const TestComp = (props: any) => {
         receivedProps = props;
         return React.createElement("View");
       };
       const { render } = require("@testing-library/react-native");
-      render(
+      await render(
         React.createElement(tabs.Screen, {
           name: "Feed",
           component: TestComp,
@@ -1052,10 +1052,10 @@ describe("preset: flashList", () => {
     }
   });
 
-  it("renders each data row through renderItem", () => {
+  it("renders each data row through renderItem", async () => {
     const { render } = require("@testing-library/react-native");
     const { Text } = require("react-native");
-    const { getByText } = render(
+    const { getByText } = await render(
       React.createElement(mock.FlashList, {
         data: ["alpha", "beta"],
         renderItem: ({ item }: { item: string }) => React.createElement(Text, null, item),
@@ -1065,10 +1065,10 @@ describe("preset: flashList", () => {
     expect(getByText("beta")).toBeTruthy();
   });
 
-  it("renders ListEmptyComponent when data is empty", () => {
+  it("renders ListEmptyComponent when data is empty", async () => {
     const { render } = require("@testing-library/react-native");
     const { Text } = require("react-native");
-    const { getByText } = render(
+    const { getByText } = await render(
       React.createElement(mock.FlashList, {
         data: [],
         renderItem: () => null,
@@ -1078,10 +1078,10 @@ describe("preset: flashList", () => {
     expect(getByText("nothing here")).toBeTruthy();
   });
 
-  it("exposes the imperative scroll surface via ref", () => {
+  it("exposes the imperative scroll surface via ref", async () => {
     const { render } = require("@testing-library/react-native");
     const ref = React.createRef<any>();
-    render(React.createElement(mock.FlashList, { data: [], renderItem: () => null, ref }));
+    await render(React.createElement(mock.FlashList, { data: [], renderItem: () => null, ref }));
     for (const method of ["scrollToEnd", "scrollToIndex", "scrollToOffset", "recordInteraction"]) {
       expect(typeof ref.current[method]).toBe("function");
     }
@@ -1095,11 +1095,11 @@ describe("preset: flashList", () => {
     });
   });
 
-  it("useRecyclingState / useLayoutState behave like useState", () => {
-    const recycling = renderHook(() => mock.useRecyclingState(7));
+  it("useRecyclingState / useLayoutState behave like useState", async () => {
+    const recycling = await renderHook(() => mock.useRecyclingState(7));
     expect(recycling.result.current[0]).toBe(7);
     expect(typeof recycling.result.current[1]).toBe("function");
-    const layout = renderHook(() => mock.useLayoutState("a"));
+    const layout = await renderHook(() => mock.useLayoutState("a"));
     expect(layout.result.current[0]).toBe("a");
   });
 
@@ -1134,10 +1134,10 @@ describe("preset: bottomSheet", () => {
     expect(mock.TouchableOpacity.displayName).toBe("TouchableOpacity");
   });
 
-  it("BottomSheetFlatList renders its data rows", () => {
+  it("BottomSheetFlatList renders its data rows", async () => {
     const { render } = require("@testing-library/react-native");
     const { Text } = require("react-native");
-    const { getByText } = render(
+    const { getByText } = await render(
       React.createElement(mock.BottomSheetFlatList, {
         data: ["row-a", "row-b"],
         renderItem: ({ item }: { item: string }) => React.createElement(Text, null, item),
@@ -1161,8 +1161,8 @@ describe("preset: bottomSheet", () => {
     expect(mock.ANIMATION_SOURCE.SNAP_POINT_CHANGE).toBe(5);
   });
 
-  it("useBottomSheet exposes the sheet control methods + animated values", () => {
-    const { result } = renderHook(() => mock.useBottomSheet());
+  it("useBottomSheet exposes the sheet control methods + animated values", async () => {
+    const { result } = await renderHook(() => mock.useBottomSheet());
     const sheet = result.current;
     for (const method of ["expand", "collapse", "close", "snapToIndex", "forceClose"]) {
       expect(typeof sheet[method]).toBe("function");
@@ -1170,8 +1170,8 @@ describe("preset: bottomSheet", () => {
     expect(sheet.animatedIndex).toEqual({ value: 0 });
   });
 
-  it("useBottomSheetModal / useBottomSheetModalInternal are defined", () => {
-    const { result } = renderHook(() => mock.useBottomSheetModal());
+  it("useBottomSheetModal / useBottomSheetModalInternal are defined", async () => {
+    const { result } = await renderHook(() => mock.useBottomSheetModal());
     result.current.dismiss();
     expect(result.current.dismiss).toHaveBeenCalled();
     expect(typeof result.current.dismissAll).toBe("function");
@@ -1184,10 +1184,10 @@ describe("preset: bottomSheet", () => {
     expect(mock.useBottomSheetTimingConfigs(config)).toBe(config);
   });
 
-  it("BottomSheetModal ref exposes present/dismiss", () => {
+  it("BottomSheetModal ref exposes present/dismiss", async () => {
     const { render } = require("@testing-library/react-native");
     const ref = React.createRef<any>();
-    render(React.createElement(mock.BottomSheetModal, { ref }));
+    await render(React.createElement(mock.BottomSheetModal, { ref }));
     expect(typeof ref.current.present).toBe("function");
     expect(typeof ref.current.dismiss).toBe("function");
   });
@@ -1233,8 +1233,8 @@ describe("preset: keyboardController", () => {
     expect(typeof sub.remove).toBe("function");
   });
 
-  it("reanimated-backed hooks return shared-value handles", () => {
-    const { result } = renderHook(() => mock.useReanimatedKeyboardAnimation());
+  it("reanimated-backed hooks return shared-value handles", async () => {
+    const { result } = await renderHook(() => mock.useReanimatedKeyboardAnimation());
     expect(result.current.height.value).toBe(0);
     expect(result.current.progress.value).toBe(0);
   });
@@ -1245,8 +1245,8 @@ describe("preset: keyboardController", () => {
     expect(mock.useKeyboardContext()).toHaveProperty("reanimated");
   });
 
-  it("useKeyboardController returns enabled + setEnabled", () => {
-    const { result } = renderHook(() => mock.useKeyboardController());
+  it("useKeyboardController returns enabled + setEnabled", async () => {
+    const { result } = await renderHook(() => mock.useKeyboardController());
     expect(result.current.enabled).toBe(true);
     expect(typeof result.current.setEnabled).toBe("function");
   });

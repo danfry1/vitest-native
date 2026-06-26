@@ -7,6 +7,7 @@
         "react-dom",
         "react-native",
         "react-test-renderer",
+        "test-renderer",
         "vite",
         "vitest",
         "@vitest/coverage-v8",

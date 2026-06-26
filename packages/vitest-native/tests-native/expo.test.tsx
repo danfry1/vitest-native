@@ -36,8 +36,8 @@ describe("Expo modules under the native engine", () => {
     expect(typeof Constants.expoConfig === "object" || Constants.expoConfig == null).toBe(true);
   });
 
-  it("a component using expo-status-bar + expo-constants renders through real RN", () => {
-    render(<ExpoScreen />);
+  it("a component using expo-status-bar + expo-constants renders through real RN", async () => {
+    await render(<ExpoScreen />);
     expect(screen.getByTestId("expo-screen")).toBeTruthy();
     expect(screen.getByText(/Hello from/)).toBeTruthy();
   });

@@ -26,9 +26,9 @@ import { NavigationContainer, useNavigation } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 describe("react-native-gesture-handler under native engine", () => {
-  it("GestureHandlerRootView + GestureDetector render through real RN", () => {
+  it("GestureHandlerRootView + GestureDetector render through real RN", async () => {
     const tap = Gesture.Tap().onEnd(() => {});
-    render(
+    await render(
       <GestureHandlerRootView testID="gh-root">
         <GestureDetector gesture={tap}>
           <Text>tap me</Text>
@@ -51,8 +51,8 @@ describe("react-native-safe-area-context under native engine", () => {
     return <Text>top:{insets.top}</Text>;
   }
 
-  it("SafeAreaProvider/SafeAreaView render and useSafeAreaInsets returns mock insets", () => {
-    render(
+  it("SafeAreaProvider/SafeAreaView render and useSafeAreaInsets returns mock insets", async () => {
+    await render(
       <SafeAreaProvider>
         <SafeAreaView testID="sa-view">
           <ShowInsets />
@@ -73,8 +73,8 @@ describe("@react-navigation under native engine", () => {
     return <Text>Home Screen</Text>;
   }
 
-  it("NavigationContainer + native stack renders the active screen", () => {
-    render(
+  it("NavigationContainer + native stack renders the active screen", async () => {
+    await render(
       <NavigationContainer>
         <Stack.Navigator>
           <Stack.Screen name="Home" component={HomeScreen} />

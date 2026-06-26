@@ -95,9 +95,14 @@ describe('MyComponent', () => {
 - **Vitest** 4.x
 - **Vite** ^6.4.2, ^7.3.2, or ^8.0.5
 - **React** >= 18
+- **`@testing-library/react-native`** (optional) — supported across `>=12 <15`. RNTL 14 made
+  `render`, `fireEvent`, and `act` async, so `await` them (`await render(<App />)`); this is
+  back-compatible with RNTL 12/13, where the calls are synchronous and `await` is a no-op. Note RNTL
+  14 itself requires Node >= 22.13 — on Node 20, stay on RNTL 13.
 - **`engine: 'native'`** (the default) needs `@react-native/babel-preset` + `@babel/core` (these
   ship with React Native projects). The opt-in mock engine needs no Babel.
 - **React Native** 0.81–0.85 validated in CI (native engine).
+- Tested against RNTL 12, 13, and 14 in CI.
 
 ## Choosing an engine
 

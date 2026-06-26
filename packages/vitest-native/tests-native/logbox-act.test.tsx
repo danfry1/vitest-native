@@ -26,8 +26,8 @@ describe("no LogBox act() warning under native engine", () => {
   it("an interaction emits no 'not wrapped in act' console.error", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
-      render(<Counter />);
-      fireEvent.press(screen.getByText("inc"));
+      await render(<Counter />);
+      await fireEvent.press(screen.getByText("inc"));
       expect(screen.getByText("count: 1")).toBeTruthy();
       // Let any deferred (setTimeout/setImmediate) LogBox update fire — that's
       // when the out-of-act warning would have landed.

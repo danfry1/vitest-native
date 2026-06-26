@@ -145,16 +145,16 @@ describe("Dark mode integration", () => {
     );
   }
 
-  it("renders light theme by default", () => {
-    render(<ThemedScreen />);
+  it("renders light theme by default", async () => {
+    await render(<ThemedScreen />);
     expect(screen.getByTestId("theme").props.children).toBe("light");
     expect(screen.getByTestId("screen").props.style).toEqual({
       backgroundColor: "#fff",
     });
   });
 
-  it("Appearance.getColorScheme matches useColorScheme", () => {
-    render(<ThemedScreen />);
+  it("Appearance.getColorScheme matches useColorScheme", async () => {
+    await render(<ThemedScreen />);
     expect(screen.getByTestId("theme").props.children).toBe(Appearance.getColorScheme());
   });
 });
@@ -227,21 +227,21 @@ describe("Form handling integration", () => {
     );
   }
 
-  it("renders input with placeholder", () => {
-    render(<SimpleForm />);
+  it("renders input with placeholder", async () => {
+    await render(<SimpleForm />);
     expect(screen.getByPlaceholderText("Enter text")).toBeTruthy();
   });
 
-  it("handles text input change", () => {
-    render(<SimpleForm />);
-    fireEvent.changeText(screen.getByTestId("input"), "hello");
-    fireEvent.press(screen.getByTestId("submit"));
+  it("handles text input change", async () => {
+    await render(<SimpleForm />);
+    await fireEvent.changeText(screen.getByTestId("input"), "hello");
+    await fireEvent.press(screen.getByTestId("submit"));
     expect(screen.getByTestId("result").props.children).toBe("hello");
   });
 
-  it("Keyboard.dismiss is called on submit", () => {
-    render(<SimpleForm />);
-    fireEvent.press(screen.getByTestId("submit"));
+  it("Keyboard.dismiss is called on submit", async () => {
+    await render(<SimpleForm />);
+    await fireEvent.press(screen.getByTestId("submit"));
     expect(Keyboard.dismiss).toHaveBeenCalled();
   });
 });
@@ -268,15 +268,15 @@ describe("FlatList dynamic data integration", () => {
     );
   }
 
-  it("renders initial items", () => {
-    render(<TodoList />);
+  it("renders initial items", async () => {
+    await render(<TodoList />);
     expect(screen.getByText("Buy milk")).toBeTruthy();
     expect(screen.getByText("Walk dog")).toBeTruthy();
   });
 
-  it("adds item on button press", () => {
-    render(<TodoList />);
-    fireEvent.press(screen.getByTestId("add"));
+  it("adds item on button press", async () => {
+    await render(<TodoList />);
+    await fireEvent.press(screen.getByTestId("add"));
     expect(screen.getByText("Item 3")).toBeTruthy();
   });
 });
@@ -503,14 +503,14 @@ describe("AppState component integration", () => {
     return <Text testID="state">{state}</Text>;
   }
 
-  it("renders initial active state", () => {
-    render(<AppStateDisplay />);
+  it("renders initial active state", async () => {
+    await render(<AppStateDisplay />);
     expect(screen.getByTestId("state").props.children).toBe("active");
   });
 
-  it("updates when AppState changes", () => {
-    render(<AppStateDisplay />);
-    act(() => {
+  it("updates when AppState changes", async () => {
+    await render(<AppStateDisplay />);
+    await act(() => {
       (AppState as any)._setState("background");
     });
     expect(screen.getByTestId("state").props.children).toBe("background");
@@ -551,27 +551,27 @@ describe("Keyboard component integration", () => {
     );
   }
 
-  it("starts with keyboard hidden", () => {
-    render(<KeyboardStatus />);
+  it("starts with keyboard hidden", async () => {
+    await render(<KeyboardStatus />);
     expect(screen.getByTestId("visible").props.children).toBe("false");
     expect(screen.getByTestId("height").props.children).toBe("0");
   });
 
-  it("shows keyboard with correct height", () => {
-    render(<KeyboardStatus />);
-    act(() => {
+  it("shows keyboard with correct height", async () => {
+    await render(<KeyboardStatus />);
+    await act(() => {
       (Keyboard as any)._show(300);
     });
     expect(screen.getByTestId("visible").props.children).toBe("true");
     expect(screen.getByTestId("height").props.children).toBe("300");
   });
 
-  it("hides keyboard", () => {
-    render(<KeyboardStatus />);
-    act(() => {
+  it("hides keyboard", async () => {
+    await render(<KeyboardStatus />);
+    await act(() => {
       (Keyboard as any)._show(300);
     });
-    act(() => {
+    await act(() => {
       (Keyboard as any)._hide();
     });
     expect(screen.getByTestId("visible").props.children).toBe("false");

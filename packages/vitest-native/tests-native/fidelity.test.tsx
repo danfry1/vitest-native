@@ -15,8 +15,8 @@ import { FlatList, Text } from "react-native";
 const h = React.createElement;
 
 describe("native fidelity: FlatList virtualization (real windowing)", () => {
-  function renderList(n: number) {
-    return render(
+  async function renderList(n: number) {
+    return await render(
       h(FlatList, {
         data: Array.from({ length: n }, (_, i) => i),
         keyExtractor: (i: any) => String(i),
@@ -25,8 +25,8 @@ describe("native fidelity: FlatList virtualization (real windowing)", () => {
     );
   }
 
-  it("renders only the initial window (~10), NOT the whole list", () => {
-    renderList(100);
+  it("renders only the initial window (~10), NOT the whole list", async () => {
+    await renderList(100);
     let rendered = 0;
     for (let i = 0; i < 100; i++) if (screen.queryByText(`item-${i}`)) rendered++;
     // Real RN mounts initialNumToRender (default 10) without layout/scroll metrics.
@@ -35,17 +35,17 @@ describe("native fidelity: FlatList virtualization (real windowing)", () => {
     expect(screen.getByText("item-0")).toBeTruthy();
   });
 
-  it("does NOT render an item far past the window (device-accurate)", () => {
-    renderList(100);
+  it("does NOT render an item far past the window (device-accurate)", async () => {
+    await renderList(100);
     // On a device, item-99 is not mounted until scrolled to. Real RN reflects this.
     expect(screen.queryByText("item-99")).toBeNull();
   });
 });
 
 describe("native fidelity: real host-component tree", () => {
-  it("Text renders as RCTText with real RN-computed props", () => {
+  it("Text renders as RCTText with real RN-computed props", async () => {
     let tree: any;
-    act(() => {
+    await act(() => {
       tree = TestRenderer.create(h(Text, null, "hi"));
     });
     const json = tree.toJSON();

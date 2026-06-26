@@ -226,6 +226,31 @@ try {
   }
 }
 
+// --- RNTL 14: register RCTVirtualText as a text host ---
+// RNTL 14 reconciles with `test-renderer`, which enforces that string children
+// live under a "text" host component (the names in RNTL's HOST_TEXT_NAMES) and
+// otherwise throws "Text strings must be rendered within a <Text> component".
+// Real RN renders a NESTED <Text> as the host "RCTVirtualText", which RNTL's list
+// (['Text', 'RCTText']) omits — so any composite/nested <Text> crashes under the
+// native engine. (Jest's preset never hits this: it mocks Text to a single flat
+// "Text" host, hiding the real RCTText/RCTVirtualText split.) Add RCTVirtualText so
+// nested text reconciles and getByText matches across nested <Text>, matching how
+// RN actually renders. The helper is a leaf module (no RNTL main-module init), so
+// requiring it here is free of the evaluation-order hazards noted in the hot-reset
+// block. Gated on the list existing: a no-op for RNTL <=13 and the mock engine.
+try {
+  const hcn = req("@testing-library/react-native/dist/helpers/host-component-names");
+  if (Array.isArray(hcn?.HOST_TEXT_NAMES) && !hcn.HOST_TEXT_NAMES.includes("RCTVirtualText")) {
+    hcn.HOST_TEXT_NAMES.push("RCTVirtualText");
+  }
+} catch (e) {
+  if (diagnostics) {
+    console.log(
+      `[vitest-native] (native) could not register RCTVirtualText text host: ${e?.message}`,
+    );
+  }
+}
+
 expect.extend(animatedMatchers);
 expect.addSnapshotSerializer(rnSerializer);
 

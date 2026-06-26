@@ -18,6 +18,10 @@ name: Native engine — Vitest × RN matrix
 #
 # Every cell runs the native suite STOCK and HOT, plus the mock-vs-real-RN
 # cross-check — the full real-RN gate against that (Vitest, RN) pair.
+#
+# RNTL is the third dependency but is pinned to the lockfile version (14) here, not
+# matrixed — the supported peer range (>=12 <15) is proven by the Node 20 / RNTL 13
+# back-compat leg in ci.yml, since RNTL 14 requires Node >=22.13.
 
 on:
   push:

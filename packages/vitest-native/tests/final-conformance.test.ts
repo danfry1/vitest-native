@@ -217,9 +217,9 @@ describe("NativeComponentRegistry (conformance)", () => {
     expect(Component.displayName).toBe("RCTImage");
   });
 
-  it("returned component renders", () => {
+  it("returned component renders", async () => {
     const MyNative = registry.get("MyNativeView");
-    render(React.createElement(MyNative, { testID: "native" }));
+    await render(React.createElement(MyNative, { testID: "native" }));
     expect(screen.getByTestId("native")).toBeTruthy();
   });
 });
@@ -241,9 +241,9 @@ describe("requireNativeComponent (conformance)", () => {
     expect(Component.displayName).toBe("RCTMapView");
   });
 
-  it("returned component renders with props", () => {
+  it("returned component renders with props", async () => {
     const MapView = requireNativeComponent("RCTMapView");
-    render(React.createElement(MapView, { testID: "map", region: {} }));
+    await render(React.createElement(MapView, { testID: "map", region: {} }));
     expect(screen.getByTestId("map")).toBeTruthy();
   });
 });
@@ -278,20 +278,20 @@ describe("ActionSheetIOS (conformance)", () => {
 // ---------------------------------------------------------------------------
 
 describe("Pressable accessibility (conformance)", () => {
-  it("is accessible by default", () => {
-    render(React.createElement(Pressable, { testID: "press" }));
+  it("is accessible by default", async () => {
+    await render(React.createElement(Pressable, { testID: "press" }));
     expect(screen.getByTestId("press").props.accessible).toBe(true);
   });
 
-  it("disabled prop sets accessibilityState.disabled", () => {
-    render(React.createElement(Pressable, { testID: "press", disabled: true }));
+  it("disabled prop sets accessibilityState.disabled", async () => {
+    await render(React.createElement(Pressable, { testID: "press", disabled: true }));
     expect(screen.getByTestId("press").props.accessibilityState).toEqual({
       disabled: true,
     });
   });
 
-  it("merges disabled with existing accessibilityState", () => {
-    render(
+  it("merges disabled with existing accessibilityState", async () => {
+    await render(
       React.createElement(Pressable, {
         testID: "press",
         disabled: true,
@@ -304,13 +304,13 @@ describe("Pressable accessibility (conformance)", () => {
     });
   });
 
-  it("no accessibilityState when not disabled and none provided", () => {
-    render(React.createElement(Pressable, { testID: "press" }));
+  it("no accessibilityState when not disabled and none provided", async () => {
+    await render(React.createElement(Pressable, { testID: "press" }));
     expect(screen.getByTestId("press").props.accessibilityState).toBeUndefined();
   });
 
-  it("passes through accessibilityState when not disabled", () => {
-    render(
+  it("passes through accessibilityState when not disabled", async () => {
+    await render(
       React.createElement(Pressable, {
         testID: "press",
         accessibilityState: { expanded: true },

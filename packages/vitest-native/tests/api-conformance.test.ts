@@ -387,8 +387,8 @@ describe("useColorScheme (conformance)", () => {
     expect(typeof useColorScheme).toBe("function");
   });
 
-  it("returns a valid scheme from a rendered hook", () => {
-    const { result } = renderHook(() => useColorScheme());
+  it("returns a valid scheme from a rendered hook", async () => {
+    const { result } = await renderHook(() => useColorScheme());
     expect(["light", "dark"]).toContain(result.current);
   });
 });
@@ -402,8 +402,8 @@ describe("useWindowDimensions (conformance)", () => {
     expect(typeof useWindowDimensions).toBe("function");
   });
 
-  it("returns dimensions from a rendered hook", () => {
-    const { result } = renderHook(() => useWindowDimensions());
+  it("returns dimensions from a rendered hook", async () => {
+    const { result } = await renderHook(() => useWindowDimensions());
     expect(result.current).toHaveProperty("width");
     expect(result.current).toHaveProperty("height");
     expect(result.current).toHaveProperty("scale");

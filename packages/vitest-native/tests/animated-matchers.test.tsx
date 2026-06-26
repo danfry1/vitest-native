@@ -17,24 +17,24 @@ import { reanimated } from "../src/presets/index.js";
 const rea = reanimated().modules["react-native-reanimated"].factory();
 
 describe("toHaveAnimatedStyle", () => {
-  it("matches a subset of the element's style", () => {
-    render(<View testID="box" style={{ opacity: 1, width: 100 }} />);
+  it("matches a subset of the element's style", async () => {
+    await render(<View testID="box" style={{ opacity: 1, width: 100 }} />);
     expect(screen.getByTestId("box")).toHaveAnimatedStyle({ opacity: 1 });
   });
 
-  it("fails when the value differs", () => {
-    render(<View testID="box" style={{ opacity: 0.5 }} />);
+  it("fails when the value differs", async () => {
+    await render(<View testID="box" style={{ opacity: 0.5 }} />);
     expect(screen.getByTestId("box")).not.toHaveAnimatedStyle({ opacity: 1 });
   });
 
-  it("flattens style arrays", () => {
+  it("flattens style arrays", async () => {
     const styles = StyleSheet.create({ base: { width: 50 } });
-    render(<View testID="box" style={[styles.base, { opacity: 0.2 }]} />);
+    await render(<View testID="box" style={[styles.base, { opacity: 0.2 }]} />);
     expect(screen.getByTestId("box")).toHaveAnimatedStyle({ opacity: 0.2, width: 50 });
   });
 
-  it("matches all props when shouldMatchAllProps is set", () => {
-    render(<View testID="box" style={{ opacity: 1, width: 100 }} />);
+  it("matches all props when shouldMatchAllProps is set", async () => {
+    await render(<View testID="box" style={{ opacity: 1, width: 100 }} />);
     expect(screen.getByTestId("box")).toHaveAnimatedStyle(
       { opacity: 1, width: 100 },
       { shouldMatchAllProps: true },
@@ -45,7 +45,7 @@ describe("toHaveAnimatedStyle", () => {
     );
   });
 
-  it("works end-to-end through the reanimated preset", () => {
+  it("works end-to-end through the reanimated preset", async () => {
     const AnimatedView = rea.createAnimatedComponent(View);
     function Box() {
       const opacity = rea.useSharedValue(1);
@@ -56,35 +56,35 @@ describe("toHaveAnimatedStyle", () => {
         </AnimatedView>
       );
     }
-    render(<Box />);
+    await render(<Box />);
     expect(screen.getByTestId("animated")).toHaveAnimatedStyle({ opacity: 1 });
   });
 });
 
 describe("toHaveAnimatedProps", () => {
-  it("reads from the animatedProps prop", () => {
-    render(<View testID="box" {...{ animatedProps: { fill: "red" } }} />);
+  it("reads from the animatedProps prop", async () => {
+    await render(<View testID="box" {...{ animatedProps: { fill: "red" } }} />);
     expect(screen.getByTestId("box")).toHaveAnimatedProps({ fill: "red" });
   });
 
-  it("falls back to the element's own props", () => {
-    render(<View testID="box" {...{ pointerEvents: "none" }} />);
+  it("falls back to the element's own props", async () => {
+    await render(<View testID="box" {...{ pointerEvents: "none" }} />);
     expect(screen.getByTestId("box")).toHaveAnimatedProps({ pointerEvents: "none" });
   });
 
-  it("fails when the value differs", () => {
-    render(<View testID="box" {...{ animatedProps: { fill: "blue" } }} />);
+  it("fails when the value differs", async () => {
+    await render(<View testID="box" {...{ animatedProps: { fill: "blue" } }} />);
     expect(screen.getByTestId("box")).not.toHaveAnimatedProps({ fill: "red" });
   });
 
-  it("works end-to-end through the reanimated preset", () => {
+  it("works end-to-end through the reanimated preset", async () => {
     const AnimatedView = rea.createAnimatedComponent(View);
     function Box() {
       const progress = rea.useSharedValue(0.75);
       const animatedProps = rea.useAnimatedProps(() => ({ accessibilityValue: progress.value }));
       return <AnimatedView testID="animated" animatedProps={animatedProps} />;
     }
-    render(<Box />);
+    await render(<Box />);
     expect(screen.getByTestId("animated")).toHaveAnimatedProps({ accessibilityValue: 0.75 });
   });
 });

@@ -11,8 +11,8 @@ const styles = StyleSheet.create({
 });
 
 describe("native engine: accessibility queries", () => {
-  it("queries a real component by role and by label", () => {
-    render(
+  it("queries a real component by role and by label", async () => {
+    await render(
       <Pressable accessibilityRole="button" accessibilityLabel="Submit form">
         <Text>Go</Text>
       </Pressable>,
@@ -23,8 +23,8 @@ describe("native engine: accessibility queries", () => {
 });
 
 describe("native engine: toHaveStyle resolves StyleSheet refs", () => {
-  it("matches the resolved style object from StyleSheet.create", () => {
-    render(<View testID="box" style={styles.box} />);
+  it("matches the resolved style object from StyleSheet.create", async () => {
+    await render(<View testID="box" style={styles.box} />);
     expect(screen.getByTestId("box")).toHaveStyle({ width: 10, height: 20, opacity: 0.5 });
   });
 });

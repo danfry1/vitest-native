@@ -18,9 +18,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # RNTL 14 (the lockfile version) requires Node >=22.13, so the Node 20 legs
+        # double as the lower-bound back-compat corners: they pin RNTL 12 and 13 — the
+        # versions Node 20 users run — to prove the full supported peer range (>=12
+        # <15) and the Node floor on every push. The hot runtime and cross-check are
+        # calibrated on the current RNTL and run only on the RNTL 14 legs (step `if`s).
         include:
           - os: ubuntu-latest
             node-version: 20.19.4
+            rntl: '12'
+          - os: ubuntu-latest
+            node-version: 20.19.4
+            rntl: '13'
           - os: ubuntu-latest
             node-version: 22.13.0
           - os: macos-latest
@@ -54,6 +63,12 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      # Lint/format/typecheck above run against the locked RNTL (14); pin the
+      # back-compat leg to its target RNTL before building and running the suite.
+      - name: Pin RNTL for the back-compat leg
+        if: matrix.rntl
+        run: bun add -d "@testing-library/react-native@${{ matrix.rntl }}" --cwd packages/vitest-native
+
       - name: Build
         run: bun run build
 
@@ -72,16 +87,23 @@ jobs:
       - name: Native engine tests (hot runtime)
         # The hot runtime rides @experimental Vitest internals (vitest/worker,
         # ThreadsPoolWorker, poolRunner) — the most churn-prone surface we depend
-        # on, so gate it on every PR, not just the weekly matrix.
+        # on, so gate it on every PR, not just the weekly matrix. Calibrated on the
+        # current RNTL; the back-compat leg skips it (covered on the RNTL 14 legs).
+        if: ${{ !matrix.rntl }}
         run: bun run test:native:hot
 
       - name: Native engine hot-runtime isolation
+        if: ${{ !matrix.rntl }}
         run: bun run test:native:hot:isolation
 
       - name: Native engine hot-runtime soak and recycling
+        if: ${{ !matrix.rntl }}
         run: bun run test:native:hot:soak
 
       - name: Cross-check (mock ≡ real RN)
+        # The cross-check is calibrated on the current RNTL (14); a few probes track
+        # RNTL-version-specific real-RN behavior, so it runs only on the RNTL 14 legs.
+        if: ${{ !matrix.rntl }}
         run: bun run crosscheck
 
       - name: Test example app

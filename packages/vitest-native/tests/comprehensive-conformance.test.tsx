@@ -31,8 +31,8 @@ import {
 // ---------------------------------------------------------------------------
 
 describe("ScrollView (conformance)", () => {
-  it("renders children", () => {
-    render(
+  it("renders children", async () => {
+    await render(
       <ScrollView testID="scroll">
         <Text testID="child">Content</Text>
       </ScrollView>,
@@ -40,33 +40,33 @@ describe("ScrollView (conformance)", () => {
     expect(screen.getByTestId("child")).toBeTruthy();
   });
 
-  it("scrollTo ref method is callable", () => {
+  it("scrollTo ref method is callable", async () => {
     const ref = createRef<any>();
-    render(<ScrollView ref={ref} />);
+    await render(<ScrollView ref={ref} />);
     expect(() => ref.current.scrollTo({ x: 0, y: 100 })).not.toThrow();
     expect(ref.current.scrollTo).toHaveBeenCalledWith({ x: 0, y: 100 });
   });
 
-  it("scrollToEnd ref method is callable", () => {
+  it("scrollToEnd ref method is callable", async () => {
     const ref = createRef<any>();
-    render(<ScrollView ref={ref} />);
+    await render(<ScrollView ref={ref} />);
     expect(() => ref.current.scrollToEnd()).not.toThrow();
   });
 
-  it("flashScrollIndicators ref method is callable", () => {
+  it("flashScrollIndicators ref method is callable", async () => {
     const ref = createRef<any>();
-    render(<ScrollView ref={ref} />);
+    await render(<ScrollView ref={ref} />);
     expect(() => ref.current.flashScrollIndicators()).not.toThrow();
   });
 
-  it("getScrollResponder returns object", () => {
+  it("getScrollResponder returns object", async () => {
     const ref = createRef<any>();
-    render(<ScrollView ref={ref} />);
+    await render(<ScrollView ref={ref} />);
     expect(ref.current.getScrollResponder()).toEqual({});
   });
 
-  it("passes props through", () => {
-    render(<ScrollView testID="scroll" horizontal showsHorizontalScrollIndicator={false} />);
+  it("passes props through", async () => {
+    await render(<ScrollView testID="scroll" horizontal showsHorizontalScrollIndicator={false} />);
     const el = screen.getByTestId("scroll");
     expect(el.props.horizontal).toBe(true);
     expect(el.props.showsHorizontalScrollIndicator).toBe(false);
@@ -78,8 +78,8 @@ describe("ScrollView (conformance)", () => {
 // ---------------------------------------------------------------------------
 
 describe("ImageBackground (conformance)", () => {
-  it("renders children", () => {
-    render(
+  it("renders children", async () => {
+    await render(
       <ImageBackground source={{ uri: "https://example.com/bg.png" }}>
         <Text testID="overlay">Hello</Text>
       </ImageBackground>,
@@ -87,8 +87,8 @@ describe("ImageBackground (conformance)", () => {
     expect(screen.getByTestId("overlay")).toBeTruthy();
   });
 
-  it("passes style to the outer container", () => {
-    render(
+  it("passes style to the outer container", async () => {
+    await render(
       <ImageBackground testID="bg" source={{ uri: "test" }} style={{ width: 100, height: 100 }}>
         <Text>Content</Text>
       </ImageBackground>,
@@ -105,8 +105,8 @@ describe("ImageBackground (conformance)", () => {
 // ---------------------------------------------------------------------------
 
 describe("StatusBar (conformance)", () => {
-  it("renders as component", () => {
-    render(<StatusBar barStyle="light-content" testID="bar" />);
+  it("renders as component", async () => {
+    await render(<StatusBar barStyle="light-content" testID="bar" />);
     expect(screen.getByTestId("bar")).toBeTruthy();
   });
 
@@ -158,19 +158,19 @@ describe("StatusBar (conformance)", () => {
 // ---------------------------------------------------------------------------
 
 describe("Switch (conformance)", () => {
-  it("renders with value prop", () => {
-    render(<Switch testID="switch" value={true} />);
+  it("renders with value prop", async () => {
+    await render(<Switch testID="switch" value={true} />);
     expect(screen.getByTestId("switch").props.value).toBe(true);
   });
 
-  it("onValueChange receives callback", () => {
+  it("onValueChange receives callback", async () => {
     const handler = vi.fn();
-    render(<Switch testID="switch" value={false} onValueChange={handler} />);
+    await render(<Switch testID="switch" value={false} onValueChange={handler} />);
     expect(screen.getByTestId("switch").props.onValueChange).toBe(handler);
   });
 
-  it("passes trackColor and thumbColor", () => {
-    render(
+  it("passes trackColor and thumbColor", async () => {
+    await render(
       <Switch testID="switch" trackColor={{ false: "#ccc", true: "#0f0" }} thumbColor="#fff" />,
     );
     const el = screen.getByTestId("switch");
@@ -184,20 +184,20 @@ describe("Switch (conformance)", () => {
 // ---------------------------------------------------------------------------
 
 describe("ActivityIndicator (conformance)", () => {
-  it("renders with default props", () => {
-    render(<ActivityIndicator testID="spinner" />);
+  it("renders with default props", async () => {
+    await render(<ActivityIndicator testID="spinner" />);
     expect(screen.getByTestId("spinner")).toBeTruthy();
   });
 
-  it("passes size and color props", () => {
-    render(<ActivityIndicator testID="spinner" size="large" color="#f00" />);
+  it("passes size and color props", async () => {
+    await render(<ActivityIndicator testID="spinner" size="large" color="#f00" />);
     const el = screen.getByTestId("spinner");
     expect(el.props.size).toBe("large");
     expect(el.props.color).toBe("#f00");
   });
 
-  it("passes animating prop", () => {
-    render(<ActivityIndicator testID="spinner" animating={false} />);
+  it("passes animating prop", async () => {
+    await render(<ActivityIndicator testID="spinner" animating={false} />);
     expect(screen.getByTestId("spinner").props.animating).toBe(false);
   });
 });
@@ -207,8 +207,8 @@ describe("ActivityIndicator (conformance)", () => {
 // ---------------------------------------------------------------------------
 
 describe("SafeAreaView (conformance)", () => {
-  it("renders children", () => {
-    render(
+  it("renders children", async () => {
+    await render(
       <SafeAreaView testID="safe">
         <Text testID="child">Safe</Text>
       </SafeAreaView>,
@@ -223,8 +223,8 @@ describe("SafeAreaView (conformance)", () => {
 // ---------------------------------------------------------------------------
 
 describe("KeyboardAvoidingView (conformance)", () => {
-  it("renders children", () => {
-    render(
+  it("renders children", async () => {
+    await render(
       <KeyboardAvoidingView testID="kav" behavior="padding">
         <Text testID="child">Content</Text>
       </KeyboardAvoidingView>,
@@ -233,8 +233,8 @@ describe("KeyboardAvoidingView (conformance)", () => {
     expect(screen.getByTestId("child")).toBeTruthy();
   });
 
-  it("passes behavior prop", () => {
-    render(<KeyboardAvoidingView testID="kav" behavior="height" />);
+  it("passes behavior prop", async () => {
+    await render(<KeyboardAvoidingView testID="kav" behavior="height" />);
     expect(screen.getByTestId("kav").props.behavior).toBe("height");
   });
 });
@@ -244,14 +244,14 @@ describe("KeyboardAvoidingView (conformance)", () => {
 // ---------------------------------------------------------------------------
 
 describe("RefreshControl (conformance)", () => {
-  it("renders with refreshing prop", () => {
-    render(<RefreshControl testID="refresh" refreshing={true} />);
+  it("renders with refreshing prop", async () => {
+    await render(<RefreshControl testID="refresh" refreshing={true} />);
     expect(screen.getByTestId("refresh").props.refreshing).toBe(true);
   });
 
-  it("passes onRefresh callback", () => {
+  it("passes onRefresh callback", async () => {
     const handler = vi.fn();
-    render(<RefreshControl testID="refresh" refreshing={false} onRefresh={handler} />);
+    await render(<RefreshControl testID="refresh" refreshing={false} onRefresh={handler} />);
     expect(screen.getByTestId("refresh").props.onRefresh).toBe(handler);
   });
 });
@@ -261,8 +261,8 @@ describe("RefreshControl (conformance)", () => {
 // ---------------------------------------------------------------------------
 
 describe("DrawerLayoutAndroid (conformance)", () => {
-  it("renders children", () => {
-    render(
+  it("renders children", async () => {
+    await render(
       <DrawerLayoutAndroid testID="drawer" renderNavigationView={() => <View />}>
         <Text testID="content">Main</Text>
       </DrawerLayoutAndroid>,
@@ -276,8 +276,8 @@ describe("DrawerLayoutAndroid (conformance)", () => {
 // ---------------------------------------------------------------------------
 
 describe("InputAccessoryView (conformance)", () => {
-  it("renders children", () => {
-    render(
+  it("renders children", async () => {
+    await render(
       <InputAccessoryView>
         <Text testID="accessory">Done</Text>
       </InputAccessoryView>,
@@ -338,8 +338,8 @@ describe("StyleSheet extended (conformance)", () => {
 // ---------------------------------------------------------------------------
 
 describe("Animated wrapper components (conformance)", () => {
-  it("Animated.View renders with testID", () => {
-    render(
+  it("Animated.View renders with testID", async () => {
+    await render(
       <Animated.View testID="av" style={{ opacity: 1 }}>
         <Text>Content</Text>
       </Animated.View>,
@@ -347,13 +347,13 @@ describe("Animated wrapper components (conformance)", () => {
     expect(screen.getByTestId("av")).toBeTruthy();
   });
 
-  it("Animated.Text renders", () => {
-    render(<Animated.Text testID="at">Hello</Animated.Text>);
+  it("Animated.Text renders", async () => {
+    await render(<Animated.Text testID="at">Hello</Animated.Text>);
     expect(screen.getByTestId("at")).toBeTruthy();
   });
 
-  it("Animated.Image renders", () => {
-    render(<Animated.Image testID="ai" source={{ uri: "test" }} />);
+  it("Animated.Image renders", async () => {
+    await render(<Animated.Image testID="ai" source={{ uri: "test" }} />);
     expect(screen.getByTestId("ai")).toBeTruthy();
   });
 
