@@ -35,7 +35,8 @@
   to Node (`Unknown file extension ".tsx"`) and `vi.mock()` calls stopped hoisting.
   The matchers in `apply.ts`, `loader.mjs`, and `hooks.mjs` now require a
   `node_modules/` segment, which still matches real RN and `@react-native/*` packages
-  (including pnpm-nested layouts) without false-matching project paths.
+  (including pnpm-nested layouts) without false-matching project paths. Reported and fixed
+  by [@Doko-Demo-Doa](https://github.com/Doko-Demo-Doa) (#50).
 - 5eaf8cb: Cache the React Native graph's compiled bytecode under the native engine.
 
   With per-file isolation (`engine: 'native'`, the default), React Native's module graph is re-instantiated for every test file, recompiling its source to V8 bytecode each time. The native engine now enables Node's on-disk compile cache (Node 22.8+) before React Native is loaded, so subsequent compilations across files, workers, and runs reuse cached bytecode. Measured on a 100-file suite (single worker), this reduced cold time by ~7% and warm time by ~7-18% with tighter run-to-run variance and no change in memory use. It is a no-op on Node versions without the compile-cache API.
