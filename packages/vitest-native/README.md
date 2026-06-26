@@ -217,6 +217,18 @@ the app/test module graph for every file. It also restores direct `process.env` 
 file-created globals, RN event subscriptions, dimensions, timers, and plugin mock state between
 files. A dedicated one-worker CI test exercises this cross-file isolation contract.
 
+**Known limitation.** Because React Native stays resident, state held inside React Native's own
+internal modules is _not_ reset between files — the per-file reset deliberately does not reach into
+third-party or RN-internal module internals, because doing so generically is unsafe. Suites that
+lean on deep resident-RN-internal state can therefore see cross-file interference under the hot
+runtime that they would not see under the default per-file isolation. The clearest example is heavy
+cross-file `Animated` usage, where animations driven in one file can alter how a later file renders.
+The tell-tale sign is a test that passes in isolation but fails when run after other files; if you
+see that, move the affected suite (or the project) back to the default per-file isolation. This is
+why the hot runtime is opt-in and experimental rather than the default; closing the gap for all
+suites depends on a per-file module reset inside a persistent worker that Vitest does not yet
+provide.
+
 For additional leak containment:
 
 ```ts
