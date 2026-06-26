@@ -119,6 +119,15 @@ try {
       `hot-runtime recycling soak expected more than two worker boots, observed ${recycleRun.bootCount}`,
     );
   }
+  // Multi-worker → each file is its own task → recycling works, so the
+  // inactive-recycling warning must NOT appear (it is specific to the batched
+  // single-worker case, not always-on).
+  if (/is INACTIVE/.test(recycleRun.output)) {
+    throw new Error(
+      "recycling soak (2 workers) printed the inactive-recycling warning, but recycling " +
+        "is active there — the warning should only fire under single-worker batching.",
+    );
+  }
 
   const inertRun = runVitest("hot-runtime inert-recycle warning soak", "inert.config.mts");
   if (inertRun.bootCount !== 1) {

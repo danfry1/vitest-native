@@ -437,6 +437,51 @@ describe("makeRntlDrain (hot-runtime RNTL tree drain)", () => {
     expect(cleanup).toHaveBeenCalledTimes(2);
   });
 
+  it("re-reads cleanup from the cache on every call (not captured once)", async () => {
+    const { makeRntlDrain } = await importDrain();
+    // A resident module's exports can be swapped between files; the drain must
+    // follow the current one, not a reference captured at construction.
+    const first = vi.fn();
+    const second = vi.fn();
+    const { req } = fakeReq({ cleanup: first });
+    const drain = makeRntlDrain(req);
+    drain();
+    req.cache[ENTRY].exports.cleanup = second;
+    drain();
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it("warns once under diagnostics when resident RNTL has no callable cleanup", async () => {
+    const { makeRntlDrain } = await importDrain();
+    // The dangerous silent case: RNTL IS resident (would leak) but exposes no
+    // cleanup — the drain can't bound memory, so it must be observable.
+    const { req } = fakeReq();
+    req.cache[ENTRY].exports = {}; // resident module, but no cleanup export
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const drain = makeRntlDrain(req, true);
+      drain();
+      drain();
+      const hits = log.mock.calls.filter((c) => /no cleanup\(\) export/.test(String(c[0])));
+      expect(hits).toHaveLength(1); // surfaced, and only once
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("stays silent for the expected no-ops (inlined / not installed)", async () => {
+    const { makeRntlDrain } = await importDrain();
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      // Inlined: resolvable but not in the Node cache — RNTL self-cleans per file.
+      makeRntlDrain(fakeReq({ cached: false }).req, true)();
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it("never force-loads RNTL — a non-resident instance is a silent no-op", async () => {
     const { makeRntlDrain } = await importDrain();
     // Resolvable (installed) but NOT in the require cache: the inlined-RNTL case.
