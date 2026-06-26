@@ -8,7 +8,7 @@ import { boundarySourceFor } from "./boundary.mjs";
 import { resolvePlatformFile } from "./resolve.mjs";
 import { buildPkgMatcher } from "./match.mjs";
 
-const RN_PATH = /[\\/](react-native|@react-native)[\\/]/;
+const RN_PATH = /[\\/]node_modules[\\/](react-native|@react-native)[\\/]/;
 // Any file living under a node_modules directory. Platform-extension resolution
 // (`.native.js` etc.) applies to every node_modules package, not just RN, matching
 // Metro — which resolves platform variants project-wide. (Without this, e.g.
