@@ -51,79 +51,6 @@ const ENV_PRESERVED = new Set(["VITEST_POOL_ID", "VITEST_WORKER_ID"]);
 const RESET_FILE = fileURLToPath(import.meta.url).replaceAll("\\", "/");
 const DEFAULT_PRESERVED_GLOBALS = ["__STORYBOOK_ADDONS_PREVIEW"];
 
-/**
- * Build a per-file drain for the resident RNTL's mounted-tree registry (its
- * module-level cleanupQueue). `req` is a Node require created from the project
- * root. Returns a function that, each call, reads RNTL's `cleanup` straight from
- * the require cache and runs it — bounding the tree accumulation described at the
- * call site in hotReset.
- *
- * SAFETY CONTRACT (the reason this is a standalone, unit-tested helper): it only
- * ever acts on an ALREADY-resident instance read from `req.cache`, and NEVER
- * force-loads RNTL. Loading a second RNTL instance into this realm corrupts
- * rendering when the consumer INLINES RNTL in the module-runner graph (the fresh
- * module-init reconfigures the shared act environment — found via the Rocket.Chat
- * bake-off). When RNTL is inlined it lives in Vitest's module runner, not the
- * Node require cache, so the lookup misses and this is a guaranteed no-op there;
- * it does real work only in the externalized/resident case, which is the one
- * that actually leaks. Resolution is side-effect-free; every step is guarded.
- *
- * The `cleanup` reference is re-read from the cache on EVERY call (not captured
- * once): a resident module's exports can be swapped between files, and reading
- * lazily also means an RNTL that loads only after worker boot is still picked up.
- *
- * Most no-ops are EXPECTED and silent (RNTL not installed, or inlined so it's not
- * in the Node cache and self-cleans per file). One no-op is dangerous: RNTL is
- * resident but exposes no callable `cleanup` (e.g. a release relocated the
- * export) — then the drain silently does nothing and trees accumulate. That case
- * is surfaced once under `diagnostics`, matching how setup.mjs reports RNTL
- * lookup misses, so a regression that disables the memory bound is observable.
- */
-export function makeRntlDrain(req, diagnostics = false) {
-  let entry = null;
-  try {
-    entry = req.resolve("@testing-library/react-native");
-  } catch {
-    if (diagnostics) {
-      console.log(
-        "[vitest-native] (native) hot-runtime RNTL tree drain disabled: cannot resolve " +
-          "@testing-library/react-native from the project root. If tests render RNTL trees, " +
-          "their per-file memory bound is off.",
-      );
-    }
-  }
-  let warnedNoCleanup = false;
-  return function rntlCleanup() {
-    if (!entry) return;
-    const mod = req.cache?.[entry];
-    // Not in the Node require cache → RNTL is inlined in the module runner (or
-    // unused): it re-evaluates and self-cleans per file. Expected no-op; quiet.
-    if (!mod) return;
-    const cleanup = mod.exports?.cleanup;
-    if (typeof cleanup !== "function") {
-      // Resident RNTL with no callable cleanup — the drain can't bound memory.
-      if (diagnostics && !warnedNoCleanup) {
-        warnedNoCleanup = true;
-        console.log(
-          "[vitest-native] (native) resident @testing-library/react-native exposes no " +
-            "cleanup() export; hot-runtime tree drain is inactive and rendered trees may " +
-            "accumulate across files.",
-        );
-      }
-      return;
-    }
-    try {
-      cleanup();
-    } catch (e) {
-      if (diagnostics) {
-        console.log(
-          `[vitest-native] (native) RNTL cleanup() threw during hot drain: ${e?.message}`,
-        );
-      }
-    }
-  };
-}
-
 function isResidentImportListener(stack, projectRoot) {
   const root = projectRoot.replaceAll("\\", "/").replace(/\/$/, "");
   let sawExternalFrame = false;
@@ -155,9 +82,6 @@ export function installHotReset({ projectRoot, diagnostics, preserveGlobals = []
   const req = createRequire(path.join(projectRoot, "package.json"));
   const RN = req("react-native");
   const explicitlyPreserved = new Set([...DEFAULT_PRESERVED_GLOBALS, ...preserveGlobals]);
-
-  // Per-file drain for the resident RNTL tree registry (see makeRntlDrain).
-  const rntlCleanup = makeRntlDrain(req, diagnostics);
 
   // --- (1) Track listeners added to the RCTDeviceEventEmitter singleton ---
   const tracked = new Map();
@@ -217,13 +141,11 @@ export function installHotReset({ projectRoot, diagnostics, preserveGlobals = []
       return;
     }
 
-    // (3) Drain the previous file's resident RNTL trees (memory bound). Safe to
-    // run here because makeRntlDrain reads `cleanup` straight from the require
-    // cache and never force-loads RNTL — so it cannot create the second instance
-    // whose act/auto-cleanup machinery corrupted rendering when an earlier design
-    // required RNTL directly from this context (found via Rocket.Chat). A pure
-    // value-style op; no attribution needed, runs even before bless().
-    rntlCleanup();
+    // (3) RNTL cleanup happens in setup.mjs, NOT here: it must run in the
+    // module-runner context so it reaches the SAME RNTL instance the tests
+    // use. Loading RNTL through Node from here created a second instance whose
+    // act/auto-cleanup machinery corrupted rendering for every later file
+    // when the consumer's graph inlines RNTL (found via Rocket.Chat).
 
     // (2) Restore mutable resident RN state (value-restore, always safe).
     if (dims) {
