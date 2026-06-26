@@ -405,7 +405,11 @@ bun run --filter vitest-native test
 
 Thanks to everyone who has contributed 💙
 
-[![Contributors](https://contrib.rocks/image?repo=danfry1/vitest-native)](https://github.com/danfry1/vitest-native/graphs/contributors)
+[<img src="https://github.com/danfry1.png?size=80" width="56" height="56" alt="@danfry1" />](https://github.com/danfry1)
+[<img src="https://github.com/jakeboone02.png?size=80" width="56" height="56" alt="@jakeboone02" />](https://github.com/jakeboone02)
+[<img src="https://github.com/Doko-Demo-Doa.png?size=80" width="56" height="56" alt="@Doko-Demo-Doa" />](https://github.com/Doko-Demo-Doa)
+
+See the full list on the [contributors graph](https://github.com/danfry1/vitest-native/graphs/contributors).
 
 ## License
 
