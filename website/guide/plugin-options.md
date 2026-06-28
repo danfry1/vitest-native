@@ -83,6 +83,6 @@ reactNative({
 reactNative({ hotRuntime: true })
 ```
 
-Leave it off unless you're specifically testing it.
+It can dramatically cut the per-file cost on large suites, but because React Native stays resident, suites that lean on deep resident-RN-internal state (for example heavy cross-file `Animated` usage) can see cross-file interference they wouldn't under the default per-file isolation. The tell is a test that passes alone but fails after other files. See [Hot runtime](/guide/engines#hot-runtime-experimental) for when it helps, the known limitation, and worker recycling.
 
 Next: [Third-Party Presets](/guide/presets).

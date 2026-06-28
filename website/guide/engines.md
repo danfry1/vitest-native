@@ -56,12 +56,30 @@ Because the mock is a reimplementation, it could drift from real RN behavior. A 
 
 ## Hot runtime (experimental)
 
-For large suites under the native engine, an opt-in **hot runtime** keeps React Native warm across files while resetting app/test modules and common process-wide pollution between files:
+By default the native engine re-instantiates React Native for every test file (Vitest's standard per-file isolation). On large suites that per-file tax dominates the run. The opt-in **hot runtime** keeps React Native warm across files in a persistent worker while still resetting app/test modules and common process-wide pollution between files:
 
 ```ts
 reactNative({ hotRuntime: true })
 ```
 
-It uses Vitest's custom worker APIs and remains experimental. Leave it off unless you're testing it.
+It uses Vitest's custom worker APIs and remains experimental.
+
+### When it helps
+
+On large, render-heavy suites it removes most of the per-file React Native re-instantiation cost — in internal benchmarks roughly a 12× reduction in import/setup time at 100 files. The bigger the suite and the more of its time goes to loading React Native, the larger the win.
+
+### Known limitation: resident-state bleed
+
+Because React Native stays resident across files within a worker, **state held in React Native's own internal modules is not reset between files** — only app/test modules, listeners, globals, `process.env`, and `Dimensions`/`Appearance` are. The per-file reset deliberately does not reach into third-party or RN-internal module internals, because doing so generically is unsafe (it can unmount or corrupt state later files still depend on).
+
+In practice this means a suite that leans on **deep resident-RN-internal state** can see cross-file interference under the hot runtime that it would not see under the default per-file isolation. The clearest example is heavy `Animated` usage: animations driven in one file can mutate React Native's resident `Animated` bookkeeping in a way that alters how a later file renders, producing output a snapshot taken under the default engine won't match.
+
+A tell-tale sign is **a test that passes in isolation but fails when run after other files**. If you see that under `hotRuntime: true`, move that suite (or the project) back to the default engine — correctness comes first.
+
+This is why the hot runtime is **opt-in and experimental, not the default**. It is best suited to large suites whose cost is dominated by loading React Native rather than by deep resident-RN-internal state. Closing the gap for all suites requires per-file module reset inside a persistent worker, which depends on an upstream Vitest capability that does not exist yet.
+
+### Worker recycling
+
+The hot runtime accumulates resident state as it processes files, so for very large runs you may want Vitest's worker recycling (`memoryLimit` / per-file recycle) to bound memory. Recycling only fires with **two or more workers** — in single-worker mode Vitest batches every file into one task and never recycles mid-task. The plugin prints a one-time warning if you set a recycle limit on a single-worker run so the inert setting isn't silently trusted; run with `maxWorkers >= 2` for recycling to take effect.
 
 Next: [How It Works](/guide/how-it-works) explains what the plugin does under the hood.
