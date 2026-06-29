@@ -436,8 +436,10 @@ describe("processColor edge cases (conformance)", () => {
     expect(processColor("  red  ")).toBe(processColor("red"));
   });
 
-  it("unknown string returns opaque black", () => {
-    expect(processColor("notacolor")).toBe(0xff000000);
+  it("unknown string returns undefined", () => {
+    // Real RN: normalizeColor fails → processColor returns undefined (not a
+    // coerced default). Verified against real RN by the behavioral cross-check.
+    expect(processColor("notacolor")).toBeUndefined();
   });
 });
 

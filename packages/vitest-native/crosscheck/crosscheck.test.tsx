@@ -688,6 +688,73 @@ probe("text-numberoflines-prop", async () => {
   return { numberOfLines: screen.getByTestId("t").props.numberOfLines };
 });
 
+// --- BUG-HUNT TRANCHE: behaviors most likely to diverge (interactive paths,
+// computed a11y, input constraints, color edge cases). Divergences here are
+// either real mock bugs to fix or genuinely version-variant behavior to document.
+probe("hunt-pressable-style-fn", async () => {
+  await render(<Pressable testID="p" style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })} />);
+  return { restingOpacity: passes(() => expect(screen.getByTestId("p")).toHaveStyle({ opacity: 1 })) };
+});
+
+probe("hunt-pressable-children-fn", async () => {
+  await render(
+    <Pressable testID="p">{({ pressed }) => <Text>{pressed ? "down" : "up"}</Text>}</Pressable>,
+  );
+  return { resting: !!screen.queryByText("up") };
+});
+
+probe("hunt-pressable-disabled-a11ystate", async () => {
+  await render(
+    <Pressable testID="p" disabled accessibilityRole="button">
+      <Text>x</Text>
+    </Pressable>,
+  );
+  const st = screen.getByTestId("p").props.accessibilityState ?? {};
+  return { disabled: st.disabled ?? "<<unset>>" };
+});
+
+probe("hunt-fireevent-press", async () => {
+  let n = 0;
+  await render(
+    <Pressable testID="p" onPress={() => (n += 1)}>
+      <Text>x</Text>
+    </Pressable>,
+  );
+  await fireEvent.press(screen.getByTestId("p"));
+  return { calls: n };
+});
+
+probe("hunt-pressable-press-in-out", async () => {
+  let inN = 0;
+  let outN = 0;
+  await render(
+    <Pressable testID="p" onPressIn={() => (inN += 1)} onPressOut={() => (outN += 1)}>
+      <Text>x</Text>
+    </Pressable>,
+  );
+  await fireEvent(screen.getByTestId("p"), "pressIn");
+  await fireEvent(screen.getByTestId("p"), "pressOut");
+  return { inN, outN };
+});
+
+probe("hunt-textinput-maxlength", async () => {
+  const user = userEvent.setup();
+  await render(<TextInput testID="i" maxLength={3} />);
+  await user.type(screen.getByTestId("i"), "abcdef");
+  return { clampedToAbc: passes(() => expect(screen.getByTestId("i")).toHaveDisplayValue("abc")) };
+});
+
+// Note: Switch `valueChange` routing, Text-onPress `accessibilityRole`, and
+// Appearance.getColorScheme() were probed too but are intentionally NOT gated —
+// the first two are version-variant (a single mock value can't match every RN
+// minor) and the third is environment-dependent. See the version-variant notes
+// elsewhere in this file.
+probe("hunt-processcolor-edge", () => ({
+  transparent: processColor("transparent") ?? "<<undefined>>",
+  invalid: processColor("definitely-not-a-color") ?? "<<undefined>>",
+  hsl: processColor("hsl(0, 100%, 50%)") ?? "<<undefined>>",
+}));
+
 afterAll(() => {
   const out = process.env.CROSSCHECK_OUT;
   if (out) fs.writeFileSync(out, JSON.stringify(results, null, 2));

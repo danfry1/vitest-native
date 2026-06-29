@@ -13,7 +13,7 @@ generated from the corpus itself, so the numbers below are exactly what ships.
 
 ## Summary
 
-- **68 / 68 probes** match between the mock engine and real React Native.
+- **75 / 75 probes** match between the mock engine and real React Native.
 - CI runs the same corpus across **React Native 0.81–0.85** on every commit.
 - Reproduce it yourself: `bun run crosscheck`.
 
@@ -45,6 +45,13 @@ across both engines.
 | `flatlist-renders-items` | ✅ match |
 | `get-all-by-role-count` | ✅ match |
 | `get-by-text-miss-throws` | ✅ match |
+| `hunt-fireevent-press` | ✅ match |
+| `hunt-pressable-children-fn` | ✅ match |
+| `hunt-pressable-disabled-a11ystate` | ✅ match |
+| `hunt-pressable-press-in-out` | ✅ match |
+| `hunt-pressable-style-fn` | ✅ match |
+| `hunt-processcolor-edge` | ✅ match |
+| `hunt-textinput-maxlength` | ✅ match |
 | `i18nmanager-isrtl` | ✅ match |
 | `image-render` | ✅ match |
 | `keyboardavoidingview-children` | ✅ match |
