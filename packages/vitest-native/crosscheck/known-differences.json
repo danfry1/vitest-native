@@ -1,0 +1,7 @@
+[
+  {
+    "area": "Dimensions / PixelRatio defaults",
+    "difference": "Default device metrics (window/screen size, pixel ratio, font scale) can differ between the mock engine's fixed default device and the metrics real React Native reports in the test host.",
+    "why": "These are device/environment values, not behavior. Tests that depend on exact metrics should set them explicitly (e.g. Dimensions.set / a fixed device) rather than rely on a default, so the value is the same under both engines."
+  }
+]

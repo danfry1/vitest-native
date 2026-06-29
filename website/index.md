@@ -87,7 +87,7 @@ It is **not** primarily a speed play — choose it for the fidelity option and D
 
 ## How it's verified
 
-The reproducible guarantee is a **CI-gated behavioral cross-check**: 56 probes run the same assertions under the mock engine **and** real React Native across React Native 0.81–0.85, and any divergence fails the build. Anyone can run it (`bun run crosscheck`). On top of that, the full CI gate runs lint, typecheck, build, and the mock + native + hot suites across an OS × Node matrix.
+The reproducible guarantee is a **CI-gated behavioral cross-check**: a corpus of probes runs the same assertions under the mock engine **and** real React Native across React Native 0.81–0.85, and any divergence fails the build. Anyone can run it (`bun run crosscheck`), and the full corpus with its current pass count is published in the [Fidelity Report](/guide/fidelity). On top of that, the full CI gate runs lint, typecheck, build, and the mock + native + hot suites across an OS × Node matrix.
 
 We've also run real apps' own test suites under the native engine. **react-native-paper**'s suite passes **625 of 734 tests (~85%)** — no paper source changed, just an RNTL bump and the test config/setup. The remaining failures are tests coupled to Jest's RN-mock internals (e.g. `vi.spyOn(View.prototype, 'measure')`, deep `jest.mock('react-native/…')` of Appearance/Dimensions), not vitest-native bugs. The Expo-based **obytes template** runs **34 of 40 (~85%)** — a more deeply-coupled case that needed a few library mocks. Both are reproducible: see [**vitest-native-bakeoffs**](https://github.com/danfry1/vitest-native-bakeoffs). We've also migrated a Rocket.Chat suite in local testing.
 

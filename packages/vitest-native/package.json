@@ -196,7 +196,9 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
     "prepublishOnly": "bun run build && bun run test && bun run test:native && bun run test:native:navigation && bun run test:native:android && bun run test:native:hot && bun run test:native:hot:isolation && bun run test:native:hot:soak && bun run crosscheck && bun run test:consumers && bun run lint && bun run typecheck",
-    "crosscheck": "node scripts/crosscheck.mjs"
+    "crosscheck": "node scripts/crosscheck.mjs",
+    "fidelity:report": "node scripts/fidelity-report.mjs",
+    "fidelity:check": "node scripts/fidelity-report.mjs --check"
   },
   "dependencies": {
     "flow-remove-types": "^2.318.0",

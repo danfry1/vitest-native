@@ -80,6 +80,7 @@ export default defineConfig({
           text: 'Reference',
           items: [
             { text: 'API Coverage', link: '/api/coverage' },
+            { text: 'Fidelity Report', link: '/guide/fidelity' },
             { text: 'Comparison with Jest', link: '/guide/comparison' },
             { text: 'Troubleshooting', link: '/guide/troubleshooting' },
           ],
