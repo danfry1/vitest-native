@@ -13,7 +13,7 @@ generated from the corpus itself, so the numbers below are exactly what ships.
 
 ## Summary
 
-- **56 / 56 probes** match between the mock engine and real React Native.
+- **68 / 68 probes** match between the mock engine and real React Native.
 - CI runs the same corpus across **React Native 0.81–0.85** on every commit.
 - Reproduce it yourself: `bun run crosscheck`.
 
@@ -29,6 +29,7 @@ across both engines.
 | --- | --- |
 | `a11y-role` | ✅ match |
 | `a11y-state-disabled` | ✅ match |
+| `accessibility-label-read` | ✅ match |
 | `accessibility-value` | ✅ match |
 | `activityindicator-renders` | ✅ match |
 | `animated-image-renders` | ✅ match |
@@ -43,9 +44,12 @@ across both engines.
 | `dimensions-window` | ✅ match |
 | `flatlist-renders-items` | ✅ match |
 | `get-all-by-role-count` | ✅ match |
+| `get-by-text-miss-throws` | ✅ match |
+| `i18nmanager-isrtl` | ✅ match |
 | `image-render` | ✅ match |
 | `keyboardavoidingview-children` | ✅ match |
 | `matcher-checked-switch` | ✅ match |
+| `matcher-contains-element` | ✅ match |
 | `matcher-disabled-enabled` | ✅ match |
 | `matcher-display-value` | ✅ match |
 | `matcher-have-prop` | ✅ match |
@@ -54,25 +58,33 @@ across both engines.
 | `matcher-text-content` | ✅ match |
 | `modal-visible-children` | ✅ match |
 | `nested-text` | ✅ match |
+| `not-on-screen-after-unmount` | ✅ match |
 | `pixelratio` | ✅ match |
+| `pixelratio-rounding` | ✅ match |
 | `placeholder-query` | ✅ match |
 | `platform-os` | ✅ match |
 | `platform-select` | ✅ match |
+| `platform-select-partial` | ✅ match |
+| `platform-version-type` | ✅ match |
 | `pressable-disabled-suppresses-press` | ✅ match |
 | `pressable-fires-onpress` | ✅ match |
+| `processcolor` | ✅ match |
 | `query-all-by-text` | ✅ match |
 | `query-by-hint-text` | ✅ match |
 | `query-by-label-text` | ✅ match |
 | `query-by-role` | ✅ match |
 | `query-by-role-name` | ✅ match |
+| `query-by-testid-miss` | ✅ match |
 | `query-by-text-regex` | ✅ match |
 | `scrollview-fireevent-scroll` | ✅ match |
 | `sectionlist-render` | ✅ match |
 | `stylesheet-create-identity` | ✅ match |
 | `stylesheet-flatten` | ✅ match |
+| `stylesheet-flatten-falsy` | ✅ match |
 | `stylesheet-helpers` | ✅ match |
 | `switch-render` | ✅ match |
 | `testid-query` | ✅ match |
+| `text-numberoflines-prop` | ✅ match |
 | `text-renders` | ✅ match |
 | `textinput-displayvalue` | ✅ match |
 | `textinput-focus-blur` | ✅ match |

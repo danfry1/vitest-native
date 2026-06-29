@@ -23,12 +23,14 @@ import {
   Button,
   Dimensions,
   FlatList,
+  I18nManager,
   Image,
   KeyboardAvoidingView,
   Modal,
   PixelRatio,
   Platform,
   Pressable,
+  processColor,
   ScrollView,
   SectionList,
   StyleSheet,
@@ -609,6 +611,81 @@ probe("matcher-have-prop", async () => {
     pointer: passes(() => expect(el).toHaveProp("pointerEvents", "none")),
     miss: passes(() => expect(el).toHaveProp("accessibilityLabel", "bye")),
   };
+});
+
+// --- more pure APIs (deterministic; device/OS-stable across both engines) ---
+probe("i18nmanager-isrtl", () => ({ isRTL: I18nManager.isRTL }));
+
+probe("processcolor", () => ({
+  named: processColor("red"),
+  hex: processColor("#00ff00"),
+  rgba: processColor("rgba(0, 0, 0, 0.5)"),
+}));
+
+probe("pixelratio-rounding", () => ({
+  round: PixelRatio.roundToNearestPixel(8.4),
+  layoutSize: PixelRatio.getPixelSizeForLayoutSize(10),
+}));
+
+probe("platform-version-type", () => ({ type: typeof Platform.Version }));
+
+probe("platform-select-partial", () => ({
+  hit: Platform.select({ ios: "i", android: "a" }),
+  noMatch: Platform.select({ android: "a" }) ?? "<<undefined>>",
+}));
+
+probe("stylesheet-flatten-falsy", () =>
+  StyleSheet.flatten([null, undefined, false, { margin: 1 }, { margin: 4 }]),
+);
+
+// --- more queries / matchers (core behaviors every suite depends on) ---
+probe("query-by-testid-miss", async () => {
+  await render(<View testID="present" />);
+  return {
+    present: !!screen.queryByTestId("present"),
+    missing: screen.queryByTestId("absent") === null,
+  };
+});
+
+probe("get-by-text-miss-throws", async () => {
+  await render(<Text>only</Text>);
+  return {
+    throwsOnMiss: !passes(() => screen.getByText("nope")),
+    findsHit: passes(() => screen.getByText("only")),
+  };
+});
+
+probe("matcher-contains-element", async () => {
+  await render(
+    <View testID="parent">
+      <Text testID="child">hi</Text>
+    </View>,
+  );
+  const parent = screen.getByTestId("parent");
+  const child = screen.getByTestId("child");
+  return { contains: passes(() => expect(parent).toContainElement(child)) };
+});
+
+probe("not-on-screen-after-unmount", async () => {
+  const view = await render(<View testID="v" />);
+  const before = passes(() => expect(screen.getByTestId("v")).toBeOnTheScreen());
+  view.unmount();
+  return { before, afterGone: screen.queryByTestId("v") === null };
+});
+
+probe("accessibility-label-read", async () => {
+  await render(<View testID="v" accessibilityLabel="Submit" accessible />);
+  const el = screen.getByTestId("v");
+  return { label: el.props.accessibilityLabel, accessible: el.props.accessible };
+});
+
+probe("text-numberoflines-prop", async () => {
+  await render(
+    <Text testID="t" numberOfLines={2}>
+      clamped
+    </Text>,
+  );
+  return { numberOfLines: screen.getByTestId("t").props.numberOfLines };
 });
 
 afterAll(() => {
