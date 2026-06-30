@@ -21,6 +21,12 @@ probes** (paired files): one pollutes a resident surface, the next asserts it wa
 reset — covering the RNTL render tree, DeviceEventEmitter listeners, Dimensions,
 Appearance, `process.env`, `globalThis`, a module-level store, and fake timers.
 
+The `app/` directory plus the `app-*.test.tsx` files add a cohesive mini-app with
+the patterns isolated components don't exercise: a hand-rolled stack **navigator**
+(push/pop with params), **async data fetching** (loading/data/error states),
+**nested providers** (auth/theme/settings consumed deep), and an **error
+boundary**. hot == default here too (29/29 both engines).
+
 ## Scale suite (`scale/`)
 
 `run-compare.mjs` generates a large, diverse suite from resident-state-touching
