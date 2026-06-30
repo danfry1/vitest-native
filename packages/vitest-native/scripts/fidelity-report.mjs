@@ -25,21 +25,26 @@ const badgePath = path.join(root, "crosscheck", "fidelity-badge.json");
 const knownDiffsPath = path.join(root, "crosscheck", "known-differences.json");
 const pagePath = path.join(repoRoot, "website", "guide", "fidelity.md");
 
+// A non-zero cross-check exit means EITHER a probe diverged OR the suite itself
+// exited non-zero while probes still matched (crosscheck.mjs's `!native.ok` guard
+// — an unhandled rejection, a throwing hook, a worker teardown error). Both must
+// fail this gate, so the subprocess status is propagated at the end; rendering
+// still proceeds so the page reflects whatever was captured. fidelity:check is
+// therefore a strict superset of `crosscheck` (the gate it replaces in CI).
+let crosscheckFailed = false;
 if (!process.argv.includes("--no-run")) {
   console.log("── running cross-check to refresh report data ──");
   const res = spawnSync(process.execPath, [path.join(root, "scripts", "crosscheck.mjs")], {
     cwd: root,
     stdio: "inherit",
   });
-  // A divergence exits non-zero but still writes report.json (with the failing
-  // probes marked), so render either way to reflect reality — but if the suite
-  // itself failed to run, fail hard instead of rendering from stale/empty data.
   if (res.status !== 0) {
     if (!fs.existsSync(reportPath)) {
       console.error("✗ cross-check did not produce a report — failing.");
       process.exit(1);
     }
-    console.warn("\n⚠ cross-check reported divergences — rendering them below.\n");
+    crosscheckFailed = true;
+    console.warn("\n⚠ cross-check exited non-zero — this run will fail after rendering.\n");
   }
 }
 
@@ -132,14 +137,14 @@ across both engines.
 | --- | --- |
 ${probeRows}
 
-## Known differences
+## Not gated by the cross-check
 
-Where the mock engine intentionally or knowingly differs from real React Native,
-it is documented here rather than hidden. These are excluded from the probe
-corpus above (or asserted to their known values) so the cross-check stays green
-without papering over the difference.
+Some behaviors are deliberately left out of the gated corpus above because they
+vary by React Native version, test environment, or device — a single fixed value
+can't be correct for all of them, so pinning one would make the cross-check lie.
+They are documented here rather than hidden.
 
-| Area | Difference | Why |
+| Area | Behavior | Why it isn't gated |
 | --- | --- | --- |
 ${knownDiffRows}
 `;
@@ -174,4 +179,5 @@ if (checkOnly) {
   console.log(`  badge: ${path.relative(repoRoot, badgePath)} (${badge.message})`);
   console.log(`  page:  ${path.relative(repoRoot, pagePath)}`);
 }
-if (!allMatch) process.exit(1);
+// Fail on a probe divergence (!allMatch) OR any other non-zero cross-check exit.
+if (!allMatch || crosscheckFailed) process.exit(1);

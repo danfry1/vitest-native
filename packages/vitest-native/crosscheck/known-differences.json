@@ -1,7 +1,17 @@
 [
   {
-    "area": "Dimensions / PixelRatio defaults",
-    "difference": "Default device metrics (window/screen size, pixel ratio, font scale) can differ between the mock engine's fixed default device and the metrics real React Native reports in the test host.",
-    "why": "These are device/environment values, not behavior. Tests that depend on exact metrics should set them explicitly (e.g. Dimensions.set / a fixed device) rather than rely on a default, so the value is the same under both engines."
+    "area": "Default device metrics (Dimensions / PixelRatio)",
+    "difference": "The default window/screen size, pixel ratio and font scale are a fixed test-host default. Both engines report the same default — the cross-check gates that — but it is not any specific physical device.",
+    "why": "Device metrics aren't behavior, and the default won't match a real device. Tests that depend on exact metrics should set them explicitly (e.g. Dimensions.set) rather than rely on the default."
+  },
+  {
+    "area": "Text onPress accessibilityRole",
+    "difference": "A <Text> with an onPress handler is auto-assigned accessibilityRole \"link\" by some React Native versions and not others.",
+    "why": "Version-variant across the supported RN range — a single mock value can't match every minor, so it isn't pinned by a probe."
+  },
+  {
+    "area": "Appearance color scheme",
+    "difference": "Appearance.getColorScheme() reflects the host environment rather than a fixed value.",
+    "why": "Environment-dependent (CI vs local, OS settings), so it isn't a stable cross-engine invariant to gate."
   }
 ]

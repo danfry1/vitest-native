@@ -103,13 +103,15 @@ across both engines.
 | `view-onlayout` | ✅ match |
 | `within-scoping` | ✅ match |
 
-## Known differences
+## Not gated by the cross-check
 
-Where the mock engine intentionally or knowingly differs from real React Native,
-it is documented here rather than hidden. These are excluded from the probe
-corpus above (or asserted to their known values) so the cross-check stays green
-without papering over the difference.
+Some behaviors are deliberately left out of the gated corpus above because they
+vary by React Native version, test environment, or device — a single fixed value
+can't be correct for all of them, so pinning one would make the cross-check lie.
+They are documented here rather than hidden.
 
-| Area | Difference | Why |
+| Area | Behavior | Why it isn't gated |
 | --- | --- | --- |
-| Dimensions / PixelRatio defaults | Default device metrics (window/screen size, pixel ratio, font scale) can differ between the mock engine's fixed default device and the metrics real React Native reports in the test host. | These are device/environment values, not behavior. Tests that depend on exact metrics should set them explicitly (e.g. Dimensions.set / a fixed device) rather than rely on a default, so the value is the same under both engines. |
+| Default device metrics (Dimensions / PixelRatio) | The default window/screen size, pixel ratio and font scale are a fixed test-host default. Both engines report the same default — the cross-check gates that — but it is not any specific physical device. | Device metrics aren't behavior, and the default won't match a real device. Tests that depend on exact metrics should set them explicitly (e.g. Dimensions.set) rather than rely on the default. |
+| Text onPress accessibilityRole | A <Text> with an onPress handler is auto-assigned accessibilityRole "link" by some React Native versions and not others. | Version-variant across the supported RN range — a single mock value can't match every minor, so it isn't pinned by a probe. |
+| Appearance color scheme | Appearance.getColorScheme() reflects the host environment rather than a fixed value. | Environment-dependent (CI vs local, OS settings), so it isn't a stable cross-engine invariant to gate. |
