@@ -23,12 +23,14 @@ import {
   Button,
   Dimensions,
   FlatList,
+  I18nManager,
   Image,
   KeyboardAvoidingView,
   Modal,
   PixelRatio,
   Platform,
   Pressable,
+  processColor,
   ScrollView,
   SectionList,
   StyleSheet,
@@ -610,6 +612,148 @@ probe("matcher-have-prop", async () => {
     miss: passes(() => expect(el).toHaveProp("accessibilityLabel", "bye")),
   };
 });
+
+// --- more pure APIs (deterministic; device/OS-stable across both engines) ---
+probe("i18nmanager-isrtl", () => ({ isRTL: I18nManager.isRTL }));
+
+probe("processcolor", () => ({
+  named: processColor("red"),
+  hex: processColor("#00ff00"),
+  rgba: processColor("rgba(0, 0, 0, 0.5)"),
+}));
+
+probe("pixelratio-rounding", () => ({
+  round: PixelRatio.roundToNearestPixel(8.4),
+  layoutSize: PixelRatio.getPixelSizeForLayoutSize(10),
+}));
+
+probe("platform-version-type", () => ({ type: typeof Platform.Version }));
+
+probe("platform-select-partial", () => ({
+  hit: Platform.select({ ios: "i", android: "a" }),
+  noMatch: Platform.select({ android: "a" }) ?? "<<undefined>>",
+}));
+
+probe("stylesheet-flatten-falsy", () =>
+  StyleSheet.flatten([null, undefined, false, { margin: 1 }, { margin: 4 }]),
+);
+
+// --- more queries / matchers (core behaviors every suite depends on) ---
+probe("query-by-testid-miss", async () => {
+  await render(<View testID="present" />);
+  return {
+    present: !!screen.queryByTestId("present"),
+    missing: screen.queryByTestId("absent") === null,
+  };
+});
+
+probe("get-by-text-miss-throws", async () => {
+  await render(<Text>only</Text>);
+  return {
+    throwsOnMiss: !passes(() => screen.getByText("nope")),
+    findsHit: passes(() => screen.getByText("only")),
+  };
+});
+
+probe("matcher-contains-element", async () => {
+  await render(
+    <View testID="parent">
+      <Text testID="child">hi</Text>
+    </View>,
+  );
+  const parent = screen.getByTestId("parent");
+  const child = screen.getByTestId("child");
+  return { contains: passes(() => expect(parent).toContainElement(child)) };
+});
+
+probe("not-on-screen-after-unmount", async () => {
+  const view = await render(<View testID="v" />);
+  const before = passes(() => expect(screen.getByTestId("v")).toBeOnTheScreen());
+  view.unmount();
+  return { before, afterGone: screen.queryByTestId("v") === null };
+});
+
+probe("accessibility-label-read", async () => {
+  await render(<View testID="v" accessibilityLabel="Submit" accessible />);
+  const el = screen.getByTestId("v");
+  return { label: el.props.accessibilityLabel, accessible: el.props.accessible };
+});
+
+probe("text-numberoflines-prop", async () => {
+  await render(
+    <Text testID="t" numberOfLines={2}>
+      clamped
+    </Text>,
+  );
+  return { numberOfLines: screen.getByTestId("t").props.numberOfLines };
+});
+
+// --- BUG-HUNT TRANCHE: behaviors most likely to diverge (interactive paths,
+// computed a11y, input constraints, color edge cases). Divergences here are
+// either real mock bugs to fix or genuinely version-variant behavior to document.
+probe("hunt-pressable-style-fn", async () => {
+  await render(<Pressable testID="p" style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })} />);
+  return { restingOpacity: passes(() => expect(screen.getByTestId("p")).toHaveStyle({ opacity: 1 })) };
+});
+
+probe("hunt-pressable-children-fn", async () => {
+  await render(
+    <Pressable testID="p">{({ pressed }) => <Text>{pressed ? "down" : "up"}</Text>}</Pressable>,
+  );
+  return { resting: !!screen.queryByText("up") };
+});
+
+probe("hunt-pressable-disabled-a11ystate", async () => {
+  await render(
+    <Pressable testID="p" disabled accessibilityRole="button">
+      <Text>x</Text>
+    </Pressable>,
+  );
+  const st = screen.getByTestId("p").props.accessibilityState ?? {};
+  return { disabled: st.disabled ?? "<<unset>>" };
+});
+
+probe("hunt-fireevent-press", async () => {
+  let n = 0;
+  await render(
+    <Pressable testID="p" onPress={() => (n += 1)}>
+      <Text>x</Text>
+    </Pressable>,
+  );
+  await fireEvent.press(screen.getByTestId("p"));
+  return { calls: n };
+});
+
+probe("hunt-pressable-press-in-out", async () => {
+  let inN = 0;
+  let outN = 0;
+  await render(
+    <Pressable testID="p" onPressIn={() => (inN += 1)} onPressOut={() => (outN += 1)}>
+      <Text>x</Text>
+    </Pressable>,
+  );
+  await fireEvent(screen.getByTestId("p"), "pressIn");
+  await fireEvent(screen.getByTestId("p"), "pressOut");
+  return { inN, outN };
+});
+
+probe("hunt-textinput-maxlength", async () => {
+  const user = userEvent.setup();
+  await render(<TextInput testID="i" maxLength={3} />);
+  await user.type(screen.getByTestId("i"), "abcdef");
+  return { clampedToAbc: passes(() => expect(screen.getByTestId("i")).toHaveDisplayValue("abc")) };
+});
+
+// Note: Switch `valueChange` routing, Text-onPress `accessibilityRole`, and
+// Appearance.getColorScheme() were probed too but are intentionally NOT gated —
+// the first two are version-variant (a single mock value can't match every RN
+// minor) and the third is environment-dependent. See the version-variant notes
+// elsewhere in this file.
+probe("hunt-processcolor-edge", () => ({
+  transparent: processColor("transparent") ?? "<<undefined>>",
+  invalid: processColor("definitely-not-a-color") ?? "<<undefined>>",
+  hsl: processColor("hsl(0, 100%, 50%)") ?? "<<undefined>>",
+}));
 
 afterAll(() => {
   const out = process.env.CROSSCHECK_OUT;

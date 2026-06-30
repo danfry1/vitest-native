@@ -33,6 +33,8 @@
     "typecheck": "bun run --filter vitest-native typecheck",
     "clean": "bun run --filter vitest-native clean",
     "crosscheck": "bun run --filter vitest-native crosscheck",
+    "fidelity:report": "bun run --filter vitest-native fidelity:report",
+    "fidelity:check": "bun run --filter vitest-native fidelity:check",
     "dev:website": "vitepress dev website",
     "build:website": "vitepress build website",
     "preview:website": "vitepress preview website"

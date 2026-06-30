@@ -1,5 +1,7 @@
 # vitest-native
 
+[![RN fidelity](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdanfry1%2Fvitest-native%2Fmain%2Fpackages%2Fvitest-native%2Fcrosscheck%2Ffidelity-badge.json)](https://github.com/danfry1/vitest-native/blob/main/website/guide/fidelity.md)
+
 Run your React Native tests under Vitest, against **real React Native** — the same JavaScript that ships in your app, with only the native-module boundary mocked. That is the default and the point of the project. A lightweight pure-JS mock engine is available as an opt-in for fast, RN-free unit tests.
 
 > **Beta.** The release-supported native engine is validated across React Native 0.81–0.86,

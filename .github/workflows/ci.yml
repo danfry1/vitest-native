@@ -100,11 +100,13 @@ jobs:
         if: ${{ !matrix.rntl }}
         run: bun run test:native:hot:soak
 
-      - name: Cross-check (mock ≡ real RN)
+      - name: Cross-check (mock ≡ real RN) + fidelity report freshness
         # The cross-check is calibrated on the current RNTL (14); a few probes track
         # RNTL-version-specific real-RN behavior, so it runs only on the RNTL 14 legs.
+        # fidelity:check runs the cross-check AND fails if the published fidelity
+        # page/badge no longer match the live corpus (run `bun run fidelity:report`).
         if: ${{ !matrix.rntl }}
-        run: bun run crosscheck
+        run: bun run fidelity:check
 
       - name: Test example app
         run: bun run test:example

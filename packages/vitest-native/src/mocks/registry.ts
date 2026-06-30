@@ -131,7 +131,7 @@ function createProcessColorMock() {
     grey: 0xff808080,
   };
 
-  return vi.fn((color: any): number | null => {
+  return vi.fn((color: any): number | null | undefined => {
     if (color == null) return null;
     if (typeof color === "number") return color;
     if (typeof color === "string") {
@@ -191,7 +191,9 @@ function createProcessColorMock() {
         return ((alpha << 24) + (r << 16) + (g << 8) + b) >>> 0;
       }
     }
-    return 0xff000000; // opaque black fallback
+    // Real RN's processColor returns undefined for an unparseable color (the
+    // native normalizer fails), rather than coercing to a default.
+    return undefined;
   });
 }
 

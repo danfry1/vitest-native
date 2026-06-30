@@ -4,7 +4,13 @@
 // pure-JS mock behaves like real React Native for the covered behaviors.
 //
 // Usage: `bun run crosscheck` (or `node scripts/crosscheck.mjs`).
+//
+// It also writes an ephemeral combined report to crosscheck/.out/report.json
+// (RN version + per-probe parity) that `scripts/fidelity-report.mjs` renders
+// into the committed badge and the published fidelity page. The .out directory
+// is gitignored, so running the gate itself never produces a committed diff.
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,6 +20,15 @@ const config = path.join(root, "crosscheck", "vitest.config.mts");
 const outDir = path.join(root, "crosscheck", ".out");
 const vitestBin = path.join(root, "node_modules", ".bin", "vitest");
 fs.mkdirSync(outDir, { recursive: true });
+
+function resolveReactNativeVersion() {
+  try {
+    const req = createRequire(path.join(root, "package.json"));
+    return req("react-native/package.json").version;
+  } catch {
+    return null;
+  }
+}
 
 function runEngine(engine) {
   const out = path.join(outDir, `${engine}.json`);
@@ -53,6 +68,22 @@ for (const name of names) {
 console.log("\n── cross-check result ──");
 const matched = names.length - failures.length;
 console.log(`${matched}/${names.length} probes match between mock and real React Native.`);
+
+// Emit a combined, machine-readable report for the fidelity pipeline. Ephemeral
+// (.out is gitignored); scripts/fidelity-report.mjs renders the committed
+// artifacts from it. Per-probe values are omitted here to keep the published
+// surface stable — only each probe's name and match status are reported.
+const failureByName = new Map(failures.map((f) => [f.name, f]));
+const report = {
+  reactNativeVersion: resolveReactNativeVersion(),
+  generatedAt: new Date().toISOString(),
+  summary: { total: names.length, matching: matched },
+  probes: names.map((name) => {
+    const failure = failureByName.get(name);
+    return { name, match: !failure, ...(failure ? { reason: failure.reason } : {}) };
+  }),
+};
+fs.writeFileSync(path.join(outDir, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
 
 if (failures.length > 0) {
   console.error(`\n✗ ${failures.length} divergence(s) — the mock does not match real RN:\n`);

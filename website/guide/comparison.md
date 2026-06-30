@@ -47,7 +47,7 @@ With `engine: 'native'` and isolation on, vitest-native isn't categorically fast
 
 ## The cross-check
 
-The mock engine is a reimplementation of React Native, so it could in principle drift from real RN behavior. vitest-native guards against that with a **CI-gated behavioral cross-check**: a corpus of 56 probes runs the same assertions against both the mock engine and real RN across React Native 0.81–0.85, and divergences fail CI. It's reproducible — clone the repo and run `bun run crosscheck`.
+The mock engine is a reimplementation of React Native, so it could in principle drift from real RN behavior. vitest-native guards against that with a **CI-gated behavioral cross-check**: a corpus of probes runs the same assertions against both the mock engine and real RN across React Native 0.81–0.85, and divergences fail CI. It's reproducible — clone the repo and run `bun run crosscheck`. The full corpus and its current pass count are published in the [Fidelity Report](/guide/fidelity).
 
 This is the trust mechanism for the mock — and it has already caught and fixed real mock bugs (for example, an `Animated.Text` host-name mismatch that broke `queryByText`, and `Animated.Value`-in-style not resolving for `toHaveStyle`). The native engine doesn't need this — it *is* real RN.
 
