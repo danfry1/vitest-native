@@ -13,12 +13,15 @@ export default defineConfig({
     // engines — it must not run as part of the single-engine mock suite.
     // `consumer-tests/**` are copied into isolated projects and tested from the
     // packed tarball; running them here would use this repository's config.
+    // `validation/**` is the idiomatic hot-parity oracle — it runs only via its
+    // own native-engine configs (and `validate:hot-parity`), never the mock gate.
     exclude: [
       ...configDefaults.exclude,
       'tests-native/**',
       '.tmp-spike*/**',
       'crosscheck/**',
       'consumer-tests/**',
+      'validation/**',
     ],
   },
 });
