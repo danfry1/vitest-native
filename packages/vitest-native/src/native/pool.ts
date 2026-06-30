@@ -19,6 +19,7 @@
 // custom pools can't receive task.memoryLimit — so the threshold is our own
 // option. Upstream RFC item.)
 import path from "node:path";
+import os from "node:os";
 import { ThreadsPoolWorker } from "vitest/node";
 import type { PoolOptions, PoolRunnerInitializer, PoolTask, WorkerRequest } from "vitest/node";
 
@@ -135,6 +136,35 @@ class NativePoolWorker extends ThreadsPoolWorker {
     const env = task.context.environment;
     return env.name === this.environment.name && deepEqual(env.options, this.environment.options);
   }
+}
+
+// Per-worker memory bound applied by default when hot is enabled but the user
+// configured no explicit recycling. Hot workers hold React Native resident and
+// accumulate ~4 MB/file (RNTL's resident render trees can't be reclaimed across
+// files), so unbounded single-worker hot heads toward OOM at large file counts.
+// A per-worker `memoryLimit` lets multi-worker runs recycle a worker once its
+// heap crosses the ceiling, keeping total hot memory bounded regardless of suite
+// size. The bounds:
+//  - FLOOR (768 MB): a per-worker limit below RN's resident working set
+//    (~417 MB/worker measured @8w, plus headroom) would recycle every few files
+//    and thrash. 768 MB sits safely above it.
+//  - CEILING (1.5 GB): above this there's no practical point bounding on typical
+//    dev/CI machines.
+//  - FRACTION (0.25): scale the budget with machine size between those bounds.
+// Single-worker hot can't recycle at all (Vitest batches all files into one task),
+// so the bound is inert there — the pool's batch warning nudges users to >=2 workers.
+const HOT_MEMORY_MIN_BYTES = 768 * 1024 * 1024;
+const HOT_MEMORY_MAX_BYTES = 1536 * 1024 * 1024;
+const HOT_MEMORY_FRACTION = 0.25;
+
+/**
+ * Default per-worker hot `memoryLimit` (bytes): `clamp(totalmem * 0.25, 768MB, 1.5GB)`.
+ * Applied only when hot is enabled and neither `memoryLimit` nor
+ * `recycleAfterFiles` was set explicitly. `totalmem` is injectable for tests.
+ */
+export function defaultHotMemoryLimit(totalmem: number = os.totalmem()): number {
+  const budget = Math.floor(totalmem * HOT_MEMORY_FRACTION);
+  return Math.min(HOT_MEMORY_MAX_BYTES, Math.max(HOT_MEMORY_MIN_BYTES, budget));
 }
 
 /** Pool initializer for `test.pool` — keeps RN-hot workers alive across files. */
