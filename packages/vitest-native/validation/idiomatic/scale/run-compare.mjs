@@ -60,6 +60,11 @@ console.log(`hot-specific regressions (passed default, failed hot): ${regression
 for (const r of regressions.slice(0, 40)) console.log(`  ✗ ${r.name} [hot: ${r.hStatus}]`);
 if (hotOnlyPass.length) console.log(`(hot passed where default failed: ${hotOnlyPass.length} — usually baseline flakes)`);
 
-const clean = regressions.length === 0 && def.total === hot.total;
+// Defense-in-depth: a clean diff only counts if BOTH runs also exited 0 and ran
+// the same number of tests (a crashed suite that wrote partial JSON would
+// otherwise look delta-free on the tests it did report).
+const cleanExits = def.exit === 0 && hot.exit === 0;
+const clean = regressions.length === 0 && def.total === hot.total && cleanExits;
+if (!cleanExits) console.log(`✗ non-zero vitest exit (default=${def.exit}, hot=${hot.exit})`);
 console.log(`\n${clean ? "✓ hot == default: ZERO correctness delta at scale" : "✗ correctness delta detected"}`);
 process.exit(clean ? 0 : 1);

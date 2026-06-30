@@ -50,9 +50,15 @@ perWorkerMemoryLimit = clamp(
 
 The hot pool already implements its own `memoryLimit` recycling (custom pools
 don't receive Vitest's vm-only `task.memoryLimit`), so this is wiring a default,
-not new machinery. Because the budget is divided by worker count, **total memory
-stays bounded as workers scale** (8 workers each recycle at budget/8), which is
-cleaner than capping the worker count.
+not new machinery. Dividing the budget by worker count keeps total memory bounded
+as workers scale — **up to a point**: once worker count exceeds
+`MEMORY_BUDGET_FRACTION * totalmem / MIN_PER_WORKER`, the `MIN_PER_WORKER` floor
+engages and total memory becomes `workers * MIN_PER_WORKER`, which grows with
+worker count again (e.g. 16 workers × 512 MB = 8 GB regardless of the fraction).
+The floor exists because a per-worker limit below React Native's resident base
+(~600 MB) would thrash (recycle every few files). So a **worker-count cap** is
+still needed for the high-worker / low-memory corner — the budget division alone
+does not bound it there.
 
 **Single-worker is the residual unsafe case.** Recycling can't fire when Vitest
 batches all files into one task (`isolate:false` + `maxWorkers:1`). So when hot is

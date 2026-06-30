@@ -1,8 +1,9 @@
 // NEGATIVE CONTROL: native engine with isolate:false but WITHOUT the hot runtime,
-// so there is NO per-file module/state reset. The store and listener-accumulation
-// probes MUST fail here — proving they are sensitive to real cross-file bleed.
-// Hot (which schedules like isolate:false but DOES reset per file) must NOT fail
-// them. The contrast is the proof.
+// so there is NO per-file module/state reset. The store-reset probe fails here
+// consistently (~14x), demonstrating it detects real cross-file bleed; hot, which
+// schedules like isolate:false but DOES reset per file, does not fail it. (The
+// listener-accumulation checker is order/cleanup-timing dependent and is a smoke
+// test, not a reliable sensitivity probe — see validation/idiomatic/README.md.)
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
