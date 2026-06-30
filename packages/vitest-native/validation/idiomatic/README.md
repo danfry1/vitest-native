@@ -45,3 +45,22 @@ they actually detect cross-file bleed — the same probes pass under hot.
 Conclusion: on idiomatic/greenfield apps at scale, the hot runtime is
 correctness-identical to the default engine and substantially faster. Migrated
 Jest suites can still hit migration-tooling friction — a separate concern.
+
+## De-risking the default flip (2026-06-30)
+
+- **Correctness** — solid. hot == default at single-worker AND multi-worker
+  (`VN_WORKERS=4`), from 135 up to 1000 generated files, zero per-test delta.
+  The negative control proves the bleed probes are sensitive.
+- **Memory** — a real speed/memory tradeoff, not a free win.
+  - Single-worker hot accumulates ~4 MB/file, **unbounded** (1010 MB @150 →
+    2466 MB @500). Idiomatic auto-cleanup does NOT mitigate it.
+  - Multi-worker + recycling (`hotRuntime: { recycleAfterFiles: 40 }`) **bounds**
+    it flat: 1523 MB @500 files, 1559 MB @1000 files.
+  - But that bound is still ~1.8× the default engine (836 MB @500/4w), because
+    each worker holds React Native's resident graph.
+  - Implication for defaulting hot: it must pair with multi-worker + a recycle /
+    memory bound, and likely a worker-count cap; on memory-constrained CI the
+    default engine may still be preferable.
+
+Run the memory measurements with `/usr/bin/time -l node node_modules/.bin/vitest
+run --config <config>` after `node scale/generate.mjs <N>`.
