@@ -1,4 +1,5 @@
 import type { Plugin, UserConfig } from "vite";
+import type { PoolRunnerInitializer } from "vitest/node";
 import type { VitestNativeOptions, ResolvedOptions, Preset } from "./types.js";
 import { getPlatformExtensions } from "./resolve.js";
 import { fileURLToPath } from "node:url";
@@ -419,17 +420,28 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         }
         // Lazy import: pulls in vitest/node, which only exists when running
         // under Vitest (not plain Vite) — and only the hot runtime needs it.
-        const hot = hotRuntime
-          ? {
-              pool: (await import("./native/pool.js")).nativePool({
-                workerEntry: nativeWorkerPath,
-                recycleAfterFiles: hotRecycle.recycleAfterFiles,
-                memoryLimit: hotRecycle.memoryLimit,
-                diagnostics,
-              }),
-              runnerPath: nativeRunnerPath,
-            }
-          : undefined;
+        let hot: { pool: PoolRunnerInitializer; runnerPath: string } | undefined;
+        if (hotRuntime) {
+          const { nativePool, defaultHotMemoryLimit } = await import("./native/pool.js");
+          // When hot is enabled but the user set no explicit recycling, apply a
+          // default per-worker memory bound so enabling hot can't grow memory
+          // unbounded. Don't override an explicit choice: if the user set
+          // recycleAfterFiles, respect that as their bound and add no default
+          // memoryLimit. (Single-worker hot can't recycle regardless — the pool
+          // warns about that — but multi-worker runs are now bounded out of the box.)
+          const memoryLimit =
+            hotRecycle.memoryLimit ??
+            (hotRecycle.recycleAfterFiles == null ? defaultHotMemoryLimit() : undefined);
+          hot = {
+            pool: nativePool({
+              workerEntry: nativeWorkerPath,
+              recycleAfterFiles: hotRecycle.recycleAfterFiles,
+              memoryLimit,
+              diagnostics,
+            }),
+            runnerPath: nativeRunnerPath,
+          };
+        }
         return asCompatibleViteConfig(
           nativeEngineConfig(nativeSetupPath, env, extensions, transformPkgs, hot, jsxTransform),
         );

@@ -290,6 +290,10 @@ describe("plugin engine routing", () => {
     });
     expect(worker.name).toBe("vitest-native");
     expect((worker as any).entrypoint).toMatch(/native[\\/]worker\.mjs$/);
+    // Plain `hotRuntime: true` (no explicit recycling) applies the default
+    // per-worker memory bound, which turns on heap reporting. Guards the
+    // plugin.ts default-application wiring, not just defaultHotMemoryLimit().
+    expect(worker.reportMemory).toBe(true);
   });
 
   it("hotRuntime object form wires recycling policy into the pool worker", async () => {
@@ -397,5 +401,36 @@ describe("native globals: globalThis.expo shim", () => {
     expect(expo.modules).toEqual({});
     expect(typeof expo.uuidv4()).toBe("string");
     expect(expo.getViewConfig()).toBeNull();
+  });
+});
+
+import { defaultHotMemoryLimit } from "../src/native/pool.js";
+
+describe("defaultHotMemoryLimit", () => {
+  const MB = 1024 * 1024;
+  const GB = 1024 * MB;
+
+  it("scales with total memory at 25% between the bounds", () => {
+    // 0.25 * 16 GB = 4 GB → clamped to the 1.5 GB ceiling; pick a total whose
+    // quarter lands inside the band: 0.25 * 4 GB = 1 GB.
+    expect(defaultHotMemoryLimit(4 * GB)).toBe(1 * GB);
+    expect(defaultHotMemoryLimit(5 * GB)).toBe(Math.floor(0.25 * 5 * GB));
+  });
+
+  it("clamps up to the 768 MB floor on small machines", () => {
+    // 0.25 * 2 GB = 512 MB, below the floor.
+    expect(defaultHotMemoryLimit(2 * GB)).toBe(768 * MB);
+    expect(defaultHotMemoryLimit(0)).toBe(768 * MB);
+  });
+
+  it("clamps down to the 1.5 GB ceiling on large machines", () => {
+    expect(defaultHotMemoryLimit(64 * GB)).toBe(1536 * MB);
+    expect(defaultHotMemoryLimit(8 * GB)).toBe(1536 * MB); // 0.25 * 8 GB = 2 GB
+  });
+
+  it("defaults totalmem from os when no argument is given", () => {
+    const limit = defaultHotMemoryLimit();
+    expect(limit).toBeGreaterThanOrEqual(768 * MB);
+    expect(limit).toBeLessThanOrEqual(1536 * MB);
   });
 });
