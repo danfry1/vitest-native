@@ -113,5 +113,5 @@ They are documented here rather than hidden.
 | Area | Behavior | Why it isn't gated |
 | --- | --- | --- |
 | Default device metrics (Dimensions / PixelRatio) | The default window/screen size, pixel ratio and font scale are a fixed test-host default. Both engines report the same default — the cross-check gates that — but it is not any specific physical device. | Device metrics aren't behavior, and the default won't match a real device. Tests that depend on exact metrics should set them explicitly (e.g. Dimensions.set) rather than rely on the default. |
-| Text onPress accessibilityRole | A <Text> with an onPress handler is auto-assigned accessibilityRole "link" by some React Native versions and not others. | Version-variant across the supported RN range — a single mock value can't match every minor, so it isn't pinned by a probe. |
+| Text onPress accessibilityRole | A &lt;Text&gt; with an onPress handler is auto-assigned accessibilityRole "link" by some React Native versions and not others. | Version-variant across the supported RN range — a single mock value can't match every minor, so it isn't pinned by a probe. |
 | Appearance color scheme | Appearance.getColorScheme() reflects the host environment rather than a fixed value. | Environment-dependent (CI vs local, OS settings), so it isn't a stable cross-engine invariant to gate. |
