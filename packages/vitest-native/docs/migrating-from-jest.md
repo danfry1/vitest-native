@@ -101,6 +101,13 @@ Those are Jest/Metro config. vitest-native handles RN + third-party transformati
 For *run-real pure-JS* third-party libs under the native engine, use the plugin's `transform: [...]`
 allowlist instead of `transformIgnorePatterns`.
 
+One case needs a manual `transform` entry: a library shipping **untranspiled JSX in `.js` files**
+(its `package.json` `"react-native"`/`"module"` field points at `src/`). Under the native engine
+it's external to the Vite graph, so you'll see `Failed to parse source for import analysis … If you
+are using JSX, make sure to name the file with the .jsx or .tsx extension. File: node_modules/<lib>/…`.
+The error names the file — add that package: `reactNative({ engine: 'native', transform: ['<lib>'] })`.
+Same entry is needed when a `vi.mock('<lib>')` must intercept an otherwise-externalized library.
+
 ### 2f. Jest config options
 `jest.config.js` keys (`setupFilesAfterEnv`, `moduleNameMapper`, `testEnvironment`, etc.) move to the
 Vitest config: `setupFiles`, `resolve.alias`, `test.environment: 'node'`. `jest.setTimeout(ms)` is a
@@ -108,17 +115,45 @@ no-op under the shim (use `test.testTimeout` in config or per-test `{ timeout }`
 
 ---
 
-## 3. Suggested migration recipe
+## 3. Known limits — assertions coupled to Jest's mocks
+
+A minority of tests assert on **Jest's React Native mock internals** rather than rendered behavior.
+The native engine runs *real* RN, so these can't be reproduced without re-mocking RN internally
+(which defeats the point). Recognize them so you rewrite or skip rather than chase them. In our runs
+they clustered in **component libraries** (which test RN internals directly); ordinary app suites hit
+few or none.
+
+- **`jest.spyOn(View.prototype, 'measure'/'measureInWindow')`** — Jest mocks `View` as a class with
+  prototype methods; real RN's `View` is a `forwardRef` with no such prototype, so the spy target is
+  `undefined`. Drive layout via `onLayout`/`fireEvent` instead, or accept as known-incompatible.
+- **`jest.mock('react-native/Libraries/…')` of internal submodules** (e.g. `Appearance`,
+  `AccessibilityInfo`) then spying them — externalized/resident RN isn't intercepted by a submodule
+  mock. Prefer the public API from `react-native`.
+- **`image.props.source.uri` / raw `source`-shape assertions** — real RN normalizes `source`, so the
+  raw shape differs. Native = real RN = ground truth; assert on behavior instead.
+- **`jest.mock('react-native', …)` nested inside `beforeAll`/`describe` callbacks** — Jest doesn't
+  hoist those (they're inert); vitest-native applies mocks more consistently, which can expose a mock
+  that was silently a no-op. Move it to top level with a valid override, or drop it.
+
+The `jest.requireActual('react-native')` clone-and-override pattern is supported (RN's module is
+writable under the compat layer). **Expo caveat:** suites importing **Expo core** pull in Expo's
+dev-server/init plumbing (message socket, dev tools) that expects a Metro connection and may not
+collect without extra setup; suites using Expo *modules* via the `expo` preset are unaffected.
+
+---
+
+## 4. Suggested migration recipe
 
 1. Add the jest-compat config (section 1). Upgrade RNTL to a supported 12–14 release (2b).
 2. Delete manual third-party native-lib mocks and `@react-native/jest-preset` (2c, 2e).
 3. Convert any **top-level** `jest.mock(...)` to `vi.mock(...)`; leave runtime `jest.*` as-is (2a).
 4. Run `vitest run -u` once to re-record snapshots (2d), then `vitest run` to confirm green.
-5. Triage remaining failures — usually a missing query update or a suite-specific mock. For runtime
-   issues (large-suite memory limits, error-boundary console noise, overriding a preset's mock), see
-   the [Troubleshooting](../README.md#troubleshooting) section.
+5. Triage remaining failures — a missing query update, a suite-specific mock, or a known
+   Jest-mock-coupled assertion (section 3). For runtime issues (large-suite memory limits,
+   error-boundary console noise, overriding a preset's mock), see the
+   [Troubleshooting](../README.md#troubleshooting) section.
 
-## 4. What "done" looks like
+## 5. What "done" looks like
 
 A migrated suite runs under Vitest with: the jest-compat aliases + setup, RNTL 12–14, no manual
 third-party native mocks, top-level mocks converted, and snapshots re-recorded. You get Vitest's
