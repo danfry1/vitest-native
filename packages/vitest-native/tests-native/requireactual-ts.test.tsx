@@ -12,4 +12,19 @@ describe("native engine: jest.requireActual of app TS/TSX", () => {
     expect(typeof mod.default).toBe("function");
     expect(mod.default()).toBe("real-widget");
   });
+
+  // Real Jest suites clone-and-override RN: `const RN = jest.requireActual(
+  // 'react-native'); RN.Platform = {...}; return RN`. RN's index is a facade of
+  // lazy getters with no setters, so the assignment must not throw, the override
+  // must win on later reads, and un-overridden exports must still resolve.
+  it("returns a writable react-native facade (clone-and-override pattern)", () => {
+    const RN = jest.requireActual("react-native");
+    expect(() => {
+      RN.Platform = { OS: "ios", select: (o: any) => o.ios };
+    }).not.toThrow();
+    expect(RN.Platform.OS).toBe("ios");
+    expect(RN.Platform.select({ ios: 1, android: 2 })).toBe(1);
+    // Un-overridden exports still resolve through the real (lazy) facade.
+    expect(typeof RN.StyleSheet.create).toBe("function");
+  });
 });
