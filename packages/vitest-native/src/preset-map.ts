@@ -9,6 +9,7 @@ export type PresetName = keyof typeof Presets;
  */
 export const AUTO_DETECT_PRESETS = {
   "react-native-reanimated": "reanimated",
+  "react-native-worklets": "worklets",
   "react-native-gesture-handler": "gestureHandler",
   "react-native-safe-area-context": "safeAreaContext",
   "@react-navigation/native": "navigation",
