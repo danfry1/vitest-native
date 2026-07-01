@@ -24,6 +24,16 @@ import {
   KeyboardController,
   useKeyboardController,
 } from "react-native-keyboard-controller";
+import {
+  scheduleOnUI,
+  runOnJS,
+  runOnUI,
+  runOnUIAsync,
+  makeShareable,
+  getRuntimeKind,
+  RuntimeKind,
+  isWorkletFunction,
+} from "react-native-worklets";
 
 describe("@shopify/flash-list under native engine", () => {
   it("renders each data row through renderItem (no native recycler loaded)", async () => {
@@ -80,5 +90,30 @@ describe("react-native-keyboard-controller under native engine", () => {
     expect(KeyboardController.isVisible()).toBe(false);
     expect(typeof KeyboardController.preload).toBe("function");
     expect(typeof useKeyboardController).toBe("function");
+  });
+});
+
+describe("react-native-worklets under native engine", () => {
+  // Without the preset, importing worklets pulls in its ESM `mock.js` (which
+  // ends with `module.exports = …`) through Node's externalized require and
+  // throws "module is not defined in ES module scope", taking down the file.
+  // The preset shadows the package so direct consumers (e.g. paper's FAB, which
+  // does `import { scheduleOnUI } from 'react-native-worklets'`) load cleanly.
+  it("schedulers run their worklet synchronously on the test thread", () => {
+    const seen: number[] = [];
+    scheduleOnUI(() => seen.push(1));
+    runOnUI((n: number) => seen.push(n))(2);
+    runOnJS((n: number) => seen.push(n))(3);
+    expect(seen).toEqual([1, 2, 3]);
+  });
+
+  it("runOnUIAsync resolves with the worklet's result (direct call form)", async () => {
+    await expect(runOnUIAsync((n: number) => n + 1, 41)).resolves.toBe(42);
+  });
+
+  it("runtime + shareable helpers are shadowed, not undefined", () => {
+    expect(makeShareable({ a: 1 })).toEqual({ a: 1 });
+    expect(getRuntimeKind()).toBe(RuntimeKind.ReactNative);
+    expect(isWorkletFunction(() => {})).toBe(false);
   });
 });
