@@ -47,6 +47,23 @@ function deviceConstants(platform, reactNativeVersion) {
       doLeftAndRightSwapInRTL: true,
       localeIdentifier: "en_US",
     },
+    // RN's getDevServer (Libraries/Core/Devtools/getDevServer.js) reads
+    // SourceCode.getConstants().scriptURL and calls .match() on it — undefined
+    // there throws and takes the whole file down. Expo's async-require
+    // (messageSocket) pulls this in on any Expo-core-importing test. Provide a
+    // defined string so the lookup resolves instead of crashing.
+    //
+    // Deliberately a file:// (bundled/release) URL, NOT http(s): getDevServer only
+    // treats http(s) scriptURLs as a live server, so a file:// value keeps
+    // `bundleLoadedFromServer` false — tests run as if loaded from a bundle, not a
+    // Metro dev server. That stops RN internals (AssetSourceResolver,
+    // symbolicateStackTrace, DevTools) and third-party SDKs from believing they're
+    // connected to a packager and attempting real network I/O against localhost:8081.
+    // Mirrors RN's own jest mock, which keeps this flag off (scriptURL: null there,
+    // but null would re-introduce the .match crash, so we use a bundled URL).
+    SourceCode: {
+      scriptURL: "file:///index.bundle",
+    },
   };
 }
 
