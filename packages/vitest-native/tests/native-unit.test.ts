@@ -290,6 +290,10 @@ describe("plugin engine routing", () => {
     });
     expect(worker.name).toBe("vitest-native");
     expect((worker as any).entrypoint).toMatch(/native[\\/]worker\.mjs$/);
+    // Plain `hotRuntime: true` (no explicit recycling) applies the default
+    // per-worker memory bound, which turns on heap reporting. Guards the
+    // plugin.ts default-application wiring, not just defaultHotMemoryLimit().
+    expect(worker.reportMemory).toBe(true);
   });
 
   it("hotRuntime object form wires recycling policy into the pool worker", async () => {
