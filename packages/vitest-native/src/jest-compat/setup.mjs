@@ -21,7 +21,30 @@ import { jestMockInterop } from "./interop.mjs";
 const projectRoot = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
 const require = createRequire(path.join(projectRoot, "package.json"));
 
-if (typeof vi.requireActual !== "function") vi.requireActual = (m) => require(m);
+// Real Jest suites commonly clone-and-override React Native:
+//   const RN = jest.requireActual('react-native'); RN.Platform = {...}; return RN
+// Under the native engine RN's index is a CJS facade of lazy getters with no
+// setters (see loader.mjs), so assigning to it throws "Cannot set property … which
+// has only a getter" and takes the whole test file down at load. Jest's module is
+// mutable, so match that: wrap the RN facade in a write-through proxy — reads fall
+// through (keeping the getters lazy), writes are captured in an overlay so the
+// override wins on later reads. Only `react-native` needs this; its submodules and
+// other packages are ordinary mutable CJS.
+function writableModuleFacade(mod) {
+  if (mod == null || typeof mod !== "object") return mod;
+  const overrides = new Map();
+  return new Proxy(mod, {
+    get: (target, prop) => (overrides.has(prop) ? overrides.get(prop) : Reflect.get(target, prop)),
+    set: (_target, prop, value) => {
+      overrides.set(prop, value);
+      return true;
+    },
+    has: (target, prop) => overrides.has(prop) || Reflect.has(target, prop),
+  });
+}
+
+if (typeof vi.requireActual !== "function")
+  vi.requireActual = (m) => (m === "react-native" ? writableModuleFacade(require(m)) : require(m));
 if (typeof vi.requireMock !== "function") vi.requireMock = (m) => require(m);
 // `jest.setTimeout(ms)` has no global `vi` equivalent — no-op so suites that call
 // it at top level don't crash.
