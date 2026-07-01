@@ -84,18 +84,52 @@ Prefer explicit queries (`getByText`, `getByTestId`, `getByRole`) over large sna
 
 Drop `@react-native/jest-preset` and `transform` / `transformIgnorePatterns` — those are Jest/Metro config. vitest-native handles RN + third-party transformation itself (`engine: 'native'` transforms real RN in Node's loader hooks; the mock engine virtualizes RN). For *run-real pure-JS* third-party libs under the native engine, use the plugin's [`transform`](/guide/plugin-options#transform) allowlist instead of `transformIgnorePatterns`.
 
+The one case that needs a manual `transform` entry: a library that ships **untranspiled JSX in `.js` files** (its `package.json` `"react-native"`/`"module"` field points at `src/`, relying on Metro to transform it). Under the native engine such a lib is external to the Vite graph, and you'll see:
+
+```
+Failed to parse source for import analysis because the content contains invalid JS
+syntax. If you are using JSX, make sure to name the file with the .jsx or .tsx extension.
+  File: node_modules/<lib>/src/Something.js
+```
+
+The error names the offending file — add that package to `transform` so vitest-native transforms it:
+
+```ts
+reactNative({ engine: 'native', transform: ['<lib>'] })
+```
+
+This is the direct replacement for having listed the lib in `transformIgnorePatterns` under Jest. It's also required when a `vi.mock('<lib>')` must intercept an otherwise-externalized library — `vi.mock` only applies to modules pulled into the Vite graph.
+
 ### Move jest config options to Vitest
 
 `jest.config.js` keys (`setupFilesAfterEnv`, `moduleNameMapper`, `testEnvironment`, etc.) move to the Vitest config: `setupFiles`, `resolve.alias`, `test.environment: 'node'`. `jest.setTimeout(ms)` is a no-op under the shim (use `test.testTimeout` in config or per-test `{ timeout }`).
 
-## 3. Suggested migration recipe
+## 3. Known limits — assertions coupled to Jest's mocks
+
+A minority of tests assert on **Jest's React Native mock internals** rather than on rendered behavior. The native engine runs *real* React Native, so these can't be reproduced without re-mocking RN internally (which would defeat the point). They're worth recognizing up front so you can rewrite or skip them rather than chase them. In our own runs these were concentrated in **component libraries** (which test RN internals directly); ordinary app suites hit few or none.
+
+| Jest-coupled pattern | Why it doesn't port | What to do |
+|---|---|---|
+| `jest.spyOn(View.prototype, 'measure')` / `'measureInWindow'` | Jest mocks `View` as a class with methods on its prototype; real RN's `View` is a `forwardRef` with no such prototype, so the spy target is `undefined`. | Rewrite to drive layout via `onLayout` / `fireEvent`, or accept as a known-incompatible assertion. |
+| `jest.mock('react-native/Libraries/Utilities/Appearance')` (and other deep RN-internal submodules), then `jest.spyOn` them | Under the native engine RN is externalized/resident, so a mock of an internal submodule never intercepts the module the app already imported. | Prefer the public API (e.g. `Appearance` from `react-native`); vitest-native provides controllable boundaries for common ones. |
+| `image.props.source.uri` / raw `source`-shape assertions | Real RN normalizes the `source` prop (an object like `{ uri }`), so tests reading the raw mock shape see a different value. Native = real RN = ground truth. | Assert on behavior (what renders) rather than the internal prop shape. |
+| `jest.mock('react-native', …)` **nested inside** `beforeAll`/`describe` callbacks | Jest does **not** hoist a `jest.mock` inside a callback, so under Jest it's effectively inert; vitest-native applies mocks more consistently, which can expose a mock that was silently doing nothing. | Move the mock to top level and make its override valid, or drop it if it was a no-op. |
+
+The `jest.requireActual('react-native')` clone-and-override pattern (`const RN = jest.requireActual('react-native'); RN.Platform = {…}; return RN`) **is** supported — RN's module is writable under the compat layer.
+
+::: warning Expo-core-coupled suites
+A test that imports **Expo core** pulls in Expo's dev-server/init plumbing (async-require message socket, dev tools), which expects a running Metro connection. Deeply Expo-coupled files may not collect under the native engine without additional setup — this is the documented not-turnkey case. Suites that use Expo *modules* (via the auto-detected `expo` preset) are unaffected; it's Expo *core* import chains that hit this.
+:::
+
+## 4. Suggested migration recipe
 
 1. Add the jest-compat config (section 1). Upgrade RNTL to a supported 12–14 release.
 2. Delete manual third-party native-lib mocks and `@react-native/jest-preset`.
 3. Convert any **top-level** `jest.mock(...)` to `vi.mock(...)`; leave runtime `jest.*` as-is (or rely on `jestMockTransform()`).
-4. Run `vitest run -u` once to re-record snapshots, then `vitest run` to confirm green.
-5. Triage remaining failures — usually a missing query update or a suite-specific mock.
+4. Add any JSX-in-`.js` third-party libs to `transform` as their parse errors surface (section 2).
+5. Run `vitest run -u` once to re-record snapshots, then `vitest run` to confirm green.
+6. Triage remaining failures — a missing query update, a suite-specific mock, or a known Jest-mock-coupled assertion (section 3).
 
-## 4. What "done" looks like
+## 5. What "done" looks like
 
 A migrated suite runs under Vitest with: the jest-compat aliases + setup, RNTL 12–14, no manual third-party native mocks, top-level mocks converted, and snapshots re-recorded. You get Vitest's speed/watch/UI while keeping `engine: 'native'` real-RN fidelity (or `engine: 'mock'` for the fast path). The compat layer is intentionally small — it removes the mechanical Jest coupling so the only work left is the genuinely suite-specific bits.
