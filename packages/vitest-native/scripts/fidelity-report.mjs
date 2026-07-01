@@ -98,12 +98,25 @@ const knownDiffs = fs.existsSync(knownDiffsPath)
   ? JSON.parse(fs.readFileSync(knownDiffsPath, "utf8"))
   : [];
 
+// The page is built by VitePress, which parses Markdown as Vue: a bare `<Tag>`
+// in free text is read as an (unclosed) HTML element and breaks the build, `|`
+// breaks table columns, and `{{ }}` is Vue interpolation. Probe names/reasons
+// and known-difference text come from the corpus, so escape those hazards in
+// any cell rendered as free text (not inside a code span).
+const cell = (s) =>
+  String(s ?? "")
+    .replace(/\|/g, "\\|")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\{\{/g, "&#123;&#123;")
+    .replace(/\}\}/g, "&#125;&#125;");
+
 const probeRows = probes
-  .map((p) => `| \`${p.name}\` | ${p.match ? "✅ match" : `❌ ${p.reason ?? "diverged"}`} |`)
+  .map((p) => `| \`${p.name}\` | ${p.match ? "✅ match" : `❌ ${cell(p.reason ?? "diverged")}`} |`)
   .join("\n");
 
 const knownDiffRows = knownDiffs.length
-  ? knownDiffs.map((d) => `| ${d.area} | ${d.difference} | ${d.why} |`).join("\n")
+  ? knownDiffs.map((d) => `| ${cell(d.area)} | ${cell(d.difference)} | ${cell(d.why)} |`).join("\n")
   : "| _none recorded_ | | |";
 
 const page = `<!--
