@@ -76,6 +76,55 @@ describe("react-native subpath imports", () => {
     expect(mod.View).toBeDefined();
     expect(mod.StyleSheet).toBeDefined();
   });
+
+  // The default export of a deep subpath must be the leaf module itself —
+  // `import Platform from 'react-native/Libraries/Utilities/Platform'` is the
+  // dominant real-world pattern, and receiving the whole mock made Platform.OS
+  // silently undefined.
+  it("ESM subpath default export is the leaf module, not the whole mock", async () => {
+    const platformMod = await import("react-native/Libraries/Utilities/Platform");
+    expect(platformMod.default).toBe(Platform);
+    expect(platformMod.default.OS).toBe(Platform.OS);
+    const animatedMod = await import("react-native/Libraries/Animated/Animated");
+    const rn = await import("react-native");
+    expect(animatedMod.default).toBe(rn.Animated);
+  });
+
+  it("ESM subpath with an unknown leaf falls back to the whole mock", async () => {
+    const mod = await import("react-native/jest-preset");
+    expect(mod.default.Platform).toBeDefined();
+    expect(mod.default.View).toBeDefined();
+  });
+
+  it("CJS subpath require yields the leaf with interop default", () => {
+    const mod = require("react-native/Libraries/Utilities/Platform");
+    // Direct-property consumers (`require('.../Platform').OS`)…
+    expect(mod.OS).toBe(Platform.OS);
+    // …and Babel-interop consumers (`_interopRequireDefault(...).default`).
+    expect(mod.__esModule).toBe(true);
+    expect(mod.default.OS).toBe(Platform.OS);
+  });
+
+  it("CJS subpath requires are identity-stable across calls", () => {
+    const a = require("react-native/Libraries/Utilities/Platform");
+    const b = require("react-native/Libraries/Utilities/Platform");
+    expect(a).toBe(b);
+  });
+
+  // Version gates (`require('react-native/package.json').version`) are common in
+  // ecosystem libraries; the manifest must be the real file, not the mock.
+  it("require('react-native/package.json') reads the real manifest", () => {
+    const pkg = require("react-native/package.json");
+    expect(pkg.name).toBe("react-native");
+    expect(typeof pkg.version).toBe("string");
+    expect(pkg.version).toMatch(/^\d+\.\d+\.\d+/);
+  });
+
+  it("import of react-native/package.json reads the real manifest", async () => {
+    const pkg = await import("react-native/package.json");
+    expect(pkg.default.name).toBe("react-native");
+    expect(typeof pkg.default.version).toBe("string");
+  });
 });
 
 // --- Issue 4: Plugin options must reach the setup file ---

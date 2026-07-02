@@ -6,7 +6,7 @@ import fs from "node:fs";
 import { transformRN, isFlow } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import { resolvePlatformFile } from "./resolve.mjs";
-import { buildPkgMatcher } from "./match.mjs";
+import { buildPkgMatcher, packageNameOf, subpathLeafOf, isUtilitySubpath } from "./match.mjs";
 
 const RN_PATH = /[\\/]node_modules[\\/](react-native|@react-native)[\\/]/;
 // Any file under a node_modules directory. Platform-extension resolution
@@ -38,6 +38,7 @@ export function installRequireHooks(
   // @react-native-vector-icons are shadowed by their preset, so they never inspect
   // the stubbed font require.)
   const NON_ASSET = new Set([".js", ".cjs", ".mjs", ".ts", ".tsx", ".json", ".node"]);
+  const assetExtSet = new Set(assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
   for (const raw of assetExts) {
     const ext = "." + String(raw).replace(/^\./, "");
     if (NON_ASSET.has(ext) || Module._extensions[ext]) continue;
@@ -59,10 +60,62 @@ export function installRequireHooks(
   // the real package's native runtime. The lookup is dynamic (no preset-name list
   // captured at install time) so the hooks can install at hot-worker boot, before
   // the setup file has built the preset mocks.
+  // Subpath requires of a preset package (pkg/Swipeable) get the mock export
+  // matching the leaf name, wrapped in Babel-CJS interop shape ({ __esModule,
+  // default }) like the real compiled deep entry — served via a live Proxy so
+  // direct-property consumers (`require('pkg/Sub').X`) work too. Memoized per
+  // request for identity stability. The memo is keyed by the PER-PACKAGE mock
+  // object, not the __vitest_native_preset_mocks container: the hot runtime
+  // rebuilds each package's mock per test file while reusing the container, so
+  // keying by the container would serve file 1's mocks to every later file in
+  // the worker.
+  const subpathMemo = new WeakMap();
+  function presetSubpathExports(mocks, pkg, request) {
+    const mock = mocks[pkg];
+    if (mock === null || (typeof mock !== "object" && typeof mock !== "function")) return mock;
+    let memo = subpathMemo.get(mock);
+    if (!memo) subpathMemo.set(mock, (memo = new Map()));
+    if (memo.has(request)) return memo.get(request);
+    const leaf = subpathLeafOf(request);
+    let exportsValue = mock;
+    if (leaf && Object.prototype.hasOwnProperty.call(mock, leaf)) {
+      const value = mock[leaf];
+      exportsValue =
+        value !== null && (typeof value === "object" || typeof value === "function")
+          ? new Proxy(value, {
+              get: (t, p, r) =>
+                p === "default" ? t : p === "__esModule" ? true : Reflect.get(t, p, r),
+              has: (t, p) => p === "default" || p === "__esModule" || Reflect.has(t, p),
+            })
+          : { __esModule: true, default: value };
+    } else if (process.env.VITEST_NATIVE_DIAGNOSTICS === "true") {
+      console.warn(
+        `[vitest-native] '${request}' has no matching export on the '${pkg}' preset mock; serving the root mock namespace.`,
+      );
+    }
+    memo.set(request, exportsValue);
+    return exportsValue;
+  }
+
   const origLoad = Module._load;
   Module._load = function (request, parent, ...rest) {
     const mocks = globalThis.__vitest_native_preset_mocks;
-    if (mocks && Object.prototype.hasOwnProperty.call(mocks, request)) return mocks[request];
+    if (mocks) {
+      if (Object.prototype.hasOwnProperty.call(mocks, request)) return mocks[request];
+      // Subpath require of a preset package — the real deep entry would load the
+      // package's native runtime. Exempt: JSON subpaths (package.json version
+      // gates), asset subpaths (fonts/images, stubbed from their real files by
+      // the Module._extensions handlers above), and Node-safe utility entries
+      // (jest-utils, mock, plugin) — those fall through to the real file.
+      const reqExtMatch = /\.([a-z0-9]+)$/i.exec(request);
+      const reqExt = reqExtMatch ? reqExtMatch[1].toLowerCase() : "";
+      if (reqExt !== "json" && !assetExtSet.has(reqExt) && !isUtilitySubpath(request)) {
+        const pkg = packageNameOf(request);
+        if (pkg !== request && Object.prototype.hasOwnProperty.call(mocks, pkg)) {
+          return presetSubpathExports(mocks, pkg, request);
+        }
+      }
+    }
     return origLoad.call(this, request, parent, ...rest);
   };
 

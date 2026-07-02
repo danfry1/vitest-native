@@ -189,6 +189,73 @@ describe("native preset redirect (ESM loader)", () => {
     );
     expect(result).toBe(sentinel);
   });
+
+  it("redirects a preset subpath import and serves a leaf-aware default", async () => {
+    await nativeLoader.initialize({
+      projectRoot,
+      transformPkgs: [],
+      presetExports: { "react-native-gesture-handler": ["Swipeable", "State"] },
+      assetExts: ["png", "ttf"],
+    });
+    const resolved = await nativeLoader.resolve(
+      "react-native-gesture-handler/Swipeable",
+      { parentURL: undefined },
+      () => {
+        throw new Error("nextResolve should not be called for a preset subpath");
+      },
+    );
+    expect(resolved.url).toBe("vitest-native-preset:react-native-gesture-handler/Swipeable");
+    const loaded = await nativeLoader.load(resolved.url, {}, () => {
+      throw new Error("nextLoad should not be called for a preset URL");
+    });
+    // Default = the mock export matching the leaf name, falling back to the
+    // factory default / namespace.
+    expect(loaded.source).toContain('const _hit = "Swipeable" in _m;');
+    expect(loaded.source).toContain('export default (_hit ? _m["Swipeable"]');
+    expect(loaded.source).toContain('export const State = _m["State"];');
+  });
+
+  it("passes preset package.json and asset subpaths through to the real resolver", async () => {
+    // package.json falls through (and gets the JSON import attribute injected).
+    const jsonResult = await nativeLoader.resolve(
+      "react-native-gesture-handler/package.json",
+      { parentURL: undefined },
+      () => ({ url: "file:///real/package.json", shortCircuit: true }),
+    );
+    expect(jsonResult.url).toBe("file:///real/package.json");
+    expect(jsonResult.importAttributes?.type).toBe("json");
+    // Assets fall through so the real file is stubbed from disk.
+    const assetSentinel = { url: "file:///real/back-icon.png", shortCircuit: true };
+    const assetResult = await nativeLoader.resolve(
+      "react-native-gesture-handler/assets/back-icon.png",
+      { parentURL: undefined },
+      () => assetSentinel,
+    );
+    expect(assetResult).toBe(assetSentinel);
+  });
+});
+
+// @ts-expect-error — runtime .mjs
+import { packageNameOf, subpathLeafOf } from "../src/native/match.mjs";
+
+describe("specifier helpers", () => {
+  it("packageNameOf handles bare, scoped, and non-package specifiers", () => {
+    expect(packageNameOf("react-native-gesture-handler/Swipeable")).toBe(
+      "react-native-gesture-handler",
+    );
+    expect(packageNameOf("@react-navigation/native/lib/commonjs/index.js")).toBe(
+      "@react-navigation/native",
+    );
+    expect(packageNameOf("lodash")).toBe("lodash");
+    expect(packageNameOf("./relative/path")).toBe(".");
+    expect(packageNameOf("/abs/path")).toBe("");
+  });
+
+  it("subpathLeafOf extracts the leaf module name", () => {
+    expect(subpathLeafOf("pkg/lib/Swipeable")).toBe("Swipeable");
+    expect(subpathLeafOf("react-native/Libraries/Utilities/Platform.ios.js")).toBe("Platform");
+    expect(subpathLeafOf("pkg/trailing/")).toBe(null);
+  });
 });
 
 import { reactNative } from "../src/index.js";
@@ -432,5 +499,56 @@ describe("defaultHotMemoryLimit", () => {
     const limit = defaultHotMemoryLimit();
     expect(limit).toBeGreaterThanOrEqual(768 * MB);
     expect(limit).toBeLessThanOrEqual(1536 * MB);
+  });
+});
+
+import { gestureHandler } from "../src/presets/index.js";
+
+describe("plugin subpath resolution (mock engine)", () => {
+  async function makePlugin() {
+    const plugin = reactNative({ engine: "mock", presets: [gestureHandler()] }) as any;
+    await plugin.config({ root: projectRoot }, SERVE_ENV);
+    await plugin.configResolved({ root: projectRoot });
+    return plugin;
+  }
+
+  it("redirects preset subpaths to a leaf-aware virtual module", async () => {
+    const plugin = await makePlugin();
+    const id = plugin.resolveId("react-native-gesture-handler/Swipeable", undefined);
+    expect(id).toBe("\0virtual:preset:react-native-gesture-handler/Swipeable");
+    const code = plugin.load(id);
+    expect(code).toContain('const _hit = "Swipeable" in _m;');
+    expect(code).toContain('export default (_hit ? _m["Swipeable"]');
+    // Named exports still come from the root preset mock.
+    expect(code).toContain("export const State = _m['State'];");
+  });
+
+  it("does not redirect preset package.json or asset subpaths", async () => {
+    const plugin = await makePlugin();
+    expect(plugin.resolveId("react-native-gesture-handler/package.json", undefined)).toBe(
+      undefined,
+    );
+    expect(plugin.resolveId("react-native-gesture-handler/assets/icon.png", undefined)).toBe(
+      undefined,
+    );
+  });
+
+  it("resolves react-native/package.json to the real on-disk manifest", async () => {
+    const plugin = await makePlugin();
+    const resolvedPath = plugin.resolveId("react-native/package.json", undefined);
+    expect(typeof resolvedPath).toBe("string");
+    expect(resolvedPath).toMatch(/package\.json$/);
+    expect(fs.existsSync(resolvedPath)).toBe(true);
+    expect(JSON.parse(fs.readFileSync(resolvedPath, "utf8")).name).toBe("react-native");
+  });
+
+  it("serves rn-subpath virtuals with the leaf export as default", async () => {
+    const plugin = await makePlugin();
+    const id = plugin.resolveId("react-native/Libraries/Utilities/Platform", undefined);
+    expect(id).toBe("\0virtual:rn-subpath:react-native/Libraries/Utilities/Platform");
+    expect(plugin.load(id)).toContain('export default _rn["Platform"];');
+    // Unknown leaves keep the whole-mock default.
+    const unknownId = plugin.resolveId("react-native/jest-preset", undefined);
+    expect(plugin.load(unknownId)).toContain("export default _rn;");
   });
 });
