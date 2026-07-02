@@ -6,8 +6,11 @@ name: Native engine — Vitest × RN matrix
 #  • React Native (rows). The engine runs REAL RN JS and mocks only the ~7-module
 #    native boundary, so it is sensitive to RN-version drift (the boundary has
 #    broken before on SectionList / RendererProxy changes between minors).
-#    Supported range (verified): RN 0.81–0.85. 0.80 and earlier fail host-component
+#    Supported range (verified): RN 0.81–0.86. 0.80 and earlier fail host-component
 #    detection and are below the floor; latest is canaried in compat-check.yml.
+#    Keep the newest row in sync with the lockfile RN version — the fidelity page
+#    derives its published claim from THIS list (scripts/fidelity-report.mjs), so a
+#    stale matrix publishes an understated range.
 #
 #  • Vitest (columns). Vitest churn is what bit-rotted the predecessor plugin
 #    (vitest-community/vitest-react-native) — and the hot runtime rides Vitest's
@@ -44,7 +47,7 @@ jobs:
       # Report every cell independently rather than stopping at the first failure.
       fail-fast: false
       matrix:
-        rn: ['0.81', '0.82', '0.83', '0.84', '0.85']
+        rn: ['0.81', '0.82', '0.83', '0.84', '0.85', '0.86']
         vitest: ['locked', 'latest-supported']
 
     steps:

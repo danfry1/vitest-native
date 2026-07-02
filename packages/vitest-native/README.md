@@ -847,7 +847,7 @@ Every release must pass:
 
 - Linux on Node 20.19 and 22.13, plus macOS and Windows on Node 22.13.
 - The mock, native iOS, native Android, hot-runtime, isolation, and 100-file soak suites.
-- React Native 0.81–0.85 against both locked and newest-supported Vitest 4.
+- React Native 0.81–0.86 against both locked and newest-supported Vitest 4.
 - Packed bare RN 0.83/RNTL 12, Expo 56/RNTL 13, Vite 8 monorepo/RNTL 14, and RN 0.86 consumers.
 - Mock-versus-real-RN behavioral cross-checks, example-app tests, typecheck, lint, formatting, and
   package export analysis.

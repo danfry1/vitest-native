@@ -32,11 +32,11 @@ Migrating a large, deeply Jest-coupled suite *wholesale* is possible but **not t
 - **RNTL compatible** — works with `@testing-library/react-native` automatically.
 - **Third-party presets** — auto-detected mocks for Reanimated, Gesture Handler, Safe Area, Navigation, Screens, AsyncStorage, Device Info, MMKV, SVG, WebView, and Expo.
 - **jest-compat layer** — `vitest-native/jest-compat` eases migrating existing Jest suites.
-- **Test helpers** — `setPlatform`, `setDimensions`, `setColorScheme`, `mockNativeModule` for easy state control.
+- **Test helpers** — `setDimensions`, `setColorScheme`, `setInsets`, `mockNativeModule` for easy state control under both engines (plus mock-only `setPlatform`).
 - **TypeScript first** — full type safety across the entire API.
 
 ::: tip Beta
-A CI-gated behavioral cross-check runs the same assertions under the mock engine and real React Native across React Native 0.81–0.85, failing the build on any divergence. Some APIs may still shift before 1.0.
+A CI-gated behavioral cross-check runs the same assertions under the mock engine and real React Native across React Native 0.81–0.86, failing the build on any divergence. Some APIs may still shift before 1.0.
 :::
 
 Next: [Installation](/guide/install) → [Quick Start](/guide/quick-start).

@@ -7,7 +7,7 @@ A fast pure-JS **mock** engine is available as an opt-in for RN-free unit tests.
 **📖 Documentation: [danfry1.github.io/vitest-native](https://danfry1.github.io/vitest-native/)**
 
 > **Beta.** The reproducible guarantee is a CI-gated behavioral cross-check that runs the same
-> assertions under the mock engine **and** real React Native across RN 0.81–0.85, failing the build
+> assertions under the mock engine **and** real React Native across RN 0.81–0.86, failing the build
 > on any divergence. We've also exercised the native engine against real apps in our own testing
 > (react-native-paper, the obytes template, Rocket.Chat). Some APIs may still shift before 1.0.
 >
@@ -101,7 +101,7 @@ describe('MyComponent', () => {
   14 itself requires Node >= 22.13 — on Node 20, stay on RNTL 13.
 - **`engine: 'native'`** (the default) needs `@react-native/babel-preset` + `@babel/core` (these
   ship with React Native projects). The opt-in mock engine needs no Babel.
-- **React Native** 0.81–0.85 validated in CI (native engine).
+- **React Native** 0.81–0.86 validated in CI (native engine).
 - Tested against RNTL 12, 13, and 14 in CI.
 
 ## Choosing an engine
