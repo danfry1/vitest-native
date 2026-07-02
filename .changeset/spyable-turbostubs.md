@@ -1,0 +1,5 @@
+---
+"vitest-native": patch
+---
+
+Make native-engine turboStubs identity-stable and spy-able. Unmocked native modules were served by a Proxy that minted a fresh stub object on every property access and whose get trap never consulted the target — so `NativeModules.Foo !== NativeModules.Foo`, and `vi.spyOn(NativeModules.Foo, 'method')` silently recorded nothing (the spy landed on a throwaway object). Stubs are now memoized per module name in the shared boundary state (`NativeModules.Foo === TurboModuleRegistry.get('Foo')`, matching bridgeless RN), methods are memoized on first read, and explicitly-set properties win — so spies record and restore correctly. A `has` trap reports all properties present, consistent with the get trap's serve-anything behavior, which `vi.spyOn`'s existence check requires. Under the hot runtime, per-file overrides (spies, memoized methods) are cleared between files via the surgical-reset registry while stub identity is preserved for resident libraries holding references.

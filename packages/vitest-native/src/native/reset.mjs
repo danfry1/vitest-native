@@ -34,8 +34,9 @@
 //   2b. process.env — restored to the worker boot snapshot.
 //   3. Vitest timers/global/env stubs — restored by setup.mjs before this reset.
 //   4. Boundary/preset mocks that registered callbacks in
-//      globalThis.__vitest_native_resets (none are stateful today; the
-//      registry is the extension point).
+//      globalThis.__vitest_native_resets (the turboStubs register one per
+//      native-module name to clear per-file overrides; runs before the
+//      value-restores, which route through those stubs).
 //   5. globalThis keys added by a file — deleted. The baseline starts at the
 //      first per-file call (after Vitest injected its per-batch globals) and
 //      never grows implicitly. Mutations of pre-existing keys are not restored
@@ -147,6 +148,21 @@ export function installHotReset({ projectRoot, diagnostics, preserveGlobals = []
     // act/auto-cleanup machinery corrupted rendering for every later file
     // when the consumer's graph inlines RNTL (found via Rocket.Chat).
 
+    // (4) Boundary/preset mock reset callbacks — BEFORE the value-restore:
+    // these clear per-file overrides on the boundary stubs (spies, direct
+    // method assignments), and the value-restore below routes through those
+    // very stubs (Appearance.setColorScheme → NativeAppearance). Restoring
+    // first would send the restore through a previous file's dead override
+    // and then clear it one step too late.
+    const resets = globalThis.__vitest_native_resets;
+    if (Array.isArray(resets)) {
+      for (const fn of resets) {
+        try {
+          fn();
+        } catch {}
+      }
+    }
+
     // (2) Restore mutable resident RN state (value-restore, always safe).
     if (dims) {
       try {
@@ -156,16 +172,6 @@ export function installHotReset({ projectRoot, diagnostics, preserveGlobals = []
     try {
       RN.Appearance.setColorScheme?.(colorScheme);
     } catch {}
-
-    // (4) Boundary/preset mock reset callbacks.
-    const resets = globalThis.__vitest_native_resets;
-    if (Array.isArray(resets)) {
-      for (const fn of resets) {
-        try {
-          fn();
-        } catch {}
-      }
-    }
 
     if (!armed) return; // no bless yet → cannot attribute; fail open
 

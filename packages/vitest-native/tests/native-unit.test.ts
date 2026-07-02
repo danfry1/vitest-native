@@ -114,6 +114,49 @@ describe("native boundary", () => {
     const mod = evalCjs(src!);
     expect(typeof mod.default).toBe("function");
   });
+
+  it("turboStubs are identity-stable and spy-able", () => {
+    const src = boundarySourceFor("/x/react-native/Libraries/TurboModule/TurboModuleRegistry.js");
+    const mod = evalCjs(src!);
+    const stub = mod.get("IdentityTarget");
+    // Repeated module and method reads return the same objects — a prerequisite
+    // for vi.spyOn and instanceof-style assertions in migrated Jest suites.
+    expect(mod.get("IdentityTarget")).toBe(stub);
+    expect(stub.someMethod).toBe(stub.someMethod);
+    const spy = vi.spyOn(stub, "someMethod");
+    stub.someMethod("a", 1);
+    expect(spy).toHaveBeenCalledWith("a", 1);
+    spy.mockRestore();
+    // Restored method keeps the generic stub behavior.
+    expect(stub.someMethod()).toBeUndefined();
+  });
+
+  it("NativeModules and TurboModuleRegistry share stub identity", () => {
+    const tm = evalCjs(
+      boundarySourceFor("/x/react-native/Libraries/TurboModule/TurboModuleRegistry.js")!,
+    );
+    const nm = evalCjs(
+      boundarySourceFor("/x/react-native/Libraries/BatchedBridge/NativeModules.js")!,
+    ).default;
+    expect(nm.SharedIdentityTarget).toBe(tm.get("SharedIdentityTarget"));
+  });
+
+  it("the hot-reset registry clears overrides but keeps stub identity", () => {
+    const src = boundarySourceFor("/x/react-native/Libraries/TurboModule/TurboModuleRegistry.js");
+    const mod = evalCjs(src!);
+    const stub = mod.get("ResetTarget");
+    stub.overridden = "test-phase value";
+    const resets = (globalThis as any).__vitest_native_resets;
+    expect(Array.isArray(resets)).toBe(true);
+    for (const fn of resets) fn();
+    // Same stub object survives (resident libs hold references), but the
+    // per-file override is gone — the slot regenerates as a generic stub
+    // method like any other unknown property.
+    expect(mod.get("ResetTarget")).toBe(stub);
+    expect(stub.overridden).not.toBe("test-phase value");
+    expect(typeof stub.overridden).toBe("function");
+    expect(typeof stub.someMethod).toBe("function");
+  });
 });
 
 // @ts-expect-error — runtime .mjs
