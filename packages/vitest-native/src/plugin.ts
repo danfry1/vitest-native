@@ -608,8 +608,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         }
       }
 
-      // Build the asset regex from the resolved extensions list.
-      assetPattern = new RegExp(`\\.(${resolved.assetExts.join("|")})$`);
+      // Build the asset regex from the resolved extensions list. Extensions are
+      // escaped (user-supplied entries may contain regex metacharacters) and the
+      // match is case-insensitive ("LOGO.PNG" is an asset too — the native
+      // loader already lowercases; the engines must agree).
+      const escaped = resolved.assetExts.map((e) => e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+      assetPattern = new RegExp(`\\.(${escaped.join("|")})$`, "i");
     },
 
     resolveId(source, importer) {
@@ -724,10 +728,13 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       }
 
       // Asset imports have the same stable semantics under both engines.
+      // JSON.stringify the basename — filenames can contain quotes/backslashes,
+      // and raw interpolation would emit broken JS (same hazard class as the
+      // native loader, which already stringifies).
       const fsPath = stripFsPrefix(id);
       if (assetPattern.test(fsPath)) {
         const basename = fsPath.split("/").pop() ?? fsPath;
-        return `export default "${basename}";`;
+        return `export default ${JSON.stringify(basename)};`;
       }
 
       // Native engine serves RN from Node's CJS graph — nothing else to load here.
@@ -782,11 +789,20 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       if (!id.includes("react-native") || !id.endsWith(".js")) return undefined;
       if (!code.includes("@flow")) return undefined;
 
-      const stripped = flowRemoveTypes(code, { all: true });
-      return {
-        code: stripped.toString(),
-        map: stripped.generateMap(),
-      };
+      // The filters above are heuristics — "@flow" can appear inside a string
+      // or comment of a perfectly valid non-Flow file that flowRemoveTypes
+      // then fails to parse. Skipping is strictly better than throwing: a
+      // genuine Flow file that fails here would fail Vite's own parse next
+      // with a clearer error, while a false positive passes through untouched.
+      try {
+        const stripped = flowRemoveTypes(code, { all: true });
+        return {
+          code: stripped.toString(),
+          map: stripped.generateMap(),
+        };
+      } catch {
+        return undefined;
+      }
     },
   };
 }

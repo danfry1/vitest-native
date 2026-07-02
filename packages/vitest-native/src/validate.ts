@@ -83,9 +83,15 @@ export function validateOptions(options: Record<string, unknown>): void {
 }
 
 function satisfiesMinimum(version: string, minimum: string): boolean {
+  // Strip prerelease/build metadata before splitting — "4.0.0-beta.3" must
+  // parse as [4,0,0], not [4,NaN,…] (NaN comparisons made every prerelease
+  // fail the minimum check, hard-erroring at startup for exactly the
+  // early-adopter installs that run betas). A prerelease of the minimum
+  // itself is accepted.
   const parse = (v: string) =>
     v
       .replace(/^[^0-9]*/, "")
+      .split(/[-+]/)[0]
       .split(".")
       .map(Number);
   const [aMaj, aMin = 0, aPat = 0] = parse(version);
