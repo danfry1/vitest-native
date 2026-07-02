@@ -233,6 +233,37 @@ describe("native preset redirect (ESM loader)", () => {
     );
     expect(assetResult).toBe(assetSentinel);
   });
+
+  it("passes Node-safe utility subpaths through to the real resolver", async () => {
+    // Both packages registered as presets — the passthrough below must be
+    // attributable to the utility-leaf exemption, not a missing registration.
+    await nativeLoader.initialize({
+      projectRoot,
+      transformPkgs: [],
+      presetExports: {
+        "react-native-gesture-handler": ["Swipeable", "State"],
+        "react-native-reanimated": ["useSharedValue"],
+      },
+      assetExts: ["png", "ttf"],
+    });
+    // jest-utils / jestSetup / mock / plugin are deliberately Node-safe deep
+    // entries (test utilities, babel plugins) — shadowing them would replace
+    // working code with undefined exports.
+    for (const specifier of [
+      "react-native-gesture-handler/jest-utils",
+      "react-native-gesture-handler/jestSetup",
+      "react-native-reanimated/mock",
+      "react-native-reanimated/plugin",
+    ]) {
+      const sentinel = { url: `file:///real/${specifier.split("/").pop()}.js`, shortCircuit: true };
+      const result = await nativeLoader.resolve(
+        specifier,
+        { parentURL: undefined },
+        () => sentinel,
+      );
+      expect(result).toBe(sentinel);
+    }
+  });
 });
 
 // @ts-expect-error — runtime .mjs
@@ -523,7 +554,7 @@ describe("plugin subpath resolution (mock engine)", () => {
     expect(code).toContain("export const State = _m['State'];");
   });
 
-  it("does not redirect preset package.json or asset subpaths", async () => {
+  it("does not redirect preset package.json, asset, or utility subpaths", async () => {
     const plugin = await makePlugin();
     expect(plugin.resolveId("react-native-gesture-handler/package.json", undefined)).toBe(
       undefined,
@@ -531,6 +562,8 @@ describe("plugin subpath resolution (mock engine)", () => {
     expect(plugin.resolveId("react-native-gesture-handler/assets/icon.png", undefined)).toBe(
       undefined,
     );
+    expect(plugin.resolveId("react-native-gesture-handler/jest-utils", undefined)).toBe(undefined);
+    expect(plugin.resolveId("react-native-gesture-handler/jestSetup", undefined)).toBe(undefined);
   });
 
   it("resolves react-native/package.json to the real on-disk manifest", async () => {
