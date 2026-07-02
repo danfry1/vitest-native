@@ -6,7 +6,7 @@ import fs from "node:fs";
 import { transformRN, isFlow } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import { resolvePlatformFile } from "./resolve.mjs";
-import { buildPkgMatcher } from "./match.mjs";
+import { buildPkgMatcher, packageNameOf, subpathLeafOf, isUtilitySubpath } from "./match.mjs";
 
 const RN_PATH = /[\\/]node_modules[\\/](react-native|@react-native)[\\/]/;
 // Any file living under a node_modules directory. Platform-extension resolution
@@ -65,8 +65,22 @@ export async function resolve(specifier, context, nextResolve) {
   // test graph or, crucially, nested inside an externalized third-party lib — is
   // redirected to a synthetic module that re-exports the runtime preset mock. This
   // mirrors the Vite plugin's virtual:preset modules for the Node ESM path.
+  // Subpath imports (e.g. react-native-gesture-handler/Swipeable) are redirected
+  // too — the real deep entry would pull in the package's native runtime.
+  // Exempt: JSON subpaths (package.json version gates), asset subpaths, and
+  // Node-safe utility entries (jest-utils, mock, plugin) — those pass through
+  // to the real file.
   if (Object.prototype.hasOwnProperty.call(presetExports, specifier)) {
     return { url: PRESET_SCHEME + specifier, shortCircuit: true };
+  }
+  if (!specifier.endsWith(".json") && !isUtilitySubpath(specifier)) {
+    const specExt = /\.([a-z0-9]+)$/i.exec(specifier);
+    if (!specExt || !assetExtSet.has(specExt[1].toLowerCase())) {
+      const pkg = packageNameOf(specifier);
+      if (pkg !== specifier && Object.prototype.hasOwnProperty.call(presetExports, pkg)) {
+        return { url: PRESET_SCHEME + specifier, shortCircuit: true };
+      }
+    }
   }
 
   const parent =
@@ -120,14 +134,29 @@ export async function load(url, context, nextLoad) {
   // by the native setup file from globalThis (this source executes in the main
   // realm, so globalThis is the populated one), mirroring the Vite virtual:preset.
   if (url.startsWith(PRESET_SCHEME)) {
-    const pkg = url.slice(PRESET_SCHEME.length);
+    const specifier = url.slice(PRESET_SCHEME.length);
+    const pkg = packageNameOf(specifier);
     const names = presetExports[pkg] || [];
+    // For a subpath import, prefer the mock export matching the leaf module name
+    // (pkg/lib/Swipeable → mock.Swipeable) — real deep entries export that one
+    // thing as their default. Root imports (and unknown leaves) keep the
+    // factory-default-then-namespace behavior; unknown leaves warn under
+    // diagnostics since the namespace default is usually not what the importer
+    // wanted.
+    const leaf = specifier === pkg ? null : subpathLeafOf(specifier);
+    const fallback = `("default" in _m ? _m["default"] : _m)`;
     const source = [
       `const _m = (globalThis.__vitest_native_preset_mocks || {})[${JSON.stringify(pkg)}] || {};`,
       ...names.map((n) => `export const ${n} = _m[${JSON.stringify(n)}];`),
-      // Honor a factory-provided default (e.g. svg's default Svg component);
-      // only fall back to the namespace object when the mock has none.
-      `export default ("default" in _m ? _m["default"] : _m);`,
+      ...(leaf
+        ? [
+            `const _hit = ${JSON.stringify(leaf)} in _m;`,
+            `if (!_hit && process.env.VITEST_NATIVE_DIAGNOSTICS === "true") console.warn(${JSON.stringify(
+              `[vitest-native] '${specifier}' has no matching export on the '${pkg}' preset mock; serving the root mock namespace.`,
+            )});`,
+            `export default (_hit ? _m[${JSON.stringify(leaf)}] : ${fallback});`,
+          ]
+        : [`export default ${fallback};`]),
     ].join("\n");
     return { format: "module", source, shortCircuit: true };
   }

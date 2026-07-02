@@ -254,6 +254,44 @@ const RN_EXPORT_NAMES = [
   "usePressability",
 ];
 
+/** Fast membership check for leaf-name lookups on subpath imports. */
+const RN_EXPORT_NAME_SET = new Set(RN_EXPORT_NAMES);
+
+/**
+ * The bare package name of an import specifier ("@scope/pkg/sub" → "@scope/pkg",
+ * "pkg/sub" → "pkg"). Mirrors native/match.mjs for the Vite-graph side.
+ */
+function packageNameOf(specifier: string): string {
+  if (specifier.startsWith("@")) {
+    const [scope, name] = specifier.split("/");
+    return name ? `${scope}/${name}` : specifier;
+  }
+  return specifier.split("/")[0];
+}
+
+/**
+ * The leaf module name a subpath import points at ("pkg/lib/Swipeable" or
+ * "react-native/Libraries/Utilities/Platform.ios.js" → "Platform"), used to pick
+ * the matching export off the mock. Mirrors native/match.mjs.
+ */
+function subpathLeafOf(specifier: string): string | null {
+  const base = specifier.split("/").pop();
+  if (!base) return null;
+  return base.split(".")[0] || null;
+}
+
+/**
+ * Deep entries of preset packages that are deliberately Node-safe and must NOT
+ * be shadowed (test utilities and tooling entry points). Mirrors
+ * native/match.mjs.
+ */
+const UTILITY_SUBPATH_LEAVES = new Set(["jest-utils", "jestSetup", "mock", "plugin"]);
+
+function isUtilitySubpath(specifier: string): boolean {
+  const leaf = subpathLeafOf(specifier);
+  return leaf !== null && UTILITY_SUBPATH_LEAVES.has(leaf);
+}
+
 /** Check if a value (or any nested value) contains functions. */
 function containsFunctions(value: unknown, visited = new WeakSet()): boolean {
   if (typeof value === "function") return true;
@@ -302,6 +340,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // Preset export names discovered by calling factories at config time.
   const presetExportNames = new Map<string, string[]>();
   let assetPattern: RegExp;
+  // Real on-disk path of react-native/package.json (mock engine): version-gate
+  // reads must see the real manifest, not the virtualized mock.
+  let realRnPackageJson: string | undefined;
 
   // Caches for hot paths — resolveId and load are called for every import.
   const resolveCache = new Map<string, string | undefined>();
@@ -343,6 +384,25 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // never read undefined.
   let engine: "mock" | "native" = requestedEngine === "native" ? "native" : "mock";
   const extensions = getPlatformExtensions(platform);
+
+  // Preset redirect shared by both engines: exact package match, or a subpath of
+  // a preset package (pkg/Swipeable) — the real deep entry would pull in the
+  // package's native runtime. Exempt: JSON subpaths (package.json version
+  // gates), asset subpaths (fonts/images, stubbed from their real files), and
+  // Node-safe utility entries (jest-utils, mock, plugin). The virtual id carries
+  // the full specifier so load() can pick the mock export matching the leaf
+  // module name. Subpath matching stays inert until configResolved has built
+  // assetPattern — without it the asset exemption can't be applied.
+  const resolvePresetId = (source: string): string | undefined => {
+    if (presetModules.has(source)) return `\0virtual:preset:${source}`;
+    if (!assetPattern) return undefined;
+    if (source.endsWith(".json") || assetPattern.test(source) || isUtilitySubpath(source)) {
+      return undefined;
+    }
+    const pkg = packageNameOf(source);
+    if (pkg !== source && presetModules.has(pkg)) return `\0virtual:preset:${source}`;
+    return undefined;
+  };
 
   return {
     name: "vitest-native",
@@ -527,6 +587,13 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
 
       // Now we have the real project root — resolve options from consumer context.
       resolved = await resolveOptions(options, config.root);
+      try {
+        realRnPackageJson = createRequire(path.join(config.root, "package.json")).resolve(
+          "react-native/package.json",
+        );
+      } catch {
+        // RN not installed (mock engine works without it) — keep virtualizing.
+      }
       // The authoritative engine is the one decided in config(); keep ResolvedOptions in sync.
       resolved.engine = engine;
 
@@ -551,8 +618,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // are still redirected to virtual mocks: their native runtimes can't load in
       // Node, so they must be shadowed exactly as under the mock engine.
       if (engine === "native") {
-        if (presetModules.has(source)) return `\0virtual:preset:${source}`;
-        return undefined;
+        return resolvePresetId(source);
       }
 
       // Redirect react-native root import to a virtual module.
@@ -562,13 +628,19 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       }
 
       // Redirect react-native subpath imports (e.g. react-native/Libraries/...).
+      // The package manifest is exempt: `require('react-native/package.json').version`
+      // is a common version gate and must read the real file, not the mock.
       if (source.startsWith("react-native/")) {
+        if (source === "react-native/package.json" && realRnPackageJson) {
+          return realRnPackageJson;
+        }
         return `\0virtual:rn-subpath:${source}`;
       }
 
-      // Redirect preset-provided modules to virtual stubs.
-      if (presetModules.has(source)) {
-        return `\0virtual:preset:${source}`;
+      // Redirect preset-provided modules (and their subpaths) to virtual stubs.
+      const presetId = resolvePresetId(source);
+      if (presetId) {
+        return presetId;
       }
 
       // Layer 1: Metro-compatible extensionless resolution for node_modules.
@@ -623,14 +695,29 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         const cached = virtualCodeCache.get(id);
         if (cached) return cached;
 
-        const moduleName = id.slice("\0virtual:preset:".length);
-        const exportNames = presetExportNames.get(moduleName) || [];
+        const specifier = id.slice("\0virtual:preset:".length);
+        const pkg = packageNameOf(specifier);
+        const exportNames = presetExportNames.get(pkg) || [];
+        // Subpath imports (pkg/lib/Swipeable) get the mock export matching the
+        // leaf module name as their default — real deep entries export that one
+        // thing. Root imports honor a factory-provided default (e.g. svg's Svg
+        // component), falling back to the namespace object when the mock has
+        // none; unknown leaves warn under diagnostics since the namespace
+        // default is usually not what the importer wanted.
+        const leaf = specifier === pkg ? null : subpathLeafOf(specifier);
+        const fallback = `('default' in _m ? _m['default'] : _m)`;
         const code = [
-          `const _m = (globalThis.__vitest_native_preset_mocks || {})['${moduleName}'] || {};`,
+          `const _m = (globalThis.__vitest_native_preset_mocks || {})[${JSON.stringify(pkg)}] || {};`,
           ...exportNames.map((n) => `export const ${n} = _m['${n}'];`),
-          // Honor a factory-provided default (e.g. svg's default Svg component);
-          // only fall back to the namespace object when the mock has none.
-          `export default ('default' in _m ? _m['default'] : _m);`,
+          ...(leaf
+            ? [
+                `const _hit = ${JSON.stringify(leaf)} in _m;`,
+                `if (!_hit && process.env.VITEST_NATIVE_DIAGNOSTICS === "true") console.warn(${JSON.stringify(
+                  `[vitest-native] '${specifier}' has no matching export on the '${pkg}' preset mock; serving the root mock namespace.`,
+                )});`,
+                `export default (_hit ? _m[${JSON.stringify(leaf)}] : ${fallback});`,
+              ]
+            : [`export default ${fallback};`]),
         ].join("\n");
         virtualCodeCache.set(id, code);
         return code;
@@ -655,16 +742,23 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // Subpath imports (react-native/Libraries/*, react-native/jest-preset, etc.)
       // Re-export everything from the root mock stored on globalThis by setup.ts.
       // By the time test code evaluates these, setup.ts has already run.
-      // Code is identical for all subpaths so we cache it once.
+      // The default export is the mock export matching the leaf module name —
+      // `import Platform from 'react-native/Libraries/Utilities/Platform'` must
+      // yield Platform, not the whole mock. Unknown leaves fall back to the root
+      // mock. Code only varies by leaf, so it's cached per leaf.
       if (id.startsWith("\0virtual:rn-subpath:")) {
-        let code = virtualCodeCache.get("\0rn-subpath");
+        const subpath = id.slice("\0virtual:rn-subpath:".length);
+        const leaf = subpathLeafOf(subpath);
+        const known = leaf && RN_EXPORT_NAME_SET.has(leaf) ? leaf : null;
+        const cacheKey = `\0rn-subpath:${known ?? ""}`;
+        let code = virtualCodeCache.get(cacheKey);
         if (!code) {
           code = [
             `const _rn = globalThis.__vitest_native_mock || {};`,
             ...RN_EXPORT_NAMES.map((n) => `export const ${n} = _rn['${n}'];`),
-            `export default _rn;`,
+            known ? `export default _rn[${JSON.stringify(known)}];` : `export default _rn;`,
           ].join("\n");
-          virtualCodeCache.set("\0rn-subpath", code);
+          virtualCodeCache.set(cacheKey, code);
         }
         return code;
       }
