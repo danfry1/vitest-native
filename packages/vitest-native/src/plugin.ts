@@ -800,7 +800,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           code: stripped.toString(),
           map: stripped.generateMap(),
         };
-      } catch {
+      } catch (e) {
+        if (diagnostics) {
+          console.warn(
+            `[vitest-native] Flow strip skipped for ${id} (parse failed: ${(e as Error)?.message}); serving the file untouched.`,
+          );
+        }
         return undefined;
       }
     },

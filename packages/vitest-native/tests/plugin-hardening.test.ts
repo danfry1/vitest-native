@@ -40,8 +40,10 @@ describe("asset stubbing (mock engine)", () => {
   it("emits valid JS for basenames containing quotes", async () => {
     const plugin = await makePlugin();
     const code = plugin.load(`/proj/assets/we"ird.png`);
-    // JSON.stringify-escaped — raw interpolation would emit a syntax error here.
-    expect(code).toBe(`export default ${JSON.stringify(`we"ird.png`)};`);
+    // Assert the PROPERTY (the emitted literal round-trips to the basename),
+    // not the mechanism — raw interpolation would emit a syntax error here.
+    const literal = code.replace(/^export default /, "").replace(/;$/, "");
+    expect(JSON.parse(literal)).toBe(`we"ird.png`);
   });
 });
 
@@ -62,17 +64,13 @@ describe("Flow-strip transform guard (mock engine)", () => {
     // "@flow" appears in a string of a file that is not valid input for the
     // stripper — previously this threw and took down the whole transform
     // pipeline; now it passes through untouched.
-    expect(() =>
-      plugin.transform(
+    let result: unknown = "not called";
+    expect(() => {
+      result = plugin.transform(
         `const marker = "@flow"; const = broken;`,
         "/proj/node_modules/react-native-thing/lib/broken.js",
-      ),
-    ).not.toThrow();
-    expect(
-      plugin.transform(
-        `const marker = "@flow"; const = broken;`,
-        "/proj/node_modules/react-native-thing/lib/broken.js",
-      ),
-    ).toBeUndefined();
+      );
+    }).not.toThrow();
+    expect(result).toBeUndefined();
   });
 });

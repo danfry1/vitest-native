@@ -83,11 +83,14 @@ export function validateOptions(options: Record<string, unknown>): void {
 }
 
 function satisfiesMinimum(version: string, minimum: string): boolean {
-  // Strip prerelease/build metadata before splitting — "4.0.0-beta.3" must
-  // parse as [4,0,0], not [4,NaN,…] (NaN comparisons made every prerelease
-  // fail the minimum check, hard-erroring at startup for exactly the
-  // early-adopter installs that run betas). A prerelease of the minimum
-  // itself is accepted.
+  // Strip prerelease/build metadata before splitting — "4.0.0-beta.3" split
+  // on "." as ["4","0","0-beta","3"] put NaN in the PATCH slot, so a
+  // prerelease sharing the minimum's major.minor (e.g. vitest 4.0.0-beta.x
+  // against the 4.0.0 floor) failed the check and hard-errored at startup —
+  // exactly the early-adopter installs that run betas. A prerelease of the
+  // minimum itself is accepted (deliberate: rejecting it would re-break that
+  // cohort; vite/vitest don't publish patch-level prereleases, so the
+  // security-floor bypass this theoretically allows doesn't occur on npm).
   const parse = (v: string) =>
     v
       .replace(/^[^0-9]*/, "")
