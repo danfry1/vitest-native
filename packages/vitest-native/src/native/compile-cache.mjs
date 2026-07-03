@@ -14,22 +14,27 @@
 import nodeModule from "node:module";
 import os from "node:os";
 import path from "node:path";
+import { cacheRootFor } from "./transform.mjs";
 
 let _enabled = false;
 
 /**
  * Enable Node's persistent V8 compile cache for this worker/thread. Idempotent and
- * guarded per realm. Colocated under the `vitest-native-cache` tmp prefix so it
- * shares the transform cache's lifecycle (cleared with it on a cold run, reused on
- * warm). Must be called before RN's modules are first compiled.
+ * guarded per realm. Colocated with the transform disk cache (the project's
+ * node_modules/.cache/vitest-native when available — persistent and CI-restorable —
+ * else tmpdir) so both caches share a lifecycle. Must be called before RN's modules
+ * are first compiled.
  */
-export function enableV8CompileCache() {
+export function enableV8CompileCache(projectRoot) {
   if (_enabled) return;
   _enabled = true;
   const enable = nodeModule.enableCompileCache;
   if (typeof enable !== "function") return; // Node < 22.8: feature absent
   try {
-    enable.call(nodeModule, path.join(os.tmpdir(), "vitest-native-cache-v8"));
+    const root = projectRoot
+      ? cacheRootFor(projectRoot)
+      : path.join(os.tmpdir(), "vitest-native-cache");
+    enable.call(nodeModule, path.join(root, "v8"));
     // No atomic-write handling needed (unlike the transform cache, which writes
     // executable source): Node CRC32-validates each compile-cache entry on read,
     // so a torn or raced write from concurrent workers is a cache miss and a
