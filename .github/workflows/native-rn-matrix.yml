@@ -36,10 +36,19 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded runs on PR refs (a force-push previously left 10+ stale
+# cells running to completion); keep main/scheduled runs uncancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   matrix:
     name: native+hot — vitest ${{ matrix.vitest }} × RN ${{ matrix.rn }}
     runs-on: ubuntu-latest
+    # Without a bound, a hung cell (e.g. a stuck hot-soak worker) burns the
+    # 360-minute default. A healthy cell finishes well under 15 minutes.
+    timeout-minutes: 30
     strategy:
       # Report every cell independently rather than stopping at the first failure.
       fail-fast: false
@@ -58,6 +67,15 @@ jobs:
         with:
           node-version: '22.13.0'
 
+      # Package-download cache: bun still verifies against the frozen lockfile,
+      # it just skips re-downloading unchanged tarballs.
+      - name: Cache bun downloads
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -66,6 +84,18 @@ jobs:
       - name: Pin react-native + babel-preset to ${{ matrix.rn }}
         run: |
           bun add -d "react-native@${{ matrix.rn }}" "@react-native/babel-preset@${{ matrix.rn }}" --cwd packages/vitest-native
+
+      # vitest-native's on-disk caches (Babel transform of the RN graph + V8
+      # compile cache), keyed per matrix cell — each cell transforms a different
+      # RN version. Entries are content/version-keyed internally, so a stale
+      # restore is a miss, never a wrong hit. Restored after the version pins
+      # (bun add reshapes node_modules), saved automatically post-job.
+      - name: Cache vitest-native transform output
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: packages/vitest-native/node_modules/.cache/vitest-native
+          key: vn-transform-${{ runner.os }}-rn${{ matrix.rn }}-vitest-${{ matrix.vitest }}-${{ hashFiles('bun.lock') }}
+          restore-keys: vn-transform-${{ runner.os }}-rn${{ matrix.rn }}-vitest-${{ matrix.vitest }}-
 
       - name: Pin Vitest to the newest supported 4.x release
         if: matrix.vitest == 'latest-supported'
