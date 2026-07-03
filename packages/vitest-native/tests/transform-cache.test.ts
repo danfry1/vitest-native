@@ -50,22 +50,34 @@ describe("cacheRootFor", () => {
 });
 
 describe("transform disk cache", () => {
-  it("keys entries by content hash, not path/mtime — CI-restore friendly", () => {
+  it("keys entries by path + content, not mtime — CI-restore friendly", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-contentkey-"));
     try {
-      const src = "// @flow\ntype T = string;\nmodule.exports = (x: T) => x;";
+      const src = `// @flow\n// ${crypto.randomUUID()}\ntype T = string;\nmodule.exports = (x: T) => x;`;
       const fileA = path.join(dir, "a.js");
-      const fileB = path.join(dir, "b.js");
       fs.writeFileSync(fileA, src);
-      fs.writeFileSync(fileB, src);
       transformRN(fileA, src, projectRoot);
       const cacheDir = transformCacheDir();
       expect(cacheDir).toBeTruthy();
-      // Same content at a DIFFERENT path (and different mtime) hits the same
-      // disk entry: the entry count must not grow.
       const entriesAfterA = fs.readdirSync(cacheDir).length;
-      transformRN(fileB, src, projectRoot);
+
+      // Same path + same content with a DIFFERENT mtime (fresh install, Docker
+      // mtime normalization, CI cache restore) hits the same disk entry: the
+      // entry count must not grow.
+      const later = new Date(Date.now() + 5000);
+      fs.utimesSync(fileA, later, later);
+      transformRN(fileA, src, projectRoot);
       expect(fs.readdirSync(cacheDir).length).toBe(entriesAfterA);
+
+      // Identical content at a DIFFERENT path gets its OWN entry: Babel output
+      // can embed the filename (the preset's dev JSX transform writes
+      // _jsxFileName when NODE_ENV isn't test/production), so sharing an entry
+      // across paths could serve file A's identity as file B's.
+      const fileB = path.join(dir, "b.js");
+      fs.writeFileSync(fileB, src);
+      transformRN(fileB, src, projectRoot);
+      expect(fs.readdirSync(cacheDir).length).toBe(entriesAfterA + 1);
+
       // The cache directory name carries preset + babel versions.
       expect(path.basename(cacheDir)).toMatch(/^transform-.+-b.+-v\d+$/);
     } finally {

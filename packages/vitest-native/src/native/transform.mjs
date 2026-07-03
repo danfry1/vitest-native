@@ -5,7 +5,9 @@
 // mutable state to race on). The disk cache — keyed by CONTENT hash + platform, in a
 // directory versioned by preset + @babel/core versions — is the layer shared across
 // threads, workers, runs, and (because content-keyed entries survive fresh installs
-// and mtime normalization) CI cache restores.
+// and mtime normalization) CI cache restores. The path is part of the key too —
+// Babel output embeds the filename — so restores are valid wherever the checkout
+// path is stable (CI runners use a fixed workspace path).
 //
 // @babel/core itself is loaded lazily, only on a cache MISS: on a warm cache the
 // default engine pays this module's init in every isolated worker, and requiring
@@ -67,11 +69,15 @@ function init(projectRoot) {
         "(they ship with React Native projects by default).",
     );
   }
-  // Both transformer versions key the directory: a preset or Babel upgrade must
-  // never serve output produced by the previous version.
+  // Both transformer versions key the directory — a preset or Babel upgrade
+  // must never serve output produced by the previous version — and so does the
+  // Babel environment: the preset's dev-mode JSX transform produces different
+  // output (e.g. _jsxFileName injection) under NODE_ENV=development than under
+  // test/production.
+  const babelEnv = process.env.BABEL_ENV || process.env.NODE_ENV || "none";
   _cacheDir = path.join(
     cacheRootFor(projectRoot),
-    `transform-${presetVersion}-b${babelVersion}-v${TRANSFORM_CACHE_VERSION}`,
+    `transform-${presetVersion}-b${babelVersion}-${babelEnv}-v${TRANSFORM_CACHE_VERSION}`,
   );
   fs.mkdirSync(_cacheDir, { recursive: true });
 }
@@ -93,12 +99,22 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   // hashing; the DISK key hashes the actual content, so entries stay valid
   // across fresh installs, Docker mtime normalization, and CI cache restores —
   // and a same-path file with different content can never produce a wrong hit.
+  // The FILENAME is part of the key because Babel's output depends on it: the
+  // preset embeds the absolute path (_jsxFileName) in transformed JSX, so two
+  // identical sources at different paths must not share an entry.
   const st = fs.statSync(file);
   const memKey = `${platform}\0${file}\0${st.mtimeMs}\0${st.size}`;
   const memHit = mem.get(memKey);
   if (memHit !== undefined) return memHit;
 
-  const key = crypto.createHash("sha1").update(platform).update("\0").update(src).digest("hex");
+  const key = crypto
+    .createHash("sha1")
+    .update(platform)
+    .update("\0")
+    .update(file)
+    .update("\0")
+    .update(src)
+    .digest("hex");
   const cachePath = path.join(_cacheDir, key + ".js");
   try {
     const cached = fs.readFileSync(cachePath, "utf8");
