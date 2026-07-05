@@ -23,6 +23,11 @@ concurrency:
 
 jobs:
   deploy:
+    # workflow_run's `branches` filter matches the triggering run's HEAD branch,
+    # so a fork PR's matrix run (fork default branch is `main`) would fire this
+    # too. The artifact-selection step below never trusts pull_request runs, so
+    # such a trigger could only waste a deploy — skip it outright.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.event != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -48,6 +53,14 @@ jobs:
       # per-cell cross-check reports. Best-effort: with no run or no artifacts
       # (expired retention, first deploy), the committed placeholder page ships
       # instead — the site build must never depend on matrix availability.
+      #
+      # SECURITY: only non-pull_request runs are eligible. `--branch main`
+      # matches the run's HEAD branch name, and the matrix runs on
+      # pull_request — a fork PR opened from a branch named `main` (the fork
+      # default) would otherwise qualify, and pull_request runs execute the
+      # PR's OWN workflow file, so its artifacts are attacker-controlled.
+      # push/schedule/workflow_dispatch runs execute only trusted main-branch
+      # code.
       - name: Render fidelity matrix from the latest matrix run
         continue-on-error: true
         env:
@@ -55,7 +68,8 @@ jobs:
         run: |
           run_id=$(gh run list --repo "$GITHUB_REPOSITORY" \
             --workflow native-rn-matrix.yml --branch main --status success \
-            --limit 1 --json databaseId --jq '.[0].databaseId' || true)
+            --limit 10 --json databaseId,event \
+            --jq 'first(.[] | select(.event != "pull_request")).databaseId' || true)
           if [ -n "$run_id" ]; then
             gh run download "$run_id" --repo "$GITHUB_REPOSITORY" \
               --pattern 'crosscheck-report-*' --dir /tmp/crosscheck-reports || true

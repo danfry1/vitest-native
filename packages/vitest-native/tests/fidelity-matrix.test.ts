@@ -63,11 +63,49 @@ describe("fidelity-matrix renderer", () => {
     expect(page).toContain("| 0.85.2 | 4.1.8 | ✅ 75/75 | 2026-07-04 |");
     expect(page).toContain("| 0.81.5 | 4.2.1 | ❌ 74/75 | 2026-07-04 |");
     // Divergence table present, with hazards escaped.
-    expect(page).toContain("`press-event`");
+    expect(page).toContain("| press-event |");
     expect(page).toContain("mock &lt;Text&gt; got a\\|b &#123;&#123; nope &#125;&#125;");
     expect(page).not.toContain("<Text>");
     // Not the all-green banner.
     expect(page).toContain("Divergences detected");
+  });
+
+  it("escapes hostile probe names (reports are CI artifacts, treated as untrusted)", () => {
+    const reports = fs.mkdtempSync(path.join(os.tmpdir(), "vn-matrix-reports-"));
+    writeReport(reports, "crosscheck-report-rn0.84-locked", {
+      reactNativeVersion: "0.84.0",
+      vitestVersion: "4.1.8",
+      generatedAt: "2026-07-04T09:00:00.000Z",
+      summary: { total: 2, matching: 1 },
+      probes: [
+        { name: "ok-probe", match: true },
+        // A backtick would open a code span; a pipe breaks the row; a tag
+        // injects HTML into the built site.
+        { name: "evil` | <img src=x onerror=alert(1)>", match: false, reason: "r" },
+      ],
+    });
+    const { page } = render(["--reports", reports]);
+    expect(page).not.toContain("<img");
+    expect(page).toContain("evil&#96; \\| &lt;img src=x onerror=alert(1)&gt;");
+  });
+
+  it("exits non-zero on a corrupt report artifact (placeholder ships instead)", () => {
+    const reports = fs.mkdtempSync(path.join(os.tmpdir(), "vn-matrix-reports-"));
+    const d = path.join(reports, "crosscheck-report-rn0.82-locked");
+    fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(d, "report.json"), "{ not json");
+    expect(() => render(["--reports", reports])).toThrow();
+  });
+
+  it("--check passes on the committed placeholder and fails on drift", () => {
+    // The committed page must be exactly the placeholder render.
+    execFileSync(process.execPath, [SCRIPT, "--check"], { encoding: "utf8" });
+    // A page with data (or any divergent content) must fail the gate.
+    const outFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "vn-matrix-check-")), "p.md");
+    fs.writeFileSync(outFile, "not the placeholder");
+    expect(() =>
+      execFileSync(process.execPath, [SCRIPT, "--check", "--out", outFile], { encoding: "utf8" }),
+    ).toThrow();
   });
 
   it("declares all-green when every cell matches fully", () => {

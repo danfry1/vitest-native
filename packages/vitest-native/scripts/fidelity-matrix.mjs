@@ -28,14 +28,18 @@ function argValue(flag) {
 const reportsDir = argValue("--reports");
 const outPath = argValue("--out") ?? path.join(repoRoot, "website", "guide", "fidelity-matrix.md");
 
-// Same VitePress hazards as fidelity-report.mjs: bare tags, table pipes, and
-// Vue interpolation in free text break the site build. Probe names/reasons are
-// corpus data, so escape anything rendered outside a code span.
+// Same VitePress hazards as fidelity-report.mjs — bare tags, table pipes, and
+// Vue interpolation in free text break the site build — plus backticks, which
+// would open a code span and turn the rest of the row into live markup. Every
+// report field is treated as untrusted data (the reports are CI artifacts),
+// so ALL of them render through this escape, code-span styling deliberately
+// forgone.
 const cell = (s) =>
   String(s ?? "")
     .replace(/\|/g, "\\|")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
+    .replace(/`/g, "&#96;")
     .replace(/\{\{/g, "&#123;&#123;")
     .replace(/\}\}/g, "&#125;&#125;");
 
@@ -114,12 +118,17 @@ A local or matrix-less build shows this placeholder. The single-version
     })
     .join("\n");
 
+  // NOTE: crosscheck.mjs exits non-zero on any divergence, so CI's
+  // artifact-selection (latest SUCCESSFUL run) never feeds this branch — the
+  // deployed page shows the last all-green run while CI is red. The rendering
+  // exists for manually-supplied report directories and forensics; do not
+  // remove it as dead code.
   const divergences = cells.flatMap(({ rn, vitest, report }) =>
     report.probes
       .filter((p) => !p.match)
       .map(
         (p) =>
-          `| \`${p.name}\` | ${cell(rn)} | ${cell(vitest)} | ${cell(p.reason ?? "diverged")} |`,
+          `| ${cell(p.name)} | ${cell(rn)} | ${cell(vitest)} | ${cell(p.reason ?? "diverged")} |`,
       ),
   );
 
@@ -140,8 +149,28 @@ ${
 `;
 }
 
-fs.mkdirSync(path.dirname(outPath), { recursive: true });
-fs.writeFileSync(outPath, `${HEADER}${body}`);
-console.log(
-  `✓ fidelity matrix page rendered (${reportFiles.length} report${reportFiles.length === 1 ? "" : "s"}) → ${path.relative(repoRoot, outPath)}`,
-);
+const content = `${HEADER}${body}`;
+
+if (process.argv.includes("--check")) {
+  // Drift gate for the COMMITTED page: it must be exactly the placeholder
+  // render — real matrix data belongs only in the deploy workspace, never in
+  // the repository.
+  if (reportFiles.length > 0) {
+    console.error("✗ --check validates the committed placeholder; run it without --reports.");
+    process.exit(1);
+  }
+  const current = fs.existsSync(outPath) ? fs.readFileSync(outPath, "utf8") : null;
+  if (current !== content) {
+    console.error(
+      `✗ ${path.relative(repoRoot, outPath)} is not the placeholder render — regenerate with \`node scripts/fidelity-matrix.mjs\` and commit.`,
+    );
+    process.exit(1);
+  }
+  console.log("✓ committed fidelity-matrix placeholder is up to date");
+} else {
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
+  fs.writeFileSync(outPath, content);
+  console.log(
+    `✓ fidelity matrix page rendered (${reportFiles.length} report${reportFiles.length === 1 ? "" : "s"}) → ${path.relative(repoRoot, outPath)}`,
+  );
+}
