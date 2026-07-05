@@ -50,6 +50,20 @@ describe("cacheRootFor", () => {
 });
 
 describe("transform disk cache", () => {
+  // Exact-key assertions, not directory-entry counts: other test files
+  // transform into the same shared project cache dir from parallel workers,
+  // so counting entries races. The expected key mirrors the implementation's
+  // sha1(platform, path, content) scheme.
+  const diskKeyFor = (platform: string, file: string, src: string) =>
+    crypto
+      .createHash("sha1")
+      .update(platform)
+      .update("\0")
+      .update(file)
+      .update("\0")
+      .update(src)
+      .digest("hex");
+
   it("keys entries by path + content, not mtime — CI-restore friendly", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-contentkey-"));
     try {
@@ -59,15 +73,17 @@ describe("transform disk cache", () => {
       transformRN(fileA, src, projectRoot);
       const cacheDir = transformCacheDir();
       expect(cacheDir).toBeTruthy();
-      const entriesAfterA = fs.readdirSync(cacheDir).length;
+      const entryA = path.join(cacheDir, diskKeyFor("ios", fileA, src) + ".js");
+      expect(fs.existsSync(entryA)).toBe(true);
+      const writtenAt = fs.statSync(entryA).mtimeMs;
 
-      // Same path + same content with a DIFFERENT mtime (fresh install, Docker
-      // mtime normalization, CI cache restore) hits the same disk entry: the
-      // entry count must not grow.
+      // Same path + same content with a DIFFERENT source mtime (fresh install,
+      // Docker mtime normalization, CI cache restore) hits the SAME disk
+      // entry: it is read, not rewritten.
       const later = new Date(Date.now() + 5000);
       fs.utimesSync(fileA, later, later);
       transformRN(fileA, src, projectRoot);
-      expect(fs.readdirSync(cacheDir).length).toBe(entriesAfterA);
+      expect(fs.statSync(entryA).mtimeMs).toBe(writtenAt);
 
       // Identical content at a DIFFERENT path gets its OWN entry: Babel output
       // can embed the filename (the preset's dev JSX transform writes
@@ -76,9 +92,11 @@ describe("transform disk cache", () => {
       const fileB = path.join(dir, "b.js");
       fs.writeFileSync(fileB, src);
       transformRN(fileB, src, projectRoot);
-      expect(fs.readdirSync(cacheDir).length).toBe(entriesAfterA + 1);
+      const entryB = path.join(cacheDir, diskKeyFor("ios", fileB, src) + ".js");
+      expect(entryB).not.toBe(entryA);
+      expect(fs.existsSync(entryB)).toBe(true);
 
-      // The cache directory name carries preset + babel versions.
+      // The cache directory name carries preset + babel versions + Babel env.
       expect(path.basename(cacheDir)).toMatch(/^transform-.+-b.+-v\d+$/);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
