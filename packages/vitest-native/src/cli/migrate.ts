@@ -29,25 +29,43 @@ export interface MigrationReport {
 /**
  * Extract package names from Jest's classic transformIgnorePatterns allowlist
  * (`node_modules/(?!(?:pkg1|@scope/pkg2|...)/)`). Best-effort by design: the
- * raw pattern is always surfaced alongside the extraction so nothing is
- * silently lost on exotic regexes.
+ * raw pattern is always surfaced in the report alongside the extraction, and
+ * entries the extraction cannot be confident about (capturing groups like
+ * `(jest-)?react-native`, whose strip would fabricate a package name) are
+ * returned separately instead of guessed at.
  */
-export function extractAllowlistPackages(pattern: string): string[] {
-  const m = /\(\?!([^)]*(?:\([^)]*\)[^)]*)*)\)/.exec(pattern);
-  if (!m) return [];
-  return m[1]
-    .split("|")
-    .map((entry) =>
-      entry
-        .replace(/\(\?:/g, "")
-        .replace(/[()?*^$]/g, "")
-        .replace(/\\\//g, "/")
-        .replace(/\/\.$/, "")
-        .replace(/\/$/, "")
-        .replace(/\.$/, "")
-        .trim(),
-    )
-    .filter((entry) => entry.length > 0 && !entry.includes("\\"));
+export function extractAllowlistPackages(pattern: string): {
+  packages: string[];
+  unparseable: string[];
+} {
+  // The lookahead body is a sequence of non-paren runs and complete (one-level)
+  // paren groups — this shape can't close early on a LEADING nested group the
+  // way a greedy [^)]* would.
+  const m = /\(\?!((?:[^()]+|\([^()]*\))*)\)/.exec(pattern);
+  if (!m) return { packages: [], unparseable: [] };
+  const packages: string[] = [];
+  const unparseable: string[] = [];
+  for (const raw of m[1].split("|")) {
+    const entry = raw.trim();
+    if (!entry) continue;
+    // A capturing group means alternation/optionality inside one entry —
+    // stripping would fabricate names (`(jest-)?react-native` → "jest-react-native").
+    if (/\((?!\?)/.test(entry)) {
+      unparseable.push(entry);
+      continue;
+    }
+    const cleaned = entry
+      .replace(/\(\?:/g, "")
+      .replace(/[()?*^$]/g, "")
+      .replace(/\\\//g, "/")
+      .replace(/\/\.$/, "")
+      .replace(/\/$/, "")
+      .replace(/\.$/, "")
+      .trim();
+    if (cleaned.length > 0 && !cleaned.includes("\\")) packages.push(cleaned);
+    else if (entry.length > 0) unparseable.push(entry);
+  }
+  return { packages, unparseable };
 }
 
 interface JestConfig {
@@ -56,15 +74,7 @@ interface JestConfig {
 
 function loadJestConfig(root: string): { source: string | null; config: JestConfig | null } {
   const req = createRequire(path.join(root, "package.json"));
-  // package.json#jest
-  try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-    if (pkg.jest && typeof pkg.jest === "object") {
-      return { source: "package.json#jest", config: pkg.jest as JestConfig };
-    }
-  } catch {
-    // no/invalid package.json — fall through to config files
-  }
+  // Jest's own precedence: a jest.config.* file wins over package.json#jest.
   for (const name of ["jest.config.js", "jest.config.cjs", "jest.config.json"]) {
     const file = path.join(root, name);
     if (!fs.existsSync(file)) continue;
@@ -86,6 +96,14 @@ function loadJestConfig(root: string): { source: string | null; config: JestConf
   for (const name of ["jest.config.mjs", "jest.config.ts", "jest.config.mts"]) {
     if (fs.existsSync(path.join(root, name))) return { source: name, config: null };
   }
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+    if (pkg.jest && typeof pkg.jest === "object") {
+      return { source: "package.json#jest", config: pkg.jest as JestConfig };
+    }
+  } catch {
+    // no/invalid package.json
+  }
   return { source: null, config: null };
 }
 
@@ -101,6 +119,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
   const setupFiles: string[] = ["jestCompatSetup"];
   const aliasEntries: string[] = ["...jestCompatAliases()"];
   const transformPkgs: string[] = [];
+  let needsUrlImport = false;
 
   const presetPkgs = new Set(Object.keys(AUTO_DETECT_PRESETS));
 
@@ -125,7 +144,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
     }
 
     // setup files
-    for (const key of ["setupFiles", "setupFilesAfterEach", "setupFilesAfterEnv"]) {
+    for (const key of ["setupFiles", "setupFilesAfterEnv"]) {
       const files = take<string[]>(key);
       if (!files?.length) continue;
       for (const f of files) {
@@ -152,15 +171,29 @@ export function analyzeJestConfig(root: string): MigrationReport {
         ) {
           presetCovered.push(`moduleNameMapper '${pattern}' — asset stubbing is built in; delete.`);
         } else if (/^\^?@\/|\^~\/|\^src\//.test(pattern)) {
-          const alias = pattern.replace(/[\^$]/g, "").replace(/\(\.\*\)\$?/, "");
-          aliasEntries.push(
-            `${JSON.stringify(alias.replace(/\/$/, ""))}: ${JSON.stringify(
-              String(target)
-                .replace("<rootDir>", ".")
-                .replace(/\/\$1$/, ""),
-            )}`,
-          );
-          automatic.push(`moduleNameMapper '${pattern}' → resolve.alias.`);
+          const aliasKey = pattern
+            .replace(/[\^$]/g, "")
+            .replace(/\((\.\*|\.\+)\)\$?$/, "")
+            .replace(/\/$/, "");
+          const aliasTarget = String(target)
+            .replace(/^<rootDir>\/?/, "./")
+            .replace(/\/\$1$/, "")
+            .replace(/\/$/, "");
+          // Residual regex syntax after the strip means this mapper is more
+          // than a plain prefix alias — don't emit something half-right.
+          if (/[(){}?+*\\[\]]/.test(aliasKey) || /[(){}?+*\\[\]$]/.test(aliasTarget)) {
+            attention.push(
+              `moduleNameMapper '${pattern}' → '${String(target)}' — map manually to resolve.alias (regex mappers need rewriting).`,
+            );
+          } else {
+            // Vite resolves string-substituted aliases relative to the IMPORTER,
+            // so filesystem aliases must be emitted as absolute paths.
+            aliasEntries.push(
+              `${JSON.stringify(aliasKey)}: fileURLToPath(new URL(${JSON.stringify(aliasTarget)}, import.meta.url))`,
+            );
+            needsUrlImport = true;
+            automatic.push(`moduleNameMapper '${pattern}' → resolve.alias (absolute path).`);
+          }
         } else {
           attention.push(
             `moduleNameMapper '${pattern}' → '${String(target)}' — map manually to resolve.alias (regex mappers need rewriting).`,
@@ -172,8 +205,18 @@ export function analyzeJestConfig(root: string): MigrationReport {
     // transformIgnorePatterns → transform allowlist
     const tip = take<string[]>("transformIgnorePatterns");
     if (tip?.length) {
-      const extracted = tip.flatMap(extractAllowlistPackages);
-      if (extracted.length === 0) {
+      const results = tip.map(extractAllowlistPackages);
+      const extracted = results.flatMap((r) => r.packages);
+      const unparseable = results.flatMap((r) => r.unparseable);
+      // The raw pattern is always surfaced so a mis-extraction can't hide.
+      automatic.push(`transformIgnorePatterns (raw): ${JSON.stringify(tip)}`);
+      for (const entry of unparseable) {
+        attention.push(
+          `transformIgnorePatterns entry '${entry}' — could not extract package names confidently; ` +
+            `expand it by hand into reactNative({ transform: [...] }) if those packages ship untranspiled source.`,
+        );
+      }
+      if (extracted.length === 0 && unparseable.length === 0) {
         attention.push(
           `transformIgnorePatterns: ${JSON.stringify(tip)} — could not extract an allowlist automatically; ` +
             `packages shipping untranspiled source go in reactNative({ transform: [...] }).`,
@@ -234,6 +277,11 @@ export function analyzeJestConfig(root: string): MigrationReport {
     // coverage
     const coverageFrom = take<string[]>("collectCoverageFrom");
     if (coverageFrom?.length) {
+      testEntries.push(
+        `coverage: { include: [${coverageFrom
+          .map((g) => JSON.stringify(g.replace(/^<rootDir>\//, "")))
+          .join(", ")}] }`,
+      );
       automatic.push(`collectCoverageFrom → test.coverage.include (install @vitest/coverage-v8).`);
     }
     take("coveragePathIgnorePatterns");
@@ -316,7 +364,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
   const suggestedConfig = `import { defineConfig } from 'vitest/config'
 import { reactNative } from 'vitest-native'
 import { jestCompatAliases, jestCompatSetup, jestMockTransform } from 'vitest-native/jest-compat'
-
+${needsUrlImport ? "import { fileURLToPath } from 'node:url'\n" : ""}
 export default defineConfig({
   plugins: [${transformLine}, jestMockTransform()],
   resolve: {

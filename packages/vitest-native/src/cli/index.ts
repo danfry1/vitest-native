@@ -16,7 +16,7 @@ const USAGE = `vitest-native — test React Native with Vitest
 Usage:
   vitest-native init [--jest-compat] [--force]   write a ready-to-run vitest config
   vitest-native doctor                           diagnose peers, engine, presets, RNTL/Node
-  vitest-native migrate [--write]                analyze jest config → migration report
+  vitest-native migrate [--write] [--force]      analyze jest config → migration report
                                                  (--write also saves the suggested config)
 Options:
   --root <dir>   project root (default: cwd)
@@ -26,14 +26,19 @@ Docs: https://danfry1.github.io/vitest-native/`;
 
 export function main(argv: string[], log: (line: string) => void = console.log): number {
   const args = argv.filter((a) => a !== "--");
-  const command = args.find((a) => !a.startsWith("-"));
+  // The value following --root is an argument, not the command.
+  const command = args.find((a, i) => !a.startsWith("-") && args[i - 1] !== "--root");
   const has = (flag: string) => args.includes(flag);
   const rootIdx = args.indexOf("--root");
   const root = path.resolve(rootIdx !== -1 ? (args[rootIdx + 1] ?? ".") : ".");
 
-  if (!command || has("--help") || has("-h")) {
+  if (has("--help") || has("-h")) {
     log(USAGE);
-    return command ? 0 : 1;
+    return 0;
+  }
+  if (!command) {
+    log(USAGE);
+    return 1;
   }
   if (!fs.existsSync(path.join(root, "package.json"))) {
     log(`✗ no package.json at ${root} — run from a project root or pass --root.`);

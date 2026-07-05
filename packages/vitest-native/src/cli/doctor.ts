@@ -9,6 +9,7 @@ import path from "node:path";
 import { validatePeerDependency } from "../validate.js";
 import { detectEngine } from "../native/detect.js";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
+import { PEER_REQUIREMENTS } from "../peer-requirements.js";
 
 export interface DoctorResult {
   lines: string[];
@@ -58,22 +59,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
 
   // --- Required peers ---
   lines.push("", "Peer dependencies");
-  const peers: Array<{
-    name: string;
-    minimum: string;
-    maximumMajor?: number;
-    minimumByMajor?: Record<number, string>;
-  }> = [
-    { name: "vitest", minimum: "4.0.0", maximumMajor: 5 },
-    {
-      name: "vite",
-      minimum: "6.4.2",
-      maximumMajor: 9,
-      minimumByMajor: { 6: "6.4.2", 7: "7.3.2", 8: "8.0.5" },
-    },
-    { name: "react", minimum: "18.0.0" },
-  ];
-  for (const { name, minimum, maximumMajor, minimumByMajor } of peers) {
+  for (const { name, minimum, maximumMajor, minimumByMajor } of PEER_REQUIREMENTS) {
     const error = validatePeerDependency(name, minimum, root, maximumMajor, minimumByMajor);
     if (error) fail(error);
     else pass(`${name} ${packageVersion(root, name)}`);

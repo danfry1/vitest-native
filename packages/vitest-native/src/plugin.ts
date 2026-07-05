@@ -8,6 +8,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import flowRemoveTypes from "flow-remove-types";
 import { validateOptions, validatePeerDependency, warnUnknownOptions } from "./validate.js";
+import { PEER_REQUIREMENTS } from "./peer-requirements.js";
 import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
 
@@ -546,19 +547,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     },
 
     async configResolved(config) {
-      // Validate peer dependencies
-      const peers = [
-        { name: "vitest", minimum: "4.0.0", maximumMajor: 5 },
-        {
-          name: "vite",
-          minimum: "6.4.2",
-          maximumMajor: 9,
-          minimumByMajor: { 6: "6.4.2", 7: "7.3.2", 8: "8.0.5" },
-        },
-        { name: "react", minimum: "18.0.0" },
-      ];
+      // Validate peer dependencies (table shared with the CLI's doctor command).
       const peerErrors: string[] = [];
-      for (const { name, minimum, maximumMajor, minimumByMajor } of peers) {
+      for (const { name, minimum, maximumMajor, minimumByMajor } of PEER_REQUIREMENTS) {
         const error = validatePeerDependency(
           name,
           minimum,

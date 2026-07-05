@@ -7,6 +7,7 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { main } from "../src/cli/index.js";
 import { runInit, renderInitConfig } from "../src/cli/init.js";
 import { runDoctor } from "../src/cli/doctor.js";
@@ -43,6 +44,15 @@ describe("cli dispatch", () => {
     const io = capture();
     expect(main(["frobnicate", "--root", root], io.log)).toBe(1);
     expect(io.text()).toContain("unknown command");
+  });
+
+  it("accepts --root before the command and exits 0 on explicit --help", () => {
+    const root = fixture({ "package.json": { name: "x" } });
+    const io = capture();
+    // The --root VALUE must not be mistaken for the command.
+    expect(main(["--root", root, "migrate"], io.log)).toBe(1); // no jest config → 1, but dispatched
+    expect(io.text()).toContain("no Jest configuration found");
+    expect(main(["--help"], capture().log)).toBe(0);
   });
 
   it("refuses to run outside a package root", () => {
@@ -98,7 +108,7 @@ describe("doctor", () => {
     const root = fixture({ "package.json": { name: "x" } });
     const result = runDoctor(root);
     expect(result.ok).toBe(false);
-    expect(result.text ?? result.lines.join("\n")).toContain("vitest");
+    expect(result.lines.join("\n")).toContain("vitest");
   });
 
   it("flags RNTL 14 on a Node below 22.13", () => {
@@ -117,7 +127,8 @@ describe("doctor", () => {
   });
 
   it("passes cleanly against this package's own environment", () => {
-    const HERE = path.dirname(new URL(import.meta.url).pathname);
+    // fileURLToPath, not URL.pathname: the latter yields "/C:/…" on Windows.
+    const HERE = path.dirname(fileURLToPath(import.meta.url));
     const pkgRoot = path.resolve(HERE, "..");
     const result = runDoctor(pkgRoot);
     expect(result.ok).toBe(true);
@@ -129,8 +140,17 @@ describe("migrate", () => {
   it("extracts packages from the classic transformIgnorePatterns allowlist", () => {
     expect(
       extractAllowlistPackages("node_modules/(?!(?:react-native|@react-native|moti|uniwind)/)"),
-    ).toEqual(["react-native", "@react-native", "moti", "uniwind"]);
-    expect(extractAllowlistPackages("node_modules")).toEqual([]);
+    ).toEqual({
+      packages: ["react-native", "@react-native", "moti", "uniwind"],
+      unparseable: [],
+    });
+    expect(extractAllowlistPackages("node_modules")).toEqual({ packages: [], unparseable: [] });
+    // Capturing groups would fabricate names if stripped ("jest-react-native") —
+    // they must be surfaced as unparseable instead.
+    expect(extractAllowlistPackages("node_modules/(?!(jest-)?react-native|expo)")).toEqual({
+      packages: ["expo"],
+      unparseable: ["(jest-)?react-native"],
+    });
   });
 
   it("produces the full report for a representative jest config", () => {
@@ -159,9 +179,13 @@ describe("migrate", () => {
     // transform allowlist: moti extracted, RN handled, reanimated preset-covered.
     expect(report.suggestedConfig).toContain(`transform: ["moti"]`);
     expect(text).toContain("'react-native-reanimated' — shadowed by the auto-detected preset");
-    // asset mapper recognized as built-in; alias mapped; setup preserved.
+    // asset mapper recognized as built-in; alias mapped ABSOLUTE (Vite resolves
+    // string-substituted aliases relative to the importer); setup preserved.
     expect(text).toContain("asset stubbing is built in");
-    expect(report.suggestedConfig).toContain(`"@": "./src"`);
+    expect(report.suggestedConfig).toContain(
+      `"@": fileURLToPath(new URL("./src", import.meta.url))`,
+    );
+    expect(report.suggestedConfig).toContain(`import { fileURLToPath } from 'node:url'`);
     expect(report.suggestedConfig).toContain(`"./jest.setup.js"`);
     expect(report.suggestedConfig).toContain("testTimeout: 15000");
     // manual mock covered by preset; unknown key surfaced.
