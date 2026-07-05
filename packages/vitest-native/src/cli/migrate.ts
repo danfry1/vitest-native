@@ -38,10 +38,12 @@ export function extractAllowlistPackages(pattern: string): {
   packages: string[];
   unparseable: string[];
 } {
-  // The lookahead body is a sequence of non-paren runs and complete (one-level)
-  // paren groups — this shape can't close early on a LEADING nested group the
-  // way a greedy [^)]* would.
-  const m = /\(\?!((?:[^()]+|\([^()]*\))*)\)/.exec(pattern);
+  // The lookahead body is a sequence of non-paren CHARACTERS and complete
+  // (one-level) paren groups. Single-character alternatives keep the repetition
+  // unambiguous — `[^()]+` inside the star is the classic nested-quantifier
+  // ReDoS shape (exponential backtracking on unclosed input) — while still not
+  // closing early on a LEADING nested group the way a greedy [^)]* would.
+  const m = /\(\?!((?:[^()]|\([^()]*\))*)\)/.exec(pattern);
   if (!m) return { packages: [], unparseable: [] };
   const packages: string[] = [];
   const unparseable: string[] = [];
