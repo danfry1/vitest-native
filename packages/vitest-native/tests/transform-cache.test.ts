@@ -8,7 +8,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 // @ts-expect-error — runtime .mjs, no types
 import { transformRN, transformCacheDir, cacheRootFor } from "../src/native/transform.mjs";
 
@@ -117,7 +117,9 @@ describe("transform disk cache", () => {
       );
       const script = `
         import { transformRN } from ${JSON.stringify(
-          path.join(projectRoot, "src", "native", "transform.mjs"),
+          // file:// URL, not a raw path: Windows absolute paths ("D:\\…") are
+          // rejected by Node's ESM loader as an unsupported URL scheme.
+          pathToFileURL(path.join(projectRoot, "src", "native", "transform.mjs")).href,
         )};
         import fs from "node:fs";
         const file = ${JSON.stringify(file)};
