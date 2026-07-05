@@ -42,7 +42,15 @@ import {
   TouchableWithoutFeedback,
   View,
 } from "react-native";
-import { cleanup, fireEvent, render, screen, userEvent, within } from "@testing-library/react-native";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  userEvent,
+  within,
+} from "@testing-library/react-native";
 import fs from "node:fs";
 
 afterEach(cleanup);
@@ -285,6 +293,51 @@ probe("animated-value-initial-style", async () => {
   const opacity = new Animated.Value(0.3);
   await render(<Animated.View testID="av" style={{ opacity }} />);
   return { hit: passes(() => expect(screen.getByTestId("av")).toHaveStyle({ opacity: 0.3 })) };
+});
+
+probe("animated-setvalue-updates-rendered-style", async () => {
+  // The class the node-graph refactor fixed: a setValue() AFTER render must be
+  // visible in the rendered style (real RN's animated components re-render).
+  // The observed value is returned, so the engines are compared on exactly
+  // what a test would read.
+  const opacity = new Animated.Value(0.3);
+  await render(<Animated.View testID="av-live" style={{ opacity }} />);
+  await act(async () => opacity.setValue(0.8));
+  const style = StyleSheet.flatten(screen.getByTestId("av-live").props.style) as {
+    opacity?: number;
+  };
+  return {
+    observed: style?.opacity,
+    hit: passes(() => expect(screen.getByTestId("av-live")).toHaveStyle({ opacity: 0.8 })),
+  };
+});
+
+probe("animated-interpolation-live-style", async () => {
+  // Interpolations are live nodes: moving the source value after render must
+  // recompute the derived style (previously the mock froze the value computed
+  // at interpolate() call time).
+  const progress = new Animated.Value(0);
+  const opacity = progress.interpolate({ inputRange: [0, 1], outputRange: [0.25, 0.75] });
+  await render(<Animated.View testID="av-interp" style={{ opacity }} />);
+  await act(async () => progress.setValue(1));
+  const style = StyleSheet.flatten(screen.getByTestId("av-interp").props.style) as {
+    opacity?: number;
+  };
+  return {
+    observed: style?.opacity,
+    hit: passes(() => expect(screen.getByTestId("av-interp")).toHaveStyle({ opacity: 0.75 })),
+  };
+});
+
+probe("animated-transform-live-style", async () => {
+  // The same liveness through a transform array (translateX driven by a value).
+  const x = new Animated.Value(0);
+  await render(<Animated.View testID="av-tx" style={{ transform: [{ translateX: x }] }} />);
+  await act(async () => x.setValue(42));
+  const style = StyleSheet.flatten(screen.getByTestId("av-tx").props.style) as {
+    transform?: Array<Record<string, unknown>>;
+  };
+  return { transform: style?.transform };
 });
 
 // --- accessibility props (what RNTL byRole / toBeDisabled depend on) ---

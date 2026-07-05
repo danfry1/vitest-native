@@ -28,7 +28,12 @@ import { createDrawerLayoutAndroidMock } from "./components/DrawerLayoutAndroid.
 import { createPlatformMock } from "./apis/Platform.js";
 import { createDimensionsMock } from "./apis/Dimensions.js";
 import { createStyleSheetMock } from "./apis/StyleSheet.js";
-import { createAnimatedMock } from "./apis/Animated.js";
+import {
+  createAnimatedMock,
+  AnimatedValue,
+  AnimatedValueXY,
+  AnimatedColor,
+} from "./apis/Animated.js";
 import { createAlertMock } from "./apis/Alert.js";
 import { createLinkingMock } from "./apis/Linking.js";
 import { createAppStateMock } from "./apis/AppState.js";
@@ -273,24 +278,24 @@ function createTouchableMock() {
   };
 }
 
+// These are HOOKS: real RN memoizes the value with useRef, so it must survive
+// re-renders. Previously each render minted a fresh value (losing animation
+// state mid-test) — and rebuilt the entire Animated namespace to do it.
 function createUseAnimatedValueMock() {
   return vi.fn((initialValue: number) => {
-    const AnimatedMod = createAnimatedMock();
-    return new AnimatedMod.Value(initialValue);
+    return React.useRef(new AnimatedValue(initialValue)).current;
   });
 }
 
 function createUseAnimatedValueXYMock() {
   return vi.fn((initialValue?: { x: number; y: number }) => {
-    const AnimatedMod = createAnimatedMock();
-    return new AnimatedMod.ValueXY(initialValue);
+    return React.useRef(new AnimatedValueXY(initialValue)).current;
   });
 }
 
 function createUseAnimatedColorMock() {
   return vi.fn((initialValue?: any) => {
-    const AnimatedMod = createAnimatedMock();
-    return new AnimatedMod.Color(initialValue);
+    return React.useRef(new AnimatedColor(initialValue)).current;
   });
 }
 
