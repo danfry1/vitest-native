@@ -52,6 +52,18 @@ try {
     run("npm", ["test"], fixtureRoot);
   }
 
+  // The CLI ships as the package bin — prove it dispatches from the packed
+  // tarball the way `npx vitest-native` would (doctor exercises peer probing,
+  // engine detection, and preset scanning against the fixture's real installs;
+  // migrate analyzes a minimal Jest config planted for the smoke).
+  const cliFixture = path.join(tempRoot, "bare");
+  run("npx", ["--no-install", "vitest-native", "doctor"], cliFixture);
+  fs.writeFileSync(
+    path.join(cliFixture, "jest.config.json"),
+    `${JSON.stringify({ preset: "react-native", testTimeout: 10000 }, null, 2)}\n`,
+  );
+  run("npx", ["--no-install", "vitest-native", "migrate"], cliFixture);
+
   console.log("\nAll packed consumer fixtures passed.");
 } finally {
   fs.rmSync(tempRoot, { force: true, recursive: true });

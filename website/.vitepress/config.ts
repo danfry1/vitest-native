@@ -66,6 +66,7 @@ export default defineConfig({
             { text: 'Plugin Options', link: '/guide/plugin-options' },
             { text: 'Third-Party Presets', link: '/guide/presets' },
             { text: 'Test Helpers', link: '/guide/helpers' },
+            { text: 'CLI', link: '/guide/cli' },
           ],
         },
         {
