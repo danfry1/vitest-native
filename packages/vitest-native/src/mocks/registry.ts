@@ -283,19 +283,25 @@ function createTouchableMock() {
 // state mid-test) — and rebuilt the entire Animated namespace to do it.
 function createUseAnimatedValueMock() {
   return vi.fn((initialValue: number) => {
-    return React.useRef(new AnimatedValue(initialValue)).current;
+    const ref = React.useRef<InstanceType<typeof AnimatedValue> | null>(null);
+    if (ref.current == null) ref.current = new AnimatedValue(initialValue);
+    return ref.current;
   });
 }
 
 function createUseAnimatedValueXYMock() {
   return vi.fn((initialValue?: { x: number; y: number }) => {
-    return React.useRef(new AnimatedValueXY(initialValue)).current;
+    const ref = React.useRef<InstanceType<typeof AnimatedValueXY> | null>(null);
+    if (ref.current == null) ref.current = new AnimatedValueXY(initialValue);
+    return ref.current;
   });
 }
 
 function createUseAnimatedColorMock() {
   return vi.fn((initialValue?: any) => {
-    return React.useRef(new AnimatedColor(initialValue)).current;
+    const ref = React.useRef<InstanceType<typeof AnimatedColor> | null>(null);
+    if (ref.current == null) ref.current = new AnimatedColor(initialValue);
+    return ref.current;
   });
 }
 

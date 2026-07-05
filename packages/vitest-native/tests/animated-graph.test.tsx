@@ -121,13 +121,45 @@ describe("subscribing wrappers", () => {
     expect(screen.getByTestId("anim")).toHaveStyle({ opacity: 1 });
   });
 
-  it("unsubscribes on unmount (no listener leak, no post-unmount updates)", async () => {
+  it("unsubscribes on unmount (no consumers left on the value)", async () => {
     const v = new Animated.Value(0);
     const { unmount } = await render(<Animated.View testID="u" style={{ opacity: v }} />);
     await act(async () => unmount());
-    // A post-unmount setValue must not throw or warn about updates on
-    // unmounted components — the subscription was removed with the effect.
     expect(() => v.setValue(1)).not.toThrow();
+    // The graph edge was actually removed, not just tolerated.
+    expect((v as any)._children.size).toBe(0);
+    expect((v as any)._listeners.size).toBe(0);
+  });
+
+  it("render-constructed interpolations do not accumulate on the source", async () => {
+    // The user pattern: interpolate() INSIDE render. Every re-render constructs
+    // a new interpolation; the previous one must detach from the source when
+    // the wrapper unsubscribes from it (RN's attach/detach lifecycle).
+    const v = new Animated.Value(0);
+    function Fading() {
+      const opacity = v.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
+      return <Animated.View testID="fade" style={{ opacity }} />;
+    }
+    await render(<Fading />);
+    for (const step of [0.2, 0.4, 0.6, 0.8, 1]) {
+      await act(async () => v.setValue(step));
+    }
+    expect(screen.getByTestId("fade")).toHaveStyle({ opacity: 1 });
+    // One live interpolation child at most (the current render's), never five.
+    expect((v as any)._children.size).toBeLessThanOrEqual(1);
+  });
+
+  it("removeAllListeners removes user listeners but not view updates (RN parity)", async () => {
+    const v = new Animated.Value(0.1);
+    const seen: number[] = [];
+    v.addListener(({ value }: { value: number }) => seen.push(value));
+    await render(<Animated.View testID="rl" style={{ opacity: v }} />);
+    v.removeAllListeners();
+    await act(async () => v.setValue(0.6));
+    // The user listener is gone…
+    expect(seen).toEqual([]);
+    // …but the mounted component still re-renders, like on-device.
+    expect(screen.getByTestId("rl")).toHaveStyle({ opacity: 0.6 });
   });
 });
 

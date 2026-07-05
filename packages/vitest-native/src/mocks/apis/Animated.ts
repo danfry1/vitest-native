@@ -257,15 +257,19 @@ function checkValidRanges(inputRange: number[], outputRange: unknown[]): void {
 // Real RN's Animated is a dependency graph: derived nodes (interpolations,
 // arithmetic ops) recompute from their parents on every read, and attached
 // components re-render when any node in their style changes. The mock mirrors
-// that shape: every node has a live __getValue(), derived nodes subscribe to
-// their parents at construction, and the Animated.* wrappers subscribe to the
-// nodes in their style — so a setValue()/timing().start() after render updates
-// the rendered style exactly as it does on-device.
+// that shape: every node has a live __getValue(), derived nodes attach to
+// their parents while they have consumers (mirroring RN's __attach/__detach),
+// and the Animated.* wrappers register as graph children of the nodes in their
+// style — so a setValue()/timing().start() after render updates the rendered
+// style exactly as it does on-device. USER listeners (addListener) and GRAPH
+// children are separate populations: removeAllListeners() removes only the
+// former, exactly like real RN.
 
 type ListenerFn = (state: { value: any }) => void;
 
 abstract class AnimatedNode {
   protected _listeners: Map<string, ListenerFn> = new Map();
+  private _children: Set<() => void> = new Set();
   private _listenerIdCounter = 0;
 
   /** Current value of this node, computed live from its inputs. */
@@ -275,24 +279,54 @@ abstract class AnimatedNode {
     return this.__getValue();
   }
 
+  // Derived nodes attach to their parents LAZILY — only while they have a
+  // consumer (listener or child) of their own, mirroring RN's __attach/__detach
+  // lifecycle. Without this, an interpolation constructed inside a render
+  // function would leak one permanent parent subscription per re-render.
+  // Leaf values override neither hook.
+  protected _attachToParents(): void {}
+  protected _detachFromParents(): void {}
+
+  private _consumerCount(): number {
+    return this._listeners.size + this._children.size;
+  }
+
   addListener(callback: Function): string {
     const id = String(++this._listenerIdCounter);
     this._listeners.set(id, callback as ListenerFn);
+    if (this._consumerCount() === 1) this._attachToParents();
     return id;
   }
 
   removeListener(id: string) {
-    this._listeners.delete(id);
+    if (this._listeners.delete(id) && this._consumerCount() === 0) this._detachFromParents();
   }
 
   removeAllListeners() {
+    // USER listeners only — graph children (views, derived nodes) stay
+    // attached, exactly like real RN's removeAllListeners.
+    const had = this._listeners.size > 0;
     this._listeners.clear();
+    if (had && this._consumerCount() === 0) this._detachFromParents();
   }
 
-  /** Notify listeners with the node's CURRENT (offset-inclusive) value. */
+  /** Graph edge: `fn` runs whenever this node's value may have changed. */
+  __addChild(fn: () => void) {
+    this._children.add(fn);
+    if (this._consumerCount() === 1) this._attachToParents();
+  }
+
+  __removeChild(fn: () => void) {
+    if (this._children.delete(fn) && this._consumerCount() === 0) this._detachFromParents();
+  }
+
+  /** Notify consumers with the node's CURRENT (offset-inclusive) value. */
   protected _notify() {
-    const value = this.__getValue();
-    this._listeners.forEach((fn) => fn({ value }));
+    if (this._listeners.size > 0) {
+      const value = this.__getValue();
+      this._listeners.forEach((fn) => fn({ value }));
+    }
+    this._children.forEach((fn) => fn());
   }
 
   interpolate(config: any): AnimatedNode {
@@ -321,7 +355,7 @@ abstract class AnimatedNode {
 class AnimatedValue extends AnimatedNode {
   private _value: number;
   private _offset: number = 0;
-  _tracking: { source: AnimatedValue; listenerId: string } | null = null;
+  _tracking: { source: AnimatedValue; child: () => void } | null = null;
 
   constructor(value: number = 0) {
     super();
@@ -339,8 +373,9 @@ class AnimatedValue extends AnimatedNode {
 
   // Offsets follow RN's semantics: the offset is added on read; flatten folds
   // it into the value; extract moves the value into the offset (the canonical
-  // PanResponder drag pattern). Neither changes the observable value, so
-  // neither notifies.
+  // PanResponder drag pattern). None of the three notifies — matching RN's JS
+  // driver, where offset changes surface on the NEXT value set (flatten and
+  // extract additionally leave the observable value unchanged).
   setOffset(offset: number) {
     this._offset = offset;
   }
@@ -372,8 +407,16 @@ class AnimatedInterpolation extends AnimatedNode {
     if (typeof outputRange[0] === "string") {
       this._preparedString = prepareStringInterpolation(outputRange);
     }
-    // Live propagation: recompute + re-notify whenever the parent moves.
-    parent.addListener(() => this._notify());
+  }
+
+  private _propagate = () => this._notify();
+
+  protected override _attachToParents() {
+    this._parent.__addChild(this._propagate);
+  }
+
+  protected override _detachFromParents() {
+    this._parent.__removeChild(this._propagate);
   }
 
   __getValue(): number | string {
@@ -421,13 +464,21 @@ class AnimatedInterpolation extends AnimatedNode {
 // A derived node computed from one or more inputs (add/multiply/…/diffClamp).
 class AnimatedOp extends AnimatedNode {
   private _compute: () => number;
+  private _parents: AnimatedNode[];
+  private _propagate = () => this._notify();
 
   constructor(inputs: any[], compute: () => number) {
     super();
     this._compute = compute;
-    for (const input of inputs) {
-      if (input instanceof AnimatedNode) input.addListener(() => this._notify());
-    }
+    this._parents = inputs.filter((i): i is AnimatedNode => i instanceof AnimatedNode);
+  }
+
+  protected override _attachToParents() {
+    for (const parent of this._parents) parent.__addChild(this._propagate);
+  }
+
+  protected override _detachFromParents() {
+    for (const parent of this._parents) parent.__removeChild(this._propagate);
   }
 
   __getValue(): number {
@@ -592,9 +643,11 @@ class AnimatedColor extends AnimatedNode {
       this.b = new AnimatedValue(0);
       this.a = new AnimatedValue(1);
     }
-    // Channel moves re-notify the color (live wrappers + listeners).
+    // Channel moves re-notify the color (live wrappers + listeners). Graph
+    // children, not user listeners: a user's channel.removeAllListeners()
+    // must not sever the color from its own channels.
     for (const channel of [this.r, this.g, this.b, this.a]) {
-      channel.addListener(() => this._notify());
+      channel.__addChild(() => this._notify());
     }
   }
 
@@ -701,10 +754,12 @@ function useAnimatedStyleSubscription(style: any) {
     const nodes = new Set<AnimatedNode>();
     collectAnimatedNodes(style, nodes);
     if (nodes.size === 0) return undefined;
-    const subs: Array<[AnimatedNode, string]> = [];
-    for (const node of nodes) subs.push([node, node.addListener(force)]);
+    // Graph children (like real RN's attached views), so the subscription
+    // survives a user's removeAllListeners() — and lazily attaches any
+    // render-constructed derived nodes to their sources.
+    for (const node of nodes) node.__addChild(force);
     return () => {
-      for (const [node, id] of subs) node.removeListener(id);
+      for (const node of nodes) node.__removeChild(force);
     };
   });
 }
@@ -728,7 +783,7 @@ function createAnimatedWrapper(displayName: string) {
 
 function stopTracking(value: AnimatedValue) {
   if (value._tracking) {
-    value._tracking.source.removeListener(value._tracking.listenerId);
+    value._tracking.source.__removeChild(value._tracking.child);
     value._tracking = null;
   }
 }
@@ -738,12 +793,12 @@ function startTracking(value: AnimatedValue, toValue: any) {
   stopTracking(value);
 
   if (toValue instanceof AnimatedValue) {
-    // Track the source value
+    // Track the source value — as a graph child (real RN's TrackingAnimatedNode
+    // is a child too, so it survives the source's removeAllListeners()).
     value.setValue(toValue.getValue());
-    const listenerId = toValue.addListener(({ value: v }: { value: number }) => {
-      value.setValue(v);
-    });
-    value._tracking = { source: toValue, listenerId };
+    const child = () => value.setValue(toValue.__getValue());
+    toValue.__addChild(child);
+    value._tracking = { source: toValue, child };
   } else {
     value.setValue(toValue);
   }
@@ -758,7 +813,11 @@ class AnimatedDiffClamp extends AnimatedNode {
     let lastInput = operandValue(a);
     this._current = Math.min(Math.max(lastInput, min), max);
     if (a instanceof AnimatedNode) {
-      a.addListener(({ value }: { value: number }) => {
+      // Permanent graph child (not a lazy attach): the clamp accumulates
+      // HISTORY, so it must observe every parent move even while unobserved
+      // itself — and must survive the parent's removeAllListeners().
+      a.__addChild(() => {
+        const value = Number(a.__getValue());
         const diff = value - lastInput;
         lastInput = value;
         this._current = Math.min(Math.max(this._current + diff, min), max);
