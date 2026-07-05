@@ -30,6 +30,15 @@ function resolveReactNativeVersion() {
   }
 }
 
+function resolveVitestVersion() {
+  try {
+    const req = createRequire(path.join(root, "package.json"));
+    return req("vitest/package.json").version;
+  } catch {
+    return null;
+  }
+}
+
 function runEngine(engine) {
   const out = path.join(outDir, `${engine}.json`);
   fs.rmSync(out, { force: true });
@@ -76,6 +85,7 @@ console.log(`${matched}/${names.length} probes match between mock and real React
 const failureByName = new Map(failures.map((f) => [f.name, f]));
 const report = {
   reactNativeVersion: resolveReactNativeVersion(),
+  vitestVersion: resolveVitestVersion(),
   generatedAt: new Date().toISOString(),
   summary: { total: names.length, matching: matched },
   probes: names.map((name) => {

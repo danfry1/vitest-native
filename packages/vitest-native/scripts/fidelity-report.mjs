@@ -136,6 +136,7 @@ generated from the corpus itself, so the numbers below are exactly what ships.
 
 - **${summary.matching} / ${summary.total} probes** match between the mock engine and real React Native${report.reactNativeVersion ? ` (this page was generated against React Native ${report.reactNativeVersion})` : ""}.
 - ${ciLine}
+- Per-version results straight from the CI matrix: [Fidelity Matrix](/guide/fidelity-matrix).
 - Reproduce it yourself: \`bun run crosscheck\`.
 
 The \`native\` engine needs no cross-check — it *is* real React Native.

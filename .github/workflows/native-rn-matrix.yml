@@ -136,3 +136,16 @@ jobs:
 
       - name: Cross-check (mock ≡ real RN ${{ matrix.rn }})
         run: bun run crosscheck
+
+      # The per-cell report feeds the published fidelity matrix (pages.yml pulls
+      # the latest successful run's artifacts and renders
+      # website/guide/fidelity-matrix.md at deploy time). Uploaded on failure
+      # too — a diverging cell's report is the forensic record.
+      - name: Upload cross-check report
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: crosscheck-report-rn${{ matrix.rn }}-${{ matrix.vitest }}
+          path: packages/vitest-native/crosscheck/.out/report.json
+          if-no-files-found: ignore
+          retention-days: 30

@@ -6,6 +6,12 @@ on:
     paths:
       - 'website/**'
       - '.github/workflows/pages.yml'
+  # Redeploy when the RN × Vitest matrix completes on main, so the published
+  # fidelity matrix reflects the latest run's per-cell cross-check reports.
+  workflow_run:
+    workflows: ['Native engine — Vitest × RN matrix']
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -23,6 +29,8 @@ jobs:
     permissions:
       pages: write
       id-token: write
+      # Read the matrix workflow's artifacts (per-cell cross-check reports).
+      actions: read
 
     environment:
       name: github-pages
@@ -35,6 +43,24 @@ jobs:
           bun-version: 1.3.14
 
       - run: bun install --frozen-lockfile
+
+      # Render the fidelity matrix from the latest successful matrix run's
+      # per-cell cross-check reports. Best-effort: with no run or no artifacts
+      # (expired retention, first deploy), the committed placeholder page ships
+      # instead — the site build must never depend on matrix availability.
+      - name: Render fidelity matrix from the latest matrix run
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_id=$(gh run list --repo "$GITHUB_REPOSITORY" \
+            --workflow native-rn-matrix.yml --branch main --status success \
+            --limit 1 --json databaseId --jq '.[0].databaseId' || true)
+          if [ -n "$run_id" ]; then
+            gh run download "$run_id" --repo "$GITHUB_REPOSITORY" \
+              --pattern 'crosscheck-report-*' --dir /tmp/crosscheck-reports || true
+          fi
+          node packages/vitest-native/scripts/fidelity-matrix.mjs --reports /tmp/crosscheck-reports
 
       - name: Build website
         run: bun run build:website
