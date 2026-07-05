@@ -51,8 +51,9 @@ describe("fidelity-matrix renderer", () => {
       probes: [
         { name: "a11y-role", match: true },
         // VitePress hazards in the reason: pipes break table cells, bare tags
-        // and {{ }} break the Vue compile — all must be escaped.
-        { name: "press-event", match: false, reason: "mock <Text> got a|b {{ nope }}" },
+        // and {{ }} break the Vue compile, and a backslash would re-arm the
+        // escaped pipe — all must be escaped.
+        { name: "press-event", match: false, reason: "mock <Text> got a|b \\| {{ nope }}" },
       ],
     });
 
@@ -64,7 +65,7 @@ describe("fidelity-matrix renderer", () => {
     expect(page).toContain("| 0.81.5 | 4.2.1 | ❌ 74/75 | 2026-07-04 |");
     // Divergence table present, with hazards escaped.
     expect(page).toContain("| press-event |");
-    expect(page).toContain("mock &lt;Text&gt; got a\\|b &#123;&#123; nope &#125;&#125;");
+    expect(page).toContain("mock &lt;Text&gt; got a\\|b \\\\\\| &#123;&#123; nope &#125;&#125;");
     expect(page).not.toContain("<Text>");
     // Not the all-green banner.
     expect(page).toContain("Divergences detected");

@@ -36,6 +36,9 @@ const outPath = argValue("--out") ?? path.join(repoRoot, "website", "guide", "fi
 // forgone.
 const cell = (s) =>
   String(s ?? "")
+    // Backslashes first — escaping them after the fact would re-arm the very
+    // characters the later replacements neutralize (CodeQL js/incomplete-sanitization).
+    .replace(/\\/g, "\\\\")
     .replace(/\|/g, "\\|")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
