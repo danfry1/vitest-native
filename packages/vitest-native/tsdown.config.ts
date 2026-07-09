@@ -11,6 +11,7 @@ export default defineConfig({
     presets: 'src/presets/index.ts',
     matchers: 'src/matchers/animated.ts',
     'jest-compat': 'src/jest-compat/index.ts',
+    cli: 'src/cli/index.ts',
   },
   format: ['esm', 'cjs'],
   dts: true,
