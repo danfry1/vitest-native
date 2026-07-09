@@ -1,0 +1,26 @@
+{
+  "comment": "Real-app bake-off pass-count floors (scripts/bakeoff-ratchet.mjs). Counts may only move up: raise them deliberately with --update after an improvement; a run below a floor fails. bakeoffsRepoSha pins danfry1/vitest-native-bakeoffs (which itself pins each app's commit).",
+  "bakeoffsRepoSha": "b2899282167d031931c92b18b6f89cc4284f7486",
+  "apps": {
+    "paper": {
+      "stock": {
+        "passed": 625,
+        "total": 678
+      },
+      "hot": {
+        "passed": 603,
+        "total": 678
+      }
+    },
+    "obytes": {
+      "stock": {
+        "passed": 34,
+        "total": 36
+      },
+      "hot": {
+        "passed": 34,
+        "total": 36
+      }
+    }
+  }
+}
