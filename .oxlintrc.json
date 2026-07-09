@@ -10,6 +10,7 @@
   "rules": {
     "no-unused-vars": "error",
     "no-console": "off",
+    "no-underscore-dangle": "off",
     "typescript/no-explicit-any": "off",
     "unicorn/no-thenable": "off",
     "unicorn/consistent-function-scoping": "off",
