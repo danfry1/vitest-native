@@ -38,9 +38,9 @@
     },
     "packages/vitest-native": {
       "name": "vitest-native",
-      "version": "0.7.0",
+      "version": "0.8.0",
       "dependencies": {
-        "flow-remove-types": "^2.318.0",
+        "flow-remove-types": "^2.321.0",
         "magic-string": "^0.30.21",
       },
       "devDependencies": {
@@ -973,7 +973,7 @@
 
     "flow-enums-runtime": ["flow-enums-runtime@0.0.6", "", {}, "sha512-3PYnM29RFXwvAN6Pc/scUfkI7RwhQ/xqyLUyPNlXUp9S40zI8nup9tUSrTLSVnWGBN38FNiGWbwZOB6uR4OGdw=="],
 
-    "flow-remove-types": ["flow-remove-types@2.318.0", "", { "dependencies": { "hermes-parser": "0.36.1", "pirates": "^3.0.2", "vlq": "^0.2.1" }, "bin": { "flow-node": "flow-node", "flow-remove-types": "flow-remove-types" } }, "sha512-kYiVupV+Jopbs41/ypuY6hZf4aTb3ESkx58v0egRLLCowtkukoYfxVZd6/ufROTCxBO6b01SVv7t//d2biq+uQ=="],
+    "flow-remove-types": ["flow-remove-types@2.321.0", "", { "dependencies": { "hermes-parser": "0.36.1", "pirates": "^3.0.2", "vlq": "^0.2.1" }, "bin": { "flow-remove-types": "flow-remove-types", "flow-node": "flow-node" } }, "sha512-lI0L3qT6WSgXJv1vdzwo/Qg3qSgSaLIqJtWHO9h6gFKqRWoMUDJ7pk6o6Zvasr71JpCFew8NroPPAGJBF8Rj3Q=="],
 
     "focus-trap": ["focus-trap@8.2.1", "", { "dependencies": { "tabbable": "^6.4.0" } }, "sha512-6CxwrrFRquH7pDXb1mWxudkU9LSfYBMRZutpgddb2o6iwCk7cIRrBhyY3c8SGKcmIKdeMTrGSNg4Bedh2RSF/w=="],
 
