@@ -9,6 +9,15 @@ name: Bake-off ratchet
 # the hot-runtime drain regression (PR #55) was caught only by a manual
 # react-native-paper run with hotRuntime on. Weekly + dispatchable; not a PR
 # gate (real-app runs are minutes-long and network-heavy).
+#
+# WEIGHTING: this is an integration TRIPWIRE, not a fidelity metric. The
+# bake-off setups carry jest-era shims (Animated overrides, worklet mocks,
+# fake timers), so counts measure engine+shim as a unit; fidelity is measured
+# by the crosscheck corpus (hack-free probes against real RN). A failure here
+# means a human investigates — it may be a real regression, a shim-interplay
+# break, or an INTENDED behavior change that needs a deliberate re-base of
+# the floors. Follow-up direction: every engine improvement should DELETE the
+# bake-off shim it obsoletes (in vitest-native-bakeoffs), purifying the floor.
 
 on:
   schedule:
@@ -26,7 +35,9 @@ concurrency:
 jobs:
   ratchet:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # Each app's suite runs three times (setup.sh's own run + measured stock
+    # + measured hot); CI runners are slower than dev machines.
+    timeout-minutes: 180
     permissions:
       contents: read
       # github-script opens a tracking issue when the ratchet fails.
@@ -56,6 +67,7 @@ jobs:
           git -C /tmp/bakeoffs checkout -q "$sha"
 
       - name: Run the ratchet (paper + obytes, stock + hot)
+        id: ratchet
         run: node packages/vitest-native/scripts/bakeoff-ratchet.mjs --bakeoffs /tmp/bakeoffs
 
       - name: Create issue on failure
@@ -63,6 +75,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v7
         env:
           RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          VERDICT: "${{ steps.ratchet.outputs.verdict }}"
         with:
           script: |
             const { data: issues } = await github.rest.issues.listForRepo({
@@ -75,7 +88,12 @@ jobs:
               await github.rest.issues.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                title: 'Bake-off ratchet failed: real-app pass count dropped',
+                // A missing verdict means the step died before reporting
+                // (timeout, infra) — don't cry regression when it wasn't one.
+                title:
+                  process.env.VERDICT === 'regressed'
+                    ? 'Bake-off ratchet: real-app pass count dropped below its floor'
+                    : 'Bake-off ratchet: run failed before producing a verdict (infra?)',
                 labels: ['bakeoff-ratchet'],
                 body: [
                   'The weekly real-app bake-off fell below a committed floor',

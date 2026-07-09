@@ -6,6 +6,8 @@
 // hot-runtime drain regression was caught only by a manual react-native-paper
 // run). This institutionalizes that check: pass counts may only go UP.
 //
+// Run `bun run build` first — the pack ships whatever dist/ is on disk.
+//
 //   node scripts/bakeoff-ratchet.mjs --bakeoffs <checkout-of-vitest-native-bakeoffs>
 //   node scripts/bakeoff-ratchet.mjs --bakeoffs <dir> --apps paper
 //   node scripts/bakeoff-ratchet.mjs --bakeoffs <dir> --update   # record new thresholds
@@ -72,11 +74,21 @@ function collectCounts(appDir, configFile, label) {
     return null;
   }
   const report = JSON.parse(fs.readFileSync(outFile, "utf8"));
+  // Guard the reporter shape: if a future vitest renames these jest-compat
+  // fields, undefined counts would compare as "OK" forever and the ratchet
+  // would rot silently — fail loudly instead.
+  if (!Number.isInteger(report.numPassedTests) || !Number.isInteger(report.numTotalTests)) {
+    console.error(
+      `✗ ${label}: unexpected JSON reporter shape (numPassedTests/numTotalTests missing)`,
+    );
+    return null;
+  }
   return { passed: report.numPassedTests, total: report.numTotalTests };
 }
 
 const results = {};
 let failed = false;
+let regressed = false;
 let improved = false;
 
 for (const app of apps) {
@@ -142,7 +154,10 @@ for (const app of apps) {
         : got.passed > want.passed
           ? "IMPROVED"
           : "OK";
-    if (status === "REGRESSED") failed = true;
+    if (status === "REGRESSED") {
+      failed = true;
+      regressed = true;
+    }
     if (status === "IMPROVED") improved = true;
     console.log(
       `${status === "REGRESSED" ? "✗" : "✓"} ${app}/${mode}: ${got.passed}/${got.total} passed` +
@@ -176,6 +191,14 @@ if (update && !failed) {
 }
 
 fs.rmSync(packDir, { recursive: true, force: true });
+// Let the workflow's issue step distinguish a real floor breach from an
+// infra failure (no results, bad reporter shape, missing dirs).
+if (process.env.GITHUB_OUTPUT) {
+  fs.appendFileSync(
+    process.env.GITHUB_OUTPUT,
+    `verdict=${failed ? (regressed ? "regressed" : "infra") : "ok"}\n`,
+  );
+}
 if (failed) {
   console.error(
     "\n✗ bake-off ratchet failed: a real-app pass count fell below its recorded threshold.",

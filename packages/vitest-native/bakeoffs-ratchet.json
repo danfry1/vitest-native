@@ -1,5 +1,5 @@
 {
-  "comment": "Real-app bake-off pass-count floors (scripts/bakeoff-ratchet.mjs). Counts may only move up: raise them deliberately with --update after an improvement; a run below a floor fails. bakeoffsRepoSha pins danfry1/vitest-native-bakeoffs (which itself pins each app's commit).",
+  "comment": "Real-app bake-off pass-count floors (scripts/bakeoff-ratchet.mjs). These are an integration TRIPWIRE, not a fidelity metric: the bake-off setups carry jest-era shims (Animated overrides, worklet mocks, fake timers), so the counts measure engine+shim as a unit — fidelity is measured by the crosscheck corpus instead. A drop means A HUMAN LOOKS; an intended behavior change that shifts counts gets consciously re-based. Counts may only move up: raise them deliberately with --update after an improvement; a run below a floor fails, and --update refuses while failing — lowering a floor is a hand edit with a justification in the commit. bakeoffsRepoSha pins danfry1/vitest-native-bakeoffs (which itself pins each app's commit).",
   "bakeoffsRepoSha": "b2899282167d031931c92b18b6f89cc4284f7486",
   "apps": {
     "paper": {
