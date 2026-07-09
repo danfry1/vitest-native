@@ -1,4 +1,4 @@
-import { Appearance, DeviceEventEmitter } from "react-native";
+import { Appearance, DeviceEventEmitter, NativeModules } from "react-native";
 import { expect, it } from "vitest";
 
 const globalKey = "__VN_HOT_ISOLATION_OWNER__";
@@ -14,6 +14,11 @@ const inheritedColorScheme = Appearance.getColorScheme();
 process.env[envKey] = "first";
 DeviceEventEmitter.addListener(eventName, () => {});
 Appearance.setColorScheme("dark");
+// Leave a DEAD override on the boundary stub, un-restored. The next file's
+// hot reset must clear stub overrides BEFORE the colorScheme value-restore —
+// restoring first would route the restore through this no-op and leak "dark"
+// into file 2 (demonstrated in review of the spy-able-turboStubs change).
+(NativeModules.Appearance as Record<string, unknown>).setColorScheme = () => {};
 
 it("starts without state from another test file", () => {
   expect(inheritedGlobal).toBeUndefined();

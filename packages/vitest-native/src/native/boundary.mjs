@@ -143,36 +143,73 @@ function turboStubSource(platform, version) {
   // (e.g. showShareActionSheetWithOptions(options, error, success)). For the latter,
   // the success callback is the LAST function arg.
   const __SUCCESS_LAST = new Set(["showShareActionSheetWithOptions"]);
-  const turboStub = (name) => new Proxy({}, {
-    get: (_t, p) => {
-      if (p === "getConstants") return () => (__C[name] || {});
-      if (p === "getColorScheme") {
-        return () => getBoundaryState(name).colorScheme ?? "light";
-      }
-      if (p === "setColorScheme") {
-        return (colorScheme) => {
-          getBoundaryState(name).colorScheme =
-            colorScheme === "unspecified" || colorScheme == null ? "light" : colorScheme;
-        };
-      }
-      if (p === "addListener") return () => ({ remove: () => {} });
-      if (p === "removeListeners") return () => {};
-      return (...args) => {
-        // Callback-style native methods resolve via a callback argument. Invoke the
-        // success callback so JS Promises that wrap these settle instead of hanging.
-        const fns = args.filter((a) => typeof a === "function");
-        if (fns.length) {
-          const cb = typeof p === "string" && __SUCCESS_LAST.has(p) ? fns[fns.length - 1] : fns[0];
-          return cb(false);
+  // Stubs are memoized per module name in the shared boundary state, so
+  // NativeModules.Foo === NativeModules.Foo === TurboModuleRegistry.get('Foo')
+  // (matching bridgeless RN, where NativeModules proxies TurboModuleRegistry).
+  // Methods are memoized as own properties of the proxy target on first read —
+  // identity-stable across reads, and explicit writes win, so
+  // vi.spyOn(NativeModules.Foo, 'method') records calls instead of silently
+  // landing on a throwaway object.
+  const turboStub = (name) => {
+    const state = getBoundaryState(name);
+    if (state.__stub) return state.__stub;
+    const target = {};
+    state.__stub = new Proxy(target, {
+      get: (t, p) => {
+        // Explicitly-set properties win (spies, manual overrides, memoized methods).
+        if (Object.prototype.hasOwnProperty.call(t, p)) return t[p];
+        let v;
+        if (p === "getConstants") v = () => (__C[name] || {});
+        else if (p === "getColorScheme") {
+          v = () => getBoundaryState(name).colorScheme ?? "light";
+        } else if (p === "setColorScheme") {
+          v = (colorScheme) => {
+            getBoundaryState(name).colorScheme =
+              colorScheme === "unspecified" || colorScheme == null ? "light" : colorScheme;
+          };
+        } else if (p === "addListener") v = () => ({ remove: () => {} });
+        else if (p === "removeListeners") v = () => {};
+        else {
+          v = (...args) => {
+            // Callback-style native methods resolve via a callback argument. Invoke the
+            // success callback so JS Promises that wrap these settle instead of hanging.
+            const fns = args.filter((a) => typeof a === "function");
+            if (fns.length) {
+              const cb = typeof p === "string" && __SUCCESS_LAST.has(p) ? fns[fns.length - 1] : fns[0];
+              return cb(false);
+            }
+            // Promise-returning native methods must yield a Promise, not undefined.
+            if (typeof p === "string" && Object.prototype.hasOwnProperty.call(__ASYNC, p)) {
+              return Promise.resolve(__ASYNC[p]);
+            }
+            return undefined;
+          };
         }
-        // Promise-returning native methods must yield a Promise, not undefined.
-        if (typeof p === "string" && Object.prototype.hasOwnProperty.call(__ASYNC, p)) {
-          return Promise.resolve(__ASYNC[p]);
-        }
-        return undefined;
-      };
-    },
-  });
+        // defineProperty, not assignment: sloppy-mode \`t["__proto__"] = fn\`
+        // would invoke the inherited __proto__ SETTER and silently swap the
+        // target's prototype instead of memoizing.
+        Object.defineProperty(t, p, {
+          value: v,
+          writable: true,
+          enumerable: true,
+          configurable: true,
+        });
+        return v;
+      },
+      // Every property reads as a callable stub, so report them all as present —
+      // vi.spyOn refuses to spy on a property its \`in\` check can't see.
+      has: () => true,
+    });
+    // Hot runtime: clear per-file state (spies, memoized methods) between files
+    // via the surgical-reset registry, while keeping the stub's identity for
+    // resident libraries that captured a reference at import time. Under the
+    // default engine each file gets a fresh process, so this never fires.
+    const resets = globalThis.__vitest_native_resets || (globalThis.__vitest_native_resets = []);
+    resets.push(() => {
+      for (const k of Reflect.ownKeys(target)) delete target[k];
+    });
+    return state.__stub;
+  };
 `;
 }
 
