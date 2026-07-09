@@ -134,7 +134,7 @@ generated from the corpus itself, so the numbers below are exactly what ships.
 
 ## Summary
 
-- **${summary.matching} / ${summary.total} probes** match between the mock engine and real React Native.
+- **${summary.matching} / ${summary.total} probes** match between the mock engine and real React Native${report.reactNativeVersion ? ` (this page was generated against React Native ${report.reactNativeVersion})` : ""}.
 - ${ciLine}
 - Reproduce it yourself: \`bun run crosscheck\`.
 

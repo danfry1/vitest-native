@@ -67,17 +67,17 @@ it('handles a press', () => {
 
 ## Control device state
 
-Use the [test helpers](/guide/helpers) to switch platform, dimensions, or color scheme inside a test:
+Use the [test helpers](/guide/helpers) to control dimensions or color scheme inside a test — these work under both engines:
 
 ```tsx
-import { setPlatform, setColorScheme, resetAllMocks } from 'vitest-native/helpers'
+import { setDimensions, setColorScheme, resetAllMocks } from 'vitest-native/helpers'
 import { afterEach } from 'vitest'
 
 afterEach(() => resetAllMocks())
 
-it('renders Android branch', () => {
-  setPlatform('android')
-  // … assertions for the Android path
+it('renders the tablet layout', () => {
+  setDimensions({ width: 768, height: 1024 })
+  // … assertions for the tablet path
 })
 
 it('renders in dark mode', () => {
@@ -85,6 +85,8 @@ it('renders in dark mode', () => {
   // … assertions for dark mode
 })
 ```
+
+To test Android-specific behavior, set the platform in config — `reactNative({ platform: 'android' })` — or run both platforms as separate Vitest projects. Under the default `native` engine the platform is fixed when the module graph loads, so there is no per-test switch (`setPlatform()` is [mock-engine-only](/guide/helpers#setplatform-os)).
 
 ## Next steps
 

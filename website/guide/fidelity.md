@@ -13,8 +13,8 @@ generated from the corpus itself, so the numbers below are exactly what ships.
 
 ## Summary
 
-- **75 / 75 probes** match between the mock engine and real React Native.
-- CI runs the same corpus across **React Native 0.81–0.85** on every commit.
+- **75 / 75 probes** match between the mock engine and real React Native (this page was generated against React Native 0.86.0).
+- CI runs the same corpus across **React Native 0.81–0.86** on every commit.
 - Reproduce it yourself: `bun run crosscheck`.
 
 The `native` engine needs no cross-check — it *is* real React Native.

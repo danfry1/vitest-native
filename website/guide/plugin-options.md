@@ -25,7 +25,7 @@ Which engine to use. See [Choosing an Engine](/guide/engines) for the full break
 
 ## `platform`
 
-`'ios'` (default) or `'android'`. Controls which platform-specific file extension wins during resolution (`.ios.ts` vs `.android.ts`) and the value of `Platform.OS`. Switch per-test at runtime with [`setPlatform`](/guide/helpers).
+`'ios'` (default) or `'android'`. Controls which platform-specific file extension wins during resolution (`.ios.ts` vs `.android.ts`) and the value of `Platform.OS`. To test both platforms, run them as separate Vitest projects with one plugin instance each. (Under the mock engine only, [`setPlatform`](/guide/helpers#setplatform-os) can also switch per-test at runtime; the native engine fixes the platform when the module graph loads.)
 
 ## `diagnostics`
 
@@ -44,6 +44,10 @@ reactNative({
 ```
 
 ## `mocks`
+
+::: warning Mock engine only
+`mocks` merges overrides into the mock's export table, so it only applies with `engine: 'mock'` — the native engine runs the real `react-native` module and throws a configuration error if `mocks` is set. Use `vi.mock()` in a setup file or [`mockNativeModule`](/guide/helpers#mocknativemodule-name-impl) instead.
+:::
 
 Custom mock overrides, keyed by export name. Useful for the handful of [unstable/private RN exports](/api/coverage#not-covered) that aren't mocked:
 

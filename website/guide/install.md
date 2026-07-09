@@ -43,7 +43,7 @@ That's it. The plugin auto-injects its setup file, configures `@testing-library/
 | **Vitest** | 4.x |
 | **Vite** | ^6.4.2, ^7.3.2, or ^8.0.5 |
 | **React** | >= 18 |
-| **React Native** | 0.81–0.85 validated in CI (native engine) |
+| **React Native** | 0.81–0.86 validated in CI (native engine) |
 
 The default **`engine: 'native'`** needs `@react-native/babel-preset` and `@babel/core` — these already ship with React Native projects. The plugin uses them to Flow-strip real React Native, the same toolchain RN already uses.
 
