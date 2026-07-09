@@ -13,7 +13,7 @@ generated from the corpus itself, so the numbers below are exactly what ships.
 
 ## Summary
 
-- **75 / 75 probes** match between the mock engine and real React Native (this page was generated against React Native 0.86.0).
+- **78 / 78 probes** match between the mock engine and real React Native (this page was generated against React Native 0.86.0).
 - CI runs the same corpus across **React Native 0.81–0.86** on every commit.
 - Reproduce it yourself: `bun run crosscheck`.
 
@@ -33,8 +33,11 @@ across both engines.
 | `accessibility-value` | ✅ match |
 | `activityindicator-renders` | ✅ match |
 | `animated-image-renders` | ✅ match |
+| `animated-interpolation-live-style` | ✅ match |
 | `animated-scrollview-renders` | ✅ match |
+| `animated-setvalue-updates-rendered-style` | ✅ match |
 | `animated-text-renders` | ✅ match |
+| `animated-transform-live-style` | ✅ match |
 | `animated-value-initial-style` | ✅ match |
 | `animated-view-renders` | ✅ match |
 | `button-renders-title` | ✅ match |

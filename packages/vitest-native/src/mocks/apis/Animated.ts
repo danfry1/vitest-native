@@ -252,40 +252,174 @@ function checkValidRanges(inputRange: number[], outputRange: unknown[]): void {
   }
 }
 
-class AnimatedValue {
-  private _value: number;
-  private _listeners: Map<string, Function> = new Map();
+// ─── Live node graph ─────────────────────────────────────────────────────────
+//
+// Real RN's Animated is a dependency graph: derived nodes (interpolations,
+// arithmetic ops) recompute from their parents on every read, and attached
+// components re-render when any node in their style changes. The mock mirrors
+// that shape: every node has a live __getValue(), derived nodes attach to
+// their parents while they have consumers (mirroring RN's __attach/__detach),
+// and the Animated.* wrappers register as graph children of the nodes in their
+// style — so a setValue()/timing().start() after render updates the rendered
+// style exactly as it does on-device. USER listeners (addListener) and GRAPH
+// children are separate populations: removeAllListeners() removes only the
+// former, exactly like real RN.
+
+type ListenerFn = (state: { value: any }) => void;
+
+abstract class AnimatedNode {
+  protected _listeners: Map<string, ListenerFn> = new Map();
+  private _children: Set<() => void> = new Set();
   private _listenerIdCounter = 0;
-  _tracking: { source: AnimatedValue; listenerId: string } | null = null;
+
+  /** Current value of this node, computed live from its inputs. */
+  abstract __getValue(): any;
+
+  getValue() {
+    return this.__getValue();
+  }
+
+  // Derived nodes attach to their parents LAZILY — only while they have a
+  // consumer (listener or child) of their own, mirroring RN's __attach/__detach
+  // lifecycle. Without this, an interpolation constructed inside a render
+  // function would leak one permanent parent subscription per re-render.
+  // Leaf values override neither hook.
+  protected _attachToParents(): void {}
+  protected _detachFromParents(): void {}
+
+  private _consumerCount(): number {
+    return this._listeners.size + this._children.size;
+  }
+
+  addListener(callback: Function): string {
+    const id = String(++this._listenerIdCounter);
+    this._listeners.set(id, callback as ListenerFn);
+    if (this._consumerCount() === 1) this._attachToParents();
+    return id;
+  }
+
+  removeListener(id: string) {
+    if (this._listeners.delete(id) && this._consumerCount() === 0) this._detachFromParents();
+  }
+
+  removeAllListeners() {
+    // USER listeners only — graph children (views, derived nodes) stay
+    // attached, exactly like real RN's removeAllListeners.
+    const had = this._listeners.size > 0;
+    this._listeners.clear();
+    if (had && this._consumerCount() === 0) this._detachFromParents();
+  }
+
+  /** Graph edge: `fn` runs whenever this node's value may have changed. */
+  __addChild(fn: () => void) {
+    this._children.add(fn);
+    if (this._consumerCount() === 1) this._attachToParents();
+  }
+
+  __removeChild(fn: () => void) {
+    if (this._children.delete(fn) && this._consumerCount() === 0) this._detachFromParents();
+  }
+
+  /** Notify consumers with the node's CURRENT (offset-inclusive) value. */
+  protected _notify() {
+    if (this._listeners.size > 0) {
+      const value = this.__getValue();
+      this._listeners.forEach((fn) => fn({ value }));
+    }
+    this._children.forEach((fn) => fn());
+  }
+
+  interpolate(config: any): AnimatedNode {
+    const { inputRange, outputRange } = config || {};
+    if (!inputRange || !outputRange || inputRange.length < 2 || outputRange.length < 2) {
+      // Lenient path for malformed configs (RN throws; tests historically
+      // relied on getting a value-shaped object back).
+      return new AnimatedValue(Number(this.__getValue()) || 0);
+    }
+    return new AnimatedInterpolation(this, config);
+  }
+
+  stopAnimation(callback?: Function) {
+    callback?.(this.__getValue());
+  }
+
+  resetAnimation(callback?: Function) {
+    callback?.(this.__getValue());
+  }
+
+  toJSON() {
+    return this.__getValue();
+  }
+}
+
+class AnimatedValue extends AnimatedNode {
+  private _value: number;
+  private _offset: number = 0;
+  _tracking: { source: AnimatedValue; child: () => void } | null = null;
 
   constructor(value: number = 0) {
+    super();
     this._value = value;
   }
 
   setValue(value: number) {
     this._value = value;
-    this._listeners.forEach((fn) => fn({ value }));
+    this._notify();
   }
 
-  getValue() {
-    return this._value;
+  __getValue(): number {
+    return this._value + this._offset;
   }
 
-  addListener(callback: Function): string {
-    const id = String(++this._listenerIdCounter);
-    this._listeners.set(id, callback);
-    return id;
+  // Offsets follow RN's semantics: the offset is added on read; flatten folds
+  // it into the value; extract moves the value into the offset (the canonical
+  // PanResponder drag pattern). None of the three notifies — matching RN's JS
+  // driver, where offset changes surface on the NEXT value set (flatten and
+  // extract additionally leave the observable value unchanged).
+  setOffset(offset: number) {
+    this._offset = offset;
   }
 
-  removeListener(id: string) {
-    this._listeners.delete(id);
+  flattenOffset() {
+    this._value += this._offset;
+    this._offset = 0;
   }
 
-  removeAllListeners() {
-    this._listeners.clear();
+  extractOffset() {
+    this._offset += this._value;
+    this._value = 0;
+  }
+}
+
+class AnimatedInterpolation extends AnimatedNode {
+  private _parent: AnimatedNode;
+  private _config: any;
+  private _preparedString: PreparedStringInterp | null = null;
+
+  constructor(parent: AnimatedNode, config: any) {
+    super();
+    this._parent = parent;
+    this._config = config;
+    const { inputRange, outputRange } = config;
+    // Validate ranges eagerly, like RN's createInterpolation (monotonic input,
+    // matched lengths, no [-Infinity, Infinity]).
+    checkValidRanges(inputRange, outputRange);
+    if (typeof outputRange[0] === "string") {
+      this._preparedString = prepareStringInterpolation(outputRange);
+    }
   }
 
-  interpolate(config: any) {
+  private _propagate = () => this._notify();
+
+  protected override _attachToParents() {
+    this._parent.__addChild(this._propagate);
+  }
+
+  protected override _detachFromParents() {
+    this._parent.__removeChild(this._propagate);
+  }
+
+  __getValue(): number | string {
     const {
       inputRange,
       outputRange,
@@ -293,49 +427,21 @@ class AnimatedValue {
       extrapolateLeft,
       extrapolateRight,
       easing = IDENTITY_EASING,
-    } = config || {};
-    if (!inputRange || !outputRange || inputRange.length < 2 || outputRange.length < 2) {
-      return new AnimatedValue(this._value);
+    } = this._config;
+    const input = Number(this._parent.__getValue());
+    if (this._preparedString) {
+      return interpolateString(
+        this._preparedString,
+        input,
+        inputRange,
+        extrapolate,
+        extrapolateLeft,
+        extrapolateRight,
+        easing,
+      );
     }
-    // Validate ranges eagerly, like RN's createInterpolation (monotonic input,
-    // matched lengths, no [-Infinity, Infinity]).
-    checkValidRanges(inputRange, outputRange);
-
-    // String output ranges ("0deg" -> "360deg", rgba(...), arbitrary suffixes).
-    // Parse + validate the pattern eagerly, then return a live interpolation node
-    // whose getValue()/__getValue() reconstruct the string from the current source
-    // value, mirroring RN's AnimatedInterpolation surface.
-    if (typeof outputRange[0] === "string") {
-      const prepared = prepareStringInterpolation(outputRange);
-      // Arrow closes over `this`, so getValue() reads the live source value.
-      const compute = () =>
-        interpolateString(
-          prepared,
-          this._value,
-          inputRange,
-          extrapolate,
-          extrapolateLeft,
-          extrapolateRight,
-          easing,
-        );
-      return {
-        getValue: compute,
-        __getValue: compute,
-        toJSON: compute,
-        // Chaining off a string/color interpolation is invalid in RN (the parent
-        // value is no longer numeric). Match that by throwing.
-        interpolate: () => {
-          throw new Error("Cannot chain an interpolation off a string-valued interpolation");
-        },
-        addListener: () => "0",
-        removeListener: () => {},
-        removeAllListeners: () => {},
-        stopAnimation: (cb?: Function) => cb?.(compute()),
-        resetAnimation: (cb?: Function) => cb?.(compute()),
-      } as any;
-    }
-    const result = interpolateNumeric(
-      this._value,
+    return interpolateNumeric(
+      input,
       inputRange,
       outputRange,
       extrapolate,
@@ -343,29 +449,57 @@ class AnimatedValue {
       extrapolateRight,
       easing,
     );
-    return new AnimatedValue(result);
   }
 
-  stopAnimation(callback?: Function) {
-    callback?.(this._value);
+  interpolate(config: any): AnimatedNode {
+    if (this._preparedString) {
+      // Chaining off a string/color interpolation is invalid in RN (the parent
+      // value is no longer numeric). Match that by throwing.
+      throw new Error("Cannot chain an interpolation off a string-valued interpolation");
+    }
+    return super.interpolate(config);
+  }
+}
+
+// A derived node computed from one or more inputs (add/multiply/…/diffClamp).
+class AnimatedOp extends AnimatedNode {
+  private _compute: () => number;
+  private _parents: AnimatedNode[];
+  private _propagate = () => this._notify();
+
+  constructor(inputs: any[], compute: () => number) {
+    super();
+    this._compute = compute;
+    this._parents = inputs.filter((i): i is AnimatedNode => i instanceof AnimatedNode);
   }
 
-  resetAnimation(callback?: Function) {
-    callback?.(this._value);
+  protected override _attachToParents() {
+    for (const parent of this._parents) parent.__addChild(this._propagate);
   }
 
-  toJSON() {
-    return this._value;
+  protected override _detachFromParents() {
+    for (const parent of this._parents) parent.__removeChild(this._propagate);
   }
 
-  setOffset(_offset: number) {}
-  flattenOffset() {}
-  extractOffset() {}
+  __getValue(): number {
+    return this._compute();
+  }
+}
+
+/** Numeric value of an operand that may be a node, a number, or junk (→ 0). */
+function operandValue(v: any): number {
+  if (v instanceof AnimatedNode) {
+    const n = Number(v.__getValue());
+    return Number.isNaN(n) ? 0 : n;
+  }
+  return typeof v === "number" ? v : 0;
 }
 
 class AnimatedValueXY {
   x: AnimatedValue;
   y: AnimatedValue;
+  private _listenerIdCounter = 0;
+  private _joint: Map<string, { x: string; y: string }> = new Map();
 
   constructor(value?: { x: number; y: number }) {
     this.x = new AnimatedValue(value?.x ?? 0);
@@ -377,27 +511,57 @@ class AnimatedValueXY {
     this.y.setValue(value.y);
   }
 
-  setOffset(_offset: { x: number; y: number }) {}
-  flattenOffset() {}
-  extractOffset() {}
+  setOffset(offset: { x: number; y: number }) {
+    this.x.setOffset(offset.x);
+    this.y.setOffset(offset.y);
+  }
+
+  flattenOffset() {
+    this.x.flattenOffset();
+    this.y.flattenOffset();
+  }
+
+  extractOffset() {
+    this.x.extractOffset();
+    this.y.extractOffset();
+  }
+
+  __getValue() {
+    return { x: this.x.__getValue(), y: this.y.__getValue() };
+  }
+
+  getValue() {
+    return this.__getValue();
+  }
 
   stopAnimation(callback?: Function) {
-    callback?.({ x: this.x.getValue(), y: this.y.getValue() });
+    callback?.(this.__getValue());
   }
 
   resetAnimation(callback?: Function) {
-    callback?.({ x: this.x.getValue(), y: this.y.getValue() });
+    callback?.(this.__getValue());
   }
 
-  addListener(_callback: Function) {
-    const xId = this.x.addListener(() => {});
-    const yId = this.y.addListener(() => {});
-    return { x: xId, y: yId };
+  // RN's ValueXY joint listener: the callback receives the {x, y} pair when
+  // EITHER component moves.
+  addListener(callback: Function) {
+    const emit = () => callback(this.__getValue());
+    const id = String(++this._listenerIdCounter);
+    const pair = { x: this.x.addListener(emit), y: this.y.addListener(emit) };
+    this._joint.set(id, pair);
+    // Historical return shape: the per-axis ids (also accepted by removeListener).
+    return pair;
   }
 
   removeListener(id: { x: string; y: string }) {
     this.x.removeListener(id.x);
     this.y.removeListener(id.y);
+  }
+
+  removeAllListeners() {
+    this.x.removeAllListeners();
+    this.y.removeAllListeners();
+    this._joint.clear();
   }
 
   getLayout() {
@@ -449,44 +613,41 @@ function parseColorString(color: string): [number, number, number, number] {
   return [0, 0, 0, 1];
 }
 
-class AnimatedColor {
+class AnimatedColor extends AnimatedNode {
   r: AnimatedValue;
   g: AnimatedValue;
   b: AnimatedValue;
   a: AnimatedValue;
-  private _listeners: Map<string, Function> = new Map();
-  private _listenerIdCounter = 0;
 
   constructor(color?: any) {
+    super();
     if (typeof color === "string") {
       const [r, g, b, a] = parseColorString(color);
       this.r = new AnimatedValue(r);
       this.g = new AnimatedValue(g);
       this.b = new AnimatedValue(b);
       this.a = new AnimatedValue(a);
-    } else if (color && typeof color === "object") {
-      const isAnimated = color.r instanceof AnimatedValue;
-      if (isAnimated) {
-        this.r = color.r;
-        this.g = color.g;
-        this.b = color.b;
-        this.a = color.a;
-      } else if (typeof color.r === "number") {
-        this.r = new AnimatedValue(color.r);
-        this.g = new AnimatedValue(color.g ?? 0);
-        this.b = new AnimatedValue(color.b ?? 0);
-        this.a = new AnimatedValue(color.a ?? 1);
-      } else {
-        this.r = new AnimatedValue(0);
-        this.g = new AnimatedValue(0);
-        this.b = new AnimatedValue(0);
-        this.a = new AnimatedValue(1);
-      }
+    } else if (color && typeof color === "object" && color.r instanceof AnimatedValue) {
+      this.r = color.r;
+      this.g = color.g;
+      this.b = color.b;
+      this.a = color.a;
+    } else if (color && typeof color === "object" && typeof color.r === "number") {
+      this.r = new AnimatedValue(color.r);
+      this.g = new AnimatedValue(color.g ?? 0);
+      this.b = new AnimatedValue(color.b ?? 0);
+      this.a = new AnimatedValue(color.a ?? 1);
     } else {
       this.r = new AnimatedValue(0);
       this.g = new AnimatedValue(0);
       this.b = new AnimatedValue(0);
       this.a = new AnimatedValue(1);
+    }
+    // Channel moves re-notify the color (live wrappers + listeners). Graph
+    // children, not user listeners: a user's channel.removeAllListeners()
+    // must not sever the color from its own channels.
+    for (const channel of [this.r, this.g, this.b, this.a]) {
+      channel.__addChild(() => this._notify());
     }
   }
 
@@ -503,8 +664,6 @@ class AnimatedColor {
       this.b.setValue(value.b ?? 0);
       this.a.setValue(value.a ?? 1);
     }
-    const colorStr = this.__getValue();
-    this._listeners.forEach((fn) => fn({ value: colorStr }));
   }
 
   __getValue(): string {
@@ -515,28 +674,8 @@ class AnimatedColor {
     return `rgba(${r}, ${g}, ${b}, ${a})`;
   }
 
-  addListener(callback: Function): string {
-    const id = String(++this._listenerIdCounter);
-    this._listeners.set(id, callback);
-    return id;
-  }
-
-  removeListener(id: string) {
-    this._listeners.delete(id);
-  }
-
-  removeAllListeners() {
-    this._listeners.clear();
-  }
-
   setOffset(_offset: any) {}
   flattenOffset() {}
-  stopAnimation(callback?: Function) {
-    callback?.(this.__getValue());
-  }
-  resetAnimation(callback?: Function) {
-    callback?.(this.__getValue());
-  }
 }
 
 function createAnimation(onStart?: () => void) {
@@ -557,9 +696,11 @@ function createAnimation(onStart?: () => void) {
 // so a test asserting `toHaveStyle({ opacity: 0.3 })` against an Animated.Value(0.3)
 // must see the number, not the node.
 function resolveAnimatedLeaf(v: any): any {
-  if (v instanceof AnimatedValue) return v.getValue();
+  if (v instanceof AnimatedNode) return v.__getValue();
   if (v && typeof v === "object" && typeof v.__getValue === "function") return v.__getValue();
-  if (v && typeof v === "object" && typeof v.getValue === "function") return v.getValue();
+  if (v && typeof v === "object" && !Array.isArray(v) && typeof v.getValue === "function") {
+    return v.getValue();
+  }
   return v;
 }
 
@@ -574,7 +715,7 @@ function resolveAnimatedStyle(style: any): any {
       const val = style[key];
       if (key === "transform" && Array.isArray(val)) {
         out[key] = val.map((t: any) =>
-          t && typeof t === "object" && !(t instanceof AnimatedValue)
+          t && typeof t === "object" && !(t instanceof AnimatedNode)
             ? Object.fromEntries(Object.keys(t).map((tk) => [tk, resolveAnimatedLeaf(t[tk])]))
             : resolveAnimatedLeaf(t),
         );
@@ -587,12 +728,49 @@ function resolveAnimatedStyle(style: any): any {
   return style;
 }
 
+// Collect every animated node reachable from a style (same traversal shape as
+// resolveAnimatedStyle) so the wrapper can subscribe to all of them.
+function collectAnimatedNodes(style: any, out: Set<AnimatedNode>) {
+  if (style instanceof AnimatedNode) {
+    out.add(style);
+    return;
+  }
+  if (Array.isArray(style)) {
+    for (const s of style) collectAnimatedNodes(s, out);
+    return;
+  }
+  if (style && typeof style === "object") {
+    for (const key of Object.keys(style)) collectAnimatedNodes(style[key], out);
+  }
+}
+
+// Subscribe a component to every animated node in its style, re-rendering on
+// any change — the mock equivalent of real RN's createAnimatedComponent update
+// path (which forceUpdate's under the test renderer). Re-subscribes each render
+// because the style (and the nodes inside it) may be new objects every render.
+function useAnimatedStyleSubscription(style: any) {
+  const [, force] = React.useReducer((n: number) => n + 1, 0);
+  React.useEffect(() => {
+    const nodes = new Set<AnimatedNode>();
+    collectAnimatedNodes(style, nodes);
+    if (nodes.size === 0) return undefined;
+    // Graph children (like real RN's attached views), so the subscription
+    // survives a user's removeAllListeners() — and lazily attaches any
+    // render-constructed derived nodes to their sources.
+    for (const node of nodes) node.__addChild(force);
+    return () => {
+      for (const node of nodes) node.__removeChild(force);
+    };
+  });
+}
+
 function createAnimatedWrapper(displayName: string) {
   // Render the *base* host (e.g. "Text", "View") — not "Animated.Text" — so RNTL's
   // host-component detection (queryByText only descends into Text hosts) and real RN
   // agree. The Animated.* component still carries its own displayName for identity.
   const hostName = displayName.replace(/^Animated\./, "");
   const Component = React.forwardRef((props: any, ref: any) => {
+    useAnimatedStyleSubscription(props?.style);
     if (props && props.style !== undefined) {
       const { style, ...rest } = props;
       return React.createElement(hostName, { ...rest, style: resolveAnimatedStyle(style), ref });
@@ -605,7 +783,7 @@ function createAnimatedWrapper(displayName: string) {
 
 function stopTracking(value: AnimatedValue) {
   if (value._tracking) {
-    value._tracking.source.removeListener(value._tracking.listenerId);
+    value._tracking.source.__removeChild(value._tracking.child);
     value._tracking = null;
   }
 }
@@ -615,14 +793,41 @@ function startTracking(value: AnimatedValue, toValue: any) {
   stopTracking(value);
 
   if (toValue instanceof AnimatedValue) {
-    // Track the source value
+    // Track the source value — as a graph child (real RN's TrackingAnimatedNode
+    // is a child too, so it survives the source's removeAllListeners()).
     value.setValue(toValue.getValue());
-    const listenerId = toValue.addListener(({ value: v }: { value: number }) => {
-      value.setValue(v);
-    });
-    value._tracking = { source: toValue, listenerId };
+    const child = () => value.setValue(toValue.__getValue());
+    toValue.__addChild(child);
+    value._tracking = { source: toValue, child };
   } else {
     value.setValue(toValue);
+  }
+}
+
+// Stateful diffClamp: accumulates deltas of its input, clamped (RN semantics).
+class AnimatedDiffClamp extends AnimatedNode {
+  private _current: number;
+
+  constructor(a: any, min: number, max: number) {
+    super();
+    let lastInput = operandValue(a);
+    this._current = Math.min(Math.max(lastInput, min), max);
+    if (a instanceof AnimatedNode) {
+      // Permanent graph child (not a lazy attach): the clamp accumulates
+      // HISTORY, so it must observe every parent move even while unobserved
+      // itself — and must survive the parent's removeAllListeners().
+      a.__addChild(() => {
+        const value = Number(a.__getValue());
+        const diff = value - lastInput;
+        lastInput = value;
+        this._current = Math.min(Math.max(this._current + diff, min), max);
+        this._notify();
+      });
+    }
+  }
+
+  __getValue(): number {
+    return this._current;
   }
 }
 
@@ -817,46 +1022,29 @@ export function createAnimatedMock() {
       // Synchronous in mock — no real delay needed for testing
       return createAnimation();
     }),
-    add: vi.fn((a: any, b: any) => {
-      const aVal = a instanceof AnimatedValue ? a.getValue() : typeof a === "number" ? a : 0;
-      const bVal = b instanceof AnimatedValue ? b.getValue() : typeof b === "number" ? b : 0;
-      return new AnimatedValue(aVal + bVal);
-    }),
-    subtract: vi.fn((a: any, b: any) => {
-      const aVal = a instanceof AnimatedValue ? a.getValue() : typeof a === "number" ? a : 0;
-      const bVal = b instanceof AnimatedValue ? b.getValue() : typeof b === "number" ? b : 0;
-      return new AnimatedValue(aVal - bVal);
-    }),
-    multiply: vi.fn((a: any, b: any) => {
-      const aVal = a instanceof AnimatedValue ? a.getValue() : typeof a === "number" ? a : 0;
-      const bVal = b instanceof AnimatedValue ? b.getValue() : typeof b === "number" ? b : 0;
-      return new AnimatedValue(aVal * bVal);
-    }),
-    divide: vi.fn((a: any, b: any) => {
-      const aVal = a instanceof AnimatedValue ? a.getValue() : typeof a === "number" ? a : 0;
-      const bVal = b instanceof AnimatedValue ? b.getValue() : typeof b === "number" ? b : 0;
-      return new AnimatedValue(bVal === 0 ? 0 : aVal / bVal);
-    }),
-    modulo: vi.fn((a: any, modulus: number) => {
-      const aVal = a instanceof AnimatedValue ? a.getValue() : typeof a === "number" ? a : 0;
-      return new AnimatedValue(((aVal % modulus) + modulus) % modulus);
-    }),
-    diffClamp: vi.fn((a: any, min: number, max: number) => {
-      const result = new AnimatedValue(
-        Math.min(Math.max(a instanceof AnimatedValue ? a.getValue() : 0, min), max),
-      );
-      if (a instanceof AnimatedValue) {
-        let lastInput = a.getValue();
-        let current = result.getValue();
-        a.addListener(({ value }: { value: number }) => {
-          const diff = value - lastInput;
-          lastInput = value;
-          current = Math.min(Math.max(current + diff, min), max);
-          result.setValue(current);
-        });
-      }
-      return result;
-    }),
+    // Arithmetic combinators are LIVE derived nodes: they recompute from their
+    // operands on every read and re-notify when any operand moves (real RN
+    // semantics — previously these returned dead snapshots).
+    add: vi.fn((a: any, b: any) => new AnimatedOp([a, b], () => operandValue(a) + operandValue(b))),
+    subtract: vi.fn(
+      (a: any, b: any) => new AnimatedOp([a, b], () => operandValue(a) - operandValue(b)),
+    ),
+    multiply: vi.fn(
+      (a: any, b: any) => new AnimatedOp([a, b], () => operandValue(a) * operandValue(b)),
+    ),
+    divide: vi.fn(
+      (a: any, b: any) =>
+        new AnimatedOp([a, b], () => {
+          const divisor = operandValue(b);
+          // Historical mock behavior (pinned by the conformance suite): 0, not Infinity.
+          return divisor === 0 ? 0 : operandValue(a) / divisor;
+        }),
+    ),
+    modulo: vi.fn(
+      (a: any, modulus: number) =>
+        new AnimatedOp([a], () => ((operandValue(a) % modulus) + modulus) % modulus),
+    ),
+    diffClamp: vi.fn((a: any, min: number, max: number) => new AnimatedDiffClamp(a, min, max)),
     event: vi.fn((argMapping: any[], config?: any) => {
       const handler = vi.fn((...args: any[]) => {
         // Walk the arg mapping and extract values from the event args
@@ -900,6 +1088,15 @@ export function createAnimatedMock() {
     unforkEvent: vi.fn(),
     createAnimatedComponent: vi.fn((component: any) => {
       const Wrapper = React.forwardRef((props: any, ref: any) => {
+        useAnimatedStyleSubscription(props?.style);
+        if (props && props.style !== undefined) {
+          const { style, ...rest } = props;
+          return React.createElement(component, {
+            ...rest,
+            style: resolveAnimatedStyle(style),
+            ref,
+          });
+        }
         return React.createElement(component, { ...props, ref });
       });
       Wrapper.displayName = `Animated(${component.displayName || component.name || "Component"})`;
@@ -913,3 +1110,7 @@ export function createAnimatedMock() {
     SectionList: createAnimatedWrapper("Animated.SectionList"),
   };
 }
+
+// Node classes exported for the registry's useAnimatedValue/XY/Color hooks —
+// they must construct values without rebuilding the whole Animated namespace.
+export { AnimatedNode, AnimatedValue, AnimatedValueXY, AnimatedColor };
