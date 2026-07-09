@@ -1,9 +1,0 @@
----
-"vitest-native": patch
----
-
-Fix three silent resolution-fidelity gaps around deep (subpath) imports.
-
-- **`react-native` subpath default exports are now the leaf module.** `import Platform from 'react-native/Libraries/Utilities/Platform'` previously received the entire mock object as `Platform`, so `Platform.OS` was silently `undefined`. The virtual subpath modules (ESM) and the CJS bridge now derive the intended export from the subpath's basename and serve it as the default — CJS requires get Babel-interop shape (`{ __esModule, default }` via a live wrapper) so both `require('.../Platform').OS` and `_interopRequireDefault(...)` consumers work. Unknown leaves keep the previous whole-mock fallback.
-- **`react-native/package.json` (and preset `pkg/package.json`) resolve to the real manifest.** Version gates like `require('react-native/package.json').version` previously read the mock and got `undefined`. Both the Vite-graph and CJS-bridge interception now exempt the manifest; when the package is not installed, the previous mock fallback is kept rather than erroring.
-- **Preset shadowing now covers subpath imports.** `import Swipeable from 'react-native-gesture-handler/Swipeable'` (and CJS equivalents, including requires nested inside externalized third-party libraries) previously bypassed the preset mock entirely and loaded the package's real native-runtime code — or failed resolution outright on package versions that no longer ship the deep file. All three redirect layers (Vite plugin, ESM loader hook, CJS require hook) now match subpaths of preset packages and serve the mock export named by the subpath's leaf, falling back to the root mock. JSON and asset-extension subpaths are exempt so manifests and font/image files keep resolving from disk. CJS interop wrappers are memoized per specifier (keyed by the live mock set, so hot-runtime per-file rebuilds stay correct) to keep module identity stable across repeated requires.
