@@ -81,6 +81,7 @@ export default defineConfig({
           items: [
             { text: 'API Coverage', link: '/api/coverage' },
             { text: 'Fidelity Report', link: '/guide/fidelity' },
+            { text: 'Fidelity Matrix', link: '/guide/fidelity-matrix' },
             { text: 'Comparison with Jest', link: '/guide/comparison' },
             { text: 'Troubleshooting', link: '/guide/troubleshooting' },
           ],

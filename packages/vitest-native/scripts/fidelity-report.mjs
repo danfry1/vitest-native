@@ -105,6 +105,9 @@ const knownDiffs = fs.existsSync(knownDiffsPath)
 // any cell rendered as free text (not inside a code span).
 const cell = (s) =>
   String(s ?? "")
+    // Backslashes first — escaping them after the fact would re-arm the very
+    // characters the later replacements neutralize (CodeQL js/incomplete-sanitization).
+    .replace(/\\/g, "\\\\")
     .replace(/\|/g, "\\|")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -136,6 +139,7 @@ generated from the corpus itself, so the numbers below are exactly what ships.
 
 - **${summary.matching} / ${summary.total} probes** match between the mock engine and real React Native${report.reactNativeVersion ? ` (this page was generated against React Native ${report.reactNativeVersion})` : ""}.
 - ${ciLine}
+- Per-version results straight from the CI matrix: [Fidelity Matrix](/guide/fidelity-matrix).
 - Reproduce it yourself: \`bun run crosscheck\`.
 
 The \`native\` engine needs no cross-check — it *is* real React Native.
