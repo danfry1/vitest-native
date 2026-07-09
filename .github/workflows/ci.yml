@@ -9,6 +9,13 @@ on:
 permissions:
   contents: read
 
+# A force-push to a PR branch previously left the superseded run executing to
+# completion alongside the new one. Cancel superseded runs on PR refs; keep
+# main pushes uncancelled so every landed commit gets a full verdict.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   check:
     name: Full gate (${{ matrix.os }}, Node ${{ matrix.node-version }})
@@ -48,8 +55,29 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
+      # Package-download cache: bun still verifies against the frozen lockfile,
+      # it just skips re-downloading unchanged tarballs.
+      - name: Cache bun downloads
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      # vitest-native's own on-disk caches (the Babel transform of the RN graph +
+      # the V8 compile cache) live under node_modules/.cache/vitest-native and are
+      # content/version-keyed internally, so restoring a stale snapshot is safe —
+      # outdated entries simply miss. Restored after install (bun may reshape
+      # node_modules), saved automatically post-job.
+      - name: Cache vitest-native transform output
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: packages/vitest-native/node_modules/.cache/vitest-native
+          key: vn-transform-${{ runner.os }}-node${{ matrix.node-version }}-${{ hashFiles('bun.lock') }}
+          restore-keys: vn-transform-${{ runner.os }}-node${{ matrix.node-version }}-
 
       - name: Verify dependencies are pinned
         run: bun run lint:deps
