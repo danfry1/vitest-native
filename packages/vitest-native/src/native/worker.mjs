@@ -55,7 +55,7 @@ if (diagnostics) {
 // per-file resets rather than wrongly torn down with test pollution.
 // Enable the V8 compile cache before any RN module compiles, so the resident
 // graph's bytecode is cached to disk for the next worker/run.
-enableV8CompileCache();
+enableV8CompileCache(projectRoot);
 installGlobals();
 installRequireHooks(projectRoot, transformPkgs, platform, reactNativeVersion, assetExts);
 try {
