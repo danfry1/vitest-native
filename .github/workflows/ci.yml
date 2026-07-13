@@ -58,7 +58,7 @@ jobs:
       # Package-download cache: bun still verifies against the frozen lockfile,
       # it just skips re-downloading unchanged tarballs.
       - name: Cache bun downloads
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
@@ -73,7 +73,7 @@ jobs:
       # outdated entries simply miss. Restored after install (bun may reshape
       # node_modules), saved automatically post-job.
       - name: Cache vitest-native transform output
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: packages/vitest-native/node_modules/.cache/vitest-native
           key: vn-transform-${{ runner.os }}-node${{ matrix.node-version }}-${{ hashFiles('bun.lock') }}
