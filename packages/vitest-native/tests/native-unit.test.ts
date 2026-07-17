@@ -490,29 +490,33 @@ describe("engine-selection notices", () => {
       .__vitest_native_banner_printed;
   beforeEach(resetBanner);
 
-  it("auto prints exactly the one-line engine banner when it selects native", async () => {
+  it("auto prints exactly the one-line engine banner on stderr when it selects native", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
     const plugin = reactNative({}) as any;
     await plugin.config({ root: projectRoot }, SERVE_ENV);
-    const notices = log.mock.calls.filter((c) => String(c[0]).includes("[vitest-native]"));
-    expect(notices).toHaveLength(1);
-    expect(String(notices[0][0])).toContain("engine: native — real react-native");
+    // stdout must stay clean — it belongs to reporters (e.g. --reporter=json).
+    expect(log.mock.calls.filter((c) => String(c[0]).includes("[vitest-native]"))).toHaveLength(0);
+    const banners = err.mock.calls.filter((c) => String(c[0]).includes("[vitest-native]"));
+    expect(banners).toHaveLength(1);
+    expect(String(banners[0][0])).toContain("engine: native — real react-native");
     log.mockRestore();
+    err.mockRestore();
   });
 
   it("the engine banner prints once per process, not once per project", async () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
     const plugin = reactNative({}) as any;
     await plugin.config({ root: projectRoot }, SERVE_ENV);
     await plugin.config({ root: projectRoot }, SERVE_ENV);
-    const banners = log.mock.calls.filter((c) => String(c[0]).includes("engine:"));
+    const banners = err.mock.calls.filter((c) => String(c[0]).includes("engine:"));
     expect(banners).toHaveLength(1);
-    log.mockRestore();
+    err.mockRestore();
   });
 
   it("auto WARNS about the mock fallback when native deps are absent, and banners mock", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vn-nudge-"));
     try {
       fs.writeFileSync(
@@ -525,11 +529,11 @@ describe("engine-selection notices", () => {
         String(c[0]).includes("@react-native/babel-preset not found"),
       );
       expect(notices).toHaveLength(1);
-      const banners = log.mock.calls.filter((c) => String(c[0]).includes("engine: mock"));
+      const banners = err.mock.calls.filter((c) => String(c[0]).includes("engine: mock"));
       expect(banners).toHaveLength(1);
     } finally {
       warn.mockRestore();
-      log.mockRestore();
+      err.mockRestore();
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });

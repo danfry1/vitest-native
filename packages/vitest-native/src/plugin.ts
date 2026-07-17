@@ -93,6 +93,9 @@ function resolvePackageVersion(packageName: string, projectRoot: string): string
  * while running the mock (or vice versa) must be able to see it in every log.
  * Guarded via globalThis (like the require-hook install) so workspace setups
  * that call config() per project print it once.
+ *
+ * Written to stderr: this is the plugin's only unconditional output, and stdout
+ * must stay parseable for pipelines like `vitest --reporter=json > results.json`.
  */
 function printEngineBanner(engine: "mock" | "native", platform: string, projectRoot: string): void {
   const g = globalThis as { __vitest_native_banner_printed?: boolean };
@@ -100,11 +103,11 @@ function printEngineBanner(engine: "mock" | "native", platform: string, projectR
   g.__vitest_native_banner_printed = true;
   if (engine === "native") {
     const rn = resolvePackageVersion("react-native", projectRoot);
-    console.log(
+    console.error(
       `[vitest-native] engine: native — real react-native${rn ? `@${rn}` : ""} (platform ${platform})`,
     );
   } else {
-    console.log(
+    console.error(
       `[vitest-native] engine: mock — React Native reimplementation, cross-checked against real RN (platform ${platform})`,
     );
   }

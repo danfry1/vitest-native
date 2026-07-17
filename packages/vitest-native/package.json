@@ -176,6 +176,7 @@
     "test-renderer": "^1.2.0",
     "tsdown": "0.21.10",
     "typescript": "6.0.3",
+    "untranspiled-jsx-lib": "file:./tests-native/fixtures/untranspiled-jsx-lib",
     "vite": "^8.0.5",
     "vitest": "^4.1.8"
   },
