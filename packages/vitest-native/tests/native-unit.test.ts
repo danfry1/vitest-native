@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
@@ -485,16 +485,33 @@ describe("plugin engine routing", () => {
 });
 
 describe("engine-selection notices", () => {
-  it("auto stays silent when it selects native (the happy path)", async () => {
+  const resetBanner = () =>
+    delete (globalThis as { __vitest_native_banner_printed?: boolean })
+      .__vitest_native_banner_printed;
+  beforeEach(resetBanner);
+
+  it("auto prints exactly the one-line engine banner when it selects native", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const plugin = reactNative({}) as any;
     await plugin.config({ root: projectRoot }, SERVE_ENV);
     const notices = log.mock.calls.filter((c) => String(c[0]).includes("[vitest-native]"));
-    expect(notices).toHaveLength(0);
+    expect(notices).toHaveLength(1);
+    expect(String(notices[0][0])).toContain("engine: native — real react-native");
     log.mockRestore();
   });
 
-  it("auto explains the mock fallback once when native deps are absent", async () => {
+  it("the engine banner prints once per process, not once per project", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const plugin = reactNative({}) as any;
+    await plugin.config({ root: projectRoot }, SERVE_ENV);
+    await plugin.config({ root: projectRoot }, SERVE_ENV);
+    const banners = log.mock.calls.filter((c) => String(c[0]).includes("engine:"));
+    expect(banners).toHaveLength(1);
+    log.mockRestore();
+  });
+
+  it("auto WARNS about the mock fallback when native deps are absent, and banners mock", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vn-nudge-"));
     try {
@@ -504,12 +521,31 @@ describe("engine-selection notices", () => {
       );
       const plugin = reactNative({}) as any;
       await plugin.config({ root: tmp }, SERVE_ENV);
-      const notices = log.mock.calls.filter((c) =>
+      const notices = warn.mock.calls.filter((c) =>
         String(c[0]).includes("@react-native/babel-preset not found"),
       );
       expect(notices).toHaveLength(1);
+      const banners = log.mock.calls.filter((c) => String(c[0]).includes("engine: mock"));
+      expect(banners).toHaveLength(1);
     } finally {
+      warn.mockRestore();
       log.mockRestore();
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("explicit engine:'native' without its transform deps fails at config time", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vn-failfast-"));
+    try {
+      fs.writeFileSync(
+        path.join(tmp, "package.json"),
+        JSON.stringify({ name: "x", version: "0.0.0" }),
+      );
+      const plugin = reactNative({ engine: "native" }) as any;
+      await expect(plugin.config({ root: tmp }, SERVE_ENV)).rejects.toThrow(
+        /@react-native\/babel-preset.*npm install -D/s,
+      );
+    } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });

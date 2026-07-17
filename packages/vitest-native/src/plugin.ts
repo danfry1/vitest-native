@@ -87,6 +87,29 @@ function resolvePackageVersion(packageName: string, projectRoot: string): string
   }
 }
 
+/**
+ * One line, once per process, stating which engine this run actually uses.
+ * Tests pass either way; a team that believes it's exercising real React Native
+ * while running the mock (or vice versa) must be able to see it in every log.
+ * Guarded via globalThis (like the require-hook install) so workspace setups
+ * that call config() per project print it once.
+ */
+function printEngineBanner(engine: "mock" | "native", platform: string, projectRoot: string): void {
+  const g = globalThis as { __vitest_native_banner_printed?: boolean };
+  if (g.__vitest_native_banner_printed) return;
+  g.__vitest_native_banner_printed = true;
+  if (engine === "native") {
+    const rn = resolvePackageVersion("react-native", projectRoot);
+    console.log(
+      `[vitest-native] engine: native — real react-native${rn ? `@${rn}` : ""} (platform ${platform})`,
+    );
+  } else {
+    console.log(
+      `[vitest-native] engine: mock — React Native reimplementation, cross-checked against real RN (platform ${platform})`,
+    );
+  }
+}
+
 function getJsxTransformConfig(projectRoot: string): JsxTransformConfig {
   const viteVersion = resolvePackageVersion("vite", projectRoot);
   const viteMajor = Number(viteVersion?.split(".")[0]);
@@ -425,7 +448,23 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // only when it must fall back to mock. See detect.ts / AUTO_PREFERS_NATIVE.
       const decision = detectEngine(requestedEngine, resolvedRoot);
       engine = decision.engine;
-      if (decision.notice) console.log(decision.notice);
+      // Explicit engine:'native' without its transform deps must fail HERE, at
+      // config time — deferring lets the run start and die mid-suite inside the
+      // loader with a stack that doesn't mention configuration at all.
+      if (engine === "native" && !decision.nativeAvailable) {
+        throw new Error(
+          `[vitest-native] engine:'native' requires '@react-native/babel-preset' and ` +
+            `'@babel/core' to resolve from ${resolvedRoot}. Install them as ` +
+            `devDependencies (React Native projects ship them by default):\n\n` +
+            `  npm install -D @react-native/babel-preset @babel/core\n\n` +
+            `Or set engine:'mock' to run without a React Native install.`,
+        );
+      }
+      // The fallback notice is a warning — a team that believes it is testing real
+      // React Native while running the mock is the exact failure mode the engine
+      // split exists to prevent.
+      if (decision.notice) console.warn(decision.notice);
+      printEngineBanner(engine, platform, resolvedRoot);
       const env: Record<string, string> = {
         VITEST_NATIVE_PLATFORM: platform,
         VITEST_NATIVE_DIAGNOSTICS: String(diagnostics),
@@ -792,11 +831,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           map: stripped.generateMap(),
         };
       } catch (e) {
-        if (diagnostics) {
-          console.warn(
-            `[vitest-native] Flow strip skipped for ${id} (parse failed: ${(e as Error)?.message}); serving the file untouched.`,
-          );
-        }
+        // Always visible (not diagnostics-gated): if this was a genuine Flow file,
+        // the run is about to fail on Vite's own parse with no breadcrumb back to
+        // this decision. One line here turns a mystery into a lead.
+        console.warn(
+          `[vitest-native] Flow strip skipped for ${id} (parse failed: ${(e as Error)?.message}); serving the file untouched.`,
+        );
         return undefined;
       }
     },

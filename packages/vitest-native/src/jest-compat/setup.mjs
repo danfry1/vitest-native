@@ -65,6 +65,47 @@ vi.advanceTimersByTime = (...args) =>
 vi.advanceTimersByTimeAsync = async (...args) =>
   vi.isFakeTimers() ? advanceTimersByTimeAsync(...args) : undefined;
 
+// Jest APIs with NO Vitest equivalent would otherwise surface as bare
+// "jest.isolateModules is not a function" TypeErrors deep in a migrated suite.
+// Give each one an error that names the API and states the closest migration,
+// so the failure is a signpost instead of a mystery.
+const MIGRATION_GUIDE =
+  "https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/docs/migrating-from-jest.md";
+function unsupported(name, guidance) {
+  if (typeof vi[name] === "function") return;
+  vi[name] = () => {
+    throw new Error(
+      `[vitest-native] jest.${name}() has no Vitest equivalent. ${guidance} See ${MIGRATION_GUIDE}`,
+    );
+  };
+}
+unsupported(
+  "isolateModules",
+  "Use vi.resetModules() plus a dynamic import() to get a fresh module copy.",
+);
+unsupported(
+  "createMockFromModule",
+  "Build the mock explicitly with vi.fn()/vi.mock(), or import the real module and override members.",
+);
+unsupported(
+  "genMockFromModule",
+  "Build the mock explicitly with vi.fn()/vi.mock(), or import the real module and override members.",
+);
+unsupported("deepUnmock", "Use vi.unmock()/vi.doUnmock() per module.");
+// jest.retryTimes configures retries at runtime; Vitest configures them statically.
+// Warn once and continue — crashing a suite over retry policy helps nobody.
+if (typeof vi.retryTimes !== "function") {
+  let warned = false;
+  vi.retryTimes = () => {
+    if (!warned) {
+      warned = true;
+      console.warn(
+        `[vitest-native] jest.retryTimes() is ignored under Vitest — set test.retry in your vitest config (or per-test: test('name', { retry: N }, fn)).`,
+      );
+    }
+  };
+}
+
 globalThis.jest = vi;
 
 // jest.mock factories are wrapped by jestMockTransform to route their return

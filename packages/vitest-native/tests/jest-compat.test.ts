@@ -156,3 +156,33 @@ describe("jest-compat: setup", () => {
     expect(typeof React.createElement).toBe("function");
   });
 });
+
+describe("jest-compat: unsupported Jest APIs are signposts, not TypeErrors", () => {
+  it("isolateModules / createMockFromModule / genMockFromModule / deepUnmock throw actionable errors", async () => {
+    await import("../src/jest-compat/setup.mjs");
+    const jestGlobal = (globalThis as { jest?: Record<string, (...a: unknown[]) => unknown> })
+      .jest!;
+    for (const name of [
+      "isolateModules",
+      "createMockFromModule",
+      "genMockFromModule",
+      "deepUnmock",
+    ]) {
+      expect(() => jestGlobal[name]("x")).toThrow(/no Vitest equivalent.*migrating-from-jest/s);
+    }
+  });
+
+  it("retryTimes warns once and continues (does not crash the suite)", async () => {
+    await import("../src/jest-compat/setup.mjs");
+    const jestGlobal = (globalThis as { jest?: { retryTimes: (n: number) => void } }).jest!;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(() => jestGlobal.retryTimes(3)).not.toThrow();
+      jestGlobal.retryTimes(3);
+      const warnings = warn.mock.calls.filter((c) => String(c[0]).includes("retryTimes"));
+      expect(warnings).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
