@@ -166,6 +166,14 @@ export function installRequireHooks(
   for (const ext of [".ts", ".tsx"]) {
     if (Module._extensions[ext]) continue;
     Module._extensions[ext] = function (mod, filename) {
+      // Boundary stubs can live in TS sources too (expo publishes src/ alongside
+      // build/, and some resolution paths reach the .ts files directly).
+      const boundary = boundarySourceFor(
+        filename.replace(/\\/g, "/"),
+        platform,
+        reactNativeVersion,
+      );
+      if (boundary != null) return mod._compile(boundary, filename);
       const src = fs.readFileSync(filename, "utf8");
       return mod._compile(transformRN(filename, src, projectRoot, platform), filename);
     };

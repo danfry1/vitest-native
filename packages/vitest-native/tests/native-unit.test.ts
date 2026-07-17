@@ -88,6 +88,25 @@ describe("native boundary", () => {
     expect(isBoundary("/x/react-native/Libraries/StyleSheet/StyleSheet.js")).toBe(false);
   });
 
+  it("stubs expo's dev-server messageSocket (all published variants) to a no-op", () => {
+    // The real module throws at load time under Node ("Cannot create devtools
+    // websocket connections in embedded environments") whenever __DEV__ &&
+    // globalThis.expo — the wall that blocked every expo-* import in Expo apps.
+    for (const p of [
+      "/x/node_modules/expo/src/async-require/messageSocket.native.ts",
+      "/x/node_modules/expo/src/async-require/messageSocket.ts",
+      "/x/node_modules/expo/build/async-require/messageSocket.native.js",
+      "/x/node_modules/expo/build/async-require/messageSocket.js",
+    ]) {
+      expect(isBoundary(p)).toBe(true);
+      const mod = evalCjs(boundarySourceFor(p)!);
+      expect(mod).toEqual({});
+    }
+    // Other expo modules stay untouched.
+    expect(isBoundary("/x/node_modules/expo/src/Expo.fx.tsx")).toBe(false);
+    expect(boundarySourceFor("/x/node_modules/expo/src/async-require/index.ts")).toBe(null);
+  });
+
   it("TurboModuleRegistry mock never throws and returns constants", () => {
     const src = boundarySourceFor("/x/react-native/Libraries/TurboModule/TurboModuleRegistry.js");
     const mod = evalCjs(src!);
