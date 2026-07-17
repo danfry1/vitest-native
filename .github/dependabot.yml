@@ -30,3 +30,10 @@ updates:
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
+    # One PR for all action bumps. Split PRs break lockstep-versioned actions:
+    # github/codeql-action init/analyze/upload-sarif must move together, or the
+    # Analyze job fails with "Loaded a configuration file for version X, but
+    # running version Y" on every individual PR.
+    groups:
+      github-actions:
+        patterns: ["*"]
