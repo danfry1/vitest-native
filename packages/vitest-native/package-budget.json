@@ -1,0 +1,7 @@
+{
+  "maxPackedBytes": 210000,
+  "maxUnpackedBytes": 750000,
+  "maxFiles": 80,
+  "maxRuntimeDependencies": 2,
+  "maxExportPaths": 10
+}
