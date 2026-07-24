@@ -1,23 +1,24 @@
-name: Bake-off ratchet
+name: External app observations
 
-# Real-app regression floor: packs HEAD, runs the public bake-off apps
+# External integration observation: packs HEAD, runs the public bake-off apps
 # (react-native-paper, obytes template — pinned via vitest-native-bakeoffs)
 # under the native engine STOCK and HOT, and fails if any pass count drops
-# below the committed floors in packages/vitest-native/bakeoffs-ratchet.json.
+# below the committed baselines in packages/vitest-native/bakeoffs-ratchet.json.
 #
 # Exists because synthetic and package suites have missed real regressions:
 # the hot-runtime drain regression (PR #55) was caught only by a manual
 # react-native-paper run with hotRuntime on. Weekly + dispatchable; not a PR
 # gate (real-app runs are minutes-long and network-heavy).
 #
-# WEIGHTING: this is an integration TRIPWIRE, not a fidelity metric. The
+# WEIGHTING: this is an integration TRIPWIRE, not a capability or fidelity
+# metric. It must never be used to conclude that a behavior is unsupported. The
 # bake-off setups carry jest-era shims (Animated overrides, worklet mocks,
 # fake timers), so counts measure engine+shim as a unit; fidelity is measured
 # by the crosscheck corpus (hack-free probes against real RN). A failure here
-# means a human investigates — it may be a real regression, a shim-interplay
-# break, or an INTENDED behavior change that needs a deliberate re-base of
-# the floors. Follow-up direction: every engine improvement should DELETE the
-# bake-off shim it obsoletes (in vitest-native-bakeoffs), purifying the floor.
+# means a human investigates — it may be a package change, a shim-interplay
+# change, or an intended behavior change that needs a deliberate re-base of
+# the observations. Every engine improvement should delete any external shim
+# it obsoletes, but only a package-owned reproduction can establish capability.
 
 on:
   schedule:
@@ -52,7 +53,13 @@ jobs:
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: '22.13.0'
+          node-version: '22.22.2'
+
+      # The Corepack bundled with older Node 22 releases has stale package-manager
+      # signing keys. Keep this external observation job on a current compatible
+      # pair; minimum-Node support is covered by the authoritative CI matrix.
+      - name: Install Corepack
+        run: npm install --global corepack@0.35.0
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -70,7 +77,7 @@ jobs:
         id: ratchet
         run: node packages/vitest-native/scripts/bakeoff-ratchet.mjs --bakeoffs /tmp/bakeoffs
 
-      - name: Create issue on failure
+      - name: Create or update issue on failure
         if: failure()
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v7
         env:
@@ -84,30 +91,81 @@ jobs:
               state: 'open',
               labels: 'bakeoff-ratchet',
             });
+            const title = {
+              changed: 'External bake-off observation changed; investigation needed',
+              mixed: 'External bake-off observations changed and had infrastructure failures',
+              infra: 'External bake-off run did not produce comparable results',
+            }[process.env.VERDICT] ?? 'External bake-off workflow failed before classification';
+            const body = [
+              ['changed', 'mixed'].includes(process.env.VERDICT)
+                ? 'A pinned external-app pass count moved below its recorded observation baseline.'
+                : 'The external-app workflow failed during setup or before producing comparable results.',
+              '',
+              '**This is not a package capability verdict.** These apps include custom migration',
+              'configuration, dependency pins, Jest-era mocks, fake timers, and other shims.',
+              'Investigate those inputs alongside vitest-native before classifying the cause.',
+              '',
+              `Run: ${process.env.RUN_URL}`,
+              '',
+              ['changed', 'mixed'].includes(process.env.VERDICT)
+                ? 'The step summary carries the per-app/per-mode counts.'
+                : 'The run logs identify the incomplete setup or missing result.',
+              'Reproduce locally:',
+              '',
+              '```bash',
+              'git clone https://github.com/danfry1/vitest-native-bakeoffs /tmp/bakeoffs',
+              'node packages/vitest-native/scripts/bakeoff-ratchet.mjs --bakeoffs /tmp/bakeoffs',
+              '```',
+            ].join('\n');
             if (issues.length === 0) {
               await github.rest.issues.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                // A missing verdict means the step died before reporting
-                // (timeout, infra) — don't cry regression when it wasn't one.
-                title:
-                  process.env.VERDICT === 'regressed'
-                    ? 'Bake-off ratchet: real-app pass count dropped below its floor'
-                    : 'Bake-off ratchet: run failed before producing a verdict (infra?)',
+                title,
                 labels: ['bakeoff-ratchet'],
-                body: [
-                  'The weekly real-app bake-off fell below a committed floor',
-                  '(packages/vitest-native/bakeoffs-ratchet.json).',
-                  '',
-                  `Run: ${process.env.RUN_URL}`,
-                  '',
-                  'The step summary carries the per-app/per-mode counts.',
-                  'Reproduce locally:',
-                  '',
-                  '```bash',
-                  'git clone https://github.com/danfry1/vitest-native-bakeoffs /tmp/bakeoffs',
-                  'node packages/vitest-native/scripts/bakeoff-ratchet.mjs --bakeoffs /tmp/bakeoffs',
-                  '```',
-                ].join('\n'),
+                body,
+              });
+            } else {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issues[0].number,
+                title,
+                body,
+              });
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issues[0].number,
+                body: `Observed again: ${process.env.RUN_URL}`,
+              });
+            }
+
+      - name: Close resolved observation issues
+        if: success()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v7
+        env:
+          RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        with:
+          script: |
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'bakeoff-ratchet',
+            });
+            for (const issue of issues) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `The latest pinned external-app observation completed successfully: ${process.env.RUN_URL}`,
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'closed',
+                state_reason: 'completed',
               });
             }
