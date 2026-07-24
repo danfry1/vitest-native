@@ -64,7 +64,9 @@ jobs:
         run: bun run test:native:hot:soak
 
       - name: Check API compatibility
-        run: bun run --filter vitest-native check-compat
+        run: |
+          expected=$(node -p "require('./packages/vitest-native/node_modules/react-native/package.json').version")
+          VITEST_NATIVE_EXPECTED_RN_VERSION="$expected" bun run --filter vitest-native check-compat
 
       - name: Create issue on failure
         if: failure()

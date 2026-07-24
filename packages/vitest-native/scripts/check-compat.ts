@@ -9,7 +9,11 @@
  */
 
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -36,55 +40,100 @@ const KNOWN_SKIPPED = new Set([
   "unstable_getScrollParent",
 ]);
 
+const REQUIRED_EXPORTS = ["View", "Text", "Platform", "StyleSheet", "NativeModules"];
+
 // ─── Find react-native ──────────────────────────────────────────────────────
 
-function findRNIndexPath(): string {
-  const candidates: string[] = [];
+export interface ResolvedPackage {
+  packageJsonPath: string;
+  packageRoot: string;
+  version: string;
+}
 
-  // bun workspace layout — scan .bun cache for react-native versions
-  const bunCacheDir = path.resolve("../../node_modules/.bun");
-  if (fs.existsSync(bunCacheDir)) {
-    for (const entry of fs.readdirSync(bunCacheDir, { withFileTypes: true })) {
-      if (entry.isDirectory() && entry.name.startsWith("react-native@")) {
-        candidates.push(
-          path.resolve(bunCacheDir, entry.name, "node_modules/react-native/index.js"),
-        );
+/** Resolve exactly as code in the package under test would resolve. */
+export function resolveInstalledPackage(
+  depName: string,
+  fromDirectory = packageRoot,
+): ResolvedPackage {
+  const requireFromPackage = createRequire(path.join(fromDirectory, "package.json"));
+  let packageJsonPath: string | undefined;
+
+  try {
+    packageJsonPath = requireFromPackage.resolve(`${depName}/package.json`);
+  } catch {
+    const entryPath = requireFromPackage.resolve(depName);
+    let current = path.dirname(entryPath);
+    while (current !== path.dirname(current)) {
+      const candidate = path.join(current, "package.json");
+      if (fs.existsSync(candidate)) {
+        const candidatePackage = JSON.parse(fs.readFileSync(candidate, "utf8"));
+        if (candidatePackage.name === depName) {
+          packageJsonPath = candidate;
+          break;
+        }
       }
+      current = path.dirname(current);
     }
   }
 
-  // standard hoisted
-  candidates.push(path.resolve("../../node_modules/react-native/index.js"));
-  // local
-  candidates.push(path.resolve("node_modules/react-native/index.js"));
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return candidate;
+  if (!packageJsonPath) {
+    throw new Error(`Could not find ${depName}. Run \`bun install\` first.`);
   }
 
-  throw new Error("Could not find react-native index.js. Run `bun install` first.");
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+  return {
+    packageJsonPath,
+    packageRoot: path.dirname(packageJsonPath),
+    version: packageJson.version ?? "unknown",
+  };
+}
+
+function findRNIndexPath(rnPackage: ResolvedPackage): string {
+  const packageJson = JSON.parse(fs.readFileSync(rnPackage.packageJsonPath, "utf8"));
+  const indexPath = path.resolve(rnPackage.packageRoot, packageJson.main ?? "index.js");
+  if (fs.existsSync(indexPath)) return indexPath;
+
+  throw new Error(`Could not find react-native entry point at ${indexPath}.`);
 }
 
 // ─── Parse real RN exports ───────────────────────────────────────────────────
 
-function parseRNExports(indexPath: string): string[] {
+export function parseRNExports(indexPath: string): string[] {
   const source = fs.readFileSync(indexPath, "utf-8");
   const exports: string[] = [];
 
   // Match `get ExportName()` in the module.exports object
-  const regex = /^\s+get\s+(\w+)\s*\(\)/gm;
+  const getterRegex = /^\s{2}get\s+(\w+)\s*\(\)/gm;
   let match: RegExpExecArray | null;
-  while ((match = regex.exec(source)) !== null) {
+  while ((match = getterRegex.exec(source)) !== null) {
     exports.push(match[1]);
   }
 
-  return exports.sort();
+  // RN also exposes occasional direct methods in the object (for example,
+  // unstable_batchedUpdates<T>(...)). Keep those in the public export set.
+  const methodRegex = /^\s{2}([A-Za-z_$][\w$]*)(?:<[^>\n]+>)?\s*\(/gm;
+  while ((match = methodRegex.exec(source)) !== null) {
+    exports.push(match[1]);
+  }
+
+  return [...new Set(exports)].sort();
+}
+
+export function validateRNExportShape(exports: string[]): void {
+  const missingRequired = REQUIRED_EXPORTS.filter((name) => !exports.includes(name));
+  if (exports.length < 50 || missingRequired.length > 0) {
+    throw new Error(
+      "Could not confidently parse React Native's runtime exports. " +
+        `Found ${exports.length}; missing required exports: ${missingRequired.join(", ") || "none"}. ` +
+        "React Native may have changed its index.js export syntax; update the parser before making coverage claims.",
+    );
+  }
 }
 
 // ─── Parse our mock registry ─────────────────────────────────────────────────
 
 function parseOurExports(): string[] {
-  const registryPath = path.resolve("src/mocks/registry.ts");
+  const registryPath = path.resolve(packageRoot, "src/mocks/registry.ts");
   if (!fs.existsSync(registryPath)) {
     throw new Error(`Registry not found at ${registryPath}`);
   }
@@ -109,20 +158,7 @@ function parseOurExports(): string[] {
 
 function getDepVersion(depName: string): string | null {
   try {
-    const pkgPath = path.resolve("node_modules", depName, "package.json");
-    if (fs.existsSync(pkgPath)) {
-      return JSON.parse(fs.readFileSync(pkgPath, "utf-8")).version;
-    }
-    // Also check bun cache
-    const bunCacheDir = path.resolve("../../node_modules/.bun");
-    if (fs.existsSync(bunCacheDir)) {
-      for (const entry of fs.readdirSync(bunCacheDir, { withFileTypes: true })) {
-        if (entry.isDirectory() && entry.name.startsWith(`${depName}@`)) {
-          const p = path.resolve(bunCacheDir, entry.name, "node_modules", depName, "package.json");
-          if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, "utf-8")).version;
-        }
-      }
-    }
+    return resolveInstalledPackage(depName).version;
   } catch {
     /* ignore */
   }
@@ -135,17 +171,20 @@ function main() {
   console.log("React Native API Compatibility Check\n");
 
   // 1. Find and parse RN
-  const rnPath = findRNIndexPath();
-  const rnVersion = (() => {
-    try {
-      const pkgPath = path.resolve(path.dirname(rnPath), "package.json");
-      return JSON.parse(fs.readFileSync(pkgPath, "utf-8")).version;
-    } catch {
-      return "unknown";
-    }
-  })();
+  const rnPackage = resolveInstalledPackage("react-native");
+  const rnPath = findRNIndexPath(rnPackage);
+  const rnVersion = rnPackage.version;
+  const expectedVersion = process.env.VITEST_NATIVE_EXPECTED_RN_VERSION;
+  if (expectedVersion && rnVersion !== expectedVersion) {
+    throw new Error(
+      `Resolved react-native ${rnVersion}, but the compatibility job expected ${expectedVersion}. ` +
+        `Resolved package: ${rnPackage.packageJsonPath}`,
+    );
+  }
   const rnExports = parseRNExports(rnPath);
+  validateRNExportShape(rnExports);
   console.log(`  react-native ${rnVersion} — ${rnExports.length} exports`);
+  console.log(`  resolved package — ${rnPackage.packageJsonPath}`);
 
   // 2. Parse our registry
   const ourExports = parseOurExports();
@@ -195,9 +234,11 @@ function main() {
   }
 
   if (missing.length === 0) {
-    const covered = rnExports.length - skipped.length;
-    const coverage = ((covered / rnExports.length) * 100).toFixed(1);
-    console.log(`OK — All stable exports covered (${covered}/${rnExports.length}, ${coverage}%)`);
+    const stableExports = rnExports.length - skipped.length;
+    console.log(
+      `OK — All stable exports covered (${stableExports}/${stableExports}, 100%); ` +
+        `${skipped.length} of ${rnExports.length} total exports intentionally skipped`,
+    );
     process.exit(0);
   }
 
@@ -213,4 +254,5 @@ function main() {
   process.exit(1);
 }
 
-main();
+const invokedPath = process.argv[1] ? fs.realpathSync(process.argv[1]) : null;
+if (invokedPath === fs.realpathSync(fileURLToPath(import.meta.url))) main();
