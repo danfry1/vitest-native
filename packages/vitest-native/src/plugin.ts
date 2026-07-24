@@ -633,6 +633,21 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           };
         }
         const userPool = (userConfig as { test?: { pool?: unknown } }).test?.pool;
+        // The VM pools run test code in a `vm` context whose module executor does not
+        // go through Node's loader, and `module.register()` — how the engine installs
+        // the ESM hook that Flow-strips React Native and resolves its platform files —
+        // throws there outright ("register is not available when running in Vitest").
+        // Without those hooks React Native never resolves its `.ios`/`.android` files
+        // and dies on `Platform.OS` deep inside NativeEventEmitter. Say so here rather
+        // than let that surface as an unexplained crash.
+        if (userPool === "vmThreads" || userPool === "vmForks") {
+          throw new Error(
+            `[vitest-native] engine:'native' cannot run on the '${userPool}' pool. React Native is ` +
+              `loaded through Node's module hooks, which a VM pool's context does not use — ` +
+              `React Native fails to resolve its platform files there. Use 'threads' (the ` +
+              `default) or 'forks', or switch to engine:'mock', which needs no hooks.`,
+          );
+        }
         if (hot && userPool) {
           console.warn(
             `[vitest-native] 'hotRuntime' supplies its own pool, overriding the configured ` +
