@@ -745,6 +745,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // JSX without importing React compile to `react/jsx-runtime` rather than
         // `React.createElement` ("React is not defined").
         ...jsxTransform,
+        // See native/apply.ts: `resolve.conditions` covers the client environment,
+        // but Vitest runs tests in the ssr environment, and a package shipping a
+        // React Native build behind the `react-native` export condition would
+        // otherwise resolve to its web build.
+        ssr: { resolve: { conditions: ["react-native"] } },
         resolve: {
           extensions,
           conditions: ["react-native"],
