@@ -14,7 +14,11 @@ export interface PeerRequirement {
 }
 
 export const PEER_REQUIREMENTS: PeerRequirement[] = [
-  { name: "vitest", minimum: "4.0.0", maximumMajor: 5 },
+  // Vitest 5 is supported: the whole gate (native, hot, cross-check, soak) runs
+  // against it in CI. The ceiling stays one major ahead of what is proven rather
+  // than open-ended — Vitest churn is what bit-rotted this plugin's predecessor,
+  // so a new major must be verified before it is promised.
+  { name: "vitest", minimum: "4.0.0", maximumMajor: 6 },
   {
     name: "vite",
     minimum: "6.4.2",

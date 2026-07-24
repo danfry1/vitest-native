@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 // @ts-expect-error — runtime .mjs, no types
 import { transformRN } from "../src/native/transform.mjs";
 import { parseReactNativeExports } from "../src/plugin.js";
+import { PEER_REQUIREMENTS } from "../src/peer-requirements.js";
+import { validatePeerDependency } from "../src/validate.js";
 
 // Anchor all resolution to THIS test file's location (cwd-independent — vitest's
 // process.cwd() varies with where it was launched). Walk up from here looking for
@@ -755,5 +757,43 @@ describe("hot pool: Vitest installation guard", () => {
         projectRoot,
       }),
     ).not.toThrow();
+  });
+});
+
+describe("peer requirements", () => {
+  const vitestReq = PEER_REQUIREMENTS.find((r) => r.name === "vitest")!;
+
+  it("accepts Vitest 4 and 5, and rejects 6", () => {
+    // The manifest's peer range and this table are the same promise stated twice;
+    // a check that only asserted the table would let them drift apart.
+    const manifest = JSON.parse(fs.readFileSync(path.join(HERE, "..", "package.json"), "utf8")) as {
+      peerDependencies: Record<string, string>;
+    };
+    expect(manifest.peerDependencies.vitest).toBe(">=4 <6");
+    expect(vitestReq.maximumMajor).toBe(6);
+  });
+
+  it("accepts a Vitest 5 prerelease", () => {
+    // Vitest 5 is reachable only through its beta tag for now, and the version
+    // parser has mishandled prereleases before (4.0.0-beta.x hard-errored at
+    // startup for early adopters).
+    // A fresh directory per version: package.json is read through require(), whose
+    // module cache would otherwise serve the first version for every later check.
+    const check = (version: string) => {
+      const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-peer-"));
+      const vitestDir = path.join(dir, "node_modules", "vitest");
+      fs.mkdirSync(vitestDir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "p" }));
+      fs.writeFileSync(
+        path.join(vitestDir, "package.json"),
+        JSON.stringify({ name: "vitest", version }),
+      );
+      return validatePeerDependency("vitest", vitestReq.minimum, dir, vitestReq.maximumMajor);
+    };
+    expect(check("5.0.0-beta.6")).toBe(null);
+    expect(check("5.0.0")).toBe(null);
+    expect(check("4.1.8")).toBe(null);
+    expect(check("6.0.0")).toMatch(/supports vitest >= 4\.0\.0 and < 6/);
+    expect(check("3.2.7")).toMatch(/requires vitest >= 4\.0\.0/);
   });
 });

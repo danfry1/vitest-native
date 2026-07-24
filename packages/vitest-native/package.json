@@ -132,7 +132,7 @@
   "peerDependencies": {
     "react": ">=18",
     "vite": "^6.4.2 || ^7.3.2 || ^8.0.5",
-    "vitest": ">=4 <5",
+    "vitest": ">=4 <6",
     "@testing-library/react-native": ">=12 <15",
     "@react-native/babel-preset": "*",
     "@babel/core": "*"

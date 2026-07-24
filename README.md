@@ -92,7 +92,7 @@ describe('MyComponent', () => {
 ## Requirements
 
 - **Node.js** >= 20
-- **Vitest** 4.x
+- **Vitest** 4.x or 5.x (both run the full gate in CI)
 - **Vite** ^6.4.2, ^7.3.2, or ^8.0.5
 - **React** >= 18
 - **`@testing-library/react-native`** (optional) — supported across `>=12 <15`. RNTL 14 made
