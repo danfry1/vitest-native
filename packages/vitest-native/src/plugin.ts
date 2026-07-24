@@ -745,14 +745,28 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // JSX without importing React compile to `react/jsx-runtime` rather than
         // `React.createElement` ("React is not defined").
         ...jsxTransform,
-        // See native/apply.ts: `resolve.conditions` covers the client environment,
-        // but Vitest runs tests in the ssr environment, and a package shipping a
-        // React Native build behind the `react-native` export condition would
-        // otherwise resolve to its web build.
-        ssr: { resolve: { conditions: ["react-native"] } },
+        // See native/apply.ts: `conditions` and `mainFields` cover the client
+        // environment only, and Vitest runs tests in the ssr one — a package shipping
+        // a React Native build behind either mechanism would otherwise resolve to its
+        // web build.
+        // Metro resolves `react-native` ahead of the standard fields, and plenty of
+        // packages published before `exports` still ship their native build that way.
+        // Vite drops `mainFields` for the ssr environment exactly as it drops
+        // `conditions` (see getDefaultEnvironmentOptions), so this has to be set where
+        // the tests resolve. Vite's own server defaults are kept underneath;
+        // `browser` is deliberately NOT added — Metro lists it, but under Node it would
+        // pull the web build of any package that has a browser field and no
+        // react-native one.
+        ssr: {
+          resolve: {
+            conditions: ["react-native"],
+            mainFields: ["react-native", "module", "jsnext:main", "jsnext"],
+          },
+        },
         resolve: {
           extensions,
           conditions: ["react-native"],
+          mainFields: ["react-native", "module", "jsnext:main", "jsnext"],
           // Single React instance across test code, the mock, and the renderer —
           // avoids a null hooks dispatcher from duplicate react copies in some
           // consumer projects (e.g. mock FlatList's useImperativeHandle).

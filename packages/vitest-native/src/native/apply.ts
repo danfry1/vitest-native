@@ -76,15 +76,27 @@ export function nativeEngineConfig(
     // "React is not defined"). RN's own source is transformed by our Babel hooks;
     // this governs the consumer's app + test files.
     ...jsxTransform,
-    // `resolve.conditions` governs the CLIENT environment. Vitest runs tests in the
-    // ssr environment, which keeps its own list — so setting only the former left the
-    // `react-native` export condition unapplied, and any package shipping a distinct
-    // React Native build through it silently loaded its web build instead. Metro
-    // applies this condition; so must we. Both are set: the client entry for anything
-    // resolved outside the test environment, and ssr for the tests themselves.
-    ssr: { resolve: { conditions: ["react-native"] } },
+    // `resolve.conditions` and `resolve.mainFields` govern the CLIENT environment.
+    // Vitest runs tests in the ssr environment, which keeps its own — so setting only
+    // the former left both unapplied, and a package shipping a distinct React Native
+    // build through either mechanism silently loaded its web build instead.
+    // Metro resolves `react-native` ahead of the standard fields, and plenty of
+    // packages published before `exports` still ship their native build that way.
+    // Vite drops `mainFields` for the ssr environment exactly as it drops
+    // `conditions` (see getDefaultEnvironmentOptions), so this has to be set where
+    // the tests resolve. Vite's own server defaults are kept underneath;
+    // `browser` is deliberately NOT added — Metro lists it, but under Node it would
+    // pull the web build of any package that has a browser field and no
+    // react-native one.
+    ssr: {
+      resolve: {
+        conditions: ["react-native"],
+        mainFields: ["react-native", "module", "jsnext:main", "jsnext"],
+      },
+    },
     resolve: {
       conditions: ["react-native"],
+      mainFields: ["react-native", "module", "jsnext:main", "jsnext"],
       extensions,
       // Ensure a single React instance across the test, RN, and the renderer —
       // a fresh consumer project can otherwise resolve duplicates and hit a null

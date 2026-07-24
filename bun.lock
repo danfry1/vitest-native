@@ -59,10 +59,12 @@
         "@types/node": "25.3.5",
         "@types/react": "19.2.14",
         "@vitest/coverage-v8": "4.1.8",
+        "dupe-lib": "file:/tmp/adv4/dupe-lib",
         "expo-constants": "56.0.16",
         "expo-status-bar": "56.0.4",
         "ext-platform-lib": "file:./tests-native/fixtures/ext-platform-lib",
         "ext-rn-named-lib": "file:./tests-native/fixtures/ext-rn-named-lib",
+        "host-lib": "file:/tmp/adv4/host-lib",
         "react": "^19.2.3",
         "react-native": "^0.86.0",
         "react-native-gesture-handler": "3.0.0",
@@ -73,6 +75,7 @@
         "react-test-renderer": "^19.2.3",
         "rn-condition-lib": "file:./tests-native/fixtures/rn-condition-lib",
         "rn-ecosystem-lib": "file:./tests-native/fixtures/rn-ecosystem-lib",
+        "rn-mainfield-lib": "file:./tests-native/fixtures/rn-mainfield-lib",
         "test-renderer": "^1.2.0",
         "tsdown": "0.21.10",
         "typescript": "6.0.3",
@@ -1827,13 +1830,19 @@
 
     "vitest-native/@testing-library/react-native": ["@testing-library/react-native@14.0.0", "", { "dependencies": { "jest-matcher-utils": "^30.4.1", "picocolors": "^1.1.1", "pretty-format": "^30.4.1", "redent": "^3.0.0" }, "peerDependencies": { "jest": ">=29.0.0", "react": ">=19.0.0", "react-native": ">=0.78", "test-renderer": "^1.0.0" }, "optionalPeers": ["jest"] }, "sha512-Ji+mmlvWp9kTOhqWIskVfCQ05LdmsS3NN6PtG8blYHyd5yLvghSsul5QS4ci01Fw65H9oa6slj9PEOyoogj1VQ=="],
 
+    "vitest-native/dupe-lib": ["dupe-lib@file:../../../../tmp/adv4/dupe-lib", {}],
+
     "vitest-native/ext-platform-lib": ["ext-platform-lib@file:packages/vitest-native/tests-native/fixtures/ext-platform-lib", {}],
 
     "vitest-native/ext-rn-named-lib": ["ext-rn-named-lib@file:packages/vitest-native/tests-native/fixtures/ext-rn-named-lib", {}],
 
+    "vitest-native/host-lib": ["host-lib@file:../../../../tmp/adv4/host-lib", { "peerDependencies": { "react-native": "*" } }],
+
     "vitest-native/rn-condition-lib": ["rn-condition-lib@file:packages/vitest-native/tests-native/fixtures/rn-condition-lib", { "peerDependencies": { "react-native": "*" } }],
 
     "vitest-native/rn-ecosystem-lib": ["rn-ecosystem-lib@file:packages/vitest-native/tests-native/fixtures/rn-ecosystem-lib", { "peerDependencies": { "react-native": "*" } }],
+
+    "vitest-native/rn-mainfield-lib": ["rn-mainfield-lib@file:packages/vitest-native/tests-native/fixtures/rn-mainfield-lib", { "peerDependencies": { "react-native": "*" } }],
 
     "vitest-native/untranspiled-jsx-lib": ["untranspiled-jsx-lib@file:packages/vitest-native/tests-native/fixtures/untranspiled-jsx-lib", {}],
 
