@@ -7,6 +7,7 @@ import { transformRN, isFlow } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import { resolvePlatformFile } from "./resolve.mjs";
 import { buildPkgMatcher, packageNameOf, subpathLeafOf, isUtilitySubpath } from "./match.mjs";
+import { explainUntransformedSyntaxError } from "./explain.mjs";
 
 const RN_PATH = /[\\/]node_modules[\\/](react-native|@react-native)[\\/]/;
 // Any file under a node_modules directory. Platform-extension resolution
@@ -153,6 +154,17 @@ export function installRequireHooks(
       // type`/JSX aren't caught by isFlow, and babel passes plain JS through.
       const src = fs.readFileSync(filename, "utf8");
       return mod._compile(transformRN(filename, src, projectRoot, platform), filename);
+    }
+    if (NODE_MODULES.test(norm)) {
+      // A node_modules package we did NOT transform: when Node's compile throws a
+      // SyntaxError that fingerprints as untranspiled JSX/Flow/TS, explain the
+      // real fix (add the package to `transform: [...]`) instead of leaving a
+      // bare "Unexpected token '<'" — the single most common migration blocker.
+      try {
+        return origJs(mod, filename);
+      } catch (err) {
+        throw explainUntransformedSyntaxError(err, filename) ?? err;
+      }
     }
     return origJs(mod, filename);
   };

@@ -18,6 +18,7 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import crypto from "node:crypto";
+import { decorateTransformError } from "./explain.mjs";
 
 let _req;
 let _babel;
@@ -123,13 +124,21 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   } catch {}
 
   if (!_babel) _babel = _req("@babel/core");
-  const out = _babel.transformSync(src, {
-    filename: file,
-    presets: [[_preset, { disableStaticViewConfigsCodegen: true }]],
-    babelrc: false,
-    configFile: false,
-    caller: { name: "metro", bundler: "metro", platform, supportsStaticESM: false },
-  }).code;
+  let out;
+  try {
+    out = _babel.transformSync(src, {
+      filename: file,
+      presets: [[_preset, { disableStaticViewConfigsCodegen: true }]],
+      babelrc: false,
+      configFile: false,
+      caller: { name: "metro", bundler: "metro", platform, supportsStaticESM: false },
+    }).code;
+  } catch (err) {
+    // Decorate here, at the single choke point, so every caller — the ESM
+    // loader, the CJS require hook, requireActual's .ts handlers — surfaces
+    // the file, platform, and owning package instead of a bare Babel stack.
+    throw decorateTransformError(err, file, platform);
+  }
   // Atomic write: multiple worker threads may transform the same RN file
   // concurrently on a cold cache. Write to a unique temp file then rename
   // (atomic on POSIX same-dir) so a concurrent reader never sees a partial file.
