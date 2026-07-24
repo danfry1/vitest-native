@@ -43,6 +43,13 @@ jobs:
             node-version: 22.13.0
           - os: windows-latest
             node-version: 22.13.0
+          # Node 24 is the current release line, and the matrix stopped at 22 — which
+          # hid a real failure: the hot runtime reads a Vitest worker-state shape that
+          # is not part of any contract, and vitest 4.1.9 changed it in a way that
+          # breaks only on Node 24. Every leg was green while `hotRuntime` was dead
+          # for anyone on the current Node.
+          - os: ubuntu-latest
+            node-version: 24.13.0
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
