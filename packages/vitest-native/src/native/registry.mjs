@@ -90,7 +90,28 @@ function resolveTarget(request, fromFile, platform) {
   }
 }
 
-/** Identity of the inputs that determine the emitted registry's contents. */
+/** This package's own version — part of the cache key (see registryKey). */
+function ownVersion() {
+  try {
+    return createRequire(import.meta.url)("../../package.json").version ?? "0";
+  } catch {
+    return "0";
+  }
+}
+
+/**
+ * Identity of every input that determines the emitted registry's contents.
+ *
+ * The boundary mocks are compiled INTO the registry, so their SOURCE is hashed,
+ * not just their module names: editing a mock's body has to invalidate the cache
+ * the same way a Babel upgrade does. Hashing only the names meant a maintainer
+ * changing a mock, or a user upgrading to a release that changed one, kept getting
+ * the previous behaviour out of the cache with nothing to indicate it.
+ *
+ * This package's version is in the key for the same reason, covering everything
+ * else it contributes — the transform's Babel options, platform resolution, the
+ * emitted registry's own shape.
+ */
 function registryKey({ projectRoot, platform, reactNativeVersion }) {
   const req = createRequire(path.join(projectRoot, "package.json"));
   const version = (name) => {
@@ -100,23 +121,28 @@ function registryKey({ projectRoot, platform, reactNativeVersion }) {
       return "0";
     }
   };
+  const boundaries = crypto.createHash("sha1");
+  for (const suffix of Object.keys(BOUNDARY_SOURCES).sort()) {
+    boundaries.update(suffix);
+    boundaries.update("\0");
+    boundaries.update(
+      String(boundarySourceFor(`/react-native/${suffix}`, platform, reactNativeVersion)),
+    );
+    boundaries.update("\0");
+  }
   return crypto
     .createHash("sha1")
     .update(
       [
         `f${REGISTRY_FORMAT_VERSION}`,
+        ownVersion(),
         platform,
         reactNativeVersion,
         version("react-native"),
         version("@react-native/babel-preset"),
         version("@babel/core"),
         process.env.BABEL_ENV || process.env.NODE_ENV || "none",
-        // The boundary mocks are compiled INTO the registry, so a change to them
-        // must invalidate it just like a Babel upgrade would.
-        crypto
-          .createHash("sha1")
-          .update(JSON.stringify(Object.keys(BOUNDARY_SOURCES)))
-          .digest("hex"),
+        boundaries.digest("hex"),
       ].join("\0"),
     )
     .digest("hex")
@@ -143,7 +169,48 @@ function manifestValid(manifest) {
   return true;
 }
 
-/** Emit the registry source for the walked module set. */
+/** Base64-VLQ encode one signed integer (source-map segment field). */
+function vlq(value) {
+  const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  let v = value < 0 ? (-value << 1) | 1 : value << 1;
+  let out = "";
+  do {
+    let digit = v & 31;
+    v >>>= 5;
+    if (v > 0) digit |= 32;
+    out += B64[digit];
+  } while (v > 0);
+  return out;
+}
+
+/**
+ * A source map attributing each emitted line to the React Native file it came from.
+ *
+ * Without it, every stack frame from inside React Native reports the registry's
+ * cache path — `rn-ios-<hash>.cjs:253:7638` instead of
+ * `Libraries/Animated/nodes/AnimatedInterpolation.js`. The file is the useful part
+ * of such a frame, and losing it makes an RN-internal failure far harder to read.
+ *
+ * Line granularity is enough here, and deliberately so: the Babel output for an RN
+ * module is a single line, so the original line is always 1 and only the FILE is in
+ * question. One segment per generated line keeps the map small (no `sourcesContent`
+ * — the real files are on disk at these very paths) and costs nothing at runtime.
+ */
+function sourceMapFor(lineOwners, files) {
+  let previousSource = 0;
+  const mappings = lineOwners.map((owner) => {
+    if (owner === null) return "";
+    const segment = vlq(0) + vlq(owner - previousSource) + vlq(0) + vlq(0);
+    previousSource = owner;
+    return segment;
+  });
+  return { version: 3, sources: files, names: [], mappings: mappings.join(";") };
+}
+
+/**
+ * Emit the registry source for the walked module set, plus the source map that
+ * keeps React Native's own files identifiable in stack traces.
+ */
 function emit(files, modules) {
   const idOf = new Map(files.map((f, i) => [f, i]));
   const deps = files.map((f) => {
@@ -153,7 +220,7 @@ function emit(files, modules) {
     }
     return JSON.stringify(out);
   });
-  return [
+  const prologue = [
     `"use strict";`,
     // __ext is this file's own require: the escape hatch for targets outside the
     // registry (react, invariant, JSON, anything computed). Pre-resolved absolute
@@ -193,10 +260,8 @@ function emit(files, modules) {
     `  mod.loaded = true;`,
     `  return mod.exports;`,
     `}`,
-    ...files.map(
-      (f, i) =>
-        `__f[${i}] = function (module, exports, require, __filename, __dirname) {${modules.get(f).code}\n};`,
-    ),
+  ];
+  const epilogue = [
     // The entry's exports are the module's value, so `require(registry)` behaves
     // like `require('react-native')`. __registry is the lookup surface the install
     // hook uses to serve deep paths from the same instances.
@@ -206,7 +271,26 @@ function emit(files, modules) {
     `  value: { ids: __ids, load: __r, entry: __ids[0] },`,
     `  enumerable: false, configurable: true,`,
     `});`,
-  ].join("\n");
+  ];
+
+  // Track which module each emitted line belongs to, so the source map can point
+  // stack frames back at the real React Native file. A factory body may span
+  // several lines (the boundary mocks do), and every one of those lines is
+  // attributed, so a frame can never bleed onto the previous module's mapping.
+  const lines = [...prologue];
+  const lineOwners = prologue.map(() => null);
+  files.forEach((f, i) => {
+    const factory = `__f[${i}] = function (module, exports, require, __filename, __dirname) {${modules.get(f).code}\n};`;
+    for (const line of factory.split("\n")) {
+      lines.push(line);
+      lineOwners.push(i);
+    }
+  });
+  for (const line of epilogue) {
+    lines.push(line);
+    lineOwners.push(null);
+  }
+  return { code: lines.join("\n"), map: sourceMapFor(lineOwners, files) };
 }
 
 /**
@@ -295,11 +379,17 @@ export function buildRegistry({
     }
 
     const files = [...modules.keys()];
-    const source = emit(files, modules);
+    const { code, map } = emit(files, modules);
     // Write via a unique temp file then rename: several workers may race here on a
     // cold cache, and a reader must never observe a partially written registry.
+    // The map lands before the registry that points at it, so a reader can never
+    // find the reference without the file.
+    const mapFile = `${registryFile}.map`;
+    const mapTmp = `${mapFile}.${process.pid}.tmp`;
+    fs.writeFileSync(mapTmp, JSON.stringify(map));
+    fs.renameSync(mapTmp, mapFile);
     const tmp = `${registryFile}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, source);
+    fs.writeFileSync(tmp, `${code}\n//# sourceMappingURL=${path.basename(mapFile)}\n`);
     fs.renameSync(tmp, registryFile);
     fs.writeFileSync(
       `${metaFile}.${process.pid}.tmp`,
@@ -333,6 +423,15 @@ export function buildRegistry({
 export function installRegistry(registryFile, projectRoot) {
   if (globalThis.__vitest_native_registry_installed) return true;
   const req = createRequire(path.join(projectRoot, "package.json"));
+  // Must precede the require below: Node reads `//# sourceMappingURL` when a script
+  // is COMPILED, so enabling support afterwards leaves this registry unmapped and
+  // every React Native stack frame pointing at the cache file instead of the RN
+  // source it came from.
+  try {
+    process.setSourceMapsEnabled?.(true);
+  } catch {
+    // Older Node, or a host that has locked this down — frames stay unmapped.
+  }
   let registry;
   try {
     registry = req(registryFile).__vitestNativeRegistry;

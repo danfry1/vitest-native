@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
@@ -95,6 +95,31 @@ describe("precompiled RN registry: build", () => {
     );
   });
 
+  it("keys the registry by the boundary mocks' CONTENT, not just their names", async () => {
+    // The boundary mocks are compiled INTO the registry. Keying on their module
+    // names alone meant editing a mock — or upgrading to a release that changed
+    // one — silently reused a registry carrying the previous behaviour.
+    const { boundarySourceFor } = (await import("../src/native/boundary.mjs")) as {
+      boundarySourceFor: (p: string, platform: string, version: string) => string | null;
+    };
+    const suffix = "Libraries/ReactNative/UIManager.js";
+    const before = build();
+    const original = boundarySourceFor(`/react-native/${suffix}`, "ios", "0.86.0");
+    expect(original).toContain("getViewManagerConfig");
+    // Same inputs, one mock body changed → a different registry must be produced.
+    const patched = `${original}\n// changed`;
+    const spy = vi
+      .spyOn(await import("../src/native/boundary.mjs"), "boundarySourceFor")
+      .mockImplementation(((p: string) =>
+        p.endsWith(suffix) ? patched : original) as never);
+    try {
+      // The key is computed from boundarySourceFor, so a changed body must move it.
+      expect(build()).not.toBe(before);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("returns null instead of throwing when React Native cannot be resolved", () => {
     const empty = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-reg-"));
     fs.writeFileSync(path.join(empty, "package.json"), JSON.stringify({ name: "empty" }));
@@ -131,6 +156,44 @@ describe("precompiled RN registry: emitted graph", () => {
       .__vitestNativeRegistry.ids;
     expect(ios.some((f) => f.endsWith(".ios.js"))).toBe(true);
     expect(ios.some((f) => f.endsWith(".android.js"))).toBe(false);
+  });
+});
+
+describe("precompiled RN registry: stack traces", () => {
+  // Collapsing React Native into one file costs every RN stack frame its file
+  // identity — `rn-ios-<hash>.cjs:253:7638` instead of the module that threw. The
+  // emitted source map is what buys that back, and it is invisible until something
+  // fails, so assert it directly.
+  it("emits a source map that attributes every emitted line to its RN file", () => {
+    const file = build();
+    const code = fs.readFileSync(file, "utf8");
+    expect(code.trimEnd().endsWith(`//# sourceMappingURL=${path.basename(file)}.map`)).toBe(true);
+
+    const map = JSON.parse(fs.readFileSync(`${file}.map`, "utf8")) as {
+      version: number;
+      sources: string[];
+      mappings: string;
+    };
+    expect(map.version).toBe(3);
+    expect(map.sources.length).toBeGreaterThan(100);
+    // Every source is a real React Native file — including the asset stubs, which
+    // are modules in the registry like any other.
+    expect(map.sources.every((f) => /[\\/](react-native|@react-native)[\\/]/.test(f))).toBe(true);
+    expect(map.sources.some((f) => endsWithPath(f, "/Utilities/Dimensions.js"))).toBe(true);
+
+    // One mapping per generated line, so a frame inside a multi-line factory can
+    // never fall back onto the previous module's mapping.
+    const lines = map.mappings.split(";");
+    const factoryLines = lines.filter((l) => l !== "").length;
+    expect(factoryLines).toBeGreaterThan(map.sources.length);
+    expect(lines.length).toBeGreaterThanOrEqual(code.split("\n").length - 2);
+  });
+
+  it("does not inline React Native's sources into the map", () => {
+    // sourcesContent for ~440 RN files would add megabytes to a cache artifact for
+    // files that are on disk at exactly these paths already.
+    const map = JSON.parse(fs.readFileSync(`${build()}.map`, "utf8")) as Record<string, unknown>;
+    expect(map.sourcesContent).toBeUndefined();
   });
 });
 

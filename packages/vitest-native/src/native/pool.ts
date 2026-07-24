@@ -171,50 +171,47 @@ export function defaultHotMemoryLimit(totalmem: number = os.totalmem()): number 
 }
 
 /**
- * Fail fast when the hot worker would load a different Vitest from the project's.
+ * Fail fast when the hot worker would load a different Vitest VERSION from the
+ * project's.
  *
  * The worker entry ships inside this package, so its `import 'vitest/worker'`
  * resolves from THIS package's location rather than the project's. Where a monorepo
  * has more than one Vitest install — a linked package, a hoisted `node_modules`,
- * mixed versions across workspaces — the two differ, and the result is invisible:
- * the start handshake succeeds, the run request is accepted, and no result is ever
- * reported. Vitest then prints "No test files found" with no error at all, and on
- * some paths still exits 0 — a green run that tested nothing.
+ * mixed versions across workspaces — the two can differ, and a version difference is
+ * invisible at runtime: the start handshake succeeds, the run request is accepted,
+ * and no result is ever reported. Vitest then prints "No test files found" with no
+ * error at all, and on some paths still exits 0 — a green run that tested nothing.
  *
- * Resolved paths are compared rather than versions: same path is the same instance,
- * which is the property that actually matters, and two installs of one version are
- * still two module registries.
+ * Only a VERSION difference is an error. Two installs of the same version are two
+ * module registries but identical code, and they talk to each other perfectly well;
+ * failing on the paths alone would block working monorepos where the same version is
+ * simply installed twice.
  */
 function assertWorkerVitestMatchesProject(workerEntry: string, projectRoot: string): void {
-  const resolveVitest = (from: string): string | null => {
+  const resolveVitest = (from: string): { path: string; version: string } | null => {
     try {
-      return createRequire(from).resolve("vitest/package.json");
+      const require_ = createRequire(from);
+      const pkgPath = require_.resolve("vitest/package.json");
+      return { path: pkgPath, version: (require_(pkgPath) as { version: string }).version };
     } catch {
       return null;
     }
   };
-  const workerVitest = resolveVitest(workerEntry);
-  const projectVitest = resolveVitest(path.join(projectRoot, "package.json"));
+  const worker = resolveVitest(workerEntry);
+  const project = resolveVitest(path.join(projectRoot, "package.json"));
   // Either side unresolvable: say nothing. The worker's own import fails with a
-  // clearer message than anything invented here, and a project without a
-  // resolvable Vitest is not running this code at all.
-  if (workerVitest === null || projectVitest === null || workerVitest === projectVitest) return;
-  const version = (pkg: string): string => {
-    try {
-      return (createRequire(pkg)(pkg) as { version?: string }).version ?? "unknown";
-    } catch {
-      return "unknown";
-    }
-  };
+  // clearer message than anything invented here, and a project without a resolvable
+  // Vitest is not running this code at all.
+  if (worker === null || project === null || worker.version === project.version) return;
   throw new Error(
-    `[vitest-native] 'hotRuntime' cannot run: its worker would load a different Vitest ` +
-      `installation from the one running your tests. They talk over Vitest's worker ` +
-      `protocol, and a mismatch reports no results at all rather than failing.\n` +
-      `  worker would load:  ${workerVitest} (${version(workerVitest)})\n` +
-      `  project resolves:   ${projectVitest} (${version(projectVitest)})\n` +
+    `[vitest-native] 'hotRuntime' cannot run: its worker would load vitest@${worker.version}, ` +
+      `but this run is driven by vitest@${project.version}. They talk over Vitest's worker ` +
+      `protocol, and a version mismatch reports no results at all rather than failing.\n` +
+      `  worker would load:  ${worker.path}\n` +
+      `  project resolves:   ${project.path}\n` +
       `This happens when vitest-native and vitest resolve to different node_modules trees ` +
       `(linked packages, hoisted monorepo installs, mixed Vitest versions). Install one ` +
-      `Vitest reachable from vitest-native, or set 'hotRuntime: false'.`,
+      `Vitest version reachable from vitest-native, or set 'hotRuntime: false'.`,
   );
 }
 

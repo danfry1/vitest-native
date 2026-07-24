@@ -8,6 +8,8 @@ import { transformRN } from "../src/native/transform.mjs";
 import { parseReactNativeExports } from "../src/plugin.js";
 import { PEER_REQUIREMENTS } from "../src/peer-requirements.js";
 import { validatePeerDependency } from "../src/validate.js";
+import { nativePool } from "../src/native/pool.js";
+import { createRequire } from "node:module";
 
 // Anchor all resolution to THIS test file's location (cwd-independent — vitest's
 // process.cwd() varies with where it was launched). Walk up from here looking for
@@ -722,41 +724,46 @@ describe("parseReactNativeExports", () => {
   });
 });
 
-describe("hot pool: Vitest installation guard", () => {
+describe("hot pool: Vitest version guard", () => {
   // The hot worker ships inside this package, so `import 'vitest/worker'` there
   // resolves from the PACKAGE, not the project. When a monorepo puts a different
-  // Vitest on each side, the two speak different protocol versions and the run
-  // reports nothing at all — no error, no tests, sometimes exit 0. The pool has to
-  // refuse at config time instead.
-  it("throws when the worker and the project resolve different Vitest installations", async () => {
-    const { nativePool } = await import("../src/native/pool.js");
-    // A project root with its own vitest copy, distinct from this package's.
+  // Vitest VERSION on each side, the two speak different protocol versions and the
+  // run reports nothing at all — no error, no tests, sometimes exit 0. The pool has
+  // to refuse at config time instead.
+  const fakeProject = (version: string): string => {
     const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-pool-"));
     const vitestDir = path.join(dir, "node_modules", "vitest");
     fs.mkdirSync(vitestDir, { recursive: true });
     fs.writeFileSync(
       path.join(vitestDir, "package.json"),
-      JSON.stringify({ name: "vitest", version: "9.9.9", main: "index.js" }),
+      JSON.stringify({ name: "vitest", version, main: "index.js" }),
     );
     fs.writeFileSync(path.join(vitestDir, "index.js"), "module.exports = {};");
     fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "p" }));
+    return dir;
+  };
+  const workerEntry = path.join(HERE, "..", "src", "native", "worker.mjs");
+  const installedVitest = JSON.parse(
+    fs.readFileSync(createRequire(import.meta.url).resolve("vitest/package.json"), "utf8"),
+  ) as { version: string };
 
-    expect(() =>
-      nativePool({
-        workerEntry: path.join(HERE, "..", "src", "native", "worker.mjs"),
-        projectRoot: dir,
-      }),
-    ).toThrow(/different Vitest installation/);
+  it("throws when the two resolve different Vitest versions", () => {
+    expect(() => nativePool({ workerEntry, projectRoot: fakeProject("9.9.9") })).toThrow(
+      /would load vitest@.*but this run is driven by vitest@9\.9\.9/s,
+    );
   });
 
-  it("does not throw when both sides resolve the same installation", async () => {
-    const { nativePool } = await import("../src/native/pool.js");
+  it("allows a second install of the SAME version", () => {
+    // Two node_modules trees holding one version are two module registries but
+    // identical code — they interoperate. Failing on the paths alone would block
+    // working monorepos, so only a version difference is an error.
     expect(() =>
-      nativePool({
-        workerEntry: path.join(HERE, "..", "src", "native", "worker.mjs"),
-        projectRoot,
-      }),
+      nativePool({ workerEntry, projectRoot: fakeProject(installedVitest.version) }),
     ).not.toThrow();
+  });
+
+  it("does not throw for this repository's own layout", () => {
+    expect(() => nativePool({ workerEntry, projectRoot })).not.toThrow();
   });
 });
 
