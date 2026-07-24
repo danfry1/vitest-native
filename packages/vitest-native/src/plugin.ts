@@ -370,6 +370,15 @@ const RN_EXPORT_NAMES = [
   "usePressability",
 ];
 
+/**
+ * A file inside a `react-native-*` package, or an `@react-native*` scoped one,
+ * under node_modules.
+ * The package name must START with the prefix, so `eslint-plugin-react-native` and a
+ * project directory that merely contains the words are not matched.
+ */
+const RN_ECOSYSTEM_PATH =
+  /[\\/]node_modules[\\/](react-native[^\\/]*|@react-native[^\\/]*[\\/][^\\/]+)[\\/]/;
+
 /** Fast membership check for leaf-name lookups on subpath imports. */
 const RN_EXPORT_NAME_SET = new Set(RN_EXPORT_NAMES);
 
@@ -1087,14 +1096,18 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         }
       }
 
-      // Flow-strip inlined node_modules sources whose path contains "react-native"
-      // and that ship `@flow` — i.e. react-native-* ecosystem packages pulled into
-      // the Vite graph. (NOT react-native itself: under the mock engine its imports
-      // resolve to virtual modules via resolveId above and never reach here.) This
-      // is the mock engine's only Flow-stripping for such inlined packages, since
-      // Vite's own pipeline can't parse Flow.
-      if (!id.includes("node_modules")) return undefined;
-      if (!id.includes("react-native") || !id.endsWith(".js")) return undefined;
+      // Flow-strip inlined react-native-* ecosystem packages that ship `@flow` —
+      // packages pulled into the Vite graph. (NOT react-native itself: under the mock
+      // engine its imports resolve to virtual modules via resolveId above and never
+      // reach here.) This is the mock engine's only Flow-stripping for such inlined
+      // packages, since Vite's own pipeline can't parse Flow.
+      //
+      // Matched on the package NAME after node_modules rather than the substring
+      // anywhere in the path: `id.includes("react-native")` also fired for every
+      // dependency of a project in a directory called `react-native-app`, and for
+      // unrelated packages such as eslint-plugin-react-native — running a Flow parser
+      // over files with nothing to do with React Native.
+      if (!RN_ECOSYSTEM_PATH.test(id) || !id.endsWith(".js")) return undefined;
       if (!code.includes("@flow")) return undefined;
 
       // The filters above are heuristics — "@flow" can appear inside a string

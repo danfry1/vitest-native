@@ -9,6 +9,7 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
+import { detectEcosystemPackages } from "../native/ecosystem.js";
 
 export interface MigrationReport {
   /** Where the Jest config was found, or null. */
@@ -121,6 +122,10 @@ export function analyzeJestConfig(root: string): MigrationReport {
   const setupFiles: string[] = ["jestCompatSetup"];
   const aliasEntries: string[] = ["...jestCompatAliases()"];
   const transformPkgs: string[] = [];
+  // Packages the native engine detects and compiles by itself (see
+  // native/ecosystem.ts) never need a `transform` entry, and adding one would opt
+  // them back out of inlining.
+  const autoInlined = new Set(detectEcosystemPackages(root));
   let needsUrlImport = false;
 
   const presetPkgs = new Set(Object.keys(AUTO_DETECT_PRESETS));
@@ -232,6 +237,15 @@ export function analyzeJestConfig(root: string): MigrationReport {
           } else if (presetPkgs.has(pkg)) {
             presetCovered.push(
               `transformIgnorePatterns allows '${pkg}' — shadowed by the auto-detected preset; nothing to do.`,
+            );
+          } else if (autoInlined.has(pkg)) {
+            // The engine detects and compiles these on its own. Emitting a
+            // `transform` entry would not merely be redundant: an explicit entry
+            // takes precedence, which would externalize the package instead of
+            // inlining it, losing vi.mock support for no gain.
+            automatic.push(
+              `transformIgnorePatterns allows '${pkg}' — declares react-native, so the engine ` +
+                `compiles it automatically; nothing to do.`,
             );
           } else {
             transformPkgs.push(pkg);

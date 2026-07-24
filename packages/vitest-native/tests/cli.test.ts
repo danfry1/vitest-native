@@ -153,6 +153,38 @@ describe("migrate", () => {
     });
   });
 
+  it("does not send auto-detected packages to the transform allowlist", () => {
+    // The engine detects packages that declare react-native and compiles them
+    // itself. An explicit `transform` entry takes precedence over that, so emitting
+    // one here would externalize the package instead of inlining it — losing
+    // vi.mock support and gaining nothing.
+    const root = fixture({
+      "package.json": { name: "x", dependencies: { "some-rn-lib": "1", "plain-lib": "1" } },
+      "node_modules/some-rn-lib/package.json": {
+        name: "some-rn-lib",
+        version: "1.0.0",
+        main: "index.js",
+        peerDependencies: { "react-native": "*" },
+      },
+      "node_modules/some-rn-lib/index.js": "module.exports = {};",
+      "node_modules/plain-lib/package.json": {
+        name: "plain-lib",
+        version: "1.0.0",
+        main: "index.js",
+      },
+      "node_modules/plain-lib/index.js": "module.exports = {};",
+      "jest.config.json": {
+        transformIgnorePatterns: ["node_modules/(?!(?:some-rn-lib|plain-lib)/)"],
+      },
+    });
+    const report = analyzeJestConfig(root);
+    const text = [...report.automatic, ...report.attention].join("\n");
+    expect(text).toContain("'some-rn-lib' — declares react-native");
+    expect(report.suggestedConfig).not.toContain("some-rn-lib");
+    // A package that does not declare react-native still needs the allowlist entry.
+    expect(report.suggestedConfig).toContain("plain-lib");
+  });
+
   it("produces the full report for a representative jest config", () => {
     const root = fixture({
       "package.json": { name: "x" },
