@@ -21,6 +21,7 @@ export function nativeEngineConfig(
   transformPkgs: string[] = [],
   hot?: { pool: PoolRunnerInitializer; runnerPath: string },
   jsxTransform: JsxTransformConfig = { esbuild: { jsx: "automatic" } },
+  userPool?: unknown,
 ) {
   // Extra packages whose source the Node hooks should transform. They must also
   // be externalized so they load through Node (where the hooks run) rather than
@@ -62,9 +63,17 @@ export function nativeEngineConfig(
       // the worker, so Vitest's own per-file module-runner reset still runs.
       // The custom runner marks each file's import-phase boundary for the
       // surgical reset (see runner.mjs + reset.mjs).
+      //
+      // `threads` is only a DEFAULT. A plugin's config() result is merged over the
+      // user's config, so returning it unconditionally silently overrode an
+      // explicit `pool` — a project asking for `forks`, `vmThreads`, or its own
+      // pool got `threads` with no warning. Only fill it in when the user left it
+      // unset. (The hot runtime is different: it *is* a pool, so opting into
+      // `hotRuntime` selects it, and the plugin warns when that overrides a
+      // user-chosen pool.)
       ...(hot
         ? { pool: hot.pool, isolate: false, runner: hot.runnerPath }
-        : { pool: "threads" as const }),
+        : { pool: (userPool ?? "threads") as "threads" }),
       server: {
         deps: {
           external: [

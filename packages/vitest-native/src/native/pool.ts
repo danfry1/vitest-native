@@ -20,12 +20,15 @@
 // option. Upstream RFC item.)
 import path from "node:path";
 import os from "node:os";
+import { createRequire } from "node:module";
 import { ThreadsPoolWorker } from "vitest/node";
 import type { PoolOptions, PoolRunnerInitializer, PoolTask, WorkerRequest } from "vitest/node";
 
 export interface NativePoolOptions {
   /** Absolute path to the hot worker entry (dist/native/worker.mjs). */
   workerEntry: string;
+  /** The consumer project's root — used to find the Vitest actually driving the run. */
+  projectRoot: string;
   /**
    * Recycle (retire) a worker after it has run this many test files.
    * Self-defense against suites that leak process-wide resources the surgical
@@ -167,8 +170,57 @@ export function defaultHotMemoryLimit(totalmem: number = os.totalmem()): number 
   return Math.min(HOT_MEMORY_MAX_BYTES, Math.max(HOT_MEMORY_MIN_BYTES, budget));
 }
 
+/**
+ * Fail fast when the hot worker would load a different Vitest from the project's.
+ *
+ * The worker entry ships inside this package, so its `import 'vitest/worker'`
+ * resolves from THIS package's location rather than the project's. Where a monorepo
+ * has more than one Vitest install — a linked package, a hoisted `node_modules`,
+ * mixed versions across workspaces — the two differ, and the result is invisible:
+ * the start handshake succeeds, the run request is accepted, and no result is ever
+ * reported. Vitest then prints "No test files found" with no error at all, and on
+ * some paths still exits 0 — a green run that tested nothing.
+ *
+ * Resolved paths are compared rather than versions: same path is the same instance,
+ * which is the property that actually matters, and two installs of one version are
+ * still two module registries.
+ */
+function assertWorkerVitestMatchesProject(workerEntry: string, projectRoot: string): void {
+  const resolveVitest = (from: string): string | null => {
+    try {
+      return createRequire(from).resolve("vitest/package.json");
+    } catch {
+      return null;
+    }
+  };
+  const workerVitest = resolveVitest(workerEntry);
+  const projectVitest = resolveVitest(path.join(projectRoot, "package.json"));
+  // Either side unresolvable: say nothing. The worker's own import fails with a
+  // clearer message than anything invented here, and a project without a
+  // resolvable Vitest is not running this code at all.
+  if (workerVitest === null || projectVitest === null || workerVitest === projectVitest) return;
+  const version = (pkg: string): string => {
+    try {
+      return (createRequire(pkg)(pkg) as { version?: string }).version ?? "unknown";
+    } catch {
+      return "unknown";
+    }
+  };
+  throw new Error(
+    `[vitest-native] 'hotRuntime' cannot run: its worker would load a different Vitest ` +
+      `installation from the one running your tests. They talk over Vitest's worker ` +
+      `protocol, and a mismatch reports no results at all rather than failing.\n` +
+      `  worker would load:  ${workerVitest} (${version(workerVitest)})\n` +
+      `  project resolves:   ${projectVitest} (${version(projectVitest)})\n` +
+      `This happens when vitest-native and vitest resolve to different node_modules trees ` +
+      `(linked packages, hoisted monorepo installs, mixed Vitest versions). Install one ` +
+      `Vitest reachable from vitest-native, or set 'hotRuntime: false'.`,
+  );
+}
+
 /** Pool initializer for `test.pool` — keeps RN-hot workers alive across files. */
 export function nativePool(options: NativePoolOptions): PoolRunnerInitializer {
+  assertWorkerVitestMatchesProject(path.resolve(options.workerEntry), options.projectRoot);
   return {
     name: "vitest-native",
     createPoolWorker: (poolOptions: PoolOptions) => new NativePoolWorker(poolOptions, options),

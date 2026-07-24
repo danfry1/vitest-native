@@ -624,6 +624,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           hot = {
             pool: nativePool({
               workerEntry: nativeWorkerPath,
+              projectRoot: resolvedRoot,
               recycleAfterFiles: hotRecycle.recycleAfterFiles,
               memoryLimit,
               diagnostics,
@@ -631,8 +632,23 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             runnerPath: nativeRunnerPath,
           };
         }
+        const userPool = (userConfig as { test?: { pool?: unknown } }).test?.pool;
+        if (hot && userPool) {
+          console.warn(
+            `[vitest-native] 'hotRuntime' supplies its own pool, overriding the configured ` +
+              `pool '${typeof userPool === "string" ? userPool : "(custom)"}'.`,
+          );
+        }
         return asCompatibleViteConfig(
-          nativeEngineConfig(nativeSetupPath, env, extensions, transformPkgs, hot, jsxTransform),
+          nativeEngineConfig(
+            nativeSetupPath,
+            env,
+            extensions,
+            transformPkgs,
+            hot,
+            jsxTransform,
+            userPool,
+          ),
         );
       }
 

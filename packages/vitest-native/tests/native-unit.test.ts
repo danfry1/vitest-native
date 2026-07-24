@@ -719,3 +719,41 @@ describe("parseReactNativeExports", () => {
     expect(parseReactNativeExports("const a = 1;")).toEqual([]);
   });
 });
+
+describe("hot pool: Vitest installation guard", () => {
+  // The hot worker ships inside this package, so `import 'vitest/worker'` there
+  // resolves from the PACKAGE, not the project. When a monorepo puts a different
+  // Vitest on each side, the two speak different protocol versions and the run
+  // reports nothing at all — no error, no tests, sometimes exit 0. The pool has to
+  // refuse at config time instead.
+  it("throws when the worker and the project resolve different Vitest installations", async () => {
+    const { nativePool } = await import("../src/native/pool.js");
+    // A project root with its own vitest copy, distinct from this package's.
+    const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-pool-"));
+    const vitestDir = path.join(dir, "node_modules", "vitest");
+    fs.mkdirSync(vitestDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(vitestDir, "package.json"),
+      JSON.stringify({ name: "vitest", version: "9.9.9", main: "index.js" }),
+    );
+    fs.writeFileSync(path.join(vitestDir, "index.js"), "module.exports = {};");
+    fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "p" }));
+
+    expect(() =>
+      nativePool({
+        workerEntry: path.join(HERE, "..", "src", "native", "worker.mjs"),
+        projectRoot: dir,
+      }),
+    ).toThrow(/different Vitest installation/);
+  });
+
+  it("does not throw when both sides resolve the same installation", async () => {
+    const { nativePool } = await import("../src/native/pool.js");
+    expect(() =>
+      nativePool({
+        workerEntry: path.join(HERE, "..", "src", "native", "worker.mjs"),
+        projectRoot,
+      }),
+    ).not.toThrow();
+  });
+});
