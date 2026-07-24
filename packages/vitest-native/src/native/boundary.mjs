@@ -312,9 +312,30 @@ export const BOUNDARY_SOURCES = {
 
 const SUFFIXES = Object.keys(BOUNDARY_SOURCES);
 
+/**
+ * Expo modules whose only job is talking to a live dev server — an environment
+ * that doesn't exist under Node. `expo`'s Expo.fx requires messageSocket whenever
+ * `__DEV__ && globalThis.expo`, and the module throws at load time when the
+ * bundle wasn't served over HTTP ("Cannot create devtools websocket connections
+ * in embedded environments"), taking down any suite that imports an expo-*
+ * package. Stub it to a no-op, like Jest's dev-server layer mocks do. Matched
+ * for both the published build/ output and the src/ TS sources (some resolution
+ * paths reach src/), in plain and .native platform variants.
+ */
+const EXPO_DEV_STUBS = {
+  "src/async-require/messageSocket.native.ts": "module.exports = {};",
+  "src/async-require/messageSocket.ts": "module.exports = {};",
+  "build/async-require/messageSocket.native.js": "module.exports = {};",
+  "build/async-require/messageSocket.js": "module.exports = {};",
+};
+const EXPO_SUFFIXES = Object.keys(EXPO_DEV_STUBS);
+
 /** Normalised-path test: is this a native-boundary module? */
 export function isBoundary(normPath) {
-  return SUFFIXES.some((s) => normPath.endsWith("/react-native/" + s));
+  return (
+    SUFFIXES.some((s) => normPath.endsWith("/react-native/" + s)) ||
+    EXPO_SUFFIXES.some((s) => normPath.endsWith("/expo/" + s))
+  );
 }
 
 /** Returns the CJS source for a boundary module, or null if not a boundary. */
@@ -324,6 +345,9 @@ export function boundarySourceFor(normPath, platform = "ios", version = "0.0.0")
       const source = BOUNDARY_SOURCES[s];
       return typeof source === "function" ? source(platform, version) : source;
     }
+  }
+  for (const s of EXPO_SUFFIXES) {
+    if (normPath.endsWith("/expo/" + s)) return EXPO_DEV_STUBS[s];
   }
   return null;
 }
