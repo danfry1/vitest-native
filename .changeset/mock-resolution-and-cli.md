@@ -9,8 +9,10 @@ pulled into the Vite graph, selected by testing for `react-native` anywhere in t
 file's path. That also matched every dependency of a project in a directory called
 `react-native-app`, and packages like `eslint-plugin-react-native` — running a Flow
 parser over files with nothing to do with React Native. It now matches the package
-name after `node_modules`, so `react-native-*` and `@react-native*` packages are
-still compiled and nothing else is.
+name after `node_modules`: a name beginning with `react-native` (scoped or not, so
+`@shopify/react-native-skia` counts) or a scope beginning with `@react-native`.
+Everything the substring test legitimately caught is still caught, and nothing else
+is.
 
 **`npx vitest-native migrate`.** It translated Jest's `transformIgnorePatterns` into
 `transform: [...]` entries for packages the engine now detects and compiles by itself.

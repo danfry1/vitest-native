@@ -371,13 +371,16 @@ const RN_EXPORT_NAMES = [
 ];
 
 /**
- * A file inside a `react-native-*` package, or an `@react-native*` scoped one,
- * under node_modules.
- * The package name must START with the prefix, so `eslint-plugin-react-native` and a
- * project directory that merely contains the words are not matched.
+ * A file inside a React Native ecosystem package under node_modules — one whose
+ * package NAME begins with `react-native` (with or without a scope, so
+ * `@shopify/react-native-skia` counts), or whose scope begins with `@react-native`.
+ *
+ * The name must BEGIN with it, which is what separates this from the substring test
+ * it replaced: `eslint-plugin-react-native` and a project directory called
+ * `react-native-app` both contain the words without being React Native packages.
  */
 const RN_ECOSYSTEM_PATH =
-  /[\\/]node_modules[\\/](react-native[^\\/]*|@react-native[^\\/]*[\\/][^\\/]+)[\\/]/;
+  /[\\/]node_modules[\\/](?:@react-native[^\\/]*[\\/][^\\/]+|(?:@[^\\/]+[\\/])?react-native[^\\/]*)[\\/]/;
 
 /** Fast membership check for leaf-name lookups on subpath imports. */
 const RN_EXPORT_NAME_SET = new Set(RN_EXPORT_NAMES);

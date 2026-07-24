@@ -44,14 +44,17 @@ describe("mock engine: Flow-strip targeting", () => {
   // matched files that have nothing to do with React Native.
   const flowish = "/** documentation mentioning @flow */\nmodule.exports = 1;\n";
 
-  it("strips real react-native ecosystem packages", async () => {
+  it("strips real react-native ecosystem packages, scoped or not", async () => {
     const plugin = await mockEnginePlugin();
-    expect(plugin.transform(flowish, "/p/node_modules/react-native-svg/lib/x.js")).not.toBe(
-      undefined,
-    );
-    expect(
-      plugin.transform(flowish, "/p/node_modules/@react-native-community/slider/js/x.js"),
-    ).not.toBe(undefined);
+    const strips = (id: string) => plugin.transform(flowish, id) !== undefined;
+    expect(strips("/p/node_modules/react-native-svg/lib/x.js")).toBe(true);
+    // A package whose SCOPE is @react-native*.
+    expect(strips("/p/node_modules/@react-native-community/slider/js/x.js")).toBe(true);
+    expect(strips("/p/node_modules/@react-native-firebase/app/lib/x.js")).toBe(true);
+    // A React Native package under someone else's scope. Narrowing the original
+    // substring test to an unscoped prefix dropped these — @shopify/react-native-skia
+    // is not a rare shape.
+    expect(strips("/p/node_modules/@shopify/react-native-skia/lib/x.js")).toBe(true);
   });
 
   it("leaves unrelated dependencies alone", async () => {
