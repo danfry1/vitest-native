@@ -676,7 +676,14 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // under Vitest (not plain Vite) — and only the hot runtime needs it.
         let hot: { pool: PoolRunnerInitializer; runnerPath: string } | undefined;
         if (hotRuntime) {
-          const { nativePool, defaultHotMemoryLimit } = await import("./native/pool.js");
+          const { nativePool, defaultHotMemoryLimit, hotRuntimeEnvironmentError } =
+            await import("./native/pool.js");
+          // Fail at config time on environments where Vitest's custom-worker API is
+          // itself broken, rather than letting the run report no tests at all.
+          const environmentError = hotRuntimeEnvironmentError(
+            resolvePackageVersion("vitest", resolvedRoot),
+          );
+          if (environmentError) throw new Error(environmentError);
           // When hot is enabled but the user set no explicit recycling, apply a
           // default per-worker memory bound so enabling hot can't grow memory
           // unbounded. Don't override an explicit choice: if the user set
