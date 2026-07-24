@@ -8,7 +8,23 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+import { createRequire } from "node:module";
+import path from "node:path";
 import type { PoolRunnerInitializer } from "vitest/node";
+
+/**
+ * The on-disk directory a package resolves to, or null. Used alongside the
+ * node_modules-anchored patterns so workspace and `file:` dependencies — which
+ * resolve to a real path with no node_modules segment — are matched too.
+ */
+function resolvePackageDir(name: string, projectRoot: string): string | null {
+  try {
+    const req = createRequire(path.join(projectRoot, "package.json"));
+    return path.dirname(req.resolve(`${name}/package.json`));
+  } catch {
+    return null;
+  }
+}
 
 export type JsxTransformConfig =
   | { esbuild: { jsx: "automatic" } }
@@ -21,12 +37,36 @@ export function nativeEngineConfig(
   transformPkgs: string[] = [],
   hot?: { pool: PoolRunnerInitializer; runnerPath: string },
   jsxTransform: JsxTransformConfig = { esbuild: { jsx: "automatic" } },
+  userPool?: unknown,
+  inlinePkgs: string[] = [],
+  projectRoot: string = process.cwd(),
 ) {
   // Extra packages whose source the Node hooks should transform. They must also
   // be externalized so they load through Node (where the hooks run) rather than
   // Vite's pipeline. Passed to the hooks via env (globalThis doesn't cross the
   // worker boundary).
-  const extraExternal = transformPkgs.map((p) => new RegExp(`[\\\\/]${escapeRe(p)}[\\\\/]`));
+  // Anchored on node_modules, plus each package's resolved directory. A bare
+  // `[/\]name[/\]` also matches any DIRECTORY sharing a package's name, which
+  // externalized unrelated files — including this package's own runtime when a
+  // project folder happened to share the name. The resolved directory covers
+  // workspace and `file:` links, which have no node_modules segment at all.
+  const extraExternal = transformPkgs.flatMap((p) => {
+    const patterns = [new RegExp(`[\\\\/]node_modules[\\\\/]${escapeRe(p)}[\\\\/]`)];
+    const dir = resolvePackageDir(p, projectRoot);
+    if (dir) patterns.push(new RegExp(`^${escapeRe(dir.replace(/\\/g, "/"))}[\\\\/]`));
+    return patterns;
+  });
+  // Auto-detected React Native packages go the other way: INLINED, so Vitest owns
+  // them. That is what lets vi.mock() intercept them and what puts their module
+  // state under Vitest's per-file reset. The plugin's transform hook compiles their
+  // untranspiled source (see plugin.ts); Vite would otherwise refuse to parse the
+  // JSX and Flow the ecosystem ships.
+  const ecosystemInline = inlinePkgs.flatMap((p) => {
+    const patterns = [new RegExp(`[\\\\/]node_modules[\\\\/]${escapeRe(p)}[\\\\/]`)];
+    const dir = resolvePackageDir(p, projectRoot);
+    if (dir) patterns.push(new RegExp(`^${escapeRe(dir.replace(/\\/g, "/"))}[\\\\/]`));
+    return patterns;
+  });
   const fullEnv = { ...env };
   if (transformPkgs.length > 0) fullEnv.VITEST_NATIVE_TRANSFORM = JSON.stringify(transformPkgs);
   return {
@@ -36,8 +76,27 @@ export function nativeEngineConfig(
     // "React is not defined"). RN's own source is transformed by our Babel hooks;
     // this governs the consumer's app + test files.
     ...jsxTransform,
+    // `resolve.conditions` and `resolve.mainFields` govern the CLIENT environment.
+    // Vitest runs tests in the ssr environment, which keeps its own — so setting only
+    // the former left both unapplied, and a package shipping a distinct React Native
+    // build through either mechanism silently loaded its web build instead.
+    // Metro resolves `react-native` ahead of the standard fields, and plenty of
+    // packages published before `exports` still ship their native build that way.
+    // Vite drops `mainFields` for the ssr environment exactly as it drops
+    // `conditions` (see getDefaultEnvironmentOptions), so this has to be set where
+    // the tests resolve. Vite's own server defaults are kept underneath;
+    // `browser` is deliberately NOT added — Metro lists it, but under Node it would
+    // pull the web build of any package that has a browser field and no
+    // react-native one.
+    ssr: {
+      resolve: {
+        conditions: ["react-native"],
+        mainFields: ["react-native", "module", "jsnext:main", "jsnext"],
+      },
+    },
     resolve: {
       conditions: ["react-native"],
+      mainFields: ["react-native", "module", "jsnext:main", "jsnext"],
       extensions,
       // Ensure a single React instance across the test, RN, and the renderer —
       // a fresh consumer project can otherwise resolve duplicates and hit a null
@@ -62,9 +121,17 @@ export function nativeEngineConfig(
       // the worker, so Vitest's own per-file module-runner reset still runs.
       // The custom runner marks each file's import-phase boundary for the
       // surgical reset (see runner.mjs + reset.mjs).
+      //
+      // `threads` is only a DEFAULT. A plugin's config() result is merged over the
+      // user's config, so returning it unconditionally silently overrode an
+      // explicit `pool` — a project asking for `forks`, `vmThreads`, or its own
+      // pool got `threads` with no warning. Only fill it in when the user left it
+      // unset. (The hot runtime is different: it *is* a pool, so opting into
+      // `hotRuntime` selects it, and the plugin warns when that overrides a
+      // user-chosen pool.)
       ...(hot
         ? { pool: hot.pool, isolate: false, runner: hot.runnerPath }
-        : { pool: "threads" as const }),
+        : { pool: (userPool ?? "threads") as "threads" }),
       server: {
         deps: {
           external: [
@@ -72,6 +139,7 @@ export function nativeEngineConfig(
             /[\\/]node_modules[\\/]@react-native[\\/]/,
             ...extraExternal,
           ],
+          ...(ecosystemInline.length > 0 ? { inline: ecosystemInline } : {}),
         },
       },
     },

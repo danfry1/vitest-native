@@ -92,7 +92,7 @@ describe('MyComponent', () => {
 ## Requirements
 
 - **Node.js** >= 20
-- **Vitest** 4.x
+- **Vitest** 4.x or 5.x (both run the full gate in CI)
 - **Vite** ^6.4.2, ^7.3.2, or ^8.0.5
 - **React** >= 18
 - **`@testing-library/react-native`** (optional) — supported across `>=12 <15`. RNTL 14 made
@@ -130,6 +130,11 @@ want no RN at all — fast, deterministic, environment-controllable.
 - **RNTL compatible** — Works with `@testing-library/react-native` automatically.
 - **Third-party presets** — auto-detected mocks for reanimated, gesture handler, safe area,
   navigation, screens, async-storage, device-info, mmkv, svg, webview, and Expo.
+- **React Native packages compile automatically** — any dependency declaring
+  `react-native` in its own manifest is detected and compiled, so the ecosystem's
+  untranspiled JSX/Flow/TypeScript just works without a hand-maintained list.
+- **`vi.mock('react-native')` works under both engines** — including `importOriginal()`, so you
+  can replace one export and keep the rest real. See [Mocking React Native](#mocking-react-native).
 - **Jest-compat layer** — `vitest-native/jest-compat` eases migrating existing Jest suites.
 - **Test helpers** — `setPlatform`, `setDimensions`, `setColorScheme`, `mockNativeModule` for easy state control.
 - **TypeScript first** — Full type safety across the entire API.
@@ -322,6 +327,56 @@ reactNative({
 
 If calling `useColorScheme` or `useWindowDimensions` directly outside a component (e.g., in API tests), you'll see a React warning in stderr. The mock handles this gracefully with a try/catch fallback. The test will still pass — the warning is expected.
 
+## Mocking React Native
+
+`vi.mock('react-native')` works under both engines, including the `importOriginal()` form
+that keeps everything you don't name:
+
+```ts
+vi.mock('react-native', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-native')>()),
+  Alert: { alert: vi.fn() },
+}));
+```
+
+Under `engine: 'native'` this does **not** swap React Native for a mock: RN still executes
+for real in Node, and the plugin serves your graph a facade over that same instance — so
+`Platform.OS` is still real, `<View>` still renders `RCTView`, and only the exports you
+replaced are yours.
+
+**Scope.** Interception covers your project's own graph — your app and test code. A
+third-party package sees the *unmocked* React Native, whether or not it is inlined:
+its own `import`s of React Native compile to `require`, which reaches React Native
+directly rather than through the mocked module. Mocking a package's own module id
+(`vi.mock('some-rn-package')`) does work for the packages the engine inlines — see
+below.
+
+## React Native packages in `node_modules`
+
+Most of the React Native ecosystem publishes untranspiled source — JSX, Flow, or
+TypeScript — on the assumption that Metro will compile it. Node can't run that, which
+under other runners means discovering a `transformIgnorePatterns` allowlist one
+`SyntaxError: Unexpected token '<'` at a time.
+
+`engine: 'native'` detects those packages instead: any dependency that declares
+`react-native` in **its own** manifest is compiled with your project's React Native Babel
+preset and inlined into the test graph. Nothing to configure, and because they end up in
+the graph Vitest owns, `vi.mock('the-package')` reaches them.
+
+Excluded automatically: packages a [preset](#third-party-presets) already replaces (their
+real source never loads), and the test infrastructure itself (`@testing-library/react-native`
+and the renderers, where a second copy corrupts rendering).
+
+For anything the detection misses — a transitive dependency, or a package that doesn't
+declare `react-native` — `transform: ['the-package']` still works and takes precedence:
+
+```ts
+reactNative({ transform: ['some-untranspiled-package'] })
+```
+
+For native modules specifically, prefer `mockNativeModule()` from `vitest-native/helpers`
+— it drives the same boundary the engine already mocks, under both engines.
+
 ## Jest compatibility (`jest-compat`)
 
 `vitest-native/jest-compat` lets an existing Jest suite run under Vitest **without rewriting
@@ -390,8 +445,25 @@ vitest-native when you value:
 - **DX** — Vitest's watch mode, UI, and native ESM tooling.
 - **Unification** — one runner if you also test web/server code with Vitest.
 
-It is **not** primarily a speed play: with `engine: 'native'` and isolation on, it isn't
-categorically faster than Jest today. Choose it for the fidelity option and DX — not raw speed.
+On speed, here is the whole picture, from the repository's own head-to-head harness
+(RN 0.84, same generated RNTL suite, warm runs):
+
+| | 50 files, 4 workers | 200 files, 8 workers | peak RSS @200f |
+|---|--:|--:|--:|
+| Jest (RN preset) | 2010ms | 2915ms | 4090MB |
+| `engine: 'native'` | 2165ms (0.93×) | 6924ms (0.42×) | 727MB |
+| `engine: 'mock'` | 2032ms (0.99×) | 6709ms (0.43×) | 997MB |
+| `engine: 'native'` + `hotRuntime` | — | 1187ms (**2.46×**) | 1170MB |
+
+Two things to read from it. React Native's own load cost is no longer the issue — its
+module graph is precompiled once per (RN version × platform), and the native engine now
+tracks the pure-JS mock engine closely. What remains at scale is Vitest's per-file worker
+isolation, which costs the **mock** engine just as much (0.43× vs 0.42×) and has nothing to
+do with React Native; Jest reuses workers and resets its module registry instead.
+`hotRuntime: true` does the same thing and is 2.46× Jest at 200 files — it's opt-in while it
+bakes, and making it the default is the active line of work.
+
+Memory is a standing win at any size: 727MB against Jest's 4090MB at 200 files.
 
 ## Contributing
 

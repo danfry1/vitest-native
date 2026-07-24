@@ -2,7 +2,7 @@ import type { Plugin, UserConfig } from "vite";
 import type { PoolRunnerInitializer } from "vitest/node";
 import type { VitestNativeOptions, ResolvedOptions, Preset } from "./types.js";
 import { getPlatformExtensions } from "./resolve.js";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -11,6 +11,7 @@ import { validateOptions, validatePeerDependency, warnUnknownOptions } from "./v
 import { PEER_REQUIREMENTS } from "./peer-requirements.js";
 import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
+import { detectEcosystemPackages } from "./native/ecosystem.js";
 
 const DEFAULT_ASSET_EXTS = [
   "png",
@@ -119,6 +120,94 @@ function getJsxTransformConfig(projectRoot: string): JsxTransformConfig {
   return viteMajor >= 8
     ? { oxc: { jsx: { runtime: "automatic" } } }
     : { esbuild: { jsx: "automatic" } };
+}
+
+/**
+ * The names React Native's index exports.
+ *
+ * They cannot be read with a normal import: the index is Flow source, and its
+ * exports are lazy getters that neither a bundler nor cjs-module-lexer can see.
+ * They also cannot be read by requiring the module here — that would execute React
+ * Native inside the Vite process, before any of the engine's globals exist.
+ *
+ * So they are parsed out of the `module.exports = { … }` object literal, whose
+ * members sit at one indentation level. React Native uses three member shapes
+ * there: lazy getters (`get View() {`), method shorthand
+ * (`unstable_batchedUpdates<T>(fn) {`), and plain properties (`Systrace: …`).
+ * A name missed here surfaces immediately as "does not provide an export named X"
+ * rather than silently, and the facade's export surface is asserted against the
+ * real module in the native suite, across every React Native version in CI.
+ */
+export function parseReactNativeExports(indexSource: string): string[] {
+  const start = indexSource.indexOf("module.exports = {");
+  if (start === -1) return [];
+  const body = indexSource.slice(start);
+  const names = new Set<string>();
+  for (const match of body.matchAll(
+    /^ {2}(?:get\s+)?([A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\s*[(:,]/gm,
+  )) {
+    const name = match[1];
+    if (name !== "default" && name !== "__esModule" && name !== "get") names.add(name);
+  }
+  return [...names];
+}
+
+/**
+ * Build (or reuse) the precompiled React Native registry for a project.
+ *
+ * The builder ships as runtime `.mjs` next to this file (it is also imported by the
+ * native setup file, which Node loads directly), so it is reached through a computed
+ * dynamic import rather than a static one — a static specifier would bundle a second
+ * copy into the plugin entry. Returns the registry path, or null when one could not
+ * be produced, in which case the engine keeps loading RN file by file.
+ */
+async function buildRegistryFor(options: {
+  projectRoot: string;
+  platform: string;
+  reactNativeVersion: string;
+  assetExts: string[];
+  diagnostics: boolean;
+}): Promise<string | null> {
+  try {
+    const dir = path.dirname(fileURLToPath(import.meta.url));
+    const module = (await import(pathToFileURL(path.resolve(dir, "native/registry.mjs")).href)) as {
+      buildRegistry: (o: typeof options) => string | null;
+    };
+    return module.buildRegistry(options);
+  } catch (error) {
+    if (options.diagnostics) {
+      console.warn(
+        `[vitest-native] could not precompile the React Native registry ` +
+          `(${(error as Error)?.message}); using per-file module loading.`,
+      );
+    }
+    return null;
+  }
+}
+
+/**
+ * Compile one inlined ecosystem file with the project's React Native Babel preset.
+ *
+ * The transformer ships as runtime `.mjs` (Node's loader hooks use it too), so it is
+ * loaded through a computed path rather than a static import, and synchronously —
+ * Vite's transform hook may be sync and the module is already resident by the time
+ * any file reaches this point.
+ */
+let ecosystemTransformer: ((f: string, c: string, r: string, p: string) => string) | null = null;
+function transformEcosystem(
+  file: string,
+  code: string,
+  projectRoot: string,
+  platform: string,
+): string {
+  if (!ecosystemTransformer) {
+    const dir = path.dirname(fileURLToPath(import.meta.url));
+    const mod = createRequire(import.meta.url)(path.resolve(dir, "native/transform.mjs")) as {
+      transformRN: (f: string, c: string, r: string, p: string) => string;
+    };
+    ecosystemTransformer = mod.transformRN;
+  }
+  return ecosystemTransformer(file, code, projectRoot, platform);
 }
 
 /**
@@ -370,6 +459,17 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // Real on-disk path of react-native/package.json (mock engine): version-gate
   // reads must see the real manifest, not the virtualized mock.
   let realRnPackageJson: string | undefined;
+  // Named exports the native engine's react-native facade re-exports, read from
+  // the real index's own `get X()` declarations. null when the facade is not
+  // available (React Native absent, or its index could not be read), in which case
+  // the native engine leaves `react-native` externalized exactly as before.
+  let rnFacadeExports: string[] | null = null;
+  let rnFacadeRoot = "";
+  // React Native packages the engine inlines and compiles itself (see
+  // native/ecosystem.ts). Matched by path so the transform hook can recognise a
+  // file as belonging to one.
+  let ecosystemPattern: RegExp | null = null;
+  let ecosystemRoot = "";
 
   // Caches for hot paths — resolveId and load are called for every import.
   const resolveCache = new Map<string, string | undefined>();
@@ -478,10 +578,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // Asset extensions for the Node require-hook to stub (matches the Vite-graph
       // asset stubbing): a CJS `require('./logo.png')` reaching Node's loader must
       // resolve to the basename string, not be compiled as JS.
-      env.VITEST_NATIVE_ASSET_EXTS = JSON.stringify([
+      const assetExtList = [
         ...DEFAULT_ASSET_EXTS,
         ...(options?.assetExts ?? []).map((e) => e.replace(/^\./, "")),
-      ]);
+      ];
+      env.VITEST_NATIVE_ASSET_EXTS = JSON.stringify(assetExtList);
       if (hotRuntime && hotRecycle.preserveGlobals?.length) {
         env.VITEST_NATIVE_HOT_PRESERVE_GLOBALS = JSON.stringify(hotRecycle.preserveGlobals);
       }
@@ -521,6 +622,44 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             env.VITEST_NATIVE_PRESET_CONFIG = JSON.stringify(presetConfig);
           }
         }
+        // Precompile React Native's require graph into a single file of lazy
+        // factories, once per (RN version × platform × Babel toolchain), disk-cached
+        // under node_modules/.cache. Every isolated test file then pays one read and
+        // one compile instead of ~440. Built here, in the Vite main process, so the
+        // cost is paid once per run rather than in every worker. A null result (RN
+        // absent, unwritable cache, an unparseable graph) simply leaves the per-file
+        // hooks in charge — the registry is an optimization, never a requirement.
+        // Packages that declare React Native in their own manifest ship source Node
+        // cannot run — untranspiled JSX, Flow, TypeScript — because they assume Metro
+        // will compile them. Detect them and inline them, rather than making every
+        // project rediscover the list one SyntaxError at a time.
+        const ecosystem = detectEcosystemPackages(resolvedRoot, transformPkgs);
+        if (ecosystem.length > 0) {
+          ecosystemRoot = resolvedRoot;
+          // Anchored on node_modules: a bare `[/\\]name[/\\]` match also hits any
+          // directory that happens to share the package's name — a project folder
+          // called `expo` made every file under it, including this package's own
+          // runtime, look like ecosystem source. Every layout that matters keeps the
+          // package under node_modules, including the pnpm and bun content stores.
+          ecosystemPattern = new RegExp(
+            `[\\\\/]node_modules[\\\\/](?:${ecosystem
+              .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+              .join("|")})[\\\\/]`,
+          );
+          if (diagnostics) {
+            console.log(`[vitest-native] inlining React Native packages: ${ecosystem.join(", ")}`);
+          }
+        }
+
+        const registryFile = await buildRegistryFor({
+          projectRoot: resolvedRoot,
+          platform,
+          reactNativeVersion: reactNativeVersion ?? "0.0.0",
+          assetExts: assetExtList,
+          diagnostics,
+        });
+        if (registryFile) env.VITEST_NATIVE_RN_REGISTRY = registryFile;
+
         // Lazy import: pulls in vitest/node, which only exists when running
         // under Vitest (not plain Vite) — and only the hot runtime needs it.
         let hot: { pool: PoolRunnerInitializer; runnerPath: string } | undefined;
@@ -538,6 +677,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           hot = {
             pool: nativePool({
               workerEntry: nativeWorkerPath,
+              projectRoot: resolvedRoot,
               recycleAfterFiles: hotRecycle.recycleAfterFiles,
               memoryLimit,
               diagnostics,
@@ -545,8 +685,40 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             runnerPath: nativeRunnerPath,
           };
         }
+        const userPool = (userConfig as { test?: { pool?: unknown } }).test?.pool;
+        // The VM pools run test code in a `vm` context whose module executor does not
+        // go through Node's loader, and `module.register()` — how the engine installs
+        // the ESM hook that Flow-strips React Native and resolves its platform files —
+        // throws there outright ("register is not available when running in Vitest").
+        // Without those hooks React Native never resolves its `.ios`/`.android` files
+        // and dies on `Platform.OS` deep inside NativeEventEmitter. Say so here rather
+        // than let that surface as an unexplained crash.
+        if (userPool === "vmThreads" || userPool === "vmForks") {
+          throw new Error(
+            `[vitest-native] engine:'native' cannot run on the '${userPool}' pool. React Native is ` +
+              `loaded through Node's module hooks, which a VM pool's context does not use — ` +
+              `React Native fails to resolve its platform files there. Use 'threads' (the ` +
+              `default) or 'forks', or switch to engine:'mock', which needs no hooks.`,
+          );
+        }
+        if (hot && userPool) {
+          console.warn(
+            `[vitest-native] 'hotRuntime' supplies its own pool, overriding the configured ` +
+              `pool '${typeof userPool === "string" ? userPool : "(custom)"}'.`,
+          );
+        }
         return asCompatibleViteConfig(
-          nativeEngineConfig(nativeSetupPath, env, extensions, transformPkgs, hot, jsxTransform),
+          nativeEngineConfig(
+            nativeSetupPath,
+            env,
+            extensions,
+            transformPkgs,
+            hot,
+            jsxTransform,
+            userPool,
+            ecosystem,
+            resolvedRoot,
+          ),
         );
       }
 
@@ -573,9 +745,28 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // JSX without importing React compile to `react/jsx-runtime` rather than
         // `React.createElement` ("React is not defined").
         ...jsxTransform,
+        // See native/apply.ts: `conditions` and `mainFields` cover the client
+        // environment only, and Vitest runs tests in the ssr one — a package shipping
+        // a React Native build behind either mechanism would otherwise resolve to its
+        // web build.
+        // Metro resolves `react-native` ahead of the standard fields, and plenty of
+        // packages published before `exports` still ship their native build that way.
+        // Vite drops `mainFields` for the ssr environment exactly as it drops
+        // `conditions` (see getDefaultEnvironmentOptions), so this has to be set where
+        // the tests resolve. Vite's own server defaults are kept underneath;
+        // `browser` is deliberately NOT added — Metro lists it, but under Node it would
+        // pull the web build of any package that has a browser field and no
+        // react-native one.
+        ssr: {
+          resolve: {
+            conditions: ["react-native"],
+            mainFields: ["react-native", "module", "jsnext:main", "jsnext"],
+          },
+        },
         resolve: {
           extensions,
           conditions: ["react-native"],
+          mainFields: ["react-native", "module", "jsnext:main", "jsnext"],
           // Single React instance across test code, the mock, and the renderer —
           // avoids a null hooks dispatcher from duplicate react copies in some
           // consumer projects (e.g. mock FlatList's useImperativeHandle).
@@ -641,6 +832,21 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         }
       }
 
+      // Read the facade's export list from React Native's own index.
+      if (engine === "native") {
+        rnFacadeRoot = config.root;
+        try {
+          const indexPath = createRequire(path.join(config.root, "package.json")).resolve(
+            "react-native",
+          );
+          const names = parseReactNativeExports(fs.readFileSync(indexPath, "utf8"));
+          rnFacadeExports = names.length > 0 ? names : null;
+        } catch {
+          // React Native not resolvable — keep `react-native` externalized.
+          rnFacadeExports = null;
+        }
+      }
+
       // Build the asset regex from the resolved extensions list. Extensions are
       // escaped (user-supplied entries may contain regex metacharacters) and the
       // match is case-insensitive ("LOGO.PNG" is an asset too — the native
@@ -650,11 +856,15 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     },
 
     resolveId(source, importer) {
-      // Native engine handles RN entirely in Node's CJS graph — no virtualization
-      // of react-native itself. But third-party preset modules (Reanimated, etc.)
-      // are still redirected to virtual mocks: their native runtimes can't load in
-      // Node, so they must be shadowed exactly as under the mock engine.
+      // Native engine: React Native itself still lives in Node's CJS graph, but the
+      // app/test graph reaches it through a facade module (see load()) so Vitest
+      // owns the module id and vi.mock('react-native') can intercept it. Third-party
+      // preset modules (Reanimated, etc.) are redirected to virtual mocks as under
+      // the mock engine — their native runtimes cannot load in Node.
       if (engine === "native") {
+        if (source === "react-native" && rnFacadeExports !== null) {
+          return "\0virtual:rn-facade";
+        }
         return resolvePresetId(source);
       }
 
@@ -724,6 +934,33 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     },
 
     load(id) {
+      // The native engine's react-native facade. It re-exports the SAME instance
+      // Node's graph holds — `_rn.View` is the very object an externalized library
+      // sees — so nothing about React Native's behaviour or identity changes. What
+      // changes is ownership of the module id: because the app/test graph now
+      // imports a module Vitest resolved, `vi.mock('react-native', …)` and
+      // `importOriginal()` work under the native engine, which is the single most
+      // common thing a migrating Jest suite reaches for.
+      //
+      // Reading each name off the index runs React Native's lazy getters eagerly.
+      // That is not a new cost: Node already materialises every detected named
+      // export when an ESM import consumes a CommonJS module, which is how this
+      // import resolved before.
+      if (id === "\0virtual:rn-facade" && rnFacadeExports !== null) {
+        const cached = virtualCodeCache.get(id);
+        if (cached) return cached;
+        const code = [
+          `import { createRequire } from "node:module";`,
+          `const _rn = createRequire(${JSON.stringify(
+            path.join(rnFacadeRoot, "package.json"),
+          )})("react-native");`,
+          ...rnFacadeExports.map((n) => `export const ${n} = _rn[${JSON.stringify(n)}];`),
+          `export default _rn;`,
+        ].join("\n");
+        virtualCodeCache.set(id, code);
+        return code;
+      }
+
       // Preset virtual modules — served for BOTH engines. Under native this is the
       // only virtualization (react-native itself loads from Node's CJS graph). The
       // generated module reads named exports from the runtime mock stored on
@@ -773,10 +1010,26 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // Native engine serves RN from Node's CJS graph — nothing else to load here.
       if (engine === "native") return undefined;
 
-      // The root react-native module — re-export nothing.
-      // vi.mock('react-native') in setup.ts provides the actual mock.
+      // The root react-native module. In a normal run setup.ts's
+      // vi.mock('react-native') intercepts this id and serves the mock directly, so
+      // this source is never evaluated. It matters when a TEST registers its own
+      // vi.mock('react-native', …): that replaces setup's registration, and the
+      // factory's importOriginal() then resolves to THIS module. Re-exporting the
+      // runtime mock is what makes the usual spread-and-override form work —
+      // otherwise `{ ...(await importOriginal()) }` spreads nothing and every export
+      // the test did not name disappears.
       if (id === "\0virtual:react-native") {
-        return "export default {};";
+        const cacheKey = "\0rn-root";
+        let code = virtualCodeCache.get(cacheKey);
+        if (!code) {
+          code = [
+            `const _rn = globalThis.__vitest_native_mock || {};`,
+            ...RN_EXPORT_NAMES.map((n) => `export const ${n} = _rn['${n}'];`),
+            `export default _rn;`,
+          ].join("\n");
+          virtualCodeCache.set(cacheKey, code);
+        }
+        return code;
       }
 
       // Subpath imports (react-native/Libraries/*, react-native/jest-preset, etc.)
@@ -809,8 +1062,30 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     },
 
     transform(code, id) {
-      // Native engine Flow-strips RN in Node's loader hooks, not Vite's pipeline.
-      if (engine === "native") return undefined;
+      // Native engine: React Native itself is Flow-stripped in Node's loader hooks,
+      // not here. The auto-inlined ecosystem packages are the exception — they live
+      // in Vite's graph precisely so Vitest owns them, which means Vite's pipeline
+      // has to be able to parse them, and it cannot: the ecosystem ships JSX and
+      // Flow in `.js` files that Vite leaves alone inside node_modules. Compile them
+      // with the project's own React Native Babel preset, the same transform the
+      // Node hooks apply to everything else.
+      if (engine === "native") {
+        if (!ecosystemPattern || !ecosystemPattern.test(id)) return undefined;
+        if (!/\.[cm]?[jt]sx?$/.test(id.split("?")[0])) return undefined;
+        try {
+          return { code: transformEcosystem(id, code, ecosystemRoot, platform), map: null };
+        } catch (error) {
+          // Leave the file untouched: Vite's own parse error names the real problem
+          // better than a Babel failure on a file Babel may simply not own.
+          if (diagnostics) {
+            console.warn(
+              `[vitest-native] could not compile inlined ${id} (${(error as Error)?.message}); ` +
+                `serving it untouched.`,
+            );
+          }
+          return undefined;
+        }
+      }
 
       // Flow-strip inlined node_modules sources whose path contains "react-native"
       // and that ship `@flow` — i.e. react-native-* ecosystem packages pulled into

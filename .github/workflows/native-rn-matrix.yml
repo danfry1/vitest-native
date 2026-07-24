@@ -15,9 +15,11 @@ name: Native engine — Vitest × RN matrix
 #  • Vitest (columns). Vitest churn is what bit-rotted the predecessor plugin
 #    (vitest-community/vitest-react-native) — and the hot runtime rides Vitest's
 #    @experimental internals (vitest/worker, ThreadsPoolWorker, poolRunner), the
-#    most churn-prone surface we depend on. Both the lockfile version and newest
-#    Vitest 4.x release are blocking because the declared peer range promises all
-#    Vitest 4 releases. Vitest 5 is rejected until deliberately supported.
+#    most churn-prone surface we depend on. Every column is blocking, because the
+#    declared peer range (>=4 <6) promises every one of them: the lockfile
+#    version, the newest Vitest 4.x release, and Vitest 5. The Vitest 5 column
+#    runs on the RN range's two ends rather than all six rows — it varies the
+#    RUNNER, and the RN axis is already covered twelve ways by the other columns.
 #
 # Every cell runs the native suite STOCK and HOT, plus the mock-vs-real-RN
 # cross-check — the full real-RN gate against that (Vitest, RN) pair.
@@ -58,6 +60,12 @@ jobs:
       matrix:
         rn: ['0.81', '0.82', '0.83', '0.84', '0.85', '0.86']
         vitest: ['locked', 'latest-supported']
+        include:
+          # Vitest 5 against the oldest and newest supported React Native.
+          - rn: '0.81'
+            vitest: 'v5'
+          - rn: '0.86'
+            vitest: 'v5'
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -106,6 +114,15 @@ jobs:
         # vs vitest fails to load (provider 4.1.x + runtime 4.0.x has bitten us).
         run: |
           bun add -d "vitest@^4" "@vitest/coverage-v8@^4" --cwd packages/vitest-native
+
+      - name: Pin Vitest to 5.x
+        if: matrix.vitest == 'v5'
+        # While 5.x is prerelease, `^5` resolves to nothing — the `beta` tag is the
+        # only way to reach it. bunfig's minimumReleaseAge still applies, so this
+        # lands on the newest beta at least a week old rather than whatever shipped
+        # today. Switch both to `^5` once 5.0.0 is released.
+        run: |
+          bun add -d "vitest@beta" "@vitest/coverage-v8@beta" --cwd packages/vitest-native
 
       - name: Resolved versions
         run: |

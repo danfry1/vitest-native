@@ -18,7 +18,8 @@ projects, experimental surfaces are labeled, and upstream compatibility is bound
 - Node 20.19 on Linux.
 - Node 22.13 on Linux, macOS, and Windows.
 - Patched Vite lines ^6.4.2, ^7.3.2, and ^8.0.5 through packed consumers.
-- Vitest 4.x, including the lockfile release and newest supported 4.x release.
+- Vitest 4.x and 5.x: the lockfile release, the newest supported 4.x release, and 5.x
+  (against the oldest and newest supported React Native).
 - React Native 0.81–0.85 in the full native matrix.
 - React Native 0.86 in a pinned packed Android consumer.
 - React Native Testing Library 12, 13, and 14.

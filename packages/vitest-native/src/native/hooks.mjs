@@ -50,7 +50,7 @@ export function installRequireHooks(
   }
 
   // Configured third-party packages to also transform (Flow/TS/JSX stripped).
-  const isExtra = buildPkgMatcher(transformPkgs);
+  const isExtra = buildPkgMatcher(transformPkgs, projectRoot);
 
   // Preset redirect (CJS): when an externalized third-party module require()s a
   // preset package by its bare name (e.g. @gorhom/bottom-sheet → require(
