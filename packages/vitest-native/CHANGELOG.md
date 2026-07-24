@@ -1,5 +1,337 @@
 # vitest-native
 
+## 0.9.0
+
+### Minor Changes
+
+- 3b08c19: Actionable errors and engine transparency for migration failure points.
+
+  - **Untransformed-package explainer**: when an externalized `node_modules` file throws a SyntaxError that fingerprints as untranspiled JSX/Flow/TypeScript (`Unexpected token '<'` and friends), the error now names the owning package and states the fix — `reactNative({ transform: ['<pkg>'] })` — with a link to the migration guide, instead of a bare Node compile stack. This is the single most common migration blocker observed in real-app bake-offs.
+  - **Decorated Babel failures**: a Babel crash inside the native transform now reports the file, platform, and owning package at the single transform choke point (ESM loader, CJS require hook, and `requireActual` all inherit it), chaining the original error as `cause`.
+  - **Engine banner**: one log line per process states which engine actually ran (`engine: native — real react-native@X` / `engine: mock — …`), so a silent `auto` fallback can never masquerade as real-RN testing.
+  - **Config-time fail-fast**: explicit `engine: 'native'` without `@react-native/babel-preset` / `@babel/core` now fails at config time with install instructions, instead of starting the run and dying inside the loader. The `auto`→mock fallback notice is now emitted via `console.warn`, and the Flow-strip parse-failure warning is always visible (no longer diagnostics-gated).
+  - **jest-compat signposts**: `jest.isolateModules`, `jest.createMockFromModule`, `jest.genMockFromModule`, and `jest.deepUnmock` now throw errors that name the API and its closest Vitest migration instead of bare `is not a function` TypeErrors; `jest.retryTimes` warns once and continues instead of crashing the suite.
+
+- a6a6ae3: The mock engine's Animated is now a live node graph, matching real React Native's semantics (previously it was a snapshot system — the largest known fidelity gap, and the class real-app bake-offs had to monkeypatch around).
+
+  - **Derived nodes are live.** `interpolate()` (numeric AND string), `add`/`subtract`/`multiply`/`divide`/`modulo`, and `diffClamp` recompute from their sources on every read and re-notify listeners when any source moves. Numeric interpolations chain; derived nodes are valid operands (previously coerced to 0); chaining off a string interpolation still throws like RN.
+  - **Animated components re-render.** `Animated.View`/`Text`/`Image`/`ScrollView`/`FlatList`/`SectionList` and `createAnimatedComponent` wrappers subscribe to every node in their style — a `setValue()` or `timing().start()` after render updates the rendered style, so `toHaveStyle` assertions see current values. Gated against real React Native by three new crosscheck probes (post-render `setValue`, live interpolation, live transform) — the corpus is now 78/78.
+  - **Offsets are real.** `setOffset`/`flattenOffset`/`extractOffset` implement RN's semantics (the canonical PanResponder drag pattern) on `Value` and `ValueXY`; `ValueXY.addListener` now reports the joint `{x, y}` value.
+  - **`__getValue()` exists on plain values** (RN's own tests call it), and `AnimatedValueXY`/`AnimatedColor` gained `__getValue`/`getValue` parity.
+  - **`useAnimatedValue`/`useAnimatedValueXY`/`useAnimatedColor` are real hooks**: the value is `useRef`-memoized and survives re-renders (previously every render minted a fresh node, silently resetting animation state — and rebuilt the entire Animated namespace to do it). Consequently they must now be called inside a component, exactly like on-device.
+
+- ac70dec: Compile React Native packages from `node_modules` automatically
+
+  Most of the React Native ecosystem publishes untranspiled source — JSX, Flow, or
+  TypeScript — assuming Metro will compile it. Node cannot run that, so every project
+  had to discover its own allowlist one `SyntaxError: Unexpected token '<'` at a time
+  and maintain it by hand in `transform: [...]`.
+
+  `engine: 'native'` now detects those packages: any dependency declaring `react-native`
+  in **its own** manifest is compiled with the project's React Native Babel preset and
+  inlined into the test graph. The manifest is the authority rather than a name pattern —
+  `react-native-*` misses `@gorhom/bottom-sheet` and would wrongly claim `react-native`
+  itself.
+
+  Because those packages land in the graph Vitest owns rather than being externalized,
+  `vi.mock('the-package')` now reaches them too. Mocking `react-native` itself still does
+  not change what a library sees — its own imports compile to `require`, which reaches
+  React Native directly.
+
+  Dependencies are read from the project's manifest and every manifest above it, so a
+  workspace that declares its React Native libraries at the repository root is covered.
+
+  Excluded automatically: packages a preset already shadows (their real source never
+  loads) and the test infrastructure — `@testing-library/react-native` and the renderers,
+  where a second copy in the graph corrupts rendering. `transform: [...]` keeps its
+  existing meaning for anything detection misses, and takes precedence over it.
+
+- bbbfc5d: Stub Expo's dev-server messageSocket under the native engine.
+
+  `expo`'s `Expo.fx` requires `async-require/messageSocket` whenever `__DEV__ && globalThis.expo`, and that module throws at load time when the bundle wasn't served over HTTP ("Cannot create devtools websocket connections in embedded environments"). Under the native engine this took down any suite importing an `expo-*` package (e.g. `expo-image`) — the primary blocker for Expo apps. The module's only job is a devtools websocket to a live dev server, an environment that doesn't exist under Node, so it is now stubbed to a no-op via the boundary mechanism — matching Jest's dev-server-layer mocks. All published variants are covered (`build/` output and `src/` TS sources, plain and `.native`), and the `.ts`/`.tsx` require handlers now consult boundary stubs, which previously only `.js` did.
+
+  Validated against the obytes Expo template bake-off: the login-form suite (previously import-time dead) now passes, 34/40 → 38/40 overall with the two remaining failures pre-existing and unrelated (bottom-sheet mock completeness).
+
+- 1a3bcea: New CLI: `npx vitest-native init | doctor | migrate`.
+
+  - **`init`** writes a ready-to-run Vitest config (`--jest-compat` for the exact jest-compat block the migration guide documents; refuses to overwrite without `--force`).
+  - **`doctor`** diagnoses the environment read-only: Node floor (including the RNTL 14 ⇄ Node 22.13 interaction, which previously surfaced only as a raw runtime failure), required peers against supported ranges, which engine `auto` resolves to and why, every auto-detected preset, Expo presence with known-limits pointer, and config presence. Exits non-zero on blocking problems.
+  - **`migrate`** analyzes the project's Jest configuration (`package.json#jest` or `jest.config.{js,cjs,json}`) and reports key-by-key what maps automatically (setup files, path aliases, `transformIgnorePatterns` allowlists → `transform: [...]`, timeouts, mock hygiene flags), what the auto-detected presets already cover (deletable manual `__mocks__` and setup lines), what needs a human, and what drops — ending with a complete suggested config. Dry-run by default; `--write` saves it. Test files are never edited (`jestMockTransform()` handles top-level `jest.mock` at runtime).
+
+  The packed-tarball consumer suite exercises the bin end-to-end (`npx vitest-native doctor|migrate`).
+
+- ac70dec: Precompile React Native's require graph so isolated test files stop paying to re-load it
+
+  The native engine runs React Native's real JavaScript, and with isolation on — the
+  default — that graph was re-instantiated for every test file: roughly 440 separate
+  Node module loads each time, one per RN source file. Measured on RN 0.86, that cost
+  ~59ms for a typical test's slice of React Native and ~110ms for the full public API,
+  per file.
+
+  React Native's graph is now walked once per (RN version × platform × Babel
+  toolchain) and emitted as a single file of lazy per-module factories with every
+  require target resolved ahead of time. A test file pays one read and one compile
+  instead of ~440. The registry is built in the Vite process, so the cost is paid once
+  per run, and it is cached under `node_modules/.cache/vitest-native` keyed by a
+  manifest of the files it was built from — a reinstalled or patched React Native
+  rebuilds it rather than serving stale code.
+
+  Measured on this repository's native suite: aggregate import time 8.8s → 1.9s
+  (4.6×), wall clock 1.81s → 1.05s.
+
+  Semantics are unchanged by design. Module identity is preserved, so React Native's
+  singletons behave exactly as before and a deep `react-native/Libraries/...` require
+  from an ecosystem package resolves to the same instance the app sees. Laziness is
+  preserved, so a test that touches `View` and `StyleSheet` still does not execute the
+  rest of React Native. Anything the registry cannot serve — a computed require, a
+  module outside the entry graph, a package listed in `transform` — falls through to
+  the per-file loader hooks, and a registry that cannot be built leaves the engine
+  running exactly as it did before.
+
+- ac70dec: `vi.mock('react-native')` now works under the native engine
+
+  React Native runs in Node's module graph under `engine: 'native'`, which put it
+  outside Vitest's module registry — so `vi.mock('react-native', …)`, the single most
+  common thing an existing Jest suite does, silently had no effect. It was the most
+  frequently hit blocker when moving a real suite over.
+
+  The app and test graph now import React Native through a facade module the plugin
+  serves. The facade re-exports the same instances Node's graph holds, so React
+  Native's behaviour and object identity are unchanged — an externalized library and
+  your test still see the very same `Dimensions`, `Platform`, and `StyleSheet`. What
+  changes is that Vitest owns the module id, which is what lets it intercept:
+
+  ```ts
+  vi.mock("react-native", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("react-native")>()),
+    Alert: { alert: vi.fn() },
+  }));
+  ```
+
+  `importOriginal()` returns real React Native, everything left unmocked stays real,
+  and components still render React Native's own host components (`RCTView`, not a
+  stand-in).
+
+  One limit worth knowing: the interception covers modules in your project's graph —
+  your app and test code. A third-party package that Vitest externalizes resolves
+  React Native through Node and will still see the unmocked module. Add such a package
+  to `transform: [...]` if its view of React Native needs to be mocked too.
+
+- ac70dec: Support Vitest 5
+
+  The peer range widens from `>=4 <5` to `>=4 <6`. Nothing in the package needed to
+  change for it: the native engine, the mock engine, the precompiled React Native
+  registry, the `react-native` facade, and the hot runtime all run unmodified on Vitest
+  5, including its `@experimental` worker API.
+
+  The claim is backed the same way the Vitest 4 support is. The CI matrix gains a
+  Vitest 5 column — run against the oldest and newest supported React Native, since it
+  varies the runner rather than RN — and it is blocking, because a declared peer range
+  is a promise about every release inside it. Each cell runs the native suite stock and
+  hot plus the mock-vs-real-RN cross-check, exactly as the Vitest 4 columns do.
+
+  While 5.x is still prerelease it is reachable only through its `beta` tag; the
+  repository's install-age policy still applies, so CI resolves the newest beta at least
+  a week old rather than whatever published that day.
+
+- 2d07b7a: Add a built-in `react-native-worklets` preset (auto-detected). Worklets is Reanimated's low-level runtime and is also imported directly by apps (e.g. `import { scheduleOnUI } from 'react-native-worklets'`). It ships a Jest mock at `react-native-worklets/lib/module/mock` that is ESM ending in `module.exports = …`; under the native engine React Native and its ecosystem are externalized, so requiring that file through Node throws `module is not defined in ES module scope` and takes down the whole test file. The preset shadows the package with a self-contained mock modelled on worklets' own `mock.js` API (schedulers run their worklet synchronously, matching the Reanimated preset), so worklets-using suites load and render without a hand-written mock.
+
+### Patch Changes
+
+- e49168e: Bound hot-runtime memory by default. When `hotRuntime` is enabled on the native engine and neither `memoryLimit` nor `recycleAfterFiles` is configured, a default per-worker memory ceiling of `clamp(totalmem * 0.25, 768MB, 1.5GB)` is now applied. Hot workers keep React Native resident and accumulate roughly 4 MB per file, so without a bound a long suite could grow toward OOM; the default lets multi-worker runs recycle a worker once it crosses the ceiling, keeping total memory bounded out of the box.
+
+  An explicit `memoryLimit` or `recycleAfterFiles` is respected unchanged. Single-worker hot still cannot recycle (Vitest batches all files into one scheduler task), so the bound is inert there and the existing one-time "recycling INACTIVE" warning advises running with `maxWorkers >= 2`.
+
+- 0d38401: Fix two `mock` engine divergences from real React Native, found by the behavioral cross-check:
+
+  - `Pressable` now resolves function `style` and `children` (`({ pressed }) => …`) against its press state, matching real RN's resting render and updating while pressed. Previously the functions were passed through untouched, so the style was never applied and function children never rendered.
+  - `processColor()` returns `undefined` for an unparseable color (matching real RN's normalizer) instead of coercing to opaque black.
+
+  Also publishes the cross-check as a generated, drift-guarded fidelity report — a live badge and a docs page listing the full corpus and what is deliberately left ungated — and expands the corpus to 75 probes.
+
+- 6c29566: Expand the "Migrating from Jest" guide with the empirically-derived limits of a real migration: a "Known limits" section covering assertions coupled to Jest's RN mock internals that don't port under a real-RN engine (`jest.spyOn(View.prototype, …)`, mocks of RN internal submodules, raw `source`-shape assertions, `jest.mock` nested in callbacks), an Expo-core caveat, and concrete guidance for the `transformIgnorePatterns` → `transform` allowlist (including the JSX-in-`.js` third-party-lib parse error and its fix).
+- ac70dec: Narrow the mock engine's Flow-strip, and stop `migrate` opting packages out of auto-compilation
+
+  **Flow-strip targeting.** The mock engine compiles React Native ecosystem packages
+  pulled into the Vite graph, selected by testing for `react-native` anywhere in the
+  file's path. That also matched every dependency of a project in a directory called
+  `react-native-app`, and packages like `eslint-plugin-react-native` — running a Flow
+  parser over files with nothing to do with React Native. It now matches the package
+  name after `node_modules`: a name beginning with `react-native` (scoped or not, so
+  `@shopify/react-native-skia` counts) or a scope beginning with `@react-native`.
+  Everything the substring test legitimately caught is still caught, and nothing else
+  is.
+
+  **`npx vitest-native migrate`.** It translated Jest's `transformIgnorePatterns` into
+  `transform: [...]` entries for packages the engine now detects and compiles by itself.
+  That was worse than redundant: an explicit `transform` entry takes precedence, so the
+  suggested config would have opted those packages back out of inlining, losing
+  `vi.mock` support for no gain. Packages declaring `react-native` are now reported as
+  already handled.
+
+  Also adds a test that the plugin's virtual `react-native` module exports exactly what
+  the mock provides — the two lists were in step, but only by hand.
+
+- f6c4c5b: Provide `SourceCode.getConstants().scriptURL` at the native boundary. RN's `getDevServer` (`Libraries/Core/Devtools/getDevServer.js`) reads `scriptURL` and calls `.match()` on it; under the native engine the value was `undefined`, so `getDevServer` threw and took down any test whose module graph reached it. The boundary now returns a `file://` (bundled) URL for the `SourceCode` native module. It is deliberately not an `http(s)` URL: `getDevServer` only treats `http(s)` script URLs as a live dev server, so a `file://` value keeps `bundleLoadedFromServer` false — tests run as if loaded from a bundle rather than a Metro dev server, which prevents RN internals and third-party SDKs from believing they're connected to a packager and attempting real network I/O against `localhost:8081`. This mirrors the intent of RN's own Jest mock (which keeps that flag off).
+- ac70dec: Explain why `engine: 'native'` cannot run on a VM pool
+
+  Now that a configured `pool` is respected rather than overridden, `vmThreads` and
+  `vmForks` reach the native engine — where they cannot work. VM pools execute test code
+  in a `vm` context whose module executor bypasses Node's loader, and `module.register()`
+  (how the engine installs the ESM hook that Flow-strips React Native and resolves its
+  platform files) throws there outright. The failure surfaced far from its cause, as
+  `Platform.OS` being undefined deep inside `NativeEventEmitter`.
+
+  The plugin now refuses at config time and names the alternatives: `threads` (the
+  default), `forks`, or `engine: 'mock'`, which needs no hooks.
+
+- ac70dec: Stop overriding a configured `pool`, and refuse a mismatched Vitest instead of reporting nothing
+
+  Two fixes to the native engine's pool handling.
+
+  **A configured `pool` is no longer discarded.** A plugin's `config()` result is merged
+  over the user's config, and the native engine returned `pool: 'threads'`
+  unconditionally — so a project asking for `forks`, `vmThreads`, or its own custom pool
+  silently got `threads`, with no warning and no way to tell from the outside. `threads`
+  is now only a default, applied when no pool was configured. (`hotRuntime` still
+  supplies its own pool, since opting into it _is_ choosing one, and now warns when that
+  overrides a configured pool.)
+
+  **`hotRuntime` now fails loudly when its worker would load a different Vitest.** The
+  hot worker entry ships inside vitest-native, so its `import 'vitest/worker'` resolves
+  from this package's location rather than the project's. Where a monorepo has more than
+  one Vitest install — a linked package, a hoisted `node_modules`, mixed versions across
+  workspaces — the worker and the host end up on different installations. Nothing about
+  that was visible: the start handshake succeeded, the run request was accepted, no
+  result was ever reported, and Vitest printed "No test files found" with no error at
+  all. The pool now compares the two resolved paths at config time and throws, naming
+  both, rather than letting a run pass having tested nothing.
+
+- ac70dec: Resolve React Native package entries the way Metro does
+
+  Both engines set `resolve.conditions: ['react-native']`, which governs Vite's _client_
+  environment. Vitest runs tests in the **ssr** environment, which keeps its own list —
+  Vite drops both `conditions` and `mainFields` when deriving it — so neither was ever
+  applied to anything a test imported.
+
+  Any package shipping a distinct React Native build behind that condition therefore
+  loaded its web build instead:
+
+  ```jsonc
+  "exports": { ".": { "react-native": "./native.js", "default": "./web.js" } }
+  ```
+
+  The same held for the legacy mechanism, still used by packages published before
+  `exports`:
+
+  ```jsonc
+  "main": "./web.js", "react-native": "./native.js"
+  ```
+
+  Metro resolves both ahead of the standard fields, so tests were exercising code the
+  app never runs, with nothing to indicate it. Both are now set for the ssr environment
+  as well as the client one, under both engines, with a regression test each.
+
+  `browser` is deliberately not added to `mainFields` even though Metro lists it: under
+  Node it would pull the web build of any package that has a browser field and no
+  react-native one.
+
+  **Upgrade note.** The `react-native` field is honoured wherever it appears, not only
+  on React Native libraries — Algolia's clients, `nanoid` and `msgpackr` all ship one,
+  usually pointing at a browser or ESM build. Metro resolves those the same way, so this
+  is the build the app actually runs, but a dependency may now load a different file
+  than it did before. If that is a problem for one package, `transform: ['the-package']`
+  or an explicit `resolve.alias` pins it.
+
+- ac70dec: Fix a stale-registry hazard and restore React Native's stack frames
+
+  Two defects in the precompiled registry, both found by reviewing it adversarially
+  rather than by a failing test.
+
+  **The cache key ignored the boundary mocks' content.** It hashed their module _names_,
+  but the mocks are compiled into the registry, so changing one — a maintainer editing a
+  mock, or a user upgrading to a release that changed one — left the cached registry
+  valid and kept serving the previous behaviour with nothing to indicate it. The key now
+  hashes the rendered mock source, and this package's own version alongside it, covering
+  everything else it contributes.
+
+  **Stack frames from inside React Native lost their file.** Collapsing ~440 modules
+  into one file meant an RN-internal failure reported
+  `registry/rn-ios-<hash>.cjs:253:7638` instead of
+  `Libraries/Animated/nodes/AnimatedInterpolation.js` — the useful part of the frame.
+  The registry now emits a source map attributing every generated line to the React
+  Native file it came from, and enables Node's source-map support before compiling
+  itself. Failure output names real React Native files again, at no runtime cost.
+
+  Also relaxes the `hotRuntime` Vitest guard added alongside it: it compared resolved
+  paths, so a monorepo with the same Vitest version installed in two trees was refused
+  even though those interoperate fine. Only a version difference is an error now.
+
+- 4c567c1: Make native-engine turboStubs identity-stable and spy-able. Unmocked native modules were served by a Proxy that minted a fresh stub object on every property access and whose get trap never consulted the target — so `NativeModules.Foo !== NativeModules.Foo`, and `vi.spyOn(NativeModules.Foo, 'method')` silently recorded nothing (the spy landed on a throwaway object). Stubs are now memoized per module name in the shared boundary state (`NativeModules.Foo === TurboModuleRegistry.get('Foo')`, matching bridgeless RN), methods are memoized on first read, and explicitly-set properties win — so spies record and restore correctly. A `has` trap reports all properties present, consistent with the get trap's serve-anything behavior, which `vi.spyOn`'s existence check requires. Under the hot runtime, per-file overrides (spies, memoized methods) are cleared between files via the surgical-reset registry while stub identity is preserved for resident libraries holding references.
+- 57f155d: Fix three silent resolution-fidelity gaps around deep (subpath) imports.
+
+  - **`react-native` subpath default exports are now the leaf module.** `import Platform from 'react-native/Libraries/Utilities/Platform'` previously received the entire mock object as `Platform`, so `Platform.OS` was silently `undefined`. The virtual subpath modules (ESM) and the CJS bridge now derive the intended export from the subpath's basename and serve it as the default — CJS requires get Babel-interop shape (`{ __esModule, default }` via a live wrapper) so both `require('.../Platform').OS` and `_interopRequireDefault(...)` consumers work. Unknown leaves keep the previous whole-mock fallback.
+  - **`react-native/package.json` (and preset `pkg/package.json`) resolve to the real manifest.** Version gates like `require('react-native/package.json').version` previously read the mock and got `undefined`. Both the Vite-graph and CJS-bridge interception now exempt the manifest; when the package is not installed, the previous mock fallback is kept rather than erroring.
+  - **Preset shadowing now covers subpath imports.** `import Swipeable from 'react-native-gesture-handler/Swipeable'` (and CJS equivalents, including requires nested inside externalized third-party libraries) previously bypassed the preset mock entirely and loaded the package's real native-runtime code — or failed resolution outright on package versions that no longer ship the deep file. All three redirect layers (Vite plugin, ESM loader hook, CJS require hook) now match subpaths of preset packages and serve the mock export named by the subpath's leaf, falling back to the root mock. JSON and asset-extension subpaths are exempt so manifests and font/image files keep resolving from disk. CJS interop wrappers are memoized per specifier (keyed by the live mock set, so hot-runtime per-file rebuilds stay correct) to keep module identity stable across repeated requires.
+
+- 3b1c396: Native-engine transform cache rework: project-local, content-keyed, lazy Babel.
+
+  - **The transform disk cache moves from `os.tmpdir()` to the project's `node_modules/.cache/vitest-native/`** (tmpdir fallback when node_modules is absent or unwritable). tmpdir is ephemeral on CI runners — every job paid a full cold Babel transform of React Native's ~250-file boot graph — and macOS purges it periodically. The new location persists across runs and is restorable by standard CI dependency-cache actions. The V8 compile cache is colocated.
+  - **Disk entries are keyed by content hash (platform + path + source), not mtime + size.** Content keys survive fresh installs, Docker mtime normalization, and CI cache restores — and eliminate the stale-hit class where a same-size, same-mtime file with different content served wrong executable code. The path stays in the key because Babel's output embeds the filename (`_jsxFileName` in transformed JSX), so identical sources at different paths must not share an entry; restores are valid wherever the checkout path is stable, which CI workspaces are. The cache directory name now also carries the `@babel/core` version alongside the preset version, so a Babel upgrade invalidates cleanly.
+  - **`@babel/core` loads lazily, only on a cache miss.** Loading Babel costs ~35ms vs ~0.5ms for the resolve-only version check, and under the default engine every isolated worker paid it even when every file came from the disk cache. Measured on the package's own native suite (warm cache): aggregate worker setup down ~30%, wall clock ~11% — the effect scales with test-file count.
+
+- ac70dec: Match `transform: [...]` packages by their real location, not by name anywhere in the path
+
+  The pattern behind `transform` tested for `/<package-name>/` anywhere in a file's
+  path, so any **directory** sharing a package's name was treated as that package. A
+  project folder called `expo`, or a source directory named after the library it
+  implements, made every file beneath it get compiled and externalized as third-party
+  source — including, in one case, this package's own runtime, which then failed with
+  `Vitest cannot be imported in a CommonJS module using require()`.
+
+  A file now matches only if it is inside the package's resolved directory, or under
+  `node_modules/<name>/`. Both rules are needed: the resolved directory covers workspace
+  and `file:` dependencies, which resolve to a real path with no `node_modules` segment,
+  while the `node_modules` rule covers additional copies of a package that a single
+  resolution cannot see.
+
+- 091a572: Three hardening fixes:
+
+  - **Prerelease peer versions no longer fail validation.** A prerelease sharing the minimum's major.minor (e.g. vitest `4.0.0-beta.3` against the `4.0.0` floor) parsed with `NaN` in the patch slot, failed the minimum check, and hard-errored at startup for installs running betas/RCs. Prerelease/build metadata is now stripped before comparison; a prerelease of the minimum itself is accepted.
+  - **Mock-engine asset stubs match the native loader's semantics.** The extension match is now case-insensitive (`LOGO.PNG` stubs like `logo.png`), user-supplied `assetExts` entries are regex-escaped, and the stubbed basename is JSON-stringified so filenames containing quotes emit valid JS.
+  - **The mock engine's Flow-strip transform skips unparseable files instead of throwing.** The `@flow` filter is a heuristic — the marker can appear inside a string or comment of a file `flow-remove-types` then fails to parse; that parse error previously took down the whole transform pipeline.
+
+- ac70dec: Fix `importOriginal()` inside a test's own `vi.mock('react-native')` under the mock engine
+
+  A test that registered its own `vi.mock('react-native', …)` replaced the registration
+  the setup file makes, and the factory's `importOriginal()` then resolved to an empty
+  module. The near-universal spread-and-override form therefore dropped every export
+  the test did not name:
+
+  ```ts
+  vi.mock("react-native", async (importOriginal) => ({
+    ...(await importOriginal()), // was empty
+    Alert: { alert: vi.fn() },
+  }));
+  // -> No "Platform" export is defined on the "react-native" mock
+  ```
+
+  The virtual `react-native` module now re-exports the runtime mock, so
+  `importOriginal()` returns the full surface and unnamed exports survive.
+
+- ac70dec: Stop the hot runtime's legacy-runner import from breaking on Vitest 5
+
+  `hotRuntime`'s test runner imported `vitest/runners` as a fallback for Vitest 4.0.x,
+  guarded by a runtime check. The guard does not help: a literal specifier is resolved
+  when the module is transformed, not when the branch runs. Vitest 5 removed that
+  subpath, so the resolve failed on every test file — and the failure mode was the worst
+  kind, reporting unhandled errors, running no tests, and still exiting 0.
+
+  The fallback specifier is now computed, so it stays invisible to the resolver: Vitest
+  4.0.x keeps its fallback and Vitest 5 never looks for it.
+
+- a756f6a: Make `jest.requireActual('react-native')` return a writable facade. Jest suites commonly clone-and-override React Native — `const RN = jest.requireActual('react-native'); RN.Platform = {...}; return RN`. Under the native engine RN's index is a facade of lazy getters with no setters, so assigning to it threw `Cannot set property … which has only a getter` and failed to load the whole test file. `requireActual('react-native')` now returns a write-through proxy: reads fall through to the real (lazy) facade, and assignments are captured so the override wins on later reads — matching Jest's mutable module. Only `react-native` is wrapped; its submodules and other packages are ordinary mutable CommonJS.
+
 ## 0.8.0
 
 ### Minor Changes
