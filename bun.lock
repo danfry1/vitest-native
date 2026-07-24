@@ -71,6 +71,7 @@
         "react-native-safe-area-context": "5.8.0",
         "react-native-worklets": "0.9.1",
         "react-test-renderer": "^19.2.3",
+        "rn-ecosystem-lib": "file:./tests-native/fixtures/rn-ecosystem-lib",
         "test-renderer": "^1.2.0",
         "tsdown": "0.21.10",
         "typescript": "6.0.3",
@@ -84,7 +85,7 @@
         "@testing-library/react-native": ">=12 <15",
         "react": ">=18",
         "vite": "^6.4.2 || ^7.3.2 || ^8.0.5",
-        "vitest": ">=4 <5",
+        "vitest": ">=4 <6",
       },
       "optionalPeers": [
         "@babel/core",
@@ -1828,6 +1829,8 @@
     "vitest-native/ext-platform-lib": ["ext-platform-lib@file:packages/vitest-native/tests-native/fixtures/ext-platform-lib", {}],
 
     "vitest-native/ext-rn-named-lib": ["ext-rn-named-lib@file:packages/vitest-native/tests-native/fixtures/ext-rn-named-lib", {}],
+
+    "vitest-native/rn-ecosystem-lib": ["rn-ecosystem-lib@file:packages/vitest-native/tests-native/fixtures/rn-ecosystem-lib", { "peerDependencies": { "react-native": "*" } }],
 
     "vitest-native/untranspiled-jsx-lib": ["untranspiled-jsx-lib@file:packages/vitest-native/tests-native/fixtures/untranspiled-jsx-lib", {}],
 

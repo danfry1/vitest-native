@@ -22,12 +22,21 @@ export function nativeEngineConfig(
   hot?: { pool: PoolRunnerInitializer; runnerPath: string },
   jsxTransform: JsxTransformConfig = { esbuild: { jsx: "automatic" } },
   userPool?: unknown,
+  inlinePkgs: string[] = [],
 ) {
   // Extra packages whose source the Node hooks should transform. They must also
   // be externalized so they load through Node (where the hooks run) rather than
   // Vite's pipeline. Passed to the hooks via env (globalThis doesn't cross the
   // worker boundary).
   const extraExternal = transformPkgs.map((p) => new RegExp(`[\\\\/]${escapeRe(p)}[\\\\/]`));
+  // Auto-detected React Native packages go the other way: INLINED, so Vitest owns
+  // them. That is what lets vi.mock() intercept them and what puts their module
+  // state under Vitest's per-file reset. The plugin's transform hook compiles their
+  // untranspiled source (see plugin.ts); Vite would otherwise refuse to parse the
+  // JSX and Flow the ecosystem ships.
+  const ecosystemInline = inlinePkgs.map(
+    (p) => new RegExp(`[\\\\/]node_modules[\\\\/]${escapeRe(p)}[\\\\/]`),
+  );
   const fullEnv = { ...env };
   if (transformPkgs.length > 0) fullEnv.VITEST_NATIVE_TRANSFORM = JSON.stringify(transformPkgs);
   return {
@@ -81,6 +90,7 @@ export function nativeEngineConfig(
             /[\\/]node_modules[\\/]@react-native[\\/]/,
             ...extraExternal,
           ],
+          ...(ecosystemInline.length > 0 ? { inline: ecosystemInline } : {}),
         },
       },
     },

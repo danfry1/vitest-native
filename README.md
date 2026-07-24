@@ -130,6 +130,9 @@ want no RN at all — fast, deterministic, environment-controllable.
 - **RNTL compatible** — Works with `@testing-library/react-native` automatically.
 - **Third-party presets** — auto-detected mocks for reanimated, gesture handler, safe area,
   navigation, screens, async-storage, device-info, mmkv, svg, webview, and Expo.
+- **React Native packages compile automatically** — any dependency declaring
+  `react-native` in its own manifest is detected and compiled, so the ecosystem's
+  untranspiled JSX/Flow/TypeScript just works without a hand-maintained list.
 - **`vi.mock('react-native')` works under both engines** — including `importOriginal()`, so you
   can replace one export and keep the rest real. See [Mocking React Native](#mocking-react-native).
 - **Jest-compat layer** — `vitest-native/jest-compat` eases migrating existing Jest suites.
@@ -341,10 +344,33 @@ for real in Node, and the plugin serves your graph a facade over that same insta
 `Platform.OS` is still real, `<View>` still renders `RCTView`, and only the exports you
 replaced are yours.
 
-**Scope.** Interception covers your project's own graph — your app and test code. A
-third-party package that Vitest externalizes resolves React Native through Node and still
-sees the unmocked module. If a library's *own* view of React Native has to be mocked, add
-it to `transform: ['the-package']` so it's transformed and inlined alongside your code.
+**Scope.** Interception covers your project's own graph — your app and test code, plus
+every auto-detected React Native package (see below), which is inlined alongside it. A
+package outside that set is externalized, resolves React Native through Node, and still
+sees the unmocked module.
+
+## React Native packages in `node_modules`
+
+Most of the React Native ecosystem publishes untranspiled source — JSX, Flow, or
+TypeScript — on the assumption that Metro will compile it. Node can't run that, which
+under other runners means discovering a `transformIgnorePatterns` allowlist one
+`SyntaxError: Unexpected token '<'` at a time.
+
+`engine: 'native'` detects those packages instead: any dependency that declares
+`react-native` in **its own** manifest is compiled with your project's React Native Babel
+preset and inlined into the test graph. Nothing to configure, and because they end up in
+the graph Vitest owns, `vi.mock('the-package')` reaches them.
+
+Excluded automatically: packages a [preset](#third-party-presets) already replaces (their
+real source never loads), and the test infrastructure itself (`@testing-library/react-native`
+and the renderers, where a second copy corrupts rendering).
+
+For anything the detection misses — a transitive dependency, or a package that doesn't
+declare `react-native` — `transform: ['the-package']` still works and takes precedence:
+
+```ts
+reactNative({ transform: ['some-untranspiled-package'] })
+```
 
 For native modules specifically, prefer `mockNativeModule()` from `vitest-native/helpers`
 — it drives the same boundary the engine already mocks, under both engines.

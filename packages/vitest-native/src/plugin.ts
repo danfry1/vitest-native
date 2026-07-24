@@ -11,6 +11,7 @@ import { validateOptions, validatePeerDependency, warnUnknownOptions } from "./v
 import { PEER_REQUIREMENTS } from "./peer-requirements.js";
 import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
+import { detectEcosystemPackages } from "./native/ecosystem.js";
 
 const DEFAULT_ASSET_EXTS = [
   "png",
@@ -182,6 +183,31 @@ async function buildRegistryFor(options: {
     }
     return null;
   }
+}
+
+/**
+ * Compile one inlined ecosystem file with the project's React Native Babel preset.
+ *
+ * The transformer ships as runtime `.mjs` (Node's loader hooks use it too), so it is
+ * loaded through a computed path rather than a static import, and synchronously —
+ * Vite's transform hook may be sync and the module is already resident by the time
+ * any file reaches this point.
+ */
+let ecosystemTransformer: ((f: string, c: string, r: string, p: string) => string) | null = null;
+function transformEcosystem(
+  file: string,
+  code: string,
+  projectRoot: string,
+  platform: string,
+): string {
+  if (!ecosystemTransformer) {
+    const dir = path.dirname(fileURLToPath(import.meta.url));
+    const mod = createRequire(import.meta.url)(path.resolve(dir, "native/transform.mjs")) as {
+      transformRN: (f: string, c: string, r: string, p: string) => string;
+    };
+    ecosystemTransformer = mod.transformRN;
+  }
+  return ecosystemTransformer(file, code, projectRoot, platform);
 }
 
 /**
@@ -439,6 +465,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // the native engine leaves `react-native` externalized exactly as before.
   let rnFacadeExports: string[] | null = null;
   let rnFacadeRoot = "";
+  // React Native packages the engine inlines and compiles itself (see
+  // native/ecosystem.ts). Matched by path so the transform hook can recognise a
+  // file as belonging to one.
+  let ecosystemPattern: RegExp | null = null;
+  let ecosystemRoot = "";
 
   // Caches for hot paths — resolveId and load are called for every import.
   const resolveCache = new Map<string, string | undefined>();
@@ -598,6 +629,28 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // cost is paid once per run rather than in every worker. A null result (RN
         // absent, unwritable cache, an unparseable graph) simply leaves the per-file
         // hooks in charge — the registry is an optimization, never a requirement.
+        // Packages that declare React Native in their own manifest ship source Node
+        // cannot run — untranspiled JSX, Flow, TypeScript — because they assume Metro
+        // will compile them. Detect them and inline them, rather than making every
+        // project rediscover the list one SyntaxError at a time.
+        const ecosystem = detectEcosystemPackages(resolvedRoot, transformPkgs);
+        if (ecosystem.length > 0) {
+          ecosystemRoot = resolvedRoot;
+          // Anchored on node_modules: a bare `[/\\]name[/\\]` match also hits any
+          // directory that happens to share the package's name — a project folder
+          // called `expo` made every file under it, including this package's own
+          // runtime, look like ecosystem source. Every layout that matters keeps the
+          // package under node_modules, including the pnpm and bun content stores.
+          ecosystemPattern = new RegExp(
+            `[\\\\/]node_modules[\\\\/](?:${ecosystem
+              .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+              .join("|")})[\\\\/]`,
+          );
+          if (diagnostics) {
+            console.log(`[vitest-native] inlining React Native packages: ${ecosystem.join(", ")}`);
+          }
+        }
+
         const registryFile = await buildRegistryFor({
           projectRoot: resolvedRoot,
           platform,
@@ -663,6 +716,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             hot,
             jsxTransform,
             userPool,
+            ecosystem,
           ),
         );
       }
@@ -988,8 +1042,30 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     },
 
     transform(code, id) {
-      // Native engine Flow-strips RN in Node's loader hooks, not Vite's pipeline.
-      if (engine === "native") return undefined;
+      // Native engine: React Native itself is Flow-stripped in Node's loader hooks,
+      // not here. The auto-inlined ecosystem packages are the exception — they live
+      // in Vite's graph precisely so Vitest owns them, which means Vite's pipeline
+      // has to be able to parse them, and it cannot: the ecosystem ships JSX and
+      // Flow in `.js` files that Vite leaves alone inside node_modules. Compile them
+      // with the project's own React Native Babel preset, the same transform the
+      // Node hooks apply to everything else.
+      if (engine === "native") {
+        if (!ecosystemPattern || !ecosystemPattern.test(id)) return undefined;
+        if (!/\.[cm]?[jt]sx?$/.test(id.split("?")[0])) return undefined;
+        try {
+          return { code: transformEcosystem(id, code, ecosystemRoot, platform), map: null };
+        } catch (error) {
+          // Leave the file untouched: Vite's own parse error names the real problem
+          // better than a Babel failure on a file Babel may simply not own.
+          if (diagnostics) {
+            console.warn(
+              `[vitest-native] could not compile inlined ${id} (${(error as Error)?.message}); ` +
+                `serving it untouched.`,
+            );
+          }
+          return undefined;
+        }
+      }
 
       // Flow-strip inlined node_modules sources whose path contains "react-native"
       // and that ship `@flow` — i.e. react-native-* ecosystem packages pulled into
