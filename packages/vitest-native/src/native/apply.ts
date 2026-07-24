@@ -8,7 +8,23 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+import { createRequire } from "node:module";
+import path from "node:path";
 import type { PoolRunnerInitializer } from "vitest/node";
+
+/**
+ * The on-disk directory a package resolves to, or null. Used alongside the
+ * node_modules-anchored patterns so workspace and `file:` dependencies — which
+ * resolve to a real path with no node_modules segment — are matched too.
+ */
+function resolvePackageDir(name: string, projectRoot: string): string | null {
+  try {
+    const req = createRequire(path.join(projectRoot, "package.json"));
+    return path.dirname(req.resolve(`${name}/package.json`));
+  } catch {
+    return null;
+  }
+}
 
 export type JsxTransformConfig =
   | { esbuild: { jsx: "automatic" } }
@@ -23,20 +39,34 @@ export function nativeEngineConfig(
   jsxTransform: JsxTransformConfig = { esbuild: { jsx: "automatic" } },
   userPool?: unknown,
   inlinePkgs: string[] = [],
+  projectRoot: string = process.cwd(),
 ) {
   // Extra packages whose source the Node hooks should transform. They must also
   // be externalized so they load through Node (where the hooks run) rather than
   // Vite's pipeline. Passed to the hooks via env (globalThis doesn't cross the
   // worker boundary).
-  const extraExternal = transformPkgs.map((p) => new RegExp(`[\\\\/]${escapeRe(p)}[\\\\/]`));
+  // Anchored on node_modules, plus each package's resolved directory. A bare
+  // `[/\]name[/\]` also matches any DIRECTORY sharing a package's name, which
+  // externalized unrelated files — including this package's own runtime when a
+  // project folder happened to share the name. The resolved directory covers
+  // workspace and `file:` links, which have no node_modules segment at all.
+  const extraExternal = transformPkgs.flatMap((p) => {
+    const patterns = [new RegExp(`[\\\\/]node_modules[\\\\/]${escapeRe(p)}[\\\\/]`)];
+    const dir = resolvePackageDir(p, projectRoot);
+    if (dir) patterns.push(new RegExp(`^${escapeRe(dir.replace(/\\/g, "/"))}[\\\\/]`));
+    return patterns;
+  });
   // Auto-detected React Native packages go the other way: INLINED, so Vitest owns
   // them. That is what lets vi.mock() intercept them and what puts their module
   // state under Vitest's per-file reset. The plugin's transform hook compiles their
   // untranspiled source (see plugin.ts); Vite would otherwise refuse to parse the
   // JSX and Flow the ecosystem ships.
-  const ecosystemInline = inlinePkgs.map(
-    (p) => new RegExp(`[\\\\/]node_modules[\\\\/]${escapeRe(p)}[\\\\/]`),
-  );
+  const ecosystemInline = inlinePkgs.flatMap((p) => {
+    const patterns = [new RegExp(`[\\\\/]node_modules[\\\\/]${escapeRe(p)}[\\\\/]`)];
+    const dir = resolvePackageDir(p, projectRoot);
+    if (dir) patterns.push(new RegExp(`^${escapeRe(dir.replace(/\\/g, "/"))}[\\\\/]`));
+    return patterns;
+  });
   const fullEnv = { ...env };
   if (transformPkgs.length > 0) fullEnv.VITEST_NATIVE_TRANSFORM = JSON.stringify(transformPkgs);
   return {

@@ -717,6 +717,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             jsxTransform,
             userPool,
             ecosystem,
+            resolvedRoot,
           ),
         );
       }
