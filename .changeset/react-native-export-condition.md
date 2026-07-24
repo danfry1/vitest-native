@@ -30,3 +30,10 @@ as well as the client one, under both engines, with a regression test each.
 `browser` is deliberately not added to `mainFields` even though Metro lists it: under
 Node it would pull the web build of any package that has a browser field and no
 react-native one.
+
+**Upgrade note.** The `react-native` field is honoured wherever it appears, not only
+on React Native libraries — Algolia's clients, `nanoid` and `msgpackr` all ship one,
+usually pointing at a browser or ESM build. Metro resolves those the same way, so this
+is the build the app actually runs, but a dependency may now load a different file
+than it did before. If that is a problem for one package, `transform: ['the-package']`
+or an explicit `resolve.alias` pins it.

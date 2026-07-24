@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import lib from "rn-condition-lib";
 import mainField from "rn-mainfield-lib";
+import genericField from "generic-mainfield-lib";
 
 describe("React Native package resolution", () => {
   it("resolves the react-native condition, not the web build", () => {
@@ -18,5 +19,14 @@ describe("React Native package resolution", () => {
     // drops mainFields for the ssr environment just as it drops conditions, so this
     // needs setting where the tests resolve.
     expect(mainField.entry).toBe("native");
+  });
+
+  it("applies the react-native field to packages that are not RN libraries", () => {
+    // Deliberate, and a behaviour change worth knowing about: the field is honoured
+    // wherever it appears, not only on React Native packages. Algolia's clients,
+    // nanoid and msgpackr all ship one, usually pointing at a browser or ESM build.
+    // Metro resolves those the same way, so this is what the app actually runs — but
+    // it does mean a dependency can load a different build than it did before.
+    expect(genericField.entry).toBe("react-native-field");
   });
 });

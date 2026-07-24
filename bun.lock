@@ -63,6 +63,7 @@
         "expo-status-bar": "56.0.4",
         "ext-platform-lib": "file:./tests-native/fixtures/ext-platform-lib",
         "ext-rn-named-lib": "file:./tests-native/fixtures/ext-rn-named-lib",
+        "generic-mainfield-lib": "file:./tests-native/fixtures/generic-mainfield-lib",
         "react": "^19.2.3",
         "react-native": "^0.86.0",
         "react-native-gesture-handler": "3.0.0",
@@ -1831,6 +1832,8 @@
     "vitest-native/ext-platform-lib": ["ext-platform-lib@file:packages/vitest-native/tests-native/fixtures/ext-platform-lib", {}],
 
     "vitest-native/ext-rn-named-lib": ["ext-rn-named-lib@file:packages/vitest-native/tests-native/fixtures/ext-rn-named-lib", {}],
+
+    "vitest-native/generic-mainfield-lib": ["generic-mainfield-lib@file:packages/vitest-native/tests-native/fixtures/generic-mainfield-lib", {}],
 
     "vitest-native/rn-condition-lib": ["rn-condition-lib@file:packages/vitest-native/tests-native/fixtures/rn-condition-lib", { "peerDependencies": { "react-native": "*" } }],
 

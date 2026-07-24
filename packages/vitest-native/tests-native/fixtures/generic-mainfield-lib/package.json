@@ -1,0 +1,7 @@
+{
+  "name": "generic-mainfield-lib",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./index.cjs",
+  "react-native": "./index.native.cjs"
+}

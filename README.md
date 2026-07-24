@@ -367,6 +367,18 @@ Excluded automatically: packages a [preset](#third-party-presets) already replac
 real source never loads), and the test infrastructure itself (`@testing-library/react-native`
 and the renderers, where a second copy corrupts rendering).
 
+### Package entry points
+
+Entries resolve the way Metro resolves them: the `react-native` export condition and
+the `react-native` main field win over the standard ones, so a package ships its
+React Native build to your tests rather than its web or Node build.
+
+This applies wherever those fields appear, including on packages that aren't React
+Native libraries — Algolia's clients, `nanoid` and `msgpackr` all carry one. That
+matches what the app runs, but it does mean a dependency can resolve to a different
+file here than under a plain Node runner. To pin one, use `transform: ['the-package']`
+or an explicit `resolve.alias`.
+
 For anything the detection misses — a transitive dependency, or a package that doesn't
 declare `react-native` — `transform: ['the-package']` still works and takes precedence:
 
