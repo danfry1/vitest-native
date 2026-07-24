@@ -219,11 +219,19 @@ function assertWorkerVitestMatchesProject(workerEntry: string, projectRoot: stri
  * The reason `hotRuntime` cannot run in this environment, or null.
  *
  * The hot runtime drives its own worker entry through `vitest/worker`'s `init()`, an
- * `@experimental` surface. On Node 24 with vitest 4.1.9 that surface does not work at
- * all — a bare ten-line entry importing nothing from this package fails identically,
- * so the broken piece is upstream rather than our use of it. The symptom is 37 failed
- * suites reporting "Cannot read properties of undefined (reading 'config')" and a run
- * that finishes having executed no tests, with nothing in it pointing at the cause.
+ * `@experimental` surface. That combination does not work: every test file fails with
+ * "Cannot read properties of undefined (reading 'config')" and the run finishes having
+ * executed no tests, with nothing in it pointing at the cause.
+ *
+ * The cause is NOT established. What is known: it needs all four of Node >= 24,
+ * vitest 4.1.9, a custom worker entry, and this plugin. vitest 4.1.8 is fine on the
+ * same Node; Node 20 and 22 are fine on the same Vitest; Vitest's stock worker is fine;
+ * and a custom pool with a bare worker entry in a project WITHOUT this plugin passes,
+ * so it is not simply an upstream regression in the custom-worker API. Pre-loading
+ * Vitest's module graph before this package installs its Node loader hooks does not
+ * help either, which rules out the obvious interference theory.
+ *
+ * Refusing by name is therefore a mitigation, not a diagnosis.
  *
  * Node 20 and 22 are unaffected on the same Vitest, and Node 24 is fine on 4.1.8.
  * Versions are injectable so both branches are testable wherever the suite runs.
