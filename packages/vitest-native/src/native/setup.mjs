@@ -6,6 +6,7 @@ import path from "node:path";
 import { expect, vi } from "vitest";
 import { installGlobals } from "./globals.mjs";
 import { installRequireHooks } from "./hooks.mjs";
+import { installRegistry } from "./registry.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
 import * as presetFactories from "../presets.mjs";
 import { animatedMatchers } from "../matchers.mjs";
@@ -120,6 +121,19 @@ if (!globalThis.__vitest_native_loader_registered) {
   register("./loader.mjs", import.meta.url, {
     data: { projectRoot, platform, reactNativeVersion, transformPkgs, presetExports, assetExts },
   });
+}
+// Serve React Native from the precompiled registry when the plugin produced one
+// (see registry.mjs). Installed BEFORE the require hooks so their preset-mock
+// redirect wraps this one and keeps precedence. Any module the registry cannot
+// serve — a computed require, a package in `transform` — falls through to the
+// hooks below, so this is purely a faster path to the same modules.
+if (process.env.VITEST_NATIVE_RN_REGISTRY) {
+  const installed = installRegistry(process.env.VITEST_NATIVE_RN_REGISTRY, projectRoot);
+  if (diagnostics) {
+    console.log(
+      `[vitest-native] (native) precompiled RN registry ${installed ? "installed" : "unavailable; using per-file module loading"}`,
+    );
+  }
 }
 installRequireHooks(projectRoot, transformPkgs, platform, reactNativeVersion, assetExts);
 

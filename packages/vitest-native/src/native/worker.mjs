@@ -16,6 +16,7 @@ import { init, runBaseTests, setupEnvironment } from "vitest/worker";
 import { installGlobals } from "./globals.mjs";
 import { installRequireHooks } from "./hooks.mjs";
 import { installHotReset } from "./reset.mjs";
+import { installRegistry } from "./registry.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
 
 if (isMainThread || !parentPort) {
@@ -57,6 +58,14 @@ if (diagnostics) {
 // graph's bytecode is cached to disk for the next worker/run.
 enableV8CompileCache(projectRoot);
 installGlobals();
+// The registry must be installed BEFORE the preload below, not just by the setup
+// file: whichever path first resolves react-native decides which instance the
+// worker keeps resident, and a preload that bypassed the registry would leave the
+// worker holding a second, separate copy of RN's singletons from the one every
+// test file sees.
+if (process.env.VITEST_NATIVE_RN_REGISTRY) {
+  installRegistry(process.env.VITEST_NATIVE_RN_REGISTRY, projectRoot);
+}
 installRequireHooks(projectRoot, transformPkgs, platform, reactNativeVersion, assetExts);
 try {
   const req = createRequire(path.join(projectRoot, "package.json"));

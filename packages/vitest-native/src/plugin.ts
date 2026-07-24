@@ -2,7 +2,7 @@ import type { Plugin, UserConfig } from "vite";
 import type { PoolRunnerInitializer } from "vitest/node";
 import type { VitestNativeOptions, ResolvedOptions, Preset } from "./types.js";
 import { getPlatformExtensions } from "./resolve.js";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -119,6 +119,39 @@ function getJsxTransformConfig(projectRoot: string): JsxTransformConfig {
   return viteMajor >= 8
     ? { oxc: { jsx: { runtime: "automatic" } } }
     : { esbuild: { jsx: "automatic" } };
+}
+
+/**
+ * Build (or reuse) the precompiled React Native registry for a project.
+ *
+ * The builder ships as runtime `.mjs` next to this file (it is also imported by the
+ * native setup file, which Node loads directly), so it is reached through a computed
+ * dynamic import rather than a static one — a static specifier would bundle a second
+ * copy into the plugin entry. Returns the registry path, or null when one could not
+ * be produced, in which case the engine keeps loading RN file by file.
+ */
+async function buildRegistryFor(options: {
+  projectRoot: string;
+  platform: string;
+  reactNativeVersion: string;
+  assetExts: string[];
+  diagnostics: boolean;
+}): Promise<string | null> {
+  try {
+    const dir = path.dirname(fileURLToPath(import.meta.url));
+    const module = (await import(pathToFileURL(path.resolve(dir, "native/registry.mjs")).href)) as {
+      buildRegistry: (o: typeof options) => string | null;
+    };
+    return module.buildRegistry(options);
+  } catch (error) {
+    if (options.diagnostics) {
+      console.warn(
+        `[vitest-native] could not precompile the React Native registry ` +
+          `(${(error as Error)?.message}); using per-file module loading.`,
+      );
+    }
+    return null;
+  }
 }
 
 /**
@@ -478,10 +511,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // Asset extensions for the Node require-hook to stub (matches the Vite-graph
       // asset stubbing): a CJS `require('./logo.png')` reaching Node's loader must
       // resolve to the basename string, not be compiled as JS.
-      env.VITEST_NATIVE_ASSET_EXTS = JSON.stringify([
+      const assetExtList = [
         ...DEFAULT_ASSET_EXTS,
         ...(options?.assetExts ?? []).map((e) => e.replace(/^\./, "")),
-      ]);
+      ];
+      env.VITEST_NATIVE_ASSET_EXTS = JSON.stringify(assetExtList);
       if (hotRuntime && hotRecycle.preserveGlobals?.length) {
         env.VITEST_NATIVE_HOT_PRESERVE_GLOBALS = JSON.stringify(hotRecycle.preserveGlobals);
       }
@@ -521,6 +555,22 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             env.VITEST_NATIVE_PRESET_CONFIG = JSON.stringify(presetConfig);
           }
         }
+        // Precompile React Native's require graph into a single file of lazy
+        // factories, once per (RN version × platform × Babel toolchain), disk-cached
+        // under node_modules/.cache. Every isolated test file then pays one read and
+        // one compile instead of ~440. Built here, in the Vite main process, so the
+        // cost is paid once per run rather than in every worker. A null result (RN
+        // absent, unwritable cache, an unparseable graph) simply leaves the per-file
+        // hooks in charge — the registry is an optimization, never a requirement.
+        const registryFile = await buildRegistryFor({
+          projectRoot: resolvedRoot,
+          platform,
+          reactNativeVersion: reactNativeVersion ?? "0.0.0",
+          assetExts: assetExtList,
+          diagnostics,
+        });
+        if (registryFile) env.VITEST_NATIVE_RN_REGISTRY = registryFile;
+
         // Lazy import: pulls in vitest/node, which only exists when running
         // under Vitest (not plain Vite) — and only the hot runtime needs it.
         let hot: { pool: PoolRunnerInitializer; runnerPath: string } | undefined;
