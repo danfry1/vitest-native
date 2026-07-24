@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
@@ -38,6 +38,15 @@ const build = (platform: "ios" | "android" = "ios"): string => {
   if (!file) throw new Error("registry build returned null");
   return file;
 };
+
+// Building a registry for a platform the cache has never seen means Babel-
+// transforming React Native's whole graph — seconds of real work, and more on a
+// cold Windows runner. Warm both platforms once, under a timeout that reflects
+// that, so no individual test is racing a transform it did not ask for.
+beforeAll(() => {
+  build("ios");
+  build("android");
+}, 300_000);
 
 describe("precompiled RN registry: build", () => {
   it("emits a registry exposing React Native's public surface", () => {
