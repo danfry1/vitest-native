@@ -17,6 +17,7 @@ import { installGlobals } from "./globals.mjs";
 import { installRequireHooks } from "./hooks.mjs";
 import { installHotReset } from "./reset.mjs";
 import { installRegistry } from "./registry.mjs";
+import { captureModuleBaseline } from "./module-reset.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
 
 if (isMainThread || !parentPort) {
@@ -100,9 +101,15 @@ try {
     { cause: error },
   );
 }
+const resetModules = captureModuleBaseline();
 const { hotReset, bless } = installHotReset({ projectRoot, diagnostics, preserveGlobals });
-globalThis.__vitest_native_hot_reset = hotReset; // invoked by setup.mjs per file
-globalThis.__vitest_native_hot_bless = bless; // invoked by runner.mjs after each import phase
+globalThis.__vitest_native_hot_reset = () => {
+  globalThis.__vitest_native_registry_reset?.();
+  const dropped = resetModules();
+  hotReset();
+  if (diagnostics) console.log(`[vitest-native] hot reset: dropped ${dropped} modules`);
+};
+globalThis.__vitest_native_hot_bless = bless;
 
 function runWithPerFileIsolation(method) {
   return (state, traces) => {

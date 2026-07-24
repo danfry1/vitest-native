@@ -37,7 +37,7 @@ import { resolvePlatformFile } from "./resolve.mjs";
 const RN_PATH = /[\\/]node_modules[\\/](react-native|@react-native)[\\/]/;
 // Bump when the emitted registry's shape or the walk's semantics change, so a
 // stale on-disk registry from an older vitest-native can never be reused.
-const REGISTRY_FORMAT_VERSION = 1;
+const REGISTRY_FORMAT_VERSION = 2;
 
 /**
  * Literal `require('…')` / `require("…")` calls. The leading class excludes
@@ -268,7 +268,7 @@ function emit(files, modules) {
     `const __entry = __r(0);`,
     `module.exports = __entry;`,
     `Object.defineProperty(module.exports, "__vitestNativeRegistry", {`,
-    `  value: { ids: __ids, load: __r, entry: __ids[0] },`,
+    `  value: { ids: __ids, load: __r, entry: __ids[0], reset: () => { __m.length = 0; } },`,
     `  enumerable: false, configurable: true,`,
     `});`,
   ];
@@ -440,6 +440,7 @@ export function installRegistry(registryFile, projectRoot) {
     return false;
   }
   globalThis.__vitest_native_registry_installed = true;
+  globalThis.__vitest_native_registry_reset = () => registry.reset();
 
   const idOf = new Map(registry.ids.map((f, i) => [f, i]));
   const entryId = idOf.get(registry.entry);
