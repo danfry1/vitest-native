@@ -73,6 +73,29 @@ describe("detectEcosystemPackages", () => {
     expect(detectEcosystemPackages(dir, ["some-lib"])).toEqual([]);
   });
 
+  it("sees dependencies declared above the project, as workspaces do", () => {
+    // An app package often inherits its React Native libraries from the repository
+    // root, and a Vitest `root` can point above or below the package that owns them.
+    // Reading only the project's own manifest found nothing in those layouts.
+    const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-ws-"));
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify({ name: "monorepo", private: true, dependencies: { "rn-lib": "1" } }),
+    );
+    const dep = path.join(root, "node_modules", "rn-lib");
+    fs.mkdirSync(dep, { recursive: true });
+    fs.writeFileSync(
+      path.join(dep, "package.json"),
+      JSON.stringify({ name: "rn-lib", version: "1.0.0", main: "index.js", ...rnDep }),
+    );
+    fs.writeFileSync(path.join(dep, "index.js"), "module.exports = {};");
+    const app = path.join(root, "apps", "mobile");
+    fs.mkdirSync(app, { recursive: true });
+    fs.writeFileSync(path.join(app, "package.json"), JSON.stringify({ name: "mobile" }));
+
+    expect(detectEcosystemPackages(app)).toEqual(["rn-lib"]);
+  });
+
   it("ignores declared packages that are not installed", () => {
     const dir = project({ dependencies: { "never-installed": "1" } }, {});
     expect(detectEcosystemPackages(dir)).toEqual([]);

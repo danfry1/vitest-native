@@ -22,4 +22,12 @@ describe("auto-detected React Native packages", () => {
   it("is reachable by vi.mock, which externalized packages are not", () => {
     expect(renderCount()).toBe(4242);
   });
+
+  it("still sees the real React Native even when the test mocks it", async () => {
+    // Documented scope: mocking react-native rewrites what the TEST graph imports.
+    // An inlined package's own imports compile to require(), which reaches React
+    // Native directly — so a library never observes the test's mock.
+    const { Platform } = await import("react-native");
+    expect(Platform.OS).toBe("ios");
+  });
 });

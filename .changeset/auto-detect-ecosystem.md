@@ -16,7 +16,12 @@ inlined into the test graph. The manifest is the authority rather than a name pa
 itself.
 
 Because those packages land in the graph Vitest owns rather than being externalized,
-`vi.mock('the-package')` now reaches them too.
+`vi.mock('the-package')` now reaches them too. Mocking `react-native` itself still does
+not change what a library sees — its own imports compile to `require`, which reaches
+React Native directly.
+
+Dependencies are read from the project's manifest and every manifest above it, so a
+workspace that declares its React Native libraries at the repository root is covered.
 
 Excluded automatically: packages a preset already shadows (their real source never
 loads) and the test infrastructure — `@testing-library/react-native` and the renderers,

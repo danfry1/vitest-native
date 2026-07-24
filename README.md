@@ -344,10 +344,12 @@ for real in Node, and the plugin serves your graph a facade over that same insta
 `Platform.OS` is still real, `<View>` still renders `RCTView`, and only the exports you
 replaced are yours.
 
-**Scope.** Interception covers your project's own graph — your app and test code, plus
-every auto-detected React Native package (see below), which is inlined alongside it. A
-package outside that set is externalized, resolves React Native through Node, and still
-sees the unmocked module.
+**Scope.** Interception covers your project's own graph — your app and test code. A
+third-party package sees the *unmocked* React Native, whether or not it is inlined:
+its own `import`s of React Native compile to `require`, which reaches React Native
+directly rather than through the mocked module. Mocking a package's own module id
+(`vi.mock('some-rn-package')`) does work for the packages the engine inlines — see
+below.
 
 ## React Native packages in `node_modules`
 
