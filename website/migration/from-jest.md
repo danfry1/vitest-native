@@ -2,7 +2,10 @@
 
 **Honest expectation first:** this is **not a turnkey drop-in.** Real React Native Jest suites couple to Jest at several levels (the `jest` global, `@jest/globals`, `jest.mock('react-native')`, `@react-native/jest-preset`, jest-native matchers, recorded snapshots). The [`vitest-native/jest-compat`](/guide/jest-compat) layer clears the *API coupling* mechanically; the rest is a small, well-defined per-suite cleanup.
 
-This guide is grounded in real migration runs against production apps — **react-native-paper** (fresh component tests), the **obytes template**, and **Rocket.Chat** (existing Jest suites).
+This guide is informed by migration runs against production apps, but support claims come from
+minimal package-owned tests. External apps include custom Jest setup and migration shims, so their
+pass counts are observations rather than capability verdicts. See the
+[validation model](/guide/validation-model).
 
 ::: tip Recommended path: adopt incrementally
 Point vitest-native at *new* tests (zero migration cost, better DX, real-RN fidelity when you want it) while your existing Jest suite keeps running on Jest. Migrate older tests as you touch them, rather than all at once.

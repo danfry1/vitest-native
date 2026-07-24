@@ -8,8 +8,10 @@ A fast pure-JS **mock** engine is available as an opt-in for RN-free unit tests.
 
 > **Beta.** The reproducible guarantee is a CI-gated behavioral cross-check that runs the same
 > assertions under the mock engine **and** real React Native across RN 0.81–0.86, failing the build
-> on any divergence. We've also exercised the native engine against real apps in our own testing
-> (react-native-paper, the obytes template, Rocket.Chat). Some APIs may still shift before 1.0.
+> on any divergence. Pinned external apps are also run as non-authoritative integration
+> observations; their custom migration setup and Jest-era shims do not define package support.
+> See the [validation model](https://danfry1.github.io/vitest-native/guide/validation-model).
+> Some APIs may still shift before 1.0.
 >
 > Maintained successor to
 > [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native)
@@ -38,15 +40,10 @@ Two engines behind one plugin, so you choose the fidelity each suite needs:
   existing Jest suite, and migrate older tests as you touch them.
 
 Migrating a large, deeply Jest-coupled suite *wholesale* is possible but **not turnkey** — see
-[Migrating from Jest](#migrating-from-jest). As a real, reproducible data point:
-[react-native-paper](https://github.com/callstack/react-native-paper)'s own test suite runs
-**625 of 734 tests (~85%)** under the native engine — no paper source changed, just an RNTL bump and
-the test config/setup. The remaining failures are tests coupled to Jest's RN-mock internals (e.g.
-`vi.spyOn(View.prototype, 'measure')`, deep `jest.mock('react-native/…')` of Appearance/Dimensions),
-not vitest-native bugs. The Expo-based [obytes template](https://github.com/obytes/react-native-template-obytes)
-runs **34 of 40 (~85%)** — a more deeply-coupled case needing a few library mocks. Both are public
-and reproducible: [vitest-native-bakeoffs](https://github.com/danfry1/vitest-native-bakeoffs). We've
-also migrated a Rocket.Chat suite in local testing.
+[Migrating from Jest](#migrating-from-jest). We run pinned public apps as integration observations,
+but their custom configs, dependency changes, snapshots, and Jest-era shims make their pass counts
+unsuitable as capability or fidelity claims. External failures are reduced into package-owned
+tests before we classify them as vitest-native behavior.
 
 ## Quick Start
 
@@ -241,8 +238,8 @@ optional. They apply under **both** engines.
 
 ## API Coverage
 
-vitest-native's mock engine covers **every stable React Native public export** — 82/82 stable
-exports as of RN 0.84 (7 unstable/experimental internals are intentionally skipped; see
+vitest-native's mock engine covers **every stable React Native public export** — 85/85 stable
+exports as of RN 0.86 (14 unstable/experimental internals are intentionally skipped; see
 [Not Covered](#not-covered)). Parity is enforced by a CI-gated `check-compat` script that diffs
 the mock against real RN's export list weekly.
 

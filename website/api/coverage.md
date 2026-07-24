@@ -1,6 +1,6 @@
 # API Coverage
 
-vitest-native's mock engine covers **every stable React Native public export** — 82/82 stable exports as of RN 0.84, with 7 unstable/experimental internals intentionally skipped (see [Not covered](#not-covered)). Parity isn't a one-time claim: a CI-gated `check-compat` script diffs the mock against real RN's export list weekly and opens a tracking issue on any gap. The native engine runs real React Native, so coverage there is simply *all of RN*.
+vitest-native's mock engine covers **every stable React Native public export** — 85/85 stable exports as of RN 0.86, with 14 unstable/experimental internals intentionally skipped (see [Not covered](#not-covered)). Parity isn't a one-time claim: a CI-gated `check-compat` script resolves the exact installed RN package, diffs its runtime export list against the mock weekly, and opens a tracking issue on any gap. The native engine runs real React Native, so coverage there is simply *all of RN*.
 
 ## Components (27)
 

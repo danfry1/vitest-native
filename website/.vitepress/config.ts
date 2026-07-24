@@ -81,6 +81,7 @@ export default defineConfig({
           text: 'Reference',
           items: [
             { text: 'API Coverage', link: '/api/coverage' },
+            { text: 'Validation Model', link: '/guide/validation-model' },
             { text: 'Fidelity Report', link: '/guide/fidelity' },
             { text: 'Fidelity Matrix', link: '/guide/fidelity-matrix' },
             { text: 'Comparison with Jest', link: '/guide/comparison' },

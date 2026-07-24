@@ -10,7 +10,11 @@ Two engines behind one plugin (`reactNative()`), so you choose the fidelity each
 - `engine: 'mock'`: a fast, zero-dependency pure-JS reimplementation of React Native. No Babel. For pure-logic suites, environment control, maximum determinism. Covers 100% of RN's stable public API.
 - `engine: 'auto'` (the default): native when babel deps present, else mock.
 
-A CI-gated behavioral cross-check runs the same assertions against both the mock and real RN across RN 0.81–0.84, keeping the mock honest.
+A CI-gated behavioral cross-check runs the same assertions against both the mock and real RN across RN 0.81–0.86, keeping the mock honest.
+
+## Evidence rules
+
+Package capability and fidelity are defined only by package-owned conformance tests, behavioral crosschecks, packed consumer fixtures, version matrices, and the exact-version API compatibility check. Pinned external apps are observational tripwires only: they include custom migration configuration, dependency pins, snapshots, Jest-era mocks, fake timers, and other shims. Never infer that vitest-native regressed, a behavior is unsupported, or a migration is impossible from a bakeoff result alone. First reduce the behavior into a minimal package-owned test. See https://danfry1.github.io/vitest-native/guide/validation-model.
 
 ## Setup
 
@@ -23,7 +27,7 @@ import { reactNative } from 'vitest-native'
 export default defineConfig({ plugins: [reactNative()] })
 ```
 
-Requirements: Node >= 20, Vitest >= 4, Vite >= 5, React >= 18, React Native 0.81–0.84 (native engine). RNTL (@testing-library/react-native) 12–14 is an optional peer; auto-configured when installed.
+Requirements: Node >= 20, Vitest >= 4 < 5, Vite ^6.4.2 or ^7.3.2 or ^8.0.5, React >= 18, React Native 0.81–0.86 (native engine). RNTL (@testing-library/react-native) 12–14 is an optional peer; auto-configured when installed.
 
 ## Plugin options
 
@@ -38,7 +42,7 @@ Requirements: Node >= 20, Vitest >= 4, Vite >= 5, React >= 18, React Native 0.81
 
 ## Presets (auto-detected, apply under both engines)
 
-reanimated, gestureHandler, safeAreaContext, navigation, screens, asyncStorage, expo, deviceInfo, mmkv, svg, webview. Coming from Jest, delete your manual native-lib mocks — presets replace them.
+reanimated, worklets, gestureHandler, safeAreaContext, navigation, screens, asyncStorage, expo, deviceInfo, mmkv, svg, webview, vectorIcons, flashList, bottomSheet, keyboardController. Coming from Jest, delete manual native-library mocks when a matching preset covers them.
 
 ## Test helpers (`vitest-native/helpers`)
 
@@ -54,6 +58,7 @@ For migrating existing Jest suites: jestCompatSetup (jest global backed by vi), 
 - Choosing an engine: https://danfry1.github.io/vitest-native/guide/engines
 - Presets: https://danfry1.github.io/vitest-native/guide/presets
 - API coverage: https://danfry1.github.io/vitest-native/api/coverage
+- Validation model: https://danfry1.github.io/vitest-native/guide/validation-model
 - Migrating from Jest: https://danfry1.github.io/vitest-native/migration/from-jest
 - Migrating from vitest-react-native: https://danfry1.github.io/vitest-native/migration/from-vitest-react-native
 - Repo: https://github.com/danfry1/vitest-native

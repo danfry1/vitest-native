@@ -100,6 +100,10 @@ jobs:
       - name: Build
         run: bun run build
 
+      - name: Enforce published package budget
+        if: runner.os == 'Linux' && matrix.node-version == '22.13.0' && !matrix.rntl
+        run: bun run --filter vitest-native check:size
+
       - name: Test
         run: bun run test
 
