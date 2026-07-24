@@ -5,6 +5,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 // @ts-expect-error — runtime .mjs, no types
 import { transformRN } from "../src/native/transform.mjs";
+import { parseReactNativeExports } from "../src/plugin.js";
 
 // Anchor all resolution to THIS test file's location (cwd-independent — vitest's
 // process.cwd() varies with where it was launched). Walk up from here looking for
@@ -685,5 +686,36 @@ describe("plugin subpath resolution (mock engine)", () => {
     // Unknown leaves keep the whole-mock default.
     const unknownId = plugin.resolveId("react-native/jest-preset", undefined);
     expect(plugin.load(unknownId)).toContain("export default _rn;");
+  });
+});
+
+describe("parseReactNativeExports", () => {
+  it("reads React Native's real index, covering every member shape", () => {
+    const names = parseReactNativeExports(fs.readFileSync(path.join(RN, "index.js"), "utf8"));
+    expect(names).toContain("View"); // lazy getter
+    expect(names).toContain("unstable_batchedUpdates"); // generic method shorthand
+    expect(names).toContain("Systrace"); // plain property
+    expect(names).not.toContain("get");
+    expect(names.length).toBeGreaterThan(80);
+  });
+
+  it("ignores members of nested objects", () => {
+    const source = [
+      "module.exports = {",
+      "  get View(): View {",
+      "    return require('./View').default;",
+      "  },",
+      "  Nested: {",
+      "    notAnExport: 1,",
+      "    alsoNot() {},",
+      "  },",
+      "  plain: 1,",
+      "};",
+    ].join("\n");
+    expect(parseReactNativeExports(source).sort()).toEqual(["Nested", "View", "plain"]);
+  });
+
+  it("returns nothing when the index has no exports object", () => {
+    expect(parseReactNativeExports("const a = 1;")).toEqual([]);
   });
 });

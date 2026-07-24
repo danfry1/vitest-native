@@ -122,6 +122,36 @@ function getJsxTransformConfig(projectRoot: string): JsxTransformConfig {
 }
 
 /**
+ * The names React Native's index exports.
+ *
+ * They cannot be read with a normal import: the index is Flow source, and its
+ * exports are lazy getters that neither a bundler nor cjs-module-lexer can see.
+ * They also cannot be read by requiring the module here — that would execute React
+ * Native inside the Vite process, before any of the engine's globals exist.
+ *
+ * So they are parsed out of the `module.exports = { … }` object literal, whose
+ * members sit at one indentation level. React Native uses three member shapes
+ * there: lazy getters (`get View() {`), method shorthand
+ * (`unstable_batchedUpdates<T>(fn) {`), and plain properties (`Systrace: …`).
+ * A name missed here surfaces immediately as "does not provide an export named X"
+ * rather than silently, and the facade's export surface is asserted against the
+ * real module in the native suite, across every React Native version in CI.
+ */
+export function parseReactNativeExports(indexSource: string): string[] {
+  const start = indexSource.indexOf("module.exports = {");
+  if (start === -1) return [];
+  const body = indexSource.slice(start);
+  const names = new Set<string>();
+  for (const match of body.matchAll(
+    /^ {2}(?:get\s+)?([A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\s*[(:,]/gm,
+  )) {
+    const name = match[1];
+    if (name !== "default" && name !== "__esModule" && name !== "get") names.add(name);
+  }
+  return [...names];
+}
+
+/**
  * Build (or reuse) the precompiled React Native registry for a project.
  *
  * The builder ships as runtime `.mjs` next to this file (it is also imported by the
@@ -403,6 +433,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // Real on-disk path of react-native/package.json (mock engine): version-gate
   // reads must see the real manifest, not the virtualized mock.
   let realRnPackageJson: string | undefined;
+  // Named exports the native engine's react-native facade re-exports, read from
+  // the real index's own `get X()` declarations. null when the facade is not
+  // available (React Native absent, or its index could not be read), in which case
+  // the native engine leaves `react-native` externalized exactly as before.
+  let rnFacadeExports: string[] | null = null;
+  let rnFacadeRoot = "";
 
   // Caches for hot paths — resolveId and load are called for every import.
   const resolveCache = new Map<string, string | undefined>();
@@ -691,6 +727,21 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         }
       }
 
+      // Read the facade's export list from React Native's own index.
+      if (engine === "native") {
+        rnFacadeRoot = config.root;
+        try {
+          const indexPath = createRequire(path.join(config.root, "package.json")).resolve(
+            "react-native",
+          );
+          const names = parseReactNativeExports(fs.readFileSync(indexPath, "utf8"));
+          rnFacadeExports = names.length > 0 ? names : null;
+        } catch {
+          // React Native not resolvable — keep `react-native` externalized.
+          rnFacadeExports = null;
+        }
+      }
+
       // Build the asset regex from the resolved extensions list. Extensions are
       // escaped (user-supplied entries may contain regex metacharacters) and the
       // match is case-insensitive ("LOGO.PNG" is an asset too — the native
@@ -700,11 +751,15 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     },
 
     resolveId(source, importer) {
-      // Native engine handles RN entirely in Node's CJS graph — no virtualization
-      // of react-native itself. But third-party preset modules (Reanimated, etc.)
-      // are still redirected to virtual mocks: their native runtimes can't load in
-      // Node, so they must be shadowed exactly as under the mock engine.
+      // Native engine: React Native itself still lives in Node's CJS graph, but the
+      // app/test graph reaches it through a facade module (see load()) so Vitest
+      // owns the module id and vi.mock('react-native') can intercept it. Third-party
+      // preset modules (Reanimated, etc.) are redirected to virtual mocks as under
+      // the mock engine — their native runtimes cannot load in Node.
       if (engine === "native") {
+        if (source === "react-native" && rnFacadeExports !== null) {
+          return "\0virtual:rn-facade";
+        }
         return resolvePresetId(source);
       }
 
@@ -774,6 +829,33 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     },
 
     load(id) {
+      // The native engine's react-native facade. It re-exports the SAME instance
+      // Node's graph holds — `_rn.View` is the very object an externalized library
+      // sees — so nothing about React Native's behaviour or identity changes. What
+      // changes is ownership of the module id: because the app/test graph now
+      // imports a module Vitest resolved, `vi.mock('react-native', …)` and
+      // `importOriginal()` work under the native engine, which is the single most
+      // common thing a migrating Jest suite reaches for.
+      //
+      // Reading each name off the index runs React Native's lazy getters eagerly.
+      // That is not a new cost: Node already materialises every detected named
+      // export when an ESM import consumes a CommonJS module, which is how this
+      // import resolved before.
+      if (id === "\0virtual:rn-facade" && rnFacadeExports !== null) {
+        const cached = virtualCodeCache.get(id);
+        if (cached) return cached;
+        const code = [
+          `import { createRequire } from "node:module";`,
+          `const _rn = createRequire(${JSON.stringify(
+            path.join(rnFacadeRoot, "package.json"),
+          )})("react-native");`,
+          ...rnFacadeExports.map((n) => `export const ${n} = _rn[${JSON.stringify(n)}];`),
+          `export default _rn;`,
+        ].join("\n");
+        virtualCodeCache.set(id, code);
+        return code;
+      }
+
       // Preset virtual modules — served for BOTH engines. Under native this is the
       // only virtualization (react-native itself loads from Node's CJS graph). The
       // generated module reads named exports from the runtime mock stored on
