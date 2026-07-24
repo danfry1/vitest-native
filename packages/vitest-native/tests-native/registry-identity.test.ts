@@ -46,7 +46,7 @@ describe("native engine: React Native module identity", () => {
     const ids: string[] = req(process.env.VITEST_NATIVE_RN_REGISTRY as string)
       .__vitestNativeRegistry.ids;
     const outside = "react-native/Libraries/Utilities/HMRClient";
-    expect(ids.some((f) => f.endsWith("/Utilities/HMRClient.js"))).toBe(false);
+    expect(ids.some((f) => f.replace(/\\/g, "/").endsWith("/Utilities/HMRClient.js"))).toBe(false);
     expect(typeof req(outside).default).toBe("object");
   });
 });

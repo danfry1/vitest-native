@@ -22,6 +22,11 @@ function findUp(rel: string, start: string): string {
 const projectRoot = path.dirname(findUp("package.json", HERE));
 const RN = path.dirname(fs.realpathSync(findUp("node_modules/react-native/package.json", HERE)));
 
+// Registry ids are real filesystem paths, so they use backslashes on Windows.
+// Match on a normalised copy rather than the raw id.
+const endsWithPath = (file: string, suffix: string): boolean =>
+  file.replace(/\\/g, "/").endsWith(suffix);
+
 const build = (platform: "ios" | "android" = "ios"): string => {
   const file = buildRegistry({
     projectRoot,
@@ -126,7 +131,7 @@ describe("precompiled RN registry: module semantics", () => {
   it("gives one instance per module, so RN singletons are shared", () => {
     const registry = load();
     const { ids, load: loadModule } = registry.__vitestNativeRegistry;
-    const dimensionsPath = ids.find((f: string) => f.endsWith("/Utilities/Dimensions.js"));
+    const dimensionsPath = ids.find((f: string) => endsWithPath(f, "/Utilities/Dimensions.js"));
     expect(dimensionsPath).toBeDefined();
     const viaDeepPath = loadModule(ids.indexOf(dimensionsPath)).default;
     // The deep-path instance and the one reached through react-native's index are
@@ -136,7 +141,7 @@ describe("precompiled RN registry: module semantics", () => {
 
   it("stays lazy: requiring the entry does not execute the whole graph", () => {
     const { ids, load: loadModule } = load().__vitestNativeRegistry;
-    const modal = ids.indexOf(ids.find((f: string) => f.endsWith("/Modal/Modal.js")));
+    const modal = ids.indexOf(ids.find((f: string) => endsWithPath(f, "/Modal/Modal.js")));
     expect(modal).toBeGreaterThan(-1);
     // Nothing has asked for Modal, so its factory has not run; loading it now
     // still produces a working component.
