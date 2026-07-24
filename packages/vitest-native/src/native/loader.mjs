@@ -54,7 +54,7 @@ export async function initialize(data) {
   if (data && data.projectRoot) PROJECT_ROOT = data.projectRoot;
   if (data && data.platform === "android") PLATFORM = "android";
   if (data && data.reactNativeVersion) REACT_NATIVE_VERSION = data.reactNativeVersion;
-  if (data && data.transformPkgs) isExtra = buildPkgMatcher(data.transformPkgs);
+  if (data && data.transformPkgs) isExtra = buildPkgMatcher(data.transformPkgs, PROJECT_ROOT);
   if (data && data.presetExports) presetExports = data.presetExports;
   if (data && data.assetExts)
     assetExtSet = new Set(data.assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));

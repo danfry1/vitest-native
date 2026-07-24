@@ -5,6 +5,11 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 // @ts-expect-error — runtime .mjs, no types
 import { transformRN } from "../src/native/transform.mjs";
+import { parseReactNativeExports } from "../src/plugin.js";
+import { PEER_REQUIREMENTS } from "../src/peer-requirements.js";
+import { validatePeerDependency } from "../src/validate.js";
+import { nativePool } from "../src/native/pool.js";
+import { createRequire } from "node:module";
 
 // Anchor all resolution to THIS test file's location (cwd-independent — vitest's
 // process.cwd() varies with where it was launched). Walk up from here looking for
@@ -685,5 +690,117 @@ describe("plugin subpath resolution (mock engine)", () => {
     // Unknown leaves keep the whole-mock default.
     const unknownId = plugin.resolveId("react-native/jest-preset", undefined);
     expect(plugin.load(unknownId)).toContain("export default _rn;");
+  });
+});
+
+describe("parseReactNativeExports", () => {
+  it("reads React Native's real index, covering every member shape", () => {
+    const names = parseReactNativeExports(fs.readFileSync(path.join(RN, "index.js"), "utf8"));
+    expect(names).toContain("View"); // lazy getter
+    expect(names).toContain("unstable_batchedUpdates"); // generic method shorthand
+    expect(names).toContain("Systrace"); // plain property
+    expect(names).not.toContain("get");
+    expect(names.length).toBeGreaterThan(80);
+  });
+
+  it("ignores members of nested objects", () => {
+    const source = [
+      "module.exports = {",
+      "  get View(): View {",
+      "    return require('./View').default;",
+      "  },",
+      "  Nested: {",
+      "    notAnExport: 1,",
+      "    alsoNot() {},",
+      "  },",
+      "  plain: 1,",
+      "};",
+    ].join("\n");
+    expect(parseReactNativeExports(source).sort()).toEqual(["Nested", "View", "plain"]);
+  });
+
+  it("returns nothing when the index has no exports object", () => {
+    expect(parseReactNativeExports("const a = 1;")).toEqual([]);
+  });
+});
+
+describe("hot pool: Vitest version guard", () => {
+  // The hot worker ships inside this package, so `import 'vitest/worker'` there
+  // resolves from the PACKAGE, not the project. When a monorepo puts a different
+  // Vitest VERSION on each side, the two speak different protocol versions and the
+  // run reports nothing at all — no error, no tests, sometimes exit 0. The pool has
+  // to refuse at config time instead.
+  const fakeProject = (version: string): string => {
+    const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-pool-"));
+    const vitestDir = path.join(dir, "node_modules", "vitest");
+    fs.mkdirSync(vitestDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(vitestDir, "package.json"),
+      JSON.stringify({ name: "vitest", version, main: "index.js" }),
+    );
+    fs.writeFileSync(path.join(vitestDir, "index.js"), "module.exports = {};");
+    fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "p" }));
+    return dir;
+  };
+  const workerEntry = path.join(HERE, "..", "src", "native", "worker.mjs");
+  const installedVitest = JSON.parse(
+    fs.readFileSync(createRequire(import.meta.url).resolve("vitest/package.json"), "utf8"),
+  ) as { version: string };
+
+  it("throws when the two resolve different Vitest versions", () => {
+    expect(() => nativePool({ workerEntry, projectRoot: fakeProject("9.9.9") })).toThrow(
+      /would load vitest@.*but this run is driven by vitest@9\.9\.9/s,
+    );
+  });
+
+  it("allows a second install of the SAME version", () => {
+    // Two node_modules trees holding one version are two module registries but
+    // identical code — they interoperate. Failing on the paths alone would block
+    // working monorepos, so only a version difference is an error.
+    expect(() =>
+      nativePool({ workerEntry, projectRoot: fakeProject(installedVitest.version) }),
+    ).not.toThrow();
+  });
+
+  it("does not throw for this repository's own layout", () => {
+    expect(() => nativePool({ workerEntry, projectRoot })).not.toThrow();
+  });
+});
+
+describe("peer requirements", () => {
+  const vitestReq = PEER_REQUIREMENTS.find((r) => r.name === "vitest")!;
+
+  it("accepts Vitest 4 and 5, and rejects 6", () => {
+    // The manifest's peer range and this table are the same promise stated twice;
+    // a check that only asserted the table would let them drift apart.
+    const manifest = JSON.parse(fs.readFileSync(path.join(HERE, "..", "package.json"), "utf8")) as {
+      peerDependencies: Record<string, string>;
+    };
+    expect(manifest.peerDependencies.vitest).toBe(">=4 <6");
+    expect(vitestReq.maximumMajor).toBe(6);
+  });
+
+  it("accepts a Vitest 5 prerelease", () => {
+    // Vitest 5 is reachable only through its beta tag for now, and the version
+    // parser has mishandled prereleases before (4.0.0-beta.x hard-errored at
+    // startup for early adopters).
+    // A fresh directory per version: package.json is read through require(), whose
+    // module cache would otherwise serve the first version for every later check.
+    const check = (version: string) => {
+      const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-peer-"));
+      const vitestDir = path.join(dir, "node_modules", "vitest");
+      fs.mkdirSync(vitestDir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "p" }));
+      fs.writeFileSync(
+        path.join(vitestDir, "package.json"),
+        JSON.stringify({ name: "vitest", version }),
+      );
+      return validatePeerDependency("vitest", vitestReq.minimum, dir, vitestReq.maximumMajor);
+    };
+    expect(check("5.0.0-beta.6")).toBe(null);
+    expect(check("5.0.0")).toBe(null);
+    expect(check("4.1.8")).toBe(null);
+    expect(check("6.0.0")).toMatch(/supports vitest >= 4\.0\.0 and < 6/);
+    expect(check("3.2.7")).toMatch(/requires vitest >= 4\.0\.0/);
   });
 });

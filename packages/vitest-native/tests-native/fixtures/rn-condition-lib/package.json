@@ -1,0 +1,11 @@
+{
+  "name": "rn-condition-lib",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./default.js",
+  "exports": {
+    ".": { "react-native": "./native.js", "default": "./default.js" },
+    "./package.json": "./package.json"
+  },
+  "peerDependencies": { "react-native": "*" }
+}

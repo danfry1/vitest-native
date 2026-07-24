@@ -1,0 +1,8 @@
+{
+  "name": "rn-mainfield-lib",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./web.js",
+  "react-native": "./native.js",
+  "peerDependencies": { "react-native": "*" }
+}
