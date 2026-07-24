@@ -905,10 +905,26 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // Native engine serves RN from Node's CJS graph — nothing else to load here.
       if (engine === "native") return undefined;
 
-      // The root react-native module — re-export nothing.
-      // vi.mock('react-native') in setup.ts provides the actual mock.
+      // The root react-native module. In a normal run setup.ts's
+      // vi.mock('react-native') intercepts this id and serves the mock directly, so
+      // this source is never evaluated. It matters when a TEST registers its own
+      // vi.mock('react-native', …): that replaces setup's registration, and the
+      // factory's importOriginal() then resolves to THIS module. Re-exporting the
+      // runtime mock is what makes the usual spread-and-override form work —
+      // otherwise `{ ...(await importOriginal()) }` spreads nothing and every export
+      // the test did not name disappears.
       if (id === "\0virtual:react-native") {
-        return "export default {};";
+        const cacheKey = "\0rn-root";
+        let code = virtualCodeCache.get(cacheKey);
+        if (!code) {
+          code = [
+            `const _rn = globalThis.__vitest_native_mock || {};`,
+            ...RN_EXPORT_NAMES.map((n) => `export const ${n} = _rn['${n}'];`),
+            `export default _rn;`,
+          ].join("\n");
+          virtualCodeCache.set(cacheKey, code);
+        }
+        return code;
       }
 
       // Subpath imports (react-native/Libraries/*, react-native/jest-preset, etc.)

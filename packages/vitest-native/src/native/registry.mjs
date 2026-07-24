@@ -221,6 +221,18 @@ export function buildRegistry({
   assetExts = [],
   diagnostics = false,
 }) {
+  // Escape hatch. The registry is transparent by design, but it is also the piece
+  // most likely to be implicated if a project sees something unexpected from React
+  // Native — so there is a way to take it out of the picture and get the per-file
+  // loader back without downgrading.
+  if (process.env.VITEST_NATIVE_NO_REGISTRY === "1") {
+    if (diagnostics) {
+      console.log(
+        "[vitest-native] (native) VITEST_NATIVE_NO_REGISTRY=1 — using per-file module loading",
+      );
+    }
+    return null;
+  }
   let dir;
   let key;
   try {
