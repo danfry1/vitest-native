@@ -215,9 +215,46 @@ function assertWorkerVitestMatchesProject(workerEntry: string, projectRoot: stri
   );
 }
 
+/**
+ * Refuse combinations where Vitest's custom-worker API itself is broken.
+ *
+ * The hot runtime runs its own worker entry through `vitest/worker`'s `init()`, an
+ * `@experimental` surface. On Node 24 with vitest 4.1.9 that surface does not work at
+ * all: a bare ten-line entry that imports nothing from this package fails the same
+ * way, so it is upstream rather than ours. The run reports 37 failed suites with
+ * "Cannot read properties of undefined (reading 'config')" and finishes having run no
+ * tests — a failure with nothing in it that points at the cause.
+ *
+ * Node 20 and 22 are unaffected on the same Vitest, and Node 24 is fine on 4.1.8.
+ * Rather than let that surface as an unreadable cascade, name it.
+ */
+function assertWorkerApiUsable(projectRoot: string): void {
+  const nodeMajor = Number(process.versions.node.split(".")[0]);
+  if (nodeMajor < 24) return;
+  let vitestVersion: string;
+  try {
+    vitestVersion = (
+      createRequire(path.join(projectRoot, "package.json"))("vitest/package.json") as {
+        version: string;
+      }
+    ).version;
+  } catch {
+    return;
+  }
+  if (vitestVersion !== "4.1.9") return;
+  throw new Error(
+    `[vitest-native] 'hotRuntime' cannot run on Node ${process.versions.node} with ` +
+      `vitest@${vitestVersion}: Vitest's custom-worker API is broken on that combination ` +
+      `and the run would report no tests at all rather than failing.\n` +
+      `Any of these work: Node 20 or 22 on this Vitest, vitest 4.1.8 on this Node, or ` +
+      `'hotRuntime: false' to use the standard pool.`,
+  );
+}
+
 /** Pool initializer for `test.pool` — keeps RN-hot workers alive across files. */
 export function nativePool(options: NativePoolOptions): PoolRunnerInitializer {
   assertWorkerVitestMatchesProject(path.resolve(options.workerEntry), options.projectRoot);
+  assertWorkerApiUsable(options.projectRoot);
   return {
     name: "vitest-native",
     createPoolWorker: (poolOptions: PoolOptions) => new NativePoolWorker(poolOptions, options),

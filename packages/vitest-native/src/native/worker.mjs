@@ -111,15 +111,32 @@ globalThis.__vitest_native_hot_reset = () => {
 };
 globalThis.__vitest_native_hot_bless = bless;
 
-function runWithPerFileIsolation(method) {
-  return (state, traces) => {
-    // Vitest's worker-side per-file reset clears only the module-runner graph;
-    // externalized RN in the Node require cache is untouched — exactly the
-    // "fresh user modules, resident RN" split the native engine needs.
-    state.ctx.config.isolate = true;
-    return runBaseTests(method, state, traces);
-  };
-}
+// Vitest's own per-file isolation — mocker reset plus a clear of the evaluated
+// module graph — is gated on `config.isolate`, which the pool sets to false so the
+// scheduler keeps this worker alive. Doing the two steps ourselves gives the same
+// result without touching Vitest's worker state.
+//
+// This used to be done by mutating `state.ctx.config.isolate = true` inside the
+// worker. That read a shape nothing contracts, and it broke on a PATCH release:
+// vitest 4.1.9 on Node 24 produced "Cannot read properties of undefined (reading
+// 'config')" for every test file and a run that reported no tests at all. The two
+// operations below are public API — `mocker.reset()` and Vite's
+// `ModuleRunner.clearCache()` — so a Vitest internal moving cannot silently take the
+// hot runtime with it.
+let moduleRunner = null;
+
+/**
+ * Reset the module-runner graph for the next test file.
+ *
+ * Called from the runner's per-file hook rather than here, because a single task can
+ * carry several files (Vitest batches them in single-worker mode) and each one needs
+ * its own reset — the same cadence Vitest uses when isolation is on.
+ */
+globalThis.__vitest_native_reset_module_runner = () => {
+  if (!moduleRunner) return;
+  moduleRunner.mocker?.reset();
+  moduleRunner.clearCache();
+};
 
 init({
   // oxlint-disable-next-line unicorn/require-post-message-target-origin -- worker_threads MessagePort, not window
@@ -127,7 +144,10 @@ init({
   on: (callback) => parentPort.on("message", callback),
   off: (callback) => parentPort.off("message", callback),
   teardown: () => parentPort.removeAllListeners("message"),
-  runTests: runWithPerFileIsolation("run"),
-  collectTests: runWithPerFileIsolation("collect"),
+  runTests: (state, traces) => runBaseTests("run", state, traces),
+  collectTests: (state, traces) => runBaseTests("collect", state, traces),
+  onModuleRunner: (runner) => {
+    moduleRunner = runner;
+  },
   setup: setupEnvironment,
 });

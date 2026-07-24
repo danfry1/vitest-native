@@ -28,6 +28,15 @@ if (!TestRunner) {
 }
 
 export default class NativeHotRunner extends TestRunner {
+  // Fires once per test file, before its modules are imported — the point where
+  // Vitest resets the module graph when isolation is on. The hot pool runs with
+  // isolation off so the worker survives, so the reset happens here instead, through
+  // public API rather than by mutating Vitest's worker state.
+  onCollectStart(file) {
+    globalThis.__vitest_native_reset_module_runner?.();
+    return super.onCollectStart?.(file);
+  }
+
   async onBeforeRunFiles(files) {
     globalThis.__vitest_native_hot_bless?.();
     return super.onBeforeRunFiles?.(files);
