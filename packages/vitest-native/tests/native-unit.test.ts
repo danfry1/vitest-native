@@ -8,7 +8,7 @@ import { transformRN } from "../src/native/transform.mjs";
 import { parseReactNativeExports } from "../src/plugin.js";
 import { PEER_REQUIREMENTS } from "../src/peer-requirements.js";
 import { validatePeerDependency } from "../src/validate.js";
-import { nativePool, hotRuntimeEnvironmentError } from "../src/native/pool.js";
+import { nativePool } from "../src/native/pool.js";
 import { createRequire } from "node:module";
 
 // Anchor all resolution to THIS test file's location (cwd-independent — vitest's
@@ -434,69 +434,63 @@ describe("plugin engine routing", () => {
     );
   });
 
-  it.skipIf(hotRuntimeEnvironmentError(installedVitestVersion) !== null)(
-    "native + hotRuntime wires the custom pool and isolate:false scheduling",
-    async () => {
-      const plugin = reactNative({ engine: "native", hotRuntime: true }) as any;
-      const cfg = await plugin.config({ root: projectRoot }, SERVE_ENV);
-      // Scheduling: isolate:false keeps workers alive; the worker entry flips
-      // isolate back on inside the worker (see src/native/worker.mjs).
-      expect(cfg.test.isolate).toBe(false);
-      expect(cfg.test.pool).toMatchObject({ name: "vitest-native" });
-      expect(typeof cfg.test.pool.createPoolWorker).toBe("function");
-      // The pool worker boots our hot entry, not Vitest's stock workers/threads.js.
-      const worker = cfg.test.pool.createPoolWorker({
-        distPath: "/tmp/unused",
-        project: {
-          vitest: { logger: { outputStream: process.stdout, errorStream: process.stderr } },
-        },
-        method: "run",
-        environment: { name: "node", options: null },
-        execArgv: [],
-        env: {},
-      });
-      expect(worker.name).toBe("vitest-native");
-      expect((worker as any).entrypoint).toMatch(/native[\\/]worker\.mjs$/);
-      // Plain `hotRuntime: true` (no explicit recycling) applies the default
-      // per-worker memory bound, which turns on heap reporting. Guards the
-      // plugin.ts default-application wiring, not just defaultHotMemoryLimit().
-      expect(worker.reportMemory).toBe(true);
-    },
-  );
+  it("native + hotRuntime wires the custom pool and isolate:false scheduling", async () => {
+    const plugin = reactNative({ engine: "native", hotRuntime: true }) as any;
+    const cfg = await plugin.config({ root: projectRoot }, SERVE_ENV);
+    // Scheduling: isolate:false keeps workers alive; the worker entry flips
+    // isolate back on inside the worker (see src/native/worker.mjs).
+    expect(cfg.test.isolate).toBe(false);
+    expect(cfg.test.pool).toMatchObject({ name: "vitest-native" });
+    expect(typeof cfg.test.pool.createPoolWorker).toBe("function");
+    // The pool worker boots our hot entry, not Vitest's stock workers/threads.js.
+    const worker = cfg.test.pool.createPoolWorker({
+      distPath: "/tmp/unused",
+      project: {
+        vitest: { logger: { outputStream: process.stdout, errorStream: process.stderr } },
+      },
+      method: "run",
+      environment: { name: "node", options: null },
+      execArgv: [],
+      env: {},
+    });
+    expect(worker.name).toBe("vitest-native");
+    expect((worker as any).entrypoint).toMatch(/native[\\/]worker\.mjs$/);
+    // Plain `hotRuntime: true` (no explicit recycling) applies the default
+    // per-worker memory bound, which turns on heap reporting. Guards the
+    // plugin.ts default-application wiring, not just defaultHotMemoryLimit().
+    expect(worker.reportMemory).toBe(true);
+  });
 
-  it.skipIf(hotRuntimeEnvironmentError(installedVitestVersion) !== null)(
-    "hotRuntime object form wires recycling policy into the pool worker",
-    async () => {
-      const plugin = reactNative({
-        engine: "native",
-        hotRuntime: { recycleAfterFiles: 2, memoryLimit: 1024 },
-      }) as any;
-      const cfg = await plugin.config({ root: projectRoot }, SERVE_ENV);
-      expect(cfg.test.runner).toMatch(/native[\\/]runner\.mjs$/);
-      const worker = cfg.test.pool.createPoolWorker({
-        distPath: "/tmp/unused",
-        project: {
-          vitest: { logger: { outputStream: process.stdout, errorStream: process.stderr } },
-        },
-        method: "run",
-        environment: { name: "node", options: null },
-        execArgv: [],
-        env: {},
-      });
-      // memoryLimit > 0 turns on worker heap reporting.
-      expect(worker.reportMemory).toBe(true);
-      const task = { context: { environment: { name: "node", options: null } } };
-      expect(worker.canReuse(task)).toBe(true);
-      // Two files through send() hit recycleAfterFiles=2 → worker retires.
-      // (send throws without a live thread; the file count is recorded first.)
-      for (const _ of [1, 2]) {
-        try {
-          worker.send({ type: "run", context: { files: ["a.test.ts"] } });
-        } catch {}
-      }
-      expect(worker.canReuse(task)).toBe(false);
-    },
-  );
+  it("hotRuntime object form wires recycling policy into the pool worker", async () => {
+    const plugin = reactNative({
+      engine: "native",
+      hotRuntime: { recycleAfterFiles: 2, memoryLimit: 1024 },
+    }) as any;
+    const cfg = await plugin.config({ root: projectRoot }, SERVE_ENV);
+    expect(cfg.test.runner).toMatch(/native[\\/]runner\.mjs$/);
+    const worker = cfg.test.pool.createPoolWorker({
+      distPath: "/tmp/unused",
+      project: {
+        vitest: { logger: { outputStream: process.stdout, errorStream: process.stderr } },
+      },
+      method: "run",
+      environment: { name: "node", options: null },
+      execArgv: [],
+      env: {},
+    });
+    // memoryLimit > 0 turns on worker heap reporting.
+    expect(worker.reportMemory).toBe(true);
+    const task = { context: { environment: { name: "node", options: null } } };
+    expect(worker.canReuse(task)).toBe(true);
+    // Two files through send() hit recycleAfterFiles=2 → worker retires.
+    // (send throws without a live thread; the file count is recorded first.)
+    for (const _ of [1, 2]) {
+      try {
+        worker.send({ type: "run", context: { files: ["a.test.ts"] } });
+      } catch {}
+    }
+    expect(worker.canReuse(task)).toBe(false);
+  });
 
   it("hotRuntime without native engine warns and keeps the mock config", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -727,37 +721,6 @@ describe("parseReactNativeExports", () => {
 
   it("returns nothing when the index has no exports object", () => {
     expect(parseReactNativeExports("const a = 1;")).toEqual([]);
-  });
-});
-
-const installedVitestVersion = (() => {
-  try {
-    return (
-      JSON.parse(
-        fs.readFileSync(createRequire(import.meta.url).resolve("vitest/package.json"), "utf8"),
-      ) as { version: string }
-    ).version;
-  } catch {
-    return null;
-  }
-})();
-
-describe("hotRuntimeEnvironmentError", () => {
-  // Vitest's custom-worker API — the surface the hot runtime's own worker entry runs
-  // on — does not work on Node 24 with vitest 4.1.9. Versions are injected so both
-  // branches are covered wherever this suite happens to run.
-  it("names the combination Vitest's custom-worker API is broken on", () => {
-    const message = hotRuntimeEnvironmentError("4.1.9", "24.13.0");
-    expect(message).toMatch(/cannot run on Node 24\.13\.0 with vitest@4\.1\.9/);
-    expect(message).toMatch(/hotRuntime: false/);
-  });
-
-  it("allows every other combination", () => {
-    expect(hotRuntimeEnvironmentError("4.1.9", "22.13.0")).toBe(null);
-    expect(hotRuntimeEnvironmentError("4.1.9", "20.19.4")).toBe(null);
-    expect(hotRuntimeEnvironmentError("4.1.8", "24.13.0")).toBe(null);
-    expect(hotRuntimeEnvironmentError("5.0.0", "24.13.0")).toBe(null);
-    expect(hotRuntimeEnvironmentError(null, "24.13.0")).toBe(null);
   });
 });
 

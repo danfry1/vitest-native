@@ -43,18 +43,11 @@ jobs:
             node-version: 22.13.0
           - os: windows-latest
             node-version: 22.13.0
-          # Node 24 is the current release line, and the matrix stopped at 22 — which
-          # hid a real failure. The hot steps are skipped here, not because they are
-          # inconvenient but because Vitest's custom-worker API does not work on Node
-          # 24 with vitest 4.1.9. The cause is not established: it needs Node >= 24,
-          # vitest 4.1.9, a custom worker entry AND this plugin together — a bare
-          # worker entry in a project without the plugin passes. The engine refuses
-          # that combination by name at config time, and `hotRuntimeEnvironmentError`
-          # unit-tests both branches. Everything else — the mock engine, the native
-          # engine, the cross-check — is covered here, which it previously was not.
+          # Node 24 is the current release line and the matrix stopped at 22, which is
+          # how a workspace-level Vitest mismatch went unnoticed locally for a whole
+          # session. Everything runs here, hot runtime included.
           - os: ubuntu-latest
             node-version: 24.13.0
-            hotUnsupported: true
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -133,15 +126,15 @@ jobs:
         # ThreadsPoolWorker, poolRunner) — the most churn-prone surface we depend
         # on, so gate it on every PR, not just the weekly matrix. Calibrated on the
         # current RNTL; the back-compat leg skips it (covered on the RNTL 14 legs).
-        if: ${{ !matrix.rntl && !matrix.hotUnsupported }}
+        if: ${{ !matrix.rntl }}
         run: bun run test:native:hot
 
       - name: Native engine hot-runtime isolation
-        if: ${{ !matrix.rntl && !matrix.hotUnsupported }}
+        if: ${{ !matrix.rntl }}
         run: bun run test:native:hot:isolation
 
       - name: Native engine hot-runtime soak and recycling
-        if: ${{ !matrix.rntl && !matrix.hotUnsupported }}
+        if: ${{ !matrix.rntl }}
         run: bun run test:native:hot:soak
 
       - name: Cross-check (mock ≡ real RN) + fidelity report freshness
@@ -149,7 +142,7 @@ jobs:
         # RNTL-version-specific real-RN behavior, so it runs only on the RNTL 14 legs.
         # fidelity:check runs the cross-check AND fails if the published fidelity
         # page/badge no longer match the live corpus (run `bun run fidelity:report`).
-        if: ${{ !matrix.rntl && !matrix.hotUnsupported }}
+        if: ${{ !matrix.rntl }}
         run: bun run fidelity:check
 
       - name: Test example app

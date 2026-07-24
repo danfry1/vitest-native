@@ -215,42 +215,6 @@ function assertWorkerVitestMatchesProject(workerEntry: string, projectRoot: stri
   );
 }
 
-/**
- * The reason `hotRuntime` cannot run in this environment, or null.
- *
- * The hot runtime drives its own worker entry through `vitest/worker`'s `init()`, an
- * `@experimental` surface. That combination does not work: every test file fails with
- * "Cannot read properties of undefined (reading 'config')" and the run finishes having
- * executed no tests, with nothing in it pointing at the cause.
- *
- * The cause is NOT established. What is known: it needs all four of Node >= 24,
- * vitest 4.1.9, a custom worker entry, and this plugin. vitest 4.1.8 is fine on the
- * same Node; Node 20 and 22 are fine on the same Vitest; Vitest's stock worker is fine;
- * and a custom pool with a bare worker entry in a project WITHOUT this plugin passes,
- * so it is not simply an upstream regression in the custom-worker API. Pre-loading
- * Vitest's module graph before this package installs its Node loader hooks does not
- * help either, which rules out the obvious interference theory.
- *
- * Refusing by name is therefore a mitigation, not a diagnosis.
- *
- * Node 20 and 22 are unaffected on the same Vitest, and Node 24 is fine on 4.1.8.
- * Versions are injectable so both branches are testable wherever the suite runs.
- */
-export function hotRuntimeEnvironmentError(
-  vitestVersion: string | null,
-  nodeVersion: string = process.versions.node,
-): string | null {
-  const nodeMajor = Number(nodeVersion.split(".")[0]);
-  if (nodeMajor < 24 || vitestVersion !== "4.1.9") return null;
-  return (
-    `[vitest-native] 'hotRuntime' cannot run on Node ${nodeVersion} with ` +
-    `vitest@${vitestVersion}: Vitest's custom-worker API is broken on that combination, ` +
-    `and the run would report no tests at all rather than failing.\n` +
-    `Any of these work: Node 20 or 22 on this Vitest, vitest 4.1.8 on this Node, or ` +
-    `'hotRuntime: false' to use the standard pool.`
-  );
-}
-
 /** Pool initializer for `test.pool` — keeps RN-hot workers alive across files. */
 export function nativePool(options: NativePoolOptions): PoolRunnerInitializer {
   assertWorkerVitestMatchesProject(path.resolve(options.workerEntry), options.projectRoot);

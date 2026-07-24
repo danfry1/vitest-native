@@ -50,6 +50,6 @@
     "tsdown": "0.21.10",
     "typescript": "6.0.3",
     "vitepress": "2.0.0-alpha.17",
-    "vitest": "^4.1.8"
+    "vitest": "4.1.9"
   }
 }
