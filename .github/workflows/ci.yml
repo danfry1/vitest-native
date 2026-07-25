@@ -124,9 +124,13 @@ jobs:
       - name: Native engine tests (hot runtime)
         # The hot runtime rides @experimental Vitest internals (vitest/worker,
         # ThreadsPoolWorker, poolRunner) — the most churn-prone surface we depend
-        # on, so gate it on every PR, not just the weekly matrix. Calibrated on the
-        # current RNTL; the back-compat leg skips it (covered on the RNTL 14 legs).
-        if: ${{ !matrix.rntl }}
+        # on, so gate it on every PR, not just the weekly matrix.
+        #
+        # Runs on the back-compat legs too. It used to skip them as "covered on the
+        # RNTL 14 legs", which was wrong: the resident-module keep-list has entries
+        # that only matter on older RNTL, and removing them fails this suite under
+        # RNTL 13 while RNTL 14 stays green (see native/module-reset.mjs). The hot
+        # runtime was in fact fine on RNTL 12/13 — nothing was checking.
         run: bun run test:native:hot
 
       - name: Native engine hot-runtime isolation
@@ -136,6 +140,16 @@ jobs:
       - name: Native engine hot-runtime soak and recycling
         if: ${{ !matrix.rntl }}
         run: bun run test:native:hot:soak
+
+      - name: Hot runtime equals default engine at scale
+        # The only check that compares the two engines file-for-file over a
+        # generated app-shaped corpus, and the only one that fails on a
+        # hot-specific correctness delta. It ran in no workflow and was absent from
+        # prepublishOnly, so the invariant it protects survived on the habit of
+        # running it by hand — while the code comments that cite its numbers named
+        # it as the way to catch a regression the gated suites let through.
+        if: runner.os == 'Linux' && matrix.node-version == '22.13.0' && !matrix.rntl
+        run: bun run --filter vitest-native validate:hot-parity
 
       - name: Cross-check (mock ≡ real RN) + fidelity report freshness
         # The cross-check is calibrated on the current RNTL (14); a few probes track

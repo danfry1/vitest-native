@@ -25,14 +25,26 @@ const UNRESETTABLE = /\.node$/;
  * The symptom is not an error about modules: it is RNTL's matchers failing to see
  * elements that a resident renderer produced.
  *
- * React, the renderers and RNTL are the load-bearing cases, and the cost of getting
- * this wrong is measured: dropping them takes the idiomatic parity suite from 135/135
- * to 82/135, and makes the run slower as well (11.1x -> 7.9x against the default
- * engine), since every file re-executes the whole test stack for nothing.
+ * Which entries carry weight depends on the RNTL version, so the list is bisected
+ * rather than assumed. Measured one entry at a time:
  *
- * Note for anyone re-testing this: `test:native:hot` passes either way. It exercises
- * engine mechanics, and the divergence only appears in app-shaped rendering. Use
- * `validate:hot-parity`.
+ *   @testing-library/react-native  RNTL 14: parity 135/135 -> 81/135, 10.4x -> 7.8x.
+ *                                  The dominant case on every version.
+ *   react-test-renderer,           RNTL 13: `test:native:hot` 175 -> 173 passing.
+ *   test-renderer                  RNTL 14 does not use them and is unaffected —
+ *                                  which is why a single-version check calls them
+ *                                  dead and is wrong.
+ *   react, react-is, react-dom,    No measured effect on either suite under RNTL 13
+ *   scheduler, react-reconciler    or 14: React is already loaded by the worker's
+ *                                  boot-time RN preload, so the baseline snapshot
+ *                                  below protects it before this pattern is
+ *                                  consulted. Kept because that protection is a
+ *                                  side effect of preload contents, not a contract.
+ *
+ * Note for anyone re-testing this: the two suites disagree, so run both.
+ * `validate:hot-parity` is the only one that sees the RNTL regression (it is
+ * app-shaped rendering); `test:native:hot` is the only one that sees the
+ * react-test-renderer regression (it is engine mechanics).
  */
 const KEEP_RESIDENT =
   /[\\/]node_modules[\\/](react|react-is|react-dom|scheduler|react-reconciler|react-test-renderer|test-renderer|@testing-library[\\/]react-native)[\\/]/;
