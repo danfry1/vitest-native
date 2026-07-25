@@ -15,6 +15,7 @@ import { vi } from "vitest";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { jestMockInterop } from "./interop.mjs";
+import { VitestNativeError } from "../errors.mjs";
 
 // Resolve modules from the consumer project root, not this file's location, so
 // `jest.requireActual('some-project-dep')` resolves the same module the suite sees.
@@ -101,8 +102,10 @@ const MIGRATION_GUIDE =
 function unsupported(name, guidance) {
   if (typeof vi[name] === "function") return;
   vi[name] = () => {
-    throw new Error(
-      `[vitest-native] jest.${name}() has no Vitest equivalent. ${guidance} See ${MIGRATION_GUIDE}`,
+    throw new VitestNativeError(
+      "JEST_API_UNSUPPORTED",
+      `jest.${name}() has no Vitest equivalent. ${guidance}`,
+      { docs: MIGRATION_GUIDE },
     );
   };
 }
