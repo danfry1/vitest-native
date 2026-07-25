@@ -634,6 +634,33 @@ When supported `@testing-library/react-native` 12–14 is installed, `vitest-nat
 auto-registers its custom matchers across each major's export layout. No manual
 `extend(matchers)` call or setup file is needed.
 
+### TypeScript
+
+The matchers run without any setup, but their **types** need one line. RNTL declares
+them only for Jest — it augments the global `jest` namespace and `@jest/expect`, and
+neither reaches Vitest's `Assertion` — so without this they are
+`Property 'toHaveTextContent' does not exist on type 'Assertion<...>'` even though the
+assertion works at runtime.
+
+Reference the types once, anywhere in the project:
+
+```ts
+/// <reference types="vitest-native/rntl-matchers" />
+```
+
+or add it to `compilerOptions.types` in `tsconfig.json`:
+
+```json
+{ "compilerOptions": { "types": ["vitest-native/rntl-matchers"] } }
+```
+
+It is opt-in rather than automatic because `@testing-library/react-native` is an
+optional peer: a type import of an absent package is invisible under
+`skipLibCheck: true` (React Native's default) but reports `TS2307` under
+`skipLibCheck: false`, which would break projects that use the mock engine without
+RNTL. Referencing nothing loads nothing — the file is not part of the program unless
+asked for.
+
 The following matchers become available on `expect()`:
 
 | Matcher                           | Description                                   |

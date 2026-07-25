@@ -109,6 +109,9 @@
     "./jest-compat/extend-expect-noop": {
       "types": "./dist/jest-compat/noop.d.mts",
       "import": "./dist/jest-compat/noop.mjs"
+    },
+    "./rntl-matchers": {
+      "types": "./dist/rntl-matchers.d.ts"
     }
   },
   "files": [
@@ -186,7 +189,7 @@
     "vitest": "4.1.9"
   },
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown && node scripts/copy-static-types.mjs",
     "test": "vitest run",
     "test:native": "vitest run --config tests-native/vitest.config.mts",
     "test:native:navigation": "vitest run --config tests-native/vitest.navigation.config.mts",
