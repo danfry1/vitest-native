@@ -46,9 +46,22 @@ function writableModuleFacade(mod) {
 if (typeof vi.requireActual !== "function")
   vi.requireActual = (m) => (m === "react-native" ? writableModuleFacade(require(m)) : require(m));
 if (typeof vi.requireMock !== "function") vi.requireMock = (m) => require(m);
-// `jest.setTimeout(ms)` has no global `vi` equivalent — no-op so suites that call
-// it at top level don't crash.
-if (typeof vi.setTimeout !== "function") vi.setTimeout = () => {};
+// `jest.setTimeout(ms)` maps onto `vi.setConfig({ testTimeout })`, which applies for
+// the rest of the file — the same scope Jest gives it, since Vitest resets the config
+// after each test file.
+//
+// This used to be a silent no-op, on the grounds that there was no `vi` equivalent.
+// There is. The cost of the no-op was not a crash but silence: a suite opening with
+// `jest.setTimeout(30000)`, which is routine for slower React Native suites, kept
+// Vitest's 5s default and its slow tests failed on time while the line that was
+// supposed to prevent that sat there looking effective.
+if (typeof vi.setTimeout !== "function") {
+  vi.setTimeout = (ms) => {
+    if (typeof vi.setConfig === "function" && typeof ms === "number") {
+      vi.setConfig({ testTimeout: ms });
+    }
+  };
+}
 
 // `jest.advanceTimersByTime(Async)` is lenient in Jest: when fake timers are NOT
 // active it's effectively a no-op. Vitest's `vi.advanceTimersByTimeAsync` instead
