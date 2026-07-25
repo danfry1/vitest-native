@@ -157,6 +157,20 @@ export function analyzeJestConfig(root: string): MigrationReport {
       for (const f of files) {
         if (/react-native\/jest\/setup|jest-expo/.test(f)) {
           presetCovered.push(`${key}: '${f}' — the plugin injects its own setup; delete.`);
+        } else if (f.startsWith("<rootDir>")) {
+          // Vitest does not substitute Jest's <rootDir>: it resolves the string as
+          // written, so emitting it verbatim produced a config where every test file
+          // failed with "Cannot find module .../<rootDir>/jest.setup.js" — while the
+          // report called the mapping automatic. Rewritten the same way the
+          // moduleNameMapper branch below rewrites it, and as an absolute path for the
+          // same reason given there.
+          setupFiles.push(
+            `fileURLToPath(new URL(${JSON.stringify(f.replace(/^<rootDir>\/?/, "./"))}, import.meta.url))`,
+          );
+          needsUrlImport = true;
+          automatic.push(
+            `${key}: '${f}' → test.setupFiles (its jest.* calls run under the jest-compat shim).`,
+          );
         } else {
           setupFiles.push(JSON.stringify(f));
           automatic.push(

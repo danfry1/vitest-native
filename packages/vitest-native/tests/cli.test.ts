@@ -231,6 +231,33 @@ describe("migrate", () => {
     expect(text).toContain("'someCustomKey' — unrecognized Jest key");
   });
 
+  it("rewrites <rootDir> in setup files instead of emitting it verbatim", () => {
+    // The case above uses "./jest.setup.js", which happens to work as written. Real
+    // Jest configs overwhelmingly say "<rootDir>/jest.setup.js", and Vitest does not
+    // substitute <rootDir> — it resolved the string literally, so every test file in
+    // the generated config failed with "Cannot find module .../<rootDir>/jest.setup.js"
+    // while the report listed the mapping as automatic. testMatch, include and
+    // moduleNameMapper already stripped the token; setup files were the one path that
+    // did not.
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": {
+        preset: "react-native",
+        setupFilesAfterEnv: ["<rootDir>/jest.setup.js"],
+        setupFiles: ["<rootDir>/config/polyfills.js"],
+      },
+    });
+    const report = analyzeJestConfig(root);
+    expect(report.suggestedConfig).not.toContain("<rootDir>");
+    expect(report.suggestedConfig).toContain(
+      `fileURLToPath(new URL("./jest.setup.js", import.meta.url))`,
+    );
+    expect(report.suggestedConfig).toContain(
+      `fileURLToPath(new URL("./config/polyfills.js", import.meta.url))`,
+    );
+    expect(report.suggestedConfig).toContain(`import { fileURLToPath } from 'node:url'`);
+  });
+
   it("reads package.json#jest and reports a missing config honestly", () => {
     const withEmbedded = fixture({
       "package.json": { name: "x", jest: { preset: "react-native" } },
