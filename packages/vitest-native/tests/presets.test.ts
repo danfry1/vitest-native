@@ -21,6 +21,8 @@ import {
   bottomSheet,
   keyboardController,
 } from "../src/presets/index.js";
+import * as Presets from "../src/presets/index.js";
+import { AUTO_DETECT_PRESETS } from "../src/preset-map.js";
 import { renderHook } from "@testing-library/react-native";
 
 // --- Navigation ---
@@ -1255,5 +1257,43 @@ describe("preset: keyboardController", () => {
     expect(mock.AndroidSoftInputModes.SOFT_INPUT_ADJUST_RESIZE).toBe(16);
     expect(mock.DefaultKeyboardToolbarTheme.light).toBeDefined();
     expect(mock.DefaultKeyboardToolbarTheme.dark).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Wiring: the auto-detect map must agree with the presets it names
+// ---------------------------------------------------------------------------
+
+/**
+ * Every test above reaches a preset's factory directly — `svg().modules[...]` — which
+ * proves the mock's shape but never that importing the package reaches it. The link
+ * between the two is AUTO_DETECT_PRESETS, and for a package that is NOT installed
+ * here, nothing else observes that link: misspelling the key for react-native-svg,
+ * react-native-mmkv or async-storage silently stops the preset applying and passes
+ * both the mock and the native suites. (For installed packages the native suite
+ * renders through the real import and does catch it.)
+ *
+ * Rather than add six dependencies to close that, assert the invariant that the
+ * defect violates: a package name in the map must be one the named preset actually
+ * declares. This covers every entry, including ones added later.
+ */
+describe("preset auto-detect map", () => {
+  const presets = { ...Presets } as Record<string, () => { modules: Record<string, unknown> }>;
+
+  it("names a real preset factory for every package", () => {
+    for (const [pkg, presetName] of Object.entries(AUTO_DETECT_PRESETS)) {
+      expect(typeof presets[presetName], `${pkg} -> ${presetName}`).toBe("function");
+    }
+  });
+
+  it("maps each package to a preset that declares a module for it", () => {
+    const unwired: string[] = [];
+    for (const [pkg, presetName] of Object.entries(AUTO_DETECT_PRESETS)) {
+      const modules = presets[presetName]().modules;
+      if (!Object.prototype.hasOwnProperty.call(modules, pkg)) {
+        unwired.push(`${pkg} -> ${presetName}() declares [${Object.keys(modules).join(", ")}]`);
+      }
+    }
+    expect(unwired).toEqual([]);
   });
 });

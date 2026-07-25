@@ -25,7 +25,17 @@ export const AUTO_DETECT_PRESETS = {
   "react-native-svg": "svg",
   "react-native-webview": "webview",
   "@react-native-vector-icons/common": "vectorIcons",
-  "react-native-vector-icons": "vectorIcons",
+  // NOT the legacy unscoped `react-native-vector-icons`. The vectorIcons preset
+  // shadows one module, @react-native-vector-icons/common, which is the shared
+  // factory the v10+ scoped icon-set packages are built on. The legacy package
+  // predates that split and does not use it, so the preset has nothing to give it.
+  //
+  // Listing it here was worse than omitting it: a name in this map is taken as
+  // "a preset shadows this, its real source never loads", which excludes the
+  // package from ecosystem auto-inlining (see native/ecosystem.ts) and makes
+  // `doctor` and `migrate` report it as already handled. A legacy vector-icons
+  // project therefore had its untranspiled source neither shadowed nor
+  // transformed — the parse failure auto-inlining exists to prevent.
   "@shopify/flash-list": "flashList",
   "@gorhom/bottom-sheet": "bottomSheet",
   "react-native-keyboard-controller": "keyboardController",
