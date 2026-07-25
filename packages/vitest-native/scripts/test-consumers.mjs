@@ -85,6 +85,20 @@ try {
   );
   run("npx", ["--no-install", "vitest-native", "migrate"], cliFixture);
 
+  // The same treatment for `migrate --write`, whose template has far more moving
+  // parts than init's: a setup file, an alias derived from moduleNameMapper, a
+  // transform list, and passed-through test options. It was checked only against
+  // expected substrings, which is how a `<rootDir>` token reached the emitted
+  // setupFiles — Vitest does not substitute it, so every test file failed to load.
+  // The fixture's jest.config.json is written the way a real project writes one, and
+  // its suite asserts on what the generated config is supposed to deliver.
+  const migrateFixture = path.join(tempRoot, "jest-migration");
+  fs.cpSync(path.join(fixturesRoot, "jest-migration"), migrateFixture, { recursive: true });
+  addPackedDependency(migrateFixture, tarball);
+  run("npm", ["install"], migrateFixture);
+  run("npx", ["--no-install", "vitest-native", "migrate", "--write"], migrateFixture);
+  run("npm", ["test"], migrateFixture);
+
   console.log("\nAll packed consumer fixtures passed.");
 } finally {
   fs.rmSync(tempRoot, { force: true, recursive: true });
