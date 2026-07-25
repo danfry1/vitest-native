@@ -808,6 +808,26 @@ probe("hunt-processcolor-edge", () => ({
   hsl: processColor("hsl(0, 100%, 50%)") ?? "<<undefined>>",
 }));
 
+// A falsy style passed DIRECTLY, not nested in an array. `stylesheet-flatten-falsy`
+// above puts its falsy values inside an array, where the recursion's own
+// `!= null` guard absorbs the difference: a flatten that wrongly returns `{}` for
+// null still assigns nothing into the accumulator, so that probe produces an
+// identical value either way. Verified by mutation — changing the top-level return
+// from `undefined` to `{}` left the corpus at 78/78. The distinction is real
+// (callers branch on it) and is now observed where it is observable.
+probe("hunt-stylesheet-flatten-direct-falsy", () => ({
+  null: StyleSheet.flatten(null as never) ?? "<<undefined>>",
+  undef: StyleSheet.flatten(undefined as never) ?? "<<undefined>>",
+  false: StyleSheet.flatten(false as never) ?? "<<undefined>>",
+  empty: StyleSheet.flatten({}) ?? "<<undefined>>",
+}));
+
+// AppState.currentState and Appearance.getColorScheme() are deliberately NOT probed
+// here. Both were found unobserved by mutation (flipping the mock's values left the
+// corpus green), but neither is a cross-engine invariant: they only have a value
+// because a device exists, which is the Dimensions/PixelRatio case in
+// known-differences.json. See that file, and mocks/apis for the mock-side pins.
+
 afterAll(() => {
   const out = process.env.CROSSCHECK_OUT;
   if (out) fs.writeFileSync(out, JSON.stringify(results, null, 2));

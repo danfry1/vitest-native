@@ -21,6 +21,8 @@ import {
   Systrace,
   DevSettings,
 } from "react-native";
+import { createAppearanceMock } from "../src/mocks/apis/Appearance.js";
+import { createAppStateMock } from "../src/mocks/apis/AppState.js";
 
 // ---------------------------------------------------------------------------
 // AppState — lifecycle state transitions
@@ -83,6 +85,32 @@ describe("AppState lifecycle (conformance)", () => {
 // ---------------------------------------------------------------------------
 // Appearance — color scheme transitions
 // ---------------------------------------------------------------------------
+
+// The resting values of these mocks are written down TWICE — once where the state is
+// initialised, once in `_reset()` — so a change to one and not the other is silent.
+// It was: every Appearance test below resets first, so `it("defaults to 'light'")`
+// was asserting what `_reset()` does, not what the mock starts as. Changing the
+// initialiser to "dark" passed the whole suite AND the cross-check.
+//
+// These build the mocks directly so the initial value is observed before anything can
+// reset it, and pin the two literals to each other so neither can drift alone.
+describe("mock resting values (pinned at construction, not after _reset)", () => {
+  it("a fresh Appearance mock starts light, and _reset returns it there", () => {
+    const fresh = createAppearanceMock();
+    expect(fresh.getColorScheme()).toBe("light");
+    fresh.setColorScheme("dark");
+    fresh._reset();
+    expect(fresh.getColorScheme()).toBe("light");
+  });
+
+  it("a fresh AppState mock starts active, and _reset returns it there", () => {
+    const fresh = createAppStateMock();
+    expect(fresh.currentState).toBe("active");
+    fresh.currentState = "background";
+    fresh._reset();
+    expect(fresh.currentState).toBe("active");
+  });
+});
 
 describe("Appearance color scheme (conformance)", () => {
   beforeEach(() => {

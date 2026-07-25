@@ -13,5 +13,10 @@
     "area": "Appearance color scheme",
     "difference": "Appearance.getColorScheme() reflects the host environment rather than a fixed value.",
     "why": "Environment-dependent (CI vs local, OS settings), so it isn't a stable cross-engine invariant to gate."
+  },
+  {
+    "area": "AppState.currentState",
+    "difference": "The mock engine reports \"active\" (a foregrounded app). Real React Native running under Node reports undefined, because it reads the value from a native module that only exists on a device — as it also does under Jest with React Native's own preset.",
+    "why": "Not a cross-engine invariant: the value exists only because a device exists, the same case as the default device metrics above. The mock's value is pinned by its own suite so it cannot drift unnoticed; tests that branch on foreground state should set it explicitly rather than rely on either default."
   }
 ]
