@@ -143,60 +143,33 @@ export function resetAllMocks(): void {
     return specifics.ios ?? specifics.default;
   });
 
-  // Reset Dimensions (also clears listeners)
-  if (mock.Dimensions._reset) {
-    mock.Dimensions._reset();
-  } else {
-    mock.Dimensions.set({
-      window: { width: 390, height: 844, scale: 3, fontScale: 1 },
-      screen: { width: 390, height: 844, scale: 3, fontScale: 1 },
-    });
+  // Every mock exposing `_reset` — Dimensions, Appearance, Keyboard, AppState,
+  // BackHandler, I18nManager and the event emitters — in one sweep.
+  //
+  // This was a hand-maintained list of seven, and it had already fallen behind:
+  // NativeAppEventEmitter is a SECOND emitter instance (the registry builds one per
+  // name, so it is not the DeviceEventEmitter object), and nothing reset it. A
+  // listener registered on it survived resetAllMocks and fired in the next test.
+  // Enumerating instead means a stateful mock added later is covered on arrival.
+  for (const value of Object.values(mock)) {
+    const candidate = value as { _reset?: unknown } | null;
+    if (candidate && typeof candidate === "object" && typeof candidate._reset === "function") {
+      (candidate._reset as () => void)();
+    }
   }
 
-  // Reset useWindowDimensions
+  // These two take their resting value as an argument, so they are not `_reset` and
+  // the sweep above does not reach them.
   if (mock.useWindowDimensions._resetDimensions) {
     mock.useWindowDimensions._resetDimensions({ width: 390, height: 844, scale: 3, fontScale: 1 });
   } else if (mock.useWindowDimensions._setDimensions) {
     mock.useWindowDimensions._setDimensions({ width: 390, height: 844, scale: 3, fontScale: 1 });
   }
 
-  // Reset Appearance (clears listeners, restores 'light')
-  if (mock.Appearance._reset) {
-    mock.Appearance._reset();
-  } else {
-    mock.Appearance.setColorScheme("light");
-  }
-
-  // Reset useColorScheme
   if (mock.useColorScheme._resetScheme) {
     mock.useColorScheme._resetScheme("light");
   } else if (mock.useColorScheme._setScheme) {
     mock.useColorScheme._setScheme("light");
-  }
-
-  // Reset Keyboard (clears listeners and visibility state)
-  if (mock.Keyboard._reset) {
-    mock.Keyboard._reset();
-  }
-
-  // Reset AppState (clears listeners and restores 'active')
-  if (mock.AppState._reset) {
-    mock.AppState._reset();
-  }
-
-  // Reset BackHandler (clears listeners)
-  if (mock.BackHandler._reset) {
-    mock.BackHandler._reset();
-  }
-
-  // Reset I18nManager (restores LTR)
-  if (mock.I18nManager._reset) {
-    mock.I18nManager._reset();
-  }
-
-  // Reset DeviceEventEmitter (clears listeners)
-  if (mock.DeviceEventEmitter._reset) {
-    mock.DeviceEventEmitter._reset();
   }
 
   // Restore original NativeModules (undoes all mockNativeModule() calls)
