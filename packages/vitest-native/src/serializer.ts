@@ -54,6 +54,45 @@ function getTypeName(type: unknown): string {
 }
 
 /**
+ * JSON-ish rendering of a prop value, for the cases `JSON.stringify` gets wrong here.
+ *
+ * - Cycles print as `"[Circular]"` instead of throwing. A prop holding a navigation
+ *   object, a store, or anything with a parent back-reference made the serializer
+ *   raise `Converting circular structure to JSON`, which fails the test with a
+ *   TypeError instead of producing a snapshot.
+ * - Object keys are sorted, so two structurally equal props serialize identically.
+ *   Unsorted, `{ a: 1, b: 2 }` and `{ b: 2, a: 1 }` produced different snapshots and
+ *   churned on a rewrite that changed nothing. Prop KEYS were already sorted below;
+ *   this extends the same rule inside values. Arrays keep their order, which is
+ *   meaningful.
+ * - Functions and `undefined` are rendered rather than dropped. `JSON.stringify`
+ *   silently removes them, so `{ onPress: fn }` printed as `{}` — an empty object
+ *   that reads like missing data.
+ */
+function stableStringify(value: unknown, seen: Set<object> = new Set()): string {
+  if (value === null) return "null";
+  if (typeof value === "function") return `"[Function ${value.name || "anonymous"}]"`;
+  if (typeof value === "undefined") return `"[undefined]"`;
+  if (typeof value !== "object") return JSON.stringify(value) ?? "null";
+
+  const obj = value as object;
+  if (seen.has(obj)) return `"[Circular]"`;
+  seen.add(obj);
+  try {
+    if (Array.isArray(obj)) {
+      return `[${obj.map((entry) => stableStringify(entry, seen)).join(",")}]`;
+    }
+    const keys = Object.keys(obj as Record<string, unknown>).sort();
+    const body = keys
+      .map((key) => `${JSON.stringify(key)}:${stableStringify((obj as any)[key], seen)}`)
+      .join(",");
+    return `{${body}}`;
+  } finally {
+    seen.delete(obj);
+  }
+}
+
+/**
  * Format a single prop value for snapshot display.
  */
 function formatPropValue(value: unknown): string {
@@ -73,11 +112,8 @@ function formatPropValue(value: unknown): string {
   if (value === undefined) {
     return "{undefined}";
   }
-  if (Array.isArray(value)) {
-    return `{${JSON.stringify(value)}}`;
-  }
-  if (typeof value === "object") {
-    return `{${JSON.stringify(value)}}`;
+  if (Array.isArray(value) || typeof value === "object") {
+    return `{${stableStringify(value)}}`;
   }
   return `{${String(value)}}`;
 }
@@ -206,7 +242,7 @@ export const serializer: SnapshotSerializer = {
         result += "\n" + printer(child, config, nextIndentation, depth + 1, refs);
       } else {
         // Fallback: use printer for anything else
-        result += "\n" + nextIndentation + printer(child, config, nextIndentation, depth + 1, refs);
+        result += "\n" + printer(child, config, nextIndentation, depth + 1, refs);
       }
     }
 
