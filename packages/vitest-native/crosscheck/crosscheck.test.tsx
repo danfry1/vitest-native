@@ -815,24 +815,15 @@ probe("hunt-textinput-maxlength", async () => {
 // Members starting with "_" are excluded: React Native's own internals are prefixed
 // that way, and so are the mock's deliberate test helpers (_reset, _setState, _show).
 const KNOWN_MOCK_EXTRA = new Set([
-  // Convenience readers the mock offers and real React Native does not. Real RN exposes
-  // only __getValue(); a suite using these stops working on the native engine.
+  // The one remaining divergence, and it is deliberate. Real React Native exposes only
+  // __getValue(); this convenience reader stays for suites already using it, but warns
+  // once per process because the same call throws under engine:'native'. Removing it is
+  // a breaking change and belongs in a major.
   "getValue",
-  "resetAnimation",
-  "stopAnimation",
 ]);
-const KNOWN_MOCK_MISSING = new Set([
-  // Real React Native members the mock has not implemented. Valid RN code calling
-  // these throws under the mock engine.
-  "Event",
-  "Interpolation",
-  "Node",
-  "attachNativeEvent",
-  "animate",
-  "hasListeners",
-  "stopTracking",
-  "track",
-  "toJSON",
+const KNOWN_MOCK_MISSING = new Set<string>([
+  // Emptied: every member React Native had and the mock lacked is now implemented.
+  // Anything added back here is a gap, and should carry a reason.
 ]);
 
 function publicMembers(value: unknown): string[] {

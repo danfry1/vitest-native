@@ -20,9 +20,9 @@
     "why": "Not a cross-engine invariant: the value exists only because a device exists, the same case as the default device metrics above. The mock's value is pinned by its own suite so it cannot drift unnoticed; tests that branch on foreground state should set it explicitly rather than rely on either default."
   },
   {
-    "area": "Animated API surface",
-    "difference": "The mock adds getValue() on Animated.Value, ValueXY and interpolations (real React Native exposes only the internal __getValue()), plus resetAnimation()/stopAnimation() on interpolations. It does not yet implement Animated.Node, Animated.Event, Animated.Interpolation, attachNativeEvent, Value.track/stopTracking/animate, hasListeners, or ValueXY.toJSON.",
-    "why": "Both directions are portability traps: code using the extras passes on the mock engine and throws on the native one, and valid React Native code using the unimplemented members does the reverse. The cross-check now pins the whole surface with these divergences enumerated in an allowlist, so anything NEW fails, but closing them is outstanding work rather than a settled difference."
+    "area": "Animated.getValue()",
+    "difference": "The mock engine adds a getValue() convenience reader to animated nodes. Real React Native exposes only the internal __getValue(), so the same call throws under engine:native.",
+    "why": "Kept for suites already using it, and it now warns once per process pointing at __getValue(), which works under both engines. Removing it is a breaking change and belongs in a major. Every other difference in the Animated surface has been closed: the mock now implements Animated.Node, Animated.Event, Animated.Interpolation, attachNativeEvent, Value.track/stopTracking/animate, hasListeners and toJSON, and stopAnimation/resetAnimation moved off the shared base class to Value and Color, where React Native has them."
   },
   {
     "area": "Host component names and snapshots",
