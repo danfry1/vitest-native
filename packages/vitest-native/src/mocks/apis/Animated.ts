@@ -417,6 +417,14 @@ class AnimatedValue extends AnimatedNode {
    * AnimatedValue.animate() does: stop whatever is running, then start the new one,
    * feeding each frame back through setValue and reporting completion.
    *
+   * KNOWN DIVERGENCE: this mock's own timing/spring/decay do NOT route through here.
+   * They apply their target value synchronously (see createAnimation), whereas real
+   * React Native's timing() calls value.animate(). So a suite spying on `animate` sees
+   * nothing under engine:'mock' and a call under engine:'native'. Wiring them through
+   * would mean reworking the synchronous-completion model a lot of tests depend on, so
+   * the divergence is recorded in crosscheck/known-differences.json instead. Pinned by
+   * a test, so changing it is a decision rather than an accident.
+   *
    * React Native passes the previous animation and the node itself as the last two
    * arguments; both are forwarded so a caller supplying a real Animation sees the same
    * call shape.

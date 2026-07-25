@@ -21,7 +21,7 @@
   },
   {
     "area": "Animated.getValue()",
-    "difference": "The mock engine adds a getValue() convenience reader to animated nodes. Real React Native exposes only the internal __getValue(), so the same call throws under engine:native.",
+    "difference": "The mock engine adds a getValue() convenience reader to animated nodes. Real React Native exposes only the internal __getValue(), so the same call throws under engine:native. Separately, this mock applies timing/spring/decay synchronously rather than routing them through AnimatedValue.animate(), which real React Native does — so a suite spying on animate() observes nothing under the mock engine and a call under the native one.",
     "why": "Kept for suites already using it, and it now warns once per process pointing at __getValue(), which works under both engines. Removing it is a breaking change and belongs in a major. Every other difference in the Animated surface has been closed: the mock now implements Animated.Node, Animated.Event, Animated.Interpolation, attachNativeEvent, Value.track/stopTracking/animate, hasListeners and toJSON, and stopAnimation/resetAnimation moved off the shared base class to Value and Color, where React Native has them."
   },
   {

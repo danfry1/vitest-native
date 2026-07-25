@@ -165,3 +165,19 @@ describe("getValue", () => {
     }
   });
 });
+
+describe("known divergence: the mock's animations bypass animate()", () => {
+  it("timing applies its value directly rather than calling value.animate()", () => {
+    // Real React Native's timing() calls value.animate(). This mock applies the target
+    // synchronously instead, so a spy on animate sees nothing. Pinned so that routing
+    // them through animate() later is a deliberate change with the published
+    // known-difference updated, rather than a silent one.
+    const value = new Animated.Value(0);
+    const animate = vi.spyOn(value as unknown as { animate: Function }, "animate");
+    Animated.timing(value, { toValue: 100, duration: 10, useNativeDriver: false }).start();
+
+    expect(animate).not.toHaveBeenCalled();
+    // The observable outcome still matches: the value reaches its target.
+    expect((value as unknown as { __getValue(): number }).__getValue()).toBe(100);
+  });
+});

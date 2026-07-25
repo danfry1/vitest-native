@@ -415,23 +415,6 @@ export function findDuplicateReact(
 // output — with nothing pointing at the cause. Detected during transform and reported
 // once, since the whole suite has the same fix.
 const HAS_JEST_MOCK_CALL = /\bjest\s*\.\s*(?:mock|unmock|doMock|doUnmock)\s*\(/;
-let jestMockTransformPresent = true;
-let warnedMissingJestMockTransform = false;
-
-function warnIfJestMockUnhoisted(code: string, id: string): void {
-  if (jestMockTransformPresent || warnedMissingJestMockTransform) return;
-  if (!HAS_JEST_MOCK_CALL.test(code)) return;
-  warnedMissingJestMockTransform = true;
-  console.warn(
-    `[vitest-native] ${id} calls jest.mock(), but jestMockTransform() is not in your ` +
-      `plugins. Vitest only hoists mocks written on the vi/vitest identifier, so this ` +
-      `call runs after the imports it should intercept and the mock will not apply.\n` +
-      `Add it AFTER reactNative():\n\n` +
-      `  import { jestMockTransform } from 'vitest-native/jest-compat'\n` +
-      `  plugins: [reactNative(), jestMockTransform()]`,
-  );
-}
-
 const RN_ECOSYSTEM_PATH =
   /[\\/]node_modules[\\/](?:@react-native[^\\/]*[\\/][^\\/]+|(?:@[^\\/]+[\\/])?react-native[^\\/]*)[\\/]/;
 
@@ -493,6 +476,27 @@ function containsFunctions(value: unknown, visited = new WeakSet()): boolean {
  * React Native code in a Node/JSDOM environment.
  */
 export function reactNative(options?: VitestNativeOptions): Plugin {
+  // Per plugin INSTANCE, not module scope. A Vitest workspace calls reactNative() once
+  // per project and they share this module, so module-level state means the last
+  // project's configResolved decides for all of them — suppressing the warning for a
+  // project that needs it, or raising it for one that does not.
+  let jestMockTransformPresent = true;
+  let warnedMissingJestMockTransform = false;
+
+  const warnIfJestMockUnhoisted = (code: string, id: string): void => {
+    if (jestMockTransformPresent || warnedMissingJestMockTransform) return;
+    if (!HAS_JEST_MOCK_CALL.test(code)) return;
+    warnedMissingJestMockTransform = true;
+    console.warn(
+      `[vitest-native] ${id} calls jest.mock(), but jestMockTransform() is not in your ` +
+        `plugins. Vitest only hoists mocks written on the vi/vitest identifier, so this ` +
+        `call runs after the imports it should intercept and the mock will not apply.\n` +
+        `Add it AFTER reactNative():\n\n` +
+        `  import { jestMockTransform } from 'vitest-native/jest-compat'\n` +
+        `  plugins: [reactNative(), jestMockTransform()]`,
+    );
+  };
+
   // --- Validate options eagerly so users get fast, clear errors ---
 
   if (options) {
