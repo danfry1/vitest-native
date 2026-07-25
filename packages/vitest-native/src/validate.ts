@@ -68,7 +68,14 @@ export function validateOptions(options: Record<string, unknown>): void {
   const hotOptions = hotRuntime as Record<string, unknown>;
   for (const key of Object.keys(hotOptions)) {
     if (!KNOWN_HOT_RUNTIME_OPTIONS.includes(key)) {
-      throw new TypeError(`[vitest-native] Unknown hotRuntime option "${key}".`);
+      // The sibling message for top-level options offers a suggestion; this one did
+      // not, so a typo produced a bare rejection with no way forward.
+      const suggestion = findClosest(key, KNOWN_HOT_RUNTIME_OPTIONS);
+      throw new TypeError(
+        `[vitest-native] Unknown hotRuntime option "${key}".` +
+          (suggestion ? ` Did you mean '${suggestion}'?` : "") +
+          ` Valid options: ${KNOWN_HOT_RUNTIME_OPTIONS.join(", ")}.`,
+      );
     }
   }
   if (hotOptions.recycleAfterFiles !== undefined) {

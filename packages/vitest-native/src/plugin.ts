@@ -379,6 +379,59 @@ const RN_EXPORT_NAMES = [
  * it replaced: `eslint-plugin-react-native` and a project directory called
  * `react-native-app` both contain the words without being React Native packages.
  */
+/**
+ * Two copies of React in one test process produce a null hooks dispatcher, which
+ * surfaces as `Cannot read properties of null (reading 'use')` — usually wrapped by
+ * React Native Testing Library as "Trying to detect host component names triggered the
+ * following error", whose own advice is only that something is wrong with the
+ * configuration. `resolve.dedupe` prevents it in the normal case; this reports the
+ * cases dedupe cannot reach, such as a nested install, so the cause is named rather
+ * than discovered.
+ *
+ * Pure and exported for testing: `resolve` is the resolver, so the check can be
+ * exercised without building a broken node_modules tree.
+ */
+export function findDuplicateReact(
+  resolve: (specifier: string, from: string) => string | null,
+  projectRoot: string,
+  consumers: string[],
+): { projectCopy: string; otherCopy: string; consumer: string } | null {
+  const projectCopy = resolve("react/package.json", projectRoot);
+  if (!projectCopy) return null;
+  for (const consumer of consumers) {
+    const consumerRoot = resolve(`${consumer}/package.json`, projectRoot);
+    if (!consumerRoot) continue;
+    const otherCopy = resolve("react/package.json", consumerRoot);
+    if (otherCopy && otherCopy !== projectCopy) {
+      return { projectCopy, otherCopy, consumer };
+    }
+  }
+  return null;
+}
+
+// A suite using top-level jest.mock() needs jestMockTransform() to hoist it. Without
+// that plugin the call runs AFTER the imports it is meant to intercept, so the mock
+// silently does not apply and the test fails comparing real output to expected mock
+// output — with nothing pointing at the cause. Detected during transform and reported
+// once, since the whole suite has the same fix.
+const HAS_JEST_MOCK_CALL = /\bjest\s*\.\s*(?:mock|unmock|doMock|doUnmock)\s*\(/;
+let jestMockTransformPresent = true;
+let warnedMissingJestMockTransform = false;
+
+function warnIfJestMockUnhoisted(code: string, id: string): void {
+  if (jestMockTransformPresent || warnedMissingJestMockTransform) return;
+  if (!HAS_JEST_MOCK_CALL.test(code)) return;
+  warnedMissingJestMockTransform = true;
+  console.warn(
+    `[vitest-native] ${id} calls jest.mock(), but jestMockTransform() is not in your ` +
+      `plugins. Vitest only hoists mocks written on the vi/vitest identifier, so this ` +
+      `call runs after the imports it should intercept and the mock will not apply.\n` +
+      `Add it AFTER reactNative():\n\n` +
+      `  import { jestMockTransform } from 'vitest-native/jest-compat'\n` +
+      `  plugins: [reactNative(), jestMockTransform()]`,
+  );
+}
+
 const RN_ECOSYSTEM_PATH =
   /[\\/]node_modules[\\/](?:@react-native[^\\/]*[\\/][^\\/]+|(?:@[^\\/]+[\\/])?react-native[^\\/]*)[\\/]/;
 
@@ -792,6 +845,36 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     },
 
     async configResolved(config) {
+      // Recorded here rather than guessed later: the resolved plugin list is the only
+      // place that knows whether the hoisting transform is actually installed.
+      jestMockTransformPresent = (config.plugins ?? []).some(
+        (plugin) => (plugin as { name?: string })?.name === "vitest-native:jest-mock-hoist",
+      );
+
+      const duplicateReact = findDuplicateReact(
+        (specifier, from) => {
+          try {
+            return createRequire(path.join(from, "package.json")).resolve(specifier);
+          } catch {
+            return null;
+          }
+        },
+        config.root,
+        ["@testing-library/react-native", "react-test-renderer", "react-native"],
+      );
+      if (duplicateReact) {
+        console.warn(
+          `[vitest-native] Two copies of React are resolvable: your project loads one, ` +
+            `and '${duplicateReact.consumer}' loads another.\n` +
+            `  project: ${duplicateReact.projectCopy}\n` +
+            `  ${duplicateReact.consumer}: ${duplicateReact.otherCopy}\n` +
+            `React throws "Cannot read properties of null (reading 'use')" when hooks run ` +
+            `through a second copy, which React Native Testing Library reports as a failure ` +
+            `to detect host component names. Install a single React version at the project ` +
+            `root (npm dedupe, or match the version '${duplicateReact.consumer}' expects).`,
+        );
+      }
+
       // Validate peer dependencies (table shared with the CLI's doctor command).
       const peerErrors: string[] = [];
       for (const { name, minimum, maximumMajor, minimumByMajor, optional } of PEER_REQUIREMENTS) {
@@ -1079,6 +1162,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     },
 
     transform(code, id) {
+      warnIfJestMockUnhoisted(code, id);
       // Native engine: React Native itself is Flow-stripped in Node's loader hooks,
       // not here. The auto-inlined ecosystem packages are the exception — they live
       // in Vite's graph precisely so Vitest owns them, which means Vite's pipeline
