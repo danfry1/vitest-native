@@ -95,7 +95,12 @@ function surfaceCoverage() {
     fs
       .readdirSync(path.join(root, "src", "mocks", dir))
       .filter((f) => f !== "index.ts" && !skip.test(f))
-      .map((f) => f.replace(/\.tsx?$/, ""));
+      .map((f) => f.replace(/\.tsx?$/, ""))
+      // Directory order is the filesystem's, not a promise. macOS returns these in
+      // ASCII order (uppercase first) and Windows orders case-insensitively, so an
+      // unsorted listing rendered a different page per platform and the freshness
+      // check failed on Windows alone.
+      .sort();
   const referenced = (name) =>
     new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(corpus);
   const measure = (names) => {
