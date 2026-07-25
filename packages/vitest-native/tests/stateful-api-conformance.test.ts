@@ -13,6 +13,7 @@ import {
   Appearance,
   DeviceEventEmitter,
   I18nManager,
+  LayoutAnimation,
   Settings,
   Image,
   Share,
@@ -529,5 +530,53 @@ describe("DevSettings (conformance)", () => {
 
   it("reload is callable", () => {
     expect(() => DevSettings.reload()).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LayoutAnimation preset shortcuts
+// ---------------------------------------------------------------------------
+
+/**
+ * `LayoutAnimation.easeInEaseOut()` is the idiomatic one-liner in a React Native
+ * codebase, and the mock did not have it: it threw "is not a function" while the same
+ * call worked under the native engine. Found by diffing the mock's member list against
+ * real React Native's rather than by any behavioural test, because a behavioural test
+ * cannot exercise a member that is not there.
+ */
+describe("LayoutAnimation preset shortcuts", () => {
+  it("routes each shortcut through configureNext with its preset", () => {
+    const layout = LayoutAnimation as unknown as {
+      configureNext: { mock: { calls: unknown[][] } } & ((...args: unknown[]) => void);
+      easeInEaseOut: (cb?: () => void) => void;
+      linear: (cb?: () => void) => void;
+      spring: (cb?: () => void) => void;
+      Presets: Record<string, unknown>;
+    };
+    (layout.configureNext as unknown as { mockClear: () => void }).mockClear();
+
+    for (const name of ["easeInEaseOut", "linear", "spring"] as const) {
+      layout[name]();
+      const [config] = layout.configureNext.mock.calls.at(-1) as [unknown];
+      expect(config, name).toBe(layout.Presets[name]);
+    }
+    expect(layout.configureNext.mock.calls).toHaveLength(3);
+  });
+
+  it("passes the completion callback through", () => {
+    const layout = LayoutAnimation as unknown as {
+      configureNext: { mock: { calls: unknown[][] } };
+      easeInEaseOut: (cb?: () => void) => void;
+    };
+    (layout.configureNext as unknown as { mockClear: () => void }).mockClear();
+    const done = vi.fn();
+    layout.easeInEaseOut(done);
+    expect(layout.configureNext.mock.calls.at(-1)?.[1]).toBe(done);
+  });
+
+  it("exposes setEnabled and the disabled checkConfig", () => {
+    const layout = LayoutAnimation as unknown as Record<string, unknown>;
+    expect(typeof layout.setEnabled).toBe("function");
+    expect(typeof layout.checkConfig).toBe("function");
   });
 });

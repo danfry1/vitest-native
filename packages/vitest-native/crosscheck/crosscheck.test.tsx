@@ -26,6 +26,7 @@ import {
   I18nManager,
   Image,
   KeyboardAvoidingView,
+  LayoutAnimation,
   Modal,
   PixelRatio,
   Platform,
@@ -846,6 +847,31 @@ function publicMembers(value: unknown): string[] {
     .filter((key) => !KNOWN_MOCK_EXTRA.has(key) && !KNOWN_MOCK_MISSING.has(key))
     .sort();
 }
+
+// LayoutAnimation's preset shortcuts. `LayoutAnimation.easeInEaseOut()` is the
+// idiomatic one-liner in a React Native codebase, and the mock did not have it at all —
+// it threw "is not a function" while the same code worked under the native engine. A
+// behavioural probe cannot catch a member that does not exist, so this checks it is
+// callable and reports the shape the caller sees.
+probe("layout-animation-presets", () => {
+  const api = LayoutAnimation as unknown as Record<string, unknown>;
+  const callable = (name: string) => {
+    if (typeof api[name] !== "function") return "<<missing>>";
+    try {
+      (api[name] as () => void)();
+      return "callable";
+    } catch (error) {
+      return `threw: ${(error as Error).message.slice(0, 40)}`;
+    }
+  };
+  return {
+    easeInEaseOut: callable("easeInEaseOut"),
+    linear: callable("linear"),
+    spring: callable("spring"),
+    setEnabled: typeof api.setEnabled,
+    presetKeys: Object.keys((api.Presets ?? {}) as object).sort(),
+  };
+});
 
 probe("animated-surface", () => {
   const value = new Animated.Value(1);
