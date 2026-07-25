@@ -1,3 +1,4 @@
+import { VitestNativeError } from "./errors.mjs";
 /**
  * Test helpers for vitest-native.
  *
@@ -8,8 +9,9 @@
 function getMock(): Record<string, any> {
   const mock = (globalThis as any).__vitest_native_mock;
   if (!mock) {
-    throw new Error(
-      "vitest-native helpers called before setup. Ensure the vitest-native plugin is configured.",
+    throw new VitestNativeError(
+      "HELPERS_BEFORE_SETUP",
+      "helpers were called before setup ran. Ensure the vitest-native plugin is configured.",
     );
   }
   return mock;

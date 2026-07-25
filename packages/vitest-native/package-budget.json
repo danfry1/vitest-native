@@ -1,9 +1,9 @@
 {
-  "maxPackedBytes": 234000,
+  "maxPackedBytes": 236000,
   "maxUnpackedBytes": 830000,
   "maxFiles": 85,
   "maxRuntimeDependencies": 2,
   "maxExportPaths": 11,
   "_maxExportPaths": "11 since ./rntl-matchers: a types-only entry that augments Vitest's Assertion with React Native Testing Library's matchers. It is separate rather than folded into the main types because RNTL is an optional peer, and an unresolvable type import inside a shipped .d.ts reports TS2307 for consumers using skipLibCheck: false without it.",
-  "_maxPackedBytes": "234000 since the Animated surface parity work: nine members React Native has and the mock lacked (Node, Event, Interpolation, attachNativeEvent, track, stopTracking, animate, hasListeners, toJSON), plus the unhoisted-jest.mock and duplicate-React detections. Headroom is deliberately thin \u2014 a few KB \u2014 so the next unintended growth still trips this."
+  "_maxPackedBytes": "236000 since the typed error classes. errors.mjs ships verbatim for the raw native and jest-compat runtimes, and the bundler also emits it as a chunk for the bundled entries, so its ~2KB lands twice. Externalising it did not take effect with this bundler config; the duplication is a known cost rather than an accident, and isVitestNativeError checks shape precisely because two copies mean instanceof cannot be trusted across that seam."
 }

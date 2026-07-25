@@ -35,6 +35,14 @@ export default defineConfig({
     // runtime (native: via module.register; jest-compat: as setup file / alias
     // targets resolved by Vite), so they must ship verbatim rather than bundled.
     'build:done': () => {
+      // Top-level runtime .mjs (errors.mjs) ships verbatim too: the shipped runtimes
+      // below import it by relative path, and the tests load those same files from src,
+      // so it must resolve in both trees as one module rather than a bundled copy.
+      for (const f of fs.readdirSync(path.resolve('src'))) {
+        if (f.endsWith('.mjs') || f.endsWith('.d.mts')) {
+          fs.copyFileSync(path.resolve('src', f), path.resolve('dist', f));
+        }
+      }
       for (const sub of ['native', 'jest-compat']) {
         const srcDir = path.resolve('src', sub);
         const outDir = path.resolve('dist', sub);

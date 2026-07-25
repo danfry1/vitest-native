@@ -11,6 +11,7 @@ import { enableV8CompileCache } from "./compile-cache.mjs";
 import * as presetFactories from "../presets.mjs";
 import { animatedMatchers } from "../matchers.mjs";
 import { serializer as rnSerializer } from "../serializer.mjs";
+import { VitestNativeError } from "../errors.mjs";
 
 // Hot runtime: surgical reset of state left by the PREVIOUS file. Setup files
 // are force-inlined by Vitest, so this body re-runs per test file even when the
@@ -170,8 +171,9 @@ function emitColorScheme(colorScheme) {
 g.__vitest_native_control = {
   engine: "native",
   setPlatform() {
-    throw new Error(
-      `[vitest-native] setPlatform() is only available with engine:'mock'. ` +
+    throw new VitestNativeError(
+      "WRONG_ENGINE_FOR_HELPER",
+      `setPlatform() is only available with engine:'mock'. ` +
         `The native engine selects platform files when the module graph loads. ` +
         `Use reactNative({ platform: 'ios' | 'android' }) or separate Vitest projects.`,
     );

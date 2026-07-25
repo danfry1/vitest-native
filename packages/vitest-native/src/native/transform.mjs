@@ -19,6 +19,7 @@ import fs from "node:fs";
 import os from "node:os";
 import crypto from "node:crypto";
 import { decorateTransformError } from "./explain.mjs";
+import { VitestNativeError } from "../errors.mjs";
 
 let _req;
 let _babel;
@@ -89,8 +90,9 @@ function init(projectRoot) {
     presetVersion = _req("@react-native/babel-preset/package.json").version;
     babelVersion = _req("@babel/core/package.json").version;
   } catch {
-    throw new Error(
-      "[vitest-native] engine 'native' requires '@react-native/babel-preset' and " +
+    throw new VitestNativeError(
+      "ENGINE_REQUIRES_BABEL",
+      "engine 'native' requires '@react-native/babel-preset' and " +
         "'@babel/core' in your project. Install them as devDependencies " +
         "(they ship with React Native projects by default).",
     );
