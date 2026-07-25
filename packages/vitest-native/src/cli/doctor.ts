@@ -59,7 +59,8 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
 
   // --- Required peers ---
   lines.push("", "Peer dependencies");
-  for (const { name, minimum, maximumMajor, minimumByMajor } of PEER_REQUIREMENTS) {
+  for (const { name, minimum, maximumMajor, minimumByMajor, optional } of PEER_REQUIREMENTS) {
+    if (optional) continue; // reported under "Testing library", and never blocking
     const error = validatePeerDependency(name, minimum, root, maximumMajor, minimumByMajor);
     if (error) fail(error);
     else pass(`${name} ${packageVersion(root, name)}`);
@@ -95,8 +96,24 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
     );
   } else {
     const rntlMajor = Number(rntl.split(".")[0]);
-    if (rntlMajor < 12 || rntlMajor >= 15) {
-      fail(`@testing-library/react-native ${rntl} — supported range is >=12 <15.`);
+    // WARN, not fail, and the range comes from PEER_REQUIREMENTS rather than being
+    // written out again here. The plugin only console.warns for a version outside
+    // the supported range — an optional peer does not stop a run — so failing here
+    // reported "blocking problems found", and a non-zero exit, for a project that
+    // works. The range itself lived in three unpinned places: this comparison, the
+    // plugin's startup check, and the published peerDependencies entry.
+    const rntlReq = PEER_REQUIREMENTS.find((r) => r.name === "@testing-library/react-native");
+    const rntlError =
+      rntlReq &&
+      validatePeerDependency(
+        rntlReq.name,
+        rntlReq.minimum,
+        root,
+        rntlReq.maximumMajor,
+        rntlReq.minimumByMajor,
+      );
+    if (rntlError) {
+      warn(rntlError);
     } else if (
       rntlMajor >= 14 &&
       (nodeMajorMinor[0] < 22 || (nodeMajorMinor[0] === 22 && nodeMajorMinor[1] < 13))

@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { main } from "../src/cli/index.js";
 import { runInit, renderInitConfig } from "../src/cli/init.js";
 import { runDoctor } from "../src/cli/doctor.js";
+import { PEER_REQUIREMENTS } from "../src/peer-requirements.js";
 import {
   analyzeJestConfig,
   extractAllowlistPackages,
@@ -82,7 +83,12 @@ describe("init", () => {
     expect(written).toContain("jestMockTransform()");
     expect(written).toContain("setupFiles: [jestCompatSetup]");
     expect(written).toContain("globals: true");
-    // jestMockTransform must come after reactNative (normal plugin order).
+    // Pins the shape this command emits. Not an ordering requirement: the constraint
+    // on jestMockTransform is that it declares no `enforce`, so it runs after Vite
+    // strips TS/JSX and before Vitest's mock hoister. Both orders relative to
+    // reactNative() were measured to work, under either engine, for a top-level
+    // jest.mock whose factory returns JSX — and this repo's own bare consumer fixture
+    // uses the opposite one.
     expect(written).toContain("plugins: [reactNative(), jestMockTransform()]");
   });
 
@@ -225,6 +231,33 @@ describe("migrate", () => {
     expect(text).toContain("'someCustomKey' — unrecognized Jest key");
   });
 
+  it("rewrites <rootDir> in setup files instead of emitting it verbatim", () => {
+    // The case above uses "./jest.setup.js", which happens to work as written. Real
+    // Jest configs overwhelmingly say "<rootDir>/jest.setup.js", and Vitest does not
+    // substitute <rootDir> — it resolved the string literally, so every test file in
+    // the generated config failed with "Cannot find module .../<rootDir>/jest.setup.js"
+    // while the report listed the mapping as automatic. testMatch, include and
+    // moduleNameMapper already stripped the token; setup files were the one path that
+    // did not.
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": {
+        preset: "react-native",
+        setupFilesAfterEnv: ["<rootDir>/jest.setup.js"],
+        setupFiles: ["<rootDir>/config/polyfills.js"],
+      },
+    });
+    const report = analyzeJestConfig(root);
+    expect(report.suggestedConfig).not.toContain("<rootDir>");
+    expect(report.suggestedConfig).toContain(
+      `fileURLToPath(new URL("./jest.setup.js", import.meta.url))`,
+    );
+    expect(report.suggestedConfig).toContain(
+      `fileURLToPath(new URL("./config/polyfills.js", import.meta.url))`,
+    );
+    expect(report.suggestedConfig).toContain(`import { fileURLToPath } from 'node:url'`);
+  });
+
   it("reads package.json#jest and reports a missing config honestly", () => {
     const withEmbedded = fixture({
       "package.json": { name: "x", jest: { preset: "react-native" } },
@@ -247,5 +280,58 @@ describe("migrate", () => {
     const written = fs.readFileSync(path.join(root, "vitest.config.mjs"), "utf8");
     expect(written).toContain("testTimeout: 9000");
     expect(written).toContain("jestMockTransform()");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Peer-range drift
+// ---------------------------------------------------------------------------
+
+/**
+ * The supported ranges are declared twice by necessity: PEER_REQUIREMENTS drives the
+ * plugin's startup check and doctor, while package.json's peerDependencies is what a
+ * package manager reads. Nothing held the two together — bumping a bound in either
+ * one alone passed every gate, and for RNTL the range was written a third time as a
+ * hardcoded major comparison inside doctor.
+ */
+describe("peer requirements match the published peerDependencies", () => {
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const manifest = JSON.parse(fs.readFileSync(path.join(HERE, "..", "package.json"), "utf8")) as {
+    peerDependencies: Record<string, string>;
+  };
+
+  it("declares every checked peer in peerDependencies", () => {
+    for (const { name } of PEER_REQUIREMENTS) {
+      expect(manifest.peerDependencies, name).toHaveProperty(name);
+    }
+  });
+
+  it("agrees on the minimum and the exclusive major ceiling", () => {
+    const mismatches: string[] = [];
+    for (const { name, minimum, maximumMajor } of PEER_REQUIREMENTS) {
+      const declared = manifest.peerDependencies[name] ?? "";
+      const minMajor = Number(minimum.split(".")[0]);
+      // Every published range states its floor as a major, via ">=N" or "^N".
+      const floors = [...declared.matchAll(/[\^>=]+\s*(\d+)/g)].map((m) => Number(m[1]));
+      if (!floors.includes(minMajor)) {
+        mismatches.push(
+          `${name}: PEER_REQUIREMENTS minimum ${minimum} not a floor of "${declared}"`,
+        );
+      }
+      if (maximumMajor !== undefined) {
+        const ceiling = declared.match(/<\s*(\d+)/);
+        const highestCaret = Math.max(
+          0,
+          ...[...declared.matchAll(/\^(\d+)/g)].map((m) => Number(m[1])),
+        );
+        const declaredCeiling = ceiling ? Number(ceiling[1]) : highestCaret + 1;
+        if (declaredCeiling !== maximumMajor) {
+          mismatches.push(
+            `${name}: PEER_REQUIREMENTS maximumMajor ${maximumMajor} vs "${declared}" (ceiling ${declaredCeiling})`,
+          );
+        }
+      }
+    }
+    expect(mismatches).toEqual([]);
   });
 });

@@ -26,6 +26,7 @@ import {
   I18nManager,
   Image,
   KeyboardAvoidingView,
+  LayoutAnimation,
   Modal,
   PixelRatio,
   Platform,
@@ -802,11 +803,113 @@ probe("hunt-textinput-maxlength", async () => {
 // the first two are version-variant (a single mock value can't match every RN
 // minor) and the third is environment-dependent. See the version-variant notes
 // elsewhere in this file.
+// --- Animated API surface ---
+//
+// Every probe above pins a BEHAVIOUR. These pin the SHAPE, because a member the mock
+// invents is a portability trap that no behavioural probe would catch: code written
+// against it passes under the mock engine and throws under the native one. It runs
+// both ways — a real React Native member the mock lacks is the same trap in reverse.
+//
+// The two allowlists are the divergences that exist today, enumerated so they are
+// reviewed rather than invisible. Anything NEW on either side fails this probe.
+// Members starting with "_" are excluded: React Native's own internals are prefixed
+// that way, and so are the mock's deliberate test helpers (_reset, _setState, _show).
+const KNOWN_MOCK_EXTRA = new Set([
+  // Convenience readers the mock offers and real React Native does not. Real RN exposes
+  // only __getValue(); a suite using these stops working on the native engine.
+  "getValue",
+  "resetAnimation",
+  "stopAnimation",
+]);
+const KNOWN_MOCK_MISSING = new Set([
+  // Real React Native members the mock has not implemented. Valid RN code calling
+  // these throws under the mock engine.
+  "Event",
+  "Interpolation",
+  "Node",
+  "attachNativeEvent",
+  "animate",
+  "hasListeners",
+  "stopTracking",
+  "track",
+  "toJSON",
+]);
+
+function publicMembers(value: unknown): string[] {
+  const found = new Set<string>();
+  let cursor = value as object | null;
+  while (cursor && cursor !== Object.prototype) {
+    for (const key of Object.getOwnPropertyNames(cursor)) found.add(key);
+    cursor = Object.getPrototypeOf(cursor);
+  }
+  return [...found]
+    .filter((key) => key !== "constructor" && !key.startsWith("_"))
+    .filter((key) => !KNOWN_MOCK_EXTRA.has(key) && !KNOWN_MOCK_MISSING.has(key))
+    .sort();
+}
+
+// LayoutAnimation's preset shortcuts. `LayoutAnimation.easeInEaseOut()` is the
+// idiomatic one-liner in a React Native codebase, and the mock did not have it at all —
+// it threw "is not a function" while the same code worked under the native engine. A
+// behavioural probe cannot catch a member that does not exist, so this checks it is
+// callable and reports the shape the caller sees.
+probe("layout-animation-presets", () => {
+  const api = LayoutAnimation as unknown as Record<string, unknown>;
+  const callable = (name: string) => {
+    if (typeof api[name] !== "function") return "<<missing>>";
+    try {
+      (api[name] as () => void)();
+      return "callable";
+    } catch (error) {
+      return `threw: ${(error as Error).message.slice(0, 40)}`;
+    }
+  };
+  return {
+    easeInEaseOut: callable("easeInEaseOut"),
+    linear: callable("linear"),
+    spring: callable("spring"),
+    setEnabled: typeof api.setEnabled,
+    presetKeys: Object.keys((api.Presets ?? {}) as object).sort(),
+  };
+});
+
+probe("animated-surface", () => {
+  const value = new Animated.Value(1);
+  const valueXY = new Animated.ValueXY({ x: 0, y: 0 });
+  const interpolation = value.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
+  return {
+    Animated: publicMembers(Animated),
+    Value: publicMembers(value),
+    ValueXY: publicMembers(valueXY),
+    Interpolation: publicMembers(interpolation),
+  };
+});
+
 probe("hunt-processcolor-edge", () => ({
   transparent: processColor("transparent") ?? "<<undefined>>",
   invalid: processColor("definitely-not-a-color") ?? "<<undefined>>",
   hsl: processColor("hsl(0, 100%, 50%)") ?? "<<undefined>>",
 }));
+
+// A falsy style passed DIRECTLY, not nested in an array. `stylesheet-flatten-falsy`
+// above puts its falsy values inside an array, where the recursion's own
+// `!= null` guard absorbs the difference: a flatten that wrongly returns `{}` for
+// null still assigns nothing into the accumulator, so that probe produces an
+// identical value either way. Verified by mutation — changing the top-level return
+// from `undefined` to `{}` left the corpus at 78/78. The distinction is real
+// (callers branch on it) and is now observed where it is observable.
+probe("hunt-stylesheet-flatten-direct-falsy", () => ({
+  null: StyleSheet.flatten(null as never) ?? "<<undefined>>",
+  undef: StyleSheet.flatten(undefined as never) ?? "<<undefined>>",
+  false: StyleSheet.flatten(false as never) ?? "<<undefined>>",
+  empty: StyleSheet.flatten({}) ?? "<<undefined>>",
+}));
+
+// AppState.currentState and Appearance.getColorScheme() are deliberately NOT probed
+// here. Both were found unobserved by mutation (flipping the mock's values left the
+// corpus green), but neither is a cross-engine invariant: they only have a value
+// because a device exists, which is the Dimensions/PixelRatio case in
+// known-differences.json. See that file, and mocks/apis for the mock-side pins.
 
 afterAll(() => {
   const out = process.env.CROSSCHECK_OUT;

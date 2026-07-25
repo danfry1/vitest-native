@@ -109,6 +109,9 @@
     "./jest-compat/extend-expect-noop": {
       "types": "./dist/jest-compat/noop.d.mts",
       "import": "./dist/jest-compat/noop.mjs"
+    },
+    "./rntl-matchers": {
+      "types": "./dist/rntl-matchers.d.ts"
     }
   },
   "files": [
@@ -160,7 +163,7 @@
     "@testing-library/react-native": "14.0.0",
     "@types/node": "25.3.5",
     "@types/react": "19.2.14",
-    "@vitest/coverage-v8": "4.1.8",
+    "@vitest/coverage-v8": "4.1.9",
     "expo-constants": "56.0.16",
     "expo-status-bar": "56.0.4",
     "ext-platform-lib": "file:./tests-native/fixtures/ext-platform-lib",
@@ -174,6 +177,7 @@
     "react-native-safe-area-context": "5.8.0",
     "react-native-worklets": "0.9.1",
     "react-test-renderer": "^19.2.3",
+    "resident-singleton": "file:./tests-native/fixtures/resident-singleton",
     "rn-condition-lib": "file:./tests-native/fixtures/rn-condition-lib",
     "rn-ecosystem-lib": "file:./tests-native/fixtures/rn-ecosystem-lib",
     "rn-mainfield-lib": "file:./tests-native/fixtures/rn-mainfield-lib",
@@ -182,12 +186,13 @@
     "typescript": "6.0.3",
     "untranspiled-jsx-lib": "file:./tests-native/fixtures/untranspiled-jsx-lib",
     "vite": "^8.0.5",
-    "vitest": "^4.1.8"
+    "vitest": "4.1.9"
   },
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown && node scripts/copy-static-types.mjs",
     "test": "vitest run",
     "test:native": "vitest run --config tests-native/vitest.config.mts",
+    "test:native:forks": "vitest run --config tests-native/vitest.forks.config.mts",
     "test:native:navigation": "vitest run --config tests-native/vitest.navigation.config.mts",
     "test:native:android": "vitest run --config tests-native/vitest.android.config.mts",
     "test:native:hot": "vitest run --config tests-native/vitest.hot.config.mts",
@@ -201,7 +206,7 @@
     "check:size": "node scripts/check-package-size.mjs",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
-    "prepublishOnly": "bun run build && bun run check:size && bun run test && bun run test:native && bun run test:native:navigation && bun run test:native:android && bun run test:native:hot && bun run test:native:hot:isolation && bun run test:native:hot:soak && bun run fidelity:check && bun run test:consumers && bun run lint && bun run typecheck",
+    "prepublishOnly": "bun run build && bun run check:size && bun run test && bun run test:native && bun run test:native:forks && bun run test:native:navigation && bun run test:native:android && bun run test:native:hot && bun run test:native:hot:isolation && bun run test:native:hot:soak && bun run validate:hot-parity && bun run fidelity:check && bun run test:consumers && bun run lint && bun run typecheck",
     "crosscheck": "node scripts/crosscheck.mjs",
     "fidelity:report": "node scripts/fidelity-report.mjs",
     "fidelity:check": "node scripts/fidelity-report.mjs --check && node scripts/fidelity-matrix.mjs --check",

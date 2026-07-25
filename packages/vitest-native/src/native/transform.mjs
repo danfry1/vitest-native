@@ -23,10 +23,15 @@ import { decorateTransformError } from "./explain.mjs";
 let _req;
 let _babel;
 let _preset;
+let _flowEnums;
 let _cacheDir;
 let _writeSeq = 0;
 const mem = new Map();
-const TRANSFORM_CACHE_VERSION = 3;
+// 4: Flow enums are now transformed ahead of the preset's strip-types pass, so cached
+// output from 3 is missing every `export enum` declaration. Neither the preset nor
+// Babel version changed, and those are the only other inputs to the directory name, so
+// without this bump a warm cache would keep serving the broken modules.
+export const TRANSFORM_CACHE_VERSION = 4;
 
 /**
  * Root directory for vitest-native's on-disk caches. Prefers the project's
@@ -61,6 +66,26 @@ function init(projectRoot) {
     // lazily on the first cache miss.
     _preset = _req.resolve("@react-native/babel-preset");
     _req.resolve("@babel/core");
+    // Flow enums must be transformed BEFORE @babel/plugin-transform-flow-strip-types
+    // sees them, or the declaration is removed as if it were a type annotation. The
+    // React Native preset carries both, but in separate `overrides` entries that Babel
+    // merges into ONE pass with strip-types first — so `export enum Foo {}` is deleted
+    // while the code referencing Foo survives, leaving a module that throws
+    // ReferenceError on a path nothing warned about. Measured identical on preset
+    // 0.85.3 and 0.86.1, so this is the preset's ordering rather than version skew.
+    //
+    // Babel applies `plugins` before `presets`, so naming the plugin here runs it first
+    // and the enum survives. Resolved from the preset, which depends on it, so no new
+    // dependency is required.
+    try {
+      _flowEnums = createRequire(_req.resolve("@react-native/babel-preset/package.json")).resolve(
+        "babel-plugin-transform-flow-enums",
+      );
+    } catch {
+      // A preset layout without it: fall back to the preset's own handling rather than
+      // failing the run. Flow enums are rare and only two React Native files use them.
+      _flowEnums = null;
+    }
     presetVersion = _req("@react-native/babel-preset/package.json").version;
     babelVersion = _req("@babel/core/package.json").version;
   } catch {
@@ -128,6 +153,7 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   try {
     out = _babel.transformSync(src, {
       filename: file,
+      plugins: _flowEnums ? [_flowEnums] : [],
       presets: [[_preset, { disableStaticViewConfigsCodegen: true }]],
       babelrc: false,
       configFile: false,

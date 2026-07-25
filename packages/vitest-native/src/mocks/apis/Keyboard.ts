@@ -1,16 +1,28 @@
 import { vi } from "vitest";
 
+/**
+ * The keyboard's resting state, written once.
+ *
+ * It used to be repeated at construction and in dismiss/_hide/_reset, which is the
+ * shape that lets a wrong initial value pass every gate: suites call `_reset()`
+ * before asserting, so they observe the reset path and never the value the mock is
+ * actually built with. Changing the construction-time values alone was caught by
+ * neither the mock suite nor the cross-check. One constant, so the two cannot drift.
+ */
+const RESTING = { visible: false, keyboardHeight: 0 };
+
 export function createKeyboardMock() {
-  let visible = false;
-  let keyboardHeight = 0;
+  let { visible, keyboardHeight } = RESTING;
+
+  const rest = () => {
+    visible = RESTING.visible;
+    keyboardHeight = RESTING.keyboardHeight;
+  };
 
   const listeners = new Map<string, Set<Function>>();
 
   return {
-    dismiss: vi.fn(() => {
-      visible = false;
-      keyboardHeight = 0;
-    }),
+    dismiss: vi.fn(rest),
     addListener: vi.fn((event: string, handler: Function) => {
       if (!listeners.has(event)) listeners.set(event, new Set());
       listeners.get(event)!.add(handler);
@@ -41,13 +53,11 @@ export function createKeyboardMock() {
         );
     },
     _hide: () => {
-      visible = false;
-      keyboardHeight = 0;
+      rest();
       listeners.get("keyboardDidHide")?.forEach((fn) => fn({}));
     },
     _reset: () => {
-      visible = false;
-      keyboardHeight = 0;
+      rest();
       listeners.clear();
     },
   };

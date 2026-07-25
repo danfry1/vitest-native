@@ -13,7 +13,7 @@ generated from the corpus itself, so the numbers below are exactly what ships.
 
 ## Summary
 
-- **78 / 78 probes** match between the mock engine and real React Native (this page was generated against React Native 0.86.0).
+- **81 / 81 probes** match between the mock engine and real React Native (this page was generated against React Native 0.86.0).
 - CI runs the same corpus across **React Native 0.81–0.86** on every commit.
 - Per-version results straight from the CI matrix: [Fidelity Matrix](/guide/fidelity-matrix).
 - Reproduce it yourself: `bun run crosscheck`.
@@ -37,6 +37,7 @@ across both engines.
 | `animated-interpolation-live-style` | ✅ match |
 | `animated-scrollview-renders` | ✅ match |
 | `animated-setvalue-updates-rendered-style` | ✅ match |
+| `animated-surface` | ✅ match |
 | `animated-text-renders` | ✅ match |
 | `animated-transform-live-style` | ✅ match |
 | `animated-value-initial-style` | ✅ match |
@@ -55,10 +56,12 @@ across both engines.
 | `hunt-pressable-press-in-out` | ✅ match |
 | `hunt-pressable-style-fn` | ✅ match |
 | `hunt-processcolor-edge` | ✅ match |
+| `hunt-stylesheet-flatten-direct-falsy` | ✅ match |
 | `hunt-textinput-maxlength` | ✅ match |
 | `i18nmanager-isrtl` | ✅ match |
 | `image-render` | ✅ match |
 | `keyboardavoidingview-children` | ✅ match |
+| `layout-animation-presets` | ✅ match |
 | `matcher-checked-switch` | ✅ match |
 | `matcher-contains-element` | ✅ match |
 | `matcher-disabled-enabled` | ✅ match |
@@ -119,3 +122,6 @@ They are documented here rather than hidden.
 | Default device metrics (Dimensions / PixelRatio) | The default window/screen size, pixel ratio and font scale are a fixed test-host default. Both engines report the same default — the cross-check gates that — but it is not any specific physical device. | Device metrics aren't behavior, and the default won't match a real device. Tests that depend on exact metrics should set them explicitly (e.g. Dimensions.set) rather than rely on the default. |
 | Text onPress accessibilityRole | A &lt;Text&gt; with an onPress handler is auto-assigned accessibilityRole "link" by some React Native versions and not others. | Version-variant across the supported RN range — a single mock value can't match every minor, so it isn't pinned by a probe. |
 | Appearance color scheme | Appearance.getColorScheme() reflects the host environment rather than a fixed value. | Environment-dependent (CI vs local, OS settings), so it isn't a stable cross-engine invariant to gate. |
+| AppState.currentState | The mock engine reports "active" (a foregrounded app). Real React Native running under Node reports undefined, because it reads the value from a native module that only exists on a device — as it also does under Jest with React Native's own preset. | Not a cross-engine invariant: the value exists only because a device exists, the same case as the default device metrics above. The mock's value is pinned by its own suite so it cannot drift unnoticed; tests that branch on foreground state should set it explicitly rather than rely on either default. |
+| Animated API surface | The mock adds getValue() on Animated.Value, ValueXY and interpolations (real React Native exposes only the internal __getValue()), plus resetAnimation()/stopAnimation() on interpolations. It does not yet implement Animated.Node, Animated.Event, Animated.Interpolation, attachNativeEvent, Value.track/stopTracking/animate, hasListeners, or ValueXY.toJSON. | Both directions are portability traps: code using the extras passes on the mock engine and throws on the native one, and valid React Native code using the unimplemented members does the reverse. The cross-check now pins the whole surface with these divergences enumerated in an allowlist, so anything NEW fails, but closing them is outstanding work rather than a settled difference. |
+| Host component names and snapshots | The mock engine renders host elements under their JavaScript component name — View, Text, TextInput — while real React Native uses the native view name: RCTView, RCTText. Real React Native also attaches props the mock leaves unset (a Text host carries allowFontScaling, ellipsizeMode and a style array beginning with { overflow: "hidden" }). | React Native Testing Library detects host component names at runtime, so queries, matchers and fireEvent behave identically either way and the corpus above verifies that. SNAPSHOTS DO NOT TRANSFER: the serializer prints the host name and the props verbatim, so a snapshot recorded under one engine fails under the other. Record snapshots under the engine the suite runs on, and re-record when switching. |

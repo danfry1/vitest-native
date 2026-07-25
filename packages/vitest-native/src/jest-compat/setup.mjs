@@ -46,9 +46,22 @@ function writableModuleFacade(mod) {
 if (typeof vi.requireActual !== "function")
   vi.requireActual = (m) => (m === "react-native" ? writableModuleFacade(require(m)) : require(m));
 if (typeof vi.requireMock !== "function") vi.requireMock = (m) => require(m);
-// `jest.setTimeout(ms)` has no global `vi` equivalent — no-op so suites that call
-// it at top level don't crash.
-if (typeof vi.setTimeout !== "function") vi.setTimeout = () => {};
+// `jest.setTimeout(ms)` maps onto `vi.setConfig({ testTimeout })`, which applies for
+// the rest of the file — the same scope Jest gives it, since Vitest resets the config
+// after each test file.
+//
+// This used to be a silent no-op, on the grounds that there was no `vi` equivalent.
+// There is. The cost of the no-op was not a crash but silence: a suite opening with
+// `jest.setTimeout(30000)`, which is routine for slower React Native suites, kept
+// Vitest's 5s default and its slow tests failed on time while the line that was
+// supposed to prevent that sat there looking effective.
+if (typeof vi.setTimeout !== "function") {
+  vi.setTimeout = (ms) => {
+    if (typeof vi.setConfig === "function" && typeof ms === "number") {
+      vi.setConfig({ testTimeout: ms });
+    }
+  };
+}
 
 // `jest.advanceTimersByTime(Async)` is lenient in Jest: when fake timers are NOT
 // active it's effectively a no-op. Vitest's `vi.advanceTimersByTimeAsync` instead
@@ -64,6 +77,20 @@ vi.advanceTimersByTime = (...args) =>
   vi.isFakeTimers() ? advanceTimersByTime(...args) : undefined;
 vi.advanceTimersByTimeAsync = async (...args) =>
   vi.isFakeTimers() ? advanceTimersByTimeAsync(...args) : undefined;
+
+// Jest APIs that DO have a Vitest equivalent, under a different name. Each of these
+// was missing, so a suite calling it hit `jest.X is not a function` — the bare
+// TypeError the signposting below exists to avoid — even though the behaviour was
+// available all along. `dontMock` is the sibling of the already-signposted
+// `deepUnmock`, which is what marks these as omissions rather than decisions.
+if (typeof vi.dontMock !== "function") vi.dontMock = (m) => vi.doUnmock(m);
+if (typeof vi.setMock !== "function") vi.setMock = (m, exports) => vi.doMock(m, () => exports);
+// `Date.now()` alone is right for both clocks: Vitest's fake timers replace Date, so
+// this returns the faked time when they are active and the real time otherwise —
+// which is what jest.now() reports. An earlier version consulted
+// vi.getMockedSystemTime() first; removing that branch changed no observable
+// behaviour, so it was complexity no test could distinguish.
+if (typeof vi.now !== "function") vi.now = () => Date.now();
 
 // Jest APIs with NO Vitest equivalent would otherwise surface as bare
 // "jest.isolateModules is not a function" TypeErrors deep in a migrated suite.
@@ -92,6 +119,27 @@ unsupported(
   "Build the mock explicitly with vi.fn()/vi.mock(), or import the real module and override members.",
 );
 unsupported("deepUnmock", "Use vi.unmock()/vi.doUnmock() per module.");
+unsupported(
+  "isolateModulesAsync",
+  "Use vi.resetModules() plus a dynamic import() to get a fresh module copy.",
+);
+unsupported("unstable_mockModule", "Use vi.doMock(path, factory), which mocks ESM too.");
+unsupported(
+  "replaceProperty",
+  "Assign the property and restore it yourself, or use vi.spyOn(obj, key, 'get') for an accessor.",
+);
+// Vitest has no automocking at all, so these cannot be approximated — the whole
+// premise (every module auto-replaced with mocks) does not exist. Naming that is more
+// useful than a TypeError.
+for (const name of [
+  "enableAutomock",
+  "disableAutomock",
+  "autoMockOff",
+  "autoMockOn",
+  "onGenerateMock",
+]) {
+  unsupported(name, "Vitest has no automocking; mock each module explicitly with vi.mock().");
+}
 // jest.retryTimes configures retries at runtime; Vitest configures them statically.
 // Warn once and continue — crashing a suite over retry policy helps nobody.
 if (typeof vi.retryTimes !== "function") {

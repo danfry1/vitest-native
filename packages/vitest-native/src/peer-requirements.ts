@@ -11,6 +11,12 @@ export interface PeerRequirement {
   minimum: string;
   maximumMajor?: number;
   minimumByMajor?: Record<number, string>;
+  /**
+   * An optional peer: absent is fine, and a version outside the range is reported
+   * but does not block. The plugin has always treated these as a warning; `doctor`
+   * must agree, or it reports a blocking problem for a project that runs.
+   */
+  optional?: boolean;
 }
 
 export const PEER_REQUIREMENTS: PeerRequirement[] = [
@@ -26,4 +32,15 @@ export const PEER_REQUIREMENTS: PeerRequirement[] = [
     minimumByMajor: { 6: "6.4.2", 7: "7.3.2", 8: "8.0.5" },
   },
   { name: "react", minimum: "18.0.0" },
+  // Optional: only suites that render need it. The range lived in three places —
+  // this package's peerDependencies, the plugin's startup check and doctor's own
+  // hardcoded major comparison — and none of the three was pinned to the others, so
+  // any one could be bumped alone. A test asserts this entry against the published
+  // peerDependencies range.
+  {
+    name: "@testing-library/react-native",
+    minimum: "12.0.0",
+    maximumMajor: 15,
+    optional: true,
+  },
 ];

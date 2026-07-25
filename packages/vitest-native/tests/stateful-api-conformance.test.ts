@@ -13,6 +13,7 @@ import {
   Appearance,
   DeviceEventEmitter,
   I18nManager,
+  LayoutAnimation,
   Settings,
   Image,
   Share,
@@ -20,7 +21,12 @@ import {
   processColor,
   Systrace,
   DevSettings,
+  Vibration,
 } from "react-native";
+import { createAppearanceMock } from "../src/mocks/apis/Appearance.js";
+import { createAppStateMock } from "../src/mocks/apis/AppState.js";
+import { createKeyboardMock } from "../src/mocks/apis/Keyboard.js";
+import { createI18nManagerMock } from "../src/mocks/apis/I18nManager.js";
 
 // ---------------------------------------------------------------------------
 // AppState — lifecycle state transitions
@@ -83,6 +89,61 @@ describe("AppState lifecycle (conformance)", () => {
 // ---------------------------------------------------------------------------
 // Appearance — color scheme transitions
 // ---------------------------------------------------------------------------
+
+// Every suite below calls `_reset()` before asserting, so it observes the reset path
+// and never the value the mock is built with. While those two were written
+// separately, that gap was silent: changing Appearance's initialiser to "dark", or
+// Keyboard's to visible, passed this suite AND the cross-check.
+//
+// Each mock now derives both from one RESTING constant, so the two cannot drift.
+// These tests hold that from the outside: build the mock directly, assert before
+// anything can reset it, then reset and assert the same values again.
+describe("mock resting values (pinned at construction, not after _reset)", () => {
+  it("a fresh Appearance mock starts light, and _reset returns it there", () => {
+    const fresh = createAppearanceMock();
+    expect(fresh.getColorScheme()).toBe("light");
+    fresh.setColorScheme("dark");
+    fresh._reset();
+    expect(fresh.getColorScheme()).toBe("light");
+  });
+
+  it("a fresh AppState mock starts active, and _reset returns it there", () => {
+    const fresh = createAppStateMock();
+    expect(fresh.currentState).toBe("active");
+    fresh.currentState = "background";
+    fresh._reset();
+    expect(fresh.currentState).toBe("active");
+  });
+
+  it("a fresh Keyboard mock starts hidden with no height", () => {
+    const fresh = createKeyboardMock();
+    expect(fresh.isVisible()).toBe(false);
+    expect(fresh.metrics()).toBe(undefined);
+    fresh._show(300);
+    fresh._reset();
+    expect(fresh.isVisible()).toBe(false);
+    expect(fresh.metrics()).toBe(undefined);
+  });
+
+  it("a fresh I18nManager mock starts LTR with RTL swapping on", () => {
+    const fresh = createI18nManagerMock();
+    expect(fresh.isRTL).toBe(false);
+    expect(fresh.doLeftAndRightSwapInRTL).toBe(true);
+    fresh.forceRTL(true);
+    fresh.swapLeftAndRightInRTL(false);
+    fresh._reset();
+    expect(fresh.isRTL).toBe(false);
+    expect(fresh.doLeftAndRightSwapInRTL).toBe(true);
+  });
+
+  // Every mocked native method is a spy, so consumers can assert on calls without
+  // wrapping anything themselves. Vibration has no observable state, so nothing else
+  // would notice it silently becoming a plain function.
+  it("side-effect-only natives are still spies", () => {
+    expect(vi.isMockFunction(Vibration.vibrate)).toBe(true);
+    expect(vi.isMockFunction(Vibration.cancel)).toBe(true);
+  });
+});
 
 describe("Appearance color scheme (conformance)", () => {
   beforeEach(() => {
@@ -469,5 +530,53 @@ describe("DevSettings (conformance)", () => {
 
   it("reload is callable", () => {
     expect(() => DevSettings.reload()).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LayoutAnimation preset shortcuts
+// ---------------------------------------------------------------------------
+
+/**
+ * `LayoutAnimation.easeInEaseOut()` is the idiomatic one-liner in a React Native
+ * codebase, and the mock did not have it: it threw "is not a function" while the same
+ * call worked under the native engine. Found by diffing the mock's member list against
+ * real React Native's rather than by any behavioural test, because a behavioural test
+ * cannot exercise a member that is not there.
+ */
+describe("LayoutAnimation preset shortcuts", () => {
+  it("routes each shortcut through configureNext with its preset", () => {
+    const layout = LayoutAnimation as unknown as {
+      configureNext: { mock: { calls: unknown[][] } } & ((...args: unknown[]) => void);
+      easeInEaseOut: (cb?: () => void) => void;
+      linear: (cb?: () => void) => void;
+      spring: (cb?: () => void) => void;
+      Presets: Record<string, unknown>;
+    };
+    (layout.configureNext as unknown as { mockClear: () => void }).mockClear();
+
+    for (const name of ["easeInEaseOut", "linear", "spring"] as const) {
+      layout[name]();
+      const [config] = layout.configureNext.mock.calls.at(-1) as [unknown];
+      expect(config, name).toBe(layout.Presets[name]);
+    }
+    expect(layout.configureNext.mock.calls).toHaveLength(3);
+  });
+
+  it("passes the completion callback through", () => {
+    const layout = LayoutAnimation as unknown as {
+      configureNext: { mock: { calls: unknown[][] } };
+      easeInEaseOut: (cb?: () => void) => void;
+    };
+    (layout.configureNext as unknown as { mockClear: () => void }).mockClear();
+    const done = vi.fn();
+    layout.easeInEaseOut(done);
+    expect(layout.configureNext.mock.calls.at(-1)?.[1]).toBe(done);
+  });
+
+  it("exposes setEnabled and the disabled checkConfig", () => {
+    const layout = LayoutAnimation as unknown as Record<string, unknown>;
+    expect(typeof layout.setEnabled).toBe("function");
+    expect(typeof layout.checkConfig).toBe("function");
   });
 });

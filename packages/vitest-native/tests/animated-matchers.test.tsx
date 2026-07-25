@@ -88,3 +88,43 @@ describe("toHaveAnimatedProps", () => {
     expect(screen.getByTestId("animated")).toHaveAnimatedProps({ accessibilityValue: 0.75 });
   });
 });
+
+describe("non-element receivers", () => {
+  // These THROW rather than failing softly. A `{ pass: false }` result is inverted by
+  // `.not`, so `expect(null).not.toHaveAnimatedStyle({ opacity: 1 })` used to pass —
+  // a query that matched nothing produced a green assertion. Nothing covered this:
+  // replacing the guard with `{ pass: true }` survived both the mock and the native
+  // suites. React Native Testing Library throws for the same case (checkHostElement).
+  const notElements: [string, unknown][] = [
+    ["null", null],
+    ["undefined", undefined],
+    ["a string", "not an element"],
+    ["an object without props", { type: "View" }],
+  ];
+
+  for (const [label, value] of notElements) {
+    it(`toHaveAnimatedStyle throws for ${label}`, () => {
+      expect(() => expect(value).toHaveAnimatedStyle({ opacity: 1 })).toThrow(
+        /Expected a rendered element/,
+      );
+    });
+
+    it(`toHaveAnimatedStyle throws for ${label} under .not`, () => {
+      expect(() => expect(value).not.toHaveAnimatedStyle({ opacity: 1 })).toThrow(
+        /Expected a rendered element/,
+      );
+    });
+
+    it(`toHaveAnimatedProps throws for ${label}`, () => {
+      expect(() => expect(value).toHaveAnimatedProps({ foo: 1 })).toThrow(
+        /Expected a rendered element/,
+      );
+    });
+
+    it(`toHaveAnimatedProps throws for ${label} under .not`, () => {
+      expect(() => expect(value).not.toHaveAnimatedProps({ foo: 1 })).toThrow(
+        /Expected a rendered element/,
+      );
+    });
+  }
+});

@@ -1,7 +1,12 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "noEmit": true
+    "noEmit": true,
+    // The base sets rootDir: "src", which resolves against the base's own location —
+    // the repository root — so every file here failed TS6059 ("not under rootDir") and
+    // `tsc -p` could not run at all. The package's tsconfig overrides it for the same
+    // reason; this one had not.
+    "rootDir": "."
   },
   "include": ["src", "__tests__"]
 }

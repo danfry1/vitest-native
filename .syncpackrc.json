@@ -1,6 +1,17 @@
 {
   "versionGroups": [
     {
+      "label": "vitest must be a single version across the workspace: the hot runtime runs its own worker entry, and a root/package mismatch makes it report no tests at all",
+      "dependencies": [
+        "vitest",
+        "@vitest/coverage-v8"
+      ],
+      "dependencyTypes": [
+        "dev"
+      ],
+      "policy": "sameRange"
+    },
+    {
       "label": "RN-ecosystem libs are intentionally wide peer ranges + pinned dev versions",
       "dependencies": [
         "react",
@@ -21,12 +32,17 @@
   "semverGroups": [
     {
       "label": "devDependencies are pinned to exact versions (supply-chain hardening)",
-      "dependencyTypes": ["dev"],
+      "dependencyTypes": [
+        "dev"
+      ],
       "range": ""
     },
     {
       "label": "runtime + peer deps keep author-defined ranges so consumers can dedupe",
-      "dependencyTypes": ["prod", "peer"],
+      "dependencyTypes": [
+        "prod",
+        "peer"
+      ],
       "isIgnored": true
     }
   ]
