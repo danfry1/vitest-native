@@ -57,18 +57,24 @@ export interface AnimatedStyleConfig {
   shouldMatchAllProps?: boolean;
 }
 
-function notAnElementResult(
-  ctx: MatcherContext,
-  matcherName: string,
-  received: unknown,
-): MatcherResult {
-  return {
-    pass: false,
-    message: () =>
-      `${ctx.utils.matcherHint(matcherName, "element", "expected")}\n\n` +
+/**
+ * THROWS for a value that is not a rendered element — it does not return
+ * `{ pass: false }`.
+ *
+ * Returning a failing result reads as the safe option and is not: under `.not` the
+ * result is inverted, so `expect(null).not.toHaveAnimatedStyle({ opacity: 1 })`
+ * SILENTLY PASSED. A query that matched nothing, or a value of the wrong shape, then
+ * produced a green assertion — the failure mode a matcher must never have.
+ *
+ * Throwing also matches React Native Testing Library, whose `checkHostElement` raises
+ * a HostElementTypeError for the same case rather than failing softly.
+ */
+function throwNotAnElement(ctx: MatcherContext, matcherName: string, received: unknown): never {
+  throw new Error(
+    `${ctx.utils.matcherHint(`${ctx.isNot ? ".not." : ""}${matcherName}`, "element", "expected")}\n\n` +
       `Expected a rendered element with a \`props\` object, but received:\n` +
       `  ${ctx.utils.printReceived(received)}`,
-  };
+  );
 }
 
 /** Pick only the keys present in `expected` from `actual`, for readable diffs. */
@@ -88,7 +94,7 @@ export function toHaveAnimatedStyle(
   config: AnimatedStyleConfig = {},
 ): MatcherResult {
   const props = getProps(received);
-  if (!props) return notAnElementResult(this, "toHaveAnimatedStyle", received);
+  if (!props) throwNotAnElement(this, "toHaveAnimatedStyle", received);
 
   const currentStyle = flattenStyle(props.style as StyleLike);
   const compared = config.shouldMatchAllProps ? currentStyle : subset(currentStyle, expectedStyle);
@@ -124,7 +130,7 @@ export function toHaveAnimatedProps(
   expectedProps: Record<string, unknown>,
 ): MatcherResult {
   const props = getProps(received);
-  if (!props) return notAnElementResult(this, "toHaveAnimatedProps", received);
+  if (!props) throwNotAnElement(this, "toHaveAnimatedProps", received);
 
   // The preset passes `animatedProps` through verbatim; fall back to the
   // element's own props for components that spread them directly.
