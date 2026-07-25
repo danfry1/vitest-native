@@ -115,6 +115,14 @@ jobs:
       - name: Native engine tests
         run: bun run test:native
 
+      - name: Native engine tests (forks pool)
+        # When a project configures a VM pool the plugin throws and points at 'threads'
+        # or 'forks'. Nothing ran the forks pool, so that advice was untested — and the
+        # engine's module hooks have to install in a child process just as they do in a
+        # worker thread. Cheap (a couple of seconds) for advice the plugin gives in an
+        # error message.
+        run: bun run test:native:forks
+
       - name: Native engine tests (navigation preset)
         run: bun run test:native:navigation
 
