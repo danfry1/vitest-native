@@ -36,8 +36,9 @@ import { reactNative } from 'vitest-native'
 import { jestCompatAliases, jestCompatSetup, jestMockTransform } from 'vitest-native/jest-compat'
 
 export default defineConfig({
-  // jestMockTransform() must come AFTER reactNative() and stay normal-order:
-  // it rewrites top-level jest.mock(...) into hoisted vi.mock(...).
+  // jestMockTransform() rewrites top-level jest.mock(...) into hoisted vi.mock(...).
+  // Leave it without an \`enforce\`: it has to run after Vite strips TS/JSX and before
+  // Vitest's own mock hoister. Its position relative to reactNative() does not matter.
   plugins: [reactNative(), jestMockTransform()],
   resolve: {
     dedupe: ['react', 'react-test-renderer', 'react-is'],

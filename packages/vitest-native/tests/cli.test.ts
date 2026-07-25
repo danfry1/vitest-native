@@ -83,7 +83,12 @@ describe("init", () => {
     expect(written).toContain("jestMockTransform()");
     expect(written).toContain("setupFiles: [jestCompatSetup]");
     expect(written).toContain("globals: true");
-    // jestMockTransform must come after reactNative (normal plugin order).
+    // Pins the shape this command emits. Not an ordering requirement: the constraint
+    // on jestMockTransform is that it declares no `enforce`, so it runs after Vite
+    // strips TS/JSX and before Vitest's mock hoister. Both orders relative to
+    // reactNative() were measured to work, under either engine, for a top-level
+    // jest.mock whose factory returns JSX — and this repo's own bare consumer fixture
+    // uses the opposite one.
     expect(written).toContain("plugins: [reactNative(), jestMockTransform()]");
   });
 
