@@ -28,13 +28,25 @@ if (!TestRunner) {
 }
 
 export default class NativeHotRunner extends TestRunner {
-  // Fires once per test file, before its modules are imported — the point where
-  // Vitest resets the module graph when isolation is on. The hot pool runs with
-  // isolation off so the worker survives, so the reset happens here instead, through
-  // public API rather than by mutating Vitest's worker state.
-  onCollectStart(file) {
+  // Fires once per test file, before its setup files and its own modules are
+  // imported — the point where Vitest resets the module graph when isolation is on.
+  // The hot pool runs with isolation off so the worker survives, so the reset happens
+  // here instead, through public API rather than by mutating Vitest's worker state.
+  //
+  // onBeforeCollect, not onCollectStart. Vitest AWAITS this one; it calls
+  // onCollectStart without awaiting, and the worker wraps that hook in an async
+  // function that first awaits an RPC to the main thread. The reset therefore landed
+  // some indeterminate time after collection had already started — measured at ~0.2ms
+  // against a 1-45ms head start on the setup-file import, so it always won in
+  // practice, but nothing ordered it. Losing that race would have reset the graph
+  // mid-import and dropped any mock a setup file had just registered.
+  //
+  // Vitest passes an array because the hook is shaped for a batch, but its per-file
+  // loop invokes the run through startTests([file]) one file at a time, which is the
+  // cadence the reset needs.
+  async onBeforeCollect(paths) {
     globalThis.__vitest_native_reset_module_runner?.();
-    return super.onCollectStart?.(file);
+    return super.onBeforeCollect?.(paths);
   }
 
   async onBeforeRunFiles(files) {

@@ -130,7 +130,8 @@ let moduleRunner = null;
  *
  * Called from the runner's per-file hook rather than here, because a single task can
  * carry several files (Vitest batches them in single-worker mode) and each one needs
- * its own reset — the same cadence Vitest uses when isolation is on.
+ * its own reset — the same cadence Vitest uses when isolation is on. See runner.mjs
+ * for why that hook is onBeforeCollect and not onCollectStart.
  */
 // Vitest's own reset deliberately leaves its runtime modules evaluated and only
 // clears evaluation state on the rest; it does not throw the module graph away.
