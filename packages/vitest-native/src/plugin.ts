@@ -794,7 +794,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     async configResolved(config) {
       // Validate peer dependencies (table shared with the CLI's doctor command).
       const peerErrors: string[] = [];
-      for (const { name, minimum, maximumMajor, minimumByMajor } of PEER_REQUIREMENTS) {
+      for (const { name, minimum, maximumMajor, minimumByMajor, optional } of PEER_REQUIREMENTS) {
+        if (optional) continue; // reported below, never fatal
         const error = validatePeerDependency(
           name,
           minimum,
@@ -810,15 +811,19 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         );
       }
 
-      // Check optional RNTL version
-      const rntlError = validatePeerDependency(
-        "@testing-library/react-native",
-        "12.0.0",
-        config.root,
-        15,
-      );
-      if (rntlError && !rntlError.includes("not found")) {
-        console.warn(`[vitest-native] ${rntlError}`);
+      // Optional peers (RNTL): report but never block — absent is a valid setup.
+      for (const { name, minimum, maximumMajor, minimumByMajor, optional } of PEER_REQUIREMENTS) {
+        if (!optional) continue;
+        const error = validatePeerDependency(
+          name,
+          minimum,
+          config.root,
+          maximumMajor,
+          minimumByMajor,
+        );
+        if (error && !error.includes("not found")) {
+          console.warn(`[vitest-native] ${error}`);
+        }
       }
 
       // Now we have the real project root — resolve options from consumer context.

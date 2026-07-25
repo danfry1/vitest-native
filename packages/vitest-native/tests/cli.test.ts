@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { main } from "../src/cli/index.js";
 import { runInit, renderInitConfig } from "../src/cli/init.js";
 import { runDoctor } from "../src/cli/doctor.js";
+import { PEER_REQUIREMENTS } from "../src/peer-requirements.js";
 import {
   analyzeJestConfig,
   extractAllowlistPackages,
@@ -247,5 +248,58 @@ describe("migrate", () => {
     const written = fs.readFileSync(path.join(root, "vitest.config.mjs"), "utf8");
     expect(written).toContain("testTimeout: 9000");
     expect(written).toContain("jestMockTransform()");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Peer-range drift
+// ---------------------------------------------------------------------------
+
+/**
+ * The supported ranges are declared twice by necessity: PEER_REQUIREMENTS drives the
+ * plugin's startup check and doctor, while package.json's peerDependencies is what a
+ * package manager reads. Nothing held the two together — bumping a bound in either
+ * one alone passed every gate, and for RNTL the range was written a third time as a
+ * hardcoded major comparison inside doctor.
+ */
+describe("peer requirements match the published peerDependencies", () => {
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const manifest = JSON.parse(fs.readFileSync(path.join(HERE, "..", "package.json"), "utf8")) as {
+    peerDependencies: Record<string, string>;
+  };
+
+  it("declares every checked peer in peerDependencies", () => {
+    for (const { name } of PEER_REQUIREMENTS) {
+      expect(manifest.peerDependencies, name).toHaveProperty(name);
+    }
+  });
+
+  it("agrees on the minimum and the exclusive major ceiling", () => {
+    const mismatches: string[] = [];
+    for (const { name, minimum, maximumMajor } of PEER_REQUIREMENTS) {
+      const declared = manifest.peerDependencies[name] ?? "";
+      const minMajor = Number(minimum.split(".")[0]);
+      // Every published range states its floor as a major, via ">=N" or "^N".
+      const floors = [...declared.matchAll(/[\^>=]+\s*(\d+)/g)].map((m) => Number(m[1]));
+      if (!floors.includes(minMajor)) {
+        mismatches.push(
+          `${name}: PEER_REQUIREMENTS minimum ${minimum} not a floor of "${declared}"`,
+        );
+      }
+      if (maximumMajor !== undefined) {
+        const ceiling = declared.match(/<\s*(\d+)/);
+        const highestCaret = Math.max(
+          0,
+          ...[...declared.matchAll(/\^(\d+)/g)].map((m) => Number(m[1])),
+        );
+        const declaredCeiling = ceiling ? Number(ceiling[1]) : highestCaret + 1;
+        if (declaredCeiling !== maximumMajor) {
+          mismatches.push(
+            `${name}: PEER_REQUIREMENTS maximumMajor ${maximumMajor} vs "${declared}" (ceiling ${declaredCeiling})`,
+          );
+        }
+      }
+    }
+    expect(mismatches).toEqual([]);
   });
 });
