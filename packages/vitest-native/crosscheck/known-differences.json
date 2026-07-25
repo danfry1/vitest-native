@@ -28,5 +28,10 @@
     "area": "Host component names and snapshots",
     "difference": "The mock engine renders host elements under their JavaScript component name — View, Text, TextInput — while real React Native uses the native view name: RCTView, RCTText. Real React Native also attaches props the mock leaves unset (a Text host carries allowFontScaling, ellipsizeMode and a style array beginning with { overflow: \"hidden\" }).",
     "why": "React Native Testing Library detects host component names at runtime, so queries, matchers and fireEvent behave identically either way and the corpus above verifies that. SNAPSHOTS DO NOT TRANSFER: the serializer prints the host name and the props verbatim, so a snapshot recorded under one engine fails under the other. Record snapshots under the engine the suite runs on, and re-record when switching."
+  },
+  {
+    "area": "InteractionManager.runAfterInteractions timing",
+    "difference": "The mock runs the task synchronously, during the runAfterInteractions() call. Real React Native defers it, so it has not run when the call returns and has run a tick later. Both run it exactly once.",
+    "why": "A test asserting on the result immediately after the call passes under the mock engine and fails under the native one. Awaiting a tick, or asserting through findBy* queries, works under both. Making the mock defer would match React Native and Jest but breaks suites written against the synchronous behaviour, so it is disclosed rather than changed."
   }
 ]

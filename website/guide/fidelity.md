@@ -13,10 +13,20 @@ generated from the corpus itself, so the numbers below are exactly what ships.
 
 ## Summary
 
-- **81 / 81 probes** match between the mock engine and real React Native (this page was generated against React Native 0.86.0).
+- **85 / 85 probes** match between the mock engine and real React Native (this page was generated against React Native 0.86.0).
 - CI runs the same corpus across **React Native 0.81–0.86** on every commit.
 - Per-version results straight from the CI matrix: [Fidelity Matrix](/guide/fidelity-matrix).
 - Reproduce it yourself: `bun run crosscheck`.
+
+### What this number covers
+
+A matching probe count says how many comparisons pass, not how much of the mock they
+reach. The corpus reaches 12 of 27 mocked APIs and 16 of 24 mocked components. The rest are not compared against real React Native at all — they are not known to differ, they are simply unmeasured.
+
+Not reached by any probe:
+
+- APIs: AccessibilityInfo, ActionSheetIOS, Alert, BackHandler, Clipboard, Keyboard, Linking, LogBox, PanResponder, PermissionsAndroid, Share, ToastAndroid, Vibration, useColorScheme, useWindowDimensions
+- Components: DrawerLayoutAndroid, ImageBackground, InputAccessoryView, RefreshControl, SafeAreaView, StatusBar, TouchableNativeFeedback, VirtualizedList
 
 The `native` engine needs no cross-check — it *is* real React Native.
 
@@ -46,7 +56,10 @@ across both engines.
 | `button-userpress` | ✅ match |
 | `composite-text-match` | ✅ match |
 | `controlled-textinput-rerender` | ✅ match |
+| `device-event-emitter` | ✅ match |
 | `dimensions-window` | ✅ match |
+| `easing-curves` | ✅ match |
+| `easing-parameterised` | ✅ match |
 | `flatlist-renders-items` | ✅ match |
 | `get-all-by-role-count` | ✅ match |
 | `get-by-text-miss-throws` | ✅ match |
@@ -60,6 +73,7 @@ across both engines.
 | `hunt-textinput-maxlength` | ✅ match |
 | `i18nmanager-isrtl` | ✅ match |
 | `image-render` | ✅ match |
+| `interaction-manager` | ✅ match |
 | `keyboardavoidingview-children` | ✅ match |
 | `layout-animation-presets` | ✅ match |
 | `matcher-checked-switch` | ✅ match |
@@ -125,3 +139,4 @@ They are documented here rather than hidden.
 | AppState.currentState | The mock engine reports "active" (a foregrounded app). Real React Native running under Node reports undefined, because it reads the value from a native module that only exists on a device — as it also does under Jest with React Native's own preset. | Not a cross-engine invariant: the value exists only because a device exists, the same case as the default device metrics above. The mock's value is pinned by its own suite so it cannot drift unnoticed; tests that branch on foreground state should set it explicitly rather than rely on either default. |
 | Animated.getValue() | The mock engine adds a getValue() convenience reader to animated nodes. Real React Native exposes only the internal __getValue(), so the same call throws under engine:native. Separately, this mock applies timing/spring/decay synchronously rather than routing them through AnimatedValue.animate(), which real React Native does — so a suite spying on animate() observes nothing under the mock engine and a call under the native one. | Kept for suites already using it, and it now warns once per process pointing at __getValue(), which works under both engines. Removing it is a breaking change and belongs in a major. Every other difference in the Animated surface has been closed: the mock now implements Animated.Node, Animated.Event, Animated.Interpolation, attachNativeEvent, Value.track/stopTracking/animate, hasListeners and toJSON, and stopAnimation/resetAnimation moved off the shared base class to Value and Color, where React Native has them. |
 | Host component names and snapshots | The mock engine renders host elements under their JavaScript component name — View, Text, TextInput — while real React Native uses the native view name: RCTView, RCTText. Real React Native also attaches props the mock leaves unset (a Text host carries allowFontScaling, ellipsizeMode and a style array beginning with { overflow: "hidden" }). | React Native Testing Library detects host component names at runtime, so queries, matchers and fireEvent behave identically either way and the corpus above verifies that. SNAPSHOTS DO NOT TRANSFER: the serializer prints the host name and the props verbatim, so a snapshot recorded under one engine fails under the other. Record snapshots under the engine the suite runs on, and re-record when switching. |
+| InteractionManager.runAfterInteractions timing | The mock runs the task synchronously, during the runAfterInteractions() call. Real React Native defers it, so it has not run when the call returns and has run a tick later. Both run it exactly once. | A test asserting on the result immediately after the call passes under the mock engine and fails under the native one. Awaiting a tick, or asserting through findBy* queries, works under both. Making the mock defer would match React Native and Jest but breaks suites written against the synchronous behaviour, so it is disclosed rather than changed. |
