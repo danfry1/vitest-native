@@ -132,10 +132,23 @@ let moduleRunner = null;
  * carry several files (Vitest batches them in single-worker mode) and each one needs
  * its own reset — the same cadence Vitest uses when isolation is on.
  */
+// Vitest's own reset deliberately leaves its runtime modules evaluated and only
+// clears evaluation state on the rest; it does not throw the module graph away.
+// `ModuleRunner.clearCache()` does throw it away, Vitest's own dist included, which
+// measured 29% more peak memory and ~6% slower at 200 files — every file re-creating
+// module nodes, and re-evaluating Vitest itself, for nothing.
+const VITEST_RUNTIME = [/\/vitest\/dist\//, /vitest-virtual-\w+\/dist/, /@vitest\/dist/];
+
 globalThis.__vitest_native_reset_module_runner = () => {
   if (!moduleRunner) return;
   moduleRunner.mocker?.reset();
-  moduleRunner.clearCache();
+  for (const [id, node] of moduleRunner.evaluatedModules.idToModuleMap) {
+    if (VITEST_RUNTIME.some((re) => re.test(id))) continue;
+    node.promise = undefined;
+    node.exports = undefined;
+    node.evaluated = false;
+    node.importers.clear();
+  }
 };
 
 init({
