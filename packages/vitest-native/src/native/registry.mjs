@@ -30,7 +30,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import fs from "node:fs";
 import crypto from "node:crypto";
-import { transformRN, isFlow, cacheRootFor } from "./transform.mjs";
+import { transformRN, isFlow, cacheRootFor, TRANSFORM_CACHE_VERSION } from "./transform.mjs";
 import { boundarySourceFor, BOUNDARY_SOURCES } from "./boundary.mjs";
 import { resolvePlatformFile } from "./resolve.mjs";
 
@@ -135,6 +135,13 @@ function registryKey({ projectRoot, platform, reactNativeVersion }) {
     .update(
       [
         `f${REGISTRY_FORMAT_VERSION}`,
+        // The registry stores TRANSFORMED module source, so a change in what the
+        // transform emits must invalidate it. Nothing else here would: the preset and
+        // Babel versions are unchanged when the transform's own configuration changes,
+        // and ownVersion() is the published package version, which does not move during
+        // development. Adding the Flow-enum plugin produced exactly that situation — the
+        // transform was fixed and a warm registry kept serving modules built without it.
+        `t${TRANSFORM_CACHE_VERSION}`,
         ownVersion(),
         platform,
         reactNativeVersion,
