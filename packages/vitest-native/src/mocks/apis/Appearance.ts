@@ -1,7 +1,10 @@
 import { vi } from "vitest";
 
+/** Resting colour scheme, written once — see Keyboard.ts for why not twice. */
+const RESTING_SCHEME: "light" | "dark" = "light";
+
 export function createAppearanceMock() {
-  let colorScheme: "light" | "dark" = "light";
+  let colorScheme: "light" | "dark" = RESTING_SCHEME;
   const listeners = new Set<Function>();
 
   return {
@@ -19,7 +22,7 @@ export function createAppearanceMock() {
       };
     }),
     _reset: () => {
-      colorScheme = "light";
+      colorScheme = RESTING_SCHEME;
       listeners.clear();
     },
   };

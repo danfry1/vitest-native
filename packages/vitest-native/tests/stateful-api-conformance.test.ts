@@ -20,9 +20,12 @@ import {
   processColor,
   Systrace,
   DevSettings,
+  Vibration,
 } from "react-native";
 import { createAppearanceMock } from "../src/mocks/apis/Appearance.js";
 import { createAppStateMock } from "../src/mocks/apis/AppState.js";
+import { createKeyboardMock } from "../src/mocks/apis/Keyboard.js";
+import { createI18nManagerMock } from "../src/mocks/apis/I18nManager.js";
 
 // ---------------------------------------------------------------------------
 // AppState — lifecycle state transitions
@@ -86,14 +89,14 @@ describe("AppState lifecycle (conformance)", () => {
 // Appearance — color scheme transitions
 // ---------------------------------------------------------------------------
 
-// The resting values of these mocks are written down TWICE — once where the state is
-// initialised, once in `_reset()` — so a change to one and not the other is silent.
-// It was: every Appearance test below resets first, so `it("defaults to 'light'")`
-// was asserting what `_reset()` does, not what the mock starts as. Changing the
-// initialiser to "dark" passed the whole suite AND the cross-check.
+// Every suite below calls `_reset()` before asserting, so it observes the reset path
+// and never the value the mock is built with. While those two were written
+// separately, that gap was silent: changing Appearance's initialiser to "dark", or
+// Keyboard's to visible, passed this suite AND the cross-check.
 //
-// These build the mocks directly so the initial value is observed before anything can
-// reset it, and pin the two literals to each other so neither can drift alone.
+// Each mock now derives both from one RESTING constant, so the two cannot drift.
+// These tests hold that from the outside: build the mock directly, assert before
+// anything can reset it, then reset and assert the same values again.
 describe("mock resting values (pinned at construction, not after _reset)", () => {
   it("a fresh Appearance mock starts light, and _reset returns it there", () => {
     const fresh = createAppearanceMock();
@@ -109,6 +112,35 @@ describe("mock resting values (pinned at construction, not after _reset)", () =>
     fresh.currentState = "background";
     fresh._reset();
     expect(fresh.currentState).toBe("active");
+  });
+
+  it("a fresh Keyboard mock starts hidden with no height", () => {
+    const fresh = createKeyboardMock();
+    expect(fresh.isVisible()).toBe(false);
+    expect(fresh.metrics()).toBe(undefined);
+    fresh._show(300);
+    fresh._reset();
+    expect(fresh.isVisible()).toBe(false);
+    expect(fresh.metrics()).toBe(undefined);
+  });
+
+  it("a fresh I18nManager mock starts LTR with RTL swapping on", () => {
+    const fresh = createI18nManagerMock();
+    expect(fresh.isRTL).toBe(false);
+    expect(fresh.doLeftAndRightSwapInRTL).toBe(true);
+    fresh.forceRTL(true);
+    fresh.swapLeftAndRightInRTL(false);
+    fresh._reset();
+    expect(fresh.isRTL).toBe(false);
+    expect(fresh.doLeftAndRightSwapInRTL).toBe(true);
+  });
+
+  // Every mocked native method is a spy, so consumers can assert on calls without
+  // wrapping anything themselves. Vibration has no observable state, so nothing else
+  // would notice it silently becoming a plain function.
+  it("side-effect-only natives are still spies", () => {
+    expect(vi.isMockFunction(Vibration.vibrate)).toBe(true);
+    expect(vi.isMockFunction(Vibration.cancel)).toBe(true);
   });
 });
 

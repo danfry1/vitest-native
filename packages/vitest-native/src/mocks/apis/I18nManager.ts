@@ -1,9 +1,11 @@
 import { vi } from "vitest";
 
+/** Resting layout direction, written once — see Keyboard.ts for why not twice. */
+const RESTING = { isRTL: false, doLeftAndRightSwapInRTL: true };
+
 export function createI18nManagerMock() {
   const mock: any = {
-    isRTL: false,
-    doLeftAndRightSwapInRTL: true,
+    ...RESTING,
     allowRTL: vi.fn((_allow: boolean) => {}),
     forceRTL: vi.fn((force: boolean) => {
       mock.isRTL = force;
@@ -16,8 +18,7 @@ export function createI18nManagerMock() {
       doLeftAndRightSwapInRTL: mock.doLeftAndRightSwapInRTL,
     })),
     _reset: () => {
-      mock.isRTL = false;
-      mock.doLeftAndRightSwapInRTL = true;
+      Object.assign(mock, RESTING);
     },
   };
   return mock;
