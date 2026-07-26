@@ -33,10 +33,24 @@ function buildMessage(message, options) {
   return options?.docs ? `${base}\nSee ${options.docs}` : base;
 }
 
+/**
+ * Error options, omitted entirely when there is no cause.
+ *
+ * `new Error(msg, { cause: undefined })` installs an own `cause` property set to
+ * undefined, which a plain `new Error(msg)` does not — enough to make some reporters
+ * print an empty cause and to make these errors shaped differently from every other
+ * error in the process. Passing nothing keeps them identical.
+ */
+function errorOptions(options) {
+  return options && "cause" in options && options.cause !== undefined
+    ? { cause: options.cause }
+    : undefined;
+}
+
 /** A failure originating in vitest-native. */
 export class VitestNativeError extends Error {
   constructor(code, message, options) {
-    super(buildMessage(message, options), { cause: options?.cause });
+    super(buildMessage(message, options), errorOptions(options));
     this.name = "VitestNativeError";
     this.code = code;
   }
@@ -48,7 +62,7 @@ export class VitestNativeError extends Error {
  */
 export class VitestNativeTypeError extends TypeError {
   constructor(code, message, options) {
-    super(buildMessage(message, options), { cause: options?.cause });
+    super(buildMessage(message, options), errorOptions(options));
     this.name = "VitestNativeTypeError";
     this.code = code;
   }
