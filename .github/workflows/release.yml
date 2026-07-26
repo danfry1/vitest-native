@@ -20,6 +20,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Full history: the tag-on-main check below compares the tagged commit
+          # against origin/main, which a shallow checkout cannot see.
+          fetch-depth: 0
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -29,6 +33,19 @@ jobs:
         with:
           node-version: 22.13.0
           registry-url: https://registry.npmjs.org
+
+      - name: Verify the tag is on main
+        # This workflow fires on any v* tag from any commit, and the release flow tags a
+        # SHA by hand after merging. Tagging the wrong one — a branch commit, or a stale
+        # commit from before a fix landed — would publish it: the gate below still passes,
+        # so nothing else catches it, and the result carries provenance and looks
+        # authoritative. Refuse anything main cannot reach.
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::The tagged commit $(git rev-parse HEAD) is not on main. Tag a commit that main can reach."
+            exit 1
+          fi
 
       - name: Verify tag matches package version
         env:
