@@ -129,6 +129,12 @@ jobs:
       - name: Native engine tests (Android)
         run: bun run test:native:android
 
+      - name: Native engine remediation advice
+        # The explainer tells users to add a package to `transform: [...]` when Node
+        # cannot parse its source — the most common migration blocker. That advice was
+        # only ever asserted as a substring of the error message; this applies it.
+        run: bun run test:native:advice
+
       - name: Native engine tests (hot runtime)
         # The hot runtime rides @experimental Vitest internals (vitest/worker,
         # ThreadsPoolWorker, poolRunner) — the most churn-prone surface we depend
