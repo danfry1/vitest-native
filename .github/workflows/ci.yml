@@ -182,11 +182,4 @@ jobs:
 
       - name: Check package exports
         if: runner.os == 'Linux' && matrix.node-version == '22.13.0'
-        run: |
-          cd packages/vitest-native
-          npm pack --ignore-scripts --pack-destination ../../
-          cd ../..
-          # cjs-resolves-to-esm: the jest-compat runtime subpaths are intentionally
-          # ESM-only (they depend on vitest, which is ESM-only); CJS consumers use
-          # dynamic import. They are setup-file / Vite-alias targets, not typed imports.
-          npx --yes @arethetypeswrong/cli vitest-native-*.tgz --ignore-rules no-resolution cjs-resolves-to-esm
+        run: bun run check:exports

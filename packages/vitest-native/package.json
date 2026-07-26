@@ -205,6 +205,7 @@
     "format:check": "oxfmt --check src/ tests/ consumer-tests/ scripts/",
     "check-compat": "bun scripts/check-compat.ts",
     "check:size": "node scripts/check-package-size.mjs",
+    "check:exports": "node scripts/check-exports.mjs",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
     "prepublishOnly": "bun run build && bun run check:size && bun run test && bun run test:native && bun run test:native:forks && bun run test:native:navigation && bun run test:native:android && bun run test:native:advice && bun run test:native:hot && bun run test:native:hot:isolation && bun run test:native:hot:soak && bun run validate:hot-parity && bun run fidelity:check && bun run test:consumers && bun run lint && bun run typecheck",

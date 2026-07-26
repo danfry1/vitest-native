@@ -18,6 +18,7 @@
   "scripts": {
     "build": "bun run --filter vitest-native build",
     "test": "bun run --filter vitest-native test",
+    "check:exports": "bun run --filter vitest-native check:exports",
     "test:native": "bun run --filter vitest-native test:native",
     "test:native:forks": "bun run --filter vitest-native test:native:forks",
     "test:native:navigation": "bun run --filter vitest-native test:native:navigation",

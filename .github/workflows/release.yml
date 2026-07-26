@@ -104,13 +104,7 @@ jobs:
         run: bun run test:example
 
       - name: Check package exports
-        working-directory: packages/vitest-native
-        run: |
-          npm pack --ignore-scripts --pack-destination /tmp
-          # cjs-resolves-to-esm: the jest-compat runtime subpaths are intentionally
-          # ESM-only (they depend on vitest, which is ESM-only); CJS consumers use
-          # dynamic import. They are setup-file / Vite-alias targets, not typed imports.
-          npx --yes @arethetypeswrong/cli /tmp/vitest-native-*.tgz --ignore-rules no-resolution cjs-resolves-to-esm
+        run: bun run check:exports
 
       - name: Stage publish to npm
         working-directory: packages/vitest-native
