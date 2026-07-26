@@ -54,6 +54,9 @@ jobs:
       - name: Run Android resolution tests
         run: bun run test:native:android
 
+      - name: Run remediation-advice tests
+        run: bun run test:native:advice
+
       - name: Run native hot-runtime tests
         run: bun run test:native:hot
 
