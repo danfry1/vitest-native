@@ -180,7 +180,16 @@ jobs:
           cd packages/vitest-native
           npm pack --ignore-scripts --pack-destination ../../
           cd ../..
+          # --profile node16 drops node10 (TypeScript's pre-`exports` resolution) from
+          # the matrix. Every subpath fails there by construction, since the package is
+          # exports-only and requires Node >= 20. That noise was previously silenced with
+          # `--ignore-rules no-resolution`, which disables the rule for EVERY resolution
+          # mode — so a subpath that genuinely stopped resolving under node16 or a bundler
+          # was reported green. Verified by packing a build whose ./presets pointed at a
+          # non-existent file: the old invocation exited 0 with every entry point green,
+          # while this one exits 1 on "node16 (from ESM): Resolution failed".
+          #
           # cjs-resolves-to-esm: the jest-compat runtime subpaths are intentionally
           # ESM-only (they depend on vitest, which is ESM-only); CJS consumers use
           # dynamic import. They are setup-file / Vite-alias targets, not typed imports.
-          npx --yes @arethetypeswrong/cli vitest-native-*.tgz --ignore-rules no-resolution cjs-resolves-to-esm
+          npx --yes @arethetypeswrong/cli vitest-native-*.tgz --profile node16 --ignore-rules cjs-resolves-to-esm
