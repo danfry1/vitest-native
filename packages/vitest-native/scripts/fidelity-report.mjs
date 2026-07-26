@@ -58,6 +58,41 @@ if (!summary?.total) {
   console.error("✗ report has zero probes — the cross-check likely failed to run.");
   process.exit(1);
 }
+
+// The corpus size is a ratchet, not just a number to re-render. Probes can stop
+// registering silently — a throwing import, a helper that returns early, a
+// `describe` that never runs — and the arithmetic downstream stays honest while
+// the evidence behind it disappears: 12/12 is still "100%", still brightgreen.
+// Comparing the artifacts for equality catches the change but reports it as
+// staleness, and the remedy it prints ("regenerate and commit") is exactly the
+// action that republishes the smaller corpus as a passing result. So a shrink is
+// treated as a regression here and has to be acknowledged explicitly. Growth
+// needs no ceremony. The committed badge is the floor, which keeps the ratchet in
+// the same artifact the page publishes rather than in a second file that could
+// drift away from it.
+const ALLOW_SHRINK_FLAG = "--allow-corpus-shrink";
+function committedProbeCount() {
+  try {
+    const badge = JSON.parse(fs.readFileSync(badgePath, "utf8"));
+    const matched = /(\d+)\s*\/\s*(\d+)\s+probes/.exec(badge.message ?? "");
+    return matched ? Number(matched[2]) : null;
+  } catch {
+    return null; // No committed badge yet (first run) — nothing to ratchet against.
+  }
+}
+const floor = committedProbeCount();
+if (floor !== null && summary.total < floor && !process.argv.includes(ALLOW_SHRINK_FLAG)) {
+  console.error(
+    `✗ the cross-check corpus shrank: ${summary.total} probes ran, but ${floor} are published.\n` +
+      `  ${floor - summary.total} probe(s) stopped reporting. This is a loss of evidence, not stale\n` +
+      "  artifacts — regenerating would republish the smaller corpus as a passing result.\n\n" +
+      "  Check for a probe that throws on import, a skipped block, or a helper returning early:\n" +
+      "      bun run crosscheck\n\n" +
+      `  If probes were retired deliberately, rerun with ${ALLOW_SHRINK_FLAG} to lower the floor.`,
+  );
+  process.exit(1);
+}
+
 const allMatch = summary.matching === summary.total;
 // In --check mode the artifacts are rendered and compared to what's committed,
 // but never written; a difference exits non-zero. This is the CI drift guard:
