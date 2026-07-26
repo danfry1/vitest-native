@@ -267,6 +267,17 @@ function checkValidRanges(inputRange: number[], outputRange: unknown[]): void {
 
 type ListenerFn = (state: { value: any }) => void;
 
+let _warnedGetValue = false;
+function warnGetValueOnce(): void {
+  if (_warnedGetValue) return;
+  _warnedGetValue = true;
+  console.warn(
+    "[vitest-native] Animated node .getValue() is not a React Native API — real React " +
+      "Native exposes only __getValue(). This call works under engine:'mock' and throws " +
+      "under engine:'native'. Use __getValue() so the suite runs on both.",
+  );
+}
+
 abstract class AnimatedNode {
   protected _listeners: Map<string, ListenerFn> = new Map();
   private _children: Set<() => void> = new Set();
@@ -275,8 +286,22 @@ abstract class AnimatedNode {
   /** Current value of this node, computed live from its inputs. */
   abstract __getValue(): any;
 
+  /**
+   * NOT a React Native API — real React Native exposes only `__getValue()`.
+   *
+   * Kept because suites already use it, but it is a portability trap: the same call
+   * throws under `engine: 'native'`, where React Native itself is running. Warned once
+   * per process so the message is a signpost rather than noise, and recorded in
+   * crosscheck/known-differences.json.
+   */
   getValue() {
+    warnGetValueOnce();
     return this.__getValue();
+  }
+
+  /** Matches React Native's AnimatedNode.hasListeners(). */
+  hasListeners(): boolean {
+    return this._listeners.size > 0;
   }
 
   // Derived nodes attach to their parents LAZILY — only while they have a
@@ -339,14 +364,6 @@ abstract class AnimatedNode {
     return new AnimatedInterpolation(this, config);
   }
 
-  stopAnimation(callback?: Function) {
-    callback?.(this.__getValue());
-  }
-
-  resetAnimation(callback?: Function) {
-    callback?.(this.__getValue());
-  }
-
   toJSON() {
     return this.__getValue();
   }
@@ -355,6 +372,12 @@ abstract class AnimatedNode {
 class AnimatedValue extends AnimatedNode {
   private _value: number;
   private _offset: number = 0;
+  private _runningAnimation: { stop?: () => void; start?: (...args: any[]) => void } | null = null;
+  // React Native's track() takes an AnimatedTracking NODE. That is a different thing
+  // from `_tracking` below, which is this mock's own record of a value-follows-value
+  // link set up by Animated.timing({ toValue: anotherValue }). Both can exist, so
+  // stopTracking() clears both.
+  private _trackingNode: { update?: () => void; __detach?: () => void } | null = null;
   _tracking: { source: AnimatedValue; child: () => void } | null = null;
 
   constructor(value: number = 0) {
@@ -388,6 +411,72 @@ class AnimatedValue extends AnimatedNode {
   extractOffset() {
     this._offset += this._value;
     this._value = 0;
+  }
+  /**
+   * Drive this value from an animation object, as React Native's
+   * AnimatedValue.animate() does: stop whatever is running, then start the new one,
+   * feeding each frame back through setValue and reporting completion.
+   *
+   * KNOWN DIVERGENCE: this mock's own timing/spring/decay do NOT route through here.
+   * They apply their target value synchronously (see createAnimation), whereas real
+   * React Native's timing() calls value.animate(). So a suite spying on `animate` sees
+   * nothing under engine:'mock' and a call under engine:'native'. Wiring them through
+   * would mean reworking the synchronous-completion model a lot of tests depend on, so
+   * the divergence is recorded in crosscheck/known-differences.json instead. Pinned by
+   * a test, so changing it is a decision rather than an accident.
+   *
+   * React Native passes the previous animation and the node itself as the last two
+   * arguments; both are forwarded so a caller supplying a real Animation sees the same
+   * call shape.
+   */
+  animate(animation: any, callback?: Function): void {
+    const previous = this._runningAnimation;
+    this._runningAnimation?.stop?.();
+    this._runningAnimation = animation;
+    animation?.start?.(
+      this.__getValue(),
+      (value: number) => this.setValue(value),
+      (result: unknown) => {
+        this._runningAnimation = null;
+        callback?.(result);
+      },
+      previous,
+      this,
+    );
+  }
+
+  // React Native puts these on AnimatedValue and AnimatedValueXY, NOT on the base
+  // node — an interpolation is derived and cannot be animated directly. They lived on
+  // the base class here, which handed them to every interpolation too.
+  stopAnimation(callback?: Function) {
+    this._runningAnimation?.stop?.();
+    this._runningAnimation = null;
+    callback?.(this.__getValue());
+  }
+
+  resetAnimation(callback?: Function) {
+    this.stopAnimation(callback);
+  }
+
+  /**
+   * Matches React Native: detach the current tracking node, if any. Also clears the
+   * mock's own toValue-follows-value link, so a caller stopping tracking gets what the
+   * name promises regardless of which mechanism set it up.
+   */
+  stopTracking(): void {
+    this._trackingNode?.__detach?.();
+    this._trackingNode = null;
+    stopTrackingLink(this);
+  }
+
+  /**
+   * Matches React Native: replace any existing tracking and kick the new one once so it
+   * takes effect immediately rather than on the next frame.
+   */
+  track(tracking: { update?: () => void; __detach?: () => void } | null): void {
+    this.stopTracking();
+    this._trackingNode = tracking;
+    this._trackingNode?.update?.();
   }
 }
 
@@ -495,6 +584,37 @@ function operandValue(v: any): number {
   return typeof v === "number" ? v : 0;
 }
 
+/**
+ * React Native exposes its AnimatedEvent class as `Animated.Event`, in its own words
+ * "so it can be used as a type for type checkers". That is what this covers: a named
+ * class consumers can reference and instanceof against.
+ *
+ * `Animated.event()` in this mock returns a plain spy function rather than an instance
+ * of this class, because suites assert on it with vi.fn matchers. So
+ * `Animated.event(...) instanceof Animated.Event` is false here and true under real
+ * React Native — a divergence the cross-check records rather than papers over.
+ */
+class AnimatedEvent {
+  _argMapping: any[];
+  _listeners: Function[] = [];
+
+  constructor(argMapping: any[] = [], config?: { listener?: Function }) {
+    this._argMapping = argMapping;
+    if (config?.listener) this._listeners.push(config.listener);
+  }
+
+  __addListener(callback: Function): void {
+    this._listeners.push(callback);
+  }
+
+  __removeListener(callback: Function): void {
+    this._listeners = this._listeners.filter((l) => l !== callback);
+  }
+
+  __attach(): void {}
+  __detach(): void {}
+}
+
 class AnimatedValueXY {
   x: AnimatedValue;
   y: AnimatedValue;
@@ -558,6 +678,19 @@ class AnimatedValueXY {
     this.y.removeListener(id.y);
   }
 
+  /**
+   * ValueXY composes two AnimatedValues rather than extending AnimatedNode, so it does
+   * not inherit these; React Native's does expose them.
+   */
+  hasListeners(): boolean {
+    return this.x.hasListeners() || this.y.hasListeners();
+  }
+
+  /** React Native inherits this from AnimatedNode, where it returns __getValue(). */
+  toJSON(): unknown {
+    return { x: this.x.__getValue(), y: this.y.__getValue() };
+  }
+
   removeAllListeners() {
     this.x.removeAllListeners();
     this.y.removeAllListeners();
@@ -618,6 +751,17 @@ class AnimatedColor extends AnimatedNode {
   g: AnimatedValue;
   b: AnimatedValue;
   a: AnimatedValue;
+
+  // React Native's AnimatedColor is animatable, so it carries these like
+  // AnimatedValue does. They are NOT on the base node: an interpolation is derived and
+  // cannot be animated.
+  stopAnimation(callback?: Function) {
+    callback?.(this.__getValue());
+  }
+
+  resetAnimation(callback?: Function) {
+    this.stopAnimation(callback);
+  }
 
   constructor(color?: any) {
     super();
@@ -781,7 +925,7 @@ function createAnimatedWrapper(displayName: string) {
   return Component;
 }
 
-function stopTracking(value: AnimatedValue) {
+function stopTrackingLink(value: AnimatedValue) {
   if (value._tracking) {
     value._tracking.source.__removeChild(value._tracking.child);
     value._tracking = null;
@@ -790,7 +934,7 @@ function stopTracking(value: AnimatedValue) {
 
 function startTracking(value: AnimatedValue, toValue: any) {
   // Always stop previous tracking
-  stopTracking(value);
+  stopTrackingLink(value);
 
   if (toValue instanceof AnimatedValue) {
     // Track the source value — as a graph child (real RN's TrackingAnimatedNode
@@ -835,6 +979,19 @@ export function createAnimatedMock() {
   return {
     Value: AnimatedValue,
     ValueXY: AnimatedValueXY,
+    // React Native exports these classes "for ease of type checking" — consumers use
+    // them for instanceof checks, so the mock has to expose the same names.
+    Node: AnimatedNode,
+    Interpolation: AnimatedInterpolation,
+    Event: AnimatedEvent,
+    /**
+     * React Native attaches a native event handler to a view and hands back a detach
+     * function. There is no native side here, so this records nothing and returns the
+     * same shape — enough for a caller to attach and detach without throwing.
+     */
+    attachNativeEvent: vi.fn((_viewRef: any, _eventName: string, _argMapping: any[]) => ({
+      detach() {},
+    })),
     Color: AnimatedColor,
     timing: vi.fn((value: any, config: any) => {
       return createAnimation(() => {

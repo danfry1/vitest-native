@@ -21,10 +21,13 @@ import {
   ActivityIndicator,
   Animated,
   Button,
+  DeviceEventEmitter,
   Dimensions,
+  Easing,
   FlatList,
   I18nManager,
   Image,
+  InteractionManager,
   KeyboardAvoidingView,
   LayoutAnimation,
   Modal,
@@ -803,6 +806,72 @@ probe("hunt-textinput-maxlength", async () => {
 // the first two are version-variant (a single mock value can't match every RN
 // minor) and the third is environment-dependent. See the version-variant notes
 // elsewhere in this file.
+// --- APIs the corpus did not reach ---
+//
+// Measured: only 9 of 27 mocked APIs were referenced by any probe, so the published
+// "81/81 match" rested on a third of the API surface. These cover the ones where a
+// difference would be a real mock bug rather than an unavoidable device difference:
+// pure math, and state the mock owns end to end.
+
+// Easing is pure math with no native side, so every value must agree exactly. The
+// bezier implementation is the one most likely to drift.
+probe("easing-curves", () => {
+  const at = (fn: (t: number) => number) => [0, 0.25, 0.5, 0.75, 1].map((t) => +fn(t).toFixed(6));
+  return {
+    linear: at(Easing.linear),
+    ease: at(Easing.ease),
+    quad: at(Easing.quad),
+    cubic: at(Easing.cubic),
+    sin: at(Easing.sin),
+    circle: at(Easing.circle),
+    exp: at(Easing.exp),
+    bezier: at(Easing.bezier(0.25, 0.1, 0.25, 1)),
+    step0: at(Easing.step0),
+    step1: at(Easing.step1),
+    inCubic: at(Easing.in(Easing.cubic)),
+    outCubic: at(Easing.out(Easing.cubic)),
+    inOutCubic: at(Easing.inOut(Easing.cubic)),
+    poly3: at(Easing.poly(3)),
+  };
+});
+
+probe("easing-parameterised", () => ({
+  elastic: [0.25, 0.5, 0.75].map((t) => +Easing.elastic(1)(t).toFixed(6)),
+  back: [0.25, 0.5, 0.75].map((t) => +Easing.back(1.5)(t).toFixed(6)),
+  bounce: [0.25, 0.5, 0.75].map((t) => +Easing.bounce(t).toFixed(6)),
+}));
+
+// InteractionManager's contract is that the task runs and the handle is thenable.
+probe("interaction-manager", async () => {
+  let ran = 0;
+  const handle = InteractionManager.runAfterInteractions(() => {
+    ran += 1;
+  });
+  // Deliberately NOT asserting on the value immediately after the call: the mock runs
+  // the task eagerly and real React Native defers it a tick. That timing difference is
+  // recorded in known-differences.json. What both must agree on is that the task does
+  // run, once, and that the handle is thenable and cancellable.
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  return {
+    ranEventually: ran,
+    thenable: typeof (handle as { then?: unknown })?.then === "function",
+    cancellable: typeof (handle as { cancel?: unknown })?.cancel === "function",
+  };
+});
+
+// A pub/sub the mock owns entirely — no device involved, so it must round-trip alike.
+probe("device-event-emitter", () => {
+  const seen: unknown[] = [];
+  const sub = DeviceEventEmitter.addListener("vn-crosscheck-event", (...args: unknown[]) =>
+    seen.push(args),
+  );
+  DeviceEventEmitter.emit("vn-crosscheck-event", 1, "two");
+  const afterEmit = JSON.stringify(seen);
+  sub.remove();
+  DeviceEventEmitter.emit("vn-crosscheck-event", 3);
+  return { afterEmit, afterRemove: JSON.stringify(seen) };
+});
+
 // --- Animated API surface ---
 //
 // Every probe above pins a BEHAVIOUR. These pin the SHAPE, because a member the mock
@@ -815,24 +884,15 @@ probe("hunt-textinput-maxlength", async () => {
 // Members starting with "_" are excluded: React Native's own internals are prefixed
 // that way, and so are the mock's deliberate test helpers (_reset, _setState, _show).
 const KNOWN_MOCK_EXTRA = new Set([
-  // Convenience readers the mock offers and real React Native does not. Real RN exposes
-  // only __getValue(); a suite using these stops working on the native engine.
+  // The one remaining divergence, and it is deliberate. Real React Native exposes only
+  // __getValue(); this convenience reader stays for suites already using it, but warns
+  // once per process because the same call throws under engine:'native'. Removing it is
+  // a breaking change and belongs in a major.
   "getValue",
-  "resetAnimation",
-  "stopAnimation",
 ]);
-const KNOWN_MOCK_MISSING = new Set([
-  // Real React Native members the mock has not implemented. Valid RN code calling
-  // these throws under the mock engine.
-  "Event",
-  "Interpolation",
-  "Node",
-  "attachNativeEvent",
-  "animate",
-  "hasListeners",
-  "stopTracking",
-  "track",
-  "toJSON",
+const KNOWN_MOCK_MISSING = new Set<string>([
+  // Emptied: every member React Native had and the mock lacked is now implemented.
+  // Anything added back here is a gap, and should carry a reason.
 ]);
 
 function publicMembers(value: unknown): string[] {

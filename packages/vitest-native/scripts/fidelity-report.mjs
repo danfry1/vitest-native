@@ -85,6 +85,39 @@ const ciLine = ciRange
   : `CI runs the same corpus across every supported React Native version on every commit.`;
 
 // --- 1. Badge (shields.io endpoint schema) ---
+// What the corpus does NOT reach. A count of matching probes says nothing about how
+// much of the mock those probes touch, and the answer was a third of the API surface —
+// a reader seeing a long table of ticks would reasonably assume more. Computed here, so
+// the number moves when the corpus does instead of going stale in prose.
+function surfaceCoverage() {
+  const corpus = fs.readFileSync(path.join(root, "crosscheck", "crosscheck.test.tsx"), "utf8");
+  const listing = (dir, skip) =>
+    fs
+      .readdirSync(path.join(root, "src", "mocks", dir))
+      .filter((f) => f !== "index.ts" && !skip.test(f))
+      .map((f) => f.replace(/\.tsx?$/, ""))
+      // Directory order is the filesystem's, not a promise. macOS returns these in
+      // ASCII order (uppercase first) and Windows orders case-insensitively, so an
+      // unsorted listing rendered a different page per platform and the freshness
+      // check failed on Windows alone.
+      .sort();
+  const referenced = (name) =>
+    new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(corpus);
+  const measure = (names) => {
+    const hit = names.filter(referenced);
+    return {
+      total: names.length,
+      covered: hit.length,
+      missing: names.filter((n) => !referenced(n)),
+    };
+  };
+  return {
+    apis: measure(listing("apis", /^$/)),
+    components: measure(listing("components", /^pressableHost/)),
+  };
+}
+const coverage = surfaceCoverage();
+
 const badge = {
   schemaVersion: 1,
   label: "RN fidelity",
@@ -141,6 +174,16 @@ generated from the corpus itself, so the numbers below are exactly what ships.
 - ${ciLine}
 - Per-version results straight from the CI matrix: [Fidelity Matrix](/guide/fidelity-matrix).
 - Reproduce it yourself: \`bun run crosscheck\`.
+
+### What this number covers
+
+A matching probe count says how many comparisons pass, not how much of the mock they
+reach. The corpus reaches ${coverage.apis.covered} of ${coverage.apis.total} mocked APIs and ${coverage.components.covered} of ${coverage.components.total} mocked components. The rest are not compared against real React Native at all — they are not known to differ, they are simply unmeasured.
+
+Not reached by any probe:
+
+- APIs: ${coverage.apis.missing.join(", ") || "(none)"}
+- Components: ${coverage.components.missing.join(", ") || "(none)"}
 
 The \`native\` engine needs no cross-check — it *is* real React Native.
 

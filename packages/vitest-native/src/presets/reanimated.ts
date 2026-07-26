@@ -259,7 +259,12 @@ export function reanimated(): Preset {
               const Base = getRN()[name];
               if (!Base) {
                 throw new Error(
-                  `[vitest-native] reanimated preset: react-native '${name}' is unavailable`,
+                  `[vitest-native] The reanimated preset needs React Native's '${name}' ` +
+                    `component to build Animated.${name}, and react-native did not provide it.\n` +
+                    `This usually means react-native resolved to something unexpected — a ` +
+                    `partially installed copy, or a mock replacing the whole module. Check ` +
+                    `that 'react-native' resolves in your project and that no vi.mock ` +
+                    `replaces it wholesale.`,
                 );
               }
               return React.createElement(Base, { ...props, ref });
