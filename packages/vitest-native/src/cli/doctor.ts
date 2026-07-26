@@ -25,18 +25,93 @@ function packageVersion(root: string, name: string): string | null {
   }
 }
 
+/**
+ * In Vitest's own precedence order: a `vitest.config.*` wins, and `vite.config.*`
+ * is used when there is none.
+ *
+ * The vite.config entries were missing, so a correct setup that configures Vitest
+ * from vite.config.ts — normal in projects that already had Vite — was told "no
+ * vitest.config.* found — run `vitest-native init`". Following that produces a
+ * second config which then TAKES PRECEDENCE over the working one, so the advice
+ * did not just misreport, it would have broken the project.
+ */
+const CONFIG_FILES = [
+  "vitest.config.ts",
+  "vitest.config.mts",
+  "vitest.config.js",
+  "vitest.config.mjs",
+  "vitest.config.cts",
+  "vitest.config.cjs",
+  "vite.config.ts",
+  "vite.config.mts",
+  "vite.config.js",
+  "vite.config.mjs",
+  "vite.config.cts",
+  "vite.config.cjs",
+];
+
 function findConfigFile(root: string): string | null {
-  for (const name of [
-    "vitest.config.ts",
-    "vitest.config.mts",
-    "vitest.config.js",
-    "vitest.config.mjs",
-    "vitest.config.cts",
-    "vitest.config.cjs",
-  ]) {
+  for (const name of CONFIG_FILES) {
     if (fs.existsSync(path.join(root, name))) return name;
   }
   return null;
+}
+
+/** Source with comments removed, so a mention inside one cannot be mistaken for use. */
+function withoutComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+}
+
+export interface ConfigUsage {
+  /** The config imports vitest-native (not merely mentions it). */
+  imports: boolean;
+  /** The imported plugin factory is actually called. */
+  invokes: boolean;
+}
+
+/**
+ * Whether a config genuinely uses the plugin.
+ *
+ * This was a substring test — `content.includes("vitest-native")` — so a config
+ * whose only mention was a `// TODO: migrate to vitest-native` comment reported
+ * "uses vitest-native" and "No blocking problems found", on a project where every
+ * React Native import would fail. Diagnosing that is the entire job of this
+ * command.
+ *
+ * The binding name is read from the import rather than assumed, so an aliased
+ * import still counts as used; when the import shape is not one of the forms
+ * below, the import alone is accepted rather than risking a false alarm on a
+ * working project.
+ */
+export function analyzeConfigUsage(source: string): ConfigUsage {
+  const code = withoutComments(source);
+  const named = /import\s*\{([^}]*)\}\s*from\s*["']vitest-native["']/.exec(code);
+  const namespaced = /import\s*\*\s*as\s*([A-Za-z_$][\w$]*)\s*from\s*["']vitest-native["']/.exec(
+    code,
+  );
+  const required =
+    /(?:const|let|var)\s*\{([^}]*)\}\s*=\s*require\(\s*["']vitest-native["']\s*\)/.exec(code);
+
+  const bindingFrom = (clause: string): string | null => {
+    const entry = /\breactNative\b(?:\s*(?::|as)\s*([A-Za-z_$][\w$]*))?/.exec(clause);
+    return entry ? (entry[1] ?? "reactNative") : null;
+  };
+
+  if (named || required) {
+    const binding = bindingFrom((named ?? required)![1]);
+    // Imported something else from the package (helpers, presets) — not our call
+    // to judge; treat the import as use.
+    if (!binding) return { imports: true, invokes: true };
+    return { imports: true, invokes: new RegExp(`\\b${binding}\\s*\\(`).test(code) };
+  }
+  if (namespaced) {
+    return { imports: true, invokes: new RegExp(`\\b${namespaced[1]}\\.\\w+\\s*\\(`).test(code) };
+  }
+  // Any other import form (side-effect, dynamic) still counts as importing.
+  if (/from\s*["']vitest-native["']|require\(\s*["']vitest-native["']\s*\)/.test(code)) {
+    return { imports: true, invokes: true };
+  }
+  return { imports: false, invokes: false };
 }
 
 export function runDoctor(root: string, nodeVersion: string = process.versions.node): DoctorResult {
@@ -162,10 +237,20 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
     warn("no vitest.config.* found — run `vitest-native init` to create one.");
   } else {
     const content = fs.readFileSync(path.join(root, configFile), "utf8");
-    if (content.includes("vitest-native") || content.includes("reactNative(")) {
+    const usage = analyzeConfigUsage(content);
+    if (usage.imports && usage.invokes) {
       pass(`${configFile} uses vitest-native.`);
+    } else if (usage.imports) {
+      warn(
+        `${configFile} imports vitest-native but never calls reactNative() — ` +
+          "the plugin is not in `plugins: [...]`, so React Native imports will not resolve.",
+      );
     } else {
-      warn(`${configFile} exists but does not reference vitest-native.`);
+      warn(
+        `${configFile} exists but does not import vitest-native` +
+          (content.includes("vitest-native") ? " (it is only mentioned in a comment)" : "") +
+          " — add `reactNative()` to `plugins: [...]`, or run `vitest-native init`.",
+      );
     }
   }
 
