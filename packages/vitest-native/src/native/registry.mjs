@@ -31,8 +31,57 @@ import path from "node:path";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { transformRN, isFlow, cacheRootFor, TRANSFORM_CACHE_VERSION } from "./transform.mjs";
+
 import { boundarySourceFor, BOUNDARY_SOURCES } from "./boundary.mjs";
 import { resolvePlatformFile } from "./resolve.mjs";
+
+/**
+ * Losing the registry is a silent performance cliff, not a correctness problem:
+ * React Native still loads, file by file, and nothing fails. Measured on this
+ * package's own native suite (~42 files), that costs roughly 1.4x — 1.8s becomes
+ * 2.5-2.8s — and the per-file cost compounds on a real app suite.
+ *
+ * Both failure paths used to return null in silence (the build path spoke only
+ * under `diagnostics`, the cache-directory path never spoke at all), so the
+ * fallback was indistinguishable from working normally. A precompile failure is
+ * exactly the kind of thing that happens on one machine and not another — it
+ * happened on a Windows CI runner while this was being reviewed, and reported
+ * nothing but a null.
+ *
+ * Reported once per distinct cause, so a project failing on both platforms says
+ * it once, while two different causes are both visible.
+ */
+const reportedRegistryFailures = new Set();
+
+/**
+ * Exported as a test seam. The shape of the underlying error depends on how the
+ * host resolves modules — under the package's own mock-engine test config,
+ * `react-native` is aliased to a virtual module and the failure is a one-line
+ * argument error, so a test driving `buildRegistry` there can never produce the
+ * multi-line "Require stack:" this collapses. Calling it directly is the only way
+ * to assert the collapse rather than assume the environment supplies one.
+ */
+export function _warnRegistryUnavailable(rawReason) {
+  warnRegistryUnavailable(rawReason);
+}
+
+function warnRegistryUnavailable(rawReason) {
+  // Node appends a "Require stack:" block to resolution failures; one line is
+  // enough to identify the cause without turning a warning into a wall of text.
+  const reason = String(rawReason).split("\n")[0].trim();
+  if (reportedRegistryFailures.has(reason)) return;
+  reportedRegistryFailures.add(reason);
+  console.warn(
+    `[vitest-native] (native) could not precompile the React Native registry (${reason}); ` +
+      "falling back to per-file module loading, which is slower. Tests still run and " +
+      "results are unaffected. Set VITEST_NATIVE_NO_REGISTRY=1 to opt out silently.",
+  );
+}
+
+/** Test seam: the warning is once-per-cause for the life of the process. */
+export function _resetRegistryFailureReports() {
+  reportedRegistryFailures.clear();
+}
 
 const RN_PATH = /[\\/]node_modules[\\/](react-native|@react-native)[\\/]/;
 // Bump when the emitted registry's shape or the walk's semantics change, so a
@@ -312,6 +361,9 @@ export function buildRegistry({
   assetExts = [],
   diagnostics = false,
 }) {
+  // See warnRegistryUnavailable: this is the one path that stays quiet, because
+  // the user asked for it.
+  //
   // Escape hatch. The registry is transparent by design, but it is also the piece
   // most likely to be implicated if a project sees something unexpected from React
   // Native — so there is a way to take it out of the picture and get the per-file
@@ -330,7 +382,8 @@ export function buildRegistry({
     key = registryKey({ projectRoot, platform, reactNativeVersion });
     dir = path.join(cacheRootFor(projectRoot), "registry");
     fs.mkdirSync(dir, { recursive: true });
-  } catch {
+  } catch (error) {
+    warnRegistryUnavailable(error?.message ?? "cache directory unavailable");
     return null;
   }
 
@@ -410,12 +463,7 @@ export function buildRegistry({
     }
     return registryFile;
   } catch (error) {
-    if (diagnostics) {
-      console.warn(
-        `[vitest-native] (native) could not precompile the RN registry (${error?.message}); ` +
-          `falling back to per-file module loading.`,
-      );
-    }
+    warnRegistryUnavailable(error?.message ?? "unknown error");
     return null;
   }
 }
