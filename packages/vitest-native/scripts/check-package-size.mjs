@@ -45,25 +45,70 @@ const actual = {
   runtimeDependencies: Object.keys(packageJson.dependencies ?? {}).length,
   exportPaths: Object.keys(packageJson.exports ?? {}).length,
 };
-const limits = {
-  packedBytes: budget.maxPackedBytes,
-  unpackedBytes: budget.maxUnpackedBytes,
-  files: budget.maxFiles,
-  runtimeDependencies: budget.maxRuntimeDependencies,
-  exportPaths: budget.maxExportPaths,
-};
+/**
+ * Ceilings AND floors.
+ *
+ * Every limit here used to be an upper bound, so the check only ever noticed the
+ * package growing. Measured against an unbuilt tree it reported "OK files: 8 / 85"
+ * and exited 0 — a budget that passes while measuring nothing. A build that lost
+ * the verbatim-copied native runtime reported "OK files: 60 / 85" just as happily,
+ * though nothing using the native engine can start without it.
+ *
+ * `exportPaths` is checked exactly rather than bounded. Deleting a public entry
+ * point is a breaking change for consumers, and it read as "OK exportPaths: 9 / 11"
+ * — a shrinking published surface, reported by the check whose job is to track the
+ * published surface. Adding one is a support commitment. Both should be a
+ * deliberate edit to this file, not a silent pass.
+ *
+ * `runtimeDependencies` keeps a ceiling only: shipping fewer dependencies is never
+ * the regression.
+ */
+const checks = [
+  { key: "packedBytes", min: budget.minPackedBytes, max: budget.maxPackedBytes },
+  { key: "unpackedBytes", min: budget.minUnpackedBytes, max: budget.maxUnpackedBytes },
+  { key: "files", min: budget.minFiles, max: budget.maxFiles },
+  { key: "runtimeDependencies", max: budget.maxRuntimeDependencies },
+  { key: "exportPaths", min: budget.exportPaths, max: budget.exportPaths },
+];
 
 let failed = false;
+const under = [];
 console.log("Published package budget:");
-for (const key of Object.keys(limits)) {
-  const over = actual[key] > limits[key];
-  failed ||= over;
-  console.log(`  ${over ? "FAIL" : "OK  "} ${key}: ${actual[key]} / ${limits[key]}`);
+for (const { key, min, max } of checks) {
+  const value = actual[key];
+  const tooBig = typeof max === "number" && value > max;
+  const tooSmall = typeof min === "number" && value < min;
+  failed ||= tooBig || tooSmall;
+  if (tooSmall) under.push(key);
+  const range = typeof min === "number" ? `${min}..${max}` : `<= ${max}`;
+  console.log(`  ${tooBig || tooSmall ? "FAIL" : "OK  "} ${key}: ${value} / ${range}`);
 }
 
 if (failed) {
-  console.error(
-    "Package budget exceeded. Reduce the published surface or update the budget with an explicit justification.",
-  );
+  // A shrink in the artifact and a shrink in the export map are different
+  // problems: the first is nearly always an incomplete build, the second is a
+  // breaking change. Reporting a build hint for a deleted entry point would send
+  // the reader to look at dist/ for something that is not there.
+  const messages = [];
+  if (under.some((key) => key !== "exportPaths")) {
+    messages.push(
+      "The published artifact is SMALLER than expected. That is usually a build that did not run\n" +
+        "or did not finish — check dist/ before touching the floor. If the reduction is real,\n" +
+        "lower the floor in package-budget.json with a justification.",
+    );
+  }
+  if (under.includes("exportPaths")) {
+    messages.push(
+      "Fewer export paths than declared: a public entry point was removed, which is a BREAKING\n" +
+        "change for consumers. If that is intended, update `exportPaths` in package-budget.json\n" +
+        "and make sure the removal is in a changeset as a major.",
+    );
+  }
+  if (messages.length === 0) {
+    messages.push(
+      "Package budget exceeded. Reduce the published surface or update the budget with an explicit justification.",
+    );
+  }
+  console.error(messages.join("\n\n"));
   process.exit(1);
 }
