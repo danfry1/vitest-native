@@ -17,6 +17,26 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  changeset:
+    name: Changeset for shipped changes
+    # Pull requests only: the check compares against the base branch, and a push to
+    # main has already been through this on its way in.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Its own job with full history rather than fetch-depth: 0 on the matrix, which
+      # would make every leg clone the whole repository to serve one diff.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Require a changeset when shipped source changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node packages/vitest-native/scripts/check-changeset.mjs "$BASE_SHA" "$HEAD_SHA"
+
   check:
     name: Full gate (${{ matrix.os }}, Node ${{ matrix.node-version }})
     runs-on: ${{ matrix.os }}
