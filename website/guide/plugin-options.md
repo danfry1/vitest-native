@@ -7,11 +7,12 @@ reactNative({
   engine: 'auto',        // 'native' | 'mock' | 'auto' (default: 'auto' → native when available)
   platform: 'ios',       // 'ios' | 'android' (default: 'ios')
   diagnostics: false,    // Log plugin activity (default: false)
-  presets: [],           // Third-party library presets
   mocks: {},             // Custom mock overrides
   assetExts: [],         // Additional asset extensions (e.g. ['.lottie', '.m4b'])
   transform: [],         // Extra node_modules packages to transform (Flow/TS/JSX), native engine
   hotRuntime: false,     // Experimental hot runtime for large native suites
+  // presets — omitted on purpose: leaving it out auto-detects your installed
+  // libraries. Passing an array uses ONLY that array, so `presets: []` means none.
 })
 ```
 
@@ -34,6 +35,12 @@ Set to `true` to log plugin activity — useful when debugging resolution or whi
 ## `presets`
 
 An array of [third-party presets](/guide/presets). Presets are auto-detected from your installed dependencies, so listing them is usually optional:
+
+::: warning Providing this option replaces auto-detection
+When `presets` is present, **only** the presets in the array are used — auto-detection
+does not run. `presets: []` therefore disables every preset, including ones your app
+depends on. Omit the option entirely to keep auto-detection.
+:::
 
 ```ts
 import { reactNative, presets } from 'vitest-native'
