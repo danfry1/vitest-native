@@ -14,11 +14,21 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { ensureBuilt } from "./ensure-built.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const config = path.join(root, "crosscheck", "vitest.config.mts");
 const outDir = path.join(root, "crosscheck", ".out");
 const vitestBin = path.join(root, "node_modules", ".bin", "vitest");
+
+// The config imports ../dist/index.mjs, which a fresh clone does not have.
+try {
+  ensureBuilt({ root });
+} catch (error) {
+  console.error(`✗ ${error.message}`);
+  process.exit(1);
+}
+
 fs.mkdirSync(outDir, { recursive: true });
 
 function resolveReactNativeVersion() {
