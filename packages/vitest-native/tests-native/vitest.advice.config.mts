@@ -1,9 +1,5 @@
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import { reactNative } from "../dist/index.mjs";
-
-const here = path.dirname(fileURLToPath(import.meta.url));
 
 // The config a user ends up with after following the explainer's advice verbatim.
 // It has to live in its own file: the same fixture must stay UNtransformed under
@@ -16,6 +12,11 @@ export default defineConfig({
     environment: "node",
     // Its own directory, so the main config's `tests-native/*.test.ts` glob — which
     // is not recursive — cannot pick these up and contradict itself.
-    include: [path.resolve(here, "advice/*.test.ts")],
+    //
+    // Relative, like every other config here. An absolute path breaks on Windows:
+    // include entries are globs and tinyglobby reads a backslash as an escape
+    // character, so a resolved Windows path matches nothing and the run exits with
+    // "No test files found" — which is how the first version of this file failed.
+    include: ["tests-native/advice/*.test.ts"],
   },
 });
