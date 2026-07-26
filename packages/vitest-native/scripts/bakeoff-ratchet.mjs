@@ -157,6 +157,18 @@ for (const app of apps) {
 
   // Stock (isolate: true) counts.
   const stock = collectCounts(appDir, "vitest.config.mts", "stock");
+  // collectCounts returns null when the run produced nothing to measure. Without this
+  // the script carried on to derive the hot config, hit an unhandled ENOENT reading a
+  // config the failed run had left incomplete, and died BEFORE classifying — so the
+  // workflow could not tell a broken setup from a real regression and filed every
+  // failure as "(infra?)". A tripwire that cannot say what it found teaches people to
+  // ignore it.
+  if (!stock) {
+    console.error(`✗ ${app}: no stock measurement; skipping this app's observation`);
+    failed = true;
+    infrastructureFailed = true;
+    continue;
+  }
 
   // Hot-runtime counts: same config with hotRuntime flipped on. The PR #55
   // lesson — hot changes must be validated against a real app WITH hot on.
@@ -170,6 +182,12 @@ for (const app of apps) {
   }
   fs.writeFileSync(path.join(appDir, "vitest.hot.config.mts"), hotConfig);
   const hot = collectCounts(appDir, "vitest.hot.config.mts", "hot");
+  if (!hot) {
+    console.error(`✗ ${app}: no hot measurement; skipping this app's observation`);
+    failed = true;
+    infrastructureFailed = true;
+    continue;
+  }
 
   results[app] = { stock, hot };
 }
