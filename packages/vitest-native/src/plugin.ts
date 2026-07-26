@@ -9,6 +9,7 @@ import { createRequire } from "node:module";
 import flowRemoveTypes from "flow-remove-types";
 import { validateOptions, validatePeerDependency, warnUnknownOptions } from "./validate.js";
 import { PEER_REQUIREMENTS } from "./peer-requirements.js";
+import { VitestNativeError } from "./errors.mjs";
 import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
 import { detectEcosystemPackages } from "./native/ecosystem.js";
@@ -505,8 +506,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   }
 
   if (options?.mocks && containsFunctions(options.mocks)) {
-    throw new Error(
-      `[vitest-native] The "mocks" option contains function values, which cannot be ` +
+    throw new VitestNativeError(
+      "INVALID_OPTION",
+      `The "mocks" option contains function values, which cannot be ` +
         `transferred to Vitest worker processes. Only JSON-serializable values ` +
         `(strings, numbers, booleans, plain objects, arrays) are supported.\n\n` +
         `For function-based mock overrides, use vi.mock() in a setup file:\n\n` +
@@ -624,8 +626,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // config time — deferring lets the run start and die mid-suite inside the
       // loader with a stack that doesn't mention configuration at all.
       if (engine === "native" && !decision.nativeAvailable) {
-        throw new Error(
-          `[vitest-native] engine:'native' requires '@react-native/babel-preset' and ` +
+        throw new VitestNativeError(
+          "ENGINE_REQUIRES_BABEL",
+          `engine:'native' requires '@react-native/babel-preset' and ` +
             `'@babel/core' to resolve from ${resolvedRoot}. Install them as ` +
             `devDependencies (React Native projects ship them by default):\n\n` +
             `  npm install -D @react-native/babel-preset @babel/core\n\n` +
@@ -660,8 +663,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // where the native setup file's hooks Flow-strip it and mock the boundary.
       if (engine === "native") {
         if (options?.mocks && Object.keys(options.mocks).length > 0) {
-          throw new Error(
-            `[vitest-native] The "mocks" option is only supported by engine:'mock'. ` +
+          throw new VitestNativeError(
+            "MOCKS_REQUIRE_MOCK_ENGINE",
+            `The "mocks" option is only supported by engine:'mock'. ` +
               `The native engine runs the real react-native module and cannot safely merge ` +
               `arbitrary exports into it. Use vi.mock() in a setup file, ` +
               `mockNativeModule() for native modules, or set engine:'mock'.`,
@@ -763,8 +767,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // and dies on `Platform.OS` deep inside NativeEventEmitter. Say so here rather
         // than let that surface as an unexplained crash.
         if (userPool === "vmThreads" || userPool === "vmForks") {
-          throw new Error(
-            `[vitest-native] engine:'native' cannot run on the '${userPool}' pool. React Native is ` +
+          throw new VitestNativeError(
+            "UNSUPPORTED_POOL",
+            `engine:'native' cannot run on the '${userPool}' pool. React Native is ` +
               `loaded through Node's module hooks, which a VM pool's context does not use — ` +
               `React Native fails to resolve its platform files there. Use 'threads' (the ` +
               `default) or 'forks', or switch to engine:'mock', which needs no hooks.`,
@@ -893,8 +898,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         if (error) peerErrors.push(error);
       }
       if (peerErrors.length > 0) {
-        throw new Error(
-          `[vitest-native] Unsupported peer dependencies:\n- ${peerErrors.join("\n- ")}`,
+        throw new VitestNativeError(
+          "UNSUPPORTED_PEER",
+          `Unsupported peer dependencies:\n- ${peerErrors.join("\n- ")}`,
         );
       }
 

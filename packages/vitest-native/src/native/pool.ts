@@ -23,6 +23,7 @@ import os from "node:os";
 import { createRequire } from "node:module";
 import { ThreadsPoolWorker } from "vitest/node";
 import type { PoolOptions, PoolRunnerInitializer, PoolTask, WorkerRequest } from "vitest/node";
+import { VitestNativeError } from "../errors.mjs";
 
 export interface NativePoolOptions {
   /** Absolute path to the hot worker entry (dist/native/worker.mjs). */
@@ -203,8 +204,9 @@ function assertWorkerVitestMatchesProject(workerEntry: string, projectRoot: stri
   // clearer message than anything invented here, and a project without a resolvable
   // Vitest is not running this code at all.
   if (worker === null || project === null || worker.version === project.version) return;
-  throw new Error(
-    `[vitest-native] 'hotRuntime' cannot run: its worker would load vitest@${worker.version}, ` +
+  throw new VitestNativeError(
+    "HOT_RUNTIME_UNAVAILABLE",
+    `'hotRuntime' cannot run: its worker would load vitest@${worker.version}, ` +
       `but this run is driven by vitest@${project.version}. They talk over Vitest's worker ` +
       `protocol, and a version mismatch reports no results at all rather than failing.\n` +
       `  worker would load:  ${worker.path}\n` +

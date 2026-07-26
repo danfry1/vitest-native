@@ -19,9 +19,10 @@ import { installHotReset } from "./reset.mjs";
 import { installRegistry } from "./registry.mjs";
 import { captureModuleBaseline } from "./module-reset.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
+import { VitestNativeError } from "../errors.mjs";
 
 if (isMainThread || !parentPort) {
-  throw new Error("[vitest-native] hot worker entry must run in node:worker_threads");
+  throw new VitestNativeError("HOT_WORKER_ENV", "hot worker entry must run in node:worker_threads");
 }
 
 const projectRoot = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
@@ -96,8 +97,9 @@ try {
     RN.Appearance.getColorScheme?.();
   } catch {}
 } catch (error) {
-  throw new Error(
-    `[vitest-native] hot worker failed to preload react-native from ${projectRoot}: ${error?.message}`,
+  throw new VitestNativeError(
+    "HOT_WORKER_PRELOAD",
+    `hot worker failed to preload react-native from ${projectRoot}: ${error?.message}`,
     { cause: error },
   );
 }

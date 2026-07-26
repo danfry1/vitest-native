@@ -3,6 +3,7 @@ import { vi } from "vitest";
 import React from "react";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { VitestNativeError } from "../errors.mjs";
 
 /**
  * Resolve the *active* React Native module — the mock under `engine: 'mock'`
@@ -258,8 +259,9 @@ export function reanimated(): Preset {
             const Comp = React.forwardRef((props: any, ref: any) => {
               const Base = getRN()[name];
               if (!Base) {
-                throw new Error(
-                  `[vitest-native] The reanimated preset needs React Native's '${name}' ` +
+                throw new VitestNativeError(
+                  "PRESET_UNAVAILABLE",
+                  `The reanimated preset needs React Native's '${name}' ` +
                     `component to build Animated.${name}, and react-native did not provide it.\n` +
                     `This usually means react-native resolved to something unexpected — a ` +
                     `partially installed copy, or a mock replacing the whole module. Check ` +

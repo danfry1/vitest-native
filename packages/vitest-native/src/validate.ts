@@ -1,3 +1,4 @@
+import { VitestNativeTypeError } from "./errors.mjs";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -18,13 +19,19 @@ function assertStringArray(value: unknown, option: string): asserts value is str
     !Array.isArray(value) ||
     value.some((entry) => typeof entry !== "string" || entry.length === 0)
   ) {
-    throw new TypeError(`[vitest-native] "${option}" must be an array of non-empty strings.`);
+    throw new VitestNativeTypeError(
+      "INVALID_OPTION",
+      `"${option}" must be an array of non-empty strings.`,
+    );
   }
 }
 
 function assertNonNegativeInteger(value: unknown, option: string): asserts value is number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
-    throw new TypeError(`[vitest-native] "${option}" must be a non-negative safe integer.`);
+    throw new VitestNativeTypeError(
+      "INVALID_OPTION",
+      `"${option}" must be a non-negative safe integer.`,
+    );
   }
 }
 
@@ -35,34 +42,40 @@ export function validateOptions(options: Record<string, unknown>): void {
     options.engine !== "mock" &&
     options.engine !== "native"
   ) {
-    throw new TypeError(`[vitest-native] "engine" must be "auto", "mock", or "native".`);
+    throw new VitestNativeTypeError(
+      "INVALID_OPTION",
+      `"engine" must be "auto", "mock", or "native".`,
+    );
   }
   if (
     options.platform !== undefined &&
     options.platform !== "ios" &&
     options.platform !== "android"
   ) {
-    throw new TypeError(`[vitest-native] "platform" must be "ios" or "android".`);
+    throw new VitestNativeTypeError("INVALID_OPTION", `"platform" must be "ios" or "android".`);
   }
   if (options.diagnostics !== undefined && typeof options.diagnostics !== "boolean") {
-    throw new TypeError(`[vitest-native] "diagnostics" must be a boolean.`);
+    throw new VitestNativeTypeError("INVALID_OPTION", `"diagnostics" must be a boolean.`);
   }
   if (options.assetExts !== undefined) assertStringArray(options.assetExts, "assetExts");
   if (options.transform !== undefined) assertStringArray(options.transform, "transform");
   if (options.presets !== undefined && !Array.isArray(options.presets)) {
-    throw new TypeError(`[vitest-native] "presets" must be an array.`);
+    throw new VitestNativeTypeError("INVALID_OPTION", `"presets" must be an array.`);
   }
   if (
     options.mocks !== undefined &&
     (options.mocks === null || Array.isArray(options.mocks) || typeof options.mocks !== "object")
   ) {
-    throw new TypeError(`[vitest-native] "mocks" must be a plain object.`);
+    throw new VitestNativeTypeError("INVALID_OPTION", `"mocks" must be a plain object.`);
   }
 
   const hotRuntime = options.hotRuntime;
   if (hotRuntime === undefined || typeof hotRuntime === "boolean") return;
   if (hotRuntime === null || Array.isArray(hotRuntime) || typeof hotRuntime !== "object") {
-    throw new TypeError(`[vitest-native] "hotRuntime" must be a boolean or an options object.`);
+    throw new VitestNativeTypeError(
+      "INVALID_OPTION",
+      `"hotRuntime" must be a boolean or an options object.`,
+    );
   }
 
   const hotOptions = hotRuntime as Record<string, unknown>;
@@ -71,8 +84,9 @@ export function validateOptions(options: Record<string, unknown>): void {
       // The sibling message for top-level options offers a suggestion; this one did
       // not, so a typo produced a bare rejection with no way forward.
       const suggestion = findClosest(key, KNOWN_HOT_RUNTIME_OPTIONS);
-      throw new TypeError(
-        `[vitest-native] Unknown hotRuntime option "${key}".` +
+      throw new VitestNativeTypeError(
+        "UNKNOWN_OPTION",
+        `Unknown hotRuntime option "${key}".` +
           (suggestion ? ` Did you mean '${suggestion}'?` : "") +
           ` Valid options: ${KNOWN_HOT_RUNTIME_OPTIONS.join(", ")}.`,
       );
