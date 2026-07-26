@@ -62,15 +62,64 @@ function collectReports(dir) {
  * The artifact directory name carries the matrix axes
  * (crosscheck-report-rn<version>-<vitest-flavor>); the report body carries the
  * RESOLVED versions. Prefer the body, fall back to the directory name.
+ *
+ * The flavor is matched openly rather than against a list of known names. An
+ * allow-list here silently mislabels any cell added later: `v5` cells went in
+ * without one and were read as `locked`, because the fallback picked a real
+ * flavor name instead of admitting the parse had failed. An unrecognized
+ * directory now says so.
  */
 function describeCell(reportPath, report) {
   const dirName = path.basename(path.dirname(reportPath));
-  const m = /^crosscheck-report-rn(.+?)-(locked|latest-supported)$/.exec(dirName);
+  const m = /^crosscheck-report-rn(.+?)-(.+)$/.exec(dirName);
   return {
     rn: report.reactNativeVersion ?? m?.[1] ?? "unknown",
-    vitest: report.vitestVersion ?? (m?.[2] === "latest-supported" ? "latest 4.x" : "locked"),
-    flavor: m?.[2] ?? "locked",
+    // Only the report body knows the RESOLVED Vitest version. The flavor is the
+    // axis, carried in its own column, so an absent body version is reported as
+    // unknown rather than restated as the axis name.
+    vitest: report.vitestVersion ?? "unknown",
+    flavor: m?.[2] ?? "unknown",
   };
+}
+
+/**
+ * The matrix axes, read from the workflow that defines them, so the page can
+ * state what was gated rather than only what happened to arrive. Artifacts are
+ * downloaded best-effort at deploy time (`|| true`, `if-no-files-found: ignore`,
+ * 30-day retention), so a partial set is an ordinary outcome — and a table built
+ * from it still read "Every probe matches on every gated React Native version",
+ * a claim about cells that were never in the render.
+ */
+function expectedCells() {
+  try {
+    const wf = fs.readFileSync(
+      path.join(repoRoot, ".github", "workflows", "native-rn-matrix.yml"),
+      "utf8",
+    );
+    const lines = wf.split("\n");
+    const axis = (name) => {
+      const line = lines.find((l) => new RegExp(`^\\s*${name}:\\s*\\[`).test(l));
+      return [...(line?.matchAll(/'([^']+)'/g) ?? [])].map((m) => m[1]);
+    };
+    const rns = axis("rn");
+    const flavors = axis("vitest");
+    if (rns.length === 0 || flavors.length === 0) return null;
+    const cells = new Set(rns.flatMap((rn) => flavors.map((f) => `${rn}-${f}`)));
+    // `include:` entries add cells outside the cross product.
+    const includeBlock = wf.slice(wf.indexOf("include:"));
+    for (const m of includeBlock.matchAll(/-\s*rn:\s*'([^']+)'\s*\n\s*vitest:\s*'([^']+)'/g)) {
+      cells.add(`${m[1]}-${m[2]}`);
+    }
+    return cells;
+  } catch {
+    return null;
+  }
+}
+
+/** Match a rendered cell back to its matrix key: RN is resolved (0.86.0), the axis is a series (0.86). */
+function matrixKey({ rn, flavor }) {
+  const series = String(rn).split(".").slice(0, 2).join(".");
+  return `${series}-${flavor}`;
 }
 
 const HEADER = `<!--
@@ -112,12 +161,24 @@ A local or matrix-less build shows this placeholder. The single-version
     );
 
   const allGreen = cells.every((c) => c.report.summary.matching === c.report.summary.total);
+
+  // Cells that arrived, against the cells the workflow gates.
+  const expected = expectedCells();
+  const present = new Set(cells.map(matrixKey));
+  const missing = expected ? [...expected].filter((k) => !present.has(k)).sort() : [];
+  const complete = expected !== null && missing.length === 0;
+
   const rows = cells
-    .map(({ rn, vitest, report }) => {
+    .map(({ rn, vitest, flavor, report }) => {
       const { matching, total } = report.summary;
       const status = matching === total ? "✅" : "❌";
       const when = (report.generatedAt ?? "").slice(0, 10);
-      return `| ${cell(rn)} | ${cell(vitest)} | ${status} ${matching}/${total} | ${cell(when)} |`;
+      // The flavor is what separates two cells that resolve to the same Vitest
+      // version. Rendering only the resolved version made `locked` and
+      // `latest-supported` byte-identical rows — the published table repeated
+      // every React Native version twice with nothing to tell the pair apart,
+      // and the axis the matrix exists to cover was invisible.
+      return `| ${cell(rn)} | ${cell(vitest)} | ${cell(flavor)} | ${status} ${matching}/${total} | ${cell(when)} |`;
     })
     .join("\n");
 
@@ -135,11 +196,21 @@ A local or matrix-less build shows this placeholder. The single-version
       ),
   );
 
-  body = `
-${allGreen ? `**Every probe matches on every gated React Native version.**` : `**Divergences detected — see the table below.**`}
+  const headline = !allGreen
+    ? `**Divergences detected — see the table below.**`
+    : complete
+      ? `**Every probe matches on every gated React Native version.**`
+      : `**Every probe matches in every cell shown below.** This build is missing ${missing.length} of the ${(expected?.size ?? 0).toString()} gated cells, so it is not a statement about the full matrix.`;
 
-| React Native | Vitest | Probes matching | Generated |
-| --- | --- | --- | --- |
+  const missingNote = missing.length
+    ? `\n::: warning Incomplete matrix data\nNo report arrived for ${missing.map((k) => `\`${cell(k)}\``).join(", ")}. Matrix artifacts are downloaded best-effort at deploy time and expire after 30 days; a cell that failed before the cross-check ran uploads nothing. The rows below are still CI-produced — there are simply fewer of them than the matrix gates.\n:::\n`
+    : "";
+
+  body = `
+${headline}
+${missingNote}
+| React Native | Vitest | Flavor | Probes matching | Generated |
+| --- | --- | --- | --- | --- |
 ${rows}
 
 ## Divergences

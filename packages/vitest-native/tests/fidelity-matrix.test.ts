@@ -61,8 +61,8 @@ describe("fidelity-matrix renderer", () => {
     // Sorted by RN version: 0.81 row before 0.85.
     expect(page.indexOf("0.81.5")).toBeLessThan(page.indexOf("0.85.2"));
     // Per-cell summary rows with pass state.
-    expect(page).toContain("| 0.85.2 | 4.1.8 | ✅ 75/75 | 2026-07-04 |");
-    expect(page).toContain("| 0.81.5 | 4.2.1 | ❌ 74/75 | 2026-07-04 |");
+    expect(page).toContain("| 0.85.2 | 4.1.8 | locked | ✅ 75/75 | 2026-07-04 |");
+    expect(page).toContain("| 0.81.5 | 4.2.1 | latest-supported | ❌ 74/75 | 2026-07-04 |");
     // Divergence table present, with hazards escaped.
     expect(page).toContain("| press-event |");
     expect(page).toContain("mock &lt;Text&gt; got a\\|b \\\\\\| &#123;&#123; nope &#125;&#125;");
@@ -109,7 +109,7 @@ describe("fidelity-matrix renderer", () => {
     ).toThrow();
   });
 
-  it("declares all-green when every cell matches fully", () => {
+  it("declares the cells green but does not claim the matrix from one cell", () => {
     const reports = fs.mkdtempSync(path.join(os.tmpdir(), "vn-matrix-reports-"));
     writeReport(reports, "crosscheck-report-rn0.86-locked", {
       reactNativeVersion: "0.86.0",
@@ -119,7 +119,10 @@ describe("fidelity-matrix renderer", () => {
       probes: [{ name: "a11y-role", match: true }],
     });
     const { page } = render(["--reports", reports]);
-    expect(page).toContain("Every probe matches on every gated React Native version.");
+    // One cell is not the matrix: the strong claim is reserved for a complete
+    // set (asserted in fidelity-matrix-cells.test.ts), and a partial render says so.
+    expect(page).toContain("Every probe matches in every cell shown below.");
+    expect(page).not.toContain("on every gated React Native version.");
     expect(page).toContain("_None. Every probe matched in every cell of the latest matrix run._");
   });
 
@@ -131,6 +134,6 @@ describe("fidelity-matrix renderer", () => {
       probes: [],
     });
     const { page } = render(["--reports", reports]);
-    expect(page).toContain("| 0.83 | latest 4.x | ✅ 10/10 |");
+    expect(page).toContain("| 0.83 | unknown | latest-supported | ✅ 10/10 |");
   });
 });
