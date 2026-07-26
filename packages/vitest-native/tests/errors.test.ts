@@ -52,6 +52,17 @@ describe("the error classes", () => {
     const cause = new Error("underlying");
     expect(new VitestNativeError("TRANSFORM_FAILED", "wrapped", { cause }).cause).toBe(cause);
   });
+
+  it("install no cause property when there is no cause", () => {
+    // `new Error(msg, { cause: undefined })` installs an own `cause` set to undefined,
+    // which a plain `new Error(msg)` does not — enough for some reporters to print an
+    // empty cause, and enough to make these errors shaped unlike every other error in
+    // the process. Asserting the round trip alone does not catch it, since that passes
+    // either way.
+    const withoutCause = new VitestNativeError("INVALID_OPTION", "no cause given");
+    expect(Object.prototype.hasOwnProperty.call(withoutCause, "cause")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(new Error("baseline"), "cause")).toBe(false);
+  });
 });
 
 describe("real throw sites", () => {
@@ -108,7 +119,13 @@ describe("every message this package throws is attributable", () => {
   const EXEMPT = [
     path.join("mocks", "apis"),
     path.join("matchers", ""),
-    path.join("src", "errors.ts"),
+    // Defines the classes.
+    path.join("src", "errors.mjs"),
+    // explain.mjs wraps somebody else's failure and deliberately keeps the ORIGINAL
+    // error's name, so a Babel SyntaxError still reads as a SyntaxError rather than as
+    // ours. Adopting the class would overwrite that, and the name is the signal. Its
+    // messages already carry the prefix, the package and the fix.
+    path.join("native", "explain.mjs"),
   ];
 
   it("throws a vitest-native error class, or is an exemption with a stated reason", () => {
@@ -117,14 +134,21 @@ describe("every message this package throws is attributable", () => {
     for (const file of sourceFiles(srcRoot)) {
       if (EXEMPT.some((frag) => file.includes(frag))) continue;
       const text = fs.readFileSync(file, "utf8");
-      for (const match of text.matchAll(/throw new (\w+)\(/g)) {
+      // Matches CONSTRUCTION, not just `throw new`. The first version of this scan
+      // looked for `throw new` and so never saw explain.mjs, which builds its errors and
+      // returns them for a caller to throw — leaving the package's two best
+      // explanations outside the rule by accident rather than by decision.
+      // `new Error()` with no arguments is the stack-capture idiom, not a user-facing
+      // error, so it is skipped.
+      for (const match of text.matchAll(/new ((?:Vitest)?\w*(?:Type|Syntax)?Error)\(\s*(.?)/g)) {
+        if (match[2] === ")") continue;
         const cls = match[1];
         if (cls === "VitestNativeError" || cls === "VitestNativeTypeError") {
           converted += 1;
           continue;
         }
         const line = text.slice(0, match.index).split("\n").length;
-        offenders.push(`${path.relative(srcRoot, file)}:${line} throws ${cls}`);
+        offenders.push(`${path.relative(srcRoot, file)}:${line} builds a raw ${cls}`);
       }
     }
     // Guards the guard: an empty `offenders` means nothing only if the scan actually
