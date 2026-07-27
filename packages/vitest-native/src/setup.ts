@@ -47,6 +47,17 @@ if (process.env.VITEST_NATIVE_MOCKS) {
 
 // Explicit preset names from plugin config, or null for auto-detect.
 let explicitPresetNames: string[] | null = null;
+// Names switched off by `presets: { name: false }`. Auto-detection still runs in the
+// worker; these are removed from what it finds.
+let disabledPresetNames: string[] = [];
+if (process.env.VITEST_NATIVE_PRESET_DISABLED) {
+  try {
+    disabledPresetNames = JSON.parse(process.env.VITEST_NATIVE_PRESET_DISABLED) as string[];
+  } catch {
+    disabledPresetNames = [];
+  }
+}
+
 if (process.env.VITEST_NATIVE_PRESET_NAMES) {
   try {
     explicitPresetNames = JSON.parse(process.env.VITEST_NATIVE_PRESET_NAMES);
@@ -185,7 +196,7 @@ function loadExplicitPresets(names: string[]): Preset[] {
 // Determine which presets to use.
 const presets = explicitPresetNames
   ? loadExplicitPresets(explicitPresetNames)
-  : autoDetectPresets();
+  : autoDetectPresets().filter((p) => !disabledPresetNames.includes(p.name));
 
 // Initialize a global store for preset mocks so that virtual modules
 // (served by the plugin's load() hook) can read them at runtime.
