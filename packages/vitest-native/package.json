@@ -216,7 +216,7 @@
   },
   "dependencies": {
     "flow-remove-types": "^2.322.0",
-    "magic-string": "^0.30.21"
+    "magic-string": "^1.0.0"
   },
   "bin": {
     "vitest-native": "./dist/cli.mjs"
