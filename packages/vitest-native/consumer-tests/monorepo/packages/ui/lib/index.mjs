@@ -3,6 +3,10 @@
 import React from "react";
 import { Text } from "react-native";
 const store = { translator: undefined };
-export function configureTranslator(fn) { store.translator = fn; }
-export function translate(key) { return store.translator ? store.translator(key) : ""; }
+export function configureTranslator(fn) {
+  store.translator = fn;
+}
+export function translate(key) {
+  return store.translator ? store.translator(key) : "";
+}
 export const Label = ({ id }) => React.createElement(Text, { testID: "label" }, translate(id));

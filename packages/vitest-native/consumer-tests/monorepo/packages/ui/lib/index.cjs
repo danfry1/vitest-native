@@ -7,6 +7,8 @@
 const React = require("react");
 const { Text } = require("react-native");
 const store = { translator: undefined };
-exports.configureTranslator = (fn) => { store.translator = fn; };
+exports.configureTranslator = (fn) => {
+  store.translator = fn;
+};
 exports.translate = (key) => (store.translator ? store.translator(key) : "");
 exports.Label = ({ id }) => React.createElement(Text, { testID: "label" }, exports.translate(id));
