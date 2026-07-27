@@ -6,6 +6,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@consumer/ui": "*",
     "@testing-library/react-native": "14.0.0",
     "react": "19.2.4",
     "react-native": "0.85.3",
