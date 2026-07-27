@@ -20,6 +20,78 @@ const NODE_MODULES = /[\\/]node_modules[\\/]/;
 // can be evaluated twice in one worker (once by the worker entry through Node's
 // loader, once through Vitest's module runner when the setup file is inlined),
 // and the hooks must still install exactly once per worker.
+/**
+ * Packages Vite executes itself (see ecosystem.ts). If Node also resolves one of
+ * these, the module exists TWICE in the process — once in Vite's graph, once in
+ * Node's — and module-level state does not cross between them.
+ *
+ * This is silent by construction: nothing fails, nothing is logged, the second
+ * copy simply starts empty. A store configured through one copy reads back
+ * unset through the other, so a translated label renders as "" and the test
+ * compares empty output against expected output with nothing pointing at the
+ * cause. Reported once per package, with both files, because the two paths are
+ * what makes it recognisable.
+ */
+// The fields Vite is configured with for React Native (see plugin.ts), in order.
+// Node's CJS resolver uses `main`, which is not in this list at all.
+const VITE_MAIN_FIELDS = ["react-native", "module", "jsnext:main", "jsnext"];
+
+const reportedDuplicates = new Set();
+
+/** Test seam: the warning is once per package for the life of the worker. */
+export function _resetDuplicateReports() {
+  reportedDuplicates.clear();
+}
+function reportDuplicateInstance(pkg, nodeFile, viteFile, field) {
+  reportedDuplicates.add(pkg);
+  console.warn(
+    `[vitest-native] '${pkg}' resolves to two different files.\n` +
+      `  Node (require) ->  ${nodeFile}\n` +
+      `  Vite ("${field}") ->  ${viteFile}\n` +
+      "  If both module systems load it, the package exists twice and module-level state —\n" +
+      "  stores, React contexts, event emitters, registries — is not shared between the copies.\n" +
+      "  Nothing throws: writes through one are simply invisible to the other, so values read\n" +
+      "  back unset. Set `resolve.mainFields` so both resolvers agree, or import the package\n" +
+      "  from one side only.",
+  );
+}
+
+/**
+ * Compare what Node just resolved against what Vite's field order would pick for
+ * the same package. A difference means the two module systems have different
+ * files for one package id, so anything importing it from both sides gets two
+ * copies with separate state.
+ */
+export function checkResolverAgreement(request, resolved) {
+  const pkg = packageOf(request);
+  if (!pkg || typeof resolved !== "string") return;
+  if (reportedDuplicates.has(pkg)) return;
+  const marker = `${path.sep}node_modules${path.sep}`;
+  const at = resolved.lastIndexOf(marker + pkg.split("/").join(path.sep) + path.sep);
+  if (at === -1) return;
+  const dir = resolved.slice(0, at + marker.length + pkg.length);
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
+  } catch {
+    return;
+  }
+  const field = VITE_MAIN_FIELDS.find((f) => typeof manifest[f] === "string");
+  if (!field) return;
+  const viteFile = path.resolve(dir, manifest[field]);
+  if (viteFile === resolved) return;
+  reportDuplicateInstance(pkg, resolved, viteFile, field);
+}
+
+/** The npm package a bare specifier belongs to, or null for relative/absolute ones. */
+function packageOf(request) {
+  if (!request || request.startsWith(".") || request.startsWith("/") || request.startsWith("\\")) {
+    return null;
+  }
+  const parts = request.split("/");
+  return request.startsWith("@") ? (parts[1] ? `${parts[0]}/${parts[1]}` : null) : parts[0];
+}
+
 export function installRequireHooks(
   projectRoot,
   transformPkgs = [],
@@ -137,7 +209,9 @@ export function installRequireHooks(
       );
       if (hit) return hit;
     }
-    return origResolve.call(this, request, parent, ...rest);
+    const resolved = origResolve.call(this, request, parent, ...rest);
+    checkResolverAgreement(request, resolved);
+    return resolved;
   };
 
   const origJs = Module._extensions[".js"];
