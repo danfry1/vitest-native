@@ -13,6 +13,7 @@
 // `jest.useFakeTimers` work at runtime via the `jest` global installed here.
 import { vi } from "vitest";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { jestMockInterop } from "./interop.mjs";
 import { VitestNativeError } from "../errors.mjs";
@@ -44,9 +45,52 @@ function writableModuleFacade(mod) {
   });
 }
 
+/**
+ * The file that called into here, taken from the stack.
+ *
+ * Jest resolves a relative `requireActual('../x')` against the CALLING module. This
+ * shim had a single require anchored at the project root, so bare specifiers worked
+ * and relative ones escaped the source tree: `jest.requireActual('../thing')` threw
+ * MODULE_NOT_FOUND with a requireStack pointing at <projectRoot>/package.json, which
+ * is a confusing place to be sent when the file sits next to the test.
+ *
+ * The stack is the only thing that knows the caller. These are plain runtime calls
+ * on the `jest` global, not rewritten at transform time, so there is no import.meta
+ * to consult.
+ */
+function callerFile() {
+  const original = Error.prepareStackTrace;
+  try {
+    Error.prepareStackTrace = (_, frames) => frames;
+    const frames = new Error().stack;
+    for (const frame of frames) {
+      const file = typeof frame.getFileName === "function" ? frame.getFileName() : null;
+      if (!file || file.startsWith("node:") || file.includes("/jest-compat/")) continue;
+      return file.startsWith("file://") ? fileURLToPath(file) : file;
+    }
+  } catch {
+    // Fall through to the project-root require below.
+  } finally {
+    Error.prepareStackTrace = original;
+  }
+  return null;
+}
+
+/** Resolve as Jest does: relative against the caller, bare from the project root. */
+function requireFrom(specifier) {
+  if (typeof specifier === "string" && specifier.startsWith(".")) {
+    const caller = callerFile();
+    // A caller-relative miss is the honest answer. Falling back to the project root
+    // could resolve some other file that happens to sit at the same relative path.
+    if (caller) return createRequire(caller)(specifier);
+  }
+  return require(specifier);
+}
+
 if (typeof vi.requireActual !== "function")
-  vi.requireActual = (m) => (m === "react-native" ? writableModuleFacade(require(m)) : require(m));
-if (typeof vi.requireMock !== "function") vi.requireMock = (m) => require(m);
+  vi.requireActual = (m) =>
+    m === "react-native" ? writableModuleFacade(require(m)) : requireFrom(m);
+if (typeof vi.requireMock !== "function") vi.requireMock = (m) => requireFrom(m);
 // `jest.setTimeout(ms)` maps onto `vi.setConfig({ testTimeout })`, which applies for
 // the rest of the file — the same scope Jest gives it, since Vitest resets the config
 // after each test file.
