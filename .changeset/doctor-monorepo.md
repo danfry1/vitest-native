@@ -12,9 +12,12 @@ its declared dependencies — so a hoisted `@react-native/babel-preset` does not
 resolve from the package even though the real run finds it. `doctor` announced
 "engine 'auto' resolves to MOCK" for a project whose run banner said native.
 
-Resolution now happens from the nearest directory holding both a Vitest config and a
-manifest, which is the root a run uses, and the report says so when that differs from
-where the command was invoked.
+Resolution still happens from the directory the command was invoked in, which sees
+the most: Node resolution walks upward, so that directory already reaches its own
+dependencies and everything declared above it. The nearest directory holding both a
+Vitest config and a manifest is consulted only when something does not resolve there
+— the case where the command was run above the package that declares it — and the
+report says when it fell back.
 
 A config that builds on a shared one — common in a workspace — was also reported as
 not referencing vitest-native. It legitimately never mentions it, because the plugin

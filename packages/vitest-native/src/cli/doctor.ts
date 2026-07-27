@@ -150,9 +150,16 @@ export function analyzeConfigUsage(source: string): ConfigUsage {
  * real run finds it. The result was `doctor` reporting "engine 'auto' resolves to
  * MOCK" for a project whose run banner said native.
  *
- * Walking up to the nearest Vitest config matches what the run does, since that
- * file's directory is the root Vitest uses. The walk stops at a repository
- * boundary so it cannot wander out of the project.
+ * This is a FALLBACK, not a replacement. Node resolution walks upward, so the
+ * directory the command was invoked in already sees its own dependencies AND
+ * everything declared above it — resolving from higher up can only see less. Using
+ * the config root unconditionally lost dependencies a package declared itself, and
+ * reported a missing peer for a project that had one: the inverse of the bug this
+ * was written for.
+ *
+ * So the invocation directory is tried first, and this is consulted only when
+ * something fails to resolve there — which is the case where the command was run
+ * above the package that declares it.
  */
 export function resolutionRoot(start: string, exists = fs.existsSync): string {
   let dir = start;
@@ -185,13 +192,13 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
     lines.push(`  ✗ ${s}`);
   };
 
-  // Peers and engine detection resolve from where the run would, not from wherever
-  // the command happened to be invoked.
-  const resolveRoot = resolutionRoot(root);
+  // Resolve from where the command was invoked, which sees the most; fall back to
+  // the directory holding the Vitest config when something is not visible there.
+  const configRoot = resolutionRoot(root);
+  const resolvesHere = (name: string): boolean => packageVersion(root, name) !== null;
+  const rootFor = (name: string): string =>
+    resolvesHere(name) || configRoot === root ? root : configRoot;
   lines.push(`vitest-native doctor — ${root}`);
-  if (resolveRoot !== root) {
-    lines.push(`  (resolving from ${resolveRoot}, where the Vitest config lives)`);
-  }
 
   // --- Runtime ---
   lines.push("", "Runtime");
@@ -203,15 +210,19 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   lines.push("", "Peer dependencies");
   for (const { name, minimum, maximumMajor, minimumByMajor, optional } of PEER_REQUIREMENTS) {
     if (optional) continue; // reported under "Testing library", and never blocking
-    const error = validatePeerDependency(name, minimum, resolveRoot, maximumMajor, minimumByMajor);
+    const from = rootFor(name);
+    const error = validatePeerDependency(name, minimum, from, maximumMajor, minimumByMajor);
     if (error) fail(error);
-    else pass(`${name} ${packageVersion(resolveRoot, name)}`);
+    else {
+      pass(`${name} ${packageVersion(from, name)}`);
+      if (from !== root) lines.push(`      (resolved from ${from}, not from here)`);
+    }
   }
 
   // --- Engine ---
   lines.push("", "Engine");
-  const rnVersion = packageVersion(resolveRoot, "react-native");
-  const decision = detectEngine("auto", resolveRoot);
+  const rnVersion = packageVersion(rootFor("react-native"), "react-native");
+  const decision = detectEngine("auto", rootFor("@react-native/babel-preset"));
   if (decision.engine === "native") {
     pass(
       `engine 'auto' resolves to NATIVE — real React Native${rnVersion ? ` ${rnVersion}` : ""} with @react-native/babel-preset + @babel/core present.`,
@@ -231,7 +242,10 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
 
   // --- RNTL ---
   lines.push("", "Testing library");
-  const rntl = packageVersion(resolveRoot, "@testing-library/react-native");
+  const rntl = packageVersion(
+    rootFor("@testing-library/react-native"),
+    "@testing-library/react-native",
+  );
   if (!rntl) {
     warn(
       "@testing-library/react-native not found — optional, but required for render()/screen queries.",
@@ -273,7 +287,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
 
   // --- Presets ---
   lines.push("", "Auto-detected presets");
-  const req = createRequire(path.join(resolveRoot, "package.json"));
+  const req = createRequire(path.join(root, "package.json"));
   const detected: string[] = [];
   for (const [pkg, preset] of Object.entries(AUTO_DETECT_PRESETS)) {
     try {
@@ -287,7 +301,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   else lines.push("  (none — no preset-covered packages installed)");
 
   // --- Expo ---
-  const expo = packageVersion(resolveRoot, "expo");
+  const expo = packageVersion(rootFor("expo"), "expo");
   if (expo) {
     lines.push("", "Expo");
     warn(
@@ -299,11 +313,11 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
 
   // --- Config ---
   lines.push("", "Config");
-  const configFile = findConfigFile(resolveRoot);
+  const configFile = findConfigFile(configRoot);
   if (!configFile) {
     warn("no vitest.config.* found — run `vitest-native init` to create one.");
   } else {
-    const content = fs.readFileSync(path.join(resolveRoot, configFile), "utf8");
+    const content = fs.readFileSync(path.join(configRoot, configFile), "utf8");
     const usage = analyzeConfigUsage(content);
     if (usage.imports && usage.invokes) {
       pass(`${configFile} uses vitest-native.`);
