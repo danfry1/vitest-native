@@ -476,6 +476,76 @@ function containsFunctions(value: unknown, visited = new WeakSet()): boolean {
  * modules, and automatic setup-file injection so tests can run against
  * React Native code in a Node/JSDOM environment.
  */
+/**
+ * Fields that select a different FORMAT of the same code — an ESM build beside a CJS
+ * one. Vite prefers them, Node reads `main`, and the two builds are interchangeable,
+ * so pointing Vite at `main` costs nothing and collapses the pair into one instance.
+ *
+ * `react-native` is deliberately NOT here. That field selects a different
+ * IMPLEMENTATION — the native build rather than the web one — and Metro resolves it
+ * ahead of `main`, so the engine must too (see tests-native/export-conditions.test.ts).
+ * Aligning it downward would quietly load the web build, which is a fidelity
+ * regression, not a deduplication. Packages using it stay split and are reported by
+ * the duplicate-instance warning instead; fixing those means teaching Node to load
+ * the native build, which needs the transform pipeline and is a separate change.
+ */
+const FORMAT_ONLY_FIELDS = ["module", "jsnext:main", "jsnext"] as const;
+
+/**
+ * Make Vite resolve a package to the same file Node will.
+ *
+ * The native engine runs two module systems. Vitest already forwards
+ * `resolve.conditions` to the worker's Node (`--conditions react-native ...`), so a
+ * package using an `exports` map resolves identically on both sides. Legacy
+ * top-level fields have no such bridge: Vite reads `react-native`/`module`, Node
+ * reads `main`, and a package publishing both ends up loaded twice with separate
+ * module-level state. A store written through one copy reads back unset through the
+ * other — silently, since nothing fails.
+ *
+ * Aligning downward, onto the file Node picks, is the direction that cannot break a
+ * working suite: the `main` build is by definition something Node can execute,
+ * whereas the `react-native` field usually points at untranspiled source that Node
+ * cannot parse at all. Aligning upward would turn a wrong-value bug into a crash for
+ * any package the engine does not also transform.
+ *
+ * Packages the engine inlines and transforms are left alone: Vite is meant to own
+ * their source, and rewriting them to `main` would undo the reason they are inlined.
+ *
+ * @returns the absolute file to use, or null to leave resolution alone
+ */
+export function alignLegacyFieldsWithNode(
+  source: string,
+  packageDirFor: (name: string) => string | null,
+  readManifest: (dir: string) => Record<string, unknown> | null,
+  exists: (file: string) => boolean,
+  isEngineOwned: (name: string) => boolean,
+): string | null {
+  if (!source || source.startsWith(".") || source.startsWith("/") || source.startsWith("\0")) {
+    return null;
+  }
+  const segments = source.split("/");
+  const name = source.startsWith("@") ? segments.slice(0, 2).join("/") : segments[0];
+  // Subpath imports name a file directly, so both resolvers already agree.
+  if (!name || segments.length > (source.startsWith("@") ? 2 : 1)) return null;
+  if (isEngineOwned(name)) return null;
+
+  const dir = packageDirFor(name);
+  if (!dir) return null;
+  const manifest = readManifest(dir);
+  if (!manifest) return null;
+  // An `exports` map is honoured by both resolvers, conditions included.
+  if (manifest.exports !== undefined) return null;
+  // A native build must win over `main`, exactly as it does under Metro.
+  if (typeof manifest["react-native"] === "string") return null;
+
+  const legacy = FORMAT_ONLY_FIELDS.map((f) => manifest[f]).find((v) => typeof v === "string");
+  if (typeof legacy !== "string") return null;
+  const mainField = typeof manifest.main === "string" ? manifest.main : "index.js";
+  const mainFile = path.resolve(dir, mainField);
+  if (path.resolve(dir, legacy) === mainFile) return null;
+  return exists(mainFile) ? mainFile : null;
+}
+
 export function reactNative(options?: VitestNativeOptions): Plugin {
   // Per plugin INSTANCE, not module scope. A Vitest workspace calls reactNative() once
   // per project and they share this module, so module-level state means the last
@@ -540,7 +610,51 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // native/ecosystem.ts). Matched by path so the transform hook can recognise a
   // file as belonging to one.
   let ecosystemPattern: RegExp | null = null;
+  // Project root for resolver alignment; set for every run, not only when
+  // ecosystem packages happen to be detected.
+  let alignRoot = "";
   let ecosystemRoot = "";
+
+  // Vite and Node must land on the same file for a package, or it exists twice with
+  // separate module-level state. Cached: resolveId runs for every import.
+  const alignedCache = new Map<string, string | null>();
+  const alignedResolution = (source: string): string | undefined => {
+    if (engine !== "native") return undefined;
+    const cached = alignedCache.get(source);
+    if (cached !== undefined) return cached ?? undefined;
+    let result: string | null = null;
+    try {
+      const req = createRequire(path.join(alignRoot || process.cwd(), "package.json"));
+      result = alignLegacyFieldsWithNode(
+        source,
+        (name) => {
+          try {
+            return path.dirname(req.resolve(`${name}/package.json`));
+          } catch {
+            return null;
+          }
+        },
+        (dir) => {
+          try {
+            return JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
+          } catch {
+            return null;
+          }
+        },
+        (file) => fs.existsSync(file),
+        // Packages the engine inlines and transforms: Vite is meant to own their source.
+        (name) =>
+          name === "react-native" ||
+          name.startsWith("@react-native") ||
+          transformPkgs.includes(name) ||
+          (ecosystemPattern?.test(`/node_modules/${name}/`) ?? false),
+      );
+    } catch {
+      result = null;
+    }
+    alignedCache.set(source, result);
+    return result ?? undefined;
+  };
 
   // Caches for hot paths — resolveId and load are called for every import.
   const resolveCache = new Map<string, string | undefined>();
@@ -616,6 +730,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // This must happen here (not configResolved) because test.env
       // is captured before configResolved runs.
       const resolvedRoot = userConfig.root ? path.resolve(userConfig.root) : process.cwd();
+      alignRoot = resolvedRoot;
       const jsxTransform = getJsxTransformConfig(resolvedRoot);
       // Resolve the concrete engine now that the project root is known. Default
       // (auto) prefers native when RN's Babel deps resolve; silently, with a notice
@@ -975,7 +1090,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         if (source === "react-native" && rnFacadeExports !== null) {
           return "\0virtual:rn-facade";
         }
-        return resolvePresetId(source);
+        const presetHit = resolvePresetId(source);
+        if (presetHit) return presetHit;
+        return alignedResolution(source);
       }
 
       // Redirect react-native root import to a virtual module.
