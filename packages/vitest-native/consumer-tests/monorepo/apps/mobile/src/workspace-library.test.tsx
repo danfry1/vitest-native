@@ -2,9 +2,11 @@
  * The topology that blocked a real migration: a workspace library with a compiled
  * build beside its source, holding module-level state, consumed by an app.
  *
- * The library publishes `main` (the build) and `react-native` (the source). If the
- * two module systems disagree about which of those the package IS, the app
- * configures one copy and renders the other — and nothing throws. The label simply
+ * The library publishes `main` (CJS) and `module` (ESM), which is what an ordinary
+ * dual-format build produces — and the shape the report described, reaching
+ * `dist/index.mjs` through main/exports. Vite prefers `module`, Node reads `main`.
+ * If the two module systems disagree about which file this package IS, the app
+ * configures one copy and renders the other, and nothing throws: the label simply
  * comes out empty, which is how 44 tests failed comparing empty strings against
  * expected text.
  *

@@ -527,6 +527,11 @@ export function alignLegacyFieldsWithNode(
   const name = source.startsWith("@") ? segments.slice(0, 2).join("/") : segments[0];
   // Subpath imports name a file directly, so both resolvers already agree.
   if (!name || segments.length > (source.startsWith("@") ? 2 : 1)) return null;
+  // React Native itself is served through a facade and must not be redirected.
+  // Everything else in node_modules is loaded by Node (see native/apply.ts), so the
+  // alignment applies to ecosystem packages too: they used to be executed by Vite,
+  // which is why this once skipped them, but they are Node-owned now and Vite
+  // resolving their ESM build would recreate the very split this removes.
   if (isEngineOwned(name)) return null;
 
   const dir = packageDirFor(name);
@@ -665,12 +670,14 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             return null;
           }
         },
-        // Packages the engine inlines and transforms: Vite is meant to own their source.
-        (name) =>
-          name === "react-native" ||
-          name.startsWith("@react-native") ||
-          transformPkgs.includes(name) ||
-          (ecosystemPattern?.test(`/node_modules/${name}/`) ?? false),
+        // Only React Native itself, which is served to Vite through a facade and
+        // must not be redirected. Ecosystem and `transform` packages used to be
+        // executed by Vite, which is why they were excluded here; they are loaded by
+        // Node now, so aligning them is exactly what keeps one copy. Leaving them out
+        // let a dual-format workspace library split again — Vite taking its `module`
+        // build while Node took `main` — which is the reported failure reproduced in
+        // consumer-tests/monorepo.
+        (name) => name === "react-native" || name.startsWith("@react-native"),
       );
     } catch {
       result = null;

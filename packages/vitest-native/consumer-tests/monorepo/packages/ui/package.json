@@ -1,8 +1,10 @@
 {
   "name": "@consumer/ui",
-  "private": true,
   "version": "1.0.0",
+  "private": true,
   "main": "./dist/index.cjs",
-  "react-native": "./src/index.js",
-  "peerDependencies": { "react-native": "*" }
+  "module": "./dist/index.mjs",
+  "peerDependencies": {
+    "react-native": "*"
+  }
 }

@@ -111,12 +111,25 @@ describe("alignLegacyFieldsWithNode", () => {
     expect(f.align("plain")).toBeNull();
   });
 
-  it("leaves engine-owned packages to Vite, which owns their source", () => {
-    const f = fixture("inlined", { main: "./dist/i.cjs", module: "./src/i.js" }, [
+  it("aligns ecosystem packages too, since Node loads them", () => {
+    // This once skipped them: ecosystem packages were executed by Vite, so pointing
+    // it at `main` would have taken away the source it needed. They are Node-owned
+    // now, and excluding them let a dual-format workspace library split again — Vite
+    // taking its `module` build while Node took `main`. Reproduced in
+    // consumer-tests/monorepo before this changed.
+    const f = fixture("ecosystem", { main: "./dist/i.cjs", module: "./dist/i.mjs" }, [
       "dist/i.cjs",
-      "src/i.js",
+      "dist/i.mjs",
     ]);
-    expect(f.align("inlined", ["inlined"])).toBeNull();
+    expect(f.align("ecosystem")).toBe(path.join(f.dir, "dist", "i.cjs"));
+  });
+
+  it("still leaves react-native itself alone, since Vite gets a facade", () => {
+    const f = fixture("react-native", { main: "./index.js", module: "./index.mjs" }, [
+      "index.js",
+      "index.mjs",
+    ]);
+    expect(f.align("react-native", ["react-native"])).toBeNull();
   });
 
   it("ignores subpath imports, which name a file on both sides", () => {
