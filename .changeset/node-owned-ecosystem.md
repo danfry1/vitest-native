@@ -23,3 +23,11 @@ Both properties inlining provided are kept, and were measured rather than assume
 between test files. Node can now also load them at all — previously a `require` of
 an ecosystem package failed on its untranspiled source, since the hooks transformed
 only React Native and the packages named in `transform`.
+
+This also fixes a reported failure that looked unrelated: a Flow type import inside a
+PLATFORM VARIANT of an auto-detected package — `datetimepicker.ios.js` — failed to
+compile until the project named the package in `transform` by hand. The detector had
+not missed it; the package declares react-native in peerDependencies and was found.
+The variant was simply reached through Node, which had no way to strip Flow from a
+package Vite owned. One owner fixes both halves: the resolver picks the variant and
+the same hooks that transform React Native strip its types.

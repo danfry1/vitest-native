@@ -76,6 +76,7 @@
         "rn-condition-lib": "file:./tests-native/fixtures/rn-condition-lib",
         "rn-ecosystem-lib": "file:./tests-native/fixtures/rn-ecosystem-lib",
         "rn-mainfield-lib": "file:./tests-native/fixtures/rn-mainfield-lib",
+        "rn-platform-flow-lib": "file:./tests-native/fixtures/rn-platform-flow-lib",
         "rn-singleton-lib": "file:./tests-native/fixtures/rn-singleton-lib",
         "test-renderer": "^1.2.0",
         "tsdown": "0.21.10",
@@ -1844,6 +1845,8 @@
     "vitest-native/rn-ecosystem-lib": ["rn-ecosystem-lib@file:packages/vitest-native/tests-native/fixtures/rn-ecosystem-lib", { "peerDependencies": { "react-native": "*" } }],
 
     "vitest-native/rn-mainfield-lib": ["rn-mainfield-lib@file:packages/vitest-native/tests-native/fixtures/rn-mainfield-lib", { "peerDependencies": { "react-native": "*" } }],
+
+    "vitest-native/rn-platform-flow-lib": ["rn-platform-flow-lib@file:packages/vitest-native/tests-native/fixtures/rn-platform-flow-lib", { "peerDependencies": { "react-native": "*" } }],
 
     "vitest-native/rn-singleton-lib": ["rn-singleton-lib@file:packages/vitest-native/tests-native/fixtures/rn-singleton-lib", { "dependencies": { "react-native": "*" } }],
 
