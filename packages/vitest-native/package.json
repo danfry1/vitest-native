@@ -186,7 +186,8 @@
     "typescript": "6.0.3",
     "untranspiled-jsx-lib": "file:./tests-native/fixtures/untranspiled-jsx-lib",
     "vite": "^8.0.5",
-    "vitest": "4.1.9"
+    "vitest": "4.1.9",
+    "rn-singleton-lib": "file:./tests-native/fixtures/rn-singleton-lib"
   },
   "scripts": {
     "build": "tsdown && node scripts/copy-static-types.mjs",

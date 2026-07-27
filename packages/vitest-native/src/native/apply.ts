@@ -56,19 +56,33 @@ export function nativeEngineConfig(
     if (dir) patterns.push(new RegExp(`^${escapeRe(dir.replace(/\\/g, "/"))}[\\\\/]`));
     return patterns;
   });
-  // Auto-detected React Native packages go the other way: INLINED, so Vitest owns
-  // them. That is what lets vi.mock() intercept them and what puts their module
-  // state under Vitest's per-file reset. The plugin's transform hook compiles their
-  // untranspiled source (see plugin.ts); Vite would otherwise refuse to parse the
-  // JSX and Flow the ecosystem ships.
-  const ecosystemInline = inlinePkgs.flatMap((p) => {
+  // Auto-detected React Native packages are externalized too, and transformed by the
+  // Node hooks alongside everything else.
+  //
+  // They used to be INLINED so Vite executed them. That put two module systems in
+  // play for one package: Vite's copy, and a second one for anything reaching it
+  // through Node — which is how a store configured in one place read back unset in
+  // another, silently. Node also had no way to load them at all, since the hooks
+  // transform only React Native and the packages named in `transform`, so a require
+  // of an ecosystem package failed outright on its untranspiled source.
+  //
+  // Ownership by one graph makes a single instance structural rather than a
+  // consequence of Vitest's externalization heuristics. Both properties inlining was
+  // there to provide are kept, and were measured rather than assumed: vi.mock still
+  // intercepts, and module state still resets between test files.
+  const ecosystemExternal = inlinePkgs.flatMap((p) => {
     const patterns = [new RegExp(`[\\\\/]node_modules[\\\\/]${escapeRe(p)}[\\\\/]`)];
     const dir = resolvePackageDir(p, projectRoot);
     if (dir) patterns.push(new RegExp(`^${escapeRe(dir.replace(/\\/g, "/"))}[\\\\/]`));
     return patterns;
   });
+  // The Node hooks transform whatever they are told to; ecosystem packages now load
+  // through them, so they belong in that list rather than in Vite's.
+  const nodeTransformed = [...new Set([...transformPkgs, ...inlinePkgs])];
   const fullEnv = { ...env };
-  if (transformPkgs.length > 0) fullEnv.VITEST_NATIVE_TRANSFORM = JSON.stringify(transformPkgs);
+  if (nodeTransformed.length > 0) {
+    fullEnv.VITEST_NATIVE_TRANSFORM = JSON.stringify(nodeTransformed);
+  }
   return {
     // Match React Native's Babel preset: the automatic JSX runtime, so app/test
     // files that use JSX without importing React (RN's default style) compile to
@@ -138,8 +152,8 @@ export function nativeEngineConfig(
             /[\\/]node_modules[\\/]react-native[\\/]/,
             /[\\/]node_modules[\\/]@react-native[\\/]/,
             ...extraExternal,
+            ...ecosystemExternal,
           ],
-          ...(ecosystemInline.length > 0 ? { inline: ecosystemInline } : {}),
         },
       },
     },

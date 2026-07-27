@@ -76,6 +76,7 @@
         "rn-condition-lib": "file:./tests-native/fixtures/rn-condition-lib",
         "rn-ecosystem-lib": "file:./tests-native/fixtures/rn-ecosystem-lib",
         "rn-mainfield-lib": "file:./tests-native/fixtures/rn-mainfield-lib",
+        "rn-singleton-lib": "file:./tests-native/fixtures/rn-singleton-lib",
         "test-renderer": "^1.2.0",
         "tsdown": "0.21.10",
         "typescript": "6.0.3",
@@ -1843,6 +1844,8 @@
     "vitest-native/rn-ecosystem-lib": ["rn-ecosystem-lib@file:packages/vitest-native/tests-native/fixtures/rn-ecosystem-lib", { "peerDependencies": { "react-native": "*" } }],
 
     "vitest-native/rn-mainfield-lib": ["rn-mainfield-lib@file:packages/vitest-native/tests-native/fixtures/rn-mainfield-lib", { "peerDependencies": { "react-native": "*" } }],
+
+    "vitest-native/rn-singleton-lib": ["rn-singleton-lib@file:packages/vitest-native/tests-native/fixtures/rn-singleton-lib", { "dependencies": { "react-native": "*" } }],
 
     "vitest-native/untranspiled-jsx-lib": ["untranspiled-jsx-lib@file:packages/vitest-native/tests-native/fixtures/untranspiled-jsx-lib", {}],
 
