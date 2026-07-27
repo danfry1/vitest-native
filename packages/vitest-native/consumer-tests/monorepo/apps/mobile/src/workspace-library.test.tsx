@@ -29,8 +29,19 @@ test("a workspace library is ONE module across both module systems", async () =>
   expect(translate("greeting")).toBe("translated:greeting");
 });
 
-test("a component from that library renders configured text, not an empty string", async () => {
-  configureTranslator((key: string) => `Asset category: ${key}`);
+test("a component renders text configured through the OTHER graph", async () => {
+  // The configure and the render must cross the boundary, or this proves nothing:
+  // taking both from the same import means both hit the same copy and the assertion
+  // holds however badly the package is split. An earlier version did exactly that
+  // and passed while the test above was failing.
+  //
+  // This is the reported shape — a store configured during setup, read by a
+  // component deeper in the tree — and its symptom is a label rendering as "".
+  const viaNode = require("@consumer/ui") as {
+    configureTranslator: (fn: (key: string) => string) => void;
+  };
+  viaNode.configureTranslator((key: string) => `Asset category: ${key}`);
+
   await render(<Label id="cash" />);
   expect(screen.getByTestId("label")).toHaveTextContent("Asset category: cash");
 });
