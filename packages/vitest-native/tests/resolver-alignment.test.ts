@@ -50,7 +50,16 @@ function fixture(name: string, manifest: Record<string, unknown>, files: string[
         source,
         (n) => (n === name ? dir : null),
         () => ({ name, ...manifest }),
-        (file) => fs.existsSync(file),
+        (n) => {
+          if (n !== name) return null;
+          const main = typeof manifest.main === "string" ? manifest.main : "index.js";
+          const abs = path.resolve(dir, main);
+          // Stand in for Node's resolver: directory and extension resolution included.
+          for (const candidate of [abs, path.join(abs, "index.js"), `${abs}.js`]) {
+            if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
+          }
+          return null;
+        },
         (n) => engineOwned.includes(n),
       ),
   };
@@ -124,10 +133,26 @@ describe("alignLegacyFieldsWithNode", () => {
     expect(f.align("\0virtual:thing")).toBeNull();
   });
 
-  it("does not redirect to a main that is not on disk", () => {
+  it("does not redirect when Node cannot resolve the package either", () => {
     // Better to leave resolution alone than to hand Vite a file that cannot load.
     const f = fixture("broken", { main: "./missing.cjs", module: "./i.mjs" }, ["i.mjs"]);
     expect(f.align("broken")).toBeNull();
+  });
+
+  it("follows a main that names a directory, as Node does", () => {
+    // "main": "./lib" is ordinary, and string-joining it hands Vite a directory.
+    // The first version of this change did exactly that and every import of such a
+    // package died with "Cannot find module .../lib".
+    const f = fixture("dirmain", { main: "./lib", module: "./esm/i.js" }, [
+      "lib/index.js",
+      "esm/i.js",
+    ]);
+    expect(f.align("dirmain")).toBe(path.join(f.dir, "lib", "index.js"));
+  });
+
+  it("follows an extensionless main, as Node does", () => {
+    const f = fixture("extless", { main: "./entry", module: "./esm.js" }, ["entry.js", "esm.js"]);
+    expect(f.align("extless")).toBe(path.join(f.dir, "entry.js"));
   });
 
   it("defaults main to index.js when the manifest omits it", () => {

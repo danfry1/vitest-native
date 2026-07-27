@@ -517,7 +517,7 @@ export function alignLegacyFieldsWithNode(
   source: string,
   packageDirFor: (name: string) => string | null,
   readManifest: (dir: string) => Record<string, unknown> | null,
-  exists: (file: string) => boolean,
+  resolveAsNodeWould: (name: string) => string | null,
   isEngineOwned: (name: string) => boolean,
 ): string | null {
   if (!source || source.startsWith(".") || source.startsWith("/") || source.startsWith("\0")) {
@@ -540,10 +540,17 @@ export function alignLegacyFieldsWithNode(
 
   const legacy = FORMAT_ONLY_FIELDS.map((f) => manifest[f]).find((v) => typeof v === "string");
   if (typeof legacy !== "string") return null;
-  const mainField = typeof manifest.main === "string" ? manifest.main : "index.js";
-  const mainFile = path.resolve(dir, mainField);
-  if (path.resolve(dir, legacy) === mainFile) return null;
-  return exists(mainFile) ? mainFile : null;
+
+  // Ask Node what it will actually load rather than joining `main` onto the package
+  // directory. `main` is frequently a directory ("./lib") or extensionless, and
+  // string-joining hands Vite a path that does not exist: the first version of this
+  // did exactly that and took the whole test file down with "Cannot find module".
+  // Node's resolver already applies directory/index and extension resolution, and it
+  // is by definition the file the other module system will use.
+  const nodeFile = resolveAsNodeWould(name);
+  if (!nodeFile) return null;
+  if (path.resolve(dir, legacy) === nodeFile) return null;
+  return nodeFile;
 }
 
 export function reactNative(options?: VitestNativeOptions): Plugin {
@@ -618,13 +625,23 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // Vite and Node must land on the same file for a package, or it exists twice with
   // separate module-level state. Cached: resolveId runs for every import.
   const alignedCache = new Map<string, string | null>();
-  const alignedResolution = (source: string): string | undefined => {
+  const alignedResolution = (source: string, importer?: string): string | undefined => {
     if (engine !== "native") return undefined;
-    const cached = alignedCache.get(source);
+    // Resolve from the importer when there is one. Under pnpm and nested
+    // node_modules the correct copy of a package depends on who is asking, and
+    // anchoring everything at the project root would hand Vite a different copy
+    // than Node gives the same importer — replacing a duplicate-instance bug with
+    // a wrong-version one.
+    const from =
+      importer && path.isAbsolute(importer) && !importer.startsWith("\0")
+        ? importer
+        : path.join(alignRoot || process.cwd(), "package.json");
+    const key = `${from}\u0000${source}`;
+    const cached = alignedCache.get(key);
     if (cached !== undefined) return cached ?? undefined;
     let result: string | null = null;
     try {
-      const req = createRequire(path.join(alignRoot || process.cwd(), "package.json"));
+      const req = createRequire(from);
       result = alignLegacyFieldsWithNode(
         source,
         (name) => {
@@ -641,7 +658,13 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             return null;
           }
         },
-        (file) => fs.existsSync(file),
+        (name) => {
+          try {
+            return req.resolve(name);
+          } catch {
+            return null;
+          }
+        },
         // Packages the engine inlines and transforms: Vite is meant to own their source.
         (name) =>
           name === "react-native" ||
@@ -652,7 +675,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     } catch {
       result = null;
     }
-    alignedCache.set(source, result);
+    alignedCache.set(key, result);
     return result ?? undefined;
   };
 
@@ -1092,7 +1115,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         }
         const presetHit = resolvePresetId(source);
         if (presetHit) return presetHit;
-        return alignedResolution(source);
+        return alignedResolution(source, importer);
       }
 
       // Redirect react-native root import to a virtual module.
