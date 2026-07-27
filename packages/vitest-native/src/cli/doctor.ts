@@ -62,6 +62,32 @@ function withoutComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
 }
 
+/**
+ * Whether a config is built on one imported from elsewhere — a shared preset in a
+ * workspace, typically. Such a file legitimately never mentions vitest-native, and
+ * reporting it as unconfigured is a false alarm on a working project.
+ */
+export function extendsSharedConfig(source: string): boolean {
+  const code = withoutComments(source);
+  // A bare-specifier import (not "./x"), whose binding is then exported or merged.
+  const imports = [...code.matchAll(/import\s+([^;]+?)\s+from\s*["']([^"'.][^"']*)["']/g)];
+  for (const [, clause, specifier] of imports) {
+    // Vitest's own helpers are not a shared config being extended. Nothing else
+    // needs excluding: the checks below require the binding to BE the exported
+    // config, so an ordinary helper import never qualifies.
+    if (specifier === "vitest" || specifier.startsWith("vitest/")) continue;
+    const bindings = [...clause.matchAll(/([A-Za-z_$][\w$]*)/g)].map((m) => m[1]);
+    for (const binding of bindings) {
+      if (binding === "defineConfig" || binding === "default") continue;
+      // The binding has to BE the exported config, or the base being merged into it —
+      // merely appearing on the export line is any ordinary helper call.
+      if (new RegExp(`export\\s+default\\s+${binding}\\s*;?\\s*$`, "m").test(code)) return true;
+      if (new RegExp(`\\bmergeConfig\\s*\\(\\s*${binding}\\b`).test(code)) return true;
+    }
+  }
+  return false;
+}
+
 export interface ConfigUsage {
   /** The config imports vitest-native (not merely mentions it). */
   imports: boolean;
@@ -114,6 +140,41 @@ export function analyzeConfigUsage(source: string): ConfigUsage {
   return { imports: false, invokes: false };
 }
 
+/**
+ * The directory a test run would actually resolve from.
+ *
+ * `doctor` resolved peers from its own working directory. In a workspace that is
+ * frequently not where the Vitest config lives, and under pnpm a package's
+ * node_modules holds only its DECLARED dependencies — so a hoisted
+ * `@react-native/babel-preset` does not resolve from the package even though the
+ * real run finds it. The result was `doctor` reporting "engine 'auto' resolves to
+ * MOCK" for a project whose run banner said native.
+ *
+ * Walking up to the nearest Vitest config matches what the run does, since that
+ * file's directory is the root Vitest uses. The walk stops at a repository
+ * boundary so it cannot wander out of the project.
+ */
+export function resolutionRoot(start: string, exists = fs.existsSync): string {
+  let dir = start;
+  for (;;) {
+    // A config only counts where there is also a manifest — that is a project root.
+    // Intermediate directories like `packages/` have neither and are walked through;
+    // a stray config somewhere above the checkout has no manifest beside it and is
+    // ignored, which is what stopped a fixture under the system temp directory from
+    // resolving against whatever happened to sit above it.
+    if (
+      CONFIG_FILES.some((name) => exists(path.join(dir, name))) &&
+      exists(path.join(dir, "package.json"))
+    ) {
+      return dir;
+    }
+    if (exists(path.join(dir, ".git"))) return start;
+    const parent = path.dirname(dir);
+    if (parent === dir) return start;
+    dir = parent;
+  }
+}
+
 export function runDoctor(root: string, nodeVersion: string = process.versions.node): DoctorResult {
   const lines: string[] = [];
   let ok = true;
@@ -124,7 +185,13 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
     lines.push(`  ✗ ${s}`);
   };
 
+  // Peers and engine detection resolve from where the run would, not from wherever
+  // the command happened to be invoked.
+  const resolveRoot = resolutionRoot(root);
   lines.push(`vitest-native doctor — ${root}`);
+  if (resolveRoot !== root) {
+    lines.push(`  (resolving from ${resolveRoot}, where the Vitest config lives)`);
+  }
 
   // --- Runtime ---
   lines.push("", "Runtime");
@@ -136,15 +203,15 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   lines.push("", "Peer dependencies");
   for (const { name, minimum, maximumMajor, minimumByMajor, optional } of PEER_REQUIREMENTS) {
     if (optional) continue; // reported under "Testing library", and never blocking
-    const error = validatePeerDependency(name, minimum, root, maximumMajor, minimumByMajor);
+    const error = validatePeerDependency(name, minimum, resolveRoot, maximumMajor, minimumByMajor);
     if (error) fail(error);
-    else pass(`${name} ${packageVersion(root, name)}`);
+    else pass(`${name} ${packageVersion(resolveRoot, name)}`);
   }
 
   // --- Engine ---
   lines.push("", "Engine");
-  const rnVersion = packageVersion(root, "react-native");
-  const decision = detectEngine("auto", root);
+  const rnVersion = packageVersion(resolveRoot, "react-native");
+  const decision = detectEngine("auto", resolveRoot);
   if (decision.engine === "native") {
     pass(
       `engine 'auto' resolves to NATIVE — real React Native${rnVersion ? ` ${rnVersion}` : ""} with @react-native/babel-preset + @babel/core present.`,
@@ -164,7 +231,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
 
   // --- RNTL ---
   lines.push("", "Testing library");
-  const rntl = packageVersion(root, "@testing-library/react-native");
+  const rntl = packageVersion(resolveRoot, "@testing-library/react-native");
   if (!rntl) {
     warn(
       "@testing-library/react-native not found — optional, but required for render()/screen queries.",
@@ -206,7 +273,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
 
   // --- Presets ---
   lines.push("", "Auto-detected presets");
-  const req = createRequire(path.join(root, "package.json"));
+  const req = createRequire(path.join(resolveRoot, "package.json"));
   const detected: string[] = [];
   for (const [pkg, preset] of Object.entries(AUTO_DETECT_PRESETS)) {
     try {
@@ -220,7 +287,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   else lines.push("  (none — no preset-covered packages installed)");
 
   // --- Expo ---
-  const expo = packageVersion(root, "expo");
+  const expo = packageVersion(resolveRoot, "expo");
   if (expo) {
     lines.push("", "Expo");
     warn(
@@ -232,11 +299,11 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
 
   // --- Config ---
   lines.push("", "Config");
-  const configFile = findConfigFile(root);
+  const configFile = findConfigFile(resolveRoot);
   if (!configFile) {
     warn("no vitest.config.* found — run `vitest-native init` to create one.");
   } else {
-    const content = fs.readFileSync(path.join(root, configFile), "utf8");
+    const content = fs.readFileSync(path.join(resolveRoot, configFile), "utf8");
     const usage = analyzeConfigUsage(content);
     if (usage.imports && usage.invokes) {
       pass(`${configFile} uses vitest-native.`);
@@ -244,6 +311,15 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
       warn(
         `${configFile} imports vitest-native but never calls reactNative() — ` +
           "the plugin is not in `plugins: [...]`, so React Native imports will not resolve.",
+      );
+    } else if (extendsSharedConfig(content)) {
+      // A workspace config that re-exports a shared preset cannot be judged from
+      // this file: the plugin is wired up in the package it imports. Saying it does
+      // not reference vitest-native is simply wrong, and was reported as a false
+      // positive from a monorepo doing exactly this.
+      lines.push(
+        `  · ${configFile} builds on a shared config, so this cannot tell from here ` +
+          "whether the plugin is wired up. Check the config it extends.",
       );
     } else {
       warn(
