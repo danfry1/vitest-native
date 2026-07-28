@@ -37,6 +37,7 @@ export function screens(): Preset {
           "ScreenStackHeaderSubview",
           "SearchBar",
           "FullWindowOverlay",
+          "Tabs",
           // Removed from the package at v4 but kept so a project still on v3 does
           // not lose them.
           "NativeScreen",
@@ -90,6 +91,7 @@ export function screens(): Preset {
             "ScreenStackHeaderSearchBarView",
           );
           const ScreenStackHeaderSubview = createScreenComponent("ScreenStackHeaderSubview");
+          const Tabs = createScreenComponent("Tabs");
 
           // A real React context: native-stack reads it, and a component stub would
           // fail the moment anything calls useContext on it.
@@ -125,6 +127,7 @@ export function screens(): Preset {
             ScreenStackHeaderRightView,
             ScreenStackHeaderSearchBarView,
             ScreenStackHeaderSubview,
+            Tabs,
             useTransitionProgress,
             executeNativeBackPress,
             isSearchBarAvailableForCurrentPlatform,

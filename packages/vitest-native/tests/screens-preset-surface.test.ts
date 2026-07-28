@@ -10,6 +10,10 @@
  * surface rather than from the names someone noticed missing. That distinction is
  * the point: the report named six, and checking the package found sixteen.
  *
+ * Seventeen, in the end. The first pass read the .d.ts with a regex and missed
+ * `Tabs`; resolving the module through the TypeScript checker found it, along with
+ * the 76 type-only exports a regex would have counted as missing surface.
+ *
  * Two of the reported names, RNSScreensRefContext and GHContext, are NOT top-level
  * exports — they live in the package's `contexts` module, reached by deep import.
  * They are deliberately not claimed here; see the note at the end of this file.
@@ -36,6 +40,7 @@ const REAL_SURFACE = [
   "ScreenStackHeaderSubview",
   "ScreenStackItem",
   "SearchBar",
+  "Tabs",
   "compatibilityFlags",
   "enableFreeze",
   "enableScreens",
