@@ -16,6 +16,21 @@
 // returns (those with `__esModule` or an explicit `default`) untouched.
 export function jestMockInterop(mod) {
   if (mod == null) return mod;
+  // An async factory — or any factory returning a promise — resolves to the module
+  // shape, so interop applies to the resolved value. Vitest awaits a factory result,
+  // so handing the promise back is enough. Without this the promise itself fell into
+  // the object branch below, where it has no own enumerable keys and no `default`,
+  // producing `{ default: Promise }`: every named export vanished and Vitest reported
+  // `No "x" export is defined on the mock` about a vi.mock the author never wrote.
+  //
+  // Tested by tag rather than by a `then` method: a module may legitimately export a
+  // function named `then`, and awaiting that calls it with (resolve, reject) and never
+  // settles — a hung test file, which is worse than the bug this fixes. The tag holds
+  // for native promises from any realm, and `async` functions and `Promise.resolve`
+  // only ever produce those.
+  if (Object.prototype.toString.call(mod) === "[object Promise]") {
+    return mod.then(jestMockInterop);
+  }
   const t = typeof mod;
   if (t === "object" || t === "function") {
     // Already ES-shaped — respect the author's/real module's default export.
