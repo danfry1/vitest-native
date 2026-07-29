@@ -27,4 +27,14 @@ describe("externalized node_modules package: Metro-style resolution via the load
   it("serves attribute-less ESM JSON imports as a module", () => {
     expect(result.answer).toBe(42);
   });
+
+  it("serves an EXTENSIONLESS json import as a module too", () => {
+    // `import settings from './settings'` next to settings.json. json is a Metro
+    // source extension, so Metro-style resolution lands on the .json file — and it
+    // still needs the import attribute. The platform-variant branch of the loader
+    // resolved this one and returned it directly, skipping the attribute injection
+    // that the explicit `./data.json` path goes through, so it threw
+    // ERR_IMPORT_ATTRIBUTE_MISSING while its extension-bearing twin worked.
+    expect(result.extensionless).toBe(true);
+  });
 });

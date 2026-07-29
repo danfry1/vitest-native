@@ -87,6 +87,7 @@ export async function resolve(specifier, context, nextResolve) {
     context.parentURL && context.parentURL.startsWith("file:")
       ? fileURLToPath(context.parentURL)
       : null;
+  let resolved;
   if (
     parent &&
     (NODE_MODULES.test(parent) || RN_PATH.test(parent) || isExtra(parent)) &&
@@ -94,12 +95,13 @@ export async function resolve(specifier, context, nextResolve) {
     !path.extname(specifier)
   ) {
     const hit = resolvePlatformFile(path.resolve(path.dirname(parent), specifier), PLATFORM);
-    if (hit) return { url: pathToFileURL(hit).href, shortCircuit: true };
+    // Not returned directly: `json` is a Metro source extension, so this can now
+    // land on a .json file, which still needs the import attribute injected below.
+    if (hit) resolved = { url: pathToFileURL(hit).href, shortCircuit: true };
   }
 
-  let resolved;
   try {
-    resolved = await nextResolve(specifier, context);
+    resolved ??= await nextResolve(specifier, context);
   } catch (err) {
     // Fallback: an extensionless relative import that Node's ESM resolver rejected
     // but a bundler (Metro) would accept. Common in externalized RN libs shipping

@@ -16,7 +16,8 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -71,5 +72,59 @@ describe("declared package entry points", () => {
     );
     const missing = rootFields.filter((f) => !fs.existsSync(path.join(packageRoot, f)));
     expect(missing).toEqual([]);
+  });
+});
+
+/**
+ * Existing on disk is not the same as loading. Every check above is satisfied by a
+ * file that throws the moment it is required — and three of the declared CJS entries
+ * do exactly that, which nothing noticed because nothing ever loaded them.
+ *
+ * The cause is `export * as presets` in the root entry: each preset imports `vi` from
+ * vitest at module scope, so the root CJS bundle requires vitest, and vitest refuses
+ * to be required from CommonJS. Every `vi` call itself sits inside a preset factory,
+ * which only ever runs inside a worker, so the import is the only thing that needs to
+ * move — but that is a change to how the presets are written, not to this list.
+ */
+const KNOWN_UNLOADABLE: Record<string, string> = {
+  "./dist/index.cjs":
+    "re-exports the presets, which import vitest at module scope; vitest cannot be required from CJS",
+  "./dist/presets.cjs": "presets import vitest at module scope",
+  "./dist/setup.cjs": "imports vitest at module scope",
+};
+
+/** Declared targets that are executable code rather than type declarations. */
+function runtimeTargets(): string[] {
+  return [...new Set(declaredTargets().map((t) => t.target))]
+    .filter((t) => !/\.d\.(ts|mts|cts)$/.test(t))
+    .sort();
+}
+
+describe("declared entry points load", () => {
+  it.runIf(distExists)("has runtime targets to load", () => {
+    expect(runtimeTargets().length).toBeGreaterThan(10);
+  });
+
+  it.runIf(distExists)("evaluates every entry point that is expected to load", async () => {
+    const require_ = createRequire(path.join(packageRoot, "package.json"));
+    const failures: string[] = [];
+    const unexpectedlyFine: string[] = [];
+    for (const target of runtimeTargets()) {
+      const abs = path.join(packageRoot, target);
+      let error: Error | null = null;
+      try {
+        if (target.endsWith(".cjs")) require_(abs);
+        else await import(pathToFileURL(abs).href);
+      } catch (caught) {
+        error = caught as Error;
+      }
+      const known = target in KNOWN_UNLOADABLE;
+      if (error && !known) failures.push(`${target}: ${error.message.split("\n")[0]}`);
+      // A known-broken entry that starts working is a fix worth recording, not a
+      // silent pass — otherwise this list outlives the problem it describes.
+      if (!error && known) unexpectedlyFine.push(target);
+    }
+    expect(failures, `declared entry points that do not load:\n${failures.join("\n")}`).toEqual([]);
+    expect(unexpectedlyFine, "these load now — remove them from KNOWN_UNLOADABLE").toEqual([]);
   });
 });
