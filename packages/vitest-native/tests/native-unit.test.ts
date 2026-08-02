@@ -863,3 +863,42 @@ describe("peer requirements", () => {
     expect(check("3.2.7")).toMatch(/requires vitest >= 4\.0\.0/);
   });
 });
+
+import { cjsExportNames } from "../src/native/transform.mjs";
+
+describe("cjsExportNames", () => {
+  it("reads keys the lexer stops at", () => {
+    // The shape Node mis-reads: it takes the leading method and gives up at the
+    // first arrow-valued property.
+    const names = cjsExportNames(
+      "let n = 0;\nmodule.exports = { Banner({ label }) { return label; }, renderCount: () => n, platformSeen: () => 'ios' };",
+    );
+    expect(names.sort()).toEqual(["Banner", "platformSeen", "renderCount"]);
+  });
+
+  it("reads exports.foo assignments, including mixed with a literal", () => {
+    expect(cjsExportNames("exports.a = 1;\nmodule.exports.b = 2;").sort()).toEqual(["a", "b"]);
+  });
+
+  it("drops default and __esModule, which Node supplies itself", () => {
+    expect(cjsExportNames("module.exports = { default: 1, __esModule: true, a: 2 };")).toEqual([
+      "a",
+    ]);
+  });
+
+  it("returns nothing when the shape is not statically knowable", () => {
+    // `module.exports = someValue` leaves Node's own detection in charge rather
+    // than inventing names that may not exist at run time.
+    expect(cjsExportNames("const impl = {};\nmodule.exports = impl;")).toEqual([]);
+  });
+
+  it("skips computed and spread keys rather than guessing", () => {
+    expect(cjsExportNames("const k='x';\nmodule.exports = { [k]: 1, ...other, ok: 2 };")).toEqual([
+      "ok",
+    ]);
+  });
+
+  it("returns nothing for unparseable input instead of throwing", () => {
+    expect(cjsExportNames("module.exports = {")).toEqual([]);
+  });
+});

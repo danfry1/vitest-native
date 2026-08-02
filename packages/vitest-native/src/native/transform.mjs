@@ -116,6 +116,83 @@ export function transformCacheDir() {
 }
 
 /** Returns true if the source contains RN Flow syntax that must be transformed. */
+/** A valid identifier, so a name can appear in the shorthand export hint. */
+const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
+
+/**
+ * Named exports of already-transformed CommonJS code, read from its AST.
+ *
+ * Node decides a CommonJS module's named exports with cjs-module-lexer, which reads
+ * the source statically and stops at shapes it cannot follow. `module.exports = {
+ * A() {}, b: () => 1 }` — ordinary hand-written CommonJS, and common across the React
+ * Native ecosystem — yields `["A", "default", "module.exports"]`: `b` is missing, and
+ * a name that is not an export appears. That is plain Node behaviour, reproducible
+ * with no plugin involved.
+ *
+ * Reading it properly is possible here because Babel is already loaded to do the
+ * transform, and because the input is the transform's own output rather than
+ * arbitrary source. Names are used only to emit a dead `0 && (module.exports = {…})`
+ * hint, which is the form the lexer does understand.
+ *
+ * Returns an empty array when the shape is not statically knowable (`module.exports =
+ * someValue`), which leaves Node's own detection in charge — no worse than before.
+ */
+export function cjsExportNames(code) {
+  if (!_babel) {
+    if (!_req) return [];
+    _babel = _req("@babel/core");
+  }
+  let ast;
+  try {
+    ast = _babel.parseSync(code, { babelrc: false, configFile: false, sourceType: "script" });
+  } catch {
+    return [];
+  }
+  const names = new Set();
+  const isExportsTarget = (node, wantMember) => {
+    if (!node) return false;
+    if (node.type === "Identifier") return !wantMember && node.name === "exports";
+    if (node.type !== "MemberExpression" || node.computed) return false;
+    return (
+      node.object.type === "Identifier" &&
+      node.object.name === "module" &&
+      node.property.type === "Identifier" &&
+      node.property.name === "exports"
+    );
+  };
+  for (const statement of ast.program.body) {
+    if (statement.type !== "ExpressionStatement") continue;
+    const expression = statement.expression;
+    if (expression.type !== "AssignmentExpression" || expression.operator !== "=") continue;
+    const target = expression.left;
+    // `module.exports = { … }` / `exports = { … }` — take the literal's own keys.
+    if (isExportsTarget(target, true) || isExportsTarget(target, false)) {
+      if (expression.right.type !== "ObjectExpression") continue;
+      for (const property of expression.right.properties) {
+        if (property.type === "SpreadElement" || property.computed) continue;
+        const key = property.key;
+        if (key.type === "Identifier") names.add(key.name);
+        else if (key.type === "StringLiteral" && IDENTIFIER.test(key.value)) names.add(key.value);
+      }
+      continue;
+    }
+    // `exports.foo = …` / `module.exports.foo = …` — the lexer handles these, but
+    // a module can mix both forms and the object-literal branch would miss them.
+    if (target.type === "MemberExpression" && !target.computed) {
+      const owner = target.object;
+      if (
+        (owner.type === "Identifier" && owner.name === "exports") ||
+        isExportsTarget(owner, true)
+      ) {
+        if (target.property.type === "Identifier") names.add(target.property.name);
+      }
+    }
+  }
+  names.delete("default");
+  names.delete("__esModule");
+  return [...names].filter((name) => IDENTIFIER.test(name));
+}
+
 export function isFlow(src) {
   return /@flow|import typeof|\bcomponent\s+\w/.test(src);
 }
