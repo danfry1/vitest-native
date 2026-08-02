@@ -100,6 +100,32 @@ describe("jest-compat: jestMockInterop (CJS interop semantics)", () => {
     expect(jestMockInterop(null)).toBeNull();
     expect(jestMockInterop(undefined)).toBeUndefined();
   });
+
+  it("applies interop to a promised module rather than to the promise", async () => {
+    // A promise has no own enumerable keys and no `default`, so the object branch
+    // turned it into `{ default: Promise }` — the named exports disappeared and
+    // Vitest reported them missing from a vi.mock the author never wrote.
+    const exports = { a: 1 };
+    const ns = await jestMockInterop(Promise.resolve(exports));
+    expect(ns.a).toBe(1);
+    expect(ns.default).toBe(exports);
+  });
+
+  it("leaves an already-ES-shaped promised module alone", async () => {
+    const esm = { __esModule: true, default: "d", a: 1 };
+    expect(await jestMockInterop(Promise.resolve(esm))).toBe(esm);
+  });
+
+  it("does not mistake a module exporting `then` for a promise", () => {
+    // Both shapes matter, and the function one is the dangerous half: awaiting a
+    // thenable calls then(resolve, reject), which for an ordinary exported function
+    // never settles — the file would hang instead of failing.
+    for (const m of [{ then: 42 }, { then: () => "not a promise" }]) {
+      const ns = jestMockInterop(m);
+      expect(ns.then).toBe(m.then);
+      expect(ns.default).toBe(m);
+    }
+  });
 });
 
 describe("jest-compat: helper", () => {
