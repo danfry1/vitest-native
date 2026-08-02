@@ -183,8 +183,51 @@ describe("native boundary", () => {
   });
 });
 
-// @ts-expect-error — runtime .mjs
-import { resolvePlatformFile } from "../src/native/resolve.mjs";
+import { extensionsFor, resolvePlatformFile } from "../src/native/resolve.mjs";
+import { getPlatformExtensions } from "../src/resolve.js";
+
+describe("platform extension order", () => {
+  // Metro's defaults, from metro-config/src/defaults/defaults.js:
+  //   sourceExts = ["js", "jsx", "json", "ts", "tsx"]
+  // and its resolver tries every platform-suffixed variant, then every .native
+  // one, then the bare extensions. metro-config is not a dependency of this
+  // package, so the list is asserted literally rather than read back from it.
+  it("matches Metro's sourceExts, in Metro's order", () => {
+    expect(extensionsFor("ios")).toEqual([
+      ".ios.js",
+      ".ios.jsx",
+      ".ios.json",
+      ".ios.ts",
+      ".ios.tsx",
+      ".native.js",
+      ".native.jsx",
+      ".native.json",
+      ".native.ts",
+      ".native.tsx",
+      ".js",
+      ".jsx",
+      ".json",
+      ".ts",
+      ".tsx",
+    ]);
+    expect(extensionsFor("android").slice(0, 5)).toEqual([
+      ".android.js",
+      ".android.jsx",
+      ".android.json",
+      ".android.ts",
+      ".android.tsx",
+    ]);
+  });
+
+  it("gives the Vite graph and the Node graph the same list", () => {
+    // These were two hand-written arrays with nothing holding them together. A
+    // divergence would resolve one file in the Vite graph and a different one in
+    // Node's, for the same import.
+    for (const platform of ["ios", "android"] as const) {
+      expect(getPlatformExtensions(platform)).toEqual(extensionsFor(platform));
+    }
+  });
+});
 
 describe("resolvePlatformFile", () => {
   it("resolves a plain .js module that exists in RN", () => {
@@ -204,6 +247,22 @@ describe("resolvePlatformFile", () => {
       fs.writeFileSync(base + ".android.tsx", "export default 'android';");
       expect(resolvePlatformFile(base, "ios")).toBe(base + ".ios.ts");
       expect(resolvePlatformFile(base, "android")).toBe(base + ".android.tsx");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("prefers .js over .tsx, and resolves .json, as Metro does", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-resolve-"));
+    try {
+      const both = path.join(dir, "both");
+      fs.writeFileSync(both + ".tsx", "export default 'tsx';");
+      fs.writeFileSync(both + ".js", "export default 'js';");
+      expect(resolvePlatformFile(both, "ios")).toBe(both + ".js");
+
+      const data = path.join(dir, "data");
+      fs.writeFileSync(data + ".json", "{}");
+      expect(resolvePlatformFile(data, "ios")).toBe(data + ".json");
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

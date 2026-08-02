@@ -62,6 +62,12 @@ const actual = {
  *
  * `runtimeDependencies` keeps a ceiling only: shipping fewer dependencies is never
  * the regression.
+ *
+ * Remaining headroom is printed for every bounded check, and a ceiling the artifact
+ * is within `warnHeadroomRatio` of warns. Ceilings used to sit under 1% above the
+ * artifact, so ordinary changes exhausted them silently and the first sign was a red
+ * main — twice from changes that were each green on their own. Showing the headroom
+ * makes the drift visible while it can still be handled deliberately.
  */
 const checks = [
   { key: "packedBytes", min: budget.minPackedBytes, max: budget.maxPackedBytes },
@@ -71,8 +77,16 @@ const checks = [
   { key: "exportPaths", min: budget.exportPaths, max: budget.exportPaths },
 ];
 
+// A ceiling the artifact is this close to is reported as nearly exhausted, but only
+// for the bounded scale budgets. `exportPaths` is exact and `runtimeDependencies` is
+// a policy cap where sitting at the limit is the intended state — warning that two of
+// two dependencies are used would be noise on every run.
+const warnRatio = typeof budget.warnHeadroomRatio === "number" ? budget.warnHeadroomRatio : 0;
+const isScaleBudget = (min, max) => typeof min === "number" && min !== max;
+
 let failed = false;
 const under = [];
+const tight = [];
 console.log("Published package budget:");
 for (const { key, min, max } of checks) {
   const value = actual[key];
@@ -81,7 +95,23 @@ for (const { key, min, max } of checks) {
   failed ||= tooBig || tooSmall;
   if (tooSmall) under.push(key);
   const range = typeof min === "number" ? `${min}..${max}` : `<= ${max}`;
-  console.log(`  ${tooBig || tooSmall ? "FAIL" : "OK  "} ${key}: ${value} / ${range}`);
+  let headroom = "";
+  if (isScaleBudget(min, max) && !tooBig) {
+    const ratio = (max - value) / max;
+    if (ratio < warnRatio) tight.push(`${key}: ${max - value} left of ${max}`);
+    headroom = `  (${(ratio * 100).toFixed(1)}% headroom)`;
+  }
+  console.log(`  ${tooBig || tooSmall ? "FAIL" : "OK  "} ${key}: ${value} / ${range}${headroom}`);
+}
+
+if (tight.length > 0) {
+  // Not a failure: the artifact is still inside the budget. But a ceiling this
+  // close is about to fail on unrelated work, and the useful moment to re-baseline
+  // it — with a measurement and a justification — is now, not after main is red.
+  console.warn(
+    `\nCeilings nearly exhausted:\n${tight.map((t) => `  ${t}`).join("\n")}\n` +
+      "Re-baseline package-budget.json deliberately, or find what grew.",
+  );
 }
 
 if (failed) {

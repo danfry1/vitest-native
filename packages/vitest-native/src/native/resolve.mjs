@@ -4,21 +4,29 @@
 import fs from "node:fs";
 import path from "node:path";
 
-function extensionsFor(platform) {
+/**
+ * Metro's default `sourceExts`, in its order. Kept as data rather than spelled out
+ * per platform so the Vite graph and the Node graph cannot drift apart — both build
+ * their list from this one array (see `getPlatformExtensions` in ../resolve.ts).
+ *
+ * The order is load-bearing where a module has more than one variant on disk:
+ * Metro picks `Foo.js` over `Foo.tsx`, so this list must too, or a project with a
+ * compiled file beside its source tests a different file than it ships. `json` is
+ * a source extension to Metro, which is why `import config from './config'`
+ * resolves `config.json` in an app.
+ */
+export const METRO_SOURCE_EXTS = ["js", "jsx", "json", "ts", "tsx"];
+
+/**
+ * Metro tries every platform-suffixed variant first, then every `.native` one,
+ * then the bare extensions — not extension-major.
+ */
+export function extensionsFor(platform) {
   const suffix = platform === "android" ? "android" : "ios";
   return [
-    `.${suffix}.tsx`,
-    `.${suffix}.ts`,
-    `.${suffix}.jsx`,
-    `.${suffix}.js`,
-    ".native.tsx",
-    ".native.ts",
-    ".native.jsx",
-    ".native.js",
-    ".tsx",
-    ".ts",
-    ".jsx",
-    ".js",
+    ...METRO_SOURCE_EXTS.map((e) => `.${suffix}.${e}`),
+    ...METRO_SOURCE_EXTS.map((e) => `.native.${e}`),
+    ...METRO_SOURCE_EXTS.map((e) => `.${e}`),
   ];
 }
 
