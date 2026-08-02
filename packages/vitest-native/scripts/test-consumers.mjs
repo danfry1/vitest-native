@@ -50,6 +50,15 @@ try {
     addPackedDependency(fixtureRoot, tarball);
     run("npm", ["install"], fixtureRoot);
     run("npm", ["test"], fixtureRoot);
+    // The monorepo fixture is also run from the WORKSPACE ROOT, pointing at the
+    // app's config. That is how Nx invokes tasks, and Vitest's root follows the
+    // working directory, so the run root ends up above the package under test.
+    // Package detection walks manifests UPWARDS, so from there it saw none of the
+    // app's own dependencies: the workspace library missed auto-detection, stayed
+    // in Vite's graph while Node loaded it too, and came apart into two module
+    // instances — the reported blocker reproducing from nothing but a different
+    // working directory. Running only from the app directory could not see it.
+    if (fixture === "monorepo") run("npm", ["run", "test:from-root"], fixtureRoot);
   }
 
   // The CLI ships as the package bin — prove it dispatches from the packed
