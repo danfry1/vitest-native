@@ -4,7 +4,7 @@
 // what makes it auto-detectable.
 // eslint-disable-next-line no-unused-vars -- the JSX below compiles to React.createElement
 const React = require("react");
-const { View, Text } = require("react-native");
+const { View, Text, Platform } = require("react-native");
 
 let renders = 0;
 
@@ -18,4 +18,7 @@ module.exports = {
     );
   },
   renderCount: () => renders,
+  // Reports the Platform.OS this library sees, so a test can tell the library's own
+  // view of React Native apart from the test graph's.
+  platformSeen: () => Platform.OS,
 };

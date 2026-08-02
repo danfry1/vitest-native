@@ -3,7 +3,7 @@
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
-import { transformRN, isFlow } from "./transform.mjs";
+import { transformRN, isFlow, cjsExportNames } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import { resolvePlatformFile } from "./resolve.mjs";
 import { buildPkgMatcher, packageNameOf, subpathLeafOf, isUtilitySubpath } from "./match.mjs";
@@ -224,12 +224,30 @@ export async function load(url, context, nextLoad) {
     return nextLoad(url, context);
   }
 
-  // Configured third-party package: transform any JS/TS/JSX source to CJS.
+  // Configured third-party package: transform any JS/TS/JSX source to CJS, and tell
+  // Node what it exports.
+  //
+  // When Node imports a CommonJS module from ESM it decides the named exports with
+  // cjs-module-lexer, which reads the source statically and gives up partway through
+  // shapes it cannot follow. `module.exports = { A() {}, b: () => 1 }` — ordinary
+  // hand-written CommonJS, and common in this ecosystem — yields
+  // ["A", "default", "module.exports"]: `b` is missing and a name that is not an
+  // export appears. Plain Node behaviour, reproducible with no plugin involved; it
+  // became reachable when these packages moved from Vite's graph (whose interop
+  // enumerates the real object at run time) to Node's.
+  //
+  // The dead `0 && (module.exports = { … })` hint is the form the lexer does
+  // understand — the same trick react-native's index facade uses below. Names are
+  // read from the transform's own output rather than by requiring the module: this
+  // hook runs on the module-loader thread, where the CJS require hooks that compile
+  // JSX are not installed, so a require here fails with "Unexpected token '<'".
   if (TRANSFORMABLE.test(norm)) {
     const src = fs.readFileSync(file, "utf8");
+    const code = transformRN(file, src, PROJECT_ROOT, PLATFORM);
+    const names = cjsExportNames(code);
     return {
       format: "commonjs",
-      source: transformRN(file, src, PROJECT_ROOT, PLATFORM),
+      source: names.length > 0 ? `${code}\n0 && (module.exports = { ${names.join(", ")} });` : code,
       shortCircuit: true,
     };
   }
