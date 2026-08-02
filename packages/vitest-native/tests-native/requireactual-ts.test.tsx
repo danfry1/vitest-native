@@ -2,13 +2,16 @@ import { describe, expect, it } from "vitest";
 
 // Migrated Jest suites often do `jest.requireActual('./app/X')` to spread a real
 // module then override one export. Node's CJS loader can't load .ts/.tsx, so the
-// native engine registers Babel-backed .ts/.tsx require handlers. Path is relative
-// to the project root (where jest-compat's global require is anchored).
+// native engine registers Babel-backed .ts/.tsx require handlers. The path is
+// relative to THIS file, as it is under Jest. It used to be relative to the project
+// root, because the shim anchored its require there — which is why a migrated suite
+// calling `jest.requireActual('../thing')` got MODULE_NOT_FOUND for a file sitting
+// beside it.
 declare const jest: { requireActual(m: string): any };
 
 describe("native engine: jest.requireActual of app TS/TSX", () => {
   it("loads a real .tsx module synchronously (TS + default export)", () => {
-    const mod = jest.requireActual("./tests-native/fixtures/widget");
+    const mod = jest.requireActual("./fixtures/widget");
     expect(typeof mod.default).toBe("function");
     expect(mod.default()).toBe("real-widget");
   });
