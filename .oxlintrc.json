@@ -32,5 +32,9 @@
     "builtin": true
   },
   "globals": {},
-  "ignorePatterns": ["dist", "node_modules"]
+  "ignorePatterns": [
+    "dist",
+    "node_modules",
+    "packages/vitest-native/tests-native/fixtures"
+  ]
 }
