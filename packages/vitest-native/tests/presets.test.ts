@@ -470,13 +470,14 @@ describe("preset: reanimated", () => {
 
   it("exposes Animated.View/Text/Image/ScrollView/FlatList components", () => {
     for (const name of ["View", "Text", "Image", "ScrollView", "FlatList"] as const) {
-      expect(mock[name]).toBeDefined();
+      expect(mock.default[name]).toBeDefined();
       // forwardRef components are objects with a render fn, not plain functions.
-      expect(["object", "function"]).toContain(typeof mock[name]);
-      expect(mock[name].displayName).toBe(`Animated.${name}`);
+      expect(["object", "function"]).toContain(typeof mock.default[name]);
+      expect(mock.default[name].displayName).toBe(`Animated.${name}`);
+      // Only on the default, as in the real package — `import { View } from
+      // 'react-native-reanimated'` does not resolve under Metro.
+      expect(mock[name]).toBeUndefined();
     }
-    // default namespace mirrors the component set (matches `import Animated from`).
-    expect(mock.default.View).toBe(mock.View);
     expect(typeof mock.default.createAnimatedComponent).toBe("function");
   });
 
@@ -873,21 +874,36 @@ describe("preset: expo", () => {
   describe("expo-constants", () => {
     const preset = expo();
     const mock = preset.modules["expo-constants"].factory();
+    // Constants values live on the default export, as they do in the real package.
+    const Constants = mock.default;
 
     it("has expoConfig with app metadata", () => {
-      expect(mock.expoConfig).toBeDefined();
-      expect(mock.expoConfig.name).toBe("test-app");
-      expect(mock.expoConfig.slug).toBe("test-app");
-      expect(mock.expoConfig.version).toBe("1.0.0");
+      expect(Constants.expoConfig).toBeDefined();
+      expect(Constants.expoConfig.name).toBe("test-app");
+      expect(Constants.expoConfig.slug).toBe("test-app");
+      expect(Constants.expoConfig.version).toBe("1.0.0");
     });
 
     it("isDevice is true", () => {
-      expect(mock.isDevice).toBe(true);
+      expect(Constants.isDevice).toBe(true);
     });
 
     it("getWebViewUserAgentAsync resolves", async () => {
-      const result = await mock.getWebViewUserAgentAsync();
+      const result = await Constants.getWebViewUserAgentAsync();
       expect(typeof result).toBe("string");
+    });
+
+    it("does not expose Constants properties as named exports", () => {
+      // The real package exports only the three enums and a default; a named
+      // import of expoConfig resolves under Metro to undefined.
+      expect(mock.expoConfig).toBeUndefined();
+      expect(mock.isDevice).toBeUndefined();
+    });
+
+    it("exposes the enums the real package exports", () => {
+      expect(mock.ExecutionEnvironment.StoreClient).toBe("storeClient");
+      expect(mock.AppOwnership.Expo).toBe("expo");
+      expect(mock.UserInterfaceIdiom.Handset).toBe("handset");
     });
   });
 

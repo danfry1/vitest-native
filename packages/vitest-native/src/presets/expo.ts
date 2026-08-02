@@ -7,21 +7,26 @@ export function expo(): Preset {
     name: "expo",
     modules: {
       "expo-constants": {
-        exports: [
-          "expoConfig",
-          "executionEnvironment",
-          "appOwnership",
-          "isDevice",
-          "platform",
-          "manifest",
-          "manifest2",
-          "expoGoConfig",
-          "easConfig",
-          "experienceUrl",
-          "linkingUri",
-          "getWebViewUserAgentAsync",
-        ],
+        // expo-constants exports three enums and a default object. `expoConfig`,
+        // `isDevice` and the rest are properties OF that default — never named
+        // exports — so declaring them here made `import { isDevice }` resolve in a
+        // test and fail under Metro.
+        exports: ["AppOwnership", "ExecutionEnvironment", "UserInterfaceIdiom"],
         factory: () => {
+          const AppOwnership = { Expo: "expo" } as const;
+          const ExecutionEnvironment = {
+            Bare: "bare",
+            Standalone: "standalone",
+            StoreClient: "storeClient",
+          } as const;
+          const UserInterfaceIdiom = {
+            Handset: "handset",
+            Tablet: "tablet",
+            Desktop: "desktop",
+            TV: "tv",
+            Unsupported: "unsupported",
+          } as const;
+
           const Constants = {
             expoConfig: {
               name: "test-app",
@@ -44,7 +49,9 @@ export function expo(): Preset {
 
           return {
             default: Constants,
-            ...Constants,
+            AppOwnership,
+            ExecutionEnvironment,
+            UserInterfaceIdiom,
           };
         },
       },

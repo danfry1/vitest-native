@@ -17,9 +17,9 @@ export function safeAreaContext(): Preset {
           "withSafeAreaInsets",
           "initialWindowMetrics",
           "initialWindowSafeAreaInsets",
-          "EdgeInsets",
-          "Rect",
-          "Metrics",
+          // EdgeInsets, Rect and Metrics are interfaces in the real package, so
+          // there is no runtime binding to import. Declaring them made a value
+          // import of a type resolve here and fail under Metro.
         ],
         factory: () => {
           const defaultInsets = { top: 47, right: 0, bottom: 34, left: 0 };

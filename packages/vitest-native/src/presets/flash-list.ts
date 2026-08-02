@@ -15,7 +15,7 @@ export function flashList(): Preset {
           "FlashList",
           "AnimatedFlashList",
           "LayoutCommitObserver",
-          "ViewToken",
+          // ViewToken is an interface in the real package — no runtime binding.
           "RenderTargetOptions",
           "useRecyclingState",
           "useLayoutState",
