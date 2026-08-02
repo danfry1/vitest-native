@@ -196,6 +196,17 @@ jobs:
       - name: Test example app
         run: bun run test:example
 
+      # The consumer gate installs each fixture with npm. Node 22.13.0 bundles npm
+      # 10.9.2, whose arborist crashes with "Cannot read properties of null (reading
+      # 'edgesOut')" on these fixtures' dependency graphs. It is not this package:
+      # a fixture with vitest-native removed entirely crashes the same way, and the
+      # commit that passed on 2026-07-27 fails on re-run with no code change, so a
+      # republished transitive dependency started tripping the bug. npm 11 installs
+      # all of them.
+      - name: Use an npm without the arborist edgesOut bug
+        if: runner.os == 'Linux' && matrix.node-version == '22.13.0'
+        run: npm install -g npm@11
+
       - name: Test packed consumer projects
         if: runner.os == 'Linux' && matrix.node-version == '22.13.0'
         run: bun run test:consumers
