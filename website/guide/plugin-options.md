@@ -36,11 +36,25 @@ Set to `true` to log plugin activity — useful when debugging resolution or whi
 
 An array of [third-party presets](/guide/presets). Presets are auto-detected from your installed dependencies, so listing them is usually optional:
 
-::: warning Providing this option replaces auto-detection
-When `presets` is present, **only** the presets in the array are used — auto-detection
-does not run. `presets: []` therefore disables every preset, including ones your app
-depends on. Omit the option entirely to keep auto-detection.
+::: warning An array replaces auto-detection
+When `presets` is an **array**, only those presets are used — auto-detection does not
+run. `presets: []` therefore disables every preset, including ones your app depends
+on. Omit the option entirely to keep auto-detection.
 :::
+
+To keep auto-detection and switch a single preset off, pass an **object** instead:
+
+```ts
+reactNative({
+  presets: { navigation: false },
+})
+```
+
+That is what you want when one preset gets in the way — for example when a suite
+renders a real `NavigationContainer` and the stubbed one never fires `onReady`.
+Listing every other detected preset back by hand to drop one also rots silently: add
+a library later and its preset is not applied, because the hand-written array does
+not mention it.
 
 ```ts
 import { reactNative, presets } from 'vitest-native'

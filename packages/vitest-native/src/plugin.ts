@@ -256,12 +256,15 @@ async function resolveOptions(
   const engine: "mock" | "native" = options.engine === "native" ? "native" : "mock";
   const userExts = (options.assetExts ?? []).map((e) => e.replace(/^\./, ""));
 
-  // If user provided presets explicitly, use those. Otherwise auto-detect.
+  // An array replaces auto-detection; an object keeps it and switches named presets
+  // off; omitting it auto-detects everything.
   let presets: Preset[];
-  if (options.presets) {
+  if (Array.isArray(options.presets)) {
     presets = options.presets;
   } else {
-    presets = await autoDetectPresets(diagnostics, projectRoot ?? process.cwd());
+    const detected = await autoDetectPresets(diagnostics, projectRoot ?? process.cwd());
+    const disabled = disabledPresetNames(options.presets);
+    presets = disabled.size > 0 ? detected.filter((p) => !disabled.has(p.name)) : detected;
   }
 
   return {
@@ -558,6 +561,23 @@ export function alignLegacyFieldsWithNode(
   return nodeFile;
 }
 
+/**
+ * Preset names switched off by the object form of the `presets` option.
+ *
+ * The array form replaces auto-detection wholesale, which meant that turning ONE
+ * preset off required listing every other detected preset by hand — tedious, and a
+ * list that silently rots as dependencies change. The object form keeps detection
+ * and names only what to drop.
+ */
+export function disabledPresetNames(presets: unknown): Set<string> {
+  if (!presets || Array.isArray(presets) || typeof presets !== "object") return new Set();
+  return new Set(
+    Object.entries(presets as Record<string, unknown>)
+      .filter(([, enabled]) => enabled === false)
+      .map(([name]) => name),
+  );
+}
+
 export function reactNative(options?: VitestNativeOptions): Plugin {
   // Per plugin INSTANCE, not module scope. A Vitest workspace calls reactNative() once
   // per project and they share this module, so module-level state means the last
@@ -822,16 +842,17 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // resolve which presets are active here (sync) and hand the names to the
         // native setup file via env; it builds the mocks in-worker. The actual
         // import redirection happens in resolveId/load (virtual:preset modules).
-        const nativePresetNames = options?.presets
+        const disabledNative = disabledPresetNames(options?.presets);
+        const nativePresetNames = Array.isArray(options?.presets)
           ? options.presets.map((p) => p.name)
-          : autoDetectPresetNames(resolvedRoot, diagnostics);
+          : autoDetectPresetNames(resolvedRoot, diagnostics).filter((n) => !disabledNative.has(n));
         if (nativePresetNames.length > 0) {
           env.VITEST_NATIVE_PRESET_NAMES = JSON.stringify(nativePresetNames);
         }
         // Per-preset config (e.g. navigation({ defaultRouteParams })) must travel to
         // the worker, where presets are rebuilt from their name. Only explicitly
         // configured presets carry config; auto-detected ones use their defaults.
-        if (options?.presets) {
+        if (Array.isArray(options?.presets)) {
           const presetConfig: Record<string, Record<string, unknown>> = {};
           for (const p of options.presets) {
             if (p.config && Object.keys(p.config).length > 0) presetConfig[p.name] = p.config;
@@ -952,11 +973,17 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         env.VITEST_NATIVE_MOCKS = JSON.stringify(options.mocks);
       }
 
-      // If user explicitly provided presets, serialize their names so
-      // setup.ts knows not to auto-detect. If omitted, setup.ts will
-      // auto-detect from the worker context.
-      if (options?.presets) {
+      // An explicit ARRAY is the full list, so setup.ts must not auto-detect. The
+      // object form keeps detection — the worker does that itself — and only needs to
+      // know which names to drop. `resolved` is not assigned until configResolved,
+      // so neither branch can read it here.
+      if (Array.isArray(options?.presets)) {
         env.VITEST_NATIVE_PRESET_NAMES = JSON.stringify(options.presets.map((p) => p.name));
+      } else {
+        const disabled = disabledPresetNames(options?.presets);
+        if (disabled.size > 0) {
+          env.VITEST_NATIVE_PRESET_DISABLED = JSON.stringify([...disabled]);
+        }
       }
 
       return asCompatibleViteConfig({

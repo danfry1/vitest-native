@@ -250,9 +250,14 @@ export interface VitestNativeOptions {
   engine?: "auto" | "mock" | "native";
 
   /**
-   * Built-in third-party library presets. When provided, only these presets
-   * are used. When omitted, vitest-native auto-detects installed packages
-   * and enables matching presets automatically.
+   * Built-in third-party library presets.
+   *
+   * An ARRAY replaces auto-detection entirely: only those presets are used.
+   *
+   * An OBJECT keeps auto-detection and turns individual presets off by name —
+   * `{ navigation: false }` — which is what you want when one preset gets in the
+   * way. Listing every other detected preset back by hand just to drop one is
+   * both tedious and a thing that silently rots as dependencies change.
    *
    * Only built-in presets are supported (reanimated, gestureHandler,
    * safeAreaContext, navigation, asyncStorage, screens, expo). For custom
@@ -264,7 +269,7 @@ export interface VitestNativeOptions {
    * reactNative({ presets: [presets.reanimated(), presets.navigation()] })
    * ```
    */
-  presets?: Preset[];
+  presets?: Preset[] | Record<string, boolean>;
 
   /**
    * `engine: 'mock'` only. Plain-data overrides merged into the react-native

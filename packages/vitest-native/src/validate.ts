@@ -59,8 +59,23 @@ export function validateOptions(options: Record<string, unknown>): void {
   }
   if (options.assetExts !== undefined) assertStringArray(options.assetExts, "assetExts");
   if (options.transform !== undefined) assertStringArray(options.transform, "transform");
+  // Two shapes: an array replaces auto-detection, an object of booleans keeps it and
+  // switches named presets off. Anything else is rejected with both spellings named,
+  // since "must be an array" would now be wrong advice.
   if (options.presets !== undefined && !Array.isArray(options.presets)) {
-    throw new VitestNativeTypeError("INVALID_OPTION", `"presets" must be an array.`);
+    const isPlainObject =
+      options.presets !== null &&
+      typeof options.presets === "object" &&
+      Object.values(options.presets as Record<string, unknown>).every(
+        (v) => typeof v === "boolean",
+      );
+    if (!isPlainObject) {
+      throw new VitestNativeTypeError(
+        "INVALID_OPTION",
+        `"presets" must be an array of presets, or an object of booleans to switch ` +
+          `auto-detected presets off (for example { navigation: false }).`,
+      );
+    }
   }
   if (
     options.mocks !== undefined &&
