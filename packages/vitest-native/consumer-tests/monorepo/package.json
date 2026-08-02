@@ -7,7 +7,8 @@
   ],
   "type": "module",
   "scripts": {
-    "test": "npm test --workspace @consumer/mobile"
+    "test": "npm test --workspace @consumer/mobile",
+    "test:from-root": "vitest run --config apps/mobile/vitest.config.mts"
   },
   "devDependencies": {
     "@babel/core": "7.29.7",

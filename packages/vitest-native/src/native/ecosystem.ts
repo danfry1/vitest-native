@@ -39,13 +39,89 @@ function dependsOnReactNative(manifest: Record<string, unknown>): boolean {
  * never imported costs nothing, because inlining only applies to files that are
  * actually loaded.
  */
-function manifestsFrom(projectRoot: string): Record<string, unknown>[] {
-  const manifests: Record<string, unknown>[] = [];
+/**
+ * Directories of the workspace members a manifest declares, plus any listed in a
+ * sibling pnpm-workspace.yaml.
+ *
+ * Needed because `manifestsFrom` only walks UP. In a workspace the run root is
+ * frequently ABOVE the package under test — Nx invokes tasks from the workspace
+ * root, and Vitest's root defaults to the working directory — so the app's own
+ * dependencies are declared in a manifest that walking up never reaches. The
+ * package then misses auto-detection and stays in Vite's graph while Node loads it
+ * too, which is the dual-ownership failure reproducing from nothing but a different
+ * working directory.
+ *
+ * Only the two glob shapes workspace fields actually use are expanded (`dir/*` and a
+ * literal path). Over-collecting is safe here — an unimported package costs nothing —
+ * so a shape that is not understood is skipped rather than approximated.
+ */
+function workspaceMemberDirs(dir: string, manifest: Record<string, unknown>): string[] {
+  const patterns: string[] = [];
+  const declared = manifest.workspaces;
+  if (Array.isArray(declared)) {
+    patterns.push(...declared.filter((p): p is string => typeof p === "string"));
+  } else if (
+    declared &&
+    typeof declared === "object" &&
+    Array.isArray((declared as { packages?: unknown }).packages)
+  ) {
+    patterns.push(
+      ...(declared as { packages: unknown[] }).packages.filter(
+        (p): p is string => typeof p === "string",
+      ),
+    );
+  }
+  try {
+    // pnpm keeps its member list outside package.json, and pnpm workspaces are where
+    // this problem was reported. Read the lines rather than adding a YAML dependency:
+    // the file is a `packages:` list of quoted globs.
+    const yaml = fs.readFileSync(path.join(dir, "pnpm-workspace.yaml"), "utf8");
+    for (const line of yaml.split(/\r?\n/)) {
+      const entry = /^\s*-\s*["']?([^"'#]+?)["']?\s*$/.exec(line);
+      if (entry) patterns.push(entry[1]);
+    }
+  } catch {
+    // No pnpm workspace file — the manifest field above is the only source.
+  }
+
+  const dirs: string[] = [];
+  for (const pattern of patterns) {
+    if (pattern.endsWith("/*")) {
+      const parent = path.join(dir, pattern.slice(0, -2));
+      try {
+        for (const entry of fs.readdirSync(parent, { withFileTypes: true })) {
+          if (entry.isDirectory()) dirs.push(path.join(parent, entry.name));
+        }
+      } catch {
+        // Declared but absent — nothing to read.
+      }
+    } else if (!pattern.includes("*")) {
+      dirs.push(path.join(dir, pattern));
+    }
+  }
+  return dirs;
+}
+
+function manifestsFrom(projectRoot: string): { dir: string; manifest: Record<string, unknown> }[] {
+  const manifests: { dir: string; manifest: Record<string, unknown> }[] = [];
   let dir = path.resolve(projectRoot);
   for (;;) {
     try {
       const raw = fs.readFileSync(path.join(dir, "package.json"), "utf8");
-      manifests.push(JSON.parse(raw) as Record<string, unknown>);
+      const manifest = JSON.parse(raw) as Record<string, unknown>;
+      manifests.push({ dir, manifest });
+      for (const member of workspaceMemberDirs(dir, manifest)) {
+        try {
+          manifests.push({
+            dir: member,
+            manifest: JSON.parse(
+              fs.readFileSync(path.join(member, "package.json"), "utf8"),
+            ) as Record<string, unknown>,
+          });
+        } catch {
+          // A member directory without a readable manifest — skip it.
+        }
+      }
     } catch {
       // No manifest at this level, or an unreadable one — keep walking up.
     }
@@ -78,11 +154,30 @@ function manifestsFrom(projectRoot: string): Record<string, unknown>[] {
  * test infrastructure in NEVER_INLINE, and anything the consumer listed explicitly
  * in `transform` — that option keeps its existing meaning and takes precedence.
  */
-export function detectEcosystemPackages(projectRoot: string, explicit: string[] = []): string[] {
-  const req = createRequire(path.join(projectRoot, "package.json"));
+export function detectEcosystemPackages(
+  projectRoot: string | string[],
+  explicit: string[] = [],
+): string[] {
+  // More than one root because `manifestsFrom` only walks UP. In a workspace the
+  // run root is often above the package under test — Nx invokes tasks from the
+  // workspace root, and Vitest's root defaults to the working directory — and the
+  // app's own dependencies are declared below it, so walking up from the run root
+  // alone finds none of them. The package then misses auto-detection and stays in
+  // Vite's graph while Node loads it too: the dual-ownership failure again, this
+  // time triggered by nothing but the working directory. The config file's
+  // directory is the second root, since that is where the package under test lives.
+  const roots = (Array.isArray(projectRoot) ? projectRoot : [projectRoot]).filter(Boolean);
   const skip = new Set<string>([...NEVER_INLINE, ...Object.keys(AUTO_DETECT_PRESETS), ...explicit]);
   const candidates = new Set<string>();
-  for (const manifest of manifestsFrom(projectRoot)) {
+  const found = roots.flatMap((root) => manifestsFrom(root));
+  // One resolver per directory that declared something. Under pnpm a workspace
+  // package is linked only into the package that depends on it, so the run root
+  // often cannot resolve what the app can — resolving only from the run root is
+  // how a workspace library slips past detection when the run starts above it.
+  const requires = [...new Set(found.map((entry) => entry.dir))].map((dir) =>
+    createRequire(path.join(dir, "package.json")),
+  );
+  for (const { manifest } of found) {
     for (const field of ["dependencies", "devDependencies", "optionalDependencies"]) {
       const deps = manifest[field];
       if (deps && typeof deps === "object") {
@@ -95,11 +190,17 @@ export function detectEcosystemPackages(projectRoot: string, explicit: string[] 
   const detected: string[] = [];
   for (const name of candidates) {
     if (skip.has(name) || name.startsWith("@react-native/")) continue;
-    try {
-      const pkg = req(`${name}/package.json`) as Record<string, unknown>;
-      if (dependsOnReactNative(pkg)) detected.push(name);
-    } catch {
-      // Not installed, or no exported manifest — nothing to inline either way.
+    // Resolved from whichever root can see it. Under pnpm a workspace package is
+    // linked only into the package that depends on it, so the run root frequently
+    // cannot resolve what the app can.
+    for (const req of requires) {
+      try {
+        const pkg = req(`${name}/package.json`) as Record<string, unknown>;
+        if (dependsOnReactNative(pkg)) detected.push(name);
+        break;
+      } catch {
+        // Not resolvable from this root — try the next one.
+      }
     }
   }
   return detected.sort();
