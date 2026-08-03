@@ -162,14 +162,14 @@
     "@shopify/flash-list": "2.3.2",
     "@testing-library/react-native": "14.0.0",
     "@types/node": "25.3.5",
-    "@types/react": "19.2.14",
+    "@types/react": "19.2.17",
     "@vitest/coverage-v8": "4.1.9",
     "expo-constants": "56.0.16",
     "expo-status-bar": "56.0.4",
     "ext-platform-lib": "file:./tests-native/fixtures/ext-platform-lib",
     "ext-rn-named-lib": "file:./tests-native/fixtures/ext-rn-named-lib",
     "generic-mainfield-lib": "file:./tests-native/fixtures/generic-mainfield-lib",
-    "react": "^19.2.3",
+    "react": "^19.2.8",
     "react-native": "^0.86.0",
     "react-native-gesture-handler": "3.0.0",
     "react-native-keyboard-controller": "1.21.11",
@@ -217,7 +217,7 @@
     "validate:hot-parity": "node validation/idiomatic/scale/run-compare.mjs"
   },
   "dependencies": {
-    "flow-remove-types": "^2.322.0",
+    "flow-remove-types": "^2.324.0",
     "magic-string": "^0.30.21"
   },
   "bin": {
