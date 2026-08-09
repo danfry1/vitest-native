@@ -1,0 +1,114 @@
+name: Ecosystem Probe
+
+# The repository's suites test vitest-native against fixtures it controls. This
+# installs the libraries real apps actually use and runs realistic usage against them
+# with no configuration. One manual pass of it found three defects every in-repo suite
+# was green through, so it runs on a schedule.
+#
+# Scheduled rather than per-pull-request, for the same reason as compat-check: it
+# resolves third-party packages that move on their own, so a failure here is usually
+# the ecosystem changing rather than the pull request being wrong. A red probe opens a
+# tracking issue instead of blocking anyone.
+on:
+  schedule:
+    # Every Tuesday at 9am UTC — a day after the dependency updates land.
+    - cron: "0 9 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Popular React Native libraries, default config
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22.13.0
+
+      - name: Install and build the package
+        run: |
+          bun install --frozen-lockfile
+          bun run --filter vitest-native build
+
+      - name: Pack the package
+        id: pack
+        working-directory: packages/vitest-native
+        run: |
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP"
+          echo "tarball=$(ls "$RUNNER_TEMP"/vitest-native-*.tgz)" >> "$GITHUB_OUTPUT"
+
+      # The probe installs from the packed tarball, so it exercises what is published
+      # rather than the working tree. npm, not bun, because a consumer's install is
+      # what is being reproduced.
+      - name: Install the probe project
+        working-directory: packages/vitest-native/ecosystem-probe
+        env:
+          TARBALL: ${{ steps.pack.outputs.tarball }}
+        run: |
+          npm install --no-audit --no-fund \
+            react@19.2.8 react-native@0.86.0 react-test-renderer@19.2.8 test-renderer@^1 \
+            @react-native/babel-preset@0.86.0 @babel/core \
+            @testing-library/react-native@14 vitest@^4 vite@^8
+          npm install --no-audit --no-fund "$TARBALL"
+
+      - name: Report the resolved versions
+        working-directory: packages/vitest-native/ecosystem-probe
+        run: |
+          node -e "
+            const m = require('./package.json').dependencies;
+            for (const name of Object.keys(m).sort()) {
+              let v = 'NOT INSTALLED';
+              try { v = require(require.resolve(name + '/package.json', { paths: [process.cwd()] })).version } catch {}
+              console.log(name.padEnd(46), v);
+            }
+          "
+
+      - name: Run the probe
+        working-directory: packages/vitest-native/ecosystem-probe
+        run: npm test
+
+      - name: Open a tracking issue
+        if: failure()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v7
+        env:
+          RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        with:
+          script: |
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'ecosystem-probe',
+            });
+            if (issues.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: 'Ecosystem probe failing against popular React Native libraries',
+                body: [
+                  'The scheduled ecosystem probe failed. It installs the libraries real apps',
+                  'depend on and runs realistic usage against them with **no configuration**,',
+                  'so a failure means one of those libraries no longer works out of the box.',
+                  '',
+                  `See the [failed run](${process.env.RUN_URL}) — the step before the failure`,
+                  'prints every resolved version, which usually identifies what moved.',
+                  '',
+                  'Reproduce locally with the instructions in',
+                  '`packages/vitest-native/ecosystem-probe/README.md`.',
+                ].join('\n'),
+                labels: ['ecosystem-probe'],
+              });
+            }
