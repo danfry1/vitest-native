@@ -43,16 +43,16 @@
     "preview:website": "vitepress preview website"
   },
   "devDependencies": {
-    "@changesets/cli": "2.30.0",
+    "@changesets/cli": "2.31.1",
     "@types/node": "25.3.5",
-    "@types/react": "19.2.14",
-    "oxc-minify": "0.134.0",
-    "oxfmt": "0.60.0",
-    "oxlint": "1.75.0",
-    "syncpack": "15.3.1",
-    "tsdown": "0.21.10",
+    "@types/react": "19.2.18",
+    "oxc-minify": "0.142.0",
+    "oxfmt": "0.61.0",
+    "oxlint": "1.76.0",
+    "syncpack": "15.3.2",
+    "tsdown": "0.22.14",
     "typescript": "6.0.3",
     "vitepress": "2.0.0-alpha.17",
-    "vitest": "4.1.9"
+    "vitest": "4.1.10"
   }
 }
