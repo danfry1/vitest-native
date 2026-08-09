@@ -11,7 +11,9 @@ A fast pure-JS **mock** engine is available as an opt-in for RN-free unit tests.
 > on any divergence. Pinned external apps are also run as non-authoritative integration
 > observations; their custom migration setup and Jest-era shims do not define package support.
 > See the [validation model](https://danfry1.github.io/vitest-native/guide/validation-model).
-> Some APIs may still shift before 1.0.
+> Some APIs may still shift before 1.0 — what is covered, what is experimental, and what 1.0 will
+> mean are set out in
+> [versioning and stability](packages/vitest-native/docs/versioning.md).
 >
 > Maintained successor to
 > [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native)
