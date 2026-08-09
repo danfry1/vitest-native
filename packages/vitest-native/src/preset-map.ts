@@ -22,6 +22,7 @@ export const AUTO_DETECT_PRESETS = {
   "expo-constants": "expo",
   "react-native-device-info": "deviceInfo",
   "react-native-mmkv": "mmkv",
+  "@react-native-community/netinfo": "netInfo",
   "react-native-svg": "svg",
   "react-native-webview": "webview",
   "@react-native-vector-icons/common": "vectorIcons",

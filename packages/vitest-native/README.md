@@ -476,6 +476,7 @@ export default defineConfig({
 | `presets.expo()`               | Expo modules                              |
 | `presets.deviceInfo()`         | react-native-device-info                  |
 | `presets.mmkv()`               | react-native-mmkv                         |
+| `presets.netInfo()`            | @react-native-community/netinfo           |
 | `presets.svg()`                | react-native-svg                          |
 | `presets.webview()`            | react-native-webview                      |
 | `presets.vectorIcons()`        | react-native-vector-icons                 |

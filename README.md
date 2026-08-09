@@ -128,7 +128,7 @@ want no RN at all — fast, deterministic, environment-controllable.
 - **100% public API coverage** (mock engine) — every stable React Native export is mocked.
 - **RNTL compatible** — Works with `@testing-library/react-native` automatically.
 - **Third-party presets** — auto-detected mocks for reanimated, gesture handler, safe area,
-  navigation, screens, async-storage, device-info, mmkv, svg, webview, and Expo.
+  navigation, screens, async-storage, device-info, mmkv, netinfo, svg, webview, and Expo.
 - **React Native packages compile automatically** — any dependency declaring
   `react-native` in its own manifest is detected and compiled, so the ecosystem's
   untranspiled JSX/Flow/TypeScript just works without a hand-maintained list.
@@ -237,6 +237,7 @@ export default defineConfig({
 | `presets.expo()` | `expo-constants`, `expo-font`, `expo-asset`, `expo-linking`, `expo-status-bar`, … | constants, fonts, linking, status bar, splash screen |
 | `presets.deviceInfo()` | `react-native-device-info` | string/bool/number getters with sync + async variants |
 | `presets.mmkv()` | `react-native-mmkv` | in-memory `MMKV` + `useMMKV*` hooks |
+| `presets.netInfo()` | `@react-native-community/netinfo` | connected-wifi state, `fetch`/`refresh`/`addEventListener`/`useNetInfo`, state-type enums |
 | `presets.svg()` | `react-native-svg` | `Svg`, `Path`, `Circle`, `Rect`, `G`, … as host components |
 | `presets.webview()` | `react-native-webview` | `WebView` (default + named) host component |
 

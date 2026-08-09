@@ -135,6 +135,7 @@
   "devDependencies": {
     "@babel/core": "^7.29.7",
     "@gorhom/bottom-sheet": "5.2.14",
+    "@react-native-community/netinfo": "12.0.1",
     "@react-native-vector-icons/common": "13.0.1",
     "@react-native-vector-icons/material-icons": "13.1.2",
     "@react-native/babel-preset": "^0.86.2",
