@@ -31,13 +31,27 @@ bun run test
 
 | Command | Description |
 |---|---|
-| `bun run build` | Build the package |
+| `bun run build` | Build the package (runs tsdown under bun's runtime — see below) |
 | `bun run test` | Run tests |
 | `bun run test:example` | Build and test the example app |
 | `bun run lint` | Lint with oxlint |
 | `bun run format` | Format with oxfmt |
 | `bun run format:check` | Check formatting (CI) |
 | `bun run typecheck` | Type-check with tsc |
+
+### Why the build runs tsdown under bun
+
+`build` invokes `bunx --bun tsdown` rather than `tsdown`. tsdown's bin declares a Node
+shebang, and from 0.22 it calls `Promise.withResolvers`, which Node did not ship until
+21 — so building on Node 20 fails with `TypeError: Promise.withResolvers is not a
+function`. Bun's runtime has it.
+
+The Node 20 CI legs exist to prove the package's *runtime* floor and to pin RNTL 12 and
+13 as the lower-bound back-compat corners. What toolchain the build itself runs under is
+a separate question from what Node a consumer needs, so the floor stays where it is.
+
+The output is identical either way — verified by hashing `dist` from both runtimes on
+tsdown 0.21 and 0.22.
 
 ## Releasing
 
