@@ -172,7 +172,7 @@
     "vitest": "4.1.9"
   },
   "scripts": {
-    "build": "tsdown && node scripts/copy-static-types.mjs",
+    "build": "bunx --bun tsdown && node scripts/copy-static-types.mjs",
     "test": "vitest run",
     "test:native": "vitest run --config tests-native/vitest.config.mts",
     "test:native:forks": "vitest run --config tests-native/vitest.forks.config.mts",
