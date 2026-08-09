@@ -4,12 +4,16 @@ This document defines what `vitest-native` means by release-supported. It is del
 than "the repository tests pass": published artifacts are installed into representative consumer
 projects, experimental surfaces are labeled, and upstream compatibility is bounded.
 
+It covers what is **tested** before a release ships. [`versioning.md`](./versioning.md) covers what
+is **promised** about the surface those tests cover — which exports and options are protected by
+semver, which are experimental, and how the peer ranges below are allowed to move.
+
 ## Stability labels
 
 | Surface | Status | Release promise |
 | --- | --- | --- |
 | Mock engine | Release-supported | Documented behavior and exports are gated on every pull request and release. |
-| Native engine | Release-supported beta | Real RN behavior, iOS/Android resolution, presets, helpers, assets, matchers, and isolation are blocking gates. Pre-1.0 APIs can still change with release notes. |
+| Native engine | Release-supported beta | Real RN behavior, iOS/Android resolution, presets, helpers, assets, matchers, and isolation are blocking gates. Until 1.0 the [versioning contract](./versioning.md) is honoured best-effort, and a breaking change is called out in release notes. |
 | Hot runtime | Experimental | Correctness is gated, but it depends on Vitest's experimental custom-pool API and can require adaptation between Vitest releases. |
 | Current RN edge | Canary | Tested weekly and in a pinned packed consumer once adopted; an edge failure opens a compatibility issue. |
 

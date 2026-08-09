@@ -882,6 +882,10 @@ Every release must pass:
 Current React Native edge releases are also tested weekly. See
 [the release-readiness policy](docs/release-readiness.md) for the exact gates and stability labels.
 
+For what is *promised* rather than what is tested — which exports and options are protected by
+semver, which are experimental, how the version ranges above may move, and what 1.0 will mean —
+see [versioning and stability](docs/versioning.md).
+
 ---
 
 ## Requirements
