@@ -15,12 +15,30 @@ updates:
       semver-minor-days: 7
       semver-patch-days: 7
     groups:
+      # React and react-test-renderer are version-locked: react-test-renderer
+      # refuses to run unless its version matches react's EXACTLY, and fails the
+      # whole suite with "Incorrect version of react-test-renderer detected.
+      # Expected 19.2.8, but found 19.2.7." They cannot be split across PRs.
+      #
+      # They were. `react` is a production dependency (apps/example declares it)
+      # while `react-test-renderer` is a devDependency everywhere, so the two
+      # dependency-type groups below put them in different pull requests by
+      # construction — every react patch reddened one of them. Listed first so the
+      # pattern match wins, and excluded below so the order is not load-bearing.
+      react:
+        patterns:
+          - react
+          - react-dom
+          - react-test-renderer
+        update-types: [major, minor, patch]
       dev-dependencies:
         dependency-type: development
         update-types: [minor, patch]
+        exclude-patterns: [react, react-dom, react-test-renderer]
       production-dependencies:
         dependency-type: production
         update-types: [minor, patch]
+        exclude-patterns: [react, react-dom, react-test-renderer]
 
   - package-ecosystem: github-actions
     directory: /
