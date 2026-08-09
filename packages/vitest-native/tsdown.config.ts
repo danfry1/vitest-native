@@ -35,6 +35,16 @@ export default defineConfig({
     // runtime (native: via module.register; jest-compat: as setup file / alias
     // targets resolved by Vite), so they must ship verbatim rather than bundled.
     'build:done': () => {
+      // Three entries depend on vitest at module scope, and vitest throws when it is
+      // reached through require(). Their CJS bundles therefore could not be loaded at
+      // all, so `exports` points require() and import() at the one .mjs build instead —
+      // Node >= 20.19 loads it through require(esm), which is why `engines` sets that
+      // floor. Emitting the dead CJS would ship files no declared entry can reach.
+      for (const name of ['index', 'setup', 'presets']) {
+        for (const ext of ['cjs', 'd.cts']) {
+          fs.rmSync(path.resolve('dist', `${name}.${ext}`), { force: true });
+        }
+      }
       // Top-level runtime .mjs (errors.mjs) ships verbatim too: the shipped runtimes
       // below import it by relative path, and the tests load those same files from src,
       // so it must resolve in both trees as one module rather than a bundled copy.

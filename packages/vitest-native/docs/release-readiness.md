@@ -41,10 +41,23 @@ versions are rejected rather than allowed to fail later inside private runner in
 9. Package export and declaration analysis with `@arethetypeswrong/cli`.
 10. Staged npm publishing with provenance; the version remains unavailable until maintainer approval.
 
-The ATTW gate ignores legacy Node 10 resolution because the package requires Node 20+. It also
-allows `cjs-resolves-to-esm` only for the three `jest-compat` runtime shims: those entries depend on
-Vitest's ESM runtime and are setup-file or Vite-alias targets. All normal public APIs are gated as
-dual ESM/CommonJS exports.
+The ATTW gate ignores legacy Node 10 resolution because the package requires Node 20.19+.
+
+Seven of the eleven `exports` subpaths are ESM-only by design — `.`, `./setup`, `./presets`, the
+three `jest-compat` runtime shims, and the types-only `./rntl-matchers`. Each of the runtime ones
+depends on Vitest, which throws when it is reached through `require()`, so shipping a transpiled
+CommonJS build for them produced files that could not be loaded at all. They now declare a single
+ESM target for both conditions: a CommonJS consumer still reaches them, through Node's `require(esm)`
+support. That is why `engines` pins Node >= 20.19 rather than >= 20.
+
+The remaining four subpaths ship a real CommonJS build and are checked with `cjs-resolves-to-esm`
+enforced, so a dual entry cannot quietly lose its `.cjs`. Which subpaths are intentionally ESM-only
+is declared in `scripts/check-exports.mjs` and checked against the manifest in both directions;
+deriving that split from the manifest instead was verified not to work, because dropping a `.cjs`
+simply moved the entry into the excused bucket.
+
+Resolution is not execution: `tests/package-exports.test.ts` additionally loads every declared
+target, and resolves and loads every subpath by specifier under both `require` and `import`.
 
 ## Release decision
 

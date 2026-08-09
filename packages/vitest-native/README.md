@@ -891,7 +891,7 @@ Current React Native edge releases are also tested weekly. See
 | `react`                                      | >= 18; use RN's matching React version    |
 | `vite`                                       | ^6.4.2, ^7.3.2, or ^8.0.5                |
 | `vitest`                                     | 4.x                                       |
-| `node`                                       | >= 20; RN/RNTL may impose a higher floor  |
+| `node`                                       | >= 20.19; RN/RNTL may impose a higher floor |
 | `react-native` (native engine)               | 0.81–0.86 validated                       |
 | `@react-native/babel-preset` (native engine) | Match the installed React Native minor    |
 | `@testing-library/react-native` (optional)   | 12.x, 13.x, or 14.x                       |
