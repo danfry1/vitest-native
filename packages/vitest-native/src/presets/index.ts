@@ -7,6 +7,7 @@ export { screens } from "./screens.js";
 export { expo } from "./expo.js";
 export { deviceInfo } from "./device-info.js";
 export { mmkv } from "./mmkv.js";
+export { netInfo } from "./netinfo.js";
 export { svg } from "./svg.js";
 export { webview } from "./webview.js";
 export { vectorIcons } from "./vector-icons.js";
