@@ -187,21 +187,90 @@ export function detectEcosystemPackages(
   }
   if (candidates.size === 0) return [];
 
-  const detected: string[] = [];
-  for (const name of candidates) {
-    if (skip.has(name) || name.startsWith("@react-native/")) continue;
-    // Resolved from whichever root can see it. Under pnpm a workspace package is
-    // linked only into the package that depends on it, so the run root frequently
-    // cannot resolve what the app can.
+  /** Resolve a package's manifest from whichever root can see it. */
+  const manifestOf = (name: string): Record<string, unknown> | null => {
     for (const req of requires) {
       try {
-        const pkg = req(`${name}/package.json`) as Record<string, unknown>;
-        if (dependsOnReactNative(pkg)) detected.push(name);
-        break;
+        return req(`${name}/package.json`) as Record<string, unknown>;
       } catch {
         // Not resolvable from this root — try the next one.
       }
     }
+    return null;
+  };
+
+  const detected: string[] = [];
+  for (const name of candidates) {
+    if (skip.has(name) || name.startsWith("@react-native/")) continue;
+    const pkg = manifestOf(name);
+    if (pkg && dependsOnReactNative(pkg)) detected.push(name);
   }
-  return detected.sort();
+
+  // A detected package's own runtime dependencies are React Native code too, and the
+  // manifest test cannot see them: they are transitive, so nothing in the project
+  // declares them, and the older ones frequently declare no `react-native` at all.
+  //
+  // react-native-modal is the case that made this concrete. It is detected, and it
+  // still failed with a bare `SyntaxError: Unexpected token '<'` naming no file,
+  // because the untranspiled JSX is in react-native-animatable — its dependency,
+  // which declares `react-native` in neither dependencies nor peerDependencies.
+  // `transform: ['react-native-modal']`, the documented remedy, does not help; only
+  // naming react-native-animatable does, and nothing tells a user that.
+  //
+  // Membership of a detected package's dependency closure is the signal that its
+  // own manifest does not carry. Runtime `dependencies` only: devDependencies are
+  // not shipped, and peerDependencies are supplied by the project and reached
+  // through the normal candidate set.
+  //
+  // React Native's OWN dependencies are excluded. The precompiled registry compiles
+  // React Native's graph and reaches everything outside it — invariant, nullthrows,
+  // scheduler, @babel/runtime — through a pre-resolved absolute path, i.e. Node owns
+  // them. Inlining one of those into Vite as well would hand the same package two
+  // owners and two instances, which is the failure the registry exists to prevent.
+  // Walking react-native-modal's closure reaches `invariant` for exactly this reason,
+  // and it is the one package in that closure React Native also owns.
+  const rnOwned = new Set<string>(Object.keys(manifestOf("react-native")?.dependencies ?? {}));
+
+  /** Every package reachable from `roots` through runtime dependencies. */
+  const closureOf = (starts: string[]): Set<string> => {
+    const seen = new Set<string>();
+    const pending = [...starts];
+    while (pending.length > 0) {
+      const name = pending.pop() as string;
+      if (seen.has(name)) continue;
+      seen.add(name);
+      const deps = manifestOf(name)?.dependencies;
+      if (deps && typeof deps === "object") pending.push(...Object.keys(deps as object));
+    }
+    return seen;
+  };
+
+  // The transform loads @babel/core to do its work. Inlining anything Babel itself
+  // reaches means loading that package re-enters the transform, which needs Babel,
+  // which is mid-load — so it fails as `_babel.transformSync is not a function` or
+  // `Cannot read properties of undefined (reading 'transformSync')`.
+  //
+  // `expo` declares @babel/core as a runtime dependency, so walking its closure
+  // reached Babel and then Babel's own dependencies (chalk among them). Both blew up
+  // the packed Expo consumer, and neither reproduced in a synthetic fixture. Excluding
+  // the toolchain by name would be a list that rots; its closure computes itself.
+  const toolchain = closureOf(["@babel/core", "@react-native/babel-preset"]);
+
+  const inClosure = new Set(detected);
+  const queue = [...detected];
+  while (queue.length > 0) {
+    const pkg = manifestOf(queue.pop() as string);
+    const deps = pkg?.dependencies;
+    if (!deps || typeof deps !== "object") continue;
+    for (const dep of Object.keys(deps as object)) {
+      if (inClosure.has(dep) || skip.has(dep) || dep.startsWith("@react-native/")) continue;
+      if (rnOwned.has(dep)) continue;
+      if (toolchain.has(dep)) continue;
+      if (!manifestOf(dep)) continue; // declared but not installed
+      inClosure.add(dep);
+      queue.push(dep);
+    }
+  }
+
+  return [...inClosure].sort();
 }
