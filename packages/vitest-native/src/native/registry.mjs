@@ -421,6 +421,11 @@ export function buildRegistry({
   const options = { projectRoot, platform, reactNativeVersion, assetExtSet };
   const modules = new Map();
   const manifest = [];
+  // Targets the registry does NOT inline but DOES bake in as pre-resolved absolute
+  // paths. They belong in the manifest for the same reason React Native's own files
+  // do: if one moves or changes, the paths compiled into the registry are wrong.
+  // See the note above the manifest write below.
+  const externals = new Set();
   try {
     const entry = createRequire(path.join(projectRoot, "package.json")).resolve("react-native");
     const queue = [entry];
@@ -444,11 +449,34 @@ export function buildRegistry({
             !PASSTHROUGH_EXT.has(path.extname(target).toLowerCase());
           deps[request] = target;
           if (internal) queue.push(target);
+          else if (target !== null) externals.add(target);
         }
       }
       modules.set(file, { code, deps });
       const st = fs.statSync(file);
       manifest.push([file, st.mtimeMs, st.size]);
+    }
+
+    // Externals are require()d through pre-resolved absolute paths baked into the
+    // emitted registry, so the registry is only valid while those paths still point
+    // at what they pointed at when it was built. Nothing noticed when they did not:
+    // upgrading React served a registry whose baked path was a react directory that
+    // no longer existed, and the fallback produced a second React — a null dispatcher
+    // and React Native singletons that stopped comparing equal.
+    //
+    // Naming the packages in the cache key instead would work only for the ones
+    // somebody remembered to name. Statting the resolved targets covers every
+    // external there is, and covers both node_modules layouts: under bun and pnpm a
+    // version change moves the path, so the stat fails; under a flat npm or yarn tree
+    // the path survives but the file's size and mtime change.
+    for (const target of externals) {
+      try {
+        const st = fs.statSync(target);
+        manifest.push([target, st.mtimeMs, st.size]);
+      } catch {
+        // Not a real file on disk (a native addon resolved elsewhere, a virtual
+        // target). Nothing to pin; the runtime require still decides.
+      }
     }
 
     const files = [...modules.keys()];

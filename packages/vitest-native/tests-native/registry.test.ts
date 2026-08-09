@@ -229,3 +229,62 @@ describe("precompiled RN registry: module semantics", () => {
     expect(typeof real).toBe("function");
   });
 });
+
+/**
+ * The registry inlines React Native's own graph and leaves everything else — react,
+ * invariant, nullthrows, @babel/runtime — as a normal require at a PRE-RESOLVED
+ * absolute path baked into the emitted file. Those paths are only correct while the
+ * packages they point at stay put, so they have to be pinned like React Native's own
+ * files are.
+ *
+ * They were not. Upgrading React served a registry whose baked path pointed at a
+ * react directory that no longer existed; the fallback produced a second React, and
+ * the suite failed with a null dispatcher and RN singletons that stopped comparing
+ * equal. `react` was then named in the cache key, which fixed that one package and
+ * left the rest — the manifest is what covers them all.
+ */
+describe("precompiled RN registry: external dependency pinning", () => {
+  const manifestOf = (registryFile: string): Array<[string, number, number]> =>
+    JSON.parse(fs.readFileSync(`${registryFile}.json`, "utf8")).manifest;
+
+  const isReactNative = (file: string) =>
+    /[\\/]node_modules[\\/](react-native|@react-native)[\\/]/.test(file);
+
+  it("pins React Native's own files", () => {
+    // Control: without this, the assertions below could pass on an empty manifest.
+    const own = manifestOf(build()).filter(([f]) => isReactNative(f));
+    expect(own.length).toBeGreaterThan(100);
+  });
+
+  it("pins the external packages whose resolved paths it bakes in", () => {
+    const external = manifestOf(build()).filter(([f]) => !isReactNative(f));
+    expect(
+      external.length,
+      "no non-React-Native entry is pinned, so upgrading react/invariant/etc cannot invalidate the cache",
+    ).toBeGreaterThan(0);
+
+    const packagesOf = (files: string[]) => {
+      const names = new Set<string>();
+      for (const file of files) {
+        const matches = [...file.matchAll(/node_modules[\\/](@[^\\/]+[\\/][^\\/]+|[^\\/]+)/g)];
+        const last = matches.at(-1);
+        if (last) names.add(last[1].replace(/\\/g, "/"));
+      }
+      return names;
+    };
+    // react is the one that caused a real failure; invariant stands for the rest,
+    // which naming packages in the cache key one at a time would keep missing.
+    const pinned = packagesOf(external.map(([f]) => f));
+    expect([...pinned]).toContain("react");
+    expect([...pinned]).toContain("invariant");
+  });
+
+  it("records each pinned file with the size and mtime the check compares", () => {
+    for (const entry of manifestOf(build()).filter(([f]) => !isReactNative(f))) {
+      const [file, mtimeMs, size] = entry;
+      expect(typeof mtimeMs, `${file} has no mtime`).toBe("number");
+      expect(typeof size, `${file} has no size`).toBe("number");
+      expect(fs.statSync(file).size).toBe(size);
+    }
+  });
+});
