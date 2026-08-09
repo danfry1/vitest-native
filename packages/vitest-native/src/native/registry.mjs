@@ -160,8 +160,10 @@ function ownVersion() {
  * This package's version is in the key for the same reason, covering everything
  * else it contributes — the transform's Babel options, platform resolution, the
  * emitted registry's own shape.
+ *
+ * Exported for tests. Not part of the public surface — see docs/versioning.md.
  */
-function registryKey({ projectRoot, platform, reactNativeVersion }) {
+export function registryKey({ projectRoot, platform, reactNativeVersion }) {
   const req = createRequire(path.join(projectRoot, "package.json"));
   const version = (name) => {
     try {
@@ -195,6 +197,17 @@ function registryKey({ projectRoot, platform, reactNativeVersion }) {
         platform,
         reactNativeVersion,
         version("react-native"),
+        // React Native's modules resolve `react` at runtime, so the registry is only
+        // valid for the React it was built against. This was missing, and the manifest
+        // check below could not cover it: it stats React Native's own files, which do
+        // not change when React alone is upgraded. Upgrading React while staying on the
+        // same React Native therefore served a registry built against the previous one,
+        // and the suite failed with a null React dispatcher ("Cannot read properties of
+        // null (reading 'useContext')") plus React Native singletons that no longer
+        // compared equal — the duplicate-instance failure this cache exists to avoid.
+        // Reproduced by switching between two trees differing only in React's version;
+        // clearing node_modules/.cache/vitest-native was the only way out.
+        version("react"),
         version("@react-native/babel-preset"),
         version("@babel/core"),
         process.env.BABEL_ENV || process.env.NODE_ENV || "none",
