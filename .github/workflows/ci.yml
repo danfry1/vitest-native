@@ -129,6 +129,18 @@ jobs:
         if: runner.os == 'Linux' && matrix.node-version == '22.13.0' && !matrix.rntl
         run: bun run --filter vitest-native check:size
 
+      - name: React Native API coverage (pinned RN)
+        # The README claims the mock engine covers every stable React Native export.
+        # check-compat is what backs that claim, and it ran only in the weekly
+        # compat-check workflow — against react-native@latest, never against the
+        # version actually pinned here. So a pull request that moved the pinned RN
+        # could add stable exports the mock does not cover and still go green, with
+        # the gap surfacing days later as a canary failure against a different
+        # version. One leg is enough: RN is identical across the matrix, only RNTL
+        # varies. The canary keeps its own edge run.
+        if: runner.os == 'Linux' && matrix.node-version == '22.13.0' && !matrix.rntl
+        run: bun run --filter vitest-native check-compat
+
       - name: Test
         run: bun run test
 
