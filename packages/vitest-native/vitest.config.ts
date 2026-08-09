@@ -15,6 +15,9 @@ export default defineConfig({
     // packed tarball; running them here would use this repository's config.
     // `validation/**` is the idiomatic hot-parity oracle — it runs only via its
     // own native-engine configs (and `validate:hot-parity`), never the mock gate.
+    // `ecosystem-probe/**` installs popular third-party packages into its own
+    // project and runs from the packed tarball on a schedule; those packages are
+    // not installed here, so globbing it into this suite fails to resolve them.
     exclude: [
       ...configDefaults.exclude,
       'tests-native/**',
@@ -22,6 +25,7 @@ export default defineConfig({
       'crosscheck/**',
       'consumer-tests/**',
       'validation/**',
+      'ecosystem-probe/**',
     ],
   },
 });

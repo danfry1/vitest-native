@@ -14,3 +14,7 @@ website/.vitepress/dist/
 **/docs/plans/
 docs/superpowers/
 **/docs/real-app-validation/
+
+# The ecosystem probe installs from npm on each run; its lockfile is not pinned
+# on purpose — the point is to resolve what a user would get today.
+packages/vitest-native/ecosystem-probe/package-lock.json
