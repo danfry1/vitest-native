@@ -26,6 +26,26 @@ function packageVersion(root: string, name: string): string | null {
 }
 
 /**
+ * The supported Node floor, as [major, minor], read from this package's own
+ * `engines.node`. Single source: the manifest is what a package manager enforces
+ * at install time, so a diagnostic must not carry its own copy of the number.
+ */
+export function nodeFloor(): [number, number] {
+  const fallback: [number, number] = [20, 19];
+  try {
+    const manifest = JSON.parse(
+      fs.readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+    ) as { engines?: { node?: string } };
+    const match = /(\d+)\.(\d+)/.exec(manifest.engines?.node ?? "");
+    return match ? [Number(match[1]), Number(match[2])] : fallback;
+  } catch {
+    // Bundled layouts can put the manifest elsewhere; a stale-but-close floor is
+    // better than a diagnostic that throws.
+    return fallback;
+  }
+}
+
+/**
  * In Vitest's own precedence order: a `vitest.config.*` wins, and `vite.config.*`
  * is used when there is none.
  *
@@ -203,8 +223,22 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   // --- Runtime ---
   lines.push("", "Runtime");
   const nodeMajorMinor = nodeVersion.split(".").slice(0, 2).map(Number);
-  if (nodeMajorMinor[0] >= 20) pass(`Node ${nodeVersion} (floor: 20)`);
-  else fail(`Node ${nodeVersion} — vitest-native requires Node >= 20.`);
+  // The floor is read from this package's own `engines.node` rather than written
+  // out here. It was hardcoded as 20, and compared on the MAJOR only, so when the
+  // real floor moved to 20.19 — the version that added require(esm), which the
+  // root entry point now depends on — doctor kept passing Node 20.0 and kept
+  // printing "floor: 20". A number a user reads off a diagnostic has to come from
+  // the same place the runtime enforces it.
+  const [floorMajor, floorMinor] = nodeFloor();
+  const floorText = `${floorMajor}.${floorMinor}`;
+  if (
+    nodeMajorMinor[0] > floorMajor ||
+    (nodeMajorMinor[0] === floorMajor && nodeMajorMinor[1] >= floorMinor)
+  ) {
+    pass(`Node ${nodeVersion} (floor: ${floorText})`);
+  } else {
+    fail(`Node ${nodeVersion} — vitest-native requires Node >= ${floorText}.`);
+  }
 
   // --- Required peers ---
   lines.push("", "Peer dependencies");
@@ -277,6 +311,19 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
       fail(
         `@testing-library/react-native ${rntl} requires Node >= 22.13, but this is Node ${nodeVersion}. ` +
           `Upgrade Node or pin @testing-library/react-native@13.`,
+      );
+    } else if (rntlMajor >= 14 && !packageVersion(rootFor("test-renderer"), "test-renderer")) {
+      // RNTL 14 declares `test-renderer` as a NON-optional peer and reconciles
+      // through it. Without it every render throws "Cannot find module
+      // 'test-renderer'" — no file, no package, nothing pointing at the cause —
+      // while doctor reported no blocking problems. Installing RNTL 14 without its
+      // peer is easy: npm only warns, and any `--legacy-peer-deps` install is
+      // silent. This is blocking rather than a warning: RNTL itself is optional,
+      // but once RNTL 14 is present every render() in the project fails.
+      fail(
+        `@testing-library/react-native ${rntl} requires the 'test-renderer' package, which is not installed. ` +
+          `Every render() will fail with "Cannot find module 'test-renderer'". ` +
+          `Install it:\n\n  npm install -D test-renderer\n`,
       );
     } else {
       pass(
