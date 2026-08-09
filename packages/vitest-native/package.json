@@ -24,19 +24,13 @@
     "expo",
     "react"
   ],
-  "main": "./dist/index.cjs",
+  "main": "./dist/index.mjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
   "exports": {
     ".": {
-      "import": {
-        "types": "./dist/index.d.mts",
-        "default": "./dist/index.mjs"
-      },
-      "require": {
-        "types": "./dist/index.d.cts",
-        "default": "./dist/index.cjs"
-      }
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
     },
     "./helpers": {
       "import": {
@@ -49,14 +43,8 @@
       }
     },
     "./setup": {
-      "import": {
-        "types": "./dist/setup.d.mts",
-        "default": "./dist/setup.mjs"
-      },
-      "require": {
-        "types": "./dist/setup.d.cts",
-        "default": "./dist/setup.cjs"
-      }
+      "types": "./dist/setup.d.mts",
+      "default": "./dist/setup.mjs"
     },
     "./serializer": {
       "import": {
@@ -69,14 +57,8 @@
       }
     },
     "./presets": {
-      "import": {
-        "types": "./dist/presets.d.mts",
-        "default": "./dist/presets.mjs"
-      },
-      "require": {
-        "types": "./dist/presets.d.cts",
-        "default": "./dist/presets.cjs"
-      }
+      "types": "./dist/presets.d.mts",
+      "default": "./dist/presets.mjs"
     },
     "./matchers": {
       "import": {
@@ -121,10 +103,9 @@
     "CHANGELOG.md"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=20.19.0"
   },
   "sideEffects": [
-    "./dist/setup.cjs",
     "./dist/setup.mjs",
     "./dist/jest-compat/setup.mjs",
     "./dist/native/*.mjs"

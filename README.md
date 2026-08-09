@@ -88,7 +88,7 @@ describe('MyComponent', () => {
 
 ## Requirements
 
-- **Node.js** >= 20
+- **Node.js** >= 20.19 (the version that added `require(esm)`)
 - **Vitest** 4.x or 5.x (both run the full gate in CI)
 - **Vite** ^6.4.2, ^7.3.2, or ^8.0.5
 - **React** >= 18

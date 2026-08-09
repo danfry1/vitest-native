@@ -77,21 +77,16 @@ describe("declared package entry points", () => {
 
 /**
  * Existing on disk is not the same as loading. Every check above is satisfied by a
- * file that throws the moment it is required — and three of the declared CJS entries
- * do exactly that, which nothing noticed because nothing ever loaded them.
+ * file that throws the moment it is required.
  *
- * The cause is `export * as presets` in the root entry: each preset imports `vi` from
- * vitest at module scope, so the root CJS bundle requires vitest, and vitest refuses
- * to be required from CommonJS. Every `vi` call itself sits inside a preset factory,
- * which only ever runs inside a worker, so the import is the only thing that needs to
- * move — but that is a change to how the presets are written, not to this list.
+ * Three declared CJS entries used to do exactly that. `export * as presets` in the
+ * root entry pulls in every preset, each of which imports `vi` from vitest at module
+ * scope, so the root CJS bundle required vitest — and vitest throws when it is reached
+ * through require(). The build no longer emits those CJS bundles: `exports` points
+ * both conditions at the single .mjs build, which Node >= 20.19 loads from CommonJS
+ * through require(esm). `engines` pins that floor.
  */
-const KNOWN_UNLOADABLE: Record<string, string> = {
-  "./dist/index.cjs":
-    "re-exports the presets, which import vitest at module scope; vitest cannot be required from CJS",
-  "./dist/presets.cjs": "presets import vitest at module scope",
-  "./dist/setup.cjs": "imports vitest at module scope",
-};
+const KNOWN_UNLOADABLE: Record<string, string> = {};
 
 /** Declared targets that are executable code rather than type declarations. */
 function runtimeTargets(): string[] {
@@ -126,5 +121,66 @@ describe("declared entry points load", () => {
     }
     expect(failures, `declared entry points that do not load:\n${failures.join("\n")}`).toEqual([]);
     expect(unexpectedlyFine, "these load now — remove them from KNOWN_UNLOADABLE").toEqual([]);
+  });
+
+  // An excuse for a target nothing declares any more reads as coverage while
+  // guarding nothing. The list must only ever describe entries that still ship.
+  it.runIf(distExists)("keeps no excuse for a target the manifest no longer declares", () => {
+    const declared = new Set(runtimeTargets());
+    const stale = Object.keys(KNOWN_UNLOADABLE).filter((t) => !declared.has(t));
+    expect(
+      stale,
+      `KNOWN_UNLOADABLE names targets that are not declared:\n${stale.join("\n")}`,
+    ).toEqual([]);
+  });
+});
+
+/**
+ * Loading a file by path proves the file works; it does not prove the manifest points
+ * a consumer at it. The bug this suite was written for was invisible from the path
+ * side — `dist/index.mjs` loaded fine the whole time — and only showed up through the
+ * specifier, under the condition a CommonJS consumer actually resolves.
+ *
+ * Node resolves a package's own name against its `exports`, so these are the real
+ * consumer paths, not an approximation of them.
+ */
+describe("declared subpaths load through the export map", () => {
+  const specifiers = () =>
+    Object.keys(manifest.exports).map((sub) =>
+      sub === "." ? "vitest-native" : `vitest-native/${sub.slice(2)}`,
+    );
+
+  /** Subpaths that declare no runtime target — types-only, so nothing to execute. */
+  const TYPES_ONLY = new Set(["vitest-native/rntl-matchers"]);
+
+  it.runIf(distExists)("resolves and requires every subpath from CommonJS", () => {
+    const require_ = createRequire(path.join(packageRoot, "package.json"));
+    const failures: string[] = [];
+    for (const spec of specifiers()) {
+      if (TYPES_ONLY.has(spec)) continue;
+      try {
+        require_(spec);
+      } catch (caught) {
+        // A subpath with no `require` condition is a deliberate ESM-only entry;
+        // Node reports that as a resolution error, which is honest and expected.
+        const err = caught as NodeJS.ErrnoException;
+        if (err.code === "ERR_PACKAGE_PATH_NOT_EXPORTED") continue;
+        failures.push(`${spec}: ${String(err.message).split("\n")[0]}`);
+      }
+    }
+    expect(failures, `subpaths that fail to require:\n${failures.join("\n")}`).toEqual([]);
+  });
+
+  it.runIf(distExists)("resolves and imports every subpath from ESM", async () => {
+    const failures: string[] = [];
+    for (const spec of specifiers()) {
+      if (TYPES_ONLY.has(spec)) continue;
+      try {
+        await import(spec);
+      } catch (caught) {
+        failures.push(`${spec}: ${String((caught as Error).message).split("\n")[0]}`);
+      }
+    }
+    expect(failures, `subpaths that fail to import:\n${failures.join("\n")}`).toEqual([]);
   });
 });
