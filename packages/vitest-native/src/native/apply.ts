@@ -26,6 +26,12 @@ function resolvePackageDir(name: string, projectRoot: string): string | null {
   }
 }
 
+/**
+ * A test/spec file outside any installed package — i.e. one Vitest may be running as
+ * an entry rather than something a module imports.
+ */
+const FIRST_PARTY_TEST_FILE = /^(?!.*[\\/]node_modules[\\/]).*\.(?:test|spec)\.[cm]?[jt]sx?$/;
+
 export type JsxTransformConfig =
   | { esbuild: { jsx: "automatic" } }
   | { oxc: { jsx: { runtime: "automatic" } } };
@@ -148,6 +154,17 @@ export function nativeEngineConfig(
         : { pool: (userPool ?? "threads") as "threads" }),
       server: {
         deps: {
+          // A test file is an entry Vitest owns, never a dependency — but the
+          // externalization patterns below are directories, and a detected workspace
+          // library can be the very package whose tests are running (an Nx-style run
+          // from the repository root collects them from inside it). Externalizing an
+          // entry hands Vitest's own graph to Node, where the loader compiles it to
+          // CommonJS and `import { it } from 'vitest'` becomes `require('vitest')` —
+          // which throws outright. `inline` is checked before `external`, so this
+          // keeps entries in Vite's graph whatever the directory patterns say.
+          // Restricted to first-party paths: a test file shipped inside an installed
+          // package is not an entry, and nothing imports it.
+          inline: [FIRST_PARTY_TEST_FILE],
           external: [
             /[\\/]node_modules[\\/]react-native[\\/]/,
             /[\\/]node_modules[\\/]@react-native[\\/]/,

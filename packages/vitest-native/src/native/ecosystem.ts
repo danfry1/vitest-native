@@ -199,11 +199,59 @@ export function detectEcosystemPackages(
     return null;
   };
 
+  const rootDirs = roots.map((root) => path.resolve(root));
+
+  /**
+   * Is this candidate the package the run itself lives in?
+   *
+   * In a workspace, the package under test is usually declared as a dependency by a
+   * sibling or by the repository root, so it appears in the candidate set like any
+   * third-party library — and it declares React Native, because it is React Native
+   * code. Detection would then claim the project's own source: its directory becomes
+   * a `server.deps.external` pattern, so Vitest hands every file under it to Node,
+   * where the loader compiles it to CommonJS. A test file's own
+   * `import { it } from 'vitest'` becomes `require('vitest')`, which throws
+   * "Vitest cannot be imported in a CommonJS module using require()" — a failure that
+   * appears in one workspace package and not another for no visible reason.
+   *
+   * Under pnpm this is not exotic: every workspace package is linked into
+   * `node_modules/.pnpm/node_modules`, which pnpm puts on NODE_PATH, so a package
+   * resolves its own name from its own directory.
+   *
+   * A package cannot be its own dependency, so a directory containing the run root
+   * is the project, not something to externalize. Workspace libraries the project
+   * merely depends on sit beside the root rather than above it and are unaffected —
+   * detecting those is the point (see the workspace-member walk above).
+   */
+  const runOwner = new Map<string, boolean>();
+  const ownsTheRun = (name: string): boolean => {
+    const memo = runOwner.get(name);
+    if (memo !== undefined) return memo;
+    // Every resolver is asked, not just the first to answer: a name can resolve to
+    // more than one directory in a workspace, and it is enough for ONE of them to be
+    // the package the run is in.
+    let owns = false;
+    for (const req of requires) {
+      let dir: string;
+      try {
+        dir = path.dirname(req.resolve(`${name}/package.json`));
+      } catch {
+        continue; // Not resolvable from this root — try the next one.
+      }
+      if (rootDirs.some((root) => root === dir || root.startsWith(dir + path.sep))) {
+        owns = true;
+        break;
+      }
+    }
+    runOwner.set(name, owns);
+    return owns;
+  };
+
   const detected: string[] = [];
   for (const name of candidates) {
     if (skip.has(name) || name.startsWith("@react-native/")) continue;
     const pkg = manifestOf(name);
-    if (pkg && dependsOnReactNative(pkg)) detected.push(name);
+    if (pkg && dependsOnReactNative(pkg) && !ownsTheRun(name)) detected.push(name);
   }
 
   // A detected package's own runtime dependencies are React Native code too, and the
@@ -266,6 +314,9 @@ export function detectEcosystemPackages(
       if (inClosure.has(dep) || skip.has(dep) || dep.startsWith("@react-native/")) continue;
       if (rnOwned.has(dep)) continue;
       if (toolchain.has(dep)) continue;
+      // A sibling that depends on the package under test would otherwise pull it
+      // back in here, past the check above.
+      if (ownsTheRun(dep)) continue;
       if (!manifestOf(dep)) continue; // declared but not installed
       inClosure.add(dep);
       queue.push(dep);

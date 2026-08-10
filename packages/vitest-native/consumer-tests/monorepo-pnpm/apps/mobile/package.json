@@ -1,0 +1,20 @@
+{
+  "name": "@consumer/mobile",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@consumer/ui": "workspace:*",
+    "react": "19.2.4",
+    "react-native": "0.85.3"
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.7",
+    "@react-native/babel-preset": "0.85.3",
+    "@testing-library/react-native": "14.0.0",
+    "test-renderer": "1.2.0",
+    "vitest": "4.1.8"
+  }
+}
