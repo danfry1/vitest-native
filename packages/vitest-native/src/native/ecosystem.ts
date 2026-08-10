@@ -309,7 +309,26 @@ export function detectEcosystemPackages(
   // reached Babel and then Babel's own dependencies (chalk among them). Both blew up
   // the packed Expo consumer, and neither reproduced in a synthetic fixture. Excluding
   // the toolchain by name would be a list that rots; its closure computes itself.
-  const toolchain = closureOf(["@babel/core", "@react-native/babel-preset"]);
+  //
+  // `@babel/runtime` and `metro` seed it alongside them, and are not reachable from
+  // `@babel/core`. `@babel/runtime` holds the helpers Babel EMITS, so compiled output
+  // across the ecosystem requires it at run time — including React Native's own. Metro
+  // is the bundler the preset belongs to, and its `lru-cache` chain (`yallist`) is
+  // loaded the same way. Both were handed to the transform by an Expo application's
+  // dependency closure, and compiling them re-enters Babel mid-initialisation: the
+  // reported `Cannot access 'v' before initialization`, naming a file the project never
+  // mentioned.
+  //
+  // Seeds, not names: what each of these reaches is computed, so the list does not rot
+  // as the toolchain's own dependencies change. They are skipped only as CLOSURE
+  // MEMBERS — a project that genuinely depends on one still has it detected on its own
+  // manifest, exactly as before.
+  const toolchain = closureOf([
+    "@babel/core",
+    "@react-native/babel-preset",
+    "@babel/runtime",
+    "metro",
+  ]);
 
   // Only packages the RUN can actually reach seed the walk.
   //

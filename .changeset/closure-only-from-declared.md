@@ -41,5 +41,17 @@ is linked into a hidden directory placed on `NODE_PATH`, so a sibling's dependen
 do resolve from the package under test at run time, and testing reachability instead
 lets all of them straight back through.
 
+`@babel/runtime` and `metro` also now seed the toolchain exclusion, alongside
+`@babel/core` and the React Native Babel preset. Neither is reachable from
+`@babel/core`, so the existing exclusion let both through. `@babel/runtime` holds the
+helpers Babel *emits*, so compiled output across the ecosystem requires it at run
+time; Metro is the bundler the preset belongs to, and its `lru-cache` chain — the
+`yallist` in the report — is loaded the same way. This matters beyond the reported
+shape: an Expo application running its own tests declares `expo` legitimately, so its
+closure is walked and the same packages arrive by a route the change above does not
+affect.
+
 In the two-package reproduction the transform set drops from 253 packages to 5 — the
-declared dependency and its genuine closure.
+declared dependency and its genuine closure. For an Expo application testing itself it
+drops from 251 to 171, with `@babel/runtime`, `yallist` and Metro's cache chain no
+longer among them.

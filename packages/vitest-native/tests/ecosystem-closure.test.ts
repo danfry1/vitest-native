@@ -104,6 +104,33 @@ describe("ecosystem detection: dependency closure", () => {
     expect(detected).toContain("safe-dep");
   });
 
+  it("excludes Babel's emitted helpers and Metro, which @babel/core does not reach", () => {
+    // The gap that broke 0.11.0 for Expo projects. `@babel/runtime` holds the helpers
+    // Babel EMITS, so compiled output across the ecosystem — React Native's included —
+    // requires it at run time; Metro is the bundler the preset belongs to, and its
+    // lru-cache chain is loaded the same way. Neither is reachable from `@babel/core`,
+    // so the original exclusion let both through, and compiling them re-entered Babel
+    // while it was initialising.
+    const root = project(["expo-ish"], {
+      "react-native": {},
+      "expo-ish": { peerDeps: ["react-native"], deps: ["@babel/runtime", "metro", "safe-dep"] },
+      "@babel/runtime": { deps: ["regenerator-ish"] },
+      "regenerator-ish": {},
+      metro: { deps: ["lru-cache-ish"] },
+      "lru-cache-ish": { deps: ["yallist-ish"] },
+      "yallist-ish": {},
+      "safe-dep": {},
+    });
+    const detected = detectEcosystemPackages(root);
+    expect(detected).not.toContain("@babel/runtime");
+    expect(detected, "a package Babel's helpers depend on").not.toContain("regenerator-ish");
+    expect(detected).not.toContain("metro");
+    expect(detected, "Metro's cache chain, how yallist arrived").not.toContain("yallist-ish");
+    // The rest of the package's closure is still compiled — the exclusion is scoped
+    // to the toolchain, not to everything a toolchain-using package depends on.
+    expect(detected).toContain("safe-dep");
+  });
+
   it("does not reach a package that nothing in the closure depends on", () => {
     const root = project(["rn-lib", "unrelated"], {
       "react-native": {},
