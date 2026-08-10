@@ -51,6 +51,17 @@ Two changes:
   leaving the engine's most duplication-sensitive package externalized and compiled
   as though it were untranspiled React Native source.
 
+One case remains where a package can still end up in both graphs, and it is now
+reported rather than silent: when an installed React Native package depends on the
+very package whose tests are running, Node loads that package's source alongside
+Vite's copy, and module-level state stops being shared. The engine warns, naming the
+file and the package that required it. It cannot be resolved by choosing an owner —
+the dependency is usually declared but never loaded, and honouring it would put the
+project's own test files back in Node's graph.
+
+The ownership rule the engine follows is written down in the header of
+`native/apply.ts`.
+
 The consumer suite now runs the workspace library's own tests, from inside the package
 and from the workspace root, and the whole monorepo fixture is exercised under pnpm as
 well as npm.

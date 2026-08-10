@@ -1,7 +1,43 @@
 /**
- * Vite/Vitest config fragment for the native engine. RN is externalized so it
- * loads through Node's single CJS graph, where the native setup file's hooks
- * Flow-strip it and mock the native boundary.
+ * Vite/Vitest config fragment for the native engine.
+ *
+ * # Module ownership
+ *
+ * The native engine runs two module systems at once, and every rule in this file
+ * exists to serve one invariant:
+ *
+ *   **Exactly one of them owns any given package, for the duration of a run.**
+ *
+ * Two graphs is fine. Two *copies* is the bug, and it is silent: nothing throws,
+ * module-level state simply stops being shared, so a store written through one copy
+ * reads back unset through the other and a translated label renders as "". Note the
+ * invariant is one OWNER, not one path — two graphs resolving to the same file still
+ * produce two instances (see the duplicate-instance warning in hooks.mjs).
+ *
+ * Who owns what, and why:
+ *
+ * - **Node owns React Native and `@react-native/*`.** Not a preference: the Flow
+ *   strip, the Babel transform, the boundary mocks and the precompiled registry are
+ *   all implemented as Node loader hooks. This is the engine.
+ * - **Node owns installed React Native packages** — those declaring `react-native` in
+ *   their own manifest — and their dependency closures. They ship source Node cannot
+ *   run unaided (untranspiled JSX, Flow, TypeScript), they are reachable from React
+ *   Native's own require graph, and the same hooks compile them.
+ * - **Vite owns all first-party source**: the application, and the whole of the
+ *   package under test. Its `react-native` imports cross into Node's single React
+ *   Native instance exactly as application code's always have.
+ * - **Vite owns every test entry**, unconditionally. A test file is something Vitest
+ *   runs, never something a module imports. Handing one to Node compiles it to
+ *   CommonJS, and its own `import { it } from 'vitest'` becomes `require('vitest')`,
+ *   which throws.
+ * - **Never claimed by either rule above**: the test library, the renderers, and
+ *   React itself (see NEVER_INLINE in ecosystem.ts). The engine wires these up; a
+ *   second copy of any of them corrupts rendering.
+ *
+ * The consequence worth knowing: a workspace library is Vite-owned when it is the
+ * package under test and Node-owned when the run merely depends on it. Ownership
+ * follows what is under test. The invariant still holds — one owner per run — but the
+ * same library is not hosted identically by both kinds of run.
  */
 /** Escape a package name for use inside a RegExp character-delimited path match. */
 function escapeRe(s: string): string {

@@ -103,6 +103,17 @@ export function testIncludeRoots(include: unknown, projectRoot: string): string[
   return [...dirs];
 }
 
+/** The nearest directory at or above `from` holding a package.json, or null. */
+function nearestPackageDir(from: string): string | null {
+  let dir = path.resolve(from);
+  for (;;) {
+    if (fs.existsSync(path.join(dir, "package.json"))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
 function resolvePackageVersion(packageName: string, projectRoot: string): string | null {
   const req = createRequire(path.join(projectRoot, "package.json"));
   try {
@@ -911,6 +922,21 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           transformPkgs,
           includeRoots,
         );
+        // The directories Vite owns outright. Handed to the worker so the require
+        // hook can say so if Node loads one of their files anyway — which happens
+        // when an installed React Native package depends on the very package whose
+        // tests are running, and whose only symptom otherwise is state that reads
+        // back unset. See checkProjectSourceLoadedByNode in native/hooks.mjs.
+        const projectDirs = [
+          ...new Set(
+            [resolvedRoot, ...includeRoots]
+              .map((dir) => nearestPackageDir(dir))
+              .filter((dir): dir is string => dir !== null),
+          ),
+        ];
+        if (projectDirs.length > 0) {
+          env.VITEST_NATIVE_PROJECT_DIRS = JSON.stringify(projectDirs);
+        }
         if (ecosystem.length > 0) {
           ecosystemRoot = resolvedRoot;
           // Anchored on node_modules: a bare `[/\\]name[/\\]` match also hits any

@@ -22,7 +22,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { _resetDuplicateReports, checkResolverAgreement } from "../src/native/hooks.mjs";
+import {
+  _resetDuplicateReports,
+  checkProjectSourceLoadedByNode,
+  checkResolverAgreement,
+} from "../src/native/hooks.mjs";
 
 const roots: string[] = [];
 afterAll(() => {
@@ -117,6 +121,80 @@ describe("resolver agreement", () => {
     expect(() =>
       checkResolverAgreement("ghost", path.join(os.tmpdir(), "node_modules", "ghost", "i.js")),
     ).not.toThrow();
+    expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The same silent failure reached from the other direction.
+ *
+ * Above, the two graphs disagree about which FILE a package is. Here they agree on
+ * the file and still hold separate instances: the package under test belongs to
+ * Vite, and an installed React Native package requires it through Node as well. The
+ * symptom is identical and just as quiet — a store configured through one copy reads
+ * back unset through the other — and it is reachable in an ordinary monorepo, so it
+ * gets a warning rather than a paragraph in the docs.
+ */
+describe("Node loading the project's own source", () => {
+  const project = "/repo/packages/ui";
+  const dirs = [project];
+  const from = (filename: string) => ({ filename });
+
+  let warn: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    _resetDuplicateReports();
+    warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warn.mockRestore();
+    _resetDuplicateReports();
+  });
+
+  it("warns when an installed package requires the package under test", () => {
+    checkProjectSourceLoadedByNode(
+      `${project}/lib/index.cjs`,
+      from("/repo/node_modules/some-rn-lib/index.js"),
+      dirs,
+    );
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn.mock.calls[0][0]).toContain("package under test");
+    expect(warn.mock.calls[0][0]).toContain("some-rn-lib");
+  });
+
+  it("reports each file once", () => {
+    const requirer = from("/repo/node_modules/some-rn-lib/index.js");
+    checkProjectSourceLoadedByNode(`${project}/lib/index.cjs`, requirer, dirs);
+    checkProjectSourceLoadedByNode(`${project}/lib/index.cjs`, requirer, dirs);
+    expect(warn).toHaveBeenCalledOnce();
+  });
+
+  it("says nothing about the project's own dependencies", () => {
+    // The project directory contains its own node_modules, so every installed
+    // package sits underneath it by path alone.
+    checkProjectSourceLoadedByNode(
+      `${project}/node_modules/some-rn-lib/index.js`,
+      from("/repo/node_modules/other/index.js"),
+      dirs,
+    );
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("says nothing when the test reaches into its own source deliberately", () => {
+    // `jest.requireActual('./src/thing')` is Node loading project files on purpose.
+    checkProjectSourceLoadedByNode(
+      `${project}/src/thing.ts`,
+      from(`${project}/src/a.test.ts`),
+      dirs,
+    );
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("says nothing when no project directory is known", () => {
+    checkProjectSourceLoadedByNode(
+      `${project}/lib/index.cjs`,
+      from("/repo/node_modules/some-rn-lib/index.js"),
+      [],
+    );
     expect(warn).not.toHaveBeenCalled();
   });
 });

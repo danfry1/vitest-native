@@ -10,6 +10,10 @@ import { containsPath } from "./paths.js";
  * engine itself wires up; pulling a second copy of them into the module graph has
  * corrupted rendering before, in ways that surface as unrelated act() and
  * host-component failures.
+ *
+ * This list is one clause of the ownership rule; the whole of it is written down in
+ * the header of native/apply.ts, which is the file to read before changing what ends
+ * up in either graph.
  */
 const NEVER_INLINE = new Set([
   "@testing-library/react-native",

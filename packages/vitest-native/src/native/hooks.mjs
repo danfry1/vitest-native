@@ -37,10 +37,67 @@ const NODE_MODULES = /[\\/]node_modules[\\/]/;
 const VITE_MAIN_FIELDS = ["react-native", "module", "jsnext:main", "jsnext"];
 
 const reportedDuplicates = new Set();
+const reportedProjectLoads = new Set();
 
 /** Test seam: the warning is once per package for the life of the worker. */
 export function _resetDuplicateReports() {
   reportedDuplicates.clear();
+  reportedProjectLoads.clear();
+}
+
+/**
+ * Directories Vite owns outright: the package the run lives in, and any package a
+ * `test.include` pattern points into (see plugin.ts). Read from the environment
+ * because it has to cross into the worker.
+ */
+function projectDirs() {
+  try {
+    return JSON.parse(process.env.VITEST_NATIVE_PROJECT_DIRS || "[]").map(
+      (dir) => dir.replace(/\\/g, "/").replace(/\/+$/, "") + "/",
+    );
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Say so when Node loads the project's own source.
+ *
+ * The package under test is Vite's (see the ownership rule in apply.ts). If an
+ * installed package requires it as well, it exists twice — once in each graph — and
+ * the symptom is silence: a store configured through the test's copy reads back unset
+ * through the copy the library sees, so an assertion compares "" against the expected
+ * text with nothing pointing at the cause. It is the same failure the
+ * duplicate-instance warning above covers, arrived at from the other direction: there
+ * the two graphs disagree about which FILE the package is, here they agree on the file
+ * and still hold separate instances of it.
+ *
+ * Only reported when the requirer is an installed package. A test reaching into its
+ * own source deliberately — `jest.requireActual('./src/thing')` — is Node loading
+ * project files on purpose, and is not this.
+ */
+export function checkProjectSourceLoadedByNode(resolved, parent, dirs = projectDirs()) {
+  if (dirs.length === 0 || typeof resolved !== "string") return;
+  const file = resolved.replace(/\\/g, "/");
+  // Project source never lives under node_modules, and the project directory
+  // contains its own node_modules — so this has to be excluded explicitly.
+  if (file.includes("/node_modules/")) return;
+  if (!dirs.some((dir) => file.startsWith(dir))) return;
+  const from = parent && parent.filename ? parent.filename.replace(/\\/g, "/") : "";
+  if (!NODE_MODULES.test(from) || from.includes("/vitest-native/dist/")) return;
+  if (reportedProjectLoads.has(file)) return;
+  reportedProjectLoads.add(file);
+  console.warn(
+    `[vitest-native] Node loaded a file from the package under test.\n` +
+      `  file      ->  ${resolved}\n` +
+      `  required by ->  ${parent.filename}\n` +
+      "  The package under test belongs to Vite's graph, so it now exists twice — once\n" +
+      "  in each module system — and module-level state is not shared between the copies.\n" +
+      "  Nothing throws: writes through one are invisible to the other, so values read back\n" +
+      "  unset. This happens when an installed React Native package depends on the very\n" +
+      "  package whose tests are running. Import it from one side only, or test it from a\n" +
+      "  package that does not sit underneath the dependency.",
+  );
 }
 function reportDuplicateInstance(pkg, nodeFile, viteFile, field) {
   reportedDuplicates.add(pkg);
@@ -211,6 +268,7 @@ export function installRequireHooks(
     }
     const resolved = origResolve.call(this, request, parent, ...rest);
     checkResolverAgreement(request, resolved);
+    checkProjectSourceLoadedByNode(resolved, parent);
     return resolved;
   };
 
