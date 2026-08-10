@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
-import { containsPath } from "./paths.js";
+import { containsPath } from "./match.mjs";
 
 /**
  * Packages that must never be auto-inlined even though they depend on React

@@ -39,54 +39,8 @@
  * follows what is under test. The invariant still holds — one owner per run — but the
  * same library is not hosted identically by both kinds of run.
  */
-/** Escape a package name for use inside a RegExp character-delimited path match. */
-function escapeRe(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-import { createRequire } from "node:module";
-import path from "node:path";
 import type { PoolRunnerInitializer } from "vitest/node";
-import { containsPath } from "./paths.js";
-
-/**
- * The on-disk directory a package resolves to, or null. Used alongside the
- * node_modules-anchored patterns so workspace and `file:` dependencies — which
- * resolve to a real path with no node_modules segment — are matched too.
- */
-function resolvePackageDir(name: string, projectRoot: string): string | null {
-  try {
-    const req = createRequire(path.join(projectRoot, "package.json"));
-    return path.dirname(req.resolve(`${name}/package.json`));
-  } catch {
-    return null;
-  }
-}
-
-/**
- * The patterns that externalize a package: under `node_modules/<name>/`, and inside
- * the directory it resolves to — the second being what covers workspace and `file:`
- * links, which have no `node_modules` segment at all.
- *
- * The resolved-directory anchor is dropped when that directory CONTAINS the project
- * root, because then it is the project. Externalizing it hands Vitest its own source
- * and test files back through Node, which compiles them to CommonJS: a test file's
- * `import { it } from 'vitest'` becomes `require('vitest')` and throws, and any
- * first-party module using `import.meta` dies with a SyntaxError.
- *
- * Auto-detection already refuses to claim the project (see ecosystem.ts), but
- * `transform: [...]` names packages by hand and reaches this code without passing
- * through detection — so a project naming its own package there, which a migrated
- * Jest `transformIgnorePatterns` list can easily produce, hit exactly the same wall.
- */
-function externalPatternsFor(name: string, projectRoot: string): RegExp[] {
-  const patterns = [new RegExp(`[\\\\/]node_modules[\\\\/]${escapeRe(name)}[\\\\/]`)];
-  const dir = resolvePackageDir(name, projectRoot);
-  if (dir && !containsPath(dir, projectRoot)) {
-    patterns.push(new RegExp(`^${escapeRe(dir.replace(/\\/g, "/"))}[\\\\/]`));
-  }
-  return patterns;
-}
+import { REACT_NATIVE_PATH, packagePatterns } from "./match.mjs";
 
 /**
  * Files outside any installed package that Vitest may be running as an ENTRY rather
@@ -127,7 +81,7 @@ export function nativeEngineConfig(
   // externalized unrelated files — including this package's own runtime when a
   // project folder happened to share the name. The resolved directory covers
   // workspace and `file:` links, which have no node_modules segment at all.
-  const extraExternal = transformPkgs.flatMap((p) => externalPatternsFor(p, projectRoot));
+  const extraExternal = transformPkgs.flatMap((p) => packagePatterns(p, projectRoot));
   // Auto-detected React Native packages are externalized too, and transformed by the
   // Node hooks alongside everything else.
   //
@@ -142,7 +96,7 @@ export function nativeEngineConfig(
   // consequence of Vitest's externalization heuristics. Both properties inlining was
   // there to provide are kept, and were measured rather than assumed: vi.mock still
   // intercepts, and module state still resets between test files.
-  const ecosystemExternal = inlinePkgs.flatMap((p) => externalPatternsFor(p, projectRoot));
+  const ecosystemExternal = inlinePkgs.flatMap((p) => packagePatterns(p, projectRoot));
   // The Node hooks transform whatever they are told to; ecosystem packages now load
   // through them, so they belong in that list rather than in Vite's.
   const nodeTransformed = [...new Set([...transformPkgs, ...inlinePkgs])];
@@ -232,8 +186,9 @@ export function nativeEngineConfig(
           // no tests run at all.
           ...(userInlinesEverything ? {} : { inline: TEST_ENTRY_PATTERNS }),
           external: [
-            /[\\/]node_modules[\\/]react-native[\\/]/,
-            /[\\/]node_modules[\\/]@react-native[\\/]/,
+            // React Native and @react-native/* — the one assignment that is not a
+            // choice, since the hooks that make them loadable live in Node.
+            REACT_NATIVE_PATH,
             ...extraExternal,
             ...ecosystemExternal,
           ],

@@ -26,6 +26,7 @@
 // through to the per-file hooks in hooks.mjs / loader.mjs, and a failed build leaves
 // the engine running exactly as it did before.
 import Module from "node:module";
+import { REACT_NATIVE_PATH } from "./match.mjs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import fs from "node:fs";
@@ -83,7 +84,6 @@ export function _resetRegistryFailureReports() {
   reportedRegistryFailures.clear();
 }
 
-const RN_PATH = /[\\/]node_modules[\\/](react-native|@react-native)[\\/]/;
 // Bump when the emitted registry's shape or the walk's semantics change, so a
 // stale on-disk registry from an older vitest-native can never be reused.
 const REGISTRY_FORMAT_VERSION = 2;
@@ -445,7 +445,7 @@ export function buildRegistry({
           // identity and are shared with the rest of the worker.
           const internal =
             target !== null &&
-            RN_PATH.test(target.replace(/\\/g, "/")) &&
+            REACT_NATIVE_PATH.test(target.replace(/\\/g, "/")) &&
             !PASSTHROUGH_EXT.has(path.extname(target).toLowerCase());
           deps[request] = target;
           if (internal) queue.push(target);

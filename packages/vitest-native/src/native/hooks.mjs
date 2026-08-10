@@ -6,15 +6,20 @@ import fs from "node:fs";
 import { transformRN, isFlow } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import { resolvePlatformFile } from "./resolve.mjs";
-import { buildPkgMatcher, packageNameOf, subpathLeafOf, isUtilitySubpath } from "./match.mjs";
+import {
+  NODE_MODULES_PATH,
+  REACT_NATIVE_PATH,
+  buildPkgMatcher,
+  isUtilitySubpath,
+  packageNameOf,
+  subpathLeafOf,
+} from "./match.mjs";
 import { explainUntransformedSyntaxError } from "./explain.mjs";
 
-const RN_PATH = /[\\/]node_modules[\\/](react-native|@react-native)[\\/]/;
 // Any file under a node_modules directory. Platform-extension resolution
 // (`.native.js` etc.) applies to every node_modules package, not just RN — matching
 // Metro, which resolves platform variants project-wide. See loader.mjs for the
 // ESM-path counterpart and the @react-navigation silent-failure this prevents.
-const NODE_MODULES = /[\\/]node_modules[\\/]/;
 
 // Guarded via globalThis, not module scope: under the hot runtime this module
 // can be evaluated twice in one worker (once by the worker entry through Node's
@@ -84,7 +89,7 @@ export function checkProjectSourceLoadedByNode(resolved, parent, dirs = projectD
   if (file.includes("/node_modules/")) return;
   if (!dirs.some((dir) => file.startsWith(dir))) return;
   const from = parent && parent.filename ? parent.filename.replace(/\\/g, "/") : "";
-  if (!NODE_MODULES.test(from) || from.includes("/vitest-native/dist/")) return;
+  if (!NODE_MODULES_PATH.test(from) || from.includes("/vitest-native/dist/")) return;
   if (reportedProjectLoads.has(file)) return;
   reportedProjectLoads.add(file);
   console.warn(
@@ -254,8 +259,8 @@ export function installRequireHooks(
     if (
       parent &&
       parent.filename &&
-      (NODE_MODULES.test(parent.filename) ||
-        RN_PATH.test(parent.filename) ||
+      (NODE_MODULES_PATH.test(parent.filename) ||
+        REACT_NATIVE_PATH.test(parent.filename) ||
         isExtra(parent.filename)) &&
       request.startsWith(".") &&
       !path.extname(request)
@@ -277,7 +282,7 @@ export function installRequireHooks(
     const norm = filename.replace(/\\/g, "/");
     const boundary = boundarySourceFor(norm, platform, reactNativeVersion);
     if (boundary != null) return mod._compile(boundary, filename);
-    if (RN_PATH.test(norm)) {
+    if (REACT_NATIVE_PATH.test(norm)) {
       const src = fs.readFileSync(filename, "utf8");
       if (isFlow(src))
         return mod._compile(transformRN(filename, src, projectRoot, platform), filename);
@@ -287,7 +292,7 @@ export function installRequireHooks(
       const src = fs.readFileSync(filename, "utf8");
       return mod._compile(transformRN(filename, src, projectRoot, platform), filename);
     }
-    if (NODE_MODULES.test(norm)) {
+    if (NODE_MODULES_PATH.test(norm)) {
       // A node_modules package we did NOT transform: when Node's compile throws a
       // SyntaxError that fingerprints as untranspiled JSX/Flow/TS, explain the
       // real fix (add the package to `transform: [...]`) instead of leaving a

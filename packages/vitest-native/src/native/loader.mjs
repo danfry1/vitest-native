@@ -6,15 +6,20 @@ import fs from "node:fs";
 import { transformRN, isFlow, cjsExportNames } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import { resolvePlatformFile } from "./resolve.mjs";
-import { buildPkgMatcher, packageNameOf, subpathLeafOf, isUtilitySubpath } from "./match.mjs";
+import {
+  NODE_MODULES_PATH,
+  REACT_NATIVE_PATH,
+  buildPkgMatcher,
+  isUtilitySubpath,
+  packageNameOf,
+  subpathLeafOf,
+} from "./match.mjs";
 
-const RN_PATH = /[\\/]node_modules[\\/](react-native|@react-native)[\\/]/;
 // Any file living under a node_modules directory. Platform-extension resolution
 // (`.native.js` etc.) applies to every node_modules package, not just RN, matching
 // Metro — which resolves platform variants project-wide. (Without this, e.g.
 // `@react-navigation/native` silently loads its `.js`/web variant instead of
 // `.native.js`, breaking the navigation lifecycle with no error.)
-const NODE_MODULES = /[\\/]node_modules[\\/]/;
 // React Native's main entry (`react-native/index.js`).
 const RN_INDEX = /[\\/]react-native[\\/]index\.js$/;
 const TRANSFORMABLE = /\.(jsx?|tsx?|mjs|cjs)$/;
@@ -90,7 +95,7 @@ export async function resolve(specifier, context, nextResolve) {
   let resolved;
   if (
     parent &&
-    (NODE_MODULES.test(parent) || RN_PATH.test(parent) || isExtra(parent)) &&
+    (NODE_MODULES_PATH.test(parent) || REACT_NATIVE_PATH.test(parent) || isExtra(parent)) &&
     specifier.startsWith(".") &&
     !path.extname(specifier)
   ) {
@@ -183,7 +188,7 @@ export async function load(url, context, nextLoad) {
     };
   }
 
-  const isRN = RN_PATH.test(norm);
+  const isRN = REACT_NATIVE_PATH.test(norm);
   if (!isRN && !isExtra(norm)) return nextLoad(url, context);
 
   if (isRN) {
