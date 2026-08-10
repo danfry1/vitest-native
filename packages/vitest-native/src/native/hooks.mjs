@@ -6,15 +6,15 @@ import fs from "node:fs";
 import { transformRN, isFlow } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import { resolvePlatformFile } from "./resolve.mjs";
-import { buildPkgMatcher, packageNameOf, subpathLeafOf, isUtilitySubpath } from "./match.mjs";
+import {
+  NODE_MODULES_PATH,
+  REACT_NATIVE_PATH,
+  buildPkgMatcher,
+  isUtilitySubpath,
+  packageNameOf,
+  subpathLeafOf,
+} from "./match.mjs";
 import { explainUntransformedSyntaxError } from "./explain.mjs";
-
-const RN_PATH = /[\\/]node_modules[\\/](react-native|@react-native)[\\/]/;
-// Any file under a node_modules directory. Platform-extension resolution
-// (`.native.js` etc.) applies to every node_modules package, not just RN — matching
-// Metro, which resolves platform variants project-wide. See loader.mjs for the
-// ESM-path counterpart and the @react-navigation silent-failure this prevents.
-const NODE_MODULES = /[\\/]node_modules[\\/]/;
 
 // Guarded via globalThis, not module scope: under the hot runtime this module
 // can be evaluated twice in one worker (once by the worker entry through Node's
@@ -37,10 +37,74 @@ const NODE_MODULES = /[\\/]node_modules[\\/]/;
 const VITE_MAIN_FIELDS = ["react-native", "module", "jsnext:main", "jsnext"];
 
 const reportedDuplicates = new Set();
+const reportedProjectLoads = new Set();
 
 /** Test seam: the warning is once per package for the life of the worker. */
 export function _resetDuplicateReports() {
   reportedDuplicates.clear();
+  reportedProjectLoads.clear();
+  cachedProjectDirs = undefined;
+}
+
+/**
+ * Directories Vite owns outright: the package the run lives in, and any package a
+ * `test.include` pattern points into (see plugin.ts). Read from the environment
+ * because it has to cross into the worker.
+ *
+ * Parsed once. This is consulted on every module resolution in the worker, so
+ * re-reading and re-parsing the variable per call put a JSON.parse in the hot path.
+ */
+let cachedProjectDirs;
+function projectDirs() {
+  if (cachedProjectDirs) return cachedProjectDirs;
+  try {
+    cachedProjectDirs = JSON.parse(process.env.VITEST_NATIVE_PROJECT_DIRS || "[]").map(
+      (dir) => dir.replace(/\\/g, "/").replace(/\/+$/, "") + "/",
+    );
+  } catch {
+    cachedProjectDirs = [];
+  }
+  return cachedProjectDirs;
+}
+
+/**
+ * Say so when Node loads the project's own source.
+ *
+ * The package under test is Vite's (see the ownership rule in apply.ts). If an
+ * installed package requires it as well, it exists twice — once in each graph — and
+ * the symptom is silence: a store configured through the test's copy reads back unset
+ * through the copy the library sees, so an assertion compares "" against the expected
+ * text with nothing pointing at the cause. It is the same failure the
+ * duplicate-instance warning above covers, arrived at from the other direction: there
+ * the two graphs disagree about which FILE the package is, here they agree on the file
+ * and still hold separate instances of it.
+ *
+ * Only reported when the requirer is an installed package. A test reaching into its
+ * own source deliberately — `jest.requireActual('./src/thing')` — is Node loading
+ * project files on purpose, and is not this.
+ */
+export function checkProjectSourceLoadedByNode(resolved, parent, dirs = projectDirs()) {
+  if (dirs.length === 0 || typeof resolved !== "string") return;
+  const file = resolved.replace(/\\/g, "/");
+  // Project source never lives under node_modules, and the project directory
+  // contains its own node_modules — so this has to be excluded explicitly.
+  if (file.includes("/node_modules/")) return;
+  if (!dirs.some((dir) => file.startsWith(dir))) return;
+  const from = parent && parent.filename ? parent.filename.replace(/\\/g, "/") : "";
+  if (!NODE_MODULES_PATH.test(from) || from.includes("/vitest-native/dist/")) return;
+  if (reportedProjectLoads.has(file)) return;
+  reportedProjectLoads.add(file);
+  console.warn(
+    `[vitest-native] Node loaded a file from the package under test.\n` +
+      `  file      ->  ${resolved}\n` +
+      `  required by ->  ${parent.filename}\n` +
+      "  The package under test belongs to Vite's graph, so it now exists twice — once\n" +
+      "  in each module system — and module-level state is not shared between the copies.\n" +
+      "  Nothing throws: writes through one are invisible to the other, so values read back\n" +
+      "  unset. This happens when an installed React Native package depends on the very\n" +
+      "  package whose tests are running. Import it from one side only, or test it from a\n" +
+      "  package that does not sit underneath the dependency.",
+  );
 }
 function reportDuplicateInstance(pkg, nodeFile, viteFile, field) {
   reportedDuplicates.add(pkg);
@@ -197,8 +261,8 @@ export function installRequireHooks(
     if (
       parent &&
       parent.filename &&
-      (NODE_MODULES.test(parent.filename) ||
-        RN_PATH.test(parent.filename) ||
+      (NODE_MODULES_PATH.test(parent.filename) ||
+        REACT_NATIVE_PATH.test(parent.filename) ||
         isExtra(parent.filename)) &&
       request.startsWith(".") &&
       !path.extname(request)
@@ -211,6 +275,7 @@ export function installRequireHooks(
     }
     const resolved = origResolve.call(this, request, parent, ...rest);
     checkResolverAgreement(request, resolved);
+    checkProjectSourceLoadedByNode(resolved, parent);
     return resolved;
   };
 
@@ -219,7 +284,7 @@ export function installRequireHooks(
     const norm = filename.replace(/\\/g, "/");
     const boundary = boundarySourceFor(norm, platform, reactNativeVersion);
     if (boundary != null) return mod._compile(boundary, filename);
-    if (RN_PATH.test(norm)) {
+    if (REACT_NATIVE_PATH.test(norm)) {
       const src = fs.readFileSync(filename, "utf8");
       if (isFlow(src))
         return mod._compile(transformRN(filename, src, projectRoot, platform), filename);
@@ -229,7 +294,7 @@ export function installRequireHooks(
       const src = fs.readFileSync(filename, "utf8");
       return mod._compile(transformRN(filename, src, projectRoot, platform), filename);
     }
-    if (NODE_MODULES.test(norm)) {
+    if (NODE_MODULES_PATH.test(norm)) {
       // A node_modules package we did NOT transform: when Node's compile throws a
       // SyntaxError that fingerprints as untranspiled JSX/Flow/TS, explain the
       // real fix (add the package to `transform: [...]`) instead of leaving a

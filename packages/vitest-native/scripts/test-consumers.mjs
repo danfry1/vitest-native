@@ -38,6 +38,33 @@ function addPackedDependency(fixtureRoot, tarball) {
   fs.writeFileSync(packagePath, `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
+/**
+ * The monorepo fixture under pnpm.
+ *
+ * pnpm's layout is materially different from npm's: nothing is hoisted, packages are
+ * symlinked out of a content store, and every workspace member is additionally linked
+ * into a hidden directory that pnpm puts on NODE_PATH — which is how a package comes
+ * to resolve its own name from its own directory. Every monorepo defect reported so
+ * far arrived from pnpm, and an npm fixture cannot represent any of that.
+ *
+ * The packed dependency goes into each member as well as the root, because without
+ * hoisting a member cannot see what only the root declares.
+ */
+function runPnpmMonorepo(tarball) {
+  const fixtureRoot = path.join(tempRoot, "monorepo-pnpm");
+  fs.cpSync(path.join(fixturesRoot, "monorepo-pnpm"), fixtureRoot, { recursive: true });
+  const members = ["apps/mobile", "packages/ui"].map((rel) => path.join(fixtureRoot, rel));
+  for (const dir of [fixtureRoot, ...members]) addPackedDependency(dir, tarball);
+
+  const pnpm = ["--yes", "pnpm@10"];
+  run("npx", [...pnpm, "install", "--no-frozen-lockfile"], fixtureRoot);
+  // The app's suite, the Nx-style run from the workspace root, and the library's own
+  // suite from inside it — the three invocations the reports came from.
+  for (const script of ["test", "test:from-root", "test:library"]) {
+    run("npx", [...pnpm, "run", script], fixtureRoot);
+  }
+}
+
 try {
   run("npm", ["pack", "--ignore-scripts", "--pack-destination", packRoot], packageRoot);
   const tarballName = fs.readdirSync(packRoot).find((name) => name.endsWith(".tgz"));
@@ -58,8 +85,26 @@ try {
     // in Vite's graph while Node loaded it too, and came apart into two module
     // instances — the reported blocker reproducing from nothing but a different
     // working directory. Running only from the app directory could not see it.
-    if (fixture === "monorepo") run("npm", ["run", "test:from-root"], fixtureRoot);
+    if (fixture === "monorepo") {
+      run("npm", ["run", "test:from-root"], fixtureRoot);
+      // And the workspace LIBRARY's own tests, from inside it. The app depending on
+      // it is what makes it look like an ecosystem package, so detection claimed the
+      // project's own source: Vitest externalized this directory, Node compiled the
+      // test files to CommonJS, and their `import { it } from 'vitest'` became
+      // `require('vitest')`, which throws before a single test runs. Which package a
+      // suite lives in decided whether it worked, so running only the app's suite —
+      // from either directory — could not see it.
+      run("npm", ["run", "test:library"], fixtureRoot);
+    }
   }
+
+  // The same monorepo under pnpm. Its layout is materially different — no hoisting,
+  // a symlinked store, and every workspace member linked into a hidden directory that
+  // pnpm puts on NODE_PATH, so a package resolves its own name from its own
+  // directory. Both monorepo reports so far came from pnpm, and the fixture above
+  // could not represent it. `test:from-root` covers the Nx-style invocation, and
+  // `test:library` the package the run lives in.
+  runPnpmMonorepo(tarball);
 
   // The CLI ships as the package bin — prove it dispatches from the packed
   // tarball the way `npx vitest-native` would (doctor exercises peer probing,

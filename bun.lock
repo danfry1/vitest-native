@@ -74,6 +74,7 @@
         "react-native-worklets": "0.11.3",
         "react-test-renderer": "^19.2.8",
         "resident-singleton": "file:./tests-native/fixtures/resident-singleton",
+        "rn-condition-cjs-lib": "file:./tests-native/fixtures/rn-condition-cjs-lib",
         "rn-condition-lib": "file:./tests-native/fixtures/rn-condition-lib",
         "rn-ecosystem-lib": "file:./tests-native/fixtures/rn-ecosystem-lib",
         "rn-mainfield-lib": "file:./tests-native/fixtures/rn-mainfield-lib",
@@ -1908,6 +1909,8 @@
     "vitest-native/generic-mainfield-lib": ["generic-mainfield-lib@file:packages/vitest-native/tests-native/fixtures/generic-mainfield-lib", {}],
 
     "vitest-native/resident-singleton": ["resident-singleton@file:packages/vitest-native/tests-native/fixtures/resident-singleton", {}],
+
+    "vitest-native/rn-condition-cjs-lib": ["rn-condition-cjs-lib@file:packages/vitest-native/tests-native/fixtures/rn-condition-cjs-lib", { "peerDependencies": { "react": ">=18" } }],
 
     "vitest-native/rn-condition-lib": ["rn-condition-lib@file:packages/vitest-native/tests-native/fixtures/rn-condition-lib", { "peerDependencies": { "react-native": "*" } }],
 

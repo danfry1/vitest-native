@@ -13,6 +13,7 @@ import { VitestNativeError } from "./errors.mjs";
 import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
 import { detectEcosystemPackages } from "./native/ecosystem.js";
+import { containsPath, packageDirOf } from "./native/match.mjs";
 
 const DEFAULT_ASSET_EXTS = [
   "png",
@@ -78,6 +79,54 @@ async function autoDetectPresets(diagnostics: boolean, projectRoot: string): Pro
     }
   }
   return detected;
+}
+
+/**
+ * The directories a set of `test.include` globs point into, resolved against the run
+ * root — the literal part of each pattern, up to its first wildcard.
+ *
+ * `packages/ui/src/**\/*.test.ts` names `packages/ui/src`, which is enough to know
+ * the run's tests live in that package. `**\/*.test.ts` names nothing above the root
+ * and is dropped: treating it as a hint would mark every workspace member as the
+ * project and undo their detection entirely.
+ */
+export function testIncludeRoots(include: unknown, projectRoot: string): string[] {
+  if (!Array.isArray(include)) return [];
+  const dirs = new Set<string>();
+  for (const pattern of include) {
+    if (typeof pattern !== "string" || pattern.startsWith("!")) continue;
+    const literal = pattern.slice(0, firstWildcard(pattern));
+    const slash = literal.replace(/\\/g, "/").lastIndexOf("/");
+    if (slash <= 0) continue; // Nothing above the root — no information.
+    dirs.add(path.resolve(projectRoot, literal.slice(0, slash)));
+  }
+  return [...dirs];
+}
+
+/**
+ * Where a glob stops being a literal path.
+ *
+ * `!`, `+` and `@` only introduce a pattern as part of an extglob — `@(a|b)` — and
+ * are ordinary characters otherwise. Treating them as wildcards on their own cut
+ * `packages/@scope/ui/**\/*.test.ts` down to `packages/`, which would have named the
+ * whole workspace as the project and switched detection off for every member of it.
+ */
+function firstWildcard(pattern: string): number {
+  const plain = pattern.search(/[*?[{]/);
+  const extglob = pattern.search(/[!+@]\(/);
+  if (plain === -1) return extglob === -1 ? pattern.length : extglob;
+  return extglob === -1 ? plain : Math.min(plain, extglob);
+}
+
+/** The nearest directory at or above `from` holding a package.json, or null. */
+function nearestPackageDir(from: string): string | null {
+  let dir = path.resolve(from);
+  for (;;) {
+    if (fs.existsSync(path.join(dir, "package.json"))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
 }
 
 function resolvePackageVersion(packageName: string, projectRoot: string): string | null {
@@ -872,7 +921,49 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // cannot run — untranspiled JSX, Flow, TypeScript — because they assume Metro
         // will compile them. Detect them and inline them, rather than making every
         // project rediscover the list one SyntaxError at a time.
-        const ecosystem = detectEcosystemPackages(resolvedRoot, transformPkgs);
+        // Where the run's tests live, as far as `test.include` reveals it. When the
+        // run root sits ABOVE the package under test — an Nx-style invocation from
+        // the repository root — the root alone cannot say which package is the
+        // project, so a library holding the tests looked like an ordinary dependency
+        // and its whole directory was externalized. An include pattern pointing into
+        // that package says so directly. A pattern with nothing literal before its
+        // first wildcard (the default, `**/*.test.ts`) says nothing and is ignored.
+        const includeRoots = testIncludeRoots(
+          (userConfig as { test?: { include?: unknown } }).test?.include,
+          resolvedRoot,
+        );
+        const ecosystem = detectEcosystemPackages(
+          [resolvedRoot, ...includeRoots],
+          transformPkgs,
+          includeRoots,
+        );
+        // The directories Vite owns outright. Handed to the worker so the require
+        // hook can say so if Node loads one of their files anyway — which happens
+        // when an installed React Native package depends on the very package whose
+        // tests are running, and whose only symptom otherwise is state that reads
+        // back unset. See checkProjectSourceLoadedByNode in native/hooks.mjs.
+        //
+        // A directory containing a LINKED detected package is dropped. Running from a
+        // repository root, the nearest manifest is the root's own, and every workspace
+        // library sits beneath it — including the ones Node owns correctly, whose
+        // every load would then be reported as a mistake. Rather than warn wrongly in
+        // a layout the engine handles properly, it says nothing there. Installed
+        // packages under the directory's own node_modules do not count: they are
+        // excluded by the hook itself, and treating them as disqualifying would
+        // silence the warning in the case it exists for.
+        const linkedDetectedDirs = ecosystem
+          .map((name) => packageDirOf(name, resolvedRoot))
+          .filter((dir): dir is string => dir !== null && !/[\\/]node_modules[\\/]/.test(dir));
+        const projectDirs = [
+          ...new Set(
+            [resolvedRoot, ...includeRoots]
+              .map((dir) => nearestPackageDir(dir))
+              .filter((dir): dir is string => dir !== null),
+          ),
+        ].filter((dir) => !linkedDetectedDirs.some((detected) => containsPath(dir, detected)));
+        if (projectDirs.length > 0) {
+          env.VITEST_NATIVE_PROJECT_DIRS = JSON.stringify(projectDirs);
+        }
         if (ecosystem.length > 0) {
           ecosystemRoot = resolvedRoot;
           // Anchored on node_modules: a bare `[/\\]name[/\\]` match also hits any
@@ -925,6 +1016,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           };
         }
         const userPool = (userConfig as { test?: { pool?: unknown } }).test?.pool;
+        // `deps.inline: true` means "inline everything", so the test-entry rule the
+        // engine adds is redundant — and merging a pattern list into a boolean gives
+        // Vitest an array containing `true`, which it calls `.test()` on.
+        const userInlinesEverything =
+          (userConfig as { test?: { server?: { deps?: { inline?: unknown } } } }).test?.server?.deps
+            ?.inline === true;
         // The VM pools run test code in a `vm` context whose module executor does not
         // go through Node's loader, and `module.register()` — how the engine installs
         // the ESM hook that Flow-strips React Native and resolves its platform files —
@@ -958,6 +1055,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             userPool,
             ecosystem,
             resolvedRoot,
+            userInlinesEverything,
           ),
         );
       }

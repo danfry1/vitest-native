@@ -1,15 +1,11 @@
 {
-  "name": "vitest-native-consumer-monorepo",
+  "name": "vitest-native-consumer-monorepo-pnpm",
   "private": true,
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
   "type": "module",
   "scripts": {
-    "test": "npm test --workspace @consumer/mobile",
+    "test": "pnpm --filter @consumer/mobile exec vitest run",
     "test:from-root": "vitest run --config apps/mobile/vitest.config.mts",
-    "test:library": "npm test --workspace @consumer/ui"
+    "test:library": "pnpm --filter @consumer/ui exec vitest run"
   },
   "devDependencies": {
     "@babel/core": "7.29.7",

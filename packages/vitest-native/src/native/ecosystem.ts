@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
+import { containsPath } from "./match.mjs";
 
 /**
  * Packages that must never be auto-inlined even though they depend on React
@@ -9,12 +10,27 @@ import { AUTO_DETECT_PRESETS } from "../preset-map.js";
  * engine itself wires up; pulling a second copy of them into the module graph has
  * corrupted rendering before, in ways that surface as unrelated act() and
  * host-component failures.
+ *
+ * This list is one clause of the ownership rule; the whole of it is written down in
+ * the header of native/apply.ts, which is the file to read before changing what ends
+ * up in either graph.
  */
 const NEVER_INLINE = new Set([
   "@testing-library/react-native",
   "react-test-renderer",
   "test-renderer",
   "react-native",
+  // React itself, for the same reason and by the same list the engine dedupes on
+  // (see `resolve.dedupe` in native/apply.ts). It is reachable: a detected package
+  // declaring `react` as a runtime dependency — rather than the peer dependency it
+  // should be — pulls it into the closure walk, and React is then externalized and
+  // Babel-compiled as though it were untranspiled React Native source. That is
+  // measurably harmless today, because Vitest externalizes the renderer stack
+  // alongside it and the instance stays single, but it makes the engine's most
+  // duplication-sensitive package depend on a heuristic rather than on the rule
+  // stated here.
+  "react",
+  "react-is",
 ]);
 
 /** Manifest fields that make a package part of the React Native ecosystem. */
@@ -157,6 +173,7 @@ function manifestsFrom(projectRoot: string): { dir: string; manifest: Record<str
 export function detectEcosystemPackages(
   projectRoot: string | string[],
   explicit: string[] = [],
+  testRoots: string[] = [],
 ): string[] {
   // More than one root because `manifestsFrom` only walks UP. In a workspace the
   // run root is often above the package under test — Nx invokes tasks from the
@@ -199,11 +216,49 @@ export function detectEcosystemPackages(
     return null;
   };
 
+  /**
+   * The packages the run itself lives in — the project, in other words.
+   *
+   * In a workspace, the package under test is usually declared as a dependency by a
+   * sibling or by the repository root, so it appears in the candidate set like any
+   * third-party library — and it declares React Native, because it is React Native
+   * code. Detecting it would claim the project's own source: its directory becomes a
+   * `server.deps.external` pattern, so Vitest hands every file under it to Node,
+   * where the loader compiles it to CommonJS. A test file's own
+   * `import { it } from 'vitest'` becomes `require('vitest')`, which throws
+   * "Vitest cannot be imported in a CommonJS module using require()" — a failure that
+   * appears in one workspace package and not another for no visible reason.
+   *
+   * A package cannot be its own dependency, so a manifest whose directory contains a
+   * run root belongs to the project. Read straight off the manifests already walked,
+   * which is both cheaper than resolving each candidate and independent of how a
+   * package manager happens to lay out its store — under pnpm every workspace member
+   * is additionally linked into a hidden directory on NODE_PATH, so a package can
+   * resolve its own name from its own directory, but nothing here depends on that.
+   *
+   * Workspace libraries the project merely depends on sit beside a run root rather
+   * than above it and are unaffected — detecting those is the point of the
+   * workspace-member walk above.
+   */
+  // `testRoots` extends this beyond the run root. Running from the repository root,
+  // the root says only "the repository", so a workspace library holding the tests
+  // being collected still looked like an ordinary dependency and had its whole
+  // directory externalized — leaving its own source Node-owned while its tests were
+  // not. A `test.include` pointing into that package identifies it directly.
+  const ownerRoots = [...roots, ...testRoots];
+  const runOwners = new Set(
+    found
+      .filter(({ dir }) => ownerRoots.some((root) => containsPath(dir, root)))
+      .map(({ manifest }) => manifest.name)
+      .filter((name): name is string => typeof name === "string"),
+  );
+  const ownsTheRun = (name: string): boolean => runOwners.has(name);
+
   const detected: string[] = [];
   for (const name of candidates) {
     if (skip.has(name) || name.startsWith("@react-native/")) continue;
     const pkg = manifestOf(name);
-    if (pkg && dependsOnReactNative(pkg)) detected.push(name);
+    if (pkg && dependsOnReactNative(pkg) && !ownsTheRun(name)) detected.push(name);
   }
 
   // A detected package's own runtime dependencies are React Native code too, and the
@@ -266,6 +321,9 @@ export function detectEcosystemPackages(
       if (inClosure.has(dep) || skip.has(dep) || dep.startsWith("@react-native/")) continue;
       if (rnOwned.has(dep)) continue;
       if (toolchain.has(dep)) continue;
+      // A sibling that depends on the package under test would otherwise pull it
+      // back in here, past the check above.
+      if (ownsTheRun(dep)) continue;
       if (!manifestOf(dep)) continue; // declared but not installed
       inClosure.add(dep);
       queue.push(dep);
