@@ -150,3 +150,86 @@ describe("ecosystem detection: dependency closure", () => {
     expect(detected).toContain("safe-dep");
   });
 });
+
+/**
+ * The closure walk starts only from what the RUN declares.
+ *
+ * Collecting candidates across every workspace manifest is what finds a library the
+ * application depends on. Walking closures from all of them is a different matter: a
+ * sibling Expo application is detected on its own manifest, and its dependencies are
+ * the Expo and Metro toolchain — several hundred packages, `@babel/runtime` and
+ * Metro's `lru-cache` chain among them. Compiling those with the React Native Babel
+ * preset is both pointless for a library that depends on none of them, and actively
+ * fatal: React Native and Babel load them, and transforming the transform's own
+ * toolchain re-enters Babel while it is initialising.
+ *
+ * Reported against 0.11.0: in a workspace holding a library and an Expo application —
+ * the canonical React Native monorepo — the application's presence alone stopped the
+ * library's tests from loading.
+ */
+describe("ecosystem detection: whose closure gets walked", () => {
+  /** A workspace whose sibling declares `heavy-app`, and whose project declares none. */
+  function workspaceWithSibling(): string {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-sibling-"));
+    roots.push(root);
+    const write = (rel: string, value: unknown) => {
+      const file = path.join(root, rel);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify(value));
+    };
+    write("package.json", { name: "w", private: true, workspaces: ["packages/*"] });
+    write("packages/lib/package.json", {
+      name: "@w/lib",
+      dependencies: { "rn-widget": "*" },
+    });
+    write("packages/app/package.json", {
+      name: "@w/app",
+      dependencies: { "heavy-app": "*" },
+    });
+    // Installed where both members can resolve them.
+    write("node_modules/rn-widget/package.json", {
+      name: "rn-widget",
+      peerDependencies: { "react-native": "*" },
+      dependencies: { "widget-internals": "*" },
+    });
+    write("node_modules/widget-internals/package.json", { name: "widget-internals" });
+    write("node_modules/heavy-app/package.json", {
+      name: "heavy-app",
+      peerDependencies: { "react-native": "*" },
+      dependencies: { "toolchain-helpers": "*" },
+    });
+    write("node_modules/toolchain-helpers/package.json", { name: "toolchain-helpers" });
+    return root;
+  }
+
+  it("does not walk the closure of a package only a sibling declares", () => {
+    const detected = detectEcosystemPackages(path.join(workspaceWithSibling(), "packages", "lib"));
+    expect(detected).not.toContain("toolchain-helpers");
+  });
+
+  it("still walks the closure of a package the project declares", () => {
+    // The discriminating half: this is what the closure walk exists for, and the
+    // filter must not cost it.
+    const detected = detectEcosystemPackages(path.join(workspaceWithSibling(), "packages", "lib"));
+    expect(detected).toContain("rn-widget");
+    expect(detected).toContain("widget-internals");
+  });
+
+  it("still walks a closure declared by a manifest above the project", () => {
+    // A workspace that keeps its React Native libraries at the repository root is a
+    // documented layout; those manifests belong to the run just as the project's own
+    // does.
+    const root = workspaceWithSibling();
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify({
+        name: "w",
+        private: true,
+        workspaces: ["packages/*"],
+        dependencies: { "heavy-app": "*" },
+      }),
+    );
+    const detected = detectEcosystemPackages(path.join(root, "packages", "lib"));
+    expect(detected).toContain("toolchain-helpers");
+  });
+});

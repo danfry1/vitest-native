@@ -311,8 +311,46 @@ export function detectEcosystemPackages(
   // the toolchain by name would be a list that rots; its closure computes itself.
   const toolchain = closureOf(["@babel/core", "@react-native/babel-preset"]);
 
+  // Only packages the RUN can actually reach seed the walk.
+  //
+  // Candidates are collected from every manifest in the workspace, which is how a
+  // library the app depends on is found at all. Applied to a closure walk, that
+  // breadth stops being free: a sibling Expo application is detected on its own
+  // manifest, and walking ITS dependencies drags the whole Expo and Metro toolchain —
+  // several hundred packages, `@babel/runtime` and Metro's `lru-cache` chain among
+  // them — into the Babel transform set of a library that depends on none of it.
+  // Those are not inert. React Native and Babel load them, and compiling the
+  // transform's own toolchain with the transform re-enters Babel while it is still
+  // initialising, which fails as a TDZ error naming a file the project never
+  // mentioned.
+  //
+  // So the seeds are the packages the project itself DECLARES — read from the
+  // manifests that belong to the run (the package under test, and any manifest above
+  // it, which is where a workspace that keeps its React Native libraries at the
+  // repository root declares them). A package only a sibling declares is that
+  // sibling's business.
+  //
+  // Declaration rather than resolvability, deliberately. Under pnpm every workspace
+  // package is linked into a hidden directory placed on NODE_PATH, so in the running
+  // process a sibling's dependencies DO resolve from the package under test, and a
+  // reachability test quietly passes them all through. The manifest does not move.
+  //
+  // Only the SEEDS are filtered. A dependency reached through the walk is declared by
+  // its own parent rather than by the project — that is what makes it transitive —
+  // so filtering members too would undo the compilation this walk exists for.
+  const projectDeclared = new Set<string>();
+  for (const { dir, manifest } of found) {
+    if (!ownerRoots.some((root) => containsPath(dir, root))) continue;
+    for (const field of ["dependencies", "devDependencies", "optionalDependencies"]) {
+      const deps = manifest[field];
+      if (deps && typeof deps === "object") {
+        for (const name of Object.keys(deps as object)) projectDeclared.add(name);
+      }
+    }
+  }
+
   const inClosure = new Set(detected);
-  const queue = [...detected];
+  const queue = detected.filter((name) => projectDeclared.has(name));
   while (queue.length > 0) {
     const pkg = manifestOf(queue.pop() as string);
     const deps = pkg?.dependencies;
