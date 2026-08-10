@@ -127,6 +127,23 @@ describe("ecosystem detection and the package under test", () => {
     expect(testIncludeRoots(undefined, "/repo")).toEqual([]);
   });
 
+  it("does not mistake a scoped directory for a wildcard", () => {
+    // `@`, `!` and `+` only introduce a pattern as part of an extglob. Treating them
+    // as wildcards on their own truncated the literal at the scope, naming the whole
+    // workspace as the project — which switches detection off for every member of it,
+    // the exact opposite of what an include pattern is being read for here.
+    expect(testIncludeRoots(["packages/@scope/ui/src/**/*.test.ts"], "/repo")).toEqual([
+      path.resolve("/repo", "packages/@scope/ui/src"),
+    ]);
+    expect(testIncludeRoots(["libs/a+b/src/*.test.ts"], "/repo")).toEqual([
+      path.resolve("/repo", "libs/a+b/src"),
+    ]);
+    // A real extglob still stops the literal where it begins.
+    expect(testIncludeRoots(["packages/ui/@(src|lib)/*.test.ts"], "/repo")).toEqual([
+      path.resolve("/repo", "packages/ui"),
+    ]);
+  });
+
   it("never claims React, however a package declares it", () => {
     // A package declaring `react` as a runtime dependency — rather than the peer
     // dependency it should be — puts it in the closure walk, and React would then be

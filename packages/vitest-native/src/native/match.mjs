@@ -73,7 +73,7 @@ export function containsPath(dir, target) {
  * the manifest that names them. Symlinked and workspace packages resolve to their
  * real location, which is the whole point — see buildPkgMatcher.
  */
-function packageDirOf(name, projectRoot) {
+export function packageDirOf(name, projectRoot) {
   const req = createRequire(path.join(projectRoot, "package.json"));
   try {
     return path.dirname(req.resolve(`${name}/package.json`));

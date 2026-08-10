@@ -16,11 +16,6 @@ import {
 } from "./match.mjs";
 import { explainUntransformedSyntaxError } from "./explain.mjs";
 
-// Any file under a node_modules directory. Platform-extension resolution
-// (`.native.js` etc.) applies to every node_modules package, not just RN — matching
-// Metro, which resolves platform variants project-wide. See loader.mjs for the
-// ESM-path counterpart and the @react-navigation silent-failure this prevents.
-
 // Guarded via globalThis, not module scope: under the hot runtime this module
 // can be evaluated twice in one worker (once by the worker entry through Node's
 // loader, once through Vitest's module runner when the setup file is inlined),
@@ -48,21 +43,28 @@ const reportedProjectLoads = new Set();
 export function _resetDuplicateReports() {
   reportedDuplicates.clear();
   reportedProjectLoads.clear();
+  cachedProjectDirs = undefined;
 }
 
 /**
  * Directories Vite owns outright: the package the run lives in, and any package a
  * `test.include` pattern points into (see plugin.ts). Read from the environment
  * because it has to cross into the worker.
+ *
+ * Parsed once. This is consulted on every module resolution in the worker, so
+ * re-reading and re-parsing the variable per call put a JSON.parse in the hot path.
  */
+let cachedProjectDirs;
 function projectDirs() {
+  if (cachedProjectDirs) return cachedProjectDirs;
   try {
-    return JSON.parse(process.env.VITEST_NATIVE_PROJECT_DIRS || "[]").map(
+    cachedProjectDirs = JSON.parse(process.env.VITEST_NATIVE_PROJECT_DIRS || "[]").map(
       (dir) => dir.replace(/\\/g, "/").replace(/\/+$/, "") + "/",
     );
   } catch {
-    return [];
+    cachedProjectDirs = [];
   }
+  return cachedProjectDirs;
 }
 
 /**

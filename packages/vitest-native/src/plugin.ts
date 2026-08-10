@@ -13,6 +13,7 @@ import { VitestNativeError } from "./errors.mjs";
 import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
 import { detectEcosystemPackages } from "./native/ecosystem.js";
+import { containsPath, packageDirOf } from "./native/match.mjs";
 
 const DEFAULT_ASSET_EXTS = [
   "png",
@@ -94,13 +95,27 @@ export function testIncludeRoots(include: unknown, projectRoot: string): string[
   const dirs = new Set<string>();
   for (const pattern of include) {
     if (typeof pattern !== "string" || pattern.startsWith("!")) continue;
-    const wildcard = pattern.search(/[*?[\]{}()!+@]/);
-    const literal = wildcard === -1 ? pattern : pattern.slice(0, wildcard);
+    const literal = pattern.slice(0, firstWildcard(pattern));
     const slash = literal.replace(/\\/g, "/").lastIndexOf("/");
     if (slash <= 0) continue; // Nothing above the root — no information.
     dirs.add(path.resolve(projectRoot, literal.slice(0, slash)));
   }
   return [...dirs];
+}
+
+/**
+ * Where a glob stops being a literal path.
+ *
+ * `!`, `+` and `@` only introduce a pattern as part of an extglob — `@(a|b)` — and
+ * are ordinary characters otherwise. Treating them as wildcards on their own cut
+ * `packages/@scope/ui/**\/*.test.ts` down to `packages/`, which would have named the
+ * whole workspace as the project and switched detection off for every member of it.
+ */
+function firstWildcard(pattern: string): number {
+  const plain = pattern.search(/[*?[{]/);
+  const extglob = pattern.search(/[!+@]\(/);
+  if (plain === -1) return extglob === -1 ? pattern.length : extglob;
+  return extglob === -1 ? plain : Math.min(plain, extglob);
 }
 
 /** The nearest directory at or above `from` holding a package.json, or null. */
@@ -927,13 +942,25 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // when an installed React Native package depends on the very package whose
         // tests are running, and whose only symptom otherwise is state that reads
         // back unset. See checkProjectSourceLoadedByNode in native/hooks.mjs.
+        //
+        // A directory containing a LINKED detected package is dropped. Running from a
+        // repository root, the nearest manifest is the root's own, and every workspace
+        // library sits beneath it — including the ones Node owns correctly, whose
+        // every load would then be reported as a mistake. Rather than warn wrongly in
+        // a layout the engine handles properly, it says nothing there. Installed
+        // packages under the directory's own node_modules do not count: they are
+        // excluded by the hook itself, and treating them as disqualifying would
+        // silence the warning in the case it exists for.
+        const linkedDetectedDirs = ecosystem
+          .map((name) => packageDirOf(name, resolvedRoot))
+          .filter((dir): dir is string => dir !== null && !/[\\/]node_modules[\\/]/.test(dir));
         const projectDirs = [
           ...new Set(
             [resolvedRoot, ...includeRoots]
               .map((dir) => nearestPackageDir(dir))
               .filter((dir): dir is string => dir !== null),
           ),
-        ];
+        ].filter((dir) => !linkedDetectedDirs.some((detected) => containsPath(dir, detected)));
         if (projectDirs.length > 0) {
           env.VITEST_NATIVE_PROJECT_DIRS = JSON.stringify(projectDirs);
         }
