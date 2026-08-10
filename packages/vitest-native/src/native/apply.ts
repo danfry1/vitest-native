@@ -11,6 +11,7 @@ function escapeRe(s: string): string {
 import { createRequire } from "node:module";
 import path from "node:path";
 import type { PoolRunnerInitializer } from "vitest/node";
+import { containsPath } from "./paths.js";
 
 /**
  * The on-disk directory a package resolves to, or null. Used alongside the
@@ -27,10 +28,43 @@ function resolvePackageDir(name: string, projectRoot: string): string | null {
 }
 
 /**
- * A test/spec file outside any installed package — i.e. one Vitest may be running as
- * an entry rather than something a module imports.
+ * The patterns that externalize a package: under `node_modules/<name>/`, and inside
+ * the directory it resolves to — the second being what covers workspace and `file:`
+ * links, which have no `node_modules` segment at all.
+ *
+ * The resolved-directory anchor is dropped when that directory CONTAINS the project
+ * root, because then it is the project. Externalizing it hands Vitest its own source
+ * and test files back through Node, which compiles them to CommonJS: a test file's
+ * `import { it } from 'vitest'` becomes `require('vitest')` and throws, and any
+ * first-party module using `import.meta` dies with a SyntaxError.
+ *
+ * Auto-detection already refuses to claim the project (see ecosystem.ts), but
+ * `transform: [...]` names packages by hand and reaches this code without passing
+ * through detection — so a project naming its own package there, which a migrated
+ * Jest `transformIgnorePatterns` list can easily produce, hit exactly the same wall.
  */
-const FIRST_PARTY_TEST_FILE = /^(?!.*[\\/]node_modules[\\/]).*\.(?:test|spec)\.[cm]?[jt]sx?$/;
+function externalPatternsFor(name: string, projectRoot: string): RegExp[] {
+  const patterns = [new RegExp(`[\\\\/]node_modules[\\\\/]${escapeRe(name)}[\\\\/]`)];
+  const dir = resolvePackageDir(name, projectRoot);
+  if (dir && !containsPath(dir, projectRoot)) {
+    patterns.push(new RegExp(`^${escapeRe(dir.replace(/\\/g, "/"))}[\\\\/]`));
+  }
+  return patterns;
+}
+
+/**
+ * Files outside any installed package that Vitest may be running as an ENTRY rather
+ * than importing as a module: the two naming conventions test runners use.
+ *
+ * Neither is exhaustive — a project can point `test.include` anywhere — but a file
+ * that matches one of these is a test by convention and never library source, which
+ * is what makes it safe to keep out of Node's graph unconditionally.
+ */
+const OUTSIDE_NODE_MODULES = String.raw`^(?!.*[\\/]node_modules[\\/])`;
+const TEST_ENTRY_PATTERNS = [
+  new RegExp(String.raw`${OUTSIDE_NODE_MODULES}.*\.(?:test|spec)\.[cm]?[jt]sx?$`),
+  new RegExp(String.raw`${OUTSIDE_NODE_MODULES}.*[\\/]__tests__[\\/].*\.[cm]?[jt]sx?$`),
+];
 
 export type JsxTransformConfig =
   | { esbuild: { jsx: "automatic" } }
@@ -46,6 +80,7 @@ export function nativeEngineConfig(
   userPool?: unknown,
   inlinePkgs: string[] = [],
   projectRoot: string = process.cwd(),
+  userInlinesEverything = false,
 ) {
   // Extra packages whose source the Node hooks should transform. They must also
   // be externalized so they load through Node (where the hooks run) rather than
@@ -56,12 +91,7 @@ export function nativeEngineConfig(
   // externalized unrelated files — including this package's own runtime when a
   // project folder happened to share the name. The resolved directory covers
   // workspace and `file:` links, which have no node_modules segment at all.
-  const extraExternal = transformPkgs.flatMap((p) => {
-    const patterns = [new RegExp(`[\\\\/]node_modules[\\\\/]${escapeRe(p)}[\\\\/]`)];
-    const dir = resolvePackageDir(p, projectRoot);
-    if (dir) patterns.push(new RegExp(`^${escapeRe(dir.replace(/\\/g, "/"))}[\\\\/]`));
-    return patterns;
-  });
+  const extraExternal = transformPkgs.flatMap((p) => externalPatternsFor(p, projectRoot));
   // Auto-detected React Native packages are externalized too, and transformed by the
   // Node hooks alongside everything else.
   //
@@ -76,12 +106,7 @@ export function nativeEngineConfig(
   // consequence of Vitest's externalization heuristics. Both properties inlining was
   // there to provide are kept, and were measured rather than assumed: vi.mock still
   // intercepts, and module state still resets between test files.
-  const ecosystemExternal = inlinePkgs.flatMap((p) => {
-    const patterns = [new RegExp(`[\\\\/]node_modules[\\\\/]${escapeRe(p)}[\\\\/]`)];
-    const dir = resolvePackageDir(p, projectRoot);
-    if (dir) patterns.push(new RegExp(`^${escapeRe(dir.replace(/\\/g, "/"))}[\\\\/]`));
-    return patterns;
-  });
+  const ecosystemExternal = inlinePkgs.flatMap((p) => externalPatternsFor(p, projectRoot));
   // The Node hooks transform whatever they are told to; ecosystem packages now load
   // through them, so they belong in that list rather than in Vite's.
   const nodeTransformed = [...new Set([...transformPkgs, ...inlinePkgs])];
@@ -164,7 +189,12 @@ export function nativeEngineConfig(
           // keeps entries in Vite's graph whatever the directory patterns say.
           // Restricted to first-party paths: a test file shipped inside an installed
           // package is not an entry, and nothing imports it.
-          inline: [FIRST_PARTY_TEST_FILE],
+          //
+          // Omitted when the project set `deps.inline: true`, which already inlines
+          // everything. Appending patterns to that produces an array holding `true`,
+          // which Vitest then calls `.test()` on — "ex.test is not a function", and
+          // no tests run at all.
+          ...(userInlinesEverything ? {} : { inline: TEST_ENTRY_PATTERNS }),
           external: [
             /[\\/]node_modules[\\/]react-native[\\/]/,
             /[\\/]node_modules[\\/]@react-native[\\/]/,

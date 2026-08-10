@@ -129,7 +129,82 @@ describe("test entries are never externalized", () => {
     expect(inlines("/repo/node_modules/some-lib/dist/index.test.js")).toBe(false);
   });
 
+  it("inlines files in a __tests__ directory, whatever they are called", () => {
+    // The other convention runners use. A project whose `test.include` points at
+    // `__tests__/*.ts` has entries that no filename rule based on `.test.` would
+    // catch, and they failed the same way.
+    expect(inlines("/repo/packages/ui/__tests__/button.ts")).toBe(true);
+    expect(inlines("/repo/packages/ui/__tests__/nested/button.tsx")).toBe(true);
+  });
+
   it("leaves ordinary source files alone", () => {
     expect(inlines("/repo/packages/ui/src/button.tsx")).toBe(false);
+  });
+
+  it("adds nothing when the project already inlines everything", () => {
+    // `deps.inline: true` is a valid Vitest setting. Merging a pattern list into it
+    // yields an array holding `true`, which Vitest calls `.test()` on:
+    // "ex.test is not a function", and no tests run at all.
+    const config = nativeEngineConfig(
+      "/setup.mjs",
+      {},
+      [".js"],
+      [],
+      undefined,
+      undefined,
+      undefined,
+      [],
+      "/repo",
+      true,
+    );
+    expect(config.test.server.deps).not.toHaveProperty("inline");
+  });
+});
+
+describe("the project's own directory is never an externalization anchor", () => {
+  /** A package that resolves to its own directory, as a workspace member does. */
+  function selfResolvingPackage(): string {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-anchor-")));
+    made.push(root);
+    write(root, "package.json", { name: "@w/self", version: "1.0.0" });
+    link(path.join(root, "node_modules", "@w", "self"), root);
+    return root;
+  }
+
+  const externals = (root: string, transformPkgs: string[]): RegExp[] =>
+    nativeEngineConfig(
+      "/setup.mjs",
+      {},
+      [".js"],
+      transformPkgs,
+      undefined,
+      undefined,
+      undefined,
+      [],
+      root,
+    ).test.server.deps.external as RegExp[];
+
+  it("skips the directory anchor when `transform` names the project's own package", () => {
+    // `transform: [...]` names packages by hand and never passes through detection,
+    // so the guard there does not help. A migrated Jest `transformIgnorePatterns`
+    // list can easily name the project's own package, and the result was that its
+    // whole source tree — test files included — was handed to Node and compiled to
+    // CommonJS.
+    const root = selfResolvingPackage();
+    const source = path.join(root, "src", "index.ts");
+    expect(externals(root, ["@w/self"]).some((re) => re.test(source))).toBe(false);
+  });
+
+  it("still anchors on the directory of a package that is not the project", () => {
+    // The discriminating half: dropping the anchor unconditionally would undo what it
+    // is for — matching workspace and `file:` links, which have no node_modules
+    // segment to anchor on at all.
+    const root = selfResolvingPackage();
+    const other = path.join(path.dirname(root), "elsewhere");
+    write(other, "package.json", { name: "@w/other", version: "1.0.0" });
+    made.push(other);
+    link(path.join(root, "node_modules", "@w", "other"), other);
+    const source = path.join(other, "src", "index.ts");
+    expect(externals(root, ["@w/other"]).some((re) => re.test(source))).toBe(true);
   });
 });

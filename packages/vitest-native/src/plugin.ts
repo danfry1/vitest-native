@@ -925,6 +925,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           };
         }
         const userPool = (userConfig as { test?: { pool?: unknown } }).test?.pool;
+        // `deps.inline: true` means "inline everything", so the test-entry rule the
+        // engine adds is redundant — and merging a pattern list into a boolean gives
+        // Vitest an array containing `true`, which it calls `.test()` on.
+        const userInlinesEverything =
+          (userConfig as { test?: { server?: { deps?: { inline?: unknown } } } }).test?.server?.deps
+            ?.inline === true;
         // The VM pools run test code in a `vm` context whose module executor does not
         // go through Node's loader, and `module.register()` — how the engine installs
         // the ESM hook that Flow-strips React Native and resolves its platform files —
@@ -958,6 +964,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             userPool,
             ecosystem,
             resolvedRoot,
+            userInlinesEverything,
           ),
         );
       }

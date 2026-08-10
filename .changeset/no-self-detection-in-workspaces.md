@@ -34,7 +34,11 @@ Two changes:
   detected, which is what keeps them to a single module instance.
 - A first-party test file is never externalized, even when it sits inside a workspace
   library that is legitimately detected — the case an Nx-style run from the repository
-  root produces. Test entries belong to Vitest, not to Node.
+  root produces. Test entries belong to Vitest, not to Node. Both conventions are
+  covered: `*.test.*` / `*.spec.*` names, and files under a `__tests__` directory.
+- The same directory anchor is skipped for a package named in `transform: [...]`,
+  which never passes through detection. A migrated Jest `transformIgnorePatterns`
+  list naming the project's own package produced the identical failure.
 
 The consumer suite now runs the workspace library's own tests, from inside the package
 and from the workspace root, and the whole monorepo fixture is exercised under pnpm as

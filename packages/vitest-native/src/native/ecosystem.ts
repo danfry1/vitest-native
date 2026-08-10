@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
+import { containsPath } from "./paths.js";
 
 /**
  * Packages that must never be auto-inlined even though they depend on React
@@ -199,53 +200,37 @@ export function detectEcosystemPackages(
     return null;
   };
 
-  const rootDirs = roots.map((root) => path.resolve(root));
-
   /**
-   * Is this candidate the package the run itself lives in?
+   * The packages the run itself lives in — the project, in other words.
    *
    * In a workspace, the package under test is usually declared as a dependency by a
    * sibling or by the repository root, so it appears in the candidate set like any
    * third-party library — and it declares React Native, because it is React Native
-   * code. Detection would then claim the project's own source: its directory becomes
-   * a `server.deps.external` pattern, so Vitest hands every file under it to Node,
+   * code. Detecting it would claim the project's own source: its directory becomes a
+   * `server.deps.external` pattern, so Vitest hands every file under it to Node,
    * where the loader compiles it to CommonJS. A test file's own
    * `import { it } from 'vitest'` becomes `require('vitest')`, which throws
    * "Vitest cannot be imported in a CommonJS module using require()" — a failure that
    * appears in one workspace package and not another for no visible reason.
    *
-   * Under pnpm this is not exotic: every workspace package is linked into
-   * `node_modules/.pnpm/node_modules`, which pnpm puts on NODE_PATH, so a package
-   * resolves its own name from its own directory.
+   * A package cannot be its own dependency, so a manifest whose directory contains a
+   * run root belongs to the project. Read straight off the manifests already walked,
+   * which is both cheaper than resolving each candidate and independent of how a
+   * package manager happens to lay out its store — under pnpm every workspace member
+   * is additionally linked into a hidden directory on NODE_PATH, so a package can
+   * resolve its own name from its own directory, but nothing here depends on that.
    *
-   * A package cannot be its own dependency, so a directory containing the run root
-   * is the project, not something to externalize. Workspace libraries the project
-   * merely depends on sit beside the root rather than above it and are unaffected —
-   * detecting those is the point (see the workspace-member walk above).
+   * Workspace libraries the project merely depends on sit beside a run root rather
+   * than above it and are unaffected — detecting those is the point of the
+   * workspace-member walk above.
    */
-  const runOwner = new Map<string, boolean>();
-  const ownsTheRun = (name: string): boolean => {
-    const memo = runOwner.get(name);
-    if (memo !== undefined) return memo;
-    // Every resolver is asked, not just the first to answer: a name can resolve to
-    // more than one directory in a workspace, and it is enough for ONE of them to be
-    // the package the run is in.
-    let owns = false;
-    for (const req of requires) {
-      let dir: string;
-      try {
-        dir = path.dirname(req.resolve(`${name}/package.json`));
-      } catch {
-        continue; // Not resolvable from this root — try the next one.
-      }
-      if (rootDirs.some((root) => root === dir || root.startsWith(dir + path.sep))) {
-        owns = true;
-        break;
-      }
-    }
-    runOwner.set(name, owns);
-    return owns;
-  };
+  const runOwners = new Set(
+    found
+      .filter(({ dir }) => roots.some((root) => containsPath(dir, root)))
+      .map(({ manifest }) => manifest.name)
+      .filter((name): name is string => typeof name === "string"),
+  );
+  const ownsTheRun = (name: string): boolean => runOwners.has(name);
 
   const detected: string[] = [];
   for (const name of candidates) {
