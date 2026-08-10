@@ -1,5 +1,195 @@
 # vitest-native
 
+## 0.11.0
+
+### Minor Changes
+
+- 912fb81: Add a `netInfo` preset for `@react-native-community/netinfo`
+
+  NetInfo was detected and compiled correctly, and still failed at the native-module
+  boundary. The generic stub answers any method with `undefined`; NetInfo awaits
+  `getCurrentState()` and reads `state.isInternetReachable` off the result, so a test
+  that called `NetInfo.fetch()` died on a TypeError and an unhandled rejection.
+
+  No generic stub can infer that shape, which is what earns a preset. It is auto-detected
+  like the others, and covers the package's real runtime surface: `configure`, `fetch`,
+  `refresh`, `addEventListener`, `useNetInfo`, `useNetInfoInstance`, and the
+  `NetInfoStateType` / `NetInfoCellularGeneration` enums — which are TypeScript enums
+  re-exported through `export *`, so unlike the rest of that module they do have runtime
+  bindings.
+
+  The resting state is a connected wifi device. The real library starts at
+  `{ type: 'unknown', isConnected: null }` and resolves to the device a moment later; a
+  mock has no device, and a null resting state would send every component under test down
+  its offline branch. Tests can drive it, and `resetAllMocks()` restores it.
+
+  The package is now a devDependency, so the preset's declared exports are checked against
+  the real package's TypeScript surface by the existing fidelity gate rather than trusted.
+
+### Patch Changes
+
+- f6e5a42: Check React Native API coverage on every pull request
+
+  The mock engine is documented as covering every stable React Native export, and
+  `check-compat` is the script that backs the claim: it parses the real `react-native`
+  index and fails when a stable export has no mock.
+
+  It ran only in the weekly compatibility workflow, and there against
+  `react-native@latest`. The version actually pinned in the repository was never checked
+  on a pull request. A change that moved the pinned React Native could add stable exports
+  the mock did not cover and still go green, with the gap appearing days later as a
+  canary failure against a different version.
+
+  It now runs in the pull-request gate against the pinned React Native, on the one matrix
+  leg where the React Native version is representative. The weekly canary keeps its own
+  edge run — the two answer different questions.
+
+  Currently 85 of 85 stable exports are covered.
+
+- 12e1be3: Build with tsdown under bun's runtime
+
+  tsdown's bin declares a Node shebang, and from 0.22 it calls `Promise.withResolvers` —
+  an API Node did not ship until 21. Building on Node 20 therefore failed with
+  `TypeError: Promise.withResolvers is not a function`, which blocked the dev-dependency
+  updates that carry tsdown forward.
+
+  `build` now invokes `bunx --bun tsdown`, so the bundler runs under bun's runtime, which
+  has the API. The emitted `dist` is byte-identical either way, verified by hashing it
+  from both runtimes against tsdown 0.21 and 0.22.
+
+  This is a change to what the build toolchain runs on, not to what the package requires.
+  The published `engines` floor of Node >= 20.19 is unchanged, and the Node 20 CI legs —
+  which prove that floor and pin RNTL 12 and 13 as the lower-bound back-compat corners —
+  keep running everything they ran before.
+
+- c0b3bb3: `doctor` reports the real Node floor, and catches RNTL 14's missing peer
+
+  Two cases where `doctor` said a project was fine while it was not.
+
+  **The Node floor was hardcoded and compared on the major only.** It printed
+  "floor: 20" and passed any Node 20.x, but the real floor moved to 20.19 — the version
+  that added `require(esm)`, which the root entry point now depends on. Node 20.0 through
+  20.18 were reported as supported. The floor is now read from this package's own
+  `engines.node`, and compared as major and minor.
+
+  **RNTL 14 declares `test-renderer` as a non-optional peer** and reconciles through it.
+  Installing RNTL 14 without it is easy — npm only warns, and any `--legacy-peer-deps`
+  install is silent — and the result is that every `render()` throws `Cannot find module
+'test-renderer'`, naming no file and no package. `doctor` reported no blocking problems
+  for exactly that project. It now fails with the install command. RNTL 13 is unaffected
+  and is not asked for the package it does not use.
+
+- d0fb6ba: Compile a detected package's dependencies too
+
+  `react-native-modal` — and any package like it — failed to import under the native
+  engine with a bare `SyntaxError: Unexpected token '<'`, naming no file and no package.
+
+  Detection asks each package's own manifest whether it declares `react-native`. The
+  untranspiled JSX was not in `react-native-modal`; it was in `react-native-animatable`,
+  which that package depends on. Nothing in the project declares it, so it was never a
+  candidate, and it names `react-native` in neither `dependencies` nor
+  `peerDependencies`, so the manifest test would have rejected it anyway. The documented
+  remedy, `transform: ['react-native-modal']`, does not help — only naming
+  `react-native-animatable` does, and nothing told anyone that.
+
+  A detected package's dependency closure is now compiled with it. Two exclusions keep
+  that safe, and both compute themselves rather than being lists to maintain:
+
+  - **React Native's own dependencies.** The precompiled registry reaches those through
+    pre-resolved absolute paths, so Node owns them; inlining one would give the same
+    package two owners and two instances.
+  - **The transform's own toolchain closure.** The transform runs `@babel/core`, so
+    inlining anything Babel reaches means loading it re-enters the transform while Babel
+    is mid-load.
+
+  Detection stays under a millisecond, and 120 isolated test files run in the same time
+  as before.
+
+- cb98e1e: Never treat the package under test as an ecosystem dependency
+
+  Under `engine: 'native'` in a workspace, a test file's own
+  `import { describe, it, expect } from 'vitest'` could fail to load with:
+
+  ```
+  Error: Vitest cannot be imported in a CommonJS module using require().
+  Test Files 1 failed | Tests: no tests
+  ```
+
+  Auto-detection reads the manifests of every workspace member, so the package under
+  test appears in the candidate set whenever a sibling — or the repository root —
+  declares it as a dependency. It also declares React Native, because it _is_ React
+  Native code, so it was detected as a third-party ecosystem package: its directory
+  became a `server.deps.external` pattern, Vitest handed every file beneath it to Node,
+  and the loader compiled them to CommonJS. A test file's `import` then became
+  `require('vitest')`, which throws before a single test runs. Suites using Vitest
+  globals instead reported a pass while still running through Node's graph.
+
+  Because it depended on whether anything happened to declare the package, the failure
+  appeared in one workspace package and not another with an identical config, and was
+  easy to misattribute to the `react-native` export condition selecting a CommonJS build
+  of some dependency. It reproduces with no such dependency in the graph.
+
+  Two changes:
+
+  - A package whose directory contains the run root is the project, not a dependency,
+    and is excluded from detection — including when a detected sibling's dependency
+    closure reaches it. Workspace libraries the project merely depends on are still
+    detected, which is what keeps them to a single module instance.
+  - A first-party test file is never externalized, even when it sits inside a workspace
+    library that is legitimately detected — the case an Nx-style run from the repository
+    root produces. Test entries belong to Vitest, not to Node. Both conventions are
+    covered: `*.test.*` / `*.spec.*` names, and files under a `__tests__` directory.
+  - The same directory anchor is skipped for a package named in `transform: [...]`,
+    which never passes through detection. A migrated Jest `transformIgnorePatterns`
+    list naming the project's own package produced the identical failure.
+  - When the run root sits above the package under test, a `test.include` pattern
+    pointing into that package now identifies it, so its own source stays in Vite's
+    graph too rather than only its test entries. A pattern with nothing literal before
+    its first wildcard — Vitest's default — says nothing about which package is the
+    project and is ignored, so workspace libraries the run merely depends on are still
+    detected.
+  - `react` and `react-is` join the packages that are never claimed by detection,
+    alongside the test library and the renderers. A package declaring `react` as a
+    runtime dependency rather than a peer dependency pulled it into the closure walk,
+    leaving the engine's most duplication-sensitive package externalized and compiled
+    as though it were untranspiled React Native source.
+
+  One case remains where a package can still end up in both graphs, and it is now
+  reported rather than silent: when an installed React Native package depends on the
+  very package whose tests are running, Node loads that package's source alongside
+  Vite's copy, and module-level state stops being shared. The engine warns, naming the
+  file and the package that required it. It cannot be resolved by choosing an owner —
+  the dependency is usually declared but never loaded, and honouring it would put the
+  project's own test files back in Node's graph.
+
+  The ownership rule the engine follows is written down in the header of
+  `native/apply.ts`.
+
+  The consumer suite now runs the workspace library's own tests, from inside the package
+  and from the workspace root, and the whole monorepo fixture is exercised under pnpm as
+  well as npm.
+
+- d7ffd0a: Invalidate the React Native registry when any baked-in dependency changes, not just React
+
+  The precompiled registry inlines React Native's own graph and leaves everything else —
+  `react`, `invariant`, `nullthrows`, `@babel/runtime`, `stacktrace-parser` and others —
+  as a normal `require` at a **pre-resolved absolute path** compiled into the emitted
+  file. Those paths are only correct while the packages they point at stay where they
+  were, but only React Native's own files were pinned against change.
+
+  A previous fix named `react` in the cache key after upgrading React produced a null
+  React dispatcher and React Native singletons that no longer compared equal. That fixed
+  one package out of eleven. Naming the rest in the key one at a time would be a list
+  that rots — the next dependency added to React Native's graph would not be on it.
+
+  The resolved external targets are now recorded in the registry's manifest alongside
+  React Native's own files, so the existing size-and-mtime check covers them. That works
+  for both `node_modules` layouts: under bun and pnpm a version change moves the path, so
+  the stat fails; under a flat npm or yarn tree the path survives but the file changes.
+
+  Eleven packages are pinned in this repository's build. Verified by changing `invariant`
+  under a warm cache: the registry rebuilds, where before it was reused unchanged.
+
 ## 0.10.0
 
 ### Minor Changes
