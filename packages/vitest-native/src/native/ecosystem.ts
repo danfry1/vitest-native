@@ -16,6 +16,17 @@ const NEVER_INLINE = new Set([
   "react-test-renderer",
   "test-renderer",
   "react-native",
+  // React itself, for the same reason and by the same list the engine dedupes on
+  // (see `resolve.dedupe` in native/apply.ts). It is reachable: a detected package
+  // declaring `react` as a runtime dependency — rather than the peer dependency it
+  // should be — pulls it into the closure walk, and React is then externalized and
+  // Babel-compiled as though it were untranspiled React Native source. That is
+  // measurably harmless today, because Vitest externalizes the renderer stack
+  // alongside it and the instance stays single, but it makes the engine's most
+  // duplication-sensitive package depend on a heuristic rather than on the rule
+  // stated here.
+  "react",
+  "react-is",
 ]);
 
 /** Manifest fields that make a package part of the React Native ecosystem. */
@@ -158,6 +169,7 @@ function manifestsFrom(projectRoot: string): { dir: string; manifest: Record<str
 export function detectEcosystemPackages(
   projectRoot: string | string[],
   explicit: string[] = [],
+  testRoots: string[] = [],
 ): string[] {
   // More than one root because `manifestsFrom` only walks UP. In a workspace the
   // run root is often above the package under test — Nx invokes tasks from the
@@ -224,9 +236,15 @@ export function detectEcosystemPackages(
    * than above it and are unaffected — detecting those is the point of the
    * workspace-member walk above.
    */
+  // `testRoots` extends this beyond the run root. Running from the repository root,
+  // the root says only "the repository", so a workspace library holding the tests
+  // being collected still looked like an ordinary dependency and had its whole
+  // directory externalized — leaving its own source Node-owned while its tests were
+  // not. A `test.include` pointing into that package identifies it directly.
+  const ownerRoots = [...roots, ...testRoots];
   const runOwners = new Set(
     found
-      .filter(({ dir }) => roots.some((root) => containsPath(dir, root)))
+      .filter(({ dir }) => ownerRoots.some((root) => containsPath(dir, root)))
       .map(({ manifest }) => manifest.name)
       .filter((name): name is string => typeof name === "string"),
   );

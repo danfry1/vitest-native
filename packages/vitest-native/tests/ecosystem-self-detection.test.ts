@@ -25,6 +25,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { detectEcosystemPackages } from "../src/native/ecosystem.js";
 import { nativeEngineConfig } from "../src/native/apply.js";
+import { testIncludeRoots } from "../src/plugin.js";
 
 const made: string[] = [];
 afterEach(() => {
@@ -37,72 +38,143 @@ function write(root: string, rel: string, value: unknown) {
   fs.writeFileSync(file, typeof value === "string" ? value : JSON.stringify(value));
 }
 
-/** How a package manager links a workspace package into a dependent. */
-function link(from: string, to: string) {
-  fs.mkdirSync(path.dirname(from), { recursive: true });
-  fs.symlinkSync(to, from, process.platform === "win32" ? "junction" : "dir");
+/**
+ * Make a package resolvable from `dependent`, the way a package manager linking a
+ * workspace member does.
+ *
+ * Written as an installed copy rather than a symlink deliberately: a link into the
+ * package's own directory is self-referential, and cleaning one up on Windows is its
+ * own hazard. Nothing under test depends on the link — the guard reads the manifests
+ * it has already walked — so the simpler shape is also the more faithful test of it.
+ */
+function installInto(dependent: string, name: string, manifest: Record<string, unknown>) {
+  write(dependent, path.join("node_modules", ...name.split("/"), "package.json"), manifest);
 }
 
 /**
- * A workspace with two React Native packages, where `components` depends on
- * `renderer`. Both are ordinary workspace members; the only difference between them
+ * A workspace with two React Native packages, where `app` depends on
+ * `lib`. Both are ordinary workspace members; the only difference between them
  * is which one the run is in.
  */
-function workspace(): { root: string; renderer: string; components: string } {
+function workspace(): { root: string; lib: string; app: string } {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-self-")));
   made.push(root);
+  const libManifest = {
+    name: "@w/lib",
+    version: "1.0.0",
+    peerDependencies: { "react-native": "*" },
+  };
   write(root, "package.json", { name: "w", private: true, workspaces: ["packages/*"] });
-  write(root, "packages/renderer/package.json", {
-    name: "@w/renderer",
+  write(root, "packages/lib/package.json", libManifest);
+  write(root, "packages/app/package.json", {
+    name: "@w/app",
     version: "1.0.0",
+    dependencies: { "@w/lib": "workspace:*" },
     peerDependencies: { "react-native": "*" },
   });
-  write(root, "packages/components/package.json", {
-    name: "@w/components",
-    version: "1.0.0",
-    dependencies: { "@w/renderer": "workspace:*" },
-    peerDependencies: { "react-native": "*" },
-  });
-  const renderer = path.join(root, "packages", "renderer");
-  const components = path.join(root, "packages", "components");
-  link(path.join(components, "node_modules", "@w", "renderer"), renderer);
-  // pnpm additionally links every member into a hidden store it puts on NODE_PATH,
-  // which is how a package comes to resolve its own name from its own directory.
-  link(path.join(renderer, "node_modules", "@w", "renderer"), renderer);
-  return { root, renderer, components };
+  const lib = path.join(root, "packages", "lib");
+  const app = path.join(root, "packages", "app");
+  installInto(app, "@w/lib", libManifest);
+  return { root, lib, app };
 }
 
 describe("ecosystem detection and the package under test", () => {
   it("does not detect the package the run is inside", () => {
-    const { renderer } = workspace();
-    expect(detectEcosystemPackages(renderer)).not.toContain("@w/renderer");
+    const { lib } = workspace();
+    expect(detectEcosystemPackages(lib)).not.toContain("@w/lib");
   });
 
   it("still detects that same package when another package is under test", () => {
     // The discriminating half: the guard keys on where the run is, not on the
-    // package. From `components`, `@w/renderer` is a genuine workspace dependency and
+    // package. From `app`, `@w/lib` is a genuine workspace dependency and
     // must stay detected — that is the dual-ownership fix this must not undo.
-    const { components } = workspace();
-    expect(detectEcosystemPackages(components)).toContain("@w/renderer");
+    const { app } = workspace();
+    expect(detectEcosystemPackages(app)).toContain("@w/lib");
+  });
+
+  it("recognises the package the tests live in when the run root is above it", () => {
+    // An Nx-style run from the repository root: the root says only "the repository",
+    // so the package holding the tests looked like an ordinary dependency and had its
+    // whole directory externalized — its own source compiled to CommonJS while its
+    // test files were not. `test.include` pointing into the package identifies it.
+    const { root, lib } = workspace();
+    expect(detectEcosystemPackages(root, [], [path.join(lib, "src")])).not.toContain("@w/lib");
+  });
+
+  it("ignores an include pattern that names nothing above the root", () => {
+    // The discriminating half. Vitest's default include is `**/*.test.ts`, which
+    // points at the whole repository; treating that as a hint would mark every
+    // workspace member as the project and undo their detection entirely — the
+    // dual-ownership failure the workspace-member walk exists to prevent.
+    const { root } = workspace();
+    expect(testIncludeRoots(["**/*.test.ts"], root)).toEqual([]);
+    expect(detectEcosystemPackages(root, [], testIncludeRoots(["**/*.test.ts"], root))).toContain(
+      "@w/lib",
+    );
+  });
+
+  it("reads the literal directory out of an include glob", () => {
+    expect(testIncludeRoots(["packages/ui/src/**/*.test.ts"], "/repo")).toEqual([
+      path.resolve("/repo", "packages/ui/src"),
+    ]);
+    expect(testIncludeRoots(["packages/ui/__tests__/*.ts"], "/repo")).toEqual([
+      path.resolve("/repo", "packages/ui/__tests__"),
+    ]);
+    // Nothing above the root, an exclusion, and a non-list all say nothing.
+    expect(testIncludeRoots(["*.test.ts"], "/repo")).toEqual([]);
+    expect(testIncludeRoots(["/*.test.ts"], "/repo")).toEqual([]);
+    expect(testIncludeRoots(["!packages/ui/**"], "/repo")).toEqual([]);
+    expect(testIncludeRoots(undefined, "/repo")).toEqual([]);
+  });
+
+  it("never claims React, however a package declares it", () => {
+    // A package declaring `react` as a runtime dependency — rather than the peer
+    // dependency it should be — puts it in the closure walk, and React would then be
+    // externalized and Babel-compiled as if it were untranspiled React Native source.
+    // React is the package the engine is least willing to have two of.
+    const { root, app } = workspace();
+    write(root, "packages/lib/package.json", {
+      name: "@w/lib",
+      version: "1.0.0",
+      dependencies: { react: "19.0.0" },
+      peerDependencies: { "react-native": "*" },
+    });
+    installInto(app, "@w/lib", {
+      name: "@w/lib",
+      version: "1.0.0",
+      dependencies: { react: "19.0.0" },
+      peerDependencies: { "react-native": "*" },
+    });
+    installInto(app, "react", { name: "react", version: "19.0.0" });
+    const detected = detectEcosystemPackages(app);
+    expect(detected).toContain("@w/lib");
+    expect(detected).not.toContain("react");
   });
 
   it("does not let a sibling's dependency closure pull the package back in", () => {
-    // `@w/components` is detected in its own right and depends on `@w/renderer`, so
+    // `@w/app` is detected in its own right and depends on `@w/lib`, so
     // the closure walk reaches it by a second route.
-    const { root, renderer } = workspace();
+    const { root, lib } = workspace();
     write(root, "package.json", {
       name: "w",
       private: true,
       workspaces: ["packages/*"],
-      dependencies: { "@w/components": "workspace:*" },
+      dependencies: { "@w/app": "workspace:*" },
     });
-    link(
-      path.join(root, "node_modules", "@w", "components"),
-      path.join(root, "packages/components"),
-    );
-    const detected = detectEcosystemPackages(renderer);
-    expect(detected).toContain("@w/components");
-    expect(detected).not.toContain("@w/renderer");
+    installInto(root, "@w/app", {
+      name: "@w/app",
+      version: "1.0.0",
+      dependencies: { "@w/lib": "workspace:*" },
+      peerDependencies: { "react-native": "*" },
+    });
+    installInto(root, "@w/lib", {
+      name: "@w/lib",
+      version: "1.0.0",
+      peerDependencies: { "react-native": "*" },
+    });
+    const detected = detectEcosystemPackages(lib);
+    expect(detected).toContain("@w/app");
+    expect(detected).not.toContain("@w/lib");
   });
 });
 
@@ -162,12 +234,23 @@ describe("test entries are never externalized", () => {
 });
 
 describe("the project's own directory is never an externalization anchor", () => {
-  /** A package that resolves to its own directory, as a workspace member does. */
+  /**
+   * A package that resolves to its own directory.
+   *
+   * Uses Node's own self-reference — a package with an `exports` map can resolve
+   * itself by name — rather than a link back into its own directory. That is the
+   * mechanism a real project hits by more than one route (pnpm also links every
+   * workspace member into a directory it puts on NODE_PATH), and it needs no
+   * symlink, which keeps the fixture identical on every platform.
+   */
   function selfResolvingPackage(): string {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-anchor-")));
     made.push(root);
-    write(root, "package.json", { name: "@w/self", version: "1.0.0" });
-    link(path.join(root, "node_modules", "@w", "self"), root);
+    write(root, "package.json", {
+      name: "@w/self",
+      version: "1.0.0",
+      exports: { ".": "./index.js", "./package.json": "./package.json" },
+    });
     return root;
   }
 
@@ -184,6 +267,20 @@ describe("the project's own directory is never an externalization anchor", () =>
       root,
     ).test.server.deps.external as RegExp[];
 
+  /**
+   * The resolved-directory anchors among the patterns, identified by their `^` —
+   * the `node_modules/<name>/` rule is unanchored, and matches anywhere in a path.
+   *
+   * Asserted by shape rather than by testing a path against them, because the
+   * patterns hold forward slashes (the form Vitest presents ids in) while
+   * `path.join` produces backslashes on Windows. A probe built the second way makes
+   * the negative case below pass for the wrong reason — the anchor is present and
+   * merely fails to match on separators — which is exactly how the first version of
+   * this test came out green locally and red on Windows.
+   */
+  const directoryAnchors = (root: string, transformPkgs: string[]) =>
+    externals(root, transformPkgs).filter((re) => re.source.startsWith("^"));
+
   it("skips the directory anchor when `transform` names the project's own package", () => {
     // `transform: [...]` names packages by hand and never passes through detection,
     // so the guard there does not help. A migrated Jest `transformIgnorePatterns`
@@ -191,8 +288,7 @@ describe("the project's own directory is never an externalization anchor", () =>
     // whole source tree — test files included — was handed to Node and compiled to
     // CommonJS.
     const root = selfResolvingPackage();
-    const source = path.join(root, "src", "index.ts");
-    expect(externals(root, ["@w/self"]).some((re) => re.test(source))).toBe(false);
+    expect(directoryAnchors(root, ["@w/self"])).toEqual([]);
   });
 
   it("still anchors on the directory of a package that is not the project", () => {
@@ -200,11 +296,11 @@ describe("the project's own directory is never an externalization anchor", () =>
     // is for — matching workspace and `file:` links, which have no node_modules
     // segment to anchor on at all.
     const root = selfResolvingPackage();
-    const other = path.join(path.dirname(root), "elsewhere");
-    write(other, "package.json", { name: "@w/other", version: "1.0.0" });
-    made.push(other);
-    link(path.join(root, "node_modules", "@w", "other"), other);
-    const source = path.join(other, "src", "index.ts");
-    expect(externals(root, ["@w/other"]).some((re) => re.test(source))).toBe(true);
+    write(root, "node_modules/@w/other/package.json", { name: "@w/other", version: "1.0.0" });
+    const anchors = directoryAnchors(root, ["@w/other"]);
+    expect(anchors).toHaveLength(1);
+    expect(anchors[0].test(`${root.replace(/\\/g, "/")}/node_modules/@w/other/src/index.ts`)).toBe(
+      true,
+    );
   });
 });

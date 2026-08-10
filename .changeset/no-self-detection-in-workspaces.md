@@ -39,6 +39,17 @@ Two changes:
 - The same directory anchor is skipped for a package named in `transform: [...]`,
   which never passes through detection. A migrated Jest `transformIgnorePatterns`
   list naming the project's own package produced the identical failure.
+- When the run root sits above the package under test, a `test.include` pattern
+  pointing into that package now identifies it, so its own source stays in Vite's
+  graph too rather than only its test entries. A pattern with nothing literal before
+  its first wildcard — Vitest's default — says nothing about which package is the
+  project and is ignored, so workspace libraries the run merely depends on are still
+  detected.
+- `react` and `react-is` join the packages that are never claimed by detection,
+  alongside the test library and the renderers. A package declaring `react` as a
+  runtime dependency rather than a peer dependency pulled it into the closure walk,
+  leaving the engine's most duplication-sensitive package externalized and compiled
+  as though it were untranspiled React Native source.
 
 The consumer suite now runs the workspace library's own tests, from inside the package
 and from the workspace root, and the whole monorepo fixture is exercised under pnpm as

@@ -80,6 +80,29 @@ async function autoDetectPresets(diagnostics: boolean, projectRoot: string): Pro
   return detected;
 }
 
+/**
+ * The directories a set of `test.include` globs point into, resolved against the run
+ * root — the literal part of each pattern, up to its first wildcard.
+ *
+ * `packages/ui/src/**\/*.test.ts` names `packages/ui/src`, which is enough to know
+ * the run's tests live in that package. `**\/*.test.ts` names nothing above the root
+ * and is dropped: treating it as a hint would mark every workspace member as the
+ * project and undo their detection entirely.
+ */
+export function testIncludeRoots(include: unknown, projectRoot: string): string[] {
+  if (!Array.isArray(include)) return [];
+  const dirs = new Set<string>();
+  for (const pattern of include) {
+    if (typeof pattern !== "string" || pattern.startsWith("!")) continue;
+    const wildcard = pattern.search(/[*?[\]{}()!+@]/);
+    const literal = wildcard === -1 ? pattern : pattern.slice(0, wildcard);
+    const slash = literal.replace(/\\/g, "/").lastIndexOf("/");
+    if (slash <= 0) continue; // Nothing above the root — no information.
+    dirs.add(path.resolve(projectRoot, literal.slice(0, slash)));
+  }
+  return [...dirs];
+}
+
 function resolvePackageVersion(packageName: string, projectRoot: string): string | null {
   const req = createRequire(path.join(projectRoot, "package.json"));
   try {
@@ -872,7 +895,22 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // cannot run — untranspiled JSX, Flow, TypeScript — because they assume Metro
         // will compile them. Detect them and inline them, rather than making every
         // project rediscover the list one SyntaxError at a time.
-        const ecosystem = detectEcosystemPackages(resolvedRoot, transformPkgs);
+        // Where the run's tests live, as far as `test.include` reveals it. When the
+        // run root sits ABOVE the package under test — an Nx-style invocation from
+        // the repository root — the root alone cannot say which package is the
+        // project, so a library holding the tests looked like an ordinary dependency
+        // and its whole directory was externalized. An include pattern pointing into
+        // that package says so directly. A pattern with nothing literal before its
+        // first wildcard (the default, `**/*.test.ts`) says nothing and is ignored.
+        const includeRoots = testIncludeRoots(
+          (userConfig as { test?: { include?: unknown } }).test?.include,
+          resolvedRoot,
+        );
+        const ecosystem = detectEcosystemPackages(
+          [resolvedRoot, ...includeRoots],
+          transformPkgs,
+          includeRoots,
+        );
         if (ecosystem.length > 0) {
           ecosystemRoot = resolvedRoot;
           // Anchored on node_modules: a bare `[/\\]name[/\\]` match also hits any
