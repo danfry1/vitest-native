@@ -58,7 +58,31 @@ export function validateOptions(options: Record<string, unknown>): void {
     throw new VitestNativeTypeError("INVALID_OPTION", `"diagnostics" must be a boolean.`);
   }
   if (options.assetExts !== undefined) assertStringArray(options.assetExts, "assetExts");
-  if (options.transform !== undefined) assertStringArray(options.transform, "transform");
+  // Two shapes, like `presets`: an array is the include list; an object names
+  // `include` and/or `exclude`.
+  if (options.transform !== undefined) {
+    if (Array.isArray(options.transform)) {
+      assertStringArray(options.transform, "transform");
+    } else if (options.transform !== null && typeof options.transform === "object") {
+      const shape = options.transform as { include?: unknown; exclude?: unknown };
+      const unknownKeys = Object.keys(shape).filter((k) => k !== "include" && k !== "exclude");
+      if (unknownKeys.length > 0) {
+        throw new VitestNativeTypeError(
+          "INVALID_OPTION",
+          `"transform" accepts only "include" and "exclude"; received ${unknownKeys
+            .map((k) => `"${k}"`)
+            .join(", ")}.`,
+        );
+      }
+      if (shape.include !== undefined) assertStringArray(shape.include, "transform.include");
+      if (shape.exclude !== undefined) assertStringArray(shape.exclude, "transform.exclude");
+    } else {
+      throw new VitestNativeTypeError(
+        "INVALID_OPTION",
+        `"transform" must be an array of package names, or an object with "include" and/or "exclude".`,
+      );
+    }
+  }
   // Two shapes: an array replaces auto-detection, an object of booleans keeps it and
   // switches named presets off. Anything else is rejected with both spellings named,
   // since "must be an array" would now be wrong advice.

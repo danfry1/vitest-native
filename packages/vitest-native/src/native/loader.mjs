@@ -3,7 +3,7 @@
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
-import { transformRN, isFlow, cjsExportNames } from "./transform.mjs";
+import { transformRN, isFlow, cjsExportNames, needsTransform } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import { resolvePlatformFile } from "./resolve.mjs";
 import {
@@ -248,6 +248,10 @@ export async function load(url, context, nextLoad) {
   // JSX are not installed, so a require here fails with "Unexpected token '<'".
   if (TRANSFORMABLE.test(norm)) {
     const src = fs.readFileSync(file, "utf8");
+    // Only compile what Node cannot run as published — see needsTransform. A file V8
+    // accepts is handed straight back to Node, which is how the toolchain packages a
+    // closure walk drags in stop reaching the Babel preset at all.
+    if (!needsTransform(file, src)) return nextLoad(url, context);
     const code = transformRN(file, src, PROJECT_ROOT, PLATFORM);
     const names = cjsExportNames(code);
     return {

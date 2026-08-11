@@ -211,6 +211,7 @@ export function detectEcosystemPackages(
   projectRoot: string | string[],
   explicit: string[] = [],
   testRoots: string[] = [],
+  neverTransform: string[] = [],
 ): string[] {
   // More than one root because `manifestsFrom` only walks UP. In a workspace the
   // run root is often above the package under test — Nx invokes tasks from the
@@ -221,7 +222,15 @@ export function detectEcosystemPackages(
   // time triggered by nothing but the working directory. The config file's
   // directory is the second root, since that is where the package under test lives.
   const roots = (Array.isArray(projectRoot) ? projectRoot : [projectRoot]).filter(Boolean);
-  const skip = new Set<string>([...NEVER_INLINE, ...Object.keys(AUTO_DETECT_PRESETS), ...explicit]);
+  // `neverTransform` is the user's `transform.exclude`. It joins the built-in lists
+  // rather than being checked separately, so it overrides detection AND the closure
+  // walk by the same mechanism they do.
+  const skip = new Set<string>([
+    ...NEVER_INLINE,
+    ...Object.keys(AUTO_DETECT_PRESETS),
+    ...explicit,
+    ...neverTransform,
+  ]);
   const candidates = new Set<string>();
   const found = roots.flatMap((root) => manifestsFrom(root));
   // One resolver per directory that declared something. Under pnpm a workspace
@@ -360,6 +369,13 @@ export function detectEcosystemPackages(
   // as the toolchain's own dependencies change. They are skipped only as CLOSURE
   // MEMBERS — a project that genuinely depends on one still has it detected on its own
   // manifest, exactly as before.
+  // NOTE: since the parse check landed (see needsTransform in transform.mjs), a
+  // script-goal toolchain package can no longer reach Babel however it is listed —
+  // `@babel/runtime` and Metro's chain all parse, so they are skipped at the point of
+  // compiling. This list is retained only for MODULE-goal toolchain packages, which
+  // the parse check deliberately does not judge. It should be deleted when ESM-goal
+  // files stop being force-converted, and not extended before then: a new name here is
+  // a sign the parse check was bypassed rather than that the list was incomplete.
   const toolchain = closureOf([
     "@babel/core",
     "@react-native/babel-preset",
