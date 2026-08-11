@@ -33,6 +33,43 @@ const NEVER_INLINE = new Set([
   "react-is",
 ]);
 
+/** Does this manifest offer a React Native build, by legacy field or export condition? */
+function hasReactNativeBuild(manifest: Record<string, unknown>): boolean {
+  if (typeof manifest["react-native"] === "string") return true;
+  const seen = new Set<unknown>();
+  const search = (node: unknown): boolean => {
+    if (!node || typeof node !== "object" || seen.has(node)) return false;
+    seen.add(node);
+    for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+      if (key === "react-native") return true;
+      if (search(value)) return true;
+    }
+    return false;
+  };
+  return search(manifest.exports);
+}
+
+/**
+ * A package that ships ES modules and nothing React Native.
+ *
+ * The closure walk is a guess: a detected package's dependencies MIGHT be untranspiled
+ * React Native source, because the ecosystem publishes that way and the dependency's
+ * own manifest cannot say so. `"type": "module"` is the manifest saying the opposite —
+ * this is runnable ES modules — and with no React Native build anywhere in it, there is
+ * nothing for the preset to do. Compiling it anyway rewrites a package that publishes
+ * ESM into CommonJS and hands it to Node under that format, which is how a dependency
+ * reached this way (`zod`) failed to parse and took fourteen test files down with it.
+ *
+ * A genuine React Native library is unaffected: declaring `react-native` by field or
+ * export condition keeps it in the closure however it publishes.
+ *
+ * Only closure MEMBERS are judged this way. A package detected on its own manifest, or
+ * named in `transform: [...]`, was asked for explicitly and is still compiled.
+ */
+function publishesOnlyEsm(manifest: Record<string, unknown>): boolean {
+  return manifest.type === "module" && !hasReactNativeBuild(manifest);
+}
+
 /** Manifest fields that make a package part of the React Native ecosystem. */
 function dependsOnReactNative(manifest: Record<string, unknown>): boolean {
   for (const field of ["dependencies", "peerDependencies"]) {
@@ -309,10 +346,67 @@ export function detectEcosystemPackages(
   // reached Babel and then Babel's own dependencies (chalk among them). Both blew up
   // the packed Expo consumer, and neither reproduced in a synthetic fixture. Excluding
   // the toolchain by name would be a list that rots; its closure computes itself.
-  const toolchain = closureOf(["@babel/core", "@react-native/babel-preset"]);
+  //
+  // `@babel/runtime` and `metro` seed it alongside them, and are not reachable from
+  // `@babel/core`. `@babel/runtime` holds the helpers Babel EMITS, so compiled output
+  // across the ecosystem requires it at run time — including React Native's own. Metro
+  // is the bundler the preset belongs to, and its `lru-cache` chain (`yallist`) is
+  // loaded the same way. Both were handed to the transform by an Expo application's
+  // dependency closure, and compiling them re-enters Babel mid-initialisation: the
+  // reported `Cannot access 'v' before initialization`, naming a file the project never
+  // mentioned.
+  //
+  // Seeds, not names: what each of these reaches is computed, so the list does not rot
+  // as the toolchain's own dependencies change. They are skipped only as CLOSURE
+  // MEMBERS — a project that genuinely depends on one still has it detected on its own
+  // manifest, exactly as before.
+  const toolchain = closureOf([
+    "@babel/core",
+    "@react-native/babel-preset",
+    "@babel/runtime",
+    "metro",
+  ]);
+
+  // Only packages the RUN can actually reach seed the walk.
+  //
+  // Candidates are collected from every manifest in the workspace, which is how a
+  // library the app depends on is found at all. Applied to a closure walk, that
+  // breadth stops being free: a sibling Expo application is detected on its own
+  // manifest, and walking ITS dependencies drags the whole Expo and Metro toolchain —
+  // several hundred packages, `@babel/runtime` and Metro's `lru-cache` chain among
+  // them — into the Babel transform set of a library that depends on none of it.
+  // Those are not inert. React Native and Babel load them, and compiling the
+  // transform's own toolchain with the transform re-enters Babel while it is still
+  // initialising, which fails as a TDZ error naming a file the project never
+  // mentioned.
+  //
+  // So the seeds are the packages the project itself DECLARES — read from the
+  // manifests that belong to the run (the package under test, and any manifest above
+  // it, which is where a workspace that keeps its React Native libraries at the
+  // repository root declares them). A package only a sibling declares is that
+  // sibling's business.
+  //
+  // Declaration rather than resolvability, deliberately. Under pnpm every workspace
+  // package is linked into a hidden directory placed on NODE_PATH, so in the running
+  // process a sibling's dependencies DO resolve from the package under test, and a
+  // reachability test quietly passes them all through. The manifest does not move.
+  //
+  // Only the SEEDS are filtered. A dependency reached through the walk is declared by
+  // its own parent rather than by the project — that is what makes it transitive —
+  // so filtering members too would undo the compilation this walk exists for.
+  const projectDeclared = new Set<string>();
+  for (const { dir, manifest } of found) {
+    if (!ownerRoots.some((root) => containsPath(dir, root))) continue;
+    for (const field of ["dependencies", "devDependencies", "optionalDependencies"]) {
+      const deps = manifest[field];
+      if (deps && typeof deps === "object") {
+        for (const name of Object.keys(deps as object)) projectDeclared.add(name);
+      }
+    }
+  }
 
   const inClosure = new Set(detected);
-  const queue = [...detected];
+  const queue = detected.filter((name) => projectDeclared.has(name));
   while (queue.length > 0) {
     const pkg = manifestOf(queue.pop() as string);
     const deps = pkg?.dependencies;
@@ -324,7 +418,9 @@ export function detectEcosystemPackages(
       // A sibling that depends on the package under test would otherwise pull it
       // back in here, past the check above.
       if (ownsTheRun(dep)) continue;
-      if (!manifestOf(dep)) continue; // declared but not installed
+      const depManifest = manifestOf(dep);
+      if (!depManifest) continue; // declared but not installed
+      if (publishesOnlyEsm(depManifest)) continue;
       inClosure.add(dep);
       queue.push(dep);
     }
