@@ -3,7 +3,7 @@
 import Module from "node:module";
 import path from "node:path";
 import fs from "node:fs";
-import { transformRN, isFlow } from "./transform.mjs";
+import { transformRN, isFlow, needsTransform } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import { resolvePlatformFile } from "./resolve.mjs";
 import {
@@ -289,10 +289,15 @@ export function installRequireHooks(
       if (isFlow(src))
         return mod._compile(transformRN(filename, src, projectRoot, platform), filename);
     } else if (isExtra(norm)) {
-      // Configured third-party packages: transform unconditionally — TS `import
-      // type`/JSX aren't caught by isFlow, and babel passes plain JS through.
+      // Selected for compiling — but only compile what Node cannot run as published.
+      // `isFlow` is not enough here (TS `import type` and JSX slip past it), and
+      // compiling everything is what handed Babel its own toolchain. See
+      // needsTransform: V8 answers the question Node is about to ask.
       const src = fs.readFileSync(filename, "utf8");
-      return mod._compile(transformRN(filename, src, projectRoot, platform), filename);
+      if (needsTransform(filename, src)) {
+        return mod._compile(transformRN(filename, src, projectRoot, platform), filename);
+      }
+      return origJs(mod, filename);
     }
     if (NODE_MODULES_PATH.test(norm)) {
       // A node_modules package we did NOT transform: when Node's compile throws a
