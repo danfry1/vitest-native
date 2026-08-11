@@ -299,12 +299,34 @@ export interface VitestNativeOptions {
    * (e.g. `react-native-reanimated`, `react-native-safe-area-context`) need to
    * be listed here, analogous to Jest's `transformIgnorePatterns` allowlist.
    *
+   * The object form adds `exclude`, which names packages the engine must NEVER
+   * transform, whatever else would have selected them — auto-detection, a detected
+   * package's dependency closure, or the engine's own built-in lists.
+   *
+   * `exclude` exists because the engine's judgement about what is React Native source
+   * is a heuristic, and when it guesses wrong the failure is a parse error deep inside
+   * a package the project never named. Build toolchains are the recurring case:
+   * compiling one re-enters Babel while it is loading. The engine excludes the ones it
+   * knows about, but that list is only as current as the last release — `exclude` is
+   * how a project unblocks itself the same day, without waiting for one.
+   *
+   * Run with `diagnostics: true` to print the packages the engine chose to compile;
+   * that list is what `exclude` subtracts from.
+   *
    * @example
    * ```ts
    * reactNative({ engine: 'native', transform: ['react-native-reanimated'] })
+   *
+   * reactNative({
+   *   engine: 'native',
+   *   transform: {
+   *     include: ['react-native-reanimated'],
+   *     exclude: ['some-build-tool'], // never hand this to the Babel preset
+   *   },
+   * })
    * ```
    */
-  transform?: string[];
+  transform?: string[] | { include?: string[]; exclude?: string[] };
 
   /**
    * `engine: 'native'` only. **Experimental.** Run tests in persistent

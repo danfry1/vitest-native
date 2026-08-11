@@ -129,6 +129,33 @@ function nearestPackageDir(from: string): string | null {
   }
 }
 
+/**
+ * The `transform` option in either shape: an array of packages to compile, or an
+ * object naming those and the ones to leave alone.
+ *
+ * `exclude` overrides everything — auto-detection, the closure walk, and the engine's
+ * built-in toolchain and infrastructure lists. Those built-in lists are names the
+ * engine learned from packages that broke, which means they are only ever as current
+ * as the last release; `exclude` is the same decision, handed to the project.
+ */
+export function normalizeTransformOption(option: unknown): {
+  include: string[];
+  exclude: string[];
+} {
+  const names = (value: unknown): string[] =>
+    Array.isArray(value) ? value.filter((v): v is string => typeof v === "string" && v !== "") : [];
+  if (Array.isArray(option)) return { include: names(option), exclude: [] };
+  if (option && typeof option === "object") {
+    const shape = option as { include?: unknown; exclude?: unknown };
+    const exclude = names(shape.exclude);
+    // Excluding a package the same config also asks to transform is a contradiction;
+    // the safer reading wins, since the cost of not compiling something is a legible
+    // syntax error and the cost of compiling the wrong thing is a crash inside Babel.
+    return { include: names(shape.include).filter((n) => !exclude.includes(n)), exclude };
+  }
+  return { include: [], exclude: [] };
+}
+
 function resolvePackageVersion(packageName: string, projectRoot: string): string | null {
   const req = createRequire(path.join(projectRoot, "package.json"));
   try {
@@ -781,9 +808,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   const diagnostics = options?.diagnostics ?? false;
   // Capture the user-requested engine; concrete resolution happens in config().
   const requestedEngine = options?.engine ?? "auto";
-  // Extra node_modules packages the native engine should transform (Flow/TS/JSX).
-  const transformPkgs = (options?.transform ?? []).filter(
-    (p) => typeof p === "string" && p.length > 0,
+  // Extra node_modules packages the native engine should transform (Flow/TS/JSX),
+  // and the ones it must never transform whatever else selects them. Two shapes: an
+  // array is the include list, an object names both.
+  const { include: transformPkgs, exclude: neverTransform } = normalizeTransformOption(
+    options?.transform,
   );
   // Hot runtime (native engine only): persistent RN-hot workers with per-file
   // isolation via the custom pool. Opt-in while it bakes (see design doc).
@@ -936,6 +965,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           [resolvedRoot, ...includeRoots],
           transformPkgs,
           includeRoots,
+          neverTransform,
         );
         // The directories Vite owns outright. Handed to the worker so the require
         // hook can say so if Node loads one of their files anyway — which happens
