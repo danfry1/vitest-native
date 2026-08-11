@@ -33,6 +33,43 @@ const NEVER_INLINE = new Set([
   "react-is",
 ]);
 
+/** Does this manifest offer a React Native build, by legacy field or export condition? */
+function hasReactNativeBuild(manifest: Record<string, unknown>): boolean {
+  if (typeof manifest["react-native"] === "string") return true;
+  const seen = new Set<unknown>();
+  const search = (node: unknown): boolean => {
+    if (!node || typeof node !== "object" || seen.has(node)) return false;
+    seen.add(node);
+    for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+      if (key === "react-native") return true;
+      if (search(value)) return true;
+    }
+    return false;
+  };
+  return search(manifest.exports);
+}
+
+/**
+ * A package that ships ES modules and nothing React Native.
+ *
+ * The closure walk is a guess: a detected package's dependencies MIGHT be untranspiled
+ * React Native source, because the ecosystem publishes that way and the dependency's
+ * own manifest cannot say so. `"type": "module"` is the manifest saying the opposite —
+ * this is runnable ES modules — and with no React Native build anywhere in it, there is
+ * nothing for the preset to do. Compiling it anyway rewrites a package that publishes
+ * ESM into CommonJS and hands it to Node under that format, which is how a dependency
+ * reached this way (`zod`) failed to parse and took fourteen test files down with it.
+ *
+ * A genuine React Native library is unaffected: declaring `react-native` by field or
+ * export condition keeps it in the closure however it publishes.
+ *
+ * Only closure MEMBERS are judged this way. A package detected on its own manifest, or
+ * named in `transform: [...]`, was asked for explicitly and is still compiled.
+ */
+function publishesOnlyEsm(manifest: Record<string, unknown>): boolean {
+  return manifest.type === "module" && !hasReactNativeBuild(manifest);
+}
+
 /** Manifest fields that make a package part of the React Native ecosystem. */
 function dependsOnReactNative(manifest: Record<string, unknown>): boolean {
   for (const field of ["dependencies", "peerDependencies"]) {
@@ -381,7 +418,9 @@ export function detectEcosystemPackages(
       // A sibling that depends on the package under test would otherwise pull it
       // back in here, past the check above.
       if (ownsTheRun(dep)) continue;
-      if (!manifestOf(dep)) continue; // declared but not installed
+      const depManifest = manifestOf(dep);
+      if (!depManifest) continue; // declared but not installed
+      if (publishesOnlyEsm(depManifest)) continue;
       inClosure.add(dep);
       queue.push(dep);
     }

@@ -55,3 +55,12 @@ In the two-package reproduction the transform set drops from 253 packages to 5 �
 declared dependency and its genuine closure. For an Expo application testing itself it
 drops from 251 to 171, with `@babel/runtime`, `yallist` and Metro's cache chain no
 longer among them.
+
+A closure member that publishes only ES modules is left alone as well. The walk is a
+guess that a detected package's dependencies might be untranspiled React Native
+source; `"type": "module"` with no `react-native` build anywhere in the manifest is
+the dependency saying the opposite. Compiling one anyway rewrote a package that
+publishes ESM into CommonJS and handed it to Node under that format. A genuine React
+Native library is unaffected — declaring `react-native`, by legacy field or by export
+condition at any depth, keeps it in the closure however it publishes — and so is any
+package named in `transform: [...]`, which was asked for explicitly.

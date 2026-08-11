@@ -194,6 +194,68 @@ describe("ecosystem detection: dependency closure", () => {
  * the canonical React Native monorepo — the application's presence alone stopped the
  * library's tests from loading.
  */
+describe("ecosystem detection: an ESM-only closure member", () => {
+  /** `project()` cannot express `type`/`exports`, so this writes the manifests. */
+  function withEsmDependency(extra: Record<string, unknown>): string {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-esm-"));
+    roots.push(root);
+    const write = (name: string, manifest: Record<string, unknown>) => {
+      const dir = path.join(root, "node_modules", ...name.split("/"));
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name, ...manifest }));
+    };
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify({ name: "app", dependencies: { "rn-lib": "*" } }),
+    );
+    write("react-native", {});
+    write("rn-lib", {
+      peerDependencies: { "react-native": "*" },
+      dependencies: { "esm-dep": "*" },
+    });
+    write("esm-dep", extra);
+    return root;
+  }
+
+  it("is not compiled: it publishes runnable ES modules and nothing React Native", () => {
+    // The closure walk is a guess that a dependency might be untranspiled React Native
+    // source. `"type": "module"` is the manifest saying the opposite. Compiling it
+    // anyway rewrites a package that publishes ESM into CommonJS and hands it to Node
+    // under that format — how `zod`, reached exactly this way, took fourteen files down.
+    const detected = detectEcosystemPackages(withEsmDependency({ type: "module" }));
+    expect(detected).toContain("rn-lib");
+    expect(detected).not.toContain("esm-dep");
+  });
+
+  it("is still compiled when it declares a React Native build", () => {
+    // The discriminating half. A genuine React Native library may well be `type:
+    // module` and still ship source the preset has to compile; the React Native build
+    // is what says so — by legacy field...
+    const byField = detectEcosystemPackages(
+      withEsmDependency({ type: "module", "react-native": "./native.js" }),
+    );
+    expect(byField).toContain("esm-dep");
+    // ...or by export condition, at any depth of the map.
+    const byCondition = detectEcosystemPackages(
+      withEsmDependency({
+        type: "module",
+        exports: {
+          ".": { "react-native": { default: "./native.js" }, import: "./index.js" },
+          // Without this the manifest cannot be read at all and the package is
+          // skipped as "declared but not installed" — which would make the
+          // assertion below pass for entirely the wrong reason.
+          "./package.json": "./package.json",
+        },
+      }),
+    );
+    expect(byCondition).toContain("esm-dep");
+  });
+
+  it("is still compiled when it is CommonJS, which says nothing either way", () => {
+    expect(detectEcosystemPackages(withEsmDependency({}))).toContain("esm-dep");
+  });
+});
+
 describe("ecosystem detection: whose closure gets walked", () => {
   /** A workspace whose sibling declares `heavy-app`, and whose project declares none. */
   function workspaceWithSibling(): string {
