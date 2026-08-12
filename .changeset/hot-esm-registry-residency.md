@@ -20,11 +20,21 @@ bug, not the fix. Cost is bounded by ownership — a CommonJS package re-enters 
 `Module._cache`, which the reset already drops, so only a namespace wrapper is
 retained per generation.
 
-Measured on a 135-file suite: correctness went from 126/135 to 135/135 against the
-same suite under stock isolation, wall clock was unchanged (9.9× stock isolation),
-and peak RSS rose 7.4% (956 MB to 1027 MB). `VITEST_NATIVE_HOT_ESM_GEN=0` restores
-the previous behaviour.
+Correctness on a 135-file suite went from 126/135 to 135/135 against the same suite
+under stock isolation.
 
+The cost is re-execution, and it scales with how many externalized packages a test
+file imports — which is nothing to do with React Native, since RN and the packages
+that depend on it are inlined into Vite's graph and never reach this path. A suite
+where every file imports eight ordinary npm packages measured 1.14s to 1.77s, 55%
+more wall clock; stock isolation runs the same suite in 15.90s, so hot goes from
+13.9× to 9.0×. Suites that import few externalized packages pay close to nothing.
+
+Peak RSS does not grow: 946 MB with the stamp against 955 MB without, on that same
+suite. A CommonJS package re-enters through `Module._cache`, which the reset already
+drops, so only a namespace wrapper is retained per generation.
+
+`hotRuntime: { esmGeneration: false }` trades the correctness back for the speed.
 Nothing changes when the hot runtime is off; the counter is only installed by the hot
 worker.
 
