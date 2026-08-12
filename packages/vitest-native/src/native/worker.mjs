@@ -107,6 +107,11 @@ const resetModules = captureModuleBaseline();
 const { hotReset, bless } = installHotReset({ projectRoot, diagnostics, preserveGlobals });
 globalThis.__vitest_native_hot_reset = () => {
   globalThis.__vitest_native_registry_reset?.();
+  // Advance the ESM generation so externalized packages a test file `import`s are
+  // re-evaluated instead of served from Node's uninvalidatable ESM registry.
+  if (globalThis.__vitest_native_hot_generation) {
+    Atomics.add(globalThis.__vitest_native_hot_generation, 0, 1);
+  }
   const dropped = resetModules();
   hotReset();
   if (diagnostics) console.log(`[vitest-native] hot reset: dropped ${dropped} modules`);

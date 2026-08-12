@@ -55,6 +55,42 @@ let presetExports = {};
 // Asset file extensions (without leading dot, lower-cased) the loader should stub.
 let assetExtSet = new Set();
 
+/**
+ * Hot-runtime ESM generation (experimental, `VITEST_NATIVE_HOT_ESM_GEN=1`).
+ *
+ * Node's ESM registry has no invalidation API, so a package a TEST FILE reaches
+ * through `import` keeps its module state for the whole run — the per-file reset
+ * can only clear the CommonJS cache. That is the hot runtime's one measured
+ * correctness hole at scale (see validation/idiomatic/scale, `extstore`).
+ *
+ * The registry is keyed by full URL, query included, so stamping a generation onto
+ * the URL makes the next file's import a different module and Node evaluates it
+ * again. The counter lives in a SharedArrayBuffer because loader hooks run on their
+ * own thread; the worker bumps it in the per-file reset.
+ *
+ * Cost is bounded by ownership: a CommonJS package re-enters through Module._cache,
+ * which the reset already drops, so only a thin namespace wrapper is retained per
+ * generation. A true-ESM package retains its whole instance — which is why this is
+ * measured before it is trusted.
+ */
+let genView = null;
+const generationOf = () => (genView ? Atomics.load(genView, 0) : 0);
+// Modules whose identity must be stable across files: dropping them makes a twin
+// rather than a fresh copy. Mirrors KEEP_RESIDENT in module-reset.mjs.
+const KEEP_RESIDENT =
+  /[\\/]node_modules[\\/](react|react-is|react-dom|scheduler|react-reconciler|react-test-renderer|test-renderer|@testing-library[\\/]react-native)[\\/]/;
+
+/** Should this resolved file carry a generation stamp? */
+function versionable(url) {
+  if (!genView || !url.startsWith("file:")) return false;
+  const norm = fileURLToPath(url).replace(/\\/g, "/");
+  if (!NODE_MODULES_PATH.test(norm)) return false;
+  // React Native itself is preloaded once per worker and shared deliberately —
+  // re-instantiating it per file would undo the reason the worker stays warm.
+  if (REACT_NATIVE_PATH.test(norm) || KEEP_RESIDENT.test(norm)) return false;
+  return true;
+}
+
 export async function initialize(data) {
   if (data && data.projectRoot) PROJECT_ROOT = data.projectRoot;
   if (data && data.platform === "android") PLATFORM = "android";
@@ -63,6 +99,7 @@ export async function initialize(data) {
   if (data && data.presetExports) presetExports = data.presetExports;
   if (data && data.assetExts)
     assetExtSet = new Set(data.assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
+  if (data && data.hotGenerationBuffer) genView = new Int32Array(data.hotGenerationBuffer);
 }
 
 export async function resolve(specifier, context, nextResolve) {
@@ -132,6 +169,16 @@ export async function resolve(specifier, context, nextResolve) {
       },
       shortCircuit: true,
     };
+  }
+
+  // Stamp the hot generation so the next test file re-evaluates this module rather
+  // than reusing the ESM registry's copy. `fileURLToPath` ignores the query, so
+  // `load` and every on-disk read below are unaffected.
+  if (versionable(resolved.url)) {
+    const gen = generationOf();
+    if (gen > 0 && !resolved.url.includes("vnhot=")) {
+      return { ...resolved, url: `${resolved.url}?vnhot=${gen}`, shortCircuit: true };
+    }
   }
   return resolved;
 }
