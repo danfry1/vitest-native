@@ -16,13 +16,21 @@ afterEach(() => {
 });
 
 test("snapshot state is the runner's own (hot, packed)", () => {
-  const tree = render(
+  render(
     <View testID="hot-a">
       <Text>hot consumer A</Text>
     </View>,
-  ).toJSON();
-  expect(tree).toMatchSnapshot();
+  );
   expect(screen.getByTestId("hot-a")).toHaveTextContent("hot consumer A");
+  // Inline snapshot of a stable literal: the point is the snapshot MACHINERY —
+  // a twin @vitest/snapshot throws "snapshot state ... not found" here — not
+  // render fidelity, which full-tree snapshots would tie to the pinned RN's
+  // internal props. Inline also needs no .snap file, which CI refuses to create.
+  expect({ file: "hot-a" }).toMatchInlineSnapshot(`
+    {
+      "file": "hot-a",
+    }
+  `);
 });
 
 test("fake timers drive the runner's clock (hot, packed)", () => {

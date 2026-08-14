@@ -11,12 +11,18 @@ import { resolvedUrls } from "runtime-probe";
 // one passing file says nothing about the next.
 
 test("snapshot state is the runner's own in a second file (hot, packed)", () => {
-  const tree = render(
+  render(
     <View testID="hot-b">
       <Text>hot consumer B</Text>
     </View>,
-  ).toJSON();
-  expect(tree).toMatchSnapshot();
+  );
+  // Stable-literal inline snapshot, as in hot-a: exercises SnapshotClient state
+  // for THIS file (every file gets its own), without coupling to RN render props.
+  expect({ file: "hot-b" }).toMatchInlineSnapshot(`
+    {
+      "file": "hot-b",
+    }
+  `);
 });
 
 test("externalized package state was reset between files", () => {
