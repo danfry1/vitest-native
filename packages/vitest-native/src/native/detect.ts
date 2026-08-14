@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import path from "node:path";
+import fs from "node:fs";
 
 export type RequestedEngine = "auto" | "mock" | "native";
 export type ResolvedEngine = "mock" | "native";
@@ -15,21 +16,52 @@ export const AUTO_PREFERS_NATIVE = true;
 
 export interface EngineDecision {
   engine: ResolvedEngine;
-  /** True when @react-native/babel-preset + @babel/core resolve from projectRoot. */
+  /** True when react-native + @react-native/babel-preset + @babel/core resolve from projectRoot. */
   nativeAvailable: boolean;
+  /** The native-engine dependencies that did NOT resolve, in check order. */
+  missing: string[];
   /** One concise line to print once, or null for silence. */
   notice: string | null;
 }
 
-/** Can this project run the native engine? (Both transform deps resolvable.) */
-function isNativeCapable(projectRoot: string): boolean {
-  try {
-    const req = createRequire(path.join(projectRoot, "package.json"));
-    req.resolve("@react-native/babel-preset");
-    req.resolve("@babel/core");
-    return true;
-  } catch {
-    return false;
+/**
+ * The native engine's dependencies that do NOT resolve from the project root.
+ *
+ * react-native itself is part of the check: the Babel toolchain alone chose
+ * native mode in a project with the preset installed but no react-native — an
+ * incomplete install, a babel-only workspace — which then failed later at RN
+ * resolution with nothing pointing at the cause. Resolution, not declaration:
+ * every check walks node_modules upward from the root — so a hoisted workspace
+ * install or Expo's transitive react-native counts, and a project does not need
+ * react-native in its own manifest.
+ */
+function missingNativeDeps(projectRoot: string): string[] {
+  const req = createRequire(path.join(projectRoot, "package.json"));
+  const missing: string[] = [];
+  // react-native is located by walking node_modules up from the root — the same
+  // places require() would look — rather than through the require machinery,
+  // which this package's own engines intercept for the react-native specifier
+  // (the mock engine's CJS bridge answers `req.resolve("react-native")` from ANY
+  // root, which would make this check unconditionally true under it).
+  if (!reactNativeInstalledNear(projectRoot)) missing.push("react-native");
+  for (const dep of ["@react-native/babel-preset", "@babel/core"]) {
+    try {
+      req.resolve(dep);
+    } catch {
+      missing.push(dep);
+    }
+  }
+  return missing;
+}
+
+/** Does node_modules/react-native exist in projectRoot or any ancestor? */
+function reactNativeInstalledNear(projectRoot: string): boolean {
+  let dir = path.resolve(projectRoot);
+  for (;;) {
+    if (fs.existsSync(path.join(dir, "node_modules", "react-native", "package.json"))) return true;
+    const parent = path.dirname(dir);
+    if (parent === dir) return false;
+    dir = parent;
   }
 }
 
@@ -39,28 +71,31 @@ export function detectEngine(
   projectRoot: string,
   opts?: { autoPrefersNative?: boolean },
 ): EngineDecision {
-  const nativeAvailable = isNativeCapable(projectRoot);
+  const missing = missingNativeDeps(projectRoot);
+  const nativeAvailable = missing.length === 0;
 
-  if (requested === "native") return { engine: "native", nativeAvailable, notice: null };
-  if (requested === "mock") return { engine: "mock", nativeAvailable, notice: null };
+  if (requested === "native") return { engine: "native", nativeAvailable, missing, notice: null };
+  if (requested === "mock") return { engine: "mock", nativeAvailable, missing, notice: null };
 
   // requested === "auto"
   const prefersNative = opts?.autoPrefersNative ?? AUTO_PREFERS_NATIVE;
   if (prefersNative && nativeAvailable) {
     // The happy path (real RN, deps present) is silent — elegance is no chatter.
-    return { engine: "native", nativeAvailable, notice: null };
+    return { engine: "native", nativeAvailable, missing, notice: null };
   }
   if (prefersNative) {
     // Wanted native but can't: explain the fallback so the mock engine is never
-    // a silent surprise. (Silent when the user explicitly asked for mock above.)
+    // a silent surprise, naming exactly what did not resolve. (Silent when the
+    // user explicitly asked for mock above.)
     return {
       engine: "mock",
       nativeAvailable: false,
+      missing,
       notice:
-        "[vitest-native] @react-native/babel-preset not found — using the mock engine. " +
-        "Install it (and @babel/core) to run real React Native, or set engine:'mock' to silence this.",
+        `[vitest-native] ${missing.join(", ")} not found — using the mock engine. ` +
+        "Install what's missing to run real React Native, or set engine:'mock' to silence this.",
     };
   }
   // autoPrefersNative explicitly disabled → mock, no notice.
-  return { engine: "mock", nativeAvailable, notice: null };
+  return { engine: "mock", nativeAvailable, missing, notice: null };
 }

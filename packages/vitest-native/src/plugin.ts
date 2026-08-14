@@ -871,10 +871,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       if (engine === "native" && !decision.nativeAvailable) {
         throw new VitestNativeError(
           "ENGINE_REQUIRES_BABEL",
-          `engine:'native' requires '@react-native/babel-preset' and ` +
-            `'@babel/core' to resolve from ${resolvedRoot}. Install them as ` +
-            `devDependencies (React Native projects ship them by default):\n\n` +
-            `  npm install -D @react-native/babel-preset @babel/core\n\n` +
+          `engine:'native' requires react-native, '@react-native/babel-preset', and ` +
+            `'@babel/core' to resolve from ${resolvedRoot} — missing: ` +
+            `${decision.missing.join(", ")}. React Native projects ship all three ` +
+            `by default:\n\n` +
+            `  npm install -D ${decision.missing.join(" ")}\n\n` +
             `Or set engine:'mock' to run without a React Native install.`,
         );
       }

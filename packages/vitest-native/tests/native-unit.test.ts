@@ -609,7 +609,7 @@ describe("engine-selection notices", () => {
       const plugin = reactNative({}) as any;
       await plugin.config({ root: tmp }, SERVE_ENV);
       const notices = warn.mock.calls.filter((c) =>
-        String(c[0]).includes("@react-native/babel-preset not found"),
+        String(c[0]).includes("not found — using the mock engine"),
       );
       expect(notices).toHaveLength(1);
       const banners = err.mock.calls.filter((c) => String(c[0]).includes("engine: mock"));
