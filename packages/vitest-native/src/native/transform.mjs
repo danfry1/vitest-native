@@ -22,13 +22,39 @@ import vm from "node:vm";
 import { decorateTransformError } from "./explain.mjs";
 import { VitestNativeError } from "../errors.mjs";
 
-let _req;
-let _babel;
-let _preset;
-let _flowEnums;
-let _cacheDir;
-let _writeSeq = 0;
-const mem = new Map();
+// Toolchain state is scoped PER PROJECT ROOT, not per process. It used to be a
+// set of module globals initialized by the first caller — but registries for
+// every project in a Vitest workspace are built in the one Vite main process,
+// so the first project's resolved preset, @babel/core, and cache directory
+// silently served every other project. Proven by
+// tests/transform-project-scope.test.ts: a second root's file came back
+// stamped with the first root's Babel toolchain. Same first-caller-wins guard
+// family as the hot worker's require-hook install (see hooks.mjs).
+const contexts = new Map(); // canonical project root -> toolchain context
+
+// Memoized: transformRN runs per required file, and the realpath of a project
+// root cannot change within a process. Realpath (not just resolve) so a root
+// reached through a symlink — pnpm layouts, linked workspaces — shares one
+// context with its real directory instead of building a twin toolchain.
+const canonicalRoots = new Map();
+function canonicalRoot(projectRoot) {
+  const hit = canonicalRoots.get(projectRoot);
+  if (hit) return hit;
+  let root;
+  try {
+    root = fs.realpathSync(projectRoot);
+  } catch {
+    root = path.resolve(projectRoot);
+  }
+  canonicalRoots.set(projectRoot, root);
+  return root;
+}
+
+/** Any already-built context — for parse-only helpers with no root of their own. */
+function anyContext() {
+  for (const ctx of contexts.values()) return ctx;
+  return null;
+}
 // 4: Flow enums are now transformed ahead of the preset's strip-types pass, so cached
 // output from 3 is missing every `export enum` declaration. Neither the preset nor
 // Babel version changed, and those are the only other inputs to the directory name, so
@@ -58,16 +84,20 @@ export function cacheRootFor(projectRoot) {
   return dir;
 }
 
-function init(projectRoot) {
-  if (_cacheDir) return;
-  _req = createRequire(path.join(projectRoot, "package.json"));
+function ctxFor(projectRoot) {
+  const root = canonicalRoot(projectRoot);
+  const existing = contexts.get(root);
+  if (existing) return existing;
+  const req = createRequire(path.join(root, "package.json"));
+  let preset;
+  let flowEnums;
   let presetVersion;
   let babelVersion;
   try {
     // Resolve-only here (cheap); the actual require of @babel/core happens
     // lazily on the first cache miss.
-    _preset = _req.resolve("@react-native/babel-preset");
-    _req.resolve("@babel/core");
+    preset = req.resolve("@react-native/babel-preset");
+    req.resolve("@babel/core");
     // Flow enums must be transformed BEFORE @babel/plugin-transform-flow-strip-types
     // sees them, or the declaration is removed as if it were a type annotation. The
     // React Native preset carries both, but in separate `overrides` entries that Babel
@@ -80,16 +110,16 @@ function init(projectRoot) {
     // and the enum survives. Resolved from the preset, which depends on it, so no new
     // dependency is required.
     try {
-      _flowEnums = createRequire(_req.resolve("@react-native/babel-preset/package.json")).resolve(
+      flowEnums = createRequire(req.resolve("@react-native/babel-preset/package.json")).resolve(
         "babel-plugin-transform-flow-enums",
       );
     } catch {
       // A preset layout without it: fall back to the preset's own handling rather than
       // failing the run. Flow enums are rare and only two React Native files use them.
-      _flowEnums = null;
+      flowEnums = null;
     }
-    presetVersion = _req("@react-native/babel-preset/package.json").version;
-    babelVersion = _req("@babel/core/package.json").version;
+    presetVersion = req("@react-native/babel-preset/package.json").version;
+    babelVersion = req("@babel/core/package.json").version;
   } catch {
     throw new VitestNativeError(
       "ENGINE_REQUIRES_BABEL",
@@ -104,16 +134,19 @@ function init(projectRoot) {
   // output (e.g. _jsxFileName injection) under NODE_ENV=development than under
   // test/production.
   const babelEnv = process.env.BABEL_ENV || process.env.NODE_ENV || "none";
-  _cacheDir = path.join(
-    cacheRootFor(projectRoot),
+  const cacheDir = path.join(
+    cacheRootFor(root),
     `transform-${presetVersion}-b${babelVersion}-${babelEnv}-v${TRANSFORM_CACHE_VERSION}`,
   );
-  fs.mkdirSync(_cacheDir, { recursive: true });
+  fs.mkdirSync(cacheDir, { recursive: true });
+  const ctx = { req, preset, flowEnums, cacheDir, babel: null, mem: new Map(), writeSeq: 0 };
+  contexts.set(root, ctx);
+  return ctx;
 }
 
-/** The active transform disk-cache directory (resolved on first use). Test hook. */
-export function transformCacheDir() {
-  return _cacheDir ?? null;
+/** A project's transform disk-cache directory, once resolved. Test hook. */
+export function transformCacheDir(projectRoot) {
+  return contexts.get(canonicalRoot(projectRoot))?.cacheDir ?? null;
 }
 
 /** Returns true if the source contains RN Flow syntax that must be transformed. */
@@ -139,13 +172,15 @@ const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
  * someValue`), which leaves Node's own detection in charge — no worse than before.
  */
 export function cjsExportNames(code) {
-  if (!_babel) {
-    if (!_req) return [];
-    _babel = _req("@babel/core");
-  }
+  // Parse-only, so any project's @babel/core serves: the input is this module's
+  // own transformed output, and parsing is toolchain-neutral across the versions
+  // in play. Callers have no project root of their own to hand over.
+  const ctx = anyContext();
+  if (!ctx) return [];
+  if (!ctx.babel) ctx.babel = ctx.req("@babel/core");
   let ast;
   try {
-    ast = _babel.parseSync(code, { babelrc: false, configFile: false, sourceType: "script" });
+    ast = ctx.babel.parseSync(code, { babelrc: false, configFile: false, sourceType: "script" });
   } catch {
     return [];
   }
@@ -276,7 +311,7 @@ function moduleGoal(file) {
 
 /** Transform an RN source file to runnable CJS. Cached in-memory + on disk. */
 export function transformRN(file, src, projectRoot, platform = "ios") {
-  init(projectRoot);
+  const ctx = ctxFor(projectRoot);
   // The in-memory key uses mtime+size (one statSync) so the hot path skips
   // hashing; the DISK key hashes the actual content, so entries stay valid
   // across fresh installs, Docker mtime normalization, and CI cache restores —
@@ -286,7 +321,7 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   // identical sources at different paths must not share an entry.
   const st = fs.statSync(file);
   const memKey = `${platform}\0${file}\0${st.mtimeMs}\0${st.size}`;
-  const memHit = mem.get(memKey);
+  const memHit = ctx.mem.get(memKey);
   if (memHit !== undefined) return memHit;
 
   const key = crypto
@@ -297,20 +332,20 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
     .update("\0")
     .update(src)
     .digest("hex");
-  const cachePath = path.join(_cacheDir, key + ".js");
+  const cachePath = path.join(ctx.cacheDir, key + ".js");
   try {
     const cached = fs.readFileSync(cachePath, "utf8");
-    mem.set(memKey, cached);
+    ctx.mem.set(memKey, cached);
     return cached;
   } catch {}
 
-  if (!_babel) _babel = _req("@babel/core");
+  if (!ctx.babel) ctx.babel = ctx.req("@babel/core");
   let out;
   try {
-    out = _babel.transformSync(src, {
+    out = ctx.babel.transformSync(src, {
       filename: file,
-      plugins: _flowEnums ? [_flowEnums] : [],
-      presets: [[_preset, { disableStaticViewConfigsCodegen: true }]],
+      plugins: ctx.flowEnums ? [ctx.flowEnums] : [],
+      presets: [[ctx.preset, { disableStaticViewConfigsCodegen: true }]],
       babelrc: false,
       configFile: false,
       caller: { name: "metro", bundler: "metro", platform, supportsStaticESM: false },
@@ -324,7 +359,7 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   // Atomic write: multiple worker threads may transform the same RN file
   // concurrently on a cold cache. Write to a unique temp file then rename
   // (atomic on POSIX same-dir) so a concurrent reader never sees a partial file.
-  const tmp = `${cachePath}.${process.pid}.${_writeSeq++}.tmp`;
+  const tmp = `${cachePath}.${process.pid}.${ctx.writeSeq++}.tmp`;
   try {
     fs.writeFileSync(tmp, out);
     fs.renameSync(tmp, cachePath);
@@ -333,6 +368,6 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
       fs.rmSync(tmp, { force: true });
     } catch {}
   }
-  mem.set(memKey, out);
+  ctx.mem.set(memKey, out);
   return out;
 }
