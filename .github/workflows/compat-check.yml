@@ -30,9 +30,13 @@ jobs:
       - name: Install with latest react-native
         # This scheduled edge job intentionally bypasses the seven-day adoption
         # gate. Blocking release tests remain pinned and deterministic.
+        # metro-resolver rides along: tests/metro-resolver-oracle.test.ts checks
+        # platform-file resolution against the real resolver, so this edge job
+        # doubles as the upstream-drift detector for Metro's resolution order
+        # while the PR gate stays pinned and deterministic.
         run: |
           bun install --frozen-lockfile
-          bun add -d react-native@latest @react-native/babel-preset@latest --minimum-release-age=0 --cwd packages/vitest-native
+          bun add -d react-native@latest @react-native/babel-preset@latest metro-resolver@latest --minimum-release-age=0 --cwd packages/vitest-native
 
       - name: Resolved versions
         run: |

@@ -18,16 +18,26 @@ import path from "node:path";
 export const METRO_SOURCE_EXTS = ["js", "jsx", "json", "ts", "tsx"];
 
 /**
- * Metro tries every platform-suffixed variant first, then every `.native` one,
- * then the bare extensions — not extension-major.
+ * Extension-MAJOR, exactly as Metro resolves: for each source extension in order,
+ * try the platform variant, then `.native`, then bare — `.ios.js`, `.native.js`,
+ * `.js`, `.ios.jsx`, … (metro-resolver's `resolveSourceFile` loops `sourceExts`
+ * in the outer loop and the platform variants inside it).
+ *
+ * This order previously interleaved the other way — every `.ios.*` before any
+ * `.native.*` before any bare extension — and the difference is not stylistic:
+ * a module shipping `Foo.native.js` beside `Foo.ios.tsx` resolves to
+ * `.native.js` under Metro (the `js` round wins before `tsx` is ever tried) but
+ * resolved to `.ios.tsx` here, so the test ran a different file than the app
+ * ships. The order is asserted against real metro-resolver by
+ * tests/metro-resolver-oracle.test.ts, not just against these literals.
  */
 export function extensionsFor(platform) {
   const suffix = platform === "android" ? "android" : "ios";
-  return [
-    ...METRO_SOURCE_EXTS.map((e) => `.${suffix}.${e}`),
-    ...METRO_SOURCE_EXTS.map((e) => `.native.${e}`),
-    ...METRO_SOURCE_EXTS.map((e) => `.${e}`),
-  ];
+  const exts = [];
+  for (const e of METRO_SOURCE_EXTS) {
+    exts.push(`.${suffix}.${e}`, `.native.${e}`, `.${e}`);
+  }
+  return exts;
 }
 
 // Per-worker resolution cache: `${platform}\0${absBase}` → resolved path | null.
