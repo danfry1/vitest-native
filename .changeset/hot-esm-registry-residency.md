@@ -44,3 +44,23 @@ has an ESM twin, and the scale validation gained templates for the shapes that w
 missing from it entirely: real React Navigation, a navigation container wrapping a
 Modal, and a node_modules package holding module-level state. Navigation had never
 run under the hot runtime in any gate.
+
+The stamp is scoped away from the test stack itself — vitest, `@vitest/*`, chai, and
+this engine. The worker's runtime holds boot instances of these (the runner's
+SnapshotClient, chai's extended Assertion, the engine's registry), and a test file
+reaches the same packages through Node's ESM path; stamping those resolutions hands
+the file a twin runtime whose failures are emergent and order-dependent —
+`toMatchSnapshot` asking a SnapshotClient no one set up, fake timers flipping a copy
+of the state the runner never reads. The workspace gates cannot see this class: in
+the repository, the engine and the validation suites resolve outside node_modules,
+where the node_modules-scoped stamp never applies. It surfaced only on a packed
+install, running react-native-paper's suite under the hot runtime: 603/678 → 473/648
+before the exemption, 609/678 — above the recorded baseline — with it.
+
+The consumer tests gained the gate that class needs: the packed current-RN fixture
+now runs a hot-runtime leg whose probe asserts the resolution invariant directly —
+an ordinary node_modules package resolves generation-stamped while vitest,
+`@vitest/snapshot`, chai, and the engine never do — alongside behavioral checks
+(snapshots, fake timers, cross-file state reset from a packed install). Both
+mutations were run before trusting it: removing the exemption and disabling the
+generation mechanism each turn the leg red.

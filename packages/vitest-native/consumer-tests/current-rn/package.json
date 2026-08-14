@@ -3,13 +3,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:hot": "vitest run --config vitest.hot.config.mts"
   },
   "dependencies": {
     "@testing-library/react-native": "13.3.3",
+    "consumer-state-fixture": "file:./state-fixture",
     "react": "19.2.4",
     "react-native": "0.86.0",
-    "react-test-renderer": "19.2.4"
+    "react-test-renderer": "19.2.4",
+    "runtime-probe": "file:./runtime-probe"
   },
   "devDependencies": {
     "@babel/core": "7.29.7",
