@@ -18,7 +18,7 @@ The biggest misconception is that Jest "doesn't run real React Native." It does 
 - **Native modules** — `NativeModules`, `UIManager`, `NativeComponentRegistry`, `requireNativeComponent`, `InitializeCore`.
 - **A few APIs** — `useColorScheme`, `Vibration`, `Linking`, `AppState`, `Clipboard`.
 
-vitest-native's native engine mocks **only the native boundary** (the native-component registry + native modules) — everything else in RN, including the real `View`/`Text`/`ScrollView` component JS, runs for real. That's why a native-engine render produces real host names (`RCTView`, `RCTText`) where Jest's preset shows mock names (`View`, `Text`).
+vitest-native's native engine mocks **only the native boundary** (the native-component registry + native modules) — everything else in RN, including the real `View`/`Text`/`ScrollView` component JS, runs for real. That's why a native-engine render produces real host names (`RCTView`, `RCTText`) where Jest's preset shows mock names (`View`, `Text`). The one component-level exception on both sides is `TextInput`: like Jest's preset, the native engine substitutes a passthrough for it so `onChangeText` fires once per keystroke ([why](/guide/how-it-works#the-native-engine-specifically)).
 
 So the difference is **where the boundary sits**, not "real vs mocked." vitest-native's `native` engine sits lower, which means higher fidelity for component behavior, accessibility, and text nesting — at the cost of running more of RN's real code.
 
