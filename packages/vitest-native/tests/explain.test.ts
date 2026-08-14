@@ -65,4 +65,30 @@ describe("explainUntransformedSyntaxError", () => {
     const unrelated = new SyntaxError("Cannot use import statement outside a module");
     expect(explainUntransformedSyntaxError(unrelated, "/p/node_modules/a/x.js")).toBeNull();
   });
+
+  // The runtime sibling of the SyntaxError class: a mixed ESM-import/CommonJS-
+  // exports file parses cleanly as ESM, so Node's require(esm) retry runs it and
+  // the CJS half fails as a ReferenceError — where Node lacks a `module` global.
+  // (react-native-worklets' lib/module/mock.js is the reported shape, #163.)
+  it("suggests transform: ['pkg'] for the require(esm) mixed-syntax ReferenceError", () => {
+    const e = new ReferenceError("module is not defined in ES module scope");
+    const out = explainUntransformedSyntaxError(
+      e,
+      "/p/node_modules/react-native-worklets/lib/module/mock.js",
+    );
+    expect(out).not.toBeNull();
+    expect(out.message).toContain("transform: ['react-native-worklets']");
+    expect(out.message).toContain("mixed ES-module/CommonJS");
+    expect(out.name).toBe("ReferenceError");
+    expect(out.cause).toBe(e);
+  });
+
+  it("returns null for ReferenceErrors that are not the ES-module-scope family", () => {
+    expect(
+      explainUntransformedSyntaxError(
+        new ReferenceError("someGlobal is not defined"),
+        "/p/node_modules/a/x.js",
+      ),
+    ).toBeNull();
+  });
 });

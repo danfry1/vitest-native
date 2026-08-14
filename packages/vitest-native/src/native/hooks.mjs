@@ -163,7 +163,17 @@ export function installRequireHooks(
   reactNativeVersion = "0.0.0",
   assetExts = [],
 ) {
-  if (globalThis.__vitest_native_require_hooks_installed) return;
+  if (globalThis.__vitest_native_require_hooks_installed) {
+    // Install once per worker — but not with a frozen transform list. The hot
+    // worker installs the hooks at BOOT, before the setup file has built the
+    // preset mocks and can extend the list with preset-shadowed packages (their
+    // pass-through entries are compiled only if named here); a pure no-op would
+    // pin the boot-time env list forever, and the divergence is hot-only because
+    // under stock the setup file IS the first caller. Rebuild the matcher when
+    // a later caller brings a different list; hook layers are never stacked.
+    globalThis.__vitest_native_require_hooks_update?.(transformPkgs);
+    return;
+  }
   globalThis.__vitest_native_require_hooks_installed = true;
 
   // Asset requires (`require('./logo.png')`, `require('./Icon.ttf')`) reaching
@@ -186,7 +196,16 @@ export function installRequireHooks(
   }
 
   // Configured third-party packages to also transform (Flow/TS/JSX stripped).
-  const isExtra = buildPkgMatcher(transformPkgs, projectRoot);
+  // `let` + the updater below: the hot worker installs the hooks at boot with the
+  // raw env list, and the setup file re-calls with the preset-extended one.
+  let isExtra = buildPkgMatcher(transformPkgs, projectRoot);
+  let isExtraKey = JSON.stringify(transformPkgs);
+  globalThis.__vitest_native_require_hooks_update = (pkgs) => {
+    const key = JSON.stringify(pkgs);
+    if (key === isExtraKey) return;
+    isExtraKey = key;
+    isExtra = buildPkgMatcher(pkgs, projectRoot);
+  };
 
   // Preset redirect (CJS): when an externalized third-party module require()s a
   // preset package by its bare name (e.g. @gorhom/bottom-sheet → require(
