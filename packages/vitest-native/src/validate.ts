@@ -12,7 +12,12 @@ const KNOWN_OPTIONS = [
   "transform",
   "hotRuntime",
 ];
-const KNOWN_HOT_RUNTIME_OPTIONS = ["recycleAfterFiles", "memoryLimit", "preserveGlobals"];
+const KNOWN_HOT_RUNTIME_OPTIONS = [
+  "recycleAfterFiles",
+  "memoryLimit",
+  "preserveGlobals",
+  "esmGeneration",
+];
 
 function assertStringArray(value: unknown, option: string): asserts value is string[] {
   if (
@@ -139,6 +144,12 @@ export function validateOptions(options: Record<string, unknown>): void {
   }
   if (hotOptions.preserveGlobals !== undefined) {
     assertStringArray(hotOptions.preserveGlobals, "hotRuntime.preserveGlobals");
+  }
+  if (hotOptions.esmGeneration !== undefined && typeof hotOptions.esmGeneration !== "boolean") {
+    throw new VitestNativeTypeError(
+      "INVALID_OPTION",
+      `"hotRuntime.esmGeneration" must be a boolean.`,
+    );
   }
 }
 

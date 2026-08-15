@@ -139,6 +139,82 @@ test("store fresh ${n}", () => {
   expect(readTotal()).toBe(2);
 });`,
 
+  // Real React Navigation: container + native stack, navigating between screens.
+  // A navigation container holds state a component tree does not own, and the
+  // library is a node_modules package whose module scope the hot reset must clear.
+  // Until this template existed the whole shape was untested under hot — the scale
+  // suite had none, and the one navigation test in tests-native/ is EXCLUDED from
+  // the hot config.
+  navigation: (n) => `${head}
+import { Pressable, Text } from "react-native";
+import { NavigationContainer, useNavigation } from "@react-navigation/native";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
+const Stack = createNativeStackNavigator();
+function Home() {
+  const nav = useNavigation();
+  return (<Pressable accessibilityRole="button" onPress={() => nav.navigate("Detail")}><Text>go${n}</Text></Pressable>);
+}
+function Detail() { return <Text testID="detail${n}">detail${n}</Text>; }
+test("navigation ${n}", async () => {
+  await render(
+    <NavigationContainer>
+      <Stack.Navigator>
+        <Stack.Screen name="Home" component={Home} />
+        <Stack.Screen name="Detail" component={Detail} />
+      </Stack.Navigator>
+    </NavigationContainer>,
+  );
+  expect(screen.getByText("go${n}")).toBeOnTheScreen();
+  await fireEvent.press(screen.getByText("go${n}"));
+  expect(screen.getByTestId("detail${n}")).toBeOnTheScreen();
+});`,
+
+  // Navigation wrapping a Modal — the exact pairing that failed in the field.
+  // Each of these alone renders; the report was of the two together, at scale.
+  navmodal: (n) => `${head}
+import { Modal, Pressable, Text, View } from "react-native";
+import { NavigationContainer, useNavigation } from "@react-navigation/native";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
+const Stack = createNativeStackNavigator();
+function Screen1() {
+  const nav = useNavigation();
+  const [open, setOpen] = React.useState(true);
+  return (<View>
+    <Modal visible={open} transparent onRequestClose={() => setOpen(false)}>
+      <Pressable testID="close${n}" accessibilityRole="button" onPress={() => setOpen(false)} />
+      <Text testID="sheet${n}">sheet${n}</Text>
+    </Modal>
+    <Text testID="state${n}">{open ? "open" : "closed"}</Text>
+    <Text testID="route${n}">{nav.getState() ? "routed" : "none"}</Text>
+  </View>);
+}
+test("navmodal ${n}", async () => {
+  await render(
+    <NavigationContainer>
+      <Stack.Navigator><Stack.Screen name="S1" component={Screen1} /></Stack.Navigator>
+    </NavigationContainer>,
+  );
+  expect(screen.getByTestId("sheet${n}")).toBeOnTheScreen();
+  expect(screen.getByTestId("route${n}")).toHaveTextContent("routed");
+  await fireEvent.press(screen.getByTestId("close${n}"));
+  // Real RN keeps a hidden Modal's children mounted (only the host view flips
+  // \`visible\`), so the dismissal is asserted on state, not on absence — asserting
+  // \`queryByTestId(...)\` is null passes under Jest's Modal mock and fails here.
+  expect(screen.getByTestId("state${n}")).toHaveTextContent("closed");
+});`,
+
+  // A node_modules package holding module-level state, imported by a test file.
+  // The relative `store` template above is Vite-owned and reset by Vitest itself;
+  // this one is Node-owned and only the hot runtime's own reset can clear it — a
+  // distinct ownership path that the scale suite never exercised.
+  extstore: (n) => `${head}
+import { count, record } from "resident-singleton";
+test("external store fresh ${n}", () => {
+  expect(count()).toBe(0);
+  record("${n}");
+  expect(count()).toBe(1);
+});`,
+
   // DeviceEventEmitter subscriber with cleanup — feeds the accumulation checkers
   subscriber: (n) => `${head}
 import { DeviceEventEmitter, Text } from "react-native";

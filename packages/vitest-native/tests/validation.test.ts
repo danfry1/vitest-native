@@ -108,5 +108,13 @@ describe("option validation", () => {
     expect(() => reactNative({ hotRuntime: { unknown: true } } as any)).toThrow(
       /Unknown hotRuntime option/,
     );
+    expect(() => reactNative({ hotRuntime: { esmGeneration: "no" } } as any)).toThrow(
+      /esmGeneration.*boolean/,
+    );
+  });
+
+  it("accepts the esmGeneration opt-out", () => {
+    expect(() => reactNative({ hotRuntime: { esmGeneration: false } })).not.toThrow();
+    expect(() => reactNative({ hotRuntime: { esmGeneration: true } })).not.toThrow();
   });
 });

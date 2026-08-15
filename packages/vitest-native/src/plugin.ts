@@ -901,6 +901,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       if (hotRuntime && hotRecycle.preserveGlobals?.length) {
         env.VITEST_NATIVE_HOT_PRESERVE_GLOBALS = JSON.stringify(hotRecycle.preserveGlobals);
       }
+      // Only the opt-out is passed: the setup file defaults this on under hot, so
+      // an absent variable means "on" and nothing has to be forwarded to say so.
+      if (hotRuntime && hotRecycle.esmGeneration === false) {
+        env.VITEST_NATIVE_HOT_ESM_GEN = "0";
+      }
 
       // Native engine: externalize RN so it loads through Node's single CJS graph,
       // where the native setup file's hooks Flow-strip it and mock the boundary.
