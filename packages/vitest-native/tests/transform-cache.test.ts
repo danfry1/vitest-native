@@ -71,7 +71,7 @@ describe("transform disk cache", () => {
       const fileA = path.join(dir, "a.js");
       fs.writeFileSync(fileA, src);
       transformRN(fileA, src, projectRoot);
-      const cacheDir = transformCacheDir();
+      const cacheDir = transformCacheDir(projectRoot);
       expect(cacheDir).toBeTruthy();
       const entryA = path.join(cacheDir, diskKeyFor("ios", fileA, src) + ".js");
       expect(fs.existsSync(entryA)).toBe(true);
