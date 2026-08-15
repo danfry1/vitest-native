@@ -189,34 +189,65 @@ import { getPlatformExtensions } from "../src/resolve.js";
 describe("platform extension order", () => {
   // Metro's defaults, from metro-config/src/defaults/defaults.js:
   //   sourceExts = ["js", "jsx", "json", "ts", "tsx"]
-  // and its resolver tries every platform-suffixed variant, then every .native
-  // one, then the bare extensions. metro-config is not a dependency of this
-  // package, so the list is asserted literally rather than read back from it.
-  it("matches Metro's sourceExts, in Metro's order", () => {
+  // and metro-resolver's resolveSourceFile loops those in the OUTER loop, trying
+  // platform, .native, and bare variants inside each round — extension-major.
+  //
+  // An earlier version of this test asserted the platform-major interleaving AS
+  // Metro's order: the implementation's own mistake, written into the gate that
+  // existed to catch it. These literals are therefore no longer the authority —
+  // tests/metro-resolver-oracle.test.ts checks the resolver against a real pinned
+  // metro-resolver, so a wrong belief here fails there.
+  it("matches Metro's sourceExts, in Metro's order (extension-major)", () => {
     expect(extensionsFor("ios")).toEqual([
       ".ios.js",
-      ".ios.jsx",
-      ".ios.json",
-      ".ios.ts",
-      ".ios.tsx",
       ".native.js",
-      ".native.jsx",
-      ".native.json",
-      ".native.ts",
-      ".native.tsx",
       ".js",
+      ".ios.jsx",
+      ".native.jsx",
       ".jsx",
+      ".ios.json",
+      ".native.json",
       ".json",
+      ".ios.ts",
+      ".native.ts",
       ".ts",
+      ".ios.tsx",
+      ".native.tsx",
       ".tsx",
     ]);
-    expect(extensionsFor("android").slice(0, 5)).toEqual([
-      ".android.js",
-      ".android.jsx",
-      ".android.json",
-      ".android.ts",
-      ".android.tsx",
-    ]);
+    expect(extensionsFor("android").slice(0, 3)).toEqual([".android.js", ".native.js", ".js"]);
+  });
+
+  // The mixed-variant shapes where the two interleavings genuinely disagree —
+  // each of these resolved to the WRONG file before the ordering fix.
+  it("resolves mixed platform/extension variants exactly as Metro does", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-resolve-order-"));
+    try {
+      // .native.js beats .ios.tsx: the js round completes before tsx is tried.
+      const a = path.join(dir, "a");
+      fs.writeFileSync(a + ".native.js", "");
+      fs.writeFileSync(a + ".ios.tsx", "");
+      expect(resolvePlatformFile(a, "ios")).toBe(a + ".native.js");
+      // Bare .js beats .native.tsx for the same reason.
+      const b = path.join(dir, "b");
+      fs.writeFileSync(b + ".js", "");
+      fs.writeFileSync(b + ".native.tsx", "");
+      expect(resolvePlatformFile(b, "ios")).toBe(b + ".js");
+      // Within one extension round, platform still beats .native beats bare.
+      const c = path.join(dir, "c");
+      fs.writeFileSync(c + ".android.js", "");
+      fs.writeFileSync(c + ".native.js", "");
+      fs.writeFileSync(c + ".js", "");
+      expect(resolvePlatformFile(c, "android")).toBe(c + ".android.js");
+      // A platform variant in a LATER extension round loses to an earlier round's
+      // .native — the shape most likely to ship a different file than the app.
+      const d = path.join(dir, "d");
+      fs.writeFileSync(d + ".android.tsx", "");
+      fs.writeFileSync(d + ".native.jsx", "");
+      expect(resolvePlatformFile(d, "android")).toBe(d + ".native.jsx");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("gives the Vite graph and the Node graph the same list", () => {
