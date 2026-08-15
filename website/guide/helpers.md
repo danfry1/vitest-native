@@ -61,6 +61,16 @@ mockNativeModule('MyNativeModule', {
 })
 ```
 
+## `extendPresetMock(pkg, overrides)`
+
+Merge overrides into a preset's module mock (and its `default` export, when that is an object) — for example to give `expo-constants` a real `expoConfig`, or to add an export a library calls that the preset does not model. Returns `false` when no preset mock exists for the package. Undone by `resetAllMocks()`.
+
+```ts
+extendPresetMock('expo-constants', {
+  expoConfig: { name: 'my-app', scheme: 'my-app' },
+})
+```
+
 ## `resetAllMocks()`
 
 Reset everything back to defaults — iOS, 390×844, light mode — and clear all spies. Call it in an `afterEach` to keep tests isolated:
