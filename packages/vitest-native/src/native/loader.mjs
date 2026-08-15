@@ -55,6 +55,59 @@ let presetExports = {};
 // Asset file extensions (without leading dot, lower-cased) the loader should stub.
 let assetExtSet = new Set();
 
+/**
+ * Hot-runtime ESM generation (experimental, `VITEST_NATIVE_HOT_ESM_GEN=1`).
+ *
+ * Node's ESM registry has no invalidation API, so a package a TEST FILE reaches
+ * through `import` keeps its module state for the whole run — the per-file reset
+ * can only clear the CommonJS cache. That is the hot runtime's one measured
+ * correctness hole at scale (see validation/idiomatic/scale, `extstore`).
+ *
+ * The registry is keyed by full URL, query included, so stamping a generation onto
+ * the URL makes the next file's import a different module and Node evaluates it
+ * again. The counter lives in a SharedArrayBuffer because loader hooks run on their
+ * own thread; the worker bumps it in the per-file reset.
+ *
+ * Cost is bounded by ownership: a CommonJS package re-enters through Module._cache,
+ * which the reset already drops, so only a thin namespace wrapper is retained per
+ * generation. A true-ESM package retains its whole instance — which is why this is
+ * measured before it is trusted.
+ */
+let genView = null;
+const generationOf = () => (genView ? Atomics.load(genView, 0) : 0);
+// Modules whose identity must be stable across files: dropping them makes a twin
+// rather than a fresh copy. Mirrors KEEP_RESIDENT in module-reset.mjs.
+const KEEP_RESIDENT =
+  /[\\/]node_modules[\\/](react|react-is|react-dom|scheduler|react-reconciler|react-test-renderer|test-renderer|@testing-library[\\/]react-native)[\\/]/;
+// The test stack itself: Vitest's runtime, the chai it asserts through, and this
+// engine. The worker's runtime holds instances of these from boot — the runner's
+// SnapshotClient, chai's extended Assertion, the engine's registry and hooks — and a
+// test file reaches the SAME packages through Node's ESM path. Stamping those
+// resolutions hands the file a twin runtime: `toMatchSnapshot` then asks a
+// SnapshotClient no one set up, `vi.useFakeTimers` flips a copy of the timer state
+// the runner never reads, and matchers extend a chai the expect chain doesn't use.
+//
+// The workspace gates cannot catch a miss here: in-repo, this package and the
+// validation suites resolve OUTSIDE node_modules, so the NODE_MODULES_PATH guard
+// below exempts the engine by accident of layout. Only a packed install — the
+// bake-off apps — puts the whole test stack under node_modules where stamping can
+// reach it. That is how this list was earned: react-native-paper under the hot
+// runtime, 603/678 -> 473/648, every extra failure a twin-runtime symptom.
+const TEST_RUNTIME_RESIDENT =
+  /[\\/]node_modules[\\/](vitest|@vitest[\\/][^\\/]+|chai|vitest-native)[\\/]/;
+
+/** Should this resolved file carry a generation stamp? */
+function versionable(url) {
+  if (!genView || !url.startsWith("file:")) return false;
+  const norm = fileURLToPath(url).replace(/\\/g, "/");
+  if (!NODE_MODULES_PATH.test(norm)) return false;
+  // React Native itself is preloaded once per worker and shared deliberately —
+  // re-instantiating it per file would undo the reason the worker stays warm.
+  if (REACT_NATIVE_PATH.test(norm) || KEEP_RESIDENT.test(norm)) return false;
+  if (TEST_RUNTIME_RESIDENT.test(norm)) return false;
+  return true;
+}
+
 export async function initialize(data) {
   if (data && data.projectRoot) PROJECT_ROOT = data.projectRoot;
   if (data && data.platform === "android") PLATFORM = "android";
@@ -63,6 +116,7 @@ export async function initialize(data) {
   if (data && data.presetExports) presetExports = data.presetExports;
   if (data && data.assetExts)
     assetExtSet = new Set(data.assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
+  if (data && data.hotGenerationBuffer) genView = new Int32Array(data.hotGenerationBuffer);
 }
 
 export async function resolve(specifier, context, nextResolve) {
@@ -132,6 +186,16 @@ export async function resolve(specifier, context, nextResolve) {
       },
       shortCircuit: true,
     };
+  }
+
+  // Stamp the hot generation so the next test file re-evaluates this module rather
+  // than reusing the ESM registry's copy. `fileURLToPath` ignores the query, so
+  // `load` and every on-disk read below are unaffected.
+  if (versionable(resolved.url)) {
+    const gen = generationOf();
+    if (gen > 0 && !resolved.url.includes("vnhot=")) {
+      return { ...resolved, url: `${resolved.url}?vnhot=${gen}`, shortCircuit: true };
+    }
   }
   return resolved;
 }

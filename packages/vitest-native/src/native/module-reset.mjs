@@ -19,11 +19,16 @@ const UNRESETTABLE = /\.node$/;
  * rather than a fresh one.
  *
  * Test files reach these through ESM `import`, which caches them in Node's ESM
- * registry — and that registry has no invalidation API, so the copy a test holds
- * survives any reset. Dropping the CJS entry therefore does not replace the module;
- * it adds a twin, and the two halves of the test stack stop recognising each other.
- * The symptom is not an error about modules: it is RNTL's matchers failing to see
- * elements that a resident renderer produced.
+ * registry. Dropping the CJS entry therefore does not replace the module; it adds a
+ * twin, and the two halves of the test stack stop recognising each other. The symptom
+ * is not an error about modules: it is RNTL's matchers failing to see elements that a
+ * resident renderer produced.
+ *
+ * The ESM registry is not reachable from here — it has no invalidation API — but it
+ * IS keyed by full URL, and the engine owns the resolve hook, so the loader gives
+ * every other externalized package a per-file generation stamp instead (see
+ * `versionable` in loader.mjs). The entries below are exempt from that on purpose:
+ * for them a fresh instance is the bug, not the fix.
  *
  * Which entries carry weight depends on the RNTL version, so the list is bisected
  * rather than assumed. Measured one entry at a time:

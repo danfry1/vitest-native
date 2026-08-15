@@ -134,6 +134,18 @@ if (typeof globalThis.expect === "undefined") {
 // installRequireHooks are internally guarded the same way.)
 if (!globalThis.__vitest_native_loader_registered) {
   globalThis.__vitest_native_loader_registered = true;
+  // Hot ESM generation (see loader.mjs): closes the hot runtime's one measured
+  // correctness hole, where a package a test file `import`s keeps its module state
+  // for the whole run because Node's ESM registry cannot be invalidated. Only
+  // meaningful under the hot runtime — `__vitest_native_hot_reset` is installed by
+  // the hot worker before this setup file runs, and nothing bumps the counter
+  // otherwise. Shared rather than passed by value because loader hooks run on their
+  // own thread. Set VITEST_NATIVE_HOT_ESM_GEN=0 to opt out (and to mutation-test the
+  // isolation gate that covers this).
+  if (globalThis.__vitest_native_hot_reset && process.env.VITEST_NATIVE_HOT_ESM_GEN !== "0") {
+    globalThis.__vitest_native_hot_generation = new Int32Array(new SharedArrayBuffer(4));
+    globalThis.__vitest_native_hot_generation[0] = 1;
+  }
   register("./loader.mjs", import.meta.url, {
     data: {
       projectRoot,
@@ -142,6 +154,7 @@ if (!globalThis.__vitest_native_loader_registered) {
       transformPkgs: nodeTransformPkgs,
       presetExports,
       assetExts,
+      hotGenerationBuffer: globalThis.__vitest_native_hot_generation?.buffer,
     },
   });
 }

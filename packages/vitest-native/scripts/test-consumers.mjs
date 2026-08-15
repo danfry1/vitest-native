@@ -77,6 +77,28 @@ try {
     addPackedDependency(fixtureRoot, tarball);
     run("npm", ["install"], fixtureRoot);
     run("npm", ["test"], fixtureRoot);
+    // The hot runtime from the packed install. In-repo, the engine and the
+    // validation suites live OUTSIDE node_modules, so the hot loader's
+    // node_modules-scoped generation stamp can never touch the engine or Vitest's
+    // own runtime there — a twin-runtime defect (stamped @vitest/snapshot, stamped
+    // vi) passes every workspace gate and burns only real installs. This leg is the
+    // only gate that loads the hot runtime the way a consumer does.
+    if (fixture === "current-rn") {
+      // npm installs the fixture's local probe packages as SYMLINKS (and npm 11
+      // dropped install-links), whose real path sits outside node_modules — where
+      // the hot loader's node_modules-scoped generation stamp would (correctly)
+      // never apply. A registry install would copy them, so make it one: replace
+      // the links with real directories before the hot leg runs.
+      for (const [dir, name] of [
+        ["state-fixture", "consumer-state-fixture"],
+        ["runtime-probe", "runtime-probe"],
+      ]) {
+        const dest = path.join(fixtureRoot, "node_modules", name);
+        fs.rmSync(dest, { recursive: true, force: true });
+        fs.cpSync(path.join(fixtureRoot, dir), dest, { recursive: true });
+      }
+      run("npm", ["run", "test:hot"], fixtureRoot);
+    }
     // The monorepo fixture is also run from the WORKSPACE ROOT, pointing at the
     // app's config. That is how Nx invokes tasks, and Vitest's root follows the
     // working directory, so the run root ends up above the package under test.

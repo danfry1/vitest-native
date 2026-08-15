@@ -350,6 +350,15 @@ export interface VitestNativeOptions {
    * - `preserveGlobals`: exact globalThis property names intentionally owned
    *   by resident external libraries. App/test globals are otherwise removed
    *   between files. Storybook's preview registry is preserved automatically.
+   * - `esmGeneration`: re-evaluate externalized packages a test file `import`s,
+   *   so their module-level state does not carry into the next file. Node's ESM
+   *   registry cannot be invalidated, so the loader stamps a per-file generation
+   *   onto the resolved URL instead. On by default, because without it those
+   *   packages behave differently under hot than under stock isolation. It costs
+   *   re-execution: a suite whose files import many externalized (non-React
+   *   Native) packages measured 55% more wall clock at the extreme — still 9x
+   *   stock isolation, against 13.9x with it off. Set false to trade that back,
+   *   accepting that a package holding state across files will keep it.
    *
    * Default: false (each file runs in a fresh worker; RN reloads per file).
    */
@@ -359,6 +368,7 @@ export interface VitestNativeOptions {
         recycleAfterFiles?: number;
         memoryLimit?: number;
         preserveGlobals?: string[];
+        esmGeneration?: boolean;
       };
 }
 
