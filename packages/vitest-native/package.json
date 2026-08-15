@@ -146,7 +146,7 @@
     "@types/node": "25.3.5",
     "@types/react": "19.2.18",
     "@vitest/coverage-v8": "4.1.10",
-    "expo-constants": "56.0.16",
+    "expo-constants": "57.0.9",
     "expo-status-bar": "56.0.4",
     "ext-platform-lib": "file:./tests-native/fixtures/ext-platform-lib",
     "ext-rn-named-lib": "file:./tests-native/fixtures/ext-rn-named-lib",
