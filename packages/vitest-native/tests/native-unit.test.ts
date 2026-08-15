@@ -630,7 +630,7 @@ describe("engine-selection notices", () => {
       );
       const plugin = reactNative({ engine: "native" }) as any;
       await expect(plugin.config({ root: tmp }, SERVE_ENV)).rejects.toThrow(
-        /@react-native\/babel-preset.*npm install -D/s,
+        /missing: react-native, @react-native\/babel-preset, @babel\/core/s,
       );
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
