@@ -98,6 +98,21 @@ for (const name of presetNames) {
   }
 }
 
+// Preset-shadowed packages join the Node-side transform set. Their bare and
+// subpath imports are redirected to the preset mock before any file loads, so the
+// only real files reachable from them are the deliberately exempted pass-throughs
+// (package.json subpaths, assets, and Node-safe utility entries such as `mock`,
+// `plugin`, `jest-utils`). Some of those ship Metro-only source —
+// react-native-worklets' lib/module/mock.js mixes ESM `import` with
+// `module.exports`, which served as published throws "module is not defined in
+// ES module scope" or, on Node 24 (whose global `module` is the Module
+// constructor), loads SILENTLY with empty exports —
+// and the preset shadow is exactly what keeps such packages OUT of the detected
+// ecosystem list, so nothing else will ever compile them. Membership here only
+// makes their files eligible: needsTransform still gates every compile, so a
+// pass-through Node can already run is served untouched.
+const nodeTransformPkgs = [...new Set([...transformPkgs, ...Object.keys(presetExports)])];
+
 // Enable the V8 compile cache before RN is compiled (it loads when the test file
 // imports react-native, after this setup runs) so its bytecode is cached to disk
 // and reused on the next file/worker/run. Covers the stock (non-hot) path.
@@ -136,7 +151,7 @@ if (!globalThis.__vitest_native_loader_registered) {
       projectRoot,
       platform,
       reactNativeVersion,
-      transformPkgs,
+      transformPkgs: nodeTransformPkgs,
       presetExports,
       assetExts,
       hotGenerationBuffer: globalThis.__vitest_native_hot_generation?.buffer,
@@ -156,7 +171,7 @@ if (process.env.VITEST_NATIVE_RN_REGISTRY) {
     );
   }
 }
-installRequireHooks(projectRoot, transformPkgs, platform, reactNativeVersion, assetExts);
+installRequireHooks(projectRoot, nodeTransformPkgs, platform, reactNativeVersion, assetExts);
 
 // Build the mock objects now that the require hooks are installed (preset
 // factories may lazily resolve react-native at render time).

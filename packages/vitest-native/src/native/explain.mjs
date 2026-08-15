@@ -44,21 +44,42 @@ export function decorateTransformError(err, file, platform) {
 const UNTRANSPILED_SYNTAX =
   /Unexpected token '?<'?|Unexpected identifier|Unexpected reserved word|Missing initializer in const|Unexpected token ':'/;
 
+// Node's ReferenceError when a MIXED-SYNTAX file runs: top-level `import` makes the
+// CJS parse fail, Node retries the file as an ES module (require(esm)), and the
+// CommonJS half then dereferences a wrapper variable that ESM scope never defines.
+// Metro compiles both halves, so packages ship this shape — react-native-worklets'
+// lib/module/mock.js ends in `module.exports = ...` under a header of `import`s.
+// It is the runtime sibling of the SyntaxError class above: same cause, same fix,
+// but it parses cleanly and so fails AFTER compilation, as a ReferenceError.
+const ESM_SCOPE_REFERENCE =
+  /\b(?:module|exports|require|__dirname|__filename) is not defined in ES module scope/;
+
 /**
- * When Node throws a SyntaxError compiling a node_modules file that vitest-native
- * did NOT transform, explain the (very common) real cause: the package ships
- * untranspiled JSX/Flow/TS and needs to be added to `transform: [...]`.
+ * When Node throws compiling or running a node_modules file that vitest-native did
+ * NOT transform, explain the (very common) real cause: the package ships source
+ * only Metro can run — untranspiled JSX/Flow/TS (a SyntaxError), or mixed
+ * ESM-import/CommonJS-exports (a ReferenceError from the require(esm) retry) —
+ * and needs to be added to `transform: [...]`.
  * Returns a decorated error, or null when the failure doesn't match the pattern.
  */
 export function explainUntransformedSyntaxError(err, file) {
-  if (!err || err.name !== "SyntaxError") return null;
-  if (!UNTRANSPILED_SYNTAX.test(String(err.message))) return null;
+  if (!err) return null;
+  const matches =
+    (err.name === "SyntaxError" && UNTRANSPILED_SYNTAX.test(String(err.message))) ||
+    (err.name === "ReferenceError" && ESM_SCOPE_REFERENCE.test(String(err.message)));
+  if (!matches) return null;
   const pkg = packageNameFromPath(file);
   if (!pkg) return null;
-  const wrapped = new SyntaxError(
+  const cause =
+    err.name === "ReferenceError"
+      ? `This usually means the package publishes mixed ES-module/CommonJS source ` +
+        `that only a bundler like Metro can run.`
+      : `This usually means the package publishes untranspiled JSX, Flow, or TypeScript.`;
+  const Ctor = err.name === "ReferenceError" ? ReferenceError : SyntaxError;
+  const wrapped = new Ctor(
     `[vitest-native] '${pkg}' shipped source Node can't run directly ` +
       `(${err.message} in ${file}).\n` +
-      `This usually means the package publishes untranspiled JSX, Flow, or TypeScript. ` +
+      `${cause} ` +
       `Ask vitest-native to transform it:\n\n` +
       `  reactNative({ transform: ['${pkg}'] })\n\n` +
       `in your vitest config. See https://github.com/danfry1/vitest-native` +
