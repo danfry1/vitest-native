@@ -1,5 +1,199 @@
 # vitest-native
 
+## 0.12.0
+
+### Minor Changes
+
+- 0dce12c: Compile what Node cannot run, and nothing else
+
+  The native engine decided what to compile by NAME: a package was handed to the React
+  Native Babel preset because auto-detection or a dependency-closure walk selected it.
+  That guess was wrong far more often than it was right, and every way of being wrong
+  looked identical — a parse error deep inside a package the project never mentioned.
+  Babel's own emitted helpers, Metro's `lru-cache` chain and a pure-ESM validator all
+  arrived that way, and each was answered by adding another name to exclude.
+
+  The file answers precisely. If V8 can parse it, Node can run it, so compiling is
+  optional; if V8 cannot, Node cannot, so compiling is required — the same question Node
+  is about to ask, which is what makes it a fact rather than a heuristic. Files selected
+  for compiling are now parsed first, and only compiled if the parse fails.
+
+  What is given up is downleveling for Hermes: `const` to `var`, destructuring lowered.
+  Measured across React Native's own sources and the installed ecosystem, that is the
+  whole of what the preset does to a file V8 accepts, and it is behaviour-preserving on
+  Node — arguably closer to what the package published. `__DEV__` is left standing and
+  top-level requires are not inlined, so neither observable transform is affected.
+
+  **This is a robustness change, not a speed one.** On this repository's native suite
+  with a cold transform cache it measured 7.68s against 7.35s without the check: React
+  Native's own sources need compiling either way (440 of 450 fail to parse), so the check
+  mostly adds work here. The benefit is that a package Node can already run can no longer
+  reach Babel, whatever put it on the list.
+
+  Scoped to script-goal files. A `type: module` package is compiled exactly as before,
+  because the loader hands those to Node as CommonJS and changing that is an interop
+  question about named exports and live bindings that a parse cannot answer.
+
+  Also adds `transform: { include, exclude }`. `exclude` names packages the engine must
+  never compile, overriding auto-detection, the closure walk and the built-in lists —
+  so a project that hits a case the parse check does not cover can unblock itself the
+  same day instead of waiting for a release. The array form keeps its meaning.
+
+### Patch Changes
+
+- c118f51: Reset externalized packages a test file imports, under the hot runtime
+
+  The hot runtime keeps a worker alive across test files and clears what each file
+  loaded, so the next one starts fresh. That reset could only reach Node's CommonJS
+  cache. A package reached through ESM `import` is held by Node's ESM registry, which
+  has no invalidation API, so its module-level state — a store, a client, a cache —
+  survived for the whole run. The second test file to touch such a package saw the
+  first one's writes.
+
+  The registry cannot be invalidated, but it is keyed by full URL, and the engine owns
+  the resolve hook. The per-file reset now advances a generation counter that the
+  loader stamps onto the resolved URL, so the next file imports a URL Node has not seen
+  and evaluates the module again. React Native itself and the identity-sensitive
+  modules already listed in the reset are exempt: for those a fresh instance is the
+  bug, not the fix. Cost is bounded by ownership — a CommonJS package re-enters through
+  `Module._cache`, which the reset already drops, so only a namespace wrapper is
+  retained per generation.
+
+  Correctness on a 135-file suite went from 126/135 to 135/135 against the same suite
+  under stock isolation.
+
+  The cost is re-execution, and it scales with how many externalized packages a test
+  file imports — which is nothing to do with React Native, since RN and the packages
+  that depend on it are inlined into Vite's graph and never reach this path. A suite
+  where every file imports eight ordinary npm packages measured 1.14s to 1.77s, 55%
+  more wall clock; stock isolation runs the same suite in 15.90s, so hot goes from
+  13.9× to 9.0×. Suites that import few externalized packages pay close to nothing.
+
+  Peak RSS does not grow: 946 MB with the stamp against 955 MB without, on that same
+  suite. A CommonJS package re-enters through `Module._cache`, which the reset already
+  drops, so only a namespace wrapper is retained per generation.
+
+  `hotRuntime: { esmGeneration: false }` trades the correctness back for the speed.
+  Nothing changes when the hot runtime is off; the counter is only installed by the hot
+  worker.
+
+  The hot-isolation suite reached this fixture through `require` deliberately, because
+  the ESM path could not pass — it documented the hole rather than covering it. It now
+  has an ESM twin, and the scale validation gained templates for the shapes that were
+  missing from it entirely: real React Navigation, a navigation container wrapping a
+  Modal, and a node_modules package holding module-level state. Navigation had never
+  run under the hot runtime in any gate.
+
+  The stamp is scoped away from the test stack itself — vitest, `@vitest/*`, chai, and
+  this engine. The worker's runtime holds boot instances of these (the runner's
+  SnapshotClient, chai's extended Assertion, the engine's registry), and a test file
+  reaches the same packages through Node's ESM path; stamping those resolutions hands
+  the file a twin runtime whose failures are emergent and order-dependent —
+  `toMatchSnapshot` asking a SnapshotClient no one set up, fake timers flipping a copy
+  of the state the runner never reads. The workspace gates cannot see this class: in
+  the repository, the engine and the validation suites resolve outside node_modules,
+  where the node_modules-scoped stamp never applies. It surfaced only on a packed
+  install, running react-native-paper's suite under the hot runtime: 603/678 → 473/648
+  before the exemption, 609/678 — above the recorded baseline — with it.
+
+  The consumer tests gained the gate that class needs: the packed current-RN fixture
+  now runs a hot-runtime leg whose probe asserts the resolution invariant directly —
+  an ordinary node_modules package resolves generation-stamped while vitest,
+  `@vitest/snapshot`, chai, and the engine never do — alongside behavioral checks
+  (snapshots, fake timers, cross-file state reset from a packed install). Both
+  mutations were run before trusting it: removing the exemption and disabling the
+  generation mechanism each turn the leg red.
+
+- c120d05: Match Metro's extension-major platform resolution order, verified against real metro-resolver
+
+  Platform-file resolution interleaved its candidate extensions platform-major —
+  every `.ios.*` variant before any `.native.*` before any bare extension. Metro
+  resolves extension-major: for each source extension in order, it tries the
+  platform variant, then `.native`, then bare (`.ios.js`, `.native.js`, `.js`,
+  `.ios.jsx`, …). The difference selects different files when a module mixes
+  platform variants across extensions: `Foo.native.js` beside `Foo.ios.tsx`
+  resolves to `.native.js` under Metro — the `js` round finishes before `tsx` is
+  tried — but resolved to `.ios.tsx` here, so a test could run a different file
+  than the application ships. One shared list feeds both the Vite graph and the
+  Node hooks, so the correction applies to both at once.
+
+  The order had also been asserted by a unit test whose literals were written from
+  the implementation — the gate encoded the mistake it existed to catch. The
+  authority is now external: a differential oracle resolves a 160-case sweep of
+  mixed platform/extension layouts (plus directory-index and per-extension cases)
+  through real metro-resolver and through this package's resolver and requires
+  byte-identical answers. The oracle runs against a pinned metro-resolver in the
+  PR gate, and the weekly compatibility job bumps metro-resolver@latest alongside
+  react-native@latest so upstream resolution changes surface as scheduled drift.
+  Reverting the interleaving fails the oracle on the exact mixed-variant shapes
+  described above.
+
+- c27474e: Engine auto-detection requires react-native itself, not just its Babel toolchain
+
+  `engine: 'auto'` chose the native engine whenever `@react-native/babel-preset`
+  and `@babel/core` resolved — react-native itself was never checked, so an
+  incomplete install (or a babel-only workspace) selected native mode and then
+  failed later at React Native resolution with nothing pointing at the cause.
+
+  Detection now requires all three. The check resolves rather than reads
+  declarations — everything is located by walking node_modules upward from the
+  project root, so a hoisted workspace install or Expo's transitive react-native
+  counts without appearing in the project's own manifest. The fallback notice and
+  the explicit-`engine: 'native'` configuration error both name exactly which
+  dependencies did not resolve.
+
+- 2fca83a: Compile a preset-shadowed package's pass-through entries when Node cannot run them
+
+  Preset packages are shadowed: their bare and subpath imports are redirected to the
+  preset mock before any file loads. The deliberate exceptions — package.json
+  subpaths, assets, and Node-safe utility entries such as `mock`, `plugin`, and
+  `jest-utils` — pass through to the real file. Some of those files only Metro can
+  run: react-native-worklets publishes its own mock entry (`lib/module/mock.js`) as
+  ESM `import` statements over a `module.exports = …` footer. And because the preset
+  shadow is exactly what keeps such packages out of ecosystem detection, nothing else
+  would ever compile them. A suite that maps the package onto its published mock —
+  react-native-paper does, via
+  `vi.mock('react-native-worklets', () => require('react-native-worklets/lib/module/mock'))` —
+  lost every test file whose component imports the package.
+
+  Preset-shadowed package names now join the Node-side transform set, built in the
+  worker from the same preset definitions that power the redirect, so user-supplied
+  presets are covered alongside the auto-detected ones. Membership only makes a file
+  eligible: `needsTransform` still gates every compile, so a pass-through Node can
+  already run is served untouched. The hot runtime needed one more piece — its worker
+  installs the require hooks at boot, before the setup file has built the preset
+  mocks, and the install-once guard silently pinned that boot-time list; the guard
+  now updates the transform matcher instead.
+
+  What the served-as-published failure looks like depends on the Node version, and
+  both shapes are cured: where Node lacks a `module` global the require(esm) retry
+  throws "module is not defined in ES module scope", and on Node 24 — which defines
+  `module` as a global — the file loads silently with EMPTY exports instead.
+
+  The thrown shape also joins the explained-error family: the ReferenceError from a
+  mixed ES-module/CommonJS file now gets the same actionable message as untranspiled
+  JSX/Flow/TS SyntaxErrors — naming the owning package and the `transform: [...]`
+  remedy — instead of a bare "module is not defined in ES module scope".
+
+- 6bd6ec6: Scope the native transformer's toolchain to the project root instead of the process
+
+  The transformer resolved its toolchain — `@react-native/babel-preset`,
+  `@babel/core`, the flow-enums plugin, and the disk-cache directory — into module
+  globals initialized by the first caller. `transformRN` accepts a project root per
+  call, but a second root's calls silently reused the first root's resolved
+  toolchain and cache. Registries for every project in a Vitest workspace are built
+  in the one Vite main process, so two projects with different React Native or
+  Babel versions could serve the first project's output to the second project's
+  tests.
+
+  Proven before fixing: a regression test gives two roots their own Babel preset
+  whose plugin stamps a root-specific marker into every transformed file, and the
+  second root's file came back carrying the first root's stamp. Toolchain state now
+  lives in a per-root context — resolved requires, preset, lazily-loaded Babel,
+  in-memory cache, and disk-cache directory each belong to one canonical (realpath)
+  project root — and the same test asserts both call orders plus per-root cache
+  directories.
+
 ## 0.11.1
 
 ### Patch Changes
