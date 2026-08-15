@@ -42,3 +42,14 @@ describe("Expo modules under the native engine", () => {
     expect(screen.getByText(/Hello from/)).toBeTruthy();
   });
 });
+
+describe("expo-linking preset surface", () => {
+  it("provides the functions expo-router's linking layer calls at render time", async () => {
+    const Linking = await import("expo-linking");
+    const subscription = Linking.addEventListener("url", () => {});
+    expect(typeof subscription.remove).toBe("function");
+    expect(Linking.resolveScheme({})).toBe("exp");
+    await expect(Linking.getInitialURL()).resolves.toBeNull();
+    expect(Linking.createURL("path")).toBe("exp://localhost:19000/path");
+  });
+});
