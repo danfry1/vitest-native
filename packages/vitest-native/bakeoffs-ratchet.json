@@ -4,12 +4,12 @@
   "apps": {
     "paper": {
       "stock": {
-        "passed": 625,
-        "total": 678
+        "passed": 662,
+        "total": 715
       },
       "hot": {
-        "passed": 603,
-        "total": 678
+        "passed": 645,
+        "total": 715
       }
     },
     "obytes": {
