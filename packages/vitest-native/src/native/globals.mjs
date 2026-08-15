@@ -71,15 +71,34 @@ function installExpoGlobal(g) {
   // setUpJsLogger) call methods like `.addListener` on these, so return a
   // permissive NativeModule stub (EventEmitter methods + no-op for unknown native
   // methods) for any accessed module rather than crashing on `undefined`.
+  //
+  // Fabricated properties follow two Expo conventions instead of a blanket
+  // `() => undefined`:
+  // - `*Async` methods return Promises on device, and packages chain on them at
+  //   import time (expo-notifications: `getRegistrationInfoAsync().then(...)`),
+  //   so they resolve undefined — matching jest-expo's generated mocks.
+  // - PascalCase properties are native classes (SharedObjects) that package JS
+  //   subclasses (expo-file-system: `class File extends ExpoFileSystem.FileSystemFile`),
+  //   so they are memoized classes on SharedObject's prototype chain.
+  // Explicitly-set properties (spies, overrides) always win.
   const __moduleCache = new Map();
-  const makeModuleStub = () =>
-    new Proxy(new NativeModule(), {
+  const makeModuleStub = () => {
+    const fabricatedClasses = new Map();
+    return new Proxy(new NativeModule(), {
       get(target, prop) {
         if (prop in target) return target[prop];
         if (typeof prop === "symbol") return undefined;
+        if (prop.endsWith("Async")) return () => Promise.resolve(undefined);
+        if (/^[A-Z]/.test(prop)) {
+          if (!fabricatedClasses.has(prop)) {
+            fabricatedClasses.set(prop, class extends SharedObject {});
+          }
+          return fabricatedClasses.get(prop);
+        }
         return () => undefined;
       },
     });
+  };
   const modules = new Proxy(
     {},
     {

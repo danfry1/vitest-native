@@ -23,3 +23,27 @@ describe("native engine: React Native runtime globals", () => {
     expect((globalThis as Record<string, unknown>).__fbBatchedBridgeConfig).toBeDefined();
   });
 });
+
+describe("native engine: fabricated expo native-module stubs", () => {
+  const modules = (globalThis as Record<string, any>).expo.modules;
+
+  it("resolves fabricated *Async methods to a Promise (Expo convention)", async () => {
+    await expect(modules.SomeFabricatedModule.getRegistrationInfoAsync()).resolves.toBeUndefined();
+  });
+
+  it("serves fabricated PascalCase properties as classes on SharedObject", () => {
+    const NativeClass = modules.SomeFabricatedModule.FileSystemFile;
+    class Sub extends NativeClass {}
+    const instance = new Sub();
+    expect(instance).toBeInstanceOf((globalThis as Record<string, any>).expo.SharedObject);
+    expect(typeof instance.addListener).toBe("function");
+    // Memoized: subclass identity must be stable across reads.
+    expect(modules.SomeFabricatedModule.FileSystemFile).toBe(NativeClass);
+  });
+
+  it("keeps the no-op fallback for other fabricated methods and explicit overrides winning", () => {
+    expect(modules.SomeFabricatedModule.someMethod()).toBeUndefined();
+    modules.SomeFabricatedModule.getOverriddenAsync = () => "explicit";
+    expect(modules.SomeFabricatedModule.getOverriddenAsync()).toBe("explicit");
+  });
+});
