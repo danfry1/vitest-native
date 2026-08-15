@@ -871,11 +871,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       if (engine === "native" && !decision.nativeAvailable) {
         throw new VitestNativeError(
           "ENGINE_REQUIRES_BABEL",
-          `engine:'native' requires '@react-native/babel-preset' and ` +
-            `'@babel/core' to resolve from ${resolvedRoot}. Install them as ` +
-            `devDependencies (React Native projects ship them by default):\n\n` +
-            `  npm install -D @react-native/babel-preset @babel/core\n\n` +
-            `Or set engine:'mock' to run without a React Native install.`,
+          `engine:'native' requires react-native, '@react-native/babel-preset', and ` +
+            `'@babel/core' to resolve from ${resolvedRoot} — missing: ` +
+            `${decision.missing.join(", ")}. React Native projects ship all three ` +
+            `by default. Install what's missing (react-native as a dependency, the ` +
+            `toolchain as devDependencies), or set engine:'mock' to run without a ` +
+            `React Native install.`,
         );
       }
       // The fallback notice is a warning — a team that believes it is testing real

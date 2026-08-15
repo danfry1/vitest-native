@@ -640,7 +640,7 @@ describe("engine-selection notices", () => {
       const plugin = reactNative({}) as any;
       await plugin.config({ root: tmp }, SERVE_ENV);
       const notices = warn.mock.calls.filter((c) =>
-        String(c[0]).includes("@react-native/babel-preset not found"),
+        String(c[0]).includes("not found — using the mock engine"),
       );
       expect(notices).toHaveLength(1);
       const banners = err.mock.calls.filter((c) => String(c[0]).includes("engine: mock"));
@@ -661,7 +661,7 @@ describe("engine-selection notices", () => {
       );
       const plugin = reactNative({ engine: "native" }) as any;
       await expect(plugin.config({ root: tmp }, SERVE_ENV)).rejects.toThrow(
-        /@react-native\/babel-preset.*npm install -D/s,
+        /missing: react-native, @react-native\/babel-preset, @babel\/core/s,
       );
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
