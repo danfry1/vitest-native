@@ -135,7 +135,7 @@ want no RN at all — fast, deterministic, environment-controllable.
 - **`vi.mock('react-native')` works under both engines** — including `importOriginal()`, so you
   can replace one export and keep the rest real. See [Mocking React Native](#mocking-react-native).
 - **Jest-compat layer** — `vitest-native/jest-compat` eases migrating existing Jest suites.
-- **Test helpers** — `setPlatform`, `setDimensions`, `setColorScheme`, `mockNativeModule` for easy state control.
+- **Test helpers** — `setPlatform`, `setDimensions`, `setColorScheme`, `mockNativeModule`, `extendPresetMock` for easy state control.
 - **TypeScript first** — Full type safety across the entire API.
 
 ## How It Works

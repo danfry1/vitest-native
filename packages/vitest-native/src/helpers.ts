@@ -86,6 +86,76 @@ export function setInsets(insets: {
   }
 }
 
+/** Undo journal for extendPresetMock(), replayed LIFO by resetAllMocks(). */
+type PresetOverrideEntry = {
+  target: Record<string, any>;
+  key: string;
+  had: boolean;
+  previous: any;
+};
+let presetMockOverrides: PresetOverrideEntry[] = [];
+
+/**
+ * Merge overrides into a preset's module mock (and its `default`, when that is
+ * an object) — e.g. to give expo-constants a real `expoConfig` or add an export
+ * a library calls that the preset does not model. Returns `false` when no
+ * preset mock exists for the package. Undone by `resetAllMocks()`.
+ */
+export function extendPresetMock(pkg: string, overrides: Record<string, any>): boolean {
+  const presetMocks = (globalThis as any).__vitest_native_preset_mocks;
+  const mock = presetMocks?.[pkg];
+  if (!mock) return false;
+
+  const targets: Record<string, any>[] = [mock];
+  if (mock.default && typeof mock.default === "object" && mock.default !== mock) {
+    targets.push(mock.default);
+  }
+  for (const target of targets) {
+    for (const [key, value] of Object.entries(overrides)) {
+      // Prototype-pollution guard: assigning these through a computed key would
+      // re-prototype the mock (or worse via a JSON-sourced "__proto__" own key)
+      // instead of adding an export. No preset export can legitimately use them.
+      if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+      presetMockOverrides.push({
+        target,
+        key,
+        had: Object.prototype.hasOwnProperty.call(target, key),
+        previous: target[key],
+      });
+      // defineProperty writes an own data property without running any setter a
+      // polluted key could reach — the journal above only ever holds safe keys.
+      Object.defineProperty(target, key, {
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value,
+      });
+    }
+  }
+  return true;
+}
+
+function restorePresetMockOverrides(): void {
+  for (let i = presetMockOverrides.length - 1; i >= 0; i--) {
+    const { target, key, had, previous } = presetMockOverrides[i];
+    // The journal only ever holds keys that passed the guard above, but that
+    // fact lives across a function boundary a static analyzer cannot follow —
+    // restate it locally so the write below is provably safe on its own.
+    if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+    if (had) {
+      Object.defineProperty(target, key, {
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value: previous,
+      });
+    } else {
+      delete target[key];
+    }
+  }
+  presetMockOverrides = [];
+}
+
 export function mockNativeModule(name: string, impl: Record<string, any>): void {
   const native = getNativeControl();
   if (native) return native.mockNativeModule(name, impl);
@@ -133,6 +203,9 @@ function clearMockFns(obj: Record<string, any>, visited = new Set()): void {
 }
 
 export function resetAllMocks(): void {
+  // Before the native-engine delegation: extendPresetMock() writes through this
+  // module under both engines, so its undo journal is replayed here.
+  restorePresetMockOverrides();
   const native = getNativeControl();
   if (native) return native.resetAllMocks();
   const mock = getMock();

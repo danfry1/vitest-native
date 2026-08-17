@@ -23,7 +23,7 @@ and deep paths are not supported even when they happen to resolve.
 | Subpath | Covered exports |
 | --- | --- |
 | `vitest-native` | `reactNative`, `presets`, `disabledPresetNames` |
-| `vitest-native/helpers` | `setPlatform`, `setDimensions`, `setColorScheme`, `setInsets`, `mockNativeModule`, `resetAllMocks` |
+| `vitest-native/helpers` | `setPlatform`, `setDimensions`, `setColorScheme`, `setInsets`, `mockNativeModule`, `extendPresetMock`, `resetAllMocks` |
 | `vitest-native/presets` | the 17 preset factories, by name |
 | `vitest-native/matchers` | `toHaveAnimatedStyle`, `toHaveAnimatedProps`, `animatedMatchers` |
 | `vitest-native/serializer` | `serializer` |
