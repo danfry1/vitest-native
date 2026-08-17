@@ -48,6 +48,7 @@ import { createClipboardMock } from "./apis/Clipboard.js";
 import { createShareMock } from "./apis/Share.js";
 import { createAccessibilityInfoMock } from "./apis/AccessibilityInfo.js";
 import { createInteractionManagerMock } from "./apis/InteractionManager.js";
+import { createAssetRegistryMock } from "./apis/AssetRegistry.js";
 import { createPanResponderMock } from "./apis/PanResponder.js";
 import { createToastAndroidMock } from "./apis/ToastAndroid.js";
 import { createActionSheetIOSMock } from "./apis/ActionSheetIOS.js";
@@ -351,6 +352,7 @@ export {
   createShareMock,
   createAccessibilityInfoMock,
   createInteractionManagerMock,
+  createAssetRegistryMock,
   createPanResponderMock,
   createToastAndroidMock,
   createActionSheetIOSMock,
@@ -416,6 +418,8 @@ export function buildReactNativeMock(platform: "ios" | "android" = "ios") {
     Share: createShareMock(),
     AccessibilityInfo: createAccessibilityInfoMock(),
     InteractionManager: createInteractionManagerMock(),
+    // Top-level export since RN 0.87 (weekly compat canary, issue #179).
+    AssetRegistry: createAssetRegistryMock(),
     PanResponder: createPanResponderMock(),
     ToastAndroid: createToastAndroidMock(),
     ActionSheetIOS: createActionSheetIOSMock(),

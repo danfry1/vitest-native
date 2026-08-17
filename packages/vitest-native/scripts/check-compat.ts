@@ -113,6 +113,11 @@ export function parseRNExports(indexPath: string): string[] {
   // unstable_batchedUpdates<T>(...)). Keep those in the public export set.
   const methodRegex = /^\s{2}([A-Za-z_$][\w$]*)(?:<[^>\n]+>)?\s*\(/gm;
   while ((match = methodRegex.exec(source)) !== null) {
+    // RN 0.87 defines some exports via `Object.defineProperty(module.exports, 'X',
+    // { get() { ... } })` — the two-space-indented bare `get() {` inside that block
+    // matches this pattern and is not an export. plugin.ts's parser excludes it the
+    // same way.
+    if (match[1] === "get") continue;
     exports.push(match[1]);
   }
 

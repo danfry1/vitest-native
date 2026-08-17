@@ -392,6 +392,7 @@ const RN_EXPORT_NAMES = [
   "Alert",
   "Linking",
   "AppState",
+  "AssetRegistry",
   "Keyboard",
   "BackHandler",
   "Vibration",

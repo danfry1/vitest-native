@@ -34,7 +34,7 @@ import crypto from "node:crypto";
 import { transformRN, isFlow, cacheRootFor, TRANSFORM_CACHE_VERSION } from "./transform.mjs";
 
 import { boundarySourceFor, BOUNDARY_SOURCES } from "./boundary.mjs";
-import { resolvePlatformFile } from "./resolve.mjs";
+import { resolvePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
 
 /**
  * Losing the registry is a silent performance cliff, not a correctness problem:
@@ -557,10 +557,22 @@ export function installRegistry(registryFile, projectRoot) {
       try {
         resolved = resolver.resolve(request);
       } catch {
-        resolved = null;
+        // RN 0.87's exports map refuses the deep self-references its preset
+        // emits; resolve by path (Metro's behavior) so the file still lands on
+        // the registry's instance instead of loading a twin outside it.
+        resolved = resolveDeepPackageFile(
+          request,
+          parent?.filename ? path.dirname(parent.filename) : projectRoot,
+          process.env.VITEST_NATIVE_PLATFORM === "android" ? "android" : "ios",
+        );
       }
       const id = resolved === null ? undefined : idOf.get(resolved);
       if (id !== undefined) return registry.load(id);
+      // Resolved by path but not in the registry: forward the PATH — reloading
+      // the bare specifier would just hit the exports map again.
+      if (resolved !== null && path.isAbsolute(resolved)) {
+        return origLoad.call(this, resolved, parent, ...rest);
+      }
     }
     return origLoad.call(this, request, parent, ...rest);
   };
