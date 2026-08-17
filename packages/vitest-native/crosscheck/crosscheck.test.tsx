@@ -56,6 +56,8 @@ import {
   within,
 } from "@testing-library/react-native";
 import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 afterEach(cleanup);
 
@@ -841,7 +843,29 @@ probe("easing-parameterised", () => ({
   bounce: [0.25, 0.5, 0.75].map((t) => +Easing.bounce(t).toFixed(6)),
 }));
 
+// The installed React Native version, read through the FILESYSTEM: both engines
+// intercept react-native resolution (the mock's CJS bridge answers even
+// createRequire), so a require-based read would report the wrong thing under
+// exactly one of the two runs being compared. Probes gated on this are removed
+// from BOTH sides symmetrically, so the comparator sees matching key sets.
+const rnMinor = (() => {
+  let dir = path.dirname(fileURLToPath(import.meta.url));
+  for (;;) {
+    const manifest = path.join(dir, "node_modules", "react-native", "package.json");
+    if (fs.existsSync(manifest)) {
+      return Number(JSON.parse(fs.readFileSync(manifest, "utf8")).version.split(".")[1]);
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return 0;
+    dir = parent;
+  }
+})();
+
 // InteractionManager's contract is that the task runs and the handle is thenable.
+// React Native 0.87 removed the API outright (the index traps access behind a DEV
+// invariant), so from 0.87 the probe is gated off rather than deleted: the matrix
+// legs on 0.81-0.86 still compare it, and a gated probe is absent from both sides.
+if (rnMinor < 87)
 probe("interaction-manager", async () => {
   let ran = 0;
   const handle = InteractionManager.runAfterInteractions(() => {

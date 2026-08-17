@@ -87,7 +87,7 @@ It is **not** primarily a speed play — choose it for the fidelity option and D
 
 ## How it's verified
 
-The reproducible guarantee is a **CI-gated behavioral cross-check**: a corpus of probes runs the same assertions under the mock engine **and** real React Native across React Native 0.81–0.86, and any divergence fails the build. Anyone can run it (`bun run crosscheck`), and the full corpus with its current pass count is published in the [Fidelity Report](/guide/fidelity). On top of that, the full CI gate runs lint, typecheck, build, and the mock + native + hot suites across an OS × Node matrix.
+The reproducible guarantee is a **CI-gated behavioral cross-check**: a corpus of probes runs the same assertions under the mock engine **and** real React Native across React Native 0.81–0.87, and any divergence fails the build. Anyone can run it (`bun run crosscheck`), and the full corpus with its current pass count is published in the [Fidelity Report](/guide/fidelity). On top of that, the full CI gate runs lint, typecheck, build, and the mock + native + hot suites across an OS × Node matrix.
 
 Pinned public apps are also run as **external integration observations**. They are useful tripwires,
 but their custom migration config, dependency changes, snapshots, and Jest-era shims mean their

@@ -62,13 +62,13 @@ function render(cells: Parameters<typeof reportsDir>[0]): string {
 
 /** Every cell the matrix workflow gates — the set the headline quantifies over. */
 const ALL_CELLS = (() => {
-  const rns = ["0.81", "0.82", "0.83", "0.84", "0.85", "0.86"];
+  const rns = ["0.81", "0.82", "0.83", "0.84", "0.85", "0.86", "0.87"];
   const cells = rns.flatMap((rn) => [
     { rn, flavor: "locked", vitest: "4.1.9" },
     { rn, flavor: "latest-supported", vitest: "4.1.9" },
   ]);
   cells.push({ rn: "0.81", flavor: "v5", vitest: "5.0.0-beta.6" });
-  cells.push({ rn: "0.86", flavor: "v5", vitest: "5.0.0-beta.6" });
+  cells.push({ rn: "0.87", flavor: "v5", vitest: "5.0.0-beta.6" });
   return cells;
 })();
 
@@ -86,7 +86,7 @@ describe("fidelity matrix cells", () => {
   it("does not label a v5 cell as locked", () => {
     const page = render([
       { rn: "0.86", flavor: "locked", vitest: "4.1.9" },
-      { rn: "0.86", flavor: "v5", vitest: "5.0.0-beta.6" },
+      { rn: "0.87", flavor: "v5", vitest: "5.0.0-beta.6" },
     ]);
     expect(page).toContain("| v5 |");
     expect(tableRows(page).filter((r) => r.includes("| locked |")).length).toBe(1);
@@ -110,6 +110,6 @@ describe("fidelity matrix cells", () => {
     const page = render(ALL_CELLS.filter((c) => c.flavor !== "v5"));
     expect(page).toContain("Incomplete matrix data");
     expect(page).toContain("0.81-v5");
-    expect(page).toContain("0.86-v5");
+    expect(page).toContain("0.87-v5");
   });
 });
