@@ -5,7 +5,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { transformRN, isFlow, cjsExportNames, needsTransform } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
-import { resolvePlatformFile } from "./resolve.mjs";
+import { resolvePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
 import {
   NODE_MODULES_PATH,
   REACT_NATIVE_PATH,
@@ -168,6 +168,17 @@ export async function resolve(specifier, context, nextResolve) {
     if (parent && specifier.startsWith(".") && !path.extname(specifier)) {
       const hit = resolveExtensionless(path.resolve(path.dirname(parent), specifier));
       if (hit) resolved = { url: pathToFileURL(hit).href, shortCircuit: true };
+    }
+    // RN 0.87's exports map rejects the deep self-references its own Babel
+    // preset emits (react-native/src/private/...); Metro resolves them via its
+    // legacy-deep-imports condition. Mirror Metro by path (see resolve.mjs).
+    if (!resolved) {
+      const deep = resolveDeepPackageFile(
+        specifier,
+        parent ? path.dirname(parent) : PROJECT_ROOT,
+        PLATFORM,
+      );
+      if (deep) resolved = { url: pathToFileURL(deep).href, shortCircuit: true };
     }
     if (!resolved) throw err;
   }

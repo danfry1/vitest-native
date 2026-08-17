@@ -74,3 +74,46 @@ function scanPlatformFile(absBase, platform) {
   }
   return null;
 }
+
+/**
+ * Resolve a deep package specifier by PATH when Node's exports-map enforcement
+ * rejects it.
+ *
+ * React Native 0.87 ships an `exports` map whose deep-import surface is gated
+ * behind Metro's `react-native-legacy-deep-imports` condition — and the 0.87
+ * Babel preset compiles RN's own relative imports into bare deep specifiers
+ * (`react-native/src/private/…`), so RN's compiled graph self-references through
+ * paths plain Node now refuses (`ERR_PACKAGE_PATH_NOT_EXPORTED`). Metro resolves
+ * them; this engine mirrors Metro: locate the package directory by walking
+ * node_modules from the requiring file and resolve the file directly, platform
+ * extensions included — path resolution is not subject to exports maps.
+ *
+ * Scoped to react-native and @react-native/* — the packages whose graphs the
+ * preset rewrites. Ordinary packages keep Node's exports enforcement.
+ */
+export function resolveDeepPackageFile(request, fromDir, platform) {
+  const m = /^(react-native|@react-native\/[^/]+)\/(.+)$/.exec(request);
+  if (!m) return null;
+  const [, pkg, rest] = m;
+  const pkgDir = findPackageDir(fromDir, pkg);
+  if (!pkgDir) return null;
+  const base = path.join(pkgDir, rest);
+  try {
+    if (fs.statSync(base).isFile()) return base;
+  } catch {}
+  // `Foo.js` may exist only as a platform variant, and extensionless specifiers
+  // need the full Metro candidate list either way.
+  const stem = /\.[a-z0-9]+$/i.test(base) ? base.replace(/\.js$/, "") : base;
+  return resolvePlatformFile(stem, platform);
+}
+
+function findPackageDir(startDir, pkg) {
+  let dir = path.resolve(startDir);
+  for (;;) {
+    const candidate = path.join(dir, "node_modules", ...pkg.split("/"));
+    if (fs.existsSync(path.join(candidate, "package.json"))) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}

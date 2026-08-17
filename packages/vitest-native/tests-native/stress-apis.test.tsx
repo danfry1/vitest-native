@@ -3,6 +3,7 @@
 // component refs, animation drivers, and event-emitter plumbing. Independent
 // probes; failures are boundary holes to plug in src/native/boundary.mjs.
 import { describe, it, expect, vi } from "vitest";
+import { createRequire } from "node:module";
 import React from "react";
 import { render, screen, act } from "@testing-library/react-native";
 import {
@@ -59,8 +60,16 @@ describe("native engine: async native modules", () => {
   });
 });
 
+// React Native 0.87 removed InteractionManager outright (the index traps access
+// behind a DEV invariant). Real API on 0.81-0.86; gone on 0.87+, so the probe is
+// version-gated rather than deleted — the matrix still runs it on every version
+// that ships the API.
+const rnMinor = Number(
+  createRequire(import.meta.url)("react-native/package.json").version.split(".")[1],
+);
+
 describe("native engine: scheduling + gestures", () => {
-  it("InteractionManager.runAfterInteractions runs the task", async () => {
+  it.skipIf(rnMinor >= 87)("InteractionManager.runAfterInteractions runs the task", async () => {
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       const task = vi.fn();
