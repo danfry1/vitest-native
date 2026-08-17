@@ -176,7 +176,7 @@ installRequireHooks(projectRoot, nodeTransformPkgs, platform, reactNativeVersion
 // Build the mock objects now that the require hooks are installed (preset
 // factories may lazily resolve react-native at render time).
 const g = globalThis;
-g.__vitest_native_preset_mocks = g.__vitest_native_preset_mocks || {};
+g.__vitest_native_preset_mocks = g.__vitest_native_preset_mocks || Object.create(null);
 for (const { pkg, mod, presetName } of presetDefs) {
   g.__vitest_native_preset_mocks[pkg] = mod.factory();
   if (diagnostics) {

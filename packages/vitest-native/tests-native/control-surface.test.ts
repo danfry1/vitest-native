@@ -49,3 +49,17 @@ describe("native engine: resetAllMocks restores driven state", () => {
     expect(NativeModules.VitestResetProbe?.ping?.()).not.toBe("pong");
   });
 });
+
+describe("native engine: mock registries resist prototype-polluting names", () => {
+  it("a module named __proto__ becomes an ordinary registry entry", () => {
+    const registry = (globalThis as Record<string, any>).__vitest_native_module_mocks;
+    const protoBefore = Object.getPrototypeOf(registry);
+    mockNativeModule("__proto__", { marker: () => "owned" });
+    // The registry was not re-prototyped, and unrelated lookups are unaffected.
+    expect(Object.getPrototypeOf(registry)).toBe(protoBefore);
+    expect(registry.SomeUnrelatedModule).toBeUndefined();
+    // The key landed as a plain own property (null-prototype registry).
+    expect(Object.keys(registry)).toContain("__proto__");
+    expect(({}as Record<string, any>).marker).toBeUndefined();
+  });
+});
