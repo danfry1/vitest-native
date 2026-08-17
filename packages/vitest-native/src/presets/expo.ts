@@ -118,7 +118,14 @@ export function expo(): Preset {
       },
 
       "expo-linking": {
-        exports: ["createURL", "parse", "useURL"],
+        exports: [
+          "createURL",
+          "parse",
+          "useURL",
+          "resolveScheme",
+          "addEventListener",
+          "getInitialURL",
+        ],
         factory: () => {
           const createURL = vi.fn((path: string) => `exp://localhost:19000/${path}`);
           const parse = vi.fn((url: string) => ({
@@ -128,11 +135,20 @@ export function expo(): Preset {
             queryParams: {},
           }));
           const useURL = vi.fn(() => null);
+          // expo-router's linking layer calls these while rendering an ExpoRoot;
+          // without them any router render throws. Mirrors the module mock that
+          // expo-router/testing-library registers for Jest.
+          const resolveScheme = vi.fn(() => "exp");
+          const addEventListener = vi.fn(() => ({ remove: () => {} }));
+          const getInitialURL = vi.fn(async () => null);
 
           const exports = {
             createURL,
             parse,
             useURL,
+            resolveScheme,
+            addEventListener,
+            getInitialURL,
           };
 
           return {
