@@ -112,8 +112,24 @@ export function extendPresetMock(pkg: string, overrides: Record<string, any>): b
   }
   for (const target of targets) {
     for (const [key, value] of Object.entries(overrides)) {
-      presetMockOverrides.push({ target, key, had: key in target, previous: target[key] });
-      target[key] = value;
+      // Prototype-pollution guard: assigning these through a computed key would
+      // re-prototype the mock (or worse via a JSON-sourced "__proto__" own key)
+      // instead of adding an export. No preset export can legitimately use them.
+      if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+      presetMockOverrides.push({
+        target,
+        key,
+        had: Object.prototype.hasOwnProperty.call(target, key),
+        previous: target[key],
+      });
+      // defineProperty writes an own data property without running any setter a
+      // polluted key could reach — the journal above only ever holds safe keys.
+      Object.defineProperty(target, key, {
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value,
+      });
     }
   }
   return true;
@@ -122,8 +138,16 @@ export function extendPresetMock(pkg: string, overrides: Record<string, any>): b
 function restorePresetMockOverrides(): void {
   for (let i = presetMockOverrides.length - 1; i >= 0; i--) {
     const { target, key, had, previous } = presetMockOverrides[i];
-    if (had) target[key] = previous;
-    else delete target[key];
+    if (had) {
+      Object.defineProperty(target, key, {
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value: previous,
+      });
+    } else {
+      delete target[key];
+    }
   }
   presetMockOverrides = [];
 }
