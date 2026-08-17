@@ -138,6 +138,10 @@ export function extendPresetMock(pkg: string, overrides: Record<string, any>): b
 function restorePresetMockOverrides(): void {
   for (let i = presetMockOverrides.length - 1; i >= 0; i--) {
     const { target, key, had, previous } = presetMockOverrides[i];
+    // The journal only ever holds keys that passed the guard above, but that
+    // fact lives across a function boundary a static analyzer cannot follow —
+    // restate it locally so the write below is provably safe on its own.
+    if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
     if (had) {
       Object.defineProperty(target, key, {
         configurable: true,
