@@ -21,11 +21,11 @@ generated from the corpus itself, so the numbers below are exactly what ships.
 ### What this number covers
 
 A matching probe count says how many comparisons pass, not how much of the mock they
-reach. The corpus reaches 12 of 27 mocked APIs and 16 of 24 mocked components. The rest are not compared against real React Native at all — they are not known to differ, they are simply unmeasured.
+reach. The corpus reaches 12 of 28 mocked APIs and 16 of 24 mocked components. The rest are not compared against real React Native at all — they are not known to differ, they are simply unmeasured.
 
 Not reached by any probe:
 
-- APIs: AccessibilityInfo, ActionSheetIOS, Alert, BackHandler, Clipboard, Keyboard, Linking, LogBox, PanResponder, PermissionsAndroid, Share, ToastAndroid, Vibration, useColorScheme, useWindowDimensions
+- APIs: AccessibilityInfo, ActionSheetIOS, Alert, AssetRegistry, BackHandler, Clipboard, Keyboard, Linking, LogBox, PanResponder, PermissionsAndroid, Share, ToastAndroid, Vibration, useColorScheme, useWindowDimensions
 - Components: DrawerLayoutAndroid, ImageBackground, InputAccessoryView, RefreshControl, SafeAreaView, StatusBar, TouchableNativeFeedback, VirtualizedList
 
 The `native` engine needs no cross-check — it *is* real React Native.
