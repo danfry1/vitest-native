@@ -200,7 +200,7 @@ const presets = explicitPresetNames
 
 // Initialize a global store for preset mocks so that virtual modules
 // (served by the plugin's load() hook) can read them at runtime.
-g.__vitest_native_preset_mocks = g.__vitest_native_preset_mocks || {};
+g.__vitest_native_preset_mocks = g.__vitest_native_preset_mocks || Object.create(null);
 
 // Preset mocks are handled by:
 // 1. The plugin's resolveId() redirecting ESM imports to virtual modules
