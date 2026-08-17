@@ -201,7 +201,7 @@
     "validate:hot-parity": "node validation/idiomatic/scale/run-compare.mjs"
   },
   "dependencies": {
-    "flow-remove-types": "^2.325.0",
+    "flow-remove-types": "^2.326.0",
     "magic-string": "^1.1.0"
   },
   "bin": {
