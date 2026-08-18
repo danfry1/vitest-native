@@ -47,3 +47,24 @@ describe("native engine: fabricated expo native-module stubs", () => {
     expect(modules.SomeFabricatedModule.getOverriddenAsync()).toBe("explicit");
   });
 });
+
+describe("native engine: ErrorUtils", () => {
+  // React Native's error-guard polyfill, installed on device by InitializeCore and
+  // read at MODULE SCOPE by Expo's Expo.fx (`ErrorUtils.getGlobalHandler()`), so
+  // without it every Expo import under the native engine failed with
+  // "ErrorUtils is not defined". The REAL @react-native/js-polyfills implementation
+  // is installed, not a lookalike.
+  it("installs React Native's real error-guard as global.ErrorUtils", () => {
+    const ErrorUtils = (globalThis as Record<string, any>).ErrorUtils;
+    expect(ErrorUtils).toBeDefined();
+    expect(typeof ErrorUtils.getGlobalHandler).toBe("function");
+    expect(typeof ErrorUtils.setGlobalHandler).toBe("function");
+    expect(typeof ErrorUtils.applyWithGuard).toBe("function");
+    // Round-trips a handler the way Expo.fx does at load.
+    const previous = ErrorUtils.getGlobalHandler();
+    const handler = () => {};
+    ErrorUtils.setGlobalHandler(handler);
+    expect(ErrorUtils.getGlobalHandler()).toBe(handler);
+    ErrorUtils.setGlobalHandler(previous);
+  });
+});

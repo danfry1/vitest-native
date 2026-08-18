@@ -83,6 +83,14 @@ try {
     // own runtime there — a twin-runtime defect (stamped @vitest/snapshot, stamped
     // vi) passes every workspace gate and burns only real installs. This leg is the
     // only gate that loads the hot runtime the way a consumer does.
+    // The Expo fixture also runs its router leg: expo-router's own testing library
+    // against the REAL @react-navigation stack (navigation preset off), driving
+    // file-based app/ routes with testRouter — the code a jest-expo suite already
+    // contains, ported verbatim. Only meaningful from a packed install, where the
+    // whole Expo SDK is a real dependency graph rather than the workspace's subset.
+    if (fixture === "expo") {
+      run("npm", ["run", "test:router"], fixtureRoot);
+    }
     if (fixture === "current-rn") {
       // npm installs the fixture's local probe packages as SYMLINKS (and npm 11
       // dropped install-links), whose real path sits outside node_modules — where
