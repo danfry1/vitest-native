@@ -1,3 +1,5 @@
+import { createRequire } from "node:module";
+import path from "node:path";
 // Globals React Native core expects at runtime, ported from react-native/jest/setup.js.
 export function installGlobals() {
   const g = globalThis;
@@ -129,4 +131,34 @@ function installExpoGlobal(g) {
     getViewConfig: () => null,
     reloadAppAsync: () => Promise.resolve(),
   };
+}
+
+/**
+ * `global.ErrorUtils` — React Native's error-guard polyfill (installed on device by
+ * InitializeCore via @react-native/js-polyfills, and by Jest's RN preset as a setup
+ * polyfill). The native engine deliberately does not run InitializeCore, and this
+ * global was the one piece of it that library code reads at MODULE SCOPE: Expo's
+ * `Expo.fx` calls `ErrorUtils.getGlobalHandler()` while loading, so any Expo import
+ * under the native engine failed with "ErrorUtils is not defined".
+ *
+ * The real polyfill is used, not a hand mock: it is Flow-typed, so this must run
+ * AFTER the require hooks are installed (they compile it like the rest of the
+ * @react-native/* sources), and it is resolved from the project so the version
+ * matches the installed React Native. Idempotent per realm. Silent when the
+ * polyfill package is absent (a partial install) — nothing else here depends on it.
+ */
+export function installErrorUtils(projectRoot) {
+  const g = globalThis;
+  if (g.ErrorUtils) return;
+  try {
+    const req = createRequire(path.join(projectRoot, "package.json"));
+    // Resolved via react-native's own dependency, the way InitializeCore reaches it.
+    const rnDir = path.dirname(req.resolve("react-native/package.json"));
+    const errorGuard = createRequire(path.join(rnDir, "package.json")).resolve(
+      "@react-native/js-polyfills/error-guard",
+    );
+    req(errorGuard);
+  } catch {
+    // Not installed; leave the global undefined rather than shipping a lookalike.
+  }
 }
