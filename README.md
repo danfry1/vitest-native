@@ -492,6 +492,7 @@ Thanks to everyone who has contributed.
 [<img src="https://github.com/danfry1.png?size=80" width="56" height="56" alt="@danfry1" />](https://github.com/danfry1)
 [<img src="https://github.com/jakeboone02.png?size=80" width="56" height="56" alt="@jakeboone02" />](https://github.com/jakeboone02)
 [<img src="https://github.com/Doko-Demo-Doa.png?size=80" width="56" height="56" alt="@Doko-Demo-Doa" />](https://github.com/Doko-Demo-Doa)
+[<img src="https://github.com/swey.png?size=80" width="56" height="56" alt="@swey" />](https://github.com/swey)
 
 See the full list on the [contributors graph](https://github.com/danfry1/vitest-native/graphs/contributors).
 
