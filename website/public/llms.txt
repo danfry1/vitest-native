@@ -10,7 +10,7 @@ Two engines behind one plugin (`reactNative()`), so you choose the fidelity each
 - `engine: 'mock'`: a fast, zero-dependency pure-JS reimplementation of React Native. No Babel. For pure-logic suites, environment control, maximum determinism. Covers 100% of RN's stable public API.
 - `engine: 'auto'` (the default): native when babel deps present, else mock.
 
-A CI-gated behavioral cross-check runs the same assertions against both the mock and real RN across RN 0.81–0.86, keeping the mock honest.
+A CI-gated behavioral cross-check runs the same assertions against both the mock and real RN across RN 0.81–0.87, keeping the mock honest.
 
 ## Evidence rules
 
@@ -27,7 +27,7 @@ import { reactNative } from 'vitest-native'
 export default defineConfig({ plugins: [reactNative()] })
 ```
 
-Requirements: Node >= 20, Vitest >= 4 < 5, Vite ^6.4.2 or ^7.3.2 or ^8.0.5, React >= 18, React Native 0.81–0.86 (native engine). RNTL (@testing-library/react-native) 12–14 is an optional peer; auto-configured when installed.
+Requirements: Node >= 20, Vitest >= 4 < 5, Vite ^6.4.2 or ^7.3.2 or ^8.0.5, React >= 18, React Native 0.81–0.87 (native engine). RNTL (@testing-library/react-native) 12–14 is an optional peer; auto-configured when installed.
 
 ## Plugin options
 

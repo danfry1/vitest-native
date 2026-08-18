@@ -36,7 +36,7 @@ Migrating a large, deeply Jest-coupled suite *wholesale* is possible but **not t
 - **TypeScript first** — full type safety across the entire API.
 
 ::: tip Beta
-A CI-gated behavioral cross-check runs the same assertions under the mock engine and real React Native across React Native 0.81–0.86, failing the build on any divergence. Some APIs may still shift before 1.0.
+A CI-gated behavioral cross-check runs the same assertions under the mock engine and real React Native across React Native 0.81–0.87, failing the build on any divergence. Some APIs may still shift before 1.0.
 :::
 
 Next: [Installation](/guide/install) → [Quick Start](/guide/quick-start).
