@@ -169,7 +169,7 @@
     "rn-singleton-lib": "file:./tests-native/fixtures/rn-singleton-lib",
     "test-renderer": "^1.2.0",
     "tsdown": "0.22.14",
-    "typescript": "6.0.3",
+    "typescript": "7.0.2",
     "untranspiled-jsx-lib": "file:./tests-native/fixtures/untranspiled-jsx-lib",
     "vite": "^8.2.0",
     "vitest": "4.1.10"
