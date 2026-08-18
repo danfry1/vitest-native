@@ -17,6 +17,70 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  # Docs-only pull requests do not run the gate: a README wording change was
+  # burning the full OS × Node matrix, the packed consumer installs, and the
+  # cross-check for a diff nothing executes. Classify once here; the heavy jobs
+  # skip when only prose, changesets, licence text, or static site assets
+  # changed, and `docs-only-gate` reports the required check names green
+  # instead so branch protection can still merge the PR.
+  #
+  # Two website pages are NOT prose and keep the gate: fidelity.md and
+  # fidelity-matrix.md are GENERATED from the live corpus and gated by
+  # fidelity:check / the matrix placeholder test, so a hand-edit there must
+  # still fail CI the way it did in #181. Pushes to main are never docs-only.
+  classify:
+    name: Classify change
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs-only: ${{ steps.docs.outputs.docs-only }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: docs
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "docs-only=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          echo "$changed"
+          docs_only=true
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            case "$f" in
+              website/guide/fidelity.md|website/guide/fidelity-matrix.md) docs_only=false; break ;;
+              *.md|.changeset/*|LICENSE|website/public/*) ;;
+              *) docs_only=false; break ;;
+            esac
+          done <<< "$changed"
+          echo "docs-only=$docs_only" >> "$GITHUB_OUTPUT"
+          echo "docs-only: $docs_only"
+
+  # Reports every REQUIRED check name green for a docs-only PR. Keep this list in
+  # step with the branch-protection contexts: a required name that neither this
+  # job nor the real one reports leaves the PR unmergeable.
+  docs-only-gate:
+    name: ${{ matrix.name }}
+    needs: classify
+    if: needs.classify.outputs.docs-only == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    strategy:
+      matrix:
+        name:
+          - Full gate (ubuntu-latest, Node 20.19.4)
+          - Full gate (ubuntu-latest, Node 22.13.0)
+          - Full gate (macos-latest, Node 22.13.0)
+          - Full gate (windows-latest, Node 22.13.0)
+          - Full gate (ubuntu-latest, Node 24.13.0)
+    steps:
+      - run: echo "docs-only change — gate not applicable"
+
   changeset:
     name: Changeset for shipped changes
     # Pull requests only: the check compares against the base branch, and a push to
@@ -39,6 +103,8 @@ jobs:
 
   check:
     name: Full gate (${{ matrix.os }}, Node ${{ matrix.node-version }})
+    needs: classify
+    if: needs.classify.outputs.docs-only != 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
 
