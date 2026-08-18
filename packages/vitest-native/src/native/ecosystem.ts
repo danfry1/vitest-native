@@ -212,6 +212,7 @@ export function detectEcosystemPackages(
   explicit: string[] = [],
   testRoots: string[] = [],
   neverTransform: string[] = [],
+  activePresets?: readonly string[],
 ): string[] {
   // More than one root because `manifestsFrom` only walks UP. In a workspace the
   // run root is often above the package under test — Nx invokes tasks from the
@@ -225,12 +226,19 @@ export function detectEcosystemPackages(
   // `neverTransform` is the user's `transform.exclude`. It joins the built-in lists
   // rather than being checked separately, so it overrides detection AND the closure
   // walk by the same mechanism they do.
-  const skip = new Set<string>([
-    ...NEVER_INLINE,
-    ...Object.keys(AUTO_DETECT_PRESETS),
-    ...explicit,
-    ...neverTransform,
-  ]);
+  // Only packages an ACTIVE preset shadows are excluded. This used to skip every
+  // preset package unconditionally, so disabling a preset — `presets: { navigation:
+  // false }` to run the real @react-navigation/* under the native engine, which
+  // expo-router requires — un-shadowed the package but left it undetected: nothing
+  // compiled its untranspiled lib/module ESM, Node's require(esm) retry ran it raw,
+  // and `import { Platform } from 'react-native'` bound to nothing. A package whose
+  // preset is off is an ordinary React Native dependency and detects like one.
+  // (Callers that pass no active set keep the old behaviour: all preset packages
+  // are treated as shadowed.)
+  const shadowed = Object.entries(AUTO_DETECT_PRESETS)
+    .filter(([, presetName]) => activePresets === undefined || activePresets.includes(presetName))
+    .map(([pkg]) => pkg);
+  const skip = new Set<string>([...NEVER_INLINE, ...shadowed, ...explicit, ...neverTransform]);
   const candidates = new Set<string>();
   const found = roots.flatMap((root) => manifestsFrom(root));
   // One resolver per directory that declared something. Under pnpm a workspace

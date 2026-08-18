@@ -973,6 +973,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           transformPkgs,
           includeRoots,
           neverTransform,
+          nativePresetNames,
         );
         // The directories Vite owns outright. Handed to the worker so the require
         // hook can say so if Node loads one of their files anyway — which happens
