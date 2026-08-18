@@ -52,7 +52,7 @@
     "syncpack": "15.3.2",
     "tsdown": "0.22.14",
     "typescript": "6.0.3",
-    "vitepress": "2.0.0-alpha.17",
+    "vitepress": "2.0.0-alpha.19",
     "vitest": "4.1.10"
   }
 }
