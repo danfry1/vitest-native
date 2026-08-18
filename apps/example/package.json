@@ -15,7 +15,7 @@
     "@react-native/babel-preset": "^0.86.2",
     "@testing-library/react-native": "^12.9.0",
     "react-test-renderer": "^19.2.8",
-    "typescript": "6.0.3",
+    "typescript": "7.0.2",
     "vite": "^8.2.0",
     "vitest": "4.1.10",
     "vitest-native": "workspace:*"
