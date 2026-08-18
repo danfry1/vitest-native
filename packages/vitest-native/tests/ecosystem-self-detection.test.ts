@@ -321,3 +321,39 @@ describe("the project's own directory is never an externalization anchor", () =>
     );
   });
 });
+
+describe("detection and disabled presets", () => {
+  // A preset package used to be skipped by detection UNCONDITIONALLY, so turning the
+  // preset off (`presets: { navigation: false }` — required to run real
+  // @react-navigation/* under the native engine, which expo-router needs) un-shadowed
+  // the package but left it undetected: nothing compiled its untranspiled lib/module
+  // ESM and it failed at load. A package whose preset is off must detect like any
+  // other React Native dependency; one whose preset is ON must stay excluded.
+  it("detects a preset package when its preset is not active, and skips it when it is", () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-preset-off-")));
+    made.push(root);
+    write(root, "package.json", {
+      name: "app",
+      private: true,
+      dependencies: { "@react-navigation/native": "7.0.0", "react-native": "0.86.0" },
+    });
+    installInto(root, "@react-navigation/native", {
+      name: "@react-navigation/native",
+      version: "7.0.0",
+      main: "lib/module/index.js",
+      peerDependencies: { "react-native": "*" },
+    });
+    write(root, "node_modules/@react-navigation/native/lib/module/index.js", "export const x = 1;");
+    installInto(root, "react-native", { name: "react-native", version: "0.86.0" });
+
+    // navigation preset active → shadowed, not detected
+    expect(detectEcosystemPackages(root, [], [], [], ["navigation"])).not.toContain(
+      "@react-navigation/native",
+    );
+    // navigation preset off → an ordinary RN dependency, detected
+    expect(detectEcosystemPackages(root, [], [], [], [])).toContain("@react-navigation/native");
+    // No active-set passed at all → the pre-existing behaviour (all preset packages
+    // treated as shadowed), so older callers are unaffected
+    expect(detectEcosystemPackages(root)).not.toContain("@react-navigation/native");
+  });
+});

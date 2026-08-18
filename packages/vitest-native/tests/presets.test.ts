@@ -31,6 +31,50 @@ describe("preset: navigation", () => {
   const preset = navigation();
   const mock = preset.modules["@react-navigation/native"].factory();
 
+  // createNavigatorFactory(Navigator) returns a factory yielding { Navigator, Screen,
+  // Group } — the real shape. It returned a bare vi.fn() whose result was undefined,
+  // so any library building on the public factory API (expo-router extracts its
+  // Screen/Group primitives via createNavigatorFactory({})()) failed at import.
+  it("createNavigatorFactory returns the real { Navigator, Screen, Group } shape", () => {
+    const factory = mock.createNavigatorFactory({});
+    const nav = factory();
+    expect(nav.Screen).toBeDefined();
+    expect(nav.Group).toBeDefined();
+    expect(nav.Navigator).toBeDefined();
+    // The supplied Navigator is the one returned.
+    const Custom = () => null;
+    expect(mock.createNavigatorFactory(Custom)().Navigator).toBe(Custom);
+  });
+
+  // The exports @react-navigation/native adds on top of @react-navigation/core.
+  // Absent, anything rendering its own container against the package (expo-router's
+  // forked NavigationContainer reads the linking/locale contexts) failed with
+  // "Cannot read properties of undefined (reading 'Provider')".
+  it("exports the linking, locale, theme and static-navigation surface", () => {
+    for (const name of [
+      "LinkingContext",
+      "LocaleDirContext",
+      "UNSTABLE_UnhandledLinkingContext",
+      "DefaultTheme",
+      "DarkTheme",
+      "createStaticNavigation",
+      "ServerContainer",
+      "useLinkBuilder",
+      "useLinkProps",
+      "useLocale",
+      "useRoutePath",
+    ]) {
+      expect(mock[name], name).toBeDefined();
+      // Every runtime export must also be in the preset's declared export list —
+      // that list is what feeds the ESM loader's named exports.
+      expect(preset.modules["@react-navigation/native"].exports, name).toContain(name);
+    }
+    expect(mock.LinkingContext.Provider).toBeDefined();
+    expect(mock.DefaultTheme.colors.primary).toBe("rgb(0, 122, 255)");
+    expect(mock.DarkTheme.dark).toBe(true);
+    expect(mock.DefaultTheme.fonts.regular.fontFamily).toBeDefined();
+  });
+
   it("useNavigation returns an object with navigate, goBack, reset", async () => {
     const { result } = await renderHook(() => mock.useNavigation());
     const nav = result.current;

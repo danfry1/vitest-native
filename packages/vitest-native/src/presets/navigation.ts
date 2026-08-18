@@ -84,8 +84,68 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
   const NavigationContainerRefContext = React.createContext(null as any);
   const NavigationHelpersContext = React.createContext(null as any);
   const CurrentRenderContext = React.createContext(undefined as any);
-  const ThemeContext = React.createContext({ dark: false, colors: {} } as any);
   const PreventRemoveContext = React.createContext(null as any);
+
+  // The exports @react-navigation/native adds ON TOP of @react-navigation/core
+  // (its src/index.tsx: linking, locale, themes, static navigation, link hooks).
+  // These were absent, so anything rendering its own container against this
+  // package — expo-router's forked NavigationContainer reads LinkingContext,
+  // LocaleDirContext and UNSTABLE_UnhandledLinkingContext — failed with
+  // "Cannot read properties of undefined (reading 'Provider')". Shapes follow
+  // the real module: contexts are real React contexts with its default values,
+  // themes carry its exact colors and platform font stacks.
+  const LinkingContext = React.createContext<{ options?: any }>({ options: undefined });
+  const LocaleDirContext = React.createContext<"ltr" | "rtl">("ltr");
+  const UNSTABLE_UnhandledLinkingContext = React.createContext<{
+    lastUnhandledLink: string | undefined;
+    setLastUnhandledLink: (link: string | undefined) => void;
+  }>({ lastUnhandledLink: undefined, setLastUnhandledLink: () => {} });
+  const themeFonts = (() => {
+    // Mirrors the real module's Platform.select — the mock is served to native
+    // platforms only, so the ios / default branches are the reachable ones.
+    const isIOS = process.env.VITEST_NATIVE_PLATFORM !== "android";
+    return isIOS
+      ? {
+          regular: { fontFamily: "System", fontWeight: "400" },
+          medium: { fontFamily: "System", fontWeight: "500" },
+          bold: { fontFamily: "System", fontWeight: "600" },
+          heavy: { fontFamily: "System", fontWeight: "700" },
+        }
+      : {
+          regular: { fontFamily: "sans-serif", fontWeight: "normal" },
+          medium: { fontFamily: "sans-serif-medium", fontWeight: "normal" },
+          bold: { fontFamily: "sans-serif", fontWeight: "600" },
+          heavy: { fontFamily: "sans-serif", fontWeight: "700" },
+        };
+  })();
+  const DefaultTheme = {
+    dark: false,
+    colors: {
+      primary: "rgb(0, 122, 255)",
+      background: "rgb(242, 242, 242)",
+      card: "rgb(255, 255, 255)",
+      text: "rgb(28, 28, 30)",
+      border: "rgb(216, 216, 216)",
+      notification: "rgb(255, 59, 48)",
+    },
+    fonts: themeFonts,
+  };
+  const DarkTheme = {
+    dark: true,
+    colors: {
+      primary: "rgb(10, 132, 255)",
+      background: "rgb(1, 1, 1)",
+      card: "rgb(18, 18, 18)",
+      text: "rgb(229, 229, 231)",
+      border: "rgb(39, 39, 41)",
+      notification: "rgb(255, 69, 58)",
+    },
+    fonts: themeFonts,
+  };
+
+  // Real React Navigation seeds ThemeContext with DefaultTheme, so useTheme() outside a
+  // ThemeProvider (and outside a render, as a plain call) yields the default theme.
+  const ThemeContext = React.createContext<any>(DefaultTheme);
 
   const Screen = createMockScreen(NavigationContext, NavigationRouteContext, defaultRouteParams);
 
@@ -136,6 +196,17 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
           "useStateForPath",
           "validatePathConfig",
           "BaseNavigationContainer",
+          "LinkingContext",
+          "LocaleDirContext",
+          "UNSTABLE_UnhandledLinkingContext",
+          "DefaultTheme",
+          "DarkTheme",
+          "createStaticNavigation",
+          "ServerContainer",
+          "useLinkBuilder",
+          "useLinkProps",
+          "useLocale",
+          "useRoutePath",
           "createComponentForStaticNavigation",
           "createPathConfigForStaticNavigation",
           // @react-navigation/routers (re-exported by core)
@@ -243,28 +314,22 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
             return createNavigationContainerRef();
           }
 
-          const defaultTheme = {
-            dark: false,
-            colors: {
-              primary: "rgb(0, 122, 255)",
-              background: "rgb(242, 242, 242)",
-              card: "rgb(255, 255, 255)",
-              text: "rgb(28, 28, 30)",
-              border: "rgb(216, 216, 216)",
-              notification: "rgb(255, 59, 48)",
-            },
-          };
-
           function ThemeProvider({ value, children }: any) {
             return React.createElement(
               ThemeContext.Provider,
-              { value: value ?? defaultTheme },
+              { value: value ?? DefaultTheme },
               children,
             );
           }
 
           function useTheme() {
-            return defaultTheme;
+            // Outside a render (a plain call, common in tests) useContext is not
+            // available; the context default IS DefaultTheme, so answer that directly.
+            try {
+              return React.useContext(ThemeContext) ?? DefaultTheme;
+            } catch {
+              return DefaultTheme;
+            }
           }
 
           function NavigationIndependentTree({ children }: any) {
@@ -294,7 +359,23 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
             useNavigationState,
             useNavigationContainerRef,
             createNavigationContainerRef,
-            createNavigatorFactory: vi.fn(() => vi.fn()),
+            // Real shape: createNavigatorFactory(Navigator) returns a factory that
+            // yields { Navigator, Screen, Group }. It used to return a bare vi.fn()
+            // whose result was undefined, so any library building on the public
+            // factory API — expo-router extracts its Screen/Group primitives via
+            // createNavigatorFactory({})() — failed at import with
+            // "Cannot read properties of undefined (reading 'Screen')".
+            createNavigatorFactory: vi.fn((Navigator?: any) => () => ({
+              Navigator:
+                Navigator ??
+                React.forwardRef((props: any, ref: any) =>
+                  React.createElement("Navigator", { ...props, ref }, props.children),
+                ),
+              Screen,
+              Group: React.forwardRef((props: any, ref: any) =>
+                React.createElement("Group", { ...props, ref }, props.children),
+              ),
+            })),
             useNavigationBuilder: vi.fn(() => ({
               state: getState(),
               navigation: useNavigation(),
@@ -348,6 +429,27 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
             BaseNavigationContainer,
             createComponentForStaticNavigation: vi.fn(() => () => null),
             createPathConfigForStaticNavigation: vi.fn(() => ({})),
+            LinkingContext,
+            LocaleDirContext,
+            UNSTABLE_UnhandledLinkingContext,
+            DefaultTheme,
+            DarkTheme,
+            // Static navigation renders the tree the same way NavigationContainer does.
+            createStaticNavigation: vi.fn(() => NavigationContainer),
+            ServerContainer: React.forwardRef((props: any, _ref: any) =>
+              React.createElement(React.Fragment, null, props.children),
+            ),
+            useLinkBuilder: vi.fn(() => ({
+              buildHref: (name: string) => `/${name}`,
+              buildAction: (href: string) => ({ type: "NAVIGATE", payload: { name: href } }),
+            })),
+            useLinkProps: vi.fn(({ href, action }: any) => ({
+              href,
+              accessibilityRole: "link",
+              onPress: () => action,
+            })),
+            useLocale: vi.fn(() => ({ direction: "ltr" as const })),
+            useRoutePath: vi.fn(() => undefined),
             BaseRouter: {
               getInitialState: vi.fn(() => getState()),
               getRehydratedState: vi.fn((state: any) => state),
