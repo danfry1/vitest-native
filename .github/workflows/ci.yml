@@ -5,6 +5,26 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    # Docs-only pull requests do not run the gate: a README wording change was
+    # burning the full OS × Node matrix, the packed consumer installs, and the
+    # cross-check for a diff nothing executes. Prose, changesets, and licence text
+    # are ignored. Two website pages are NOT prose and stay in scope — fidelity.md
+    # and fidelity-matrix.md are GENERATED from the live corpus and gated by
+    # fidelity:check / the matrix placeholder test, so a hand-edit there must
+    # still fail CI the way it did in #181. Code samples embedded in guides are
+    # not executed by CI either way (see generated-output-must-be-executed for the
+    # generated configs that ARE run — those live in consumer-tests, not here).
+    #
+    # main is not branch-protected, so no required check goes missing on a
+    # docs-only PR; if protection is ever enabled, add a docs-only job on the
+    # inverse filter that reports the required contexts green.
+    paths-ignore:
+      - '**/*.md'
+      - '!website/guide/fidelity.md'
+      - '!website/guide/fidelity-matrix.md'
+      - '.changeset/**'
+      - 'LICENSE'
+      - 'website/public/**'
 
 permissions:
   contents: read
