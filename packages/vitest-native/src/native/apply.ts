@@ -40,21 +40,8 @@
  * same library is not hosted identically by both kinds of run.
  */
 import type { PoolRunnerInitializer } from "vitest/node";
-import { REACT_NATIVE_PATH, packagePatterns } from "./match.mjs";
-
-/**
- * Files outside any installed package that Vitest may be running as an ENTRY rather
- * than importing as a module: the two naming conventions test runners use.
- *
- * Neither is exhaustive — a project can point `test.include` anywhere — but a file
- * that matches one of these is a test by convention and never library source, which
- * is what makes it safe to keep out of Node's graph unconditionally.
- */
-const OUTSIDE_NODE_MODULES = String.raw`^(?!.*[\\/]node_modules[\\/])`;
-const TEST_ENTRY_PATTERNS = [
-  new RegExp(String.raw`${OUTSIDE_NODE_MODULES}.*\.(?:test|spec)\.[cm]?[jt]sx?$`),
-  new RegExp(String.raw`${OUTSIDE_NODE_MODULES}.*[\\/]__tests__[\\/].*\.[cm]?[jt]sx?$`),
-];
+import type { NativeOwnershipPolicy } from "./ownership.mjs";
+import { createNativeOwnershipPolicy, formatNativeOwnershipManifest } from "./ownership.mjs";
 
 export type JsxTransformConfig =
   | { esbuild: { jsx: "automatic" } }
@@ -71,6 +58,8 @@ export function nativeEngineConfig(
   inlinePkgs: string[] = [],
   projectRoot: string = process.cwd(),
   userInlinesEverything = false,
+  projectDirs: string[] = [],
+  ownershipPolicy?: NativeOwnershipPolicy,
 ) {
   // Extra packages whose source the Node hooks should transform. They must also
   // be externalized so they load through Node (where the hooks run) rather than
@@ -81,7 +70,6 @@ export function nativeEngineConfig(
   // externalized unrelated files — including this package's own runtime when a
   // project folder happened to share the name. The resolved directory covers
   // workspace and `file:` links, which have no node_modules segment at all.
-  const extraExternal = transformPkgs.flatMap((p) => packagePatterns(p, projectRoot));
   // Auto-detected React Native packages are externalized too, and transformed by the
   // Node hooks alongside everything else.
   //
@@ -96,11 +84,28 @@ export function nativeEngineConfig(
   // consequence of Vitest's externalization heuristics. Both properties inlining was
   // there to provide are kept, and were measured rather than assumed: vi.mock still
   // intercepts, and module state still resets between test files.
-  const ecosystemExternal = inlinePkgs.flatMap((p) => packagePatterns(p, projectRoot));
-  // The Node hooks transform whatever they are told to; ecosystem packages now load
-  // through them, so they belong in that list rather than in Vite's.
-  const nodeTransformed = [...new Set([...transformPkgs, ...inlinePkgs])];
+  const ownership =
+    ownershipPolicy ??
+    createNativeOwnershipPolicy({
+      projectRoot,
+      explicitTransforms: transformPkgs,
+      ecosystemPackages: inlinePkgs,
+      projectDirs,
+      serverDepsInlineAll: userInlinesEverything,
+    });
+  // The Node hooks transform whatever the policy assigns to them; ecosystem packages
+  // now load through Node, so they belong in that set rather than Vite's.
+  const nodeTransformed = ownership.nodeTransformPackages;
   const fullEnv = { ...env };
+  const ownershipManifest = ownership.manifest();
+  fullEnv.VITEST_NATIVE_OWNERSHIP = JSON.stringify(ownershipManifest);
+  if (fullEnv.VITEST_NATIVE_DIAGNOSTICS === "true") {
+    for (const line of formatNativeOwnershipManifest(ownershipManifest)) {
+      const report = `[vitest-native] ownership: ${line}`;
+      if (line.startsWith("WARNING:")) console.warn(report);
+      else console.log(report);
+    }
+  }
   if (nodeTransformed.length > 0) {
     fullEnv.VITEST_NATIVE_TRANSFORM = JSON.stringify(nodeTransformed);
   }
@@ -184,14 +189,8 @@ export function nativeEngineConfig(
           // everything. Appending patterns to that produces an array holding `true`,
           // which Vitest then calls `.test()` on — "ex.test is not a function", and
           // no tests run at all.
-          ...(userInlinesEverything ? {} : { inline: TEST_ENTRY_PATTERNS }),
-          external: [
-            // React Native and @react-native/* — the one assignment that is not a
-            // choice, since the hooks that make them loadable live in Node.
-            REACT_NATIVE_PATH,
-            ...extraExternal,
-            ...ecosystemExternal,
-          ],
+          ...(userInlinesEverything ? {} : { inline: ownership.testEntryPatterns }),
+          external: ownership.externalPatterns,
         },
       },
     },

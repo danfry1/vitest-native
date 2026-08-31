@@ -21,6 +21,16 @@ test("renders the app/ route tree and navigates with testRouter (file-based rout
   expect(screen.getByText("home screen")).toBeTruthy();
 });
 
+test("discovers a file route root computed at runtime", () => {
+  // The discarded single-graph capsule prototype found literal renderRouter calls
+  // with a source regex. Keep this deliberately non-literal so the production
+  // Node-owned Router path proves it does not depend on that rewrite.
+  const routeRoot = ["./", "app"].join("");
+  renderRouter(routeRoot, { initialUrl: "/details/17" });
+  expect(screen.getByText("details for 17")).toBeTruthy();
+  expect(screen).toHavePathname("/details/17");
+});
+
 test("renders an in-memory route context (the unit-test shape)", () => {
   renderRouter(
     {

@@ -98,7 +98,11 @@
   },
   "files": [
     "dist",
-    "docs",
+    "docs/hot-default-design.md",
+    "docs/migrating-from-jest.md",
+    "docs/migrating-from-vitest-react-native.md",
+    "docs/release-readiness.md",
+    "docs/versioning.md",
     "LICENSE",
     "CHANGELOG.md"
   ],

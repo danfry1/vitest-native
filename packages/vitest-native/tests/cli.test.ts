@@ -138,7 +138,10 @@ describe("doctor", () => {
     const pkgRoot = path.resolve(HERE, "..");
     const result = runDoctor(pkgRoot);
     expect(result.ok).toBe(true);
-    expect(result.lines.join("\n")).toContain("resolves to NATIVE");
+    const output = result.lines.join("\n");
+    expect(output).toContain("resolves to NATIVE");
+    expect(output).toContain("Ownership model (inferred baseline)");
+    expect(output).toContain("diagnostics: true for the resolved static policy");
   });
 });
 

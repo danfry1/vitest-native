@@ -8,6 +8,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { validatePeerDependency } from "../validate.js";
 import { detectEngine } from "../native/detect.js";
+import { detectEcosystemPackages } from "../native/ecosystem.js";
+import {
+  createNativeOwnershipPolicy,
+  formatNativeOwnershipManifest,
+} from "../native/ownership.mjs";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
 import { PEER_REQUIREMENTS } from "../peer-requirements.js";
 
@@ -271,6 +276,33 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
     warn(
       `engine 'auto' resolves to MOCK: react-native is not installed. ` +
         `That is fine for pure-logic suites; install react-native (+ its babel preset) for the native engine.`,
+    );
+  }
+
+  // `doctor` deliberately does not execute the user's Vitest config: configs are
+  // arbitrary programs and a read-only diagnostic must not trigger their side
+  // effects. Show the policy inferred from installed manifests, then label the one
+  // thing this cannot know. A real run with `diagnostics: true` prints the resolved
+  // manifest after transform include/exclude, test.include roots and inline
+  // overrides have all been applied.
+  if (decision.engine === "native") {
+    const inferredRoot = configRoot;
+    const inferredEcosystem = detectEcosystemPackages(
+      [...new Set([root, configRoot])],
+      [],
+      root === configRoot ? [] : [root],
+    );
+    const inferredOwnership = createNativeOwnershipPolicy({
+      projectRoot: inferredRoot,
+      ecosystemPackages: inferredEcosystem,
+      projectDirs: [...new Set([root, configRoot])],
+    });
+    lines.push("", "Ownership model (inferred baseline)");
+    for (const line of formatNativeOwnershipManifest(inferredOwnership.manifest())) {
+      lines.push(`  · ${line}`);
+    }
+    lines.push(
+      "  · This command does not execute Vitest config. Set diagnostics: true for the resolved static policy and worker-time registration lines.",
     );
   }
 

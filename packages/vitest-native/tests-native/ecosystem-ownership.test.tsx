@@ -30,7 +30,7 @@ import { configure, read } from "rn-singleton-lib";
 const require = createRequire(import.meta.url);
 
 describe("ecosystem package ownership", () => {
-  it("loads through Vite, which compiles its untranspiled JSX and ESM source", () => {
+  it("loads through an app import while Node compiles its untranspiled JSX and ESM source", () => {
     configure("via-vite");
     expect(read()).toBe("via-vite");
   });

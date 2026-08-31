@@ -26,7 +26,6 @@
 // through to the per-file hooks in hooks.mjs / loader.mjs, and a failed build leaves
 // the engine running exactly as it did before.
 import Module from "node:module";
-import { REACT_NATIVE_PATH } from "./match.mjs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import fs from "node:fs";
@@ -35,6 +34,7 @@ import { transformRN, isFlow, cacheRootFor, TRANSFORM_CACHE_VERSION } from "./tr
 
 import { boundarySourceFor, BOUNDARY_SOURCES } from "./boundary.mjs";
 import { resolvePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
+import { createNativeOwnershipPolicy } from "./ownership.mjs";
 
 /**
  * Losing the registry is a silent performance cliff, not a correctness problem:
@@ -106,14 +106,18 @@ const PASSTHROUGH_EXT = new Set([".json", ".node", ".wasm"]);
  * Source for one file, applying the same precedence the per-file hooks use:
  * asset stub → native-boundary mock → Flow-stripped RN → verbatim.
  */
-function sourceFor(file, { projectRoot, platform, reactNativeVersion, assetExtSet }) {
+function sourceFor(file, { projectRoot, platform, reactNativeVersion, assetExtSet, ownership }) {
   const norm = file.replace(/\\/g, "/");
   const ext = path.extname(norm).slice(1).toLowerCase();
   if (ext && assetExtSet.has(ext)) {
     const basename = norm.split("/").pop() || norm;
     return { code: `module.exports = ${JSON.stringify(basename)};`, scan: false };
   }
-  const boundary = boundarySourceFor(norm, platform, reactNativeVersion);
+  const boundary = boundarySourceFor(
+    ownership.reactNativePathFor(file) ?? norm,
+    platform,
+    reactNativeVersion,
+  );
   if (boundary != null) return { code: boundary, scan: true };
   const src = fs.readFileSync(file, "utf8");
   if (norm.endsWith(".js") && isFlow(src)) {
@@ -148,6 +152,10 @@ function ownVersion() {
   }
 }
 
+function canonicalAdditionalEntries(entries) {
+  return [...new Set(entries)].sort();
+}
+
 /**
  * Identity of every input that determines the emitted registry's contents.
  *
@@ -163,7 +171,7 @@ function ownVersion() {
  *
  * Exported for tests. Not part of the public surface — see docs/versioning.md.
  */
-export function registryKey({ projectRoot, platform, reactNativeVersion }) {
+export function registryKey({ projectRoot, platform, reactNativeVersion, additionalEntries = [] }) {
   const req = createRequire(path.join(projectRoot, "package.json"));
   const version = (name) => {
     try {
@@ -211,6 +219,7 @@ export function registryKey({ projectRoot, platform, reactNativeVersion }) {
         version("@react-native/babel-preset"),
         version("@babel/core"),
         process.env.BABEL_ENV || process.env.NODE_ENV || "none",
+        ...canonicalAdditionalEntries(additionalEntries).map((entry) => `entry:${entry}`),
         boundaries.digest("hex"),
       ].join("\0"),
     )
@@ -373,6 +382,7 @@ export function buildRegistry({
   reactNativeVersion = "0.0.0",
   assetExts = [],
   diagnostics = false,
+  additionalEntries = [],
 }) {
   // See warnRegistryUnavailable: this is the one path that stays quiet, because
   // the user asked for it.
@@ -392,7 +402,7 @@ export function buildRegistry({
   let dir;
   let key;
   try {
-    key = registryKey({ projectRoot, platform, reactNativeVersion });
+    key = registryKey({ projectRoot, platform, reactNativeVersion, additionalEntries });
     dir = path.join(cacheRootFor(projectRoot), "registry");
     fs.mkdirSync(dir, { recursive: true });
   } catch (error) {
@@ -418,7 +428,8 @@ export function buildRegistry({
 
   const started = Date.now();
   const assetExtSet = new Set(assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
-  const options = { projectRoot, platform, reactNativeVersion, assetExtSet };
+  const ownership = createNativeOwnershipPolicy({ projectRoot });
+  const options = { projectRoot, platform, reactNativeVersion, assetExtSet, ownership };
   const modules = new Map();
   const manifest = [];
   // Targets the registry does NOT inline but DOES bake in as pre-resolved absolute
@@ -427,8 +438,15 @@ export function buildRegistry({
   // See the note above the manifest write below.
   const externals = new Set();
   try {
-    const entry = createRequire(path.join(projectRoot, "package.json")).resolve("react-native");
-    const queue = [entry];
+    const req = createRequire(path.join(projectRoot, "package.json"));
+    const entry = req.resolve("react-native");
+    // Keep the public React Native entry first in insertion order: emit() treats
+    // module zero as the capsule's default export. Additional ecosystem-owned deep
+    // imports are seed roots only; their factories remain lazy like the root graph.
+    const extraRoots = canonicalAdditionalEntries(additionalEntries).map((request) =>
+      req.resolve(request),
+    );
+    const queue = [...extraRoots.reverse(), entry];
     while (queue.length > 0) {
       const file = queue.pop();
       if (modules.has(file)) continue;
@@ -445,7 +463,7 @@ export function buildRegistry({
           // identity and are shared with the rest of the worker.
           const internal =
             target !== null &&
-            REACT_NATIVE_PATH.test(target.replace(/\\/g, "/")) &&
+            ownership.isReactNativeFile(target) &&
             !PASSTHROUGH_EXT.has(path.extname(target).toLowerCase());
           deps[request] = target;
           if (internal) queue.push(target);

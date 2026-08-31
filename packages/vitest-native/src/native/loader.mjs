@@ -6,14 +6,13 @@ import fs from "node:fs";
 import { transformRN, isFlow, cjsExportNames, needsTransform } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import { resolvePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
+import { NODE_MODULES_PATH, isUtilitySubpath, packageNameOf, subpathLeafOf } from "./match.mjs";
 import {
-  NODE_MODULES_PATH,
-  REACT_NATIVE_PATH,
-  buildPkgMatcher,
-  isUtilitySubpath,
-  packageNameOf,
-  subpathLeafOf,
-} from "./match.mjs";
+  createNativeOwnershipPolicy,
+  isRuntimeResidentFile,
+  isTestRuntimeResidentFile,
+  parseNativeOwnershipManifest,
+} from "./ownership.mjs";
 
 // Any file living under a node_modules directory. Platform-extension resolution
 // (`.native.js` etc.) applies to every node_modules package, not just RN, matching
@@ -50,6 +49,7 @@ let PROJECT_ROOT = process.cwd();
 let PLATFORM = "ios";
 let REACT_NATIVE_VERSION = "0.0.0";
 let isExtra = () => false;
+let ownership = createNativeOwnershipPolicy({ projectRoot: PROJECT_ROOT });
 // Preset package name → its mock's named-export list (from the preset definition).
 let presetExports = {};
 // Asset file extensions (without leading dot, lower-cased) the loader should stub.
@@ -75,10 +75,6 @@ let assetExtSet = new Set();
  */
 let genView = null;
 const generationOf = () => (genView ? Atomics.load(genView, 0) : 0);
-// Modules whose identity must be stable across files: dropping them makes a twin
-// rather than a fresh copy. Mirrors KEEP_RESIDENT in module-reset.mjs.
-const KEEP_RESIDENT =
-  /[\\/]node_modules[\\/](react|react-is|react-dom|scheduler|react-reconciler|react-test-renderer|test-renderer|@testing-library[\\/]react-native)[\\/]/;
 // The test stack itself: Vitest's runtime, the chai it asserts through, and this
 // engine. The worker's runtime holds instances of these from boot — the runner's
 // SnapshotClient, chai's extended Assertion, the engine's registry and hooks — and a
@@ -92,10 +88,8 @@ const KEEP_RESIDENT =
 // below exempts the engine by accident of layout. Only a packed install — the
 // bake-off apps — puts the whole test stack under node_modules where stamping can
 // reach it. That is how this list was earned: react-native-paper under the hot
-// runtime, 603/678 -> 473/648, every extra failure a twin-runtime symptom.
-const TEST_RUNTIME_RESIDENT =
-  /[\\/]node_modules[\\/](vitest|@vitest[\\/][^\\/]+|chai|vitest-native)[\\/]/;
-
+// runtime, 603/678 -> 473/648, every extra failure a twin-runtime symptom. The
+// actual resident package rules live once in ownership.mjs.
 /** Should this resolved file carry a generation stamp? */
 function versionable(url) {
   if (!genView || !url.startsWith("file:")) return false;
@@ -103,8 +97,8 @@ function versionable(url) {
   if (!NODE_MODULES_PATH.test(norm)) return false;
   // React Native itself is preloaded once per worker and shared deliberately —
   // re-instantiating it per file would undo the reason the worker stays warm.
-  if (REACT_NATIVE_PATH.test(norm) || KEEP_RESIDENT.test(norm)) return false;
-  if (TEST_RUNTIME_RESIDENT.test(norm)) return false;
+  if (ownership.isReactNativeFile(norm) || isRuntimeResidentFile(norm)) return false;
+  if (isTestRuntimeResidentFile(norm)) return false;
   return true;
 }
 
@@ -112,7 +106,14 @@ export async function initialize(data) {
   if (data && data.projectRoot) PROJECT_ROOT = data.projectRoot;
   if (data && data.platform === "android") PLATFORM = "android";
   if (data && data.reactNativeVersion) REACT_NATIVE_VERSION = data.reactNativeVersion;
-  if (data && data.transformPkgs) isExtra = buildPkgMatcher(data.transformPkgs, PROJECT_ROOT);
+  const configuredOwnership = parseNativeOwnershipManifest(process.env.VITEST_NATIVE_OWNERSHIP);
+  ownership = createNativeOwnershipPolicy({
+    projectRoot: PROJECT_ROOT,
+    projectDirs: configuredOwnership?.projectDirs ?? [],
+    reactNativeRoots: configuredOwnership?.reactNativeRoots ?? [],
+    runtimeTransforms: data?.transformPkgs ?? [],
+  });
+  isExtra = ownership.matchesNodeTransformedFile;
   if (data && data.presetExports) presetExports = data.presetExports;
   if (data && data.assetExts)
     assetExtSet = new Set(data.assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
@@ -149,7 +150,7 @@ export async function resolve(specifier, context, nextResolve) {
   let resolved;
   if (
     parent &&
-    (NODE_MODULES_PATH.test(parent) || REACT_NATIVE_PATH.test(parent) || isExtra(parent)) &&
+    (NODE_MODULES_PATH.test(parent) || ownership.isReactNativeFile(parent) || isExtra(parent)) &&
     specifier.startsWith(".") &&
     !path.extname(specifier)
   ) {
@@ -263,7 +264,8 @@ export async function load(url, context, nextLoad) {
     };
   }
 
-  const isRN = REACT_NATIVE_PATH.test(norm);
+  const rnPath = ownership.reactNativePathFor(file);
+  const isRN = rnPath !== null;
   if (!isRN && !isExtra(norm)) return nextLoad(url, context);
 
   if (isRN) {
@@ -278,7 +280,7 @@ export async function load(url, context, nextLoad) {
     // of react-native here goes through the separate Module._extensions hook
     // (hooks.mjs), not this loader, so there's no recursion. Names come from the
     // index's own `get X()` declarations.
-    if (RN_INDEX.test(norm)) {
+    if (RN_INDEX.test(rnPath)) {
       const src = fs.readFileSync(file, "utf8");
       const names = [
         ...new Set([...src.matchAll(/\bget\s+([A-Za-z_$][\w$]*)\s*\(/g)].map((m) => m[1])),
@@ -290,7 +292,7 @@ export async function load(url, context, nextLoad) {
       ].join("\n");
       return { format: "commonjs", source: facade, shortCircuit: true };
     }
-    const boundary = boundarySourceFor(norm, PLATFORM, REACT_NATIVE_VERSION);
+    const boundary = boundarySourceFor(rnPath, PLATFORM, REACT_NATIVE_VERSION);
     if (boundary != null) return { format: "commonjs", source: boundary, shortCircuit: true };
     if (norm.endsWith(".js")) {
       const src = fs.readFileSync(file, "utf8");

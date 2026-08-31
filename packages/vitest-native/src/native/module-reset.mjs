@@ -9,6 +9,7 @@
 // Anything the worker loaded to bootstrap ITSELF stays; anything a TEST FILE caused
 // to load is dropped and runs again on the next file.
 import Module from "node:module";
+import { isRuntimeResidentFile } from "./ownership.mjs";
 
 // Native addons cannot be unloaded — dropping one and requiring it again
 // re-initialises native state in the same process, which crashes some addons.
@@ -30,8 +31,8 @@ const UNRESETTABLE = /\.node$/;
  * `versionable` in loader.mjs). The entries below are exempt from that on purpose:
  * for them a fresh instance is the bug, not the fix.
  *
- * Which entries carry weight depends on the RNTL version, so the list is bisected
- * rather than assumed. Measured one entry at a time:
+ * Which entries carry weight depends on the RNTL version, so the resident policy in
+ * ownership.mjs is bisected rather than assumed. Measured one entry at a time:
  *
  *   @testing-library/react-native  RNTL 14: parity 135/135 -> 81/135, 10.4x -> 7.8x.
  *                                  The dominant case on every version.
@@ -51,15 +52,12 @@ const UNRESETTABLE = /\.node$/;
  * app-shaped rendering); `test:native:hot` is the only one that sees the
  * react-test-renderer regression (it is engine mechanics).
  */
-const KEEP_RESIDENT =
-  /[\\/]node_modules[\\/](react|react-is|react-dom|scheduler|react-reconciler|react-test-renderer|test-renderer|@testing-library[\\/]react-native)[\\/]/;
-
 export function captureModuleBaseline() {
   const baseline = new Set(Object.keys(Module._cache));
   return function resetModules() {
     let dropped = 0;
     for (const id of Object.keys(Module._cache)) {
-      if (baseline.has(id) || UNRESETTABLE.test(id) || KEEP_RESIDENT.test(id)) continue;
+      if (baseline.has(id) || UNRESETTABLE.test(id) || isRuntimeResidentFile(id)) continue;
       delete Module._cache[id];
       dropped++;
     }

@@ -15,6 +15,12 @@ import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
 import { detectEcosystemPackages } from "./native/ecosystem.js";
 import { containsPath, packageDirOf } from "./native/match.mjs";
+import type { NativeOwnershipPolicy } from "./native/ownership.mjs";
+import {
+  createNativeOwnershipPolicy,
+  findNativeInlineConflicts,
+  findNativeOwnershipConflict,
+} from "./native/ownership.mjs";
 
 const DEFAULT_ASSET_EXTS = [
   "png",
@@ -285,31 +291,6 @@ async function buildRegistryFor(options: {
     }
     return null;
   }
-}
-
-/**
- * Compile one inlined ecosystem file with the project's React Native Babel preset.
- *
- * The transformer ships as runtime `.mjs` (Node's loader hooks use it too), so it is
- * loaded through a computed path rather than a static import, and synchronously —
- * Vite's transform hook may be sync and the module is already resident by the time
- * any file reaches this point.
- */
-let ecosystemTransformer: ((f: string, c: string, r: string, p: string) => string) | null = null;
-function transformEcosystem(
-  file: string,
-  code: string,
-  projectRoot: string,
-  platform: string,
-): string {
-  if (!ecosystemTransformer) {
-    const dir = path.dirname(fileURLToPath(import.meta.url));
-    const mod = createRequire(import.meta.url)(path.resolve(dir, "native/transform.mjs")) as {
-      transformRN: (f: string, c: string, r: string, p: string) => string;
-    };
-    ecosystemTransformer = mod.transformRN;
-  }
-  return ecosystemTransformer(file, code, projectRoot, platform);
 }
 
 /**
@@ -613,8 +594,9 @@ const FORMAT_ONLY_FIELDS = ["module", "jsnext:main", "jsnext"] as const;
  * cannot parse at all. Aligning upward would turn a wrong-value bug into a crash for
  * any package the engine does not also transform.
  *
- * Packages the engine inlines and transforms are left alone: Vite is meant to own
- * their source, and rewriting them to `main` would undo the reason they are inlined.
+ * Packages the engine itself virtualizes are left alone. Node-owned ecosystem
+ * packages are intentionally not exempt: if Vite also reaches one, aligning a
+ * format-only field to Node's file prevents a silent second instance.
  *
  * @returns the absolute file to use, or null to leave resolution alone
  */
@@ -742,14 +724,28 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // The subset of those whose getter prints a deprecation notice when read.
   let rnFacadeDeprecated = new Set<string>();
   let rnFacadeRoot = "";
-  // React Native packages the engine inlines and compiles itself (see
-  // native/ecosystem.ts). Matched by path so the transform hook can recognise a
-  // file as belonging to one.
-  let ecosystemPattern: RegExp | null = null;
+  // One project-scoped owner/transform/reset policy. Config, the Vite fallback
+  // transform, runtime serialization and diagnostics all consume this same object.
+  let nativeOwnership: NativeOwnershipPolicy | null = null;
+  const assertInlineOwnership = (inline: unknown) => {
+    if (engine !== "native" || !nativeOwnership) return;
+    const conflicts = findNativeInlineConflicts(nativeOwnership, inline);
+    if (conflicts.length === 0) return;
+    const selection = conflicts.includes("*")
+      ? "server.deps.inline:true"
+      : `server.deps.inline overlaps Node-owned package${conflicts.length === 1 ? "" : "s"}: ${conflicts.join(", ")}`;
+    throw new VitestNativeError(
+      "INLINE_BREAKS_OWNERSHIP",
+      `engine:'native' cannot run because ${selection}. Vitest gives inlining ` +
+        `precedence over the engine's Node-ownership rules, so the same React Native ` +
+        `package can load once through Vite and again through Node with separate module ` +
+        `state. Remove the overlapping inline rule; use reactNative({ transform: [...] }) ` +
+        `for Metro-source packages that need compiling.`,
+    );
+  };
   // Project root for resolver alignment; set for every run, not only when
   // ecosystem packages happen to be detected.
   let alignRoot = "";
-  let ecosystemRoot = "";
 
   // Vite and Node must land on the same file for a package, or it exists twice with
   // separate module-level state. Cached: resolveId runs for every import.
@@ -995,8 +991,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // hooks in charge — the registry is an optimization, never a requirement.
         // Packages that declare React Native in their own manifest ship source Node
         // cannot run — untranspiled JSX, Flow, TypeScript — because they assume Metro
-        // will compile them. Detect them and inline them, rather than making every
-        // project rediscover the list one SyntaxError at a time.
+        // will compile them. Detect them, assign them to Node's native transform, and
+        // externalize them rather than making every project rediscover the list one
+        // SyntaxError at a time.
         // Where the run's tests live, as far as `test.include` reveals it. When the
         // run root sits ABOVE the package under test — an Nx-style invocation from
         // the repository root — the root alone cannot say which package is the
@@ -1008,6 +1005,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           (userConfig as { test?: { include?: unknown } }).test?.include,
           resolvedRoot,
         );
+        // `inline: true` is a user override of the normal ownership boundary. It is
+        // recorded in the manifest so diagnostics never claim graph uniqueness when
+        // Vitest will give inlining precedence over the engine's external patterns.
+        const userInline = (userConfig as { test?: { server?: { deps?: { inline?: unknown } } } })
+          .test?.server?.deps?.inline;
+        const userInlinesEverything = userInline === true;
         const ecosystem = detectEcosystemPackages(
           [resolvedRoot, ...includeRoots],
           transformPkgs,
@@ -1042,22 +1045,16 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         if (projectDirs.length > 0) {
           env.VITEST_NATIVE_PROJECT_DIRS = JSON.stringify(projectDirs);
         }
-        if (ecosystem.length > 0) {
-          ecosystemRoot = resolvedRoot;
-          // Anchored on node_modules: a bare `[/\\]name[/\\]` match also hits any
-          // directory that happens to share the package's name — a project folder
-          // called `expo` made every file under it, including this package's own
-          // runtime, look like ecosystem source. Every layout that matters keeps the
-          // package under node_modules, including the pnpm and bun content stores.
-          ecosystemPattern = new RegExp(
-            `[\\\\/]node_modules[\\\\/](?:${ecosystem
-              .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-              .join("|")})[\\\\/]`,
-          );
-          if (diagnostics) {
-            console.log(`[vitest-native] inlining React Native packages: ${ecosystem.join(", ")}`);
-          }
-        }
+        nativeOwnership = createNativeOwnershipPolicy({
+          projectRoot: resolvedRoot,
+          explicitTransforms: transformPkgs,
+          ecosystemPackages: ecosystem,
+          runtimeTransformAugmentations:
+            nativePresetNames.length > 0 ? ["preset-pass-through-modules"] : [],
+          projectDirs,
+          serverDepsInlineAll: userInlinesEverything,
+        });
+        assertInlineOwnership(userInline);
 
         const registryFile = await buildRegistryFor({
           projectRoot: resolvedRoot,
@@ -1094,12 +1091,6 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           };
         }
         const userPool = (userConfig as { test?: { pool?: unknown } }).test?.pool;
-        // `deps.inline: true` means "inline everything", so the test-entry rule the
-        // engine adds is redundant — and merging a pattern list into a boolean gives
-        // Vitest an array containing `true`, which it calls `.test()` on.
-        const userInlinesEverything =
-          (userConfig as { test?: { server?: { deps?: { inline?: unknown } } } }).test?.server?.deps
-            ?.inline === true;
         // The VM pools run test code in a `vm` context whose module executor does not
         // go through Node's loader, and `module.register()` — how the engine installs
         // the ESM hook that Flow-strips React Native and resolves its platform files —
@@ -1134,6 +1125,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             ecosystem,
             resolvedRoot,
             userInlinesEverything,
+            projectDirs,
+            nativeOwnership,
           ),
         );
       }
@@ -1207,6 +1200,15 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       jestMockTransformPresent = (config.plugins ?? []).some(
         (plugin) => (plugin as { name?: string })?.name === "vitest-native:jest-mock-hoist",
       );
+
+      // Vitest folds Vite `ssr.noExternal` / environment noExternal settings into
+      // server.deps.inline during its pre-ordered configResolved hook. Re-check the
+      // FINAL shape here so an indirect inline-all or a later-merged package pattern
+      // cannot bypass the config() guard above.
+      const finalInline = (
+        config as unknown as { test?: { server?: { deps?: { inline?: unknown } } } }
+      ).test?.server?.deps?.inline;
+      assertInlineOwnership(finalInline);
 
       const duplicateReact = findDuplicateReact(
         (specifier, from) => {
@@ -1541,29 +1543,23 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
 
     transform(code, id) {
       warnIfJestMockUnhoisted(code, id);
-      // Native engine: React Native itself is Flow-stripped in Node's loader hooks,
-      // not here. The auto-inlined ecosystem packages are the exception — they live
-      // in Vite's graph precisely so Vitest owns them, which means Vite's pipeline
-      // has to be able to parse them, and it cannot: the ecosystem ships JSX and
-      // Flow in `.js` files that Vite leaves alone inside node_modules. Compile them
-      // with the project's own React Native Babel preset, the same transform the
-      // Node hooks apply to everything else.
+      // This hook is an ACTUAL observation that Vite claimed the file. A Node-owned
+      // package reaching it is therefore not a hypothetical resolver disagreement:
+      // evaluating it would create a second live identity. Fail before evaluation,
+      // using the same project policy that generated externalization and the worker
+      // matchers. This catches indirect noExternal settings and later plugin merges
+      // that config-time pattern checks cannot predict.
       if (engine === "native") {
-        if (!ecosystemPattern || !ecosystemPattern.test(id)) return undefined;
-        if (!/\.[cm]?[jt]sx?$/.test(id.split("?")[0])) return undefined;
-        try {
-          return { code: transformEcosystem(id, code, ecosystemRoot, platform), map: null };
-        } catch (error) {
-          // Leave the file untouched: Vite's own parse error names the real problem
-          // better than a Babel failure on a file Babel may simply not own.
-          if (diagnostics) {
-            console.warn(
-              `[vitest-native] could not compile inlined ${id} (${(error as Error)?.message}); ` +
-                `serving it untouched.`,
-            );
-          }
-          return undefined;
-        }
+        if (!nativeOwnership) return undefined;
+        const conflict = findNativeOwnershipConflict(nativeOwnership, id, "vite");
+        if (!conflict) return undefined;
+        throw new VitestNativeError(
+          "MODULE_OWNER_CONFLICT",
+          `Vite attempted to transform '${id}', but the native ownership policy assigns ` +
+            `that file to Node (${conflict.decision.reason}). Evaluating it in Vite would ` +
+            `create a second module instance with separate state. Remove the inline/noExternal ` +
+            `rule that claimed it; Metro-source packages belong in reactNative({ transform: [...] }).`,
+        );
       }
 
       // Flow-strip inlined react-native-* ecosystem packages that ship `@flow` —

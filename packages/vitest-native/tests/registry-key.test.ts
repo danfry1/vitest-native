@@ -86,4 +86,29 @@ describe("registry cache key", () => {
     });
     expect(ios).not.toBe(android);
   });
+
+  it("keys additional deep entrypoints independent of declaration order", () => {
+    const root = projectWith(BASE);
+    const base = { projectRoot: root, platform: "ios", reactNativeVersion: "0.86.0" };
+    const without = registryKey(base);
+    const first = registryKey({ ...base, additionalEntries: ["react-native/deep-a"] });
+    const both = registryKey({
+      ...base,
+      additionalEntries: ["react-native/deep-a", "react-native/deep-b"],
+    });
+    const reversed = registryKey({
+      ...base,
+      additionalEntries: ["react-native/deep-b", "react-native/deep-a"],
+    });
+
+    expect(first).not.toBe(without);
+    expect(both).not.toBe(first);
+    expect(reversed).toBe(both);
+    expect(
+      registryKey({
+        ...base,
+        additionalEntries: ["react-native/deep-a", "react-native/deep-a"],
+      }),
+    ).toBe(first);
+  });
 });

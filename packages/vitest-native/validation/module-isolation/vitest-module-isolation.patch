@@ -1,0 +1,649 @@
+diff --git a/packages/vitest/src/node/cli/cli-config.ts b/packages/vitest/src/node/cli/cli-config.ts
+index 9ebfbe0797ef4f928bc0d1e4d1ea5202a9b9a0e3..f98d5ea68d508e15796bf7f0c5c70c85c0f272e1 100644
+--- a/packages/vitest/src/node/cli/cli-config.ts
++++ b/packages/vitest/src/node/cli/cli-config.ts
+@@ -340,7 +340,20 @@ export const cliOptionsConfig: VitestCLIOptions = {
+   },
+   isolate: {
+     description:
+-      'Run every test file in isolation. To disable isolation, use `--no-isolate` (default: `true`)',
++      'Run every test file in isolation. Use `--isolate=modules` to reuse the worker while resetting modules, or `--no-isolate` to disable isolation (default: `true`)',
++    argument: '[boolean|modules]',
++    transform(value) {
++      if (value === undefined || value === true || value === 'true') {
++        return true
++      }
++      if (value === false || value === 'false') {
++        return false
++      }
++      if (value === 'modules') {
++        return value
++      }
++      throw new Error(`Expected "true", "false", or "modules", received "${value}"`)
++    },
+   },
+   globals: {
+     description: 'Inject apis globally',
+diff --git a/packages/vitest/src/node/config/resolveConfig.ts b/packages/vitest/src/node/config/resolveConfig.ts
+index 8e826edd88cecacd7a14008fcbb18ad909ff71c8..540c41b4d16fcfb3672a383f5bb47723e6d83eef 100644
+--- a/packages/vitest/src/node/config/resolveConfig.ts
++++ b/packages/vitest/src/node/config/resolveConfig.ts
+@@ -235,7 +235,12 @@ export function resolveTestConfig(
+     viteConfig.test as UserConfig | undefined,
+   )
+
+-  const resolved = deepMerge({}, configDefaults, options) as ResolvedConfig
++  const unresolved = deepMerge({}, configDefaults, options) as Omit<ResolvedConfig, 'isolate'> & {
++    isolate: NonNullable<UserConfig['isolate']>
++  }
++  const resolved = unresolved as ResolvedConfig
++  resolved.moduleIsolation = unresolved.isolate === 'modules'
++  resolved.isolate = unresolved.isolate === 'modules' ? false : unresolved.isolate
+   resolved.root = viteConfig.root
+   resolved.providedOptions = providedOptions
+
+diff --git a/packages/vitest/src/node/config/serializeConfig.ts b/packages/vitest/src/node/config/serializeConfig.ts
+index 10817516a8988a08f91953cc286d49841c96cd44..3848b60e6bea12c3ad166eb36348fd37f3d701fc 100644
+--- a/packages/vitest/src/node/config/serializeConfig.ts
++++ b/packages/vitest/src/node/config/serializeConfig.ts
+@@ -14,6 +14,7 @@ export function serializeConfig(project: TestProject): SerializedConfig {
+     // TODO: remove functions from environmentOptions
+     environmentOptions: config.environmentOptions,
+     isolate: config.isolate,
++    moduleIsolation: config.moduleIsolation,
+     maxWorkers: config.maxWorkers,
+     base: config.base,
+     logHeapUsage: config.logHeapUsage,
+diff --git a/packages/vitest/src/node/pool.ts b/packages/vitest/src/node/pool.ts
+index 1118e51e8cc715ff24a6fdd81868f7bc77aab1a3..c91f40e7d8775e90b22b45acf058bb1c4b3d908d 100644
+--- a/packages/vitest/src/node/pool.ts
++++ b/packages/vitest/src/node/pool.ts
+@@ -428,7 +428,13 @@ function groupSpecs(specs: TestSpecification[], environments: WeakMap<TestSpecif
+     // resolution rather than the user, because their isolation is a fresh VM
+     // context per run request — batching files into a single run request
+     // would share one context across all of them.
+-    if (isolate === false && maxWorkers === 1 && spec.pool !== 'vmThreads' && spec.pool !== 'vmForks') {
++    if (
++      isolate === false
++      && !spec.project.config.moduleIsolation
++      && maxWorkers === 1
++      && spec.pool !== 'vmThreads'
++      && spec.pool !== 'vmForks'
++    ) {
+       const previous = groups[order].specs[0]?.[0]
+
+       if (previous && previous.project.name === spec.project.name && isEqualEnvironments(spec, previous)) {
+diff --git a/packages/vitest/src/node/types/config.ts b/packages/vitest/src/node/types/config.ts
+index c97af93ea7ac40c19bf8f95bfc6396678f9f26f0..f76f683eab37e164bc2c009dcccb4616ed9a9281 100644
+--- a/packages/vitest/src/node/types/config.ts
++++ b/packages/vitest/src/node/types/config.ts
+@@ -346,10 +346,12 @@ export interface InlineConfig {
+    * Run tests in an isolated environment. This option has no effect on vmThreads pool.
+    *
+    * Disabling this option improves performance if your code doesn't rely on side effects.
++   * Set to `modules` to reuse the worker environment while resetting user modules and
++   * mocks before every test file.
+    *
+    * @default true
+    */
+-  isolate?: boolean
++  isolate?: boolean | 'modules'
+
+   /**
+    * Pass additional arguments to `node` process when spawning the worker.
+@@ -1245,6 +1247,7 @@ export interface ResolvedConfig
+     | 'fileParallelism'
+     | 'tagsFilter'
+     | 'reporter'
++    | 'isolate'
+   > {
+   name: ProjectName['label']
+   color?: ProjectName['color']
+@@ -1313,6 +1316,10 @@ export interface ResolvedConfig
+
+   maxWorkers: number
+
++  isolate: boolean
++  /** @internal */
++  moduleIsolation: boolean
++
+   vmMemoryLimit?: UserConfig['vmMemoryLimit']
+   dumpDir?: string
+   tagsFilter?: string[]
+diff --git a/packages/vitest/src/runtime/config.ts b/packages/vitest/src/runtime/config.ts
+index 146f3514bbbc51c624aee30be1bcb9642ad0c2ef..1ac725565ee4aedb98e43a14a89c51ee7bf13cf8 100644
+--- a/packages/vitest/src/runtime/config.ts
++++ b/packages/vitest/src/runtime/config.ts
+@@ -48,6 +48,7 @@ export interface SerializedConfig {
+   disableConsoleIntercept: boolean | undefined
+   runner: string | undefined
+   isolate: boolean
++  moduleIsolation: boolean
+   maxWorkers: number
+   bail: number | undefined
+   environmentOptions?: Record<string, any>
+diff --git a/packages/vitest/src/runtime/runBaseTests.ts b/packages/vitest/src/runtime/runBaseTests.ts
+index 81d13283b1f483c4f97ba244e13ac67cccc6255a..9a502af4756401e229cae127e7a7c20279eacdd7 100644
+--- a/packages/vitest/src/runtime/runBaseTests.ts
++++ b/packages/vitest/src/runtime/runBaseTests.ts
+@@ -51,7 +51,7 @@ export async function run(
+       `vitest.test.runner.${method}`,
+       async () => {
+         for (const file of files) {
+-          if (config.isolate) {
++          if (config.isolate || config.moduleIsolation) {
+             moduleRunner.mocker?.reset()
+             resetModules(workerState.evaluatedModules, true)
+           }
+diff --git a/test/coverage-test/test/custom-provider.custom.test.ts b/test/coverage-test/test/custom-provider.custom.test.ts
+index 154f435032fb608b85c73d3219458e76cc53bf24..762efbe1c2d675228c2566b268e9088a1fa8c484 100644
+--- a/test/coverage-test/test/custom-provider.custom.test.ts
++++ b/test/coverage-test/test/custom-provider.custom.test.ts
+@@ -6,6 +6,9 @@ test('custom provider', async () => {
+   await runVitest({
+     include: ['fixtures/test/math.test.ts', 'fixtures/test/even.test.ts'],
+     fsModuleCache: false,
++    isolate: 'modules',
++    fileParallelism: false,
++    maxWorkers: 1,
+   })
+
+   const report = readFileSync('./coverage/custom-coverage-provider-report.json', 'utf-8')
+diff --git a/test/coverage-test/test/isolation.test.ts b/test/coverage-test/test/isolation.test.ts
+index e1dd8cd5cae9563c8fe2c586d1f2527e9c59a055..c8b94f2c4e43f0709f1cc44695456ffbc57a0cbb 100644
+--- a/test/coverage-test/test/isolation.test.ts
++++ b/test/coverage-test/test/isolation.test.ts
+@@ -12,7 +12,7 @@ if (!process.env.COVERAGE_BROWSER) {
+   }
+ }
+
+-for (const isolate of [true, false]) {
++for (const isolate of [true, false, 'modules'] as const) {
+   for (const pool of pools) {
+     test(`{ isolate: ${isolate}, pool: "${pool}" }`, async () => {
+       await runVitest({
+diff --git a/test/e2e/test/module-isolation-mode.test.ts b/test/e2e/test/module-isolation-mode.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..d838e6df77560afae4683454be790ac8f8969381
+--- /dev/null
++++ b/test/e2e/test/module-isolation-mode.test.ts
+@@ -0,0 +1,462 @@
++import { expect, test } from 'vitest'
++import { buildTestProjectTree, runInlineTests } from '#test-utils'
++
++function config(pool: 'threads' | 'forks', setupFiles: string[] = []) {
++  return /* js */ `
++    class AlphabeticalSequencer {
++      sort(files) { return [...files].sort((a, b) => a.moduleId.localeCompare(b.moduleId)) }
++      shard(files) { return files }
++    }
++    export default {
++      test: {
++        isolate: 'modules',
++        pool: '${pool}',
++        fileParallelism: false,
++        maxWorkers: 1,
++        setupFiles: ${JSON.stringify(setupFiles)},
++        sequence: { sequencer: AlphabeticalSequencer },
++      },
++    }
++  `
++}
++
++const target = /* js */ `
++  globalThis.__targetEvaluations = (globalThis.__targetEvaluations ?? 0) + 1
++  export const evaluation = globalThis.__targetEvaluations
++  export const identity = {}
++  export const label = 'actual'
++`
++
++const consumer = /* js */ `
++  import * as target from './target.js'
++  globalThis.__consumerEvaluations = (globalThis.__consumerEvaluations ?? 0) + 1
++  export const evaluation = globalThis.__consumerEvaluations
++  export const readTarget = () => target
++`
++
++test.each(['threads', 'forks'] as const)('reuses the %s worker while resetting user modules and mocks', async (pool) => {
++  const { stderr, testTree } = await runInlineTests({
++    'vitest.config.js': config(pool),
++    'target.js': target,
++    'consumer.js': consumer,
++    'a-mocked.test.js': /* js */ `
++      import { expect, test, vi } from 'vitest'
++      vi.mock('./target.js', async importOriginal => ({
++        ...(await importOriginal()),
++        label: 'mocked',
++      }))
++      import { evaluation, readTarget } from './consumer.js'
++      test('mock overlay', async () => {
++        globalThis.__sharedRealmIdentity = {}
++        const value = readTarget()
++        const original = await vi.importActual('./target.js')
++        expect(value.label).toBe('mocked')
++        expect(value.identity).toBe(original.identity)
++        expect(value.evaluation).toBe(1)
++        expect(evaluation).toBe(1)
++      })
++    `,
++    'b-actual.test.js': /* js */ `
++      import { expect, test } from 'vitest'
++      import { evaluation, readTarget } from './consumer.js'
++      test('fresh actual', () => {
++        const value = readTarget()
++        expect(globalThis.__sharedRealmIdentity).toBeTypeOf('object')
++        expect(value.label).toBe('actual')
++        expect(value.evaluation).toBe(2)
++        expect(evaluation).toBe(2)
++      })
++    `,
++  })
++
++  expect(stderr).toBe('')
++  expect(testTree()).toMatchInlineSnapshot(`
++    {
++      "a-mocked.test.js": {
++        "mock overlay": "passed",
++      },
++      "b-actual.test.js": {
++        "fresh actual": "passed",
++      },
++    }
++  `)
++})
++
++test('keeps module and mock boundaries with two reused workers', async () => {
++  const structure: Record<string, string> = {
++    'vitest.config.js': /* js */ `
++      export default {
++        test: {
++          isolate: 'modules',
++          pool: 'threads',
++          fileParallelism: true,
++          maxWorkers: 2,
++          minWorkers: 2,
++        },
++      }
++    `,
++    'target.js': `export const label = 'actual'`,
++    'consumer.js': /* js */ `
++      import * as target from './target.js'
++      export const identity = {}
++      export const readTarget = () => target
++    `,
++  }
++  for (let index = 0; index < 8; index++) {
++    const mocked = index % 2 === 0
++    structure[`case-${index}.test.js`] = /* js */ `
++      import { expect, test, vi } from 'vitest'
++      ${mocked ? `vi.mock('./target.js', () => ({ label: 'mocked' }))` : ''}
++      import { identity, readTarget } from './consumer.js'
++      test('case ${index}', () => {
++        globalThis.__moduleModeConsumers ??= new Set()
++        expect(globalThis.__moduleModeConsumers.has(identity)).toBe(false)
++        globalThis.__moduleModeConsumers.add(identity)
++        expect(readTarget().label).toBe('${mocked ? 'mocked' : 'actual'}')
++      })
++    `
++  }
++
++  const { stderr, testTree } = await runInlineTests(structure)
++
++  expect(stderr).toBe('')
++  expect(testTree()).toMatchInlineSnapshot(`
++    {
++      "case-0.test.js": {
++        "case 0": "passed",
++      },
++      "case-1.test.js": {
++        "case 1": "passed",
++      },
++      "case-2.test.js": {
++        "case 2": "passed",
++      },
++      "case-3.test.js": {
++        "case 3": "passed",
++      },
++      "case-4.test.js": {
++        "case 4": "passed",
++      },
++      "case-5.test.js": {
++        "case 5": "passed",
++      },
++      "case-6.test.js": {
++        "case 6": "passed",
++      },
++      "case-7.test.js": {
++        "case 7": "passed",
++      },
++    }
++  `)
++})
++
++test('defines a module boundary, not a realm-state boundary', async () => {
++  const { stderr, testTree } = await runInlineTests({
++    'vitest.config.js': config('threads'),
++    'a-mutate.test.js': /* js */ `
++      import { expect, test, vi } from 'vitest'
++      test('mutates realm state', () => {
++        vi.useFakeTimers()
++        vi.stubGlobal('__moduleOnlyGlobal', 'leaked')
++        expect(vi.isFakeTimers()).toBe(true)
++      })
++    `,
++    'b-observe.test.js': /* js */ `
++      import { expect, test, vi } from 'vitest'
++      test('observes the shared realm', () => {
++        expect(vi.isFakeTimers()).toBe(true)
++        expect(globalThis.__moduleOnlyGlobal).toBe('leaked')
++        vi.useRealTimers()
++        vi.unstubAllGlobals()
++      })
++    `,
++  })
++
++  expect(stderr).toBe('')
++  expect(testTree()).toMatchInlineSnapshot(`
++    {
++      "a-mutate.test.js": {
++        "mutates realm state": "passed",
++      },
++      "b-observe.test.js": {
++        "observes the shared realm": "passed",
++      },
++    }
++  `)
++})
++
++test('allows an integration setup file to restore realm state per file', async () => {
++  const { stderr, testTree } = await runInlineTests({
++    'vitest.config.js': config('threads', ['./restore.js']),
++    'restore.js': /* js */ `
++      import { vi } from 'vitest'
++      vi.useRealTimers()
++      vi.unstubAllGlobals()
++      vi.unstubAllEnvs()
++    `,
++    'a-mutate.test.js': /* js */ `
++      import { expect, test, vi } from 'vitest'
++      test('mutates realm state', () => {
++        vi.useFakeTimers()
++        vi.stubGlobal('__moduleOnlyGlobal', 'leaked')
++        vi.stubEnv('MODULE_ONLY_ENV', 'leaked')
++        expect(vi.isFakeTimers()).toBe(true)
++      })
++    `,
++    'b-restored.test.js': /* js */ `
++      import { expect, test, vi } from 'vitest'
++      test('sees restored state', () => {
++        expect(vi.isFakeTimers()).toBe(false)
++        expect(globalThis.__moduleOnlyGlobal).toBeUndefined()
++        expect(process.env.MODULE_ONLY_ENV).toBeUndefined()
++      })
++    `,
++  })
++
++  expect(stderr).toBe('')
++  expect(testTree()).toMatchInlineSnapshot(`
++    {
++      "a-mutate.test.js": {
++        "mutates realm state": "passed",
++      },
++      "b-restored.test.js": {
++        "sees restored state": "passed",
++      },
++    }
++  `)
++})
++
++test('does not reuse a Node module identity across projects', async () => {
++  const { fs, results, stderr } = await runInlineTests({
++    'vitest.config.js': /* js */ `
++      const project = name => ({
++        define: { __PROJECT__: JSON.stringify(name) },
++        test: {
++          name,
++          isolate: 'modules',
++          pool: 'threads',
++          fileParallelism: false,
++          maxWorkers: 1,
++          include: ['identity.test.js'],
++        },
++      })
++      export default { test: { projects: [project('project-a'), project('project-b')] } }
++    `,
++    'node_modules/resident/package.json': JSON.stringify({
++      name: 'resident',
++      version: '1.0.0',
++      main: './index.cjs',
++    }),
++    'node_modules/resident/index.cjs': /* js */ `
++      const { randomUUID } = require('node:crypto')
++      module.exports = { identity: randomUUID() }
++    `,
++    'identity.test.js': /* js */ `
++      import fs from 'node:fs'
++      import resident from 'resident'
++      import { expect, test } from 'vitest'
++      test('records project identity', () => {
++        fs.writeFileSync(new URL('./identity-' + __PROJECT__ + '.txt', import.meta.url), resident.identity)
++        expect(resident.identity).toBeTypeOf('string')
++      })
++    `,
++  })
++
++  expect(stderr).toBe('')
++  expect(fs.readFile('identity-project-a.txt')).not.toBe(fs.readFile('identity-project-b.txt'))
++  expect(buildTestProjectTree(results)).toMatchInlineSnapshot(`
++    {
++      "project-a": {
++        "identity.test.js": {
++          "records project identity": "passed",
++        },
++      },
++      "project-b": {
++        "identity.test.js": {
++          "records project identity": "passed",
++        },
++      },
++    }
++  `)
++})
++
++test('resets query-qualified modules without pattern matching', async () => {
++  const { stderr, testTree } = await runInlineTests({
++    'vitest.config.js': config('threads'),
++    'query.js': /* js */ `
++      globalThis.__queryEvaluations = (globalThis.__queryEvaluations ?? 0) + 1
++      export const evaluation = globalThis.__queryEvaluations
++    `,
++    'a-query.test.js': /* js */ `
++      import { expect, test } from 'vitest'
++      import { evaluation } from './query.js?boot=1'
++      test('first query evaluation', () => expect(evaluation).toBe(1))
++    `,
++    'b-query.test.js': /* js */ `
++      import { expect, test } from 'vitest'
++      import { evaluation } from './query.js?boot=1'
++      test('second query evaluation', () => expect(evaluation).toBe(2))
++    `,
++  })
++
++  expect(stderr).toBe('')
++  expect(testTree()).toMatchInlineSnapshot(`
++    {
++      "a-query.test.js": {
++        "first query evaluation": "passed",
++      },
++      "b-query.test.js": {
++        "second query evaluation": "passed",
++      },
++    }
++  `)
++})
++
++test('does not wait forever for an unobserved pending dynamic import', async () => {
++  const { stderr, testTree } = await runInlineTests({
++    'vitest.config.js': config('threads'),
++    'pending.js': `await new Promise(() => {}); export const unreachable = true`,
++    'starter.js': /* js */ `
++      globalThis.__starterEvaluations = (globalThis.__starterEvaluations ?? 0) + 1
++      export const evaluation = globalThis.__starterEvaluations
++      export const start = () => { void import('./pending.js') }
++    `,
++    'a-start.test.js': /* js */ `
++      import { expect, test } from 'vitest'
++      import { evaluation, start } from './starter.js'
++      test('starts an unobserved import', () => {
++        expect(evaluation).toBe(1)
++        start()
++      })
++    `,
++    'b-next.test.js': /* js */ `
++      import { expect, test } from 'vitest'
++      import { evaluation } from './starter.js'
++      test('continues to the next file', () => expect(evaluation).toBe(2))
++    `,
++  })
++
++  expect(stderr).toBe('')
++  expect(testTree()).toMatchInlineSnapshot(`
++    {
++      "a-start.test.js": {
++        "starts an unobserved import": "passed",
++      },
++      "b-next.test.js": {
++        "continues to the next file": "passed",
++      },
++    }
++  `)
++})
++
++test('does not apply a Vite mock retroactively inside an external Node module', async () => {
++  const { stderr, testTree } = await runInlineTests({
++    'vitest.config.js': config('threads'),
++    'node_modules/resident-child/package.json': JSON.stringify({
++      name: 'resident-child',
++      version: '1.0.0',
++      main: './index.cjs',
++    }),
++    'node_modules/resident-child/index.cjs': `module.exports = { label: 'actual-child' }`,
++    'node_modules/resident-parent/package.json': JSON.stringify({
++      name: 'resident-parent',
++      version: '1.0.0',
++      main: './index.cjs',
++    }),
++    'node_modules/resident-parent/index.cjs': /* js */ `
++      const child = require('resident-child')
++      module.exports = { readChild: () => child.label }
++    `,
++    'mock-dependency.test.js': /* js */ `
++      import { expect, test, vi } from 'vitest'
++      vi.mock('resident-child', () => ({ default: { label: 'mocked-child' } }))
++      import child from 'resident-child'
++      import parent from 'resident-parent'
++      test('documents the external ownership boundary', () => {
++        expect(child.label).toBe('mocked-child')
++        expect(parent.readChild()).toBe('actual-child')
++      })
++    `,
++  })
++
++  expect(stderr).toBe('')
++  expect(testTree()).toMatchInlineSnapshot(`
++    {
++      "mock-dependency.test.js": {
++        "documents the external ownership boundary": "passed",
++      },
++    }
++  `)
++})
++
++test('keeps single-worker files as separate recyclable tasks', async () => {
++  const { fs, stderr, testTree } = await runInlineTests({
++    'vitest.config.js': /* js */ `
++      import { recyclePool } from './recycle-pool.js'
++      export default {
++        test: {
++          isolate: 'modules',
++          pool: recyclePool(),
++          fileParallelism: false,
++          maxWorkers: 1,
++          minWorkers: 1,
++        },
++      }
++    `,
++    'recycle-pool.js': /* js */ `
++      import { ThreadsPoolWorker } from 'vitest/node'
++      class RecycleProbeWorker extends ThreadsPoolWorker {
++        name = 'recycle-probe'
++        canReuse() { return false }
++      }
++      export function recyclePool() {
++        return {
++          name: 'recycle-probe',
++          createPoolWorker: options => new RecycleProbeWorker(options),
++        }
++      }
++    `,
++    'node_modules/resident/package.json': JSON.stringify({
++      name: 'resident',
++      version: '1.0.0',
++      main: './index.cjs',
++    }),
++    'node_modules/resident/index.cjs': /* js */ `
++      const { randomUUID } = require('node:crypto')
++      module.exports = { identity: randomUUID() }
++    `,
++    'case-1.test.js': recycleProbe(1),
++    'case-2.test.js': recycleProbe(2),
++    'case-3.test.js': recycleProbe(3),
++  })
++
++  expect(stderr).toBe('')
++  const identities = fs.readFile('identities.txt').trim().split('\n')
++  expect(identities).toHaveLength(3)
++  expect(new Set(identities).size).toBe(3)
++  expect(testTree()).toMatchInlineSnapshot(`
++    {
++      "case-1.test.js": {
++        "case 1": "passed",
++      },
++      "case-2.test.js": {
++        "case 2": "passed",
++      },
++      "case-3.test.js": {
++        "case 3": "passed",
++      },
++    }
++  `)
++})
++
++function recycleProbe(index: number) {
++  return /* js */ `
++    import fs from 'node:fs'
++    import resident from 'resident'
++    import { expect, test } from 'vitest'
++    test('case ${index}', () => {
++      fs.appendFileSync(new URL('./identities.txt', import.meta.url), resident.identity + '\\n')
++      expect(resident.identity).toBeTypeOf('string')
++    })
++  `
++}
+diff --git a/test/unit/test/cli-test.test.ts b/test/unit/test/cli-test.test.ts
+index e5c84f89f7ed614698d81516b6d2b964d97dacd7..da24d27b5ff750ec25f7ce9c7a2f6c2742b95e71 100644
+--- a/test/unit/test/cli-test.test.ts
++++ b/test/unit/test/cli-test.test.ts
+@@ -30,6 +30,12 @@ function getCLIOptions(commands: string) {
+ const enabled = { enabled: true }
+ const disabled = { enabled: false }
+
++test('isolate accepts full, module, and disabled modes', () => {
++  expect(getCLIOptions('--isolate')).toEqual({ isolate: true })
++  expect(getCLIOptions('--isolate=modules')).toEqual({ isolate: 'modules' })
++  expect(getCLIOptions('--no-isolate')).toEqual({ isolate: false })
++})
++
+ test('top level nested options return boolean', async () => {
+   expect(getCLIOptions('--coverage --browser --typecheck')).toEqual({
+     coverage: enabled,

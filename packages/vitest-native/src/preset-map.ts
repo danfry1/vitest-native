@@ -33,10 +33,10 @@ export const AUTO_DETECT_PRESETS = {
   //
   // Listing it here was worse than omitting it: a name in this map is taken as
   // "a preset shadows this, its real source never loads", which excludes the
-  // package from ecosystem auto-inlining (see native/ecosystem.ts) and makes
+  // package from ecosystem auto-detection/Node transformation (see native/ecosystem.ts) and makes
   // `doctor` and `migrate` report it as already handled. A legacy vector-icons
   // project therefore had its untranspiled source neither shadowed nor
-  // transformed — the parse failure auto-inlining exists to prevent.
+  // transformed — the parse failure automatic detection exists to prevent.
   "@shopify/flash-list": "flashList",
   "@gorhom/bottom-sheet": "bottomSheet",
   "react-native-keyboard-controller": "keyboardController",

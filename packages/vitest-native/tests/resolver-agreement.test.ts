@@ -197,4 +197,15 @@ describe("Node loading the project's own source", () => {
     );
     expect(warn).not.toHaveBeenCalled();
   });
+
+  it("does not classify Node built-ins as relative project files", () => {
+    for (const builtin of ["fs", "node:fs", "module", "path"]) {
+      checkProjectSourceLoadedByNode(
+        builtin,
+        from("/repo/node_modules/@babel/core/index.js"),
+        dirs,
+      );
+    }
+    expect(warn).not.toHaveBeenCalled();
+  });
 });
