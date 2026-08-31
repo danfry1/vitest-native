@@ -80,6 +80,8 @@ This is why the hot runtime is **opt-in and experimental, not the default**. It 
 
 ### Worker recycling
 
-The hot runtime accumulates resident state as it processes files, so for very large runs you may want Vitest's worker recycling (`memoryLimit` / per-file recycle) to bound memory. Recycling only fires with **two or more workers** — in single-worker mode Vitest batches every file into one task and never recycles mid-task. The plugin prints a one-time warning if you set a recycle limit on a single-worker run so the inert setting isn't silently trusted; run with `maxWorkers >= 2` for recycling to take effect.
+The hot runtime automatically derives a worker-total budget from the lower of host and container/cgroup memory. It reserves main-process and replacement headroom, caps automatic concurrency at four, recycles workers on local heap or process RSS, and stops before starting more work at the hard RSS boundary. Use `diagnostics: true` or `vitest-native doctor` to inspect the plan.
+
+Recycling only fires with **two or more workers** under current Vitest. In single-worker mode Vitest batches every file into one task and never exposes a recycle boundary, so the plugin now fails that configuration instead of silently trusting an inert limit. Use `maxWorkers >= 2` or the default runtime. If an external scheduler already enforces the process boundary, `hotRuntime: { allowUnboundedMemory: true }` explicitly accepts the risk and disables the automatic worker cap and process-RSS enforcement.
 
 Next: [How It Works](/guide/how-it-works) explains what the plugin does under the hood.

@@ -52,7 +52,7 @@ export function nativeEngineConfig(
   env: Record<string, string>,
   extensions: string[],
   transformPkgs: string[] = [],
-  hot?: { pool: PoolRunnerInitializer; runnerPath: string },
+  hot?: { pool: PoolRunnerInitializer; runnerPath: string; maxWorkers?: number },
   jsxTransform: JsxTransformConfig = { esbuild: { jsx: "automatic" } },
   userPool?: unknown,
   inlinePkgs: string[] = [],
@@ -170,7 +170,12 @@ export function nativeEngineConfig(
       // `hotRuntime` selects it, and the plugin warns when that overrides a
       // user-chosen pool.)
       ...(hot
-        ? { pool: hot.pool, isolate: false, runner: hot.runnerPath }
+        ? {
+            pool: hot.pool,
+            isolate: false,
+            runner: hot.runnerPath,
+            ...(hot.maxWorkers == null ? {} : { maxWorkers: hot.maxWorkers }),
+          }
         : { pool: (userPool ?? "threads") as "threads" }),
       server: {
         deps: {

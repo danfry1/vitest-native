@@ -19,11 +19,11 @@
 // custom pools can't receive task.memoryLimit — so the threshold is our own
 // option. Upstream RFC item.)
 import path from "node:path";
-import os from "node:os";
 import { createRequire } from "node:module";
 import { ThreadsPoolWorker } from "vitest/node";
 import type { PoolOptions, PoolRunnerInitializer, PoolTask, WorkerRequest } from "vitest/node";
 import { VitestNativeError } from "../errors.mjs";
+import type { HotMemoryPlan } from "./memory.mjs";
 
 export interface NativePoolOptions {
   /** Absolute path to the hot worker entry (dist/native/worker.mjs). */
@@ -41,8 +41,14 @@ export interface NativePoolOptions {
    * meets or exceeds this limit. 0 = never recycle by memory (default).
    */
   memoryLimit?: number;
+  /** Process-wide RSS envelope shared by every worker in this pool. */
+  memoryPlan?: HotMemoryPlan;
+  /** Explicit escape hatch for Vitest's unrecyclable one-worker batching mode. */
+  allowUnboundedMemory?: boolean;
   /** Log when Vitest batches prevent a recycling threshold from being exact. */
   diagnostics?: boolean;
+  /** Test seam; production samples the current process-wide RSS. */
+  sampleRss?: () => number;
 }
 
 function deepEqual(a: unknown, b: unknown): boolean {
@@ -58,6 +64,20 @@ function deepEqual(a: unknown, b: unknown): boolean {
   );
 }
 
+class NativeMemoryCoordinator {
+  private recyclingWorker: NativePoolWorker | null = null;
+
+  tryRecycle(worker: NativePoolWorker): boolean {
+    if (this.recyclingWorker !== null) return this.recyclingWorker === worker;
+    this.recyclingWorker = worker;
+    return true;
+  }
+
+  finished(worker: NativePoolWorker): void {
+    if (this.recyclingWorker === worker) this.recyclingWorker = null;
+  }
+}
+
 class NativePoolWorker extends ThreadsPoolWorker {
   override readonly name = "vitest-native";
   // Ask the worker to report heapUsed with every testfileFinished response
@@ -70,23 +90,36 @@ class NativePoolWorker extends ThreadsPoolWorker {
   private environment: PoolOptions["environment"];
   private recycleAfterFiles: number;
   private memoryLimit: number;
+  private memoryPlan: HotMemoryPlan | undefined;
+  private memoryCoordinator: NativeMemoryCoordinator;
+  private allowUnboundedMemory: boolean;
+  private sampleRss: () => number;
   private diagnostics: boolean;
   private filesRun = 0;
   private lastHeapUsed = 0;
   private memoryListenerAttached = false;
   private batchWarningShown = false;
 
-  constructor(options: PoolOptions, native: NativePoolOptions) {
+  constructor(
+    options: PoolOptions,
+    native: NativePoolOptions,
+    memoryCoordinator: NativeMemoryCoordinator,
+  ) {
     super(options);
     this.entrypoint = path.resolve(native.workerEntry);
     this.environment = options.environment;
     this.recycleAfterFiles = native.recycleAfterFiles ?? 0;
     this.memoryLimit = native.memoryLimit ?? 0;
+    this.memoryPlan = native.memoryPlan;
+    this.memoryCoordinator = memoryCoordinator;
+    this.allowUnboundedMemory = native.allowUnboundedMemory ?? false;
+    this.sampleRss = native.sampleRss ?? (() => process.memoryUsage.rss());
     this.diagnostics = native.diagnostics ?? false;
     this.reportMemory = this.memoryLimit > 0;
   }
 
   override async start(): Promise<void> {
+    this.assertInsideHardRssLimit("starting another worker");
     await super.start();
     // The underlying thread exists only after start(); start() is idempotent
     // and may be called again on reuse, so attach exactly once.
@@ -100,6 +133,30 @@ class NativePoolWorker extends ThreadsPoolWorker {
     }
   }
 
+  override async stop(): Promise<void> {
+    try {
+      await super.stop();
+    } finally {
+      this.memoryCoordinator.finished(this);
+    }
+  }
+
+  private assertInsideHardRssLimit(action: string): void {
+    const hard = this.allowUnboundedMemory ? null : this.memoryPlan?.hardRssLimit;
+    if (hard == null) return;
+    const rss = this.sampleRss();
+    if (rss < hard) return;
+    throw new VitestNativeError(
+      "HOT_MEMORY_BUDGET_EXCEEDED",
+      `hotRuntime stopped before ${action}: process RSS is ${Math.round(rss / 1024 / 1024)} MiB, ` +
+        `at or above the ${Math.round(hard / 1024 / 1024)} MiB hard limit derived from ` +
+        `${this.memoryPlan?.source ?? "the effective memory ceiling"}. Continuing could let the ` +
+        `OS or container kill the test process without a useful result. Reduce maxWorkers, run ` +
+        `without hotRuntime, or set hotRuntime.allowUnboundedMemory:true only when an external ` +
+        `scheduler provides the memory boundary.`,
+    );
+  }
+
   override send(message: WorkerRequest): void {
     // A single run message can carry a batch of files. Vitest only consults
     // canReuse BETWEEN scheduler tasks, so a multi-file task cannot be retired
@@ -111,19 +168,25 @@ class NativePoolWorker extends ThreadsPoolWorker {
     // silently. Warn unconditionally (once) so the false sense of safety is
     // visible, with the concrete fix (run >1 worker → per-file tasks → recycling).
     if (message.type === "run" || message.type === "collect") {
+      this.assertInsideHardRssLimit("starting the next test task");
       if (
         !this.batchWarningShown &&
         message.context.files.length > 1 &&
         (this.recycleAfterFiles > 0 || this.memoryLimit > 0)
       ) {
         this.batchWarningShown = true;
+        const explanation =
+          `Vitest batched ${message.context.files.length} files into one task in single-worker ` +
+          `mode, so hotRuntime cannot recycle at file boundaries and its memory limits are inert.`;
+        if (!this.allowUnboundedMemory) {
+          throw new VitestNativeError(
+            "HOT_MEMORY_UNBOUNDED",
+            `${explanation} Use maxWorkers >= 2, disable hotRuntime, or explicitly accept this ` +
+              `risk with hotRuntime:{ allowUnboundedMemory:true }.`,
+          );
+        }
         console.warn(
-          `[vitest-native] hotRuntime recycling (memoryLimit/recycleAfterFiles) is INACTIVE ` +
-            `here: Vitest batched ${message.context.files.length} files into one task, which ` +
-            `happens in single-worker mode (maxWorkers: 1) — so a worker can never be retired ` +
-            `between files and the memory bound cannot be enforced. Run with maxWorkers >= 2 ` +
-            `(or remove maxWorkers/fileParallelism: false) so each file is its own task and ` +
-            `recycling can fire.`,
+          `[vitest-native] ${explanation} Continuing because allowUnboundedMemory:true was set.`,
         );
       }
       this.filesRun += message.context.files.length;
@@ -134,41 +197,28 @@ class NativePoolWorker extends ThreadsPoolWorker {
   // Consulted only for shared (isolate:false) runners; returning false retires
   // this worker (the scheduler stops it and creates a fresh one).
   canReuse(task: PoolTask): boolean {
-    if (this.recycleAfterFiles > 0 && this.filesRun >= this.recycleAfterFiles) return false;
-    if (this.memoryLimit > 0 && this.lastHeapUsed >= this.memoryLimit) return false;
+    let recycleReason: string | null = null;
+    if (this.recycleAfterFiles > 0 && this.filesRun >= this.recycleAfterFiles) {
+      recycleReason = `${this.filesRun} files`;
+    } else if (this.memoryLimit > 0 && this.lastHeapUsed >= this.memoryLimit) {
+      recycleReason = `${Math.round(this.lastHeapUsed / 1024 / 1024)} MiB worker heap`;
+    } else {
+      const soft = this.allowUnboundedMemory ? null : this.memoryPlan?.softRssLimit;
+      const rss = soft == null ? 0 : this.sampleRss();
+      if (soft != null && rss >= soft) {
+        recycleReason = `${Math.round(rss / 1024 / 1024)} MiB process RSS`;
+      }
+    }
+    if (recycleReason !== null && this.memoryCoordinator.tryRecycle(this)) {
+      if (this.diagnostics) {
+        console.log(`[vitest-native] recycling hot worker after ${recycleReason}`);
+      }
+      return false;
+    }
     // Preserve the stock environment-equality check this hook replaces.
     const env = task.context.environment;
     return env.name === this.environment.name && deepEqual(env.options, this.environment.options);
   }
-}
-
-// Per-worker memory bound applied by default when hot is enabled but the user
-// configured no explicit recycling. Hot workers hold React Native resident and
-// accumulate ~4 MB/file (RNTL's resident render trees can't be reclaimed across
-// files), so unbounded single-worker hot heads toward OOM at large file counts.
-// A per-worker `memoryLimit` lets multi-worker runs recycle a worker once its
-// heap crosses the ceiling, keeping total hot memory bounded regardless of suite
-// size. The bounds:
-//  - FLOOR (768 MB): a per-worker limit below RN's resident working set
-//    (~417 MB/worker measured @8w, plus headroom) would recycle every few files
-//    and thrash. 768 MB sits safely above it.
-//  - CEILING (1.5 GB): above this there's no practical point bounding on typical
-//    dev/CI machines.
-//  - FRACTION (0.25): scale the budget with machine size between those bounds.
-// Single-worker hot can't recycle at all (Vitest batches all files into one task),
-// so the bound is inert there — the pool's batch warning nudges users to >=2 workers.
-const HOT_MEMORY_MIN_BYTES = 768 * 1024 * 1024;
-const HOT_MEMORY_MAX_BYTES = 1536 * 1024 * 1024;
-const HOT_MEMORY_FRACTION = 0.25;
-
-/**
- * Default per-worker hot `memoryLimit` (bytes): `clamp(totalmem * 0.25, 768MB, 1.5GB)`.
- * Applied only when hot is enabled and neither `memoryLimit` nor
- * `recycleAfterFiles` was set explicitly. `totalmem` is injectable for tests.
- */
-export function defaultHotMemoryLimit(totalmem: number = os.totalmem()): number {
-  const budget = Math.floor(totalmem * HOT_MEMORY_FRACTION);
-  return Math.min(HOT_MEMORY_MAX_BYTES, Math.max(HOT_MEMORY_MIN_BYTES, budget));
 }
 
 /**
@@ -220,8 +270,10 @@ function assertWorkerVitestMatchesProject(workerEntry: string, projectRoot: stri
 /** Pool initializer for `test.pool` — keeps RN-hot workers alive across files. */
 export function nativePool(options: NativePoolOptions): PoolRunnerInitializer {
   assertWorkerVitestMatchesProject(path.resolve(options.workerEntry), options.projectRoot);
+  const memoryCoordinator = new NativeMemoryCoordinator();
   return {
     name: "vitest-native",
-    createPoolWorker: (poolOptions: PoolOptions) => new NativePoolWorker(poolOptions, options),
+    createPoolWorker: (poolOptions: PoolOptions) =>
+      new NativePoolWorker(poolOptions, options, memoryCoordinator),
   };
 }

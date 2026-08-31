@@ -69,6 +69,10 @@ export default defineConfig({
         const outDir = path.resolve('dist', sub);
         fs.mkdirSync(outDir, { recursive: true });
         for (const f of fs.readdirSync(srcDir)) {
+          // The memory planner is a config/doctor build-time module and is already
+          // emitted as an internal code-split chunk. It is not loaded verbatim by
+          // Node's hooks, so copying it again would publish two unreachable files.
+          if (sub === 'native' && (f === 'memory.mjs' || f === 'memory.d.mts')) continue;
           // Ship runtime .mjs verbatim, plus hand-written .d.mts type stubs for them.
           if (f.endsWith('.mjs') || f.endsWith('.d.mts')) {
             fs.copyFileSync(path.join(srcDir, f), path.join(outDir, f));

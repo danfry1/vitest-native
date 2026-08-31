@@ -6,6 +6,7 @@ export default defineConfig({
     reactNative({
       engine: "native",
       hotRuntime: {
+        allowUnboundedMemory: true,
         preserveGlobals: ["__VN_EXPLICIT_RESIDENT_GLOBAL__"],
       },
     }),

@@ -3,12 +3,11 @@
 **Status:** Layer 1 shipped; Layers 2–3 remain proposals
 **Basis:** the idiomatic hot-parity validation + default-flip de-risk (`validation/idiomatic/`)
 
-> Update (2026-08-27): enabling hot without an explicit recycling option now
-> installs a default per-worker heap limit. The current formula is
-> `clamp(os.totalmem() * 0.25, 768 MB, 1.5 GB)`. This is a transitional safety
-> bound, not the final worker-total budget described below: it is host-memory based,
-> does not divide by worker count, measures heap rather than RSS, and cannot fire in
-> Vitest's single-worker batched mode.
+> Memory update (2026-08-31): explicit hot mode now installs a cgroup-aware,
+> worker-total budget. It caps automatic concurrency, recycles one worker at a time
+> on local heap or process RSS, and refuses current Vitest's unrecyclable one-worker
+> mode unless the user explicitly accepts that risk. The old host-only transitional
+> heap formula has been removed.
 >
 > Architecture bake-off update (2026-08-27): a Vitest-owned selective-persistence
 > prototype now passes the bare/Expo/Expo Router correctness matrix, but current hot
@@ -50,46 +49,51 @@ but _how_ to default it without the memory footgun or breaking migration suites.
 ## Design principles
 
 1. **Safe when enabled.** Turning hot on must never silently grow unbounded.
-   Today `hotRuntime: true` on a single worker leaks with only a warning.
+   A current-Vitest one-worker run fails closed unless the explicit
+   `allowUnboundedMemory` escape hatch is present.
 2. **Opt-in escalation.** Don't flip the global default for everyone in one step.
    Make hot _safe to enable_, then _auto-enable where provably safe_, then
    (much later, with real-world data) consider the global default.
 3. **Honest fallbacks.** Where hot can't be made safe (single-worker large, or
    jest-compat suites), fall back or warn — never pretend.
 
-## Layer 1 — Bounded hot (implemented, with remaining budget work)
+## Layer 1 — Bounded hot (implemented)
 
-When `hotRuntime` is truthy and the user has NOT set an explicit `memoryLimit` /
-`recycleAfterFiles`, the shipped implementation applies this **default per-worker
-heap bound**:
+Explicit hot mode computes one project memory plan before registry compilation:
 
-```
-perWorkerHeapLimit = clamp(
-  floor(os.totalmem() * 0.25),
-  768 MB,
-  1.5 GB,
-)
-```
+- effective memory is the lower valid value of `os.totalmem()` and
+  `process.constrainedMemory()`;
+- soft process RSS is 80% and the fail-closed hard boundary is 90%;
+- the plan reserves 256 MiB for the main process and 192 MiB for overlapping old/new
+  workers during replacement;
+- one worker is admitted per remaining 256 MiB envelope, with an automatic maximum
+  of four;
+- the worker-local heap recycle threshold is 65% of its envelope, clamped to
+  96–512 MiB.
 
-The hot pool implements its own `memoryLimit` recycling (custom pools don't receive
-Vitest's vm-only `task.memoryLimit`). The next iteration must turn this into a real
-worker-total bound: read the cgroup/container limit, reserve headroom for the main
-process, divide the remaining budget by effective worker count, cap worker count
-when the per-worker floor engages, and recycle on RSS as well as V8 heap. Until
-then, `workers * perWorkerHeapLimit` can exceed the intended machine budget.
+The pool samples thread-local `heapUsed` and process-wide RSS. Only one soft-limit
+recycle may be in flight, so simultaneous workers cannot all create replacement
+overlap. A task is rejected before it starts if RSS has reached the hard boundary.
+Explicit `maxWorkers` above the admitted count is capped with a warning; default
+concurrency is capped silently and becomes explainable with `diagnostics:true` and
+in `vitest-native doctor`.
 
-The input side is now experimentally settled. In Docker cgroup v2 on the minimum
-Node line (20.20.2), `process.constrainedMemory()` exactly reported 512 MiB, 1 GiB
-and 2 GiB limits while `os.totalmem()` reported the 11.7 GiB VM host. The candidate
-planner chose the constrained value and 1/1/4 automatic workers. Production still
-uses the transitional formula above; the remaining gate is full RN recycle/OOM
-behavior under those limits, not how to discover the ceiling.
+**Single-worker is the residual unsafe case in current Vitest.** With
+`isolate:false`, Vitest batches every file into one scheduler task, so no pool can
+recycle between files. Explicit hot mode therefore fails during config if the plan
+or user config selects one worker. A deliberate externally bounded run can opt in
+with `hotRuntime: { allowUnboundedMemory: true }`; the runtime warns again if it sees
+the actual multi-file batch. This escape hatch disables the automatic worker cap and
+process-RSS enforcement. It is not the default and is not described as bounded.
 
-**Single-worker is the residual unsafe case.** Recycling can't fire when Vitest
-batches all files into one task (`isolate:false` + `maxWorkers:1`). So when hot is
-enabled and workers resolve to 1, the bound is inert — keep the existing one-time
-warning (already shipped) and document "run ≥2 workers for bounded hot memory."
-Do **not** silently rewrite the user's `maxWorkers`.
+Docker cgroup v2 probes on Node 20.20.2 established that
+`process.constrainedMemory()` exactly reports 512 MiB, 1 GiB and 2 GiB limits where
+host memory is misleading. Unit, native, isolation and recycle-soak gates cover the
+production controller. A packed Node 22 / RN 0.87 / RNTL 14 gate then ran 405 files:
+512 MiB and 1 GiB both failed during config with `HOT_MEMORY_UNBOUNDED`, while 2 GiB
+capped an explicit eight-worker request to four, completed the suite and
+demonstrably recycled. None was
+OOM-killed. Broader CI/container calibration remains before Layer 2 is promoted.
 
 ## Layer 2 — `hotRuntime: 'auto'`
 
@@ -134,22 +138,25 @@ Layer 1 makes the bounded row the out-of-the-box behavior whenever workers ≥ 2
 
 ## Guardrails & warnings
 
-- Single-worker hot with a memory bound set → the existing "recycling INACTIVE"
-  warning (PR #55), reworded to mention the unbounded-memory risk and recommend
-  ≥2 workers.
+- Single-worker explicit hot → fail closed during config, unless
+  `allowUnboundedMemory:true` makes the risk deliberate and visible.
+- Process RSS at the hard boundary → stop before another worker/task starts and
+  report `HOT_MEMORY_BUDGET_EXCEEDED`, rather than waiting for exit 137/OOM.
 - `'auto'` that declines to enable hot → a one-line diagnostic explaining why
   (jest-compat detected / single worker / low memory), so it isn't a silent no-op.
 
 ## Open questions
 
-1. Validate the candidate 80% soft / 90% hard RSS envelope and reserves with the
-   packed RN scale fixture across common Linux CI/container shapes.
+1. Repeat the passing packed Linux cgroup gate across common CI providers, cgroup v1
+   and different RN/RNTL generations; calibrate from evidence rather than treating
+   the first constants as permanent.
 2. Reuse an upstream full module-isolation API if it lands. It removes the custom
-   worker/private module-reset path; a thin memory-aware pool may still be required.
+   worker/private module-reset path and gives one-worker runs recyclable file tasks;
+   a thin memory-aware pool may still be required.
 
 ## Rollout sequence
 
-1. **Layer 1 (bounded hot)** — shipped with a transitional per-worker heap threshold;
-   finish cgroup-aware worker-total/RSS budgeting and recyclable one-worker tasks.
+1. **Layer 1 (bounded explicit hot)** — shipped with cgroup-aware worker-total/RSS
+   budgeting; current one-worker batching fails closed.
 2. **Layer 2 (`'auto'`)** — opt greenfield projects in safely.
 3. **Layer 3 (default flip)** — only with the gating evidence above.

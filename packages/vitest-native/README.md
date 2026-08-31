@@ -220,6 +220,12 @@ the app/test module graph for every file. It also restores direct `process.env` 
 file-created globals, RN event subscriptions, dimensions, timers, and plugin mock state between
 files. A dedicated one-worker CI test exercises this cross-file isolation contract.
 
+When hot is enabled, the plugin derives a worker-total memory plan from the lower of host and
+container/cgroup memory. It reserves main-process and replacement headroom, caps automatic
+concurrency at four, recycles workers on local heap or process RSS, and stops before starting more
+work at the hard RSS boundary. Run with `diagnostics: true` or `vitest-native doctor` to see the
+chosen envelope.
+
 **Known limitation.** Because React Native stays resident, state held inside React Native's own
 internal modules is _not_ reset between files — the per-file reset deliberately does not reach into
 third-party or RN-internal module internals, because doing so generically is unsafe. Suites that
@@ -245,11 +251,14 @@ reactNative({
 });
 ```
 
-Recycling is applied between Vitest scheduler tasks. Vitest can place multiple files in one task,
-especially with `maxWorkers: 1`, so a worker cannot be retired in the middle of that batch. Use
-more than one worker when strict per-file retirement matters. `preserveGlobals` is an exact
-allowlist for registries created by resident external dependencies; Storybook's preview registry
-is preserved automatically.
+Recycling is applied between Vitest scheduler tasks. Current Vitest batches every file into one
+uninterruptible task at `maxWorkers: 1`, so the plugin fails that configuration rather than claim
+an inert memory bound. Use at least two workers or the default runtime. If an external scheduler
+already provides a hard boundary, you can deliberately accept the risk with
+`hotRuntime: { allowUnboundedMemory: true }`; this disables the automatic worker cap and
+process-RSS enforcement and prints a warning when the batch is observed. `preserveGlobals` is an
+exact allowlist for registries created by resident external dependencies; Storybook's preview
+registry is preserved automatically.
 
 This mode uses Vitest's custom pool and worker APIs, so it remains experimental. CI runs the
 complete native suite under both the lockfile Vitest and the newest supported Vitest release,

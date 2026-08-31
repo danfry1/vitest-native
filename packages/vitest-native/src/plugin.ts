@@ -15,6 +15,7 @@ import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
 import { detectEcosystemPackages } from "./native/ecosystem.js";
 import { containsPath, packageDirOf } from "./native/match.mjs";
+import type { HotMemoryPlan } from "./native/memory.mjs";
 import type { NativeOwnershipPolicy } from "./native/ownership.mjs";
 import {
   createNativeOwnershipPolicy,
@@ -1056,6 +1057,75 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         });
         assertInlineOwnership(userInline);
 
+        // Admit the hot runtime BEFORE compiling React Native's registry. On a
+        // constrained container the registry build itself is a material memory
+        // event, so discovering here that only an unrecyclable one-worker run fits
+        // gives the user a deterministic configuration error instead of risking an
+        // OOM during an optimization that the run cannot safely use anyway.
+        let hotMemory:
+          | {
+              plan: HotMemoryPlan;
+              memoryLimit: number;
+              allowUnboundedMemory: boolean;
+            }
+          | undefined;
+        if (hotRuntime) {
+          const { createHotMemoryPlan, formatHotMemoryPlan, resolveRequestedWorkers } =
+            await import("./native/memory.mjs");
+          const userTest = (
+            userConfig as {
+              test?: { fileParallelism?: boolean; maxWorkers?: number | string };
+            }
+          ).test;
+          const requestedWorkers = resolveRequestedWorkers(userTest?.maxWorkers, {
+            fileParallelism: userTest?.fileParallelism,
+          });
+          const plan = createHotMemoryPlan({ requestedWorkers });
+          const allowUnboundedMemory = hotRecycle.allowUnboundedMemory === true;
+          if (!allowUnboundedMemory && plan.maxWorkers < 2) {
+            throw new VitestNativeError(
+              "HOT_MEMORY_UNBOUNDED",
+              `hotRuntime cannot enforce its memory budget with one worker because Vitest ` +
+                `batches every file into one unrecyclable task. The effective ` +
+                `${plan.source} memory ceiling admits ${plan.admittedWorkers} worker, ` +
+                `or this config explicitly selects one. Use hotRuntime:false, provide enough ` +
+                `memory for at least two workers, or explicitly accept unbounded growth with ` +
+                `hotRuntime:{ allowUnboundedMemory:true }.`,
+            );
+          }
+          if (
+            !allowUnboundedMemory &&
+            userTest?.maxWorkers != null &&
+            plan.maxWorkers < requestedWorkers
+          ) {
+            console.warn(
+              `[vitest-native] hotRuntime capped maxWorkers from ${requestedWorkers} to ` +
+                `${plan.maxWorkers} for the ${plan.source} memory budget. ` +
+                `Set diagnostics:true to see the full envelope.`,
+            );
+          }
+          if (diagnostics) {
+            for (const line of formatHotMemoryPlan(plan)) {
+              console.log(`[vitest-native] memory: ${line}`);
+            }
+            if (allowUnboundedMemory) {
+              console.warn(
+                `[vitest-native] memory: allowUnboundedMemory:true disables the automatic ` +
+                  `worker cap and process-RSS enforcement.`,
+              );
+            }
+          }
+          env.VITEST_NATIVE_MEMORY_PLAN = JSON.stringify({
+            ...plan,
+            enforced: !allowUnboundedMemory,
+          });
+          hotMemory = {
+            plan,
+            memoryLimit: hotRecycle.memoryLimit ?? plan.workerHeapLimit,
+            allowUnboundedMemory,
+          };
+        }
+
         const registryFile = await buildRegistryFor({
           projectRoot: resolvedRoot,
           platform,
@@ -1065,29 +1135,26 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         });
         if (registryFile) env.VITEST_NATIVE_RN_REGISTRY = registryFile;
 
-        // Lazy import: pulls in vitest/node, which only exists when running
-        // under Vitest (not plain Vite) — and only the hot runtime needs it.
-        let hot: { pool: PoolRunnerInitializer; runnerPath: string } | undefined;
-        if (hotRuntime) {
-          const { nativePool, defaultHotMemoryLimit } = await import("./native/pool.js");
-          // When hot is enabled but the user set no explicit recycling, apply a
-          // default per-worker memory bound so enabling hot can't grow memory
-          // unbounded. Don't override an explicit choice: if the user set
-          // recycleAfterFiles, respect that as their bound and add no default
-          // memoryLimit. (Single-worker hot can't recycle regardless — the pool
-          // warns about that — but multi-worker runs are now bounded out of the box.)
-          const memoryLimit =
-            hotRecycle.memoryLimit ??
-            (hotRecycle.recycleAfterFiles == null ? defaultHotMemoryLimit() : undefined);
+        // Lazy import: pulls in vitest/node, which only exists when running under
+        // Vitest (not plain Vite). Memory admission above deliberately has no
+        // Vitest dependency, so it can run before the registry optimization.
+        let hot:
+          | { pool: PoolRunnerInitializer; runnerPath: string; maxWorkers?: number }
+          | undefined;
+        if (hotMemory) {
+          const { nativePool } = await import("./native/pool.js");
           hot = {
             pool: nativePool({
               workerEntry: nativeWorkerPath,
               projectRoot: resolvedRoot,
               recycleAfterFiles: hotRecycle.recycleAfterFiles,
-              memoryLimit,
+              memoryLimit: hotMemory.memoryLimit,
+              memoryPlan: hotMemory.plan,
+              allowUnboundedMemory: hotMemory.allowUnboundedMemory,
               diagnostics,
             }),
             runnerPath: nativeRunnerPath,
+            maxWorkers: hotMemory.allowUnboundedMemory ? undefined : hotMemory.plan.maxWorkers,
           };
         }
         const userPool = (userConfig as { test?: { pool?: unknown } }).test?.pool;

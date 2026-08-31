@@ -285,7 +285,10 @@ class AlphabeticalSequencer {
 
 export default defineConfig({
   plugins: [
-    reactNative({ engine: "native", hotRuntime: hotMode }),
+    reactNative({
+      engine: "native",
+      hotRuntime: hotMode ? ${workers === 1 ? "{ allowUnboundedMemory: true }" : "true"} : false,
+    }),
     ...(moduleMode ? [{
       name: "vitest-native:module-isolation-scale",
       configResolved(config) {

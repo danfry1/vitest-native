@@ -8,7 +8,13 @@ import { reactNative } from "vitest-native";
 // exists once everything sits under node_modules. This config is the packed twin of
 // validate:hot-parity's premise: the same engine, loaded the way a consumer loads it.
 export default defineConfig({
-  plugins: [reactNative({ engine: "native", platform: "android", hotRuntime: true })],
+  plugins: [
+    reactNative({
+      engine: "native",
+      platform: "android",
+      hotRuntime: { allowUnboundedMemory: true },
+    }),
+  ],
   test: {
     environment: "node",
     include: ["src/hot-*.test.tsx"],

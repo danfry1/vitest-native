@@ -7,7 +7,12 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const workers = Number(process.env.VN_WORKERS ?? 1);
 
 export default defineConfig({
-  plugins: [reactNative({ engine: "native", hotRuntime: true })],
+  plugins: [
+    reactNative({
+      engine: "native",
+      hotRuntime: workers === 1 ? { allowUnboundedMemory: true } : true,
+    }),
+  ],
   test: {
     globals: true,
     environment: "node",

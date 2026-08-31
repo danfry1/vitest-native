@@ -111,10 +111,14 @@ describe("option validation", () => {
     expect(() => reactNative({ hotRuntime: { esmGeneration: "no" } } as any)).toThrow(
       /esmGeneration.*boolean/,
     );
+    expect(() => reactNative({ hotRuntime: { allowUnboundedMemory: "yes" } } as any)).toThrow(
+      /allowUnboundedMemory.*boolean/,
+    );
   });
 
   it("accepts the esmGeneration opt-out", () => {
     expect(() => reactNative({ hotRuntime: { esmGeneration: false } })).not.toThrow();
     expect(() => reactNative({ hotRuntime: { esmGeneration: true } })).not.toThrow();
+    expect(() => reactNative({ hotRuntime: { allowUnboundedMemory: true } })).not.toThrow();
   });
 });

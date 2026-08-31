@@ -13,6 +13,7 @@ import {
   createNativeOwnershipPolicy,
   formatNativeOwnershipManifest,
 } from "../native/ownership.mjs";
+import { createHotMemoryPlan, formatHotMemoryPlan } from "../native/memory.mjs";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
 import { PEER_REQUIREMENTS } from "../peer-requirements.js";
 
@@ -304,6 +305,19 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
     lines.push(
       "  · This command does not execute Vitest config. Set diagnostics: true for the resolved static policy and worker-time registration lines.",
     );
+
+    const memoryPlan = createHotMemoryPlan();
+    lines.push("", "Hot runtime capacity (inferred baseline)");
+    for (const line of formatHotMemoryPlan(memoryPlan)) lines.push(`  · ${line}`);
+    if (memoryPlan.maxWorkers < 2) {
+      warn(
+        "this memory ceiling admits only one hot worker, but current Vitest batches one-worker hot suites into an unrecyclable task. Use the default runtime unless an external scheduler supplies the memory boundary.",
+      );
+    } else {
+      lines.push(
+        "  · This is capacity, not proof that hotRuntime is enabled; the resolved run reports its actual plan with diagnostics:true.",
+      );
+    }
   }
 
   // --- RNTL ---

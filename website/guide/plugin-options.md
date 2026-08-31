@@ -110,4 +110,6 @@ reactNative({ hotRuntime: true })
 
 It can dramatically cut the per-file cost on large suites, but because React Native stays resident, suites that lean on deep resident-RN-internal state (for example heavy cross-file `Animated` usage) can see cross-file interference they wouldn't under the default per-file isolation. The tell is a test that passes alone but fails after other files. See [Hot runtime](/guide/engines#hot-runtime-experimental) for when it helps, the known limitation, and worker recycling.
 
+Hot mode installs a cgroup-aware memory plan by default and requires at least two workers so it can recycle at file boundaries. A deliberate externally bounded single-worker run can use `hotRuntime: { allowUnboundedMemory: true }`; this disables the automatic worker cap and process-RSS enforcement and is intentionally noisy.
+
 Next: [Third-Party Presets](/guide/presets).

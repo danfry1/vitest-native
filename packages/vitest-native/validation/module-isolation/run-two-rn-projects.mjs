@@ -138,7 +138,7 @@ const project = name => ({
   plugins: [reactNative({
     engine: "native",
     platform: "ios",
-    hotRuntime: ${productionHot},
+    hotRuntime: ${productionHot ? "{ allowUnboundedMemory: true }" : "false"},
   })],
   test: {
     name,

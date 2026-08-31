@@ -205,7 +205,8 @@ Eight workers bought roughly 6% over four for about 512 MiB more peak RSS. The
 candidate automatic ceiling is therefore four. Higher concurrency remains an
 explicit or measured choice.
 
-`memory-budget.mjs` encodes a candidate—not production—policy with:
+`memory-budget.mjs` earned the policy now implemented by
+`src/native/memory.mjs` and the production hot pool:
 
 - an effective limit from host and constrained memory;
 - 80% soft and 90% hard RSS limits;
@@ -232,8 +233,18 @@ its hard RSS threshold below it:
 | 2 GiB | 4 | 193 MiB |
 
 This establishes that Node's supported API is a viable cross-cgroup input and that
-`os.totalmem()` alone is unsafe. It does not yet prove full RN survival or recycle
-recovery at those limits; that needs the packed scale fixture in Linux CI.
+`os.totalmem()` alone is unsafe. The production planner now consumes it, performs
+admission before registry compilation and fails closed when only current Vitest's
+unrecyclable one-worker mode fits.
+
+The packed production gate then installed RN 0.87, RNTL 14, React Navigation and the
+packed package in a Node 22 Linux container and ran the 405-file scale fixture. At
+512 MiB and 1 GiB it exited during config with `HOT_MEMORY_UNBOUNDED`, before registry
+compilation and without exit 137. At 2 GiB it capped an explicit eight-worker request
+to four through Vite's real config merge, passed every file and logged worker
+recycling at the explicit 96 MiB heap threshold. This proves the current constants
+on one real cgroup v2 shape; CI/provider and cgroup v1 coverage remain calibration
+work.
 
 ## Registry result
 
@@ -318,7 +329,8 @@ required for the RN production architecture and should not lead the upstream ask
 - browser and VM pool semantics are intentionally outside the proposed Vitest v1;
 - packed RN V8 coverage has exact default/hot parity; packed Istanbul scale remains a
   useful second-provider release gate;
-- cgroup v1/v2 and container hard-limit behavior needs Linux CI evidence;
+- cgroup v2 has packed Linux pass/fail-closed/recycle evidence; cgroup v1 and varied
+  CI provider shapes remain;
 - supported hot/module mode still needs to stop using private Vitest state before the
   architecture is promoted;
 - the state manifest must cover package listeners, globals and environment changes,
@@ -334,8 +346,11 @@ required for the RN production architecture and should not lead the upstream ask
 - `run-scale.mjs`: packed correctness, RSS, recycling and concurrency matrix.
 - `profile-registry.mjs`: cold registry compiler profile.
 - `memory-accounting.mjs`: Node thread memory semantics.
-- `memory-budget.test.mjs`: candidate budget table.
+- `memory-budget.test.mjs`: evidence table from which the production planner was
+  derived.
 - `memory-budget-runtime.mjs`: Node 20 constrained-memory input under real cgroups.
+- `run-cgroup-hot.mjs`: packed production-hot fail-closed and recycle/survival gate
+  at 512 MiB, 1 GiB and 2 GiB Docker limits.
 - `run-coverage.mjs`: packed RN exact V8 coverage parity.
 
 The scale and packed scripts create temporary consumers and install dependencies, so

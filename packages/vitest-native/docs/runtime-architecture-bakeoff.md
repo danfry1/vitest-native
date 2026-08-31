@@ -66,7 +66,8 @@ Confidence is deliberately split by claim:
 | RN should remain a Node-owned CommonJS registry | very high (~96%) | a Vite-owned representation matching its semantics, speed and memory with fewer owners |
 | upstream needs worker reuse plus full module/mock reset | very high (~95%) | a smaller supported Vitest primitive that removes the same private seams |
 | current hot is a sound migration base | high (~90%) | an unresolved packed correctness failure in its supported Node assurance lane |
-| automatic hot memory thresholds are production-ready | medium (~70%) | this rises only after constrained Linux RN/OOM and recycle-recovery gates |
+| explicit hot memory controller is production-ready | high (~90%) | more CI/container shapes may recalibrate its conservative constants |
+| automatic hot selection is ready to become the default | medium (~70%) | state-manifest completion and real-app mileage remain |
 
 These details are intentionally **not** frozen: the public Vitest option name, Linux
 memory reserves, the complete state manifest, optimizer-specific hooks and whether a
@@ -144,6 +145,13 @@ does **not** justify replacing the package with a greenfield public package:
   compile its Flow dependency and substitute its native boundary. A separate
   regression prevents `NODE_PATH` from making the consumer borrow this package's own
   RN install.
+- explicit hot mode now consumes the validated memory planner in production: it uses
+  the effective host/cgroup ceiling, caps automatic concurrency at four, serializes
+  replacement overlap, recycles on worker heap or process RSS and fails closed at the
+  hard RSS boundary;
+- current Vitest's one-worker non-isolated batch is rejected before registry
+  compilation unless `allowUnboundedMemory:true` explicitly accepts an externally
+  bounded, unrecyclable run.
 
 Phase 1 is a substantial slice, not the final observation ledger. A conflicting Vite
 transform and configuration that necessarily defeats externalization fail hard.
@@ -395,7 +403,7 @@ The production controller needs two levels:
 - **run-global:** process RSS plus cgroup/current usage controls worker admission and
   fail-closed behavior.
 
-Candidate automatic policy, to be calibrated in Linux CI:
+Production policy, to be calibrated further in Linux CI:
 
 - effective limit is the minimum valid host and constrained-memory ceiling;
 - soft RSS at 80%, hard RSS at 90%;
@@ -409,8 +417,11 @@ Node thread `heapUsed` is thread-local while `rss` is process-wide. Forks requir
 cgroup or process-tree aggregation. Node 20 compatibility means newer
 `process.availableMemory()` cannot be the only source.
 
-Cold registry compilation happens before worker admission in its short-lived child,
-so its high transient RSS does not overlap the full worker set.
+Hot worker admission now happens before cold registry compilation, so an unsafe
+one-worker/container plan fails before paying that spike. Registry cache-miss
+compilation still happens in the Vite main process today. Moving it into a bounded,
+short-lived child remains Phase 3 work; its transient RSS does not overlap the worker
+set, but can still consume container headroom during setup.
 
 ### 9. Expo capability profile
 
@@ -522,9 +533,12 @@ then-current Vitest main branch.
 
 ### Phase 2 — bounded automatic hot
 
-1. Implement constrained-memory detection and total RSS accounting.
-2. Add the four-worker automatic cap and calibrated worker admission.
-3. Preserve single-file tasks so one worker can recycle.
+1. Implement constrained-memory detection and total RSS accounting. **Shipped for
+   explicit hot mode.**
+2. Add the four-worker automatic cap and calibrated worker admission. **Shipped for
+   explicit hot mode.**
+3. Preserve single-file tasks so one worker can recycle. **Validated in the upstream
+   module-isolation prototype; current production fails closed at one worker.**
 4. Add state-manifest verification and fail-safe restoration.
 5. Make `hotRuntime: "auto"` choose/explain a safe plan; keep explicit overrides.
 
