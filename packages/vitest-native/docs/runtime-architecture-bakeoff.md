@@ -562,6 +562,7 @@ then-current Vitest main branch.
    current hot runtime; broader RN/RNTL/Expo version coverage remains a promotion
    gate.**
 5. Make `hotRuntime: "auto"` choose/explain a safe plan; keep explicit overrides.
+   **Shipped with a packed enable/fallback matrix.**
 
 ### Phase 3 — cold-path and Expo hardening
 

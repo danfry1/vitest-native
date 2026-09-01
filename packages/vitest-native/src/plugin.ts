@@ -663,6 +663,39 @@ export function disabledPresetNames(presets: unknown): Set<string> {
   );
 }
 
+const JEST_MOCK_TRANSFORM_NAME = "vitest-native:jest-mock-hoist";
+
+function hasPluginNamed(value: unknown, name: string): boolean {
+  if (Array.isArray(value)) return value.some((entry) => hasPluginNamed(entry, name));
+  return value !== null && typeof value === "object" && (value as { name?: unknown }).name === name;
+}
+
+function hasJestCompatSetup(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasJestCompatSetup);
+  if (typeof value !== "string") return false;
+  const normalized = value.replaceAll("\\", "/").split("?")[0];
+  return (
+    normalized === "vitest-native/jest-compat/setup" ||
+    /(?:^|\/)vitest-native(?:\/dist)?\/jest-compat\/setup(?:\.mjs)?$/.test(normalized)
+  );
+}
+
+/** Config-time reasons that make automatic hot selection too surprising or unsafe. */
+function hotAutoConfigDeclineReason(userConfig: UserConfig, userPool: unknown): string | null {
+  if (hasPluginNamed(userConfig.plugins, JEST_MOCK_TRANSFORM_NAME)) {
+    return "jestMockTransform() marks this as a Jest migration suite";
+  }
+  const setupFiles = (userConfig as { test?: { setupFiles?: unknown } }).test?.setupFiles;
+  if (hasJestCompatSetup(setupFiles)) {
+    return "the Jest compatibility setup marks this as a migration suite";
+  }
+  if (userPool != null) {
+    const label = typeof userPool === "string" ? `'${userPool}'` : "a custom pool";
+    return `${label} is explicitly configured`;
+  }
+  return null;
+}
+
 export function reactNative(options?: VitestNativeOptions): Plugin {
   // Per plugin INSTANCE, not module scope. A Vitest workspace calls reactNative() once
   // per project and they share this module, so module-level state means the last
@@ -840,9 +873,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     options?.transform,
   );
   // Hot runtime (native engine only): persistent RN-hot workers with per-file
-  // isolation via the custom pool. Opt-in while it bakes (see design doc).
+  // isolation via the custom pool. `auto` is a conservative selector: it keeps
+  // stock isolation whenever config-time evidence cannot prove this path safe.
   const hotRuntimeOpt = options?.hotRuntime ?? false;
-  const hotRuntime = hotRuntimeOpt !== false;
+  const hotRuntimeRequested = hotRuntimeOpt !== false;
+  const hotRuntimeAuto = hotRuntimeOpt === "auto";
   const hotRecycle = typeof hotRuntimeOpt === "object" ? hotRuntimeOpt : {};
   // Resolved at config() time, once the consumer project root is known. Seeded to a
   // safe default so the hooks (resolveId/load/transform), which run after config(),
@@ -869,10 +904,13 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     return undefined;
   };
 
-  return {
+  const pluginDefinition = {
     name: "vitest-native",
     enforce: "pre",
 
+    // This plugin is `enforce:"pre"` for resolution/transform semantics, but its
+    // config decision is wrapped as an order:"post" hook below. Automatic hot
+    // selection must see pools and setup files contributed by later plugins.
     async config(userConfig, _env) {
       // Serialize options that need to cross from the Vite main process
       // into Vitest worker processes. globalThis does NOT survive this
@@ -937,12 +975,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         ...(options?.assetExts ?? []).map((e) => e.replace(/^\./, "")),
       ];
       env.VITEST_NATIVE_ASSET_EXTS = JSON.stringify(assetExtList);
-      if (hotRuntime && hotRecycle.preserveGlobals?.length) {
+      if (hotRuntimeRequested && hotRecycle.preserveGlobals?.length) {
         env.VITEST_NATIVE_HOT_PRESERVE_GLOBALS = JSON.stringify(hotRecycle.preserveGlobals);
       }
       // Only the opt-out is passed: the setup file defaults this on under hot, so
       // an absent variable means "on" and nothing has to be forwarded to say so.
-      if (hotRuntime && hotRecycle.esmGeneration === false) {
+      if (hotRuntimeRequested && hotRecycle.esmGeneration === false) {
         env.VITEST_NATIVE_HOT_ESM_GEN = "0";
       }
 
@@ -1057,6 +1095,28 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         });
         assertInlineOwnership(userInline);
 
+        const userTest = (
+          userConfig as {
+            test?: {
+              fileParallelism?: boolean;
+              maxWorkers?: number | string;
+              pool?: unknown;
+            };
+          }
+        ).test;
+        const userPool = userTest?.pool;
+        // VM pools are incompatible with the native engine itself, irrespective of
+        // whether automatic hot selection would otherwise decline.
+        if (userPool === "vmThreads" || userPool === "vmForks") {
+          throw new VitestNativeError(
+            "UNSUPPORTED_POOL",
+            `engine:'native' cannot run on the '${userPool}' pool. React Native is ` +
+              `loaded through Node's module hooks, which a VM pool's context does not use — ` +
+              `React Native fails to resolve its platform files there. Use 'threads' (the ` +
+              `default) or 'forks', or switch to engine:'mock', which needs no hooks.`,
+          );
+        }
+
         // Admit the hot runtime BEFORE compiling React Native's registry. On a
         // constrained container the registry build itself is a material memory
         // event, so discovering here that only an unrecyclable one-worker run fits
@@ -1069,20 +1129,25 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
               allowUnboundedMemory: boolean;
             }
           | undefined;
-        if (hotRuntime) {
+        if (hotRuntimeRequested) {
           const { createHotMemoryPlan, formatHotMemoryPlan, resolveRequestedWorkers } =
             await import("./native/memory.mjs");
-          const userTest = (
-            userConfig as {
-              test?: { fileParallelism?: boolean; maxWorkers?: number | string };
-            }
-          ).test;
           const requestedWorkers = resolveRequestedWorkers(userTest?.maxWorkers, {
             fileParallelism: userTest?.fileParallelism,
           });
           const plan = createHotMemoryPlan({ requestedWorkers });
           const allowUnboundedMemory = hotRecycle.allowUnboundedMemory === true;
-          if (!allowUnboundedMemory && plan.maxWorkers < 2) {
+          const autoDeclineReason = hotRuntimeAuto
+            ? (hotAutoConfigDeclineReason(userConfig, userPool) ??
+              (plan.maxWorkers < 2
+                ? `the ${plan.source} memory/scheduler plan selects only one unrecyclable worker`
+                : null))
+            : null;
+          if (autoDeclineReason !== null) {
+            console.warn(
+              `[vitest-native] hotRuntime:'auto' kept default isolation: ${autoDeclineReason}.`,
+            );
+          } else if (!allowUnboundedMemory && plan.maxWorkers < 2) {
             throw new VitestNativeError(
               "HOT_MEMORY_UNBOUNDED",
               `hotRuntime cannot enforce its memory budget with one worker because Vitest ` +
@@ -1094,6 +1159,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             );
           }
           if (
+            autoDeclineReason === null &&
             !allowUnboundedMemory &&
             userTest?.maxWorkers != null &&
             plan.maxWorkers < requestedWorkers
@@ -1104,7 +1170,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
                 `Set diagnostics:true to see the full envelope.`,
             );
           }
-          if (diagnostics) {
+          if (autoDeclineReason === null && diagnostics) {
             for (const line of formatHotMemoryPlan(plan)) {
               console.log(`[vitest-native] memory: ${line}`);
             }
@@ -1115,15 +1181,17 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
               );
             }
           }
-          env.VITEST_NATIVE_MEMORY_PLAN = JSON.stringify({
-            ...plan,
-            enforced: !allowUnboundedMemory,
-          });
-          hotMemory = {
-            plan,
-            memoryLimit: hotRecycle.memoryLimit ?? plan.workerHeapLimit,
-            allowUnboundedMemory,
-          };
+          if (autoDeclineReason === null) {
+            env.VITEST_NATIVE_MEMORY_PLAN = JSON.stringify({
+              ...plan,
+              enforced: !allowUnboundedMemory,
+            });
+            hotMemory = {
+              plan,
+              memoryLimit: hotRecycle.memoryLimit ?? plan.workerHeapLimit,
+              allowUnboundedMemory,
+            };
+          }
         }
 
         const registryFile = await buildRegistryFor({
@@ -1157,23 +1225,6 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             maxWorkers: hotMemory.allowUnboundedMemory ? undefined : hotMemory.plan.maxWorkers,
           };
         }
-        const userPool = (userConfig as { test?: { pool?: unknown } }).test?.pool;
-        // The VM pools run test code in a `vm` context whose module executor does not
-        // go through Node's loader, and `module.register()` — how the engine installs
-        // the ESM hook that Flow-strips React Native and resolves its platform files —
-        // throws there outright ("register is not available when running in Vitest").
-        // Without those hooks React Native never resolves its `.ios`/`.android` files
-        // and dies on `Platform.OS` deep inside NativeEventEmitter. Say so here rather
-        // than let that surface as an unexplained crash.
-        if (userPool === "vmThreads" || userPool === "vmForks") {
-          throw new VitestNativeError(
-            "UNSUPPORTED_POOL",
-            `engine:'native' cannot run on the '${userPool}' pool. React Native is ` +
-              `loaded through Node's module hooks, which a VM pool's context does not use — ` +
-              `React Native fails to resolve its platform files there. Use 'threads' (the ` +
-              `default) or 'forks', or switch to engine:'mock', which needs no hooks.`,
-          );
-        }
         if (hot && userPool) {
           console.warn(
             `[vitest-native] 'hotRuntime' supplies its own pool, overriding the configured ` +
@@ -1199,7 +1250,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       }
 
       // --- mock engine (existing behaviour) ---
-      if (hotRuntime) {
+      if (hotRuntimeRequested) {
         console.warn(
           `[vitest-native] 'hotRuntime' only applies to engine:'native' (resolved engine: '${engine}'); ignoring.`,
         );
@@ -1664,5 +1715,14 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         return undefined;
       }
     },
+  } satisfies Plugin;
+
+  const configHandler = pluginDefinition.config;
+  return {
+    ...pluginDefinition,
+    // Choosing from the original user object can create an unsafe hybrid such as
+    // isolate:false + the hot runner + a later-overridden forks pool. Vite's
+    // per-hook order lets only config run last while resolve/transform remain pre.
+    config: { order: "post", handler: configHandler },
   };
 }

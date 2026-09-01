@@ -8,6 +8,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { reactNative } from "../src/index.js";
 import { gestureHandler } from "../src/presets/index.js";
+import { runPluginConfig } from "./plugin-config.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 function findUp(rel: string, start: string): string {
@@ -25,7 +26,7 @@ const SERVE_ENV = { command: "serve", mode: "test" } as const;
 
 async function makePlugin() {
   const plugin = reactNative({ engine: "mock", presets: [gestureHandler()] }) as any;
-  await plugin.config({ root: projectRoot }, SERVE_ENV);
+  await runPluginConfig(plugin, { root: projectRoot }, SERVE_ENV);
   await plugin.configResolved({ root: projectRoot });
   return plugin;
 }

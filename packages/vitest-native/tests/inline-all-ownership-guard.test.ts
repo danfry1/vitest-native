@@ -9,38 +9,33 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import { reactNative } from "../src/plugin.js";
+import { runPluginConfig } from "./plugin-config.js";
 
 describe("native ownership guard", () => {
   it("rejects inline-all with an actionable ownership explanation", async () => {
     const plugin = reactNative({ engine: "native" });
     await expect(
-      plugin.config?.(
-        {
-          root: path.resolve(import.meta.dirname, ".."),
-          test: { server: { deps: { inline: true } } },
-        },
-        { command: "serve", mode: "test" },
-      ),
+      runPluginConfig(plugin, {
+        root: path.resolve(import.meta.dirname, ".."),
+        test: { server: { deps: { inline: true } } },
+      }),
     ).rejects.toThrow(/separate module state.*Remove the overlapping inline rule/s);
   });
 
   it("rejects a narrow inline pattern that claims a detected Node package", async () => {
     const plugin = reactNative({ engine: "native" });
     await expect(
-      plugin.config?.(
-        {
-          root: path.resolve(import.meta.dirname, ".."),
-          test: { server: { deps: { inline: ["rn-singleton-lib"] } } },
-        },
-        { command: "serve", mode: "test" },
-      ),
+      runPluginConfig(plugin, {
+        root: path.resolve(import.meta.dirname, ".."),
+        test: { server: { deps: { inline: ["rn-singleton-lib"] } } },
+      }),
     ).rejects.toThrow(/overlaps Node-owned package: rn-singleton-lib/);
   });
 
   it("rechecks Vitest's final resolved inline rules", async () => {
     const root = path.resolve(import.meta.dirname, "..");
     const plugin = reactNative({ engine: "native" });
-    await plugin.config?.({ root }, { command: "serve", mode: "test" });
+    await runPluginConfig(plugin, { root });
 
     await expect(
       plugin.configResolved?.({
@@ -54,7 +49,7 @@ describe("native ownership guard", () => {
   it("rejects an actual Vite transform of a Node-owned file", async () => {
     const root = path.resolve(import.meta.dirname, "..");
     const plugin = reactNative({ engine: "native" });
-    await plugin.config?.({ root }, { command: "serve", mode: "test" });
+    await runPluginConfig(plugin, { root });
     const nodeOwned = createRequire(import.meta.url).resolve("rn-singleton-lib");
 
     expect(() => plugin.transform?.("export const x = 1", nodeOwned)).toThrow(

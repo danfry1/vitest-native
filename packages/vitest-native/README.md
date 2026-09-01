@@ -147,7 +147,7 @@ export default defineConfig({
       diagnostics: false, // Enable verbose logging
       assetExts: [".lottie"], // Additional asset extensions to stub
       transform: [], // Extra native-engine packages to Flow/TS transform
-      hotRuntime: false, // Experimental persistent RN workers
+      hotRuntime: false, // false | 'auto' | HotRuntimeOptions
     }),
   ],
 });
@@ -162,7 +162,7 @@ export default defineConfig({
 | `diagnostics` | `boolean`                      | `false`     | Log plugin activity to the console for debugging.                                                                                                                                                                                                                                                          |
 | `assetExts`   | `string[]`                     | `[]`        | Additional file extensions to stub as asset imports (beyond the built-in set).                                                                                                                                                                                                                             |
 | `transform`   | `string[]`                     | `[]`        | **`engine: 'native'` only.** Extra `node_modules` packages whose source the native engine should transform (Flow/TS/JSX stripped) as it loads them — for third-party RN libraries that ship untranspiled source (e.g. `react-native-reanimated`). Analogous to Jest's `transformIgnorePatterns` allowlist. |
-| `hotRuntime`  | `boolean \| HotRuntimeOptions` | `false`     | **Experimental, `engine: 'native'` only.** Reuse workers while keeping app/test modules isolated per file. See [Hot runtime](#hot-runtime).                                                                                                                                                                |
+| `hotRuntime`  | `boolean \| 'auto' \| HotRuntimeOptions` | `false`     | **Experimental, `engine: 'native'` only.** Reuse workers while keeping app/test modules isolated per file. `'auto'` enables this only when the configuration is bounded and recyclable. See [Hot runtime](#hot-runtime).                                                                                     |
 
 ### `engine`
 
@@ -206,7 +206,22 @@ the cross-check/fidelity harnesses in the repository's `bench/` directory.
 #### Hot runtime
 
 `engine: 'native'` normally uses Vitest's safest isolation model: each test file gets a fresh
-worker, so React Native reloads for every file. Large suites can opt into persistent workers:
+worker, so React Native reloads for every file. The conservative opt-in is automatic selection:
+
+```ts
+reactNative({
+  engine: "native",
+  hotRuntime: "auto",
+});
+```
+
+`'auto'` selects persistent workers only when the current scheduler provides recyclable task
+boundaries, the host/container memory plan admits at least two workers, no Jest compatibility
+plugin or setup marks the suite as migration-oriented, and no other pool was explicitly selected.
+The decision runs after other Vite config hooks, so a pool or setup contributed by a later plugin is
+included rather than producing a mixed runtime. Otherwise it keeps stock isolation and prints one
+line naming the reason. To require hot mode and fail closed when it cannot be bounded, use the
+explicit form:
 
 ```ts
 reactNative({
@@ -260,7 +275,8 @@ registry is preserved automatically.
 
 This mode uses Vitest's custom pool and worker APIs, so it remains experimental. CI runs the
 complete native suite under both the lockfile Vitest and the newest supported Vitest release,
-plus a generated 100-file isolation soak and an end-to-end memory-triggered recycling test.
+plus a generated 100-file isolation soak, an end-to-end memory-triggered recycling test, and a
+packed auto-selection matrix covering enablement and every guarded fallback class.
 
 ---
 

@@ -1,6 +1,6 @@
 # Design: hot runtime as a safe default for greenfield apps
 
-**Status:** Layer 1 shipped; Layers 2–3 remain proposals
+**Status:** Layers 1–2 shipped; Layer 3 remains a proposal
 **Basis:** the idiomatic hot-parity validation + default-flip de-risk (`validation/idiomatic/`)
 
 > Memory update (2026-08-31): explicit hot mode now installs a cgroup-aware,
@@ -30,6 +30,13 @@
 > each observable. Normal hot resets the precompiled RN registry's module instances
 > per file; resident-RN manifest legs are additionally exercised with the registry
 > disabled.
+>
+> Auto-selection update (2026-09-01): `hotRuntime: "auto"` now selects bounded hot
+> only for recyclable, non-migration, stock-pool native configurations. A packed
+> consumer gate proves the enable path plus one-worker, Jest-compat and explicit-pool
+> fallbacks, including their reason diagnostics. The selection hook runs after other
+> Vite config hooks; adversarial legs inject a pool and Jest setup from later plugins
+> and prove both are observed before the runtime is chosen.
 
 ## What the data established
 
@@ -106,7 +113,7 @@ capped an explicit eight-worker request to four, completed the suite and
 demonstrably recycled. None was
 OOM-killed. Broader CI/container calibration remains before Layer 2 is promoted.
 
-## Layer 2 — `hotRuntime: 'auto'`
+## Layer 2 — `hotRuntime: 'auto'` (implemented)
 
 A third value that enables hot only when it is both _safe_ and _beneficial_:
 
@@ -125,6 +132,8 @@ Enable hot when ALL hold (else fall back to the default per-file engine):
 - **Enough headroom.** Use a constrained-memory-aware total RSS plan, including main
   process and old/new worker overlap, rather than a fixed host-memory-per-worker
   estimate.
+- **No pool takeover.** An explicitly selected pool remains selected; automatic mode
+  does not replace it with the native hot pool.
 
 Suite size (hot's win amortizes over many files) is only known after collection,
 so `'auto'` keys on config-time signals; a tiny suite still works under hot, just
@@ -170,5 +179,5 @@ Layer 1 makes the bounded row the out-of-the-box behavior whenever workers ≥ 2
 1. **Layer 1 (bounded explicit hot)** — shipped with cgroup-aware worker-total/RSS
    budgeting and verified shared-realm restoration; current one-worker batching
    fails closed.
-2. **Layer 2 (`'auto'`)** — opt greenfield projects in safely.
+2. **Layer 2 (`'auto'`)** — shipped as an explicit, conservative greenfield opt-in.
 3. **Layer 3 (default flip)** — only with the gating evidence above.

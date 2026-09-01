@@ -99,6 +99,7 @@ describe("option validation", () => {
 
   it("rejects malformed hot runtime options", () => {
     expect(() => reactNative({ hotRuntime: null } as any)).toThrow(/hotRuntime/);
+    expect(() => reactNative({ hotRuntime: "fast" } as any)).toThrow(/boolean, "auto"/);
     expect(() => reactNative({ hotRuntime: { recycleAfterFiles: -1 } } as any)).toThrow(
       /non-negative/,
     );
@@ -117,6 +118,7 @@ describe("option validation", () => {
   });
 
   it("accepts the esmGeneration opt-out", () => {
+    expect(() => reactNative({ hotRuntime: "auto" })).not.toThrow();
     expect(() => reactNative({ hotRuntime: { esmGeneration: false } })).not.toThrow();
     expect(() => reactNative({ hotRuntime: { esmGeneration: true } })).not.toThrow();
     expect(() => reactNative({ hotRuntime: { allowUnboundedMemory: true } })).not.toThrow();

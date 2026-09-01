@@ -115,11 +115,11 @@ export function validateOptions(options: Record<string, unknown>): void {
   }
 
   const hotRuntime = options.hotRuntime;
-  if (hotRuntime === undefined || typeof hotRuntime === "boolean") return;
+  if (hotRuntime === undefined || typeof hotRuntime === "boolean" || hotRuntime === "auto") return;
   if (hotRuntime === null || Array.isArray(hotRuntime) || typeof hotRuntime !== "object") {
     throw new VitestNativeTypeError(
       "INVALID_OPTION",
-      `"hotRuntime" must be a boolean or an options object.`,
+      `"hotRuntime" must be a boolean, "auto", or an options object.`,
     );
   }
 
