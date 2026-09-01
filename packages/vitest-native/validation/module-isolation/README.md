@@ -327,14 +327,14 @@ required for the RN production architecture and should not lead the upstream ask
 ## Remaining unknowns
 
 - browser and VM pool semantics are intentionally outside the proposed Vitest v1;
-- packed RN V8 coverage has exact default/hot parity; packed Istanbul scale remains a
-  useful second-provider release gate;
+- packed RN V8 and Istanbul coverage have exact default/hot map and execution-count
+  parity and run as a canonical Linux CI gate;
 - cgroup v2 has packed Linux pass/fail-closed/recycle evidence; cgroup v1 and varied
   CI provider shapes remain;
 - supported hot/module mode still needs to stop using private Vitest state before the
   architecture is promoted;
-- the state manifest must cover package listeners, globals and environment changes,
-  not only fake timers and `vi.stubGlobal`;
+- the core state manifest is ordered, verified and mutation-gated; broader
+  RN/RNTL/Expo version coverage remains;
 - Metro differential resolution and RN/RNTL/Expo packed matrices remain required.
 
 ## Reproduction entry points
@@ -351,7 +351,7 @@ required for the RN production architecture and should not lead the upstream ask
 - `memory-budget-runtime.mjs`: Node 20 constrained-memory input under real cgroups.
 - `run-cgroup-hot.mjs`: packed production-hot fail-closed and recycle/survival gate
   at 512 MiB, 1 GiB and 2 GiB Docker limits.
-- `run-coverage.mjs`: packed RN exact V8 coverage parity.
+- `run-coverage.mjs`: packed RN exact V8 + Istanbul default/hot coverage parity.
 
 The scale and packed scripts create temporary consumers and install dependencies, so
 they are evidence tools rather than routine unit tests.

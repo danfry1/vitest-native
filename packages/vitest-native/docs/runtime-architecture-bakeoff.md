@@ -581,7 +581,8 @@ then-current Vitest main branch.
 
 ### Phase 5 — enterprise release gates
 
-1. Validate V8 and Istanbul coverage on packed RN scale fixtures.
+1. Validate V8 and Istanbul coverage on packed RN scale fixtures. **Shipped for
+   current hot as an exact default/hot map and execution-count CI gate.**
 2. Run container/cgroup memory and forced-OOM recovery gates.
 3. Publish assurance-scope and evidence-ledger documentation.
 4. Add deterministic sequencing/worker metadata to artifacts.

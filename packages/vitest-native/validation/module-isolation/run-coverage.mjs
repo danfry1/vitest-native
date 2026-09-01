@@ -34,12 +34,14 @@ function write(file, contents) {
   fs.writeFileSync(path.join(tempRoot, file), contents);
 }
 
-function normalizedCoverage(mode) {
-  const file = path.join(tempRoot, `coverage-${mode}`, "coverage-final.json");
+function normalizedCoverage(provider, mode) {
+  const file = path.join(tempRoot, `coverage-${provider}-${mode}`, "coverage-final.json");
   const report = JSON.parse(fs.readFileSync(file, "utf8"));
   const entries = Object.values(report);
   if (entries.length !== 1) {
-    throw new Error(`${mode} coverage contains ${entries.length} files instead of subject.mjs only`);
+    throw new Error(
+      `${provider}/${mode} coverage contains ${entries.length} files instead of subject.mjs only`,
+    );
   }
   const [{ path: _path, ...coverage }] = entries;
   return coverage;
@@ -63,6 +65,7 @@ try {
         dependencies: {
           "@babel/core": "^7.29.7",
           "@react-native/babel-preset": "0.87.0",
+          "@vitest/coverage-istanbul": "4.1.10",
           "@vitest/coverage-v8": "4.1.10",
           react: "19.2.8",
           "react-native": "0.87.0",
@@ -132,6 +135,7 @@ test("fresh module and branch ${index}", () => {
 import { reactNative } from "vitest-native";
 
 const mode = process.env.VN_COVERAGE_MODE;
+const provider = process.env.VN_COVERAGE_PROVIDER;
 
 export default defineConfig({
   plugins: [reactNative({ engine: "native", hotRuntime: mode === "hot" })],
@@ -142,43 +146,45 @@ export default defineConfig({
     minWorkers: 2,
     coverage: {
       enabled: true,
-      provider: "v8",
+      provider,
       include: ["subject.mjs"],
       reporter: ["json"],
-      reportsDirectory: "coverage-" + mode,
+      reportsDirectory: "coverage-" + provider + "-" + mode,
     },
   },
 });
 `,
   );
 
-  for (const mode of ["default", "hot"]) {
-    run(
-      process.execPath,
-      [path.join(tempRoot, "node_modules/vitest/vitest.mjs"), "run"],
-      tempRoot,
-      { VN_COVERAGE_MODE: mode },
-    );
-  }
+  for (const provider of ["v8", "istanbul"]) {
+    for (const mode of ["default", "hot"]) {
+      run(
+        process.execPath,
+        [path.join(tempRoot, "node_modules/vitest/vitest.mjs"), "run"],
+        tempRoot,
+        { VN_COVERAGE_MODE: mode, VN_COVERAGE_PROVIDER: provider },
+      );
+    }
 
-  const baseline = normalizedCoverage("default");
-  const hot = normalizedCoverage("hot");
-  if (JSON.stringify(hot) !== JSON.stringify(baseline)) {
-    throw new Error("hot coverage map/counts differ from default isolation");
-  }
-  for (const [name, expected] of [
-    ["classify", fileCount],
-    ["callCount", fileCount * 2],
-    ["platformLabel", fileCount],
-    ["deliberatelyUntested", 0],
-  ]) {
-    const count = functionCount(hot, name);
-    if (count !== expected) {
-      throw new Error(`${name} coverage count was ${count}; expected ${expected}`);
+    const baseline = normalizedCoverage(provider, "default");
+    const hot = normalizedCoverage(provider, "hot");
+    if (JSON.stringify(hot) !== JSON.stringify(baseline)) {
+      throw new Error(`${provider} hot coverage map/counts differ from default isolation`);
+    }
+    for (const [name, expected] of [
+      ["classify", fileCount],
+      ["callCount", fileCount * 2],
+      ["platformLabel", fileCount],
+      ["deliberatelyUntested", 0],
+    ]) {
+      const count = functionCount(hot, name);
+      if (count !== expected) {
+        throw new Error(`${provider} ${name} coverage count was ${count}; expected ${expected}`);
+      }
     }
   }
   console.log(
-    `Packed RN V8 coverage gate passed: ${fileCount} files, exact default/hot map parity.`,
+    `Packed RN V8 + Istanbul coverage gate passed: ${fileCount} files, exact default/hot map parity.`,
   );
 } finally {
   if (process.env.VN_KEEP_MODULE_ISOLATION === "1") {

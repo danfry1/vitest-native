@@ -263,6 +263,15 @@ jobs:
         if: runner.os == 'Linux' && matrix.node-version == '22.13.0' && !matrix.rntl
         run: bun run --filter vitest-native validate:hot-parity
 
+      - name: Hot runtime preserves V8 and Istanbul coverage attribution
+        # isolate:false is the scheduling signal for the custom hot pool, while
+        # modules are reset per file inside the worker. Compare packed default/hot
+        # maps and exact execution counts so that split cannot silently double-count
+        # or lose an uncovered branch. One canonical Linux leg contains the install
+        # cost without weakening the release invariant.
+        if: runner.os == 'Linux' && matrix.node-version == '22.13.0' && !matrix.rntl
+        run: bun run --filter vitest-native validate:coverage-parity
+
       - name: Cross-check (mock ≡ real RN) + fidelity report freshness
         # The cross-check is calibrated on the current RNTL (14); a few probes track
         # RNTL-version-specific real-RN behavior, so it runs only on the RNTL 14 legs.

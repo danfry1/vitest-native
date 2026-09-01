@@ -204,7 +204,8 @@
     "crosscheck": "node scripts/crosscheck.mjs",
     "fidelity:report": "node scripts/fidelity-report.mjs",
     "fidelity:check": "node scripts/fidelity-report.mjs --check && node scripts/fidelity-matrix.mjs --check",
-    "validate:hot-parity": "node validation/idiomatic/scale/run-compare.mjs"
+    "validate:hot-parity": "node validation/idiomatic/scale/run-compare.mjs",
+    "validate:coverage-parity": "node validation/module-isolation/run-coverage.mjs"
   },
   "dependencies": {
     "flow-remove-types": "^2.332.0",

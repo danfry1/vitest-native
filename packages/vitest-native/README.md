@@ -899,6 +899,7 @@ Every release must pass:
   on 0.81 and 0.87.
 - Packed bare RN 0.83/RNTL 12, Expo SDK 57/RNTL 13 (with expo-router and a `migrate`-generated
   jest-expo config), Vite 8 monorepo/RNTL 14, and RN 0.86 consumers.
+- Packed V8 and Istanbul coverage maps/counts matching default isolation exactly under hot workers.
 - Mock-versus-real-RN behavioral cross-checks, example-app tests, typecheck, lint, formatting, and
   package export analysis.
 

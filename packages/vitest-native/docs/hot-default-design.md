@@ -50,6 +50,9 @@
 - **Migration suites are out of scope.** hot is _not_ clean for jest-compat
   suites (the paper bake-off); that's a migration-tooling problem, separate from
   the engine.
+- **Coverage attribution matches isolation.** A packed 40-file RN fixture produces
+  byte-identical default/hot coverage maps and exact execution counts under both V8
+  and Istanbul, including an uncovered-function negative control.
 
 So the question is no longer _whether_ hot is correct enough to default — it is —
 but _how_ to default it without the memory footgun or breaking migration suites.
