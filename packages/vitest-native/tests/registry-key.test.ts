@@ -87,6 +87,19 @@ describe("registry cache key", () => {
     expect(ios).not.toBe(android);
   });
 
+  it("keys asset extensions independent of spelling and declaration order", () => {
+    const root = projectWith(BASE);
+    const base = { projectRoot: root, platform: "ios", reactNativeVersion: "0.86.0" };
+    const without = registryKey(base);
+    const png = registryKey({ ...base, assetExts: ["png"] });
+    const both = registryKey({ ...base, assetExts: ["png", "svg"] });
+    const reordered = registryKey({ ...base, assetExts: [".SVG", ".png", "png"] });
+
+    expect(png).not.toBe(without);
+    expect(both).not.toBe(png);
+    expect(reordered).toBe(both);
+  });
+
   it("keys additional deep entrypoints independent of declaration order", () => {
     const root = projectWith(BASE);
     const base = { projectRoot: root, platform: "ios", reactNativeVersion: "0.86.0" };

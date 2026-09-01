@@ -279,6 +279,15 @@ jobs:
         if: runner.os == 'Linux' && matrix.node-version == '22.13.0' && !matrix.rntl
         run: bun run --filter vitest-native validate:hot-auto
 
+      - name: Bounded cold registry compilation
+        # Compile the same real RN graph in the Vite parent and in the production
+        # child, require artifact parity and a material persistent-RSS reduction,
+        # then race two cold children against one atomic cache. One stable Linux
+        # leg owns the memory ratio; the unit matrix exercises the process
+        # protocol, OOM retry and timeout on every supported OS/Node corner.
+        if: runner.os == 'Linux' && matrix.node-version == '22.13.0' && !matrix.rntl
+        run: bun run --filter vitest-native validate:registry-process
+
       - name: Cross-check (mock ≡ real RN) + fidelity report freshness
         # The cross-check is calibrated on the current RNTL (14); a few probes track
         # RNTL-version-specific real-RN behavior, so it runs only on the RNTL 14 legs.

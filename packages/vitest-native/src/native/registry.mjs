@@ -156,6 +156,14 @@ function canonicalAdditionalEntries(entries) {
   return [...new Set(entries)].sort();
 }
 
+function canonicalAssetExtensions(extensions) {
+  return [
+    ...new Set(extensions.map((extension) => String(extension).replace(/^\./, "").toLowerCase())),
+  ]
+    .filter(Boolean)
+    .sort();
+}
+
 /**
  * Identity of every input that determines the emitted registry's contents.
  *
@@ -171,7 +179,13 @@ function canonicalAdditionalEntries(entries) {
  *
  * Exported for tests. Not part of the public surface — see docs/versioning.md.
  */
-export function registryKey({ projectRoot, platform, reactNativeVersion, additionalEntries = [] }) {
+export function registryKey({
+  projectRoot,
+  platform,
+  reactNativeVersion,
+  assetExts = [],
+  additionalEntries = [],
+}) {
   const req = createRequire(path.join(projectRoot, "package.json"));
   const version = (name) => {
     try {
@@ -219,6 +233,7 @@ export function registryKey({ projectRoot, platform, reactNativeVersion, additio
         version("@react-native/babel-preset"),
         version("@babel/core"),
         process.env.BABEL_ENV || process.env.NODE_ENV || "none",
+        ...canonicalAssetExtensions(assetExts).map((extension) => `asset:${extension}`),
         ...canonicalAdditionalEntries(additionalEntries).map((entry) => `entry:${entry}`),
         boundaries.digest("hex"),
       ].join("\0"),
@@ -383,6 +398,12 @@ export function buildRegistry({
   assetExts = [],
   diagnostics = false,
   additionalEntries = [],
+  // Internal orchestration controls. `cacheOnly` lets the long-lived Vite process
+  // perform the cheap key/manifest check without ever loading Babel or compiling
+  // RN. `failOnError` lets the bounded compiler child return a structured failure;
+  // ordinary callers keep the warning + correctness-preserving fallback contract.
+  cacheOnly = false,
+  failOnError = false,
 }) {
   // See warnRegistryUnavailable: this is the one path that stays quiet, because
   // the user asked for it.
@@ -402,10 +423,17 @@ export function buildRegistry({
   let dir;
   let key;
   try {
-    key = registryKey({ projectRoot, platform, reactNativeVersion, additionalEntries });
+    key = registryKey({
+      projectRoot,
+      platform,
+      reactNativeVersion,
+      assetExts,
+      additionalEntries,
+    });
     dir = path.join(cacheRootFor(projectRoot), "registry");
     fs.mkdirSync(dir, { recursive: true });
   } catch (error) {
+    if (failOnError) throw error;
     warnRegistryUnavailable(error?.message ?? "cache directory unavailable");
     return null;
   }
@@ -425,6 +453,8 @@ export function buildRegistry({
   } catch {
     // No usable cache entry — build one below.
   }
+
+  if (cacheOnly) return null;
 
   const started = Date.now();
   const assetExtSet = new Set(assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
@@ -503,18 +533,37 @@ export function buildRegistry({
     // cold cache, and a reader must never observe a partially written registry.
     // The map lands before the registry that points at it, so a reader can never
     // find the reference without the file.
+    const publishAtomically = (destination, contents) => {
+      const temporaryFile = `${destination}.${process.pid}.tmp`;
+      try {
+        fs.writeFileSync(temporaryFile, contents);
+        try {
+          fs.renameSync(temporaryFile, destination);
+        } catch (error) {
+          // POSIX rename replaces an existing file atomically. Windows rejects that
+          // shape, which two cold compiler processes can hit together. Remove only
+          // the already-published destination and retry; metadata is committed last,
+          // so readers never accept a half-published new registry as valid.
+          if (
+            process.platform !== "win32" ||
+            !["EEXIST", "EPERM", "EACCES"].includes(error?.code) ||
+            !fs.existsSync(destination)
+          ) {
+            throw error;
+          }
+          fs.rmSync(destination, { force: true });
+          fs.renameSync(temporaryFile, destination);
+        }
+      } finally {
+        // A failed write or publication must not leave a growing trail of PID
+        // temp files. A fatal process kill is recovered by the next cache miss.
+        fs.rmSync(temporaryFile, { force: true });
+      }
+    };
     const mapFile = `${registryFile}.map`;
-    const mapTmp = `${mapFile}.${process.pid}.tmp`;
-    fs.writeFileSync(mapTmp, JSON.stringify(map));
-    fs.renameSync(mapTmp, mapFile);
-    const tmp = `${registryFile}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, `${code}\n//# sourceMappingURL=${path.basename(mapFile)}\n`);
-    fs.renameSync(tmp, registryFile);
-    fs.writeFileSync(
-      `${metaFile}.${process.pid}.tmp`,
-      JSON.stringify({ key, count: files.length, manifest }),
-    );
-    fs.renameSync(`${metaFile}.${process.pid}.tmp`, metaFile);
+    publishAtomically(mapFile, JSON.stringify(map));
+    publishAtomically(registryFile, `${code}\n//# sourceMappingURL=${path.basename(mapFile)}\n`);
+    publishAtomically(metaFile, JSON.stringify({ key, count: files.length, manifest }));
     if (diagnostics) {
       console.log(
         `[vitest-native] (native) precompiled RN registry: ${files.length} modules in ${Date.now() - started}ms`,
@@ -522,6 +571,7 @@ export function buildRegistry({
     }
     return registryFile;
   } catch (error) {
+    if (failOnError) throw error;
     warnRegistryUnavailable(error?.message ?? "unknown error");
     return null;
   }

@@ -50,6 +50,11 @@ The mock engine covers [100% of React Native's stable public API](/api/coverage)
 
 Both engines share the same test API. You can mix them across suites in the same project.
 
+The native engine's first cold run compiles React Native's CommonJS graph into a factory registry
+inside a short-lived, heap-bounded child process. That process exits before test workers start,
+reclaiming Babel's compiler heap; warm runs validate and reuse the disk cache without spawning it.
+If compilation fails, the engine reports the slower per-file fallback and preserves correctness.
+
 ## Keeping the mock honest
 
 Because the mock is a reimplementation, it could drift from real RN behavior. A **CI-gated behavioral cross-check** runs the same assertions against both the mock and real RN across React Native 0.81–0.87, so divergences are caught before release. See [Comparison with Jest](/guide/comparison#the-cross-check) for how that trust mechanism works.

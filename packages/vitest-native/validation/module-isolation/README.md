@@ -268,10 +268,23 @@ Cold registry compilation is the main-process memory spike:
 - child process with `--max-old-space-size=96`: after-GC RSS about 287 MiB;
 - 64 MiB also completed; 32 MiB OOMed.
 
-The production design should do a cheap parent cache lookup, compile a cache miss in
-a short-lived child with an initial 96 MiB old-space cap, retry with a larger cap on
-heap exhaustion, and let the child exit before workers start. Existing atomic cache
-writes handle concurrent compilers.
+That design is now the production path. `run-registry-process.mjs` rebuilds the real
+438-module graph in fresh parent processes and races two real compiler children
+against one cold cache. On the implementation run, in-process compilation took
+1.82 s and left the long-lived parent at 471 MiB RSS after GC; the child path took
+2.04 s and left its parent at 56 MiB. The 1.35 MiB artifact and module count were
+identical, a warm manifest lookup took 1.4 ms without a compiler, and the concurrent
+builders converged without a partial or temporary file. The gate requires semantic
+parity, at least 64 MiB of persistent-parent RSS savings, bounded latency and an
+atomically readable concurrent result rather than those machine-specific numbers.
+
+Production performs the cheap parent cache lookup, compiles a miss at a 96 MiB
+old-space cap, retries only a recognized V8 heap OOM at 256 MiB, validates the
+published manifest in the parent and then lets the child exit before workers start.
+The compiler protocol has its own file descriptor, so Babel/plugin stdout cannot
+corrupt it. Ordinary failures retain the visible, correctness-preserving per-file
+fallback. Registry keys include normalized asset extensions because they change
+the emitted graph; the prototype caught that previously missing cache input.
 
 ## Inline-all ownership negative control
 
@@ -345,6 +358,8 @@ required for the RN production architecture and should not lead the upstream ask
   checkout by default, or set `VN_TWO_RN_RUNTIME=hot` for the production pool.
 - `run-scale.mjs`: packed correctness, RSS, recycling and concurrency matrix.
 - `profile-registry.mjs`: cold registry compiler profile.
+- `run-registry-process.mjs`: parent/child cold RSS, artifact, warm-cache and
+  concurrent-writer production gate.
 - `memory-accounting.mjs`: Node thread memory semantics.
 - `memory-budget.test.mjs`: evidence table from which the production planner was
   derived.

@@ -187,6 +187,12 @@ Choose how React Native is provided to your tests:
 reactNative({ engine: "native" });
 ```
 
+On the first cold run, the native engine compiles React Native's synchronous module graph into a
+factory registry in a short-lived, heap-bounded child process. The child exits before test workers
+start, so Babel's compilation heap does not become a permanent Vite-process RSS watermark. Later
+runs validate and reuse the cache in-process without launching the compiler. A failed optimization
+remains visible and falls back to the slower per-file loader without changing test results.
+
 #### Fidelity
 
 Jest's `react-native` preset replaces many real modules with stubs, so behavior they

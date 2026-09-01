@@ -67,6 +67,7 @@ Confidence is deliberately split by claim:
 | upstream needs worker reuse plus full module/mock reset | very high (~95%) | a smaller supported Vitest primitive that removes the same private seams |
 | current hot is a sound migration base | high (~90%) | an unresolved packed correctness failure in its supported Node assurance lane |
 | explicit hot memory controller is production-ready | high (~90%) | more CI/container shapes may recalibrate its conservative constants |
+| bounded cold registry compilation is production-ready | high (~92%) | OS/RN matrix mileage may recalibrate heap caps, but cannot justify returning it to parent |
 | automatic hot selection is ready to become the default | medium (~75%) | real-app and RN/RNTL/Expo version-matrix mileage remain |
 
 These details are intentionally **not** frozen: the public Vitest option name, Linux
@@ -310,8 +311,8 @@ mechanical ESM conversion changed evaluation order and broke a cycle around
 - compile RN files once into CommonJS factories;
 - construct/reset RN module instances through a controlled CommonJS cache;
 - seed public root and discovered deep entries used by supported ecosystem packages;
-- key the artifact by RN root/version, platform, Babel/preset inputs, Metro profile
-  and sorted entry set;
+- key the artifact by RN root/version, platform, Babel/preset/environment inputs,
+  normalized asset extensions and sorted entry set;
 - expose one RN identity to all allowed Node and Vite boundary adapters.
 
 At 406 RNTL-heavy files, removing the registry took 28.2 seconds and peaked at 2.25
@@ -321,7 +322,7 @@ even though the no-registry control proves it is not supposed to change semantic
 #### Cold compiler process
 
 A first uncached registry build temporarily expands V8's heap in the main Vite
-process and leaves a high RSS watermark after GC. Move cache-miss compilation into a
+process and leaves a high RSS watermark after GC. Cache misses now compile in a
 short-lived child:
 
 ```text
@@ -332,8 +333,13 @@ parent: compute key ─► cache hit ─► mmap/read artifact
                               └─ exit; all compiler heap reclaimed
 ```
 
-The child rechecks the cache to tolerate races and reports structured OOM vs compiler
-errors. Retry a heap OOM at a larger cap; never silently disable the registry.
+The parent validates the child's published cache to tolerate races and reports
+structured OOM vs compiler errors. It retries only a recognized V8 heap OOM at a
+larger cap and never silently disables the registry. The production gate compares
+the real 438-module graph in both owners, asserts a material persistent-parent RSS
+reduction, proves warm lookup stays local and races concurrent cold writers. The
+implementation run retained the identical 1.35 MiB artifact while reducing parent
+after-GC RSS from 471 MiB to 56 MiB for about 220 ms extra cold latency.
 
 ### 5. Metro compatibility profile
 
@@ -566,7 +572,8 @@ then-current Vitest main branch.
 
 ### Phase 3 — cold-path and Expo hardening
 
-1. Move registry cache-miss compilation into the bounded child process.
+1. Move registry cache-miss compilation into the bounded child process. **Shipped
+   with real-graph memory, parity, warm-cache and concurrent-writer gates.**
 2. Add declarative Metro ingestion and scheduled differential fixtures.
 3. Keep literal, runtime-computed and in-memory Expo Router contexts in the packed
    consumer matrix.

@@ -279,15 +279,28 @@ async function buildRegistryFor(options: {
 }): Promise<string | null> {
   try {
     const dir = path.dirname(fileURLToPath(import.meta.url));
-    const module = (await import(pathToFileURL(path.resolve(dir, "native/registry.mjs")).href)) as {
-      buildRegistry: (o: typeof options) => string | null;
+    const module = (await import(
+      pathToFileURL(path.resolve(dir, "native/registry-process.mjs")).href
+    )) as {
+      buildRegistryFor: (o: typeof options) => Promise<string | null>;
     };
-    return module.buildRegistry(options);
+    return module.buildRegistryFor(options);
   } catch (error) {
-    if (options.diagnostics) {
+    try {
+      const dir = path.dirname(fileURLToPath(import.meta.url));
+      const module = (await import(
+        pathToFileURL(path.resolve(dir, "native/registry.mjs")).href
+      )) as {
+        _warnRegistryUnavailable: (reason: unknown) => void;
+      };
+      module._warnRegistryUnavailable((error as Error)?.message ?? error);
+    } catch {
+      // The registry module itself could not load, so its once-per-cause reporter
+      // is unavailable. This last-resort warning must still make the performance
+      // fallback visible regardless of diagnostics mode.
       console.warn(
-        `[vitest-native] could not precompile the React Native registry ` +
-          `(${(error as Error)?.message}); using per-file module loading.`,
+        `[vitest-native] (native) could not precompile the React Native registry ` +
+          `(${(error as Error)?.message ?? error}); using slower per-file module loading.`,
       );
     }
     return null;
