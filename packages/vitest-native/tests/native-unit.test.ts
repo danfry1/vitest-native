@@ -727,6 +727,34 @@ describe("native globals: globalThis.expo shim", () => {
     expect(typeof expo.uuidv4()).toBe("string");
     expect(expo.getViewConfig()).toBeNull();
   });
+
+  it("preserves blessed resident listeners but resets file-owned Expo state", () => {
+    installGlobals();
+    const expo = (globalThis as { expo?: any }).expo;
+    const controller = expo[Symbol.for("vitest-native.expo.reset")];
+    const residentModule = expo.modules.VNResidentImport;
+    const fileModule = expo.modules.VNFileOwned;
+
+    function residentInit() {
+      return residentModule.addListener("change", () => {});
+    }
+    const residentSub = residentInit();
+    fileModule.addListener("change", () => {});
+    fileModule.override = "file-owned";
+    const firstFabricatedClass = fileModule.FileSystemFile;
+
+    controller.bless((stack: string) => stack.includes("residentInit"));
+    controller();
+
+    expect(residentModule.listenerCount("change")).toBe(1);
+    expect(fileModule.listenerCount("change")).toBe(0);
+    expect(Object.hasOwn(fileModule, "override")).toBe(false);
+    expect(controller.verify()).toBe(true);
+    expect(fileModule.FileSystemFile).not.toBe(firstFabricatedClass);
+
+    residentSub.remove();
+    controller();
+  });
 });
 
 import { gestureHandler } from "../src/presets/index.js";

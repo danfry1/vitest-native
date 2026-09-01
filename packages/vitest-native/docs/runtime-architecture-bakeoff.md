@@ -67,7 +67,7 @@ Confidence is deliberately split by claim:
 | upstream needs worker reuse plus full module/mock reset | very high (~95%) | a smaller supported Vitest primitive that removes the same private seams |
 | current hot is a sound migration base | high (~90%) | an unresolved packed correctness failure in its supported Node assurance lane |
 | explicit hot memory controller is production-ready | high (~90%) | more CI/container shapes may recalibrate its conservative constants |
-| automatic hot selection is ready to become the default | medium (~70%) | state-manifest completion and real-app mileage remain |
+| automatic hot selection is ready to become the default | medium (~75%) | real-app and RN/RNTL/Expo version-matrix mileage remain |
 
 These details are intentionally **not** frozen: the public Vitest option name, Linux
 memory reserves, the complete state manifest, optimizer-specific hooks and whether a
@@ -152,6 +152,13 @@ does **not** justify replacing the package with a greenfield public package:
 - current Vitest's one-worker non-isolated batch is rejected before registry
   compilation unless `allowUnboundedMemory:true` explicitly accepts an externally
   bounded, unrecyclable run.
+- hot shared-realm restoration is now a declarative, ordered state manifest. It
+  covers Vitest timers/stubs, native-boundary overrides, known RN state, environment,
+  process/RN listeners, complete global and console descriptors, ErrorUtils and the
+  Expo compatibility runtime. Restore failures name the entry and fail the run;
+  mutation validation proves all eleven actions are observable. Import-time listener
+  state is blessed only when the shared ownership policy marks its package
+  worker-resident; ordinary Node-owned dependencies re-evaluate and are reset.
 
 Phase 1 is a substantial slice, not the final observation ledger. A conflicting Vite
 transform and configuration that necessarily defeats externalization fail hard.
@@ -376,16 +383,28 @@ Each runtime profile contributes declarative capture/restore entries:
 ```ts
 interface StateManifestEntry {
   id: string;
+  restoreOrder?: number;
   capture(): unknown;
-  restore(snapshot: unknown): void | Promise<void>;
-  verify?(): void;
+  restore(snapshot: unknown): void;
+  verify?(snapshot: unknown): void;
 }
 ```
 
 Core entries cover timers, globals, environment, process listeners, RN/Expo global
-descriptors, native-module mocks, console/error handlers and known RNTL/renderer
-state. Restore runs in `finally` after each file and reports the specific entry that
-failed. Mutation tests remove each restore action and require a gate to fail.
+descriptors, native-module mocks and console/error handlers. Lower `restoreOrder`
+values run first; every verifier runs only after every restore action, so interaction
+between domains is observable. Current hot restores
+at the next file's setup boundary (or discards the realm after the final file),
+because that hook is ordered and awaited across supported Vitest versions. The
+upstream-backed runtime should prefer a guaranteed `finally` boundary when Vitest
+provides one. Failures report the specific entry. Mutation tests remove each restore
+action and require the adversarial isolation gate to fail.
+
+The registry and resident fallback are tested separately. The normal registry resets
+RN's in-memory factory cache per file, so RN-local Dimensions and listener state are
+already fresh; disabling the registry makes those manifest actions observable against
+the one resident Node identity. The native boundary remains realm-owned and is
+restored in both paths.
 
 This is not a generic promise to sanitize every third-party singleton. Modules with
 unknown mutable process state either become worker-reset boundaries or are documented
@@ -539,7 +558,9 @@ then-current Vitest main branch.
    explicit hot mode.**
 3. Preserve single-file tasks so one worker can recycle. **Validated in the upstream
    module-isolation prototype; current production fails closed at one worker.**
-4. Add state-manifest verification and fail-safe restoration.
+4. Add state-manifest verification and fail-safe restoration. **Shipped for the
+   current hot runtime; broader RN/RNTL/Expo version coverage remains a promotion
+   gate.**
 5. Make `hotRuntime: "auto"` choose/explain a safe plan; keep explicit overrides.
 
 ### Phase 3 — cold-path and Expo hardening

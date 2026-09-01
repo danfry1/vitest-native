@@ -21,14 +21,27 @@ const PRESETS_BUILT = Symbol.for("vitest-native.presets-built");
 // rest of this package is externalized — making it the per-file hook. Installed
 // by worker.mjs (hot runtime only); a no-op everywhere else.
 if (globalThis.__vitest_native_hot_reset) {
-  // Vitest-level state first: in a fresh-worker-per-file world these die with
-  // the worker, but Vitest's own per-file loop never undoes them. Fake timers
-  // are the big one — jest suites enable them per file and rely on teardown;
-  // leaked into the next file they break React rendering entirely ("Can't
-  // access .root on unmounted test renderer" via RNTL).
-  vi.useRealTimers();
-  vi.unstubAllGlobals();
-  vi.unstubAllEnvs();
+  // Setup re-evaluates per file, but registration is idempotent: the first
+  // closure owns the worker-lifetime baseline and the manifest names any
+  // restoration failure. Fake timers are the critical case — leaking them into
+  // the next file breaks React rendering before an app assertion can explain it.
+  globalThis.__vitest_native_register_state?.({
+    id: "vitest-runtime",
+    // Vitest must uninstall fake timers before descriptor restoration: its
+    // uninstall owns Date and deletes it if another entry restores Date first.
+    restoreOrder: -200,
+    capture: () => null,
+    restore: () => {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    },
+    verify: () => {
+      if (vi.isFakeTimers()) {
+        throw new VitestNativeError("HOT_STATE_RESTORE_FAILED", "fake timers remain enabled");
+      }
+    },
+  });
   // NOTE on RNTL trees: when RNTL is inlined in the consumer graph it
   // re-evaluates per file (fresh registry + fresh auto-cleanup) and needs no
   // help. When RNTL is externalized/resident, trees from earlier files can

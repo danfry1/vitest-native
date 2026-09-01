@@ -56,7 +56,7 @@ Because the mock is a reimplementation, it could drift from real RN behavior. A 
 
 ## Hot runtime (experimental)
 
-By default the native engine re-instantiates React Native for every test file (Vitest's standard per-file isolation). On large suites that per-file tax dominates the run. The opt-in **hot runtime** keeps React Native warm across files in a persistent worker while still resetting app/test modules and common process-wide pollution between files:
+By default the native engine uses Vitest's standard per-file worker isolation. On large suites that worker and module-loading tax dominates the run. The opt-in **hot runtime** keeps a precompiled React Native factory registry and worker realm warm while resetting RN module instances, app/test modules, and supported process-wide state between files:
 
 ```ts
 reactNative({ hotRuntime: true })
@@ -66,17 +66,17 @@ It uses Vitest's custom worker APIs and remains experimental.
 
 ### When it helps
 
-On large, render-heavy suites it removes most of the per-file React Native re-instantiation cost — in internal benchmarks roughly a 12× reduction in import/setup time at 100 files. The bigger the suite and the more of its time goes to loading React Native, the larger the win.
+On large, render-heavy suites it removes most filesystem, transform, compilation, and worker-start cost — in internal benchmarks roughly a 12× reduction in import/setup time at 100 files. The bigger the suite and the more of its time goes to loading React Native, the larger the win.
 
-### Known limitation: resident-state bleed
+### State restoration and its boundary
 
-Because React Native stays resident across files within a worker, **state held in React Native's own internal modules is not reset between files** — only app/test modules, listeners, globals, `process.env`, and `Dimensions`/`Appearance` are. The per-file reset deliberately does not reach into third-party or RN-internal module internals, because doing so generically is unsafe (it can unmount or corrupt state later files still depend on).
+Normal hot mode resets React Native's in-memory registry instances per file. An ordered state manifest then restores and verifies timers/Vitest stubs, native-boundary overrides, environment, process/RN listeners, global and console descriptors, known RN state, ErrorUtils, and the Expo compatibility runtime. CI mutation testing disables every restore action in turn and requires the isolation suite to fail by the responsible entry.
 
-In practice this means a suite that leans on **deep resident-RN-internal state** can see cross-file interference under the hot runtime that it would not see under the default per-file isolation. The clearest example is heavy `Animated` usage: animations driven in one file can mutate React Native's resident `Animated` bookkeeping in a way that alters how a later file renders, producing output a snapshot taken under the default engine won't match.
+This is not a promise to discover arbitrary mutable state in every resident third-party singleton. Unknown process-wide state remains the library's or fixture's responsibility.
 
 A tell-tale sign is **a test that passes in isolation but fails when run after other files**. If you see that under `hotRuntime: true`, move that suite (or the project) back to the default engine — correctness comes first.
 
-This is why the hot runtime is **opt-in and experimental, not the default**. It is best suited to large suites whose cost is dominated by loading React Native rather than by deep resident-RN-internal state. Closing the gap for all suites requires per-file module reset inside a persistent worker, which depends on an upstream Vitest capability that does not exist yet.
+The runtime is **opt-in and experimental** while the package grows its version matrix and still relies on Vitest's custom pool/worker APIs. The proposed upstream module-isolation primitive would remove those private seams; it is not required for the current correctness model.
 
 ### Worker recycling
 

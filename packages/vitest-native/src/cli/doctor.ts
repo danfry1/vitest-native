@@ -14,6 +14,7 @@ import {
   formatNativeOwnershipManifest,
 } from "../native/ownership.mjs";
 import { createHotMemoryPlan, formatHotMemoryPlan } from "../native/memory.mjs";
+import { HOT_STATE_MANIFEST_ENTRIES } from "../native/state-manifest.mjs";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
 import { PEER_REQUIREMENTS } from "../peer-requirements.js";
 
@@ -318,6 +319,12 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
         "  · This is capacity, not proof that hotRuntime is enabled; the resolved run reports its actual plan with diagnostics:true.",
       );
     }
+
+    lines.push("", "Hot runtime state restoration");
+    lines.push(`  · ${HOT_STATE_MANIFEST_ENTRIES.join(", ")}`);
+    lines.push(
+      "  · Each entry is captured once, restored at the next file boundary and verified after all restore actions complete.",
+    );
   }
 
   // --- RNTL ---

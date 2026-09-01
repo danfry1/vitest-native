@@ -215,10 +215,12 @@ reactNative({
 });
 ```
 
-The hot runtime keeps React Native's externalized module graph resident while Vitest still resets
-the app/test module graph for every file. It also restores direct `process.env` mutations,
-file-created globals, RN event subscriptions, dimensions, timers, and plugin mock state between
-files. A dedicated one-worker CI test exercises this cross-file isolation contract.
+The hot runtime keeps React Native's precompiled factory registry and worker realm warm while
+resetting the registry's module instances and the app/test module graph for every file. An ordered
+state manifest also restores and verifies timers/Vitest stubs, direct `process.env` changes,
+process and RN listeners, complete global and console property descriptors, known RN state,
+ErrorUtils, Expo runtime state, and plugin boundary mocks. A mutation gate removes each of its
+eleven restore actions in turn and requires the cross-file isolation suite to fail by name.
 
 When hot is enabled, the plugin derives a worker-total memory plan from the lower of host and
 container/cgroup memory. It reserves main-process and replacement headroom, caps automatic
@@ -226,17 +228,13 @@ concurrency at four, recycles workers on local heap or process RSS, and stops be
 work at the hard RSS boundary. Run with `diagnostics: true` or `vitest-native doctor` to see the
 chosen envelope.
 
-**Known limitation.** Because React Native stays resident, state held inside React Native's own
-internal modules is _not_ reset between files — the per-file reset deliberately does not reach into
-third-party or RN-internal module internals, because doing so generically is unsafe. Suites that
-lean on deep resident-RN-internal state can therefore see cross-file interference under the hot
-runtime that they would not see under the default per-file isolation. The clearest example is heavy
-cross-file `Animated` usage, where animations driven in one file can alter how a later file renders.
-The tell-tale sign is a test that passes in isolation but fails when run after other files; if you
-see that, move the affected suite (or the project) back to the default per-file isolation. This is
-why the hot runtime is opt-in and experimental rather than the default; closing the gap for all
-suites depends on a per-file module reset inside a persistent worker that Vitest does not yet
-provide.
+**Known limitation.** No shared-realm sanitizer can generically discover arbitrary mutable state in
+every resident third-party singleton. The registry resets React Native's own in-memory module
+instances, and the manifest handles the supported runtime surfaces above; unknown process-wide
+state is still the library's or test fixture's responsibility. A test that passes alone but fails
+after another file is a correctness signal: use the default runtime for that suite and report the
+small reproduction. The hot runtime remains opt-in while its version matrix grows and while it
+depends on Vitest's custom worker APIs.
 
 For additional leak containment:
 
@@ -626,9 +624,9 @@ export default defineConfig({
 });
 ```
 
-The experimental `reactNative({ hotRuntime: true })` also helps: it keeps React Native resident
-across files (loaded once per worker instead of per file) and recycles workers on a memory/file
-budget.
+The experimental `reactNative({ hotRuntime: true })` also helps: it keeps React Native's precompiled
+factory registry warm, resets its module instances from memory per file, and recycles workers on a
+memory/file budget.
 
 **`Vitest caught N unhandled errors` in error-boundary tests**
 A test that intentionally throws inside a component (to exercise an error boundary) makes React log

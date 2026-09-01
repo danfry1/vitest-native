@@ -106,7 +106,13 @@ try {
   );
 }
 const resetModules = captureModuleBaseline();
-const { hotReset, bless } = installHotReset({ projectRoot, diagnostics, preserveGlobals });
+const { hotReset, bless, registerState, stateEntries } = installHotReset({
+  projectRoot,
+  diagnostics,
+  preserveGlobals,
+});
+globalThis.__vitest_native_register_state = registerState;
+globalThis.__vitest_native_state_entries = stateEntries;
 globalThis.__vitest_native_hot_reset = () => {
   globalThis.__vitest_native_registry_reset?.();
   // Advance the ESM generation so externalized packages a test file `import`s are

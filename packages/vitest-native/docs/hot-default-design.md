@@ -22,6 +22,14 @@
 > two-project and recycling gates and runs within about 15% of current hot on the
 > representative 136-file suite. Current hot remains production until that primitive
 > is supported and the memory/state work below is complete.
+>
+> State update (2026-09-01): the current hot runtime now restores an ordered,
+> declarative state manifest at every file boundary and verifies the final realm.
+> Eleven mutation legs prove timers/stubs, native-boundary state, known RN state,
+> environment, process/RN listeners, globals, console, ErrorUtils and Expo state are
+> each observable. Normal hot resets the precompiled RN registry's module instances
+> per file; resident-RN manifest legs are additionally exercised with the registry
+> disabled.
 
 ## What the data established
 
@@ -157,6 +165,7 @@ Layer 1 makes the bounded row the out-of-the-box behavior whenever workers ≥ 2
 ## Rollout sequence
 
 1. **Layer 1 (bounded explicit hot)** — shipped with cgroup-aware worker-total/RSS
-   budgeting; current one-worker batching fails closed.
+   budgeting and verified shared-realm restoration; current one-worker batching
+   fails closed.
 2. **Layer 2 (`'auto'`)** — opt greenfield projects in safely.
 3. **Layer 3 (default flip)** — only with the gating evidence above.
