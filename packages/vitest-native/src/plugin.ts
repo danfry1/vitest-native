@@ -216,17 +216,41 @@ function getJsxTransformConfig(projectRoot: string): JsxTransformConfig {
  * real module in the native suite, across every React Native version in CI.
  */
 export function parseReactNativeExports(indexSource: string): string[] {
+  return parseReactNativeMembers(indexSource).map((member) => member.name);
+}
+
+/**
+ * The members of React Native's index that announce their own deprecation.
+ *
+ * React Native marks a deprecated or extracted export by calling `warnOnce` inside
+ * its getter, so reading the member is what prints the notice. The facade must not
+ * read these while it initialises, or every file that imports `Pressable` prints
+ * notices for `SafeAreaView`, `Clipboard` and the rest; it exposes them as getters
+ * instead, and the notice appears only where a test really uses one.
+ */
+export function parseDeprecatedReactNativeExports(indexSource: string): string[] {
+  return parseReactNativeMembers(indexSource)
+    .filter((member) => member.deprecated)
+    .map((member) => member.name);
+}
+
+function parseReactNativeMembers(indexSource: string): { name: string; deprecated: boolean }[] {
   const start = indexSource.indexOf("module.exports = {");
   if (start === -1) return [];
-  const body = indexSource.slice(start);
-  const names = new Set<string>();
-  for (const match of body.matchAll(
-    /^ {2}(?:get\s+)?([A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\s*[(:,]/gm,
-  )) {
+  // Only the object literal, which closes at the first unindented brace (`} as
+  // ReactNativePublicAPI;`): code after it (`Object.defineProperty(module.exports,
+  // …)` blocks) sits at the same indentation, and its keys are not members.
+  const end = indexSource.slice(start).search(/^\}/m);
+  const body = end === -1 ? indexSource.slice(start) : indexSource.slice(start, start + end);
+  const matches = [...body.matchAll(/^ {2}(?:get\s+)?([A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\s*[(:,]/gm)];
+  const members = new Map<string, boolean>();
+  matches.forEach((match, i) => {
     const name = match[1];
-    if (name !== "default" && name !== "__esModule" && name !== "get") names.add(name);
-  }
-  return [...names];
+    if (name === "default" || name === "__esModule" || name === "get") return;
+    const text = body.slice(match.index, matches[i + 1]?.index ?? body.length);
+    members.set(name, (members.get(name) ?? false) || /\bwarnOnce\s*\(/.test(text));
+  });
+  return [...members].map(([name, deprecated]) => ({ name, deprecated }));
 }
 
 /**
@@ -714,6 +738,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // available (React Native absent, or its index could not be read), in which case
   // the native engine leaves `react-native` externalized exactly as before.
   let rnFacadeExports: string[] | null = null;
+  // The subset of those whose getter prints a deprecation notice when read.
+  let rnFacadeDeprecated = new Set<string>();
   let rnFacadeRoot = "";
   // React Native packages the engine inlines and compiles itself (see
   // native/ecosystem.ts). Matched by path so the transform hook can recognise a
@@ -1257,8 +1283,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           const indexPath = createRequire(path.join(config.root, "package.json")).resolve(
             "react-native",
           );
-          const names = parseReactNativeExports(fs.readFileSync(indexPath, "utf8"));
+          const indexSource = fs.readFileSync(indexPath, "utf8");
+          const names = parseReactNativeExports(indexSource);
           rnFacadeExports = names.length > 0 ? names : null;
+          rnFacadeDeprecated = new Set(parseDeprecatedReactNativeExports(indexSource));
         } catch {
           // React Native not resolvable — keep `react-native` externalized.
           rnFacadeExports = null;
@@ -1374,8 +1402,24 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           `const _rn = createRequire(${JSON.stringify(
             path.join(rnFacadeRoot, "package.json"),
           )})("react-native");`,
-          ...rnFacadeExports.map((n) => `export const ${n} = _rn[${JSON.stringify(n)}];`),
+          ...rnFacadeExports
+            .filter((n) => !rnFacadeDeprecated.has(n))
+            .map((n) => `export const ${n} = _rn[${JSON.stringify(n)}];`),
           `export default _rn;`,
+          // An ESM binding is read once, when the module initialises, and reading a
+          // deprecated member is what prints its notice. These stay getters on the
+          // module's exports object, so the notice appears only where one is used.
+          ...(rnFacadeDeprecated.size > 0
+            ? [
+                `for (const name of ${JSON.stringify([...rnFacadeDeprecated])}) {`,
+                `  Object.defineProperty(__vite_ssr_exports__, name, {`,
+                `    enumerable: true,`,
+                `    configurable: true,`,
+                `    get: () => _rn[name],`,
+                `  });`,
+                `}`,
+              ]
+            : []),
         ].join("\n");
         virtualCodeCache.set(id, code);
         return code;
