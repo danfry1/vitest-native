@@ -115,16 +115,22 @@ function reportDuplicateInstance(pkg, nodeFile, viteFile, field) {
       "  If both module systems load it, the package exists twice and module-level state —\n" +
       "  stores, React contexts, event emitters, registries — is not shared between the copies.\n" +
       "  Nothing throws: writes through one are simply invisible to the other, so values read\n" +
-      "  back unset. Set `resolve.mainFields` so both resolvers agree, or import the package\n" +
-      "  from one side only.",
+      "  back unset. Only a risk: this compares Node's resolution against Vite's default\n" +
+      "  main fields, and cannot see whether Vite loaded the package at all. Align the two\n" +
+      "  (`resolve.mainFields`, matching the fields above), or import the package from one\n" +
+      "  side only.",
   );
 }
 
 /**
  * Compare what Node just resolved against what Vite's field order would pick for
- * the same package. A difference means the two module systems have different
- * files for one package id, so anything importing it from both sides gets two
- * copies with separate state.
+ * the same package. A difference means the two module systems WOULD hold different
+ * files for one package id, so anything importing it from both sides gets two copies
+ * with separate state.
+ *
+ * Only a risk, never proof: Vite's graph is not visible from here, so a package Node
+ * alone ever requires looks the same as one both graphs load. That is why the caller
+ * runs this under `diagnostics` rather than by default.
  */
 export function checkResolverAgreement(request, resolved) {
   const pkg = packageOf(request);
@@ -304,7 +310,15 @@ export function installRequireHooks(
       if (deep === null) throw err;
       resolved = deep;
     }
-    checkResolverAgreement(request, resolved);
+    // Diagnostics only. The comparison sees Node's resolution and the package
+    // manifest, never Vite's module graph, so it cannot tell a package both graphs
+    // load from one only Node ever requires — and the ecosystem is full of the
+    // latter (Babel's source-map packages, RNTL's own test-renderer). Reported as
+    // noise on every test file (#201); kept as an opt-in diagnostic for the silent
+    // duplicate-instance failure it was written to surface.
+    if (process.env.VITEST_NATIVE_DIAGNOSTICS === "true") {
+      checkResolverAgreement(request, resolved);
+    }
     checkProjectSourceLoadedByNode(resolved, parent);
     return resolved;
   };
