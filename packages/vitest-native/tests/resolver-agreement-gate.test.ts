@@ -15,7 +15,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -45,7 +45,8 @@ function project(): string {
 function warningsWhenResolving(diagnostics: boolean): string {
   const root = project();
   const script = [
-    `const { installRequireHooks } = await import(${JSON.stringify(HOOKS)});`,
+    // A file:// URL, not a path: on Windows `import("D:\\…")` is an unsupported scheme.
+    `const { installRequireHooks } = await import(${JSON.stringify(pathToFileURL(HOOKS).href)});`,
     `installRequireHooks(${JSON.stringify(root)});`,
     `const { createRequire } = await import("node:module");`,
     `createRequire(${JSON.stringify(path.join(root, "test.cjs"))})("split-lib");`,
