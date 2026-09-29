@@ -314,6 +314,26 @@ jobs:
         if: runner.os == 'Linux' && matrix.node-version == '22.13.0'
         run: bun run test:consumers
 
+      - name: Packed CJS reset mutation control
+        # One packed RN consumer, not another full matrix. Omitting the installed
+        # drain must fail, proving that the positive gate reaches this reset seam.
+        if: runner.os == 'Linux' && matrix.node-version == '22.13.0' && !matrix.rntl
+        run: node packages/vitest-native/validation/module-isolation/run-packed-cjs-reset.mjs
+
       - name: Check package exports
         if: runner.os == 'Linux' && matrix.node-version == '22.13.0'
         run: bun run check:exports
+
+      # The Windows floor (22.13) predates registerHooks. Reuse the existing job
+      # for a dependency-free modern-Node contract run, after all floor checks.
+      - name: Modern Node for Windows loader-hook contracts
+        if: runner.os == 'Windows'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.16.0
+
+      - name: Windows synchronous loader-hook contracts
+        if: runner.os == 'Windows'
+        env:
+          VN_CJS_DRAIN_RESEARCH: '1'
+        run: node --test packages/vitest-native/validation/module-isolation/test-node-cjs-reset.mjs packages/vitest-native/validation/module-isolation/test-node-cjs-drain-contract.mjs

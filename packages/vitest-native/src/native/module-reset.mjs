@@ -10,6 +10,111 @@
 // to load is dropped and runs again on the next file.
 import Module from "node:module";
 import { isRuntimeResidentFile } from "./ownership.mjs";
+import { VitestNativeError } from "../errors.mjs";
+
+// Capture before the worker installs registry/preset _load interceptors.
+const nodeLoad = Module._load;
+const CLEANUP_ID = "\0vitest-native:cjs-cache-drain";
+
+function cleanupError(detail, cause) {
+  return new VitestNativeError(
+    "HOT_CJS_CACHE_RESET",
+    `Cannot safely reset Node's CommonJS cache between test files: ${detail} ` +
+      "A custom loader may be incompatible with hot cleanup. " +
+      "Set hotRuntime:false to use worker isolation.",
+    cause === undefined ? undefined : { cause },
+  );
+}
+
+/**
+ * Compatibility bridge for Node's stale relativeResolveCache fast path.
+ *
+ * Deleting require.cache is insufficient: subsequent ESM re-export discovery can
+ * insert unloaded CJS placeholders which an old relative lookup mistakes for a
+ * circular require. Observed on Node 20/22/24; see node-cjs-cache-investigation.md.
+ *
+ * After all per-file entries are deleted, dry-run only their recorded lookup
+ * keys. Node drops each stale key, then our temporary resolver returns an already
+ * loaded sentinel, before any source executes. Fake parents keep sentinel children
+ * out of real module graphs. This remains an internal-API compatibility bridge,
+ * not a public Node cache API; replace it when the upstream fix is supported.
+ *
+ * Install after require hooks/preload, before tests. drain() is synchronous and
+ * must run immediately after cache deletion, before the next file starts loading.
+ */
+export function trackCjsResolutions() {
+  const originalResolve = Module._resolveFilename;
+  const edges = new Map();
+  const sentinel = {};
+  let count = 0;
+  const resolver = function (request, parent, ...rest) {
+    const filename = originalResolve.call(this, request, parent, ...rest);
+    if (parent && typeof parent.path === "string" && !Module.isBuiltin(filename)) {
+      edges.set(`${parent.path}\0${request}`, { request, parentPath: parent.path, filename });
+    }
+    return filename;
+  };
+  Module._resolveFilename = resolver;
+  return {
+    drain() {
+      // A later wrapper can short-circuit our tracker, leaving *zero* recorded
+      // edges despite stale Node lookups. Check before the empty-map fast path.
+      if (Module._resolveFilename !== resolver) {
+        throw cleanupError("the tracking resolver was replaced after installation.");
+      }
+      const stale = [];
+      for (const edge of edges.values()) {
+        if (!Object.hasOwn(Module._cache, edge.filename)) stale.push(edge);
+      }
+      // Retained targets stay retained by baseline/residency policy. Release
+      // their per-file aliases too, rather than accumulate worker-long metadata.
+      edges.clear();
+      if (!stale.length) return 0;
+      if (Object.hasOwn(Module._cache, CLEANUP_ID)) {
+        throw cleanupError("the reserved cleanup cache entry is already in use.");
+      }
+      const savedResolve = Module._resolveFilename;
+      const savedLoad = Module.prototype.load;
+      Module._cache[CLEANUP_ID] = { loaded: true, exports: sentinel };
+      Module._resolveFilename = () => CLEANUP_ID;
+      Module.prototype.load = () => {
+        throw cleanupError("cache-drain attempted module execution.");
+      };
+      try {
+        for (const { request, parentPath } of stale) {
+          const parent = { path: parentPath, children: [] };
+          if (nodeLoad(request, parent, false) !== sentinel) {
+            throw cleanupError("a loader bypassed the cleanup resolver.");
+          }
+          count++;
+        }
+      } catch (error) {
+        if (error?.code === "HOT_CJS_CACHE_RESET") throw error;
+        throw cleanupError("the cleanup lookup failed.", error);
+      } finally {
+        Module._resolveFilename = savedResolve;
+        Module.prototype.load = savedLoad;
+        delete Module._cache[CLEANUP_ID];
+      }
+      return stale.length;
+    },
+    get count() {
+      return count;
+    },
+    get pending() {
+      return edges.size;
+    },
+    // Used by standalone contract tests; the production tracker lives as long
+    // as its worker. Never remove a subsequently installed third-party wrapper.
+    dispose() {
+      if (Module._resolveFilename !== resolver) {
+        throw cleanupError("another resolver wrapped the tracking hook.");
+      }
+      Module._resolveFilename = originalResolve;
+      edges.clear();
+    },
+  };
+}
 
 // Native addons cannot be unloaded — dropping one and requiring it again
 // re-initialises native state in the same process, which crashes some addons.
@@ -54,6 +159,7 @@ const UNRESETTABLE = /\.node$/;
  */
 export function captureModuleBaseline() {
   const baseline = new Set(Object.keys(Module._cache));
+  const resolutions = trackCjsResolutions();
   return function resetModules() {
     let dropped = 0;
     for (const id of Object.keys(Module._cache)) {
@@ -61,6 +167,7 @@ export function captureModuleBaseline() {
       delete Module._cache[id];
       dropped++;
     }
+    resolutions.drain();
     return dropped;
   };
 }
