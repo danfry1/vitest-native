@@ -45,7 +45,7 @@
   "devDependencies": {
     "@changesets/cli": "2.31.1",
     "@types/node": "25.3.5",
-    "@types/react": "19.2.18",
+    "@types/react": "19.3.0",
     "oxc-minify": "0.150.0",
     "oxfmt": "0.68.0",
     "oxlint": "1.83.0",
