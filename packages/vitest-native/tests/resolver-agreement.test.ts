@@ -24,9 +24,10 @@ import path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   _resetDuplicateReports,
-  checkProjectSourceLoadedByNode,
+  checkProjectSourceResolvedByNode,
   checkResolverAgreement,
 } from "../src/native/hooks.mjs";
+import { createNativeOwnershipPolicy } from "../src/native/ownership.mjs";
 
 const roots: string[] = [];
 afterAll(() => {
@@ -135,7 +136,7 @@ describe("resolver agreement", () => {
  * back unset through the other — and it is reachable in an ordinary monorepo, so it
  * gets a warning rather than a paragraph in the docs.
  */
-describe("Node loading the project's own source", () => {
+describe("Node resolving the project's own source", () => {
   const project = "/repo/packages/ui";
   const dirs = [project];
   const from = (filename: string) => ({ filename });
@@ -150,8 +151,8 @@ describe("Node loading the project's own source", () => {
     _resetDuplicateReports();
   });
 
-  it("warns when an installed package requires the package under test", () => {
-    checkProjectSourceLoadedByNode(
+  it("warns about resolution risk without claiming execution or duplicate instances", () => {
+    checkProjectSourceResolvedByNode(
       `${project}/lib/index.cjs`,
       from("/repo/node_modules/some-rn-lib/index.js"),
       dirs,
@@ -159,19 +160,21 @@ describe("Node loading the project's own source", () => {
     expect(warn).toHaveBeenCalledOnce();
     expect(warn.mock.calls[0][0]).toContain("package under test");
     expect(warn.mock.calls[0][0]).toContain("some-rn-lib");
+    expect(warn.mock.calls[0][0]).toContain("Resolution alone does not prove execution");
+    expect(warn.mock.calls[0][0]).not.toMatch(/Node loaded|now exists twice|observed owner/);
   });
 
   it("reports each file once", () => {
     const requirer = from("/repo/node_modules/some-rn-lib/index.js");
-    checkProjectSourceLoadedByNode(`${project}/lib/index.cjs`, requirer, dirs);
-    checkProjectSourceLoadedByNode(`${project}/lib/index.cjs`, requirer, dirs);
+    checkProjectSourceResolvedByNode(`${project}/lib/index.cjs`, requirer, dirs);
+    checkProjectSourceResolvedByNode(`${project}/lib/index.cjs`, requirer, dirs);
     expect(warn).toHaveBeenCalledOnce();
   });
 
   it("says nothing about the project's own dependencies", () => {
     // The project directory contains its own node_modules, so every installed
     // package sits underneath it by path alone.
-    checkProjectSourceLoadedByNode(
+    checkProjectSourceResolvedByNode(
       `${project}/node_modules/some-rn-lib/index.js`,
       from("/repo/node_modules/other/index.js"),
       dirs,
@@ -181,7 +184,7 @@ describe("Node loading the project's own source", () => {
 
   it("says nothing when the test reaches into its own source deliberately", () => {
     // `jest.requireActual('./src/thing')` is Node loading project files on purpose.
-    checkProjectSourceLoadedByNode(
+    checkProjectSourceResolvedByNode(
       `${project}/src/thing.ts`,
       from(`${project}/src/a.test.ts`),
       dirs,
@@ -190,7 +193,7 @@ describe("Node loading the project's own source", () => {
   });
 
   it("says nothing when no project directory is known", () => {
-    checkProjectSourceLoadedByNode(
+    checkProjectSourceResolvedByNode(
       `${project}/lib/index.cjs`,
       from("/repo/node_modules/some-rn-lib/index.js"),
       [],
@@ -200,12 +203,51 @@ describe("Node loading the project's own source", () => {
 
   it("does not classify Node built-ins as relative project files", () => {
     for (const builtin of ["fs", "node:fs", "module", "path"]) {
-      checkProjectSourceLoadedByNode(
+      checkProjectSourceResolvedByNode(
         builtin,
         from("/repo/node_modules/@babel/core/index.js"),
         dirs,
       );
     }
     expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("does not mistake a sibling directory for project source without a policy", () => {
+    checkProjectSourceResolvedByNode(
+      `${project}-other/index.js`,
+      from("/repo/node_modules/consumer/index.js"),
+      dirs,
+    );
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it.each(["node", "delegated", "overridden"])(
+    "respects a %s policy instead of falling back to directories",
+    (mode) => {
+      const policy = createNativeOwnershipPolicy({
+        projectRoot: project,
+        projectDirs: mode === "delegated" ? [] : dirs,
+        reactNativeRoots: mode === "node" ? [`${project}/vendor/rn`] : [],
+        serverDepsInlineAll: mode === "overridden",
+      });
+      checkProjectSourceResolvedByNode(
+        `${project}/vendor/rn/index.js`,
+        from("/repo/node_modules/consumer/index.js"),
+        dirs,
+        policy,
+      );
+      expect(warn).not.toHaveBeenCalled();
+    },
+  );
+
+  it("uses the policy even when no legacy directories are supplied", () => {
+    const policy = createNativeOwnershipPolicy({ projectRoot: project, projectDirs: dirs });
+    checkProjectSourceResolvedByNode(
+      `${project}/src/index.js`,
+      from("/repo/node_modules/consumer/index.js"),
+      [],
+      policy,
+    );
+    expect(warn).toHaveBeenCalledOnce();
   });
 });
