@@ -1,5 +1,5 @@
 import type { Plugin } from "vite";
-import MagicString from "magic-string";
+import { MagicString } from "magic-string";
 
 // Hoistable jest mock methods (Vitest only hoists these on the vi/vitest object).
 const HOISTABLE = new Set(["mock", "unmock", "doMock", "doUnmock"]);
