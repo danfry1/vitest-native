@@ -31,16 +31,16 @@ export const METRO_SOURCE_EXTS = ["js", "jsx", "json", "ts", "tsx"];
  * ships. The order is asserted against real metro-resolver by
  * tests/metro-resolver-oracle.test.ts, not just against these literals.
  */
-export function extensionsFor(platform) {
+export function extensionsFor(platform, sourceExts = METRO_SOURCE_EXTS) {
   const suffix = platform === "android" ? "android" : "ios";
   const exts = [];
-  for (const e of METRO_SOURCE_EXTS) {
+  for (const e of sourceExts) {
     exts.push(`.${suffix}.${e}`, `.native.${e}`, `.${e}`);
   }
   return exts;
 }
 
-// Per-worker resolution cache: `${platform}\0${absBase}` → resolved path | null.
+// Per-worker cache: platform + ordered sourceExts + absolute base → path | null.
 // Platform resolution is deterministic for a given on-disk layout, and Node's own
 // module cache already dedupes most re-resolution; this dedupes the rest (distinct
 // import edges resolving to the same base), so each base is scanned at most once per
@@ -54,17 +54,17 @@ const resolveCache = new Map();
  * first existing platform variant (".../Foo.ios.tsx", etc.) or directory index,
  * or null if none exist.
  */
-export function resolvePlatformFile(absBase, platform = "ios") {
-  const key = platform + "\0" + absBase;
+export function resolvePlatformFile(absBase, platform = "ios", sourceExts = METRO_SOURCE_EXTS) {
+  const key = platform + "\0" + sourceExts.join("\0") + "\0" + absBase;
   const cached = resolveCache.get(key);
   if (cached !== undefined) return cached;
-  const resolved = scanPlatformFile(absBase, platform);
+  const resolved = scanPlatformFile(absBase, platform, sourceExts);
   resolveCache.set(key, resolved);
   return resolved;
 }
 
-function scanPlatformFile(absBase, platform) {
-  const extensions = extensionsFor(platform);
+function scanPlatformFile(absBase, platform, sourceExts) {
+  const extensions = extensionsFor(platform, sourceExts);
   for (const ext of extensions) {
     if (fs.existsSync(absBase + ext)) return absBase + ext;
   }
@@ -91,7 +91,7 @@ function scanPlatformFile(absBase, platform) {
  * Scoped to react-native and @react-native/* — the packages whose graphs the
  * preset rewrites. Ordinary packages keep Node's exports enforcement.
  */
-export function resolveDeepPackageFile(request, fromDir, platform) {
+export function resolveDeepPackageFile(request, fromDir, platform, sourceExts = METRO_SOURCE_EXTS) {
   const m = /^(react-native|@react-native\/[^/]+)\/(.+)$/.exec(request);
   if (!m) return null;
   const [, pkg, rest] = m;
@@ -104,7 +104,7 @@ export function resolveDeepPackageFile(request, fromDir, platform) {
   // `Foo.js` may exist only as a platform variant, and extensionless specifiers
   // need the full Metro candidate list either way.
   const stem = /\.[a-z0-9]+$/i.test(base) ? base.replace(/\.js$/, "") : base;
-  return resolvePlatformFile(stem, platform);
+  return resolvePlatformFile(stem, platform, sourceExts);
 }
 
 function findPackageDir(startDir, pkg) {

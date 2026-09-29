@@ -32,9 +32,14 @@ const reactNativeVersion = process.env.VITEST_NATIVE_RN_VERSION || "0.0.0";
 let transformPkgs = [];
 let preserveGlobals = [];
 let assetExts = [];
+let sourceExts = ["js", "jsx", "json", "ts", "tsx"];
 try {
   if (process.env.VITEST_NATIVE_TRANSFORM)
     transformPkgs = JSON.parse(process.env.VITEST_NATIVE_TRANSFORM);
+} catch {}
+try {
+  if (process.env.VITEST_NATIVE_SOURCE_EXTS)
+    sourceExts = JSON.parse(process.env.VITEST_NATIVE_SOURCE_EXTS);
 } catch {}
 try {
   if (process.env.VITEST_NATIVE_ASSET_EXTS)
@@ -66,9 +71,16 @@ installGlobals();
 // worker holding a second, separate copy of RN's singletons from the one every
 // test file sees.
 if (process.env.VITEST_NATIVE_RN_REGISTRY) {
-  installRegistry(process.env.VITEST_NATIVE_RN_REGISTRY, projectRoot);
+  installRegistry(process.env.VITEST_NATIVE_RN_REGISTRY, projectRoot, sourceExts);
 }
-installRequireHooks(projectRoot, transformPkgs, platform, reactNativeVersion, assetExts);
+installRequireHooks(
+  projectRoot,
+  transformPkgs,
+  platform,
+  reactNativeVersion,
+  assetExts,
+  sourceExts,
+);
 // After the hooks: the polyfill is Flow-typed and compiled by them (see globals.mjs).
 installErrorUtils(projectRoot);
 try {

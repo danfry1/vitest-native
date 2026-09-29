@@ -7,10 +7,13 @@
 export declare const METRO_SOURCE_EXTS: string[];
 
 /**
- * Extensions to try for `platform`, in Metro's order: every platform-suffixed
- * variant, then every `.native` one, then the bare extensions.
+ * Extensions to try for `platform`, in Metro's extension-major order. A
+ * project-specific sourceExts list may replace Metro's bare React Native defaults.
  */
-export declare function extensionsFor(platform: "ios" | "android"): string[];
+export declare function extensionsFor(
+  platform: "ios" | "android",
+  sourceExts?: readonly string[],
+): string[];
 
 /**
  * First existing platform variant of an extensionless absolute base path, or its
@@ -19,4 +22,12 @@ export declare function extensionsFor(platform: "ios" | "android"): string[];
 export declare function resolvePlatformFile(
   absBase: string,
   platform?: "ios" | "android",
+  sourceExts?: readonly string[],
+): string | null;
+
+export declare function resolveDeepPackageFile(
+  request: string,
+  fromDir: string,
+  platform: "ios" | "android",
+  sourceExts?: readonly string[],
 ): string | null;

@@ -207,7 +207,8 @@
     "validate:hot-parity": "node validation/idiomatic/scale/run-compare.mjs",
     "validate:coverage-parity": "node validation/module-isolation/run-coverage.mjs",
     "validate:hot-auto": "node validation/hot-auto/run.mjs",
-    "validate:registry-process": "node validation/module-isolation/run-registry-process.mjs"
+    "validate:registry-process": "node validation/module-isolation/run-registry-process.mjs",
+    "validate:metro-profile": "node --expose-gc validation/module-isolation/run-metro-profile.mjs"
   },
   "dependencies": {
     "flow-remove-types": "^2.332.0",

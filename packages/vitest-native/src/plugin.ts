@@ -1,7 +1,7 @@
 import type { Plugin, UserConfig } from "vite";
 import type { PoolRunnerInitializer } from "vitest/node";
 import type { VitestNativeOptions, ResolvedOptions, Preset } from "./types.js";
-import { getPlatformExtensions } from "./resolve.js";
+import { getConfiguredPlatformExtensions, getPlatformExtensions } from "./resolve.js";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
@@ -47,6 +47,32 @@ const DEFAULT_ASSET_EXTS = [
   "woff",
   "woff2",
 ];
+
+function uniqueExtensions(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const extension = value.replace(/^\./, "").toLowerCase();
+    if (extension && !seen.has(extension)) {
+      seen.add(extension);
+      result.push(extension);
+    }
+  }
+  return result;
+}
+
+function assetExtensionsFor(
+  sourceExts: readonly string[],
+  metroAssets: readonly string[],
+  user: readonly string[],
+): string[] {
+  const sources = new Set(sourceExts.map((extension) => extension.toLowerCase()));
+  const automatic = uniqueExtensions(metroAssets).filter((extension) => !sources.has(extension));
+  // Explicit user additions are last and authoritative. This preserves the
+  // existing assetExts escape hatch even when a custom Metro profile classifies
+  // the same suffix as source.
+  return uniqueExtensions([...automatic, ...user]);
+}
 
 /** Strip Vite's /@fs/ prefix to get a real filesystem path. */
 function stripFsPrefix(id: string): string {
@@ -276,6 +302,7 @@ async function buildRegistryFor(options: {
   platform: string;
   reactNativeVersion: string;
   assetExts: string[];
+  sourceExts: string[];
   diagnostics: boolean;
 }): Promise<string | null> {
   try {
@@ -306,6 +333,35 @@ async function buildRegistryFor(options: {
     }
     return null;
   }
+}
+
+interface ProjectMetroProfile {
+  framework: "expo" | "react-native" | "fallback";
+  configPath: string | null;
+  sourceExts: readonly string[];
+  assetExts: readonly string[];
+  resolverMainFields: readonly string[];
+  conditionNames: readonly string[];
+  customResolver: boolean;
+  provenance: string;
+}
+
+/** Load declarative Metro data without retaining Metro/Expo in Vite's process. */
+async function loadProjectMetroProfile(options: {
+  projectRoot: string;
+  platform: "ios" | "android";
+  configFile?: string;
+}): Promise<{ profile: ProjectMetroProfile; evidence: { durationMs?: number; rss?: number } }> {
+  const dir = path.dirname(fileURLToPath(import.meta.url));
+  const module = (await import(
+    pathToFileURL(path.resolve(dir, "native/metro-profile.mjs")).href
+  )) as {
+    loadMetroProfile: (input: typeof options) => Promise<{
+      profile: ProjectMetroProfile;
+      evidence: { durationMs?: number; rss?: number };
+    }>;
+  };
+  return module.loadMetroProfile(options);
 }
 
 /**
@@ -888,7 +944,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   const nativeWorkerPath = path.resolve(thisDir, "native/worker.mjs");
   const nativeRunnerPath = path.resolve(thisDir, "native/runner.mjs");
 
-  // Platform extensions can be computed eagerly.
+  // Seeded with bare React Native defaults, then replaced project-by-project by
+  // the bounded Metro profile loader during config().
   const platform = options?.platform ?? "ios";
   const diagnostics = options?.diagnostics ?? false;
   // Capture the user-requested engine; concrete resolution happens in config().
@@ -914,7 +971,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // safe default so the hooks (resolveId/load/transform), which run after config(),
   // never read undefined.
   let engine: "mock" | "native" = requestedEngine === "native" ? "native" : "mock";
-  const extensions = getPlatformExtensions(platform);
+  let sourceExts = ["js", "jsx", "json", "ts", "tsx"];
+  let extensions = getPlatformExtensions(platform);
+  let assetExtList = assetExtensionsFor(sourceExts, DEFAULT_ASSET_EXTS, options?.assetExts ?? []);
 
   // Preset redirect shared by both engines: exact package match, or a subpath of
   // a preset package (pkg/Swipeable) — the real deep entry would pull in the
@@ -953,6 +1012,68 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // is captured before configResolved runs.
       const resolvedRoot = userConfig.root ? path.resolve(userConfig.root) : process.cwd();
       alignRoot = resolvedRoot;
+      const metroOption = options?.metroConfig;
+      if (metroOption === true || typeof metroOption === "object") {
+        const metroSettings = typeof metroOption === "object" ? metroOption : {};
+        let metro;
+        try {
+          metro = await loadProjectMetroProfile({
+            projectRoot: resolvedRoot,
+            platform,
+            configFile: metroSettings.configFile,
+          });
+        } catch (error) {
+          throw new VitestNativeError(
+            "METRO_CONFIG_LOAD_FAILED",
+            `Could not load the project's Metro resolution profile in its bounded child. ` +
+              `${(error as Error)?.message ?? error}\n` +
+              `Fix the Metro config, pass metroConfig:{ configFile:'...' } when it lives ` +
+              `outside the project root, or use metroConfig:false to explicitly keep ` +
+              `vitest-native's built-in React Native defaults.`,
+            { cause: error },
+          );
+        }
+        if (metro.profile.customResolver && metroSettings.allowCustomResolver !== true) {
+          throw new VitestNativeError(
+            "METRO_CUSTOM_RESOLVER",
+            `The resolved Metro config installs resolver.resolveRequest, which is imperative ` +
+              `code and cannot be represented by a declarative Vite/Node extension profile. ` +
+              `Silently ignoring it could make tests load a different module than the app. ` +
+              `Add a Vitest alias/plugin implementing the same rule and set ` +
+              `metroConfig:{ allowCustomResolver:true } to acknowledge the remaining gap, ` +
+              `or set metroConfig:false to use the legacy built-in profile.`,
+          );
+        }
+        if (metro.profile.customResolver) {
+          console.warn(
+            `[vitest-native] Metro resolver.resolveRequest is not executed; applying only its ` +
+              `declarative source/asset profile because allowCustomResolver:true was set.`,
+          );
+        }
+        sourceExts = [...metro.profile.sourceExts];
+        extensions = getConfiguredPlatformExtensions(platform, sourceExts);
+        assetExtList = assetExtensionsFor(
+          sourceExts,
+          metro.profile.assetExts,
+          options?.assetExts ?? [],
+        );
+        if (diagnostics) {
+          const childRss = metro.evidence.rss
+            ? `, child RSS ${Math.ceil(metro.evidence.rss / 1024 / 1024)} MiB`
+            : "";
+          console.log(
+            `[vitest-native] Metro profile: ${metro.profile.provenance}` +
+              `${metro.profile.configPath ? ` (${metro.profile.configPath})` : ""}; ` +
+              `sourceExts=${sourceExts.join(",")}; assetExts=${assetExtList.join(",")}; ` +
+              `loaded in ${metro.evidence.durationMs ?? "?"}ms${childRss}.`,
+          );
+          console.log(
+            `[vitest-native] Metro resolverMainFields=${metro.profile.resolverMainFields.join(",")} ` +
+              `and conditions=${metro.profile.conditionNames.join(",")} are observational; ` +
+              `module ownership keeps the package-format policy authoritative.`,
+          );
+        }
+      }
       const jsxTransform = getJsxTransformConfig(resolvedRoot);
       // Resolve the concrete engine now that the project root is known. Default
       // (auto) prefers native when RN's Babel deps resolve; silently, with a notice
@@ -1001,11 +1122,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // Asset extensions for the Node require-hook to stub (matches the Vite-graph
       // asset stubbing): a CJS `require('./logo.png')` reaching Node's loader must
       // resolve to the basename string, not be compiled as JS.
-      const assetExtList = [
-        ...DEFAULT_ASSET_EXTS,
-        ...(options?.assetExts ?? []).map((e) => e.replace(/^\./, "")),
-      ];
       env.VITEST_NATIVE_ASSET_EXTS = JSON.stringify(assetExtList);
+      if (metroOption === true || typeof metroOption === "object") {
+        env.VITEST_NATIVE_SOURCE_EXTS = JSON.stringify(sourceExts);
+      }
       if (hotRuntimeRequested && hotRecycle.preserveGlobals?.length) {
         env.VITEST_NATIVE_HOT_PRESERVE_GLOBALS = JSON.stringify(hotRecycle.preserveGlobals);
       }
@@ -1092,7 +1212,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // hook can say so if Node loads one of their files anyway — which happens
         // when an installed React Native package depends on the very package whose
         // tests are running, and whose only symptom otherwise is state that reads
-        // back unset. See checkProjectSourceLoadedByNode in native/hooks.mjs.
+        // back unset. See checkProjectSourceResolvedByNode in native/hooks.mjs.
         //
         // A directory containing a LINKED detected package is dropped. Running from a
         // repository root, the nearest manifest is the root's own, and every workspace
@@ -1234,6 +1354,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           platform,
           reactNativeVersion: reactNativeVersion ?? "0.0.0",
           assetExts: assetExtList,
+          sourceExts,
           diagnostics,
         });
         if (registryFile) env.VITEST_NATIVE_RN_REGISTRY = registryFile;
@@ -1424,6 +1545,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
 
       // Now we have the real project root — resolve options from consumer context.
       resolved = await resolveOptions(options, config.root);
+      resolved.extensions = extensions;
+      resolved.assetExts = assetExtList;
       try {
         realRnPackageJson = createRequire(path.join(config.root, "package.json")).resolve(
           "react-native/package.json",

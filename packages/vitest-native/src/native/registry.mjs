@@ -86,7 +86,7 @@ export function _resetRegistryFailureReports() {
 
 // Bump when the emitted registry's shape or the walk's semantics change, so a
 // stale on-disk registry from an older vitest-native can never be reused.
-const REGISTRY_FORMAT_VERSION = 2;
+const REGISTRY_FORMAT_VERSION = 3;
 
 /**
  * Literal `require('…')` / `require("…")` calls. The leading class excludes
@@ -120,7 +120,7 @@ function sourceFor(file, { projectRoot, platform, reactNativeVersion, assetExtSe
   );
   if (boundary != null) return { code: boundary, scan: true };
   const src = fs.readFileSync(file, "utf8");
-  if (norm.endsWith(".js") && isFlow(src)) {
+  if (/\.(?:ts|tsx|jsx)$/.test(norm) || (norm.endsWith(".js") && isFlow(src))) {
     return { code: transformRN(file, src, projectRoot, platform), scan: true };
   }
   return { code: src, scan: true };
@@ -131,9 +131,13 @@ function sourceFor(file, { projectRoot, platform, reactNativeVersion, assetExtSe
  * resolution the hooks apply inside node_modules (`./Foo` → `Foo.ios.js`).
  * Returns an absolute path, or null when the target cannot be resolved.
  */
-function resolveTarget(request, fromFile, platform) {
+function resolveTarget(request, fromFile, platform, sourceExts) {
   if (request.startsWith(".") && !path.extname(request)) {
-    const hit = resolvePlatformFile(path.resolve(path.dirname(fromFile), request), platform);
+    const hit = resolvePlatformFile(
+      path.resolve(path.dirname(fromFile), request),
+      platform,
+      sourceExts,
+    );
     if (hit) return hit;
   }
   try {
@@ -184,6 +188,7 @@ export function registryKey({
   platform,
   reactNativeVersion,
   assetExts = [],
+  sourceExts = ["js", "jsx", "json", "ts", "tsx"],
   additionalEntries = [],
 }) {
   const req = createRequire(path.join(projectRoot, "package.json"));
@@ -233,6 +238,7 @@ export function registryKey({
         version("@react-native/babel-preset"),
         version("@babel/core"),
         process.env.BABEL_ENV || process.env.NODE_ENV || "none",
+        ...sourceExts.map((extension) => `source:${extension}`),
         ...canonicalAssetExtensions(assetExts).map((extension) => `asset:${extension}`),
         ...canonicalAdditionalEntries(additionalEntries).map((entry) => `entry:${entry}`),
         boundaries.digest("hex"),
@@ -396,6 +402,7 @@ export function buildRegistry({
   platform = "ios",
   reactNativeVersion = "0.0.0",
   assetExts = [],
+  sourceExts = ["js", "jsx", "json", "ts", "tsx"],
   diagnostics = false,
   additionalEntries = [],
   // Internal orchestration controls. `cacheOnly` lets the long-lived Vite process
@@ -428,6 +435,7 @@ export function buildRegistry({
       platform,
       reactNativeVersion,
       assetExts,
+      sourceExts,
       additionalEntries,
     });
     dir = path.join(cacheRootFor(projectRoot), "registry");
@@ -459,7 +467,14 @@ export function buildRegistry({
   const started = Date.now();
   const assetExtSet = new Set(assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
   const ownership = createNativeOwnershipPolicy({ projectRoot });
-  const options = { projectRoot, platform, reactNativeVersion, assetExtSet, ownership };
+  const options = {
+    projectRoot,
+    platform,
+    reactNativeVersion,
+    assetExtSet,
+    sourceExts,
+    ownership,
+  };
   const modules = new Map();
   const manifest = [];
   // Targets the registry does NOT inline but DOES bake in as pre-resolved absolute
@@ -486,7 +501,7 @@ export function buildRegistry({
         for (const match of code.matchAll(REQUIRE_RE)) {
           const request = match[2];
           if (request in deps) continue;
-          const target = resolveTarget(request, file, platform);
+          const target = resolveTarget(request, file, platform, sourceExts);
           // Only React Native's own graph is inlined. Everything else — react,
           // invariant, JSON manifests, native addons — stays a normal Node require
           // at a pre-resolved absolute path, so those modules keep their usual
@@ -584,7 +599,11 @@ export function buildRegistry({
  * (and therefore takes precedence over) this one — a preset-shadowed package must
  * still win over anything RN's own graph would provide.
  */
-export function installRegistry(registryFile, projectRoot) {
+export function installRegistry(
+  registryFile,
+  projectRoot,
+  sourceExts = ["js", "jsx", "json", "ts", "tsx"],
+) {
   if (globalThis.__vitest_native_registry_installed) return true;
   const req = createRequire(path.join(projectRoot, "package.json"));
   // Must precede the require below: Node reads `//# sourceMappingURL` when a script
@@ -632,6 +651,7 @@ export function installRegistry(registryFile, projectRoot) {
           request,
           parent?.filename ? path.dirname(parent.filename) : projectRoot,
           process.env.VITEST_NATIVE_PLATFORM === "android" ? "android" : "ios",
+          sourceExts,
         );
       }
       const id = resolved === null ? undefined : idOf.get(resolved);

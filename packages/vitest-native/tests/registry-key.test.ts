@@ -100,6 +100,15 @@ describe("registry cache key", () => {
     expect(reordered).toBe(both);
   });
 
+  it("keys source extension precedence in declaration order", () => {
+    const root = projectWith(BASE);
+    const base = { projectRoot: root, platform: "ios", reactNativeVersion: "0.86.0" };
+    const jsFirst = registryKey({ ...base, sourceExts: ["js", "tsx"] });
+    const tsxFirst = registryKey({ ...base, sourceExts: ["tsx", "js"] });
+
+    expect(jsFirst).not.toBe(tsxFirst);
+  });
+
   it("keys additional deep entrypoints independent of declaration order", () => {
     const root = projectWith(BASE);
     const base = { projectRoot: root, platform: "ios", reactNativeVersion: "0.86.0" };
