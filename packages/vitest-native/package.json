@@ -188,7 +188,7 @@
     "test:native:android": "vitest run --config tests-native/vitest.android.config.mts",
     "test:native:advice": "vitest run --config tests-native/vitest.advice.config.mts",
     "test:native:hot": "vitest run --config tests-native/vitest.hot.config.mts",
-    "test:native:hot:isolation": "vitest run --config tests-native/vitest.hot-isolation.config.mts",
+    "test:native:hot:isolation": "vitest run --config tests-native/vitest.hot-isolation.config.mts && vitest run --config tests-native/vitest.hot-user-setup.config.mts",
     "test:native:hot:state-manifest": "node scripts/test-hot-state-manifest.mjs",
     "test:native:hot:soak": "node scripts/test-hot-soak.mjs",
     "test:consumers": "node scripts/test-consumers.mjs",

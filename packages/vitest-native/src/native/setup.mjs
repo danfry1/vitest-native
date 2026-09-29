@@ -16,10 +16,10 @@ import { VitestNativeError } from "../errors.mjs";
 // Non-enumerable key on the preset container: the mocks built so far in this file.
 const PRESETS_BUILT = Symbol.for("vitest-native.presets-built");
 
-// Hot runtime: surgical reset of state left by the PREVIOUS file. Setup files
-// are force-inlined by Vitest, so this body re-runs per test file even when the
-// rest of this package is externalized — making it the per-file hook. Installed
-// by worker.mjs (hot runtime only); a no-op everywhere else.
+// Hot runtime: the worker resets state left by the PREVIOUS file at the file
+// boundary (runner onBeforeCollect), before any setup file — including the user's,
+// which Vitest runs ahead of this one. This file only contributes the Vitest-owned
+// manifest entry, which needs this module's `vi`. A no-op outside the hot runtime.
 if (globalThis.__vitest_native_hot_reset) {
   // Setup re-evaluates per file, but registration is idempotent: the first
   // closure owns the worker-lifetime baseline and the manifest names any
@@ -51,7 +51,6 @@ if (globalThis.__vitest_native_hot_reset) {
   // by the reset below). Do NOT "fix" this by importing RNTL here or via Node
   // require — both create instance/evaluation-order hazards that corrupt
   // rendering (found via Rocket.Chat).
-  globalThis.__vitest_native_hot_reset();
 }
 
 const projectRoot = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();

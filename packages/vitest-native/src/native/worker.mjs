@@ -156,6 +156,11 @@ let moduleRunner = null;
 const VITEST_RUNTIME = [/\/vitest\/dist\//, /vitest-virtual-\w+\/dist/, /@vitest\/dist/];
 
 globalThis.__vitest_native_reset_module_runner = () => {
+  // The previous file's realm state (fake timers, stubbed globals, listeners) must be
+  // gone before ANY setup file of the next one runs. It used to be reset from this
+  // package's setup file, which Vitest runs after the user's own: a user setup that
+  // installs fake timers then found the previous file's still installed.
+  globalThis.__vitest_native_hot_reset?.();
   if (!moduleRunner) return;
   moduleRunner.mocker?.reset();
   for (const [id, node] of moduleRunner.evaluatedModules.idToModuleMap) {
