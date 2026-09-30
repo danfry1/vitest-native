@@ -145,7 +145,7 @@
     "@testing-library/react-native": "14.0.1",
     "@types/node": "25.3.5",
     "@types/react": "19.3.0",
-    "@vitest/coverage-v8": "4.1.10",
+    "@vitest/coverage-v8": "5.0.1",
     "expo-constants": "57.0.19",
     "expo-status-bar": "57.0.1",
     "ext-platform-lib": "file:./tests-native/fixtures/ext-platform-lib",
