@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config";
 import { reactNative } from "vitest-native";
 
 export default defineConfig({
-  plugins: [reactNative({ engine: "native" })],
+  plugins: [reactNative({ engine: "native", metroConfig: true })],
   test: {
     environment: "node",
     // expo-router/testing-library is Jest-authored and needs the dedicated config's

@@ -8,6 +8,7 @@ const KNOWN_OPTIONS = [
   "mocks",
   "diagnostics",
   "assetExts",
+  "metroConfig",
   "engine",
   "transform",
   "hotRuntime",
@@ -19,6 +20,7 @@ const KNOWN_HOT_RUNTIME_OPTIONS = [
   "preserveGlobals",
   "esmGeneration",
 ];
+const KNOWN_METRO_CONFIG_OPTIONS = ["configFile"];
 
 function assertStringArray(value: unknown, option: string): asserts value is string[] {
   if (
@@ -64,6 +66,36 @@ export function validateOptions(options: Record<string, unknown>): void {
     throw new VitestNativeTypeError("INVALID_OPTION", `"diagnostics" must be a boolean.`);
   }
   if (options.assetExts !== undefined) assertStringArray(options.assetExts, "assetExts");
+  if (options.metroConfig !== undefined && typeof options.metroConfig !== "boolean") {
+    if (
+      options.metroConfig === null ||
+      Array.isArray(options.metroConfig) ||
+      typeof options.metroConfig !== "object"
+    ) {
+      throw new VitestNativeTypeError(
+        "INVALID_OPTION",
+        `"metroConfig" must be a boolean or an options object.`,
+      );
+    }
+    const metro = options.metroConfig as Record<string, unknown>;
+    const unknown = Object.keys(metro).filter((key) => !KNOWN_METRO_CONFIG_OPTIONS.includes(key));
+    if (unknown.length > 0) {
+      throw new VitestNativeTypeError(
+        "UNKNOWN_OPTION",
+        `Unknown metroConfig option "${unknown[0]}". Valid options: ` +
+          `${KNOWN_METRO_CONFIG_OPTIONS.join(", ")}.`,
+      );
+    }
+    if (
+      metro.configFile !== undefined &&
+      (typeof metro.configFile !== "string" || !metro.configFile.trim())
+    ) {
+      throw new VitestNativeTypeError(
+        "INVALID_OPTION",
+        `"metroConfig.configFile" must be a non-empty string.`,
+      );
+    }
+  }
   // Two shapes, like `presets`: an array is the include list; an object names
   // `include` and/or `exclude`.
   if (options.transform !== undefined) {

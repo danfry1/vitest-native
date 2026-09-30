@@ -292,6 +292,22 @@ export interface VitestNativeOptions {
   assetExts?: string[];
 
   /**
+   * Experimental. Read the project's declarative Metro resolution profile in a
+   * short-lived, memory-bounded child. Default: false (built-in React Native
+   * extension/asset defaults). Pass true or an options object to opt in.
+   *
+   * Imperative `resolver.resolveRequest` behavior cannot be transferred as data:
+   * when the config installs one, the source and asset extensions still apply and
+   * a warning names the gap. Main fields and conditions are reported under
+   * diagnostics but retain the engine's ownership policy.
+   */
+  metroConfig?:
+    | boolean
+    | {
+        configFile?: string;
+      };
+
+  /**
    * `engine: 'native'` only. Names of additional node_modules packages whose
    * source the native engine should transform (Flow/TS/JSX stripped) as it
    * loads them. By default only `react-native` / `@react-native` are

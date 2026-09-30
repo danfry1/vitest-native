@@ -17,7 +17,7 @@
  * resolvePlatformFile owns. Package/haste/asset/exports resolution is Node's or
  * Vite's and is not decided by this list.
  */
-import { describe, it, expect } from "vitest";
+import { afterAll, describe, it, expect } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -30,14 +30,15 @@ const req = createRequire(import.meta.url);
 const metro: any = req("metro-resolver");
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-metro-oracle-"));
+afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
 const origin = path.join(root, "origin.js");
 fs.writeFileSync(origin, "");
 
 /** Minimal metro-resolver context for relative source-file resolution. */
-function contextFor(originModulePath: string) {
+function contextFor(originModulePath: string, sourceExts = METRO_SOURCE_EXTS) {
   return {
     originModulePath,
-    sourceExts: [...METRO_SOURCE_EXTS],
+    sourceExts: [...sourceExts],
     preferNativePlatform: true,
     mainFields: ["react-native", "main"],
     nodeModulesPaths: [],
@@ -107,6 +108,28 @@ function writeCase(files: Array<[string, string]>): string {
 }
 
 describe("platform resolution agrees with real metro-resolver", () => {
+  it("matches the external oracle across project-specific ordered profiles", () => {
+    const profiles = [METRO_SOURCE_EXTS, ["tsx", "ts", "mjs", "js", "json", "cjs"], ["svg", "js"]];
+    let checked = 0;
+    for (const sourceExts of profiles) {
+      for (const first of sourceExts) {
+        for (const last of sourceExts) {
+          const name = writeCase([
+            ["native", first],
+            ["ios", last],
+          ]);
+          for (const platform of ["ios", "android"] as const) {
+            const actual = resolvePlatformFile(path.join(root, name), platform, sourceExts);
+            const expected = metro.resolve(contextFor(origin, sourceExts), `./${name}`, platform);
+            expect(expected.type).toBe("sourceFile");
+            expect(fs.realpathSync(actual!)).toBe(fs.realpathSync(expected.filePath));
+            checked++;
+          }
+        }
+      }
+    }
+    expect(checked).toBe(130);
+  });
   it("across a sweep of mixed platform/extension variant sets", () => {
     // Every non-empty subset of variant kinds, each carrying either the first or
     // the last source extension — the assignment that maximally separates

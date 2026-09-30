@@ -5,7 +5,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { transformRN, isFlow, cjsExportNames, needsTransform } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
-import { resolvePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
+import { extensionsFor, resolvePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
 import { NODE_MODULES_PATH, isUtilitySubpath, packageNameOf, subpathLeafOf } from "./match.mjs";
 import {
   createNativeOwnershipPolicy,
@@ -23,7 +23,6 @@ import {
 const RN_INDEX = /[\\/]react-native[\\/]index\.js$/;
 const TRANSFORMABLE = /\.(jsx?|tsx?|mjs|cjs)$/;
 // Extensions/index candidates for bundler-style extensionless resolution.
-const RESOLVE_EXTS = [".js", ".cjs", ".mjs", ".json", ".jsx", ".ts", ".tsx"];
 
 /**
  * Bundler-style resolution for an extensionless relative import: try `base+ext`
@@ -33,11 +32,14 @@ const RESOLVE_EXTS = [".js", ".cjs", ".mjs", ".json", ".jsx", ".ts", ".tsx"];
  * `./WebView`). Returns the on-disk path, or null.
  */
 function resolveExtensionless(base) {
-  for (const ext of RESOLVE_EXTS) {
+  const extensions = HAS_SOURCE_PROFILE
+    ? extensionsFor(PLATFORM, SOURCE_EXTS)
+    : [".js", ".cjs", ".mjs", ".json", ".jsx", ".ts", ".tsx"];
+  for (const ext of extensions) {
     const f = base + ext;
     if (fs.existsSync(f)) return f;
   }
-  for (const ext of RESOLVE_EXTS) {
+  for (const ext of extensions) {
     const f = path.join(base, "index" + ext);
     if (fs.existsSync(f)) return f;
   }
@@ -48,6 +50,8 @@ const PRESET_SCHEME = "vitest-native-preset:";
 let PROJECT_ROOT = process.cwd();
 let PLATFORM = "ios";
 let REACT_NATIVE_VERSION = "0.0.0";
+let SOURCE_EXTS = ["js", "jsx", "json", "ts", "tsx"];
+let HAS_SOURCE_PROFILE = false;
 let isExtra = () => false;
 let ownership = createNativeOwnershipPolicy({ projectRoot: PROJECT_ROOT });
 // Preset package name → its mock's named-export list (from the preset definition).
@@ -104,8 +108,10 @@ function versionable(url) {
 
 export async function initialize(data) {
   if (data && data.projectRoot) PROJECT_ROOT = data.projectRoot;
-  if (data && data.platform === "android") PLATFORM = "android";
+  PLATFORM = data?.platform === "android" ? "android" : "ios";
   if (data && data.reactNativeVersion) REACT_NATIVE_VERSION = data.reactNativeVersion;
+  HAS_SOURCE_PROFILE = Array.isArray(data?.sourceExts);
+  SOURCE_EXTS = HAS_SOURCE_PROFILE ? data.sourceExts : ["js", "jsx", "json", "ts", "tsx"];
   const configuredOwnership = parseNativeOwnershipManifest(process.env.VITEST_NATIVE_OWNERSHIP);
   ownership = createNativeOwnershipPolicy({
     projectRoot: PROJECT_ROOT,
@@ -154,7 +160,11 @@ export async function resolve(specifier, context, nextResolve) {
     specifier.startsWith(".") &&
     !path.extname(specifier)
   ) {
-    const hit = resolvePlatformFile(path.resolve(path.dirname(parent), specifier), PLATFORM);
+    const hit = resolvePlatformFile(
+      path.resolve(path.dirname(parent), specifier),
+      PLATFORM,
+      SOURCE_EXTS,
+    );
     // Not returned directly: `json` is a Metro source extension, so this can now
     // land on a .json file, which still needs the import attribute injected below.
     if (hit) resolved = { url: pathToFileURL(hit).href, shortCircuit: true };
@@ -178,6 +188,7 @@ export async function resolve(specifier, context, nextResolve) {
         specifier,
         parent ? path.dirname(parent) : PROJECT_ROOT,
         PLATFORM,
+        SOURCE_EXTS,
       );
       if (deep) resolved = { url: pathToFileURL(deep).href, shortCircuit: true };
     }

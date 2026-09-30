@@ -13,3 +13,11 @@ const PLATFORM_EXTENSIONS_ANDROID = extensionsFor("android");
 export function getPlatformExtensions(platform: "ios" | "android"): string[] {
   return platform === "ios" ? PLATFORM_EXTENSIONS_IOS : PLATFORM_EXTENSIONS_ANDROID;
 }
+
+/** Build the shared Vite/Node candidate order for a resolved Metro profile. */
+export function getConfiguredPlatformExtensions(
+  platform: "ios" | "android",
+  sourceExts: readonly string[],
+): string[] {
+  return extensionsFor(platform, sourceExts);
+}

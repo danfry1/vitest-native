@@ -4,6 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import { render, screen } from "@testing-library/react-native";
 import { Text, View } from "react-native";
 import { expect, test } from "vitest";
+import { metroWinner } from "./metro-winner";
 
 test("runs a packed Expo consumer with auto-detected presets", () => {
   render(
@@ -15,4 +16,8 @@ test("runs a packed Expo consumer with auto-detected presets", () => {
 
   expect(Constants.expoConfig?.name).toBe("test-app");
   expect(screen.getByTestId("root")).toHaveTextContent("test-app");
+});
+
+test("uses Expo Metro's TypeScript-first source extension precedence", () => {
+  expect(metroWinner).toBe("typescript");
 });

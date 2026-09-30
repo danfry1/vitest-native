@@ -185,7 +185,7 @@ describe("native boundary", () => {
 });
 
 import { extensionsFor, resolvePlatformFile } from "../src/native/resolve.mjs";
-import { getPlatformExtensions } from "../src/resolve.js";
+import { getConfiguredPlatformExtensions, getPlatformExtensions } from "../src/resolve.js";
 
 describe("platform extension order", () => {
   // Metro's defaults, from metro-config/src/defaults/defaults.js:
@@ -259,6 +259,24 @@ describe("platform extension order", () => {
       expect(getPlatformExtensions(platform)).toEqual(extensionsFor(platform));
     }
   });
+
+  it("uses a project Metro profile as one shared, ordered candidate list", () => {
+    const expoSourceExts = ["ts", "tsx", "mjs", "js", "jsx", "json", "cjs"];
+    expect(getConfiguredPlatformExtensions("ios", expoSourceExts)).toEqual(
+      extensionsFor("ios", expoSourceExts),
+    );
+    expect(extensionsFor("ios", expoSourceExts).slice(0, 9)).toEqual([
+      ".ios.ts",
+      ".native.ts",
+      ".ts",
+      ".ios.tsx",
+      ".native.tsx",
+      ".tsx",
+      ".ios.mjs",
+      ".native.mjs",
+      ".mjs",
+    ]);
+  });
 });
 
 describe("resolvePlatformFile", () => {
@@ -295,6 +313,19 @@ describe("resolvePlatformFile", () => {
       const data = path.join(dir, "data");
       fs.writeFileSync(data + ".json", "{}");
       expect(resolvePlatformFile(data, "ios")).toBe(data + ".json");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not reuse a cached answer across different project sourceExts", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-resolve-profile-"));
+    const base = path.join(dir, "profiled");
+    try {
+      fs.writeFileSync(base + ".js", "export default 'js';");
+      fs.writeFileSync(base + ".tsx", "export default 'tsx';");
+      expect(resolvePlatformFile(base, "ios", ["js", "tsx"])).toBe(base + ".js");
+      expect(resolvePlatformFile(base, "ios", ["tsx", "js"])).toBe(base + ".tsx");
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

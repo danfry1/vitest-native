@@ -3,7 +3,7 @@
 This document is the semver contract: what a major, minor, or patch release is allowed to change.
 
 [`release-readiness.md`](./release-readiness.md) is the companion document. It defines what is
-*tested* before a release ships. This one defines what is *promised* about the surface those tests
+_tested_ before a release ships. This one defines what is _promised_ about the surface those tests
 cover.
 
 Until 1.0, the contract below describes intent and is honoured on a best-effort basis; breaking
@@ -20,16 +20,16 @@ at all. Anything not listed here is not covered — see [Outside the contract](#
 Only the subpaths declared in `exports` are public. Nothing under `dist/` is importable directly,
 and deep paths are not supported even when they happen to resolve.
 
-| Subpath | Covered exports |
-| --- | --- |
-| `vitest-native` | `reactNative`, `presets`, `disabledPresetNames` |
-| `vitest-native/helpers` | `setPlatform`, `setDimensions`, `setColorScheme`, `setInsets`, `mockNativeModule`, `extendPresetMock`, `resetAllMocks` |
-| `vitest-native/presets` | the 17 preset factories, by name |
-| `vitest-native/matchers` | `toHaveAnimatedStyle`, `toHaveAnimatedProps`, `animatedMatchers` |
-| `vitest-native/serializer` | `serializer` |
-| `vitest-native/jest-compat` | `jestMockTransform`, `jestCompatAliases`, `jestCompatSetup` |
-| `vitest-native/jest-compat/setup`, `/jest-globals`, `/extend-expect-noop` | loadable as setup-file and alias targets |
-| `vitest-native/rntl-matchers` | the RNTL matcher type augmentation |
+| Subpath                                                                   | Covered exports                                                                                                        |
+| ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `vitest-native`                                                           | `reactNative`, `presets`, `disabledPresetNames`                                                                        |
+| `vitest-native/helpers`                                                   | `setPlatform`, `setDimensions`, `setColorScheme`, `setInsets`, `mockNativeModule`, `extendPresetMock`, `resetAllMocks` |
+| `vitest-native/presets`                                                   | the 17 preset factories, by name                                                                                       |
+| `vitest-native/matchers`                                                  | `toHaveAnimatedStyle`, `toHaveAnimatedProps`, `animatedMatchers`                                                       |
+| `vitest-native/serializer`                                                | `serializer`                                                                                                           |
+| `vitest-native/jest-compat`                                               | `jestMockTransform`, `jestCompatAliases`, `jestCompatSetup`                                                            |
+| `vitest-native/jest-compat/setup`, `/jest-globals`, `/extend-expect-noop` | loadable as setup-file and alias targets                                                                               |
+| `vitest-native/rntl-matchers`                                             | the RNTL matcher type augmentation                                                                                     |
 
 The module format of an entry point is part of the contract: an entry that is loadable from
 CommonJS stays loadable from CommonJS. Which entries those are is enforced by `check:exports`, and
@@ -39,11 +39,11 @@ every subpath is loaded by specifier under both `require` and `import` in
 ### Plugin options
 
 The keys accepted by the plugin function are `engine`, `platform`, `presets`, `mocks`,
-`diagnostics`, `assetExts`, `transform`, `hotRuntime`. Their accepted types and their defaults are
-covered. An unknown key is rejected at configuration time, so adding a key is a minor and removing
-or renaming one is a major.
+`diagnostics`, `assetExts`, `metroConfig`, `transform`, `hotRuntime`. Their accepted types and their
+defaults are covered. An unknown key is rejected at configuration time, so adding a key is a minor
+and removing or renaming one is a major.
 
-`hotRuntime` is the exception — see [Experimental](#experimental).
+`hotRuntime` and `metroConfig` are exceptions — see [Experimental](#experimental).
 
 ### Preset authoring
 
@@ -73,9 +73,9 @@ Changing any of these is a patch or minor, and never requires a major.
   error `message` strings. Assert on error `code`, not on text.
 - **What a preset mocks.** Presets track upstream libraries. When `react-native-reanimated` adds an
   export, the preset gains it in a minor; when upstream removes one, the preset drops it in a minor.
-  The preset's *existence and name* are covered; its mocked surface follows upstream.
+  The preset's _existence and name_ are covered; its mocked surface follows upstream.
 - **Mock-engine fidelity details.** The mock engine's job is to match real React Native. A change
-  that moves it *closer* to real RN is a fix, even if a test was relying on the divergence. The
+  that moves it _closer_ to real RN is a fix, even if a test was relying on the divergence. The
   cross-check corpus and `crosscheck/known-differences.json` record where the two intentionally
   differ.
 - **Anything reachable only by deep import** into `dist/`.
@@ -89,6 +89,7 @@ are documented, tested, and gated in CI — they are simply not stable, and they
 | Surface | Why |
 | --- | --- |
 | `hotRuntime` and its options | Built on Vitest's experimental custom-pool API, which can change between Vitest minors. The default, `'auto'`, falls back to per-file isolation whenever the run cannot be bounded; `false` opts out. |
+| `metroConfig` and its options | Opt-in declarative Metro profile ingestion. Framework loading, custom resolvers and the version matrix remain under investigation. Off by default. |
 
 A surface leaves this list by being promoted in a minor, and can change or be removed in a minor
 while it is on it.

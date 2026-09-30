@@ -165,6 +165,34 @@ export default defineConfig({
 | `transform`   | `string[]`                     | `[]`        | **`engine: 'native'` only.** Extra `node_modules` packages whose source the native engine should transform (Flow/TS/JSX stripped) as it loads them — for third-party RN libraries that ship untranspiled source (e.g. `react-native-reanimated`). Analogous to Jest's `transformIgnorePatterns` allowlist. |
 | `hotRuntime`  | `boolean \| 'auto' \| HotRuntimeOptions` | `'auto'`    | `engine: 'native'` only. Reuse workers while keeping app/test modules isolated per file. `'auto'` (the default) uses it when the run can be bounded and recycled, and per-file isolation otherwise; `false` always isolates per worker. See [Hot runtime](#hot-runtime). |
 
+### Experimental Metro configuration
+
+Pass `metroConfig: true` to use your project's Metro source-extension order and
+asset list in both Vite and Node resolution. This is opt-in while the framework
+and package-manager compatibility matrix is being validated:
+
+```ts
+reactNative({ metroConfig: true });
+// Config outside the project root:
+reactNative({ metroConfig: { configFile: "../../metro.config.cjs" } });
+```
+
+Expo's defaults prefer TypeScript over JavaScript when both variants exist;
+bare React Native's defaults prefer JavaScript. The profile is evaluated in a
+short-lived child using the project's own Metro tooling. Explicit `assetExts`
+additions still apply. Metro transforms are not installed: source formats such as
+SVG need a corresponding Vitest/Vite transform.
+
+A custom `resolver.resolveRequest` is code and does not run under Vitest: the
+source and asset extensions still apply, and a warning names the gap. Where one of
+its redirects matters to tests, reproduce it with `resolve.alias`. Package
+main fields and conditions remain governed by the engine's ownership policy;
+`diagnostics: true` reports the observed Metro values. Config is evaluated on
+startup; changing it requires restarting the run.
+
+Default: `false`. Findings and remaining gates are recorded in
+[the investigation log](docs/metro-profile-investigation.md).
+
 ### `engine`
 
 Choose how React Native is provided to your tests:

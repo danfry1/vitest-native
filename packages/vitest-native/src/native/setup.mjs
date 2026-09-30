@@ -65,9 +65,14 @@ try {
 } catch {}
 // Asset extensions the Node require-hook should stub (matches the Vite graph).
 let assetExts = [];
+let sourceExts = ["js", "jsx", "json", "ts", "tsx"];
 try {
   if (process.env.VITEST_NATIVE_ASSET_EXTS)
     assetExts = JSON.parse(process.env.VITEST_NATIVE_ASSET_EXTS);
+} catch {}
+try {
+  if (process.env.VITEST_NATIVE_SOURCE_EXTS)
+    sourceExts = JSON.parse(process.env.VITEST_NATIVE_SOURCE_EXTS);
 } catch {}
 
 // --- Third-party preset mocks ---
@@ -169,6 +174,7 @@ if (!globalThis.__vitest_native_loader_registered) {
       transformPkgs: nodeTransformPkgs,
       presetExports,
       assetExts,
+      sourceExts: process.env.VITEST_NATIVE_SOURCE_EXTS ? sourceExts : undefined,
       hotGenerationBuffer: globalThis.__vitest_native_hot_generation?.buffer,
     },
   });
@@ -179,14 +185,21 @@ if (!globalThis.__vitest_native_loader_registered) {
 // serve — a computed require, a package in `transform` — falls through to the
 // hooks below, so this is purely a faster path to the same modules.
 if (process.env.VITEST_NATIVE_RN_REGISTRY) {
-  const installed = installRegistry(process.env.VITEST_NATIVE_RN_REGISTRY, projectRoot);
+  const installed = installRegistry(process.env.VITEST_NATIVE_RN_REGISTRY, projectRoot, sourceExts);
   if (diagnostics) {
     console.log(
       `[vitest-native] (native) precompiled RN registry ${installed ? "installed" : "unavailable; using per-file module loading"}`,
     );
   }
 }
-installRequireHooks(projectRoot, nodeTransformPkgs, platform, reactNativeVersion, assetExts);
+installRequireHooks(
+  projectRoot,
+  nodeTransformPkgs,
+  platform,
+  reactNativeVersion,
+  assetExts,
+  sourceExts,
+);
 // After the hooks: the polyfill is Flow-typed and compiled by them (see globals.mjs).
 installErrorUtils(projectRoot);
 

@@ -178,6 +178,7 @@ export function installRequireHooks(
   platform = "ios",
   reactNativeVersion = "0.0.0",
   assetExts = [],
+  sourceExts = ["js", "jsx", "json", "ts", "tsx"],
 ) {
   if (globalThis.__vitest_native_require_hooks_installed) {
     // Install once per worker — but not with a frozen transform list. The hot
@@ -187,7 +188,11 @@ export function installRequireHooks(
     // pin the boot-time env list forever, and the divergence is hot-only because
     // under stock the setup file IS the first caller. Rebuild the matcher when
     // a later caller brings a different list; hook layers are never stacked.
-    globalThis.__vitest_native_require_hooks_update?.(transformPkgs);
+    globalThis.__vitest_native_require_hooks_update?.({
+      transformPkgs,
+      assetExts,
+      sourceExts,
+    });
     return;
   }
   globalThis.__vitest_native_require_hooks_installed = true;
@@ -201,15 +206,19 @@ export function installRequireHooks(
   // @react-native-vector-icons are shadowed by their preset, so they never inspect
   // the stubbed font require.)
   const NON_ASSET = new Set([".js", ".cjs", ".mjs", ".ts", ".tsx", ".json", ".node"]);
-  const assetExtSet = new Set(assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
-  for (const raw of assetExts) {
-    const ext = "." + String(raw).replace(/^\./, "");
-    if (NON_ASSET.has(ext) || Module._extensions[ext]) continue;
-    Module._extensions[ext] = function (mod, filename) {
-      const basename = filename.replace(/\\/g, "/").split("/").pop() || filename;
-      mod.exports = basename;
-    };
-  }
+  let assetExtSet = new Set(assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
+  let activeSourceExts = sourceExts;
+  const installAssetExtensions = (extensions) => {
+    for (const raw of extensions) {
+      const ext = "." + String(raw).replace(/^\./, "");
+      if (NON_ASSET.has(ext) || Module._extensions[ext]) continue;
+      Module._extensions[ext] = function (mod, filename) {
+        const basename = filename.replace(/\\/g, "/").split("/").pop() || filename;
+        mod.exports = basename;
+      };
+    }
+  };
+  installAssetExtensions(assetExts);
 
   // Configured third-party packages to also transform (Flow/TS/JSX stripped).
   // `let` + the updater below: the hot worker installs the hooks at boot with the
@@ -227,7 +236,11 @@ export function installRequireHooks(
   });
   let isExtra = ownership.matchesNodeTransformedFile;
   let isExtraKey = JSON.stringify(transformPkgs);
-  globalThis.__vitest_native_require_hooks_update = (pkgs) => {
+  globalThis.__vitest_native_require_hooks_update = (next) => {
+    const pkgs = next.transformPkgs;
+    activeSourceExts = next.sourceExts;
+    assetExtSet = new Set(next.assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
+    installAssetExtensions(next.assetExts);
     const key = JSON.stringify(pkgs);
     if (key === isExtraKey) return;
     isExtraKey = key;
@@ -318,6 +331,7 @@ export function installRequireHooks(
       resolved = resolvePlatformFile(
         path.resolve(path.dirname(parent.filename), request),
         platform,
+        activeSourceExts,
       );
     }
     if (!resolved) {
@@ -328,7 +342,7 @@ export function installRequireHooks(
         // preset emits (`react-native/src/private/…`); Metro resolves them via the
         // `react-native-legacy-deep-imports` condition. Mirror Metro by path.
         const fromDir = parent?.filename ? path.dirname(parent.filename) : projectRoot;
-        const deep = resolveDeepPackageFile(request, fromDir, platform);
+        const deep = resolveDeepPackageFile(request, fromDir, platform, activeSourceExts);
         if (deep === null) throw err;
         resolved = deep;
       }
