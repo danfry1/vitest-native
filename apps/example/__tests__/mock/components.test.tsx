@@ -34,12 +34,12 @@ import {
 // ---------------------------------------------------------------------------
 
 describe('View', () => {
-  it('renders with testID', () => {
-    render(<View testID="box" />);
+  it('renders with testID', async () => {
+    await render(<View testID="box" />);
     expect(screen.getByTestId('box')).toBeTruthy();
   });
-  it('passes style prop', () => {
-    render(<View testID="styled" style={{ flex: 1 }} />);
+  it('passes style prop', async () => {
+    await render(<View testID="styled" style={{ flex: 1 }} />);
     expect(screen.getByTestId('styled').props.style).toEqual({ flex: 1 });
   });
 });
@@ -49,37 +49,37 @@ describe('View', () => {
 // ---------------------------------------------------------------------------
 
 describe('RNTL Matchers', () => {
-  it('toBeEmptyElement()', () => {
-    render(<View testID="empty-box" />);
+  it('toBeEmptyElement()', async () => {
+    await render(<View testID="empty-box" />);
     expect(screen.getByTestId('empty-box')).toBeEmptyElement();
   });
-  it('toHaveTextContent()', () => {
-    render(<Text>Hello World</Text>);
+  it('toHaveTextContent()', async () => {
+    await render(<Text>Hello World</Text>);
     expect(screen.getByText('Hello World')).toHaveTextContent('Hello World');
   });
-  it('toHaveProp()', () => {
-    render(<View testID="prop-test" accessibilityLabel="test" />);
+  it('toHaveProp()', async () => {
+    await render(<View testID="prop-test" accessibilityLabel="test" />);
     expect(screen.getByTestId('prop-test')).toHaveProp('accessibilityLabel', 'test');
   });
-  it('toHaveStyle()', () => {
-    render(<View testID="style-test" style={{ backgroundColor: 'red', flex: 1 }} />);
+  it('toHaveStyle()', async () => {
+    await render(<View testID="style-test" style={{ backgroundColor: 'red', flex: 1 }} />);
     expect(screen.getByTestId('style-test')).toHaveStyle({ backgroundColor: 'red' });
   });
-  it('toBeVisible()', () => {
-    render(<View testID="visible-test" />);
+  it('toBeVisible()', async () => {
+    await render(<View testID="visible-test" />);
     expect(screen.getByTestId('visible-test')).toBeVisible();
   });
 });
 
 describe('Text', () => {
-  it('renders text content', () => {
-    render(<Text>Hello</Text>);
+  it('renders text content', async () => {
+    await render(<Text>Hello</Text>);
     expect(screen.getByText('Hello')).toBeTruthy();
   });
-  it('handles press events', () => {
+  it('handles press events', async () => {
     const onPress = vi.fn();
-    render(<Text onPress={onPress}>Tap me</Text>);
-    fireEvent.press(screen.getByText('Tap me'));
+    await render(<Text onPress={onPress}>Tap me</Text>);
+    await fireEvent.press(screen.getByText('Tap me'));
     expect(onPress).toHaveBeenCalledOnce();
   });
 });
@@ -89,43 +89,43 @@ describe('Text', () => {
 // ---------------------------------------------------------------------------
 
 describe('TextInput', () => {
-  it('renders with placeholder', () => {
-    render(<TextInput testID="input" placeholder="Type here" />);
+  it('renders with placeholder', async () => {
+    await render(<TextInput testID="input" placeholder="Type here" />);
     expect(screen.getByTestId('input').props.placeholder).toBe('Type here');
   });
 
-  it('fires onChangeText', () => {
+  it('fires onChangeText', async () => {
     const onChange = vi.fn();
-    render(<TextInput testID="input" onChangeText={onChange} />);
-    fireEvent.changeText(screen.getByTestId('input'), 'hello');
+    await render(<TextInput testID="input" onChangeText={onChange} />);
+    await fireEvent.changeText(screen.getByTestId('input'), 'hello');
     expect(onChange).toHaveBeenCalledWith('hello');
   });
 
-  it('ref.focus() is callable', () => {
+  it('ref.focus() is callable', async () => {
     const ref = createRef<any>();
-    render(<TextInput ref={ref} testID="input" />);
+    await render(<TextInput ref={ref} testID="input" />);
     expect(ref.current.focus).toBeDefined();
     ref.current.focus();
     expect(ref.current.focus).toHaveBeenCalled();
   });
 
-  it('ref.blur() is callable', () => {
+  it('ref.blur() is callable', async () => {
     const ref = createRef<any>();
-    render(<TextInput ref={ref} testID="input" />);
+    await render(<TextInput ref={ref} testID="input" />);
     ref.current.blur();
     expect(ref.current.blur).toHaveBeenCalled();
   });
 
-  it('ref.clear() is callable', () => {
+  it('ref.clear() is callable', async () => {
     const ref = createRef<any>();
-    render(<TextInput ref={ref} testID="input" />);
+    await render(<TextInput ref={ref} testID="input" />);
     ref.current.clear();
     expect(ref.current.clear).toHaveBeenCalled();
   });
 
-  it('ref.isFocused() returns boolean', () => {
+  it('ref.isFocused() returns boolean', async () => {
     const ref = createRef<any>();
-    render(<TextInput ref={ref} testID="input" />);
+    await render(<TextInput ref={ref} testID="input" />);
     expect(ref.current.isFocused()).toBe(false);
   });
 });
@@ -135,37 +135,37 @@ describe('TextInput', () => {
 // ---------------------------------------------------------------------------
 
 describe('ScrollView', () => {
-  it('renders children', () => {
-    render(<ScrollView testID="scroll"><Text>Content</Text></ScrollView>);
+  it('renders children', async () => {
+    await render(<ScrollView testID="scroll"><Text>Content</Text></ScrollView>);
     expect(screen.getByTestId('scroll')).toBeTruthy();
     expect(screen.getByText('Content')).toBeTruthy();
   });
 
-  it('fires onScroll', () => {
+  it('fires onScroll', async () => {
     const onScroll = vi.fn();
-    render(<ScrollView testID="scroll" onScroll={onScroll} />);
-    fireEvent.scroll(screen.getByTestId('scroll'), { nativeEvent: { contentOffset: { y: 100 } } });
+    await render(<ScrollView testID="scroll" onScroll={onScroll} />);
+    await fireEvent.scroll(screen.getByTestId('scroll'), { nativeEvent: { contentOffset: { y: 100 } } });
     expect(onScroll).toHaveBeenCalled();
   });
 
-  it('ref.scrollTo() is callable', () => {
+  it('ref.scrollTo() is callable', async () => {
     const ref = createRef<any>();
-    render(<ScrollView ref={ref} testID="scroll" />);
+    await render(<ScrollView ref={ref} testID="scroll" />);
     expect(ref.current.scrollTo).toBeDefined();
     ref.current.scrollTo({ y: 100 });
     expect(ref.current.scrollTo).toHaveBeenCalledWith({ y: 100 });
   });
 
-  it('ref.scrollToEnd() is callable', () => {
+  it('ref.scrollToEnd() is callable', async () => {
     const ref = createRef<any>();
-    render(<ScrollView ref={ref} testID="scroll" />);
+    await render(<ScrollView ref={ref} testID="scroll" />);
     ref.current.scrollToEnd();
     expect(ref.current.scrollToEnd).toHaveBeenCalled();
   });
 
-  it('ref.flashScrollIndicators() is callable', () => {
+  it('ref.flashScrollIndicators() is callable', async () => {
     const ref = createRef<any>();
-    render(<ScrollView ref={ref} testID="scroll" />);
+    await render(<ScrollView ref={ref} testID="scroll" />);
     ref.current.flashScrollIndicators();
     expect(ref.current.flashScrollIndicators).toHaveBeenCalled();
   });
@@ -181,8 +181,8 @@ describe('FlatList', () => {
     { id: '2', label: 'Two' },
   ];
 
-  it('renders items', () => {
-    render(
+  it('renders items', async () => {
+    await render(
       <FlatList
         testID="list"
         data={data}
@@ -194,8 +194,8 @@ describe('FlatList', () => {
     expect(screen.getByText('Two')).toBeTruthy();
   });
 
-  it('renders ListEmptyComponent when data is empty', () => {
-    render(
+  it('renders ListEmptyComponent when data is empty', async () => {
+    await render(
       <FlatList
         testID="list"
         data={[]}
@@ -206,8 +206,8 @@ describe('FlatList', () => {
     expect(screen.getByText('Empty')).toBeTruthy();
   });
 
-  it('renders ListHeaderComponent and ListFooterComponent', () => {
-    render(
+  it('renders ListHeaderComponent and ListFooterComponent', async () => {
+    await render(
       <FlatList
         data={data}
         renderItem={({ item }) => <Text>{item.label}</Text>}
@@ -220,9 +220,9 @@ describe('FlatList', () => {
     expect(screen.getByText('Footer')).toBeTruthy();
   });
 
-  it('ref.scrollToIndex() is callable', () => {
+  it('ref.scrollToIndex() is callable', async () => {
     const ref = createRef<any>();
-    render(
+    await render(
       <FlatList
         ref={ref}
         data={data}
@@ -234,9 +234,9 @@ describe('FlatList', () => {
     expect(ref.current.scrollToIndex).toHaveBeenCalledWith({ index: 0 });
   });
 
-  it('ref.scrollToOffset() is callable', () => {
+  it('ref.scrollToOffset() is callable', async () => {
     const ref = createRef<any>();
-    render(
+    await render(
       <FlatList
         ref={ref}
         data={data}
@@ -259,8 +259,8 @@ describe('SectionList', () => {
     { title: 'B', data: [{ id: '2', name: 'Bob' }] },
   ];
 
-  it('renders sections with headers', () => {
-    render(
+  it('renders sections with headers', async () => {
+    await render(
       <SectionList
         testID="slist"
         sections={sections}
@@ -275,9 +275,9 @@ describe('SectionList', () => {
     expect(screen.getByTestId('hdr-B')).toBeTruthy();
   });
 
-  it('ref.scrollToLocation() is callable', () => {
+  it('ref.scrollToLocation() is callable', async () => {
     const ref = createRef<any>();
-    render(
+    await render(
       <SectionList
         ref={ref}
         sections={sections}
@@ -297,8 +297,8 @@ describe('SectionList', () => {
 describe('VirtualizedList', () => {
   const data = ['A', 'B', 'C'];
 
-  it('renders items via getItem/getItemCount', () => {
-    render(
+  it('renders items via getItem/getItemCount', async () => {
+    await render(
       <VirtualizedList
         testID="vlist"
         data={data}
@@ -313,9 +313,9 @@ describe('VirtualizedList', () => {
     expect(screen.getByText('C')).toBeTruthy();
   });
 
-  it('ref.scrollToIndex() is callable', () => {
+  it('ref.scrollToIndex() is callable', async () => {
     const ref = createRef<any>();
-    render(
+    await render(
       <VirtualizedList
         ref={ref}
         data={data}
@@ -335,8 +335,8 @@ describe('VirtualizedList', () => {
 // ---------------------------------------------------------------------------
 
 describe('Image', () => {
-  it('renders with source', () => {
-    render(<Image testID="img" source={{ uri: 'https://example.com/photo.jpg' }} />);
+  it('renders with source', async () => {
+    await render(<Image testID="img" source={{ uri: 'https://example.com/photo.jpg' }} />);
     expect(screen.getByTestId('img').props.source).toEqual({ uri: 'https://example.com/photo.jpg' });
   });
 
@@ -360,8 +360,8 @@ describe('Image', () => {
 });
 
 describe('ImageBackground', () => {
-  it('renders children over image', () => {
-    render(
+  it('renders children over image', async () => {
+    await render(
       <ImageBackground testID="imgbg" source={{ uri: 'bg.jpg' }}>
         <Text>Overlay</Text>
       </ImageBackground>,
@@ -376,15 +376,15 @@ describe('ImageBackground', () => {
 // ---------------------------------------------------------------------------
 
 describe('Button', () => {
-  it('renders title text', () => {
-    render(<Button title="Press Me" onPress={vi.fn()} />);
+  it('renders title text', async () => {
+    await render(<Button title="Press Me" onPress={vi.fn()} />);
     expect(screen.getByText('Press Me')).toBeTruthy();
   });
 
-  it('calls onPress when pressed', () => {
+  it('calls onPress when pressed', async () => {
     const onPress = vi.fn();
-    render(<Button title="Go" onPress={onPress} />);
-    fireEvent.press(screen.getByText('Go'));
+    await render(<Button title="Go" onPress={onPress} />);
+    await fireEvent.press(screen.getByText('Go'));
     expect(onPress).toHaveBeenCalledOnce();
   });
 });
@@ -394,58 +394,58 @@ describe('Button', () => {
 // ---------------------------------------------------------------------------
 
 describe('Touchable components', () => {
-  it('TouchableOpacity fires onPress', () => {
+  it('TouchableOpacity fires onPress', async () => {
     const onPress = vi.fn();
-    render(
+    await render(
       <TouchableOpacity testID="to" onPress={onPress}>
         <Text>Touch</Text>
       </TouchableOpacity>,
     );
-    fireEvent.press(screen.getByTestId('to'));
+    await fireEvent.press(screen.getByTestId('to'));
     expect(onPress).toHaveBeenCalledOnce();
   });
 
-  it('TouchableHighlight fires onPress', () => {
+  it('TouchableHighlight fires onPress', async () => {
     const onPress = vi.fn();
-    render(
+    await render(
       <TouchableHighlight testID="th" onPress={onPress}>
         <Text>Touch</Text>
       </TouchableHighlight>,
     );
-    fireEvent.press(screen.getByTestId('th'));
+    await fireEvent.press(screen.getByTestId('th'));
     expect(onPress).toHaveBeenCalledOnce();
   });
 
-  it('TouchableWithoutFeedback fires onPress', () => {
+  it('TouchableWithoutFeedback fires onPress', async () => {
     const onPress = vi.fn();
-    render(
+    await render(
       <TouchableWithoutFeedback testID="twf" onPress={onPress}>
         <Text>Touch</Text>
       </TouchableWithoutFeedback>,
     );
-    fireEvent.press(screen.getByTestId('twf'));
+    await fireEvent.press(screen.getByTestId('twf'));
     expect(onPress).toHaveBeenCalledOnce();
   });
 
-  it('TouchableNativeFeedback fires onPress', () => {
+  it('TouchableNativeFeedback fires onPress', async () => {
     const onPress = vi.fn();
-    render(
+    await render(
       <TouchableNativeFeedback testID="tnf" onPress={onPress}>
         <Text>Touch</Text>
       </TouchableNativeFeedback>,
     );
-    fireEvent.press(screen.getByTestId('tnf'));
+    await fireEvent.press(screen.getByTestId('tnf'));
     expect(onPress).toHaveBeenCalledOnce();
   });
 
-  it('Pressable fires onPress', () => {
+  it('Pressable fires onPress', async () => {
     const onPress = vi.fn();
-    render(
+    await render(
       <Pressable testID="press" onPress={onPress}>
         <Text>Press</Text>
       </Pressable>,
     );
-    fireEvent.press(screen.getByTestId('press'));
+    await fireEvent.press(screen.getByTestId('press'));
     expect(onPress).toHaveBeenCalledOnce();
   });
 });
@@ -455,8 +455,8 @@ describe('Touchable components', () => {
 // ---------------------------------------------------------------------------
 
 describe('Modal', () => {
-  it('renders children when visible', () => {
-    render(
+  it('renders children when visible', async () => {
+    await render(
       <Modal visible={true}>
         <Text>Modal Content</Text>
       </Modal>,
@@ -464,8 +464,8 @@ describe('Modal', () => {
     expect(screen.getByText('Modal Content')).toBeTruthy();
   });
 
-  it('hides children when not visible', () => {
-    render(
+  it('hides children when not visible', async () => {
+    await render(
       <Modal visible={false}>
         <Text>Hidden</Text>
       </Modal>,
@@ -479,15 +479,15 @@ describe('Modal', () => {
 // ---------------------------------------------------------------------------
 
 describe('Switch', () => {
-  it('renders with value', () => {
-    render(<Switch testID="sw" value={true} />);
+  it('renders with value', async () => {
+    await render(<Switch testID="sw" value={true} />);
     expect(screen.getByTestId('sw').props.value).toBe(true);
   });
 
-  it('fires onValueChange', () => {
+  it('fires onValueChange', async () => {
     const onChange = vi.fn();
-    render(<Switch testID="sw" value={false} onValueChange={onChange} />);
-    fireEvent(screen.getByTestId('sw'), 'valueChange', true);
+    await render(<Switch testID="sw" value={false} onValueChange={onChange} />);
+    await fireEvent(screen.getByTestId('sw'), 'valueChange', true);
     expect(onChange).toHaveBeenCalledWith(true);
   });
 });
@@ -497,8 +497,8 @@ describe('Switch', () => {
 // ---------------------------------------------------------------------------
 
 describe('ActivityIndicator', () => {
-  it('renders with size prop', () => {
-    render(<ActivityIndicator testID="spinner" size="large" />);
+  it('renders with size prop', async () => {
+    await render(<ActivityIndicator testID="spinner" size="large" />);
     expect(screen.getByTestId('spinner').props.size).toBe('large');
   });
 });
@@ -508,8 +508,8 @@ describe('ActivityIndicator', () => {
 // ---------------------------------------------------------------------------
 
 describe('StatusBar component', () => {
-  it('renders with barStyle prop', () => {
-    render(<StatusBar barStyle="dark-content" />);
+  it('renders with barStyle prop', async () => {
+    await render(<StatusBar barStyle="dark-content" />);
     // StatusBar is a no-op in tests but should not throw
   });
 });
@@ -519,8 +519,8 @@ describe('StatusBar component', () => {
 // ---------------------------------------------------------------------------
 
 describe('RefreshControl', () => {
-  it('renders with refreshing prop', () => {
-    render(<RefreshControl testID="rc" refreshing={false} />);
+  it('renders with refreshing prop', async () => {
+    await render(<RefreshControl testID="rc" refreshing={false} />);
     expect(screen.getByTestId('rc').props.refreshing).toBe(false);
   });
 });
@@ -530,25 +530,25 @@ describe('RefreshControl', () => {
 // ---------------------------------------------------------------------------
 
 describe('Layout wrappers', () => {
-  it('SafeAreaView renders children', () => {
-    render(<SafeAreaView testID="sa"><Text>Safe</Text></SafeAreaView>);
+  it('SafeAreaView renders children', async () => {
+    await render(<SafeAreaView testID="sa"><Text>Safe</Text></SafeAreaView>);
     expect(screen.getByTestId('sa')).toBeTruthy();
     expect(screen.getByText('Safe')).toBeTruthy();
   });
 
-  it('KeyboardAvoidingView renders children', () => {
-    render(<KeyboardAvoidingView testID="kav"><Text>KAV</Text></KeyboardAvoidingView>);
+  it('KeyboardAvoidingView renders children', async () => {
+    await render(<KeyboardAvoidingView testID="kav"><Text>KAV</Text></KeyboardAvoidingView>);
     expect(screen.getByTestId('kav')).toBeTruthy();
     expect(screen.getByText('KAV')).toBeTruthy();
   });
 
-  it('InputAccessoryView renders children', () => {
-    render(<InputAccessoryView><Text>Accessory</Text></InputAccessoryView>);
+  it('InputAccessoryView renders children', async () => {
+    await render(<InputAccessoryView><Text>Accessory</Text></InputAccessoryView>);
     expect(screen.getByText('Accessory')).toBeTruthy();
   });
 
-  it('DrawerLayoutAndroid renders children', () => {
-    render(<DrawerLayoutAndroid><Text>Drawer</Text></DrawerLayoutAndroid>);
+  it('DrawerLayoutAndroid renders children', async () => {
+    await render(<DrawerLayoutAndroid><Text>Drawer</Text></DrawerLayoutAndroid>);
     expect(screen.getByText('Drawer')).toBeTruthy();
   });
 });
@@ -558,23 +558,23 @@ describe('Layout wrappers', () => {
 // ---------------------------------------------------------------------------
 
 describe('Animated components', () => {
-  it('Animated.View renders', () => {
-    render(<Animated.View testID="aview"><Text>Animated</Text></Animated.View>);
+  it('Animated.View renders', async () => {
+    await render(<Animated.View testID="aview"><Text>Animated</Text></Animated.View>);
     expect(screen.getByTestId('aview')).toBeTruthy();
   });
 
-  it('Animated.Text renders', () => {
-    render(<Animated.Text testID="atext">Animated Text</Animated.Text>);
+  it('Animated.Text renders', async () => {
+    await render(<Animated.Text testID="atext">Animated Text</Animated.Text>);
     expect(screen.getByTestId('atext')).toBeTruthy();
   });
 
-  it('Animated.Image renders', () => {
-    render(<Animated.Image testID="aimg" source={{ uri: 'test.jpg' }} />);
+  it('Animated.Image renders', async () => {
+    await render(<Animated.Image testID="aimg" source={{ uri: 'test.jpg' }} />);
     expect(screen.getByTestId('aimg')).toBeTruthy();
   });
 
-  it('Animated.ScrollView renders', () => {
-    render(<Animated.ScrollView testID="ascroll"><Text>Content</Text></Animated.ScrollView>);
+  it('Animated.ScrollView renders', async () => {
+    await render(<Animated.ScrollView testID="ascroll"><Text>Content</Text></Animated.ScrollView>);
     expect(screen.getByTestId('ascroll')).toBeTruthy();
   });
 

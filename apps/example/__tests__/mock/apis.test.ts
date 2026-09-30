@@ -897,29 +897,29 @@ describe('StatusBar API', () => {
 // ---------------------------------------------------------------------------
 
 describe('Hooks', () => {
-  it('useColorScheme returns scheme', () => {
-    const { result } = renderHook(() => useColorScheme());
+  it('useColorScheme returns scheme', async () => {
+    const { result } = await renderHook(() => useColorScheme());
     expect(['light', 'dark']).toContain(result.current);
   });
 
-  it('useColorScheme responds to setColorScheme helper', () => {
-    const { result } = renderHook(() => useColorScheme());
+  it('useColorScheme responds to setColorScheme helper', async () => {
+    const { result } = await renderHook(() => useColorScheme());
     expect(result.current).toBe('light');
-    rnAct(() => { setColorScheme('dark'); });
+    await rnAct(() => { setColorScheme('dark'); });
     expect(result.current).toBe('dark');
   });
 
-  it('useWindowDimensions returns dims', () => {
-    const { result } = renderHook(() => useWindowDimensions());
+  it('useWindowDimensions returns dims', async () => {
+    const { result } = await renderHook(() => useWindowDimensions());
     expect(result.current.width).toBeGreaterThan(0);
     expect(result.current.height).toBeGreaterThan(0);
     expect(result.current.scale).toBeGreaterThan(0);
   });
 
-  it('useWindowDimensions responds to setDimensions helper', () => {
-    const { result } = renderHook(() => useWindowDimensions());
+  it('useWindowDimensions responds to setDimensions helper', async () => {
+    const { result } = await renderHook(() => useWindowDimensions());
     expect(result.current.width).toBe(390);
-    rnAct(() => { setDimensions({ width: 1024, height: 768 }); });
+    await rnAct(() => { setDimensions({ width: 1024, height: 768 }); });
     expect(result.current.width).toBe(1024);
     expect(result.current.height).toBe(768);
   });

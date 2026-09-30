@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 async function renderLoaded(props: React.ComponentProps<typeof ProfileScreen>) {
-  render(<ProfileScreen {...props} />);
+  await render(<ProfileScreen {...props} />);
   await act(() => {
     vi.advanceTimersByTime(150);
   });
@@ -32,8 +32,8 @@ async function renderLoaded(props: React.ComponentProps<typeof ProfileScreen>) {
 describe('ProfileScreen', () => {
   // --- Loading state ---
 
-  it('shows loading indicator initially', () => {
-    render(<ProfileScreen userId="123" />);
+  it('shows loading indicator initially', async () => {
+    await render(<ProfileScreen userId="123" />);
     expect(screen.getByTestId('loading')).toBeTruthy();
     expect(screen.getByText('Loading profile...')).toBeTruthy();
   });
@@ -48,14 +48,14 @@ describe('ProfileScreen', () => {
   it('updates name on text change', async () => {
     await renderLoaded({ userId: '123' });
     const nameInput = screen.getByTestId('name-input');
-    fireEvent.changeText(nameInput, 'Jane Doe');
+    await fireEvent.changeText(nameInput, 'Jane Doe');
     expect(nameInput.props.value).toBe('Jane Doe');
   });
 
   it('updates bio on text change', async () => {
     await renderLoaded({ userId: '123' });
     const bioInput = screen.getByTestId('bio-input');
-    fireEvent.changeText(bioInput, 'New bio text');
+    await fireEvent.changeText(bioInput, 'New bio text');
     expect(bioInput.props.value).toBe('New bio text');
   });
 
@@ -65,7 +65,7 @@ describe('ProfileScreen', () => {
     await renderLoaded({ userId: '123' });
     const toggle = screen.getByTestId('notifications-switch');
     expect(toggle.props.value).toBe(true);
-    fireEvent(toggle, 'valueChange', false);
+    await fireEvent(toggle, 'valueChange', false);
     expect(screen.getByTestId('notifications-switch').props.value).toBe(false);
   });
 
@@ -74,15 +74,15 @@ describe('ProfileScreen', () => {
   it('calls onSave and dismisses keyboard on save', async () => {
     const onSave = vi.fn();
     await renderLoaded({ userId: '123', onSave });
-    fireEvent.press(screen.getByTestId('save-button'));
+    await fireEvent.press(screen.getByTestId('save-button'));
     expect(Keyboard.dismiss).toHaveBeenCalled();
     expect(onSave).toHaveBeenCalledWith('John Doe');
   });
 
   it('shows Alert when saving with empty name', async () => {
     await renderLoaded({ userId: '123' });
-    fireEvent.changeText(screen.getByTestId('name-input'), '');
-    fireEvent.press(screen.getByTestId('save-button'));
+    await fireEvent.changeText(screen.getByTestId('name-input'), '');
+    await fireEvent.press(screen.getByTestId('save-button'));
     expect(Alert.alert).toHaveBeenCalledWith('Error', 'Name cannot be empty');
   });
 
@@ -92,7 +92,7 @@ describe('ProfileScreen', () => {
     const onShare = vi.fn();
     await renderLoaded({ userId: '123', onShare });
     await act(async () => {
-      fireEvent.press(screen.getByTestId('share-button'));
+      await fireEvent.press(screen.getByTestId('share-button'));
     });
     expect(Share.share).toHaveBeenCalledWith({
       message: "Check out John Doe's profile!",
@@ -105,7 +105,7 @@ describe('ProfileScreen', () => {
   it('opens URL via Linking when website button pressed', async () => {
     await renderLoaded({ userId: '123' });
     await act(async () => {
-      fireEvent.press(screen.getByTestId('website-button'));
+      await fireEvent.press(screen.getByTestId('website-button'));
     });
     expect(Linking.canOpenURL).toHaveBeenCalledWith('https://example.com');
     expect(Linking.openURL).toHaveBeenCalledWith('https://example.com');
@@ -115,7 +115,7 @@ describe('ProfileScreen', () => {
 
   it('shows confirmation alert on delete', async () => {
     await renderLoaded({ userId: '123' });
-    fireEvent.press(screen.getByTestId('delete-button'));
+    await fireEvent.press(screen.getByTestId('delete-button'));
     expect(Alert.alert).toHaveBeenCalledWith(
       'Delete Account',
       'Are you sure?',
@@ -131,12 +131,12 @@ describe('ProfileScreen', () => {
   it('opens modal when delete is confirmed', async () => {
     await renderLoaded({ userId: '123' });
 
-    fireEvent.press(screen.getByTestId('delete-button'));
+    await fireEvent.press(screen.getByTestId('delete-button'));
 
     // Simulate pressing "Delete" in the alert
     const alertCall = (Alert.alert as any).mock.calls[0];
     const deleteButton = alertCall[2].find((b: any) => b.text === 'Delete');
-    act(() => deleteButton.onPress());
+    await act(() => deleteButton.onPress());
 
     expect(screen.getByTestId('delete-modal').props.visible).toBe(true);
   });
