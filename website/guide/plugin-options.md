@@ -104,7 +104,7 @@ reactNative({
 
 (Native engine.) Keeps React Native's precompiled factory registry and worker realm warm while resetting RN instances, app/test modules, and a verified manifest of supported process-wide state. Uses Vitest's custom worker APIs, which Vitest labels experimental.
 
-The default, `'auto'`, uses it when the run can be bounded and recycled (at least two workers, no explicitly configured pool) and otherwise falls back quietly to per-file isolation; `diagnostics: true` prints why. `false` always isolates per worker; `true` requires hot mode and fails closed when it cannot be bounded.
+The default, `'auto'`, uses it when the run can be bounded and recycled (at least two workers, no explicitly configured pool, no Jest-migration setup) and otherwise falls back quietly to per-file isolation; `diagnostics: true` prints why. `false` always isolates per worker; `true` requires hot mode and fails closed when it cannot be bounded.
 
 ```ts
 reactNative({ hotRuntime: false }) // opt out

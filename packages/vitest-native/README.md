@@ -216,11 +216,10 @@ every file. By default (`hotRuntime: 'auto'`) the native engine instead reuses w
 modules per file whenever that can be done safely:
 
 `'auto'` selects persistent workers when the current scheduler provides recyclable task boundaries,
-the host/container memory plan admits at least two workers, and no other pool was explicitly
-selected. Suites migrated from Jest (`jestMockTransform()`, the jest-compat setup) are included: the
-runtime resets its state before user setup files run, and migrated real-app suites measured the same
-per-test outcomes as under per-file isolation. The decision runs after other Vite config hooks, so a
-pool contributed by a later plugin is included rather than producing a mixed runtime. When it falls
+the host/container memory plan admits at least two workers, no Jest compatibility plugin or setup
+marks the suite as migration-oriented, and no other pool was explicitly selected. The decision runs
+after other Vite config hooks, so a pool or setup contributed by a later plugin is included rather
+than producing a mixed runtime. A migration suite can still opt in with `hotRuntime: true`. When it falls
 back to per-file isolation it does so quietly; `diagnostics: true`, or setting `hotRuntime: 'auto'`
 explicitly, prints the reason. To always isolate per worker:
 

@@ -676,13 +676,36 @@ export function disabledPresetNames(presets: unknown): Set<string> {
   );
 }
 
+const JEST_MOCK_TRANSFORM_NAME = "vitest-native:jest-mock-hoist";
+
+function hasPluginNamed(value: unknown, name: string): boolean {
+  if (Array.isArray(value)) return value.some((entry) => hasPluginNamed(entry, name));
+  return value !== null && typeof value === "object" && (value as { name?: unknown }).name === name;
+}
+
+function hasJestCompatSetup(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasJestCompatSetup);
+  if (typeof value !== "string") return false;
+  const normalized = value.replaceAll("\\", "/").split("?")[0];
+  return (
+    normalized === "vitest-native/jest-compat/setup" ||
+    /(?:^|\/)vitest-native(?:\/dist)?\/jest-compat\/setup(?:\.mjs)?$/.test(normalized)
+  );
+}
+
 /**
  * Config-time reasons that make automatic hot selection unsafe. Jest-migration suites
- * (jestMockTransform(), the jest-compat setup) are admitted: the hot runtime resets
- * its state before user setup files run, and migrated real-app suites measured the
- * same per-test outcomes under hot as under per-file isolation.
+ * (jestMockTransform(), the jest-compat setup) are declined until the jest-compat
+ * surface has its own cross-file isolation gate under hot.
  */
-function hotAutoConfigDeclineReason(userPool: unknown): string | null {
+function hotAutoConfigDeclineReason(userConfig: UserConfig, userPool: unknown): string | null {
+  if (hasPluginNamed(userConfig.plugins, JEST_MOCK_TRANSFORM_NAME)) {
+    return "jestMockTransform() marks this as a Jest migration suite";
+  }
+  const setupFiles = (userConfig as { test?: { setupFiles?: unknown } }).test?.setupFiles;
+  if (hasJestCompatSetup(setupFiles)) {
+    return "the Jest compatibility setup marks this as a migration suite";
+  }
   if (userPool != null) {
     const label = typeof userPool === "string" ? `'${userPool}'` : "a custom pool";
     return `${label} is explicitly configured`;
@@ -1136,7 +1159,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           const plan = createHotMemoryPlan({ requestedWorkers });
           const allowUnboundedMemory = hotRecycle.allowUnboundedMemory === true;
           const autoDeclineReason = hotRuntimeAuto
-            ? (hotAutoConfigDeclineReason(userPool) ??
+            ? (hotAutoConfigDeclineReason(userConfig, userPool) ??
               (plan.maxWorkers < 2
                 ? `the ${plan.source} memory/scheduler plan selects only one unrecyclable worker`
                 : null))
