@@ -7,7 +7,11 @@
 // able to corrupt the protocol.
 import { spawn } from "node:child_process";
 
+// The protocol channel carries the one answer and is capped strictly. stdout/stderr
+// belong to arbitrary user and toolchain code, which may log freely: only a tail is
+// kept, for the error message, and logging never kills the child.
 const MAX_OUTPUT_BYTES = 1024 * 1024;
+const LOG_TAIL_BYTES = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 120_000;
 const OOM_RE = /heap out of memory|reached heap limit|allocation failed.*heap/i;
 
@@ -42,7 +46,7 @@ function attempt(entryFile, input, heapMb, spawnProcess, timeoutMs, label) {
       clearTimeout(timer);
       resolve(result);
     };
-    const append = (current, chunk) => {
+    const appendProtocol = (current, chunk) => {
       outputBytes += Buffer.byteLength(chunk);
       if (outputBytes > MAX_OUTPUT_BYTES) {
         overflow = true;
@@ -57,18 +61,22 @@ function attempt(entryFile, input, heapMb, spawnProcess, timeoutMs, label) {
       }
       return current + chunk;
     };
+    const appendLog = (current, chunk) => {
+      const next = current + chunk;
+      return next.length > LOG_TAIL_BYTES ? next.slice(-LOG_TAIL_BYTES) : next;
+    };
 
     child.stdout?.setEncoding("utf8");
     child.stderr?.setEncoding("utf8");
     child.stdio?.[3]?.setEncoding("utf8");
     child.stdout?.on("data", (chunk) => {
-      stdout = append(stdout, chunk);
+      stdout = appendLog(stdout, chunk);
     });
     child.stderr?.on("data", (chunk) => {
-      stderr = append(stderr, chunk);
+      stderr = appendLog(stderr, chunk);
     });
     child.stdio?.[3]?.on("data", (chunk) => {
-      protocol = append(protocol, chunk);
+      protocol = appendProtocol(protocol, chunk);
     });
     child.on("error", (error) => {
       finish({ ok: false, oom: false, error: error.message, heapMb });

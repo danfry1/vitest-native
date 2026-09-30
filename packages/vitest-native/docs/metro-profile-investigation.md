@@ -193,8 +193,17 @@ a Metro SVG/CSS/custom transformer.
 
 `resolver.resolveRequest` is a function, not declarative data. Serializing its
 existence but approximating its behavior would be a silent fidelity failure.
-The proposed default is fail-closed. An explicit escape hatch may apply the
-declarative profile while ignoring the custom function, but must warn.
+
+The first design failed closed: a config with a custom resolver was an error
+unless `allowCustomResolver: true` acknowledged it. That was dropped before
+release (2026-09-30). The custom resolver does not run under vitest-native
+without `metroConfig` either, where the gap is silent, so refusing punished only
+the configuration that asked for more Metro fidelity: it discarded the extensions
+that can be honoured and kept the same gap. It also blocked the common case, since
+tools such as Uniwind and react-native-monorepo-config install a resolver that
+delegates with narrow redirects. The shipped behavior applies the declarative
+profile and warns once, naming the gap and pointing at `resolve.alias` for
+redirects that matter to tests.
 
 Before stability, real custom configs need classification: alias/package
 redirects, virtual modules, monorepo policy, platform overrides, and
@@ -318,10 +327,9 @@ Worklets bundle mode redirects RN and TurboModuleRegistry to shims. Detecting a
 function in loaded config does not enumerate later CLI-installed behavior. This
 profile therefore does not establish full Expo CLI/Metro equivalence.
 
-The package file ceiling increased from 85 to 88 for the shared child controller,
-profile loader and evaluator. Before final documentation the artifact measured
-87 files, 310793 packed bytes and 1049345 unpacked bytes, within unchanged byte,
-dependency and export ceilings. Investigation logs/fixtures are not published.
+The shared child controller, profile loader and evaluator add three published
+files; the package budget records the current measured artifact and ceilings
+(`_metroProfileFiles` in package-budget.json). Investigation logs/fixtures are not published.
 
 ### Remaining promotion work
 
@@ -347,7 +355,8 @@ reproduced CJS blocker, not the remaining Metro-profile matrix below.
 
 - Exercise custom source transforms end to end (SVG classification alone is gated).
 - Expand profile-on packed consumers beyond the Expo/Router cases already passed.
-- Classify real custom resolvers and settle fail/adapter/escape behavior.
+- Classify real custom resolvers for adapters (the warn-and-apply behavior is
+  settled; see "Imperative resolver boundary").
 - Confirm Windows config formats and private-fd behavior.
 - Test Expo/RN version ranges, not only versions installed here.
 - Measure mock-suite cold startup and evaluate a safe no-config cache.

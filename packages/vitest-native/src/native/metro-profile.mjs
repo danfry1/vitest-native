@@ -25,7 +25,9 @@ function stringArray(value, field, { allowEmpty = false } = {}) {
     if (
       typeof item !== "string" ||
       item.length === 0 ||
-      ((field === "sourceExts" || field === "assetExts") && !/^[a-zA-Z0-9_-]+$/.test(item))
+      // Metro accepts compound extensions such as `web.js`; separators never belong.
+      ((field === "sourceExts" || field === "assetExts") &&
+        !/^[a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)*$/.test(item))
     ) {
       throw new VitestNativeTypeError(
         "METRO_PROFILE_INVALID",

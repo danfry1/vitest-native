@@ -400,14 +400,18 @@ function autoDetectPresetNames(projectRoot: string, diagnostics: boolean): strin
   return [...names];
 }
 
+/**
+ * `resolution` is the extension profile the plugin already settled on — Metro's when
+ * metroConfig is on, the built-in one otherwise — so it is computed in one place.
+ */
 async function resolveOptions(
   options: VitestNativeOptions = {},
-  projectRoot?: string,
+  projectRoot: string | undefined,
+  resolution: { extensions: string[]; assetExts: string[] },
 ): Promise<ResolvedOptions> {
   const platform = options.platform ?? "ios";
   const diagnostics = options.diagnostics ?? false;
   const engine: "mock" | "native" = options.engine === "native" ? "native" : "mock";
-  const userExts = (options.assetExts ?? []).map((e) => e.replace(/^\./, ""));
 
   // An array replaces auto-detection; an object keeps it and switches named presets
   // off; omitting it auto-detects everything.
@@ -424,10 +428,10 @@ async function resolveOptions(
     platform,
     engine,
     diagnostics,
-    extensions: getPlatformExtensions(platform),
+    extensions: resolution.extensions,
     presets,
     mocks: options.mocks ?? {},
-    assetExts: [...DEFAULT_ASSET_EXTS, ...userExts],
+    assetExts: resolution.assetExts,
   };
 }
 
@@ -1023,10 +1027,14 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             configFile: metroSettings.configFile,
           });
         } catch (error) {
+          // A profile the child returned but that failed validation keeps its own code
+          // (METRO_PROFILE_INVALID); the config hint only applies to a config that
+          // could not be loaded, and it is appended rather than wrapping the message.
+          const code = (error as { code?: unknown })?.code;
+          if (code !== undefined && code !== "METRO_CONFIG_LOAD_FAILED") throw error;
           throw new VitestNativeError(
             "METRO_CONFIG_LOAD_FAILED",
-            `Could not load the project's Metro resolution profile in its bounded child. ` +
-              `${(error as Error)?.message ?? error}\n` +
+            `${String((error as Error)?.message ?? error).replace(/^\[vitest-native\] /, "")}\n` +
               `Fix the Metro config, pass metroConfig:{ configFile:'...' } when it lives ` +
               `outside the project root, or use metroConfig:false to explicitly keep ` +
               `vitest-native's built-in React Native defaults.`,
@@ -1541,9 +1549,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       }
 
       // Now we have the real project root — resolve options from consumer context.
-      resolved = await resolveOptions(options, config.root);
-      resolved.extensions = extensions;
-      resolved.assetExts = assetExtList;
+      resolved = await resolveOptions(options, config.root, {
+        extensions,
+        assetExts: assetExtList,
+      });
       try {
         realRnPackageJson = createRequire(path.join(config.root, "package.json")).resolve(
           "react-native/package.json",

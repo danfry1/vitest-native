@@ -274,6 +274,63 @@ describe("bounded Metro profile loader", () => {
     );
   });
 
+  it("answers as soon as the profile is read, even if the config leaves handles open", async () => {
+    // Metro and Expo loaders can leave timers, watchers or sockets behind. The parent
+    // settles when the child exits, so a child that waited for its event loop to
+    // drain reported a valid profile as a timeout after 30 seconds.
+    const root = project("open-handle");
+    installReactNativeMetro(root);
+    write(
+      path.join(root, "metro.config.cjs"),
+      "setInterval(() => {}, 1000);\nmodule.exports = {};",
+    );
+    const started = Date.now();
+    const result = await loadMetroProfile({ projectRoot: root });
+    expect(result.profile.framework).toBe("react-native");
+    expect(Date.now() - started).toBeLessThan(10_000);
+  }, 20_000);
+
+  it("tolerates a config that logs heavily; only the answer channel is capped", async () => {
+    // The fallback path awaits a promise export, so the log is flushed before the answer.
+    const root = project("chatty");
+    write(
+      path.join(root, "metro.config.cjs"),
+      // Resolve only once the log is flushed, so it all reaches the parent.
+      "module.exports = new Promise((resolve) =>\n" +
+        "  process.stdout.write('x'.repeat(2 * 1024 * 1024), () => resolve({})),\n);",
+    );
+    const result = await loadMetroProfile({ projectRoot: root });
+    expect(result.profile.framework).toBe("fallback");
+  });
+
+  it("accepts compound extensions and rejects anything path-like", () => {
+    const profile = (sourceExts: string[]) =>
+      validateMetroProfile(
+        {
+          schemaVersion: 1,
+          framework: "react-native",
+          sourceExts,
+          assetExts: [],
+          resolverMainFields: ["main"],
+          conditionNames: [],
+        },
+        "/project",
+      );
+    expect(profile(["web.js", "js"]).sourceExts).toEqual(["web.js", "js"]);
+    for (const bad of ["a/b", "../js", ".js", "js.", "a\\b"]) {
+      expect(() => profile([bad]), bad).toThrow("invalid sourceExts");
+    }
+  });
+
+  it("reports a failing config by its message, not a stack trace", async () => {
+    const root = project("failing-message");
+    installReactNativeMetro(root);
+    write(path.join(root, "metro.config.cjs"), "throw new Error('fixture config exploded');");
+    const error = await loadMetroProfile({ projectRoot: root }).catch((e: Error) => e);
+    expect((error as Error).message).toContain("fixture config exploded");
+    expect((error as Error).message).not.toMatch(/\n\s+at /);
+  });
+
   it("does not trust malformed data returned across the child boundary", () => {
     expect(() =>
       validateMetroProfile(
@@ -346,6 +403,31 @@ describe("Metro profile plugin integration", () => {
     expect(warned.filter((message) => message.includes("does not run under Vitest"))).toHaveLength(
       1,
     );
+  });
+
+  it("keeps each failure's own code and adds the config hint only to load failures", async () => {
+    const invalid = project("plugin-invalid-profile");
+    installReactNativeMetro(invalid);
+    write(
+      path.join(invalid, "metro.config.cjs"),
+      `module.exports = { resolver: { sourceExts: ['js', 'a/b'], assetExts: [] } };`,
+    );
+    const invalidError = await runPluginConfig(reactNative({ engine: "mock", metroConfig: true }), {
+      root: invalid,
+    }).catch((e: Error & { code?: string }) => e);
+    expect((invalidError as { code?: string }).code).toBe("METRO_PROFILE_INVALID");
+    expect((invalidError as Error).message).not.toContain("Fix the Metro config");
+
+    const broken = project("plugin-broken-config");
+    installReactNativeMetro(broken);
+    write(path.join(broken, "metro.config.cjs"), "throw new Error('fixture config exploded');");
+    const loadError = await runPluginConfig(reactNative({ engine: "mock", metroConfig: true }), {
+      root: broken,
+    }).catch((e: Error & { code?: string }) => e);
+    expect((loadError as { code?: string }).code).toBe("METRO_CONFIG_LOAD_FAILED");
+    expect((loadError as Error).message).toContain("fixture config exploded");
+    expect((loadError as Error).message).toContain("Fix the Metro config");
+    expect((loadError as Error).message.match(/\[vitest-native\]/g)).toHaveLength(1);
   });
 
   it("supports an explicit legacy-profile escape hatch", async () => {

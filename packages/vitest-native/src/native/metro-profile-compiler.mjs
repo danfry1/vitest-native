@@ -37,8 +37,9 @@ const BARE_ASSET_EXTS = [
   "zip",
 ];
 
+// The message, not the stack: this becomes a user-facing configuration error.
 function messageOf(error) {
-  return error instanceof Error ? error.stack || error.message : String(error);
+  return error instanceof Error ? error.message : String(error);
 }
 
 function respond(value) {
@@ -223,7 +224,11 @@ try {
     heapUsed: process.memoryUsage().heapUsed,
     rss: process.memoryUsage().rss,
   });
+  // Exit explicitly: the config is arbitrary code, and a timer, watcher or socket it
+  // leaves open would otherwise hold the child until the parent's timeout, turning a
+  // profile already written to fd 3 into a timeout. respond() writes synchronously.
+  process.exit(0);
 } catch (error) {
   respond({ ok: false, error: messageOf(error) });
-  process.exitCode = 1;
+  process.exit(1);
 }
