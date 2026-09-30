@@ -23,6 +23,7 @@ export type VitestNativeErrorCode =
   | "WRONG_ENGINE_FOR_HELPER"
   | "HELPERS_BEFORE_SETUP"
   | "JEST_API_UNSUPPORTED"
+  | "REQUIRE_ACTUAL_ALIAS_UNSUPPORTED"
   | "MATCHER_BAD_RECEIVER";
 
 export interface VitestNativeErrorOptions {

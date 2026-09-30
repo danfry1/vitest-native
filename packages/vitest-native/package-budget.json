@@ -1,10 +1,11 @@
 {
   "minPackedBytes": 238000,
-  "maxPackedBytes": 277000,
+  "maxPackedBytes": 291700,
   "minUnpackedBytes": 795000,
-  "maxUnpackedBytes": 930000,
+  "maxUnpackedBytes": 973800,
   "minFiles": 70,
   "maxFiles": 85,
+  "_requireActualAliases": "2026-09-30: jest.requireActual applies string resolve.alias entries, which adds a shipped jest-compat/aliases.mjs (plus declarations) and the alias hand-off in the plugin. Measured artifact: 78 files, 277821 packed bytes, 927429 unpacked bytes, which exceeded the packed ceiling and left 0.3% unpacked headroom. Byte ceilings re-baselined to ~5% above that artifact per the policy in _ceilings; floors, file, dependency and export limits unchanged.",
   "maxRuntimeDependencies": 2,
   "exportPaths": 11,
   "warnHeadroomRatio": 0.01,

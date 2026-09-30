@@ -8,6 +8,9 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [reactNative({ engine: "native" }), jestMockTransform()],
+  // A tsconfig-paths-style alias, which jest.requireActual must honour too
+  // (requireactual-alias.test.tsx).
+  resolve: { alias: { "@vn-app": path.resolve(here, "fixtures/alias-app") } },
   test: {
     globals: true,
     environment: "node",

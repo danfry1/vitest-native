@@ -137,7 +137,11 @@ few or none.
   that was silently a no-op. Move it to top level with a valid override, or drop it.
 
 The `jest.requireActual('react-native')` clone-and-override pattern is supported (RN's module is
-writable under the compat layer). **Expo caveat:** suites importing **Expo core** pull in Expo's
+writable under the compat layer). `jest.requireActual` and `jest.requireMock` also apply the
+project's `resolve.alias` string entries, so a partial mock of `'@/services/api'` works the way
+`babel-plugin-module-resolver` or jest-expo's path mapping made it work under Jest. Configure the
+alias with a string `find` (`{ "@": path.resolve(__dirname, "src") }`); regex aliases and custom
+resolvers cannot be applied to `requireActual`, and an unresolved specifier says so. **Expo caveat:** suites importing **Expo core** pull in Expo's
 dev-server/init plumbing (message socket, dev tools) that expects a Metro connection and may not
 collect without extra setup; suites using Expo *modules* via the `expo` preset are unaffected.
 
