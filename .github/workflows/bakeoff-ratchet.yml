@@ -75,7 +75,19 @@ jobs:
 
       - name: Run the ratchet (paper + obytes, stock + hot)
         id: ratchet
+        env:
+          BAKEOFF_REPORT_DIR: ${{ runner.temp }}/bakeoff-reports
         run: node packages/vitest-native/scripts/bakeoff-ratchet.mjs --bakeoffs /tmp/bakeoffs
+
+      # Per-run JSON reports, so a changed or flaky count can be traced to its tests.
+      - name: Upload per-run reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bakeoff-reports
+          path: ${{ runner.temp }}/bakeoff-reports
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Create or update issue on failure
         if: failure()
