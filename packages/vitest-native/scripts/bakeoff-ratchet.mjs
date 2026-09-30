@@ -21,7 +21,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { classifyObservation, classifyObservationVerdict } from "./bakeoff-observation.mjs";
+import {
+  classifyObservation,
+  classifyObservationVerdict,
+  confirmObservation,
+  statusChanges,
+  testStatuses,
+} from "./bakeoff-observation.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ratchetPath = path.join(root, "bakeoffs-ratchet.json");
@@ -76,7 +82,13 @@ console.log(`packed: ${tarball}`);
 // 100% green; the counts below are the signal). ---
 const APP_DIRS = { paper: ".paper", obytes: ".obytes" };
 
-function collectCounts(appDir, configFile, label) {
+// Every measured run's JSON report is kept here (uploaded as a workflow artifact), so a
+// changed count can be traced to the tests that moved rather than only to a number.
+const reportDir =
+  process.env.BAKEOFF_REPORT_DIR ?? fs.mkdtempSync(path.join(os.tmpdir(), "vn-bakeoff-reports-"));
+fs.mkdirSync(reportDir, { recursive: true });
+
+function collectCounts(appDir, configFile, label, app) {
   const outFile = path.join(appDir, `.vn-ratchet-${label}.json`);
   fs.rmSync(outFile, { force: true });
   const res = spawnSync(
@@ -104,10 +116,25 @@ function collectCounts(appDir, configFile, label) {
     );
     return null;
   }
-  return { passed: report.numPassedTests, total: report.numTotalTests };
+  fs.copyFileSync(outFile, path.join(reportDir, `${app}-${label}.json`));
+  return {
+    passed: report.numPassedTests,
+    total: report.numTotalTests,
+    statuses: testStatuses(report, appDir),
+  };
+}
+
+function printChanges(heading, changes, limit = 25) {
+  if (changes.length === 0) return;
+  console.log(`  ${heading}:`);
+  for (const { test, from, to } of changes.slice(0, limit)) {
+    console.log(`    ${from} → ${to}  ${test}`);
+  }
+  if (changes.length > limit) console.log(`    … and ${changes.length - limit} more`);
 }
 
 const results = {};
+const confirmations = {};
 let failed = false;
 let observationChanged = false;
 let infrastructureFailed = false;
@@ -156,7 +183,7 @@ for (const app of apps) {
   }
 
   // Stock (isolate: true) counts.
-  const stock = collectCounts(appDir, "vitest.config.mts", "stock");
+  const stock = collectCounts(appDir, "vitest.config.mts", "stock", app);
   // collectCounts returns null when the run produced nothing to measure. Without this
   // the script carried on to derive the hot config, hit an unhandled ENOENT reading a
   // config the failed run had left incomplete, and died BEFORE classifying — so the
@@ -181,7 +208,7 @@ for (const app of apps) {
     continue;
   }
   fs.writeFileSync(path.join(appDir, "vitest.hot.config.mts"), hotConfig);
-  const hot = collectCounts(appDir, "vitest.hot.config.mts", "hot");
+  const hot = collectCounts(appDir, "vitest.hot.config.mts", "hot", app);
   if (!hot) {
     console.error(`✗ ${app}: no hot measurement; skipping this app's observation`);
     failed = true;
@@ -190,13 +217,29 @@ for (const app of apps) {
   }
 
   results[app] = { stock, hot };
+
+  // A drop is re-measured before it is reported: a single run cannot tell a changed
+  // observation from a test whose outcome varies between identical runs, and a
+  // tripwire that fires on flakes teaches people to ignore it.
+  confirmations[app] = {};
+  for (const [mode, config] of [
+    ["stock", "vitest.config.mts"],
+    ["hot", "vitest.hot.config.mts"],
+  ]) {
+    const want = ratchet.apps?.[app]?.[mode];
+    if (classifyObservation(results[app][mode], want) !== "CHANGED") continue;
+    const confirm = collectCounts(appDir, config, `${mode}-confirm`, app);
+    // Unmeasurable re-run: keep the first result, which the comparison reports as is.
+    if (!confirm) continue;
+    confirmations[app][mode] = confirm;
+  }
 }
 
 // --- 3. Compare against the ratchet. ---
 console.log("\n════ ratchet comparison ════");
 const summaryLines = [
-  "| App | Mode | Passed | Baseline | Total |",
-  "| --- | --- | --- | --- | --- |",
+  "| App | Mode | Passed | Baseline | Total | Status |",
+  "| --- | --- | --- | --- | --- | --- |",
 ];
 for (const app of apps) {
   for (const mode of ["stock", "hot"]) {
@@ -208,22 +251,52 @@ for (const app of apps) {
       infrastructureFailed = true;
       continue;
     }
-    const status = classifyObservation(got, want);
+    const confirm = confirmations[app]?.[mode];
+    const status = confirm
+      ? confirmObservation(got, confirm, want)
+      : classifyObservation(got, want);
     if (status === "CHANGED") {
       failed = true;
       observationChanged = true;
     }
     if (status === "IMPROVED") improved = true;
+    const mark = status === "CHANGED" ? "✗" : status === "FLAKY" ? "⚠" : "✓";
     console.log(
-      `${status === "CHANGED" ? "✗" : "✓"} ${app}/${mode}: ${got.passed}/${got.total} passed` +
+      `${mark} ${app}/${mode}: ${got.passed}/${got.total} passed` +
+        (confirm ? `, then ${confirm.passed}/${confirm.total} on re-run` : "") +
         (want ? ` (baseline ${want.passed}/${want.total})` : " (no baseline yet)") +
         (status !== "OK" ? ` — ${status}` : ""),
     );
+    if (confirm) {
+      printChanges(
+        "tests whose outcome differed between the two runs",
+        statusChanges(got.statuses, confirm.statuses),
+      );
+    }
+    if (status === "FLAKY" && process.env.GITHUB_ACTIONS) {
+      console.log(
+        `::warning::${app}/${mode} is nondeterministic (${got.passed} then ${confirm.passed} passed); see the run log for the tests that changed`,
+      );
+    }
     summaryLines.push(
-      `| ${app} | ${mode} | ${got.passed} | ${want?.passed ?? "—"} | ${got.total} |`,
+      `| ${app} | ${mode} | ${got.passed}${confirm ? ` / ${confirm.passed}` : ""} | ${want?.passed ?? "—"} | ${got.total} | ${status} |`,
     );
   }
 }
+
+// The hot runtime's remaining gap on each app, by test: what passes under stock
+// isolation but not under hot. Printed on every run, so the gap is inspectable
+// rather than a count.
+for (const app of apps) {
+  const { stock, hot } = results[app] ?? {};
+  if (!stock || !hot) continue;
+  const gap = statusChanges(stock.statuses, hot.statuses).filter((c) => c.from === "passed");
+  if (gap.length > 0) {
+    console.log(`\n${app}: ${gap.length} test(s) pass under stock isolation but not under hot`);
+    printChanges("stock → hot", gap, 50);
+  }
+}
+console.log(`\nper-run JSON reports: ${reportDir}`);
 
 if (process.env.GITHUB_STEP_SUMMARY) {
   fs.appendFileSync(
@@ -239,7 +312,13 @@ if (process.env.GITHUB_STEP_SUMMARY) {
 if (update && !failed) {
   ratchet.apps = ratchet.apps ?? {};
   for (const app of apps) {
-    if (results[app]?.stock && results[app]?.hot) ratchet.apps[app] = results[app];
+    const { stock, hot } = results[app] ?? {};
+    if (stock && hot) {
+      ratchet.apps[app] = {
+        stock: { passed: stock.passed, total: stock.total },
+        hot: { passed: hot.passed, total: hot.total },
+      };
+    }
   }
   fs.writeFileSync(ratchetPath, `${JSON.stringify(ratchet, null, 2)}\n`);
   console.log(`\n✓ baselines updated in ${path.relative(root, ratchetPath)} — commit the change.`);
