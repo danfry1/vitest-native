@@ -1041,9 +1041,19 @@ describe("hot pool: Vitest version guard", () => {
     const mismatched = fakeProject("9.9.9");
     const repoModules = path.join(projectRoot, "node_modules");
     for (const entry of fs.readdirSync(repoModules)) {
-      if (entry === "vitest" || entry === ".bin") continue;
-      fs.symlinkSync(path.join(repoModules, entry), path.join(mismatched, "node_modules", entry));
+      if (entry === "vitest" || entry.startsWith(".")) continue;
+      fs.symlinkSync(
+        path.join(repoModules, entry),
+        path.join(mismatched, "node_modules", entry),
+        process.platform === "win32" ? "junction" : "dir",
+      );
     }
+    // Guard the fixture itself: if a different install layout left React Native
+    // unresolvable here, the plugin would fail for that reason instead, and the
+    // assertions below would test the wrong thing.
+    const fixtureRequire = createRequire(path.join(mismatched, "package.json"));
+    expect(() => fixtureRequire.resolve("react-native/package.json")).not.toThrow();
+    expect(fixtureRequire("vitest/package.json").version).toBe("9.9.9");
     const byDefault = await runPluginConfig(
       reactNative({ engine: "native" }) as any,
       { root: mismatched, test: { maxWorkers: 2 } },

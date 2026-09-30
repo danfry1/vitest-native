@@ -1,6 +1,6 @@
 # Design: hot runtime as a safe default for greenfield apps
 
-**Status:** Layers 1–2 shipped; Layer 3 remains a proposal
+**Status:** Layers 1–3 shipped (`'auto'` is the default since 2026-09-30); admitting Jest-migration suites remains open
 **Basis:** the idiomatic hot-parity validation + default-flip de-risk (`validation/idiomatic/`)
 
 > Memory update (2026-08-31): explicit hot mode now installs a cgroup-aware,
