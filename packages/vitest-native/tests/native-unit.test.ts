@@ -1033,6 +1033,33 @@ describe("hot pool: Vitest version guard", () => {
   it("does not throw for this repository's own layout", () => {
     expect(() => nativePool({ workerEntry, projectRoot })).not.toThrow();
   });
+
+  it("makes 'auto' fall back instead of failing, and keeps explicit hot fail-closed", async () => {
+    // A project that resolves every real dependency from this repository, except a
+    // Vitest of another version. Under the default the user never asked for hot, so
+    // the mismatch is a reason to keep per-file isolation, not an error.
+    const mismatched = fakeProject("9.9.9");
+    const repoModules = path.join(projectRoot, "node_modules");
+    for (const entry of fs.readdirSync(repoModules)) {
+      if (entry === "vitest" || entry === ".bin") continue;
+      fs.symlinkSync(path.join(repoModules, entry), path.join(mismatched, "node_modules", entry));
+    }
+    const byDefault = await runPluginConfig(
+      reactNative({ engine: "native" }) as any,
+      { root: mismatched, test: { maxWorkers: 2 } },
+      SERVE_ENV,
+    );
+    expect(byDefault.test.isolate).toBeUndefined();
+    expect(byDefault.test.env.VITEST_NATIVE_MEMORY_PLAN).toBeUndefined();
+
+    await expect(
+      runPluginConfig(
+        reactNative({ engine: "native", hotRuntime: true }) as any,
+        { root: mismatched, test: { maxWorkers: 2 } },
+        SERVE_ENV,
+      ),
+    ).rejects.toThrow(/would load vitest@.*but this run is driven by vitest@9\.9\.9/s);
+  });
 });
 
 describe("peer requirements", () => {

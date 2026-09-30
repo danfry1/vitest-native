@@ -16,6 +16,7 @@ import { detectEngine } from "./native/detect.js";
 import { detectEcosystemPackages } from "./native/ecosystem.js";
 import { containsPath, packageDirOf } from "./native/match.mjs";
 import type { HotMemoryPlan } from "./native/memory.mjs";
+import { workerVitestMismatch } from "./native/worker-vitest.js";
 import type { NativeOwnershipPolicy } from "./native/ownership.mjs";
 import {
   createNativeOwnershipPolicy,
@@ -713,6 +714,15 @@ function hotAutoConfigDeclineReason(userConfig: UserConfig, userPool: unknown): 
   return null;
 }
 
+/** Why hot cannot run here because its worker would load a different Vitest, or null. */
+function workerVitestMismatchReason(workerEntry: string, projectRoot: string): string | null {
+  const mismatch = workerVitestMismatch(workerEntry, projectRoot);
+  return mismatch
+    ? `its worker would load vitest@${mismatch.worker.version} while this run uses ` +
+        `vitest@${mismatch.project.version}`
+    : null;
+}
+
 export function reactNative(options?: VitestNativeOptions): Plugin {
   // Per plugin INSTANCE, not module scope. A Vitest workspace calls reactNative() once
   // per project and they share this module, so module-level state means the last
@@ -1160,6 +1170,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           const allowUnboundedMemory = hotRecycle.allowUnboundedMemory === true;
           const autoDeclineReason = hotRuntimeAuto
             ? (hotAutoConfigDeclineReason(userConfig, userPool) ??
+              workerVitestMismatchReason(nativeWorkerPath, resolvedRoot) ??
               (plan.maxWorkers < 2
                 ? `the ${plan.source} memory/scheduler plan selects only one unrecyclable worker`
                 : null))
@@ -1183,6 +1194,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           }
           if (
             autoDeclineReason === null &&
+            (hotRuntimeExplicit || diagnostics) &&
             !allowUnboundedMemory &&
             userTest?.maxWorkers != null &&
             plan.maxWorkers < requestedWorkers

@@ -329,7 +329,8 @@ export interface VitestNativeOptions {
   transform?: string[] | { include?: string[]; exclude?: string[] };
 
   /**
-   * `engine: 'native'` only. **Experimental.** Run tests in persistent
+   * `engine: 'native'` only. Built on Vitest's experimental custom-pool API.
+   * Run tests in persistent
    * RN-hot workers: React Native's module graph loads once per worker and
    * stays resident across test files, while each file still gets a fresh
    * Vitest module runner (per-file isolation of your app/test modules).

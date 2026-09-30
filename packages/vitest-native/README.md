@@ -6,8 +6,9 @@ Run your React Native tests under Vitest, against **real React Native** — the 
 
 > **Beta.** The release-supported native engine is validated across React Native 0.81–0.87,
 > Vite 6–8, Vitest 4–5, RNTL 12–14, bare apps, Expo SDK 57 (including expo-router's own testing
-> library), and hoisted monorepos. The optional
-> hot runtime remains experimental because it uses Vitest's experimental custom-pool APIs.
+> library), and hoisted monorepos. The hot
+> runtime (on by default where it can be bounded) is marked experimental because it uses Vitest's
+> experimental custom-pool APIs.
 >
 > Maintained successor to [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native) — same core idea (externalize RN, run its real JS under Node), rebuilt for modern Vitest (4+). Coming from it? See [Migrating from `vitest-react-native`](#migrating-from-vitest-react-native).
 
@@ -274,8 +275,9 @@ reactNative({
 ```
 
 Recycling is applied between Vitest scheduler tasks. Current Vitest batches every file into one
-uninterruptible task at `maxWorkers: 1`, so the plugin fails that configuration rather than claim
-an inert memory bound. Use at least two workers or the default runtime. If an external scheduler
+uninterruptible task at `maxWorkers: 1`, so the default `'auto'` keeps per-file isolation there and
+`hotRuntime: true` fails that configuration rather than claim an inert memory bound. Use at least
+two workers for hot mode. If an external scheduler
 already provides a hard boundary, you can deliberately accept the risk with
 `hotRuntime: { allowUnboundedMemory: true }`; this disables the automatic worker cap and
 process-RSS enforcement and prints a warning when the batch is observed. `preserveGlobals` is an

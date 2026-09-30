@@ -1,13 +1,13 @@
-// Native engine, STOCK (today's default): no hotRuntime, so Vitest's safe
-// isolate:true applies — fresh worker (and fresh RN graph) per file. This is the
-// baseline the hot runtime is measured against. Worker count via BENCH_WORKERS.
+// Native engine, STOCK: hotRuntime:false, so Vitest's isolate:true applies — fresh
+// worker (and fresh RN graph) per file. This is the baseline the hot runtime is
+// measured against. Worker count via BENCH_WORKERS.
 import { defineConfig } from "vitest/config";
 import { reactNative } from "vitest-native";
 
 const W = Number(process.env.BENCH_WORKERS || 1);
 
 export default defineConfig({
-  plugins: [reactNative({ engine: "native" })],
+  plugins: [reactNative({ engine: "native", hotRuntime: false })],
   resolve: { dedupe: ["react", "react-test-renderer", "react-is"] },
   test: {
     globals: true,

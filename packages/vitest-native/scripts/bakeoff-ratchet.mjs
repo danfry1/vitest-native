@@ -232,7 +232,7 @@ for (const app of apps) {
   // tripwire that fires on flakes teaches people to ignore it.
   confirmations[app] = {};
   for (const [mode, config] of [
-    ["stock", "vitest.config.mts"],
+    ["stock", "vitest.stock.config.mts"],
     ["hot", "vitest.hot.config.mts"],
   ]) {
     const want = ratchet.apps?.[app]?.[mode];
