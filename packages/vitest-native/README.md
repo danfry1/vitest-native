@@ -557,6 +557,12 @@ with a worked real-app example, is in **[docs/migrating-from-jest.md](docs/migra
 
 ## Troubleshooting
 
+**`npm error Cannot read properties of null (reading 'edgesOut')` during install**
+npm 10 (the version bundled with Node 22) crashes while resolving Vite 8.2+'s optional peer
+chain when the project pins Vitest 4, because that chain resolves to the latest Vitest (5.x).
+This is an npm bug, fixed in npm 11 ([vitest#11245](https://github.com/vitest-dev/vitest/issues/11245)).
+Upgrade npm (`npm install --global npm@11`), or use pnpm, Yarn or Bun.
+
 **`@react-native/babel-preset not found — using the mock engine`**
 You asked for the default (`auto`) engine but the native babel deps aren't installed, so it
 fell back to the mock engine. To run real React Native, install them:

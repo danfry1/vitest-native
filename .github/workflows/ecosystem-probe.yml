@@ -38,6 +38,13 @@ jobs:
         with:
           node-version: 22.13.0
 
+      # npm 10 (bundled with Node 22) crashes resolving Vite 8.2+'s optional peer chain
+      # (@vitejs/devtools -> @vitejs/devtools-vitest -> vitest: "*") once Vitest 5 is
+      # the latest release: "Cannot read properties of null (reading 'edgesOut')". npm 11
+      # resolves it. The probe measures library compatibility, not npm's resolver.
+      - name: Use npm 11
+        run: npm install --global npm@11.20.0
+
       - name: Install and build the package
         run: |
           bun install --frozen-lockfile
