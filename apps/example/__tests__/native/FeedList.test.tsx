@@ -18,62 +18,62 @@ const mockSections = [
 describe('FeedList', () => {
   // --- FlatList rendering ---
 
-  it('renders FlatList with items', () => {
-    render(<FeedList items={mockItems} />);
+  it('renders FlatList with items', async () => {
+    await render(<FeedList items={mockItems} />);
     expect(screen.getByTestId('flat-feed')).toBeTruthy();
     expect(screen.getByText('First Post')).toBeTruthy();
     expect(screen.getByText('Second Post')).toBeTruthy();
     expect(screen.getByText('Third Post')).toBeTruthy();
   });
 
-  it('renders item authors', () => {
-    render(<FeedList items={mockItems} />);
+  it('renders item authors', async () => {
+    await render(<FeedList items={mockItems} />);
     expect(screen.getByText('by Alice')).toBeTruthy();
     expect(screen.getByText('by Bob')).toBeTruthy();
   });
 
-  it('renders like counts', () => {
-    render(<FeedList items={mockItems} />);
+  it('renders like counts', async () => {
+    await render(<FeedList items={mockItems} />);
     expect(screen.getByTestId('likes-1')).toBeTruthy();
     expect(screen.getByText('42 likes')).toBeTruthy();
     expect(screen.getByText('99 likes')).toBeTruthy();
   });
 
-  it('renders images for each item', () => {
-    render(<FeedList items={mockItems} />);
+  it('renders images for each item', async () => {
+    await render(<FeedList items={mockItems} />);
     expect(screen.getByTestId('feed-image-1')).toBeTruthy();
     expect(screen.getByTestId('feed-image-2')).toBeTruthy();
   });
 
   // --- Empty state ---
 
-  it('renders empty state when no items', () => {
-    render(<FeedList items={[]} />);
+  it('renders empty state when no items', async () => {
+    await render(<FeedList items={[]} />);
     expect(screen.getByTestId('empty-feed')).toBeTruthy();
     expect(screen.getByText('No posts yet')).toBeTruthy();
   });
 
   // --- Header ---
 
-  it('renders list header', () => {
-    render(<FeedList items={mockItems} />);
+  it('renders list header', async () => {
+    await render(<FeedList items={mockItems} />);
     expect(screen.getByTestId('feed-header')).toBeTruthy();
     expect(screen.getByText('Your Feed')).toBeTruthy();
   });
 
   // --- Item press ---
 
-  it('calls onItemPress when item is tapped', () => {
+  it('calls onItemPress when item is tapped', async () => {
     const onItemPress = vi.fn();
-    render(<FeedList items={mockItems} onItemPress={onItemPress} />);
-    fireEvent.press(screen.getByTestId('feed-item-1'));
+    await render(<FeedList items={mockItems} onItemPress={onItemPress} />);
+    await fireEvent.press(screen.getByTestId('feed-item-1'));
     expect(onItemPress).toHaveBeenCalledWith(mockItems[0]);
   });
 
-  it('calls onItemPress with correct item', () => {
+  it('calls onItemPress with correct item', async () => {
     const onItemPress = vi.fn();
-    render(<FeedList items={mockItems} onItemPress={onItemPress} />);
-    fireEvent.press(screen.getByTestId('feed-item-3'));
+    await render(<FeedList items={mockItems} onItemPress={onItemPress} />);
+    await fireEvent.press(screen.getByTestId('feed-item-3'));
     expect(onItemPress).toHaveBeenCalledWith(mockItems[2]);
   });
 
@@ -81,32 +81,32 @@ describe('FeedList', () => {
 
   it('calls onRefresh when pull to refresh is triggered', async () => {
     const onRefresh = vi.fn(() => Promise.resolve());
-    render(<FeedList items={mockItems} onRefresh={onRefresh} />);
+    await render(<FeedList items={mockItems} onRefresh={onRefresh} />);
     const refreshControl = screen.getByTestId('refresh');
     expect(refreshControl).toBeTruthy();
     await act(async () => {
-      fireEvent(refreshControl, 'refresh');
+      await fireEvent(refreshControl, 'refresh');
     });
     expect(onRefresh).toHaveBeenCalledOnce();
   });
 
   // --- SectionList ---
 
-  it('renders SectionList when useSections is true', () => {
-    render(<FeedList items={[]} sections={mockSections} useSections />);
+  it('renders SectionList when useSections is true', async () => {
+    await render(<FeedList items={[]} sections={mockSections} useSections />);
     expect(screen.getByTestId('section-feed')).toBeTruthy();
   });
 
-  it('renders section headers', () => {
-    render(<FeedList items={[]} sections={mockSections} useSections />);
+  it('renders section headers', async () => {
+    await render(<FeedList items={[]} sections={mockSections} useSections />);
     expect(screen.getByTestId('section-Featured')).toBeTruthy();
     expect(screen.getByTestId('section-Recent')).toBeTruthy();
     expect(screen.getByText('Featured')).toBeTruthy();
     expect(screen.getByText('Recent')).toBeTruthy();
   });
 
-  it('renders items within sections', () => {
-    render(<FeedList items={[]} sections={mockSections} useSections />);
+  it('renders items within sections', async () => {
+    await render(<FeedList items={[]} sections={mockSections} useSections />);
     expect(screen.getByText('First Post')).toBeTruthy();
     expect(screen.getByText('Second Post')).toBeTruthy();
   });
