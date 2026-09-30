@@ -256,7 +256,11 @@ export function resetAllMocks(): void {
   // Reset preset mocks (AsyncStorage store, safe area insets, etc.)
   const presetMocks = (globalThis as any).__vitest_native_preset_mocks;
   if (presetMocks) {
-    for (const mod of Object.values(presetMocks) as any[]) {
+    // The native engine builds preset mocks lazily and records the built ones; resetting
+    // must not force the rest into existence. The mock engine builds them all up front.
+    const built: Map<string, unknown> | undefined =
+      presetMocks[Symbol.for("vitest-native.presets-built")];
+    for (const mod of (built ? [...built.values()] : Object.values(presetMocks)) as any[]) {
       if (mod?._reset) mod._reset();
       if (mod?._resetStore) mod._resetStore();
     }

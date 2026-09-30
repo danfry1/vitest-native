@@ -13,6 +13,9 @@ import { animatedMatchers } from "../matchers.mjs";
 import { serializer as rnSerializer } from "../serializer.mjs";
 import { VitestNativeError } from "../errors.mjs";
 
+// Non-enumerable key on the preset container: the mocks built so far in this file.
+const PRESETS_BUILT = Symbol.for("vitest-native.presets-built");
+
 // Hot runtime: surgical reset of state left by the PREVIOUS file. Setup files
 // are force-inlined by Vitest, so this body re-runs per test file even when the
 // rest of this package is externalized — making it the per-file hook. Installed
@@ -175,15 +178,38 @@ installRequireHooks(projectRoot, nodeTransformPkgs, platform, reactNativeVersion
 // After the hooks: the polyfill is Flow-typed and compiled by them (see globals.mjs).
 installErrorUtils(projectRoot);
 
-// Build the mock objects now that the require hooks are installed (preset
-// factories may lazily resolve react-native at render time).
+// Preset mocks are built on first use in each file, not up front. A project with
+// twenty auto-detected presets otherwise builds ~900 vi.fn() mocks for every test
+// file, most of which never import those packages — and Vitest keeps every vi.fn()
+// it has ever created (for clearAllMocks), so under worker reuse each file's unused
+// mocks stayed reachable for the rest of the run. Accessors are redefined for every
+// file, so each file still gets its own fresh mock the moment it needs one.
 const g = globalThis;
 g.__vitest_native_preset_mocks = g.__vitest_native_preset_mocks || Object.create(null);
+const builtPresetMocks = new Map();
+Object.defineProperty(g.__vitest_native_preset_mocks, PRESETS_BUILT, {
+  configurable: true,
+  enumerable: false,
+  writable: true,
+  value: builtPresetMocks,
+});
 for (const { pkg, mod, presetName } of presetDefs) {
-  g.__vitest_native_preset_mocks[pkg] = mod.factory();
-  if (diagnostics) {
-    console.log(`[vitest-native] (native) registered preset mock: ${pkg} (${presetName})`);
-  }
+  Object.defineProperty(g.__vitest_native_preset_mocks, pkg, {
+    configurable: true,
+    enumerable: true,
+    get() {
+      if (!builtPresetMocks.has(pkg)) {
+        builtPresetMocks.set(pkg, mod.factory());
+        if (diagnostics) {
+          console.log(`[vitest-native] (native) built preset mock: ${pkg} (${presetName})`);
+        }
+      }
+      return builtPresetMocks.get(pkg);
+    },
+    set(value) {
+      builtPresetMocks.set(pkg, value);
+    },
+  });
 }
 
 // --- Shared test-helper control surface ---
@@ -234,7 +260,8 @@ g.__vitest_native_control = {
     for (const name of Object.keys(g.__vitest_native_module_mocks)) {
       delete g.__vitest_native_module_mocks[name];
     }
-    for (const presetMock of Object.values(g.__vitest_native_preset_mocks || {})) {
+    // Only mocks this file actually built; resetting must not build the rest.
+    for (const presetMock of builtPresetMocks.values()) {
       presetMock?._reset?.();
       presetMock?._resetStore?.();
     }
