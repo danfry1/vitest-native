@@ -21,8 +21,12 @@
 //   - `@testing-library/react-native/pure` never registers hooks;
 //   - whichever copy of RNTL the file imports is the one re-run (monorepos, duplicates);
 //   - an RNTL that Vite inlines registers itself and never passes through here.
-// An RNTL reached only through another Node-owned package, never imported by the
-// file's own (Vite-owned) graph, is not seen here.
+// Two limits, both narrower than the leak this closes. An RNTL reached only through
+// another Node-owned package, never imported by the file's own (Vite-owned) graph, is
+// not seen here. And if such a package first loads RNTL during a file that also imports
+// it directly, RNTL registers itself and the entry then re-runs, registering its hooks a
+// second time in that one file — harmless, as cleanup is idempotent and the act
+// environment pair restores in order.
 //
 // runExternalModule is Vitest's module-evaluator method in Vitest 4 and 5; if it goes
 // away, nothing is wrapped and tests-native/hot-jest-compat fails on the RNTL surface.
@@ -37,7 +41,7 @@ const WRAPPED = Symbol.for("vitest-native.rntl-hooks");
 function residentEntry(id) {
   let file;
   try {
-    file = id.startsWith("file://") ? fileURLToPath(id) : id;
+    file = id.startsWith("file://") ? fileURLToPath(id) : id.replace(/[?#].*$/, "");
   } catch {
     return null;
   }
@@ -59,8 +63,10 @@ export function registerRntlHooksOnImport(evaluator) {
   const run = evaluator?.runExternalModule;
   if (typeof run !== "function" || run[WRAPPED]) return;
   const wrapped = async function (id) {
-    // Read before the import: afterwards the entry is always cached.
-    const resident = typeof id === "string" ? residentEntry(id) : null;
+    // Read before the import: afterwards the entry is always cached. A stubbed id
+    // never loads the file, so it never re-runs it either.
+    const stubbed = this?.stubs != null && typeof id === "string" && id in this.stubs;
+    const resident = typeof id === "string" && !stubbed ? residentEntry(id) : null;
     const namespace = await run.call(this, id);
     if (resident) new Module(resident, null).load(resident);
     return namespace;
