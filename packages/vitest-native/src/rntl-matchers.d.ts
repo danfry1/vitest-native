@@ -1,11 +1,11 @@
 /**
  * Opt-in types for React Native Testing Library's matchers under Vitest.
  *
- * RNTL's matchers work at runtime under this plugin, but it declares their types only
- * for Jest — `dist/matchers/types.d.ts` augments the global `jest` namespace and the
- * `@jest/expect` module, and neither reaches Vitest's `Assertion`. Without this,
- * `toHaveTextContent`, `toHaveStyle`, `toBeVisible` and the rest are
- * `Property 'x' does not exist on type 'Assertion<...>'` for anyone who typechecks.
+ * RNTL's matchers work at runtime under this plugin, but RNTL declares their types for
+ * Jest. Before RNTL 14 nothing reached Vitest's `Assertion`, so `toHaveTextContent`,
+ * `toHaveStyle`, `toBeVisible` and the rest were `Property 'x' does not exist on type
+ * 'Assertion<...>'` for anyone who typechecks. RNTL 14 also augments the global
+ * `jest.Matchers<R>`, which Vitest's `JestAssertion<T>` extends as `Matchers<void, T>`.
  *
  * Reference it once, anywhere in the project:
  *
@@ -28,8 +28,12 @@
 import type { JestNativeMatchers } from "@testing-library/react-native/dist/matchers/types";
 
 declare module "vitest" {
+  // `void`, the same instantiation Vitest's JestAssertion inherits from RNTL 14's global
+  // augmentation. Any other argument declares every matcher twice with different return
+  // types, which TypeScript 7 rejects (TS2320) for RNTL 14 users; Vitest's own matchers
+  // return void as well.
   // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-  interface Assertion<T = any> extends JestNativeMatchers<T> {}
+  interface Assertion<T = any> extends JestNativeMatchers<void> {}
   // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   interface AsymmetricMatchersContaining extends JestNativeMatchers<void> {}
 }
