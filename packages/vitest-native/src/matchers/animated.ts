@@ -173,10 +173,16 @@ export const animatedMatchers = {
 
 // Augment Vitest's matcher interfaces so the matchers type-check for consumers.
 // The matchers are auto-registered by vitest-native's setup file.
+//
+// The type parameters follow Vitest 5's `Assertion<R, T>`. Interface declarations must
+// agree on them, so a project on Vitest 4 that checks declaration files
+// (`skipLibCheck: false`) sees TS2428 here while the matchers stay typed. The
+// build adds `/// <reference types="vitest" />` to the emitted declaration file (see
+// tsdown.config.ts); without it the augmentation does not merge under Vitest 4 at all.
 declare module "vitest" {
-  interface Assertion<T = any> {
-    toHaveAnimatedStyle(style: Record<string, unknown>, config?: AnimatedStyleConfig): T;
-    toHaveAnimatedProps(props: Record<string, unknown>): T;
+  interface Assertion<R extends void | Promise<void> = void, T = unknown> {
+    toHaveAnimatedStyle(style: Record<string, unknown>, config?: AnimatedStyleConfig): R;
+    toHaveAnimatedProps(props: Record<string, unknown>): R;
   }
   interface AsymmetricMatchersContaining {
     toHaveAnimatedStyle(style: Record<string, unknown>, config?: AnimatedStyleConfig): unknown;

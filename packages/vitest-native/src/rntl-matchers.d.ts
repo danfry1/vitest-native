@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 /**
  * Opt-in types for React Native Testing Library's matchers under Vitest.
  *
@@ -28,12 +29,17 @@
 import type { JestNativeMatchers } from "@testing-library/react-native/dist/matchers/types";
 
 declare module "vitest" {
-  // `void`, the same instantiation Vitest's JestAssertion inherits from RNTL 14's global
+  // `void`, the same instantiation Vitest 4's JestAssertion inherits from RNTL 14's global
   // augmentation. Any other argument declares every matcher twice with different return
   // types, which TypeScript 7 rejects (TS2320) for RNTL 14 users; Vitest's own matchers
-  // return void as well.
+  // return void as well. The type parameters follow Vitest 5's `Assertion<R, T>`; on
+  // Vitest 4 with `skipLibCheck: false` that is reported as TS2428, and the matchers
+  // stay typed.
   // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-  interface Assertion<T = any> extends JestNativeMatchers<void> {}
+  interface Assertion<
+    R extends void | Promise<void> = void,
+    T = unknown,
+  > extends JestNativeMatchers<void> {}
   // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   interface AsymmetricMatchersContaining extends JestNativeMatchers<void> {}
 }
