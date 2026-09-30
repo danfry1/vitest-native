@@ -18,7 +18,9 @@
  * reported as skipped so the coverage of this gate is visible rather than implied.
  */
 import { describe, it, expect } from "vitest";
-import ts from "typescript";
+// TypeScript 6's compiler API: TypeScript 7, which typechecks and builds this package,
+// ships only an unstable API, and this gate needs the checker.
+import ts from "typescript-6";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
