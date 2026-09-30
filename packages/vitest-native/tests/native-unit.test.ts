@@ -1040,19 +1040,35 @@ describe("hot pool: Vitest version guard", () => {
     // the mismatch is a reason to keep per-file isolation, not an error.
     const mismatched = fakeProject("9.9.9");
     const repoModules = path.join(projectRoot, "node_modules");
-    for (const entry of fs.readdirSync(repoModules)) {
-      if (entry === "vitest" || entry.startsWith(".")) continue;
+    // Each package links to its REAL path: install layouts (bun's among them) make
+    // node_modules entries relative symlinks into a store, which a link to their
+    // parent directory would resolve from the wrong place — on Windows especially.
+    const link = (name: string): void => {
+      const target = path.join(mismatched, "node_modules", name);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
       fs.symlinkSync(
-        path.join(repoModules, entry),
-        path.join(mismatched, "node_modules", entry),
+        fs.realpathSync(path.join(repoModules, name)),
+        target,
         process.platform === "win32" ? "junction" : "dir",
       );
+    };
+    for (const entry of fs.readdirSync(repoModules)) {
+      if (entry === "vitest" || entry.startsWith(".")) continue;
+      if (entry.startsWith("@")) {
+        for (const scoped of fs.readdirSync(path.join(repoModules, entry))) {
+          link(`${entry}/${scoped}`);
+        }
+      } else {
+        link(entry);
+      }
     }
-    // Guard the fixture itself: if a different install layout left React Native
-    // unresolvable here, the plugin would fail for that reason instead, and the
-    // assertions below would test the wrong thing.
+    // Guard the fixture itself: if an install layout left the native engine's
+    // requirements unresolvable here, the plugin would fail for that reason instead,
+    // and the assertions below would test the wrong thing.
     const fixtureRequire = createRequire(path.join(mismatched, "package.json"));
-    expect(() => fixtureRequire.resolve("react-native/package.json")).not.toThrow();
+    for (const required of ["react-native", "@react-native/babel-preset", "@babel/core"]) {
+      expect(() => fixtureRequire.resolve(`${required}/package.json`), required).not.toThrow();
+    }
     expect(fixtureRequire("vitest/package.json").version).toBe("9.9.9");
     // The React Native registry is irrelevant to runtime selection, and compiling it
     // for a fresh project root is the slow part of a plugin config run.
