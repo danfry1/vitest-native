@@ -6,7 +6,7 @@
  * Jest. Before RNTL 14 nothing reached Vitest's `Assertion`, so `toHaveTextContent`,
  * `toHaveStyle`, `toBeVisible` and the rest were `Property 'x' does not exist on type
  * 'Assertion<...>'` for anyone who typechecks. RNTL 14 also augments the global
- * `jest.Matchers<R>`, which Vitest's `JestAssertion<T>` extends as `Matchers<void, T>`.
+ * `jest.Matchers<R>`, which Vitest 4's `JestAssertion<T>` extends as `Matchers<void, T>`.
  *
  * Reference it once, anywhere in the project:
  *
@@ -21,12 +21,48 @@
  * projects that use the mock engine without RNTL. Measured both ways before choosing
  * this shape. @testing-library/jest-dom ships its `/vitest` entry for the same reason.
  *
- * The import is a deep path because RNTL does not re-export the interface from its
- * entry point. It has no `exports` map, so the path resolves; if a future RNTL moves
- * it, this file fails loudly at the reference site rather than silently dropping the
- * matchers.
+ * The matcher interface is declared here rather than imported: RNTL does not export it
+ * from its entry point, and its internal location differs by major (`build/` in 12 and
+ * 13, `dist/` in 14), so a deep import typed the matchers on one major and silently
+ * dropped them on the others. Only the element type is version-specific
+ * (`ReactTestInstance` before 14, `TestInstance` from 14); it is read from RNTL's public
+ * `screen` API, so it is identical to the type RNTL's own global augmentation uses. A
+ * different type declares `toContainElement` twice on Vitest 4, which TypeScript 7
+ * reports as TS2320 under `skipLibCheck: false`.
+ * tests/rntl-matchers-types.test.ts compares these members with the installed RNTL's.
  */
-import type { JestNativeMatchers } from "@testing-library/react-native/dist/matchers/types";
+import type { screen } from "@testing-library/react-native";
+import type { ImageStyle, StyleProp, TextStyle, ViewStyle } from "react-native";
+
+type HostElement = NonNullable<ReturnType<typeof screen.queryByText>>;
+type TextMatch = string | RegExp;
+type TextMatchOptions = { exact?: boolean; normalizer?: (text: string) => string };
+
+interface RNTLMatchers<R> {
+  toBeOnTheScreen(): R;
+  toBeChecked(): R;
+  toBeCollapsed(): R;
+  toBeDisabled(): R;
+  toBeBusy(): R;
+  toBeEmptyElement(): R;
+  toBeEnabled(): R;
+  toBeExpanded(): R;
+  toBePartiallyChecked(): R;
+  toBeSelected(): R;
+  toBeVisible(): R;
+  toContainElement(instance: HostElement | null): R;
+  toHaveAccessibilityValue(expectedValue: {
+    min?: number;
+    max?: number;
+    now?: number;
+    text?: TextMatch;
+  }): R;
+  toHaveAccessibleName(expectedName?: TextMatch, options?: TextMatchOptions): R;
+  toHaveDisplayValue(expectedValue: TextMatch, options?: TextMatchOptions): R;
+  toHaveProp(name: string, expectedValue?: unknown): R;
+  toHaveStyle(style: StyleProp<ViewStyle | TextStyle | ImageStyle>): R;
+  toHaveTextContent(expectedText: TextMatch, options?: TextMatchOptions): R;
+}
 
 declare module "vitest" {
   // `void`, the same instantiation Vitest 4's JestAssertion inherits from RNTL 14's global
@@ -39,7 +75,7 @@ declare module "vitest" {
   interface Assertion<
     R extends void | Promise<void> = void,
     T = unknown,
-  > extends JestNativeMatchers<void> {}
+  > extends RNTLMatchers<void> {}
   // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-  interface AsymmetricMatchersContaining extends JestNativeMatchers<void> {}
+  interface AsymmetricMatchersContaining extends RNTLMatchers<void> {}
 }
