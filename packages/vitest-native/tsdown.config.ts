@@ -35,6 +35,17 @@ export default defineConfig({
     // runtime (native: via module.register; jest-compat: as setup file / alias
     // targets resolved by Vite), so they must ship verbatim rather than bundled.
     'build:done': () => {
+      // The matcher declarations augment the "vitest" module. Under Vitest 4 that
+      // augmentation only merges when the declaration file itself references vitest, and
+      // declaration bundling drops both an unused type import and a `reference types`
+      // directive from the source — so add the directive to the emitted files.
+      for (const file of ['matchers.d.mts', 'matchers.d.cts']) {
+        const target = path.resolve('dist', file);
+        if (!fs.existsSync(target)) continue;
+        const text = fs.readFileSync(target, 'utf8');
+        const directive = '/// <reference types="vitest" />';
+        if (!text.startsWith(directive)) fs.writeFileSync(target, `${directive}\n${text}`);
+      }
       // Three entries depend on vitest at module scope, and vitest throws when it is
       // reached through require(). Their CJS bundles therefore could not be loaded at
       // all, so `exports` points require() and import() at the one .mjs build instead —
