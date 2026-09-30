@@ -61,9 +61,14 @@ function attempt(entryFile, input, heapMb, spawnProcess, timeoutMs, label) {
       }
       return current + chunk;
     };
+    // Truncated tails start at a line boundary, so the first line an error message
+    // quotes is a whole one.
     const appendLog = (current, chunk) => {
       const next = current + chunk;
-      return next.length > LOG_TAIL_BYTES ? next.slice(-LOG_TAIL_BYTES) : next;
+      if (next.length <= LOG_TAIL_BYTES) return next;
+      const tail = next.slice(-LOG_TAIL_BYTES);
+      const lineStart = tail.indexOf("\n");
+      return lineStart === -1 ? tail : tail.slice(lineStart + 1);
     };
 
     child.stdout?.setEncoding("utf8");
