@@ -5,7 +5,9 @@ import { expectCleanExcept, filesSeenByThisWorker, polluteEverything } from "./s
 // the previous file mocked, which no other file runs after.
 
 test("ran in the worker the mode asks for", () => {
-  // Without this the hot run could pass vacuously, one fresh worker per file.
+  // Without this the hot run could pass vacuously, one fresh worker per file. It
+  // expects the whole directory, so a filtered run of this file alone fails here by
+  // design: run it through `test:native:hot:isolation`.
   const expected = process.env.VN_HOT_JEST_COMPAT_MODE === "hot" ? 4 : 1;
   expect(filesSeenByThisWorker()).toBe(expected);
 });
