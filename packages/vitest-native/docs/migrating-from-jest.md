@@ -141,9 +141,9 @@ writable under the compat layer). `jest.requireActual` and `jest.requireMock` al
 project's `resolve.alias` string entries, so a partial mock of `'@/services/api'` works the way
 `babel-plugin-module-resolver` or jest-expo's path mapping made it work under Jest. Configure the
 alias with a string `find` (`{ "@": path.resolve(__dirname, "src") }`); regex aliases and custom
-resolvers cannot be applied to `requireActual`, and an unresolved specifier says so. **Expo caveat:** suites importing **Expo core** pull in Expo's
-dev-server/init plumbing (message socket, dev tools) that expects a Metro connection and may not
-collect without extra setup; suites using Expo *modules* via the `expo` preset are unaffected.
+resolvers cannot be applied to `requireActual`, and an unresolved specifier says so. **Coming from
+jest-expo:** `migrate` translates its presets, and expo-router's own testing library runs as written —
+see the [Expo guide](https://danfry1.github.io/vitest-native/guide/expo).
 
 ---
 

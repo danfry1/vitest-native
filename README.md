@@ -4,6 +4,10 @@ Run your React Native tests under Vitest, against **real React Native** — the 
 that ships in your app, mocking only the native-module boundary. That's the zero-config default.
 A fast pure-JS **mock** engine is available as an opt-in for RN-free unit tests. One plugin.
 
+Bare React Native and **Expo** apps alike: coming from `jest-expo`, `npx vitest-native migrate --write`
+translates the preset, and expo-router's own testing library runs as written — see the
+[Expo guide](https://danfry1.github.io/vitest-native/guide/expo).
+
 **📖 Documentation: [danfry1.github.io/vitest-native](https://danfry1.github.io/vitest-native/)**
 
 > **Beta.** The reproducible guarantee is a CI-gated behavioral cross-check that runs the same

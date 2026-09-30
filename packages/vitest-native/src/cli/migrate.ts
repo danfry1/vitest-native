@@ -110,6 +110,26 @@ function loadJestConfig(root: string): { source: string | null; config: JestConf
   return { source: null, config: null };
 }
 
+/**
+ * Whether the plugin will auto-detect `preset` in this project: one of its packages is
+ * installed where the root can see it. Looked up on disk rather than with
+ * `require.resolve`, which a process with module hooks installed (the mock engine's
+ * test runtime) answers for every preset package.
+ */
+function presetDetected(root: string, preset: string): boolean {
+  const packages = Object.entries(AUTO_DETECT_PRESETS)
+    .filter(([, name]) => name === preset)
+    .map(([pkg]) => pkg);
+  for (let dir = path.resolve(root); ; dir = path.dirname(dir)) {
+    if (
+      packages.some((pkg) => fs.existsSync(path.join(dir, "node_modules", pkg, "package.json")))
+    ) {
+      return true;
+    }
+    if (path.dirname(dir) === dir) return false;
+  }
+}
+
 export function analyzeJestConfig(root: string): MigrationReport {
   const { source, config } = loadJestConfig(root);
   const automatic: string[] = [];
@@ -127,6 +147,9 @@ export function analyzeJestConfig(root: string): MigrationReport {
   // them back out of inlining.
   const autoInlined = new Set(detectEcosystemPackages(root));
   let needsUrlImport = false;
+  // Options for the reactNative() call, besides `transform`.
+  const pluginOptions: string[] = [];
+  let fromJestExpo = false;
 
   const presetPkgs = new Set(Object.keys(AUTO_DETECT_PRESETS));
 
@@ -141,10 +164,29 @@ export function analyzeJestConfig(root: string): MigrationReport {
     const preset = take<string>("preset");
     if (preset === "react-native" || preset === "@react-native/jest-preset") {
       automatic.push(`preset: '${preset}' → replaced by the reactNative() plugin.`);
-    } else if (preset === "jest-expo") {
+    } else if (
+      preset === "jest-expo" ||
+      preset === "jest-expo/ios" ||
+      preset === "jest-expo/android"
+    ) {
+      fromJestExpo = true;
+      const android = preset === "jest-expo/android";
+      if (android) pluginOptions.push(`platform: 'android'`);
+      automatic.push(
+        `preset: '${preset}' → replaced by the reactNative() plugin${android ? " with platform: 'android'" : ""}; ` +
+          `the Expo modules it mocked are covered by the auto-detected expo preset.`,
+      );
+    } else if (preset === "jest-expo/universal") {
+      fromJestExpo = true;
       attention.push(
-        `preset: 'jest-expo' → the reactNative() plugin + auto-detected expo preset replace most of it, ` +
-          `but suites importing Expo CORE internals can hit known limits (see the migration guide's Expo notes).`,
+        `preset: 'jest-expo/universal' runs one Jest project per platform. Define a Vitest project for each ` +
+          `native platform (reactNative({ platform: 'ios' }) and reactNative({ platform: 'android' })); ` +
+          `its web and node projects are not React Native renders and stay outside vitest-native.`,
+      );
+    } else if (preset === "jest-expo/web" || preset === "jest-expo/node") {
+      attention.push(
+        `preset: '${preset}' targets ${preset.slice("jest-expo/".length)}, not a React Native render; ` +
+          `run these suites without vitest-native.`,
       );
     } else if (preset) {
       attention.push(`preset: '${preset}' — unknown preset; review what it configured.`);
@@ -388,8 +430,30 @@ export function analyzeJestConfig(root: string): MigrationReport {
     }
   }
 
-  const transformLine = transformPkgs.length
-    ? `reactNative({ transform: [${transformPkgs.map((p) => JSON.stringify(p)).join(", ")}] })`
+  // jest-expo mocks Expo's native modules but not React Navigation, so a jest-expo
+  // suite renders its screens inside real navigators. The navigation preset, detected
+  // from the installed @react-navigation/* packages, would replace those with mocks, so
+  // it is switched off — unless the project mocked React Navigation itself: Jest applied
+  // a root __mocks__/@react-navigation to node_modules automatically, and the preset is
+  // the equivalent of that mock. (expo-router from SDK 57 bundles its own copy of React
+  // Navigation, which the preset never shadows.)
+  if (
+    fromJestExpo &&
+    presetDetected(root, "navigation") &&
+    !fs.existsSync(path.join(root, "__mocks__", "@react-navigation"))
+  ) {
+    pluginOptions.push(`presets: { navigation: false }`);
+    automatic.push(
+      `jest-expo renders the real React Navigation → presets: { navigation: false }, so screens keep ` +
+        `running in real navigators.`,
+    );
+  }
+
+  if (transformPkgs.length) {
+    pluginOptions.unshift(`transform: [${transformPkgs.map((p) => JSON.stringify(p)).join(", ")}]`);
+  }
+  const transformLine = pluginOptions.length
+    ? `reactNative({ ${pluginOptions.join(", ")} })`
     : `reactNative()`;
   const suggestedConfig = `import { defineConfig } from 'vitest/config'
 import { reactNative } from 'vitest-native'
