@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import { mockFn } from "../mock-fn.js";
 
 export function createUIManagerMock() {
   return {
@@ -13,18 +14,18 @@ export function createUIManagerMock() {
         onSuccess(0, 0, 0, 0);
       },
     ),
-    setChildren: vi.fn(),
-    manageChildren: vi.fn(),
-    createView: vi.fn(),
-    updateView: vi.fn(),
-    removeSubviewsFromContainerWithID: vi.fn(),
-    replaceExistingNonRootView: vi.fn(),
-    setLayoutAnimationEnabledExperimental: vi.fn(),
-    configureNextLayoutAnimation: vi.fn(),
+    setChildren: mockFn(),
+    manageChildren: mockFn(),
+    createView: mockFn(),
+    updateView: mockFn(),
+    removeSubviewsFromContainerWithID: mockFn(),
+    replaceExistingNonRootView: mockFn(),
+    setLayoutAnimationEnabledExperimental: mockFn(),
+    configureNextLayoutAnimation: mockFn(),
     getViewManagerConfig: vi.fn((_name: string) => ({})),
     hasViewManagerConfig: vi.fn((_name: string) => false),
-    dispatchViewManagerCommand: vi.fn(),
-    findSubviewIn: vi.fn(),
-    viewIsDescendantOf: vi.fn(),
+    dispatchViewManagerCommand: mockFn(),
+    findSubviewIn: mockFn(),
+    viewIsDescendantOf: mockFn(),
   };
 }

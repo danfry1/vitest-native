@@ -1,10 +1,10 @@
-import { vi } from "vitest";
+import { mockFn } from "../mock-fn.js";
 
 export function createLogBoxMock() {
   return {
-    ignoreLogs: vi.fn(),
-    ignoreAllLogs: vi.fn(),
-    uninstall: vi.fn(),
-    install: vi.fn(),
+    ignoreLogs: mockFn(),
+    ignoreAllLogs: mockFn(),
+    uninstall: mockFn(),
+    install: mockFn(),
   };
 }

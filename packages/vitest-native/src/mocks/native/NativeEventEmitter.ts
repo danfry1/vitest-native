@@ -1,7 +1,16 @@
 type Listener = (...args: any[]) => void;
 type Subscription = { remove: () => void };
 
-export function createNativeEventEmitterMock() {
+/** The instance surface. Declared because the returned class has a private member, which
+ *  an anonymous class's inferred type cannot carry into declaration output (TS4094). */
+interface NativeEventEmitterMock {
+  addListener(event: string, handler: Listener): Subscription;
+  removeAllListeners(event?: string): void;
+  emit(event: string, ...args: any[]): void;
+  listenerCount(event: string): number;
+}
+
+export function createNativeEventEmitterMock(): new (...args: any[]) => NativeEventEmitterMock {
   return class NativeEventEmitter {
     private listeners: Map<string, Set<Listener>> = new Map();
 

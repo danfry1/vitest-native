@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import { mockFn } from "../mock-fn.js";
 
 export function createAccessibilityInfoMock() {
   return {
@@ -10,12 +11,12 @@ export function createAccessibilityInfoMock() {
     isReduceTransparencyEnabled: vi.fn(async () => false),
     prefersCrossFadeTransitions: vi.fn(async () => false),
     addEventListener: vi.fn((_eventName: string, _handler: Function) => ({
-      remove: vi.fn(),
+      remove: mockFn(),
     })),
-    announceForAccessibility: vi.fn(),
-    announceForAccessibilityWithOptions: vi.fn(),
-    setAccessibilityFocus: vi.fn(),
-    sendAccessibilityEvent: vi.fn(),
+    announceForAccessibility: mockFn(),
+    announceForAccessibilityWithOptions: mockFn(),
+    setAccessibilityFocus: mockFn(),
+    sendAccessibilityEvent: mockFn(),
     getRecommendedTimeoutMillis: vi.fn(async (originalTimeout: number) => originalTimeout),
   };
 }

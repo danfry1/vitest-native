@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import { mockFn } from "../mock-fn.js";
 
 export function createInteractionManagerMock() {
   return {
@@ -10,11 +11,11 @@ export function createInteractionManagerMock() {
       return {
         then: promise.then.bind(promise),
         done: promise.then.bind(promise),
-        cancel: vi.fn(),
+        cancel: mockFn(),
       };
     }),
     createInteractionHandle: vi.fn(() => 1),
-    clearInteractionHandle: vi.fn(),
-    setDeadline: vi.fn(),
+    clearInteractionHandle: mockFn(),
+    setDeadline: mockFn(),
   };
 }

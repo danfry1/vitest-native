@@ -1,5 +1,6 @@
 import React from "react";
 import { vi } from "vitest";
+import { mockFn } from "../mock-fn.js";
 
 type Extrapolate = "extend" | "clamp" | "identity";
 
@@ -831,7 +832,7 @@ function createAnimation(onStart?: () => void) {
     stop: vi.fn((callback?: Function) => {
       callback?.({ finished: false });
     }),
-    reset: vi.fn(),
+    reset: mockFn(),
   };
 }
 
@@ -1242,7 +1243,7 @@ export function createAnimatedMock() {
         listener(...args);
       };
     }),
-    unforkEvent: vi.fn(),
+    unforkEvent: mockFn(),
     createAnimatedComponent: vi.fn((component: any) => {
       const Wrapper = React.forwardRef((props: any, ref: any) => {
         useAnimatedStyleSubscription(props?.style);

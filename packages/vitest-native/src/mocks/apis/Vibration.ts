@@ -1,8 +1,8 @@
-import { vi } from "vitest";
+import { mockFn } from "../mock-fn.js";
 
 export function createVibrationMock() {
   return {
-    vibrate: vi.fn(),
-    cancel: vi.fn(),
+    vibrate: mockFn(),
+    cancel: mockFn(),
   };
 }

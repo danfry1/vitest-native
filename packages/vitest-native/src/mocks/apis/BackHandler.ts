@@ -1,10 +1,11 @@
 import { vi } from "vitest";
+import { mockFn } from "../mock-fn.js";
 
 export function createBackHandlerMock() {
   const listeners = new Set<Function>();
 
   return {
-    exitApp: vi.fn(),
+    exitApp: mockFn(),
     addEventListener: vi.fn((event: string, handler: Function) => {
       if (event === "hardwareBackPress") {
         listeners.add(handler);
