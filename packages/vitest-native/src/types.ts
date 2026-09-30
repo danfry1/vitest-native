@@ -296,16 +296,15 @@ export interface VitestNativeOptions {
    * short-lived, memory-bounded child. Default: false (built-in React Native
    * extension/asset defaults). Pass true or an options object to opt in.
    *
-   * Imperative `resolver.resolveRequest` behavior cannot be transferred as data.
-   * It therefore fails closed unless `allowCustomResolver` explicitly accepts
-   * that only source and asset extensions will be used. Main fields and conditions
-   * are reported under diagnostics but retain the engine's ownership policy.
+   * Imperative `resolver.resolveRequest` behavior cannot be transferred as data:
+   * when the config installs one, the source and asset extensions still apply and
+   * a warning names the gap. Main fields and conditions are reported under
+   * diagnostics but retain the engine's ownership policy.
    */
   metroConfig?:
     | boolean
     | {
         configFile?: string;
-        allowCustomResolver?: boolean;
       };
 
   /**

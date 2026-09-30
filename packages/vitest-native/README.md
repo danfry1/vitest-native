@@ -183,9 +183,9 @@ short-lived child using the project's own Metro tooling. Explicit `assetExts`
 additions still apply. Metro transforms are not installed: source formats such as
 SVG need a corresponding Vitest/Vite transform.
 
-A custom `resolver.resolveRequest` raises a configuration error. If you provide
-equivalent Vitest aliases/plugins, `metroConfig: { allowCustomResolver: true }`
-explicitly accepts ignoring that Metro function and prints a warning. Package
+A custom `resolver.resolveRequest` is code and does not run under Vitest: the
+source and asset extensions still apply, and a warning names the gap. Where one of
+its redirects matters to tests, reproduce it with `resolve.alias`. Package
 main fields and conditions remain governed by the engine's ownership policy;
 `diagnostics: true` reports the observed Metro values. Config is evaluated on
 startup; changing it requires restarting the run.

@@ -20,7 +20,7 @@ const KNOWN_HOT_RUNTIME_OPTIONS = [
   "preserveGlobals",
   "esmGeneration",
 ];
-const KNOWN_METRO_CONFIG_OPTIONS = ["configFile", "allowCustomResolver"];
+const KNOWN_METRO_CONFIG_OPTIONS = ["configFile"];
 
 function assertStringArray(value: unknown, option: string): asserts value is string[] {
   if (
@@ -93,12 +93,6 @@ export function validateOptions(options: Record<string, unknown>): void {
       throw new VitestNativeTypeError(
         "INVALID_OPTION",
         `"metroConfig.configFile" must be a non-empty string.`,
-      );
-    }
-    if (metro.allowCustomResolver !== undefined && typeof metro.allowCustomResolver !== "boolean") {
-      throw new VitestNativeTypeError(
-        "INVALID_OPTION",
-        `"metroConfig.allowCustomResolver" must be a boolean.`,
       );
     }
   }

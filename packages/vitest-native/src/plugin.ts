@@ -1033,21 +1033,18 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             { cause: error },
           );
         }
-        if (metro.profile.customResolver && metroSettings.allowCustomResolver !== true) {
-          throw new VitestNativeError(
-            "METRO_CUSTOM_RESOLVER",
-            `The resolved Metro config installs resolver.resolveRequest, which is imperative ` +
-              `code and cannot be represented by a declarative Vite/Node extension profile. ` +
-              `Silently ignoring it could make tests load a different module than the app. ` +
-              `Add a Vitest alias/plugin implementing the same rule and set ` +
-              `metroConfig:{ allowCustomResolver:true } to acknowledge the remaining gap, ` +
-              `or set metroConfig:false to use the legacy built-in profile.`,
-          );
-        }
+        // A custom resolveRequest is code, not data, so it cannot run here. It does not
+        // run without metroConfig either, so refusing the declarative profile would keep
+        // the same gap while also dropping the extensions that can be honoured, and it
+        // would block the common case: tools such as Uniwind and
+        // react-native-monorepo-config install one that delegates with narrow redirects.
+        // The profile applies, and the gap is named once with the way to close it.
         if (metro.profile.customResolver) {
           console.warn(
-            `[vitest-native] Metro resolver.resolveRequest is not executed; applying only its ` +
-              `declarative source/asset profile because allowCustomResolver:true was set.`,
+            `[vitest-native] The Metro config installs resolver.resolveRequest, which is ` +
+              `code and does not run under Vitest. Its source and asset extensions apply; ` +
+              `a module it redirects resolves as Vite and Node resolve it. Where a redirect ` +
+              `matters to tests, reproduce it with resolve.alias.`,
           );
         }
         sourceExts = [...metro.profile.sourceExts];

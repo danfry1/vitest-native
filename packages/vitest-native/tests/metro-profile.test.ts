@@ -322,7 +322,7 @@ describe("Metro profile plugin integration", () => {
     expect(JSON.parse(config.test.env.VITEST_NATIVE_SOURCE_EXTS)).toEqual(["tsx", "js", "svg"]);
   });
 
-  it("fails closed for an imperative resolver unless the gap is explicit", async () => {
+  it("applies the declarative profile beside an imperative resolver and names the gap once", async () => {
     const root = project("plugin-custom-resolver");
     write(
       path.join(root, "metro.config.cjs"),
@@ -332,23 +332,20 @@ describe("Metro profile plugin integration", () => {
       }};`,
     );
 
-    await expect(
-      runPluginConfig(reactNative({ engine: "mock", metroConfig: true }), { root }),
-    ).rejects.toThrow(/resolver\.resolveRequest/);
-
     const warned: string[] = [];
     const originalWarn = console.warn;
     console.warn = (message) => warned.push(String(message));
     try {
-      const config = await runPluginConfig(
-        reactNative({ engine: "mock", metroConfig: { allowCustomResolver: true } }),
-        { root },
-      );
+      const config = await runPluginConfig(reactNative({ engine: "mock", metroConfig: true }), {
+        root,
+      });
       expect(config.resolve.extensions.slice(0, 3)).toEqual([".ios.js", ".native.js", ".js"]);
     } finally {
       console.warn = originalWarn;
     }
-    expect(warned.some((message) => message.includes("resolveRequest is not executed"))).toBe(true);
+    expect(warned.filter((message) => message.includes("does not run under Vitest"))).toHaveLength(
+      1,
+    );
   });
 
   it("supports an explicit legacy-profile escape hatch", async () => {
