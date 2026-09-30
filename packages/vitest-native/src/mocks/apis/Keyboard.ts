@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import { mockFn } from "../mock-fn.js";
 
 /**
  * The keyboard's resting state, written once.
@@ -41,7 +42,7 @@ export function createKeyboardMock() {
         ? { screenX: 0, screenY: 844 - keyboardHeight, width: 390, height: keyboardHeight }
         : undefined,
     ),
-    scheduleLayoutAnimation: vi.fn(),
+    scheduleLayoutAnimation: mockFn(),
     // Test helper: simulate keyboard show/hide
     _show: (height: number = 336) => {
       visible = true;

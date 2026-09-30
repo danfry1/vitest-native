@@ -1,8 +1,8 @@
-import { vi } from "vitest";
+import { mockFn } from "../mock-fn.js";
 
 export function createAlertMock() {
   return {
-    alert: vi.fn(),
-    prompt: vi.fn(),
+    alert: mockFn(),
+    prompt: mockFn(),
   };
 }

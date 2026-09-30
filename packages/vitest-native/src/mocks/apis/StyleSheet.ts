@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import { mockFn } from "../mock-fn.js";
 
 function flattenImpl(style: any): any {
   if (style == null || style === false) return undefined;
@@ -26,7 +27,7 @@ export function createStyleSheetMock(getScale: () => number = () => 3) {
     compose: vi.fn((a: any, b: any) => [a, b]),
     absoluteFill: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 } as any,
     absoluteFillObject: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 } as any,
-    setStyleAttributePreprocessor: vi.fn(),
+    setStyleAttributePreprocessor: mockFn(),
   };
   // Mirrors react-native/Libraries/StyleSheet/StyleSheetExports.js: the thinnest
   // line the device can draw, derived from the pixel ratio (not a hardcoded

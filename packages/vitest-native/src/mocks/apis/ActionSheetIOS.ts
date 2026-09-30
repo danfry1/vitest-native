@@ -1,8 +1,8 @@
-import { vi } from "vitest";
+import { mockFn } from "../mock-fn.js";
 
 export function createActionSheetIOSMock() {
   return {
-    showActionSheetWithOptions: vi.fn(),
-    showShareActionSheetWithOptions: vi.fn(),
+    showActionSheetWithOptions: mockFn(),
+    showShareActionSheetWithOptions: mockFn(),
   };
 }

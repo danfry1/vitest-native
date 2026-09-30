@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import { mockFn } from "../mock-fn.js";
 
 export function createDeviceEventEmitterMock() {
   const listeners = new Map<string, Set<Function>>();
@@ -16,7 +17,7 @@ export function createDeviceEventEmitterMock() {
       if (event) listeners.delete(event);
       else listeners.clear();
     }),
-    removeSubscription: vi.fn(),
+    removeSubscription: mockFn(),
     emit: vi.fn((event: string, ...args: any[]) => {
       listeners.get(event)?.forEach((fn) => fn(...args));
     }),

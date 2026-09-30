@@ -1,11 +1,12 @@
 import { vi } from "vitest";
+import { mockFn } from "../mock-fn.js";
 
 export function createLayoutAnimationMock() {
   // Declared before the object so the preset shortcuts below can bind to the same spy
   // a test asserts on: `LayoutAnimation.easeInEaseOut()` must register as a
   // `configureNext` call, exactly as it does in React Native, where the shortcuts are
   // `configureNext.bind(null, Presets.x)`.
-  const configureNext = vi.fn();
+  const configureNext = mockFn();
 
   const presets = {
     easeInEaseOut: {
@@ -61,6 +62,6 @@ export function createLayoutAnimationMock() {
     checkConfig: vi.fn(() => {
       console.error("LayoutAnimation.checkConfig(...) has been disabled.");
     }),
-    setEnabled: vi.fn(),
+    setEnabled: mockFn(),
   };
 }

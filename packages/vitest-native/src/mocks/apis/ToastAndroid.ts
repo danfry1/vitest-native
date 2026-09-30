@@ -1,10 +1,10 @@
-import { vi } from "vitest";
+import { mockFn } from "../mock-fn.js";
 
 export function createToastAndroidMock() {
   return {
-    show: vi.fn(),
-    showWithGravity: vi.fn(),
-    showWithGravityAndOffset: vi.fn(),
+    show: mockFn(),
+    showWithGravity: mockFn(),
+    showWithGravityAndOffset: mockFn(),
     SHORT: 0 as const,
     LONG: 1 as const,
     TOP: 0 as const,
