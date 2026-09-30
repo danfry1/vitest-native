@@ -15,6 +15,6 @@
     "@babel/core": "7.29.7",
     "@react-native/babel-preset": "0.83.9",
     "vite": "^6.4.2",
-    "vitest": "4.1.8"
+    "vitest": "4.1.11"
   }
 }

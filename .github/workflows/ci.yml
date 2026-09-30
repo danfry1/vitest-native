@@ -283,7 +283,7 @@ jobs:
       # all of them.
       - name: Use an npm without the arborist edgesOut bug
         if: runner.os == 'Linux' && matrix.node-version == '22.13.0'
-        run: npm install -g npm@11
+        run: npm install -g npm@11.20.0
 
       - name: Test packed consumer projects
         if: runner.os == 'Linux' && matrix.node-version == '22.13.0'
