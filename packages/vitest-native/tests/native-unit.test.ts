@@ -1054,22 +1054,29 @@ describe("hot pool: Vitest version guard", () => {
     const fixtureRequire = createRequire(path.join(mismatched, "package.json"));
     expect(() => fixtureRequire.resolve("react-native/package.json")).not.toThrow();
     expect(fixtureRequire("vitest/package.json").version).toBe("9.9.9");
-    const byDefault = await runPluginConfig(
-      reactNative({ engine: "native" }) as any,
-      { root: mismatched, test: { maxWorkers: 2 } },
-      SERVE_ENV,
-    );
-    expect(byDefault.test.isolate).toBeUndefined();
-    expect(byDefault.test.env.VITEST_NATIVE_MEMORY_PLAN).toBeUndefined();
-
-    await expect(
-      runPluginConfig(
-        reactNative({ engine: "native", hotRuntime: true }) as any,
+    // The React Native registry is irrelevant to runtime selection, and compiling it
+    // for a fresh project root is the slow part of a plugin config run.
+    vi.stubEnv("VITEST_NATIVE_NO_REGISTRY", "1");
+    try {
+      const byDefault = await runPluginConfig(
+        reactNative({ engine: "native" }) as any,
         { root: mismatched, test: { maxWorkers: 2 } },
         SERVE_ENV,
-      ),
-    ).rejects.toThrow(/would load vitest@.*but this run is driven by vitest@9\.9\.9/s);
-  });
+      );
+      expect(byDefault.test.isolate).toBeUndefined();
+      expect(byDefault.test.env.VITEST_NATIVE_MEMORY_PLAN).toBeUndefined();
+
+      await expect(
+        runPluginConfig(
+          reactNative({ engine: "native", hotRuntime: true }) as any,
+          { root: mismatched, test: { maxWorkers: 2 } },
+          SERVE_ENV,
+        ),
+      ).rejects.toThrow(/would load vitest@.*but this run is driven by vitest@9\.9\.9/s);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  }, 30_000);
 });
 
 describe("peer requirements", () => {
