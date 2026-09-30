@@ -120,8 +120,13 @@ export function createNativeOwnershipPolicy({
   const normalizedReactNativeRoots = Object.freeze(
     unique([inferredReactNativeRoot, ...reactNativeRoots]).map((dir) => path.resolve(dir)),
   );
+  // Either separator at every boundary: these patterns are handed to Vitest's resolver
+  // and also meet paths in the form Node reports them, backslashed on Windows.
   const reactNativeRootPatterns = normalizedReactNativeRoots.map(
-    (dir) => new RegExp(`^${escapeRe(normalizeFile(dir).replace(/\/$/, ""))}[\\/]`),
+    (dir) =>
+      new RegExp(
+        `^${normalizeFile(dir).replace(/\/$/, "").split("/").map(escapeRe).join("[\\\\/]")}[\\\\/]`,
+      ),
   );
   const isReactNativeCore = (file, rawFile) =>
     REACT_NATIVE_PATH.test(file) ||

@@ -138,6 +138,9 @@ describe("native ownership policy", () => {
         reason: "react-native-core",
       });
       expect(linked.externalPatterns.some((pattern) => pattern.test(file))).toBe(true);
+      // The Windows form of the same path: Node reports it with backslashes there.
+      const backslashed = file.replace(/\//g, "\\");
+      expect(linked.externalPatterns.some((pattern) => pattern.test(backslashed))).toBe(true);
       expect(linked.manifest().reactNativeRoots).toContain(canonicalLinkedRoot);
       expect(linked.isReactNativeFile(file)).toBe(true);
       expect(linked.reactNativePathFor(file)).toBe(
