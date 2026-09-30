@@ -303,6 +303,13 @@ reactNative({
 
 ## Troubleshooting
 
+### `npm error Cannot read properties of null (reading 'edgesOut')` during install
+
+npm 10 (the version bundled with Node 22) crashes while resolving Vite 8.2+'s optional peer
+chain when the project pins Vitest 4, because that chain resolves to the latest Vitest (5.x).
+This is an npm bug, fixed in npm 11 ([vitest#11245](https://github.com/vitest-dev/vitest/issues/11245)).
+Upgrade npm (`npm install --global npm@11`), or use pnpm, Yarn or Bun.
+
 ### "vitest-native helpers called before setup"
 
 This means the plugin isn't configured. Ensure `reactNative()` is in your `vitest.config.ts` plugins array.
