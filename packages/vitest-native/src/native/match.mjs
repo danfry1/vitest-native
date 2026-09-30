@@ -34,9 +34,15 @@ export const NODE_MODULES_PATH = /[\\/]node_modules[\\/]/;
  */
 export const REACT_NATIVE_PATH = /[\\/]node_modules[\\/](react-native|@react-native)[\\/]/;
 
+/**
+ * A directory in the form Node's module loader reports paths: fs.realpathSync, not
+ * realpathSync.native. The native call expands Windows 8.3 short names (RUNNER~1) and
+ * rewrites letter case on case-insensitive disks, so a directory it returns can fail
+ * to contain the module ids Node hands the matchers.
+ */
 function canonicalDir(dir) {
   try {
-    return fs.realpathSync.native(dir);
+    return fs.realpathSync(dir);
   } catch {
     return dir;
   }

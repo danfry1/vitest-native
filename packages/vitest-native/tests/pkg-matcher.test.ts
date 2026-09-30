@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
+import { createRequire } from "node:module";
 import path from "node:path";
 // @ts-expect-error — runtime .mjs, no types
 import { buildPkgMatcher } from "../src/native/match.mjs";
@@ -66,6 +67,38 @@ describe("buildPkgMatcher", () => {
     const isExtra = buildPkgMatcher(["linked-lib"], root);
     expect(isExtra(path.join(real, "index.js"))).toBe(true);
     expect(isExtra(path.join(real, "src", "deep.js"))).toBe(true);
+  });
+
+  it("matches a linked package in the path form Node itself reports", () => {
+    // A package's directory has to be canonicalised the way Node's module loader does
+    // it (fs.realpathSync), not with the OS call (realpathSync.native). The two
+    // disagree on Windows, where the native call expands 8.3 short names such as
+    // RUNNER~1, and on case-insensitive disks, where it rewrites letter case. Given a
+    // root spelled differently from the disk, Node reports module paths in that
+    // spelling, and a directory in the other spelling contains none of them.
+    const parent = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-case-"));
+    const root = path.join(parent, "CaseRoot");
+    const real = path.join(root, "packages", "linked-lib");
+    fs.mkdirSync(real, { recursive: true });
+    fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "app" }));
+    fs.writeFileSync(
+      path.join(real, "package.json"),
+      JSON.stringify({ name: "linked-lib", version: "1.0.0", main: "index.js" }),
+    );
+    fs.writeFileSync(path.join(real, "index.js"), "module.exports = {};");
+    fs.mkdirSync(path.join(root, "node_modules"), { recursive: true });
+    // Relative, so resolving through the link keeps the caller's spelling of the root.
+    fs.symlinkSync(
+      path.join("..", "packages", "linked-lib"),
+      path.join(root, "node_modules", "linked-lib"),
+      "dir",
+    );
+
+    const respelled = path.join(parent, "caseroot");
+    // Only meaningful where the disk is case-insensitive (macOS, Windows).
+    if (!fs.existsSync(respelled)) return;
+    const reported = createRequire(path.join(respelled, "package.json")).resolve("linked-lib");
+    expect(buildPkgMatcher(["linked-lib"], respelled)(reported)).toBe(true);
   });
 
   it("still matches installed packages without a project root", () => {
