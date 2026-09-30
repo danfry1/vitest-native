@@ -1,8 +1,14 @@
-import { test } from "vitest";
-import { expectCleanExcept, polluteEverything } from "./surfaces";
+import { expect, test } from "vitest";
+import { expectCleanExcept, filesSeenByThisWorker, polluteEverything } from "./surfaces";
 
 // Mocks nothing, so it checks every surface — including the Node-owned package
 // the previous file mocked, which no other file runs after.
+
+test("ran in the worker the mode asks for", () => {
+  // Without this the hot run could pass vacuously, one fresh worker per file.
+  const expected = process.env.VN_HOT_JEST_COMPAT_MODE === "hot" ? 4 : 1;
+  expect(filesSeenByThisWorker()).toBe(expected);
+});
 
 test("every surface is clean", () => {
   expectCleanExcept([]);
