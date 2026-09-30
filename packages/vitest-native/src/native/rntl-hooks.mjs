@@ -3,42 +3,68 @@
 // RNTL's entry module registers its test hooks as a side effect of being evaluated:
 // `afterEach` cleanup (unmount every rendered tree, reset `screen`) and the
 // `beforeAll`/`afterAll` pair that turns React's act environment on for the file.
-// Under per-file isolation it is evaluated once per file, so every file gets them.
-// The hot runtime keeps RNTL resident — a fresh instance per file breaks its matchers
-// against the resident renderer (see RUNTIME_RESIDENT_PACKAGES) — so the entry ran
-// once, in the first file, and later files had no cleanup: `screen` still returned
-// the previous file's tree, and its components stayed mounted with their effects.
+// Under per-file isolation a file that imports RNTL evaluates it, so it gets them, and
+// a file that does not import RNTL does not. The hot runtime keeps RNTL resident — a
+// fresh instance per file breaks its matchers against the resident renderer (see
+// RUNTIME_RESIDENT_PACKAGES) — so the entry ran once, in the first file that imported
+// it, and later files had no cleanup: `screen` still returned the previous file's
+// tree, and its components stayed mounted with their effects.
 //
-// The fix re-runs only the entry module's code for each later file, against the
-// resident instances it requires from the module cache. That reproduces RNTL's own
-// registration exactly, for every RNTL version, without a second instance.
-import Module, { createRequire } from "node:module";
-import path from "node:path";
+// So the hooks are registered where RNTL would register them: when the file's graph
+// imports RNTL's main entry. Vitest evaluates that externalized import through the
+// module evaluator's runExternalModule once per file (the per-file reset clears the
+// runner's evaluated flags). If the entry was already in Node's module cache before the
+// import, it is resident and did not run, so its code is evaluated again outside the
+// cache, against the resident instances it requires. Otherwise the import evaluated it
+// and RNTL registered its own hooks. Consequences, each matching per-file isolation:
+//   - a file that never imports RNTL gets no RNTL hooks and no act environment;
+//   - `@testing-library/react-native/pure` never registers hooks;
+//   - whichever copy of RNTL the file imports is the one re-run (monorepos, duplicates);
+//   - an RNTL that Vite inlines registers itself and never passes through here.
+// An RNTL reached only through another Node-owned package, never imported by the
+// file's own (Vite-owned) graph, is not seen here.
+//
+// runExternalModule is Vitest's module-evaluator method in Vitest 4 and 5; if it goes
+// away, nothing is wrapped and tests-native/hot-jest-compat fails on the RNTL surface.
+import fs from "node:fs";
+import Module from "node:module";
+import { fileURLToPath } from "node:url";
 
-/**
- * RNTL's resolved entry file when a Node-owned RNTL is already loaded in this worker,
- * or null. Read at the file boundary, before any setup file runs, so an RNTL that a
- * setup file imports in the first file (and which registers its own hooks) is not
- * registered twice.
- */
-export function residentRntlEntry(projectRoot) {
-  let entry;
+const RNTL_ENTRY =
+  /[\\/]node_modules[\\/]@testing-library[\\/]react-native[\\/](?:build|dist)[\\/]index\.js$/;
+const WRAPPED = Symbol.for("vitest-native.rntl-hooks");
+
+function residentEntry(id) {
+  let file;
   try {
-    entry = createRequire(path.join(projectRoot, "package.json")).resolve(
-      "@testing-library/react-native",
-    );
+    file = id.startsWith("file://") ? fileURLToPath(id) : id;
   } catch {
     return null;
   }
-  return Module._cache[entry] ? entry : null;
+  if (!RNTL_ENTRY.test(file)) return null;
+  if (Module._cache[file]) return file;
+  try {
+    const real = fs.realpathSync(file);
+    return Module._cache[real] ? real : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
- * Evaluate RNTL's entry module again, outside the module cache, so it registers its
- * per-file hooks for the current test file. Its own requires resolve to the resident
- * instances.
+ * Make `evaluator` re-register RNTL's per-file hooks whenever a file imports a
+ * resident RNTL entry. Idempotent.
  */
-export function registerRntlHooks(entry) {
-  const entryModule = new Module(entry, null);
-  entryModule.load(entry);
+export function registerRntlHooksOnImport(evaluator) {
+  const run = evaluator?.runExternalModule;
+  if (typeof run !== "function" || run[WRAPPED]) return;
+  const wrapped = async function (id) {
+    // Read before the import: afterwards the entry is always cached.
+    const resident = typeof id === "string" ? residentEntry(id) : null;
+    const namespace = await run.call(this, id);
+    if (resident) new Module(resident, null).load(resident);
+    return namespace;
+  };
+  wrapped[WRAPPED] = true;
+  evaluator.runExternalModule = wrapped;
 }

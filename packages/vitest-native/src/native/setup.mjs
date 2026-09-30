@@ -12,7 +12,6 @@ import * as presetFactories from "../presets.mjs";
 import { animatedMatchers } from "../matchers.mjs";
 import { serializer as rnSerializer } from "../serializer.mjs";
 import { VitestNativeError } from "../errors.mjs";
-import { registerRntlHooks } from "./rntl-hooks.mjs";
 
 // Non-enumerable key on the preset container: the mocks built so far in this file.
 const PRESETS_BUILT = Symbol.for("vitest-native.presets-built");
@@ -43,16 +42,10 @@ if (globalThis.__vitest_native_hot_reset) {
       }
     },
   });
-  // RNTL trees: when RNTL is inlined in the consumer graph it re-evaluates per file
-  // and registers its own cleanup. When it is resident, its entry ran only in the
-  // first file, so later files had no cleanup: `screen` returned the previous file's
-  // tree and its components stayed mounted (tests-native/hot-jest-compat catches
-  // this). The worker records, at the file boundary, whether a resident RNTL was
-  // already loaded; if so its entry re-runs here against the resident instances. Do
+  // RNTL's per-file hooks (cleanup, act environment) for a resident RNTL are
+  // registered by the worker when a file imports it: see native/rntl-hooks.mjs. Do
   // NOT import or require RNTL here instead — a load from setup in the first file
   // creates the evaluation-order hazard that corrupted rendering (Rocket.Chat).
-  const residentRntl = globalThis.__vitest_native_resident_rntl;
-  if (residentRntl) registerRntlHooks(residentRntl);
 }
 
 const projectRoot = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();

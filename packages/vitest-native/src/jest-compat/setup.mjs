@@ -60,6 +60,8 @@ function writableModuleFacade(mod) {
  * on the `jest` global, not rewritten at transform time, so there is no import.meta
  * to consult.
  */
+const SHIM_DIR = path.dirname(fileURLToPath(import.meta.url));
+
 function callerFile() {
   const original = Error.prepareStackTrace;
   try {
@@ -67,8 +69,12 @@ function callerFile() {
     const frames = new Error().stack;
     for (const frame of frames) {
       const file = typeof frame.getFileName === "function" ? frame.getFileName() : null;
-      if (!file || file.startsWith("node:") || file.includes("/jest-compat/")) continue;
-      return file.startsWith("file://") ? fileURLToPath(file) : file;
+      if (!file || file.startsWith("node:")) continue;
+      const filePath = file.startsWith("file://") ? fileURLToPath(file) : file;
+      // This shim's own frames, matched by directory rather than by a path substring,
+      // which missed Windows paths and skipped any user file under a `jest-compat/`.
+      if (path.dirname(filePath) === SHIM_DIR) continue;
+      return filePath;
     }
   } catch {
     // Fall through to the project-root require below.

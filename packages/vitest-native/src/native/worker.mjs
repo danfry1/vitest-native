@@ -18,7 +18,7 @@ import { installRequireHooks } from "./hooks.mjs";
 import { installHotReset } from "./reset.mjs";
 import { installRegistry } from "./registry.mjs";
 import { captureModuleBaseline } from "./module-reset.mjs";
-import { residentRntlEntry } from "./rntl-hooks.mjs";
+import { registerRntlHooksOnImport } from "./rntl-hooks.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
 import { VitestNativeError } from "../errors.mjs";
 
@@ -194,10 +194,6 @@ globalThis.__vitest_native_reset_module_runner = () => {
   // package's setup file, which Vitest runs after the user's own: a user setup that
   // installs fake timers then found the previous file's still installed.
   globalThis.__vitest_native_hot_reset?.();
-  // Decided here, before any setup file of the next file runs: see rntl-hooks.mjs.
-  globalThis.__vitest_native_resident_rntl = residentRntlEntry(
-    process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd(),
-  );
   if (!moduleRunner) return;
   moduleRunner.mocker?.reset();
   clearPendingMocks(moduleRunner.mocker);
@@ -220,6 +216,7 @@ init({
   collectTests: (state, traces) => runBaseTests("collect", state, traces),
   onModuleRunner: (runner) => {
     moduleRunner = runner;
+    registerRntlHooksOnImport(runner.evaluator);
   },
   setup: setupEnvironment,
 });
