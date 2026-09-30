@@ -6,6 +6,12 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 10
+    ignore:
+      # React Native's Babel preset requires Babel 7 ("Requires Babel ^7.0.0-0") and
+      # the native engine transforms React Native with it. Adopt Babel 8 when React
+      # Native's preset supports it, rather than reopening a failing PR every week.
+      - dependency-name: "@babel/core"
+        update-types: ["version-update:semver-major"]
     # Supply-chain hardening: hold update PRs until a version has been public for
     # at least seven days, long enough for most malicious releases to be yanked.
     # Mirrors the install-time minimumReleaseAge gate in bunfig.toml.
