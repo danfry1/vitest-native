@@ -1,4 +1,4 @@
-// Native engine with GENUINE isolate:true — bypasses the reactNative() plugin
+// Native engine with GENUINE isolate:true — bypasses the reactNative({ hotRuntime: false }) plugin
 // (whose config() forces isolate:false and wins the Vite merge) by inlining the
 // native engine config. This isolates the real variable: does true per-file
 // isolation clean up both leakage classes?

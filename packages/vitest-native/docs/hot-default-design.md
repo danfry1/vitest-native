@@ -1,6 +1,6 @@
 # Design: hot runtime as a safe default for greenfield apps
 
-**Status:** Layers 1–2 shipped; Layer 3 remains a proposal
+**Status:** Layers 1–3 shipped (`'auto'` is the default since 2026-09-30); admitting Jest-migration suites remains open
 **Basis:** the idiomatic hot-parity validation + default-flip de-risk (`validation/idiomatic/`)
 
 > Memory update (2026-08-31): explicit hot mode now installs a cgroup-aware,
@@ -69,9 +69,9 @@ but _how_ to default it without the memory footgun or breaking migration suites.
 1. **Safe when enabled.** Turning hot on must never silently grow unbounded.
    A current-Vitest one-worker run fails closed unless the explicit
    `allowUnboundedMemory` escape hatch is present.
-2. **Opt-in escalation.** Don't flip the global default for everyone in one step.
-   Make hot _safe to enable_, then _auto-enable where provably safe_, then
-   (much later, with real-world data) consider the global default.
+2. **Staged escalation.** Don't flip the global default for everyone in one step.
+   Make hot _safe to enable_, then _auto-enable where provably safe_, then make
+   that selector the default once its gates hold (Layer 3).
 3. **Honest fallbacks.** Where hot can't be made safe (single-worker large, or
    jest-compat suites), fall back or warn — never pretend.
 
@@ -139,12 +139,33 @@ Suite size (hot's win amortizes over many files) is only known after collection,
 so `'auto'` keys on config-time signals; a tiny suite still works under hot, just
 without a speed win — acceptable.
 
-## Layer 3 — global default flip (future, gated)
+## Layer 3 — `'auto'` as the default (implemented 2026-09-30)
 
-Only after `'auto'` has real-world mileage would we consider making `'auto'` the
-default for the native engine. Gating evidence: a real greenfield app validated,
-memory behavior confirmed across CI shapes, and the migration story handled. Not
-part of this proposal.
+`hotRuntime` defaults to `'auto'` for the native engine. The gates this section
+originally set, and the package-owned evidence for each:
+
+- **Correctness across files:** the hot isolation suite, the state-manifest
+  mutation gate (every restore action removed in turn must fail by name), the
+  hot user-setup gate, and `validate:hot-parity` (no test that passes under
+  per-file isolation fails under hot).
+- **Memory across CI shapes:** the cgroup-aware memory plan, the 100-file soak
+  with recycling, and the full suites on Linux, macOS and Windows. The packed
+  cgroup gate runs on Linux only; other providers and cgroup v1 remain open
+  question 1.
+- **The migration story:** unchanged, because it is not yet proven. Suites set up
+  for Jest migration keep per-file isolation (see the Layer 2 conditions) until
+  the jest-compat surface has its own cross-file isolation gate under hot. External
+  bake-off apps are not evidence for it: their Jest-era setup and shims are theirs,
+  not the package's.
+- **A real greenfield app:** covered only by the packed consumer fixtures, which
+  are small. This is the gate least met; the default's fallback and
+  `hotRuntime: false` are the mitigation, and a test that passes alone but fails
+  after other files is the signal to use it.
+
+Implicitly selected, `'auto'` is quiet: a fallback, or a worker cap from the
+memory plan, prints only when `hotRuntime` was set explicitly or `diagnostics` is
+on. A Vitest version mismatch between the worker and the project, fatal for an
+explicit `hotRuntime`, is one more reason for `'auto'` to fall back.
 
 ## Memory model (the math we are bounding)
 
@@ -163,7 +184,9 @@ Layer 1 makes the bounded row the out-of-the-box behavior whenever workers ≥ 2
 - Process RSS at the hard boundary → stop before another worker/task starts and
   report `HOT_MEMORY_BUDGET_EXCEEDED`, rather than waiting for exit 137/OOM.
 - `'auto'` that declines to enable hot → a one-line diagnostic explaining why
-  (jest-compat detected / single worker / low memory), so it isn't a silent no-op.
+  (jest-compat detected / single worker / low memory / Vitest version mismatch)
+  when `'auto'` was set explicitly or `diagnostics` is on; as the implicit
+  default it falls back quietly.
 
 ## Open questions
 
@@ -180,4 +203,5 @@ Layer 1 makes the bounded row the out-of-the-box behavior whenever workers ≥ 2
    budgeting and verified shared-realm restoration; current one-worker batching
    fails closed.
 2. **Layer 2 (`'auto'`)** — shipped as an explicit, conservative greenfield opt-in.
-3. **Layer 3 (default flip)** — only with the gating evidence above.
+3. **Layer 3 (default flip)** — shipped; see the Layer 3 section for the evidence
+   against each gate and the one that is least met.

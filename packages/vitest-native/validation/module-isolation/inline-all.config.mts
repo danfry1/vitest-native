@@ -17,7 +17,7 @@ const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 
 export default defineConfig({
   root: packageRoot,
-  plugins: [reactNative({ engine: "native", diagnostics: true })],
+  plugins: [reactNative({ engine: "native", hotRuntime: false, diagnostics: true })],
   test: {
     include: ["tests-native/ecosystem-ownership.test.tsx"],
     maxWorkers: 1,

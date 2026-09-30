@@ -619,6 +619,41 @@ describe("plugin engine routing", () => {
     warn.mockRestore();
   });
 
+  it("defaults to hotRuntime:'auto' and falls back quietly", async () => {
+    const byDefault = reactNative({ engine: "native" }) as any;
+    const hot = await runPluginConfig(byDefault, { root: projectRoot }, SERVE_ENV);
+    expect(hot.test.isolate).toBe(false);
+    expect(hot.test.pool).toMatchObject({ name: "vitest-native" });
+
+    // A decline the user did not ask about is not worth a warning on every run.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const quiet = reactNative({ engine: "native" }) as any;
+    const stock = await runPluginConfig(
+      quiet,
+      { root: projectRoot, test: { maxWorkers: 2, pool: "forks" } },
+      SERVE_ENV,
+    );
+    expect(stock.test.isolate).toBeUndefined();
+    expect(stock.test.pool).toBe("forks");
+    const migration = reactNative({ engine: "native" }) as any;
+    const migrated = await runPluginConfig(
+      migration,
+      {
+        root: projectRoot,
+        test: { maxWorkers: 2, setupFiles: ["vitest-native/jest-compat/setup"] },
+      },
+      SERVE_ENV,
+    );
+    expect(migrated.test.isolate).toBeUndefined();
+    expect(warn).not.toHaveBeenCalledWith(expect.stringMatching(/kept default isolation/));
+    warn.mockRestore();
+
+    // Explicitly off stays off.
+    const off = reactNative({ engine: "native", hotRuntime: false }) as any;
+    const plain = await runPluginConfig(off, { root: projectRoot }, SERVE_ENV);
+    expect(plain.test.isolate).toBeUndefined();
+  });
+
   it("refuses unrecyclable one-worker hot unless the risk is explicit", async () => {
     const bounded = reactNative({ engine: "native", hotRuntime: true }) as any;
     await expect(
@@ -998,6 +1033,66 @@ describe("hot pool: Vitest version guard", () => {
   it("does not throw for this repository's own layout", () => {
     expect(() => nativePool({ workerEntry, projectRoot })).not.toThrow();
   });
+
+  it("makes 'auto' fall back instead of failing, and keeps explicit hot fail-closed", async () => {
+    // A project that resolves every real dependency from this repository, except a
+    // Vitest of another version. Under the default the user never asked for hot, so
+    // the mismatch is a reason to keep per-file isolation, not an error.
+    const mismatched = fakeProject("9.9.9");
+    const repoModules = path.join(projectRoot, "node_modules");
+    // Each package links to its REAL path: install layouts (bun's among them) make
+    // node_modules entries relative symlinks into a store, which a link to their
+    // parent directory would resolve from the wrong place — on Windows especially.
+    const link = (name: string): void => {
+      const target = path.join(mismatched, "node_modules", name);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.symlinkSync(
+        fs.realpathSync(path.join(repoModules, name)),
+        target,
+        process.platform === "win32" ? "junction" : "dir",
+      );
+    };
+    for (const entry of fs.readdirSync(repoModules)) {
+      if (entry === "vitest" || entry.startsWith(".")) continue;
+      if (entry.startsWith("@")) {
+        for (const scoped of fs.readdirSync(path.join(repoModules, entry))) {
+          link(`${entry}/${scoped}`);
+        }
+      } else {
+        link(entry);
+      }
+    }
+    // Guard the fixture itself: if an install layout left the native engine's
+    // requirements unresolvable here, the plugin would fail for that reason instead,
+    // and the assertions below would test the wrong thing.
+    const fixtureRequire = createRequire(path.join(mismatched, "package.json"));
+    for (const required of ["react-native", "@react-native/babel-preset", "@babel/core"]) {
+      expect(() => fixtureRequire.resolve(`${required}/package.json`), required).not.toThrow();
+    }
+    expect(fixtureRequire("vitest/package.json").version).toBe("9.9.9");
+    // The React Native registry is irrelevant to runtime selection, and compiling it
+    // for a fresh project root is the slow part of a plugin config run.
+    vi.stubEnv("VITEST_NATIVE_NO_REGISTRY", "1");
+    try {
+      const byDefault = await runPluginConfig(
+        reactNative({ engine: "native" }) as any,
+        { root: mismatched, test: { maxWorkers: 2 } },
+        SERVE_ENV,
+      );
+      expect(byDefault.test.isolate).toBeUndefined();
+      expect(byDefault.test.env.VITEST_NATIVE_MEMORY_PLAN).toBeUndefined();
+
+      await expect(
+        runPluginConfig(
+          reactNative({ engine: "native", hotRuntime: true }) as any,
+          { root: mismatched, test: { maxWorkers: 2 } },
+          SERVE_ENV,
+        ),
+      ).rejects.toThrow(/would load vitest@.*but this run is driven by vitest@9\.9\.9/s);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  }, 30_000);
 });
 
 describe("peer requirements", () => {

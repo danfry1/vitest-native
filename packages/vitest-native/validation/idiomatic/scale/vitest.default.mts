@@ -7,7 +7,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const workers = Number(process.env.VN_WORKERS ?? 1);
 
 export default defineConfig({
-  plugins: [reactNative({ engine: "native" })],
+  plugins: [reactNative({ engine: "native", hotRuntime: false })],
   test: {
     globals: true,
     environment: "node",

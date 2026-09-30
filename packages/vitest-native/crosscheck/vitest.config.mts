@@ -9,7 +9,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const engine = process.env.CROSSCHECK_ENGINE === "native" ? "native" : "mock";
 
 export default defineConfig({
-  plugins: [reactNative({ engine })],
+  plugins: [reactNative({ engine, hotRuntime: false })],
   test: {
     globals: true,
     environment: "node",

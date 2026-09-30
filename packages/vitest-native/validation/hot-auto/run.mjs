@@ -69,7 +69,7 @@ import { jestCompatSetup, jestMockTransform } from "vitest-native/jest-compat";
 const scenario = process.env.VN_HOT_AUTO_SCENARIO;
 const migration = scenario === "migration";
 const oneWorker = scenario === "one-worker";
-const customPool = scenario === "custom-pool";
+const customPool = scenario === "custom-pool" || scenario === "default-custom-pool";
 const latePool = scenario === "late-pool";
 const lateMigration = scenario === "late-migration";
 
@@ -89,7 +89,11 @@ const lateMigrationPlugin = {
 
 export default defineConfig({
   plugins: [
-    reactNative({ engine: "native", hotRuntime: "auto" }),
+    reactNative(
+      scenario === "default" || scenario === "default-custom-pool"
+        ? { engine: "native" }
+        : { engine: "native", hotRuntime: "auto" },
+    ),
     ...(migration ? [jestMockTransform()] : []),
     ...(latePool ? [latePoolPlugin] : []),
     ...(lateMigration ? [lateMigrationPlugin] : []),
@@ -114,7 +118,7 @@ import { Platform } from "react-native";
 
 test("auto selection ${index}", () => {
   const selected = process.env.VITEST_NATIVE_MEMORY_PLAN !== undefined;
-  expect(selected).toBe(process.env.VN_HOT_AUTO_SCENARIO === "enabled");
+  expect(selected).toBe(["enabled", "default"].includes(process.env.VN_HOT_AUTO_SCENARIO));
   expect(Platform.OS).toBe("ios");
 });
 `,
@@ -142,6 +146,9 @@ test("migration config remains isolated", () => {
     ["custom-pool", "'forks' is explicitly configured"],
     ["late-pool", "'forks' is explicitly configured"],
     ["late-migration", "Jest compatibility setup"],
+    // hotRuntime left unset: 'auto' by default, and a fallback it was not asked for is quiet.
+    ["default", null],
+    ["default-custom-pool", "quiet"],
   ]) {
     const output = run(
       process.execPath,
@@ -151,6 +158,12 @@ test("migration config remains isolated", () => {
     );
     if (reason === null && output.includes("kept default isolation")) {
       throw new Error("safe auto configuration unexpectedly declined hotRuntime");
+    }
+    if (reason === "quiet") {
+      if (output.includes("kept default isolation")) {
+        throw new Error(`${scenario} reported a fallback the user did not ask about`);
+      }
+      continue;
     }
     if (reason !== null && !output.includes(reason)) {
       throw new Error(`${scenario} fallback did not report ${JSON.stringify(reason)}`);

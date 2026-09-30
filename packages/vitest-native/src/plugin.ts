@@ -16,6 +16,7 @@ import { detectEngine } from "./native/detect.js";
 import { detectEcosystemPackages } from "./native/ecosystem.js";
 import { containsPath, packageDirOf } from "./native/match.mjs";
 import type { HotMemoryPlan } from "./native/memory.mjs";
+import { workerVitestMismatch } from "./native/worker-vitest.js";
 import type { NativeOwnershipPolicy } from "./native/ownership.mjs";
 import {
   createNativeOwnershipPolicy,
@@ -693,7 +694,11 @@ function hasJestCompatSetup(value: unknown): boolean {
   );
 }
 
-/** Config-time reasons that make automatic hot selection too surprising or unsafe. */
+/**
+ * Config-time reasons that make automatic hot selection unsafe. Jest-migration suites
+ * (jestMockTransform(), the jest-compat setup) are declined until the jest-compat
+ * surface has its own cross-file isolation gate under hot.
+ */
 function hotAutoConfigDeclineReason(userConfig: UserConfig, userPool: unknown): string | null {
   if (hasPluginNamed(userConfig.plugins, JEST_MOCK_TRANSFORM_NAME)) {
     return "jestMockTransform() marks this as a Jest migration suite";
@@ -707,6 +712,15 @@ function hotAutoConfigDeclineReason(userConfig: UserConfig, userPool: unknown): 
     return `${label} is explicitly configured`;
   }
   return null;
+}
+
+/** Why hot cannot run here because its worker would load a different Vitest, or null. */
+function workerVitestMismatchReason(workerEntry: string, projectRoot: string): string | null {
+  const mismatch = workerVitestMismatch(workerEntry, projectRoot);
+  return mismatch
+    ? `its worker would load vitest@${mismatch.worker.version} while this run uses ` +
+        `vitest@${mismatch.project.version}`
+    : null;
 }
 
 export function reactNative(options?: VitestNativeOptions): Plugin {
@@ -888,7 +902,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // Hot runtime (native engine only): persistent RN-hot workers with per-file
   // isolation via the custom pool. `auto` is a conservative selector: it keeps
   // stock isolation whenever config-time evidence cannot prove this path safe.
-  const hotRuntimeOpt = options?.hotRuntime ?? false;
+  // 'auto' by default: the bounded hot runtime where config-time evidence shows it
+  // is safe, per-file isolation otherwise. Declines are reported only when the user
+  // asked for hot explicitly; the implicit default falls back quietly.
+  const hotRuntimeExplicit = options?.hotRuntime !== undefined;
+  const hotRuntimeOpt = options?.hotRuntime ?? "auto";
   const hotRuntimeRequested = hotRuntimeOpt !== false;
   const hotRuntimeAuto = hotRuntimeOpt === "auto";
   const hotRecycle = typeof hotRuntimeOpt === "object" ? hotRuntimeOpt : {};
@@ -1152,14 +1170,17 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           const allowUnboundedMemory = hotRecycle.allowUnboundedMemory === true;
           const autoDeclineReason = hotRuntimeAuto
             ? (hotAutoConfigDeclineReason(userConfig, userPool) ??
+              workerVitestMismatchReason(nativeWorkerPath, resolvedRoot) ??
               (plan.maxWorkers < 2
                 ? `the ${plan.source} memory/scheduler plan selects only one unrecyclable worker`
                 : null))
             : null;
           if (autoDeclineReason !== null) {
-            console.warn(
-              `[vitest-native] hotRuntime:'auto' kept default isolation: ${autoDeclineReason}.`,
-            );
+            if (hotRuntimeExplicit || diagnostics) {
+              console.warn(
+                `[vitest-native] hotRuntime:'auto' kept default isolation: ${autoDeclineReason}.`,
+              );
+            }
           } else if (!allowUnboundedMemory && plan.maxWorkers < 2) {
             throw new VitestNativeError(
               "HOT_MEMORY_UNBOUNDED",
@@ -1173,6 +1194,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           }
           if (
             autoDeclineReason === null &&
+            (hotRuntimeExplicit || diagnostics) &&
             !allowUnboundedMemory &&
             userTest?.maxWorkers != null &&
             plan.maxWorkers < requestedWorkers
@@ -1263,7 +1285,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       }
 
       // --- mock engine (existing behaviour) ---
-      if (hotRuntimeRequested) {
+      if (hotRuntimeRequested && hotRuntimeExplicit) {
         console.warn(
           `[vitest-native] 'hotRuntime' only applies to engine:'native' (resolved engine: '${engine}'); ignoring.`,
         );

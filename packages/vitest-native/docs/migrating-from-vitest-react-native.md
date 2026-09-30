@@ -89,10 +89,10 @@ Your existing tests render against real React Native exactly as before.
   tests. A CI-gated cross-check keeps the mock behaviorally honest against real RN.
 - **Presets** auto-shadow common native libraries (Reanimated, Gesture Handler,
   Safe Area, Navigation, …) the way `jest` mocks them — no per-lib wiring.
-- An opt-in **hot runtime** (`reactNative({ hotRuntime: true })`) keeps RN warm
-  across files for large suites while resetting app/test modules and common
-  process-wide pollution between files. It uses Vitest's custom worker APIs and
-  remains experimental.
+- A **hot runtime**, on by default where the run can be bounded
+  (`hotRuntime: 'auto'`), keeps RN warm across files while resetting app/test
+  modules and common process-wide pollution between files. It uses Vitest's
+  custom worker APIs; `hotRuntime: false` opts out.
 
 ## Gotchas (the margins)
 

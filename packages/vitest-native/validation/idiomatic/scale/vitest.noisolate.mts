@@ -12,7 +12,7 @@ import { reactNative } from "../../../dist/index.mjs";
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
-  plugins: [reactNative({ engine: "native" })],
+  plugins: [reactNative({ engine: "native", hotRuntime: false })],
   test: {
     globals: true,
     environment: "node",

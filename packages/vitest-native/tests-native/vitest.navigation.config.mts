@@ -8,6 +8,7 @@ export default defineConfig({
   plugins: [
     reactNative({
       engine: "native",
+      hotRuntime: false,
       presets: [presets.navigation({ defaultRouteParams: { id: "42", mode: "edit" } })],
     }),
   ],
