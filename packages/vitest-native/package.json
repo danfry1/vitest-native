@@ -172,7 +172,7 @@
     "typescript": "6.0.3",
     "untranspiled-jsx-lib": "file:./tests-native/fixtures/untranspiled-jsx-lib",
     "vite": "^8.3.0",
-    "vitest": "4.1.11"
+    "vitest": "5.0.1"
   },
   "scripts": {
     "build": "bunx --bun tsdown && node scripts/copy-static-types.mjs",
