@@ -13,7 +13,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { isMainThread, parentPort, threadId } from "node:worker_threads";
 import { init, runBaseTests, setupEnvironment } from "vitest/worker";
-import { installGlobals } from "./globals.mjs";
+import { installGlobals, installErrorUtils } from "./globals.mjs";
 import { installRequireHooks } from "./hooks.mjs";
 import { installHotReset } from "./reset.mjs";
 import { installRegistry } from "./registry.mjs";
@@ -69,6 +69,8 @@ if (process.env.VITEST_NATIVE_RN_REGISTRY) {
   installRegistry(process.env.VITEST_NATIVE_RN_REGISTRY, projectRoot);
 }
 installRequireHooks(projectRoot, transformPkgs, platform, reactNativeVersion, assetExts);
+// After the hooks: the polyfill is Flow-typed and compiled by them (see globals.mjs).
+installErrorUtils(projectRoot);
 try {
   const req = createRequire(path.join(projectRoot, "package.json"));
   const RN = req("react-native");

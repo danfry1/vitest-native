@@ -4,7 +4,7 @@
 import { createRequire, register } from "node:module";
 import path from "node:path";
 import { expect, vi } from "vitest";
-import { installGlobals } from "./globals.mjs";
+import { installGlobals, installErrorUtils } from "./globals.mjs";
 import { installRequireHooks } from "./hooks.mjs";
 import { installRegistry } from "./registry.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
@@ -172,6 +172,8 @@ if (process.env.VITEST_NATIVE_RN_REGISTRY) {
   }
 }
 installRequireHooks(projectRoot, nodeTransformPkgs, platform, reactNativeVersion, assetExts);
+// After the hooks: the polyfill is Flow-typed and compiled by them (see globals.mjs).
+installErrorUtils(projectRoot);
 
 // Build the mock objects now that the require hooks are installed (preset
 // factories may lazily resolve react-native at render time).
