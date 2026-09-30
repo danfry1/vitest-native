@@ -8,15 +8,29 @@
 // previous file's state survived the boundary. Under `--mode stock` each file gets a
 // fresh worker: that run is the control, proving the assertions hold under real
 // isolation, so a failure in the hot run is attributable to the hot runtime.
-import { Alert, Platform } from "react-native";
+import React from "react";
+import { Alert, Platform, Text } from "react-native";
+import { render, screen } from "@testing-library/react-native";
 import { expect, vi } from "vitest";
 import { greet } from "../fixtures/greeter";
 import { readSetting } from "../fixtures/settings-store";
 import * as lib from "rn-singleton-lib";
+import { compute } from "./fixtures/automocked";
+import { source } from "./fixtures/dir-mocked";
+import { value } from "./fixtures/runtime-mocked";
 
 declare const jest: typeof vi & { requireActual<T>(id: string): T };
 
-type Mocked = "greeter" | "settings" | "lib" | "react-native";
+type Mocked =
+  | "greeter"
+  | "settings"
+  | "lib"
+  | "react-native"
+  | "dir-mocked"
+  | "automocked"
+  | "runtime-mocked";
+
+const LEAK_MARKER = "hot-jest-compat rendered and never unmounted";
 
 // This module is Vite-owned, so it evaluates once per test file; `process` is not
 // reset between files. The count therefore says how many files this worker has run.
@@ -55,10 +69,34 @@ export function expectCleanExcept(mockedHere: Mocked[]): void {
     undefined,
   );
   expect(process.env.VN_LEAKED_ENV, "process.env mutation").toBe(undefined);
+  if (!mine.has("dir-mocked")) {
+    expect(source(), "factory-less jest.mock via __mocks__").toBe("real-dir-mocked");
+  }
+  if (!mine.has("automocked")) {
+    expect(compute(), "factory-less jest.mock (automock)").toBe("real-automocked");
+  }
+  if (!mine.has("runtime-mocked")) {
+    expect(value(), "jest.doMock at runtime").toBe("real-runtime");
+  }
+  // A React Native Testing Library tree the previous file rendered and never
+  // unmounted must not be what `screen` sees here. Before this file renders, screen
+  // either has no tree (and throws) or has one without the marker.
+  let leaked: unknown = null;
+  try {
+    leaked = screen.queryByText(LEAK_MARKER);
+  } catch {
+    // no rendered tree: clean
+  }
+  expect(leaked, "React Native Testing Library tree from an earlier file").toBe(null);
 }
 
 /** Dirty every jest-compat surface, with no cleanup — as a Jest-era suite does. */
-export function polluteEverything(mockedHere: Mocked[]): void {
+export async function polluteEverything(mockedHere: Mocked[]): Promise<void> {
+  // Rendered and left mounted; RNTL's auto-cleanup is the only thing that unmounts it.
+  await render(React.createElement(Text, null, LEAK_MARKER));
+  // Runtime (non-hoisted) mocking, then a registry reset, as Jest-era suites do.
+  jest.doMock("./fixtures/runtime-mocked", () => ({ value: () => "mocked-at-runtime" }));
+  jest.resetModules();
   if (!mockedHere.includes("lib")) {
     lib.configure("polluted");
     jest.requireActual<Record<string, unknown>>("rn-singleton-lib").__vnPolluted = true;

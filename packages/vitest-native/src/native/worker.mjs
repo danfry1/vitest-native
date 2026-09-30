@@ -18,6 +18,7 @@ import { installRequireHooks } from "./hooks.mjs";
 import { installHotReset } from "./reset.mjs";
 import { installRegistry } from "./registry.mjs";
 import { captureModuleBaseline } from "./module-reset.mjs";
+import { residentRntlEntry } from "./rntl-hooks.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
 import { VitestNativeError } from "../errors.mjs";
 
@@ -167,14 +168,39 @@ let moduleRunner = null;
 // module nodes, and re-evaluating Vitest itself, for nothing.
 const VITEST_RUNTIME = [/\/vitest\/dist\//, /vitest-virtual-\w+\/dist/, /@vitest\/dist/];
 
+/**
+ * Drop mocks queued but not yet resolved.
+ *
+ * `vi.mock`/`vi.doMock` push onto a static queue on Vitest's mocker class, which is
+ * resolved on the next import. `mocker.reset()` clears the registries but not that
+ * queue, so a `vi.doMock` issued after a file's last import was resolved during the
+ * NEXT file's first import and mocked it there. Per-file isolation never sees this —
+ * the worker, and its queue, go away. The queue is internal (Vitest 4 and 5 both keep
+ * it as `static pendingIds` on BareModuleMocker); if it moves, this is a no-op and
+ * tests-native/hot-jest-compat fails by name on the runtime-mock surface.
+ */
+function clearPendingMocks(mocker) {
+  for (let C = mocker?.constructor; C && C !== Function.prototype; C = Object.getPrototypeOf(C)) {
+    if (Object.hasOwn(C, "pendingIds") && Array.isArray(C.pendingIds)) {
+      C.pendingIds = [];
+      return;
+    }
+  }
+}
+
 globalThis.__vitest_native_reset_module_runner = () => {
   // The previous file's realm state (fake timers, stubbed globals, listeners) must be
   // gone before ANY setup file of the next one runs. It used to be reset from this
   // package's setup file, which Vitest runs after the user's own: a user setup that
   // installs fake timers then found the previous file's still installed.
   globalThis.__vitest_native_hot_reset?.();
+  // Decided here, before any setup file of the next file runs: see rntl-hooks.mjs.
+  globalThis.__vitest_native_resident_rntl = residentRntlEntry(
+    process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd(),
+  );
   if (!moduleRunner) return;
   moduleRunner.mocker?.reset();
+  clearPendingMocks(moduleRunner.mocker);
   for (const [id, node] of moduleRunner.evaluatedModules.idToModuleMap) {
     if (VITEST_RUNTIME.some((re) => re.test(id))) continue;
     node.promise = undefined;

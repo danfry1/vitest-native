@@ -24,6 +24,6 @@ test("this file's own mocks apply", () => {
   expect(Platform.OS).toBe("android");
 });
 
-test("pollutes every jest-compat surface and does not clean up", () => {
-  polluteEverything(["greeter", "react-native"]);
+test("pollutes every jest-compat surface and does not clean up", async () => {
+  await polluteEverything(["greeter", "react-native"]);
 });

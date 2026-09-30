@@ -2,7 +2,7 @@
 // `--mode hot` runs the files in one reused hot worker; `--mode stock` runs the same
 // files with per-file isolation as the control. Both run in name order: Vitest's
 // default sequencer orders by cached duration, which let a mock from whichever file
-// ran last go unobserved, and 04 — which mocks nothing and checks every surface — has
+// ran last go unobserved, and 99 — which mocks nothing and checks every surface — has
 // to run after the others.
 import path from "node:path";
 import { fileURLToPath } from "node:url";

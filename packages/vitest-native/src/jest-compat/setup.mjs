@@ -175,8 +175,20 @@ vi.advanceTimersByTimeAsync = async (...args) =>
 // TypeError the signposting below exists to avoid — even though the behaviour was
 // available all along. `dontMock` is the sibling of the already-signposted
 // `deepUnmock`, which is what marks these as omissions rather than decisions.
-if (typeof vi.dontMock !== "function") vi.dontMock = (m) => vi.doUnmock(m);
-if (typeof vi.setMock !== "function") vi.setMock = (m, exports) => vi.doMock(m, () => exports);
+//
+// `vi.doMock`/`vi.doUnmock` resolve a relative path against THEIR caller, which for
+// these aliases is this file, so `jest.setMock('./x', …)` registered a mock for a
+// module next to the shim and the test kept its previous mock. Anchor relative paths
+// at the calling test file first, as Jest resolves them.
+const anchoredAtCaller = (specifier) => {
+  if (typeof specifier !== "string" || !specifier.startsWith(".")) return specifier;
+  const caller = callerFile();
+  return caller ? path.resolve(path.dirname(caller), specifier) : specifier;
+};
+if (typeof vi.dontMock !== "function") vi.dontMock = (m) => vi.doUnmock(anchoredAtCaller(m));
+if (typeof vi.setMock !== "function") {
+  vi.setMock = (m, exports) => vi.doMock(anchoredAtCaller(m), () => exports);
+}
 // `Date.now()` alone is right for both clocks: Vitest's fake timers replace Date, so
 // this returns the faked time when they are active and the real time otherwise —
 // which is what jest.now() reports. An earlier version consulted
