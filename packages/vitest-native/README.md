@@ -4,8 +4,9 @@
 
 Run your React Native tests under Vitest, against **real React Native** — the same JavaScript that ships in your app, with only the native-module boundary mocked. That is the default and the point of the project. A lightweight pure-JS mock engine is available as an opt-in for fast, RN-free unit tests.
 
-> **Beta.** The release-supported native engine is validated across React Native 0.81–0.86,
-> Vite 6–8, Vitest 4, RNTL 12–14, bare apps, Expo 56, and hoisted monorepos. The optional
+> **Beta.** The release-supported native engine is validated across React Native 0.81–0.87,
+> Vite 6–8, Vitest 4–5, RNTL 12–14, bare apps, Expo SDK 57 (including expo-router's own testing
+> library), and hoisted monorepos. The optional
 > hot runtime remains experimental because it uses Vitest's experimental custom-pool APIs.
 >
 > Maintained successor to [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native) — same core idea (externalize RN, run its real JS under Node), rebuilt for modern Vitest (4+). Coming from it? See [Migrating from `vitest-react-native`](#migrating-from-vitest-react-native).
@@ -251,7 +252,7 @@ allowlist for registries created by resident external dependencies; Storybook's 
 is preserved automatically.
 
 This mode uses Vitest's custom pool and worker APIs, so it remains experimental. CI runs the
-complete native suite under both the lockfile Vitest and the newest supported Vitest 4 release,
+complete native suite under both the lockfile Vitest and the newest supported Vitest release,
 plus a generated 100-file isolation soak and an end-to-end memory-triggered recycling test.
 
 ---
@@ -490,20 +491,26 @@ renders through real React Native).
 
 ### Expo
 
-The `expo` preset shadows the common Expo modules (`expo-constants`, `expo-status-bar`, `expo-font`,
-`expo-asset`, `expo-splash-screen`, `expo-linking`) the way `jest-expo` mocks them. A component that
-imports those renders under the native engine with no extra setup — there's a gated proof in
-`tests-native/expo.test.tsx`. Two honest caveats:
+Expo apps need no Expo-specific package. The `expo` preset shadows the common Expo modules
+(`expo-constants`, `expo-status-bar`, `expo-font`, `expo-asset`, `expo-splash-screen`,
+`expo-linking`) the way `jest-expo` mocks them, and Expo's own JavaScript — `expo` itself,
+expo-router and React Navigation — runs for real under the native engine.
 
+- **Coming from jest-expo:** `npx vitest-native migrate --write` translates the `jest-expo`
+  presets (`jest-expo/android` → `platform: 'android'`) and, because jest-expo does not mock React
+  Navigation, turns the navigation preset off when a `@react-navigation/*` package is installed.
+- **expo-router screens:** `expo-router/testing-library` (`renderRouter`, `testRouter`,
+  `toHavePathname`) runs as written with the jest-compat layer. From SDK 57 expo-router bundles its
+  own React Navigation; before SDK 57, also set `presets: { navigation: false }`.
 - **Expo modules without a built-in preset** (e.g. `expo-image`, `expo-haptics`) still need a
-  setup-file `vi.mock` at a Vite-managed boundary. The native engine externalizes native-side
-  libraries to Node, so imports made entirely inside that externalized graph cannot be intercepted
-  by Vitest's mocker.
+  setup-file `vi.mock`.
 - **Expo SDK trails React Native.** Pin your `react-native` to the version your Expo SDK supports
-  (which is within this plugin's validated range), not the newest RN release.
+  (SDK 54 and later are within this plugin's validated range), not the newest RN release.
 
-A packed Expo 56 consumer is installed from the release tarball and tested in CI. That gate covers
-Expo preset auto-detection, `expo-constants`, `expo-status-bar`, real RN rendering, and RNTL 13.
+A packed Expo SDK 57 app is installed from the release tarball and tested in CI: Expo module
+auto-detection and rendering, expo-router's testing library against file-based `app/` routes, and
+the same routes under the configuration `migrate` generates from a jest-expo setup. See the
+[Expo guide](https://danfry1.github.io/vitest-native/guide/expo).
 
 ---
 
@@ -881,8 +888,10 @@ Every release must pass:
 
 - Linux on Node 20.19 and 22.13, plus macOS and Windows on Node 22.13.
 - The mock, native iOS, native Android, hot-runtime, isolation, and 100-file soak suites.
-- React Native 0.81–0.86 against both locked and newest-supported Vitest 4.
-- Packed bare RN 0.83/RNTL 12, Expo 56/RNTL 13, Vite 8 monorepo/RNTL 14, and RN 0.86 consumers.
+- React Native 0.81–0.87 against both locked and newest-supported Vitest, plus the Vitest 4 floor
+  on 0.81 and 0.87.
+- Packed bare RN 0.83/RNTL 12, Expo SDK 57/RNTL 13 (with expo-router and a `migrate`-generated
+  jest-expo config), Vite 8 monorepo/RNTL 14, and RN 0.86 consumers.
 - Mock-versus-real-RN behavioral cross-checks, example-app tests, typecheck, lint, formatting, and
   package export analysis.
 
@@ -901,9 +910,9 @@ see [versioning and stability](docs/versioning.md).
 | -------------------------------------------- | ----------------------------------------- |
 | `react`                                      | >= 18; use RN's matching React version    |
 | `vite`                                       | ^6.4.2, ^7.3.2, or ^8.0.5                |
-| `vitest`                                     | 4.x                                       |
+| `vitest`                                     | 4.x or 5.x                                |
 | `node`                                       | >= 20.19; RN/RNTL may impose a higher floor |
-| `react-native` (native engine)               | 0.81–0.86 validated                       |
+| `react-native` (native engine)               | 0.81–0.87 validated                       |
 | `@react-native/babel-preset` (native engine) | Match the installed React Native minor    |
 | `@testing-library/react-native` (optional)   | 12.x, 13.x, or 14.x                       |
 

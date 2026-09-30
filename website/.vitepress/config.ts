@@ -65,6 +65,7 @@ export default defineConfig({
             { text: 'How It Works', link: '/guide/how-it-works' },
             { text: 'Plugin Options', link: '/guide/plugin-options' },
             { text: 'Third-Party Presets', link: '/guide/presets' },
+            { text: 'Expo', link: '/guide/expo' },
             { text: 'Test Helpers', link: '/guide/helpers' },
             { text: 'CLI', link: '/guide/cli' },
           ],

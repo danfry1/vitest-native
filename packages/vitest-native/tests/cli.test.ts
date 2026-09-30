@@ -270,6 +270,72 @@ describe("migrate", () => {
     expect(renderMigrationReport(report).join("\n")).toContain("no Jest configuration found");
   });
 
+  describe("jest-expo", () => {
+    // React Navigation installed, which is what makes the plugin detect its preset.
+    const expoApp = (preset: string, extra: Record<string, string | object> = {}) =>
+      analyzeJestConfig(
+        fixture({
+          "package.json": { name: "x", dependencies: { expo: "56.0.0" } },
+          "node_modules/@react-navigation/native/package.json": {
+            name: "@react-navigation/native",
+            version: "7.0.0",
+            main: "index.js",
+          },
+          "node_modules/@react-navigation/native/index.js": "module.exports = {};",
+          "jest.config.json": { preset },
+          ...extra,
+        }),
+      );
+
+    it("translates the preset and keeps React Navigation real, as jest-expo runs it", () => {
+      const report = expoApp("jest-expo");
+      expect(report.automatic.join("\n")).toContain("preset: 'jest-expo' → replaced by");
+      expect(report.automatic.join("\n")).toContain("presets: { navigation: false }");
+      expect(report.attention).toEqual([]);
+      expect(report.suggestedConfig).toContain(
+        "reactNative({ presets: { navigation: false } }), jestMockTransform()",
+      );
+    });
+
+    it("keeps the navigation preset where the project mocked React Navigation", () => {
+      // Jest applied a root __mocks__/@react-navigation to node_modules by itself, so the
+      // suite never saw the real navigators; the preset is the equivalent mock.
+      const report = expoApp("jest-expo", {
+        "__mocks__/@react-navigation/native.js": "module.exports = {};",
+      });
+      expect(report.suggestedConfig).toContain("reactNative(), jestMockTransform()");
+      expect(report.presetCovered.join("\n")).toContain("__mocks__/@react-navigation/native");
+    });
+
+    it("leaves the plugin alone where the navigation preset would not be detected", () => {
+      // expo-router from SDK 57 bundles its own React Navigation; with no
+      // @react-navigation/* package installed there is no preset to switch off.
+      const report = analyzeJestConfig(
+        fixture({
+          "package.json": { name: "x", dependencies: { expo: "57.0.0", "expo-router": "57.0.0" } },
+          "jest.config.json": { preset: "jest-expo" },
+        }),
+      );
+      expect(report.suggestedConfig).toContain("reactNative(), jestMockTransform()");
+    });
+
+    it("maps jest-expo/android onto the android platform", () => {
+      expect(expoApp("jest-expo/android").suggestedConfig).toContain(
+        "reactNative({ platform: 'android', presets: { navigation: false } })",
+      );
+      expect(expoApp("jest-expo/ios").suggestedConfig).not.toContain("platform:");
+    });
+
+    it("flags the multi-platform and non-native presets for a decision", () => {
+      expect(expoApp("jest-expo/universal").attention.join("\n")).toContain(
+        "Define a Vitest project for each native platform",
+      );
+      expect(expoApp("jest-expo/web").attention.join("\n")).toContain(
+        "targets web, not a React Native render",
+      );
+    });
+  });
+
   it("--write via main() saves the suggested config", () => {
     const root = fixture({
       "package.json": { name: "x" },

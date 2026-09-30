@@ -84,12 +84,25 @@ try {
     // vi) passes every workspace gate and burns only real installs. This leg is the
     // only gate that loads the hot runtime the way a consumer does.
     // The Expo fixture also runs its router leg: expo-router's own testing library
-    // against the REAL @react-navigation stack (navigation preset off), driving
+    // against the real React Navigation it bundles (from SDK 57), driving
     // file-based app/ routes with testRouter — the code a jest-expo suite already
     // contains, ported verbatim. Only meaningful from a packed install, where the
     // whole Expo SDK is a real dependency graph rather than the workspace's subset.
     if (fixture === "expo") {
       run("npm", ["run", "test:router"], fixtureRoot);
+      // The same router suite under the config `migrate --write` generates from a
+      // jest-expo setup, so the translation (the plugin, jest-compat, the Jest globals)
+      // is proven by running it rather than by the substrings the unit tests check.
+      // Last for this fixture: it replaces the fixture's own config.
+      for (const name of fs.readdirSync(fixtureRoot)) {
+        if (name.startsWith("vitest.config.")) fs.rmSync(path.join(fixtureRoot, name));
+      }
+      fs.writeFileSync(
+        path.join(fixtureRoot, "jest.config.json"),
+        `${JSON.stringify({ preset: "jest-expo", testMatch: ["<rootDir>/router-tests/**/*.test.tsx"] }, null, 2)}\n`,
+      );
+      run("npx", ["--no-install", "vitest-native", "migrate", "--write"], fixtureRoot);
+      run("npx", ["--no-install", "vitest", "run"], fixtureRoot);
     }
     if (fixture === "current-rn") {
       // npm installs the fixture's local probe packages as SYMLINKS (and npm 11

@@ -120,8 +120,8 @@ A minority of tests assert on **Jest's React Native mock internals** rather than
 
 The `jest.requireActual('react-native')` clone-and-override pattern (`const RN = jest.requireActual('react-native'); RN.Platform = {…}; return RN`) **is** supported — RN's module is writable under the compat layer.
 
-::: warning Expo-core-coupled suites
-A test that imports **Expo core** pulls in Expo's dev-server/init plumbing (async-require message socket, dev tools), which expects a running Metro connection. Deeply Expo-coupled files may not collect under the native engine without additional setup — this is the documented not-turnkey case. Suites that use Expo *modules* (via the auto-detected `expo` preset) are unaffected; it's Expo *core* import chains that hit this.
+::: tip Coming from jest-expo
+`migrate` translates the jest-expo presets, and expo-router's own testing library runs as written. See [Expo](/guide/expo).
 :::
 
 ## 4. Suggested migration recipe
