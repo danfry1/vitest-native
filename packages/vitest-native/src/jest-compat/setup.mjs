@@ -16,6 +16,8 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { jestMockInterop } from "./interop.mjs";
+import { expandAlias } from "./aliases.mjs";
+import { resolvePlatformFile } from "../native/resolve.mjs";
 import { VitestNativeError } from "../errors.mjs";
 
 // Resolve modules from the consumer project root, not this file's location, so
@@ -76,6 +78,33 @@ function callerFile() {
   return null;
 }
 
+// The project's string-to-string `resolve.alias` entries, from the plugin. Vite applies
+// them to imports, but `requireActual` resolves through Node, so without this
+// `jest.requireActual('@/services/api')` could not find a module the suite imports.
+function envList(name) {
+  try {
+    const value = JSON.parse(process.env[name] || "[]");
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
+const aliases = envList("VITEST_NATIVE_REQUIRE_ALIASES");
+const skippedAliases = envList("VITEST_NATIVE_REQUIRE_ALIASES_SKIPPED");
+const platform = process.env.VITEST_NATIVE_PLATFORM === "android" ? "android" : "ios";
+
+/**
+ * An alias usually lands on an extensionless app path (`@/Button`), which Node alone
+ * would not find as `Button.ios.tsx`: resolve it with the same platform-extension order
+ * the engine uses for imports, then let Node (and the .ts/.tsx handlers) load it.
+ */
+function resolveAliased(target) {
+  if (path.isAbsolute(target) && !path.extname(target)) {
+    return resolvePlatformFile(target, platform) ?? target;
+  }
+  return target;
+}
+
 /** Resolve as Jest does: relative against the caller, bare from the project root. */
 function requireFrom(specifier) {
   if (typeof specifier === "string" && specifier.startsWith(".")) {
@@ -84,7 +113,25 @@ function requireFrom(specifier) {
     // could resolve some other file that happens to sit at the same relative path.
     if (caller) return createRequire(caller)(specifier);
   }
-  return require(specifier);
+  if (typeof specifier === "string" && aliases.length > 0) {
+    const expanded = expandAlias(specifier, aliases);
+    if (expanded !== specifier) return require(resolveAliased(expanded));
+  }
+  try {
+    return require(specifier);
+  } catch (error) {
+    if (error?.code === "MODULE_NOT_FOUND" && skippedAliases.length > 0) {
+      throw new VitestNativeError(
+        "REQUIRE_ACTUAL_ALIAS_UNSUPPORTED",
+        `jest.requireActual('${specifier}') could not be resolved. The project defines ` +
+          `resolve.alias entries that cannot be applied to requireActual — only ` +
+          `string-to-string entries can be (skipped: ${skippedAliases.join(", ")}). ` +
+          `Use a string \`find\` for this alias, or a relative path.`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
 }
 
 if (typeof vi.requireActual !== "function")

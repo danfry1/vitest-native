@@ -10,6 +10,7 @@ import flowRemoveTypes from "flow-remove-types";
 import { validateOptions, validatePeerDependency, warnUnknownOptions } from "./validate.js";
 import { PEER_REQUIREMENTS } from "./peer-requirements.js";
 import { VitestNativeError } from "./errors.mjs";
+import { serializableAliases } from "./jest-compat/aliases.mjs";
 import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
 import { detectEcosystemPackages } from "./native/ecosystem.js";
@@ -916,6 +917,19 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         VITEST_NATIVE_DIAGNOSTICS: String(diagnostics),
         VITEST_NATIVE_PROJECT_ROOT: resolvedRoot,
       };
+      // jest.requireActual resolves through Node, which does not apply resolve.alias.
+      // Hand the serializable entries to the compat setup so an aliased specifier
+      // (`@/services/api`) reaches the same file the suite's imports do.
+      const requireAliases = serializableAliases(
+        (userConfig as { resolve?: { alias?: unknown } }).resolve?.alias,
+        resolvedRoot,
+      );
+      if (requireAliases.entries.length > 0) {
+        env.VITEST_NATIVE_REQUIRE_ALIASES = JSON.stringify(requireAliases.entries);
+      }
+      if (requireAliases.skipped.length > 0) {
+        env.VITEST_NATIVE_REQUIRE_ALIASES_SKIPPED = JSON.stringify(requireAliases.skipped);
+      }
       const reactNativeVersion = resolvePackageVersion("react-native", resolvedRoot);
       if (reactNativeVersion) env.VITEST_NATIVE_RN_VERSION = reactNativeVersion;
       // Asset extensions for the Node require-hook to stub (matches the Vite-graph
