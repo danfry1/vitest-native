@@ -362,12 +362,14 @@ export interface VitestNativeOptions {
    *   stock isolation, against 13.9x with it off. Set false to trade that back,
    *   accepting that a package holding state across files will keep it.
    *
-   * Pass `'auto'` to select the bounded hot runtime only when the current
-   * configuration has recyclable task boundaries, enough memory headroom, no
-   * Jest-migration setup, and no explicit custom pool. Otherwise the run keeps
-   * stock per-file isolation and prints the reason.
+   * `'auto'` selects the bounded hot runtime when the configuration has recyclable
+   * task boundaries (enough memory headroom for at least two workers) and no
+   * explicit custom pool; otherwise the run keeps per-file isolation. Set
+   * explicitly, it prints the reason for falling back; as the default it falls
+   * back quietly (`diagnostics: true` shows the reason).
    *
-   * Default: false (each file runs in a fresh worker; RN reloads per file).
+   * Default: `'auto'`. `false` always runs each file in a fresh worker, with React
+   * Native reloaded per file.
    */
   hotRuntime?:
     | boolean

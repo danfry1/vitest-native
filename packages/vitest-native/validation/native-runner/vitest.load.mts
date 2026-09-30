@@ -7,7 +7,7 @@ import { reactNative } from "../../dist/index.mjs";
  * Vitest's native mock loader.
  */
 export default defineConfig({
-  plugins: [reactNative({ engine: "native" })],
+  plugins: [reactNative({ engine: "native", hotRuntime: false })],
   test: {
     environment: "node",
     globals: true,

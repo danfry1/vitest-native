@@ -17,7 +17,7 @@ import { jestMockTransform } from "../dist/jest-compat.mjs";
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
-  plugins: [reactNative({ engine: "native" }), jestMockTransform()],
+  plugins: [reactNative({ engine: "native", hotRuntime: false }), jestMockTransform()],
   // The tsconfig-paths-style alias requireactual-alias.test.tsx exercises.
   resolve: { alias: { "@vn-app": path.resolve(here, "fixtures/alias-app") } },
   test: {

@@ -123,9 +123,13 @@ reactNative({ engine: "native", hotRuntime: "auto" });
 
 Enable hot when ALL hold (else fall back to the default per-file engine):
 
-- **Not a migration suite.** No `jestMockTransform` plugin and no jest-compat
-  setup file present (inspect the resolved Vite config in `configResolved`). hot
-  isn't clean for jest-compat patterns, so don't auto-enable there.
+- ~~**Not a migration suite.**~~ Dropped 2026-09-30, when `'auto'` became the
+  default. The original concern was jest-compat patterns in user setup files
+  (e.g. `jest.useFakeTimers()`), which broke because hot state was reset after
+  them; the reset now runs at the file boundary before any setup file, gated by
+  `tests-native/hot-user-setup`. Two migrated real-app suites (react-native-paper,
+  708 tests; the obytes Expo template, 36) then measured zero per-test
+  differences between hot and per-file isolation.
 - **Recyclable task boundaries.** On current hot this requires resolved
   `maxWorkers >= 2`. With the validated module-isolation scheduler change, one worker
   also receives one file per task and can recycle safely.

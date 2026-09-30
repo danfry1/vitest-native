@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config";
 import { reactNative } from "../dist/index.mjs";
 
 export default defineConfig({
-  plugins: [reactNative({ engine: "native", platform: "android" })],
+  plugins: [reactNative({ engine: "native", hotRuntime: false, platform: "android" })],
   test: {
     globals: true,
     environment: "node",

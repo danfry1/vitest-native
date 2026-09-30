@@ -10,7 +10,7 @@ reactNative({
   mocks: {},             // Custom mock overrides
   assetExts: [],         // Additional asset extensions (e.g. ['.lottie', '.m4b'])
   transform: [],         // Extra node_modules packages to transform (Flow/TS/JSX), native engine
-  hotRuntime: false,     // Experimental hot runtime for large native suites
+  hotRuntime: 'auto',    // Hot runtime where it can be bounded (default); false to isolate per worker
   // presets — omitted on purpose: leaving it out auto-detects your installed
   // libraries. Passing an array uses ONLY that array, so `presets: []` means none.
 })
@@ -102,13 +102,15 @@ reactNative({
 
 ## `hotRuntime`
 
-(Native engine, experimental.) Keeps React Native's precompiled factory registry and worker realm warm for large suites while resetting RN instances, app/test modules, and a verified manifest of supported process-wide state. Uses Vitest's custom worker APIs.
+(Native engine.) Keeps React Native's precompiled factory registry and worker realm warm while resetting RN instances, app/test modules, and a verified manifest of supported process-wide state. Uses Vitest's custom worker APIs, which Vitest labels experimental.
+
+The default, `'auto'`, uses it when the run can be bounded and recycled (at least two workers, no explicitly configured pool) and otherwise falls back quietly to per-file isolation; `diagnostics: true` prints why. `false` always isolates per worker; `true` requires hot mode and fails closed when it cannot be bounded.
 
 ```ts
-reactNative({ hotRuntime: true })
+reactNative({ hotRuntime: false }) // opt out
 ```
 
-It can dramatically cut the per-file cost on large suites. The RN registry is reset from its in-memory factories per file, and the shared realm is restored through a mutation-tested state manifest. Arbitrary mutable state in an unknown resident third-party singleton cannot be discovered generically; a test that passes alone but fails after other files remains a correctness signal. See [Hot runtime](/guide/engines#hot-runtime-experimental) for the exact boundary and worker recycling.
+It can dramatically cut the per-file cost on large suites. The RN registry is reset from its in-memory factories per file, and the shared realm is restored through a mutation-tested state manifest. Arbitrary mutable state in an unknown resident third-party singleton cannot be discovered generically; a test that passes alone but fails after other files remains a correctness signal. See [Hot runtime](/guide/engines#hot-runtime) for the exact boundary and worker recycling.
 
 Hot mode installs a cgroup-aware memory plan by default and requires at least two workers so it can recycle at file boundaries. A deliberate externally bounded single-worker run can use `hotRuntime: { allowUnboundedMemory: true }`; this disables the automatic worker cap and process-RSS enforcement and is intentionally noisy.
 

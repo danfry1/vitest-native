@@ -6,7 +6,7 @@ import { reactNative } from "../dist/index.mjs";
 // tests-native/vitest.config.mts, where explain-untransformed.test.ts asserts the
 // error. One config proves the diagnosis, this one proves the cure.
 export default defineConfig({
-  plugins: [reactNative({ engine: "native", transform: ["untranspiled-jsx-lib"] })],
+  plugins: [reactNative({ engine: "native", hotRuntime: false, transform: ["untranspiled-jsx-lib"] })],
   test: {
     globals: true,
     environment: "node",

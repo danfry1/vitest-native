@@ -59,15 +59,16 @@ If compilation fails, the engine reports the slower per-file fallback and preser
 
 Because the mock is a reimplementation, it could drift from real RN behavior. A **CI-gated behavioral cross-check** runs the same assertions against both the mock and real RN across React Native 0.81–0.87, so divergences are caught before release. See [Comparison with Jest](/guide/comparison#the-cross-check) for how that trust mechanism works.
 
-## Hot runtime (experimental)
+## Hot runtime
 
-By default the native engine uses Vitest's standard per-file worker isolation. On large suites that worker and module-loading tax dominates the run. The opt-in **hot runtime** keeps a precompiled React Native factory registry and worker realm warm while resetting RN module instances, app/test modules, and supported process-wide state between files:
+Vitest's standard per-file worker isolation reloads React Native for every file, and on large suites that worker and module-loading tax dominates the run. The **hot runtime** keeps a precompiled React Native factory registry and worker realm warm while resetting RN module instances, app/test modules, and supported process-wide state between files. It is the default (`hotRuntime: 'auto'`) wherever the run can be bounded and recycled, and falls back quietly to per-file isolation otherwise:
 
 ```ts
-reactNative({ hotRuntime: true })
+reactNative({ hotRuntime: false }) // always isolate per worker
+reactNative({ hotRuntime: true })  // require hot; fail if it cannot be bounded
 ```
 
-It uses Vitest's custom worker APIs and remains experimental.
+It uses Vitest's custom worker APIs, which Vitest labels experimental.
 
 ### When it helps
 
@@ -79,14 +80,14 @@ Normal hot mode resets React Native's in-memory registry instances per file. An 
 
 This is not a promise to discover arbitrary mutable state in every resident third-party singleton. Unknown process-wide state remains the library's or fixture's responsibility.
 
-A tell-tale sign is **a test that passes in isolation but fails when run after other files**. If you see that under `hotRuntime: true`, move that suite (or the project) back to the default engine — correctness comes first.
+A tell-tale sign is **a test that passes in isolation but fails when run after other files**. If you see that, set `hotRuntime: false` for that suite (or the project) — correctness comes first — and report the reproduction.
 
-The runtime is **opt-in and experimental** while the package grows its version matrix and still relies on Vitest's custom pool/worker APIs. The proposed upstream module-isolation primitive would remove those private seams; it is not required for the current correctness model.
+The runtime relies on Vitest's custom pool/worker APIs. The proposed upstream module-isolation primitive would remove those private seams; it is not required for the current correctness model.
 
 ### Worker recycling
 
 The hot runtime automatically derives a worker-total budget from the lower of host and container/cgroup memory. It reserves main-process and replacement headroom, caps automatic concurrency at four, recycles workers on local heap or process RSS, and stops before starting more work at the hard RSS boundary. Use `diagnostics: true` or `vitest-native doctor` to inspect the plan.
 
-Recycling only fires with **two or more workers** under current Vitest. In single-worker mode Vitest batches every file into one task and never exposes a recycle boundary, so the plugin now fails that configuration instead of silently trusting an inert limit. Use `maxWorkers >= 2` or the default runtime. If an external scheduler already enforces the process boundary, `hotRuntime: { allowUnboundedMemory: true }` explicitly accepts the risk and disables the automatic worker cap and process-RSS enforcement.
+Recycling only fires with **two or more workers** under current Vitest. In single-worker mode Vitest batches every file into one task and never exposes a recycle boundary, so the default `'auto'` keeps per-file isolation there and `hotRuntime: true` fails that configuration instead of silently trusting an inert limit. Use `maxWorkers >= 2` for hot mode. If an external scheduler already enforces the process boundary, `hotRuntime: { allowUnboundedMemory: true }` explicitly accepts the risk and disables the automatic worker cap and process-RSS enforcement.
 
 Next: [How It Works](/guide/how-it-works) explains what the plugin does under the hood.

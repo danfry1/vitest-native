@@ -474,17 +474,18 @@ On speed, here is the whole picture, from the repository's own head-to-head harn
 | | 50 files, 4 workers | 200 files, 8 workers | peak RSS @200f |
 |---|--:|--:|--:|
 | Jest (RN preset) | 2010ms | 2915ms | 4090MB |
-| `engine: 'native'` | 2165ms (0.93×) | 6924ms (0.42×) | 727MB |
+| `engine: 'native'`, `hotRuntime: false` | 2165ms (0.93×) | 6924ms (0.42×) | 727MB |
 | `engine: 'mock'` | 2032ms (0.99×) | 6709ms (0.43×) | 997MB |
-| `engine: 'native'` + `hotRuntime` | — | 1187ms (**2.46×**) | 1170MB |
+| `engine: 'native'`, hot runtime | — | 1187ms (**2.46×**) | 1170MB |
 
 Two things to read from it. React Native's own load cost is no longer the issue — its
 module graph is precompiled once per (RN version × platform), and the native engine now
 tracks the pure-JS mock engine closely. What remains at scale is Vitest's per-file worker
 isolation, which costs the **mock** engine just as much (0.43× vs 0.42×) and has nothing to
 do with React Native; Jest reuses workers and resets its module registry instead.
-`hotRuntime: true` does the same thing and is 2.46× Jest at 200 files — it's opt-in while it
-bakes, and making it the default is the active line of work.
+The hot runtime does the same thing and is 2.46× Jest at 200 files. It is the default
+(`hotRuntime: 'auto'`) wherever the run can be bounded and recycled, and falls back to per-file
+isolation otherwise.
 
 Memory is a standing win at any size: 727MB against Jest's 4090MB at 200 files.
 

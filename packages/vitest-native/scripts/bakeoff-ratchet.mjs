@@ -182,8 +182,18 @@ for (const app of apps) {
     );
   }
 
-  // Stock (isolate: true) counts.
-  const stock = collectCounts(appDir, "vitest.config.mts", "stock", app);
+  // Stock (isolate: true) counts. The app configs leave hotRuntime at its default,
+  // which is 'auto', so the stock run pins it off explicitly.
+  const configSrc = fs.readFileSync(configFile, "utf8");
+  const stockConfig = configSrc.replace("engine: 'native'", "engine: 'native', hotRuntime: false");
+  if (stockConfig === configSrc) {
+    console.error(`✗ ${app}: could not derive the stock config (engine option not found)`);
+    failed = true;
+    infrastructureFailed = true;
+    continue;
+  }
+  fs.writeFileSync(path.join(appDir, "vitest.stock.config.mts"), stockConfig);
+  const stock = collectCounts(appDir, "vitest.stock.config.mts", "stock", app);
   // collectCounts returns null when the run produced nothing to measure. Without this
   // the script carried on to derive the hot config, hit an unhandled ENOENT reading a
   // config the failed run had left incomplete, and died BEFORE classifying — so the
@@ -199,7 +209,6 @@ for (const app of apps) {
 
   // Hot-runtime counts: same config with hotRuntime flipped on. The PR #55
   // lesson — hot changes must be validated against a real app WITH hot on.
-  const configSrc = fs.readFileSync(configFile, "utf8");
   const hotConfig = configSrc.replace("engine: 'native'", "engine: 'native', hotRuntime: true");
   if (hotConfig === configSrc) {
     console.error(`✗ ${app}: could not derive the hot config (engine option not found)`);

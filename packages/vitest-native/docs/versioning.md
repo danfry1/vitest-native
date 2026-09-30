@@ -88,7 +88,7 @@ are documented, tested, and gated in CI — they are simply not stable, and they
 
 | Surface | Why |
 | --- | --- |
-| `hotRuntime` and its options | Built on Vitest's experimental custom-pool API, which can change between Vitest minors. Off by default. |
+| `hotRuntime` and its options | Built on Vitest's experimental custom-pool API, which can change between Vitest minors. The default, `'auto'`, falls back to per-file isolation whenever the run cannot be bounded; `false` opts out. |
 
 A surface leaves this list by being promoted in a minor, and can change or be removed in a minor
 while it is on it.
