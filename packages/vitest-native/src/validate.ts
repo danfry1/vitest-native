@@ -15,6 +15,7 @@ const KNOWN_OPTIONS = [
 const KNOWN_HOT_RUNTIME_OPTIONS = [
   "recycleAfterFiles",
   "memoryLimit",
+  "allowUnboundedMemory",
   "preserveGlobals",
   "esmGeneration",
 ];
@@ -114,11 +115,11 @@ export function validateOptions(options: Record<string, unknown>): void {
   }
 
   const hotRuntime = options.hotRuntime;
-  if (hotRuntime === undefined || typeof hotRuntime === "boolean") return;
+  if (hotRuntime === undefined || typeof hotRuntime === "boolean" || hotRuntime === "auto") return;
   if (hotRuntime === null || Array.isArray(hotRuntime) || typeof hotRuntime !== "object") {
     throw new VitestNativeTypeError(
       "INVALID_OPTION",
-      `"hotRuntime" must be a boolean or an options object.`,
+      `"hotRuntime" must be a boolean, "auto", or an options object.`,
     );
   }
 
@@ -141,6 +142,15 @@ export function validateOptions(options: Record<string, unknown>): void {
   }
   if (hotOptions.memoryLimit !== undefined) {
     assertNonNegativeInteger(hotOptions.memoryLimit, "hotRuntime.memoryLimit");
+  }
+  if (
+    hotOptions.allowUnboundedMemory !== undefined &&
+    typeof hotOptions.allowUnboundedMemory !== "boolean"
+  ) {
+    throw new VitestNativeTypeError(
+      "INVALID_OPTION",
+      `"hotRuntime.allowUnboundedMemory" must be a boolean.`,
+    );
   }
   if (hotOptions.preserveGlobals !== undefined) {
     assertStringArray(hotOptions.preserveGlobals, "hotRuntime.preserveGlobals");

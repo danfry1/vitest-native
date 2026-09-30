@@ -7,6 +7,9 @@ export declare const REACT_NATIVE_PATH: RegExp;
 /** Does `dir` contain `target` (or equal it)? Case-insensitive on Windows. */
 export declare function containsPath(dir: string, target: string): boolean;
 
+/** A consumer-visible package directory in node_modules at/above the project, or null. */
+export declare function installedPackageDirOf(name: string, projectRoot: string): string | null;
+
 /** The on-disk directory a package resolves to from `projectRoot`, or null. */
 export declare function packageDirOf(name: string, projectRoot: string): string | null;
 

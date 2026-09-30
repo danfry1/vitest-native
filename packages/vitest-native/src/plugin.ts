@@ -15,6 +15,13 @@ import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
 import { detectEcosystemPackages } from "./native/ecosystem.js";
 import { containsPath, packageDirOf } from "./native/match.mjs";
+import type { HotMemoryPlan } from "./native/memory.mjs";
+import type { NativeOwnershipPolicy } from "./native/ownership.mjs";
+import {
+  createNativeOwnershipPolicy,
+  findNativeInlineConflicts,
+  findNativeOwnershipConflict,
+} from "./native/ownership.mjs";
 
 const DEFAULT_ASSET_EXTS = [
   "png",
@@ -272,44 +279,32 @@ async function buildRegistryFor(options: {
 }): Promise<string | null> {
   try {
     const dir = path.dirname(fileURLToPath(import.meta.url));
-    const module = (await import(pathToFileURL(path.resolve(dir, "native/registry.mjs")).href)) as {
-      buildRegistry: (o: typeof options) => string | null;
+    const module = (await import(
+      pathToFileURL(path.resolve(dir, "native/registry-process.mjs")).href
+    )) as {
+      buildRegistryFor: (o: typeof options) => Promise<string | null>;
     };
-    return module.buildRegistry(options);
+    return module.buildRegistryFor(options);
   } catch (error) {
-    if (options.diagnostics) {
+    try {
+      const dir = path.dirname(fileURLToPath(import.meta.url));
+      const module = (await import(
+        pathToFileURL(path.resolve(dir, "native/registry.mjs")).href
+      )) as {
+        _warnRegistryUnavailable: (reason: unknown) => void;
+      };
+      module._warnRegistryUnavailable((error as Error)?.message ?? error);
+    } catch {
+      // The registry module itself could not load, so its once-per-cause reporter
+      // is unavailable. This last-resort warning must still make the performance
+      // fallback visible regardless of diagnostics mode.
       console.warn(
-        `[vitest-native] could not precompile the React Native registry ` +
-          `(${(error as Error)?.message}); using per-file module loading.`,
+        `[vitest-native] (native) could not precompile the React Native registry ` +
+          `(${(error as Error)?.message ?? error}); using slower per-file module loading.`,
       );
     }
     return null;
   }
-}
-
-/**
- * Compile one inlined ecosystem file with the project's React Native Babel preset.
- *
- * The transformer ships as runtime `.mjs` (Node's loader hooks use it too), so it is
- * loaded through a computed path rather than a static import, and synchronously —
- * Vite's transform hook may be sync and the module is already resident by the time
- * any file reaches this point.
- */
-let ecosystemTransformer: ((f: string, c: string, r: string, p: string) => string) | null = null;
-function transformEcosystem(
-  file: string,
-  code: string,
-  projectRoot: string,
-  platform: string,
-): string {
-  if (!ecosystemTransformer) {
-    const dir = path.dirname(fileURLToPath(import.meta.url));
-    const mod = createRequire(import.meta.url)(path.resolve(dir, "native/transform.mjs")) as {
-      transformRN: (f: string, c: string, r: string, p: string) => string;
-    };
-    ecosystemTransformer = mod.transformRN;
-  }
-  return ecosystemTransformer(file, code, projectRoot, platform);
 }
 
 /**
@@ -613,8 +608,9 @@ const FORMAT_ONLY_FIELDS = ["module", "jsnext:main", "jsnext"] as const;
  * cannot parse at all. Aligning upward would turn a wrong-value bug into a crash for
  * any package the engine does not also transform.
  *
- * Packages the engine inlines and transforms are left alone: Vite is meant to own
- * their source, and rewriting them to `main` would undo the reason they are inlined.
+ * Packages the engine itself virtualizes are left alone. Node-owned ecosystem
+ * packages are intentionally not exempt: if Vite also reaches one, aligning a
+ * format-only field to Node's file prevents a silent second instance.
  *
  * @returns the absolute file to use, or null to leave resolution alone
  */
@@ -680,6 +676,39 @@ export function disabledPresetNames(presets: unknown): Set<string> {
   );
 }
 
+const JEST_MOCK_TRANSFORM_NAME = "vitest-native:jest-mock-hoist";
+
+function hasPluginNamed(value: unknown, name: string): boolean {
+  if (Array.isArray(value)) return value.some((entry) => hasPluginNamed(entry, name));
+  return value !== null && typeof value === "object" && (value as { name?: unknown }).name === name;
+}
+
+function hasJestCompatSetup(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasJestCompatSetup);
+  if (typeof value !== "string") return false;
+  const normalized = value.replaceAll("\\", "/").split("?")[0];
+  return (
+    normalized === "vitest-native/jest-compat/setup" ||
+    /(?:^|\/)vitest-native(?:\/dist)?\/jest-compat\/setup(?:\.mjs)?$/.test(normalized)
+  );
+}
+
+/** Config-time reasons that make automatic hot selection too surprising or unsafe. */
+function hotAutoConfigDeclineReason(userConfig: UserConfig, userPool: unknown): string | null {
+  if (hasPluginNamed(userConfig.plugins, JEST_MOCK_TRANSFORM_NAME)) {
+    return "jestMockTransform() marks this as a Jest migration suite";
+  }
+  const setupFiles = (userConfig as { test?: { setupFiles?: unknown } }).test?.setupFiles;
+  if (hasJestCompatSetup(setupFiles)) {
+    return "the Jest compatibility setup marks this as a migration suite";
+  }
+  if (userPool != null) {
+    const label = typeof userPool === "string" ? `'${userPool}'` : "a custom pool";
+    return `${label} is explicitly configured`;
+  }
+  return null;
+}
+
 export function reactNative(options?: VitestNativeOptions): Plugin {
   // Per plugin INSTANCE, not module scope. A Vitest workspace calls reactNative() once
   // per project and they share this module, so module-level state means the last
@@ -742,14 +771,28 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // The subset of those whose getter prints a deprecation notice when read.
   let rnFacadeDeprecated = new Set<string>();
   let rnFacadeRoot = "";
-  // React Native packages the engine inlines and compiles itself (see
-  // native/ecosystem.ts). Matched by path so the transform hook can recognise a
-  // file as belonging to one.
-  let ecosystemPattern: RegExp | null = null;
+  // One project-scoped owner/transform/reset policy. Config, the Vite fallback
+  // transform, runtime serialization and diagnostics all consume this same object.
+  let nativeOwnership: NativeOwnershipPolicy | null = null;
+  const assertInlineOwnership = (inline: unknown) => {
+    if (engine !== "native" || !nativeOwnership) return;
+    const conflicts = findNativeInlineConflicts(nativeOwnership, inline);
+    if (conflicts.length === 0) return;
+    const selection = conflicts.includes("*")
+      ? "server.deps.inline:true"
+      : `server.deps.inline overlaps Node-owned package${conflicts.length === 1 ? "" : "s"}: ${conflicts.join(", ")}`;
+    throw new VitestNativeError(
+      "INLINE_BREAKS_OWNERSHIP",
+      `engine:'native' cannot run because ${selection}. Vitest gives inlining ` +
+        `precedence over the engine's Node-ownership rules, so the same React Native ` +
+        `package can load once through Vite and again through Node with separate module ` +
+        `state. Remove the overlapping inline rule; use reactNative({ transform: [...] }) ` +
+        `for Metro-source packages that need compiling.`,
+    );
+  };
   // Project root for resolver alignment; set for every run, not only when
   // ecosystem packages happen to be detected.
   let alignRoot = "";
-  let ecosystemRoot = "";
 
   // Vite and Node must land on the same file for a package, or it exists twice with
   // separate module-level state. Cached: resolveId runs for every import.
@@ -843,9 +886,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     options?.transform,
   );
   // Hot runtime (native engine only): persistent RN-hot workers with per-file
-  // isolation via the custom pool. Opt-in while it bakes (see design doc).
+  // isolation via the custom pool. `auto` is a conservative selector: it keeps
+  // stock isolation whenever config-time evidence cannot prove this path safe.
   const hotRuntimeOpt = options?.hotRuntime ?? false;
-  const hotRuntime = hotRuntimeOpt !== false;
+  const hotRuntimeRequested = hotRuntimeOpt !== false;
+  const hotRuntimeAuto = hotRuntimeOpt === "auto";
   const hotRecycle = typeof hotRuntimeOpt === "object" ? hotRuntimeOpt : {};
   // Resolved at config() time, once the consumer project root is known. Seeded to a
   // safe default so the hooks (resolveId/load/transform), which run after config(),
@@ -872,10 +917,13 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     return undefined;
   };
 
-  return {
+  const pluginDefinition = {
     name: "vitest-native",
     enforce: "pre",
 
+    // This plugin is `enforce:"pre"` for resolution/transform semantics, but its
+    // config decision is wrapped as an order:"post" hook below. Automatic hot
+    // selection must see pools and setup files contributed by later plugins.
     async config(userConfig, _env) {
       // Serialize options that need to cross from the Vite main process
       // into Vitest worker processes. globalThis does NOT survive this
@@ -940,12 +988,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         ...(options?.assetExts ?? []).map((e) => e.replace(/^\./, "")),
       ];
       env.VITEST_NATIVE_ASSET_EXTS = JSON.stringify(assetExtList);
-      if (hotRuntime && hotRecycle.preserveGlobals?.length) {
+      if (hotRuntimeRequested && hotRecycle.preserveGlobals?.length) {
         env.VITEST_NATIVE_HOT_PRESERVE_GLOBALS = JSON.stringify(hotRecycle.preserveGlobals);
       }
       // Only the opt-out is passed: the setup file defaults this on under hot, so
       // an absent variable means "on" and nothing has to be forwarded to say so.
-      if (hotRuntime && hotRecycle.esmGeneration === false) {
+      if (hotRuntimeRequested && hotRecycle.esmGeneration === false) {
         env.VITEST_NATIVE_HOT_ESM_GEN = "0";
       }
 
@@ -995,8 +1043,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // hooks in charge — the registry is an optimization, never a requirement.
         // Packages that declare React Native in their own manifest ship source Node
         // cannot run — untranspiled JSX, Flow, TypeScript — because they assume Metro
-        // will compile them. Detect them and inline them, rather than making every
-        // project rediscover the list one SyntaxError at a time.
+        // will compile them. Detect them, assign them to Node's native transform, and
+        // externalize them rather than making every project rediscover the list one
+        // SyntaxError at a time.
         // Where the run's tests live, as far as `test.include` reveals it. When the
         // run root sits ABOVE the package under test — an Nx-style invocation from
         // the repository root — the root alone cannot say which package is the
@@ -1008,6 +1057,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           (userConfig as { test?: { include?: unknown } }).test?.include,
           resolvedRoot,
         );
+        // `inline: true` is a user override of the normal ownership boundary. It is
+        // recorded in the manifest so diagnostics never claim graph uniqueness when
+        // Vitest will give inlining precedence over the engine's external patterns.
+        const userInline = (userConfig as { test?: { server?: { deps?: { inline?: unknown } } } })
+          .test?.server?.deps?.inline;
+        const userInlinesEverything = userInline === true;
         const ecosystem = detectEcosystemPackages(
           [resolvedRoot, ...includeRoots],
           transformPkgs,
@@ -1042,20 +1097,113 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         if (projectDirs.length > 0) {
           env.VITEST_NATIVE_PROJECT_DIRS = JSON.stringify(projectDirs);
         }
-        if (ecosystem.length > 0) {
-          ecosystemRoot = resolvedRoot;
-          // Anchored on node_modules: a bare `[/\\]name[/\\]` match also hits any
-          // directory that happens to share the package's name — a project folder
-          // called `expo` made every file under it, including this package's own
-          // runtime, look like ecosystem source. Every layout that matters keeps the
-          // package under node_modules, including the pnpm and bun content stores.
-          ecosystemPattern = new RegExp(
-            `[\\\\/]node_modules[\\\\/](?:${ecosystem
-              .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-              .join("|")})[\\\\/]`,
+        nativeOwnership = createNativeOwnershipPolicy({
+          projectRoot: resolvedRoot,
+          explicitTransforms: transformPkgs,
+          ecosystemPackages: ecosystem,
+          runtimeTransformAugmentations:
+            nativePresetNames.length > 0 ? ["preset-pass-through-modules"] : [],
+          projectDirs,
+          serverDepsInlineAll: userInlinesEverything,
+        });
+        assertInlineOwnership(userInline);
+
+        const userTest = (
+          userConfig as {
+            test?: {
+              fileParallelism?: boolean;
+              maxWorkers?: number | string;
+              pool?: unknown;
+            };
+          }
+        ).test;
+        const userPool = userTest?.pool;
+        // VM pools are incompatible with the native engine itself, irrespective of
+        // whether automatic hot selection would otherwise decline.
+        if (userPool === "vmThreads" || userPool === "vmForks") {
+          throw new VitestNativeError(
+            "UNSUPPORTED_POOL",
+            `engine:'native' cannot run on the '${userPool}' pool. React Native is ` +
+              `loaded through Node's module hooks, which a VM pool's context does not use — ` +
+              `React Native fails to resolve its platform files there. Use 'threads' (the ` +
+              `default) or 'forks', or switch to engine:'mock', which needs no hooks.`,
           );
-          if (diagnostics) {
-            console.log(`[vitest-native] inlining React Native packages: ${ecosystem.join(", ")}`);
+        }
+
+        // Admit the hot runtime BEFORE compiling React Native's registry. On a
+        // constrained container the registry build itself is a material memory
+        // event, so discovering here that only an unrecyclable one-worker run fits
+        // gives the user a deterministic configuration error instead of risking an
+        // OOM during an optimization that the run cannot safely use anyway.
+        let hotMemory:
+          | {
+              plan: HotMemoryPlan;
+              memoryLimit: number;
+              allowUnboundedMemory: boolean;
+            }
+          | undefined;
+        if (hotRuntimeRequested) {
+          const { createHotMemoryPlan, formatHotMemoryPlan, resolveRequestedWorkers } =
+            await import("./native/memory.mjs");
+          const requestedWorkers = resolveRequestedWorkers(userTest?.maxWorkers, {
+            fileParallelism: userTest?.fileParallelism,
+          });
+          const plan = createHotMemoryPlan({ requestedWorkers });
+          const allowUnboundedMemory = hotRecycle.allowUnboundedMemory === true;
+          const autoDeclineReason = hotRuntimeAuto
+            ? (hotAutoConfigDeclineReason(userConfig, userPool) ??
+              (plan.maxWorkers < 2
+                ? `the ${plan.source} memory/scheduler plan selects only one unrecyclable worker`
+                : null))
+            : null;
+          if (autoDeclineReason !== null) {
+            console.warn(
+              `[vitest-native] hotRuntime:'auto' kept default isolation: ${autoDeclineReason}.`,
+            );
+          } else if (!allowUnboundedMemory && plan.maxWorkers < 2) {
+            throw new VitestNativeError(
+              "HOT_MEMORY_UNBOUNDED",
+              `hotRuntime cannot enforce its memory budget with one worker because Vitest ` +
+                `batches every file into one unrecyclable task. The effective ` +
+                `${plan.source} memory ceiling admits ${plan.admittedWorkers} worker, ` +
+                `or this config explicitly selects one. Use hotRuntime:false, provide enough ` +
+                `memory for at least two workers, or explicitly accept unbounded growth with ` +
+                `hotRuntime:{ allowUnboundedMemory:true }.`,
+            );
+          }
+          if (
+            autoDeclineReason === null &&
+            !allowUnboundedMemory &&
+            userTest?.maxWorkers != null &&
+            plan.maxWorkers < requestedWorkers
+          ) {
+            console.warn(
+              `[vitest-native] hotRuntime capped maxWorkers from ${requestedWorkers} to ` +
+                `${plan.maxWorkers} for the ${plan.source} memory budget. ` +
+                `Set diagnostics:true to see the full envelope.`,
+            );
+          }
+          if (autoDeclineReason === null && diagnostics) {
+            for (const line of formatHotMemoryPlan(plan)) {
+              console.log(`[vitest-native] memory: ${line}`);
+            }
+            if (allowUnboundedMemory) {
+              console.warn(
+                `[vitest-native] memory: allowUnboundedMemory:true disables the automatic ` +
+                  `worker cap and process-RSS enforcement.`,
+              );
+            }
+          }
+          if (autoDeclineReason === null) {
+            env.VITEST_NATIVE_MEMORY_PLAN = JSON.stringify({
+              ...plan,
+              enforced: !allowUnboundedMemory,
+            });
+            hotMemory = {
+              plan,
+              memoryLimit: hotRecycle.memoryLimit ?? plan.workerHeapLimit,
+              allowUnboundedMemory,
+            };
           }
         }
 
@@ -1068,53 +1216,27 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         });
         if (registryFile) env.VITEST_NATIVE_RN_REGISTRY = registryFile;
 
-        // Lazy import: pulls in vitest/node, which only exists when running
-        // under Vitest (not plain Vite) — and only the hot runtime needs it.
-        let hot: { pool: PoolRunnerInitializer; runnerPath: string } | undefined;
-        if (hotRuntime) {
-          const { nativePool, defaultHotMemoryLimit } = await import("./native/pool.js");
-          // When hot is enabled but the user set no explicit recycling, apply a
-          // default per-worker memory bound so enabling hot can't grow memory
-          // unbounded. Don't override an explicit choice: if the user set
-          // recycleAfterFiles, respect that as their bound and add no default
-          // memoryLimit. (Single-worker hot can't recycle regardless — the pool
-          // warns about that — but multi-worker runs are now bounded out of the box.)
-          const memoryLimit =
-            hotRecycle.memoryLimit ??
-            (hotRecycle.recycleAfterFiles == null ? defaultHotMemoryLimit() : undefined);
+        // Lazy import: pulls in vitest/node, which only exists when running under
+        // Vitest (not plain Vite). Memory admission above deliberately has no
+        // Vitest dependency, so it can run before the registry optimization.
+        let hot:
+          | { pool: PoolRunnerInitializer; runnerPath: string; maxWorkers?: number }
+          | undefined;
+        if (hotMemory) {
+          const { nativePool } = await import("./native/pool.js");
           hot = {
             pool: nativePool({
               workerEntry: nativeWorkerPath,
               projectRoot: resolvedRoot,
               recycleAfterFiles: hotRecycle.recycleAfterFiles,
-              memoryLimit,
+              memoryLimit: hotMemory.memoryLimit,
+              memoryPlan: hotMemory.plan,
+              allowUnboundedMemory: hotMemory.allowUnboundedMemory,
               diagnostics,
             }),
             runnerPath: nativeRunnerPath,
+            maxWorkers: hotMemory.allowUnboundedMemory ? undefined : hotMemory.plan.maxWorkers,
           };
-        }
-        const userPool = (userConfig as { test?: { pool?: unknown } }).test?.pool;
-        // `deps.inline: true` means "inline everything", so the test-entry rule the
-        // engine adds is redundant — and merging a pattern list into a boolean gives
-        // Vitest an array containing `true`, which it calls `.test()` on.
-        const userInlinesEverything =
-          (userConfig as { test?: { server?: { deps?: { inline?: unknown } } } }).test?.server?.deps
-            ?.inline === true;
-        // The VM pools run test code in a `vm` context whose module executor does not
-        // go through Node's loader, and `module.register()` — how the engine installs
-        // the ESM hook that Flow-strips React Native and resolves its platform files —
-        // throws there outright ("register is not available when running in Vitest").
-        // Without those hooks React Native never resolves its `.ios`/`.android` files
-        // and dies on `Platform.OS` deep inside NativeEventEmitter. Say so here rather
-        // than let that surface as an unexplained crash.
-        if (userPool === "vmThreads" || userPool === "vmForks") {
-          throw new VitestNativeError(
-            "UNSUPPORTED_POOL",
-            `engine:'native' cannot run on the '${userPool}' pool. React Native is ` +
-              `loaded through Node's module hooks, which a VM pool's context does not use — ` +
-              `React Native fails to resolve its platform files there. Use 'threads' (the ` +
-              `default) or 'forks', or switch to engine:'mock', which needs no hooks.`,
-          );
         }
         if (hot && userPool) {
           console.warn(
@@ -1134,12 +1256,14 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             ecosystem,
             resolvedRoot,
             userInlinesEverything,
+            projectDirs,
+            nativeOwnership,
           ),
         );
       }
 
       // --- mock engine (existing behaviour) ---
-      if (hotRuntime) {
+      if (hotRuntimeRequested) {
         console.warn(
           `[vitest-native] 'hotRuntime' only applies to engine:'native' (resolved engine: '${engine}'); ignoring.`,
         );
@@ -1207,6 +1331,15 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       jestMockTransformPresent = (config.plugins ?? []).some(
         (plugin) => (plugin as { name?: string })?.name === "vitest-native:jest-mock-hoist",
       );
+
+      // Vitest folds Vite `ssr.noExternal` / environment noExternal settings into
+      // server.deps.inline during its pre-ordered configResolved hook. Re-check the
+      // FINAL shape here so an indirect inline-all or a later-merged package pattern
+      // cannot bypass the config() guard above.
+      const finalInline = (
+        config as unknown as { test?: { server?: { deps?: { inline?: unknown } } } }
+      ).test?.server?.deps?.inline;
+      assertInlineOwnership(finalInline);
 
       const duplicateReact = findDuplicateReact(
         (specifier, from) => {
@@ -1541,29 +1674,23 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
 
     transform(code, id) {
       warnIfJestMockUnhoisted(code, id);
-      // Native engine: React Native itself is Flow-stripped in Node's loader hooks,
-      // not here. The auto-inlined ecosystem packages are the exception — they live
-      // in Vite's graph precisely so Vitest owns them, which means Vite's pipeline
-      // has to be able to parse them, and it cannot: the ecosystem ships JSX and
-      // Flow in `.js` files that Vite leaves alone inside node_modules. Compile them
-      // with the project's own React Native Babel preset, the same transform the
-      // Node hooks apply to everything else.
+      // This hook is an ACTUAL observation that Vite claimed the file. A Node-owned
+      // package reaching it is therefore not a hypothetical resolver disagreement:
+      // evaluating it would create a second live identity. Fail before evaluation,
+      // using the same project policy that generated externalization and the worker
+      // matchers. This catches indirect noExternal settings and later plugin merges
+      // that config-time pattern checks cannot predict.
       if (engine === "native") {
-        if (!ecosystemPattern || !ecosystemPattern.test(id)) return undefined;
-        if (!/\.[cm]?[jt]sx?$/.test(id.split("?")[0])) return undefined;
-        try {
-          return { code: transformEcosystem(id, code, ecosystemRoot, platform), map: null };
-        } catch (error) {
-          // Leave the file untouched: Vite's own parse error names the real problem
-          // better than a Babel failure on a file Babel may simply not own.
-          if (diagnostics) {
-            console.warn(
-              `[vitest-native] could not compile inlined ${id} (${(error as Error)?.message}); ` +
-                `serving it untouched.`,
-            );
-          }
-          return undefined;
-        }
+        if (!nativeOwnership) return undefined;
+        const conflict = findNativeOwnershipConflict(nativeOwnership, id, "vite");
+        if (!conflict) return undefined;
+        throw new VitestNativeError(
+          "MODULE_OWNER_CONFLICT",
+          `Vite attempted to transform '${id}', but the native ownership policy assigns ` +
+            `that file to Node (${conflict.decision.reason}). Evaluating it in Vite would ` +
+            `create a second module instance with separate state. Remove the inline/noExternal ` +
+            `rule that claimed it; Metro-source packages belong in reactNative({ transform: [...] }).`,
+        );
       }
 
       // Flow-strip inlined react-native-* ecosystem packages that ship `@flow` —
@@ -1601,5 +1728,14 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         return undefined;
       }
     },
+  } satisfies Plugin;
+
+  const configHandler = pluginDefinition.config;
+  return {
+    ...pluginDefinition,
+    // Choosing from the original user object can create an unsafe hybrid such as
+    // isolate:false + the hot runner + a later-overridden forks pool. Vite's
+    // per-hook order lets only config run last while resolve/transform remain pre.
+    config: { order: "post", handler: configHandler },
   };
 }

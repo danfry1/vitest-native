@@ -1,75 +1,102 @@
-// Surgical per-file reset for the hot runtime (see worker.mjs and runner.mjs).
-//
-// Vitest's own per-file reset (run with config.isolate flipped on by worker.mjs)
-// already re-evaluates everything in the module-runner graph — test files, app
-// source, setup files. What it can NOT touch is state living in the worker's
-// resident Node require cache: React Native itself (externalized by design),
-// other externalized CJS deps, and our boundary mocks. This module covers that
-// gap with a boot-baseline + import-attribution model:
-//
-//   THE ATTRIBUTION PROBLEM: top-level code in an app/test module re-runs for
-//   every file and must be cleaned, while a resident externalized dependency
-//   initializes only once and may need to retain its process-wide state. A
-//   blanket "bless everything created during import" policy confuses the two
-//   and leaks app globals, env mutations, and listeners across files.
-//
-//   The split is observable: runner.mjs calls bless() from onBeforeRunFiles —
-//   after the test module (and its resident deps) finished importing, before
-//   any test runs. Listener call sites inside node_modules are treated as
-//   resident import state; listeners created by app/test modules stay tracked
-//   and are removed at the NEXT file's setup. Globals and process.env always
-//   return to the worker boot baseline, with an explicit preserveGlobals escape
-//   hatch for external libraries that intentionally publish a global registry.
-//   If bless() never fires (consumer overrode `runner`), attribution-dependent
-//   teardowns stay disarmed — fail-open rather than guessing.
-//
-// Covered surfaces:
-//   1. RN event listeners — every NativeEventEmitter (AppState, Appearance,
-//      Keyboard, …) delegates to the RCTDeviceEventEmitter singleton, so one
-//      wrapped addListener tracks the whole RN JS event surface. Test-phase
-//      subscriptions are removed via their own public subscription.remove().
-//      Only import-phase subscriptions owned by node_modules are blessed.
-//   2. RN module state with known mutation APIs (Dimensions, Appearance) —
-//      restored from a boot-time snapshot (value-restore: no attribution needed).
-//   2b. process.env — restored to the worker boot snapshot.
-//   3. Vitest timers/global/env stubs — restored by setup.mjs before this reset.
-//   4. Boundary/preset mocks that registered callbacks in
-//      globalThis.__vitest_native_resets (the turboStubs register one per
-//      native-module name to clear per-file overrides; runs before the
-//      value-restores, which route through those stubs).
-//   5. globalThis keys added by a file — deleted. The baseline starts at the
-//      first per-file call (after Vitest injected its per-batch globals) and
-//      never grows implicitly. Mutations of pre-existing keys are not restored
-//      (documented limitation).
+// Shared-realm restoration for the hot runtime. Vitest resets the Vite graph;
+// this manifest covers Node/RN state, environment, listeners, descriptors,
+// timers, native-boundary mocks, ErrorUtils and Expo state. runner.mjs calls
+// bless() after import and before tests. Only imports whose shared ownership
+// policy is worker-resident keep their listener state; ordinary dependencies and
+// app/test code re-evaluate and remain resettable. Attribution-dependent cleanup
+// stays disarmed if a consumer replaces the runner, rather than guessing.
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { VitestNativeError } from "../errors.mjs";
+import { isRuntimeResidentFile, isTestRuntimeResidentFile } from "./ownership.mjs";
+import { createStateManifest } from "./state-manifest.mjs";
 
 // Keys owned by the harness or this plugin — never deleted by the globals diff.
 const HARNESS_GLOBALS = /^(__vitest_native_|__VITEST|__coverage__|__VITE)/;
+// Node's bundled undici installs these non-configurable symbols lazily. Their
+// lifecycle belongs to the host runtime, not to the test file that happens to
+// trigger initialization, and attempting to delete them poisons every later
+// file. Keep the allowlist narrow and description-based across Node releases.
+const NODE_LAZY_GLOBAL_SYMBOLS = /^undici\.(?:globalDispatcher|globalOrigin)(?:\.|$)/;
 // Vitest updates these scheduler-owned values between tasks.
 const ENV_PRESERVED = new Set(["VITEST_POOL_ID", "VITEST_WORKER_ID"]);
 const RESET_FILE = fileURLToPath(import.meta.url).replaceAll("\\", "/");
 const DEFAULT_PRESERVED_GLOBALS = ["__STORYBOOK_ADDONS_PREVIEW"];
 
-function isResidentImportListener(stack, projectRoot) {
+function stateFailure(message) {
+  return new VitestNativeError("HOT_STATE_RESTORE_FAILED", message);
+}
+
+export function isResidentImportListener(stack, projectRoot) {
   const root = projectRoot.replaceAll("\\", "/").replace(/\/$/, "");
   let sawExternalFrame = false;
 
   for (const rawLine of stack.split("\n").slice(1)) {
     const line = rawLine.replaceAll("\\", "/");
     if (line.includes(RESET_FILE)) continue;
-    if (!line.includes(`${root}/`)) continue;
     if (line.includes("/node_modules/")) {
       sawExternalFrame = true;
+      // Most Node-owned packages reset per file. Only the identity-sensitive
+      // runtime/test-runtime allowlists are truly resident; blessing every
+      // node_modules frame duplicates listeners when an ordinary dependency
+      // re-evaluates in the next file. This is the same reset policy used by
+      // module-reset.mjs, not a second location heuristic.
+      if (!isRuntimeResidentFile(line) && !isTestRuntimeResidentFile(line)) return false;
       continue;
     }
+    if (!line.includes(`${root}/`)) continue;
     // A project-owned frame means this listener was created by app/test code,
     // even when the call passed through React Native internals.
     return false;
   }
 
   return sawExternalFrame;
+}
+
+function captureDescriptors(target) {
+  return new Map(
+    Reflect.ownKeys(target).map((key) => [key, Object.getOwnPropertyDescriptor(target, key)]),
+  );
+}
+
+function sameDescriptor(left, right) {
+  if (!left || !right) return left === right;
+  return (
+    left.configurable === right.configurable &&
+    left.enumerable === right.enumerable &&
+    left.writable === right.writable &&
+    Object.is(left.value, right.value) &&
+    left.get === right.get &&
+    left.set === right.set
+  );
+}
+
+function restoreDescriptors(target, baseline, skip = () => false) {
+  for (const key of Reflect.ownKeys(target)) {
+    if (skip(key) || baseline.has(key)) continue;
+    if (!Reflect.deleteProperty(target, key)) {
+      throw stateFailure(`could not delete ${String(key)}`);
+    }
+  }
+  for (const [key, descriptor] of baseline) {
+    if (skip(key)) continue;
+    if (!sameDescriptor(Object.getOwnPropertyDescriptor(target, key), descriptor)) {
+      Object.defineProperty(target, key, descriptor);
+    }
+  }
+}
+
+function verifyDescriptors(target, baseline, skip = () => false) {
+  for (const key of Reflect.ownKeys(target)) {
+    if (!skip(key) && !baseline.has(key)) throw stateFailure(`unexpected ${String(key)}`);
+  }
+  for (const [key, descriptor] of baseline) {
+    if (skip(key)) continue;
+    if (!sameDescriptor(Object.getOwnPropertyDescriptor(target, key), descriptor)) {
+      throw stateFailure(`descriptor differs for ${String(key)}`);
+    }
+  }
 }
 
 /**
@@ -83,6 +110,11 @@ export function installHotReset({ projectRoot, diagnostics, preserveGlobals = []
   const req = createRequire(path.join(projectRoot, "package.json"));
   const RN = req("react-native");
   const explicitlyPreserved = new Set([...DEFAULT_PRESERVED_GLOBALS, ...preserveGlobals]);
+  const globallyPreserved = new Set();
+  const manifest = createStateManifest({
+    diagnostics,
+    mutation: process.env.VITEST_NATIVE_HOT_STATE_MUTATION || null,
+  });
 
   // --- (1) Track listeners added to the RCTDeviceEventEmitter singleton ---
   const tracked = new Map();
@@ -96,25 +128,39 @@ export function installHotReset({ projectRoot, diagnostics, preserveGlobals = []
     return sub;
   };
 
-  // --- (2) Boot snapshot of mutable resident RN state ---
-  let dims = null;
-  try {
-    dims = {
-      window: { ...RN.Dimensions.get("window") },
-      screen: { ...RN.Dimensions.get("screen") },
+  // Track process listeners with the same attribution rule. Node's once() and
+  // prependOnceListener() delegate through these methods, so their wrapper listener
+  // is captured without replacing EventEmitter's once semantics.
+  const trackedProcessListeners = new Set();
+  const originalProcessAdd = process.addListener;
+  const originalProcessPrepend = process.prependListener;
+  const originalProcessRemove = process.removeListener;
+  function trackProcessAdd(original) {
+    return function (eventName, listener) {
+      const before = process.rawListeners(eventName);
+      const result = original.call(this, eventName, listener);
+      const after = process.rawListeners(eventName);
+      const remaining = [...before];
+      const added = after.filter((candidate) => {
+        const index = remaining.indexOf(candidate);
+        if (index === -1) return true;
+        remaining.splice(index, 1);
+        return false;
+      });
+      for (const rawListener of added) {
+        trackedProcessListeners.add({
+          eventName,
+          rawListener,
+          residentImport: isResidentImportListener(new Error().stack || "", projectRoot),
+        });
+      }
+      return result;
     };
-  } catch {}
-  let colorScheme = null;
-  try {
-    colorScheme = RN.Appearance.getColorScheme?.() ?? null;
-  } catch {}
-
-  // --- (2b) Fixed process.env worker-boot snapshot ---
-  const envBaseline = { ...process.env };
-
-  // --- (5) globalThis baseline: starts at the first per-file call and remains
-  // fixed. Explicitly preserved keys may join it at an import boundary. ---
-  let globalBaseline = null;
+  }
+  const trackedAdd = trackProcessAdd(originalProcessAdd);
+  process.addListener = trackedAdd;
+  process.on = trackedAdd;
+  process.prependListener = trackProcessAdd(originalProcessPrepend);
 
   // Attribution-dependent teardowns run only once bless() has fired at least
   // once (i.e. the hot runner is installed and working).
@@ -122,91 +168,215 @@ export function installHotReset({ projectRoot, diagnostics, preserveGlobals = []
 
   function bless() {
     armed = true;
-    if (globalBaseline) {
-      for (const key of explicitlyPreserved) {
-        if (Object.hasOwn(globalThis, key)) globalBaseline.add(key);
-      }
+    for (const key of explicitlyPreserved) {
+      if (Object.hasOwn(globalThis, key)) globallyPreserved.add(key);
     }
     // Resident external dependencies do not re-run, so retain only listeners
-    // whose import-time call stack belongs exclusively to node_modules.
+    // whose import-time call stack belongs exclusively to packages the shared
+    // ownership policy marks worker-resident.
     for (const [sub, record] of tracked) {
       if (record.residentImport) tracked.delete(sub);
     }
+    for (const record of trackedProcessListeners) {
+      if (record.residentImport) trackedProcessListeners.delete(record);
+    }
+    globalThis.expo?.[Symbol.for("vitest-native.expo.reset")]?.bless?.((stack) =>
+      isResidentImportListener(stack, projectRoot),
+    );
   }
 
-  function hotReset() {
-    if (globalBaseline === null) {
-      // First file: nothing to clean — the worker is pristine. Capture the
-      // baseline every later file must be reset back to.
-      globalBaseline = new Set(Reflect.ownKeys(globalThis));
-      return;
-    }
-
-    // (3) RNTL cleanup happens in setup.mjs, NOT here: it must run in the
-    // module-runner context so it reaches the SAME RNTL instance the tests
-    // use. Loading RNTL through Node from here created a second instance whose
-    // act/auto-cleanup machinery corrupted rendering for every later file
-    // when the consumer's graph inlines RNTL (found via Rocket.Chat).
-
-    // (4) Boundary/preset mock reset callbacks — BEFORE the value-restore:
-    // these clear per-file overrides on the boundary stubs (spies, direct
-    // method assignments), and the value-restore below routes through those
-    // very stubs (Appearance.setColorScheme → NativeAppearance). Restoring
-    // first would send the restore through a previous file's dead override
-    // and then clear it one step too late.
-    const resets = globalThis.__vitest_native_resets;
-    if (Array.isArray(resets)) {
-      for (const fn of resets) {
-        try {
-          fn();
-        } catch {}
+  manifest.register({
+    id: "native-boundary-mocks",
+    // Clear per-file boundary overrides before value-based RN restores route
+    // through those same boundary objects.
+    restoreOrder: -100,
+    capture: () => null,
+    restore: () => {
+      const resets = globalThis.__vitest_native_resets;
+      if (Array.isArray(resets)) for (const reset of resets) reset();
+    },
+    verify: () => {
+      const resets = globalThis.__vitest_native_resets;
+      if (Array.isArray(resets) && resets.some((reset) => reset.verify?.() === false)) {
+        throw stateFailure("native boundary overrides remain");
       }
-    }
+    },
+  });
 
-    // (2) Restore mutable resident RN state (value-restore, always safe).
-    if (dims) {
-      try {
-        RN.Dimensions.set(dims);
-      } catch {}
-    }
-    try {
-      RN.Appearance.setColorScheme?.(colorScheme);
-    } catch {}
+  manifest.register({
+    id: "react-native.dimensions",
+    capture: () => ({
+      window: { ...RN.Dimensions.get("window") },
+      screen: { ...RN.Dimensions.get("screen") },
+    }),
+    restore: (snapshot) => RN.Dimensions.set(snapshot),
+    verify: (snapshot) => {
+      const current = {
+        window: RN.Dimensions.get("window"),
+        screen: RN.Dimensions.get("screen"),
+      };
+      if (JSON.stringify(current) !== JSON.stringify(snapshot)) {
+        throw stateFailure("Dimensions differ from the worker baseline");
+      }
+    },
+  });
 
-    if (!armed) return; // no bless yet → cannot attribute; fail open
+  manifest.register({
+    id: "react-native.appearance",
+    capture: () => RN.Appearance.getColorScheme?.() ?? null,
+    restore: (snapshot) => RN.Appearance.setColorScheme?.(snapshot),
+    verify: (snapshot) => {
+      if ((RN.Appearance.getColorScheme?.() ?? null) !== snapshot) {
+        throw stateFailure("Appearance differs from the worker baseline");
+      }
+    },
+  });
 
-    // (1) Remove the previous file's test-phase RN event listeners.
-    for (const sub of tracked.keys()) {
-      try {
-        sub.remove();
-      } catch {}
-    }
-    tracked.clear();
+  manifest.register({
+    id: "react-native.event-listeners",
+    capture: () => null,
+    restore: () => {
+      if (!armed) return;
+      for (const sub of tracked.keys()) sub.remove();
+      tracked.clear();
+    },
+    verify: () => {
+      if (armed && tracked.size > 0) {
+        throw stateFailure(`${tracked.size} subscriptions remain`);
+      }
+    },
+  });
 
-    // (2b) Restore process.env to the worker boot snapshot.
-    for (const key of Object.keys(process.env)) {
-      if (ENV_PRESERVED.has(key)) continue;
-      if (!(key in envBaseline)) delete process.env[key];
-      else if (process.env[key] !== envBaseline[key]) process.env[key] = envBaseline[key];
-    }
-    for (const key of Object.keys(envBaseline)) {
-      if (!(key in process.env) && !ENV_PRESERVED.has(key)) process.env[key] = envBaseline[key];
-    }
+  manifest.register({
+    id: "process.env",
+    capture: () => ({ ...process.env }),
+    restore: (baseline) => {
+      for (const key of Object.keys(process.env)) {
+        if (ENV_PRESERVED.has(key)) continue;
+        if (!(key in baseline)) delete process.env[key];
+        else if (process.env[key] !== baseline[key]) process.env[key] = baseline[key];
+      }
+      for (const key of Object.keys(baseline)) {
+        if (!(key in process.env) && !ENV_PRESERVED.has(key)) process.env[key] = baseline[key];
+      }
+    },
+    verify: (baseline) => {
+      const keys = new Set([...Object.keys(process.env), ...Object.keys(baseline)]);
+      for (const key of keys) {
+        if (!ENV_PRESERVED.has(key) && process.env[key] !== baseline[key]) {
+          throw stateFailure(`${key} differs from the worker baseline`);
+        }
+      }
+    },
+  });
 
-    // (5) Delete globals added during the previous test phase.
-    const deleted = [];
-    for (const key of Reflect.ownKeys(globalThis)) {
-      if (globalBaseline.has(key)) continue;
-      if (typeof key === "string" && HARNESS_GLOBALS.test(key)) continue;
-      try {
-        delete globalThis[key];
-        if (diagnostics) deleted.push(String(key));
-      } catch {}
-    }
-    if (diagnostics && deleted.length) {
-      console.log(`[vitest-native] hot reset: deleted test-phase globals: ${deleted.join(", ")}`);
-    }
-  }
+  manifest.register({
+    id: "process.listeners",
+    capture: () => ({
+      addListener: process.addListener,
+      on: process.on,
+      prependListener: process.prependListener,
+    }),
+    restore: (baseline) => {
+      if (armed) {
+        for (const record of trackedProcessListeners) {
+          originalProcessRemove.call(process, record.eventName, record.rawListener);
+        }
+        trackedProcessListeners.clear();
+      }
+      process.addListener = baseline.addListener;
+      process.on = baseline.on;
+      process.prependListener = baseline.prependListener;
+    },
+    verify: (baseline) => {
+      if (armed && trackedProcessListeners.size > 0) {
+        throw stateFailure(`${trackedProcessListeners.size} listeners remain`);
+      }
+      if (
+        process.addListener !== baseline.addListener ||
+        process.on !== baseline.on ||
+        process.prependListener !== baseline.prependListener
+      ) {
+        throw stateFailure("process listener methods differ from the worker baseline");
+      }
+    },
+  });
 
-  return { hotReset, bless };
+  manifest.register({
+    id: "global.descriptors",
+    capture: () => captureDescriptors(globalThis),
+    restore: (baseline) => {
+      const deleted = [];
+      const skip = (key) =>
+        globallyPreserved.has(key) ||
+        (typeof key === "string" && HARNESS_GLOBALS.test(key)) ||
+        (typeof key === "symbol" &&
+          !baseline.has(key) &&
+          NODE_LAZY_GLOBAL_SYMBOLS.test(key.description ?? ""));
+      if (diagnostics) {
+        for (const key of Reflect.ownKeys(globalThis)) {
+          if (!skip(key) && !baseline.has(key)) deleted.push(String(key));
+        }
+      }
+      restoreDescriptors(globalThis, baseline, skip);
+      if (diagnostics && deleted.length) {
+        console.log(`[vitest-native] hot reset: deleted test-phase globals: ${deleted.join(", ")}`);
+      }
+    },
+    verify: (baseline) =>
+      verifyDescriptors(
+        globalThis,
+        baseline,
+        (key) =>
+          globallyPreserved.has(key) ||
+          (typeof key === "string" && HARNESS_GLOBALS.test(key)) ||
+          (typeof key === "symbol" &&
+            !baseline.has(key) &&
+            NODE_LAZY_GLOBAL_SYMBOLS.test(key.description ?? "")),
+      ),
+  });
+
+  manifest.register({
+    id: "console.descriptors",
+    capture: () => captureDescriptors(console),
+    restore: (baseline) => restoreDescriptors(console, baseline),
+    verify: (baseline) => verifyDescriptors(console, baseline),
+  });
+
+  manifest.register({
+    id: "react-native.error-utils",
+    capture: () => globalThis.ErrorUtils?.getGlobalHandler?.(),
+    restore: (baseline) => {
+      if (baseline) globalThis.ErrorUtils?.setGlobalHandler?.(baseline);
+    },
+    verify: (baseline) => {
+      if (baseline && globalThis.ErrorUtils?.getGlobalHandler?.() !== baseline) {
+        throw stateFailure("ErrorUtils handler differs from the worker baseline");
+      }
+    },
+  });
+
+  manifest.register({
+    id: "expo.runtime",
+    capture: () => captureDescriptors(globalThis.expo ?? {}),
+    restore: (baseline) => {
+      globalThis.expo?.[Symbol.for("vitest-native.expo.reset")]?.();
+      if (globalThis.expo) restoreDescriptors(globalThis.expo, baseline);
+    },
+    verify: (baseline) => {
+      if (globalThis.expo) {
+        verifyDescriptors(globalThis.expo, baseline);
+        if (globalThis.expo[Symbol.for("vitest-native.expo.reset")]?.verify?.() === false) {
+          throw stateFailure("Expo runtime state differs from the worker baseline");
+        }
+      }
+    },
+  });
+
+  return {
+    hotReset: () => manifest.beginFile(),
+    bless,
+    registerState: manifest.register,
+    stateEntries: manifest.entries,
+  };
 }

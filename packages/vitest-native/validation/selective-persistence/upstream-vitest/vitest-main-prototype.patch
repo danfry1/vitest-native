@@ -1,0 +1,519 @@
+diff --git a/packages/vitest/src/defaults.ts b/packages/vitest/src/defaults.ts
+index 1aa7f25..0560490 100644
+--- a/packages/vitest/src/defaults.ts
++++ b/packages/vitest/src/defaults.ts
+@@ -66,6 +66,9 @@ const fakeTimersDefaults: NonNullable<UserConfig['fakeTimers']> = {
+ export const configDefaults: Readonly<{
+   allowOnly: boolean
+   isolate: boolean
++  moduleIsolation: {
++    preserveActual: RegExp[]
++  }
+   watch: boolean
+   globals: boolean
+   injectCjsGlobals: boolean
+@@ -106,6 +109,9 @@ export const configDefaults: Readonly<{
+ }> = Object.freeze({
+   allowOnly: !isCI,
+   isolate: true,
++  moduleIsolation: {
++    preserveActual: [],
++  },
+   watch: !isCI && process.stdin.isTTY && !isAgent,
+   globals: false,
+   injectCjsGlobals: true,
+diff --git a/packages/vitest/src/node/cli/cli-config.ts b/packages/vitest/src/node/cli/cli-config.ts
+index 9ebfbe0..9fc6007 100644
+--- a/packages/vitest/src/node/cli/cli-config.ts
++++ b/packages/vitest/src/node/cli/cli-config.ts
+@@ -342,6 +342,7 @@ export const cliOptionsConfig: VitestCLIOptions = {
+     description:
+       'Run every test file in isolation. To disable isolation, use `--no-isolate` (default: `true`)',
+   },
++  moduleIsolation: null,
+   globals: {
+     description: 'Inject apis globally',
+   },
+diff --git a/packages/vitest/src/node/config/serializeConfig.ts b/packages/vitest/src/node/config/serializeConfig.ts
+index 1081751..3848b60 100644
+--- a/packages/vitest/src/node/config/serializeConfig.ts
++++ b/packages/vitest/src/node/config/serializeConfig.ts
+@@ -14,6 +14,7 @@ export function serializeConfig(project: TestProject): SerializedConfig {
+     // TODO: remove functions from environmentOptions
+     environmentOptions: config.environmentOptions,
+     isolate: config.isolate,
++    moduleIsolation: config.moduleIsolation,
+     maxWorkers: config.maxWorkers,
+     base: config.base,
+     logHeapUsage: config.logHeapUsage,
+diff --git a/packages/vitest/src/node/types/config.ts b/packages/vitest/src/node/types/config.ts
+index c97af93..007968a 100644
+--- a/packages/vitest/src/node/types/config.ts
++++ b/packages/vitest/src/node/types/config.ts
+@@ -351,6 +351,18 @@ export interface InlineConfig {
+    */
+   isolate?: boolean
+
++  /**
++   * Reset evaluated modules and mocks between files while reusing a worker.
++   */
++  moduleIsolation?: {
++    /**
++     * Regular expressions matched against resolved module ids. A matched module's
++     * evaluated dependency closure is preserved with it.
++     * @default []
++     */
++    preserveActual?: RegExp[]
++  }
++
+   /**
+    * Pass additional arguments to `node` process when spawning the worker.
+    *
+@@ -1245,6 +1257,7 @@ export interface ResolvedConfig
+     | 'fileParallelism'
+     | 'tagsFilter'
+     | 'reporter'
++    | 'moduleIsolation'
+   > {
+   name: ProjectName['label']
+   color?: ProjectName['color']
+@@ -1318,6 +1331,10 @@ export interface ResolvedConfig
+   tagsFilter?: string[]
+   mergeReportsLabel?: string
+
++  moduleIsolation: {
++    preserveActual: RegExp[]
++  }
++
+   experimental: Omit<Required<UserConfig>['experimental'], 'importDurations' | 'diagnostics'> & {
+     importDurations: {
+       print: boolean | 'on-warn'
+diff --git a/packages/vitest/src/runtime/config.ts b/packages/vitest/src/runtime/config.ts
+index 146f351..facc88d 100644
+--- a/packages/vitest/src/runtime/config.ts
++++ b/packages/vitest/src/runtime/config.ts
+@@ -48,6 +48,9 @@ export interface SerializedConfig {
+   disableConsoleIntercept: boolean | undefined
+   runner: string | undefined
+   isolate: boolean
++  moduleIsolation: {
++    preserveActual: RegExp[]
++  }
+   maxWorkers: number
+   bail: number | undefined
+   environmentOptions?: Record<string, any>
+diff --git a/packages/vitest/src/runtime/runBaseTests.ts b/packages/vitest/src/runtime/runBaseTests.ts
+index 81d1328..f6aab92 100644
+--- a/packages/vitest/src/runtime/runBaseTests.ts
++++ b/packages/vitest/src/runtime/runBaseTests.ts
+@@ -15,7 +15,7 @@ import { closeInspector } from './inspector'
+ import { collectTests, startTests } from './runner/run'
+ import { resolveTestRunner } from './runners'
+ import { setupGlobalEnv } from './setup-node'
+-import { getWorkerState, resetModules } from './utils'
++import { getPreservedModules, getWorkerState, resetModules } from './utils'
+
+ // browser shouldn't call this!
+ export async function run(
+@@ -51,9 +51,13 @@ export async function run(
+       `vitest.test.runner.${method}`,
+       async () => {
+         for (const file of files) {
+-          if (config.isolate) {
++          if (config.isolate || config.moduleIsolation.preserveActual.length) {
+             moduleRunner.mocker?.reset()
+-            resetModules(workerState.evaluatedModules, true)
++            const preserved = await getPreservedModules(
++              workerState.evaluatedModules,
++              config.moduleIsolation.preserveActual,
++            )
++            resetModules(workerState.evaluatedModules, true, preserved)
+           }
+
+           workerState.filepath = file.filepath
+diff --git a/packages/vitest/src/runtime/utils.ts b/packages/vitest/src/runtime/utils.ts
+index f257d62..d9a7e8a 100644
+--- a/packages/vitest/src/runtime/utils.ts
++++ b/packages/vitest/src/runtime/utils.ts
+@@ -43,7 +43,47 @@ export function isChildProcess(): boolean {
+   return typeof process !== 'undefined' && !!process.send
+ }
+
+-export function resetModules(modules: EvaluatedModules, resetMocks = false): void {
++function matchesModule(id: string, patterns: RegExp[]): boolean {
++  return patterns.some((pattern) => {
++    pattern.lastIndex = 0
++    return pattern.test(id)
++  })
++}
++
++async function getSuccessfulClosure(modules: EvaluatedModules, seed: string): Promise<Set<string> | undefined> {
++  const closure = new Set<string>()
++  const pending = [seed]
++
++  while (pending.length) {
++    const id = pending.pop()!
++    if (closure.has(id)) {
++      continue
++    }
++    const node = modules.idToModuleMap.get(id)
++    if (id.startsWith('mock:') || !node?.evaluated || !node.promise) {
++      return undefined
++    }
++    closure.add(id)
++    pending.push(...node.imports)
++  }
++
++  const results = await Promise.allSettled(
++    [...closure].map(id => modules.idToModuleMap.get(id)!.promise),
++  )
++  return results.some(result => result.status === 'rejected') ? undefined : closure
++}
++
++export async function getPreservedModules(modules: EvaluatedModules, patterns: RegExp[]): Promise<Set<string>> {
++  const seeds = [...modules.idToModuleMap]
++    .filter(([id]) => matchesModule(id, patterns))
++    .map(([id]) => id)
++  const closures = await Promise.all(seeds.map(seed => getSuccessfulClosure(modules, seed)))
++  const preserved = new Set<string>()
++  closures.forEach(closure => closure?.forEach(id => preserved.add(id)))
++  return preserved
++}
++
++export function resetModules(modules: EvaluatedModules, resetMocks = false, preserved: Set<string> = new Set()): void {
+   const skipPaths = [
+     // Vitest
+     /\/vitest\/dist\//,
+@@ -59,6 +99,15 @@ export function resetModules(modules: EvaluatedModules, resetMocks = false): voi
+       return
+     }
+
++    if (preserved.has(path)) {
++      node.importers.forEach((importer) => {
++        if (!preserved.has(importer)) {
++          node.importers.delete(importer)
++        }
++      })
++      return
++    }
++
+     node.promise = undefined
+     node.exports = undefined
+     node.evaluated = false
+diff --git a/test/e2e/test/module-isolation.test.ts b/test/e2e/test/module-isolation.test.ts
+new file mode 100644
+index 0000000..2cdc04b
+--- /dev/null
++++ b/test/e2e/test/module-isolation.test.ts
+@@ -0,0 +1,241 @@
++import { expect, test } from 'vitest'
++import { buildTestProjectTree, runInlineTests } from '#test-utils'
++
++function config(pool: 'threads' | 'forks' = 'threads') {
++  return `
++export default {
++  test: {
++    pool: '${pool}',
++    isolate: false,
++    fileParallelism: false,
++    maxWorkers: 1,
++    moduleIsolation: {
++      preserveActual: [/resident-actual\\.js$/],
++    },
++  },
++}
++`
++}
++
++const actual = /* js */ `
++import { dependencyIdentity, readCycleIdentity } from './dependency-a.js'
++globalThis.__actualEvaluations = (globalThis.__actualEvaluations ?? 0) + 1
++export const actualEvaluation = globalThis.__actualEvaluations
++export const identity = {}
++export const label = 'actual'
++export { dependencyIdentity }
++export const cycleIdentity = readCycleIdentity()
++globalThis.__actualIdentity = identity
++`
++
++const consumer = /* js */ `
++import * as actual from './resident-actual.js'
++globalThis.__consumerEvaluations = (globalThis.__consumerEvaluations ?? 0) + 1
++export const consumerEvaluation = globalThis.__consumerEvaluations
++export const readActual = () => actual
++`
++
++const dependencyA = /* js */ `
++import { readDependencyIdentity } from './dependency-b.js'
++export const dependencyIdentity = {}
++export const readCycleIdentity = () => readDependencyIdentity()
++`
++
++const dependencyB = /* js */ `
++import { dependencyIdentity } from './dependency-a.js'
++export const readDependencyIdentity = () => dependencyIdentity
++`
++
++const mockedTest = /* js */ `
++import { expect, test, vi } from 'vitest'
++vi.mock('./resident-actual.js', async (importOriginal) => ({
++  ...(await importOriginal()),
++  label: 'mocked',
++}))
++import { dependencyIdentity } from './dependency-a.js'
++import { consumerEvaluation, readActual } from './consumer.js'
++test('mocked overlay', async () => {
++  const value = readActual()
++  const original = await vi.importActual('./resident-actual.js')
++  globalThis.__filesExecuted = (globalThis.__filesExecuted ?? 0) + 1
++  expect(value.label).toBe('mocked')
++  expect(value.identity).toBe(original.identity)
++  expect(value.identity).toBe(globalThis.__actualIdentity)
++  expect(value.dependencyIdentity).toBe(dependencyIdentity)
++  expect(value.cycleIdentity).toBe(dependencyIdentity)
++  expect(value.actualEvaluation).toBe(1)
++  expect(consumerEvaluation).toBe(globalThis.__filesExecuted)
++})
++`
++
++const actualTest = /* js */ `
++import { expect, test } from 'vitest'
++import { dependencyIdentity } from './dependency-a.js'
++import { consumerEvaluation, readActual } from './consumer.js'
++test('unmocked actual', () => {
++  const value = readActual()
++  globalThis.__filesExecuted = (globalThis.__filesExecuted ?? 0) + 1
++  expect(value.label).toBe('actual')
++  expect(value.identity).toBe(globalThis.__actualIdentity)
++  expect(value.dependencyIdentity).toBe(dependencyIdentity)
++  expect(value.cycleIdentity).toBe(dependencyIdentity)
++  expect(value.actualEvaluation).toBe(1)
++  expect(consumerEvaluation).toBe(globalThis.__filesExecuted)
++})
++`
++
++test.each(['threads', 'forks'] as const)('preserves actual closure in the %s pool while resetting consumers and mock overlays', async (pool) => {
++  const { stderr, testTree } = await runInlineTests({
++    'vitest.config.js': config(pool),
++    'resident-actual.js': actual,
++    'consumer.js': consumer,
++    'dependency-a.js': dependencyA,
++    'dependency-b.js': dependencyB,
++    'a-mocked.test.js': mockedTest,
++    'b-actual.test.js': actualTest,
++    'c-mocked.test.js': mockedTest.replace('\'mocked overlay\'', '\'second mocked overlay\''),
++    'd-actual.test.js': actualTest.replace('\'unmocked actual\'', '\'second unmocked actual\''),
++  })
++
++  expect(stderr).toBe('')
++  expect(testTree()).toMatchInlineSnapshot(`
++    {
++      "a-mocked.test.js": {
++        "mocked overlay": "passed",
++      },
++      "b-actual.test.js": {
++        "unmocked actual": "passed",
++      },
++      "c-mocked.test.js": {
++        "second mocked overlay": "passed",
++      },
++      "d-actual.test.js": {
++        "second unmocked actual": "passed",
++      },
++    }
++  `)
++})
++
++test('retries a selected actual after a rejected evaluation', async () => {
++  const { stderr, testTree } = await runInlineTests({
++    'vitest.config.js': /* js */ `
++      class AlphabeticalSequencer {
++        sort(files) { return [...files].sort((a, b) => a.moduleId.localeCompare(b.moduleId)) }
++        shard(files) { return files }
++      }
++      export default {
++        test: {
++          isolate: false,
++          fileParallelism: false,
++          maxWorkers: 1,
++          sequence: { sequencer: AlphabeticalSequencer },
++          moduleIsolation: { preserveActual: [/resident-actual\\.js$/] },
++        },
++      }
++    `,
++    'resident-actual.js': /* js */ `
++      globalThis.__flakyEvaluations = (globalThis.__flakyEvaluations ?? 0) + 1
++      if (globalThis.__failActual) {
++        globalThis.__failActual = false
++        throw new Error('intentional failure')
++      }
++      export const evaluation = globalThis.__flakyEvaluations
++    `,
++    'a-failure.test.js': /* js */ `
++      import { expect, test } from 'vitest'
++      test('rejects once', async () => {
++        globalThis.__failActual = true
++        await expect(import('./resident-actual.js')).rejects.toThrow('intentional failure')
++      })
++    `,
++    'b-retry.test.js': /* js */ `
++      import { expect, test } from 'vitest'
++      test('retries', async () => {
++        const actual = await import('./resident-actual.js')
++        expect(actual.evaluation).toBe(2)
++      })
++    `,
++  })
++
++  expect(stderr).toBe('')
++  expect(testTree()).toMatchInlineSnapshot(`
++    {
++      "a-failure.test.js": {
++        "rejects once": "passed",
++      },
++      "b-retry.test.js": {
++        "retries": "passed",
++      },
++    }
++  `)
++})
++
++test('invalidates a preserved closure when a dependency changes', async () => {
++  const { fs, vitest } = await runInlineTests({
++    'vitest.config.js': config(),
++    'dependency.js': `export const value = 'value-one'`,
++    'resident-actual.js': /* js */ `
++      import { value } from './dependency.js'
++      export const read = () => value
++    `,
++    'basic.test.js': /* js */ `
++      import { expect, test } from 'vitest'
++      import { read } from './resident-actual.js'
++      test('reads dependency', () => {
++        console.log(read())
++        expect(read()).toMatch(/^value-/)
++      })
++    `,
++  }, { watch: true })
++
++  await vitest.waitForStdout('value-one')
++  await vitest.waitForStdout('Waiting for file changes')
++  vitest.resetOutput()
++  fs.editFile('dependency.js', source => source.replace('value-one', 'value-two'))
++  await vitest.waitForStdout('value-two')
++  await vitest.waitForStdout('1 passed')
++})
++
++test('keeps module isolation project-scoped', async () => {
++  const { results, stderr } = await runInlineTests({
++    'vitest.config.js': /* js */ `
++      const project = (name) => ({
++        test: {
++          name,
++          isolate: false,
++          fileParallelism: false,
++          maxWorkers: 1,
++          include: ['*.test.js'],
++          moduleIsolation: { preserveActual: [/resident-actual\\.js$/] },
++        },
++      })
++      export default { test: { projects: [project('selective-a'), project('selective-b')] } }
++    `,
++    'resident-actual.js': `export const identity = {}`,
++    'consumer.js': `import { identity } from './resident-actual.js'; export { identity }`,
++    'a.test.js': `import { expect, test } from 'vitest'; import { identity } from './consumer.js'; test('a', () => expect(identity).toBeTypeOf('object'))`,
++    'b.test.js': `import { expect, test } from 'vitest'; import { identity } from './consumer.js'; test('b', () => expect(identity).toBeTypeOf('object'))`,
++  })
++
++  expect(stderr).toBe('')
++  expect(buildTestProjectTree(results)).toMatchInlineSnapshot(`
++    {
++      "selective-a": {
++        "a.test.js": {
++          "a": "passed",
++        },
++        "b.test.js": {
++          "b": "passed",
++        },
++      },
++      "selective-b": {
++        "a.test.js": {
++          "a": "passed",
++        },
++        "b.test.js": {
++          "b": "passed",
++        },
++      },
++    }
++  `)
++})
+diff --git a/test/unit/test/utils.spec.ts b/test/unit/test/utils.spec.ts
+index 0dd1825..06b0445 100644
+--- a/test/unit/test/utils.spec.ts
++++ b/test/unit/test/utils.spec.ts
+@@ -3,7 +3,7 @@ import { parseSingleFFOrSafariStack } from '@vitest/utils/source-map'
+ import { EvaluatedModules } from 'vite/module-runner'
+ import { beforeAll, describe, expect, test } from 'vitest'
+ import { deepMergeSnapshot } from '../../../packages/snapshot/src/port/utils'
+-import { resetModules } from '../../../packages/vitest/src/runtime/utils'
++import { getPreservedModules, resetModules } from '../../../packages/vitest/src/runtime/utils'
+
+ describe('assertTypes', () => {
+   test('the type of value should be number', () => {
+@@ -253,6 +253,56 @@ describe('resetModules doesn\'t resets only user modules', () => {
+   })
+ })
+
++describe('selective module reset', () => {
++  function evaluate(modules: EvaluatedModules, id: string, promise = Promise.resolve({ id })) {
++    const node = modules.ensureModule(id, id)
++    node.evaluated = true
++    node.exports = { id }
++    node.promise = promise
++    return node
++  }
++
++  test('preserves a coherent dependency closure and releases reset importers', async () => {
++    const modules = new EvaluatedModules()
++    const actual = evaluate(modules, '/resident-actual.ts')
++    const dependency = evaluate(modules, '/dependency.ts')
++    const consumer = evaluate(modules, '/consumer.ts')
++    actual.imports.add(dependency.id)
++    dependency.importers.add(actual.id)
++    dependency.imports.add(actual.id)
++    actual.importers.add(dependency.id)
++    actual.importers.add(consumer.id)
++    consumer.imports.add(actual.id)
++
++    const preserved = await getPreservedModules(modules, [/resident-actual\.ts$/])
++    resetModules(modules, true, preserved)
++
++    expect([...preserved]).toEqual(['/resident-actual.ts', '/dependency.ts'])
++    expect(actual.promise).toBeDefined()
++    expect(dependency.promise).toBeDefined()
++    expect(consumer.promise).toBeUndefined()
++    expect(actual.importers).toEqual(new Set(['/dependency.ts']))
++    expect(dependency.importers).toEqual(new Set(['/resident-actual.ts']))
++  })
++
++  test('does not preserve a closure containing a rejected module', async () => {
++    const modules = new EvaluatedModules()
++    evaluate(modules, '/resident-actual.ts', Promise.reject(new Error('failed')))
++
++    await expect(getPreservedModules(modules, [/resident-actual\.ts$/])).resolves.toEqual(new Set())
++  })
++
++  test('does not preserve a closure containing an invalidated dependency', async () => {
++    const modules = new EvaluatedModules()
++    const actual = evaluate(modules, '/resident-actual.ts')
++    const dependency = evaluate(modules, '/dependency.ts')
++    actual.imports.add(dependency.id)
++    modules.invalidateModule(dependency)
++
++    await expect(getPreservedModules(modules, [/resident-actual\.ts$/])).resolves.toEqual(new Set())
++  })
++})
++
+ describe('objectAttr', () => {
+   const arrow = (a: number) => a * 3
+   const func = function (a: number) {

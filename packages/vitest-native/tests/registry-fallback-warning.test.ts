@@ -64,6 +64,18 @@ describe("registry fallback", () => {
     expect(warn.mock.calls[0][0]).toContain("could not precompile");
   });
 
+  it("can check a cold cache without compiling or warning", () => {
+    expect(buildRegistry({ ...UNBUILDABLE, cacheOnly: true })).toBeNull();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("can surface a compiler failure structurally to a parent process", () => {
+    expect(() => buildRegistry({ ...UNBUILDABLE, failOnError: true })).toThrow(
+      /react-native|path/i,
+    );
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   it("says the run still works and only got slower", () => {
     buildRegistry(UNBUILDABLE);
     const message = warn.mock.calls[0][0] as string;

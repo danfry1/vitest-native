@@ -263,6 +263,31 @@ jobs:
         if: runner.os == 'Linux' && matrix.node-version == '22.13.0' && !matrix.rntl
         run: bun run --filter vitest-native validate:hot-parity
 
+      - name: Hot runtime preserves V8 and Istanbul coverage attribution
+        # isolate:false is the scheduling signal for the custom hot pool, while
+        # modules are reset per file inside the worker. Compare packed default/hot
+        # maps and exact execution counts so that split cannot silently double-count
+        # or lose an uncovered branch. One canonical Linux leg contains the install
+        # cost without weakening the release invariant.
+        if: runner.os == 'Linux' && matrix.node-version == '22.13.0' && !matrix.rntl
+        run: bun run --filter vitest-native validate:coverage-parity
+
+      - name: Safe automatic hot-runtime selection
+        # A packed consumer proves both sides of the selector: bounded two-worker
+        # native runs opt in, while one-worker, Jest-migration, and explicit-pool
+        # configurations retain stock isolation and report the exact reason.
+        if: runner.os == 'Linux' && matrix.node-version == '22.13.0' && !matrix.rntl
+        run: bun run --filter vitest-native validate:hot-auto
+
+      - name: Bounded cold registry compilation
+        # Compile the same real RN graph in the Vite parent and in the production
+        # child, require artifact parity and a material persistent-RSS reduction,
+        # then race two cold children against one atomic cache. One stable Linux
+        # leg owns the memory ratio; the unit matrix exercises the process
+        # protocol, OOM retry and timeout on every supported OS/Node corner.
+        if: runner.os == 'Linux' && matrix.node-version == '22.13.0' && !matrix.rntl
+        run: bun run --filter vitest-native validate:registry-process
+
       - name: Cross-check (mock ≡ real RN) + fidelity report freshness
         # The cross-check is calibrated on the current RNTL (14); a few probes track
         # RNTL-version-specific real-RN behavior, so it runs only on the RNTL 14 legs.
@@ -289,6 +314,26 @@ jobs:
         if: runner.os == 'Linux' && matrix.node-version == '22.13.0'
         run: bun run test:consumers
 
+      - name: Packed CJS reset mutation control
+        # One packed RN consumer, not another full matrix. Omitting the installed
+        # drain must fail, proving that the positive gate reaches this reset seam.
+        if: runner.os == 'Linux' && matrix.node-version == '22.13.0' && !matrix.rntl
+        run: node packages/vitest-native/validation/module-isolation/run-packed-cjs-reset.mjs
+
       - name: Check package exports
         if: runner.os == 'Linux' && matrix.node-version == '22.13.0'
         run: bun run check:exports
+
+      # The Windows floor (22.13) predates registerHooks. Reuse the existing job
+      # for a dependency-free modern-Node contract run, after all floor checks.
+      - name: Modern Node for Windows loader-hook contracts
+        if: runner.os == 'Windows'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.16.0
+
+      - name: Windows synchronous loader-hook contracts
+        if: runner.os == 'Windows'
+        env:
+          VN_CJS_DRAIN_RESEARCH: '1'
+        run: node --test packages/vitest-native/validation/module-isolation/test-node-cjs-reset.mjs packages/vitest-native/validation/module-isolation/test-node-cjs-drain-contract.mjs

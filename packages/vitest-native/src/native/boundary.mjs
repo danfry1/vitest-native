@@ -154,6 +154,10 @@ function turboStubSource(platform, version) {
     const state = getBoundaryState(name);
     if (state.__stub) return state.__stub;
     const target = {};
+    // Generated methods may be memoized again by later state-manifest entries
+    // after this stub is reset. Track their identities so verification can
+    // distinguish legitimate regeneration from a test's explicit override.
+    const generated = new Map();
     state.__stub = new Proxy(target, {
       get: (t, p) => {
         // Explicitly-set properties win (spies, manual overrides, memoized methods).
@@ -194,6 +198,7 @@ function turboStubSource(platform, version) {
           enumerable: true,
           configurable: true,
         });
+        generated.set(p, v);
         return v;
       },
       // Every property reads as a callable stub, so report them all as present —
@@ -205,9 +210,15 @@ function turboStubSource(platform, version) {
     // resident libraries that captured a reference at import time. Under the
     // default engine each file gets a fresh process, so this never fires.
     const resets = globalThis.__vitest_native_resets || (globalThis.__vitest_native_resets = []);
-    resets.push(() => {
+    const reset = () => {
       for (const k of Reflect.ownKeys(target)) delete target[k];
-    });
+      generated.clear();
+    };
+    reset.verify = () =>
+      Reflect.ownKeys(target).every(
+        (key) => generated.has(key) && generated.get(key) === target[key],
+      );
+    resets.push(reset);
     return state.__stub;
   };
 `;

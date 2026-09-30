@@ -6,14 +6,12 @@ import fs from "node:fs";
 import { transformRN, isFlow, needsTransform } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import { resolvePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
+import { NODE_MODULES_PATH, isUtilitySubpath, packageNameOf, subpathLeafOf } from "./match.mjs";
 import {
-  NODE_MODULES_PATH,
-  REACT_NATIVE_PATH,
-  buildPkgMatcher,
-  isUtilitySubpath,
-  packageNameOf,
-  subpathLeafOf,
-} from "./match.mjs";
+  createNativeOwnershipPolicy,
+  findNativeOwnershipConflict,
+  parseNativeOwnershipManifest,
+} from "./ownership.mjs";
 import { explainUntransformedSyntaxError } from "./explain.mjs";
 
 // Guarded via globalThis, not module scope: under the hot runtime this module
@@ -21,9 +19,9 @@ import { explainUntransformedSyntaxError } from "./explain.mjs";
 // loader, once through Vitest's module runner when the setup file is inlined),
 // and the hooks must still install exactly once per worker.
 /**
- * Packages Vite executes itself (see ecosystem.ts). If Node also resolves one of
- * these, the module exists TWICE in the process — once in Vite's graph, once in
- * Node's — and module-level state does not cross between them.
+ * Packages whose legacy entry fields make Vite and Node select different files. If
+ * both graphs resolve one, the module exists TWICE in the process and module-level
+ * state does not cross between them.
  *
  * This is silent by construction: nothing fails, nothing is logged, the second
  * copy simply starts empty. A store configured through one copy reads back
@@ -37,12 +35,12 @@ import { explainUntransformedSyntaxError } from "./explain.mjs";
 const VITE_MAIN_FIELDS = ["react-native", "module", "jsnext:main", "jsnext"];
 
 const reportedDuplicates = new Set();
-const reportedProjectLoads = new Set();
+const reportedProjectResolutions = new Set();
 
 /** Test seam: the warning is once per package for the life of the worker. */
 export function _resetDuplicateReports() {
   reportedDuplicates.clear();
-  reportedProjectLoads.clear();
+  reportedProjectResolutions.clear();
   cachedProjectDirs = undefined;
 }
 
@@ -58,9 +56,10 @@ let cachedProjectDirs;
 function projectDirs() {
   if (cachedProjectDirs) return cachedProjectDirs;
   try {
-    cachedProjectDirs = JSON.parse(process.env.VITEST_NATIVE_PROJECT_DIRS || "[]").map(
-      (dir) => dir.replace(/\\/g, "/").replace(/\/+$/, "") + "/",
-    );
+    const ownership = parseNativeOwnershipManifest(process.env.VITEST_NATIVE_OWNERSHIP);
+    const dirs =
+      ownership?.projectDirs ?? JSON.parse(process.env.VITEST_NATIVE_PROJECT_DIRS || "[]");
+    cachedProjectDirs = dirs.map((dir) => dir.replace(/\\/g, "/").replace(/\/+$/, "") + "/");
   } catch {
     cachedProjectDirs = [];
   }
@@ -68,40 +67,51 @@ function projectDirs() {
 }
 
 /**
- * Say so when Node loads the project's own source.
+ * Report Node resolution of project source assigned to Vite.
  *
- * The package under test is Vite's (see the ownership rule in apply.ts). If an
- * installed package requires it as well, it exists twice — once in each graph — and
- * the symptom is silence: a store configured through the test's copy reads back unset
- * through the copy the library sees, so an assertion compares "" against the expected
- * text with nothing pointing at the cause. It is the same failure the
- * duplicate-instance warning above covers, arrived at from the other direction: there
- * the two graphs disagree about which FILE the package is, here they agree on the file
- * and still hold separate instances of it.
+ * This runs in `_resolveFilename`, including for `require.resolve()`. Resolution
+ * does not prove execution, much less two live instances. If both graphs evaluate
+ * the file, their independent stores can silently return different values. Keep
+ * this a conditional risk warning, not a fatal duplicate-instance assertion.
  *
  * Only reported when the requirer is an installed package. A test reaching into its
  * own source deliberately — `jest.requireActual('./src/thing')` — is Node loading
  * project files on purpose, and is not this.
  */
-export function checkProjectSourceLoadedByNode(resolved, parent, dirs = projectDirs()) {
-  if (dirs.length === 0 || typeof resolved !== "string") return;
+export function checkProjectSourceResolvedByNode(resolved, parent, dirs = projectDirs(), policy) {
+  if (typeof resolved !== "string" || (!policy && dirs.length === 0)) return;
+  // `_resolveFilename` returns bare names for built-ins (`fs`, `node:fs`, `module`).
+  // Resolving that string as a filesystem path makes it look like a relative file
+  // inside the project, which produced a page of false twin warnings from Babel's
+  // ordinary built-in imports in packed Expo apps.
+  if (Module.isBuiltin(resolved)) return;
   const file = resolved.replace(/\\/g, "/");
   // Project source never lives under node_modules, and the project directory
   // contains its own node_modules — so this has to be excluded explicitly.
   if (file.includes("/node_modules/")) return;
-  if (!dirs.some((dir) => file.startsWith(dir))) return;
+  if (policy) {
+    // An authoritative policy may assign vendored RN to Node, delegate ownership,
+    // or disable enforcement. Never undo that decision with a path heuristic.
+    if (findNativeOwnershipConflict(policy, file, "node")?.decision.reason !== "project-source") {
+      return;
+    }
+  } else if (
+    !dirs.some((dir) => file.startsWith(dir.replace(/\\/g, "/").replace(/\/+$/, "") + "/"))
+  ) {
+    return;
+  }
   const from = parent && parent.filename ? parent.filename.replace(/\\/g, "/") : "";
   if (!NODE_MODULES_PATH.test(from) || from.includes("/vitest-native/dist/")) return;
-  if (reportedProjectLoads.has(file)) return;
-  reportedProjectLoads.add(file);
+  if (reportedProjectResolutions.has(file)) return;
+  reportedProjectResolutions.add(file);
   console.warn(
-    `[vitest-native] Node loaded a file from the package under test.\n` +
+    `[vitest-native] Node resolved a file from the package under test.\n` +
       `  file      ->  ${resolved}\n` +
-      `  required by ->  ${parent.filename}\n` +
-      "  The package under test belongs to Vite's graph, so it now exists twice — once\n" +
-      "  in each module system — and module-level state is not shared between the copies.\n" +
-      "  Nothing throws: writes through one are invisible to the other, so values read back\n" +
-      "  unset. This happens when an installed React Native package depends on the very\n" +
+      `  requested by ->  ${parent.filename}\n` +
+      "  resolution observed -> Node; policy owner -> Vite (project-source)\n" +
+      "  Resolution alone does not prove execution or duplicate instances. If both Node\n" +
+      "  and Vite evaluate this file, their module-level state is not shared.\n" +
+      "  This risk occurs when an installed React Native package depends on the very\n" +
       "  package whose tests are running. Import it from one side only, or test it from a\n" +
       "  package that does not sit underneath the dependency.",
   );
@@ -204,13 +214,25 @@ export function installRequireHooks(
   // Configured third-party packages to also transform (Flow/TS/JSX stripped).
   // `let` + the updater below: the hot worker installs the hooks at boot with the
   // raw env list, and the setup file re-calls with the preset-extended one.
-  let isExtra = buildPkgMatcher(transformPkgs, projectRoot);
+  const configuredOwnership = parseNativeOwnershipManifest(process.env.VITEST_NATIVE_OWNERSHIP);
+  const ownershipBase = {
+    projectRoot,
+    projectDirs: configuredOwnership?.projectDirs ?? [],
+    reactNativeRoots: configuredOwnership?.reactNativeRoots ?? [],
+    serverDepsInlineAll: configuredOwnership?.enforcement === "overridden-by-inline-all",
+  };
+  let ownership = createNativeOwnershipPolicy({
+    ...ownershipBase,
+    runtimeTransforms: transformPkgs,
+  });
+  let isExtra = ownership.matchesNodeTransformedFile;
   let isExtraKey = JSON.stringify(transformPkgs);
   globalThis.__vitest_native_require_hooks_update = (pkgs) => {
     const key = JSON.stringify(pkgs);
     if (key === isExtraKey) return;
     isExtraKey = key;
-    isExtra = buildPkgMatcher(pkgs, projectRoot);
+    ownership = createNativeOwnershipPolicy({ ...ownershipBase, runtimeTransforms: pkgs });
+    isExtra = ownership.matchesNodeTransformedFile;
   };
 
   // Preset redirect (CJS): when an externalized third-party module require()s a
@@ -283,32 +305,33 @@ export function installRequireHooks(
 
   const origResolve = Module._resolveFilename;
   Module._resolveFilename = function (request, parent, ...rest) {
+    let resolved;
     if (
       parent &&
       parent.filename &&
       (NODE_MODULES_PATH.test(parent.filename) ||
-        REACT_NATIVE_PATH.test(parent.filename) ||
+        ownership.isReactNativeFile(parent.filename) ||
         isExtra(parent.filename)) &&
       request.startsWith(".") &&
       !path.extname(request)
     ) {
-      const hit = resolvePlatformFile(
+      resolved = resolvePlatformFile(
         path.resolve(path.dirname(parent.filename), request),
         platform,
       );
-      if (hit) return hit;
     }
-    let resolved;
-    try {
-      resolved = origResolve.call(this, request, parent, ...rest);
-    } catch (err) {
-      // RN 0.87's exports map rejects the deep self-references its own Babel
-      // preset emits (`react-native/src/private/…`); Metro resolves them via the
-      // `react-native-legacy-deep-imports` condition. Mirror Metro by path.
-      const fromDir = parent?.filename ? path.dirname(parent.filename) : projectRoot;
-      const deep = resolveDeepPackageFile(request, fromDir, platform);
-      if (deep === null) throw err;
-      resolved = deep;
+    if (!resolved) {
+      try {
+        resolved = origResolve.call(this, request, parent, ...rest);
+      } catch (err) {
+        // RN 0.87's exports map rejects the deep self-references its own Babel
+        // preset emits (`react-native/src/private/…`); Metro resolves them via the
+        // `react-native-legacy-deep-imports` condition. Mirror Metro by path.
+        const fromDir = parent?.filename ? path.dirname(parent.filename) : projectRoot;
+        const deep = resolveDeepPackageFile(request, fromDir, platform);
+        if (deep === null) throw err;
+        resolved = deep;
+      }
     }
     // Diagnostics only. The comparison sees Node's resolution and the package
     // manifest, never Vite's module graph, so it cannot tell a package both graphs
@@ -319,16 +342,18 @@ export function installRequireHooks(
     if (process.env.VITEST_NATIVE_DIAGNOSTICS === "true") {
       checkResolverAgreement(request, resolved);
     }
-    checkProjectSourceLoadedByNode(resolved, parent);
+    // Every successful resolution (including platform hits) crosses this boundary.
+    checkProjectSourceResolvedByNode(resolved, parent, projectDirs(), ownership);
     return resolved;
   };
 
   const origJs = Module._extensions[".js"];
   Module._extensions[".js"] = function (mod, filename) {
     const norm = filename.replace(/\\/g, "/");
-    const boundary = boundarySourceFor(norm, platform, reactNativeVersion);
+    const rnPath = ownership.reactNativePathFor(filename);
+    const boundary = boundarySourceFor(rnPath ?? norm, platform, reactNativeVersion);
     if (boundary != null) return mod._compile(boundary, filename);
-    if (REACT_NATIVE_PATH.test(norm)) {
+    if (rnPath !== null) {
       const src = fs.readFileSync(filename, "utf8");
       if (isFlow(src))
         return mod._compile(transformRN(filename, src, projectRoot, platform), filename);

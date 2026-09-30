@@ -26,7 +26,6 @@
 // through to the per-file hooks in hooks.mjs / loader.mjs, and a failed build leaves
 // the engine running exactly as it did before.
 import Module from "node:module";
-import { REACT_NATIVE_PATH } from "./match.mjs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import fs from "node:fs";
@@ -35,6 +34,7 @@ import { transformRN, isFlow, cacheRootFor, TRANSFORM_CACHE_VERSION } from "./tr
 
 import { boundarySourceFor, BOUNDARY_SOURCES } from "./boundary.mjs";
 import { resolvePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
+import { createNativeOwnershipPolicy } from "./ownership.mjs";
 
 /**
  * Losing the registry is a silent performance cliff, not a correctness problem:
@@ -106,14 +106,18 @@ const PASSTHROUGH_EXT = new Set([".json", ".node", ".wasm"]);
  * Source for one file, applying the same precedence the per-file hooks use:
  * asset stub → native-boundary mock → Flow-stripped RN → verbatim.
  */
-function sourceFor(file, { projectRoot, platform, reactNativeVersion, assetExtSet }) {
+function sourceFor(file, { projectRoot, platform, reactNativeVersion, assetExtSet, ownership }) {
   const norm = file.replace(/\\/g, "/");
   const ext = path.extname(norm).slice(1).toLowerCase();
   if (ext && assetExtSet.has(ext)) {
     const basename = norm.split("/").pop() || norm;
     return { code: `module.exports = ${JSON.stringify(basename)};`, scan: false };
   }
-  const boundary = boundarySourceFor(norm, platform, reactNativeVersion);
+  const boundary = boundarySourceFor(
+    ownership.reactNativePathFor(file) ?? norm,
+    platform,
+    reactNativeVersion,
+  );
   if (boundary != null) return { code: boundary, scan: true };
   const src = fs.readFileSync(file, "utf8");
   if (norm.endsWith(".js") && isFlow(src)) {
@@ -148,6 +152,18 @@ function ownVersion() {
   }
 }
 
+function canonicalAdditionalEntries(entries) {
+  return [...new Set(entries)].sort();
+}
+
+function canonicalAssetExtensions(extensions) {
+  return [
+    ...new Set(extensions.map((extension) => String(extension).replace(/^\./, "").toLowerCase())),
+  ]
+    .filter(Boolean)
+    .sort();
+}
+
 /**
  * Identity of every input that determines the emitted registry's contents.
  *
@@ -163,7 +179,13 @@ function ownVersion() {
  *
  * Exported for tests. Not part of the public surface — see docs/versioning.md.
  */
-export function registryKey({ projectRoot, platform, reactNativeVersion }) {
+export function registryKey({
+  projectRoot,
+  platform,
+  reactNativeVersion,
+  assetExts = [],
+  additionalEntries = [],
+}) {
   const req = createRequire(path.join(projectRoot, "package.json"));
   const version = (name) => {
     try {
@@ -211,6 +233,8 @@ export function registryKey({ projectRoot, platform, reactNativeVersion }) {
         version("@react-native/babel-preset"),
         version("@babel/core"),
         process.env.BABEL_ENV || process.env.NODE_ENV || "none",
+        ...canonicalAssetExtensions(assetExts).map((extension) => `asset:${extension}`),
+        ...canonicalAdditionalEntries(additionalEntries).map((entry) => `entry:${entry}`),
         boundaries.digest("hex"),
       ].join("\0"),
     )
@@ -373,6 +397,13 @@ export function buildRegistry({
   reactNativeVersion = "0.0.0",
   assetExts = [],
   diagnostics = false,
+  additionalEntries = [],
+  // Internal orchestration controls. `cacheOnly` lets the long-lived Vite process
+  // perform the cheap key/manifest check without ever loading Babel or compiling
+  // RN. `failOnError` lets the bounded compiler child return a structured failure;
+  // ordinary callers keep the warning + correctness-preserving fallback contract.
+  cacheOnly = false,
+  failOnError = false,
 }) {
   // See warnRegistryUnavailable: this is the one path that stays quiet, because
   // the user asked for it.
@@ -392,10 +423,17 @@ export function buildRegistry({
   let dir;
   let key;
   try {
-    key = registryKey({ projectRoot, platform, reactNativeVersion });
+    key = registryKey({
+      projectRoot,
+      platform,
+      reactNativeVersion,
+      assetExts,
+      additionalEntries,
+    });
     dir = path.join(cacheRootFor(projectRoot), "registry");
     fs.mkdirSync(dir, { recursive: true });
   } catch (error) {
+    if (failOnError) throw error;
     warnRegistryUnavailable(error?.message ?? "cache directory unavailable");
     return null;
   }
@@ -416,9 +454,12 @@ export function buildRegistry({
     // No usable cache entry — build one below.
   }
 
+  if (cacheOnly) return null;
+
   const started = Date.now();
   const assetExtSet = new Set(assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
-  const options = { projectRoot, platform, reactNativeVersion, assetExtSet };
+  const ownership = createNativeOwnershipPolicy({ projectRoot });
+  const options = { projectRoot, platform, reactNativeVersion, assetExtSet, ownership };
   const modules = new Map();
   const manifest = [];
   // Targets the registry does NOT inline but DOES bake in as pre-resolved absolute
@@ -427,8 +468,15 @@ export function buildRegistry({
   // See the note above the manifest write below.
   const externals = new Set();
   try {
-    const entry = createRequire(path.join(projectRoot, "package.json")).resolve("react-native");
-    const queue = [entry];
+    const req = createRequire(path.join(projectRoot, "package.json"));
+    const entry = req.resolve("react-native");
+    // Keep the public React Native entry first in insertion order: emit() treats
+    // module zero as the capsule's default export. Additional ecosystem-owned deep
+    // imports are seed roots only; their factories remain lazy like the root graph.
+    const extraRoots = canonicalAdditionalEntries(additionalEntries).map((request) =>
+      req.resolve(request),
+    );
+    const queue = [...extraRoots.reverse(), entry];
     while (queue.length > 0) {
       const file = queue.pop();
       if (modules.has(file)) continue;
@@ -445,7 +493,7 @@ export function buildRegistry({
           // identity and are shared with the rest of the worker.
           const internal =
             target !== null &&
-            REACT_NATIVE_PATH.test(target.replace(/\\/g, "/")) &&
+            ownership.isReactNativeFile(target) &&
             !PASSTHROUGH_EXT.has(path.extname(target).toLowerCase());
           deps[request] = target;
           if (internal) queue.push(target);
@@ -485,18 +533,37 @@ export function buildRegistry({
     // cold cache, and a reader must never observe a partially written registry.
     // The map lands before the registry that points at it, so a reader can never
     // find the reference without the file.
+    const publishAtomically = (destination, contents) => {
+      const temporaryFile = `${destination}.${process.pid}.tmp`;
+      try {
+        fs.writeFileSync(temporaryFile, contents);
+        try {
+          fs.renameSync(temporaryFile, destination);
+        } catch (error) {
+          // POSIX rename replaces an existing file atomically. Windows rejects that
+          // shape, which two cold compiler processes can hit together. Remove only
+          // the already-published destination and retry; metadata is committed last,
+          // so readers never accept a half-published new registry as valid.
+          if (
+            process.platform !== "win32" ||
+            !["EEXIST", "EPERM", "EACCES"].includes(error?.code) ||
+            !fs.existsSync(destination)
+          ) {
+            throw error;
+          }
+          fs.rmSync(destination, { force: true });
+          fs.renameSync(temporaryFile, destination);
+        }
+      } finally {
+        // A failed write or publication must not leave a growing trail of PID
+        // temp files. A fatal process kill is recovered by the next cache miss.
+        fs.rmSync(temporaryFile, { force: true });
+      }
+    };
     const mapFile = `${registryFile}.map`;
-    const mapTmp = `${mapFile}.${process.pid}.tmp`;
-    fs.writeFileSync(mapTmp, JSON.stringify(map));
-    fs.renameSync(mapTmp, mapFile);
-    const tmp = `${registryFile}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, `${code}\n//# sourceMappingURL=${path.basename(mapFile)}\n`);
-    fs.renameSync(tmp, registryFile);
-    fs.writeFileSync(
-      `${metaFile}.${process.pid}.tmp`,
-      JSON.stringify({ key, count: files.length, manifest }),
-    );
-    fs.renameSync(`${metaFile}.${process.pid}.tmp`, metaFile);
+    publishAtomically(mapFile, JSON.stringify(map));
+    publishAtomically(registryFile, `${code}\n//# sourceMappingURL=${path.basename(mapFile)}\n`);
+    publishAtomically(metaFile, JSON.stringify({ key, count: files.length, manifest }));
     if (diagnostics) {
       console.log(
         `[vitest-native] (native) precompiled RN registry: ${files.length} modules in ${Date.now() - started}ms`,
@@ -504,6 +571,7 @@ export function buildRegistry({
     }
     return registryFile;
   } catch (error) {
+    if (failOnError) throw error;
     warnRegistryUnavailable(error?.message ?? "unknown error");
     return null;
   }

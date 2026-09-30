@@ -80,6 +80,25 @@ describe("precompiled RN registry: build", () => {
     expect(build("android")).not.toBe(build("ios"));
   });
 
+  it("seeds ecosystem-only deep entries without changing the public entry", () => {
+    const file = buildRegistry({
+      projectRoot,
+      platform: "ios",
+      reactNativeVersion: "0.86.0",
+      assetExts: ["png", "jpg", "ttf"],
+      additionalEntries: ["react-native/Libraries/Utilities/DevLoadingView"],
+    }) as string;
+    const registry = createRequire(path.join(projectRoot, "package.json"))(file);
+
+    expect(file).not.toBe(build());
+    expect(typeof registry.StyleSheet.flatten).toBe("function");
+    expect(
+      registry.__vitestNativeRegistry.ids.some((id: string) =>
+        endsWithPath(id, "/Utilities/DevLoadingView.js"),
+      ),
+    ).toBe(true);
+  }, 300_000);
+
   it("rebuilds when a source file it was built from changes", () => {
     const file = build();
     const meta = JSON.parse(fs.readFileSync(`${file}.json`, "utf8"));
@@ -110,8 +129,7 @@ describe("precompiled RN registry: build", () => {
     const patched = `${original}\n// changed`;
     const spy = vi
       .spyOn(await import("../src/native/boundary.mjs"), "boundarySourceFor")
-      .mockImplementation(((p: string) =>
-        p.endsWith(suffix) ? patched : original) as never);
+      .mockImplementation(((p: string) => (p.endsWith(suffix) ? patched : original)) as never);
     try {
       // The key is computed from boundarySourceFor, so a changed body must move it.
       expect(build()).not.toBe(before);

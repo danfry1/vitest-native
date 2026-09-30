@@ -21,6 +21,7 @@
  * would exist twice.
  */
 import { createRequire } from "node:module";
+import fs from "node:fs";
 import path from "node:path";
 
 /** Any file under a node_modules directory. */
@@ -32,6 +33,39 @@ export const NODE_MODULES_PATH = /[\\/]node_modules[\\/]/;
  * registry are all Node loader hooks.
  */
 export const REACT_NATIVE_PATH = /[\\/]node_modules[\\/](react-native|@react-native)[\\/]/;
+
+/**
+ * A directory in the form Node's module loader reports paths: fs.realpathSync, not
+ * realpathSync.native. The native call expands Windows 8.3 short names (RUNNER~1) and
+ * rewrites letter case on case-insensitive disks, so a directory it returns can fail
+ * to contain the module ids Node hands the matchers.
+ */
+function canonicalDir(dir) {
+  try {
+    return fs.realpathSync(dir);
+  } catch {
+    return dir;
+  }
+}
+
+/**
+ * Resolve only from a physical node_modules directory at/above the project.
+ *
+ * Unlike createRequire.resolve(), this deliberately ignores NODE_PATH and loader
+ * hooks. It is for dependencies whose presence must be consumer-visible rather than
+ * borrowed from the test runner's own install.
+ */
+export function installedPackageDirOf(name, projectRoot) {
+  const packagePath = name.split("/");
+  let dir = path.resolve(projectRoot);
+  for (;;) {
+    const candidate = path.join(dir, "node_modules", ...packagePath);
+    if (fs.existsSync(path.join(candidate, "package.json"))) return canonicalDir(candidate);
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
 
 /** Escape a string for literal use inside a RegExp. */
 function escapeRe(value) {
@@ -76,7 +110,7 @@ export function containsPath(dir, target) {
 export function packageDirOf(name, projectRoot) {
   const req = createRequire(path.join(projectRoot, "package.json"));
   try {
-    return path.dirname(req.resolve(`${name}/package.json`));
+    return canonicalDir(path.dirname(req.resolve(`${name}/package.json`)));
   } catch {}
   let dir;
   try {
@@ -86,7 +120,9 @@ export function packageDirOf(name, projectRoot) {
   }
   for (;;) {
     try {
-      if (createRequire(path.join(dir, "index.js"))("./package.json").name === name) return dir;
+      if (createRequire(path.join(dir, "index.js"))("./package.json").name === name) {
+        return canonicalDir(dir);
+      }
     } catch {}
     const parent = path.dirname(dir);
     if (parent === dir) return null;

@@ -4,16 +4,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { reactNative } from "../src/index.js";
 import { buildReactNativeMock } from "../src/mocks/registry.js";
+import { runPluginConfig } from "./plugin-config.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 async function mockEnginePlugin() {
   const plugin = reactNative({ engine: "mock" }) as unknown as {
-    config: (c: object, e: object) => Promise<unknown>;
     configResolved: (c: { root: string }) => Promise<void>;
     transform: (code: string, id: string) => unknown;
   };
-  await plugin.config({}, { command: "serve", mode: "test" });
+  await runPluginConfig(plugin as never);
   await plugin.configResolved({ root: process.cwd() });
   return plugin;
 }

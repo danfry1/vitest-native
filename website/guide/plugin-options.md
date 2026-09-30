@@ -102,12 +102,14 @@ reactNative({
 
 ## `hotRuntime`
 
-(Native engine, experimental.) Keeps React Native warm across files for large suites, resetting app/test modules and common process-wide pollution between files. Uses Vitest's custom worker APIs.
+(Native engine, experimental.) Keeps React Native's precompiled factory registry and worker realm warm for large suites while resetting RN instances, app/test modules, and a verified manifest of supported process-wide state. Uses Vitest's custom worker APIs.
 
 ```ts
 reactNative({ hotRuntime: true })
 ```
 
-It can dramatically cut the per-file cost on large suites, but because React Native stays resident, suites that lean on deep resident-RN-internal state (for example heavy cross-file `Animated` usage) can see cross-file interference they wouldn't under the default per-file isolation. The tell is a test that passes alone but fails after other files. See [Hot runtime](/guide/engines#hot-runtime-experimental) for when it helps, the known limitation, and worker recycling.
+It can dramatically cut the per-file cost on large suites. The RN registry is reset from its in-memory factories per file, and the shared realm is restored through a mutation-tested state manifest. Arbitrary mutable state in an unknown resident third-party singleton cannot be discovered generically; a test that passes alone but fails after other files remains a correctness signal. See [Hot runtime](/guide/engines#hot-runtime-experimental) for the exact boundary and worker recycling.
+
+Hot mode installs a cgroup-aware memory plan by default and requires at least two workers so it can recycle at file boundaries. A deliberate externally bounded single-worker run can use `hotRuntime: { allowUnboundedMemory: true }`; this disables the automatic worker cap and process-RSS enforcement and is intentionally noisy.
 
 Next: [Third-Party Presets](/guide/presets).

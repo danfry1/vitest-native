@@ -341,12 +341,14 @@ export interface VitestNativeOptions {
    *   is enforced between Vitest scheduler tasks; a single task containing
    *   multiple files cannot be interrupted.
    * - `memoryLimit`: retire a worker when its reported JS heap (bytes) meets
-   *   or exceeds this value, also between scheduler tasks. When hot is enabled
-   *   and you set neither `memoryLimit` nor `recycleAfterFiles`, a default
-   *   per-worker bound of `clamp(totalmem * 0.25, 768MB, 1.5GB)` is applied so
-   *   memory stays bounded out of the box (multi-worker runs recycle a worker
-   *   once it crosses the ceiling). Single-worker hot can't recycle, so the
-   *   bound is inert there — run with `maxWorkers >= 2` for bounded hot memory.
+   *   or exceeds this value, also between scheduler tasks. By default a
+   *   constrained-memory-aware plan derives this threshold, caps automatic
+   *   concurrency at four, reserves main-process and worker-replacement RSS,
+   *   and stops before crossing 90% of the host/container limit.
+   * - `allowUnboundedMemory`: explicitly permit configurations where Vitest
+   *   cannot enforce file-boundary recycling, notably `maxWorkers: 1`. This
+   *   also disables the automatic worker cap and process-RSS hard stop. Use
+   *   only when an external scheduler provides the memory boundary.
    * - `preserveGlobals`: exact globalThis property names intentionally owned
    *   by resident external libraries. App/test globals are otherwise removed
    *   between files. Storybook's preview registry is preserved automatically.
@@ -360,13 +362,20 @@ export interface VitestNativeOptions {
    *   stock isolation, against 13.9x with it off. Set false to trade that back,
    *   accepting that a package holding state across files will keep it.
    *
+   * Pass `'auto'` to select the bounded hot runtime only when the current
+   * configuration has recyclable task boundaries, enough memory headroom, no
+   * Jest-migration setup, and no explicit custom pool. Otherwise the run keeps
+   * stock per-file isolation and prints the reason.
+   *
    * Default: false (each file runs in a fresh worker; RN reloads per file).
    */
   hotRuntime?:
     | boolean
+    | "auto"
     | {
         recycleAfterFiles?: number;
         memoryLimit?: number;
+        allowUnboundedMemory?: boolean;
         preserveGlobals?: string[];
         esmGeneration?: boolean;
       };

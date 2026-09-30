@@ -147,7 +147,7 @@ export default defineConfig({
       diagnostics: false, // Enable verbose logging
       assetExts: [".lottie"], // Additional asset extensions to stub
       transform: [], // Extra native-engine packages to Flow/TS transform
-      hotRuntime: false, // Experimental persistent RN workers
+      hotRuntime: false, // false | 'auto' | HotRuntimeOptions
     }),
   ],
 });
@@ -162,7 +162,7 @@ export default defineConfig({
 | `diagnostics` | `boolean`                      | `false`     | Log plugin activity to the console for debugging.                                                                                                                                                                                                                                                          |
 | `assetExts`   | `string[]`                     | `[]`        | Additional file extensions to stub as asset imports (beyond the built-in set).                                                                                                                                                                                                                             |
 | `transform`   | `string[]`                     | `[]`        | **`engine: 'native'` only.** Extra `node_modules` packages whose source the native engine should transform (Flow/TS/JSX stripped) as it loads them — for third-party RN libraries that ship untranspiled source (e.g. `react-native-reanimated`). Analogous to Jest's `transformIgnorePatterns` allowlist. |
-| `hotRuntime`  | `boolean \| HotRuntimeOptions` | `false`     | **Experimental, `engine: 'native'` only.** Reuse workers while keeping app/test modules isolated per file. See [Hot runtime](#hot-runtime).                                                                                                                                                                |
+| `hotRuntime`  | `boolean \| 'auto' \| HotRuntimeOptions` | `false`     | **Experimental, `engine: 'native'` only.** Reuse workers while keeping app/test modules isolated per file. `'auto'` enables this only when the configuration is bounded and recyclable. See [Hot runtime](#hot-runtime).                                                                                     |
 
 ### `engine`
 
@@ -187,6 +187,12 @@ Choose how React Native is provided to your tests:
 reactNative({ engine: "native" });
 ```
 
+On the first cold run, the native engine compiles React Native's synchronous module graph into a
+factory registry in a short-lived, heap-bounded child process. The child exits before test workers
+start, so Babel's compilation heap does not become a permanent Vite-process RSS watermark. Later
+runs validate and reuse the cache in-process without launching the compiler. A failed optimization
+remains visible and falls back to the slower per-file loader without changing test results.
+
 #### Fidelity
 
 Jest's `react-native` preset replaces many real modules with stubs, so behavior they
@@ -206,7 +212,22 @@ the cross-check/fidelity harnesses in the repository's `bench/` directory.
 #### Hot runtime
 
 `engine: 'native'` normally uses Vitest's safest isolation model: each test file gets a fresh
-worker, so React Native reloads for every file. Large suites can opt into persistent workers:
+worker, so React Native reloads for every file. The conservative opt-in is automatic selection:
+
+```ts
+reactNative({
+  engine: "native",
+  hotRuntime: "auto",
+});
+```
+
+`'auto'` selects persistent workers only when the current scheduler provides recyclable task
+boundaries, the host/container memory plan admits at least two workers, no Jest compatibility
+plugin or setup marks the suite as migration-oriented, and no other pool was explicitly selected.
+The decision runs after other Vite config hooks, so a pool or setup contributed by a later plugin is
+included rather than producing a mixed runtime. Otherwise it keeps stock isolation and prints one
+line naming the reason. To require hot mode and fail closed when it cannot be bounded, use the
+explicit form:
 
 ```ts
 reactNative({
@@ -215,22 +236,26 @@ reactNative({
 });
 ```
 
-The hot runtime keeps React Native's externalized module graph resident while Vitest still resets
-the app/test module graph for every file. It also restores direct `process.env` mutations,
-file-created globals, RN event subscriptions, dimensions, timers, and plugin mock state between
-files. A dedicated one-worker CI test exercises this cross-file isolation contract.
+The hot runtime keeps React Native's precompiled factory registry and worker realm warm while
+resetting the registry's module instances and the app/test module graph for every file. An ordered
+state manifest also restores and verifies timers/Vitest stubs, direct `process.env` changes,
+process and RN listeners, complete global and console property descriptors, known RN state,
+ErrorUtils, Expo runtime state, and plugin boundary mocks. A mutation gate removes each of its
+eleven restore actions in turn and requires the cross-file isolation suite to fail by name.
 
-**Known limitation.** Because React Native stays resident, state held inside React Native's own
-internal modules is _not_ reset between files — the per-file reset deliberately does not reach into
-third-party or RN-internal module internals, because doing so generically is unsafe. Suites that
-lean on deep resident-RN-internal state can therefore see cross-file interference under the hot
-runtime that they would not see under the default per-file isolation. The clearest example is heavy
-cross-file `Animated` usage, where animations driven in one file can alter how a later file renders.
-The tell-tale sign is a test that passes in isolation but fails when run after other files; if you
-see that, move the affected suite (or the project) back to the default per-file isolation. This is
-why the hot runtime is opt-in and experimental rather than the default; closing the gap for all
-suites depends on a per-file module reset inside a persistent worker that Vitest does not yet
-provide.
+When hot is enabled, the plugin derives a worker-total memory plan from the lower of host and
+container/cgroup memory. It reserves main-process and replacement headroom, caps automatic
+concurrency at four, recycles workers on local heap or process RSS, and stops before starting more
+work at the hard RSS boundary. Run with `diagnostics: true` or `vitest-native doctor` to see the
+chosen envelope.
+
+**Known limitation.** No shared-realm sanitizer can generically discover arbitrary mutable state in
+every resident third-party singleton. The registry resets React Native's own in-memory module
+instances, and the manifest handles the supported runtime surfaces above; unknown process-wide
+state is still the library's or test fixture's responsibility. A test that passes alone but fails
+after another file is a correctness signal: use the default runtime for that suite and report the
+small reproduction. The hot runtime remains opt-in while its version matrix grows and while it
+depends on Vitest's custom worker APIs.
 
 For additional leak containment:
 
@@ -245,15 +270,19 @@ reactNative({
 });
 ```
 
-Recycling is applied between Vitest scheduler tasks. Vitest can place multiple files in one task,
-especially with `maxWorkers: 1`, so a worker cannot be retired in the middle of that batch. Use
-more than one worker when strict per-file retirement matters. `preserveGlobals` is an exact
-allowlist for registries created by resident external dependencies; Storybook's preview registry
-is preserved automatically.
+Recycling is applied between Vitest scheduler tasks. Current Vitest batches every file into one
+uninterruptible task at `maxWorkers: 1`, so the plugin fails that configuration rather than claim
+an inert memory bound. Use at least two workers or the default runtime. If an external scheduler
+already provides a hard boundary, you can deliberately accept the risk with
+`hotRuntime: { allowUnboundedMemory: true }`; this disables the automatic worker cap and
+process-RSS enforcement and prints a warning when the batch is observed. `preserveGlobals` is an
+exact allowlist for registries created by resident external dependencies; Storybook's preview
+registry is preserved automatically.
 
 This mode uses Vitest's custom pool and worker APIs, so it remains experimental. CI runs the
 complete native suite under both the lockfile Vitest and the newest supported Vitest release,
-plus a generated 100-file isolation soak and an end-to-end memory-triggered recycling test.
+plus a generated 100-file isolation soak, an end-to-end memory-triggered recycling test, and a
+packed auto-selection matrix covering enablement and every guarded fallback class.
 
 ---
 
@@ -617,9 +646,9 @@ export default defineConfig({
 });
 ```
 
-The experimental `reactNative({ hotRuntime: true })` also helps: it keeps React Native resident
-across files (loaded once per worker instead of per file) and recycles workers on a memory/file
-budget.
+The experimental `reactNative({ hotRuntime: true })` also helps: it keeps React Native's precompiled
+factory registry warm, resets its module instances from memory per file, and recycles workers on a
+memory/file budget.
 
 **`Vitest caught N unhandled errors` in error-boundary tests**
 A test that intentionally throws inside a component (to exercise an error boundary) makes React log
@@ -892,6 +921,7 @@ Every release must pass:
   on 0.81 and 0.87.
 - Packed bare RN 0.83/RNTL 12, Expo SDK 57/RNTL 13 (with expo-router and a `migrate`-generated
   jest-expo config), Vite 8 monorepo/RNTL 14, and RN 0.86 consumers.
+- Packed V8 and Istanbul coverage maps/counts matching default isolation exactly under hot workers.
 - Mock-versus-real-RN behavioral cross-checks, example-app tests, typecheck, lint, formatting, and
   package export analysis.
 

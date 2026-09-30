@@ -50,13 +50,18 @@ The mock engine covers [100% of React Native's stable public API](/api/coverage)
 
 Both engines share the same test API. You can mix them across suites in the same project.
 
+The native engine's first cold run compiles React Native's CommonJS graph into a factory registry
+inside a short-lived, heap-bounded child process. That process exits before test workers start,
+reclaiming Babel's compiler heap; warm runs validate and reuse the disk cache without spawning it.
+If compilation fails, the engine reports the slower per-file fallback and preserves correctness.
+
 ## Keeping the mock honest
 
 Because the mock is a reimplementation, it could drift from real RN behavior. A **CI-gated behavioral cross-check** runs the same assertions against both the mock and real RN across React Native 0.81–0.87, so divergences are caught before release. See [Comparison with Jest](/guide/comparison#the-cross-check) for how that trust mechanism works.
 
 ## Hot runtime (experimental)
 
-By default the native engine re-instantiates React Native for every test file (Vitest's standard per-file isolation). On large suites that per-file tax dominates the run. The opt-in **hot runtime** keeps React Native warm across files in a persistent worker while still resetting app/test modules and common process-wide pollution between files:
+By default the native engine uses Vitest's standard per-file worker isolation. On large suites that worker and module-loading tax dominates the run. The opt-in **hot runtime** keeps a precompiled React Native factory registry and worker realm warm while resetting RN module instances, app/test modules, and supported process-wide state between files:
 
 ```ts
 reactNative({ hotRuntime: true })
@@ -66,20 +71,22 @@ It uses Vitest's custom worker APIs and remains experimental.
 
 ### When it helps
 
-On large, render-heavy suites it removes most of the per-file React Native re-instantiation cost — in internal benchmarks roughly a 12× reduction in import/setup time at 100 files. The bigger the suite and the more of its time goes to loading React Native, the larger the win.
+On large, render-heavy suites it removes most filesystem, transform, compilation, and worker-start cost — in internal benchmarks roughly a 12× reduction in import/setup time at 100 files. The bigger the suite and the more of its time goes to loading React Native, the larger the win.
 
-### Known limitation: resident-state bleed
+### State restoration and its boundary
 
-Because React Native stays resident across files within a worker, **state held in React Native's own internal modules is not reset between files** — only app/test modules, listeners, globals, `process.env`, and `Dimensions`/`Appearance` are. The per-file reset deliberately does not reach into third-party or RN-internal module internals, because doing so generically is unsafe (it can unmount or corrupt state later files still depend on).
+Normal hot mode resets React Native's in-memory registry instances per file. An ordered state manifest then restores and verifies timers/Vitest stubs, native-boundary overrides, environment, process/RN listeners, global and console descriptors, known RN state, ErrorUtils, and the Expo compatibility runtime. CI mutation testing disables every restore action in turn and requires the isolation suite to fail by the responsible entry.
 
-In practice this means a suite that leans on **deep resident-RN-internal state** can see cross-file interference under the hot runtime that it would not see under the default per-file isolation. The clearest example is heavy `Animated` usage: animations driven in one file can mutate React Native's resident `Animated` bookkeeping in a way that alters how a later file renders, producing output a snapshot taken under the default engine won't match.
+This is not a promise to discover arbitrary mutable state in every resident third-party singleton. Unknown process-wide state remains the library's or fixture's responsibility.
 
 A tell-tale sign is **a test that passes in isolation but fails when run after other files**. If you see that under `hotRuntime: true`, move that suite (or the project) back to the default engine — correctness comes first.
 
-This is why the hot runtime is **opt-in and experimental, not the default**. It is best suited to large suites whose cost is dominated by loading React Native rather than by deep resident-RN-internal state. Closing the gap for all suites requires per-file module reset inside a persistent worker, which depends on an upstream Vitest capability that does not exist yet.
+The runtime is **opt-in and experimental** while the package grows its version matrix and still relies on Vitest's custom pool/worker APIs. The proposed upstream module-isolation primitive would remove those private seams; it is not required for the current correctness model.
 
 ### Worker recycling
 
-The hot runtime accumulates resident state as it processes files, so for very large runs you may want Vitest's worker recycling (`memoryLimit` / per-file recycle) to bound memory. Recycling only fires with **two or more workers** — in single-worker mode Vitest batches every file into one task and never recycles mid-task. The plugin prints a one-time warning if you set a recycle limit on a single-worker run so the inert setting isn't silently trusted; run with `maxWorkers >= 2` for recycling to take effect.
+The hot runtime automatically derives a worker-total budget from the lower of host and container/cgroup memory. It reserves main-process and replacement headroom, caps automatic concurrency at four, recycles workers on local heap or process RSS, and stops before starting more work at the hard RSS boundary. Use `diagnostics: true` or `vitest-native doctor` to inspect the plan.
+
+Recycling only fires with **two or more workers** under current Vitest. In single-worker mode Vitest batches every file into one task and never exposes a recycle boundary, so the plugin now fails that configuration instead of silently trusting an inert limit. Use `maxWorkers >= 2` or the default runtime. If an external scheduler already enforces the process boundary, `hotRuntime: { allowUnboundedMemory: true }` explicitly accepts the risk and disables the automatic worker cap and process-RSS enforcement.
 
 Next: [How It Works](/guide/how-it-works) explains what the plugin does under the hood.

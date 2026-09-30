@@ -110,12 +110,12 @@ try {
   writeTestFiles(longDirectory, 100, "long");
   writeTestFiles(recycleDirectory, 12, "recycle");
   writeTestFiles(inertDirectory, 8, "inert");
-  writeConfig("long.config.mts", "long", true, 1);
+  writeConfig("long.config.mts", "long", { allowUnboundedMemory: true }, 1);
   writeConfig("recycle.config.mts", "recycle", { memoryLimit: 1 }, 2);
   // Single worker (maxWorkers: 1) WITH a recycle limit set: Vitest batches all
-  // files into one task, so the limit can never fire. The pool must warn that
-  // recycling is inactive rather than leave the user with a silent false bound.
-  writeConfig("inert.config.mts", "inert", { memoryLimit: 1 }, 1);
+  // files into one task, so the limit can never fire. The explicit escape hatch
+  // must remain noisy rather than leave the user with a silent false bound.
+  writeConfig("inert.config.mts", "inert", { allowUnboundedMemory: true, memoryLimit: 1 }, 1);
 
   const longRun = runVitest("hot-runtime longevity soak", "long.config.mts");
   if (longRun.bootCount !== 1) {
@@ -146,9 +146,9 @@ try {
       `inert-recycle soak expected one worker boot (single worker can't recycle), observed ${inertRun.bootCount}`,
     );
   }
-  if (!/hotRuntime recycling .* is INACTIVE/.test(inertRun.output)) {
+  if (!/cannot recycle at file boundaries.*allowUnboundedMemory:true/s.test(inertRun.output)) {
     throw new Error(
-      "inert-recycle soak expected a warning that recycling is INACTIVE under single-worker batching, " +
+      "inert-recycle soak expected an explicit unbounded-memory warning under single-worker batching, " +
         "but none was printed (the pool's false-safety warning regressed).",
     );
   }
@@ -156,7 +156,7 @@ try {
   console.log(
     `\nHot-runtime soak passed: 100 files shared one worker in ${longRun.durationMs}ms; ` +
       `memory recycling produced ${recycleRun.bootCount} worker boots in ${recycleRun.durationMs}ms; ` +
-      `single-worker recycle limit warned as inactive.`,
+      `single-worker escape hatch warned that recycling is unavailable.`,
   );
 } finally {
   fs.rmSync(generatedRoot, { force: true, recursive: true });

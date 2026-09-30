@@ -230,10 +230,11 @@ describe("test entries are never externalized", () => {
     expect(inlines("/repo/packages/ui/src/button.tsx")).toBe(false);
   });
 
-  it("adds nothing when the project already inlines everything", () => {
-    // `deps.inline: true` is a valid Vitest setting. Merging a pattern list into it
-    // yields an array holding `true`, which Vitest calls `.test()` on:
-    // "ex.test is not a function", and no tests run at all.
+  it("keeps the low-level config shape valid when inline-all is reported", () => {
+    // The public plugin rejects this ownership-breaking combination before calling
+    // nativeEngineConfig. This lower-level gate still matters defensively: merging a
+    // pattern list into a boolean yields an array holding `true`, which Vitest calls
+    // `.test()` on before the actionable plugin error can survive composition.
     const config = nativeEngineConfig(
       "/setup.mjs",
       {},
@@ -247,6 +248,10 @@ describe("test entries are never externalized", () => {
       true,
     );
     expect(config.test.server.deps).not.toHaveProperty("inline");
+    expect(JSON.parse(config.test.env.VITEST_NATIVE_OWNERSHIP)).toMatchObject({
+      version: 1,
+      enforcement: "overridden-by-inline-all",
+    });
   });
 });
 
