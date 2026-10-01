@@ -42,6 +42,46 @@
 
 ### Patch Changes
 
+- 49975e0: Keep Vitest's own settings under `hotRuntime: 'auto'`, including CLI flags
+
+  - An explicit `test.isolate` (or `--isolate` / `--no-isolate`) is now a reason for `'auto'` to keep
+    Vitest's semantics instead of selecting the hot runtime: `true` gets a fresh worker per file,
+    `false` one module graph shared across files, as Vitest documents them.
+  - On Vitest 4, CLI flags such as `--maxWorkers=1`, `--no-file-parallelism`, `--pool` and
+    `--no-isolate` reach the resolved config only after plugins' config hooks run, so `'auto'` chose
+    the hot runtime without seeing them. `vitest run --maxWorkers=1` then failed with
+    `HOT_MEMORY_UNBOUNDED` and did not exit. The choice is now re-checked against the resolved config
+    before any worker starts, per project and on both Vitest majors: `'auto'` falls back to Vitest's
+    settings (including its worker count) and says so.
+  - An explicit `hotRuntime: true` no longer overrides a configured pool or `test.isolate` with a
+    warning, or a conflicting CLI flag silently: it fails at startup with `HOT_RUNTIME_OVERRIDDEN`.
+  - `--pool=vmThreads` / `--pool=vmForks` on the command line now fail with `UNSUPPORTED_POOL`, as
+    the same pools in the config already did.
+  - The engine banner names the hot runtime when it is in use, so a cross-file failure points at
+    `hotRuntime: false` from the first line of the log.
+
+- 49975e0: Fix inline `test.projects` on Vitest 5 running without vitest-native's setup
+
+  Vitest 5 lets an inline project (`projects: [{ extends: true, … }]`) share the declaring
+  config's Vite server and builds its `test` options from the raw user config, before any
+  plugin's `config` hook runs. Those projects lost everything vitest-native adds to `test` —
+  setup files, module ownership, env, the hot runtime — and their tests failed to load. The
+  plugin now pins each inline project's `root` to the root it inherits anyway, which makes Vitest
+  resolve it through the config file with the plugin, as on Vitest 4. This works in a nested
+  config too, where `test.sharedViteServer` (read only from the top-level config) cannot help. A
+  project that still reaches the run without the plugin's setup fails with `SHARED_VITE_SERVER`.
+
+- 49975e0: Fix React Native 0.87 failing to load in a project with no `node_modules` of its own
+
+  A project whose dependencies are hoisted to a parent directory — a monorepo package, or a Vitest
+  project rooted in a subdirectory — had its precompiled React Native registry cached in the OS
+  temp directory. Code in that registry resolved React Native's deep self-imports from the cache
+  file's location, which cannot see the install, and failed with "Cannot find module
+  'react-native/src/private/…'". The cache now lives under the project's own `node_modules`, or else the nearest
+  one above it that contains React Native, and resolution from the registry's own code starts at the
+  project, so a cache in the temp directory (a read-only `node_modules`, or macOS's symlinked `/var`)
+  works too.
+
 - 9ab8270: Report project-source ownership risks consistently for extensionless and platform-specific Node resolution. The warning now distinguishes resolution from proven execution or duplicate instances, and respects Node-owned, delegated and overridden ownership policies. Resolution warnings remain nonfatal.
 - 9ab8270: Bound the native hot runtime by effective host/container memory
 
