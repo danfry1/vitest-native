@@ -12,6 +12,8 @@ export default defineConfig({
   // (requireactual-alias.test.tsx).
   resolve: { alias: { "@vn-app": path.resolve(here, "fixtures/alias-app") } },
   test: {
+    // A temporary root per run, removed afterwards (see the file).
+    globalSetup: [path.resolve(here, "../tests/support/temp-root.global.ts")],
     globals: true,
     environment: "node",
     // jest-compat setup provides the `jest` global + the __vnInteropMock helper the
