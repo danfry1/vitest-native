@@ -96,7 +96,11 @@ export function expectCleanExcept(mockedHere: Mocked[]): void {
   expect(vi.isMockFunction(Alert.alert), "jest.spyOn on a React Native API").toBe(false);
   expect(vi.isMockFunction(console.error), "jest.spyOn on console").toBe(false);
   expect(vi.isFakeTimers(), "jest.useFakeTimers()").toBe(false);
-  expect(Date.now(), "jest.setSystemTime under fake timers").toBeGreaterThan(1_600_000_000_000);
+  // Against the real clock, not just "not frozen": a skewed restore fails too.
+  expect(
+    Math.abs(Date.now() - (performance.timeOrigin + performance.now())),
+    "jest.setSystemTime under fake timers",
+  ).toBeLessThan(60_000);
   expect((globalThis as Record<string, unknown>).__vnLeakedJestFn, "jest.fn on a global").toBe(
     undefined,
   );
