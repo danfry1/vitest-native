@@ -15,6 +15,8 @@ import { expect, vi } from "vitest";
 import { greet } from "../fixtures/greeter";
 import { readSetting } from "../fixtures/settings-store";
 import * as lib from "rn-singleton-lib";
+import * as ecosystemLib from "rn-ecosystem-lib";
+import { source as setupMockedSource } from "./fixtures/setup-mocked";
 import { compute } from "./fixtures/automocked";
 import { source } from "./fixtures/dir-mocked";
 import { value } from "./fixtures/runtime-mocked";
@@ -43,9 +45,34 @@ export function filesSeenByThisWorker(): number {
   return proc[FILES_SEEN];
 }
 
+// The lenient timer-advance guard jest-compat installs on `vi`, as first seen by this
+// worker: a later file seeing a different function means it was wrapped again.
+const FIRST_ADVANCE = Symbol.for("vitest-native.hot-jest-compat.first-advance");
+
+/** Assert the project setup file applied each of its effects exactly once here. */
+export function expectSetupAppliedOnce(): void {
+  expect(setupMockedSource(), "jest.mock of an app module in a setup file").toBe("mocked-by-setup");
+  expect(
+    (ecosystemLib as Record<string, unknown>).mockedBySetup,
+    "jest.mock of a Node-owned package in a setup file",
+  ).toBe(true);
+  (expect("setup") as unknown as { toBeTheSetupMatcher(): void }).toBeTheSetupMatcher();
+  expect(
+    (globalThis as Record<string, unknown>).__vnSetupRuns,
+    "a global the setup file increments (stacked if above 1)",
+  ).toBe(1);
+  expect(vi.isMockFunction(console.warn), "jest.spyOn(console) in a setup file").toBe(true);
+  const advance = vi.advanceTimersByTime;
+  proc[FIRST_ADVANCE] ??= advance as unknown as number;
+  expect(advance, "jest-compat's timer guard wrapped once per worker").toBe(
+    proc[FIRST_ADVANCE] as unknown,
+  );
+}
+
 /** Assert every surface this file did not mock itself is in its pristine state. */
 export function expectCleanExcept(mockedHere: Mocked[]): void {
   const mine = new Set(mockedHere);
+  expectSetupAppliedOnce();
   if (!mine.has("greeter")) expect(greet(), "jest.mock of an app module").toBe("real-hello");
   if (!mine.has("settings")) {
     expect(readSetting(), "jest.mock of an app module").toBe("real-setting");
@@ -58,6 +85,10 @@ export function expectCleanExcept(mockedHere: Mocked[]): void {
       jest.requireActual<Record<string, unknown>>("rn-singleton-lib").__vnPolluted,
       "jest.requireActual exports of a Node-owned package",
     ).toBe(undefined);
+    expect(
+      vi.isMockFunction(jest.requireActual<Record<string, unknown>>("rn-singleton-lib").markLoader),
+      "jest.spyOn on a Node-owned package's export",
+    ).toBe(false);
   }
   if (!mine.has("react-native")) {
     expect(Platform.OS, "jest.requireActual('react-native') override").toBe("ios");
@@ -65,6 +96,11 @@ export function expectCleanExcept(mockedHere: Mocked[]): void {
   expect(vi.isMockFunction(Alert.alert), "jest.spyOn on a React Native API").toBe(false);
   expect(vi.isMockFunction(console.error), "jest.spyOn on console").toBe(false);
   expect(vi.isFakeTimers(), "jest.useFakeTimers()").toBe(false);
+  // Against the real clock, not just "not frozen": a skewed restore fails too.
+  expect(
+    Math.abs(Date.now() - (performance.timeOrigin + performance.now())),
+    "jest.setSystemTime under fake timers",
+  ).toBeLessThan(60_000);
   expect((globalThis as Record<string, unknown>).__vnLeakedJestFn, "jest.fn on a global").toBe(
     undefined,
   );
@@ -99,7 +135,10 @@ export async function polluteEverything(mockedHere: Mocked[]): Promise<void> {
   jest.resetModules();
   if (!mockedHere.includes("lib")) {
     lib.configure("polluted");
-    jest.requireActual<Record<string, unknown>>("rn-singleton-lib").__vnPolluted = true;
+    const actual =
+      jest.requireActual<Record<string, (...args: unknown[]) => unknown>>("rn-singleton-lib");
+    (actual as Record<string, unknown>).__vnPolluted = true;
+    jest.spyOn(actual, "markLoader").mockImplementation(() => "spied");
   }
   jest.spyOn(Alert, "alert").mockImplementation(() => {});
   jest.spyOn(console, "error").mockImplementation(() => {});
@@ -108,4 +147,5 @@ export async function polluteEverything(mockedHere: Mocked[]): Promise<void> {
   // A short default timeout: the next file's async test fails if it survives.
   jest.setTimeout(5);
   jest.useFakeTimers();
+  jest.setSystemTime(0);
 }

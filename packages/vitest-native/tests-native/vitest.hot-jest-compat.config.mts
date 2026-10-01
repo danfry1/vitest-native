@@ -37,7 +37,11 @@ export default defineConfig(({ mode }) => {
       environment: "node",
       env: { VN_HOT_JEST_COMPAT_MODE: mode },
       globals: true,
-      setupFiles: [path.resolve(here, "../dist/jest-compat/setup.mjs")],
+      setupFiles: [
+        path.resolve(here, "../dist/jest-compat/setup.mjs"),
+        // The project's own setup, as a migrated suite has one.
+        path.resolve(here, "hot-jest-compat/setup/user-setup.ts"),
+      ],
       include: ["tests-native/hot-jest-compat/*.test.tsx"],
       fileParallelism: false,
       maxWorkers: 1,
