@@ -856,6 +856,54 @@ function hasSetupFile(setupFiles: unknown, file: string): boolean {
   );
 }
 
+type GroupedProject = {
+  name?: string;
+  config: {
+    name?: unknown;
+    maxWorkers?: unknown;
+    isolate?: unknown;
+    sequence?: { groupOrder?: unknown };
+  };
+};
+
+/**
+ * Why this project's worker count cannot coexist with another project's, or null.
+ * Vitest schedules projects that share a `sequence.groupOrder` (0 unless set) as one
+ * group, and throws when they resolve to different `maxWorkers` ("Projects … have
+ * different 'maxWorkers' but same 'sequence.groupOrder'", groupSpecs in Vitest 4 and
+ * 5). The hot runtime's memory plan caps workers (at most four), while a project
+ * beside it gets Vitest's default of one fewer than the CPUs, so a native project next
+ * to a mock or non-React-Native project failed on any machine with more than five
+ * cores. Mirrors Vitest's resolveMaxWorkers and its grouping, including the exemption
+ * for a single-worker isolated project in the default group.
+ */
+export function sharedGroupConflict(
+  self: GroupedProject,
+  others: readonly GroupedProject[],
+  root: { maxWorkers?: unknown; watch?: boolean },
+  cpus?: number,
+): string | null {
+  const order = (p: GroupedProject) => Number(p.config.sequence?.groupOrder ?? 0);
+  const workers = (p: GroupedProject) =>
+    (p.config.maxWorkers as number) ||
+    (root.maxWorkers as number) ||
+    vitestMaxWorkers(undefined, root.watch === true, cpus);
+  const ownGroup = (p: GroupedProject) =>
+    p.config.isolate === true && order(p) === 0 && p.config.maxWorkers === 1;
+  for (const other of others) {
+    if (other === self || ownGroup(other) || order(other) !== order(self)) continue;
+    if (workers(other) !== workers(self)) {
+      const name = String(other.name ?? other.config.name ?? "another project");
+      return (
+        `the project '${name}' is in the same sequence.groupOrder (${order(self)}) with ` +
+        `${workers(other)} workers to this project's ${workers(self)}, which Vitest rejects ` +
+        `(a distinct test.sequence.groupOrder runs them as separate groups)`
+      );
+    }
+  }
+  return null;
+}
+
 function isVmPool(pool: unknown): pool is "vmThreads" | "vmForks" {
   return pool === "vmThreads" || pool === "vmForks";
 }
@@ -2071,7 +2119,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // `config.cliOptions`. The vitest-semantics gate runs both and fails by name
         // if either moves.
         _cliOptions?: CliOptions;
-        config?: { cliOptions?: CliOptions; watch?: boolean };
+        config?: { cliOptions?: CliOptions; watch?: boolean; maxWorkers?: unknown };
+        projects?: readonly GroupedProject[];
       };
       project: {
         config: {
@@ -2104,12 +2153,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       if (nativeRoots.has(root) && isVmPool(cli.pool)) throw vmPoolUnsupported(cli.pool);
       const selection = hotSelections.get(root);
       if (!selection) return;
-      const reason = hotOverrideReason(
-        projectConfig,
-        cli,
-        selection.pool,
-        selection.singleWorkerAccepted,
-      );
+      const reason =
+        hotOverrideReason(projectConfig, cli, selection.pool, selection.singleWorkerAccepted) ??
+        sharedGroupConflict(project, vitest.projects ?? [], {
+          maxWorkers: vitest.config?.maxWorkers,
+          watch: vitest.config?.watch,
+        });
       if (reason === null) return;
       if (!hotRuntimeAuto) throw hotRuntimeOverridden(reason);
       projectConfig.pool = cli.pool ?? selection.userPool ?? "threads";

@@ -199,6 +199,13 @@ test("StyleSheet.flatten", async ({ bench }) => {
 });
 `,
   );
+  // A project without React Native, for a native project to sit beside.
+  write(
+    "plain/plain.test.mjs",
+    `import { expect, test } from "vitest";
+test("a project without React Native", () => expect(1 + 1).toBe(2));
+`,
+  );
   // A type test for --typecheck: React Native's own types, checked by tsc.
   write(
     "types/platform.test-d.ts",
@@ -685,6 +692,28 @@ try {
       },
       "isolated",
       (r) => r.status === 0,
+    ],
+    [
+      // Vitest throws when projects in one sequence.groupOrder resolve to different
+      // worker counts. Seven workers in both projects is a config stock Vitest accepts;
+      // the hot memory plan caps the native project (and the root it shares a config
+      // with) at four or fewer, so on any machine 'auto' must fall back rather than fail
+      // the whole run. Without a pinned count the conflict depends on the CPU count.
+      "a native project beside a plain project in one group",
+      {
+        test: {
+          maxWorkers: 7,
+          projects: [
+            { extends: true, test: { name: "native" } },
+            {
+              extends: false,
+              test: { name: "plain", include: ["plain/*.test.mjs"], maxWorkers: 7 },
+            },
+          ],
+        },
+      },
+      "isolated",
+      (r) => r.status === 0 && r.passed === all.total + 1,
     ],
     [
       "projects with the plugin in each",

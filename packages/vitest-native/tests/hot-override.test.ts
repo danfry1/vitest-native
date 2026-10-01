@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   hotOverrideReason,
   pinInlineProjectRoots,
+  sharedGroupConflict,
   vitestMaxWorkers,
   vitestRootOf,
 } from "../src/plugin.js";
@@ -94,5 +95,43 @@ describe("vitestRootOf", () => {
     expect(vitestRootOf({ root: "/a" })).toBe(path.resolve("/a"));
     expect(vitestRootOf({})).toBe(process.cwd());
     expect(vitestRootOf({ test: { root: "app" } })).toBe(path.resolve("app"));
+  });
+});
+
+// Vitest throws when projects in one sequence.groupOrder resolve to different worker
+// counts; a hot project capped by its memory plan must not create that mismatch.
+describe("sharedGroupConflict", () => {
+  const hot = { name: "native", config: { maxWorkers: 4 } };
+  const project = (name: string, config: Record<string, unknown> = {}) => ({ name, config });
+
+  it("names a project in the same group that resolves to a different worker count", () => {
+    // Unset resolves to Vitest's default: one fewer than the CPUs (9 of 10).
+    expect(sharedGroupConflict(hot, [hot, project("mock")], {}, 10)).toMatch(
+      /'mock' is in the same sequence.groupOrder \(0\) with 9 workers to this project's 4/,
+    );
+    expect(sharedGroupConflict(hot, [project("web", { maxWorkers: 2 })], {}, 10)).toMatch(/'web'/);
+    // The root config's worker count applies to a project that sets none.
+    expect(sharedGroupConflict(hot, [project("mock")], { maxWorkers: 6 }, 10)).toMatch(/6 workers/);
+  });
+
+  it("allows matching worker counts, separate groups, and Vitest's sequential exemption", () => {
+    expect(sharedGroupConflict(hot, [project("mock")], {}, 5)).toBe(null); // 5 CPUs → 4
+    expect(sharedGroupConflict(hot, [project("mock", { maxWorkers: 4 })], {}, 10)).toBe(null);
+    expect(
+      sharedGroupConflict(hot, [project("mock", { sequence: { groupOrder: 1 } })], {}, 10),
+    ).toBe(null);
+    expect(
+      sharedGroupConflict(
+        { name: "native", config: { maxWorkers: 4, sequence: { groupOrder: 2 } } },
+        [project("mock")],
+        {},
+        10,
+      ),
+    ).toBe(null);
+    // Vitest runs an isolated single-worker project in the default group on its own.
+    expect(
+      sharedGroupConflict(hot, [project("serial", { isolate: true, maxWorkers: 1 })], {}, 10),
+    ).toBe(null);
+    expect(sharedGroupConflict(hot, [hot], {}, 10)).toBe(null);
   });
 });
