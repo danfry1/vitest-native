@@ -1,11 +1,13 @@
-import { defineConfig, configDefaults } from 'vitest/config';
-import { reactNative } from './src/index.js';
+import { defineConfig, configDefaults } from "vitest/config";
+import { reactNative } from "./src/index.js";
 
 export default defineConfig({
   // Pinned to mock: this suite asserts mock-engine behavior. Diagnostics are
   // covered separately; keeping them off avoids repeating setup logs per worker.
   plugins: [reactNative({ engine: "mock" })],
   test: {
+    // A temporary root per run, removed afterwards (see the file).
+    globalSetup: ["./tests/support/temp-root.global.ts"],
     // The native-engine suite (tests-native/) runs under its own config via
     // `test:native`; never run it under the default mock engine. `.tmp-spike*`
     // are scratch spikes that ship with their own setup. `crosscheck/**` runs only
@@ -20,12 +22,12 @@ export default defineConfig({
     // not installed here, so globbing it into this suite fails to resolve them.
     exclude: [
       ...configDefaults.exclude,
-      'tests-native/**',
-      '.tmp-spike*/**',
-      'crosscheck/**',
-      'consumer-tests/**',
-      'validation/**',
-      'ecosystem-probe/**',
+      "tests-native/**",
+      ".tmp-spike*/**",
+      "crosscheck/**",
+      "consumer-tests/**",
+      "validation/**",
+      "ecosystem-probe/**",
     ],
   },
 });
