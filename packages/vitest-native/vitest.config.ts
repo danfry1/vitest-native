@@ -6,8 +6,9 @@ export default defineConfig({
   // covered separately; keeping them off avoids repeating setup logs per worker.
   plugins: [reactNative({ engine: "mock" })],
   test: {
-    // A temporary root per run, removed afterwards (see the file).
-    globalSetup: ["./tests/support/temp-root.global.ts"],
+    // A temporary root per run, removed afterwards; then React Native's registry,
+    // built once before any worker starts (see each file).
+    globalSetup: ["./tests/support/temp-root.global.ts", "./tests/support/registry-warm.global.ts"],
     // The native-engine suite (tests-native/) runs under its own config via
     // `test:native`; never run it under the default mock engine. `.tmp-spike*`
     // are scratch spikes that ship with their own setup. `crosscheck/**` runs only
