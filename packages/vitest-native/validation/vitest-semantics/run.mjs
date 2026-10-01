@@ -70,13 +70,22 @@ function setUp() {
         dependencies: {
           "@babel/core": "^7.29.7",
           "@react-native/babel-preset": "0.87.0",
+          "@types/react": "19.3.0",
           "@vitest/coverage-v8": vitestVersion,
+          "@vitest/ui": vitestVersion,
+          "happy-dom": "20.14.5",
+          jsdom: "29.1.1",
           react: "19.2.8",
           "react-native": "0.87.0",
+          typescript: "5.9.3",
           vite: "8.0.16",
           vitest: vitestVersion,
           "vitest-native": `file:${path.join(root, tarball)}`,
         },
+        // The jsdom rows exist for lru-cache 11.5.3's unpublished `react-native` build
+        // (see src/native/export-condition-recovery.mjs). Pinned under jsdom only, so the
+        // rows keep exercising that failure even after lru-cache fixes its package.
+        overrides: { jsdom: { "lru-cache": "11.5.3" } },
       },
       null,
       2,
@@ -154,6 +163,71 @@ test("flaky passes on a later attempt when VN_FLAKY_FILE is set", () => {
   expect(n).toBeGreaterThan(1);
 });
 `,
+  );
+  // Which test environment is in effect: the DOM exists exactly when the scenario
+  // asks for jsdom or happy-dom, alongside real React Native.
+  write(
+    "src/environment.test.mjs",
+    `import { expect, test } from "vitest";
+import { Platform } from "react-native";
+test("the configured environment is the one in effect", () => {
+  expect(typeof document).toBe(process.env.VN_EXPECT_DOM ? "object" : "undefined");
+  expect(Platform.OS).toBe("ios");
+});
+`,
+  );
+  // A benchmark over real React Native. Vitest 5 made `bench` a test-context fixture
+  // run in a dedicated `bench` project; Vitest 4 exports it from `vitest` directly.
+  const benchBody = `StyleSheet.flatten([{ a: 1 }, { b: Platform.OS }]);`;
+  const modeLine = `if (process.env.VN_MODE_FILE) fs.appendFileSync(process.env.VN_MODE_FILE, (typeof globalThis.__vitest_native_hot_reset === "function" ? "hot" : "isolated") + "\\n");`;
+  write(
+    "bench/flatten.bench.mjs",
+    vitestVersion.startsWith("4.")
+      ? `import fs from "node:fs";
+import { bench } from "vitest";
+import { Platform, StyleSheet } from "react-native";
+${modeLine}
+bench("StyleSheet.flatten", () => { ${benchBody} }, { iterations: 50, time: 20 });
+`
+      : `import fs from "node:fs";
+import { expect, test } from "vitest";
+import { Platform, StyleSheet } from "react-native";
+${modeLine}
+test("StyleSheet.flatten", async ({ bench }) => {
+  await bench("flatten", { iterations: 50, time: 20 }, () => { ${benchBody} }).run();
+  expect(Platform.OS).toBe("ios");
+});
+`,
+  );
+  // A type test for --typecheck: React Native's own types, checked by tsc.
+  write(
+    "types/platform.test-d.ts",
+    `import { expectTypeOf, test } from "vitest";
+import { Platform } from "react-native";
+test("React Native's types resolve under --typecheck", () => {
+  expectTypeOf(Platform.OS).toBeString();
+  expectTypeOf(Platform.select).toBeFunction();
+});
+`,
+  );
+  write(
+    "tsconfig.json",
+    `${JSON.stringify(
+      {
+        compilerOptions: {
+          strict: true,
+          module: "preserve",
+          moduleResolution: "bundler",
+          target: "es2022",
+          skipLibCheck: true,
+          noEmit: true,
+          types: [],
+        },
+        include: ["types"],
+      },
+      null,
+      2,
+    )}\n`,
   );
   write(
     "src/failing.test.mjs",
@@ -239,6 +313,8 @@ function runScenario({
   test = {},
   args = [],
   env = {},
+  // Vitest 4's `bench` command has its own reporters and rejects `--reporter=json`.
+  jsonReport = true,
   before = () => {},
   after = () => {},
 }) {
@@ -251,7 +327,13 @@ function runScenario({
   try {
     result = sh(
       process.execPath,
-      [vitestBin(), command, "--run", "--reporter=json", `--outputFile=${report}`, ...args],
+      [
+        vitestBin(),
+        command,
+        "--run",
+        ...(jsonReport ? ["--reporter=json", `--outputFile.json=${report}`] : []),
+        ...args,
+      ],
       root,
       {
         VN_PLUGIN: JSON.stringify(plugin),
@@ -365,7 +447,7 @@ async function watchScenario() {
 // --- matrix ------------------------------------------------------------------------------
 
 try {
-  const totalTests = 6 * 2 + 2;
+  const totalTests = 6 * 2 + 3;
   setUp();
   console.log(`vitest-native semantics gate (vitest ${vitestVersion}), fixture ${root}`);
 
@@ -529,6 +611,80 @@ try {
       { args: ["--config", "nested.config.mjs"], before: clearCaches },
       HOT,
       (r) => r.status === 0 && r.passed === 1,
+    ],
+    // Test environments. Vitest loads the environment in the worker under the
+    // `react-native` condition it forwards; jsdom's lru-cache names a react-native
+    // build it does not ship (see native/export-condition-recovery.mjs).
+    [
+      "environment: jsdom",
+      { test: { environment: "jsdom" }, env: { VN_EXPECT_DOM: "1" } },
+      HOT,
+      (r) => r.status === 0 && r.passed === all.total,
+    ],
+    [
+      "environment: jsdom without the hot runtime",
+      {
+        plugin: { hotRuntime: false },
+        test: { environment: "jsdom" },
+        env: { VN_EXPECT_DOM: "1" },
+      },
+      "isolated",
+      (r) => r.status === 0 && r.passed === all.total,
+    ],
+    [
+      // The mock engine adds the same condition, so it hit the same failure.
+      "environment: jsdom with the mock engine",
+      {
+        plugin: { engine: "mock" },
+        test: { environment: "jsdom" },
+        env: { VN_EXPECT_DOM: "1" },
+      },
+      "isolated",
+      (r) => r.status === 0 && r.passed === all.total,
+    ],
+    [
+      "environment: happy-dom",
+      { test: { environment: "happy-dom" }, env: { VN_EXPECT_DOM: "1" } },
+      HOT,
+      (r) => r.status === 0 && r.passed === all.total,
+    ],
+    [
+      "--typecheck runs type tests beside the runtime suite",
+      {
+        test: { typecheck: { include: ["types/**/*.test-d.ts"] } },
+        args: ["--typecheck"],
+      },
+      HOT,
+      (r) => r.status === 0 && r.passed === all.total + 1,
+    ],
+    [
+      // The report lands in each major's default place: `.vitest/` on Vitest 5 (the
+      // reporter's `outputDir`), `html/` on Vitest 4.
+      "--reporter=html writes the UI report",
+      {
+        args: ["--reporter=html"],
+        before: () => {
+          for (const dir of [".vitest", "html"]) {
+            fs.rmSync(path.join(root, dir), { recursive: true, force: true });
+          }
+        },
+      },
+      HOT,
+      (r) =>
+        r.status === 0 &&
+        [".vitest", "html"].some((dir) => fs.existsSync(path.join(root, dir, "index.html"))),
+    ],
+    [
+      // Benchmarks run on one worker on both majors, so 'auto' keeps Vitest's isolation
+      // ("hot runtime off: maxWorkers is 1").
+      "vitest bench over real React Native",
+      {
+        command: "bench",
+        jsonReport: false,
+        test: { benchmark: { include: ["bench/*.bench.mjs"] } },
+      },
+      "isolated",
+      (r) => r.status === 0,
     ],
     [
       "projects with the plugin in each",
