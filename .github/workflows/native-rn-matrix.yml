@@ -15,8 +15,9 @@ name: Native engine — Vitest × RN matrix
 #  • Vitest (columns). Vitest churn is what bit-rotted the predecessor plugin
 #    (vitest-community/vitest-react-native) — and the hot runtime rides Vitest's
 #    @experimental internals (vitest/worker, ThreadsPoolWorker, poolRunner), the
-#    most churn-prone surface we depend on. Every column is blocking, because the
-#    declared peer range (>=4 <6) promises every one of them: the lockfile
+#    most churn-prone surface we depend on. Every column is blocking — `RN matrix
+#    verdict` below is a required check — because the declared peer range (>=4 <6)
+#    promises every one of them: the lockfile
 #    version, the newest Vitest 4.x release, and Vitest 5. The Vitest 5 column
 #    runs on the RN range's two ends rather than all six rows — it varies the
 #    RUNNER, and the RN axis is already covered twelve ways by the other columns.
@@ -48,8 +49,34 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  # Docs-only pull requests skip the matrix, by the same rules as ci.yml
+  # (.github/scripts/classify-change.sh). The skip is a job condition, not an
+  # `on.pull_request.paths` filter: a workflow skipped by a path filter leaves its
+  # checks pending and blocks a required check, while a job skipped by a condition
+  # reports success (GitHub Docs, "Troubleshooting required status checks").
+  # Pushes to main always run in full: they seed the caches pull requests restore,
+  # and pages.yml publishes the fidelity matrix from the latest successful main run.
+  classify:
+    name: Classify change
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs-only: ${{ steps.docs.outputs.docs-only }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: docs
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: .github/scripts/classify-change.sh "$EVENT" "$BASE_SHA" "$HEAD_SHA"
+
   matrix:
     name: native+hot — vitest ${{ matrix.vitest }} × RN ${{ matrix.rn }}
+    needs: classify
+    if: needs.classify.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
     # Without a bound, a hung cell (e.g. a stuck hot-soak worker) burns the
     # 360-minute default. A healthy cell finishes well under 15 minutes.
@@ -165,3 +192,20 @@ jobs:
           path: packages/vitest-native/crosscheck/.out/report.json
           if-no-files-found: ignore
           retention-days: 30
+
+  # The one required check for this workflow, so branch protection does not list 16
+  # cell names that change whenever a row is added. Fails if any cell failed or was
+  # cancelled; passes when every cell succeeded or the matrix was skipped as
+  # docs-only. Same pattern as `CI verdict` in ci.yml.
+  verdict:
+    name: RN matrix verdict
+    needs: [classify, matrix]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$RESULTS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")' > /dev/null
