@@ -122,9 +122,16 @@ describe("recoverMissingReactNativeTarget", () => {
 
   it("uses the target Node would pick without react-native when that one is missing", () => {
     const { dir } = fakePackage(false);
-    expect(recoverMissingReactNativeTarget("lru-like", notFound(dir), conditions)).toBe(
-      path.join(dir, "dist/cjs/node/index.js"),
-    );
+    const expected = path.join(dir, "dist/cjs/node/index.js");
+    // Node 22.22 and 24 report the package directory; Node 20.19 and 22.13 its manifest.
+    expect(recoverMissingReactNativeTarget("lru-like", notFound(dir), conditions)).toBe(expected);
+    expect(
+      recoverMissingReactNativeTarget(
+        "lru-like",
+        notFound(path.join(dir, "package.json")),
+        conditions,
+      ),
+    ).toBe(expected);
   });
 
   it("handles scoped packages and subpath requests", () => {
