@@ -65,15 +65,14 @@ describe("expoTsconfigPaths", () => {
 
 describe("the plugin", () => {
   it("turns on resolve.tsconfigPaths for an Expo project, and leaves a user's choice", async () => {
-    // A real project root (this package's, so its peers resolve), seen as an Expo app.
-    const root = project({ "package.json": EXPO, "tsconfig.json": TSCONFIG });
-    for (const name of ["node_modules"]) {
-      fs.symlinkSync(
-        path.resolve(import.meta.dirname, "..", name),
-        path.join(root, name),
-        "junction",
-      );
-    }
+    // Inside this package's node_modules, so Node's own upward lookup finds the installed
+    // Vite (its major decides the option) without links that resolve differently per OS.
+    const cache = path.resolve(import.meta.dirname, "..", "node_modules", ".cache");
+    fs.mkdirSync(cache, { recursive: true });
+    const root = fs.mkdtempSync(path.join(cache, "vn-expo-paths-"));
+    roots.push(root);
+    fs.writeFileSync(path.join(root, "package.json"), EXPO);
+    fs.writeFileSync(path.join(root, "tsconfig.json"), TSCONFIG);
     const run = async (resolve?: object) => {
       const plugin = reactNative({ engine: "mock" }) as any;
       return plugin.config.handler.call(
