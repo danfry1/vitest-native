@@ -54,15 +54,16 @@
   - Recycling at real per-file task boundaries bounds the growth. The validated
     module-isolation prototype completed 406 files with a 96 MiB threshold, eight
     recycles, 679 MiB peak RSS and 54 MiB final worker heap.
-- **Migration suites are out of scope.** hot is _not_ clean for jest-compat
-  suites (the paper bake-off); that's a migration-tooling problem, separate from
-  the engine.
+- **Migration suites were out of scope at the time.** hot was not clean for
+  jest-compat suites. That changed on 2026-10-01: see Layer 3, "The migration
+  story", for the gate that now covers them and the leaks it found and fixed.
 - **Coverage attribution matches isolation.** A packed 40-file RN fixture produces
   byte-identical default/hot coverage maps and exact execution counts under both V8
   and Istanbul, including an uncovered-function negative control.
 
 So the question is no longer _whether_ hot is correct enough to default — it is —
-but _how_ to default it without the memory footgun or breaking migration suites.
+but _how_ to default it without the memory footgun or breaking migration suites
+(the latter settled by Layer 3's migration gate).
 
 ## Design principles
 
@@ -72,8 +73,8 @@ but _how_ to default it without the memory footgun or breaking migration suites.
 2. **Staged escalation.** Don't flip the global default for everyone in one step.
    Make hot _safe to enable_, then _auto-enable where provably safe_, then make
    that selector the default once its gates hold (Layer 3).
-3. **Honest fallbacks.** Where hot can't be made safe (single-worker large, or
-   jest-compat suites), fall back or warn — never pretend.
+3. **Honest fallbacks.** Where hot can't be made safe (single-worker large, an
+   explicit pool, a Vitest version mismatch), fall back or warn — never pretend.
 
 ## Layer 1 — Bounded hot (implemented)
 
@@ -157,8 +158,10 @@ originally set, and the package-owned evidence for each:
   partial, Node-owned and React Native clone-and-override `jest.mock`; runtime
   mocks (`doMock`, `setMock`, `dontMock`, `resetModules`); factory-less mocks via
   `__mocks__` and automock; spies, fake timers, `jest.setTimeout`, globals,
-  `process.env`, `requireActual` export mutation; and React Native Testing Library
-  trees left mounted. Building it found three hot-only leaks (a queued `doMock`, a
+  `process.env`, `requireActual` export mutation and spies on a Node-owned
+  package's exports; `jest.setSystemTime`; snapshot state; React Native Testing
+  Library trees left mounted; and a project setup file's top-level `jest.mock`s,
+  custom matcher, global and console spy, each applied exactly once per file. Building it found three hot-only leaks (a queued `doMock`, a
   resident RNTL's missing per-file cleanup, and the shim's relative-path anchoring),
   each fixed and mutation-tested. `tests-native/hot-user-setup` covers fake timers
   installed by a user setup file. External bake-off apps corroborate but are not the

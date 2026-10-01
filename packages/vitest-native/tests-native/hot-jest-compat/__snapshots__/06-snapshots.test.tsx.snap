@@ -1,0 +1,19 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`matches its own snapshots 1`] = `
+{
+  "file": "06",
+  "value": [
+    1,
+    2,
+    3,
+  ],
+}
+`;
+
+exports[`matches its own snapshots 2`] = `
+{
+  "file": "06",
+  "second": true,
+}
+`;

@@ -132,12 +132,20 @@ if (typeof vi.setTimeout !== "function") {
 // extends `vi` above) to match Jest's leniency — done on `vi` rather than a wrapper
 // so `globalThis.jest`, the `@jest/globals` shim (which exports `vi` as `jest`), and
 // direct `vi` usage stay the same object.
-const advanceTimersByTime = vi.advanceTimersByTime.bind(vi);
-const advanceTimersByTimeAsync = vi.advanceTimersByTimeAsync.bind(vi);
-vi.advanceTimersByTime = (...args) =>
-  vi.isFakeTimers() ? advanceTimersByTime(...args) : undefined;
-vi.advanceTimersByTimeAsync = async (...args) =>
-  vi.isFakeTimers() ? advanceTimersByTimeAsync(...args) : undefined;
+//
+// This file evaluates once per test file, and under the hot runtime `vi` survives
+// between files, so the guard is installed once: re-wrapping per file would grow a
+// chain of wrappers for as long as the worker lives.
+const LENIENT_ADVANCE = Symbol.for("vitest-native.jest-compat.lenient-advance");
+if (!vi.advanceTimersByTime[LENIENT_ADVANCE]) {
+  const advanceTimersByTime = vi.advanceTimersByTime.bind(vi);
+  const advanceTimersByTimeAsync = vi.advanceTimersByTimeAsync.bind(vi);
+  vi.advanceTimersByTime = (...args) =>
+    vi.isFakeTimers() ? advanceTimersByTime(...args) : undefined;
+  vi.advanceTimersByTimeAsync = async (...args) =>
+    vi.isFakeTimers() ? advanceTimersByTimeAsync(...args) : undefined;
+  vi.advanceTimersByTime[LENIENT_ADVANCE] = true;
+}
 
 // Jest APIs that DO have a Vitest equivalent, under a different name. Each of these
 // was missing, so a suite calling it hit `jest.X is not a function` — the bare
