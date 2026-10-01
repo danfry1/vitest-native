@@ -715,6 +715,21 @@ describe("plugin engine routing", () => {
     });
   });
 
+  it("preloads the export-condition recovery for both engines, after the user's execArgv", async () => {
+    for (const engine of ["native", "mock"] as const) {
+      const plugin = reactNative({ engine, hotRuntime: false }) as any;
+      const result = await plugin.config.handler.call(
+        {},
+        { root: projectRoot, test: { execArgv: ["--user-flag"] } },
+        SERVE_ENV,
+      );
+      const argv: string[] = result.test.execArgv;
+      expect(argv.at(-2), engine).toBe("--import");
+      expect(argv.at(-1), engine).toMatch(/native\/export-condition-recovery-preload\.mjs$/);
+      expect(fs.existsSync(new URL(argv.at(-1)!)), engine).toBe(true);
+    }
+  });
+
   it("gives inline projects their own server so the plugin reaches them", async () => {
     const plugin = reactNative({ engine: "native" }) as any;
     const config = { root: projectRoot, test: { projects: [{ extends: true }] } };

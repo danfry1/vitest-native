@@ -310,7 +310,8 @@ jobs:
       - name: Vitest semantics under the defaults (Vitest ${{ matrix.vitest }})
         # A packed project run the way Vitest users run it: config and CLI flags
         # (isolate, pool, workers, shard, retry, bail, related, coverage, projects, a
-        # project root below the install, a read-only node_modules) and watch mode.
+        # project root below the install, a read-only node_modules, the jsdom and
+        # happy-dom environments, --typecheck, the HTML reporter) and watch mode.
         # Each scenario asserts which runtime ran, Vitest's own outcome, and
         # cross-file isolation. An explicit Vitest setting must never be overridden.
         # One cell per Vitest major, so each runs in parallel with the other.
