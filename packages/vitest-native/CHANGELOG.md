@@ -2,6 +2,19 @@
 
 ## 0.14.0
 
+### Upgrading from 0.13
+
+- **The native engine reuses workers by default.** `hotRuntime` now defaults to `'auto'` (it was
+  `false`): workers are reused across test files, with React Native, the app and test modules, and
+  verified process state reset per file. It keeps Vitest's per-file isolation whenever the run cannot
+  be bounded, or when you set a pool or `test.isolate` yourself, in the config or on the command line.
+- **How to tell, and how to opt out.** When it is active, the startup banner names it, as in
+  `(platform ios, hot runtime)`. If a test passes on its own but fails alongside others, see
+  [troubleshooting](https://danfry1.github.io/vitest-native/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files);
+  `hotRuntime: false` restores per-file isolation.
+- **`hotRuntime: true` is stricter.** Combined with a configured pool, `test.isolate`, or a conflicting
+  CLI flag, it now fails at startup with `HOT_RUNTIME_OVERRIDDEN` instead of warning and overriding.
+
 ### Minor Changes
 
 - 87d8dd0: Use the hot runtime for suites migrated from Jest under `hotRuntime: 'auto'`
@@ -41,6 +54,18 @@
   extensions still apply and one warning names the gap. Default: `false`.
 
 ### Patch Changes
+
+- 0063f23: Fix `environment: 'jsdom'` failing to start any test worker
+
+  Vitest forwards the project's resolve conditions, including the `react-native` condition both
+  engines add, to each worker as Node `--conditions` flags. Vitest also loads the test environment
+  in that worker. jsdom depends on lru-cache, whose 11.5.3 export map names a `react-native`
+  CommonJS build it does not publish, so every worker failed with "Cannot find module
+  …/lru-cache/dist/commonjs/react-native/index.min.js". The plugin now preloads a resolver
+  recovery in each worker. When Node fails because a package's `react-native` export target does
+  not exist, the same export is resolved with the process's other conditions, as Node would
+  without `react-native`. Every other resolution is left exactly as Node makes it. jsdom and
+  happy-dom now work with both engines, with and without the hot runtime.
 
 - 49975e0: Keep Vitest's own settings under `hotRuntime: 'auto'`, including CLI flags
 
