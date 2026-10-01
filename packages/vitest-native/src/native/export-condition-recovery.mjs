@@ -20,6 +20,9 @@
 // It resolves the same export with the process's other conditions, as Node would
 // without `react-native`, and uses that file if it exists. Every other resolution,
 // successful or not, is left exactly as Node decided it.
+//
+// CommonJS `require` only, which is how Vitest loads jsdom. An ESM `import` under the
+// same condition is resolved by Node's ESM loader and is not recovered here.
 import fs from "node:fs";
 import Module from "node:module";
 import path from "node:path";
@@ -50,30 +53,50 @@ export function cjsConditionsWithout(
   return conditions;
 }
 
+// Node's resolvePackageTarget, for already-valid string targets: `undefined` means no
+// condition matched (keep looking), `null` means the subpath is excluded. In a
+// condition object the first matching key decides, even when its value is null; in an
+// array a null entry falls through to the next.
 function matchTarget(target, conditions) {
   if (typeof target === "string") return target;
   if (Array.isArray(target)) {
+    let excluded = false;
     for (const entry of target) {
       const match = matchTarget(entry, conditions);
-      if (match !== null) return match;
+      if (typeof match === "string") return match;
+      if (match === null) excluded = true;
     }
-    return null;
+    return excluded || target.length === 0 ? null : undefined;
   }
   if (target !== null && typeof target === "object") {
     for (const [key, value] of Object.entries(target)) {
       if (key === "default" || conditions.includes(key)) {
         const match = matchTarget(value, conditions);
-        if (match !== null) return match;
+        if (match !== undefined) return match;
       }
     }
+    return undefined;
   }
   return null;
 }
 
+// Node's patternKeyCompare: the longer base (up to and including `*`) wins, then the
+// longer key. Negative when `a` ranks first.
+function patternKeyCompare(a, b) {
+  const aStar = a.indexOf("*");
+  const bStar = b.indexOf("*");
+  const baseA = aStar === -1 ? a.length : aStar + 1;
+  const baseB = bStar === -1 ? b.length : bStar + 1;
+  if (baseA !== baseB) return baseB - baseA;
+  if (aStar === -1) return 1;
+  if (bStar === -1) return -1;
+  return b.length - a.length;
+}
+
 /**
  * The relative target a package's `exports` gives `subpath` ("." or "./x") under
- * `conditions`, or null. Covers the sugar forms, exact subpaths and single-`*`
- * patterns (longest matching prefix wins), as Node's PACKAGE_EXPORTS_RESOLVE does.
+ * `conditions`, or null when it gives none. Follows Node's PACKAGE_EXPORTS_RESOLVE:
+ * the sugar forms, exact subpaths, and single-`*` patterns ranked by patternKeyCompare.
  */
 export function exportTarget(exportsField, subpath, conditions) {
   if (exportsField === undefined || exportsField === null) return null;
@@ -84,26 +107,27 @@ export function exportTarget(exportsField, subpath, conditions) {
       ? { ".": exportsField }
       : exportsField;
   if (Object.hasOwn(map, subpath) && !subpath.includes("*")) {
-    return matchTarget(map[subpath], conditions);
+    return matchTarget(map[subpath], conditions) ?? null;
   }
-  let best = null;
+  let bestKey = "";
+  let bestMatch;
   for (const key of Object.keys(map)) {
     const star = key.indexOf("*");
-    if (star === -1 || key.indexOf("*", star + 1) !== -1) continue;
-    const prefix = key.slice(0, star);
-    const suffix = key.slice(star + 1);
+    if (star === -1 || key.lastIndexOf("*") !== star) continue;
+    const trailer = key.slice(star + 1);
     if (
+      subpath.startsWith(key.slice(0, star)) &&
       subpath.length >= key.length &&
-      subpath.startsWith(prefix) &&
-      subpath.endsWith(suffix) &&
-      (best === null || prefix.length > best.prefix.length)
+      subpath.endsWith(trailer) &&
+      patternKeyCompare(bestKey, key) > 0
     ) {
-      best = { key, prefix, match: subpath.slice(prefix.length, subpath.length - suffix.length) };
+      bestKey = key;
+      bestMatch = subpath.slice(star, subpath.length - trailer.length);
     }
   }
-  if (best === null) return null;
-  const target = matchTarget(map[best.key], conditions);
-  return target === null ? null : target.replaceAll("*", best.match);
+  if (bestMatch === undefined) return null;
+  const target = matchTarget(map[bestKey], conditions);
+  return typeof target === "string" ? target.replaceAll("*", bestMatch) : null;
 }
 
 function packageName(request) {
@@ -149,10 +173,13 @@ export function recoverMissingReactNativeTarget(
 const INSTALLED = Symbol.for("vitest-native.export-condition-recovery");
 
 export function installExportConditionRecovery() {
-  if (Module._resolveFilename[INSTALLED]) return;
+  // Marked on the process, not the function: later patches of _resolveFilename
+  // (native/hooks.mjs, module-reset.mjs) wrap this one.
+  if (globalThis[INSTALLED]) return;
+  globalThis[INSTALLED] = true;
   const conditions = cjsConditionsWithout(RN);
   const original = Module._resolveFilename;
-  const resolve = function (request, parent, ...rest) {
+  Module._resolveFilename = function (request, parent, ...rest) {
     try {
       return original.call(this, request, parent, ...rest);
     } catch (error) {
@@ -161,6 +188,4 @@ export function installExportConditionRecovery() {
       return file;
     }
   };
-  resolve[INSTALLED] = true;
-  Module._resolveFilename = resolve;
 }

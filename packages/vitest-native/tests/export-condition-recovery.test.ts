@@ -81,6 +81,23 @@ describe("exportTarget", () => {
     expect(exportTarget(map, "./features/a/b", [])).toBe("./src/features/a/b.js");
     expect(exportTarget(map, "./features/private/x", [])).toBe(null);
   });
+
+  it("breaks pattern ties as Node does: equal base, then the longer key", () => {
+    // Node's patternKeyCompare ranks "./*.js" ahead of "./*" whatever the key order.
+    expect(exportTarget({ "./*": "./any/*", "./*.js": "./js/*.js" }, "./a.js", [])).toBe(
+      "./js/a.js",
+    );
+    expect(exportTarget({ "./*.js": "./js/*.js", "./*": "./any/*" }, "./a.js", [])).toBe(
+      "./js/a.js",
+    );
+  });
+
+  it("treats null as an exclusion in a condition object and as a fall-through in an array", () => {
+    // Node stops at the first matching condition, even when its target is null.
+    expect(exportTarget({ node: null, default: "./d.js" }, ".", ["node"])).toBe(null);
+    expect(exportTarget([null, "./fallback.js"], ".", [])).toBe("./fallback.js");
+    expect(exportTarget([], ".", [])).toBe(null);
+  });
 });
 
 describe("cjsConditionsWithout", () => {
@@ -108,6 +125,27 @@ describe("recoverMissingReactNativeTarget", () => {
     expect(recoverMissingReactNativeTarget("lru-like", notFound(dir), conditions)).toBe(
       path.join(dir, "dist/cjs/node/index.js"),
     );
+  });
+
+  it("handles scoped packages and subpath requests", () => {
+    const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-export-recovery-"));
+    tmpDirs.push(root);
+    const dir = path.join(root, "node_modules", "@scope", "lib");
+    fs.mkdirSync(path.join(dir, "node"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "package.json"),
+      JSON.stringify({
+        name: "@scope/lib",
+        exports: {
+          "./sub/*": { "react-native": "./rn/*.js", node: "./node/*.js" },
+        },
+      }),
+    );
+    fs.writeFileSync(path.join(dir, "node", "x.js"), "");
+    expect(recoverMissingReactNativeTarget("@scope/lib/sub/x", notFound(dir), conditions)).toBe(
+      path.join(dir, "node", "x.js"),
+    );
+    expect(recoverMissingReactNativeTarget("@scope", notFound(dir), conditions)).toBe(null);
   });
 
   it("leaves every other failure as Node reported it", () => {
@@ -153,6 +191,28 @@ describe("the worker preload", () => {
     const result = run(true);
     expect(result.stderr).toBe("");
     expect(result.stdout).toBe("node build");
+  });
+
+  it("installs once per process, even after another patch wraps it", () => {
+    const recovery = pathToFileURL(path.join(HERE, "../src/native/export-condition-recovery.mjs"));
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `import Module from "node:module";
+         const { installExportConditionRecovery } = await import(${JSON.stringify(recovery.href)});
+         installExportConditionRecovery();
+         const inner = Module._resolveFilename;
+         Module._resolveFilename = function (...args) { return inner.apply(this, args); };
+         const outer = Module._resolveFilename;
+         installExportConditionRecovery();
+         process.stdout.write(String(Module._resolveFilename === outer));`,
+      ],
+      { encoding: "utf8" },
+    );
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe("true");
   });
 
   it("is what makes it load: without it Node fails on the missing file", () => {
