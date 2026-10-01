@@ -111,8 +111,11 @@ Same entry is needed when a `vi.mock('<lib>')` must intercept an otherwise-exter
 
 ### 2f. Jest config options
 `jest.config.js` keys (`setupFilesAfterEnv`, `moduleNameMapper`, `testEnvironment`, etc.) move to the
-Vitest config: `setupFiles`, `resolve.alias`, `test.environment: 'node'`. `jest.setTimeout(ms)` is a
-no-op under the shim (use `test.testTimeout` in config or per-test `{ timeout }`).
+Vitest config: `setupFiles`, `resolve.alias`, `test.environment: 'node'`. A suite on
+`testEnvironment: 'jsdom'` keeps it as `test.environment: 'jsdom'` (`'happy-dom'` works too): React
+Native renders there alongside the DOM, with either engine and with or without the hot runtime.
+`jest.setTimeout(ms)` is a no-op under the shim (use `test.testTimeout` in config or per-test
+`{ timeout }`).
 
 ---
 

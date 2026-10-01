@@ -43,7 +43,8 @@ versions are rejected rather than allowed to fail later inside private runner in
 6. Hot runtime against the default engine: file-for-file parity over a generated app-shaped corpus,
    and identical V8 and Istanbul coverage attribution.
 7. Vitest semantics under the defaults, on Vitest 5 and the Vitest 4 floor: config and CLI flags,
-   projects, and watch mode run as Vitest documents them, with cross-file isolation.
+   projects, watch mode, the jsdom and happy-dom environments, `--typecheck`, `vitest bench` and the
+   HTML (UI) reporter run as Vitest documents them, with cross-file isolation.
 8. Mock-versus-real-RN behavioral cross-check.
 9. Example app.
 10. `npm pack` followed by isolated installs of bare RN, Expo, monorepo, and current-RN consumers.

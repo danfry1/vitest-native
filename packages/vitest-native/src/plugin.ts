@@ -1084,6 +1084,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // Native-engine setup file (shipped verbatim as dist/native/setup.mjs; the src
   // tree mirrors that layout so both built and source resolution find it here).
   const nativeSetupPath = path.resolve(thisDir, "native/setup.mjs");
+  const EXPORT_RECOVERY_ARGV = [
+    "--import",
+    pathToFileURL(path.resolve(thisDir, "native/export-condition-recovery-preload.mjs")).href,
+  ];
   // Hot-runtime worker entry + runner (shipped verbatim alongside the setup file).
   const nativeWorkerPath = path.resolve(thisDir, "native/worker.mjs");
   const nativeRunnerPath = path.resolve(thisDir, "native/runner.mjs");
@@ -2041,11 +2045,18 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         );
         // Vitest reads `projects` after every config hook, so pinning in place reaches it.
         pinInlineProjectRoots((userConfig as { test?: unknown }).test, vitestRootOf(userConfig));
-        const setupFile = (result as { test?: { setupFiles?: unknown } } | undefined)?.test
-          ?.setupFiles;
-        if (Array.isArray(setupFile) && typeof setupFile[0] === "string") {
-          contributedSetup.set(vitestRootOf(userConfig), setupFile[0]);
+        const test = (
+          result as { test?: { setupFiles?: unknown; execArgv?: string[] } } | undefined
+        )?.test;
+        if (Array.isArray(test?.setupFiles) && typeof test.setupFiles[0] === "string") {
+          contributedSetup.set(vitestRootOf(userConfig), test.setupFiles[0]);
         }
+        // Both engines add `react-native` to the conditions Vitest forwards to every
+        // worker, where it also governs how Vitest loads the test environment. Preload
+        // the recovery for packages that name a `react-native` target they do not ship
+        // (see native/export-condition-recovery.mjs). Vite concatenates this with the
+        // user's own `test.execArgv`.
+        if (test) test.execArgv = [...(test.execArgv ?? []), ...EXPORT_RECOVERY_ARGV];
         return result;
       },
     },
