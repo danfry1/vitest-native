@@ -404,10 +404,10 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   const expo = packageVersion(rootFor("expo"), "expo");
   if (expo) {
     lines.push("", "Expo");
-    warn(
-      `expo ${expo} detected. Expo-module components work via the auto-detected preset; ` +
-        `suites that import Expo CORE internals (expo-router setups, dev-client wiring) can hit ` +
-        `known limits — see the Jest migration guide's Expo notes.`,
+    pass(
+      `expo ${expo} detected. Expo modules are covered by the auto-detected expo preset, and ` +
+        `expo-router's own testing library runs as written; coming from jest-expo, run ` +
+        `\`vitest-native migrate\`. See https://danfry1.github.io/vitest-native/guide/expo`,
     );
   }
 

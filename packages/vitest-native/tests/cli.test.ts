@@ -132,6 +132,18 @@ describe("doctor", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("points an Expo project at what works, not at a removed caveat", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "node_modules/expo/package.json": { name: "expo", version: "57.0.0", main: "index.js" },
+      "node_modules/expo/index.js": "module.exports = {};",
+    });
+    const output = runDoctor(root).lines.join("\n");
+    expect(output).toContain("✓ expo 57.0.0 detected");
+    expect(output).toContain("guide/expo");
+    expect(output).not.toContain("known limits");
+  });
+
   it("passes cleanly against this package's own environment", () => {
     // fileURLToPath, not URL.pathname: the latter yields "/C:/…" on Windows.
     const HERE = path.dirname(fileURLToPath(import.meta.url));
