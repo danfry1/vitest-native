@@ -34,7 +34,11 @@ jobs:
         with:
           fetch-depth: 0
       - id: docs
-        run: .github/scripts/classify-change.sh "${{ github.event_name }}" "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: .github/scripts/classify-change.sh "$EVENT" "$BASE_SHA" "$HEAD_SHA"
 
   changeset:
     name: Changeset for shipped changes
