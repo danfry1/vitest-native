@@ -167,8 +167,8 @@ export function nativeEngineConfig(
       // explicit `pool` — a project asking for `forks`, `vmThreads`, or its own
       // pool got `threads` with no warning. Only fill it in when the user left it
       // unset. (The hot runtime is different: it *is* a pool, so opting into
-      // `hotRuntime` selects it, and the plugin warns when that overrides a
-      // user-chosen pool.)
+      // `hotRuntime` selects it; a user-chosen pool makes 'auto' decline and an
+      // explicit hotRuntime fail with HOT_RUNTIME_OVERRIDDEN.)
       ...(hot
         ? {
             pool: hot.pool,

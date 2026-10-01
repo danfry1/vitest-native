@@ -279,6 +279,17 @@ jobs:
         if: runner.os == 'Linux' && matrix.node-version == '22.13.0' && !matrix.rntl
         run: bun run --filter vitest-native validate:hot-auto
 
+      - name: Vitest semantics under the defaults (Vitest 5 and the Vitest 4 floor)
+        # A packed project run the way Vitest users run it: config and CLI flags
+        # (isolate, pool, workers, shard, retry, bail, related, coverage, projects, a
+        # project root below the install, a read-only node_modules) and watch mode.
+        # Each scenario asserts which runtime ran, Vitest's own outcome, and
+        # cross-file isolation. An explicit Vitest setting must never be overridden.
+        if: runner.os == 'Linux' && matrix.node-version == '22.13.0' && !matrix.rntl
+        run: |
+          bun run --filter vitest-native validate:vitest-semantics
+          VN_SEMANTICS_VITEST=4.1.11 bun run --filter vitest-native validate:vitest-semantics
+
       - name: Bounded cold registry compilation
         # Compile the same real RN graph in the Vite parent and in the production
         # child, require artifact parity and a material persistent-RSS reduction,

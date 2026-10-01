@@ -69,15 +69,28 @@ export const TRANSFORM_CACHE_VERSION = 4;
  * node_modules is absent or unwritable.
  */
 export function cacheRootFor(projectRoot) {
-  const nm = path.join(projectRoot, "node_modules");
-  if (fs.existsSync(nm)) {
-    try {
-      const dir = path.join(nm, ".cache", "vitest-native");
-      fs.mkdirSync(dir, { recursive: true });
-      return dir;
-    } catch {
-      // Read-only node_modules (some CI sandboxes) — fall through to tmpdir.
+  // The project's own node_modules, else the nearest one above it that holds React
+  // Native: a project in a monorepo, or a Vitest project rooted in a subdirectory,
+  // often has none of its own — its dependencies are hoisted — and its cache belongs
+  // with the install it uses, not with an unrelated node_modules further up.
+  const start = path.resolve(projectRoot);
+  for (let dir = start; ; dir = path.dirname(dir)) {
+    const nm = path.join(dir, "node_modules");
+    const owns =
+      dir === start
+        ? fs.existsSync(nm)
+        : fs.existsSync(path.join(nm, "react-native", "package.json"));
+    if (owns) {
+      try {
+        const cache = path.join(nm, ".cache", "vitest-native");
+        fs.mkdirSync(cache, { recursive: true });
+        return cache;
+      } catch {
+        // Read-only node_modules (some CI sandboxes) — fall through to tmpdir.
+      }
+      break;
     }
+    if (path.dirname(dir) === dir) break;
   }
   const dir = path.join(os.tmpdir(), "vitest-native-cache");
   fs.mkdirSync(dir, { recursive: true });

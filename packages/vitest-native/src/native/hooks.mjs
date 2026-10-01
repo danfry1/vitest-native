@@ -341,8 +341,15 @@ export function installRequireHooks(
         // RN 0.87's exports map rejects the deep self-references its own Babel
         // preset emits (`react-native/src/private/…`); Metro resolves them via the
         // `react-native-legacy-deep-imports` condition. Mirror Metro by path.
+        // From the requiring file first, as Metro does; then from the project, for a
+        // parent outside the project's tree — the precompiled registry's cache file
+        // when the cache had to fall back to tmpdir.
         const fromDir = parent?.filename ? path.dirname(parent.filename) : projectRoot;
-        const deep = resolveDeepPackageFile(request, fromDir, platform, activeSourceExts);
+        const deep =
+          resolveDeepPackageFile(request, fromDir, platform, activeSourceExts) ??
+          (fromDir === projectRoot
+            ? null
+            : resolveDeepPackageFile(request, projectRoot, platform, activeSourceExts));
         if (deep === null) throw err;
         resolved = deep;
       }

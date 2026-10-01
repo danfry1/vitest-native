@@ -38,6 +38,39 @@ describe("cacheRootFor", () => {
     }
   });
 
+  it("uses the nearest node_modules above a project that has none of its own", () => {
+    // A hoisted monorepo package, or a Vitest project rooted in a subdirectory. Its
+    // cache belongs with the install it uses: in tmpdir, outside the project, the
+    // precompiled registry could not resolve React Native's deep self-imports.
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vn-cacheroot-"));
+    try {
+      fs.mkdirSync(path.join(tmp, "node_modules", "react-native"), { recursive: true });
+      fs.writeFileSync(path.join(tmp, "node_modules", "react-native", "package.json"), "{}");
+      // A node_modules in between that holds something else is not the install.
+      fs.mkdirSync(path.join(tmp, "packages", "node_modules"), { recursive: true });
+      const project = path.join(tmp, "packages", "app");
+      fs.mkdirSync(project, { recursive: true });
+      expect(cacheRootFor(project)).toBe(path.join(tmp, "node_modules", ".cache", "vitest-native"));
+      expect(fs.existsSync(path.join(project, "node_modules"))).toBe(false);
+      expect(fs.existsSync(path.join(tmp, "packages", "node_modules", ".cache"))).toBe(false);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("does not adopt an ancestor node_modules without React Native", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vn-cacheroot-"));
+    try {
+      fs.mkdirSync(path.join(tmp, "node_modules"));
+      const project = path.join(tmp, "app");
+      fs.mkdirSync(project);
+      expect(cacheRootFor(project)).toBe(path.join(os.tmpdir(), "vitest-native-cache"));
+      expect(fs.existsSync(path.join(tmp, "node_modules", ".cache"))).toBe(false);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   it("falls back to tmpdir when node_modules is absent", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vn-cacheroot-"));
     try {

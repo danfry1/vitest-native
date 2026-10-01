@@ -609,6 +609,18 @@ describe("plugin engine routing", () => {
         pool: "threads",
       },
       {
+        label: "explicit isolate: true",
+        config: { root: projectRoot, test: { maxWorkers: 2, isolate: true } },
+        reason: /test\.isolate is explicitly true/,
+        pool: "threads",
+      },
+      {
+        label: "explicit isolate: false",
+        config: { root: projectRoot, test: { maxWorkers: 2, isolate: false } },
+        reason: /test\.isolate is explicitly false/,
+        pool: "threads",
+      },
+      {
         label: "explicit forks pool",
         config: { root: projectRoot, test: { maxWorkers: 2, pool: "forks" } },
         reason: /'forks' is explicitly configured/,
@@ -703,6 +715,168 @@ describe("plugin engine routing", () => {
     });
   });
 
+  it("gives inline projects their own server so the plugin reaches them", async () => {
+    const plugin = reactNative({ engine: "native" }) as any;
+    const config = { root: projectRoot, test: { projects: [{ extends: true }] } };
+    const result = await plugin.config.handler.call({}, config, SERVE_ENV);
+    expect(config.test.projects).toEqual([{ extends: true, root: projectRoot }]);
+    expect(result.test.setupFiles.length).toBeGreaterThan(0);
+  });
+
+  it("explicit hotRuntime fails on a Vitest setting it cannot honour", async () => {
+    // 'auto' falls back to these (above); an explicit request must not be silently
+    // rewritten in either direction.
+    for (const test of [{ pool: "forks" }, { isolate: true }, { isolate: false }]) {
+      const plugin = reactNative({ engine: "native", hotRuntime: true }) as any;
+      await expect(
+        runPluginConfig(plugin, { root: projectRoot, test: { maxWorkers: 2, ...test } }, SERVE_ENV),
+        JSON.stringify(test),
+      ).rejects.toThrow(/HOT_RUNTIME_OVERRIDDEN|cannot honour/);
+    }
+  });
+
+  describe("configureVitest: reconciling CLI flags Vitest applied after config()", () => {
+    async function hotProject(hotRuntime: unknown, root = projectRoot, test = {}) {
+      const plugin = reactNative({ engine: "native", hotRuntime } as any) as any;
+      const cfg = await runPluginConfig(
+        plugin,
+        { root, test: { maxWorkers: 3, ...test } },
+        SERVE_ENV,
+      );
+      const config = { root, ...cfg.test, pool: "vitest-native" };
+      return { plugin, config };
+    }
+    const quiet = () => vi.spyOn(console, "error").mockImplementation(() => {});
+    // Vitest applies CLI flags to the resolved config and also keeps them on their own.
+    const run = (plugin: any, config: any, cli: Record<string, unknown>, v5 = false) => {
+      Object.assign(config, cli);
+      const vitest = v5 ? { config: { cliOptions: cli } } : { _cliOptions: cli };
+      plugin.configureVitest({ vitest, project: { config } });
+    };
+
+    it("keeps hot when nothing overrode it", async () => {
+      const { plugin, config } = await hotProject("auto");
+      plugin.configureVitest({ vitest: { config: { cliOptions: {} } }, project: { config } });
+      expect(config.pool).toBe("vitest-native");
+      expect(config.isolate).toBe(false);
+    });
+
+    it("reads Vitest 5's config.cliOptions as well as Vitest 4's _cliOptions", async () => {
+      const err = quiet();
+      for (const v5 of [false, true]) {
+        const { plugin, config } = await hotProject("auto");
+        run(plugin, config, { isolate: false }, v5);
+        expect(config.pool, `v5=${v5}`).toBe("threads");
+        expect(config.isolate).toBe(false);
+        expect(config.runner).toBeUndefined();
+        expect(config.env.VITEST_NATIVE_MEMORY_PLAN).toBeUndefined();
+      }
+      expect(err).toHaveBeenCalledWith(expect.stringMatching(/hot runtime off: --no-isolate/));
+      err.mockRestore();
+    });
+
+    it("gives back the worker count the memory plan may have capped", async () => {
+      const err = quiet();
+      const { plugin, config } = await hotProject("auto");
+      config.maxWorkers = 2; // as the memory plan may have capped it
+      run(plugin, config, { pool: "forks" });
+      expect(config.isolate).toBe(true);
+      expect(config.maxWorkers).toBe(3);
+
+      // An explicit --maxWorkers is Vitest's to apply, and already has been.
+      const flagged = await hotProject("auto");
+      run(flagged.plugin, flagged.config, { maxWorkers: 1 });
+      expect(flagged.config.pool).toBe("threads");
+      expect(flagged.config.maxWorkers).toBe(1);
+      err.mockRestore();
+    });
+
+    it("fails an explicit hotRuntime overridden on the command line", async () => {
+      for (const [cli, reason] of [
+        [{ pool: "forks" }, /the pool 'forks' was set/],
+        [{ isolate: false }, /--no-isolate was passed/],
+        [{ maxWorkers: 1 }, /maxWorkers is 1/],
+      ] as const) {
+        const { plugin, config } = await hotProject(true);
+        expect(() => run(plugin, config, cli)).toThrow(reason);
+      }
+    });
+
+    it("refuses a VM pool passed on the command line, hot or not", async () => {
+      for (const hotRuntime of ["auto", false]) {
+        const { plugin, config } = await hotProject(hotRuntime);
+        expect(() => run(plugin, config, { pool: "vmThreads" }), String(hotRuntime)).toThrow(
+          /cannot run on the 'vmThreads' pool/,
+        );
+      }
+      // The mock engine needs no module hooks and runs on a VM pool.
+      const mock = reactNative({ engine: "mock" }) as any;
+      const config = { root: projectRoot, pool: "vmThreads" };
+      expect(() =>
+        mock.configureVitest({
+          vitest: { _cliOptions: { pool: "vmThreads" } },
+          project: { config },
+        }),
+      ).not.toThrow();
+    });
+
+    it("fails by name when a project shares a server without the plugin's setup", async () => {
+      const { plugin, config } = await hotProject("auto");
+      expect(() => run(plugin, { ...config, setupFiles: [] }, {})).toThrow(
+        /SHARED_VITE_SERVER|shares a Vite server/,
+      );
+      // The project that does carry it runs.
+      expect(() => run(plugin, config, {})).not.toThrow();
+    });
+
+    it("keys projects by Vitest's root, which test.root overrides", async () => {
+      const err = quiet();
+      const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
+      const testRoot = path.join(projectRoot, "tests");
+      const cfg = await runPluginConfig(
+        plugin,
+        { root: projectRoot, test: { root: testRoot, maxWorkers: 2 } },
+        SERVE_ENV,
+      );
+      const config = { ...cfg.test, root: testRoot, pool: "vitest-native" };
+      run(plugin, config, { pool: "forks" });
+      expect(config.isolate).toBe(true);
+      err.mockRestore();
+    });
+
+    it("leaves an unset project worker count to the root config", async () => {
+      const err = quiet();
+      const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
+      const cfg = await runPluginConfig(plugin, { root: projectRoot }, SERVE_ENV);
+      const config = { root: projectRoot, ...cfg.test, pool: "vitest-native" };
+      Object.assign(config, { pool: "forks" });
+      plugin.configureVitest({
+        vitest: { _cliOptions: { pool: "forks" }, config: { maxWorkers: 2 } },
+        project: { config },
+      });
+      expect(config.maxWorkers).toBeUndefined();
+      err.mockRestore();
+    });
+
+    it("decides per project when projects share the plugin instance", async () => {
+      // `extends: true` projects inherit the root's plugin instance, so one
+      // configureVitest call must not decide for the others.
+      const err = quiet();
+      const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
+      const roots = [projectRoot, path.join(projectRoot, "tests")];
+      const configs = [];
+      for (const root of roots) {
+        const cfg = await runPluginConfig(plugin, { root, test: { maxWorkers: 2 } }, SERVE_ENV);
+        configs.push({ root, ...cfg.test, pool: "vitest-native" });
+      }
+      for (const config of configs) run(plugin, config, { pool: "forks" });
+      // The flag lands in every project; only the revert restores per-file isolation.
+      expect(configs.map((c) => c.isolate)).toEqual([true, true]);
+      expect(configs.map((c) => c.runner)).toEqual([undefined, undefined]);
+      err.mockRestore();
+    });
+  });
+
   it("hotRuntime object form wires recycling policy into the pool worker", async () => {
     const plugin = reactNative({
       engine: "native",
@@ -767,6 +941,29 @@ describe("engine-selection notices", () => {
     expect(banners).toHaveLength(1);
     expect(String(banners[0][0])).toContain("engine: native — real react-native");
     log.mockRestore();
+    err.mockRestore();
+  });
+
+  it("the native banner names the hot runtime when it is selected, and only then", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const banner = () =>
+      String(err.mock.calls.find((c) => String(c[0]).includes("engine:"))?.[0] ?? "");
+
+    await runPluginConfig(
+      reactNative({ engine: "native" }) as any,
+      { root: projectRoot },
+      SERVE_ENV,
+    );
+    expect(banner()).toMatch(/\(platform ios, hot runtime\)$/);
+
+    resetBanner();
+    err.mockClear();
+    await runPluginConfig(
+      reactNative({ engine: "native" }) as any,
+      { root: projectRoot, test: { isolate: true } },
+      SERVE_ENV,
+    );
+    expect(banner()).toMatch(/\(platform ios\)$/);
     err.mockRestore();
   });
 

@@ -41,6 +41,16 @@ reactNative({ transform: ['some-untranspiled-lib'] })
 
 Under `engine: 'native'`, real React Native renders **real host component names** (`RCTText`, `RCTView`, `RCTScrollView`), whereas `@react-native/jest-preset` snapshots show mock names (`Text`, `View`). Run once with `vitest run -u` to re-record. Prefer explicit queries over large snapshots — they're robust across host names. See [Migrating from Jest](/migration/from-jest#re-record-snapshots).
 
+## A test passes on its own but fails when run with other files
+
+The engine banner says `hot runtime` when the native engine is reusing workers across files (the default wherever the run can be bounded). The hot runtime resets app/test modules, mocks, timers and a verified list of process-wide state between files, but a library that keeps state somewhere else can carry it into the next file. To confirm, run with per-file isolation:
+
+```ts
+reactNative({ hotRuntime: false })
+```
+
+If the failure goes away, keep `hotRuntime: false` for that project and please [open an issue](https://github.com/danfry1/vitest-native/issues) with the library involved — the hot runtime's isolation is meant to match per-file isolation, and a case where it does not is a bug. Setting `test.isolate` explicitly in your Vitest config also keeps Vitest's own isolation.
+
 ## Still stuck?
 
 If something that worked under Jest or the old `vitest-react-native` plugin doesn't work here, [open an issue](https://github.com/danfry1/vitest-native/issues) — parity is a goal, and the cross-check corpus is how we prove it.
