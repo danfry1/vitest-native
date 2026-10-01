@@ -2,6 +2,7 @@ import type { Plugin, UserConfig } from "vite";
 import type { PoolRunnerInitializer } from "vitest/node";
 import type { VitestNativeOptions, ResolvedOptions, Preset } from "./types.js";
 import { getConfiguredPlatformExtensions, getPlatformExtensions } from "./resolve.js";
+import { existsExact } from "./native/resolve.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
@@ -1059,6 +1060,47 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // Vite and Node must land on the same file for a package, or it exists twice with
   // separate module-level state. Cached: resolveId runs for every import.
   const alignedCache = new Map<string, string | null>();
+  // Extensionless relative imports, shared by both engines (see the comment inside).
+  const resolveExtensionless = (source: string, importer?: string): string | undefined => {
+    // Extensionless relative imports, resolved as Metro does: platform extensions in
+    // priority order, and file names matched exactly. Many RN-ecosystem packages use
+    // them internally (e.g. './utils' meaning './utils.js'), where Vite does not apply
+    // resolve.extensions at all. In the project's own files Vite does, but by asking the
+    // filesystem, and macOS and Windows answer case-insensitively: the React Native
+    // template's `import App from '../App'` resolved to its `app.json`, because Metro's
+    // extension order tries `.json` before `.tsx` (see existsExact).
+    if (importer && path.isAbsolute(importer) && source.startsWith(".") && !path.extname(source)) {
+      const cacheKey = `${importer}\0${source}`;
+      const cached = resolveCache.get(cacheKey);
+      if (cached !== undefined) return cached;
+
+      const importerDir = path.dirname(importer);
+      const absolute = path.resolve(importerDir, source);
+
+      // Try as a file with extensions
+      for (const ext of extensions) {
+        const candidate = absolute + ext;
+        if (existsExact(candidate)) {
+          resolveCache.set(cacheKey, candidate);
+          return candidate;
+        }
+      }
+
+      // Try as a directory with index file
+      for (const ext of extensions) {
+        const candidate = path.join(absolute, `index${ext}`);
+        if (existsExact(candidate)) {
+          resolveCache.set(cacheKey, candidate);
+          return candidate;
+        }
+      }
+
+      // Cache misses too to avoid re-scanning the filesystem.
+      resolveCache.set(cacheKey, undefined);
+    }
+    return undefined;
+  };
+
   const alignedResolution = (source: string, importer?: string): string | undefined => {
     if (engine !== "native") return undefined;
     // Resolve from the importer when there is one. Under pnpm and nested
@@ -1806,7 +1848,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         }
         const presetHit = resolvePresetId(source);
         if (presetHit) return presetHit;
-        return alignedResolution(source, importer);
+        return resolveExtensionless(source, importer) ?? alignedResolution(source, importer);
       }
 
       // Redirect react-native root import to a virtual module.
@@ -1832,44 +1874,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       }
 
       // Layer 1: Metro-compatible extensionless resolution for node_modules.
-      // Many RN-ecosystem packages use extensionless imports internally
-      // (e.g. './utils' meaning './utils.js'). Metro resolves these natively,
-      // but Vite doesn't apply resolve.extensions inside node_modules.
-      // Try appending platform extensions in priority order.
-      if (
-        importer &&
-        importer.includes("node_modules") &&
-        source.startsWith(".") &&
-        !path.extname(source)
-      ) {
-        const cacheKey = `${importer}\0${source}`;
-        const cached = resolveCache.get(cacheKey);
-        if (cached !== undefined) return cached;
-
-        const importerDir = path.dirname(importer);
-        const absolute = path.resolve(importerDir, source);
-
-        // Try as a file with extensions
-        for (const ext of extensions) {
-          const candidate = absolute + ext;
-          if (fs.existsSync(candidate)) {
-            resolveCache.set(cacheKey, candidate);
-            return candidate;
-          }
-        }
-
-        // Try as a directory with index file
-        for (const ext of extensions) {
-          const candidate = path.join(absolute, `index${ext}`);
-          if (fs.existsSync(candidate)) {
-            resolveCache.set(cacheKey, candidate);
-            return candidate;
-          }
-        }
-
-        // Cache misses too to avoid re-scanning the filesystem.
-        resolveCache.set(cacheKey, undefined);
-      }
+      const extensionless = resolveExtensionless(source, importer);
+      if (extensionless !== undefined) return extensionless;
 
       return undefined;
     },

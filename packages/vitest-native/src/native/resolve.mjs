@@ -40,6 +40,26 @@ export function extensionsFor(platform, sourceExts = METRO_SOURCE_EXTS) {
   return exts;
 }
 
+/**
+ * Whether `file` exists under exactly this name.
+ *
+ * macOS and Windows disks are case-insensitive by default, so `fs.existsSync("App.json")`
+ * is true when only `app.json` exists. Resolving `./App` in extension order (Metro's: js,
+ * jsx, json, ts, tsx) then picks the React Native template's `app.json` over its `App.tsx`,
+ * and the template's own test renders `{ name, displayName }`. Metro resolves from a
+ * case-sensitive file map, as does Linux, which is why neither Metro nor CI saw it. The
+ * directory listing has the real names. Checked for the file's own name: the case the
+ * template hits, and one `readdir` per hit, which the resolution caches absorb.
+ */
+export function existsExact(file) {
+  if (!fs.existsSync(file)) return false;
+  try {
+    return fs.readdirSync(path.dirname(file)).includes(path.basename(file));
+  } catch {
+    return true; // An unreadable directory keeps the filesystem's verdict.
+  }
+}
+
 // Per-worker cache: platform + ordered sourceExts + absolute base → path | null.
 // Platform resolution is deterministic for a given on-disk layout, and Node's own
 // module cache already dedupes most re-resolution; this dedupes the rest (distinct
@@ -66,11 +86,11 @@ export function resolvePlatformFile(absBase, platform = "ios", sourceExts = METR
 function scanPlatformFile(absBase, platform, sourceExts) {
   const extensions = extensionsFor(platform, sourceExts);
   for (const ext of extensions) {
-    if (fs.existsSync(absBase + ext)) return absBase + ext;
+    if (existsExact(absBase + ext)) return absBase + ext;
   }
   for (const ext of extensions) {
     const idx = path.join(absBase, "index" + ext);
-    if (fs.existsSync(idx)) return idx;
+    if (existsExact(idx)) return idx;
   }
   return null;
 }

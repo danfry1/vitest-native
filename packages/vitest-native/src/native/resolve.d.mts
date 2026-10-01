@@ -31,3 +31,9 @@ export declare function resolveDeepPackageFile(
   platform: "ios" | "android",
   sourceExts?: readonly string[],
 ): string | null;
+
+/**
+ * Whether `file` exists under exactly this name, which a case-insensitive disk (macOS,
+ * Windows) does not answer by itself.
+ */
+export declare function existsExact(file: string): boolean;
