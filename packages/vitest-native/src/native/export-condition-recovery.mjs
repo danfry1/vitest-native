@@ -8,9 +8,10 @@
 // environment outside the conditioned module registry; Vitest cannot.
 //
 // That is harmless until a package's export map names a `react-native` target it does
-// not ship. lru-cache 11.4.0 onwards maps `require` + `react-native` to
-// dist/commonjs/react-native/index.min.js and publishes no such file; jsdom depends on
-// it, so `environment: 'jsdom'` failed to start any worker ("Cannot find module
+// not ship. lru-cache 11.5.3 (2026-09-18; earlier releases have no `react-native`
+// condition) maps `require` + `react-native` to dist/commonjs/react-native/index.min.js
+// and publishes no such file; jsdom depends on lru-cache ^11.3.5, so a fresh install
+// gets it and `environment: 'jsdom'` failed to start any worker ("Cannot find module
 // …/lru-cache/dist/commonjs/react-native/index.min.js").
 //
 // The preload (export-condition-recovery-preload.mjs, `--import`ed from

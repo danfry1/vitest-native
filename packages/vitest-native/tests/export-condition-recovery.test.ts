@@ -18,7 +18,7 @@ afterAll(() => {
   for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });
 });
 
-// lru-cache 11.4.0+'s shape: a `react-native` CommonJS target that is not published.
+// lru-cache 11.5.3's shape: a `react-native` CommonJS target that is not published.
 const LRU_LIKE_EXPORTS = {
   ".": {
     import: { "react-native": "./dist/esm/rn/index.js", node: "./dist/esm/node/index.js" },

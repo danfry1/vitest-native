@@ -6,7 +6,7 @@ Fix `environment: 'jsdom'` failing to start any test worker
 
 Vitest forwards the project's resolve conditions, including the `react-native` condition both
 engines add, to each worker as Node `--conditions` flags. Vitest also loads the test environment
-in that worker. jsdom depends on lru-cache, whose 11.4.0+ export map names a `react-native`
+in that worker. jsdom depends on lru-cache, whose 11.5.3 export map names a `react-native`
 CommonJS build it does not publish, so every worker failed with "Cannot find module
 …/lru-cache/dist/commonjs/react-native/index.min.js". The plugin now preloads a resolver
 recovery in each worker. When Node fails because a package's `react-native` export target does

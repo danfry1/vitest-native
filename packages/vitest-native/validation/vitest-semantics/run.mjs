@@ -82,9 +82,9 @@ function setUp() {
           vitest: vitestVersion,
           "vitest-native": `file:${path.join(root, tarball)}`,
         },
-        // The jsdom rows exist for lru-cache's unpublished `react-native` build (11.4.0
-        // onwards; see src/native/export-condition-recovery.mjs). Pinned under jsdom only,
-        // so the rows keep exercising that failure even after lru-cache fixes its package.
+        // The jsdom rows exist for lru-cache 11.5.3's unpublished `react-native` build
+        // (see src/native/export-condition-recovery.mjs). Pinned under jsdom only, so the
+        // rows keep exercising that failure even after lru-cache fixes its package.
         overrides: { jsdom: { "lru-cache": "11.5.3" } },
       },
       null,
@@ -594,6 +594,17 @@ try {
       "environment: jsdom without the hot runtime",
       {
         plugin: { hotRuntime: false },
+        test: { environment: "jsdom" },
+        env: { VN_EXPECT_DOM: "1" },
+      },
+      "isolated",
+      (r) => r.status === 0 && r.passed === all.total,
+    ],
+    [
+      // The mock engine adds the same condition, so it hit the same failure.
+      "environment: jsdom with the mock engine",
+      {
+        plugin: { engine: "mock" },
         test: { environment: "jsdom" },
         env: { VN_EXPECT_DOM: "1" },
       },
