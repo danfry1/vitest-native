@@ -248,6 +248,17 @@ jobs:
         with:
           node-version: 22.13.0
 
+      # Every packed cell installs fixtures with npm. Node 22.13.0 bundles npm
+      # 10.9.2, whose arborist crashes with "Cannot read properties of null (reading
+      # 'edgesOut')" on these fixtures' dependency graphs. It is not this package:
+      # a fixture with vitest-native removed entirely crashes the same way, and the
+      # commit that passed on 2026-07-27 fails on re-run with no code change, so a
+      # republished transitive dependency started tripping the bug. npm 11 installs
+      # all of them. It runs first in every cell: on the old shared leg, the packed
+      # CJS reset gate passed only because it happened to run after this step.
+      - name: Use an npm without the arborist edgesOut bug
+        run: npm install -g npm@11.20.0
+
       - name: Build
         run: bun run build
 
@@ -303,17 +314,6 @@ jobs:
         env:
           VN_SEMANTICS_VITEST: ${{ matrix.vitest }}
         run: bun run --filter vitest-native validate:vitest-semantics
-
-      # The consumer gate installs each fixture with npm. Node 22.13.0 bundles npm
-      # 10.9.2, whose arborist crashes with "Cannot read properties of null (reading
-      # 'edgesOut')" on these fixtures' dependency graphs. It is not this package:
-      # a fixture with vitest-native removed entirely crashes the same way, and the
-      # commit that passed on 2026-07-27 fails on re-run with no code change, so a
-      # republished transitive dependency started tripping the bug. npm 11 installs
-      # all of them.
-      - name: Use an npm without the arborist edgesOut bug
-        if: matrix.gate == 'consumers'
-        run: npm install -g npm@11.20.0
 
       - name: Test packed consumer projects
         if: matrix.gate == 'consumers'
