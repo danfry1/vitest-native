@@ -13,10 +13,10 @@
 // `jest.useFakeTimers` work at runtime via the `jest` global installed here.
 import { vi } from "vitest";
 import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { jestMockInterop } from "./interop.mjs";
 import { expandAlias } from "./aliases.mjs";
+import { callerFile } from "./caller.mjs";
 import { resolvePlatformFile } from "../native/resolve.mjs";
 import { VitestNativeError } from "../errors.mjs";
 
@@ -45,37 +45,6 @@ function writableModuleFacade(mod) {
     },
     has: (target, prop) => overrides.has(prop) || Reflect.has(target, prop),
   });
-}
-
-/**
- * The file that called into here, taken from the stack.
- *
- * Jest resolves a relative `requireActual('../x')` against the CALLING module. This
- * shim had a single require anchored at the project root, so bare specifiers worked
- * and relative ones escaped the source tree: `jest.requireActual('../thing')` threw
- * MODULE_NOT_FOUND with a requireStack pointing at <projectRoot>/package.json, which
- * is a confusing place to be sent when the file sits next to the test.
- *
- * The stack is the only thing that knows the caller. These are plain runtime calls
- * on the `jest` global, not rewritten at transform time, so there is no import.meta
- * to consult.
- */
-function callerFile() {
-  const original = Error.prepareStackTrace;
-  try {
-    Error.prepareStackTrace = (_, frames) => frames;
-    const frames = new Error().stack;
-    for (const frame of frames) {
-      const file = typeof frame.getFileName === "function" ? frame.getFileName() : null;
-      if (!file || file.startsWith("node:") || file.includes("/jest-compat/")) continue;
-      return file.startsWith("file://") ? fileURLToPath(file) : file;
-    }
-  } catch {
-    // Fall through to the project-root require below.
-  } finally {
-    Error.prepareStackTrace = original;
-  }
-  return null;
 }
 
 // The project's string-to-string `resolve.alias` entries, from the plugin. Vite applies
@@ -175,8 +144,20 @@ vi.advanceTimersByTimeAsync = async (...args) =>
 // TypeError the signposting below exists to avoid — even though the behaviour was
 // available all along. `dontMock` is the sibling of the already-signposted
 // `deepUnmock`, which is what marks these as omissions rather than decisions.
-if (typeof vi.dontMock !== "function") vi.dontMock = (m) => vi.doUnmock(m);
-if (typeof vi.setMock !== "function") vi.setMock = (m, exports) => vi.doMock(m, () => exports);
+//
+// `vi.doMock`/`vi.doUnmock` resolve a relative path against THEIR caller, which for
+// these aliases is this file, so `jest.setMock('./x', …)` registered a mock for a
+// module next to the shim and the test kept its previous mock. Anchor relative paths
+// at the calling test file first, as Jest resolves them.
+const anchoredAtCaller = (specifier) => {
+  if (typeof specifier !== "string" || !specifier.startsWith(".")) return specifier;
+  const caller = callerFile();
+  return caller ? path.resolve(path.dirname(caller), specifier) : specifier;
+};
+if (typeof vi.dontMock !== "function") vi.dontMock = (m) => vi.doUnmock(anchoredAtCaller(m));
+if (typeof vi.setMock !== "function") {
+  vi.setMock = (m, exports) => vi.doMock(anchoredAtCaller(m), () => exports);
+}
 // `Date.now()` alone is right for both clocks: Vitest's fake timers replace Date, so
 // this returns the faked time when they are active and the real time otherwise —
 // which is what jest.now() reports. An earlier version consulted

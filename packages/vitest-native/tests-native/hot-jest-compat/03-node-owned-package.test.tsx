@@ -21,6 +21,6 @@ test("this file's own mock applies", () => {
   expect(read()).toBe("mocked-lib");
 });
 
-test("pollutes every jest-compat surface and does not clean up", () => {
-  polluteEverything(["lib"]);
+test("pollutes every jest-compat surface and does not clean up", async () => {
+  await polluteEverything(["lib"]);
 });

@@ -42,15 +42,10 @@ if (globalThis.__vitest_native_hot_reset) {
       }
     },
   });
-  // NOTE on RNTL trees: when RNTL is inlined in the consumer graph it
-  // re-evaluates per file (fresh registry + fresh auto-cleanup) and needs no
-  // help. When RNTL is externalized/resident, trees from earlier files can
-  // stay mounted (auto-cleanup's afterEach only registers in the first file) —
-  // a memory accumulation, bounded by worker recycling, NOT a correctness
-  // leak (each file renders into fresh roots; cross-file listeners are removed
-  // by the reset below). Do NOT "fix" this by importing RNTL here or via Node
-  // require — both create instance/evaluation-order hazards that corrupt
-  // rendering (found via Rocket.Chat).
+  // RNTL's per-file hooks (cleanup, act environment) for a resident RNTL are
+  // registered by the worker when a file imports it: see native/rntl-hooks.mjs. Do
+  // NOT import or require RNTL here instead — a load from setup in the first file
+  // creates the evaluation-order hazard that corrupted rendering (Rocket.Chat).
 }
 
 const projectRoot = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();

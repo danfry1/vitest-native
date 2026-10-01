@@ -20,6 +20,6 @@ test("this file's own mock applies", () => {
   expect(readSetting()).toBe("mocked-setting");
 });
 
-test("pollutes every jest-compat surface and does not clean up", () => {
-  polluteEverything(["settings"]);
+test("pollutes every jest-compat surface and does not clean up", async () => {
+  await polluteEverything(["settings"]);
 });
