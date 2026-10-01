@@ -14,7 +14,7 @@
 //   BENCH_ENGINES=native-hot,mock node scale/run.mjs                       # subset
 //
 // Env knobs: BENCH_FILES (csv), BENCH_WORKERS_SWEEP (csv), BENCH_WARM (int),
-// BENCH_ENGINES (csv of: jest,native-stock,native-hot,mock).
+// BENCH_ENGINES (csv of: jest,native-stock,native-default,native-hot,mock).
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -41,6 +41,11 @@ const ENGINES = {
   "native-stock": {
     label: "native stock (isolate:true)",
     cmd: () => [bin("vitest"), "run", "--config", "scale/vitest.native-stock.mts"],
+    env: (w) => ({ BENCH_WORKERS: String(w) }),
+  },
+  "native-default": {
+    label: "native, out of the box",
+    cmd: () => [bin("vitest"), "run", "--config", "scale/vitest.native-default.mts"],
     env: (w) => ({ BENCH_WORKERS: String(w) }),
   },
   "native-hot": {

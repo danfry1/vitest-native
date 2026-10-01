@@ -469,25 +469,30 @@ vitest-native when you value:
 - **Unification** — one runner if you also test web/server code with Vitest.
 
 On speed, here is the whole picture, from the repository's own head-to-head harness
-(RN 0.84, same generated RNTL suite, warm runs):
+(`bench/scale`: the same generated React Native Testing Library suite for every contender,
+warm runs, median of two). Measured 2026-10-01 on an Apple M5 (10 cores), Node 24.13,
+React Native 0.84.1, Jest 29.7, Vitest 5.0.1:
 
 | | 50 files, 4 workers | 200 files, 8 workers | peak RSS @200f |
 |---|--:|--:|--:|
-| Jest (RN preset) | 2010ms | 2915ms | 4090MB |
-| `engine: 'native'`, `hotRuntime: false` | 2165ms (0.93×) | 6924ms (0.42×) | 727MB |
-| `engine: 'mock'` | 2032ms (0.99×) | 6709ms (0.43×) | 997MB |
-| `engine: 'native'`, hot runtime | — | 1187ms (**2.46×**) | 1170MB |
+| Jest (RN preset) | 1438ms | 3993ms | 4727MB |
+| `reactNative({ engine: 'native' })` — the default | 805ms (**1.79×**) | 1499ms (**2.66×**) | 1110MB |
+| `engine: 'native'`, `hotRuntime: false` | 3033ms (0.47×) | 11620ms (0.34×) | 905MB |
+| `engine: 'mock'` | 2252ms (0.64×) | 6900ms (0.58×) | 1093MB |
 
-Two things to read from it. React Native's own load cost is no longer the issue — its
-module graph is precompiled once per (RN version × platform), and the native engine now
-tracks the pure-JS mock engine closely. What remains at scale is Vitest's per-file worker
-isolation, which costs the **mock** engine just as much (0.43× vs 0.42×) and has nothing to
-do with React Native; Jest reuses workers and resets its module registry instead.
-The hot runtime does the same thing and is 2.46× Jest at 200 files. It is the default
-(`hotRuntime: 'auto'`) wherever the run can be bounded and recycled, and falls back to per-file
-isolation otherwise.
+Out of the box the native engine runs the hot runtime (`hotRuntime: 'auto'`): workers are
+reused and React Native's precompiled module graph stays warm while every file still gets
+fresh app/test modules and verified process state. With per-file worker isolation instead
+(`hotRuntime: false`), the cost at scale is Vitest's worker-per-file model, which costs the
+pure-JS **mock** engine just as much and has nothing to do with React Native; Jest reuses
+workers and resets its module registry, which is what the hot runtime does too. At 200
+files every vitest-native configuration used a quarter or less of Jest's peak memory.
 
-Memory is a standing win at any size: 727MB against Jest's 4090MB at 200 files.
+This is one generated suite on one machine, so treat the ratios as indicative; your suite's
+shape decides yours. Where the hot runtime cannot be bounded (a single worker, an explicit
+pool, the worker and the project resolving different Vitest versions) `'auto'` keeps per-file
+isolation, and the row above is the one that applies. To reproduce, from `bench/`:
+`BENCH_FILES=50,200 BENCH_WORKERS_SWEEP=4,8 BENCH_ENGINES=jest,native-default,native-stock,mock node scale/run.mjs`.
 
 ## Contributing
 
