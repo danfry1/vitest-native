@@ -1,6 +1,6 @@
 # Design: hot runtime as a safe default for greenfield apps
 
-**Status:** Layers 1–3 shipped (`'auto'` is the default since 2026-09-30); admitting Jest-migration suites remains open
+**Status:** Layers 1–3 shipped (`'auto'` is the default since 2026-09-30; Jest-migration suites admitted since 2026-10-01)
 **Basis:** the idiomatic hot-parity validation + default-flip de-risk (`validation/idiomatic/`)
 
 > Memory update (2026-08-31): explicit hot mode now installs a cgroup-aware,
@@ -123,9 +123,8 @@ reactNative({ engine: "native", hotRuntime: "auto" });
 
 Enable hot when ALL hold (else fall back to the default per-file engine):
 
-- **Not a migration suite.** No `jestMockTransform` plugin and no jest-compat
-  setup file present (inspect the resolved Vite config in `configResolved`). hot
-  isn't clean for jest-compat patterns, so don't auto-enable there.
+- ~~**Not a migration suite.**~~ Dropped 2026-10-01 (see Layer 3, "The migration
+  story"): the jest-compat surface now has its own cross-file isolation gate.
 - **Recyclable task boundaries.** On current hot this requires resolved
   `maxWorkers >= 2`. With the validated module-isolation scheduler change, one worker
   also receives one file per task and can recycle safely.
@@ -152,11 +151,18 @@ originally set, and the package-owned evidence for each:
   with recycling, and the full suites on Linux, macOS and Windows. The packed
   cgroup gate runs on Linux only; other providers and cgroup v1 remain open
   question 1.
-- **The migration story:** unchanged, because it is not yet proven. Suites set up
-  for Jest migration keep per-file isolation (see the Layer 2 conditions) until
-  the jest-compat surface has its own cross-file isolation gate under hot. External
-  bake-off apps are not evidence for it: their Jest-era setup and shims are theirs,
-  not the package's.
+- **The migration story:** suites set up for Jest migration are admitted since
+  2026-10-01, on package-owned evidence. `tests-native/hot-jest-compat` runs the
+  jest-compat surface in one reused worker and in a per-file control: hoisted,
+  partial, Node-owned and React Native clone-and-override `jest.mock`; runtime
+  mocks (`doMock`, `setMock`, `dontMock`, `resetModules`); factory-less mocks via
+  `__mocks__` and automock; spies, fake timers, `jest.setTimeout`, globals,
+  `process.env`, `requireActual` export mutation; and React Native Testing Library
+  trees left mounted. Building it found three hot-only leaks (a queued `doMock`, a
+  resident RNTL's missing per-file cleanup, and the shim's relative-path anchoring),
+  each fixed and mutation-tested. `tests-native/hot-user-setup` covers fake timers
+  installed by a user setup file. External bake-off apps corroborate but are not the
+  evidence: their Jest-era setup and shims are theirs, not the package's.
 - **A real greenfield app:** covered only by the packed consumer fixtures, which
   are small. This is the gate least met; the default's fallback and
   `hotRuntime: false` are the mitigation, and a test that passes alone but fails

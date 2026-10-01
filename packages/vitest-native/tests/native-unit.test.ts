@@ -609,28 +609,6 @@ describe("plugin engine routing", () => {
         pool: "threads",
       },
       {
-        label: "Jest mock transform",
-        config: {
-          root: projectRoot,
-          plugins: [{ name: "vitest-native:jest-mock-hoist" }],
-          test: { maxWorkers: 2 },
-        },
-        reason: /jestMockTransform/,
-        pool: "threads",
-      },
-      {
-        label: "Jest compatibility setup",
-        config: {
-          root: projectRoot,
-          test: {
-            maxWorkers: 2,
-            setupFiles: ["vitest-native/jest-compat/setup"],
-          },
-        },
-        reason: /Jest compatibility setup/,
-        pool: "threads",
-      },
-      {
         label: "explicit forks pool",
         config: { root: projectRoot, test: { maxWorkers: 2, pool: "forks" } },
         reason: /'forks' is explicitly configured/,
@@ -648,6 +626,31 @@ describe("plugin engine routing", () => {
       expect(warn, decline.label).toHaveBeenCalledWith(expect.stringMatching(decline.reason));
     }
     warn.mockRestore();
+
+    // Suites migrated from Jest are admitted: the jest-compat surface has its own
+    // cross-file isolation gate under hot (tests-native/hot-jest-compat).
+    for (const [label, config] of [
+      [
+        "Jest mock transform",
+        {
+          root: projectRoot,
+          plugins: [{ name: "vitest-native:jest-mock-hoist" }],
+          test: { maxWorkers: 2 },
+        },
+      ],
+      [
+        "Jest compatibility setup",
+        {
+          root: projectRoot,
+          test: { maxWorkers: 2, setupFiles: ["vitest-native/jest-compat/setup"] },
+        },
+      ],
+    ] as const) {
+      const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
+      const admitted = await runPluginConfig(plugin, config, SERVE_ENV);
+      expect(admitted.test.isolate, label).toBe(false);
+      expect(admitted.test.pool, label).toMatchObject({ name: "vitest-native" });
+    }
   });
 
   it("defaults to hotRuntime:'auto' and falls back quietly", async () => {
@@ -666,16 +669,6 @@ describe("plugin engine routing", () => {
     );
     expect(stock.test.isolate).toBeUndefined();
     expect(stock.test.pool).toBe("forks");
-    const migration = reactNative({ engine: "native" }) as any;
-    const migrated = await runPluginConfig(
-      migration,
-      {
-        root: projectRoot,
-        test: { maxWorkers: 2, setupFiles: ["vitest-native/jest-compat/setup"] },
-      },
-      SERVE_ENV,
-    );
-    expect(migrated.test.isolate).toBeUndefined();
     expect(warn).not.toHaveBeenCalledWith(expect.stringMatching(/kept default isolation/));
     warn.mockRestore();
 

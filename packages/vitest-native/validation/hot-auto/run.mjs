@@ -118,7 +118,7 @@ import { Platform } from "react-native";
 
 test("auto selection ${index}", () => {
   const selected = process.env.VITEST_NATIVE_MEMORY_PLAN !== undefined;
-  expect(selected).toBe(["enabled", "default"].includes(process.env.VN_HOT_AUTO_SCENARIO));
+  expect(selected).toBe(["enabled", "default", "late-migration"].includes(process.env.VN_HOT_AUTO_SCENARIO));
   expect(Platform.OS).toBe("ios");
 });
 `,
@@ -132,9 +132,9 @@ import value from "./migration-value.mjs";
 
 jest.mock("./migration-value.mjs", () => "mocked");
 
-test("migration config remains isolated", () => {
+test("migration config runs hot, with jest.mock applied", () => {
   expect(value).toBe("mocked");
-  expect(process.env.VITEST_NATIVE_MEMORY_PLAN).toBeUndefined();
+  expect(process.env.VITEST_NATIVE_MEMORY_PLAN).toBeDefined();
 });
 `,
   );
@@ -142,10 +142,11 @@ test("migration config remains isolated", () => {
   for (const [scenario, reason] of [
     ["enabled", null],
     ["one-worker", "one unrecyclable worker"],
-    ["migration", "jestMockTransform()"],
+    // Suites migrated from Jest are admitted (tests-native/hot-jest-compat).
+    ["migration", null],
     ["custom-pool", "'forks' is explicitly configured"],
     ["late-pool", "'forks' is explicitly configured"],
-    ["late-migration", "Jest compatibility setup"],
+    ["late-migration", null],
     // hotRuntime left unset: 'auto' by default, and a fallback it was not asked for is quiet.
     ["default", null],
     ["default-custom-pool", "quiet"],
