@@ -639,7 +639,12 @@ export function installRegistry(
     // @react-native/* packages inlined alongside it must resolve to the SAME
     // instances the entry graph uses, or RN's singletons would exist twice.
     if (request.startsWith("react-native/") || request.startsWith("@react-native/")) {
-      const resolver = parent?.filename ? createRequire(parent.filename) : req;
+      // The registry's own code requires with the registry FILE as parent, and that
+      // file lives in a cache directory that may be outside the project (tmpdir when
+      // the project has no writable node_modules). Resolve those from the project.
+      const fromProject = !parent?.filename || parent.filename === registryFile;
+      const resolver = fromProject ? req : createRequire(parent.filename);
+      const platform = process.env.VITEST_NATIVE_PLATFORM === "android" ? "android" : "ios";
       let resolved;
       try {
         resolved = resolver.resolve(request);
@@ -647,12 +652,15 @@ export function installRegistry(
         // RN 0.87's exports map refuses the deep self-references its preset
         // emits; resolve by path (Metro's behavior) so the file still lands on
         // the registry's instance instead of loading a twin outside it.
-        resolved = resolveDeepPackageFile(
-          request,
-          parent?.filename ? path.dirname(parent.filename) : projectRoot,
-          process.env.VITEST_NATIVE_PLATFORM === "android" ? "android" : "ios",
-          sourceExts,
-        );
+        resolved =
+          (fromProject
+            ? null
+            : resolveDeepPackageFile(
+                request,
+                path.dirname(parent.filename),
+                platform,
+                sourceExts,
+              )) ?? resolveDeepPackageFile(request, projectRoot, platform, sourceExts);
       }
       const id = resolved === null ? undefined : idOf.get(resolved);
       if (id !== undefined) return registry.load(id);

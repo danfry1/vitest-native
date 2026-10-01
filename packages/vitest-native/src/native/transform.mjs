@@ -69,15 +69,22 @@ export const TRANSFORM_CACHE_VERSION = 4;
  * node_modules is absent or unwritable.
  */
 export function cacheRootFor(projectRoot) {
-  const nm = path.join(projectRoot, "node_modules");
-  if (fs.existsSync(nm)) {
-    try {
-      const dir = path.join(nm, ".cache", "vitest-native");
-      fs.mkdirSync(dir, { recursive: true });
-      return dir;
-    } catch {
-      // Read-only node_modules (some CI sandboxes) — fall through to tmpdir.
+  // The nearest node_modules at or above the project: a project in a monorepo, or a
+  // Vitest project rooted in a subdirectory, often has none of its own — its
+  // dependencies are hoisted — and its cache belongs with the install it uses.
+  for (let dir = path.resolve(projectRoot); ; dir = path.dirname(dir)) {
+    const nm = path.join(dir, "node_modules");
+    if (fs.existsSync(nm)) {
+      try {
+        const cache = path.join(nm, ".cache", "vitest-native");
+        fs.mkdirSync(cache, { recursive: true });
+        return cache;
+      } catch {
+        // Read-only node_modules (some CI sandboxes) — fall through to tmpdir.
+      }
+      break;
     }
+    if (path.dirname(dir) === dir) break;
   }
   const dir = path.join(os.tmpdir(), "vitest-native-cache");
   fs.mkdirSync(dir, { recursive: true });

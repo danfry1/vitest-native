@@ -609,6 +609,18 @@ describe("plugin engine routing", () => {
         pool: "threads",
       },
       {
+        label: "explicit isolate: true",
+        config: { root: projectRoot, test: { maxWorkers: 2, isolate: true } },
+        reason: /test\.isolate is explicitly true/,
+        pool: "threads",
+      },
+      {
+        label: "explicit isolate: false",
+        config: { root: projectRoot, test: { maxWorkers: 2, isolate: false } },
+        reason: /test\.isolate is explicitly false/,
+        pool: "threads",
+      },
+      {
         label: "explicit forks pool",
         config: { root: projectRoot, test: { maxWorkers: 2, pool: "forks" } },
         reason: /'forks' is explicitly configured/,
@@ -767,6 +779,29 @@ describe("engine-selection notices", () => {
     expect(banners).toHaveLength(1);
     expect(String(banners[0][0])).toContain("engine: native — real react-native");
     log.mockRestore();
+    err.mockRestore();
+  });
+
+  it("the native banner names the hot runtime when it is selected, and only then", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const banner = () =>
+      String(err.mock.calls.find((c) => String(c[0]).includes("engine:"))?.[0] ?? "");
+
+    await runPluginConfig(
+      reactNative({ engine: "native" }) as any,
+      { root: projectRoot },
+      SERVE_ENV,
+    );
+    expect(banner()).toMatch(/\(platform ios, hot runtime\)$/);
+
+    resetBanner();
+    err.mockClear();
+    await runPluginConfig(
+      reactNative({ engine: "native" }) as any,
+      { root: projectRoot, test: { isolate: true } },
+      SERVE_ENV,
+    );
+    expect(banner()).toMatch(/\(platform ios\)$/);
     err.mockRestore();
   });
 
