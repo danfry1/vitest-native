@@ -53,6 +53,16 @@ jobs:
         run: |
           node -e "const version=require('./packages/vitest-native/package.json').version; const tag=process.env.TAG_NAME; if (tag !== 'v' + version) { throw new Error('Tag ' + tag + ' does not match package version ' + version); }"
 
+      # A prerelease (0.14.0-rc.0) is published to the `next` dist-tag and marked as a
+      # prerelease on GitHub; anything else goes to `latest`. npm 11 refuses a prerelease
+      # without an explicit --tag (npm/cli#7910), so the tag is always passed. The notes
+      # are the version's CHANGELOG section (its base version's, for a prerelease).
+      - name: Release channel and notes
+        id: channel
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: node packages/vitest-native/scripts/release-channel.mjs "${TAG_NAME#v}" --notes-file "$RUNNER_TEMP/release-notes.md" >> "$GITHUB_OUTPUT"
+
       # npm >= 11.15 is required for staged publishing (`npm stage`).
       - run: npm i -g npm@11.15.0
 
@@ -112,13 +122,22 @@ jobs:
         # via OIDC trusted publishing (id-token: write). The version is NOT
         # installable until a maintainer approves it with a 2FA challenge:
         #   npm stage approve <id>   (or approve on npmjs.com)
-        run: npm stage publish
+        env:
+          DIST_TAG: ${{ steps.channel.outputs.dist-tag }}
+        run: npm stage publish --tag "$DIST_TAG"
 
       - name: Staged-publish approval reminder
         run: echo "::notice::Version staged to npm. Approve it (npm stage approve <id>, or on npmjs.com) with 2FA to make it installable."
 
+      # The CHANGELOG section first (what changed, and how to upgrade), then GitHub's
+      # generated list of merged pull requests: `--notes-file` is prepended to
+      # `--generate-notes`.
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ github.ref_name }}
-        run: gh release create "$TAG_NAME" --generate-notes
+          PRERELEASE: ${{ steps.channel.outputs.prerelease }}
+        run: |
+          flags=()
+          if [ "$PRERELEASE" = "true" ]; then flags=(--prerelease --latest=false); fi
+          gh release create "$TAG_NAME" --notes-file "$RUNNER_TEMP/release-notes.md" --generate-notes "${flags[@]}"

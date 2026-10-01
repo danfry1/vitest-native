@@ -55,30 +55,40 @@ tsdown 0.21 and 0.22.
 
 ## Releasing
 
-Releases are tag-based. Pushing a `v*` tag triggers the release workflow which publishes to npm with [OIDC trusted publishing](https://docs.npmjs.com/generating-provenance-statements) (no tokens required).
+Releases are tag-based. Pushing a `v*` tag triggers the release workflow, which **stages** the version
+on npm with [OIDC trusted publishing](https://docs.npmjs.com/generating-provenance-statements) (no
+tokens). A staged version is not installable until a maintainer approves it with 2FA.
 
 ### Steps
 
 ```bash
-# 1. Add a changeset describing your changes
+# 1. Every pull request that changes shipped code carries a changeset (CI checks this).
 npx changeset
 
-# 2. Version the package (bumps version in package.json, updates CHANGELOG.md)
-npx changeset version
+# 2. On a release branch, version the package: bumps package.json, writes CHANGELOG.md.
+bunx changeset version
+#    Open it as "chore(release): <version>" and merge it once CI is green (main is protected).
 
-# 3. Commit the version bump
-git add .
-git commit -m "chore: release v<version>"
+# 3. Tag the merge commit on main and push the tag.
+git tag -a v<version> -m v<version> <merge-commit>
+git push origin v<version>
 
-# 4. Tag and push
-git tag v<version>
-git push && git push origin v<version>
+# 4. Approve the staged version with 2FA once the workflow finishes.
+npm stage approve <id>   # or approve it on npmjs.com
 ```
 
-The release workflow will:
-- Build and test the package
-- Publish to npm with provenance attestation
-- Create a GitHub Release with auto-generated notes
+The release workflow refuses a tag that `main` cannot reach or that does not match the package
+version. It then runs the full gate, stages the package with provenance, and creates a GitHub
+Release. The release body is the version's CHANGELOG section, followed by the generated list of
+merged pull requests.
+
+### Prereleases
+
+To publish a release candidate, set the version to `<version>-rc.<n>` in the release PR, and keep
+the notes under the `## <version>` CHANGELOG heading. A version with a prerelease part is published
+to the `next` dist-tag (`npm i -D vitest-native@next`) and marked as a prerelease on GitHub.
+`latest` is untouched until the final `<version>` is tagged. npm 11 refuses a prerelease without an
+explicit dist-tag, so the workflow always passes one (`scripts/release-channel.mjs`).
 
 ### Provenance
 
