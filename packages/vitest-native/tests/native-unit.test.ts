@@ -873,6 +873,43 @@ describe("plugin engine routing", () => {
       err.mockRestore();
     });
 
+    it("falls back when another project in its group runs a different worker count", async () => {
+      const err = quiet();
+      const { plugin, config } = await hotProject("auto");
+      const self = { name: "native", config };
+      // A plain project beside it: Vitest would resolve its worker count to 9 on 10 CPUs.
+      const other = { name: "mock", config: { maxWorkers: config.maxWorkers + 5 } };
+      plugin.configureVitest({
+        vitest: { _cliOptions: {}, config: {}, projects: [self, other] },
+        project: self,
+      });
+      expect(config.isolate).toBe(true);
+      expect(config.runner).toBeUndefined();
+      expect(err).toHaveBeenCalledWith(
+        expect.stringMatching(/hot runtime off: the project 'mock'/),
+      );
+
+      const explicit = await hotProject(true);
+      const explicitSelf = { name: "native", config: explicit.config };
+      expect(() =>
+        explicit.plugin.configureVitest({
+          vitest: { _cliOptions: {}, config: {}, projects: [explicitSelf, other] },
+          project: explicitSelf,
+        }),
+      ).toThrow(/HOT_RUNTIME_OVERRIDDEN|sequence.groupOrder/);
+
+      // Its own group keeps hot.
+      const separate = await hotProject("auto");
+      separate.config.sequence = { groupOrder: 1 };
+      const separateSelf = { name: "native", config: separate.config };
+      separate.plugin.configureVitest({
+        vitest: { _cliOptions: {}, config: {}, projects: [separateSelf, other] },
+        project: separateSelf,
+      });
+      expect(separate.config.isolate).toBe(false);
+      err.mockRestore();
+    });
+
     it("decides per project when projects share the plugin instance", async () => {
       // `extends: true` projects inherit the root's plugin instance, so one
       // configureVitest call must not decide for the others.

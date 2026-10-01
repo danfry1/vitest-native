@@ -249,7 +249,10 @@ the host/container memory plan admits at least two workers, no other pool was ex
 selected, and `test.isolate` is not set explicitly — an explicit Vitest isolation choice, `true` or
 `false`, is always kept. The same holds for CLI flags (`--pool`, `--isolate`, `--no-isolate`,
 `--maxWorkers=1`, `--no-file-parallelism`). With `hotRuntime: true` instead, any of these fails at
-startup with `HOT_RUNTIME_OVERRIDDEN` rather than being overridden. Suites migrated from Jest (`jestMockTransform()`, the jest-compat setup) are included: the
+startup with `HOT_RUNTIME_OVERRIDDEN` rather than being overridden. `'auto'` also keeps Vitest's
+isolation when another project in the same `sequence.groupOrder` runs a different worker count,
+which Vitest does not allow; give the native project its own `test.sequence.groupOrder` to keep hot.
+Suites migrated from Jest (`jestMockTransform()`, the jest-compat setup) are included: the
 jest-compat surface — `jest.mock` in its forms, runtime mocks, spies, timers, React Native Testing
 Library cleanup — has its own cross-file isolation gate under the hot runtime. The decision runs
 after other Vite config hooks, so a pool contributed by a later plugin is included rather than
