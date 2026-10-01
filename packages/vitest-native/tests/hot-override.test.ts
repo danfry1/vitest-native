@@ -1,8 +1,10 @@
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   hotOverrideReason,
-  inlineProjectsNeedOwnServers,
+  pinInlineProjectRoots,
   vitestMaxWorkers,
+  vitestRootOf,
 } from "../src/plugin.js";
 
 // Vitest 4 applies CLI flags after plugins' config hooks, so the hot runtime chosen
@@ -64,26 +66,33 @@ describe("vitestMaxWorkers", () => {
 });
 
 // Vitest 5 builds a server-sharing inline project's `test` options from the user's raw
-// config, without this plugin's contributions.
-describe("inlineProjectsNeedOwnServers", () => {
-  it("turns server sharing off only for inline projects left at Vitest's default", () => {
-    expect(inlineProjectsNeedOwnServers({ projects: [{ test: { name: "a" } }] })).toBe(true);
-    expect(inlineProjectsNeedOwnServers({ projects: ["packages/*", { extends: true }] })).toBe(
-      true,
-    );
-    // File and directory projects always resolve their own config.
-    expect(inlineProjectsNeedOwnServers({ projects: ["packages/*"] })).toBe(false);
-    expect(inlineProjectsNeedOwnServers({})).toBe(false);
-    expect(inlineProjectsNeedOwnServers(undefined)).toBe(false);
-    expect(
-      inlineProjectsNeedOwnServers({ projects: [{ extends: true }], sharedViteServer: false }),
-    ).toBe(false);
+// config, without this plugin's contributions; a pinned root gives it its own server.
+describe("pinInlineProjectRoots", () => {
+  it("pins inline entries without a root to the declaring root", () => {
+    const test = {
+      projects: ["packages/*", { extends: true }, { test: { name: "b" } }, { root: "own" }],
+    };
+    expect(pinInlineProjectRoots(test, "/repo")).toBe(2);
+    expect(test.projects).toEqual([
+      "packages/*",
+      { extends: true, root: "/repo" },
+      { test: { name: "b" }, root: "/repo" },
+      { root: "own" },
+    ]);
   });
 
-  it("refuses an explicit sharedViteServer:true with inline projects", () => {
-    expect(() =>
-      inlineProjectsNeedOwnServers({ projects: [{ extends: true }], sharedViteServer: true }),
-    ).toThrow(/sharedViteServer/);
-    expect(inlineProjectsNeedOwnServers({ projects: ["a/*"], sharedViteServer: true })).toBe(false);
+  it("leaves configs without inline projects alone", () => {
+    expect(pinInlineProjectRoots(undefined, "/repo")).toBe(0);
+    expect(pinInlineProjectRoots({}, "/repo")).toBe(0);
+    expect(pinInlineProjectRoots({ projects: ["a/*"] }, "/repo")).toBe(0);
+  });
+});
+
+describe("vitestRootOf", () => {
+  it("prefers test.root over root, as Vitest does", () => {
+    expect(vitestRootOf({ root: "/a", test: { root: "/b" } })).toBe(path.resolve("/b"));
+    expect(vitestRootOf({ root: "/a" })).toBe(path.resolve("/a"));
+    expect(vitestRootOf({})).toBe(process.cwd());
+    expect(vitestRootOf({ test: { root: "app" } })).toBe(path.resolve("app"));
   });
 });

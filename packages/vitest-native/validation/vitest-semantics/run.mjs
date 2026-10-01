@@ -185,6 +185,37 @@ test("${name} runs real React Native", () => expect(Platform.OS).toBe("ios"));
 `,
     );
   }
+  // A container config with the plugin and inline projects, reached from a root config
+  // without the plugin: Vitest decides server sharing from the root alone.
+  write(
+    "nested.config.mjs",
+    `import { defineConfig } from "vitest/config";
+export default defineConfig({ test: { projects: ["nested/container"] } });
+`,
+  );
+  write(
+    "nested/container/vitest.config.mjs",
+    `import { defineConfig } from "vitest/config";
+import { reactNative } from "vitest-native";
+export default defineConfig({
+  plugins: [reactNative({ engine: "native" })],
+  test: {
+    environment: "node",
+    include: ["*.test.mjs"],
+    projects: [{ extends: true, test: { name: "inner" } }],
+  },
+});
+`,
+  );
+  write(
+    "nested/container/inner.test.mjs",
+    `import fs from "node:fs";
+import { expect, test } from "vitest";
+import { Platform } from "react-native";
+if (process.env.VN_MODE_FILE) fs.appendFileSync(process.env.VN_MODE_FILE, (typeof globalThis.__vitest_native_hot_reset === "function" ? "hot" : "isolated") + "\\n");
+test("inner runs real React Native", () => expect(Platform.OS).toBe("ios"));
+`,
+  );
   return fileCount + 2;
 }
 
@@ -490,6 +521,14 @@ try {
       { test: { projects: INLINE_PROJECTS }, args: ["--pool=forks"] },
       "isolated",
       (r) => r.status === 0 && r.passed === 2 * all.total,
+    ],
+    [
+      // Vitest reads `sharedViteServer` from the top-level config only, so the plugin in
+      // the container must reach its inline projects some other way.
+      "inline projects in a nested config",
+      { args: ["--config", "nested.config.mjs"], before: clearCaches },
+      HOT,
+      (r) => r.status === 0 && r.passed === 1,
     ],
     [
       "projects with the plugin in each",

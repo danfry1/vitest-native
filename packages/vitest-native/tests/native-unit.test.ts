@@ -715,12 +715,11 @@ describe("plugin engine routing", () => {
     });
   });
 
-  it("resolves inline projects through their own config so the plugin reaches them", async () => {
+  it("gives inline projects their own server so the plugin reaches them", async () => {
     const plugin = reactNative({ engine: "native" }) as any;
     const config = { root: projectRoot, test: { projects: [{ extends: true }] } };
     const result = await plugin.config.handler.call({}, config, SERVE_ENV);
-    expect(result.test.sharedViteServer).toBe(false);
-    // The rest of the plugin's config is still returned.
+    expect(config.test.projects).toEqual([{ extends: true, root: projectRoot }]);
     expect(result.test.setupFiles.length).toBeGreaterThan(0);
   });
 
@@ -819,6 +818,44 @@ describe("plugin engine routing", () => {
           project: { config },
         }),
       ).not.toThrow();
+    });
+
+    it("fails by name when a project shares a server without the plugin's setup", async () => {
+      const { plugin, config } = await hotProject("auto");
+      expect(() => run(plugin, { ...config, setupFiles: [] }, {})).toThrow(
+        /SHARED_VITE_SERVER|shares a Vite server/,
+      );
+      // The project that does carry it runs.
+      expect(() => run(plugin, config, {})).not.toThrow();
+    });
+
+    it("keys projects by Vitest's root, which test.root overrides", async () => {
+      const err = quiet();
+      const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
+      const testRoot = path.join(projectRoot, "tests");
+      const cfg = await runPluginConfig(
+        plugin,
+        { root: projectRoot, test: { root: testRoot, maxWorkers: 2 } },
+        SERVE_ENV,
+      );
+      const config = { ...cfg.test, root: testRoot, pool: "vitest-native" };
+      run(plugin, config, { pool: "forks" });
+      expect(config.isolate).toBe(true);
+      err.mockRestore();
+    });
+
+    it("leaves an unset project worker count to the root config", async () => {
+      const err = quiet();
+      const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
+      const cfg = await runPluginConfig(plugin, { root: projectRoot }, SERVE_ENV);
+      const config = { root: projectRoot, ...cfg.test, pool: "vitest-native" };
+      Object.assign(config, { pool: "forks" });
+      plugin.configureVitest({
+        vitest: { _cliOptions: { pool: "forks" }, config: { maxWorkers: 2 } },
+        project: { config },
+      });
+      expect(config.maxWorkers).toBeUndefined();
+      err.mockRestore();
     });
 
     it("decides per project when projects share the plugin instance", async () => {

@@ -806,31 +806,54 @@ export function hotOverrideReason(
 }
 
 /**
- * Whether inline projects must resolve their own Vite config. Vitest 5 lets an inline
- * project share the declaring config's Vite server (`test.sharedViteServer`, on by
- * default) and builds its `test` options from the user's raw config, captured before
- * any plugin's config hook runs: everything this plugin contributes to `test` — setup
- * files, dependency ownership, env, the hot pool — is missing from those projects.
- * Resolving each one through the config file, as Vitest 4 always did, runs the
- * plugin for it. An explicit `sharedViteServer: true` cannot work and fails here.
+ * The root Vitest gives a project: `test.root` over Vite's `root` (Vitest 4 and 5's
+ * resolveConfig). `vitest --root` arrives as `test.root`. Per-project state is keyed
+ * by it, since that is the root configureVitest sees.
  */
-export function inlineProjectsNeedOwnServers(test: unknown): boolean {
-  const { projects, sharedViteServer } = (test ?? {}) as {
-    projects?: unknown;
-    sharedViteServer?: unknown;
+export function vitestRootOf(config: { root?: unknown; test?: unknown }): string {
+  const testRoot = (config.test as { root?: unknown } | undefined)?.root;
+  const root = typeof testRoot === "string" && testRoot ? testRoot : config.root;
+  return path.resolve(typeof root === "string" && root ? root : process.cwd());
+}
+
+/**
+ * Pin each inline project's `root` to the root it would inherit anyway, so Vitest 5
+ * resolves it through the config file with this plugin instead of sharing the
+ * declaring config's Vite server. A server-sharing project gets its `test` options
+ * from the user's raw config, captured before any plugin's config hook runs, so it
+ * would miss everything this plugin contributes to `test` — setup files, dependency
+ * ownership, env, the hot pool. Vitest shares a server only when an entry sets no
+ * Vite-level option; `root` is one, and pinning it to the inherited value changes
+ * nothing else. Unlike `sharedViteServer: false`, which Vitest reads from the
+ * top-level config alone, this works in a nested config too. Vitest 4 resolves every
+ * inline project through the config file already. Returns how many were pinned.
+ */
+export function pinInlineProjectRoots(test: unknown, declaringRoot: string): number {
+  const projects = (test as { projects?: unknown } | undefined)?.projects;
+  if (!Array.isArray(projects)) return 0;
+  let pinned = 0;
+  for (const entry of projects) {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const project = entry as { root?: unknown };
+    if (project.root !== undefined) continue;
+    project.root = declaringRoot;
+    pinned++;
+  }
+  return pinned;
+}
+
+function hasSetupFile(setupFiles: unknown, file: string): boolean {
+  const real = (f: string) => {
+    try {
+      return fs.realpathSync(f);
+    } catch {
+      return path.resolve(f);
+    }
   };
-  if (!Array.isArray(projects) || !projects.some((p) => p != null && typeof p !== "string")) {
-    return false;
-  }
-  if (sharedViteServer === true) {
-    throw new VitestNativeError(
-      "SHARED_VITE_SERVER",
-      `test.sharedViteServer:true makes inline projects skip vitest-native's config, so ` +
-        `their tests would run without React Native's setup. Remove the option (vitest-native ` +
-        `turns it off for inline projects) or set it to false.`,
-    );
-  }
-  return sharedViteServer === undefined;
+  const wanted = real(file);
+  return (
+    Array.isArray(setupFiles) && setupFiles.some((f) => typeof f === "string" && real(f) === wanted)
+  );
 }
 
 function isVmPool(pool: unknown): pool is "vmThreads" | "vmForks" {
@@ -896,14 +919,16 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // project that needs it, or raising it for one that does not.
   let jestMockTransformPresent = true;
   // The hot runtime chosen in config(), re-checked against Vitest's resolved config.
-  // Keyed by project root: projects that inherit the root config (`extends: true`)
-  // share this plugin instance, and each decides for itself.
+  // Keyed by project root: each project decides for itself, and an instance can see
+  // more than one project (a config re-used by several, or Vitest 4 workspaces).
   const hotSelections = new Map<
     string,
     { pool: unknown; userPool: unknown; userMaxWorkers: unknown; singleWorkerAccepted: boolean }
   >();
-  // Project roots this instance configured for the native engine.
+  // Project roots this instance configured for the native engine, and the setup file
+  // it gave each project root.
   const nativeRoots = new Set<string>();
+  const contributedSetup = new Map<string, string>();
   let warnedMissingJestMockTransform = false;
 
   const warnIfJestMockUnhoisted = (code: string, id: string): void => {
@@ -1381,7 +1406,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // VM pools are incompatible with the native engine itself, irrespective of
         // whether automatic hot selection would otherwise decline.
         if (isVmPool(userPool)) throw vmPoolUnsupported(userPool);
-        nativeRoots.add(resolvedRoot);
+        nativeRoots.add(vitestRootOf(userConfig));
 
         // Admit the hot runtime BEFORE compiling React Native's registry. On a
         // constrained container the registry build itself is a material memory
@@ -1501,14 +1526,14 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         }
         printEngineBanner(engine, platform, resolvedRoot, hot !== undefined);
         if (hot) {
-          hotSelections.set(resolvedRoot, {
+          hotSelections.set(vitestRootOf(userConfig), {
             pool: hot.pool,
             userPool,
             userMaxWorkers: userTest?.maxWorkers,
             singleWorkerAccepted: hotMemory?.allowUnboundedMemory === true,
           });
         } else {
-          hotSelections.delete(resolvedRoot);
+          hotSelections.delete(vitestRootOf(userConfig));
         }
         return asCompatibleViteConfig(
           nativeEngineConfig(
@@ -2014,9 +2039,14 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           userConfig,
           env,
         );
-        if (!inlineProjectsNeedOwnServers((userConfig as { test?: unknown }).test)) return result;
-        const config = (result ?? {}) as { test?: Record<string, unknown> };
-        return { ...config, test: { ...config.test, sharedViteServer: false } };
+        // Vitest reads `projects` after every config hook, so pinning in place reaches it.
+        pinInlineProjectRoots((userConfig as { test?: unknown }).test, vitestRootOf(userConfig));
+        const setupFile = (result as { test?: { setupFiles?: unknown } } | undefined)?.test
+          ?.setupFiles;
+        if (Array.isArray(setupFile) && typeof setupFile[0] === "string") {
+          contributedSetup.set(vitestRootOf(userConfig), setupFile[0]);
+        }
+        return result;
       },
     },
     // Vitest calls this once projects are resolved with CLI options applied and before
@@ -2039,6 +2069,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           isolate?: unknown;
           maxWorkers?: unknown;
           fileParallelism?: unknown;
+          setupFiles?: unknown;
           runner?: unknown;
           env?: Record<string, string>;
         };
@@ -2046,6 +2077,17 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     }) {
       const projectConfig = project.config;
       const root = projectConfig.root ? path.resolve(projectConfig.root) : process.cwd();
+      // A project that shares a Vite server without this plugin's test config would
+      // run without React Native's setup; say so instead of failing per file.
+      const setupFile = contributedSetup.get(root);
+      if (setupFile && !hasSetupFile(projectConfig.setupFiles, setupFile)) {
+        throw new VitestNativeError(
+          "SHARED_VITE_SERVER",
+          `A Vitest project under ${root} shares a Vite server without vitest-native's test ` +
+            `config, so React Native's setup would not run. Give the project a \`root\`, or ` +
+            `set \`test.sharedViteServer: false\` in the top-level Vitest config.`,
+        );
+      }
       const cli = vitest._cliOptions ?? vitest.config?.cliOptions ?? {};
       // On Vitest 4 a `--pool` flag arrives after config(), past its check.
       if (nativeRoots.has(root) && isVmPool(cli.pool)) throw vmPoolUnsupported(cli.pool);
@@ -2067,7 +2109,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         projectConfig.maxWorkers =
           projectConfig.fileParallelism === false
             ? 1
-            : vitestMaxWorkers(selection.userMaxWorkers, vitest.config?.watch === true);
+            : selection.userMaxWorkers === undefined && vitest.config !== projectConfig
+              ? // Unset here: Vitest falls back to the root config's value, then its default.
+                undefined
+              : vitestMaxWorkers(selection.userMaxWorkers, vitest.config?.watch === true);
       }
       if (projectConfig.env) delete projectConfig.env.VITEST_NATIVE_MEMORY_PLAN;
       hotSelections.delete(root);

@@ -8,6 +8,7 @@ Vitest 5 lets an inline project (`projects: [{ extends: true, … }]`) share the
 config's Vite server and builds its `test` options from the raw user config, before any
 plugin's `config` hook runs. Those projects lost everything vitest-native adds to `test` —
 setup files, module ownership, env, the hot runtime — and their tests failed to load. The
-plugin now sets `test.sharedViteServer: false` when inline projects are declared, so each one
-resolves through the config file and gets the plugin, as on Vitest 4. An explicit
-`sharedViteServer: true` with inline projects fails with `SHARED_VITE_SERVER`.
+plugin now pins each inline project's `root` to the root it inherits anyway, which makes Vitest
+resolve it through the config file with the plugin, as on Vitest 4. This works in a nested
+config too, where `test.sharedViteServer` (read only from the top-level config) cannot help. A
+project that still reaches the run without the plugin's setup fails with `SHARED_VITE_SERVER`.
