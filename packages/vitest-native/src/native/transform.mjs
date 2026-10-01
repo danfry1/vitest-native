@@ -278,8 +278,16 @@ export function isFlow(src) {
  * hands those to Node as CommonJS today, and changing that is an interop question
  * about named exports and live bindings that this check does not answer.
  */
+const TYPESCRIPT_FILE = /\.[cm]?tsx?$/;
+
 export function needsTransform(file, src) {
   if (file.endsWith(".mjs") || moduleGoal(file)) return true; // Not this check's business.
+  // Node refuses TypeScript under node_modules by extension, whatever the content
+  // ("Stripping types is currently unsupported for files under node_modules"). Expo
+  // packages publish their TypeScript source (expo-modules-core's `main` is
+  // src/index.ts), and a file with no type syntax — its src/polyfill/index.ts is a
+  // bare `// noop` — parses as a script, so the check below would hand it to Node.
+  if (TYPESCRIPT_FILE.test(file)) return true;
   try {
     // Parsed for the verdict only; the compiled script is never run.
     const parsed = new vm.Script(src, { filename: file });
