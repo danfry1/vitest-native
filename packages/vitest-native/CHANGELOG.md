@@ -1,5 +1,227 @@
 # vitest-native
 
+## 0.14.0
+
+### Minor Changes
+
+- 87d8dd0: Use the hot runtime for suites migrated from Jest under `hotRuntime: 'auto'`
+
+  `'auto'`, the default, no longer keeps per-file isolation for suites set up with
+  `jestMockTransform()` or the jest-compat setup. The jest-compat surface — `jest.mock` in
+  its hoisted, partial, factory-less and runtime forms, spies on React Native APIs, `console`
+  and package exports, fake timers and `jest.setSystemTime`, `jest.setTimeout`, globals,
+  `process.env`, snapshot state, React Native Testing Library cleanup, and a project setup
+  file's top-level mocks, matchers and globals — now has its own cross-file isolation gate
+  under the hot runtime. `hotRuntime: false` keeps
+  per-file isolation for a suite that needs it.
+
+- d0d968a: Use the hot runtime by default where it can be bounded
+
+  `hotRuntime` now defaults to `'auto'` under the native engine. A run reuses workers and resets
+  React Native's registry, the app/test module graph and the verified process state per file
+  whenever the scheduler provides recyclable boundaries (at least two workers within the memory
+  plan), no other pool is configured, and the worker and the project resolve the same Vitest
+  version; otherwise it keeps Vitest's per-file isolation, as before. Suites set up for Jest
+  migration are included (see the separate entry on admitting them).
+
+  When hot is selected, concurrency follows the hot memory plan, which caps automatic workers at
+  four. Set implicitly, `'auto'` is quiet about both its fallbacks and that cap;
+  `diagnostics: true`, or setting `hotRuntime: 'auto'` explicitly, reports them.
+  `hotRuntime: false` restores per-file isolation unconditionally, and `hotRuntime: true` still
+  requires hot mode and fails closed when it cannot be bounded — including on a Vitest version
+  mismatch, which `'auto'` treats as a reason to fall back.
+
+- 2581950: Add an experimental `metroConfig` option that reads the project's Metro resolution profile
+
+  `reactNative({ metroConfig: true })` evaluates the project's Metro config (or Expo's defaults)
+  in a short-lived, memory-bounded child process and applies its declarative resolution profile:
+  source extensions and their order, and asset extensions. Main fields and conditions are
+  reported under `diagnostics`. `metroConfig: { configFile }` points at a config outside the
+  project root. A custom `resolver.resolveRequest` is code and does not run under Vitest; the
+  extensions still apply and one warning names the gap. Default: `false`.
+
+### Patch Changes
+
+- 9ab8270: Report project-source ownership risks consistently for extensionless and platform-specific Node resolution. The warning now distinguishes resolution from proven execution or duplicate instances, and respects Node-owned, delegated and overridden ownership policies. Resolution warnings remain nonfatal.
+- 9ab8270: Bound the native hot runtime by effective host/container memory
+
+  Hot mode now derives one worker-total plan from `os.totalmem()` and
+  `process.constrainedMemory()`, reserves main-process and worker-replacement RSS,
+  caps automatic concurrency at four, and recycles one worker at a time on local heap
+  or process RSS. It fails before starting more work at the hard RSS boundary so a
+  container reports a useful `HOT_MEMORY_BUDGET_EXCEEDED` error instead of relying on
+  an OOM kill.
+
+  Current Vitest batches every file into one unrecyclable task at one worker. Hot mode
+  now rejects that configuration with `HOT_MEMORY_UNBOUNDED` rather than silently
+  claiming its limits are active. An externally bounded run can explicitly accept the
+  risk with `hotRuntime: { allowUnboundedMemory: true }`.
+
+  The policy is covered by unit and recycle-soak gates plus a packed RN 0.87 / RNTL 14
+  Docker gate: 512 MiB and 1 GiB fail closed before registry compilation, while 2 GiB
+  caps an eight-worker request to four, passes 405 files, and demonstrably recycles.
+
+- 9ab8270: Bound cold React Native registry compilation outside the long-lived Vite process
+
+  Cold registry cache misses now compile in a short-lived child with a 96 MiB old-space
+  cap and a 256 MiB retry only for a recognized V8 heap OOM. The parent validates the
+  atomic cache result, warm runs remain spawn-free, and ordinary failures keep the
+  visible correctness-preserving per-file fallback. Registry keys now include
+  normalized asset extensions, which affect emitted module code.
+
+  A real 438-module production gate checks artifact parity, persistent-parent RSS,
+  warm lookup, bounded latency, and concurrent cold writers.
+
+- 290bc53: `vitest-native doctor` no longer warns that Expo core and expo-router setups "can hit known limits" and points at a migration-guide section that no longer exists. Those setups work under the native engine; doctor now reports the Expo version as covered and links the Expo guide, mentioning `vitest-native migrate` for jest-expo projects.
+- ff77511: Install React Native's ErrorUtils under the native engine; gate expo-router end to end
+
+  `global.ErrorUtils` — React Native's error-guard polyfill, installed on device by
+  InitializeCore — is read at module scope by Expo's `Expo.fx`
+  (`ErrorUtils.getGlobalHandler()`), so importing anything from `expo` under the
+  native engine failed with "ErrorUtils is not defined". The engine now installs the
+  real `@react-native/js-polyfills` implementation, resolved through the installed
+  React Native and compiled by the same hooks as the rest of its sources, once per
+  realm; nothing is hand-mocked.
+
+  The packed Expo consumer fixture gains an expo-router leg: a real SDK 56 project
+  with file-based `app/` routes (a stack layout, a home screen, a dynamic
+  `details/[id]` route), tested through expo-router's own `expo-router/testing-library`
+  — `renderRouter("./app")`, `testRouter.push`/`back`, `toHavePathname`,
+  `useLocalSearchParams` — exactly as its documentation shows and as a jest-expo
+  suite already contains. It runs against the real `@react-navigation/*` stack with
+  `presets: { navigation: false }` and the jest-compat layer, from a packed install
+  in the consumer gate.
+
+- 9ab8270: Preserve CommonJS re-exports across hot worker file boundaries
+
+  Hot cleanup now invalidates stale Node relative-resolution lookups after deleting
+  per-file CommonJS cache entries. This prevents later ESM imports of direct CJS
+  re-exports from silently receiving empty exports on affected Node versions.
+
+  The compatibility layer preserves named exports, cycles, retry behavior and fresh
+  module identities. It does not evaluate user modules during cleanup; incompatible
+  loader behavior fails with an actionable worker-isolation fallback. Runtime
+  defaults are unchanged. The Node upstream fix remains the long-term replacement
+  for this internal-loader compatibility layer.
+
+- e3faa95: Fix three cross-file leaks under the hot runtime and relative paths in `jest.setMock`
+
+  - A `jest.doMock`/`vi.doMock` issued after a file's last import was applied to the next
+    file's imports. Vitest queues such mocks until the next import, and the per-file reset
+    cleared the mock registries but not that queue; it now clears it too.
+  - React Native Testing Library, which the hot runtime keeps loaded once per worker,
+    registered its automatic cleanup and act-environment hooks only in the first file that
+    imported it. Later files left their trees mounted, and `screen` could return the previous
+    file's tree. When a file imports a resident RNTL, its entry module now re-runs against the
+    resident instances, so each file that imports RNTL gets RNTL's own hooks and a file that
+    does not import it gets none, as under per-file isolation.
+  - `jest.setMock` and `jest.dontMock` resolved a relative path against the jest-compat shim
+    instead of the calling test file, so the mock (or unmock) applied to the wrong module.
+    Relative paths are now anchored at the caller, as Jest resolves them. Finding the caller
+    also no longer skips a test file that lives in a directory named `jest-compat`.
+
+- 9ab8270: Reset hot-runtime state before a test file's own setup files run
+
+  The hot runtime restored the previous file's realm state (fake timers, stubbed
+  globals and environment, listeners) from this package's setup file, which Vitest
+  runs after the project's own setup files. A project setup file that installs fake
+  timers therefore found the previous file's timers still installed and failed with
+  "Can't install fake timers twice", failing every file after the first. The reset
+  now runs at the file boundary, before any setup file.
+
+- 01a9afc: Stop printing React Native's deprecation notices on every import under the native engine. The `react-native` facade read every export while it initialised, and React Native prints the notice for a deprecated or extracted member (`SafeAreaView`, `Clipboard`, `PushNotificationIOS`, …) from that member's getter, so importing only `Pressable` printed all of them. Deprecated members are now exposed as getters and read only when used, so a notice appears only in tests that use the member. The export-name parser also no longer picks up keys from code after the exports object.
+- 8300ec6: Build native-engine preset mocks on first use in each test file
+
+  The native setup rebuilt every auto-detected preset mock for every test file — in
+  a project with twenty presets, about 900 `vi.fn()` mocks per file, most for
+  packages the file never imports. Vitest keeps every mock it has created (for
+  `vi.clearAllMocks()`), so under the hot runtime each file's unused mocks stayed
+  reachable for the rest of the run: worker heap grew about 4 MB per file and a
+  1,000-file single-worker run ran out of memory. Each preset mock is now built
+  the first time a file uses it, and still fresh for every file. On the same run,
+  worker heap after 562 tests fell from about 2.4 GB to about 0.45 GB and 1,000
+  files complete in about 1.5 GB.
+
+- 99f3013: Fix the matcher type augmentations for Vitest 4 and Vitest 5. Under Vitest 4, `expect(x).toHaveAnimatedStyle(...)` and `toHaveAnimatedProps(...)` from `vitest-native/matchers` were untyped: the published declaration file augmented the `vitest` module without referencing it, which Vitest 4's type layout needs for the augmentation to merge. The declarations now reference `vitest`, and both `vitest-native/matchers` and `vitest-native/rntl-matchers` use Vitest 5's `Assertion<R, T>` type parameters. The matchers are typed on both majors; a Vitest 4 project that checks declaration files (`skipLibCheck: false`) reports TS2428 for the differing type parameters.
+- 525eb42: Translate jest-expo presets in `vitest-native migrate`
+
+  `migrate` reported `preset: 'jest-expo'` as needing attention and pointed at known limits
+  that no longer apply. It now translates the preset: `jest-expo` and `jest-expo/ios` become
+  `reactNative()`, `jest-expo/android` becomes `reactNative({ platform: 'android' })`, and
+  `jest-expo/universal`, `jest-expo/web` and `jest-expo/node` are reported with what to do
+  instead. jest-expo does not mock React Navigation, so when a `@react-navigation/*` package is
+  installed (which activates the navigation preset) the suggested config sets
+  `presets: { navigation: false }`, keeping screens in real navigators as under Jest; a
+  project with its own root `__mocks__/@react-navigation` keeps the preset. The packed Expo
+  SDK 57 consumer gate now also runs expo-router's testing library under the configuration
+  `migrate --write` generates from a jest-expo setup.
+
+- 4e5130f: Navigation preset matches @react-navigation/native's shape; a disabled preset's package detects like any other
+
+  Two gaps that both surfaced by rendering router-driven screens under the native
+  engine — the shape most Expo apps have.
+
+  `createNavigatorFactory(Navigator)` now returns the real factory shape, yielding
+  `{ Navigator, Screen, Group }`. It returned a bare mock function whose result was
+  undefined, so any library building on the public factory API — expo-router extracts
+  its `Screen`/`Group` primitives through `createNavigatorFactory({})()` — failed at
+  import with "Cannot read properties of undefined (reading 'Screen')". The preset
+  also gains the exports `@react-navigation/native` adds on top of core:
+  `LinkingContext`, `LocaleDirContext`, `UNSTABLE_UnhandledLinkingContext`,
+  `DefaultTheme`, `DarkTheme` (real colors and platform font stacks), `createStaticNavigation`,
+  `ServerContainer`, `useLinkBuilder`, `useLinkProps`, `useLocale`, `useRoutePath`.
+  `ThemeContext` is seeded with `DefaultTheme`, as in the real package.
+
+  Disabling a preset — `presets: { navigation: false }` — now returns its packages to
+  ordinary ecosystem detection. Detection used to skip every preset package
+  unconditionally, so turning the preset off un-shadowed `@react-navigation/*` but
+  left it undetected: nothing compiled its untranspiled `lib/module` source and it
+  failed at load. That is the configuration under which the real React Navigation
+  stack, and expo-router's own `expo-router/testing-library` on top of it, run under
+  the native engine — `renderRouter` renders and `router.push` navigates.
+
+- 3f62964: `jest.requireActual` and `jest.requireMock` now apply the project's `resolve.alias` string entries. A partial mock such as `jest.mock('@/services/api', () => ({ ...jest.requireActual('@/services/api'), fn: jest.fn() }))` threw "Cannot find module" because `requireActual` resolves through Node, which does not apply Vite's aliases. Aliases match on the whole specifier or a `/` boundary (an `@` alias does not capture `@scope/pkg`), the longest match wins, and an extensionless result is resolved with the platform's extension order (`@/Button` → `Button.ios.tsx`). Regex aliases and custom resolvers cannot reach the test worker; when one is configured, an unresolved specifier reports that instead of a bare "Cannot find module".
+- d4ae5bf: Report the resolver-agreement warning (`'x' resolves to two different files`) only under `diagnostics`. The check compares Node's resolution against the package manifest and cannot see Vite's module graph, so it fired for packages that only Node ever requires — `test-renderer` (required by React Native Testing Library), `nanoid` (required by postcss) and Babel's source-map packages — printing on every test file. The warning now also states that it is a risk rather than a proven duplicate, and that its comparison uses Vite's default main fields.
+- 963b35e: Type React Native Testing Library's matchers on RNTL 12 and 13
+
+  `vitest-native/rntl-matchers` imported RNTL's matcher interface from
+  `dist/matchers/types`, a path that exists only from RNTL 14; RNTL 12 and 13 keep it
+  under `build/`. On those versions the import resolved to nothing, and under
+  `skipLibCheck: true` the failure was silent: `toHaveTextContent`, `toBeVisible`,
+  `toBeDisabled` and the other matchers stayed untyped although the peer range is
+  `>=12 <15`. The entry now declares the interface itself, taking the element type from
+  RNTL's public `screen` API, and a test compares its members with the installed RNTL's
+  on each supported major. Typechecked against RNTL 12.9, 13.3 and 14.0 with Vitest 4
+  and 5 and TypeScript 6 and 7.
+
+- 8893464: Fix `vitest-native/rntl-matchers` under TypeScript 7 with RNTL 14. RNTL 14 adds its matchers to the global `jest.Matchers<R>`, which Vitest's `JestAssertion` extends with `R = void`; the entry added them again with Vitest's assertion type, and TypeScript 7 rejects the two differing declarations (TS2320) for projects that typecheck declaration files (`skipLibCheck: false`). The entry now uses the same instantiation, so the declarations agree and the matchers stay typed.
+- 9ab8270: Add conservative automatic selection for the bounded native hot runtime
+
+  `hotRuntime: "auto"` enables persistent native workers only when the current
+  configuration has recyclable task boundaries, enough host/container memory for at
+  least two workers, and no explicitly selected pool; otherwise it preserves stock
+  per-file isolation. Selection runs after other Vite config hooks, so
+  later-contributed pools and setup files cannot create a mixed runtime. (In this
+  release `'auto'` also becomes the default, falls back quietly unless set explicitly
+  or `diagnostics` is on, and includes suites migrated from Jest — see the minor
+  changes above.)
+
+  A packed consumer gate proves safe enablement and the one-worker and explicit-pool
+  fallbacks. Explicit `hotRuntime: true` keeps its existing fail-closed semantics.
+
+- 9ab8270: Verify and restore hot-runtime shared-realm state between test files
+
+  Hot mode now uses an ordered state manifest for Vitest timers and stubs, native
+  boundary overrides, known React Native state, environment changes, process and RN
+  listeners, global and console property descriptors, ErrorUtils, and the Expo
+  compatibility runtime. Every restore is followed by final-realm verification, and a
+  failure names the responsible entry instead of surfacing later as an order-dependent
+  test failure.
+
+  An adversarial two-file suite contaminates every supported surface. A mutation gate
+  disables all eleven restore actions one at a time and requires each omission to fail,
+  covering both the normal precompiled registry and the resident-RN fallback path.
+
 ## 0.13.0
 
 ### Minor Changes
