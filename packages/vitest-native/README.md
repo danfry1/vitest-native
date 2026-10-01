@@ -953,12 +953,16 @@ that API.
 
 Every release must pass:
 
-- Linux on Node 20.19 and 22.13, plus macOS and Windows on Node 22.13.
+- Linux on Node 20.19, 22.13, and 24, plus macOS and Windows on Node 22.13.
 - The mock, native iOS, native Android, hot-runtime, isolation, and 100-file soak suites.
 - React Native 0.81–0.87 against both locked and newest-supported Vitest, plus the Vitest 4 floor
   on 0.81 and 0.87.
-- Packed bare RN 0.83/RNTL 12, Expo SDK 57/RNTL 13 (with expo-router and a `migrate`-generated
-  jest-expo config), Vite 8 monorepo/RNTL 14, and RN 0.86 consumers.
+- Vitest's own behaviour under the defaults, on Vitest 5 and the Vitest 4 floor: config and CLI
+  flags, projects, watch mode, the jsdom and happy-dom environments, `--typecheck`, and the HTML
+  reporter.
+- Packed consumers: bare RN 0.83/RNTL 12, a Jest-migration project, Expo SDK 57/RNTL 13 (with
+  expo-router and a `migrate`-generated jest-expo config), a mock-engine RNTL 14 project, npm- and
+  pnpm-workspace monorepos on Vite 8, and an RN 0.86 Android project.
 - Packed V8 and Istanbul coverage maps/counts matching default isolation exactly under hot workers.
 - Mock-versus-real-RN behavioral cross-checks, example-app tests, typecheck, lint, formatting, and
   package export analysis.
