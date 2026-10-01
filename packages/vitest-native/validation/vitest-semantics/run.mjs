@@ -22,6 +22,10 @@ const packageRoot = path.resolve(here, "../..");
 const vitestVersion = process.env.VN_SEMANTICS_VITEST ?? "5.0.1";
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-vitest-semantics-"));
 const failures = [];
+// 'auto' needs two workers. With Vitest's default of one fewer than the CPUs, a
+// machine with fewer than three runs isolated by default, as it should.
+const cpus = os.availableParallelism?.() ?? os.cpus().length;
+const HOT = cpus >= 3 ? "hot" : "isolated";
 
 function sh(command, args, cwd, env = {}, timeout = 0) {
   const result = spawnSync(command, args, {
@@ -121,7 +125,8 @@ import { Platform, StyleSheet } from "react-native";
 import { state } from "./state.mjs";
 import { label } from "./label.mjs";
 
-const hot = process.env.VITEST_NATIVE_MEMORY_PLAN !== undefined;
+// The hot worker installs its per-file reset before any test file loads.
+const hot = typeof globalThis.__vitest_native_hot_reset === "function";
 if (process.env.VN_MODE_FILE) fs.appendFileSync(process.env.VN_MODE_FILE, hot ? "hot\\n" : "isolated\\n");
 
 test("unit ${i} sees clean module state", () => {
@@ -175,7 +180,7 @@ export default defineConfig({
       `import fs from "node:fs";
 import { expect, test } from "vitest";
 import { Platform } from "react-native";
-if (process.env.VN_MODE_FILE) fs.appendFileSync(process.env.VN_MODE_FILE, (process.env.VITEST_NATIVE_MEMORY_PLAN !== undefined ? "hot" : "isolated") + "\\n");
+if (process.env.VN_MODE_FILE) fs.appendFileSync(process.env.VN_MODE_FILE, (typeof globalThis.__vitest_native_hot_reset === "function" ? "hot" : "isolated") + "\\n");
 test("${name} runs real React Native", () => expect(Platform.OS).toBe("ios"));
 `,
     );
@@ -228,19 +233,23 @@ function runScenario({
   } finally {
     after();
   }
-  const modes = fs.existsSync(modeFile)
-    ? [...new Set(fs.readFileSync(modeFile, "utf8").trim().split("\n").filter(Boolean))]
-    : [];
   const json = fs.existsSync(report) ? JSON.parse(fs.readFileSync(report, "utf8")) : null;
   return {
     status: result.status,
     timedOut: result.timedOut,
     output: result.output,
-    mode: modes.length === 1 ? modes[0] : modes.length ? "mixed" : "none",
+    mode: readMode(modeFile),
     passed: json?.numPassedTests,
     failed: json?.numFailedTests,
     total: json?.numTotalTests,
   };
+}
+
+function readMode(modeFile) {
+  const modes = fs.existsSync(modeFile)
+    ? [...new Set(fs.readFileSync(modeFile, "utf8").trim().split("\n").filter(Boolean))]
+    : [];
+  return modes.length === 1 ? modes[0] : modes.length ? "mixed" : "none";
 }
 
 function check(name, condition, detail) {
@@ -256,9 +265,16 @@ function check(name, condition, detail) {
 
 async function watchScenario() {
   const output = [];
+  const modeFile = path.join(root, ".mode-watch");
+  fs.rmSync(modeFile, { force: true });
   const child = spawn(process.execPath, [vitestBin(), "--watch"], {
     cwd: root,
-    env: { ...process.env, VN_PLUGIN: "{}", VN_TEST: '{"include":["src/unit-*.test.mjs"]}' },
+    env: {
+      ...process.env,
+      VN_PLUGIN: "{}",
+      VN_TEST: '{"include":["src/unit-*.test.mjs"]}',
+      VN_MODE_FILE: modeFile,
+    },
   });
   child.stdout.on("data", (d) => output.push(String(d)));
   child.stderr.on("data", (d) => output.push(String(d)));
@@ -278,6 +294,12 @@ async function watchScenario() {
   };
   try {
     check("watch: initial run", await waitForRuns(1), text().slice(-400));
+    // Watch mode defaults to half the CPUs, which still admits hot from three up.
+    check(
+      "watch: runtime",
+      readMode(modeFile) === HOT,
+      `ran ${readMode(modeFile)}, expected ${HOT}`,
+    );
     const unit0 = path.join(root, "src/unit-0.test.mjs");
     const original = fs.readFileSync(unit0, "utf8");
 
@@ -317,9 +339,11 @@ try {
   console.log(`vitest-native semantics gate (vitest ${vitestVersion}), fixture ${root}`);
 
   const all = { total: totalTests };
+  // Each inherits the root's `include`, so each runs every file.
+  const INLINE_PROJECTS = ["a", "b"].map((name) => ({ extends: true, test: { name } }));
   const rows = [
     // [name, scenario, expected mode, expectation(result)]
-    ["default", {}, "hot", (r) => r.status === 0 && r.passed === all.total],
+    ["default", {}, HOT, (r) => r.status === 0 && r.passed === all.total],
     ["hotRuntime:false", { plugin: { hotRuntime: false } }, "isolated", (r) => r.status === 0],
     ["isolate:true", { test: { isolate: true } }, "isolated", (r) => r.status === 0],
     // Vitest's isolate:false shares the module graph across files, so cross-file state
@@ -346,7 +370,7 @@ try {
       "isolated",
       (r) => r.status === 0,
     ],
-    ["--maxWorkers=2", { args: ["--maxWorkers=2"] }, "hot", (r) => r.status === 0],
+    ["--maxWorkers=2", { args: ["--maxWorkers=2"] }, HOT, (r) => r.status === 0],
     [
       // Explicitly requested hot that a CLI flag makes impossible fails at startup,
       // by name — never a run that errors mid-way and does not exit.
@@ -355,37 +379,37 @@ try {
       "none",
       (r) => r.status !== 0 && /HOT_RUNTIME_OVERRIDDEN|HOT_MEMORY_UNBOUNDED/.test(r.output),
     ],
-    ["--sequence.shuffle", { args: ["--sequence.shuffle"] }, "hot", (r) => r.status === 0],
+    ["--sequence.shuffle", { args: ["--sequence.shuffle"] }, HOT, (r) => r.status === 0],
     [
       "-t filter",
       { args: ["-t", "renders through"] },
-      "hot",
+      HOT,
       (r) => r.status === 0 && r.passed === 6,
     ],
-    ["--shard=1/2", { args: ["--shard=1/2"] }, "hot", (r) => r.status === 0],
-    ["--shard=2/2", { args: ["--shard=2/2"] }, "hot", (r) => r.status === 0],
+    ["--shard=1/2", { args: ["--shard=1/2"] }, HOT, (r) => r.status === 0],
+    ["--shard=2/2", { args: ["--shard=2/2"] }, HOT, (r) => r.status === 0],
     [
       "retry passes a flaky test",
       { test: { retry: 2 }, env: { VN_FLAKY_FILE: true } },
-      "hot",
+      HOT,
       (r) => r.status === 0,
     ],
     [
       "a failing test without retry fails the run",
       { env: { VN_FAIL: "1" } },
-      "hot",
+      HOT,
       (r) => r.status !== 0 && r.failed === 1,
     ],
     [
       "--bail=1 stops the run",
       { args: ["--bail=1"], env: { VN_FAIL: "1" } },
-      "hot",
+      HOT,
       (r) => r.status !== 0 && r.failed >= 1,
     ],
     [
       "related <source> runs its importers",
       { command: "related", args: ["src/label.mjs"] },
-      "hot",
+      HOT,
       (r) => r.status === 0 && r.passed === 12,
     ],
     [
@@ -397,7 +421,7 @@ try {
     [
       "--coverage",
       { args: ["--coverage", "--coverage.reporter=text"] },
-      "hot",
+      HOT,
       (r) => r.status === 0,
     ],
     [
@@ -406,7 +430,7 @@ try {
       // still resolve; they did not while the registry cache fell back to tmpdir.
       "a project root below the install",
       { args: ["--config", "projects/alpha/vitest.config.mjs"], before: clearCaches },
-      "hot",
+      HOT,
       (r) => r.status === 0 && r.passed === 1,
     ],
     ...(process.platform === "win32"
@@ -424,14 +448,53 @@ try {
               },
               after: () => fs.chmodSync(path.join(root, "node_modules"), 0o755),
             },
-            "hot",
+            HOT,
             (r) => r.status === 0 && r.passed === all.total,
           ],
         ]),
     [
+      "hotRuntime:true with --no-isolate fails fast",
+      { plugin: { hotRuntime: true }, args: ["--no-isolate"] },
+      "none",
+      (r) => r.status !== 0 && /HOT_RUNTIME_OVERRIDDEN/.test(r.output),
+    ],
+    [
+      "hotRuntime:true with --pool=forks fails fast",
+      { plugin: { hotRuntime: true }, args: ["--pool=forks"] },
+      "none",
+      (r) => r.status !== 0 && /HOT_RUNTIME_OVERRIDDEN/.test(r.output),
+    ],
+    [
+      "hotRuntime:true with test.isolate fails fast",
+      { plugin: { hotRuntime: true }, test: { isolate: true } },
+      "none",
+      (r) => r.status !== 0 && /HOT_RUNTIME_OVERRIDDEN/.test(r.output),
+    ],
+    [
+      "--pool=vmThreads is refused by name",
+      { args: ["--pool=vmThreads"] },
+      "none",
+      (r) => r.status !== 0 && /UNSUPPORTED_POOL/.test(r.output),
+    ],
+    // Inline projects with `extends: true`. Vitest 5 would share the root's Vite server
+    // and drop every plugin's test config for them; each must get React Native's setup,
+    // reach its own hot decision, and honour a CLI pool.
+    [
+      "extends:true projects",
+      { test: { projects: INLINE_PROJECTS } },
+      HOT,
+      (r) => r.status === 0 && r.passed === 2 * all.total,
+    ],
+    [
+      "extends:true projects with --pool=forks",
+      { test: { projects: INLINE_PROJECTS }, args: ["--pool=forks"] },
+      "isolated",
+      (r) => r.status === 0 && r.passed === 2 * all.total,
+    ],
+    [
       "projects with the plugin in each",
       { test: { projects: ["projects/*"] }, args: [], before: clearCaches },
-      "hot",
+      HOT,
       (r) => r.status === 0 && r.passed === 2,
     ],
   ];

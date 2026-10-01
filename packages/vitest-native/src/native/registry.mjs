@@ -625,6 +625,14 @@ export function installRegistry(
   globalThis.__vitest_native_registry_installed = true;
   globalThis.__vitest_native_registry_reset = () => registry.reset();
 
+  // Node records the loaded file under its real path (`/private/var/…` for macOS's
+  // `/var/…` tmpdir), so match the registry file by both spellings.
+  let registryRealFile = registryFile;
+  try {
+    registryRealFile = fs.realpathSync(registryFile);
+  } catch {
+    // Just loaded, so it exists; an unresolvable path keeps the given spelling.
+  }
   const idOf = new Map(registry.ids.map((f, i) => [f, i]));
   const entryId = idOf.get(registry.entry);
   const origLoad = Module._load;
@@ -642,7 +650,10 @@ export function installRegistry(
       // The registry's own code requires with the registry FILE as parent, and that
       // file lives in a cache directory that may be outside the project (tmpdir when
       // the project has no writable node_modules). Resolve those from the project.
-      const fromProject = !parent?.filename || parent.filename === registryFile;
+      const fromProject =
+        !parent?.filename ||
+        parent.filename === registryFile ||
+        parent.filename === registryRealFile;
       const resolver = fromProject ? req : createRequire(parent.filename);
       const platform = process.env.VITEST_NATIVE_PLATFORM === "android" ? "android" : "ios";
       let resolved;

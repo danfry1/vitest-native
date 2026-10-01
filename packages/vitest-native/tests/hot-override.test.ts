@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { hotOverrideReason } from "../src/plugin.js";
+import {
+  hotOverrideReason,
+  inlineProjectsNeedOwnServers,
+  vitestMaxWorkers,
+} from "../src/plugin.js";
 
 // Vitest 4 applies CLI flags after plugins' config hooks, so the hot runtime chosen
 // there is re-checked against the resolved config. Anything that is not a reason
@@ -38,5 +42,48 @@ describe("hotOverrideReason", () => {
     expect(hotOverrideReason({ ...hot, fileParallelism: false }, {}, hotPool)).toBe(
       "file parallelism is off",
     );
+  });
+});
+
+// Restored when 'auto' falls back after the memory plan capped the worker count.
+describe("vitestMaxWorkers", () => {
+  it("keeps the user's count or percentage", () => {
+    expect(vitestMaxWorkers(3, false, 8)).toBe(3);
+    expect(vitestMaxWorkers("5", false, 8)).toBe(5);
+    expect(vitestMaxWorkers("50%", false, 8)).toBe(4);
+    expect(vitestMaxWorkers("200%", false, 8)).toBe(8);
+    expect(vitestMaxWorkers("1%", false, 8)).toBe(1);
+  });
+
+  it("otherwise uses Vitest's default for run and watch", () => {
+    expect(vitestMaxWorkers(undefined, false, 8)).toBe(7);
+    expect(vitestMaxWorkers(undefined, true, 8)).toBe(4);
+    expect(vitestMaxWorkers(undefined, false, 1)).toBe(1);
+    expect(vitestMaxWorkers(undefined, true, 1)).toBe(1);
+  });
+});
+
+// Vitest 5 builds a server-sharing inline project's `test` options from the user's raw
+// config, without this plugin's contributions.
+describe("inlineProjectsNeedOwnServers", () => {
+  it("turns server sharing off only for inline projects left at Vitest's default", () => {
+    expect(inlineProjectsNeedOwnServers({ projects: [{ test: { name: "a" } }] })).toBe(true);
+    expect(inlineProjectsNeedOwnServers({ projects: ["packages/*", { extends: true }] })).toBe(
+      true,
+    );
+    // File and directory projects always resolve their own config.
+    expect(inlineProjectsNeedOwnServers({ projects: ["packages/*"] })).toBe(false);
+    expect(inlineProjectsNeedOwnServers({})).toBe(false);
+    expect(inlineProjectsNeedOwnServers(undefined)).toBe(false);
+    expect(
+      inlineProjectsNeedOwnServers({ projects: [{ extends: true }], sharedViteServer: false }),
+    ).toBe(false);
+  });
+
+  it("refuses an explicit sharedViteServer:true with inline projects", () => {
+    expect(() =>
+      inlineProjectsNeedOwnServers({ projects: [{ extends: true }], sharedViteServer: true }),
+    ).toThrow(/sharedViteServer/);
+    expect(inlineProjectsNeedOwnServers({ projects: ["a/*"], sharedViteServer: true })).toBe(false);
   });
 });

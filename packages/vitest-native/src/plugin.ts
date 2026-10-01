@@ -5,6 +5,7 @@ import { getConfiguredPlatformExtensions, getPlatformExtensions } from "./resolv
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
+import os from "node:os";
 import { createRequire } from "node:module";
 import flowRemoveTypes from "flow-remove-types";
 import { validateOptions, validatePeerDependency, warnUnknownOptions } from "./validate.js";
@@ -804,6 +805,79 @@ export function hotOverrideReason(
   return null;
 }
 
+/**
+ * Whether inline projects must resolve their own Vite config. Vitest 5 lets an inline
+ * project share the declaring config's Vite server (`test.sharedViteServer`, on by
+ * default) and builds its `test` options from the user's raw config, captured before
+ * any plugin's config hook runs: everything this plugin contributes to `test` — setup
+ * files, dependency ownership, env, the hot pool — is missing from those projects.
+ * Resolving each one through the config file, as Vitest 4 always did, runs the
+ * plugin for it. An explicit `sharedViteServer: true` cannot work and fails here.
+ */
+export function inlineProjectsNeedOwnServers(test: unknown): boolean {
+  const { projects, sharedViteServer } = (test ?? {}) as {
+    projects?: unknown;
+    sharedViteServer?: unknown;
+  };
+  if (!Array.isArray(projects) || !projects.some((p) => p != null && typeof p !== "string")) {
+    return false;
+  }
+  if (sharedViteServer === true) {
+    throw new VitestNativeError(
+      "SHARED_VITE_SERVER",
+      `test.sharedViteServer:true makes inline projects skip vitest-native's config, so ` +
+        `their tests would run without React Native's setup. Remove the option (vitest-native ` +
+        `turns it off for inline projects) or set it to false.`,
+    );
+  }
+  return sharedViteServer === undefined;
+}
+
+function isVmPool(pool: unknown): pool is "vmThreads" | "vmForks" {
+  return pool === "vmThreads" || pool === "vmForks";
+}
+
+function vmPoolUnsupported(pool: string): VitestNativeError {
+  return new VitestNativeError(
+    "UNSUPPORTED_POOL",
+    `engine:'native' cannot run on the '${pool}' pool. React Native is loaded through ` +
+      `Node's module hooks, which a VM pool's context does not use — React Native fails to ` +
+      `resolve its platform files there. Use 'threads' (the default) or 'forks', or switch ` +
+      `to engine:'mock', which needs no hooks.`,
+  );
+}
+
+function hotRuntimeOverridden(reason: string): VitestNativeError {
+  return new VitestNativeError(
+    "HOT_RUNTIME_OVERRIDDEN",
+    `hotRuntime was requested, but ${reason}, which the hot runtime cannot honour. ` +
+      `Remove that setting, or use hotRuntime:'auto' to fall back to it automatically ` +
+      `or hotRuntime:false.`,
+  );
+}
+
+/**
+ * The worker count Vitest would have used had the hot runtime not capped it: the
+ * user's own value (a count or a percentage of the CPUs), else Vitest's default.
+ * Mirrors Vitest 4/5's resolveMaxWorkers and getWorkersCountByPercentage.
+ */
+export function vitestMaxWorkers(
+  userValue: unknown,
+  watch: boolean,
+  cpus: number = os.availableParallelism?.() ?? os.cpus().length,
+): number {
+  if (typeof userValue === "number" && userValue > 0) return userValue;
+  if (typeof userValue === "string") {
+    const percent = /^(\d+)%$/.exec(userValue.trim());
+    if (percent) {
+      return Math.max(1, Math.min(cpus, Math.round((Number(percent[1]) / 100) * cpus)));
+    }
+    const count = Number.parseInt(userValue, 10);
+    if (count > 0) return count;
+  }
+  return watch ? Math.max(Math.floor(cpus / 2), 1) : Math.max(cpus - 1, 1);
+}
+
 /** Why hot cannot run here because its worker would load a different Vitest, or null. */
 function workerVitestMismatchReason(workerEntry: string, projectRoot: string): string | null {
   const mismatch = workerVitestMismatch(workerEntry, projectRoot);
@@ -813,6 +887,8 @@ function workerVitestMismatchReason(workerEntry: string, projectRoot: string): s
     : null;
 }
 
+type CliOptions = { isolate?: unknown; pool?: unknown; maxWorkers?: unknown };
+
 export function reactNative(options?: VitestNativeOptions): Plugin {
   // Per plugin INSTANCE, not module scope. A Vitest workspace calls reactNative() once
   // per project and they share this module, so module-level state means the last
@@ -820,8 +896,14 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // project that needs it, or raising it for one that does not.
   let jestMockTransformPresent = true;
   // The hot runtime chosen in config(), re-checked against Vitest's resolved config.
-  let hotSelection: { pool: unknown; userPool: unknown; singleWorkerAccepted: boolean } | null =
-    null;
+  // Keyed by project root: projects that inherit the root config (`extends: true`)
+  // share this plugin instance, and each decides for itself.
+  const hotSelections = new Map<
+    string,
+    { pool: unknown; userPool: unknown; userMaxWorkers: unknown; singleWorkerAccepted: boolean }
+  >();
+  // Project roots this instance configured for the native engine.
+  const nativeRoots = new Set<string>();
   let warnedMissingJestMockTransform = false;
 
   const warnIfJestMockUnhoisted = (code: string, id: string): void => {
@@ -1298,15 +1380,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         const userPool = userTest?.pool;
         // VM pools are incompatible with the native engine itself, irrespective of
         // whether automatic hot selection would otherwise decline.
-        if (userPool === "vmThreads" || userPool === "vmForks") {
-          throw new VitestNativeError(
-            "UNSUPPORTED_POOL",
-            `engine:'native' cannot run on the '${userPool}' pool. React Native is ` +
-              `loaded through Node's module hooks, which a VM pool's context does not use — ` +
-              `React Native fails to resolve its platform files there. Use 'threads' (the ` +
-              `default) or 'forks', or switch to engine:'mock', which needs no hooks.`,
-          );
-        }
+        if (isVmPool(userPool)) throw vmPoolUnsupported(userPool);
+        nativeRoots.add(resolvedRoot);
 
         // Admit the hot runtime BEFORE compiling React Native's registry. On a
         // constrained container the registry build itself is a material memory
@@ -1328,8 +1403,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           });
           const plan = createHotMemoryPlan({ requestedWorkers });
           const allowUnboundedMemory = hotRecycle.allowUnboundedMemory === true;
+          const configConflict = hotAutoConfigDeclineReason(userPool, userTest?.isolate);
+          if (!hotRuntimeAuto && configConflict !== null)
+            throw hotRuntimeOverridden(configConflict);
           const autoDeclineReason = hotRuntimeAuto
-            ? (hotAutoConfigDeclineReason(userPool, userTest?.isolate) ??
+            ? (configConflict ??
               workerVitestMismatchReason(nativeWorkerPath, resolvedRoot) ??
               (plan.maxWorkers < 2
                 ? `the ${plan.source} memory/scheduler plan selects only one unrecyclable worker`
@@ -1422,18 +1500,15 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           };
         }
         printEngineBanner(engine, platform, resolvedRoot, hot !== undefined);
-        hotSelection = hot
-          ? {
-              pool: hot.pool,
-              userPool,
-              singleWorkerAccepted: hotMemory?.allowUnboundedMemory === true,
-            }
-          : null;
-        if (hot && userPool) {
-          console.warn(
-            `[vitest-native] 'hotRuntime' supplies its own pool, overriding the configured ` +
-              `pool '${typeof userPool === "string" ? userPool : "(custom)"}'.`,
-          );
+        if (hot) {
+          hotSelections.set(resolvedRoot, {
+            pool: hot.pool,
+            userPool,
+            userMaxWorkers: userTest?.maxWorkers,
+            singleWorkerAccepted: hotMemory?.allowUnboundedMemory === true,
+          });
+        } else {
+          hotSelections.delete(resolvedRoot);
         }
         return asCompatibleViteConfig(
           nativeEngineConfig(
@@ -1931,16 +2006,35 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     // Choosing from the original user object can create an unsafe hybrid such as
     // isolate:false + the hot runner + a later-overridden forks pool. Vite's
     // per-hook order lets only config run last while resolve/transform remain pre.
-    config: { order: "post", handler: configHandler },
+    config: {
+      order: "post",
+      async handler(this: unknown, userConfig: UserConfig, env: unknown) {
+        const result = await (configHandler as (...args: unknown[]) => unknown).call(
+          this,
+          userConfig,
+          env,
+        );
+        if (!inlineProjectsNeedOwnServers((userConfig as { test?: unknown }).test)) return result;
+        const config = (result ?? {}) as { test?: Record<string, unknown> };
+        return { ...config, test: { ...config.test, sharedViteServer: false } };
+      },
+    },
     // Vitest calls this once projects are resolved with CLI options applied and before
     // any worker starts: the last point at which the runtime can still change.
     configureVitest({
       vitest,
       project,
     }: {
-      vitest: { _cliOptions?: { isolate?: unknown; pool?: unknown } };
+      vitest: {
+        // Vitest 4 keeps the CLI flags on `_cliOptions` (internal); Vitest 5 on
+        // `config.cliOptions`. The vitest-semantics gate runs both and fails by name
+        // if either moves.
+        _cliOptions?: CliOptions;
+        config?: { cliOptions?: CliOptions; watch?: boolean };
+      };
       project: {
         config: {
+          root?: string;
           pool?: unknown;
           isolate?: unknown;
           maxWorkers?: unknown;
@@ -1950,31 +2044,33 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         };
       };
     }) {
-      if (!hotSelection) return;
-      // `_cliOptions` is Vitest's own (internal) record of the CLI flags; the
-      // vitest-semantics gate runs on Vitest 4 and 5 and fails by name if it moves.
-      const cli = vitest._cliOptions ?? {};
+      const projectConfig = project.config;
+      const root = projectConfig.root ? path.resolve(projectConfig.root) : process.cwd();
+      const cli = vitest._cliOptions ?? vitest.config?.cliOptions ?? {};
+      // On Vitest 4 a `--pool` flag arrives after config(), past its check.
+      if (nativeRoots.has(root) && isVmPool(cli.pool)) throw vmPoolUnsupported(cli.pool);
+      const selection = hotSelections.get(root);
+      if (!selection) return;
       const reason = hotOverrideReason(
-        project.config,
+        projectConfig,
         cli,
-        hotSelection.pool,
-        hotSelection.singleWorkerAccepted,
+        selection.pool,
+        selection.singleWorkerAccepted,
       );
       if (reason === null) return;
-      if (!hotRuntimeAuto) {
-        throw new VitestNativeError(
-          "HOT_RUNTIME_OVERRIDDEN",
-          `hotRuntime was requested, but ${reason}, which the hot runtime cannot honour. ` +
-            `Remove that setting, or use hotRuntime:'auto' to fall back to it automatically ` +
-            `or hotRuntime:false.`,
-        );
-      }
-      const projectConfig = project.config;
-      projectConfig.pool = cli.pool ?? hotSelection.userPool ?? "threads";
+      if (!hotRuntimeAuto) throw hotRuntimeOverridden(reason);
+      projectConfig.pool = cli.pool ?? selection.userPool ?? "threads";
       projectConfig.isolate = cli.isolate ?? true;
       projectConfig.runner = undefined;
+      // The memory plan may have capped the worker count; give back Vitest's own.
+      if (cli.maxWorkers === undefined && !process.env.VITEST_MAX_WORKERS) {
+        projectConfig.maxWorkers =
+          projectConfig.fileParallelism === false
+            ? 1
+            : vitestMaxWorkers(selection.userMaxWorkers, vitest.config?.watch === true);
+      }
       if (projectConfig.env) delete projectConfig.env.VITEST_NATIVE_MEMORY_PLAN;
-      hotSelection = null;
+      hotSelections.delete(root);
       // The engine banner already said "hot runtime"; keep the log truthful.
       console.error(`[vitest-native] hot runtime off: ${reason}; Vitest's settings apply.`);
     },
