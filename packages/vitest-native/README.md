@@ -958,8 +958,8 @@ Every release must pass:
 - React Native 0.81–0.87 against both locked and newest-supported Vitest, plus the Vitest 4 floor
   on 0.81 and 0.87.
 - Vitest's own behaviour under the defaults, on Vitest 5 and the Vitest 4 floor: config and CLI
-  flags, projects, watch mode, the jsdom and happy-dom environments, `--typecheck`, and the HTML
-  reporter.
+  flags, projects, watch mode, the jsdom and happy-dom environments, `--typecheck`, `vitest bench`,
+  and the HTML reporter.
 - Packed consumers: bare RN 0.83/RNTL 12, a Jest-migration project, Expo SDK 57/RNTL 13 (with
   expo-router and a `migrate`-generated jest-expo config), a mock-engine RNTL 14 project, npm- and
   pnpm-workspace monorepos on Vite 8, and an RN 0.86 Android project.

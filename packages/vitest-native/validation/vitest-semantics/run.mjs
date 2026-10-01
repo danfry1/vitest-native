@@ -176,6 +176,29 @@ test("the configured environment is the one in effect", () => {
 });
 `,
   );
+  // A benchmark over real React Native. Vitest 5 made `bench` a test-context fixture
+  // run in a dedicated `bench` project; Vitest 4 exports it from `vitest` directly.
+  const benchBody = `StyleSheet.flatten([{ a: 1 }, { b: Platform.OS }]);`;
+  const modeLine = `if (process.env.VN_MODE_FILE) fs.appendFileSync(process.env.VN_MODE_FILE, (typeof globalThis.__vitest_native_hot_reset === "function" ? "hot" : "isolated") + "\\n");`;
+  write(
+    "bench/flatten.bench.mjs",
+    vitestVersion.startsWith("4.")
+      ? `import fs from "node:fs";
+import { bench } from "vitest";
+import { Platform, StyleSheet } from "react-native";
+${modeLine}
+bench("StyleSheet.flatten", () => { ${benchBody} }, { iterations: 50, time: 20 });
+`
+      : `import fs from "node:fs";
+import { expect, test } from "vitest";
+import { Platform, StyleSheet } from "react-native";
+${modeLine}
+test("StyleSheet.flatten", async ({ bench }) => {
+  await bench("flatten", { iterations: 50, time: 20 }, () => { ${benchBody} }).run();
+  expect(Platform.OS).toBe("ios");
+});
+`,
+  );
   // A type test for --typecheck: React Native's own types, checked by tsc.
   write(
     "types/platform.test-d.ts",
@@ -290,6 +313,8 @@ function runScenario({
   test = {},
   args = [],
   env = {},
+  // Vitest 4's `bench` command has its own reporters and rejects `--reporter=json`.
+  jsonReport = true,
   before = () => {},
   after = () => {},
 }) {
@@ -302,7 +327,13 @@ function runScenario({
   try {
     result = sh(
       process.execPath,
-      [vitestBin(), command, "--run", "--reporter=json", `--outputFile.json=${report}`, ...args],
+      [
+        vitestBin(),
+        command,
+        "--run",
+        ...(jsonReport ? ["--reporter=json", `--outputFile.json=${report}`] : []),
+        ...args,
+      ],
       root,
       {
         VN_PLUGIN: JSON.stringify(plugin),
@@ -642,6 +673,18 @@ try {
       (r) =>
         r.status === 0 &&
         [".vitest", "html"].some((dir) => fs.existsSync(path.join(root, dir, "index.html"))),
+    ],
+    [
+      // Benchmarks run on one worker on both majors, so 'auto' keeps Vitest's isolation
+      // ("hot runtime off: maxWorkers is 1").
+      "vitest bench over real React Native",
+      {
+        command: "bench",
+        jsonReport: false,
+        test: { benchmark: { include: ["bench/*.bench.mjs"] } },
+      },
+      "isolated",
+      (r) => r.status === 0,
     ],
     [
       "projects with the plugin in each",
