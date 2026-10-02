@@ -12,6 +12,9 @@
   `(platform ios, hot runtime)`. If a test passes on its own but fails alongside others, see
   [troubleshooting](https://danfry1.github.io/vitest-native/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files);
   `hotRuntime: false` restores per-file isolation.
+- **Expo path aliases resolve.** In an Expo project on Vite 8, imports through tsconfig `paths` (the
+  template's `@/…`) now resolve as Metro resolves them; a `vite-tsconfig-paths` plugin or a hand-written
+  alias for them can go.
 - **`hotRuntime: true` is stricter.** Combined with a configured pool, `test.isolate`, or a conflicting
   CLI flag, it now fails at startup with `HOT_RUNTIME_OVERRIDDEN` instead of warning and overriding.
 
@@ -54,6 +57,44 @@
   extensions still apply and one warning names the gap. Default: `false`.
 
 ### Patch Changes
+
+- bb9cf45: Fix `./App` resolving to `app.json` on macOS and Windows
+
+  The React Native CLI template ships `App.tsx` and `app.json` side by side, and its own test
+  imports `../App`. Metro's extension order tries `.json` before `.tsx`, and macOS and Windows disks
+  are case-insensitive, so asking whether `App.json` exists answered yes for `app.json`. The template's
+  test then rendered `{ name, displayName }` and failed with "Element type is invalid … got: object",
+  while it passes under Jest. Metro resolves from a case-sensitive file map, and Linux CI is
+  case-sensitive, which is why neither caught it. Extensionless relative imports now match file
+  names exactly, under both engines.
+
+- e2fa36e: Resolve tsconfig path aliases in Expo projects, as Expo's Metro does
+
+  Expo CLI resolves the `paths` in `tsconfig.json` by default, and the SDK 57 template imports its
+  own components through `@/…`, so the first component test in a new Expo project failed with
+  "Cannot find package '@/components/…'". In an Expo project with a `tsconfig.json`, the plugin now
+  turns on Vite 8's `resolve.tsconfigPaths`. An explicit `resolve.tsconfigPaths` and
+  `experiments.tsconfigPaths: false` in `app.json` both take precedence. On Vite 6 and 7, which
+  cannot resolve tsconfig paths, it warns once with the remedy. Bare React Native projects are
+  unchanged, matching their Metro.
+
+- d23ecfa: Stop warning about `jest.mock()` in files the project does not own
+
+  The warning that a file calls `jest.mock()` without `jestMockTransform()` also fired on
+  dependencies and on vitest-native's own files: the jest-compat setup, which implements `jest.mock`,
+  and the plugin source, which only names it. A project using `vitest-native/jest-compat/setup`
+  without the transform was told to fix a file inside `node_modules/vitest-native`. The warning now
+  applies only to the project's own files.
+
+- d93d80d: Fix Expo packages whose TypeScript source has no type syntax failing to load
+
+  Expo packages publish their TypeScript source (`expo-modules-core`'s `main` is `src/index.ts`),
+  and the native engine compiles it before Node runs it. A file that Node could already parse was
+  handed to Node unchanged, which is right for JavaScript but not for TypeScript: Node refuses any
+  `.ts` file under `node_modules`, whatever it contains. `expo-modules-core/src/polyfill/index.ts`
+  is a bare `// noop`, so a test rendering the Expo SDK 57 template's `Collapsible` (through
+  `expo-symbols`) failed with "Stripping types is currently unsupported for files under
+  node_modules". TypeScript files are now always compiled.
 
 - 7f70965: Fix multi-project runs failing when a native project uses the hot runtime
 
