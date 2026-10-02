@@ -1028,6 +1028,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
 
   const warnIfJestMockUnhoisted = (code: string, id: string): void => {
     if (jestMockTransformPresent || warnedMissingJestMockTransform) return;
+    // The advice is for the project's own test and setup files. An inlined dependency
+    // is not the user's to change, and vitest-native's own files (the jest-compat setup
+    // implements jest.mock; the plugin source names it) only mention the call.
+    if (/[\\/]node_modules[\\/]/.test(id) || containsPath(ownPackageDir, id)) return;
     if (!HAS_JEST_MOCK_CALL.test(code)) return;
     warnedMissingJestMockTransform = true;
     console.warn(
@@ -1168,6 +1172,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
 
   // Resolve the setup file eagerly (it's relative to the plugin, not the consumer).
   const thisDir = path.dirname(fileURLToPath(import.meta.url));
+  // This package's root: `dist/` when installed, `src/` in this repository.
+  const ownPackageDir = path.resolve(thisDir, "..");
   let setupFilePath = path.resolve(thisDir, "setup.mjs");
   if (!fs.existsSync(setupFilePath)) {
     const srcPath = path.resolve(thisDir, "setup.ts");

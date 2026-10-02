@@ -10,7 +10,9 @@
  *
  * The file answers precisely: if V8 can parse it, Node can run it, so compiling is
  * optional; if V8 cannot, Node cannot, so compiling is required. It is the same
- * question Node is about to ask, which is why it is not a heuristic.
+ * question Node is about to ask, which is why it is not a heuristic. One exception is
+ * decided by the extension, not the source: Node refuses TypeScript under node_modules
+ * whatever it contains, so a `.ts` file with no type syntax still needs compiling.
  *
  * What skipping costs is downleveling for Hermes — `const` to `var`, destructuring
  * lowered. Measured against React Native's own sources and the installed ecosystem,
@@ -98,5 +100,21 @@ describe("what has to be compiled", () => {
     // ...and an explicit .cjs extension is a script whatever the package says.
     const cjsFile = fileIn("module", "thing.cjs", "const a = 1; module.exports = a;");
     expect(needsTransform(cjsFile, "const a = 1; module.exports = a;")).toBe(false);
+  });
+});
+
+// Expo packages publish TypeScript source, and Node refuses it under node_modules by
+// extension ("Stripping types is currently unsupported for files under node_modules").
+// expo-modules-core's src/polyfill/index.ts is a bare `// noop`: it parses as a
+// script, so the parse check alone handed it to Node and the import failed.
+describe("TypeScript files", () => {
+  it("always need compiling, even without type syntax", () => {
+    for (const name of ["noop.ts", "plain.tsx", "esm.mts", "cjs.cts"]) {
+      expect(needsTransform(fileIn("commonjs", name, "// noop\n"), "// noop\n"), name).toBe(true);
+    }
+  });
+
+  it("leave plain JavaScript to the parse check", () => {
+    expect(needsTransform(fileIn("commonjs", "plain.js", "// noop\n"), "// noop\n")).toBe(false);
   });
 });
