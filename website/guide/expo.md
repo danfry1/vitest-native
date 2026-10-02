@@ -5,6 +5,15 @@ JavaScript — `expo` itself, expo-router, and the React Navigation stack undern
 real, and the auto-detected `expo` preset replaces the native side of the common Expo modules the
 way `jest-expo` does.
 
+## Path aliases
+
+Expo resolves the `paths` in `tsconfig.json` by default, so the SDK 57 template imports its own
+components as `@/components/…`. vitest-native does the same in an Expo project: on Vite 8 it turns
+on Vite's `resolve.tsconfigPaths`. Setting `resolve.tsconfigPaths` yourself takes precedence, and
+`experiments.tsconfigPaths: false` in `app.json` turns it off, as it does for Metro. Vite 6 and 7
+cannot resolve tsconfig paths; the plugin says so once, and upgrading to Vite 8 or adding the
+`vite-tsconfig-paths` plugin resolves them.
+
 ## Coming from jest-expo
 
 `vitest-native migrate` reads the Jest configuration and translates the jest-expo preset:

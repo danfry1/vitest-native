@@ -203,6 +203,52 @@ function resolvePackageVersion(packageName: string, projectRoot: string): string
 }
 
 /**
+ * Whether to resolve tsconfig `paths` the way Expo's Metro does. Expo CLI enables
+ * tsconfig path aliases by default (`experiments.tsconfigPaths`, docs.expo.dev/guides/
+ * typescript), and the SDK 57 template imports its own components through `@/…`, so
+ * without this a new Expo project's first component test fails to resolve. Bare React
+ * Native's Metro does not, so neither does this. Vite 8 resolves tsconfig paths itself
+ * when `resolve.tsconfigPaths` is on; Vite 6 and 7 have no such option.
+ *
+ * Returns "enable" (Vite 8), "unsupported" (an older Vite with `paths` to resolve, worth
+ * a warning), or null (not an Expo project, no tsconfig, opted out, or the user set
+ * `resolve.tsconfigPaths` themselves).
+ */
+export function expoTsconfigPaths(
+  projectRoot: string,
+  userTsconfigPaths: unknown,
+  viteMajor: number,
+): "enable" | "unsupported" | null {
+  if (userTsconfigPaths !== undefined) return null;
+  const read = (file: string): string | null => {
+    try {
+      return fs.readFileSync(path.join(projectRoot, file), "utf8");
+    } catch {
+      return null;
+    }
+  };
+  let manifest: { dependencies?: object; devDependencies?: object } = {};
+  try {
+    manifest = JSON.parse(read("package.json") ?? "{}");
+  } catch {
+    return null;
+  }
+  if (!("expo" in { ...manifest.dependencies, ...manifest.devDependencies })) return null;
+  const tsconfig = read("tsconfig.json");
+  if (tsconfig === null) return null;
+  try {
+    const app = JSON.parse(read("app.json") ?? "{}") as {
+      expo?: { experiments?: { tsconfigPaths?: unknown } };
+    };
+    if (app.expo?.experiments?.tsconfigPaths === false) return null;
+  } catch {
+    // An unreadable app.json leaves Expo's default in place.
+  }
+  if (viteMajor >= 8) return "enable";
+  return /"paths"\s*:/.test(tsconfig) ? "unsupported" : null;
+}
+
+/**
  * One line, once per process, stating which engine this run actually uses.
  * Tests pass either way; a team that believes it's exercising real React Native
  * while running the mock (or vice versa) must be able to see it in every log.
@@ -979,9 +1025,14 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   const nativeRoots = new Set<string>();
   const contributedSetup = new Map<string, string>();
   let warnedMissingJestMockTransform = false;
+  let warnedTsconfigPaths = false;
 
   const warnIfJestMockUnhoisted = (code: string, id: string): void => {
     if (jestMockTransformPresent || warnedMissingJestMockTransform) return;
+    // The advice is for the project's own test and setup files. An inlined dependency
+    // is not the user's to change, and vitest-native's own files (the jest-compat setup
+    // implements jest.mock; the plugin source names it) only mention the call.
+    if (/[\\/]node_modules[\\/]/.test(id) || containsPath(ownPackageDir, id)) return;
     if (!HAS_JEST_MOCK_CALL.test(code)) return;
     warnedMissingJestMockTransform = true;
     console.warn(
@@ -1163,6 +1214,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
 
   // Resolve the setup file eagerly (it's relative to the plugin, not the consumer).
   const thisDir = path.dirname(fileURLToPath(import.meta.url));
+  // This package's root: `dist/` when installed, `src/` in this repository.
+  const ownPackageDir = path.resolve(thisDir, "..");
   let setupFilePath = path.resolve(thisDir, "setup.mjs");
   if (!fs.existsSync(setupFilePath)) {
     const srcPath = path.resolve(thisDir, "setup.ts");
@@ -2111,6 +2164,27 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // (see native/export-condition-recovery.mjs). Vite concatenates this with the
         // user's own `test.execArgv`.
         if (test) test.execArgv = [...(test.execArgv ?? []), ...EXPORT_RECOVERY_ARGV];
+        if (test) {
+          const viteRoot = userConfig.root ? path.resolve(userConfig.root) : process.cwd();
+          const viteMajor = Number(resolvePackageVersion("vite", viteRoot)?.split(".")[0]);
+          const tsconfigPaths = expoTsconfigPaths(
+            viteRoot,
+            (userConfig.resolve as { tsconfigPaths?: unknown } | undefined)?.tsconfigPaths,
+            viteMajor,
+          );
+          const config = result as { resolve?: Record<string, unknown> };
+          if (tsconfigPaths === "enable")
+            config.resolve = { ...config.resolve, tsconfigPaths: true };
+          else if (tsconfigPaths === "unsupported" && !warnedTsconfigPaths) {
+            warnedTsconfigPaths = true;
+            console.warn(
+              `[vitest-native] This Expo project's tsconfig declares \`paths\`, which Expo's ` +
+                `Metro resolves by default, but Vite ${viteMajor} cannot (Vite 8 adds ` +
+                `\`resolve.tsconfigPaths\`). Upgrade to Vite 8, or add the vite-tsconfig-paths ` +
+                `plugin, so imports such as \`@/…\` resolve in tests.`,
+            );
+          }
+        }
         return result;
       },
     },
