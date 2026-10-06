@@ -58,6 +58,12 @@ import {
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+// @ts-expect-error - asset imports are provided by the Vite plugin.
+import assetLogo from "../tests-native/fixtures/assets/logo.png";
+// @ts-expect-error - asset imports are provided by the Vite plugin.
+import assetBadge from "../tests-native/fixtures/assets/badge@2x.png";
+// @ts-expect-error - asset imports are provided by the Vite plugin.
+import assetFont from "../tests-native/fixtures/assets/Glyphs.ttf";
 
 afterEach(cleanup);
 
@@ -503,6 +509,19 @@ probe("image-render", async () => {
   return {
     found: !!screen.queryByTestId("img"),
     byLabel: !!screen.queryByLabelText("pic"),
+  };
+});
+
+// Asset modules register with each engine's AssetRegistry (Metro's generated
+// `registerAsset` call), and resolveAssetSource must resolve the id the same way:
+// real React Native's AssetSourceResolver against the mock's reimplementation.
+probe("asset-resolve-source", async () => {
+  const resolve = (id: number) => Image.resolveAssetSource(id);
+  return {
+    types: [typeof assetLogo, typeof assetBadge, typeof assetFont],
+    logo: resolve(assetLogo),
+    badge: resolve(assetBadge),
+    font: resolve(assetFont),
   };
 });
 

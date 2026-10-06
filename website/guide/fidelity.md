@@ -13,7 +13,7 @@ generated from the corpus itself, so the numbers below are exactly what ships.
 
 ## Summary
 
-- **84 / 84 probes** match between the mock engine and real React Native (this page was generated against React Native 0.87.0).
+- **85 / 85 probes** match between the mock engine and real React Native (this page was generated against React Native 0.87.0).
 - CI runs the same corpus across **React Native 0.81–0.87** on every commit to main.
 - Per-version results straight from the CI matrix: [Fidelity Matrix](/guide/fidelity-matrix).
 - Reproduce it yourself: `bun run crosscheck`.
@@ -21,11 +21,11 @@ generated from the corpus itself, so the numbers below are exactly what ships.
 ### What this number covers
 
 A matching probe count says how many comparisons pass, not how much of the mock they
-reach. The corpus reaches 12 of 28 mocked APIs and 16 of 24 mocked components. The rest are not compared against real React Native at all — they are not known to differ, they are simply unmeasured.
+reach. The corpus reaches 13 of 28 mocked APIs and 16 of 24 mocked components. The rest are not compared against real React Native at all — they are not known to differ, they are simply unmeasured.
 
 Not reached by any probe:
 
-- APIs: AccessibilityInfo, ActionSheetIOS, Alert, AssetRegistry, BackHandler, Clipboard, Keyboard, Linking, LogBox, PanResponder, PermissionsAndroid, Share, ToastAndroid, Vibration, useColorScheme, useWindowDimensions
+- APIs: AccessibilityInfo, ActionSheetIOS, Alert, BackHandler, Clipboard, Keyboard, Linking, LogBox, PanResponder, PermissionsAndroid, Share, ToastAndroid, Vibration, useColorScheme, useWindowDimensions
 - Components: DrawerLayoutAndroid, ImageBackground, InputAccessoryView, RefreshControl, SafeAreaView, StatusBar, TouchableNativeFeedback, VirtualizedList
 
 The `native` engine needs no cross-check — it *is* real React Native.
@@ -52,6 +52,7 @@ across both engines.
 | `animated-transform-live-style` | ✅ match |
 | `animated-value-initial-style` | ✅ match |
 | `animated-view-renders` | ✅ match |
+| `asset-resolve-source` | ✅ match |
 | `button-renders-title` | ✅ match |
 | `button-userpress` | ✅ match |
 | `composite-text-match` | ✅ match |
