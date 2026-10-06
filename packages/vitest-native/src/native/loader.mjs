@@ -119,7 +119,7 @@ function versionable(url) {
   return true;
 }
 
-export async function initialize(data) {
+export function initialize(data) {
   if (data && data.projectRoot) PROJECT_ROOT = data.projectRoot;
   PLATFORM = data?.platform === "android" ? "android" : "ios";
   if (data && data.reactNativeVersion) REACT_NATIVE_VERSION = data.reactNativeVersion;
@@ -178,7 +178,7 @@ function presetRequestForFile(specifier, parent) {
   return isUtilitySubpath(request) ? null : request;
 }
 
-export async function resolve(specifier, context, nextResolve) {
+function resolveBefore(specifier, context) {
   // Preset redirect (ESM): a bare import of a preset package — whether from the
   // test graph or, crucially, nested inside an externalized third-party lib — is
   // redirected to a synthetic module that re-exports the runtime preset mock. This
@@ -189,14 +189,14 @@ export async function resolve(specifier, context, nextResolve) {
   // Node-safe utility entries (jest-utils, mock, plugin) — those pass through
   // to the real file.
   if (Object.prototype.hasOwnProperty.call(presetExports, specifier)) {
-    return { url: PRESET_SCHEME + specifier, shortCircuit: true };
+    return { done: { url: PRESET_SCHEME + specifier, shortCircuit: true } };
   }
   if (!specifier.endsWith(".json") && !isUtilitySubpath(specifier)) {
     const specExt = /\.([a-z0-9]+)$/i.exec(specifier);
     if (!specExt || !assetExtSet.has(specExt[1].toLowerCase())) {
       const pkg = packageNameOf(specifier);
       if (pkg !== specifier && Object.prototype.hasOwnProperty.call(presetExports, pkg)) {
-        return { url: PRESET_SCHEME + specifier, shortCircuit: true };
+        return { done: { url: PRESET_SCHEME + specifier, shortCircuit: true } };
       }
     }
   }
@@ -209,7 +209,9 @@ export async function resolve(specifier, context, nextResolve) {
   if (presetRequest) {
     const file = specifier.startsWith("file:") ? fileURLToPath(specifier) : specifier;
     const query = new URLSearchParams({ request: presetRequest, file });
-    return { url: `${PRESET_CJS_SCHEME}?${query}`, format: "commonjs", shortCircuit: true };
+    return {
+      done: { url: `${PRESET_CJS_SCHEME}?${query}`, format: "commonjs", shortCircuit: true },
+    };
   }
   let resolved;
   if (
@@ -228,31 +230,36 @@ export async function resolve(specifier, context, nextResolve) {
     if (hit) resolved = { url: pathToFileURL(hit).href, shortCircuit: true };
   }
 
-  try {
-    resolved ??= await nextResolve(specifier, context);
-  } catch (err) {
-    // Fallback: an extensionless relative import that Node's ESM resolver rejected
-    // but a bundler (Metro) would accept. Common in externalized RN libs shipping
-    // ESM with extensionless imports. Resolve it on disk ourselves.
-    if (parent && specifier.startsWith(".") && !path.extname(specifier)) {
-      const hit = resolveExtensionless(path.resolve(path.dirname(parent), specifier));
-      if (hit) resolved = { url: pathToFileURL(hit).href, shortCircuit: true };
-    }
-    // RN 0.87's exports map rejects the deep self-references its own Babel
-    // preset emits (react-native/src/private/...); Metro resolves them via its
-    // legacy-deep-imports condition. Mirror Metro by path (see resolve.mjs).
-    if (!resolved) {
-      const deep = resolveDeepPackageFile(
-        specifier,
-        parent ? path.dirname(parent) : PROJECT_ROOT,
-        PLATFORM,
-        SOURCE_EXTS,
-      );
-      if (deep) resolved = { url: pathToFileURL(deep).href, shortCircuit: true };
-    }
-    if (!resolved) throw err;
-  }
+  return { parent, resolved };
+}
 
+/** Node's resolver failed: fall back the way Metro would, or rethrow. */
+function resolveRecover(err, specifier, parent) {
+  let resolved;
+  // Fallback: an extensionless relative import that Node's ESM resolver rejected
+  // but a bundler (Metro) would accept. Common in externalized RN libs shipping
+  // ESM with extensionless imports. Resolve it on disk ourselves.
+  if (parent && specifier.startsWith(".") && !path.extname(specifier)) {
+    const hit = resolveExtensionless(path.resolve(path.dirname(parent), specifier));
+    if (hit) resolved = { url: pathToFileURL(hit).href, shortCircuit: true };
+  }
+  // RN 0.87's exports map rejects the deep self-references its own Babel
+  // preset emits (react-native/src/private/...); Metro resolves them via its
+  // legacy-deep-imports condition. Mirror Metro by path (see resolve.mjs).
+  if (!resolved) {
+    const deep = resolveDeepPackageFile(
+      specifier,
+      parent ? path.dirname(parent) : PROJECT_ROOT,
+      PLATFORM,
+      SOURCE_EXTS,
+    );
+    if (deep) resolved = { url: pathToFileURL(deep).href, shortCircuit: true };
+  }
+  if (!resolved) throw err;
+  return resolved;
+}
+
+function resolveAfter(resolved, context) {
   // JSON imports without an explicit `with { type: 'json' }` attribute throw
   // ERR_IMPORT_ATTRIBUTE_MISSING on Node 22+. RN ecosystem packages do
   // `import pkg from './package.json'` unconditionally (e.g. @react-navigation).
@@ -281,7 +288,44 @@ export async function resolve(specifier, context, nextResolve) {
   return resolved;
 }
 
+// One implementation, two hook APIs. `module.register()` (off-thread, async) is the
+// only option before Node 22.15; `module.registerHooks()` runs the same logic
+// synchronously on the calling thread, without a cross-thread round trip per
+// resolve and load (see installLoaderHooks in setup.mjs).
+export async function resolve(specifier, context, nextResolve) {
+  const before = resolveBefore(specifier, context);
+  if (before.done) return before.done;
+  let resolved = before.resolved;
+  if (!resolved) {
+    try {
+      resolved = await nextResolve(specifier, context);
+    } catch (err) {
+      resolved = resolveRecover(err, specifier, before.parent);
+    }
+  }
+  return resolveAfter(resolved, context);
+}
+
+export function resolveSync(specifier, context, nextResolve) {
+  const before = resolveBefore(specifier, context);
+  if (before.done) return before.done;
+  let resolved = before.resolved;
+  if (!resolved) {
+    try {
+      resolved = nextResolve(specifier, context);
+    } catch (err) {
+      resolved = resolveRecover(err, specifier, before.parent);
+    }
+  }
+  return resolveAfter(resolved, context);
+}
+
 export async function load(url, context, nextLoad) {
+  return loadSync(url, context, nextLoad);
+}
+
+/** `load` never awaits: every path returns a result or `nextLoad(...)` directly. */
+export function loadSync(url, context, nextLoad) {
   // Serve the synthetic preset module. The generated source reads the mock built
   // by the native setup file from globalThis (this source executes in the main
   // realm, so globalThis is the populated one), mirroring the Vite virtual:preset.

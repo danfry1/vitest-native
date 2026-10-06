@@ -35,6 +35,10 @@ One deliberate component-level exception: `TextInput` is replaced with the same 
 
 This is the same architecture as the original [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native), rebuilt to track current Vitest and React Native.
 
+### Loader hooks run in-thread
+
+Externalized packages loaded with `import` pass through vitest-native's Node loader hooks (preset redirects, platform extensions, on-the-fly compilation). On Node 22.15+ and 23.5+ these are installed with `module.registerHooks()` and run synchronously on each test worker's own thread. Older Node versions use `module.register()`, which runs the hooks on a separate loader thread, so every resolve and load waits on a cross-thread request. Measured on a 104-file production suite, that wait was 18% of worker CPU time. `VITEST_NATIVE_LOADER_THREAD=1` forces the threaded hooks, for comparing the two.
+
 ### A consequence worth knowing
 
 Because RN runs externalized through Node (not your Vite source graph):
