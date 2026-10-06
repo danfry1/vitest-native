@@ -52,7 +52,7 @@ setInsets({ top: 59, bottom: 34, left: 0, right: 0 })
 
 ## `mockNativeModule(name, impl)`
 
-Provide a mock implementation for a native module.
+Provide a mock implementation for a native module. The module becomes present for `NativeModules[name]`, `TurboModuleRegistry.get(name)` and `TurboModuleRegistry.getEnforcing(name)`. Under the native engine, a module no app registers is otherwise absent from the first two lookups, as on a device — see [which native modules exist](/guide/how-it-works#which-native-modules-exist).
 
 ```ts
 mockNativeModule('MyNativeModule', {

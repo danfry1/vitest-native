@@ -143,10 +143,10 @@ describe("native boundary", () => {
   it("turboStubs are identity-stable and spy-able", () => {
     const src = boundarySourceFor("/x/react-native/Libraries/TurboModule/TurboModuleRegistry.js");
     const mod = evalCjs(src!);
-    const stub = mod.get("IdentityTarget");
+    const stub = mod.getEnforcing("IdentityTarget");
     // Repeated module and method reads return the same objects — a prerequisite
     // for vi.spyOn and instanceof-style assertions in migrated Jest suites.
-    expect(mod.get("IdentityTarget")).toBe(stub);
+    expect(mod.getEnforcing("IdentityTarget")).toBe(stub);
     expect(stub.someMethod).toBe(stub.someMethod);
     const spy = vi.spyOn(stub, "someMethod");
     stub.someMethod("a", 1);
@@ -163,13 +163,15 @@ describe("native boundary", () => {
     const nm = evalCjs(
       boundarySourceFor("/x/react-native/Libraries/BatchedBridge/NativeModules.js")!,
     ).default;
-    expect(nm.SharedIdentityTarget).toBe(tm.get("SharedIdentityTarget"));
+    // DeviceInfo is a module the boundary serves constants for, so it exists.
+    expect(nm.DeviceInfo).toBe(tm.get("DeviceInfo"));
+    expect(nm.DeviceInfo).toBe(tm.getEnforcing("DeviceInfo"));
   });
 
   it("the hot-reset registry clears overrides but keeps stub identity", () => {
     const src = boundarySourceFor("/x/react-native/Libraries/TurboModule/TurboModuleRegistry.js");
     const mod = evalCjs(src!);
-    const stub = mod.get("ResetTarget");
+    const stub = mod.getEnforcing("ResetTarget");
     stub.overridden = "test-phase value";
     const resets = (globalThis as any).__vitest_native_resets;
     expect(Array.isArray(resets)).toBe(true);
@@ -177,10 +179,135 @@ describe("native boundary", () => {
     // Same stub object survives (resident libs hold references), but the
     // per-file override is gone — the slot regenerates as a generic stub
     // method like any other unknown property.
-    expect(mod.get("ResetTarget")).toBe(stub);
+    expect(mod.getEnforcing("ResetTarget")).toBe(stub);
     expect(stub.overridden).not.toBe("test-phase value");
     expect(typeof stub.overridden).toBe("function");
     expect(typeof stub.someMethod).toBe("function");
+  });
+});
+
+import {
+  BOUNDARY_NATIVE_MODULES,
+  installKnownNativeModules,
+  knownNativeModulesFor,
+  scanReactNativeModuleRequests,
+} from "../src/native/native-modules.mjs";
+
+describe("native boundary: which native modules exist", () => {
+  const g = globalThis as Record<string, any>;
+  const load = () => ({
+    tm: evalCjs(boundarySourceFor("/x/react-native/Libraries/TurboModule/TurboModuleRegistry.js")!),
+    nm: evalCjs(boundarySourceFor("/x/react-native/Libraries/BatchedBridge/NativeModules.js")!)
+      .default,
+  });
+  let savedKnown: unknown;
+  let savedMocks: unknown;
+  beforeEach(() => {
+    savedKnown = g.__vitest_native_known_modules;
+    savedMocks = g.__vitest_native_module_mocks;
+    g.__vitest_native_known_modules = new Set(["Appearance"]);
+    g.__vitest_native_module_mocks = Object.create(null);
+    return () => {
+      g.__vitest_native_known_modules = savedKnown;
+      g.__vitest_native_module_mocks = savedMocks;
+    };
+  });
+
+  it("an unregistered module is null from get() and undefined from NativeModules", () => {
+    const { tm, nm } = load();
+    expect(tm.get("EXDevLauncher")).toBeNull();
+    expect(nm.EXDevLauncher).toBeUndefined();
+    expect("EXDevLauncher" in nm).toBe(false);
+  });
+
+  it("getEnforcing() still returns a stub for an unregistered module", () => {
+    const { tm, nm } = load();
+    const required = tm.getEnforcing("EXDevLauncher");
+    expect(typeof required.anything).toBe("function");
+    // Requiring a module does not make it visible to optional lookups.
+    expect(nm.EXDevLauncher).toBeUndefined();
+  });
+
+  it("a known module is present for every lookup kind", () => {
+    const { tm, nm } = load();
+    expect(nm.Appearance).toBeDefined();
+    expect("Appearance" in nm).toBe(true);
+    expect(tm.get("Appearance")).toBe(nm.Appearance);
+    expect(tm.getEnforcing("Appearance")).toBe(nm.Appearance);
+  });
+
+  it("a module with boundary constants is present without being in the set", () => {
+    g.__vitest_native_known_modules = new Set();
+    const { tm, nm } = load();
+    expect(tm.get("PlatformConstants").getConstants().isTesting).toBe(true);
+    expect(nm.SourceCode.getConstants().scriptURL).toBe("file:///index.bundle");
+  });
+
+  it("a mocked module is present on both paths", () => {
+    const { tm, nm } = load();
+    const impl = { manifestString: "{}" };
+    g.__vitest_native_module_mocks.EXDevLauncher = impl;
+    expect(nm.EXDevLauncher).toBe(impl);
+    expect("EXDevLauncher" in nm).toBe(true);
+    expect(tm.get("EXDevLauncher")).toBe(impl);
+    delete g.__vitest_native_module_mocks.EXDevLauncher;
+    expect(nm.EXDevLauncher).toBeUndefined();
+  });
+
+  it("installKnownNativeModules reads the plugin's list, or computes it", () => {
+    g.__vitest_native_known_modules = undefined;
+    vi.stubEnv("VITEST_NATIVE_RN_NATIVE_MODULES", JSON.stringify(["FromEnv"]));
+    try {
+      installKnownNativeModules(projectRoot);
+      expect([...g.__vitest_native_known_modules]).toEqual(["FromEnv"]);
+      g.__vitest_native_known_modules = undefined;
+      vi.stubEnv("VITEST_NATIVE_RN_NATIVE_MODULES", "");
+      installKnownNativeModules(projectRoot);
+      expect([...g.__vitest_native_known_modules]).toEqual(knownNativeModulesFor(projectRoot));
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe("scanReactNativeModuleRequests", () => {
+  it("reads lookups from React Native's sources, not its comments or tests", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-rn-scan-"));
+    try {
+      const write = (rel: string, body: string) => {
+        fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+        fs.writeFileSync(path.join(root, rel), body);
+      };
+      write(
+        "Libraries/Foo/NativeFoo.js",
+        "export default TurboModuleRegistry.get<Spec>('Foo');\n" +
+          "const B = TurboModuleRegistry.getEnforcing<Spec>(\n  'BarCxx',\n);\n" +
+          "// TurboModuleRegistry.get('Commented')\n/* NativeModules.Documented */\n",
+      );
+      write("src/private/Baz.js", "const z = NativeModules.Baz; const q = NativeModules['Qux'];");
+      write("src/private/Dyn.js", "TurboModuleRegistry.get(name);");
+      write("Libraries/Foo/__tests__/Foo-test.js", "TurboModuleRegistry.get('TestOnly');");
+      write("Libraries/Foo/Foo.d.ts", "NativeModules.TypesOnly;");
+      expect(scanReactNativeModuleRequests(root)).toEqual({
+        files: 3,
+        get: ["Foo"],
+        getEnforcing: ["BarCxx"],
+        nativeModules: ["Baz", "Qux"],
+        unnamed: 1,
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("the known set is the installed React Native's requests plus the boundary's own", () => {
+    const known = knownNativeModulesFor(projectRoot);
+    for (const name of BOUNDARY_NATIVE_MODULES) expect(known).toContain(name);
+    // Core modules React Native's JS requests on every version this package supports.
+    for (const name of ["Appearance", "DeviceInfo", "PlatformConstants", "UIManager"]) {
+      expect(known).toContain(name);
+    }
+    expect(known).not.toContain("EXDevLauncher");
   });
 });
 
@@ -523,6 +650,23 @@ describe("plugin engine routing", () => {
     expect(ext).toMatch(/react-native/);
     expect(cfg.test.setupFiles.some((p: string) => p.includes("native"))).toBe(true);
     expect(plugin.resolveId("react-native", undefined)).toBeUndefined();
+  });
+
+  it("passes the installed React Native's native modules to native workers only", async () => {
+    const native = await runPluginConfig(
+      reactNative({ engine: "native" }) as any,
+      { root: projectRoot },
+      SERVE_ENV,
+    );
+    expect(JSON.parse(native.test.env.VITEST_NATIVE_RN_NATIVE_MODULES)).toEqual(
+      knownNativeModulesFor(projectRoot),
+    );
+    const mock = await runPluginConfig(
+      reactNative({ engine: "mock" }) as any,
+      { root: projectRoot },
+      SERVE_ENV,
+    );
+    expect(mock.test.env?.VITEST_NATIVE_RN_NATIVE_MODULES).toBeUndefined();
   });
 
   it("externalizes RN only under node_modules, not a project named react-native", async () => {

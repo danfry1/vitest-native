@@ -35,6 +35,24 @@ On Vitest 5 the plugin turns on Vitest's persistent transform cache (`fsModuleCa
 
 Under `engine: 'native'`, real React Native is externalized to Node and its Flow types are stripped through a require hook using your project's `@react-native/babel-preset` — the same toolchain RN already uses. What's mocked is the layer *beneath* the components: native modules (`NativeModules`, `TurboModuleRegistry`, `UIManager`) and native-component **registration** (`NativeComponentRegistry`, `requireNativeComponent`). `View`, `Text`, `Pressable`, and the rest run their **real** component JavaScript against mock host components — this boundary sits *lower* than `@react-native/jest-preset`, which swaps whole components for passthrough mocks (see [where the boundary sits](/guide/comparison#where-the-mock-boundary-sits)).
 
+### Which native modules exist
+
+A device has the native modules its app binary registers, and nothing else. React Native's lookups report that directly: `TurboModuleRegistry.get(name)` returns `null` and `NativeModules[name]` is `undefined` for a module the binary does not register, and `TurboModuleRegistry.getEnforcing(name)` throws. Libraries feature-detect on this (`if (NativeModules.EXDevLauncher) { … }`), and Jest's React Native preset answers the same way.
+
+The native engine answers these lookups the way a device does:
+
+| Module | `NativeModules[name]` / `TurboModuleRegistry.get(name)` | `TurboModuleRegistry.getEnforcing(name)` |
+| --- | --- | --- |
+| One React Native's own JavaScript requests (`Appearance`, `DeviceInfo`, `UIManager`, …) | A stub | A stub |
+| One registered with [`mockNativeModule`](/guide/helpers#mocknativemodule-name-impl) | Your implementation | Your implementation |
+| Any other name | `undefined` / `null` | A stub |
+
+React Native's modules are read from the installed `react-native` itself, once per run: every name its own JavaScript passes to `TurboModuleRegistry.get` or `getEnforcing`, on either platform. The set therefore follows your React Native version instead of a list kept by vitest-native. `NitroModules` is also present, because the engine implements its install step.
+
+`getEnforcing` returns a stub for any name instead of throwing. Its callers cannot run without the module, so a stub keeps code that requires a native module working without per-module setup. That stub is not registered by being requested: `NativeModules[name]` stays `undefined` for it.
+
+Stubs are stable objects, so `vi.spyOn(NativeModules.Vibration, 'vibrate')` records calls. To make a third-party module present, or to give it behaviour, register it with `mockNativeModule(name, impl)`; `resetAllMocks()` removes it again, and the hot runtime removes any registration a test file leaves behind before the next file runs.
+
 One deliberate component-level exception: `TextInput` is replaced with the same passthrough shape Jest's preset uses, because the real `TextInput`'s internal event wiring double-fires `onChangeText` under RNTL's `userEvent.type`. That substitution is verified against real RN by the differential cross-check.
 
 This is the same architecture as the original [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native), rebuilt to track current Vitest and React Native.

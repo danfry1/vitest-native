@@ -125,6 +125,18 @@ function turboStubSource(platform, version) {
     __boundaryState[name] || (__boundaryState[name] = Object.create(null));
   const getModuleMock = (name) =>
     Object.prototype.hasOwnProperty.call(__moduleMocks(), name) ? __moduleMocks()[name] : null;
+  // Whether a native module is registered, as a device would answer it: one React
+  // Native's own JS requests (read from the installed copy, see
+  // native/native-modules.mjs), one this boundary serves constants for, or one the
+  // test registered with mockNativeModule(). Anything else is absent, so
+  // TurboModuleRegistry.get() returns null and NativeModules[name] is undefined:
+  // React Native's own semantics (Libraries/TurboModule/TurboModuleRegistry.js) and
+  // the Jest preset's (jest/mocks/NativeModules.js). Read at lookup time, because
+  // the setup file installs the set and module mocks change during a test.
+  const isKnownModule = (name) =>
+    getModuleMock(name) != null ||
+    Object.prototype.hasOwnProperty.call(__C, name) ||
+    (globalThis.__vitest_native_known_modules?.has(name) ?? false);
   // Native methods that return a Promise on the device (no callback arg). Without
   // this, real RN code doing \`NativeModule.canOpenURL(url).then(...)\` would crash
   // on \`undefined\`. Values are the no-native defaults.
@@ -233,16 +245,21 @@ function turboStubSource(platform, version) {
 export const BOUNDARY_SOURCES = {
   "Libraries/TurboModule/TurboModuleRegistry.js": (platform, version) => `
     ${turboStubSource(platform, version)}
-    exports.get = (n) => getModuleMock(n) || turboStub(n);
+    // get(): an absent module is null, as on a device.
+    exports.get = (n) => getModuleMock(n) || (isKnownModule(n) ? turboStub(n) : null);
+    // getEnforcing(): React Native throws for an absent module. Its callers cannot
+    // run without one, so a stub stands in instead, and code that requires a native
+    // module still runs without per-module setup.
     exports.getEnforcing = (n) => getModuleMock(n) || turboStub(n);
   `,
   "Libraries/BatchedBridge/NativeModules.js": (platform, version) => `
     ${turboStubSource(platform, version)}
     module.exports = { __esModule: true, default: new Proxy({}, {
       get: (_t, n) => {
-        if (typeof n !== "string") return undefined;
+        if (typeof n !== "string" || !isKnownModule(n)) return undefined;
         return getModuleMock(n) || turboStub(n);
       },
+      has: (_t, n) => typeof n === "string" && isKnownModule(n),
     }) };
   `,
   "Libraries/NativeComponent/NativeComponentRegistry.js": `

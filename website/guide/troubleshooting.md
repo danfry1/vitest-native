@@ -37,6 +37,16 @@ Add it to the [`transform` allowlist](/guide/plugin-options#transform) (the nati
 reactNative({ transform: ['some-untranspiled-lib'] })
 ```
 
+## `NativeModules.SomeModule` is undefined
+
+Under `engine: 'native'`, a native module that no app binary registers is absent, as on a device and under Jest's React Native preset: `NativeModules.SomeModule` is `undefined` and `TurboModuleRegistry.get('SomeModule')` is `null`. React Native's own modules, and any module requested through `TurboModuleRegistry.getEnforcing`, are always present (see [which native modules exist](/guide/how-it-works#which-native-modules-exist)). If the code under test needs a third-party module, register it in a setup file or test:
+
+```ts
+import { mockNativeModule } from 'vitest-native/helpers'
+
+mockNativeModule('SomeModule', { getValue: () => Promise.resolve(42) })
+```
+
 ## Snapshots mismatch after switching from Jest
 
 Under `engine: 'native'`, real React Native renders **real host component names** (`RCTText`, `RCTView`, `RCTScrollView`), whereas `@react-native/jest-preset` snapshots show mock names (`Text`, `View`). Run once with `vitest run -u` to re-record. Prefer explicit queries over large snapshots — they're robust across host names. See [Migrating from Jest](/migration/from-jest#re-record-snapshots).
