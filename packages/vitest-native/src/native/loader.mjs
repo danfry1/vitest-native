@@ -1,12 +1,19 @@
 // Node ESM loader hook (registered via module.register). Intercepts import() of RN —
 // which Module._extensions cannot — Flow-stripping and serving boundary mock source.
+import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
 import { transformRN, isFlow, cjsExportNames, needsTransform } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import { extensionsFor, resolvePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
-import { NODE_MODULES_PATH, isUtilitySubpath, packageNameOf, subpathLeafOf } from "./match.mjs";
+import {
+  NODE_MODULES_PATH,
+  isUtilitySubpath,
+  packageNameOf,
+  presetPackageOfFile,
+  subpathLeafOf,
+} from "./match.mjs";
 import {
   createNativeOwnershipPolicy,
   isRuntimeResidentFile,
@@ -126,6 +133,44 @@ export async function initialize(data) {
   if (data && data.hotGenerationBuffer) genView = new Int32Array(data.hotGenerationBuffer);
 }
 
+// A `require()` inside a CommonJS module this loader compiled and returned with its
+// source arrives here already resolved, as a file URL (see presetPackageOfFile). Map a
+// file inside a preset package back to the request the bare-name redirect above would
+// have seen, applying the same exemptions: the package's main entry → the package
+// name, any other file → its subpath (served by leaf name, as `pkg/Swipeable` is).
+const entryMemo = new Map();
+function isPackageEntry(pkg, file, parent) {
+  const key = `${pkg}\0${file}\0${parent ?? ""}`;
+  let hit = entryMemo.get(key);
+  if (hit === undefined) {
+    try {
+      hit = createRequire(parent ?? path.join(PROJECT_ROOT, "package.json")).resolve(pkg) === file;
+    } catch {
+      hit = false;
+    }
+    entryMemo.set(key, hit);
+  }
+  return hit;
+}
+
+function presetRequestForFile(specifier, parent) {
+  const file = specifier.startsWith("file:")
+    ? fileURLToPath(specifier)
+    : path.isAbsolute(specifier)
+      ? specifier
+      : null;
+  if (!file) return null;
+  const hit = presetPackageOfFile(file, parent, (pkg) =>
+    Object.prototype.hasOwnProperty.call(presetExports, pkg),
+  );
+  if (!hit) return null;
+  const request = `${hit.pkg}/${hit.subpath}`;
+  const ext = /\.([a-z0-9]+)$/i.exec(hit.subpath)?.[1]?.toLowerCase() ?? "";
+  if (ext === "json" || assetExtSet.has(ext) || isUtilitySubpath(request)) return null;
+  if (isPackageEntry(hit.pkg, file, parent)) return hit.pkg;
+  return request.replace(/\.[cm]?[jt]sx?$/, "");
+}
+
 export async function resolve(specifier, context, nextResolve) {
   // Preset redirect (ESM): a bare import of a preset package — whether from the
   // test graph or, crucially, nested inside an externalized third-party lib — is
@@ -153,6 +198,8 @@ export async function resolve(specifier, context, nextResolve) {
     context.parentURL && context.parentURL.startsWith("file:")
       ? fileURLToPath(context.parentURL)
       : null;
+  const presetRequest = presetRequestForFile(specifier, parent);
+  if (presetRequest) return { url: PRESET_SCHEME + presetRequest, shortCircuit: true };
   let resolved;
   if (
     parent &&

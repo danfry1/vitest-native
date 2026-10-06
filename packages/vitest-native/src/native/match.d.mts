@@ -34,3 +34,8 @@ export declare function subpathLeafOf(specifier: string): string | null;
 
 /** Deep entries of preset packages that must not be shadowed by the preset mock. */
 export declare function isUtilitySubpath(specifier: string): boolean;
+export declare function presetPackageOfFile(
+  file: string,
+  parentFile: string | null | undefined,
+  isPresetPackage: (pkg: string) => boolean,
+): { pkg: string; subpath: string } | null;
