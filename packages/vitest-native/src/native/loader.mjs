@@ -288,6 +288,27 @@ function resolveAfter(resolved, context) {
   return resolved;
 }
 
+// Node caches default resolutions by (specifier, parent URL). Under the hot runtime a
+// parent URL carries the generation stamp (`?vnhot=N`, see versionable), so every test
+// file re-resolved every externalized import from scratch — profiled as Node
+// re-reading package.json scopes to decide module formats, the largest remaining cost
+// after the loader moved in-thread. Resolution never depends on the stamp, which only
+// forces re-evaluation, so successful default resolutions are kept per unstamped parent:
+// the same caching Node does, made generation-aware. Failures are not kept, so the
+// Metro-style fallbacks in resolveRecover run as before.
+const STAMP = /[?&]vnhot=\d+/;
+const stampedResolutions = new Map();
+function stampedResolutionKey(specifier, context) {
+  const parent = context.parentURL;
+  if (typeof parent !== "string" || !STAMP.test(parent)) return null;
+  return [
+    specifier,
+    parent.replace(STAMP, ""),
+    (context.conditions ?? []).join(","),
+    JSON.stringify(context.importAttributes ?? {}),
+  ].join("\0");
+}
+
 // One implementation, two hook APIs. `module.register()` (off-thread, async) is the
 // only option before Node 22.15; `module.registerHooks()` runs the same logic
 // synchronously on the calling thread, without a cross-thread round trip per
@@ -297,10 +318,17 @@ export async function resolve(specifier, context, nextResolve) {
   if (before.done) return before.done;
   let resolved = before.resolved;
   if (!resolved) {
-    try {
-      resolved = await nextResolve(specifier, context);
-    } catch (err) {
-      resolved = resolveRecover(err, specifier, before.parent);
+    const key = stampedResolutionKey(specifier, context);
+    // A hit skips nextResolve, which Node accepts only from a short-circuited result.
+    const hit = key ? stampedResolutions.get(key) : undefined;
+    resolved = hit ? { ...hit, shortCircuit: true } : undefined;
+    if (!resolved) {
+      try {
+        resolved = await nextResolve(specifier, context);
+        if (key) stampedResolutions.set(key, resolved);
+      } catch (err) {
+        resolved = resolveRecover(err, specifier, before.parent);
+      }
     }
   }
   return resolveAfter(resolved, context);
@@ -311,10 +339,17 @@ export function resolveSync(specifier, context, nextResolve) {
   if (before.done) return before.done;
   let resolved = before.resolved;
   if (!resolved) {
-    try {
-      resolved = nextResolve(specifier, context);
-    } catch (err) {
-      resolved = resolveRecover(err, specifier, before.parent);
+    const key = stampedResolutionKey(specifier, context);
+    // A hit skips nextResolve, which Node accepts only from a short-circuited result.
+    const hit = key ? stampedResolutions.get(key) : undefined;
+    resolved = hit ? { ...hit, shortCircuit: true } : undefined;
+    if (!resolved) {
+      try {
+        resolved = nextResolve(specifier, context);
+        if (key) stampedResolutions.set(key, resolved);
+      } catch (err) {
+        resolved = resolveRecover(err, specifier, before.parent);
+      }
     }
   }
   return resolveAfter(resolved, context);
