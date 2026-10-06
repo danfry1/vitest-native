@@ -1,5 +1,6 @@
-import { Appearance, DeviceEventEmitter, NativeModules } from "react-native";
+import { Appearance, DeviceEventEmitter, NativeModules, TurboModuleRegistry } from "react-native";
 import { afterAll, expect, it } from "vitest";
+import { mockNativeModule } from "vitest-native/helpers";
 
 // Order-independent, like every other file in this directory. Vitest orders test
 // files by cached duration, not by name, so the numeric prefixes here are a reading
@@ -24,6 +25,12 @@ const inheritedColorScheme = Appearance.getColorScheme();
 // reset value-restores BEFORE clearing stub overrides, the restore is swallowed and
 // this read leaks "dark" while the JS cache says "light".
 const inheritedNativeColorScheme = NativeModules.Appearance.getColorScheme();
+// A module the other file registered with mockNativeModule() and never reset. No
+// app registers this name, so in a fresh file it is absent from both lookups.
+const inheritedRegisteredModule = {
+  nativeModules: NativeModules.VNHotRegisteredProbe,
+  turboModule: TurboModuleRegistry.get("VNHotRegisteredProbe"),
+};
 
 (globalThis as Record<string, unknown>)[globalKey] = "first";
 process.env[envKey] = "first";
@@ -36,6 +43,7 @@ it("starts without state from another test file", () => {
   expect(inheritedListeners).toBe(0);
   expect(inheritedColorScheme).toBe("light");
   expect(inheritedNativeColorScheme).toBe("light");
+  expect(inheritedRegisteredModule).toEqual({ nativeModules: undefined, turboModule: null });
   expect(Appearance.getColorScheme()).toBe("dark");
 });
 
@@ -48,4 +56,5 @@ it("does not inherit the other file's boundary-stub override", () => {
 // See 02 — installed after this file's own assertions so it pollutes the next file.
 afterAll(() => {
   (NativeModules.Appearance as Record<string, unknown>).setColorScheme = () => {};
+  mockNativeModule("VNHotRegisteredProbe", { owner: "first" });
 });
