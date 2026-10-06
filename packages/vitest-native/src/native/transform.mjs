@@ -331,6 +331,22 @@ function moduleGoal(file) {
 }
 
 /** Transform an RN source file to runnable CJS. Cached in-memory + on disk. */
+// Babel loads its own presets and plugins with `require` while a transform runs, and
+// those requires pass through the engine's CommonJS hook like any other. Compiling them
+// there is compiling the compiler mid-compile: @react-native/babel-preset's
+// babel-plugin-syntax-hermes-parser and hermes-parser keep an `@flow` header in their
+// published builds and sit under an @react-native package, so the hook sent them back
+// through Babel, which then read the half-loaded plugin's exports and Node warned
+// "Accessing non-existent property 'then' of module exports inside circular
+// dependency" on a project's first run. They load as published, as they do under
+// Jest, whose transformer is never transformed.
+let transformDepth = 0;
+
+/** Whether a transform is running on this thread (a require now is Babel's own). */
+export function isTransforming() {
+  return transformDepth > 0;
+}
+
 export function transformRN(file, src, projectRoot, platform = "ios") {
   const ctx = ctxFor(projectRoot);
   // The in-memory key uses mtime+size (one statSync) so the hot path skips
@@ -360,9 +376,10 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
     return cached;
   } catch {}
 
-  if (!ctx.babel) ctx.babel = ctx.req("@babel/core");
   let out;
+  transformDepth++;
   try {
+    if (!ctx.babel) ctx.babel = ctx.req("@babel/core");
     out = ctx.babel.transformSync(src, {
       filename: file,
       plugins: ctx.flowEnums ? [ctx.flowEnums] : [],
@@ -376,6 +393,8 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
     // loader, the CJS require hook, requireActual's .ts handlers — surfaces
     // the file, platform, and owning package instead of a bare Babel stack.
     throw decorateTransformError(err, file, platform);
+  } finally {
+    transformDepth--;
   }
   // Atomic write: multiple worker threads may transform the same RN file
   // concurrently on a cold cache. Write to a unique temp file then rename

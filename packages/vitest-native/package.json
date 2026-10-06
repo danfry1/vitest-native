@@ -212,7 +212,7 @@
     "validate:metro-profile": "node --expose-gc validation/module-isolation/run-metro-profile.mjs"
   },
   "dependencies": {
-    "flow-remove-types": "^2.332.0",
+    "flow-remove-types": "^2.333.0",
     "magic-string": "^1.4.2"
   },
   "bin": {
