@@ -5,6 +5,7 @@
  */
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,6 +28,14 @@ function fixture(files: Record<string, string | object>): string {
     fs.writeFileSync(p, typeof content === "string" ? content : JSON.stringify(content, null, 2));
   }
   return root;
+}
+
+/** Link the real @babel/parser in, as an installed React Native project has it. */
+function withBabelParser(root: string): void {
+  const fromCore = createRequire(createRequire(import.meta.url).resolve("@babel/core"));
+  const parserDir = path.dirname(fromCore.resolve("@babel/parser/package.json"));
+  fs.mkdirSync(path.join(root, "node_modules", "@babel"), { recursive: true });
+  fs.symlinkSync(parserDir, path.join(root, "node_modules", "@babel", "parser"));
 }
 
 function capture(): { log: (l: string) => void; text: () => string } {
@@ -212,16 +221,18 @@ describe("migrate", () => {
         version: "1.0.0",
         main: "index.js",
       },
-      "node_modules/plain-lib/index.js": "module.exports = {};",
+      // Untranspiled JSX: the evidence that it needs compiling.
+      "node_modules/plain-lib/index.js": "module.exports = <View />;",
       "jest.config.json": {
         transformIgnorePatterns: ["node_modules/(?!(?:some-rn-lib|plain-lib)/)"],
       },
     });
+    withBabelParser(root);
     const report = analyzeJestConfig(root);
     const text = [...report.automatic, ...report.attention].join("\n");
-    expect(text).toContain("allows some-rn-lib — declares react-native");
+    expect(text).toContain("allows some-rn-lib — detected by the engine");
     expect(report.suggestedConfig).not.toContain("some-rn-lib");
-    // A package that does not declare react-native still needs the allowlist entry.
+    // A package the engine does not detect, shipping JSX, still needs the entry.
     expect(report.suggestedConfig).toContain("plain-lib");
   });
 
@@ -243,7 +254,7 @@ describe("migrate", () => {
         someCustomKey: 1,
       },
       "__mocks__/react-native-gesture-handler.js": "module.exports = {};",
-      // Installed, so the presets that shadow them are detected; moti ships CommonJS.
+      // Installed, so the presets that shadow them are detected; moti ships JSX.
       "node_modules/react-native-reanimated/package.json": {
         name: "react-native-reanimated",
         version: "4.0.0",
@@ -253,7 +264,9 @@ describe("migrate", () => {
         version: "2.0.0",
       },
       "node_modules/moti/package.json": { name: "moti", version: "0.30.0", main: "index.js" },
+      "node_modules/moti/index.js": "export const View = () => <div />;",
     });
+    withBabelParser(root);
     const report = analyzeJestConfig(root);
     expect(report.ok).toBe(true);
     expect(report.source).toBe("jest.config.json");

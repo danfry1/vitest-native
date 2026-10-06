@@ -66,7 +66,7 @@ function hasReactNativeBuild(manifest: Record<string, unknown>): boolean {
  * Only closure MEMBERS are judged this way. A package detected on its own manifest, or
  * named in `transform: [...]`, was asked for explicitly and is still compiled.
  */
-export function publishesOnlyEsm(manifest: Record<string, unknown>): boolean {
+function publishesOnlyEsm(manifest: Record<string, unknown>): boolean {
   return manifest.type === "module" && !hasReactNativeBuild(manifest);
 }
 

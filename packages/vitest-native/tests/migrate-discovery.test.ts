@@ -35,6 +35,7 @@ import { analyzeJestConfig, extractAllowlistPackages } from "../src/cli/migrate.
 import {
   extensionExclude,
   ignorePatternToGlobs,
+  loadJestPreset,
   parseJestScript,
   translateDiscovery,
 } from "../src/cli/jest-discovery.js";
@@ -148,7 +149,7 @@ describe("ignore-pattern regexes become exclude globs", () => {
     expect(ignorePatternToGlobs("bskylink/.*")).toEqual(["**/*bskylink/**"]);
     expect(ignorePatternToGlobs("<rootDir>/e2e/")).toEqual(["e2e/**"]);
     expect(ignorePatternToGlobs("/__rsc_tests__/")).toEqual(["**/__rsc_tests__/**"]);
-    expect(ignorePatternToGlobs("\\.snap$")).toEqual(["**/*.snap"]);
+    expect(ignorePatternToGlobs("\\.snap$")).toBeNull();
     expect(ignorePatternToGlobs("__tests__/.*/__mocks__")).toEqual([
       "**/*__tests__/*/**/__mocks__*",
       "**/*__tests__/*/**/__mocks__*/**",
@@ -156,9 +157,52 @@ describe("ignore-pattern regexes become exclude globs", () => {
   });
 
   it("leaves regex syntax with no exact glob form for a human", () => {
-    for (const p of ["(a|b)/", "[0-9]+/", "\\d+", "^/abs/", "a.b", "foo.*bar", "x?"]) {
+    for (const p of ["[0-9]+/", "\\d+", "^/abs/", "a.b", "foo.*bar", "x?"]) {
       expect(ignorePatternToGlobs(p), p).toBeNull();
     }
+    // Escaped characters picomatch would read as extglob syntax or negation.
+    for (const p of ["/x\\(1\\)/", "/\\!neg/", "/a\\[b\\]/"]) {
+      expect(ignorePatternToGlobs(p), p).toBeNull();
+    }
+    // Alternation expands into one glob set per alternative.
+    expect(ignorePatternToGlobs("/(e2e|__e2e__)/")).toEqual(["**/e2e/**", "**/__e2e__/**"]);
+    // A file path never ends in `/`.
+    expect(ignorePatternToGlobs("/e2e/$")).toEqual([]);
+  });
+
+  it("agrees with the regex on every generated pattern it converts", () => {
+    // Directory names include characters that are literal in a regex escape but
+    // syntax in a glob, and the root path itself holds regex metacharacters.
+    const names = ["e2e", "__mocks__", "a.b", "x(1)", "!neg", "@scope", "c+d", "e2ex"];
+    const files = names.flatMap((n) => [
+      `${n}/t.test.ts`,
+      `src/${n}/t.test.ts`,
+      `src/${n}.test.ts`,
+    ]);
+    const root = tree(files);
+    const all = vitestCollects(root, ["**/*"], []);
+    const escape = (s: string) =>
+      s.replace(/[.*+?^${}()|[\]\\!]/g, (c) => (c === "!" ? c : `\\${c}`));
+    const rootPath = "/abs/my.project(1)";
+    let converted = 0;
+    for (const name of names) {
+      for (const prefix of ["", "/", "<rootDir>/", "<rootDir>/src/", "src/.*/"]) {
+        for (const suffix of ["", "/", "/.*", ".*", "$", "/$", "\\.test\\.ts$"]) {
+          const pattern = `${prefix}${escape(name)}${suffix}`;
+          const globs = ignorePatternToGlobs(pattern);
+          if (!globs) continue;
+          converted++;
+          // Jest's side, reading <rootDir> as the directory it names.
+          const regex = new RegExp(pattern.replace(/<rootDir>/g, escape(rootPath)));
+          const jestIgnores = all.filter((rel) => regex.test(`${rootPath}/${rel}`));
+          const excluded = globs.length
+            ? all.filter((rel) => !vitestCollects(root, ["**/*"], globs).includes(rel))
+            : [];
+          expect(excluded, `${pattern} → ${JSON.stringify(globs)}`).toEqual(jestIgnores);
+        }
+      }
+    }
+    expect(converted).toBeGreaterThan(100);
   });
 
   it("selects exactly the files Jest's regex does, measured with tinyglobby", () => {
@@ -170,7 +214,6 @@ describe("ignore-pattern regexes become exclude globs", () => {
       "__tests__/.*/__mocks__",
       "<rootDir>/e2e/",
       "/e2e/",
-      "\\.snap$",
       "/__rsc_tests__/",
       "/__e2e__",
     ]) {
@@ -285,7 +328,7 @@ describe("transformIgnorePatterns allowlists with nested groups", () => {
 
 /** A project shaped like the jest-expo app the gaps were measured on. */
 function blueskyLike(extra: Record<string, string | object> = {}): string {
-  return fixture({
+  const root = fixture({
     "package.json": {
       name: "social-app",
       scripts: { test: "NODE_ENV=test jest --forceExit --testTimeout=20000 --bail" },
@@ -296,15 +339,19 @@ function blueskyLike(extra: Record<string, string | object> = {}): string {
         multiformats: "13.0.0",
         "await-lock": "2.2.2",
         "legacy-cjs": "1.0.0",
+        "jsx-lib": "1.0.0",
+        lodash: "4.0.0",
       },
       jest: {
         preset: "jest-expo/ios",
         transformIgnorePatterns: [
-          "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|await-lock|legacy-cjs|multiformats)",
+          "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|await-lock|legacy-cjs|jsx-lib|multiformats)",
         ],
         modulePathIgnorePatterns: ["bskylink/.*", "__e2e__/.*", "__tests__/.*/__mocks__"],
         moduleNameMapper: {
           "^multiformats/cid$": "<rootDir>/node_modules/multiformats/dist/src/cid.js",
+          // A redirect to ANOTHER package, though lodash itself serves "lodash".
+          "^lodash$": "<rootDir>/node_modules/lodash-es/lodash.js",
           "^config$": "<rootDir>/src/config.ts",
           "\\.(png|jpg|db)$": "<rootDir>/__mocks__/file.js",
         },
@@ -348,8 +395,28 @@ function blueskyLike(extra: Record<string, string | object> = {}): string {
       version: "1.0.0",
       main: "index.js",
     },
+    "node_modules/legacy-cjs/index.js": "module.exports = { ok: true };",
+    // Untranspiled JSX in a published .js, one directory below its entry.
+    "node_modules/jsx-lib/package.json": {
+      name: "jsx-lib",
+      version: "1.0.0",
+      main: "lib/index.js",
+    },
+    "node_modules/jsx-lib/lib/index.js": "module.exports = require('./view/Box');",
+    "node_modules/jsx-lib/lib/view/Box.js": "module.exports = () => <Box />;",
+    "node_modules/lodash/package.json": { name: "lodash", version: "4.0.0", main: "lodash.js" },
     ...extra,
   });
+  withBabelParser(root);
+  return root;
+}
+
+/** Link the real @babel/parser in, as an installed RN project has it. */
+function withBabelParser(root: string): void {
+  const fromCore = createRequire(createRequire(import.meta.url).resolve("@babel/core"));
+  const parserDir = path.dirname(fromCore.resolve("@babel/parser/package.json"));
+  fs.mkdirSync(path.join(root, "node_modules", "@babel"), { recursive: true });
+  fs.symlinkSync(parserDir, path.join(root, "node_modules", "@babel", "parser"));
 }
 
 describe("a jest-expo app's package.json#jest", () => {
@@ -387,6 +454,10 @@ describe("a jest-expo app's package.json#jest", () => {
     expect(report.dropped.join("\n")).toContain(
       "'multiformats/cid' is served by its package's exports",
     );
+    // A target in another package is a real redirect, whatever the key's package serves.
+    expect(report.suggestedConfig).toContain(
+      `{ find: /^lodash$/, replacement: fileURLToPath(new URL("./node_modules/lodash-es/lodash.js", import.meta.url)) }`,
+    );
   });
 
   it("states asset coverage from the plugin's own extension list", () => {
@@ -395,12 +466,17 @@ describe("a jest-expo app's package.json#jest", () => {
     expect(report.suggestedConfig).toContain(`assetExts: ["db"]`);
   });
 
-  it("sends only what nothing else compiles to transform", () => {
+  it("lists a package for transform only with a file Node cannot parse", () => {
     const report = analyzeJestConfig(blueskyLike());
     const text = report.automatic.join("\n");
-    expect(text).toContain("allows expo-image — declares react-native");
-    expect(text).toContain("allows await-lock and multiformats — ES modules");
-    expect(report.suggestedConfig).toContain(`transform: ["legacy-cjs"]`);
+    expect(text).toContain("allows expo-image — detected by the engine");
+    // Evidence named; CommonJS and ES-module packages are not listed.
+    expect(text).toContain("allows 'jsx-lib', which ships lib/view/Box.js that Node cannot parse");
+    expect(report.suggestedConfig).toContain(`transform: ["jsx-lib"]`);
+    for (const pkg of ["legacy-cjs", "await-lock", "multiformats"]) {
+      expect(report.suggestedConfig).not.toContain(`"${pkg}"`);
+      expect(text).not.toContain(`'${pkg}'`);
+    }
   });
 
   it("names what the expo preset covers from the preset's module list", () => {
@@ -430,7 +506,7 @@ describe("a jest-expo app's package.json#jest", () => {
     expect(report.dropped.join("\n")).toContain("babel-plugin-react-compiler");
     expect(report.attention.join("\n")).toContain("some-inline-env-plugin ran on every file");
 
-    const classified = classifyBabelPlugins(readBabelConfig(root));
+    const classified = classifyBabelPlugins(readBabelConfig(root), root, []);
     expect(classified.map((p) => [p.name, p.verdict])).toEqual([
       ["@lingui/babel-plugin-lingui-macro", "required"],
       ["babel-plugin-react-compiler", "unneeded"],
@@ -448,10 +524,14 @@ describe("a jest-expo app's package.json#jest", () => {
     const report = analyzeJestConfig(
       blueskyLike({
         "node_modules/vite/package.json": { name: "vite", version: "8.0.0" },
+        // As published: `exports` is a string, so `<pkg>/package.json` is not
+        // resolvable and only an on-disk lookup sees the package as installed.
         "node_modules/@rolldown/plugin-babel/package.json": {
           name: "@rolldown/plugin-babel",
           version: "0.2.4",
+          exports: "./dist/index.mjs",
         },
+        "node_modules/@rolldown/plugin-babel/dist/index.mjs": "export default () => ({});",
         "node_modules/@babel/core/package.json": { name: "@babel/core", version: "7.29.0" },
       }),
     );
@@ -459,6 +539,170 @@ describe("a jest-expo app's package.json#jest", () => {
     expect(report.suggestedConfig).toContain(
       `babel({ plugins: ["@lingui/babel-plugin-lingui-macro"] }), jestMockTransform()`,
     );
+  });
+});
+
+describe("script flags, quoted and boolean", () => {
+  it("separates commands only outside quotes and strips quotes from values", () => {
+    const parsed = parseJestScript(
+      "test",
+      `jest --testPathIgnorePatterns "/a/|/b/" --testTimeout 30000 --reporters="a b" --seed='7'`,
+    )!;
+    expect(Object.fromEntries(parsed.flags)).toEqual({
+      testPathIgnorePatterns: "/a/|/b/",
+      testTimeout: "30000",
+      reporters: "a b",
+      seed: "7",
+    });
+    expect(Object.fromEntries(parseJestScript("t", `jest --testTimeout="5000"`)!.flags)).toEqual({
+      testTimeout: "5000",
+    });
+  });
+
+  it("maps --silent=false and --passWithNoTests=false as false", () => {
+    const report = analyzeJestConfig(
+      fixture({
+        "package.json": {
+          name: "x",
+          scripts: { test: "jest --silent=false --passWithNoTests --runInBand=false" },
+          jest: { testTimeout: 1 },
+        },
+      }),
+    );
+    expect(report.suggestedConfig).toContain("silent: false");
+    expect(report.suggestedConfig).toContain("passWithNoTests: true");
+    expect(report.suggestedConfig).not.toContain("fileParallelism");
+  });
+});
+
+describe("testMatch edge cases", () => {
+  it("maps an all-negated testMatch to every crawled file the negations do not remove", () => {
+    const opts = {
+      testMatch: ["!**/e2e/**"],
+      testPathIgnorePatterns: ["/node_modules/"],
+      moduleFileExtensions: ["ts", "js"],
+    };
+    const result = translateDiscovery(
+      { testMatch: opts.testMatch, moduleFileExtensions: opts.moduleFileExtensions },
+      null,
+      30,
+    );
+    expect(result.include).toEqual(["**/*.{ts,js}"]);
+    const root = tree(["src/a.ts", "e2e/b.ts", "src/c.tsx", "lib/d.js"]);
+    const expected = ["src/a.ts", "e2e/b.ts", "src/c.tsx", "lib/d.js"]
+      .filter((rel) => jestRuns(rel, opts))
+      .sort();
+    expect(
+      vitestCollects(root, result.include!, [...configDefaults.exclude, ...result.exclude]),
+    ).toEqual(expected);
+  });
+
+  it("drops a relative glob, which Jest's absolute-path matching never matched", () => {
+    const result = translateDiscovery(
+      { testMatch: ["src/**/*.test.ts", "**/*.spec.ts"] },
+      null,
+      30,
+    );
+    expect(result.include).toEqual(["**/*.spec.ts"]);
+    expect(result.attention.join("\n")).toContain("'src/**/*.test.ts' — Jest compares testMatch");
+    // Jest's own matcher agrees: the relative glob matches no absolute path.
+    expect(picomatch("src/**/*.test.ts", { dot: true })("/abs/project/src/a.test.ts")).toBe(false);
+  });
+});
+
+describe("Babel config reading", () => {
+  it("reads babel.config.js and .babelrc together, as Babel merges them", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "babel.config.js": "module.exports = { plugins: ['module-resolver'] };",
+      ".babelrc": JSON.stringify({ plugins: ["macros"] }),
+    });
+    const report = readBabelConfig(root);
+    expect(report.source).toBe("babel.config.js + .babelrc");
+    expect(report.plugins.map((p) => p.name)).toEqual([
+      "babel-plugin-module-resolver",
+      "babel-plugin-macros",
+    ]);
+  });
+
+  it("treats an async config as unevaluated and survives non-array overrides", () => {
+    const asyncRoot = fixture({
+      "package.json": { name: "x" },
+      "babel.config.js": "module.exports = async () => ({ plugins: ['macros'] }); // 'macros'",
+    });
+    const report = readBabelConfig(asyncRoot);
+    expect(report.evaluated).toBe(false);
+    expect(report.plugins.map((p) => p.name)).toEqual(["babel-plugin-macros"]);
+
+    const overridesRoot = fixture({
+      "package.json": { name: "x" },
+      "babel.config.js": "module.exports = { plugins: ['macros'], overrides: { bad: true } };",
+    });
+    expect(readBabelConfig(overridesRoot).plugins.map((p) => p.name)).toEqual([
+      "babel-plugin-macros",
+    ]);
+  });
+});
+
+describe("preset loading", () => {
+  it("prefers jest-preset.json over jest-preset.js, as Jest's resolver does", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "node_modules/p/package.json": { name: "p", version: "1.0.0" },
+      "node_modules/p/jest-preset.json": { testMatch: ["**/from-json.ts"] },
+      "node_modules/p/jest-preset.js": "module.exports = { testMatch: ['**/from-js.ts'] };",
+    });
+    const loaded = loadJestPreset(root, "p");
+    expect("config" in loaded && loaded.config.testMatch).toEqual(["**/from-json.ts"]);
+  });
+});
+
+describe("packages that test themselves (react-native-mmkv 3+)", () => {
+  const mmkvApp = (version: string) =>
+    fixture({
+      "package.json": {
+        name: "x",
+        dependencies: { "react-native-mmkv": version },
+        jest: {
+          preset: "react-native",
+          transformIgnorePatterns: ["node_modules/(?!(react-native-mmkv)/)"],
+        },
+      },
+      "node_modules/react-native-mmkv/package.json": {
+        name: "react-native-mmkv",
+        version,
+        main: "lib/index.js",
+        peerDependencies: { "react-native": "*" },
+      },
+      "node_modules/react-native-mmkv/lib/index.js": "module.exports = {};",
+      "__mocks__/react-native-mmkv.js": "module.exports = {};",
+    });
+
+  it("migrate does not credit the mmkv preset for mmkv 3+", () => {
+    const report = analyzeJestConfig(mmkvApp("3.1.0"));
+    const all = [...report.presetCovered, ...report.automatic, ...report.attention].join("\n");
+    expect(all).not.toContain("mmkv preset");
+    expect(report.attention.join("\n")).toContain(
+      "__mocks__/react-native-mmkv — react-native-mmkv 3 runs its own test mode under Vitest",
+    );
+    // With the preset inactive, the engine detects it like any RN package.
+    expect(report.automatic.join("\n")).toContain(
+      "allows react-native-mmkv — detected by the engine",
+    );
+  });
+
+  it("migrate still credits the mmkv preset for mmkv 2", () => {
+    const report = analyzeJestConfig(mmkvApp("2.12.0"));
+    expect(report.presetCovered.join("\n")).toContain(
+      "__mocks__/react-native-mmkv — the auto-detected mmkv preset shadows react-native-mmkv",
+    );
+  });
+
+  it("doctor lists mmkv 3+ as testing itself, not as a preset", () => {
+    const lines = runDoctor(mmkvApp("3.1.0")).lines.join("\n");
+    expect(lines).toContain("react-native-mmkv 3 runs its own test mode under Vitest");
+    expect(lines).not.toContain("react-native-mmkv → mmkv");
+    expect(runDoctor(mmkvApp("2.12.0")).lines.join("\n")).toContain("react-native-mmkv → mmkv");
   });
 });
 

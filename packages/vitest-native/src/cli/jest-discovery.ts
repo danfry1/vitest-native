@@ -1,24 +1,19 @@
 /**
- * Which files Jest treats as tests, and how `migrate` says the same thing to Vitest.
+ * Which files Jest treats as tests, said to Vitest.
  *
- * `migrate` used to translate only an explicit `testMatch` and otherwise left
- * Vitest's own default include in place. Jest's test set is not the config's keys
- * but the EFFECTIVE config — a preset's keys under the user's, with Jest's defaults
- * underneath — narrowed by `testPathIgnorePatterns`, `modulePathIgnorePatterns` and
- * `moduleFileExtensions`. A jest-expo project measured the gap: Jest ran 105 suites,
- * the generated config collected 213 files and missed 9 of Jest's, because
- * jest-expo's `testMatch` (`**\/__tests__/**\/*test.[jt]s?(x)`, no dot) was dropped,
- * its ignore patterns were reported as "no equivalent needed", and Vitest's
- * extension set picked up `node:test` scripts (`*.test.mjs`) Jest never saw.
- *
- * Everything here follows the Jest source that decides it (jest-config 30's
- * `setupPreset` and `normalize`, jest-util's `globsToMatcher`, @jest/core's
- * `SearchSource`, jest-runtime's haste map) and what Vitest does with the result
- * (`globProjectFiles`: tinyglobby with `dot: true`, `ignore: exclude`).
+ * Jest's test set is its EFFECTIVE config — the preset's keys under the user's, Jest's
+ * defaults under both — narrowed by testPathIgnorePatterns, modulePathIgnorePatterns
+ * and moduleFileExtensions. Translating only an explicit testMatch left a jest-expo
+ * app on Vitest's default include: about twice Jest's files, some of Jest's missed.
+ * Sources: jest-config 30 (`setupPreset`, `normalize`, `Defaults`), jest-util
+ * `globsToMatcher`, @jest/core `SearchSource`, jest-runtime's haste map; Vitest
+ * collects with tinyglobby (`dot: true`, `ignore: exclude`).
  */
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
+import { installedMajor } from "./manifest.js";
+import { STAR, tryExpand } from "./regex-subset.js";
 
 export interface JestDiscoveryOptions {
   testMatch?: string[];
@@ -29,12 +24,7 @@ export interface JestDiscoveryOptions {
   roots?: string[];
 }
 
-/**
- * Jest's defaults for the keys that decide discovery, from jest-config's
- * `Defaults` (https://jestjs.io/docs/configuration). Jest 30 widened both lists to
- * the `.mts`/`.cts` (and, in testMatch, `.mjs`/`.cjs`) extensions; Jest 29's are
- * kept because a project migrating from 29 ran exactly that set.
- */
+/** jest-config `Defaults` for the discovery keys, per major (https://jestjs.io/docs/configuration). */
 const JEST_DEFAULTS: Record<29 | 30, Required<Omit<JestDiscoveryOptions, "testRegex">>> = {
   29: {
     testMatch: ["**/__tests__/**/*.[jt]s?(x)", "**/?(*.)+(spec|test).[tj]s?(x)"],
@@ -52,26 +42,17 @@ const JEST_DEFAULTS: Record<29 | 30, Required<Omit<JestDiscoveryOptions, "testRe
   },
 };
 
-/** The installed Jest's major version (29 or 30), or null when Jest is not installed. */
+/** The installed Jest's major (29 or 30), or null when Jest is not installed. */
 export function jestMajor(root: string): 29 | 30 | null {
-  const req = createRequire(path.join(root, "package.json"));
-  for (const pkg of ["jest", "jest-config"]) {
-    try {
-      const version = (req(`${pkg}/package.json`) as { version?: string }).version ?? "";
-      return Number(version.split(".")[0]) <= 29 ? 29 : 30;
-    } catch {
-      // not installed under this name
-    }
-  }
-  return null;
+  const major = installedMajor(root, "jest") ?? installedMajor(root, "jest-config");
+  return major === null ? null : major <= 29 ? 29 : 30;
 }
 
 /**
- * Load a Jest preset the way jest-config's `setupPreset` does: a relative or
- * absolute path is used as written, anything else is `<name>/jest-preset` resolved
- * from the root directory with the extensions .json, .js, .cjs (and .mjs, which a
- * synchronous loader cannot read). Loading executes the preset, exactly as Jest
- * does; `migrate` already executes a jest.config.js for the same reason.
+ * Load a preset as jest-config's `setupPreset` does: a relative or absolute path is
+ * resolved as written, anything else as `<name>/jest-preset`, trying the extensions
+ * .json, .js, .cjs in that order (.mjs cannot be loaded synchronously). Loading
+ * executes the preset, as Jest does.
  */
 export function loadJestPreset(
   root: string,
@@ -83,19 +64,22 @@ export function loadJestPreset(
     presetPath.startsWith(".") || path.isAbsolute(presetPath)
       ? path.resolve(root, presetPath)
       : `${presetPath}/jest-preset`;
+  // Node's resolver tries .js before .json; Jest's tries .json first.
+  const candidates = [".json", ".js", ".cjs"].includes(path.extname(base))
+    ? [base]
+    : [`${base}.json`, `${base}.js`, `${base}.cjs`, base];
   let file: string | undefined;
-  for (const ext of ["", ".json", ".js", ".cjs"]) {
+  for (const candidate of candidates) {
     try {
-      file = req.resolve(base + ext);
+      file = req.resolve(candidate);
       break;
     } catch {
-      // try the next extension
+      // next
     }
   }
   if (!file) return { error: `cannot resolve '${base}' from ${root}` };
-  // Babel- and Metro-flavoured presets read NODE_ENV while they load (jest-expo
-  // resolves its Babel options at require time); Jest sets it to 'test' before
-  // reading any config, so do the same for the duration of the load.
+  // Presets may read NODE_ENV while loading (jest-expo resolves Babel options); Jest
+  // has set it to 'test' by then.
   const previousEnv = process.env.NODE_ENV;
   process.env.NODE_ENV ??= "test";
   try {
@@ -117,28 +101,17 @@ export function loadJestPreset(
 }
 
 /**
- * Convert one Jest `testPathIgnorePatterns` / `modulePathIgnorePatterns` regex into
- * Vitest `exclude` globs that select the same files, or null when the regex is not
- * one of the shapes this can translate EXACTLY.
+ * Convert a Jest `testPathIgnorePatterns` / `modulePathIgnorePatterns` regex into
+ * `exclude` globs selecting the same files, or null when that cannot be done exactly.
  *
- * Jest tests each pattern, unanchored, against the ABSOLUTE path
- * (`new RegExp(patterns.join('|')).test(path)` in @jest/core's SearchSource, and the
- * haste map's `ignorePattern` for modulePathIgnorePatterns in jest-runtime), with
- * `<rootDir>` replaced by the root directory. Vitest's `exclude` globs are matched
- * against paths relative to the root. Translated:
- *
- * - `<rootDir>/x` anchors the match at the root; anything else may start anywhere,
- *   including inside a path segment — `bskylink/.*` also ignores `notbskylink/` —
- *   which is what the leading `**\/*` reproduces.
- * - `/.*\/` between two literals is one or more whole segments: `*\/**`.
- * - a trailing `/`, `/.*` or `.*` leaves the rest of the path free; a trailing `$`
- *   pins the end; a pattern ending mid-segment covers both the file (`x*`) and a
- *   directory of that name (`x*\/**`).
- *
- * Character classes, groups, alternation and other quantifiers have no exact glob
- * form, so they are left for a human rather than approximated. A match that begins
- * ABOVE the root (a pattern naming a directory the project itself sits in) has no
- * relative-path equivalent either; that is not representable and not attempted.
+ * Jest tests each pattern unanchored against the ABSOLUTE path (@jest/core
+ * SearchSource; jest-runtime's haste-map `ignorePattern`); Vitest matches `exclude`
+ * against root-relative paths. So `<rootDir>/x` anchors at the root, anything else may
+ * start mid-segment (`bskylink/.*` also ignores `notbskylink/`, hence `**\/*`), `/.*\/`
+ * spans whole segments (`*\/**`), a trailing `/`, `/.*` or `.*` leaves the rest free,
+ * a pattern ending mid-segment covers a file and a directory, and `$` is left for a human.
+ * Jest substitutes `<rootDir>` unescaped; it is read here as the directory it names.
+ * A match starting above the root has no relative form and is not attempted.
  */
 export function ignorePatternToGlobs(pattern: string): string[] | null {
   let rest = pattern;
@@ -148,84 +121,79 @@ export function ignorePatternToGlobs(pattern: string): string[] | null {
     rest = rest.slice("<rootDir>".length);
     if (!rest.startsWith("/") || rest === "/") return null;
   }
-  let endAnchored = false;
-  if (rest.endsWith("$") && !rest.endsWith("\\$")) {
-    endAnchored = true;
-    rest = rest.slice(0, -1);
+  // A trailing `$` preceded by an even number of backslashes is an anchor.
+  const endAnchored = /(^|[^\\])(\\\\)*\$$/.test(rest);
+  if (endAnchored) rest = rest.slice(0, -1);
+  const expansions = tryExpand(rest, false);
+  if (!expansions) return null;
+  const globs: string[] = [];
+  for (const expansion of expansions) {
+    const converted = expansionToGlobs(expansion, anchored, endAnchored);
+    if (!converted) return null;
+    globs.push(...converted);
   }
-  // Tokenize: literal characters, and `.*` as STAR. "\0" marks STAR.
-  let s = "";
-  for (let i = 0; i < rest.length; i++) {
-    const c = rest[i];
-    if (c === "\\") {
-      const next = rest[i + 1];
-      // \d, \w, \b and friends are classes, not escaped literals.
-      if (next === undefined || /[A-Za-z0-9]/.test(next)) return null;
-      s += next;
-      i++;
-    } else if (c === "." && rest[i + 1] === "*") {
-      s += "\0";
-      i++;
-    } else if ("^$()[]{}|+?*.".includes(c)) {
-      return null;
-    } else {
-      s += c;
-    }
-  }
-  // Characters a glob would read as syntax cannot be emitted as literals.
-  if (/[*?[\]{}]/.test(s.replace(/\0/g, ""))) return null;
-  // A trailing `.*` leaves the end free, exactly like no `.*` at all.
-  if (s.endsWith("\0")) {
+  return [...new Set(globs)];
+}
+
+function expansionToGlobs(
+  expansion: string,
+  anchored: boolean,
+  endAnchored: boolean,
+): string[] | null {
+  let s = expansion;
+  // Characters picomatch reads as syntax (classes, braces, extglob parens, negation,
+  // escapes) cannot be emitted as literals.
+  if (/[*?[\]{}()!\\]/.test(s.replaceAll(STAR, ""))) return null;
+  if (s.endsWith(STAR)) {
     s = s.slice(0, -1);
     endAnchored = false;
   }
-  if (!anchored) s = s.replace(/^\0+/, "");
-  if (anchored && s.startsWith("/\0")) return null;
-  // Every remaining `.*` must span whole segments: `/.*/`.
-  const parts = s.split("/\0/");
-  if (parts.some((part) => part.includes("\0") || part === "")) return null;
+  if (!anchored) s = s.replace(new RegExp(`^${STAR}+`), "");
+  if (s === "" || (anchored && s.startsWith(`/${STAR}`))) return null;
+  // A file path never ends in `/`, so `x/$` excludes nothing. Any other `$` cannot be
+  // said as an exclude glob: tinyglobby prunes a DIRECTORY an ignore glob matches,
+  // so `**/*.snap` would also drop everything inside a directory named `x.snap`.
+  if (endAnchored) return s.endsWith("/") ? [] : null;
+  const parts = s.split(`/${STAR}/`);
+  if (parts.some((part) => part.includes(STAR) || part === "")) return null;
   let glob = parts.join("/*/**/");
   if (anchored) glob = glob.slice(1);
   else glob = glob.startsWith("/") ? `**/${glob.slice(1)}` : `**/*${glob}`;
   if (glob.endsWith("/")) return [`${glob}**`];
-  if (endAnchored) return [glob];
   return [`${glob}*`, `${glob}*/**`];
 }
 
-/** File extensions Jest or Vitest could take a test file to have. */
 const TEST_FILE_EXTENSIONS = ["js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx"];
 
+/** The last-segment extensions Jest's haste map crawls (`ios.ts` adds nothing beyond `ts`). */
+function visibleExtensions(moduleFileExtensions: string[]): string[] {
+  return moduleFileExtensions.filter((ext) => !ext.includes("."));
+}
+
 /**
- * An exclude glob for the script extensions Jest cannot see.
- *
- * Jest's haste map only crawls files whose extension is in `moduleFileExtensions`
- * (jest-runtime passes it as the map's `extensions`, compared against the LAST
- * extension, so jest-expo's `ios.ts` entries add nothing beyond `ts`). A file outside
- * that set is never a test, whatever the patterns say.
+ * An exclude glob for the script extensions Jest cannot see: its haste map crawls
+ * only `moduleFileExtensions` (jest-runtime passes them as `extensions`).
  */
 export function extensionExclude(moduleFileExtensions: string[]): string | null {
-  const visible = new Set(moduleFileExtensions.filter((ext) => !ext.includes(".")));
+  const visible = new Set(visibleExtensions(moduleFileExtensions));
   const hidden = TEST_FILE_EXTENSIONS.filter((ext) => !visible.has(ext));
   if (hidden.length === 0) return null;
   return hidden.length === 1 ? `**/*.${hidden[0]}` : `**/*.{${hidden.join(",")}}`;
 }
 
 export interface DiscoveryResult {
-  /** `test.include` entries (JSON-ready strings), or null to keep Vitest's default. */
+  /** `test.include`, or null to keep Vitest's default. */
   include: string[] | null;
-  /** Additional `test.exclude` globs, appended after `configDefaults.exclude`. */
+  /** Extra `test.exclude` globs, appended after `configDefaults.exclude`. */
   exclude: string[];
   automatic: string[];
   attention: string[];
 }
 
 /**
- * Jest's effective discovery settings, translated.
- *
- * `options` is the user's config; `preset` the loaded preset's (null when there is
- * none or it could not be loaded). Merged as jest-config's `setupPreset` does — the
- * user's keys win, `modulePathIgnorePatterns` concatenates — then defaulted as
- * `normalize` does: an explicit `testRegex` empties `testMatch`.
+ * Jest's effective discovery settings, translated. `preset` is the loaded preset's
+ * config (null when none). Merged as `setupPreset` does — the user's keys win,
+ * `modulePathIgnorePatterns` concatenates — and defaulted as `normalize` does.
  */
 export function translateDiscovery(
   options: JestDiscoveryOptions,
@@ -242,10 +210,11 @@ export function translateDiscovery(
     if (preset?.[key] !== undefined) return { value: preset[key], from: "from the preset" };
     return { value: undefined, from: `Jest ${major ?? 30}'s default` };
   };
-  const defaultsNote = major === null ? " (Jest is not installed; Jest 30's defaults assumed)" : "";
+  const defaultsNote = major === null ? "; Jest is not installed, so Jest 30's" : "";
+  const extensions = pick("moduleFileExtensions");
+  const moduleFileExtensions = extensions.value ?? defaults.moduleFileExtensions;
 
-  const regex = pick("testRegex");
-  const regexes = [regex.value ?? []].flat().filter(Boolean);
+  const regexes = [pick("testRegex").value ?? []].flat().filter(Boolean);
   const exclude: string[] = [];
   let include: string[] | null = null;
 
@@ -256,23 +225,64 @@ export function translateDiscovery(
     );
   } else {
     const match = pick("testMatch");
-    const globs = (match.value ?? defaults.testMatch).map((g) => g.replace(/^<rootDir>\//, ""));
-    // jest-util's globsToMatcher treats `!glob` as a negation; tinyglobby takes
-    // negations as ignores, so they move to exclude.
-    const positive = globs.filter((g) => !g.startsWith("!"));
-    exclude.push(...globs.filter((g) => g.startsWith("!")).map((g) => g.slice(1)));
+    const positive: string[] = [];
+    const negated: string[] = [];
+    let positiveAfterNegation = false;
+    for (const raw of match.value ?? defaults.testMatch) {
+      const isNegated = raw.startsWith("!");
+      const glob = (isNegated ? raw.slice(1) : raw).replace(/^<rootDir>\//, "");
+      // Jest matches testMatch against ABSOLUTE paths, so a glob that neither starts
+      // with `**` nor names the root matches nothing there; Vitest would match it
+      // against relative paths. Not carried over.
+      if (path.isAbsolute(glob)) {
+        attention.push(`testMatch '${raw}' — an absolute glob; map it to test.include by hand.`);
+        continue;
+      }
+      if (!glob.startsWith("**") && raw.replace(/^!/, "") === glob) {
+        attention.push(
+          `testMatch '${raw}' — Jest compares testMatch with absolute paths, so this glob matched ` +
+            `nothing; not carried over (prefix it with **/ if it was meant to match).`,
+        );
+        continue;
+      }
+      if (isNegated) negated.push(glob);
+      else {
+        if (negated.length) positiveAfterNegation = true;
+        positive.push(glob);
+      }
+    }
+    // jest-util's globsToMatcher: a negation removes what earlier globs kept, a later
+    // positive glob can keep it again, and an all-negated list keeps every file the
+    // negations do not remove. tinyglobby takes negations as ignores.
+    if (positiveAfterNegation) {
+      attention.push(
+        `testMatch ${JSON.stringify(match.value)} — a positive glob after a negation re-includes what the ` +
+          `negation removed; the negations are applied to all files here, so review the result.`,
+      );
+    }
+    exclude.push(...negated);
+    if (positive.length === 0 && negated.length > 0) {
+      const exts = visibleExtensions(moduleFileExtensions);
+      positive.push(exts.length === 1 ? `**/*.${exts[0]}` : `**/*.{${exts.join(",")}}`);
+      attention.push(
+        `testMatch has only negated globs, so Jest treated every file it crawls (${exts.join(", ")}) ` +
+          `that they do not remove as a test; mapped the same way — review it.`,
+      );
+    }
     const roots = (pick("roots").value ?? defaults.roots).map((r) =>
       r.replace(/^<rootDir>\/?/, "").replace(/\/$/, ""),
     );
     if (roots.every((r) => r === "")) {
       include = positive;
     } else {
-      // `roots` limits where Jest looks. Globs that start with `**/` apply below each
-      // root; any other glob already names its own directory.
-      include = roots.flatMap((r) =>
-        positive.map((g) => (r === "" ? g : g.startsWith("**/") ? `${r}/${g}` : g)),
-      );
-      include = [...new Set(include)];
+      // `roots` limits where Jest looks: `**/` globs apply below each root.
+      include = [
+        ...new Set(
+          roots.flatMap((r) =>
+            positive.map((g) => (r === "" ? g : g.startsWith("**/") ? `${r}/${g}` : g)),
+          ),
+        ),
+      ];
       automatic.push(`roots ${JSON.stringify(roots)} → test.include scoped to those directories.`);
     }
     automatic.push(
@@ -284,21 +294,19 @@ export function translateDiscovery(
   for (const key of ["testPathIgnorePatterns", "modulePathIgnorePatterns"] as const) {
     const fromOptions = options[key];
     const fromPreset = preset?.[key];
-    // setupPreset concatenates modulePathIgnorePatterns when BOTH sides set it;
-    // for every other key the user's value replaces the preset's.
+    // setupPreset concatenates modulePathIgnorePatterns when both sides set it.
     const patterns =
       key === "modulePathIgnorePatterns" && fromOptions && fromPreset
         ? [...fromPreset, ...fromOptions]
         : (fromOptions ?? fromPreset ?? defaults[key]);
+    const extra =
+      key === "modulePathIgnorePatterns"
+        ? " Jest also hid these paths from module resolution; Vite has no equivalent, which only matters if a test imported a module from one."
+        : "";
     for (const pattern of patterns) {
-      // Jest's own default — Vitest's default exclude already carries
-      // `**/node_modules/**` (vitest.dev/config/exclude), spread in first.
+      // Jest's default; configDefaults.exclude (spread first) has `**/node_modules/**`.
       if (pattern === "/node_modules/") continue;
       const globs = ignorePatternToGlobs(pattern);
-      const extra =
-        key === "modulePathIgnorePatterns"
-          ? " Jest also hid these paths from module resolution; Vite has no equivalent, which only matters if a test imported a module from one."
-          : "";
       if (globs) {
         exclude.push(...globs);
         automatic.push(`${key} '${pattern}' → test.exclude ${JSON.stringify(globs)}.${extra}`);
@@ -311,8 +319,7 @@ export function translateDiscovery(
     }
   }
 
-  const extensions = pick("moduleFileExtensions");
-  const hidden = extensionExclude(extensions.value ?? defaults.moduleFileExtensions);
+  const hidden = extensionExclude(moduleFileExtensions);
   if (hidden) {
     exclude.push(hidden);
     automatic.push(
@@ -355,18 +362,47 @@ const VALUED_FLAGS = new Set([
   "changedSince",
 ]);
 
-/** Split a shell command into words, honouring simple quotes. Not a shell. */
-function words(command: string): string[] {
-  const out: string[] = [];
-  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
-  for (const m of command.matchAll(re)) out.push(m[1] ?? m[2] ?? m[3]);
-  return out;
+/**
+ * Split a shell command into commands of words. Quotes group and are removed
+ * (`--flag="a b"` is the word `--flag=a b`), a backslash escapes outside single
+ * quotes, and `&&`, `||`, `;` and `|` separate commands only outside quotes.
+ */
+export function shellCommands(command: string): string[][] {
+  const commands: string[][] = [[]];
+  let word: string | null = null;
+  const end = () => {
+    if (word !== null) commands[commands.length - 1].push(word);
+    word = null;
+  };
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i];
+    if (c === "'" || c === '"') {
+      const close = command.indexOf(c, i + 1);
+      const stop = close === -1 ? command.length : close;
+      let quoted = command.slice(i + 1, stop);
+      if (c === '"') quoted = quoted.replace(/\\(["\\$`])/g, "$1");
+      word = (word ?? "") + quoted;
+      i = stop;
+    } else if (c === "\\") {
+      word = (word ?? "") + (command[i + 1] ?? "");
+      i++;
+    } else if (/\s/.test(c)) {
+      end();
+    } else if (c === ";" || c === "|" || (c === "&" && command[i + 1] === "&")) {
+      end();
+      if (command[i + 1] === c) i++;
+      commands.push([]);
+    } else {
+      word = (word ?? "") + c;
+    }
+  }
+  end();
+  return commands.filter((words) => words.length > 0);
 }
 
 export interface JestScriptFlags {
-  /** The script the flags came from. */
   script: string;
-  /** Flag name (camelCase, as Jest's docs spell it) → value (true for a bare flag). */
+  /** camelCase flag → value (true for a bare flag). */
   flags: Map<string, string | true>;
   /** Positional arguments (test path patterns). */
   positional: string[];
@@ -374,15 +410,11 @@ export interface JestScriptFlags {
 
 /**
  * The Jest flags a package.json script passes, or null when it does not run Jest.
- *
- * Only the command that invokes `jest` (or its bin script) is read — `NODE_ENV=test
- * jest --forceExit` and `yarn jest -w 2 && tsc` both work; anything after `&&`,
- * `||`, `;` or `|` is another command. Jest's CLI accepts both `--testTimeout` and
- * `--test-timeout` (yargs camel-case expansion), so kebab-case is normalised.
+ * Only the command invoking `jest` (or its bin script) is read. Jest accepts
+ * `--test-timeout` as well as `--testTimeout` (yargs), so names are camel-cased.
  */
 export function parseJestScript(script: string, command: string): JestScriptFlags | null {
-  for (const segment of command.split(/&&|\|\||;|\|/)) {
-    const tokens = words(segment);
+  for (const tokens of shellCommands(command)) {
     const at = tokens.findIndex((t) => /(^|\/)jest(\.js)?$/.test(t));
     if (at === -1) continue;
     const flags = new Map<string, string | true>();
@@ -401,8 +433,7 @@ export function parseJestScript(script: string, command: string): JestScriptFlag
       } else if (VALUED_FLAGS.has(name) && args[i + 1] !== undefined) {
         flags.set(name, args[++i]);
       } else if (name === "bail" && /^\d+$/.test(args[i + 1] ?? "")) {
-        // --bail takes an optional count.
-        flags.set(name, args[++i]);
+        flags.set(name, args[++i]); // optional count
       } else {
         flags.set(name, true);
       }
@@ -410,4 +441,11 @@ export function parseJestScript(script: string, command: string): JestScriptFlag
     return { script, flags, positional };
   }
   return null;
+}
+
+/** A boolean flag's value: bare or `=true` is true, `=false` false, else undefined. */
+export function booleanFlag(value: string | true | undefined): boolean | undefined {
+  if (value === true || value === "true") return true;
+  if (value === "false") return false;
+  return undefined;
 }

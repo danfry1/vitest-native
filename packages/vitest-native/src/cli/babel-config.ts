@@ -1,63 +1,50 @@
 /**
- * The project's own Babel configuration, as `migrate` and `doctor` need to see it.
+ * The project's Babel configuration, as `migrate` and `doctor` need to see it.
  *
- * Under Jest every project file goes through babel-jest, which applies the project's
- * babel.config.js. vitest-native does not: project files go through Vite's
- * transform, and React Native's own code through RN's Babel preset — never the
- * project's config (website/guide/how-it-works.md, "Custom Babel plugins don't
- * run"). Most plugins in a React Native Babel config exist for Metro and are not
- * missed, but some change what the code MEANS: a macro plugin replaces
- * `t\`Hello\`` from `@lingui/core/macro` with real calls, and without it the import
- * of the macro package itself fails (`Cannot find module 'babel-plugin-macros'` —
- * 29 test files in the project that surfaced this). That failure named nothing
- * about Babel, and neither command mentioned the config at all.
- *
- * This reads the config, classifies each plugin, and says per plugin what the
- * vitest-native run needs.
+ * babel-jest applies the project's Babel config to every file; vitest-native never
+ * does (website/guide/how-it-works.md). Most plugins in a React Native config exist
+ * for Metro, but a macro plugin changes what code means: without it the macro
+ * package is imported for real and fails (`Cannot find module
+ * 'babel-plugin-macros'`), an error that names nothing about Babel.
  */
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
-import { AUTO_DETECT_PRESETS, presetShadowing } from "../preset-map.js";
+import { AUTO_DETECT_PRESETS, presetShadowing, type PresetName } from "../preset-map.js";
+import { installedManifest, installedMajor } from "./manifest.js";
 
-/** Babel's config files, project-wide first (https://babeljs.io/docs/config-files). */
-const BABEL_CONFIG_FILES = [
+// https://babeljs.io/docs/config-files: one project-wide config, plus one
+// file-relative config (.babelrc* or package.json#babel). Babel merges the two.
+const PROJECT_FILES = [
   "babel.config.js",
   "babel.config.cjs",
   "babel.config.mjs",
   "babel.config.json",
   "babel.config.cts",
   "babel.config.ts",
-  ".babelrc",
-  ".babelrc.js",
-  ".babelrc.cjs",
-  ".babelrc.mjs",
-  ".babelrc.json",
 ];
+const RELATIVE_FILES = [".babelrc", ".babelrc.js", ".babelrc.cjs", ".babelrc.mjs", ".babelrc.json"];
 
 export interface BabelPluginEntry {
-  /** As written in the config (`'macros'`, `'module-resolver'`). */
+  /** As written in the config (`'macros'`). */
   written: string;
-  /** Babel's normalized package name (`babel-plugin-macros`). */
+  /** Babel's normalized name (`babel-plugin-macros`). */
   name: string;
-  /** The plugin's options, when given. */
   options?: unknown;
 }
 
 export interface BabelConfigReport {
-  /** Where the config came from, or null when there is none. */
+  /** The config file(s) read, joined with " + ", or null when there is none. */
   source: string | null;
-  /** Whether the config was evaluated (true) or only scanned as text. */
+  /** False when any file could only be scanned as text. */
   evaluated: boolean;
   plugins: BabelPluginEntry[];
   presets: string[];
 }
 
 /**
- * Babel's name normalization for plugins (@babel/core `standardizeName`):
- * `foo` → `babel-plugin-foo`, `@scope/foo` → `@scope/babel-plugin-foo`, `@scope` →
- * `@scope/babel-plugin`, `module:foo` → `foo`; paths and names that already carry
- * the prefix are kept.
+ * @babel/core's `standardizeName`: `foo` → `babel-plugin-foo`, `@scope/foo` →
+ * `@scope/babel-plugin-foo`, `@scope` → `@scope/babel-plugin`, `module:foo` → `foo`.
  */
 export function normalizeBabelName(name: string, kind: "plugin" | "preset" = "plugin"): string {
   const prefix = `babel-${kind}`;
@@ -72,19 +59,14 @@ export function normalizeBabelName(name: string, kind: "plugin" | "preset" = "pl
   return `${prefix}-${name}`;
 }
 
-function entryOf(item: unknown, kind: "plugin" | "preset"): BabelPluginEntry | null {
+function entryOf(item: unknown, kind: "plugin" | "preset"): BabelPluginEntry {
   const [target, options] = Array.isArray(item) ? item : [item, undefined];
-  if (typeof target !== "string") {
+  if (typeof target !== "string")
     return { written: "<inline plugin>", name: "<inline plugin>", options };
-  }
   return { written: target, name: normalizeBabelName(target, kind), options };
 }
 
-/**
- * A stand-in for the `api` object Babel passes a function-form config, answering as
- * babel-jest would under Jest: `env()` is 'test' (Jest sets NODE_ENV=test), the
- * caller is babel-jest, and caching calls are accepted and ignored.
- */
+/** The `api` babel-jest's Babel passes a function config: env 'test', caller babel-jest. */
 function babelApi() {
   const cache = Object.assign(() => {}, {
     forever: () => {},
@@ -109,117 +91,119 @@ function babelApi() {
   };
 }
 
-/** Read the project's Babel config: evaluated when it is CommonJS or JSON, scanned otherwise. */
-export function readBabelConfig(root: string): BabelConfigReport {
-  const req = createRequire(path.join(root, "package.json"));
-  let source: string | null = null;
-  let raw: unknown;
-  let text = "";
-  for (const name of BABEL_CONFIG_FILES) {
-    const file = path.join(root, name);
-    if (!fs.existsSync(file)) continue;
-    source = name;
-    text = fs.readFileSync(file, "utf8");
-    if (name === ".babelrc" || name.endsWith(".json")) {
-      try {
-        raw = JSON.parse(text);
-      } catch {
-        // JSON5 or comments — fall back to the text scan.
-      }
-    } else if (name.endsWith(".js") || name.endsWith(".cjs")) {
-      const previousEnv = process.env.NODE_ENV;
-      process.env.NODE_ENV ??= "test";
-      try {
-        const loaded = req(file) as unknown;
-        const exported =
-          loaded && typeof loaded === "object" && "default" in loaded
-            ? (loaded as { default: unknown }).default
-            : loaded;
-        raw =
-          typeof exported === "function"
-            ? (exported as (api: unknown) => unknown)(babelApi())
-            : exported;
-      } catch {
-        // A config that throws outside Babel is still read as text below.
-      } finally {
-        if (previousEnv === undefined) delete process.env.NODE_ENV;
-        else process.env.NODE_ENV = previousEnv;
-      }
+/** Evaluate one config file; undefined when it can only be scanned as text. */
+function evaluate(root: string, file: string): unknown {
+  const text = fs.readFileSync(file, "utf8");
+  if (/(^|\/)\.babelrc$|\.json$/.test(file)) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return undefined; // JSON5 or comments
     }
-    break;
   }
-  if (!source) {
+  if (!/\.c?js$/.test(file)) return undefined; // ESM/TS: not loadable synchronously
+  const previousEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV ??= "test";
+  try {
+    const loaded = createRequire(path.join(root, "package.json"))(file) as unknown;
+    const exported =
+      loaded && typeof loaded === "object" && "default" in loaded
+        ? (loaded as { default: unknown }).default
+        : loaded;
+    const value =
+      typeof exported === "function"
+        ? (exported as (api: unknown) => unknown)(babelApi())
+        : exported;
+    // An async config resolves too late to read here.
+    if (value && typeof (value as { then?: unknown }).then === "function") return undefined;
+    return value;
+  } catch {
+    return undefined;
+  } finally {
+    if (previousEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousEnv;
+  }
+}
+
+interface RawConfig {
+  plugins?: unknown;
+  presets?: unknown;
+  env?: Record<string, RawConfig>;
+  overrides?: unknown;
+}
+
+const array = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+
+function entriesOf(config: RawConfig, key: "plugins" | "presets"): unknown[] {
+  // Babel merges env[envName] (envName is 'test' under Jest); overrides apply per
+  // file and are included so none is missed.
+  const sections = [config, config.env?.test ?? {}, ...array(config.overrides)] as RawConfig[];
+  return sections.flatMap((s) => array(s?.[key]));
+}
+
+export function readBabelConfig(root: string): BabelConfigReport {
+  const found: { source: string; raw: unknown; text: string }[] = [];
+  for (const group of [PROJECT_FILES, RELATIVE_FILES]) {
+    const name = group.find((n) => fs.existsSync(path.join(root, n)));
+    if (!name) continue;
+    const file = path.join(root, name);
+    found.push({ source: name, raw: evaluate(root, file), text: fs.readFileSync(file, "utf8") });
+  }
+  if (!found.some((f) => f.source.startsWith(".babelrc"))) {
     try {
       const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
       if (pkg.babel && typeof pkg.babel === "object") {
-        source = "package.json#babel";
-        raw = pkg.babel;
+        found.push({ source: "package.json#babel", raw: pkg.babel, text: "" });
       }
     } catch {
       // no package.json
     }
   }
-  if (!source) return { source: null, evaluated: false, plugins: [], presets: [] };
+  if (found.length === 0) return { source: null, evaluated: false, plugins: [], presets: [] };
 
-  if (raw && typeof raw === "object") {
-    const config = raw as {
-      plugins?: unknown[];
-      presets?: unknown[];
-      env?: Record<string, { plugins?: unknown[]; presets?: unknown[] }>;
-      overrides?: { plugins?: unknown[]; presets?: unknown[] }[];
-    };
-    // Babel merges `env[envName]` over the base config, and envName is 'test' under
-    // Jest. `overrides` apply per file; their plugins are included so none is missed.
-    const sections = [config, config.env?.test ?? {}, ...(config.overrides ?? [])];
-    const plugins = sections
-      .flatMap((s) => s.plugins ?? [])
-      .map((p) => entryOf(p, "plugin"))
-      .filter((p): p is BabelPluginEntry => p !== null);
-    const presets = sections
-      .flatMap((s) => s.presets ?? [])
-      .map((p) => entryOf(p, "preset")?.name)
-      .filter((p): p is string => typeof p === "string");
-    return { source, evaluated: true, plugins, presets };
-  }
-
-  // Not evaluable (ESM/TS config, or it threw): report the plugins this file names
-  // that the classification below knows, rather than guess at every string in it.
   const plugins: BabelPluginEntry[] = [];
-  for (const written of new Set([...text.matchAll(/["'`]([^"'`\s]+)["'`]/g)].map((m) => m[1]))) {
-    const name = normalizeBabelName(written);
-    if (KNOWN_PLUGINS.some((known) => known.names.includes(name))) {
-      plugins.push({ written, name });
+  const presets: string[] = [];
+  let evaluated = true;
+  for (const { raw, text } of found) {
+    if (raw && typeof raw === "object") {
+      plugins.push(...entriesOf(raw as RawConfig, "plugins").map((p) => entryOf(p, "plugin")));
+      presets.push(...entriesOf(raw as RawConfig, "presets").map((p) => entryOf(p, "preset").name));
+      continue;
+    }
+    // Not evaluable: list only the plugins this file names that are known below.
+    evaluated = false;
+    for (const written of new Set([...text.matchAll(/["'`]([^"'`\s]+)["'`]/g)].map((m) => m[1]))) {
+      const name = normalizeBabelName(written);
+      if (KNOWN_PLUGINS.some((known) => known.names.includes(name)))
+        plugins.push({ written, name });
     }
   }
-  return { source, evaluated: false, plugins, presets: [] };
+  return { source: found.map((f) => f.source).join(" + "), evaluated, plugins, presets };
 }
 
-export type BabelPluginVerdict =
-  /** Changes what code means; the run is wrong without it. */
-  | "required"
-  /** Its effect maps onto Vite config (module-resolver → resolve.alias). */
-  | "alias"
-  /** Not needed under vitest-native, with the reason. */
-  | "unneeded"
-  /** Not recognized: a human has to judge. */
-  | "unknown";
+export type BabelPluginVerdict = "required" | "alias" | "unneeded" | "unknown";
 
 interface KnownPlugin {
   names: string[];
   verdict: BabelPluginVerdict;
-  reason: (entry: BabelPluginEntry) => string;
+  reason: (entry: BabelPluginEntry, active: readonly PresetName[]) => string;
 }
 
-/** The library a worklet plugin belongs to, and the preset that shadows it. */
-function workletReason(pkg: string): string {
+/** Why a worklet plugin is not needed — only when the preset replacing its library is active. */
+function workletReason(pkg: string, active: readonly PresetName[], root: string): string | null {
   const preset = presetShadowing(pkg);
-  const detectedBy = Object.entries(AUTO_DETECT_PRESETS)
-    .filter(([, name]) => name === preset)
-    .map(([detect]) => detect);
-  return preset
-    ? `transforms worklets for ${pkg}'s UI-thread runtime; the ${preset} preset (auto-detected from ` +
-        `${detectedBy.join(", ")}) replaces ${pkg} with a mock, so no worklet runs and the transform is not needed.`
-    : `transforms worklets for ${pkg}; review whether the suite depends on it.`;
+  if (preset && active.includes(preset)) {
+    const detectedBy = Object.entries(AUTO_DETECT_PRESETS)
+      .filter(([, name]) => name === preset)
+      .map(([detect]) => detect);
+    return (
+      `transforms worklets for ${pkg}; the active ${preset} preset (auto-detected from ` +
+      `${detectedBy.join(", ")}) replaces ${pkg} with a mock, so no worklet runs.`
+    );
+  }
+  if (!installedManifest(root, pkg))
+    return `transforms worklets for ${pkg}, which is not installed.`;
+  return null;
 }
 
 const KNOWN_PLUGINS: KnownPlugin[] = [
@@ -235,22 +219,14 @@ const KNOWN_PLUGINS: KnownPlugin[] = [
     verdict: "alias",
     reason: () => `module-resolver rewrites import paths; its aliases map onto resolve.alias.`,
   },
-  {
-    names: ["react-native-worklets/plugin"],
-    verdict: "unneeded",
-    reason: () => workletReason("react-native-worklets"),
-  },
-  {
-    names: ["react-native-reanimated/plugin"],
-    verdict: "unneeded",
-    reason: () => workletReason("react-native-reanimated"),
-  },
+  { names: ["react-native-worklets/plugin"], verdict: "unneeded", reason: () => "" },
+  { names: ["react-native-reanimated/plugin"], verdict: "unneeded", reason: () => "" },
   {
     names: ["babel-plugin-react-compiler"],
     verdict: "unneeded",
     reason: () =>
       `React Compiler only adds memoization to components that follow the Rules of React ` +
-      `(react.dev/learn/react-compiler); they render the same without it, so tests do not need it.`,
+      `(react.dev/learn/react-compiler); they render the same without it.`,
   },
 ];
 
@@ -259,11 +235,24 @@ export interface ClassifiedPlugin extends BabelPluginEntry {
   reason: string;
 }
 
-export function classifyBabelPlugins(report: BabelConfigReport): ClassifiedPlugin[] {
+const unknownReason = (e: BabelPluginEntry) =>
+  `${e.written} ran on every file under babel-jest and does not run under vitest-native; check whether tests depend on what it does.`;
+
+export function classifyBabelPlugins(
+  report: BabelConfigReport,
+  root: string,
+  active: readonly PresetName[],
+): ClassifiedPlugin[] {
   return report.plugins.map((entry) => {
+    const worklets = /^(react-native-worklets|react-native-reanimated)\/plugin$/.exec(entry.name);
+    if (worklets) {
+      const reason = workletReason(worklets[1], active, root);
+      return reason
+        ? { ...entry, verdict: "unneeded", reason }
+        : { ...entry, verdict: "unknown", reason: unknownReason(entry) };
+    }
     const known = KNOWN_PLUGINS.find((k) => k.names.includes(entry.name));
-    if (known) return { ...entry, verdict: known.verdict, reason: known.reason(entry) };
-    // Any other plugin named for macros is a macro plugin by convention.
+    if (known) return { ...entry, verdict: known.verdict, reason: known.reason(entry, active) };
     if (/(^|[/-])macros?($|[/-])/.test(entry.name)) {
       return {
         ...entry,
@@ -271,34 +260,21 @@ export function classifyBabelPlugins(report: BabelConfigReport): ClassifiedPlugi
         reason: `${entry.written} looks like a macro plugin; macros are compiled away at build time and fail when imported for real.`,
       };
     }
-    return {
-      ...entry,
-      verdict: "unknown",
-      reason: `${entry.written} ran on every file under babel-jest and does not run under vitest-native; check whether tests depend on what it does.`,
-    };
+    return { ...entry, verdict: "unknown", reason: unknownReason(entry) };
   });
 }
 
 /** The installed major version of `vite`, or null. */
 export function viteMajor(root: string): number | null {
-  try {
-    const req = createRequire(path.join(root, "package.json"));
-    return Number((req("vite/package.json") as { version: string }).version.split(".")[0]);
-  } catch {
-    return null;
-  }
+  return installedMajor(root, "vite");
 }
 
-export function resolvable(root: string, name: string): boolean {
-  try {
-    createRequire(path.join(root, "package.json")).resolve(`${name}/package.json`);
-    return true;
-  } catch {
-    return false;
-  }
+/** Whether `name` is installed where the project resolves it. */
+export function installed(root: string, name: string): boolean {
+  return installedManifest(root, name) !== null;
 }
 
-/** The plugins array as config source text, e.g. `['macros', ['x', {"a":1}]]`. */
+/** The plugins array as config source text. */
 export function pluginListSource(plugins: BabelPluginEntry[]): string {
   return `[${plugins
     .map((p) =>
@@ -310,10 +286,9 @@ export function pluginListSource(plugins: BabelPluginEntry[]): string {
 }
 
 /**
- * How to run Babel plugins in a Vitest config, per Vite major — a snippet for the
- * report. Vite 8 dropped Babel from @vitejs/plugin-react (v6), which points at
- * @rolldown/plugin-babel; on Vite 7 and earlier, @vitejs/plugin-react's `babel`
- * option is the documented way to add plugins.
+ * How to run Babel plugins per Vite major. @vitejs/plugin-react 6 (Vite 8) dropped
+ * Babel and points at @rolldown/plugin-babel; on Vite 7 and earlier its `babel`
+ * option adds plugins.
  */
 export function babelRecipe(major: number | null, plugins: BabelPluginEntry[]): string {
   const list = pluginListSource(plugins);
@@ -329,10 +304,8 @@ export function babelRecipe(major: number | null, plugins: BabelPluginEntry[]): 
   );
 }
 
-/** Whether a plugin entry's options survive being written into a config as JSON. */
+/** Whether a plugin's options are plain data (JSON.stringify drops functions silently). */
 export function serializableOptions(entry: BabelPluginEntry): boolean {
-  // JSON.stringify drops functions and turns RegExps into {} without complaint, so
-  // check the shape instead of round-tripping it.
   const plain = (value: unknown): boolean => {
     if (value === null || ["string", "number", "boolean"].includes(typeof value)) return true;
     if (Array.isArray(value)) return value.every(plain);

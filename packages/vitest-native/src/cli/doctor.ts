@@ -17,6 +17,7 @@ import { createHotMemoryPlan, formatHotMemoryPlan } from "../native/memory.mjs";
 import { HOT_STATE_MANIFEST_ENTRIES } from "../native/state-manifest.mjs";
 import { AUTO_DETECT_PRESETS, PRESET_MODULES } from "../preset-map.js";
 import { babelRecipe, classifyBabelPlugins, readBabelConfig, viteMajor } from "./babel-config.js";
+import { activePresets, installedManifest, installedMajor, testsItself } from "./manifest.js";
 import { PEER_REQUIREMENTS } from "../peer-requirements.js";
 
 export interface DoctorResult {
@@ -290,10 +291,14 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   // overrides have all been applied.
   if (decision.engine === "native") {
     const inferredRoot = configRoot;
+    // With the presets the plugin would enable: without that set, detection treats
+    // every preset package as shadowed, including ones that test themselves.
     const inferredEcosystem = detectEcosystemPackages(
       [...new Set([root, configRoot])],
       [],
       root === configRoot ? [] : [root],
+      [],
+      activePresets(root),
     );
     const inferredOwnership = createNativeOwnershipPolicy({
       projectRoot: inferredRoot,
@@ -388,14 +393,17 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
 
   // --- Presets ---
   lines.push("", "Auto-detected presets");
-  const req = createRequire(path.join(root, "package.json"));
+  // Decided as the plugin decides (presetForInstalled): installed, and not a package
+  // that runs its own test mode under Vitest (SELF_TESTING_FROM_MAJOR).
   const detected: string[] = [];
   for (const [pkg, preset] of Object.entries(AUTO_DETECT_PRESETS)) {
-    try {
-      req.resolve(pkg);
+    if (!installedManifest(root, pkg)) continue;
+    if (testsItself(root, pkg)) {
+      lines.push(
+        `  · ${pkg} ${installedMajor(root, pkg)} runs its own test mode under Vitest, so no preset replaces it`,
+      );
+    } else {
       detected.push(`${pkg} → ${preset}`);
-    } catch {
-      // not installed
     }
   }
   if (detected.length) for (const d of detected) pass(d);
@@ -423,7 +431,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   const babel = readBabelConfig(root);
   if (babel.source) {
     lines.push("", "Babel");
-    const classified = classifyBabelPlugins(babel);
+    const classified = classifyBabelPlugins(babel, root, activePresets(root));
     const required = classified.filter((p) => p.verdict === "required");
     for (const p of classified) {
       if (p.verdict === "required") {

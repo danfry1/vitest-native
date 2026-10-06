@@ -14,14 +14,15 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import {
-  AUTO_DETECT_PRESETS,
   DEFAULT_ASSET_EXTS,
   PRESET_MODULES,
   presetShadowing,
+  type PresetName,
 } from "../preset-map.js";
-import { detectEcosystemPackages, publishesOnlyEsm } from "../native/ecosystem.js";
+import { detectEcosystemPackages } from "../native/ecosystem.js";
 import { allows, extractAllowlistPackages, type AllowlistEntry } from "./allowlist.js";
 import {
+  booleanFlag,
   jestMajor,
   loadJestPreset,
   parseJestScript,
@@ -32,12 +33,15 @@ import {
 import {
   babelRecipe,
   classifyBabelPlugins,
+  installed,
   pluginListSource,
   readBabelConfig,
-  resolvable,
   serializableOptions,
   viteMajor,
 } from "./babel-config.js";
+import { activePresets, installedManifest, installedMajor, testsItself } from "./manifest.js";
+import { STAR, tryExpand } from "./regex-subset.js";
+import { untranspiledFile } from "./untranspiled.js";
 
 export { extractAllowlistPackages } from "./allowlist.js";
 
@@ -112,34 +116,6 @@ function loadJestConfig(
   return { source: null, config: null };
 }
 
-/**
- * Whether the plugin will auto-detect `preset` in this project: one of its packages is
- * installed where the root can see it. Looked up on disk rather than with
- * `require.resolve`, which a process with module hooks installed (the mock engine's
- * test runtime) answers for every preset package.
- */
-function presetDetected(root: string, preset: string): boolean {
-  const packages = Object.entries(AUTO_DETECT_PRESETS)
-    .filter(([, name]) => name === preset)
-    .map(([pkg]) => pkg);
-  return packages.some((pkg) => installedManifest(root, pkg) !== null);
-}
-
-/** A package's manifest, found on disk by walking node_modules upward from root. */
-function installedManifest(root: string, pkg: string): Record<string, unknown> | null {
-  for (let dir = path.resolve(root); ; dir = path.dirname(dir)) {
-    const file = path.join(dir, "node_modules", pkg, "package.json");
-    if (fs.existsSync(file)) {
-      try {
-        return JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
-      } catch {
-        return null;
-      }
-    }
-    if (path.dirname(dir) === dir) return null;
-  }
-}
-
 function declaredDependencies(root: string): string[] {
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
@@ -163,11 +139,8 @@ function list(items: readonly string[]): string {
 }
 
 /**
- * What the expo preset covers, by name, from its module list — never a summary.
- * jest-expo's setup builds a whole Expo runtime (globalThis.expo, native-module
- * mocks for every expo-* package, Expo's FormData and dev-server shims); the expo
- * preset shadows the modules listed here and nothing else, so the report says
- * exactly that rather than claiming the Expo surface is covered.
+ * What the expo preset covers, named from its module list. jest-expo's setup builds
+ * a whole Expo runtime; the preset shadows these modules and nothing else.
  */
 function expoPresetCoverage(): string {
   return (
@@ -183,41 +156,36 @@ function regexLiteral(literal: string): string {
 }
 
 /**
- * The literal a `^literal$` moduleNameMapper key matches exactly, or null when the
- * key uses any other regex syntax. An unescaped `.` is read as a literal dot: in a
- * module specifier that is what it always means, and the regex's extra matches
- * (`lodashXdebounce`) are not specifiers anyone imports.
+ * The literal a `^literal$` moduleNameMapper key matches exactly, or null. An
+ * unescaped `.` reads as a literal dot: the regex's extra matches (`lodashXdebounce`)
+ * are not specifiers anyone imports.
  */
 function exactMapperKey(pattern: string): string | null {
   const m = /^\^(.+)\$$/.exec(pattern);
-  if (!m) return null;
-  let out = "";
-  const body = m[1];
-  for (let i = 0; i < body.length; i++) {
-    const c = body[i];
-    if (c === "\\") {
-      const next = body[i + 1];
-      if (next === undefined || /[A-Za-z0-9]/.test(next)) return null;
-      out += next;
-      i++;
-    } else if ("^$()[]{}|+?*".includes(c)) {
-      return null;
-    } else {
-      out += c;
-    }
-  }
-  return out;
+  const expansions = m ? tryExpand(m[1], true) : null;
+  return expansions?.length === 1 && !expansions[0].includes(STAR) ? expansions[0] : null;
+}
+
+/** `pkg` and `/sub` of a bare specifier (scope-aware). */
+function splitSpecifier(specifier: string): { pkg: string; subpath: string } {
+  const parts = specifier.split("/");
+  const pkg = specifier.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
+  return { pkg, subpath: specifier.slice(pkg.length) };
+}
+
+/** The package a node_modules path belongs to (after the LAST node_modules/), or null. */
+function packageOfPath(target: string): string | null {
+  const at = target.lastIndexOf("node_modules/");
+  return at === -1 ? null : splitSpecifier(target.slice(at + "node_modules/".length)).pkg;
 }
 
 /**
  * Whether a package's own `exports` (or main entry, for a bare name) serves
- * `specifier`. Then Vite — and Node, for an externalized dependency — resolves it
- * without help, using the `import` condition Jest's CommonJS resolver lacked.
+ * `specifier`, so Vite and Node resolve it without help (with the `import` condition
+ * Jest's CommonJS resolver lacked).
  */
 function packageServes(root: string, specifier: string): boolean {
-  const parts = specifier.split("/");
-  const pkg = specifier.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
-  const subpath = specifier.slice(pkg.length);
+  const { pkg, subpath } = splitSpecifier(specifier);
   const manifest = installedManifest(root, pkg);
   if (!manifest) return false;
   const exportsField = manifest.exports;
@@ -274,14 +242,26 @@ export function analyzeJestConfig(root: string): MigrationReport {
   const extraImports: string[] = [];
   const extraPlugins: string[] = [];
   let excludeGlobs: string[] = [];
-  // Packages the native engine detects and compiles by itself (see
-  // native/ecosystem.ts) never need a `transform` entry, and adding one would opt
-  // them back out of inlining.
-  const autoInlined = new Set(detectEcosystemPackages(root));
   let needsUrlImport = false;
   // Options for the reactNative() call, besides `transform`.
   const pluginOptions: string[] = [];
-  let fromJestExpo = false;
+  const jestPreset = typeof config?.preset === "string" ? config.preset : undefined;
+  const fromJestExpo = /^jest-expo(\/(ios|android|universal))?$/.test(jestPreset ?? "");
+
+  // jest-expo mocks Expo's native modules but not React Navigation, so its suites
+  // render real navigators. The navigation preset would mock them, so it is switched
+  // off — unless the project mocked React Navigation itself (Jest applied a root
+  // __mocks__/@react-navigation automatically; the preset is that mock's equivalent).
+  const navigationOff =
+    fromJestExpo &&
+    activePresets(root).includes("navigation") &&
+    !fs.existsSync(path.join(root, "__mocks__", "@react-navigation"));
+  // The presets the generated config's run enables — decided as the plugin decides
+  // (installed, not testing itself, not switched off) — and the packages the engine
+  // detects and compiles by itself under them. A `transform` entry for one of those
+  // would take precedence over detection and externalize it instead.
+  const active: PresetName[] = activePresets(root, navigationOff ? ["navigation"] : []);
+  const autoInlined = new Set(detectEcosystemPackages(root, [], [], [], active));
 
   const addAlias = (key: string, value: string) => {
     if (aliasKeys.has(key)) return false;
@@ -310,7 +290,6 @@ export function analyzeJestConfig(root: string): MigrationReport {
       preset === "jest-expo/ios" ||
       preset === "jest-expo/android"
     ) {
-      fromJestExpo = true;
       const android = preset === "jest-expo/android";
       if (android) pluginOptions.push(`platform: 'android'`);
       automatic.push(
@@ -319,7 +298,6 @@ export function analyzeJestConfig(root: string): MigrationReport {
       );
       attention.push(`preset: '${preset}' — ${expoPresetCoverage()}.`);
     } else if (preset === "jest-expo/universal") {
-      fromJestExpo = true;
       attention.push(
         `preset: 'jest-expo/universal' runs one Jest project per platform. Define a Vitest project for each ` +
           `native platform (reactNative({ platform: 'ios' }) and reactNative({ platform: 'android' })); ` +
@@ -425,14 +403,13 @@ export function analyzeJestConfig(root: string): MigrationReport {
           // matches a prefix (`x` also takes `x/sub`), so the exact match needs a
           // RegExp `find` anchored the same way.
           //
-          // A target inside node_modules is almost always there because Jest's
-          // resolver could not reach the file through the package's `exports` (no
-          // `import` condition for an ESM-only package). Vite and Node both honour
-          // `exports`, so when the package declares the subpath the mapper is a Jest
-          // workaround and is dropped — re-pointing an import at a dist file would
-          // bypass the package's own entry. When it does not, the alias is kept.
-          const inNodeModules = /(^|\/)node_modules\//.test(target);
-          if (inNodeModules && packageServes(root, literal)) {
+          // A target inside the SAME package the key names is a Jest workaround: its
+          // CommonJS resolver could not reach the file through the package's
+          // `exports`. Vite and Node honour `exports`, so when the package serves the
+          // specifier the mapper is dropped. A target in another package
+          // (`^lodash$` → lodash-es) is a real redirect and is kept.
+          const samePackage = packageOfPath(target) === splitSpecifier(literal).pkg;
+          if (samePackage && packageServes(root, literal)) {
             dropped.push(
               `moduleNameMapper '${pattern}' → '${target}' — '${literal}' is served by its package's ` +
                 `exports, which Vite and Node resolve (Jest's CommonJS resolver could not); dropped.`,
@@ -477,7 +454,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
             `packages shipping untranspiled source go in reactNative({ transform: [...] }).`,
         );
       } else {
-        classifyAllowlist(root, entries, autoInlined, {
+        classifyAllowlist(root, entries, active, autoInlined, {
           automatic,
           presetCovered,
           transformPkgs,
@@ -520,7 +497,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
         `maxWorkers ${workers} → test.maxWorkers (a count or a percentage, as in Jest).`,
       );
     }
-    if (flag("runInBand", "i") === true) {
+    if (booleanFlag(flag("runInBand", "i")) === true) {
       testEntries.push(`fileParallelism: false`);
       automatic.push(
         `scripts.test --runInBand → test.fileParallelism: false (one file at a time).`,
@@ -540,6 +517,9 @@ export function analyzeJestConfig(root: string): MigrationReport {
         continue;
       }
       if (name === "forceExit") {
+        // Vitest's `exit()` (packages/vitest/src/node/core.ts; in the 5.0.2 build,
+        // dist/chunks/index.C-uw7tH9.js:21446) arms a teardownTimeout timer that
+        // warns "close timed out" and calls process.exit().
         dropped.push(
           `scripts.test --forceExit — \`vitest run\` exits by itself: if something keeps the process ` +
             `alive after the run it waits test.teardownTimeout, warns, and exits.`,
@@ -548,9 +528,15 @@ export function analyzeJestConfig(root: string): MigrationReport {
         dropped.push(
           `scripts.test --ci — Vitest already refuses to write new snapshots when it detects CI.`,
         );
-      } else if (name === "silent" || name === "passWithNoTests") {
-        testEntries.push(`${name}: true`);
-        automatic.push(`scripts.test --${name} → test.${name} (same meaning in Vitest).`);
+      } else if (
+        (name === "silent" || name === "passWithNoTests") &&
+        booleanFlag(value) !== undefined
+      ) {
+        const on = booleanFlag(value);
+        testEntries.push(`${name}: ${on}`);
+        automatic.push(
+          `scripts.test --${name}=${on} → test.${name}: ${on} (same meaning in Vitest).`,
+        );
       } else {
         attention.push(
           `scripts.test passes --${name}${value === true ? "" : `=${value}`} to Jest — no automatic mapping; ` +
@@ -683,27 +669,22 @@ export function analyzeJestConfig(root: string): MigrationReport {
         : [name];
       for (const candidate of candidates) {
         const preset = presetShadowing(candidate);
-        if (preset && presetDetected(root, preset)) {
+        if (preset && active.includes(preset)) {
           presetCovered.push(
             `__mocks__/${candidate} — the auto-detected ${preset} preset shadows ${candidate}; delete the manual mock.`,
+          );
+        } else if (installedManifest(root, candidate) && testsItself(root, candidate)) {
+          attention.push(
+            `__mocks__/${candidate} — ${candidate} ${installedMajor(root, candidate)} runs its own test ` +
+              `mode under Vitest, so no preset replaces it, and Vitest applies a root __mocks__ file ` +
+              `only through vi.mock; the library's test mode stands in for this mock.`,
           );
         }
       }
     }
   }
 
-  // jest-expo mocks Expo's native modules but not React Navigation, so a jest-expo
-  // suite renders its screens inside real navigators. The navigation preset, detected
-  // from the installed @react-navigation/* packages, would replace those with mocks, so
-  // it is switched off — unless the project mocked React Navigation itself: Jest applied
-  // a root __mocks__/@react-navigation to node_modules automatically, and the preset is
-  // the equivalent of that mock. (expo-router from SDK 57 bundles its own copy of React
-  // Navigation, which the preset never shadows.)
-  if (
-    fromJestExpo &&
-    presetDetected(root, "navigation") &&
-    !fs.existsSync(path.join(root, "__mocks__", "@react-navigation"))
-  ) {
+  if (navigationOff) {
     pluginOptions.push(`presets: { navigation: false }`);
     automatic.push(
       `jest-expo renders the real React Navigation → presets: { navigation: false }, so screens keep ` +
@@ -714,7 +695,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
   // The project's Babel config ran on every file under babel-jest and does not here.
   const babel = readBabelConfig(root);
   if (babel.source) {
-    const classified = classifyBabelPlugins(babel);
+    const classified = classifyBabelPlugins(babel, root, active);
     const required = classified.filter((p) => p.verdict === "required");
     const vite = viteMajor(root);
     if (required.length) {
@@ -724,8 +705,8 @@ export function analyzeJestConfig(root: string): MigrationReport {
       const canEmit =
         vite !== null &&
         vite >= 8 &&
-        resolvable(root, "@rolldown/plugin-babel") &&
-        resolvable(root, "@babel/core") &&
+        installed(root, "@rolldown/plugin-babel") &&
+        installed(root, "@babel/core") &&
         required.every(serializableOptions);
       if (canEmit) {
         extraImports.push(`import babel from '@rolldown/plugin-babel'`);
@@ -834,21 +815,19 @@ export default defineConfig({
 }
 
 /**
- * What each package a transformIgnorePatterns allowlist lets through needs under
- * vitest-native. Jest compiles nothing in node_modules unless allowed, so its
- * allowlists list two different things: React Native source (Flow, JSX) that every
- * runner must compile, and ES-module packages that only Jest's CommonJS runtime
- * cannot load. The engine already compiles the first kind when the package declares
- * react-native (native/ecosystem.ts); Vite and Node load the second natively. Only
- * what remains goes into `transform: [...]`, which takes precedence over detection
- * and so must not be filled with packages detection already handles.
- *
- * Prefix and scope entries (`expo`, `@expo/.*`) are matched against the project's
- * declared dependencies, so the result names real packages instead of patterns.
+ * What each package a transformIgnorePatterns allowlist lets through needs here.
+ * Jest compiles nothing in node_modules unless allowed, so its allowlists mix React
+ * Native source every runner must compile with ES-module packages only Jest's
+ * CommonJS runtime cannot load. React Native, active presets and the engine's own
+ * detection (native/ecosystem.ts) cover the first kind; Node loads the second. A
+ * package goes into `transform: [...]` — which overrides detection — only with
+ * evidence: a file under its entry point that Node cannot parse (see untranspiled.ts).
+ * Prefix and scope entries are matched against the project's declared dependencies.
  */
 function classifyAllowlist(
   root: string,
   entries: AllowlistEntry[],
+  active: readonly PresetName[],
   autoInlined: Set<string>,
   out: { automatic: string[]; presetCovered: string[]; transformPkgs: string[] },
 ): void {
@@ -856,27 +835,28 @@ function classifyAllowlist(
     ...declaredDependencies(root),
     ...entries.filter((e) => e.kind === "exact").map((e) => e.name),
   ]);
-  const groups = {
-    rn: [] as string[],
-    detected: [] as string[],
-    esm: [] as string[],
-    absent: [] as string[],
-  };
+  const groups = { rn: [] as string[], detected: [] as string[], absent: [] as string[] };
   const shadowed = new Map<string, string[]>();
   for (const pkg of [...candidates].sort()) {
     if (!entries.some((e) => allows(e, pkg))) continue;
     const preset = presetShadowing(pkg);
     if (pkg === "react-native" || pkg.startsWith("@react-native/")) {
       groups.rn.push(pkg);
-    } else if (preset && presetDetected(root, preset)) {
+    } else if (preset && active.includes(preset)) {
       shadowed.set(preset, [...(shadowed.get(preset) ?? []), pkg]);
     } else if (autoInlined.has(pkg)) {
       groups.detected.push(pkg);
+    } else if (!installedManifest(root, pkg)) {
+      groups.absent.push(pkg);
     } else {
-      const manifest = installedManifest(root, pkg);
-      if (!manifest) groups.absent.push(pkg);
-      else if (publishesOnlyEsm(manifest)) groups.esm.push(pkg);
-      else out.transformPkgs.push(pkg);
+      const evidence = untranspiledFile(root, pkg);
+      if (evidence) {
+        out.transformPkgs.push(pkg);
+        out.automatic.push(
+          `transformIgnorePatterns allows '${pkg}', which ships ${evidence} that Node cannot parse → ` +
+            `reactNative({ transform: [...] }).`,
+        );
+      }
     }
   }
   if (groups.rn.length) {
@@ -890,34 +870,14 @@ function classifyAllowlist(
     );
   }
   if (groups.detected.length) {
-    // An explicit `transform` entry takes precedence over detection, which would
-    // externalize the package instead of inlining it, losing vi.mock support.
     out.automatic.push(
-      `transformIgnorePatterns allows ${list(groups.detected)} — ${groups.detected.length === 1 ? "declares" : "each declares"} ` +
-        `react-native, so the engine compiles ${groups.detected.length === 1 ? "it" : "them"} automatically; nothing to do.`,
-    );
-  }
-  if (groups.esm.length) {
-    out.automatic.push(
-      `transformIgnorePatterns allows ${list(groups.esm)} — ES modules, which Vite and Node load natively ` +
-        `(Jest needed the allowlist only because it runs CommonJS); nothing to do.`,
+      `transformIgnorePatterns allows ${list(groups.detected)} — detected by the engine (React Native ` +
+        `ecosystem), which compiles what Node cannot run; nothing to do.`,
     );
   }
   if (groups.absent.length) {
     out.automatic.push(
       `transformIgnorePatterns allows ${list(groups.absent)} — not installed; nothing to do.`,
-    );
-  }
-  for (const pkg of out.transformPkgs) {
-    out.automatic.push(
-      `transformIgnorePatterns allows '${pkg}' → reactNative({ transform: [...] }).`,
-    );
-  }
-  const unmatched = entries.filter((e) => ![...candidates].some((pkg) => allows(e, pkg)));
-  if (unmatched.length) {
-    out.automatic.push(
-      `transformIgnorePatterns entries ${list(unmatched.map((e) => `'${e.name}${e.kind === "scope" ? "/*" : e.kind === "prefix" ? "*" : ""}'`))} ` +
-        `match no dependency of this project; nothing to do.`,
     );
   }
 }
