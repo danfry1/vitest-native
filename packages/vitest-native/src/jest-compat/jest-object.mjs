@@ -73,11 +73,29 @@ function asJestImplementation(impl) {
   return adapter;
 }
 
-/** Give a Vitest mock Jest's handling of implementations under `new`. */
-function withJestSemantics(mock) {
+/** Adapters standing in for a spy's original, which Vitest reports as no implementation. */
+const spyDefaults = new WeakSet();
+
+/**
+ * Give a Vitest mock Jest's handling of implementations under `new`.
+ *
+ * `original` is a spy's original function. With no implementation set, Vitest falls
+ * back to it and, under `new`, constructs it — which throws for an arrow. jest-mock's
+ * spyOn instead installs `function () { return original.apply(this, arguments) }` as
+ * the implementation, so `new` on a spied arrow calls it. A non-constructible original
+ * is therefore installed through the same adapter as the spy's resting implementation:
+ * re-installed after `mockReset()` (which Vitest's `mockRestore()` also calls), and
+ * reported by `getMockImplementation()` as Vitest reports a bare spy — `undefined`.
+ */
+function withJestSemantics(mock, original) {
   if (mock[JEST_SEMANTICS]) return mock;
-  const { mockImplementation, mockImplementationOnce, withImplementation, getMockImplementation } =
-    mock;
+  const {
+    mockImplementation,
+    mockImplementationOnce,
+    withImplementation,
+    getMockImplementation,
+    mockReset,
+  } = mock;
   mock.mockImplementation = (impl) => mockImplementation.call(mock, asJestImplementation(impl));
   mock.mockImplementationOnce = (impl) =>
     mockImplementationOnce.call(mock, asJestImplementation(impl));
@@ -85,8 +103,19 @@ function withJestSemantics(mock) {
     withImplementation.call(mock, asJestImplementation(impl), callback);
   mock.getMockImplementation = () => {
     const impl = getMockImplementation.call(mock);
+    if (spyDefaults.has(impl)) return undefined;
     return adapted.get(impl) ?? impl;
   };
+  const resting = typeof original === "function" ? asJestImplementation(original) : original;
+  if (resting !== original) {
+    spyDefaults.add(resting);
+    mockImplementation.call(mock, resting);
+    mock.mockReset = () => {
+      mockReset.call(mock);
+      mockImplementation.call(mock, resting);
+      return mock;
+    };
+  }
   // As jest-mock defines them (packages/jest-mock/src/index.ts).
   mock.mockReturnValue = (value) => mock.mockImplementation(() => value);
   mock.mockReturnValueOnce = (value) => mock.mockImplementationOnce(() => value);
@@ -98,12 +127,18 @@ function withJestSemantics(mock) {
   return mock;
 }
 
-function findDescriptor(object, key) {
-  for (let o = object; o != null; o = Object.getPrototypeOf(o)) {
-    const descriptor = Object.getOwnPropertyDescriptor(o, key);
-    if (descriptor) return descriptor;
+/**
+ * The function a method spy will wrap, read as `vi.spyOn` reads it: `object[key]`.
+ * For an accessor that runs the getter, which Vitest does too (it calls the getter
+ * of a Vite SSR export to reach the function), so this adds no new kind of effect.
+ */
+function originalOf(object, key, accessType) {
+  if (accessType !== undefined || object == null) return undefined;
+  try {
+    return object[key];
+  } catch {
+    return undefined; // let vi.spyOn report the property in its own words
   }
-  return undefined;
 }
 
 /**
@@ -118,18 +153,31 @@ export function createJestObject(vi) {
     return withJestSemantics(vi.fn(asJestImplementation(impl)));
   }
   function spyOn(...args) {
-    // Likewise `vi.spyOn` on a property that already holds a mock returns that mock.
-    // Read the descriptor rather than the property, so an accessor is not invoked.
-    const [object, key, accessType] = args;
-    const existing = accessType === undefined ? findDescriptor(object, key)?.value : undefined;
+    const original = originalOf(...args);
     const spy = vi.spyOn(...args);
-    return vi.isMockFunction(existing) ? spy : withJestSemantics(spy);
+    // Likewise `vi.spyOn` on a property that already holds a mock — a plain value or
+    // one an accessor returns — returns that mock.
+    if (vi.isMockFunction(original) && spy === original) return spy;
+    return withJestSemantics(spy, original);
   }
+  // Assigning `jest.fn`/`jest.spyOn` (a suite or library patching them) replaces them
+  // here, as assigning to `jest` did when it was `vi`, without patching `vi` itself.
+  // Any other assignment goes to `vi`, which the compat setup and suites share.
+  const own = new Map([
+    ["fn", fn],
+    ["spyOn", spyOn],
+  ]);
   return new Proxy(vi, {
     get(target, prop, receiver) {
-      if (prop === "fn") return fn;
-      if (prop === "spyOn") return spyOn;
+      if (own.has(prop)) return own.get(prop);
       return Reflect.get(target, prop, receiver);
+    },
+    set(target, prop, value, receiver) {
+      if (own.has(prop)) {
+        own.set(prop, value);
+        return true;
+      }
+      return Reflect.set(target, prop, value, receiver);
     },
   });
 }

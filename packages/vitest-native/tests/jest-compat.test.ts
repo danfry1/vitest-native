@@ -202,8 +202,9 @@ describe("jest-compat: jestMockInterop (CJS interop semantics)", () => {
 describe("jest-compat: jest.fn / jest.spyOn follow Jest under `new`", () => {
   type Jest = typeof vi;
   let jest: Jest;
+  let createJestObject: (v: typeof vi) => unknown;
   it("loads the jest object", async () => {
-    const { createJestObject } = await import("../src/jest-compat/jest-object.mjs");
+    ({ createJestObject } = await import("../src/jest-compat/jest-object.mjs"));
     jest = createJestObject(vi) as Jest;
     expect(typeof jest.fn).toBe("function");
   });
@@ -269,6 +270,49 @@ describe("jest-compat: jest.fn / jest.spyOn follow Jest under `new`", () => {
     const spy = jest.spyOn(mod, "Api").mockImplementation(() => ({ fetch: 2 }));
     expect(new mod.Api()).toEqual({ fetch: 2 });
     spy.mockRestore();
+  });
+
+  it("jest.spyOn on an arrow, with no implementation set, calls it under `new`", () => {
+    // jest-mock's spyOn installs `function () { return original.apply(this, arguments) }`;
+    // Vitest constructs the original, and an arrow is not a constructor.
+    const makeClient = (url: string) => ({ url });
+    const mod = { makeClient };
+    const spy = jest.spyOn(mod, "makeClient");
+    const New = mod.makeClient as unknown as new (url: string) => unknown;
+    expect(new New("a")).toEqual({ url: "a" });
+    expect(spy).toHaveBeenCalledWith("a");
+    expect(spy.getMockImplementation()).toBeUndefined(); // as for a bare vi spy
+    spy.mockImplementation(() => ({ url: "mocked" }));
+    expect(new New("b")).toEqual({ url: "mocked" });
+    spy.mockReset(); // back to the original, still callable under `new`
+    expect(new New("c")).toEqual({ url: "c" });
+    expect(spy.getMockImplementation()).toBeUndefined();
+    spy.mockRestore();
+    expect(mod.makeClient).toBe(makeClient);
+  });
+
+  it("jest.spyOn leaves a mock it did not create alone, even behind an accessor", () => {
+    const existing = vi.fn();
+    const ownMethods = existing.mockReturnValue;
+    const mod = {
+      get makeClient() {
+        return existing;
+      },
+    };
+    expect(jest.spyOn(mod, "makeClient")).toBe(existing);
+    expect(existing.mockReturnValue).toBe(ownMethods);
+  });
+
+  it("assigning jest.fn / jest.spyOn replaces them on jest only", () => {
+    const own = createJestObject(vi) as Jest;
+    const replacement = (() => "patched") as unknown as Jest["fn"];
+    own.fn = replacement;
+    expect(own.fn).toBe(replacement);
+    expect(vi.fn).not.toBe(replacement);
+    const spyOn = (() => "patched") as unknown as Jest["spyOn"];
+    own.spyOn = spyOn;
+    expect(own.spyOn).toBe(spyOn);
+    expect(vi.spyOn).not.toBe(spyOn);
   });
 
   it("leaves vi.fn itself unchanged", () => {
