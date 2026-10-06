@@ -41,3 +41,47 @@ export const AUTO_DETECT_PRESETS = {
   "@gorhom/bottom-sheet": "bottomSheet",
   "react-native-keyboard-controller": "keyboardController",
 } as const satisfies Record<string, PresetName>;
+
+/**
+ * Packages whose own JavaScript switches to a built-in in-memory implementation under
+ * Vitest, from the given major on. Their preset would replace the real library with a
+ * hand-written approximation, so it steps aside and the library tests itself:
+ * - react-native-mmkv 3+: `isTest()` checks `VITEST_WORKER_ID` (and Jest's
+ *   `JEST_WORKER_ID`), and `createMMKV` then returns `createMockMMKV()` — the real
+ *   API (v4's `remove`, change listeners) with no native module. v4 imports
+ *   react-native-nitro-modules at load time, which the native engine's Nitro boundary
+ *   satisfies (see native/boundary.mjs). Before v3 there was no Vitest check.
+ */
+export const SELF_TESTING_FROM_MAJOR: Partial<Record<keyof typeof AUTO_DETECT_PRESETS, number>> = {
+  "react-native-mmkv": 3,
+};
+
+function installedMajor(pkgName: string, req: NodeJS.Require): number | null {
+  try {
+    const version = (req(`${pkgName}/package.json`) as { version?: unknown }).version;
+    const major = typeof version === "string" ? Number.parseInt(version, 10) : NaN;
+    return Number.isNaN(major) ? null : major;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The preset that shadows `pkgName` in this project, or null when the package is not
+ * installed or tests itself (SELF_TESTING_FROM_MAJOR). Every place that decides which
+ * presets are active asks this, so the plugin, the worker setup and ecosystem
+ * detection cannot disagree about a package.
+ */
+export function presetForInstalled(pkgName: string, req: NodeJS.Require): PresetName | null {
+  try {
+    req.resolve(pkgName);
+  } catch {
+    return null;
+  }
+  const floor = SELF_TESTING_FROM_MAJOR[pkgName as keyof typeof AUTO_DETECT_PRESETS];
+  if (floor !== undefined) {
+    const major = installedMajor(pkgName, req);
+    if (major !== null && major >= floor) return null;
+  }
+  return AUTO_DETECT_PRESETS[pkgName as keyof typeof AUTO_DETECT_PRESETS] ?? null;
+}

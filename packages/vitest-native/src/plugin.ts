@@ -82,7 +82,7 @@ function stripFsPrefix(id: string): string {
   return id.startsWith("/@fs/") ? id.slice(4) : id;
 }
 
-import { AUTO_DETECT_PRESETS } from "./preset-map.js";
+import { AUTO_DETECT_PRESETS, presetForInstalled } from "./preset-map.js";
 
 async function autoDetectPresets(diagnostics: boolean, projectRoot: string): Promise<Preset[]> {
   const detected: Preset[] = [];
@@ -97,11 +97,7 @@ async function autoDetectPresets(diagnostics: boolean, projectRoot: string): Pro
   const req = createRequire(path.join(projectRoot, "package.json"));
 
   for (const [pkgName, exportName] of Object.entries(AUTO_DETECT_PRESETS)) {
-    let installed = false;
-    try {
-      req.resolve(pkgName);
-      installed = true;
-    } catch {}
+    const installed = presetForInstalled(pkgName, req) !== null;
     if (installed) {
       if (enabled.has(exportName)) continue;
       const factory = presetFactories[exportName];
@@ -113,7 +109,9 @@ async function autoDetectPresets(diagnostics: boolean, projectRoot: string): Pro
         }
       }
     } else if (diagnostics) {
-      console.log(`[vitest-native] Checked for ${pkgName}: not found, skipping preset`);
+      console.log(
+        `[vitest-native] Checked for ${pkgName}: not installed or tests itself, skipping preset`,
+      );
     }
   }
   return detected;
@@ -443,16 +441,15 @@ function autoDetectPresetNames(projectRoot: string, diagnostics: boolean): strin
   const req = createRequire(path.join(projectRoot, "package.json"));
   const names = new Set<string>();
   for (const [pkgName, exportName] of Object.entries(AUTO_DETECT_PRESETS)) {
-    try {
-      req.resolve(pkgName);
+    if (presetForInstalled(pkgName, req) !== null) {
       names.add(exportName);
       if (diagnostics) {
         console.log(`[vitest-native] Auto-detected ${pkgName} → enabled ${exportName} preset`);
       }
-    } catch {
-      if (diagnostics) {
-        console.log(`[vitest-native] Checked for ${pkgName}: not found, skipping preset`);
-      }
+    } else if (diagnostics) {
+      console.log(
+        `[vitest-native] Checked for ${pkgName}: not installed or tests itself, skipping preset`,
+      );
     }
   }
   return [...names];
