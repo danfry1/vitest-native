@@ -1,6 +1,6 @@
 {
   "name": "vitest-native",
-  "version": "0.14.0-rc.2",
+  "version": "0.14.0-rc.3",
   "type": "module",
   "description": "Run real React Native tests under Vitest. One install, zero config.",
   "license": "MIT",
