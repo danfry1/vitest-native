@@ -13,6 +13,7 @@ import { validateOptions, validatePeerDependency, warnUnknownOptions } from "./v
 import { PEER_REQUIREMENTS } from "./peer-requirements.js";
 import { VitestNativeError } from "./errors.mjs";
 import { serializableAliases } from "./jest-compat/aliases.mjs";
+import { tsconfigPathAliases } from "./native/tsconfig-paths.mjs";
 import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
 import { detectEcosystemPackages } from "./native/ecosystem.js";
@@ -1427,6 +1428,17 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         (userConfig as { resolve?: { alias?: unknown } }).resolve?.alias,
         resolvedRoot,
       );
+      // tsconfig `paths` too, whenever Vite resolves them for imports: the user turned
+      // `resolve.tsconfigPaths` on, or the plugin does for an Expo project (below).
+      const userTsconfigPaths = (userConfig.resolve as { tsconfigPaths?: unknown } | undefined)
+        ?.tsconfigPaths;
+      const viteMajorForPaths = Number(resolvePackageVersion("vite", resolvedRoot)?.split(".")[0]);
+      if (
+        userTsconfigPaths === true ||
+        expoTsconfigPaths(resolvedRoot, userTsconfigPaths, viteMajorForPaths) === "enable"
+      ) {
+        requireAliases.entries.push(...tsconfigPathAliases(resolvedRoot).entries);
+      }
       if (requireAliases.entries.length > 0) {
         env.VITEST_NATIVE_REQUIRE_ALIASES = JSON.stringify(requireAliases.entries);
       }

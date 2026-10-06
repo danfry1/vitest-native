@@ -13,6 +13,7 @@ import {
   parseNativeOwnershipManifest,
 } from "./ownership.mjs";
 import { explainUntransformedSyntaxError } from "./explain.mjs";
+import { expandAlias } from "../jest-compat/aliases.mjs";
 
 // Guarded via globalThis, not module scope: under the hot runtime this module
 // can be evaluated twice in one worker (once by the worker entry through Node's
@@ -316,6 +317,31 @@ export function installRequireHooks(
     return origLoad.call(this, request, parent, ...rest);
   };
 
+  let requireAliases;
+  const resolveAliasedRequest = (request, parent, resolveTarget) => {
+    if (requireAliases === undefined) {
+      try {
+        requireAliases = JSON.parse(process.env.VITEST_NATIVE_REQUIRE_ALIASES || "[]");
+      } catch {
+        requireAliases = [];
+      }
+    }
+    if (requireAliases.length === 0 || request.startsWith(".") || path.isAbsolute(request)) {
+      return null;
+    }
+    if (!parent?.filename || NODE_MODULES_PATH.test(parent.filename)) return null;
+    const expanded = expandAlias(request, requireAliases);
+    if (expanded === request) return null;
+    if (path.isAbsolute(expanded) && !path.extname(expanded)) {
+      const hit = resolvePlatformFile(expanded, platform, activeSourceExts);
+      if (hit) return hit;
+    }
+    try {
+      return resolveTarget(expanded);
+    } catch {
+      return null;
+    }
+  };
   const origResolve = Module._resolveFilename;
   Module._resolveFilename = function (request, parent, ...rest) {
     let resolved;
@@ -338,6 +364,14 @@ export function installRequireHooks(
       try {
         resolved = origResolve.call(this, request, parent, ...rest);
       } catch (err) {
+        // The project's aliases (resolve.alias string entries, and tsconfig `paths` when
+        // Vite resolves them for imports): a `require('#/lib/x')` in a test reaches here,
+        // not Vite. Only for requests from project files — packages never see the
+        // project's aliases, under Vite or Metro — and only once Node has failed, so no
+        // resolution that worked before can change.
+        const aliased = resolveAliasedRequest(request, parent, (target) =>
+          origResolve.call(this, target, parent, ...rest),
+        );
         // RN 0.87's exports map rejects the deep self-references its own Babel
         // preset emits (`react-native/src/private/…`); Metro resolves them via the
         // `react-native-legacy-deep-imports` condition. Mirror Metro by path.
@@ -346,6 +380,7 @@ export function installRequireHooks(
         // when the cache had to fall back to tmpdir.
         const fromDir = parent?.filename ? path.dirname(parent.filename) : projectRoot;
         const deep =
+          aliased ??
           resolveDeepPackageFile(request, fromDir, platform, activeSourceExts) ??
           (fromDir === projectRoot
             ? null

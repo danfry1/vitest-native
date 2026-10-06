@@ -24,4 +24,11 @@ describe("jest.requireActual with resolve.alias", () => {
   it("resolves an extensionless aliased path with the platform's extension order", () => {
     expect(jest.requireActual("@vn-app/Button").default()).toBe("ios-button");
   });
+
+  // Node's `require` in a test file reaches the CJS resolve hook, not Vite. It
+  // falls back to the same aliases once Node's own resolution fails.
+  it("resolves a plain require of an aliased path", () => {
+    expect(require("@vn-app/greeting-service").shout("hi")).toBe("HI");
+    expect(require("@vn-app/Button").default()).toBe("ios-button");
+  });
 });
