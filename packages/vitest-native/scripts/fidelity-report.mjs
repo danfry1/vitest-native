@@ -103,12 +103,10 @@ const checkOnly = process.argv.includes("--check");
 // the published page can never disagree with what CI actually gates.
 function ciReactNativeRange() {
   try {
-    const wf = fs.readFileSync(
-      path.join(repoRoot, ".github", "workflows", "native-rn-matrix.yml"),
-      "utf8",
+    // The one definition native-rn-matrix.yml runs (.github/scripts/rn-matrix.mjs).
+    const { rn: versions = [] } = JSON.parse(
+      fs.readFileSync(path.join(repoRoot, ".github", "rn-matrix.json"), "utf8"),
     );
-    const line = wf.split("\n").find((l) => /^\s*rn:\s*\[/.test(l));
-    const versions = [...(line?.matchAll(/'([\d.]+)'/g) ?? [])].map((m) => m[1]);
     if (versions.length >= 2) return `${versions[0]}–${versions[versions.length - 1]}`;
     if (versions.length === 1) return versions[0];
   } catch {}
@@ -116,8 +114,8 @@ function ciReactNativeRange() {
 }
 const ciRange = ciReactNativeRange();
 const ciLine = ciRange
-  ? `CI runs the same corpus across **React Native ${ciRange}** on every commit.`
-  : `CI runs the same corpus across every supported React Native version on every commit.`;
+  ? `CI runs the same corpus across **React Native ${ciRange}** on every commit to main.`
+  : `CI runs the same corpus across every supported React Native version on every commit to main.`;
 
 // --- 1. Badge (shields.io endpoint schema) ---
 // What the corpus does NOT reach. A count of matching probes says nothing about how

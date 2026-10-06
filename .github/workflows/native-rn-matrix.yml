@@ -1,26 +1,29 @@
 name: Native engine — Vitest × RN matrix
 
-# The native engine's trust rests on two moving dependencies, and this matrix
-# pins both axes so drift on either is caught on every change:
+# The native engine's trust rests on two moving dependencies, and this matrix pins
+# both axes. Every cell runs on each push to main, weekly, and on manual runs; a pull
+# request runs the ends of the React Native range in every column (see
+# .github/scripts/rn-matrix.mjs), or every cell when it changes the matrix itself:
 #
 #  • React Native (rows). The engine runs REAL RN JS and mocks only the ~7-module
 #    native boundary, so it is sensitive to RN-version drift (the boundary has
 #    broken before on SectionList / RendererProxy changes between minors).
 #    Supported range (verified): RN 0.81–0.87. 0.80 and earlier fail host-component
 #    detection and are below the floor; latest is canaried in compat-check.yml.
-#    Keep the newest row in sync with the lockfile RN version — the fidelity page
-#    derives its published claim from THIS list (scripts/fidelity-report.mjs), so a
-#    stale matrix publishes an understated range.
+#    The rows and columns are defined once, in .github/rn-matrix.json. Keep the
+#    newest row in sync with the lockfile RN version — the fidelity page derives its
+#    published claim from that file (scripts/fidelity-report.mjs), so a stale matrix
+#    publishes an understated range.
 #
 #  • Vitest (columns). Vitest churn is what bit-rotted the predecessor plugin
 #    (vitest-community/vitest-react-native) — and the hot runtime rides Vitest's
 #    @experimental internals (vitest/worker, ThreadsPoolWorker, poolRunner), the
 #    most churn-prone surface we depend on. Every column is blocking — `RN matrix
 #    verdict` below is a required check — because the declared peer range (>=4 <6)
-#    promises every one of them: the lockfile
-#    version, the newest Vitest 4.x release, and Vitest 5. The Vitest 5 column
-#    runs on the RN range's two ends rather than all six rows — it varies the
-#    RUNNER, and the RN axis is already covered twelve ways by the other columns.
+#    promises every one of them: the lockfile version and the newest Vitest 5
+#    release on every row, and the newest Vitest 4.x on the RN range's two ends —
+#    it varies the RUNNER, and the RN axis is already covered fourteen ways by the
+#    other columns.
 #
 # Every cell runs the native suite STOCK and HOT, plus the mock-vs-real-RN
 # cross-check — the full real-RN gate against that (Vitest, RN) pair.
@@ -62,6 +65,8 @@ jobs:
     timeout-minutes: 5
     outputs:
       docs-only: ${{ steps.docs.outputs.docs-only }}
+      matrix: ${{ steps.cells.outputs.matrix }}
+      scope: ${{ steps.cells.outputs.scope }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -72,6 +77,15 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: .github/scripts/classify-change.sh "$EVENT" "$BASE_SHA" "$HEAD_SHA"
+      # Pull requests run the ends of the React Native range in every Vitest column;
+      # main, the weekly schedule and manual runs run every cell. The cells are defined
+      # once in .github/rn-matrix.json (see .github/scripts/rn-matrix.mjs).
+      - id: cells
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node .github/scripts/rn-matrix.mjs "$EVENT" "$BASE_SHA" "$HEAD_SHA"
 
   matrix:
     name: native+hot — vitest ${{ matrix.vitest }} × RN ${{ matrix.rn }}
@@ -84,15 +98,9 @@ jobs:
     strategy:
       # Report every cell independently rather than stopping at the first failure.
       fail-fast: false
-      matrix:
-        rn: ['0.81', '0.82', '0.83', '0.84', '0.85', '0.86', '0.87']
-        vitest: ['locked', 'latest-supported']
-        include:
-          # The Vitest 4 floor against the oldest and newest supported React Native.
-          - rn: '0.81'
-            vitest: 'v4'
-          - rn: '0.87'
-            vitest: 'v4'
+      # .github/rn-matrix.json: React Native rows × Vitest columns, plus the Vitest 4
+      # floor against the oldest and newest supported React Native.
+      matrix: ${{ fromJSON(needs.classify.outputs.matrix) }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
