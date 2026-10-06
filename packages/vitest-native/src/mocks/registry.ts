@@ -376,7 +376,7 @@ export function buildReactNativeMock(platform: "ios" | "android" = "ios") {
     // Components
     View: createViewMock(),
     Text: createTextMock(),
-    Image: createImageMock(),
+    Image: createImageMock(() => mock),
     TextInput: createTextInputMock(),
     ScrollView: createScrollViewMock(),
     FlatList: createFlatListMock(),

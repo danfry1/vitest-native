@@ -23,10 +23,15 @@ describe("AssetRegistry (RN 0.87)", () => {
     expect(AssetRegistry.getAssetByID(999)).toBeUndefined();
   });
 
-  it("resetAllMocks clears the registered assets", () => {
-    AssetRegistry.registerAsset({ name: "x" });
+  it("resetAllMocks keeps registered assets: ids handed out stay valid", () => {
+    // Asset modules register when first evaluated and are not re-evaluated per test,
+    // so clearing the array would strand their ids and let a later registration
+    // reuse one. React Native's registry has no reset either.
+    const x = { name: "x" };
+    const idX = AssetRegistry.registerAsset(x);
     resetAllMocks();
-    expect(AssetRegistry.registerAsset({ name: "y" })).toBe(1);
-    expect(AssetRegistry.getAssetByID(2)).toBeUndefined();
+    expect(AssetRegistry.getAssetByID(idX)).toBe(x);
+    expect(AssetRegistry.registerAsset({ name: "y" })).toBe(idX + 1);
+    expect(AssetRegistry.registerAsset).toHaveBeenCalledTimes(1);
   });
 });

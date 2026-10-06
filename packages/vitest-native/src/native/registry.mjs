@@ -8,7 +8,7 @@
 //
 // This module collapses that into ONE file. At config time we walk RN's require
 // graph once, apply exactly the transforms the per-file hooks would apply (native
-// boundary source, Flow strip via the project's Babel preset, asset stubs), resolve
+// boundary source, Flow strip via the project's Babel preset, Metro asset modules), resolve
 // every require target statically, and emit a single CJS file of lazy per-module
 // factories keyed by real path. A test file then pays one read and one compile.
 //
@@ -33,6 +33,7 @@ import crypto from "node:crypto";
 import { transformRN, isFlow, cacheRootFor, TRANSFORM_CACHE_VERSION } from "./transform.mjs";
 
 import { boundarySourceFor, BOUNDARY_SOURCES } from "./boundary.mjs";
+import { assetRegistryPathFor, nativeAssetModuleSource } from "./assets.mjs";
 import { resolvePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
 import { createNativeOwnershipPolicy } from "./ownership.mjs";
 
@@ -86,7 +87,8 @@ export function _resetRegistryFailureReports() {
 
 // Bump when the emitted registry's shape or the walk's semantics change, so a
 // stale on-disk registry from an older vitest-native can never be reused.
-const REGISTRY_FORMAT_VERSION = 3;
+// 4: asset files compile to Metro's registering module instead of a file-name string.
+const REGISTRY_FORMAT_VERSION = 4;
 
 /**
  * Literal `require('…')` / `require("…")` calls. The leading class excludes
@@ -104,14 +106,19 @@ const PASSTHROUGH_EXT = new Set([".json", ".node", ".wasm"]);
 
 /**
  * Source for one file, applying the same precedence the per-file hooks use:
- * asset stub → native-boundary mock → Flow-stripped RN → verbatim.
+ * asset module → native-boundary mock → Flow-stripped RN → verbatim.
  */
 function sourceFor(file, { projectRoot, platform, reactNativeVersion, assetExtSet, ownership }) {
   const norm = file.replace(/\\/g, "/");
   const ext = path.extname(norm).slice(1).toLowerCase();
   if (ext && assetExtSet.has(ext)) {
-    const basename = norm.split("/").pop() || norm;
-    return { code: `module.exports = ${JSON.stringify(basename)};`, scan: false };
+    // The Metro asset module (assets.mjs). Scanned like any module: its one
+    // require is React Native's asset registry, which must resolve to the
+    // registry's own instance of it — the one resolveAssetSource reads.
+    return {
+      code: nativeAssetModuleSource(file, { projectRoot, platform, format: "cjs" }),
+      scan: true,
+    };
   }
   const boundary = boundarySourceFor(
     ownership.reactNativePathFor(file) ?? norm,
@@ -491,6 +498,14 @@ export function buildRegistry({
     const extraRoots = canonicalAdditionalEntries(additionalEntries).map((request) =>
       req.resolve(request),
     );
+    // Asset modules require Metro's assetRegistryPath by absolute path (assets.mjs),
+    // and that entry must be a registry module: loaded outside it, its relative
+    // require of the registry module (0.87+) would create a second asset array whose
+    // ids resolveAssetSource never sees. React Native's own image assets (LogBox)
+    // already pull the entry in through their asset modules; seeding it keeps that
+    // true without depending on which of React Native's assets the walk reaches.
+    const assetRegistry = assetRegistryPathFor(projectRoot);
+    if (assetRegistry !== null) extraRoots.push(assetRegistry);
     const queue = [...extraRoots.reverse(), entry];
     while (queue.length > 0) {
       const file = queue.pop();

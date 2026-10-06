@@ -13,6 +13,7 @@ import {
   parseNativeOwnershipManifest,
 } from "./ownership.mjs";
 import { explainUntransformedSyntaxError } from "./explain.mjs";
+import { nativeAssetModuleSource } from "./assets.mjs";
 import { expandAlias } from "../jest-compat/aliases.mjs";
 
 // Guarded via globalThis, not module scope: under the hot runtime this module
@@ -199,13 +200,12 @@ export function installRequireHooks(
   globalThis.__vitest_native_require_hooks_installed = true;
 
   // Asset requires (`require('./logo.png')`, `require('./Icon.ttf')`) reaching
-  // Node's CJS loader must be stubbed, not compiled — otherwise the binary falls
-  // through to the `.js` handler and throws "SyntaxError: Invalid or unexpected
-  // token". RN's packager and Jest's asset transform both stub these (incl.
-  // fonts); the Vite graph already does too, so we match it here (module.exports =
-  // basename string) for the Node path. (Font-loading libraries like
-  // @react-native-vector-icons are shadowed by their preset, so they never inspect
-  // the stubbed font require.)
+  // Node's CJS loader must not be compiled — the binary would fall through to the
+  // `.js` handler and throw "SyntaxError: Invalid or unexpected token". They are
+  // compiled into the module Metro generates instead (native/assets.mjs): it
+  // registers the asset's Metro descriptor with React Native's asset registry and
+  // exports the id, so the Node path and the Vite graph agree and
+  // Image.resolveAssetSource can resolve what either returns.
   const NON_ASSET = new Set([".js", ".cjs", ".mjs", ".ts", ".tsx", ".json", ".node"]);
   let assetExtSet = new Set(assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
   let activeSourceExts = sourceExts;
@@ -214,8 +214,10 @@ export function installRequireHooks(
       const ext = "." + String(raw).replace(/^\./, "");
       if (NON_ASSET.has(ext) || Module._extensions[ext]) continue;
       Module._extensions[ext] = function (mod, filename) {
-        const basename = filename.replace(/\\/g, "/").split("/").pop() || filename;
-        mod.exports = basename;
+        mod._compile(
+          nativeAssetModuleSource(filename, { projectRoot, platform, format: "cjs" }),
+          filename,
+        );
       };
     }
   };
@@ -306,7 +308,7 @@ export function installRequireHooks(
     if (Object.prototype.hasOwnProperty.call(mocks, request)) return mocks[request];
     // Subpath require of a preset package — the real deep entry would load the
     // package's native runtime. Exempt: JSON subpaths (package.json version
-    // gates), asset subpaths (fonts/images, stubbed from their real files by
+    // gates), asset subpaths (fonts/images, loaded from their real files by
     // the Module._extensions handlers above), and Node-safe utility entries
     // (jest-utils, mock, plugin) — those fall through to the real file.
     const reqExtMatch = /\.([a-z0-9]+)$/i.exec(request);

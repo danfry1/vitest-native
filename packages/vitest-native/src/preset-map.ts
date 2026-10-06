@@ -167,7 +167,7 @@ export function presetShadowing(moduleId: string): PresetName | undefined {
 }
 
 /**
- * Asset extensions the plugin stubs before any Metro profile or `assetExts` option
+ * Asset extensions the plugin handles before any Metro profile or `assetExts` option
  * adds more. Kept here, not in plugin.ts, so the CLI can say which of a Jest asset
  * mapper's extensions are covered without loading the plugin.
  */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Platform } from "react-native";
+import { Image, Platform } from "react-native";
 import { selectedPlatform } from "./fixtures/platform";
 import { marker } from "./fixtures/plat/marker";
 import { nativeOnly } from "./fixtures/plat/nativeonly";
@@ -15,6 +15,20 @@ describe("native engine: Android platform", () => {
     expect(Platform.Version).toBe(34);
     expect(Platform.constants.systemName).toBeUndefined();
     expect(Platform.constants.reactNativeVersion.minor).toBeGreaterThan(0);
+  });
+
+  it("registers the .android asset variant and resolves it as an Android drawable", () => {
+    // Metro groups `splash.android.png` as the platform variant of `splash.png`
+    // when building for Android; resolveAssetSource then names the density folder
+    // and resource (the mock engine's Image.resolveAssetSource pins the same URI).
+    const id = require("./fixtures/assets/splash.png");
+    expect(Image.resolveAssetSource(id)).toEqual({
+      __packager_asset: true,
+      width: 16,
+      height: 10,
+      scale: 1,
+      uri: "file:///drawable-mdpi/testsnative_fixtures_assets_splash.png",
+    });
   });
 
   it("prefers the .android variant over .native and the base file", () => {

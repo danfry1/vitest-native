@@ -61,7 +61,7 @@ try {
   if (process.env.VITEST_NATIVE_TRANSFORM)
     transformPkgs = JSON.parse(process.env.VITEST_NATIVE_TRANSFORM);
 } catch {}
-// Asset extensions the Node require-hook should stub (matches the Vite graph).
+// Asset extensions the Node require hook loads as Metro asset modules (matches the Vite graph).
 let assetExts = [];
 let sourceExts = ["js", "jsx", "json", "ts", "tsx"];
 try {

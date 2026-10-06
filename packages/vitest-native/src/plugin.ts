@@ -26,6 +26,7 @@ import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
 import { detectEcosystemPackages } from "./native/ecosystem.js";
 import { containsPath, packageDirOf } from "./native/match.mjs";
+type AssetModules = typeof import("./native/assets.mjs");
 import type { HotMemoryPlan } from "./native/memory.mjs";
 import { workerVitestMismatch } from "./native/worker-vitest.js";
 import type { NativeOwnershipPolicy } from "./native/ownership.mjs";
@@ -326,6 +327,18 @@ function parseReactNativeMembers(indexSource: string): { name: string; deprecate
     members.set(name, (members.get(name) ?? false) || /\bwarnOnce\s*\(/.test(text));
   });
   return [...members].map(([name, deprecated]) => ({ name, deprecated }));
+}
+
+/**
+ * The Metro asset-module generator (native/assets.mjs). It ships as runtime `.mjs`
+ * for the Node hooks, so — like the registry builder below — it is reached through a
+ * computed dynamic import: a static specifier would bundle a second copy into the
+ * plugin entry.
+ */
+let assetModules: AssetModules | null = null;
+async function loadAssetModules(): Promise<AssetModules> {
+  const dir = path.dirname(fileURLToPath(import.meta.url));
+  return (await import(pathToFileURL(path.resolve(dir, "native/assets.mjs")).href)) as AssetModules;
 }
 
 /**
@@ -672,7 +685,7 @@ function containsFunctions(value: unknown, visited = new WeakSet()): boolean {
 /**
  * Vitest plugin for React Native.
  *
- * Handles platform-specific module resolution, asset stubs, preset virtual
+ * Handles platform-specific module resolution, Metro-shaped asset modules, preset virtual
  * modules, and automatic setup-file injection so tests can run against
  * React Native code in a Node/JSDOM environment.
  */
@@ -1277,7 +1290,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // Preset redirect shared by both engines: exact package match, or a subpath of
   // a preset package (pkg/Swipeable) — the real deep entry would pull in the
   // package's native runtime. Exempt: JSON subpaths (package.json version
-  // gates), asset subpaths (fonts/images, stubbed from their real files), and
+  // gates), asset subpaths (fonts/images, loaded from their real files), and
   // Node-safe utility entries (jest-utils, mock, plugin). The virtual id carries
   // the full specifier so load() can pick the mock export matching the leaf
   // module name. Subpath matching stays inert until configResolved has built
@@ -1440,9 +1453,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           env[PERMISSIVE_NATIVE_MODULES_ENV] = "permissive";
         }
       }
-      // Asset extensions for the Node require-hook to stub (matches the Vite-graph
-      // asset stubbing): a CJS `require('./logo.png')` reaching Node's loader must
-      // resolve to the basename string, not be compiled as JS.
+      // Asset extensions for the Node require hook (matches the Vite graph): a CJS
+      // `require('./logo.png')` reaching Node's loader must become a Metro-shaped
+      // asset module (native/assets.mjs), not be compiled as JS.
       env.VITEST_NATIVE_ASSET_EXTS = JSON.stringify(assetExtList);
       if (metroOption === true || typeof metroOption === "object") {
         env.VITEST_NATIVE_SOURCE_EXTS = JSON.stringify(sourceExts);
@@ -1792,6 +1805,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     },
 
     async configResolved(config) {
+      // load() is synchronous for assets; it needs the module generator in hand.
+      assetModules ??= await loadAssetModules();
+
       // Recorded here rather than guessed later: the resolved plugin list is the only
       // place that knows whether the hoisting transform is actually installed.
       jestMockTransformPresent = (config.plugins ?? []).some(
@@ -2041,14 +2057,25 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         return code;
       }
 
-      // Asset imports have the same stable semantics under both engines.
-      // JSON.stringify the basename — filenames can contain quotes/backslashes,
-      // and raw interpolation would emit broken JS (same hazard class as the
-      // native loader, which already stringifies).
+      // Asset imports evaluate to what Metro's asset modules evaluate to: the id
+      // React Native's asset registry assigns to the asset's Metro descriptor (see
+      // native/assets.mjs). Under the native engine that is React Native's real
+      // registry, reached through Node's loader like the rest of React Native, so
+      // Image.resolveAssetSource finds it; under the mock engine it is the mock's
+      // AssetRegistry, which the mock's resolveAssetSource reads.
       const fsPath = stripFsPrefix(id);
       if (assetPattern.test(fsPath)) {
-        const basename = fsPath.split("/").pop() ?? fsPath;
-        return `export default ${JSON.stringify(basename)};`;
+        // configResolved loads it; Vite never calls load() before that hook.
+        if (!assetModules) {
+          throw new VitestNativeError(
+            "TRANSFORM_FAILED",
+            `asset '${fsPath}' was loaded before the plugin's configResolved hook ran.`,
+          );
+        }
+        const assetOptions = { projectRoot: alignRoot || process.cwd(), platform };
+        return engine === "native"
+          ? assetModules.nativeAssetModuleSource(fsPath, { ...assetOptions, format: "esm" })
+          : assetModules.mockAssetModuleSource(fsPath, assetOptions);
       }
 
       // Native engine serves RN from Node's CJS graph — nothing else to load here.
@@ -2100,8 +2127,6 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         return code;
       }
 
-      // Stub binary/font/media asset imports with their basename string,
-      // matching React Native's packager behaviour.
       return undefined;
     },
 

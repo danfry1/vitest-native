@@ -164,9 +164,23 @@ describe("precompiled RN registry: emitted graph", () => {
     expect(ids.every((f) => /[\\/](react-native|@react-native)[\\/]/.test(f))).toBe(true);
   });
 
-  it("stubs asset files with their basename", () => {
-    // React Native ships PNGs (LogBox UI icons) that Node cannot compile as JS.
-    expect(source()).toMatch(/module\.exports = "[\w-]+\.png";/);
+  it("compiles asset files to Metro's registering module", () => {
+    // React Native ships PNGs (LogBox UI icons) that Node cannot compile as JS. They
+    // become what Metro generates for them: a registerAsset call on the asset
+    // registry, carrying the image's descriptor.
+    expect(source()).toMatch(/\.registerAsset\(\{"__packager_asset":true,[^)]*"type":"png"\}\)/);
+  });
+
+  it("inlines the asset registry, so asset modules and resolveAssetSource share it", () => {
+    const req = createRequire(path.join(projectRoot, "package.json"));
+    const ids: string[] = req(build()).__vitestNativeRegistry.ids;
+    let entry: string;
+    try {
+      entry = req.resolve("react-native/asset-registry");
+    } catch {
+      entry = req.resolve("react-native/Libraries/Image/AssetRegistry");
+    }
+    expect(ids).toContain(entry);
   });
 
   it("resolves platform-specific files for the requested platform", () => {

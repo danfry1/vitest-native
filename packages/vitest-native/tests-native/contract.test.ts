@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { Appearance, Dimensions, NativeModules, TurboModuleRegistry } from "react-native";
+import { Appearance, Dimensions, Image, NativeModules, TurboModuleRegistry } from "react-native";
 import {
   mockNativeModule,
   resetAllMocks,
@@ -15,17 +15,23 @@ afterEach(() => {
 });
 
 describe("native engine: shared package contract", () => {
-  it("stubs assets with a stable basename", () => {
-    expect(asset).toBe("test-asset.png");
+  it("serves asset imports as Metro does: a registered asset id", () => {
+    // The fixture is not a decodable image, so it registers without dimensions —
+    // a malformed asset never fails the import.
+    expect(typeof asset).toBe("number");
+    expect(Image.resolveAssetSource(asset)).toMatchObject({
+      __packager_asset: true,
+      uri: expect.stringMatching(/\/test-asset\.png$/),
+    });
   });
 
-  it("stubs assets required through Node's CJS loader (not just Vite imports)", () => {
+  it("serves assets required through Node's CJS loader the same way as Vite imports", () => {
     // RN components commonly do `const img = require('./logo.png')`. A literal
     // require escapes Vite's asset handling and hits Node's loader; without an
     // asset handler there it would compile the binary as JS and throw
     // "SyntaxError: Invalid or unexpected token". Must match the import path.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    expect(require("./fixtures/test-asset.png")).toBe("test-asset.png");
+    expect(require("./fixtures/test-asset.png")).toBe(asset);
   });
 
   it("drives real Dimensions state through setDimensions", () => {
