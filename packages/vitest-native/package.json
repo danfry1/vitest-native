@@ -149,7 +149,7 @@
     "@testing-library/react-native": "14.0.1",
     "@types/node": "25.9.8",
     "@types/react": "19.3.0",
-    "@vitest/coverage-v8": "5.0.1",
+    "@vitest/coverage-v8": "5.0.2",
     "expo-constants": "57.0.19",
     "expo-status-bar": "57.0.1",
     "ext-platform-lib": "file:./tests-native/fixtures/ext-platform-lib",
@@ -176,8 +176,8 @@
     "typescript": "7.0.2",
     "typescript-6": "npm:typescript@6.0.3",
     "untranspiled-jsx-lib": "file:./tests-native/fixtures/untranspiled-jsx-lib",
-    "vite": "^8.3.0",
-    "vitest": "5.0.1"
+    "vite": "^8.3.1",
+    "vitest": "5.0.2"
   },
   "scripts": {
     "build": "bunx --bun tsdown && node scripts/copy-static-types.mjs",
@@ -212,7 +212,7 @@
     "validate:metro-profile": "node --expose-gc validation/module-isolation/run-metro-profile.mjs"
   },
   "dependencies": {
-    "flow-remove-types": "^2.332.0",
+    "flow-remove-types": "^2.333.0",
     "magic-string": "^1.4.2"
   },
   "bin": {

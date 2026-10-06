@@ -3,7 +3,7 @@
 import Module from "node:module";
 import path from "node:path";
 import fs from "node:fs";
-import { transformRN, isFlow, needsTransform } from "./transform.mjs";
+import { transformRN, isFlow, needsTransform, isTransforming } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import { resolvePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
 import { NODE_MODULES_PATH, isUtilitySubpath, packageNameOf, subpathLeafOf } from "./match.mjs";
@@ -370,6 +370,9 @@ export function installRequireHooks(
 
   const origJs = Module._extensions[".js"];
   Module._extensions[".js"] = function (mod, filename) {
+    // Babel loading its own toolchain mid-transform: never compile it (see
+    // isTransforming in transform.mjs).
+    if (isTransforming()) return origJs(mod, filename);
     const norm = filename.replace(/\\/g, "/");
     const rnPath = ownership.reactNativePathFor(filename);
     const boundary = boundarySourceFor(rnPath ?? norm, platform, reactNativeVersion);
