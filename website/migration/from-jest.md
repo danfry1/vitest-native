@@ -103,6 +103,52 @@ reactNative({ engine: 'native', transform: ['<lib>'] })
 
 This is the direct replacement for having listed the lib in `transformIgnorePatterns` under Jest. It's also required when a `vi.mock('<lib>')` must intercept an otherwise-externalized library — `vi.mock` only applies to modules pulled into the Vite graph.
 
+### Babel plugins your Jest run applied
+
+Under Jest, babel-jest ran your `babel.config.js` on every file. vitest-native does not read it: your source goes through Vite's transform, and React Native's own code through RN's Babel preset. Most plugins in a React Native Babel config exist for Metro and are not missed, but a few change what the code means. `vitest-native migrate` and `doctor` read the config and sort its plugins:
+
+| Plugin | Under vitest-native |
+|---|---|
+| `babel-plugin-macros` (`'macros'`), `@lingui/babel-plugin-lingui-macro`, other macro plugins | **Required.** A macro is compiled away at build time; without the plugin the macro module is imported for real and fails, typically with `Cannot find module 'babel-plugin-macros'`. |
+| `babel-plugin-module-resolver` (`'module-resolver'`) | Its `alias` entries become `resolve.alias` (same exact-or-`key/` prefix rule). `migrate` writes them. |
+| `react-native-worklets/plugin`, `react-native-reanimated/plugin` | Not needed: the auto-detected worklets/reanimated presets replace those libraries, so no worklet runs. |
+| `babel-plugin-react-compiler` | Not needed: it only adds memoization, and components render the same without it. |
+| anything else | Listed for you to judge — check whether a test depends on what it does. |
+
+Required plugins run through a Vite plugin that calls Babel. Which one depends on the Vite major:
+
+::: code-group
+
+```ts [Vite 8]
+// npm i -D @rolldown/plugin-babel @babel/core
+import babel from '@rolldown/plugin-babel'
+
+export default defineConfig({
+  plugins: [
+    reactNative(),
+    babel({ plugins: ['@lingui/babel-plugin-lingui-macro'] }),
+    jestMockTransform(),
+  ],
+})
+```
+
+```ts [Vite 7 and earlier]
+// npm i -D @vitejs/plugin-react @babel/core
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [
+    reactNative(),
+    react({ babel: { plugins: ['@lingui/babel-plugin-lingui-macro'] } }),
+    jestMockTransform(),
+  ],
+})
+```
+
+:::
+
+Vite 8's `@vitejs/plugin-react` (v6) no longer runs Babel and points to [`@rolldown/plugin-babel`](https://www.npmjs.com/package/@rolldown/plugin-babel) for it; on Vite 7 and earlier, `@vitejs/plugin-react`'s `babel` option is the way to add plugins. List only the plugins your tests need. Neither plugin loads `babel.config.js`, so the full Metro preset is not applied twice. When Vite 8, `@rolldown/plugin-babel` and `@babel/core` are installed, `migrate --write` adds the `babel()` entry itself.
+
 ### Move jest config options to Vitest
 
 `jest.config.js` keys (`setupFilesAfterEnv`, `moduleNameMapper`, `testEnvironment`, etc.) move to the Vitest config: `setupFiles`, `resolve.alias`, `test.environment: 'node'`. A suite on `testEnvironment: 'jsdom'` keeps it as `test.environment: 'jsdom'` (`'happy-dom'` works too): React Native renders there alongside the DOM, with either engine and with or without the hot runtime. `jest.setTimeout(ms)` is a no-op under the shim (use `test.testTimeout` in config or per-test `{ timeout }`).

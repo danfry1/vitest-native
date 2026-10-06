@@ -40,7 +40,7 @@ This is the same architecture as the original [`vitest-community/vitest-react-na
 Because RN runs externalized through Node (not your Vite source graph):
 
 - **`vi.mock` of an externalized RN-side library may not intercept.** Libraries that load through Node bypass Vitest's mocker. Prefer a [preset](/guide/presets) (if one exists) or mock at the boundary. Your *own* modules mock normally.
-- **Custom Babel plugins don't run.** Transforms go through Vite/esbuild, not your `babel.config.js`. Flow/TS stripping for RN and allow-listed packages is handled by the require hook; use the [`transform` allowlist](/guide/plugin-options) for extra pure-JS packages that ship untranspiled source.
+- **Custom Babel plugins don't run.** Transforms go through Vite/esbuild, not your `babel.config.js`. Flow/TS stripping for RN and allow-listed packages is handled by the require hook; use the [`transform` allowlist](/guide/plugin-options) for extra pure-JS packages that ship untranspiled source. A plugin your tests depend on — a macro plugin such as `@lingui/babel-plugin-lingui-macro` — has to be added to the Vitest config; `vitest-native doctor` lists them and [Migrating from Jest](/migration/from-jest#babel-plugins-your-jest-run-applied) has the recipe.
 
 ## The mock engine, specifically
 

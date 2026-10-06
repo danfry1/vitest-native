@@ -37,7 +37,9 @@ Read-only environment diagnosis:
   the per-major Vite security floors.
 - Which engine `auto` resolves to for this project, and why.
 - Every auto-detected preset (installed package → preset).
-- Expo presence, with a pointer to the known Expo-core limits.
+- Expo presence, and which Expo modules the expo preset shadows.
+- Babel plugins from your Babel config that a vitest-native run does not apply
+  (warnings only; a macro plugin is reported as required).
 - Whether a vitest config exists and uses vitest-native.
 
 Exits non-zero when it finds a blocking problem, so it can gate CI setup jobs.
@@ -49,8 +51,17 @@ Reads your Jest configuration (`package.json#jest` or
 
 - **Mapped automatically** — keys the suggested config absorbs
   (`setupFilesAfterEnv` → `setupFiles`, path aliases → `resolve.alias`,
-  `transformIgnorePatterns` allowlists → `reactNative({ transform: [...] })`,
-  `testTimeout`, `clearMocks`, …).
+  `transformIgnorePatterns` allowlists → `reactNative({ transform: [...] })`
+  for the packages nothing else compiles, `testTimeout`, `clearMocks`, …).
+  The test set is Jest's effective one: `testMatch` from your config, else
+  from the preset (read from the installed preset), else Jest's defaults,
+  narrowed by `testPathIgnorePatterns`, `modulePathIgnorePatterns` and
+  `moduleFileExtensions`. Flags the `test` script passes to Jest
+  (`--testTimeout`, `--maxWorkers`, `--runInBand`, `--config`) are applied
+  the way Jest applies them, over the config.
+- **Babel** — plugins from your Babel config that babel-jest applied and
+  vitest-native does not, sorted into required, mapped, not needed and unknown
+  (see [Babel plugins](/migration/from-jest#babel-plugins-your-jest-run-applied)).
 - **Covered by presets — delete** — manual `__mocks__/` files and setup lines
   that the auto-detected presets replace.
 - **Needs your attention** — regex module mappers, fake-timer config, unknown
