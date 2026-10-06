@@ -12,7 +12,7 @@ afterAll(() => {
   for (const r of roots) fs.rmSync(r, { recursive: true, force: true });
 });
 
-function projectWith(packages: Record<string, string>) {
+function projectWith(packages: Record<string, string>, manifestExtra: object = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-self-testing-"));
   roots.push(root);
   fs.writeFileSync(path.join(root, "package.json"), "{}");
@@ -21,7 +21,7 @@ function projectWith(packages: Record<string, string>) {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(
       path.join(dir, "package.json"),
-      JSON.stringify({ name, version, main: "index.js" }),
+      JSON.stringify({ name, version, main: "index.js", ...manifestExtra }),
     );
     fs.writeFileSync(path.join(dir, "index.js"), "module.exports = {};");
   }
@@ -42,6 +42,12 @@ describe("presetForInstalled", () => {
     expect(
       presetForInstalled("react-native-mmkv", projectWith({ "react-native-mmkv": "4.3.2" })),
     ).toBeNull();
+  });
+
+  it("reads the version even when the package's exports hide package.json", () => {
+    const req = projectWith({ "react-native-mmkv": "4.3.2" }, { exports: { ".": "./index.js" } });
+    expect(() => req("react-native-mmkv/package.json")).toThrow();
+    expect(presetForInstalled("react-native-mmkv", req)).toBeNull();
   });
 
   it("returns null for a package that is not installed", () => {

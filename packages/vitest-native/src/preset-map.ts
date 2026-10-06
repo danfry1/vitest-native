@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import type * as Presets from "./presets/index.js";
 
 /** Valid preset factory names exported from `presets/index.ts`. */
@@ -56,13 +58,43 @@ export const SELF_TESTING_FROM_MAJOR: Partial<Record<keyof typeof AUTO_DETECT_PR
   "react-native-mmkv": 3,
 };
 
-function installedMajor(pkgName: string, req: NodeJS.Require): number | null {
+/** Whether `pkgName` at `version` runs its own test mode (SELF_TESTING_FROM_MAJOR). */
+export function testsItself(pkgName: string, version: unknown): boolean {
+  const floor = SELF_TESTING_FROM_MAJOR[pkgName as keyof typeof AUTO_DETECT_PRESETS];
+  if (floor === undefined || typeof version !== "string") return false;
+  const major = Number.parseInt(version, 10);
+  return !Number.isNaN(major) && major >= floor;
+}
+
+/**
+ * The installed version, from the package's own manifest on disk. Not
+ * `require('<pkg>/package.json')`: a package whose `exports` map omits ./package.json
+ * throws there, and a gate that fails closed would put the preset back over a library
+ * that tests itself, silently.
+ */
+function installedVersion(pkgName: string, req: NodeJS.Require): unknown {
+  let dir: string;
   try {
-    const version = (req(`${pkgName}/package.json`) as { version?: unknown }).version;
-    const major = typeof version === "string" ? Number.parseInt(version, 10) : NaN;
-    return Number.isNaN(major) ? null : major;
+    dir = path.dirname(req.resolve(pkgName));
   } catch {
-    return null;
+    return undefined;
+  }
+  for (;;) {
+    const file = path.join(dir, "package.json");
+    if (fs.existsSync(file)) {
+      try {
+        const manifest = JSON.parse(fs.readFileSync(file, "utf8")) as {
+          name?: unknown;
+          version?: unknown;
+        };
+        if (manifest.name === pkgName) return manifest.version;
+      } catch {
+        // An unreadable manifest on the way up: keep walking.
+      }
+    }
+    const up = path.dirname(dir);
+    if (up === dir) return undefined;
+    dir = up;
   }
 }
 
@@ -78,10 +110,6 @@ export function presetForInstalled(pkgName: string, req: NodeJS.Require): Preset
   } catch {
     return null;
   }
-  const floor = SELF_TESTING_FROM_MAJOR[pkgName as keyof typeof AUTO_DETECT_PRESETS];
-  if (floor !== undefined) {
-    const major = installedMajor(pkgName, req);
-    if (major !== null && major >= floor) return null;
-  }
+  if (testsItself(pkgName, installedVersion(pkgName, req))) return null;
   return AUTO_DETECT_PRESETS[pkgName as keyof typeof AUTO_DETECT_PRESETS] ?? null;
 }
