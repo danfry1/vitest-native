@@ -27,30 +27,6 @@ import {
   findNativeOwnershipConflict,
 } from "./native/ownership.mjs";
 
-const DEFAULT_ASSET_EXTS = [
-  "png",
-  "jpg",
-  "jpeg",
-  "gif",
-  "bmp",
-  "webp",
-  "svg",
-  "tiff",
-  "heic",
-  "heif",
-  "mp4",
-  "mp3",
-  "wav",
-  "aac",
-  "m4a",
-  "mov",
-  "webm",
-  "ttf",
-  "otf",
-  "woff",
-  "woff2",
-];
-
 function uniqueExtensions(values: readonly string[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -82,7 +58,7 @@ function stripFsPrefix(id: string): string {
   return id.startsWith("/@fs/") ? id.slice(4) : id;
 }
 
-import { AUTO_DETECT_PRESETS, presetForInstalled } from "./preset-map.js";
+import { AUTO_DETECT_PRESETS, DEFAULT_ASSET_EXTS, presetForInstalled } from "./preset-map.js";
 
 async function autoDetectPresets(diagnostics: boolean, projectRoot: string): Promise<Preset[]> {
   const detected: Preset[] = [];

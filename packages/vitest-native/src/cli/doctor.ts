@@ -15,7 +15,8 @@ import {
 } from "../native/ownership.mjs";
 import { createHotMemoryPlan, formatHotMemoryPlan } from "../native/memory.mjs";
 import { HOT_STATE_MANIFEST_ENTRIES } from "../native/state-manifest.mjs";
-import { AUTO_DETECT_PRESETS } from "../preset-map.js";
+import { AUTO_DETECT_PRESETS, PRESET_MODULES } from "../preset-map.js";
+import { babelRecipe, classifyBabelPlugins, readBabelConfig, viteMajor } from "./babel-config.js";
 import { PEER_REQUIREMENTS } from "../peer-requirements.js";
 
 export interface DoctorResult {
@@ -404,11 +405,46 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   const expo = packageVersion(rootFor("expo"), "expo");
   if (expo) {
     lines.push("", "Expo");
+    // Named from the preset's module list (PRESET_MODULES, checked against the preset
+    // itself by tests/presets.test.ts). It said "Expo modules are covered by the
+    // auto-detected expo preset", claiming the whole Expo surface for a preset that
+    // shadows a handful of packages.
     pass(
-      `expo ${expo} detected. Expo modules are covered by the auto-detected expo preset, and ` +
-        `expo-router's own testing library runs as written; coming from jest-expo, run ` +
+      `expo ${expo} detected. The auto-detected expo preset shadows ${PRESET_MODULES.expo.join(", ")}; ` +
+        `other Expo modules load their real JavaScript. Coming from jest-expo, run ` +
         `\`vitest-native migrate\`. See https://danfry1.github.io/vitest-native/guide/expo`,
     );
+  }
+
+  // --- Babel ---
+  // babel-jest applied the project's Babel config to every file; vitest-native does
+  // not. A warning, never blocking: most plugins in a React Native config exist for
+  // Metro, and the classification says which ones a test run actually misses.
+  const babel = readBabelConfig(root);
+  if (babel.source) {
+    lines.push("", "Babel");
+    const classified = classifyBabelPlugins(babel);
+    const required = classified.filter((p) => p.verdict === "required");
+    for (const p of classified) {
+      if (p.verdict === "required") {
+        warn(`${p.reason} Required: ${babelRecipe(viteMajor(rootFor("vite")), required)}.`);
+      } else if (p.verdict === "alias") {
+        warn(
+          `${p.reason} \`vitest-native migrate\` writes them; otherwise add them to resolve.alias.`,
+        );
+      } else if (p.verdict === "unknown") {
+        warn(p.reason);
+      } else {
+        lines.push(`  · ${p.written}: ${p.reason}`);
+      }
+    }
+    if (!babel.evaluated) {
+      lines.push(
+        `  · ${babel.source} could not be evaluated; only plugins recognized by name are listed.`,
+      );
+    } else if (classified.length === 0) {
+      lines.push(`  · ${babel.source} declares no plugins.`);
+    }
   }
 
   // --- Config ---

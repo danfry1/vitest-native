@@ -12,6 +12,7 @@ import { main } from "../src/cli/index.js";
 import { runInit, renderInitConfig } from "../src/cli/init.js";
 import { runDoctor } from "../src/cli/doctor.js";
 import { PEER_REQUIREMENTS } from "../src/peer-requirements.js";
+import { PRESET_MODULES } from "../src/preset-map.js";
 import {
   analyzeJestConfig,
   extractAllowlistPackages,
@@ -142,6 +143,9 @@ describe("doctor", () => {
     expect(output).toContain("✓ expo 57.0.0 detected");
     expect(output).toContain("guide/expo");
     expect(output).not.toContain("known limits");
+    // What the expo preset covers is its module list, not "Expo modules".
+    expect(output).toContain(`expo preset shadows ${PRESET_MODULES.expo.join(", ")};`);
+    expect(output).not.toContain("Expo modules are covered");
   });
 
   it("passes cleanly against this package's own environment", () => {
@@ -162,15 +166,30 @@ describe("migrate", () => {
     expect(
       extractAllowlistPackages("node_modules/(?!(?:react-native|@react-native|moti|uniwind)/)"),
     ).toEqual({
-      packages: ["react-native", "@react-native", "moti", "uniwind"],
+      entries: [
+        { name: "react-native", kind: "exact" },
+        { name: "@react-native", kind: "scope" },
+        { name: "moti", kind: "exact" },
+        { name: "uniwind", kind: "exact" },
+      ],
       unparseable: [],
     });
-    expect(extractAllowlistPackages("node_modules")).toEqual({ packages: [], unparseable: [] });
-    // Capturing groups would fabricate names if stripped ("jest-react-native") —
-    // they must be surfaced as unparseable instead.
+    expect(extractAllowlistPackages("node_modules")).toEqual({ entries: [], unparseable: [] });
+    // An optional group is expanded into both names it allows — stripping it would
+    // fabricate one ("jest-react-native" only). Without a trailing `/` each
+    // alternative is a name PREFIX, as the regex means it.
     expect(extractAllowlistPackages("node_modules/(?!(jest-)?react-native|expo)")).toEqual({
-      packages: ["expo"],
-      unparseable: ["(jest-)?react-native"],
+      entries: [
+        { name: "react-native", kind: "prefix" },
+        { name: "jest-react-native", kind: "prefix" },
+        { name: "expo", kind: "prefix" },
+      ],
+      unparseable: [],
+    });
+    // Character classes are outside the language it expands: surfaced, not guessed.
+    expect(extractAllowlistPackages("node_modules/(?!(lib[0-9]|moti)/)")).toEqual({
+      entries: [],
+      unparseable: ["(lib[0-9]|moti)/"],
     });
   });
 
@@ -200,7 +219,7 @@ describe("migrate", () => {
     });
     const report = analyzeJestConfig(root);
     const text = [...report.automatic, ...report.attention].join("\n");
-    expect(text).toContain("'some-rn-lib' — declares react-native");
+    expect(text).toContain("allows some-rn-lib — declares react-native");
     expect(report.suggestedConfig).not.toContain("some-rn-lib");
     // A package that does not declare react-native still needs the allowlist entry.
     expect(report.suggestedConfig).toContain("plain-lib");
@@ -224,6 +243,16 @@ describe("migrate", () => {
         someCustomKey: 1,
       },
       "__mocks__/react-native-gesture-handler.js": "module.exports = {};",
+      // Installed, so the presets that shadow them are detected; moti ships CommonJS.
+      "node_modules/react-native-reanimated/package.json": {
+        name: "react-native-reanimated",
+        version: "4.0.0",
+      },
+      "node_modules/react-native-gesture-handler/package.json": {
+        name: "react-native-gesture-handler",
+        version: "2.0.0",
+      },
+      "node_modules/moti/package.json": { name: "moti", version: "0.30.0", main: "index.js" },
     });
     const report = analyzeJestConfig(root);
     expect(report.ok).toBe(true);
@@ -231,10 +260,12 @@ describe("migrate", () => {
     const text = renderMigrationReport(report).join("\n");
     // transform allowlist: moti extracted, RN handled, reanimated preset-covered.
     expect(report.suggestedConfig).toContain(`transform: ["moti"]`);
-    expect(text).toContain("'react-native-reanimated' — shadowed by the auto-detected preset");
-    // asset mapper recognized as built-in; alias mapped ABSOLUTE (Vite resolves
-    // string-substituted aliases relative to the importer); setup preserved.
-    expect(text).toContain("asset stubbing is built in");
+    expect(text).toContain(
+      "allows react-native-reanimated — shadowed by the auto-detected reanimated preset",
+    );
+    // asset mapper recognized as built-in, per extension; alias mapped ABSOLUTE (Vite
+    // resolves string-substituted aliases relative to the importer); setup preserved.
+    expect(text).toContain("the plugin stubs png and jpg imports itself; delete");
     expect(report.suggestedConfig).toContain(
       `"@": fileURLToPath(new URL("./src", import.meta.url))`,
     );
@@ -242,8 +273,29 @@ describe("migrate", () => {
     expect(report.suggestedConfig).toContain(`"./jest.setup.js"`);
     expect(report.suggestedConfig).toContain("testTimeout: 15000");
     // manual mock covered by preset; unknown key surfaced.
-    expect(text).toContain("__mocks__/react-native-gesture-handler");
+    expect(text).toContain(
+      "__mocks__/react-native-gesture-handler — the auto-detected gestureHandler preset shadows",
+    );
     expect(text).toContain("'someCustomKey' — unrecognized Jest key");
+  });
+
+  it("calls a manual mock covered only where an active preset shadows that module", () => {
+    // The claim is read from PRESET_MODULES (held to the presets by
+    // tests/presets.test.ts) and the plugin's detection. expo-font is shadowed by the
+    // expo preset although only expo-constants triggers it; svg's preset is not
+    // detected here, so its manual mock stays.
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": { preset: "react-native" },
+      "node_modules/expo-constants/package.json": { name: "expo-constants", version: "1.0.0" },
+      "__mocks__/expo-font.js": "module.exports = {};",
+      "__mocks__/react-native-svg.js": "module.exports = {};",
+    });
+    const covered = analyzeJestConfig(root).presetCovered.join("\n");
+    expect(covered).toContain(
+      "__mocks__/expo-font — the auto-detected expo preset shadows expo-font",
+    );
+    expect(covered).not.toContain("react-native-svg");
   });
 
   it("rewrites <rootDir> in setup files instead of emitting it verbatim", () => {
@@ -306,7 +358,16 @@ describe("migrate", () => {
       const report = expoApp("jest-expo");
       expect(report.automatic.join("\n")).toContain("preset: 'jest-expo' → replaced by");
       expect(report.automatic.join("\n")).toContain("presets: { navigation: false }");
-      expect(report.attention).toEqual([]);
+      // What jest-expo set up is not claimed as covered: the line names the modules
+      // the expo preset shadows (its own list), and jest-expo is not installed in
+      // this fixture, so its testMatch could not be read.
+      expect(report.attention).toEqual([
+        `preset: 'jest-expo' — jest-expo's setup (its Expo runtime and native-module mocks) is not ` +
+          `reproduced; the expo preset shadows ${PRESET_MODULES.expo.slice(0, -1).join(", ")} and ` +
+          `${PRESET_MODULES.expo.at(-1)} — other Expo modules load their real JavaScript, so check the ` +
+          `tests that use them.`,
+        expect.stringContaining("preset: 'jest-expo' could not be loaded"),
+      ]);
       expect(report.suggestedConfig).toContain(
         "reactNative({ presets: { navigation: false } }), jestMockTransform()",
       );
