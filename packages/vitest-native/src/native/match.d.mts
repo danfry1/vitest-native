@@ -39,3 +39,8 @@ export declare function presetPackageOfFile(
   parentFile: string | null | undefined,
   isPresetPackage: (pkg: string) => boolean,
 ): { pkg: string; subpath: string } | null;
+export declare function requestForPackageFile(
+  pkg: string,
+  subpath: string,
+  manifest: Record<string, unknown> | null | undefined,
+): string;

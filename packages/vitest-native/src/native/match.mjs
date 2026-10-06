@@ -238,3 +238,56 @@ export function presetPackageOfFile(file, parentFile, isPresetPackage) {
   if (parentFile && toPosix(parentFile).startsWith(pkgDir)) return null;
   return { pkg, subpath: rest.slice(pkg.length + 1) };
 }
+
+const stripDot = (p) => p.replace(/^\.\//, "");
+const stripExt = (p) => p.replace(/\.(?:[cm]?[jt]sx?|json)$/, "");
+
+/** Every file target in an `exports` value, whatever its condition nesting. */
+function exportTargets(value) {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(exportTargets);
+  if (value && typeof value === "object") return Object.values(value).flatMap(exportTargets);
+  return [];
+}
+
+/**
+ * The request that reached a file inside a package, recovered from the package's own
+ * manifest when only the resolved file is known (see presetPackageOfFile): the
+ * `exports` subpath that serves it (`./jest-utils` → "pkg/jest-utils", `.` → "pkg"),
+ * else the package itself for its `main`/`module`/`react-native` entry, else the
+ * subpath with `index` files read as their directory, as Node and Metro resolve them.
+ * The redirect's exemptions (utility entries such as `plugin`, `mock`, `jest-utils`)
+ * then apply to the request a caller actually wrote, not to a file name like `index`.
+ */
+export function requestForPackageFile(pkg, subpath, manifest) {
+  const sub = toPosix(subpath);
+  const exportsField = manifest?.exports;
+  if (exportsField && typeof exportsField === "object" && !Array.isArray(exportsField)) {
+    const keyed = Object.keys(exportsField).some((k) => k.startsWith("."));
+    const entries = keyed ? Object.entries(exportsField) : [[".", exportsField]];
+    for (const [key, value] of entries) {
+      for (const target of exportTargets(value)) {
+        const t = stripDot(target);
+        if (!key.includes("*")) {
+          if (t === sub) return key === "." ? pkg : `${pkg}/${stripDot(key)}`;
+          continue;
+        }
+        // Single-wildcard subpath pattern: "./*": "./dist/*.js".
+        const [before, after] = t.split("*");
+        if (after !== undefined && sub.startsWith(before) && sub.endsWith(after)) {
+          const star = sub.slice(before.length, sub.length - after.length);
+          return `${pkg}/${stripDot(key).replace("*", star)}`;
+        }
+      }
+    }
+  } else if (typeof exportsField === "string" && stripDot(exportsField) === sub) {
+    return pkg;
+  }
+  for (const field of ["react-native", "module", "main"]) {
+    const entry = manifest?.[field];
+    if (typeof entry === "string" && stripExt(stripDot(entry)) === stripExt(sub)) return pkg;
+  }
+  if (!manifest?.main && /^index\.[cm]?[jt]sx?$/.test(sub)) return pkg;
+  const withoutIndex = sub.replace(/\/index\.[cm]?[jt]sx?$/, "");
+  return `${pkg}/${withoutIndex === sub ? stripExt(sub) : withoutIndex}`;
+}

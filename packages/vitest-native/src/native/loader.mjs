@@ -1,6 +1,5 @@
 // Node ESM loader hook (registered via module.register). Intercepts import() of RN —
 // which Module._extensions cannot — Flow-stripping and serving boundary mock source.
-import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
@@ -12,6 +11,7 @@ import {
   isUtilitySubpath,
   packageNameOf,
   presetPackageOfFile,
+  requestForPackageFile,
   subpathLeafOf,
 } from "./match.mjs";
 import {
@@ -136,21 +136,21 @@ export async function initialize(data) {
 // A `require()` inside a CommonJS module this loader compiled and returned with its
 // source arrives here already resolved, as a file URL (see presetPackageOfFile). Map a
 // file inside a preset package back to the request the bare-name redirect above would
-// have seen, applying the same exemptions: the package's main entry → the package
-// name, any other file → its subpath (served by leaf name, as `pkg/Swipeable` is).
-const entryMemo = new Map();
-function isPackageEntry(pkg, file, parent) {
-  const key = `${pkg}\0${file}\0${parent ?? ""}`;
-  let hit = entryMemo.get(key);
-  if (hit === undefined) {
+// have seen — recovered from the package's own manifest (requestForPackageFile) — and
+// apply the same exemptions to it: the entry → the package name, any other file → its
+// subpath (served by leaf name, as `pkg/Swipeable` is).
+const manifestMemo = new Map();
+function packageManifest(pkgDir) {
+  if (!manifestMemo.has(pkgDir)) {
+    let manifest = null;
     try {
-      hit = createRequire(parent ?? path.join(PROJECT_ROOT, "package.json")).resolve(pkg) === file;
+      manifest = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf8"));
     } catch {
-      hit = false;
+      // No readable manifest: the subpath is used as written.
     }
-    entryMemo.set(key, hit);
+    manifestMemo.set(pkgDir, manifest);
   }
-  return hit;
+  return manifestMemo.get(pkgDir);
 }
 
 function presetRequestForFile(specifier, parent) {
@@ -164,11 +164,12 @@ function presetRequestForFile(specifier, parent) {
     Object.prototype.hasOwnProperty.call(presetExports, pkg),
   );
   if (!hit) return null;
-  const request = `${hit.pkg}/${hit.subpath}`;
   const ext = /\.([a-z0-9]+)$/i.exec(hit.subpath)?.[1]?.toLowerCase() ?? "";
-  if (ext === "json" || assetExtSet.has(ext) || isUtilitySubpath(request)) return null;
-  if (isPackageEntry(hit.pkg, file, parent)) return hit.pkg;
-  return request.replace(/\.[cm]?[jt]sx?$/, "");
+  if (ext === "json" || assetExtSet.has(ext)) return null;
+  const norm = file.replace(/\\/g, "/");
+  const pkgDir = norm.slice(0, norm.length - hit.subpath.length - 1);
+  const request = requestForPackageFile(hit.pkg, hit.subpath, packageManifest(pkgDir));
+  return isUtilitySubpath(request) ? null : request;
 }
 
 export async function resolve(specifier, context, nextResolve) {
