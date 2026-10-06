@@ -36,7 +36,7 @@ Requirements: Node >= 20, Vitest >= 4 < 5, Vite ^6.4.2 or ^7.3.2 or ^8.0.5, Reac
 - platform: 'ios' | 'android' (default 'ios')
 - presets: third-party library presets (auto-detected from installed deps)
 - mocks: custom mock overrides keyed by export name
-- assetExts: extra asset extensions to stub
+- assetExts: extra asset extensions (loaded as Metro does: a registered asset id)
 - transform: extra node_modules to transform (native engine; like Jest's transformIgnorePatterns)
 - hotRuntime: experimental hot runtime for large native suites
 

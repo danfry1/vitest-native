@@ -31,7 +31,7 @@ Run your React Native tests under Vitest, against **real React Native** — the 
 - [Animated Matchers (Reanimated)](#animated-matchers-reanimated)
 - [Snapshot Serializer](#snapshot-serializer)
 - [Platform Extensions](#platform-extensions)
-- [Asset Stubs](#asset-stubs)
+- [Assets](#assets)
 - [Diagnostics](#diagnostics)
 - [Support Policy](#support-policy)
 - [Requirements](#requirements)
@@ -914,14 +914,20 @@ falling back to the default (often web) file.
 
 ---
 
-## Asset Stubs
+## Assets
 
-Image, font, video, and audio imports are automatically stubbed. The import resolves to the filename string, so code that passes asset paths through continues to work without errors.
+Image, font, video, and audio imports evaluate to what Metro gives an app: a number, the id under which the asset is registered with React Native's asset registry. The registered descriptor is the one Metro builds — `name`, `type`, `scales`, `hash`, and for images `width` and `height` in points — so React Native's own asset handling works as on device:
 
-```ts
-import logo from "./logo.png";
-// logo === 'logo.png'
+```tsx
+const logo = require("./logo.png"); // a number
+Image.resolveAssetSource(logo); // { uri, width, height, scale, __packager_asset: true }
+<Image source={logo} />; // renders the resolved asset
 ```
+
+- `@2x`/`@3x` variants are grouped as Metro groups them, and a `.ios`/`.android` variant is preferred for the configured platform.
+- Dimensions are read from PNG, JPEG, GIF, BMP and WebP headers; other formats, and files that are not valid images, register without them.
+- The native engine registers with React Native's real registry; the mock engine registers with the mock `AssetRegistry`, which its `Image.resolveAssetSource` reads.
+- A snapshot shows the id (a number) where it used to show the file name. Ids follow registration order within a test file, so they are stable for that file.
 
 Built-in extensions include common formats like `.png`, `.jpg`, `.gif`, `.svg`, `.mp4`, `.ttf`, `.otf`, and more. To add additional extensions:
 

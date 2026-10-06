@@ -83,7 +83,7 @@ reactNative({
 
 ## `assetExts`
 
-Additional asset extensions to stub, beyond the built-in defaults:
+Additional extensions to load as [assets](/guide/how-it-works#_2-assets) — registered with React Native's asset registry, as Metro does — beyond the built-in defaults:
 
 ```ts
 reactNative({

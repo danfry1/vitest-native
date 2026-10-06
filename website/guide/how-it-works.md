@@ -6,16 +6,23 @@ The `reactNative()` plugin does three things automatically, so you don't write a
 
 The plugin redirects `react-native` imports to its engine (real RN externalized to Node for `native`, or virtual modules for `mock`) and resolves platform-specific files — `.ios.ts`, `.android.ts`, `.native.ts` — the way Metro does. Set the [`platform` option](/guide/plugin-options) to pick which extension wins.
 
-## 2. Asset stubbing
+## 2. Assets
 
-Image, font, and media imports are stubbed with their filename, matching React Native's bundler. So this works with no extra config:
+Image, font, and media imports evaluate to what Metro gives an app. Metro turns `require('./logo.png')` into a module that registers the asset with React Native's asset registry and exports the id it was given — a number. The plugin generates the same module, with the same descriptor Metro builds: `name`, `type`, `scales`, a content `hash`, and for images `width` and `height` in points. So React Native's asset handling works as it does on device:
 
 ```tsx
-import logo from './logo.png'
-// `logo` resolves to a stub, not a missing-module error
+const logo = require('./logo.png')  // a number
+Image.resolveAssetSource(logo)      // { uri, width, height, scale, __packager_asset: true }
+<Image source={logo} />             // renders the resolved asset
 ```
 
-Common asset extensions (png, jpg, gif, mp4, mp3, ttf, …) are stubbed out of the box. For custom formats, use the [`assetExts` option](/guide/plugin-options).
+- **Scales.** `logo@2x.png` and `logo@3x.png` are variants of `logo.png`, as in Metro: `scales` lists them, `width` and `height` are the smallest variant's divided by its scale, and resolution picks the variant for the device's pixel ratio.
+- **Platforms.** A `logo.ios.png` or `logo.android.png` variant is preferred for the configured [`platform`](/guide/plugin-options).
+- **Dimensions** are read from PNG, JPEG, GIF, BMP and WebP headers. Other formats (SVG, TIFF, and fonts, video and audio), and files that are not valid images, register without them.
+- **Which registry.** The native engine registers with React Native's real registry — the module Metro's `assetRegistryPath` names — so `Image.resolveAssetSource` and `AssetRegistry.getAssetByID` find every asset, whichever way it was loaded. The mock engine registers with the mock `AssetRegistry`, and its `Image.resolveAssetSource` resolves a registered id to the same URI the native engine produces.
+- **Snapshots** show the id (a number) where an asset value is serialized, and, under the native engine, the resolved source (`uri`, `width`, `height`, `scale`) for a rendered `<Image>`. Ids follow registration order within a test file, so they are stable for that file.
+
+Common asset extensions (png, jpg, gif, mp4, mp3, ttf, …) are handled out of the box. For custom formats, use the [`assetExts` option](/guide/plugin-options).
 
 ## 3. Setup injection
 

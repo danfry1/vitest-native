@@ -13,7 +13,7 @@ Host component names are handled for you — the plugin sets them for older RNTL
 
 ## Asset imports returning undefined
 
-The plugin stubs common asset extensions (png, jpg, gif, mp4, mp3, ttf, etc.). For custom formats, use [`assetExts`](/guide/plugin-options#assetexts):
+The plugin loads common asset extensions (png, jpg, gif, mp4, mp3, ttf, etc.) as Metro does, as a registered asset id. For custom formats, use [`assetExts`](/guide/plugin-options#assetexts):
 
 ```ts
 reactNative({
