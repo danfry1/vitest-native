@@ -334,6 +334,13 @@ export async function load(url, context, nextLoad) {
   // read from the transform's own output rather than by requiring the module: this
   // hook runs on the module-loader thread, where the CJS require hooks that compile
   // JSX are not installed, so a require here fails with "Unexpected token '<'".
+  // Boundary stubs outside react-native (expo's dev-server message socket). The CJS
+  // `.ts` hook applies them; without this, a package this loader compiles reached the
+  // real `messageSocket.native.ts`, which throws "Cannot create devtools websocket
+  // connections in embedded environments" — `import 'expo'` failed in every test.
+  const stub = boundarySourceFor(norm, PLATFORM, REACT_NATIVE_VERSION);
+  if (stub != null) return { format: "commonjs", source: stub, shortCircuit: true };
+
   if (TRANSFORMABLE.test(norm)) {
     const src = fs.readFileSync(file, "utf8");
     // Only compile what Node cannot run as published — see needsTransform. A file V8
