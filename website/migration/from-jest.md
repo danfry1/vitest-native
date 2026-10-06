@@ -111,7 +111,7 @@ Under Jest, babel-jest ran your `babel.config.js` on every file. vitest-native d
 |---|---|
 | `babel-plugin-macros` (`'macros'`), `@lingui/babel-plugin-lingui-macro`, other macro plugins | **Required.** A macro is compiled away at build time; without the plugin the macro module is imported for real and fails, typically with `Cannot find module 'babel-plugin-macros'`. |
 | `babel-plugin-module-resolver` (`'module-resolver'`) | Its `alias` entries become `resolve.alias` (same exact-or-`key/` prefix rule). `migrate` writes them. |
-| `react-native-worklets/plugin`, `react-native-reanimated/plugin` | Not needed: the auto-detected worklets/reanimated presets replace those libraries, so no worklet runs. |
+| `react-native-worklets/plugin`, `react-native-reanimated/plugin` | Not needed when the worklets/reanimated preset is active (it replaces the library, so no worklet runs) or the library is not installed; otherwise listed for you to judge. |
 | `babel-plugin-react-compiler` | Not needed: it only adds memoization, and components render the same without it. |
 | anything else | Listed for you to judge — check whether a test depends on what it does. |
 

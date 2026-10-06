@@ -18,12 +18,15 @@ Other changes:
 - Flags that the `test` script passes to Jest are applied over the config as Jest applies them:
   `--testTimeout`, `--maxWorkers`, `--runInBand` and `--config`. `--bail` is reported rather than
   mapped because Vitest's `bail` counts failed tests, not suites.
-- Anchored `moduleNameMapper` keys (`^name$`) become exact `resolve.alias` entries. A mapper that
-  points into `node_modules` for a specifier the package's `exports` already serves is dropped.
-- `transformIgnorePatterns` allowlists with nested and optional groups are now parsed. Each allowed
-  dependency is classified: packages that React Native or a preset handles, packages that are
-  detected automatically, and ES-module packages need nothing. Only the remaining packages go into
-  `transform`.
+- Anchored `moduleNameMapper` keys (`^name$`) become exact `resolve.alias` entries. A mapper whose
+  target is a file of the same package, for a specifier that package's `exports` already serves, is
+  dropped; a redirect to another package is kept.
+- `transformIgnorePatterns` allowlists with nested and optional groups are now parsed. A package
+  goes into `transform` only when it ships a `.js` file under its entry point that is not standard
+  JavaScript (JSX or Flow) and the engine does not already compile it; the report names that file.
+- Packages that run their own test mode under Vitest (react-native-mmkv 3 and later) are not
+  credited to a preset by either command, and the engine-detection baseline both commands use
+  is computed with the presets the plugin would actually enable.
 - The project's Babel config is read, and its plugins are sorted into required (macro plugins),
   mapped (`module-resolver` aliases become `resolve.alias`), not needed (worklets/reanimated
   plugins, React Compiler) and unknown. `migrate` adds required plugins through
