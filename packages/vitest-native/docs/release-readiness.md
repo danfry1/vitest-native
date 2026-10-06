@@ -66,6 +66,10 @@ change.
   Node 22 leg, which made that leg the critical path: 9.1 minutes against under 4 for every other
   leg. Standard runners are free for public repositories and no job waited in a queue, so the extra
   jobs cost nothing.
+- **The RN version matrix** runs every cell (`.github/rn-matrix.json`) on each push to `main`, weekly and
+  on manual runs; a pull request runs the ends of the React Native range in every Vitest column (6 of 16
+  cells), or every cell when it changes the matrix definition. About 16 job-minutes per pull request
+  drop to about 6, and every cell still runs before a release.
 - **Pushes to `main` run everything**, even though branch protection requires a pull request to be up
   to date first. A pull request's caches are scoped to its merge ref and only its re-runs can restore
   them; the caches every pull request starts from are the ones `main` saves. `pages.yml` also

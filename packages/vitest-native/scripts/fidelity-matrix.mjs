@@ -92,24 +92,14 @@ function describeCell(reportPath, report) {
  */
 function expectedCells() {
   try {
-    const wf = fs.readFileSync(
-      path.join(repoRoot, ".github", "workflows", "native-rn-matrix.yml"),
-      "utf8",
+    // The one definition native-rn-matrix.yml runs (.github/scripts/rn-matrix.mjs).
+    const matrix = JSON.parse(
+      fs.readFileSync(path.join(repoRoot, ".github", "rn-matrix.json"), "utf8"),
     );
-    const lines = wf.split("\n");
-    const axis = (name) => {
-      const line = lines.find((l) => new RegExp(`^\\s*${name}:\\s*\\[`).test(l));
-      return [...(line?.matchAll(/'([^']+)'/g) ?? [])].map((m) => m[1]);
-    };
-    const rns = axis("rn");
-    const flavors = axis("vitest");
-    if (rns.length === 0 || flavors.length === 0) return null;
-    const cells = new Set(rns.flatMap((rn) => flavors.map((f) => `${rn}-${f}`)));
-    // `include:` entries add cells outside the cross product.
-    const includeBlock = wf.slice(wf.indexOf("include:"));
-    for (const m of includeBlock.matchAll(/-\s*rn:\s*'([^']+)'\s*\n\s*vitest:\s*'([^']+)'/g)) {
-      cells.add(`${m[1]}-${m[2]}`);
-    }
+    if (!matrix.rn?.length || !matrix.vitest?.length) return null;
+    const cells = new Set(matrix.rn.flatMap((rn) => matrix.vitest.map((f) => `${rn}-${f}`)));
+    // `include` entries add cells outside the cross product.
+    for (const extra of matrix.include ?? []) cells.add(`${extra.rn}-${extra.vitest}`);
     return cells;
   } catch {
     return null;
