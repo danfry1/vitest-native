@@ -889,6 +889,29 @@ export function pinInlineProjectRoots(test: unknown, declaringRoot: string): num
   return pinned;
 }
 
+/**
+ * Run React Native's setup before the user's own setup files.
+ *
+ * Vite merges a config hook's returned arrays AFTER the user's (`mergeConfig`
+ * concatenates left to right), so returning `setupFiles: [ours]` ran every user setup
+ * file first. A user setup that imports `@testing-library/react-native` or
+ * `react-native` then reached Node before the require hooks existed and failed on
+ * React Native's Flow source ("Unexpected token 'typeof'"). The hot runtime hid this
+ * by installing the hooks at worker boot; every other run broke. Jest has the same
+ * ordering contract: a preset's `setupFiles` run before the project's
+ * `setupFilesAfterEnv`. Moving the entry into the user's list (and out of the merged
+ * result) keeps a single copy at the front.
+ */
+function prependSetupFile(userConfig: UserConfig, contributed: { setupFiles?: unknown }): void {
+  const ours = (contributed.setupFiles as string[])[0];
+  const userTest = ((userConfig as { test?: { setupFiles?: unknown } }).test ??= {});
+  const existing = userTest.setupFiles;
+  const userFiles = Array.isArray(existing) ? existing : existing == null ? [] : [existing];
+  if (userFiles.length === 0) return;
+  userTest.setupFiles = [ours, ...userFiles.filter((f) => f !== ours)];
+  contributed.setupFiles = (contributed.setupFiles as string[]).slice(1);
+}
+
 function hasSetupFile(setupFiles: unknown, file: string): boolean {
   const real = (f: string) => {
     try {
@@ -2157,6 +2180,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         )?.test;
         if (Array.isArray(test?.setupFiles) && typeof test.setupFiles[0] === "string") {
           contributedSetup.set(vitestRootOf(userConfig), test.setupFiles[0]);
+          prependSetupFile(userConfig, test);
         }
         // Both engines add `react-native` to the conditions Vitest forwards to every
         // worker, where it also governs how Vitest loads the test environment. Preload
