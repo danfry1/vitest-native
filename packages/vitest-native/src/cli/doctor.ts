@@ -17,7 +17,12 @@ import { createHotMemoryPlan, formatHotMemoryPlan } from "../native/memory.mjs";
 import { HOT_STATE_MANIFEST_ENTRIES } from "../native/state-manifest.mjs";
 import { AUTO_DETECT_PRESETS, PRESET_MODULES } from "../preset-map.js";
 import { babelRecipe, classifyBabelPlugins, readBabelConfig, viteMajor } from "./babel-config.js";
-import { activePresets, installedManifest, installedMajor, testsItself } from "./manifest.js";
+import {
+  activePresets,
+  installedManifest,
+  installedMajor,
+  installedTestsItself,
+} from "./manifest.js";
 import { PEER_REQUIREMENTS } from "../peer-requirements.js";
 
 export interface DoctorResult {
@@ -398,7 +403,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   const detected: string[] = [];
   for (const [pkg, preset] of Object.entries(AUTO_DETECT_PRESETS)) {
     if (!installedManifest(root, pkg)) continue;
-    if (testsItself(root, pkg)) {
+    if (installedTestsItself(root, pkg)) {
       lines.push(
         `  · ${pkg} ${installedMajor(root, pkg)} runs its own test mode under Vitest, so no preset replaces it`,
       );

@@ -704,6 +704,27 @@ describe("packages that test themselves (react-native-mmkv 3+)", () => {
     expect(lines).not.toContain("react-native-mmkv → mmkv");
     expect(runDoctor(mmkvApp("2.12.0")).lines.join("\n")).toContain("react-native-mmkv → mmkv");
   });
+
+  it("doctor's ownership baseline treats mmkv 3+ as an ordinary detected package", () => {
+    // The baseline only prints under the native engine, so give the fixture the
+    // packages engine detection looks for.
+    const nativeApp = (version: string) => {
+      const root = mmkvApp(version);
+      for (const name of ["react-native", "@react-native", "@babel", "react"]) {
+        const target = path.join(root, "node_modules", name);
+        if (!fs.existsSync(target)) {
+          fs.symlinkSync(path.join(packageRoot, "node_modules", name), target);
+        }
+      }
+      return root;
+    };
+    const baseline = (version: string) =>
+      runDoctor(nativeApp(version))
+        .lines.find((l) => l.includes("Node / native transform / reset per file"))
+        ?.split(": ")[1] ?? "";
+    expect(baseline("3.1.0")).toContain("react-native-mmkv");
+    expect(baseline("2.12.0")).not.toContain("react-native-mmkv");
+  });
 });
 
 /**

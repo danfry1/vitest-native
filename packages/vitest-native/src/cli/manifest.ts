@@ -10,7 +10,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { AUTO_DETECT_PRESETS, SELF_TESTING_FROM_MAJOR, type PresetName } from "../preset-map.js";
+import { AUTO_DETECT_PRESETS, testsItself, type PresetName } from "../preset-map.js";
 
 /** A package's manifest, found by walking node_modules upward from root, or null. */
 export function installedManifest(root: string, pkg: string): Record<string, unknown> | null {
@@ -35,15 +35,11 @@ export function installedMajor(root: string, pkg: string): number | null {
 }
 
 /**
- * Whether the installed `pkg` runs its own test mode under Vitest
- * (SELF_TESTING_FROM_MAJOR — the same table the plugin's presetForInstalled reads),
- * so no preset replaces it.
+ * Whether the installed `pkg` runs its own test mode under Vitest, so no preset
+ * replaces it — preset-map's `testsItself`, the rule the plugin applies.
  */
-export function testsItself(root: string, pkg: string): boolean {
-  const floor = SELF_TESTING_FROM_MAJOR[pkg as keyof typeof AUTO_DETECT_PRESETS];
-  if (floor === undefined) return false;
-  const major = installedMajor(root, pkg);
-  return major !== null && major >= floor;
+export function installedTestsItself(root: string, pkg: string): boolean {
+  return testsItself(pkg, installedManifest(root, pkg)?.version);
 }
 
 /**
@@ -55,7 +51,7 @@ export function activePresets(root: string, disabled: readonly string[] = []): P
   const active = new Set<PresetName>();
   for (const [pkg, preset] of Object.entries(AUTO_DETECT_PRESETS)) {
     if (disabled.includes(preset)) continue;
-    if (installedManifest(root, pkg) && !testsItself(root, pkg)) active.add(preset);
+    if (installedManifest(root, pkg) && !installedTestsItself(root, pkg)) active.add(preset);
   }
   return [...active];
 }

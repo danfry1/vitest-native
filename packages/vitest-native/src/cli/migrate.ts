@@ -39,7 +39,12 @@ import {
   serializableOptions,
   viteMajor,
 } from "./babel-config.js";
-import { activePresets, installedManifest, installedMajor, testsItself } from "./manifest.js";
+import {
+  activePresets,
+  installedManifest,
+  installedMajor,
+  installedTestsItself,
+} from "./manifest.js";
 import { STAR, tryExpand } from "./regex-subset.js";
 import { untranspiledFile } from "./untranspiled.js";
 
@@ -673,7 +678,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
           presetCovered.push(
             `__mocks__/${candidate} — the auto-detected ${preset} preset shadows ${candidate}; delete the manual mock.`,
           );
-        } else if (installedManifest(root, candidate) && testsItself(root, candidate)) {
+        } else if (installedManifest(root, candidate) && installedTestsItself(root, candidate)) {
           attention.push(
             `__mocks__/${candidate} — ${candidate} ${installedMajor(root, candidate)} runs its own test ` +
               `mode under Vitest, so no preset replaces it, and Vitest applies a root __mocks__ file ` +
