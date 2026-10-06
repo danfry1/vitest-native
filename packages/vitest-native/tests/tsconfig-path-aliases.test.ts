@@ -90,6 +90,40 @@ describe("tsconfigPathAliases", () => {
     expect(tsconfigPathAliases(root).entries).toEqual([["#/", `${path.join(root, "src")}/`]]);
   });
 
+  it("resolves a leaf's paths against a baseUrl inherited from its base", () => {
+    // A common monorepo layout: the root base sets baseUrl, the app sets paths.
+    const root = project({
+      "tsconfig.base.json": `{ "compilerOptions": { "baseUrl": "." } }`,
+      "packages/app/tsconfig.json": `{
+        "extends": "../../tsconfig.base.json",
+        "compilerOptions": { "paths": { "#/*": ["packages/app/src/*"] } }
+      }`,
+    });
+    expect(tsconfigPathAliases(path.join(root, "packages/app")).entries).toEqual([
+      ["#/", `${path.join(root, "packages/app/src")}/`],
+    ]);
+  });
+
+  it("sees a shared base through both sides of a diamond", () => {
+    const root = project({
+      "shared.json": `{ "compilerOptions": { "baseUrl": "./lib" } }`,
+      "a.json": `{ "extends": "./shared.json" }`,
+      "b.json": `{ "extends": "./shared.json", "compilerOptions": { "paths": { "@/*": ["x/*"] } } }`,
+      "tsconfig.json": `{ "extends": ["./a.json", "./b.json"] }`,
+    });
+    expect(tsconfigPathAliases(root).entries).toEqual([["@/", `${path.join(root, "lib/x")}/`]]);
+  });
+
+  it("expands ${configDir} to the directory of the tsconfig in use", () => {
+    const root = project({
+      "config/base.json": `{ "compilerOptions": { "paths": { "~/*": ["\${configDir}/src/*"] } } }`,
+      "app/tsconfig.json": `{ "extends": "../config/base.json" }`,
+    });
+    expect(tsconfigPathAliases(path.join(root, "app")).entries).toEqual([
+      ["~/", `${path.join(root, "app/src")}/`],
+    ]);
+  });
+
   it("reports patterns a prefix alias cannot express instead of guessing", () => {
     const root = project({
       "tsconfig.json": `{ "compilerOptions": { "paths": { "*-icons": ["./icons/*"], "a/*/b": ["./x/*/b"] } } }`,

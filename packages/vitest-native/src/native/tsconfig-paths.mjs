@@ -7,8 +7,10 @@
 // required. These are the entries that resolution needs, read with TypeScript's rules:
 //   - `paths` targets are relative to `baseUrl` when set, else to the tsconfig that
 //     declares `paths` (TypeScript 4.1+);
-//   - `paths` and `baseUrl` are inherited through `extends`, and a config that declares
-//     `paths` replaces its base's entirely (no merging);
+//   - `paths` and `baseUrl` are each inherited through `extends`, separately (a base's
+//     `baseUrl` applies to a leaf's `paths`), and a config that declares `paths`
+//     replaces its base's entirely (no merging);
+//   - `${configDir}` expands to the directory of the tsconfig in use (TypeScript 5.5);
 //   - only the first target of each entry is used, as resolution tries it first.
 // A pattern TypeScript allows but a prefix alias cannot express (a `*` anywhere but the
 // end, or a target without the matching `*`) is reported as skipped, not guessed.
@@ -90,28 +92,38 @@ function resolveExtends(spec, fromDir) {
   return null;
 }
 
-/** The effective `paths` (with the directory they are relative to), or null. */
-function effectivePaths(file, seen = new Set()) {
-  if (seen.has(file) || seen.size > 16) return null;
-  seen.add(file);
+// `${configDir}` (TypeScript 5.5) in `baseUrl` or a `paths` target names the directory
+// of the tsconfig in use — the leaf of the `extends` chain, not the file declaring it.
+function withConfigDir(value, leafDir) {
+  return value.replaceAll("${configDir}", leafDir);
+}
+
+/**
+ * The compiler options that decide `paths` resolution, merged along `extends` as
+ * TypeScript does: bases in order, later ones winning, the extending file over all of
+ * them. `paths` and `baseUrl` are tracked separately, each with the directory that
+ * declared it, because a base may set `baseUrl` while the leaf sets `paths`. Cycles are
+ * cut per chain (a stack, not a global set), so two bases sharing a third both see it.
+ */
+function effectiveOptions(file, leafDir, stack = []) {
+  if (stack.includes(file) || stack.length > 16) return {};
   const config = readConfig(file);
-  if (!config) return null;
+  if (!config) return {};
   const dir = path.dirname(file);
+  let merged = {};
+  for (const spec of [config.extends ?? []].flat().filter((s) => typeof s === "string")) {
+    const base = resolveExtends(withConfigDir(spec, leafDir), dir);
+    if (base) merged = { ...merged, ...effectiveOptions(base, leafDir, [...stack, file]) };
+  }
   const options = config.compilerOptions ?? {};
-  const bases = [config.extends ?? []].flat().filter((s) => typeof s === "string");
-  // Later entries of an `extends` array win, as TypeScript applies them in order.
-  let inherited = null;
-  for (const spec of bases) {
-    const base = resolveExtends(spec, dir);
-    const hit = base ? effectivePaths(base, seen) : null;
-    if (hit) inherited = hit;
+  if (typeof options.baseUrl === "string") {
+    merged.baseUrl = path.resolve(dir, withConfigDir(options.baseUrl, leafDir));
   }
-  const baseUrl = typeof options.baseUrl === "string" ? path.resolve(dir, options.baseUrl) : null;
   if (options.paths && typeof options.paths === "object") {
-    return { paths: options.paths, base: baseUrl ?? inherited?.baseUrl ?? dir, baseUrl };
+    merged.paths = options.paths;
+    merged.pathsDir = dir;
   }
-  if (inherited && baseUrl) return { ...inherited, base: baseUrl, baseUrl };
-  return inherited;
+  return merged;
 }
 
 /**
@@ -121,15 +133,20 @@ function effectivePaths(file, seen = new Set()) {
 export function tsconfigPathAliases(projectRoot) {
   const entries = [];
   const skipped = [];
-  const found = effectivePaths(path.join(projectRoot, "tsconfig.json"));
-  if (!found) return { entries, skipped };
+  const leafDir = path.resolve(projectRoot);
+  const found = effectiveOptions(path.join(leafDir, "tsconfig.json"), leafDir);
+  if (!found.paths) return { entries, skipped };
+  // Targets resolve against `baseUrl` when one is in effect, else against the config
+  // that declared `paths`.
+  const base = found.baseUrl ?? found.pathsDir;
   for (const [pattern, targets] of Object.entries(found.paths)) {
-    const target = Array.isArray(targets) ? targets[0] : null;
-    if (typeof target !== "string") continue;
+    const raw = Array.isArray(targets) ? targets[0] : null;
+    if (typeof raw !== "string") continue;
+    const target = withConfigDir(raw, leafDir);
     const patternStars = pattern.split("*").length - 1;
     const targetStars = target.split("*").length - 1;
     if (patternStars === 0 && targetStars === 0) {
-      entries.push([pattern, path.resolve(found.base, target)]);
+      entries.push([pattern, path.resolve(base, target)]);
     } else if (
       patternStars === 1 &&
       targetStars === 1 &&
@@ -137,7 +154,7 @@ export function tsconfigPathAliases(projectRoot) {
       target.endsWith("/*")
     ) {
       // `#/*` → `./src/*` becomes the prefix alias `#/` → `<abs>/src/`.
-      entries.push([pattern.slice(0, -1), `${path.resolve(found.base, target.slice(0, -2))}/`]);
+      entries.push([pattern.slice(0, -1), `${path.resolve(base, target.slice(0, -2))}/`]);
     } else {
       skipped.push(pattern);
     }
