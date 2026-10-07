@@ -115,7 +115,8 @@ export function untranspiledFile(root: string, pkg: string): string | null {
           allowAwaitOutsideFunction: true,
         });
       } catch {
-        return path.relative(dir, file);
+        // POSIX separators, so the report reads the same on every platform.
+        return path.relative(dir, file).split(path.sep).join("/");
       }
     }
   }

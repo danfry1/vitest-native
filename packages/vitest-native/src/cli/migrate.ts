@@ -75,7 +75,7 @@ function loadConfigFile(
   file: string,
 ): { source: string; config: JestConfig | null } | null {
   const abs = path.resolve(root, file);
-  const name = path.relative(root, abs) || file;
+  const name = path.relative(root, abs).split(path.sep).join("/") || file;
   if (!fs.existsSync(abs)) return null;
   if (!/\.(c?js|json)$/.test(abs)) return { source: name, config: null };
   try {

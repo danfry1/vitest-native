@@ -203,7 +203,9 @@ describe("ignore-pattern regexes become exclude globs", () => {
       }
     }
     expect(converted).toBeGreaterThan(100);
-  });
+    // Globs over 100+ generated patterns on a real directory: Windows file-system
+    // walks pushed it past the 5 s default (5.5 s measured on windows-latest).
+  }, 30_000);
 
   it("selects exactly the files Jest's regex does, measured with tinyglobby", () => {
     const root = tree(TREE.filter((p) => !p.startsWith("node_modules/")));
@@ -781,7 +783,9 @@ describe("the generated config, executed", () => {
       });
       expect(listed.status, listed.stderr).toBe(0);
       const files = (JSON.parse(listed.stdout) as { file: string }[])
-        .map((f) => path.relative(fs.realpathSync(root), fs.realpathSync(f.file)))
+        .map((f) =>
+          path.relative(fs.realpathSync(root), fs.realpathSync(f.file)).split(path.sep).join("/"),
+        )
         .sort();
       expect(files).toEqual([
         "src/components/Button.test.tsx",
