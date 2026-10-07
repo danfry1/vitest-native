@@ -42,7 +42,7 @@ Requirements: Node >= 20, Vitest >= 4 < 5, Vite ^6.4.2 or ^7.3.2 or ^8.0.5, Reac
 
 ## Presets (auto-detected, apply under both engines)
 
-reanimated, worklets, gestureHandler, safeAreaContext, navigation, screens, asyncStorage, expo, deviceInfo, mmkv, svg, webview, vectorIcons, flashList, bottomSheet, keyboardController. Coming from Jest, delete manual native-library mocks when a matching preset covers them.
+The full list, with the exact packages each preset shadows, is at https://danfry1.github.io/vitest-native/guide/presets#available-presets. Coming from Jest, delete a manual native-library mock only when a preset shadows that exact package.
 
 ## Test helpers (`vitest-native/helpers`)
 

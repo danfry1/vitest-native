@@ -104,6 +104,7 @@ function ctxFor(projectRoot) {
   const req = createRequire(path.join(root, "package.json"));
   let preset;
   let flowEnums;
+  let exportNamespaceFrom = null;
   let presetVersion;
   let babelVersion;
   try {
@@ -131,6 +132,17 @@ function ctxFor(projectRoot) {
       // failing the run. Flow enums are rare and only two React Native files use them.
       flowEnums = null;
     }
+    // `export * as ns from '…'` (ES2020). Babel's CommonJS transform, which the React
+    // Native preset runs, rejects it unless this plugin rewrites it first — so bare
+    // React Native's Metro rejects it too, while Expo's Metro accepts it because
+    // babel-preset-expo carries the plugin. Applied when the project's toolchain has it,
+    // so app source required through Node (`jest.requireActual`, `require('#/…')`)
+    // compiles exactly where the project's own bundler would.
+    try {
+      exportNamespaceFrom = req.resolve("@babel/plugin-transform-export-namespace-from");
+    } catch {
+      exportNamespaceFrom = null;
+    }
     presetVersion = req("@react-native/babel-preset/package.json").version;
     babelVersion = req("@babel/core/package.json").version;
   } catch {
@@ -149,10 +161,20 @@ function ctxFor(projectRoot) {
   const babelEnv = process.env.BABEL_ENV || process.env.NODE_ENV || "none";
   const cacheDir = path.join(
     cacheRootFor(root),
-    `transform-${presetVersion}-b${babelVersion}-${babelEnv}-v${TRANSFORM_CACHE_VERSION}`,
+    // The optional plugin changes output, so its presence keys the directory too.
+    `transform-${presetVersion}-b${babelVersion}-${babelEnv}-v${TRANSFORM_CACHE_VERSION}${exportNamespaceFrom ? "-ns" : ""}`,
   );
   fs.mkdirSync(cacheDir, { recursive: true });
-  const ctx = { req, preset, flowEnums, cacheDir, babel: null, mem: new Map(), writeSeq: 0 };
+  const ctx = {
+    req,
+    preset,
+    flowEnums,
+    exportNamespaceFrom,
+    cacheDir,
+    babel: null,
+    mem: new Map(),
+    writeSeq: 0,
+  };
   contexts.set(root, ctx);
   return ctx;
 }
@@ -382,7 +404,7 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
     if (!ctx.babel) ctx.babel = ctx.req("@babel/core");
     out = ctx.babel.transformSync(src, {
       filename: file,
-      plugins: ctx.flowEnums ? [ctx.flowEnums] : [],
+      plugins: [ctx.flowEnums, ctx.exportNamespaceFrom].filter(Boolean),
       presets: [[ctx.preset, { disableStaticViewConfigsCodegen: true }]],
       babelrc: false,
       configFile: false,

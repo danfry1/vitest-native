@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import type * as Presets from "./presets/index.js";
 
 /** Valid preset factory names exported from `presets/index.ts`. */
@@ -41,3 +43,73 @@ export const AUTO_DETECT_PRESETS = {
   "@gorhom/bottom-sheet": "bottomSheet",
   "react-native-keyboard-controller": "keyboardController",
 } as const satisfies Record<string, PresetName>;
+
+/**
+ * Packages whose own JavaScript switches to a built-in in-memory implementation under
+ * Vitest, from the given major on. Their preset would replace the real library with a
+ * hand-written approximation, so it steps aside and the library tests itself:
+ * - react-native-mmkv 3+: `isTest()` checks `VITEST_WORKER_ID` (and Jest's
+ *   `JEST_WORKER_ID`), and `createMMKV` then returns `createMockMMKV()` — the real
+ *   API (v4's `remove`, change listeners) with no native module. v4 imports
+ *   react-native-nitro-modules at load time, which the native engine's Nitro boundary
+ *   satisfies (see native/boundary.mjs). Before v3 there was no Vitest check.
+ */
+export const SELF_TESTING_FROM_MAJOR: Partial<Record<keyof typeof AUTO_DETECT_PRESETS, number>> = {
+  "react-native-mmkv": 3,
+};
+
+/** Whether `pkgName` at `version` runs its own test mode (SELF_TESTING_FROM_MAJOR). */
+export function testsItself(pkgName: string, version: unknown): boolean {
+  const floor = SELF_TESTING_FROM_MAJOR[pkgName as keyof typeof AUTO_DETECT_PRESETS];
+  if (floor === undefined || typeof version !== "string") return false;
+  const major = Number.parseInt(version, 10);
+  return !Number.isNaN(major) && major >= floor;
+}
+
+/**
+ * The installed version, from the package's own manifest on disk. Not
+ * `require('<pkg>/package.json')`: a package whose `exports` map omits ./package.json
+ * throws there, and a gate that fails closed would put the preset back over a library
+ * that tests itself, silently.
+ */
+function installedVersion(pkgName: string, req: NodeJS.Require): unknown {
+  let dir: string;
+  try {
+    dir = path.dirname(req.resolve(pkgName));
+  } catch {
+    return undefined;
+  }
+  for (;;) {
+    const file = path.join(dir, "package.json");
+    if (fs.existsSync(file)) {
+      try {
+        const manifest = JSON.parse(fs.readFileSync(file, "utf8")) as {
+          name?: unknown;
+          version?: unknown;
+        };
+        if (manifest.name === pkgName) return manifest.version;
+      } catch {
+        // An unreadable manifest on the way up: keep walking.
+      }
+    }
+    const up = path.dirname(dir);
+    if (up === dir) return undefined;
+    dir = up;
+  }
+}
+
+/**
+ * The preset that shadows `pkgName` in this project, or null when the package is not
+ * installed or tests itself (SELF_TESTING_FROM_MAJOR). Every place that decides which
+ * presets are active asks this, so the plugin, the worker setup and ecosystem
+ * detection cannot disagree about a package.
+ */
+export function presetForInstalled(pkgName: string, req: NodeJS.Require): PresetName | null {
+  try {
+    req.resolve(pkgName);
+  } catch {
+    return null;
+  }
+  if (testsItself(pkgName, installedVersion(pkgName, req))) return null;
+  return AUTO_DETECT_PRESETS[pkgName as keyof typeof AUTO_DETECT_PRESETS] ?? null;
+}

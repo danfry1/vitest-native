@@ -27,7 +27,7 @@ features:
   - title: Zero config
     details: One plugin auto-injects setup files, configures @testing-library/react-native, stubs assets, and resolves platform-specific files. No manual setupFiles, no jest-preset, no transformIgnorePatterns.
   - title: Presets for the ecosystem
-    details: Reanimated, Gesture Handler, Safe Area, Navigation, Screens, AsyncStorage, MMKV, SVG, WebView, Device Info, and Expo are auto-detected and shadowed — under both engines. Delete your manual native-lib mocks.
+    details: Native-runtime libraries such as Reanimated, Gesture Handler, Safe Area and Navigation are auto-detected and shadowed under both engines, and libraries with their own test mode run as themselves. See the preset list for exactly what is covered.
   - title: One runner across your codebase
     details: Already using Vitest for web or server code? Get Vitest's watch mode, UI, and native ESM tooling for your React Native tests too. One runner, one config language.
   - title: Adopt incrementally

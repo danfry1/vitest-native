@@ -12,6 +12,7 @@ import * as presetFactories from "../presets.mjs";
 import { animatedMatchers } from "../matchers.mjs";
 import { serializer as rnSerializer } from "../serializer.mjs";
 import { VitestNativeError } from "../errors.mjs";
+import { installNitroProxy } from "./nitro.mjs";
 
 // Non-enumerable key on the preset container: the mocks built so far in this file.
 const PRESETS_BUILT = Symbol.for("vitest-native.presets-built");
@@ -187,6 +188,8 @@ if (process.env.VITEST_NATIVE_RN_REGISTRY) {
     );
   }
 }
+// The NitroModules boundary's install() calls this (see nitro.mjs).
+globalThis.__vitest_native_install_nitro = () => installNitroProxy(projectRoot);
 installRequireHooks(
   projectRoot,
   nodeTransformPkgs,
