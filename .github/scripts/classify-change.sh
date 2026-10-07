@@ -8,8 +8,10 @@
 #
 # Two website pages are NOT prose: fidelity.md and fidelity-matrix.md are GENERATED
 # from the live corpus and gated by fidelity:check / the matrix placeholder test, so a
-# hand-edit there must still fail CI the way it did in #181. Anything other than a
-# pull request (a push to main, a schedule, a manual run) is never docs-only.
+# hand-edit there must still fail CI the way it did in #181. A merge-queue group is
+# classified the same way, over the diff from its base to its head, which spans every
+# pull request queued in it. Anything else (a push to main, a schedule, a manual run)
+# is never docs-only.
 #
 # Usage: classify-change.sh <event> <base-sha> <head-sha>   (needs full history)
 # Writes `docs-only=true|false` to $GITHUB_OUTPUT when set, and always to stdout.
@@ -17,7 +19,7 @@ set -euo pipefail
 
 event=$1 base=${2:-} head=${3:-}
 docs_only=false
-if [ "$event" = "pull_request" ]; then
+if [ "$event" = "pull_request" ] || [ "$event" = "merge_group" ]; then
   docs_only=true
   while IFS= read -r f; do
     [ -z "$f" ] && continue
