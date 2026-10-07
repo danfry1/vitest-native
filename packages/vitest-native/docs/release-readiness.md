@@ -61,12 +61,13 @@ change.
 - **Docs-only pull requests** skip the gates by a job condition (`.github/scripts/classify-change.sh`).
   GitHub reports a job skipped by a condition as successful, but leaves the checks of a workflow
   skipped by a `paths` filter pending, which would block a required check.
-- **Pull requests land through GitHub's merge queue.** Each queued group (`main` plus the pull
-  requests ahead of it) runs the required checks on the `merge_group` event before it merges, with
-  every cell of the RN matrix, so the last check before `main` is the complete one. Two changes that
-  each pass alone are tested together, which is how the package budget twice turned `main` red, and
-  pull requests no longer need updating against `main` one at a time. A docs-only group skips the
-  gates by the same rule as a docs-only pull request, over the diff of the whole group.
+- **Merge-queue ready, not enabled.** The workflows that produce the required checks also run on
+  the `merge_group` event, a queued group runs every cell of the RN matrix, and a docs-only group skips
+  the gates by the same rule as a docs-only pull request. GitHub offers merge queues only to
+  organization-owned repositories, and this one is owned by a personal account, so branch
+  protection instead requires a pull request to be up to date with `main` before it merges. If the
+  repository moves to an organization, enabling the queue (and dropping the up-to-date requirement)
+  needs no workflow change.
 - **The single-leg packed gates** (consumers, Vitest semantics per major, the hot-runtime and registry
   gates) run as parallel cells of one `Packed gate` job. They used to run in sequence on the Linux
   Node 22 leg, which made that leg the critical path: 9.1 minutes against under 4 for every other
@@ -76,7 +77,8 @@ change.
   on manual runs; a pull request runs the ends of the React Native range in every Vitest column (6 of 16
   cells), or every cell when it changes the matrix definition. About 16 job-minutes per pull request
   drop to about 6, and every cell still runs before a release.
-- **Pushes to `main` run everything**, even though the merge queue has just tested the same tree. A pull request's caches are scoped to its merge ref and only its re-runs can restore
+- **Pushes to `main` run everything**, even though branch protection requires a pull request to be up
+  to date first. A pull request's caches are scoped to its merge ref and only its re-runs can restore
   them; the caches every pull request starts from are the ones `main` saves. `pages.yml` also
   publishes the fidelity matrix from the latest successful `main` run of the RN matrix.
 
