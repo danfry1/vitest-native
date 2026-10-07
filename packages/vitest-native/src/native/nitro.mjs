@@ -9,16 +9,28 @@
 //
 // The interface is react-native-nitro-modules' own `NitroModulesProxy`
 // (src/NitroModulesProxy.ts).
+import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { VitestNativeError } from "../errors.mjs";
 
-/** The installed react-native-nitro-modules version, which Nitro compares on load. */
+/**
+ * The installed react-native-nitro-modules version, which Nitro compares on load.
+ *
+ * Read from disk, never `require()`d. Nitro reads its own version with
+ * `require('react-native-nitro-modules/package.json')` from CommonJS that Node loaded
+ * through `import`. Node's JSON translator returns early for a file already in
+ * `Module._cache` without recording it in the cache that path reads, so had this
+ * required the manifest first, Nitro's own require failed with "failed to load module
+ * … using require() due to missed cache" — every test importing react-native-mmkv 4
+ * (found running a real Expo app's suite).
+ */
 function nitroVersion(projectRoot) {
   try {
-    return createRequire(path.join(projectRoot, "package.json"))(
+    const manifest = createRequire(path.join(projectRoot, "package.json")).resolve(
       "react-native-nitro-modules/package.json",
-    ).version;
+    );
+    return JSON.parse(fs.readFileSync(manifest, "utf8")).version;
   } catch {
     return "0.0.0";
   }

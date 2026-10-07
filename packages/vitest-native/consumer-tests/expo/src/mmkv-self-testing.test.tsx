@@ -18,3 +18,11 @@ test("react-native-mmkv 4 runs its own test mode with its real API", () => {
 
   listener.remove();
 });
+
+// Importing Nitro itself, as mmkv does, reaches its compiled TypeScript source, whose
+// require of its own package.json used to fail ("missed cache") once the Nitro
+// boundary had required that manifest first.
+test("react-native-nitro-modules imports under the native engine", async () => {
+  const { NitroModules } = await import("react-native-nitro-modules");
+  expect(NitroModules.hasHybridObject("MMKVFactory")).toBe(false);
+});
