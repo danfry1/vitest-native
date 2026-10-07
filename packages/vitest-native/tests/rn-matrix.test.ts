@@ -21,7 +21,8 @@ const cells = (m: {
 
 describe("the RN matrix selection", () => {
   it("runs every cell outside pull requests", () => {
-    for (const event of ["push", "schedule", "workflow_dispatch"]) {
+    // merge_group: the last check before main is the complete one.
+    for (const event of ["push", "schedule", "workflow_dispatch", "merge_group"]) {
       expect(scopeFor(event, [])).toBe("full");
     }
     expect(cells(matrixFor(definition, "full"))).toHaveLength(
