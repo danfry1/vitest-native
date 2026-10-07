@@ -15,10 +15,28 @@
 - **Expo path aliases resolve.** In an Expo project on Vite 8, imports through tsconfig `paths` (the
   template's `@/…`) now resolve as Metro resolves them; a `vite-tsconfig-paths` plugin or a hand-written
   alias for them can go.
+- **Vitest 5 keeps transformed modules on disk.** The plugin turns on Vitest's `fsModuleCache` unless
+  your config sets it, keyed so that upgrading vitest-native or any dependency invalidates it. Set
+  `test.fsModuleCache: false` to opt out.
+- **react-native-mmkv 3 and later run as themselves.** They detect Vitest and use their own in-memory
+  backend, so the `mmkv` preset now applies to mmkv 2 only. Tests get mmkv's real API (v4's `remove`)
+  and change listeners instead of the preset's approximation.
+- **jest-compat follows Jest more closely.** A name a `jest.mock` factory leaves out is `undefined`
+  instead of an error, `new` on a `jest.fn` with an arrow implementation works, and
+  `process.env.JEST_WORKER_ID` is set, so code that checks for Jest takes its test branch.
 - **`hotRuntime: true` is stricter.** Combined with a configured pool, `test.isolate`, or a conflicting
   CLI flag, it now fails at startup with `HOT_RUNTIME_OVERRIDDEN` instead of warning and overriding.
 
 ### Minor Changes
+
+- 52e80aa: Turn on Vitest 5's persistent transform cache, with a complete cache key
+
+  On Vitest 5 the plugin turns on Vitest's persistent transform cache (`fsModuleCache`) unless the
+  config sets it, and contributes its own part of the cache key through Vitest's cache key
+  generator: the vitest-native version, the plugin's resolved options, and a digest of the project's
+  lockfile. Vitest's own key does not cover plugin versions or what a plugin reads from disk, so
+  without this an upgrade could serve modules transformed by the previous version. Warm runs of a
+  104-file production Expo suite were about 11% faster. Set `test.fsModuleCache: false` to opt out.
 
 - 87d8dd0: Use the hot runtime for suites migrated from Jest under `hotRuntime: 'auto'`
 
@@ -57,6 +75,72 @@
   extensions still apply and one warning names the gap. Default: `false`.
 
 ### Patch Changes
+
+- 041fd77: Fix native-engine gaps found running a production Expo app's existing suite
+
+  - React Native's setup now runs before the project's own setup files. A setup file that imported `react-native` or `@testing-library/react-native` failed on React Native's Flow source whenever the hot runtime was not in use.
+  - Importing `expo` (directly, or through packages such as `expo-location`) works: Expo's dev-server message socket is stubbed on every load path, and packages a compiled CommonJS module requires internally stay shadowed by their presets instead of loading the real native packages.
+  - `require('#/…')` and `jest.requireActual('#/…')` resolve the project's `resolve.alias` entries and, when Vite resolves them for imports, its tsconfig `paths`.
+  - App source required through Node compiles `export * as ns from '…'` when the project's toolchain provides the Babel plugin, as Expo's does.
+  - `react-native-nitro-modules` imports under the native engine: its native install step provides a proxy with no hybrid objects, and creating one throws `NITRO_HYBRID_OBJECT_UNAVAILABLE`.
+  - `react-native-mmkv` 3 and later run their own built-in test mode, with their real API and change listeners; the `mmkv` preset now applies to mmkv 2 only.
+
+- dbb9c74: Match Jest for four behaviours migrated suites depend on in jest-compat
+
+  - **Getters in a `jest.mock` factory are read lazily.** The CommonJS interop copied the factory's return with an object spread, which ran every getter while the factory was evaluated. A factory such as `() => ({ get IS_WEB() { return mockIsWeb } })` runs during the hoisted imports, before the test file's `let mockIsWeb` is initialised, so it threw `Cannot access 'mockIsWeb' before initialization`, and later changes to the variable were never seen. Accessors are now read from the module on each access, as an importer reads them in Jest.
+  - **An export a `jest.mock` factory leaves out is `undefined`.** Jest reads named imports as properties of `module.exports`; Vitest throws `No "x" export is defined on the "m" mock`. Factories passed through `jestMockTransform` now follow Jest. A plain `vi.mock` factory keeps Vitest's strict check.
+  - **`new` on a `jest.fn` with an arrow implementation returns the implementation's result.** Jest applies a mock's implementation whether or not it is called with `new`, so `jest.fn().mockImplementation(() => ({ fetch }))` works as a class mock; Vitest constructs the implementation and throws `… is not a constructor`. Mocks created by `jest.fn` and `jest.spyOn` now follow Jest, including `mockReturnValue` and `mockResolvedValue` under `new`, and a `jest.spyOn` spy with no implementation set calls an arrow-function original under `new` (also after `mockReset()`). A mock that already existed, which `jest.spyOn` returns as it is, is left unchanged, and `vi.fn` is unchanged.
+  - **`process.env.JEST_WORKER_ID` is set.** The compat setup sets it from Vitest's 1-based `VITEST_POOL_ID` when it is not already set, so code that detects a Jest run (for example `__DEV__ && !process.env.JEST_WORKER_ID`) takes its test branch.
+
+- 52e80aa: Run the native engine's ESM loader hooks in-thread where Node supports it
+
+  The native engine's ESM loader hooks now run in-thread through `module.registerHooks()` where Node
+  provides it (22.15+, 23.5+), instead of on a separate loader thread through `module.register()`.
+  Every resolve and load of an externalized module previously waited on a synchronous cross-thread
+  request; profiled on a 104-file production Expo suite, that wait was 18% of worker CPU time. Older
+  Node versions keep the threaded hooks, and `VITEST_NATIVE_LOADER_THREAD=1` forces them.
+
+- 52e80aa: Reuse externalized resolutions across test files under the hot runtime
+
+  Under the hot runtime, externalized imports are no longer re-resolved from scratch for every test
+  file. The per-file generation stamp on parent URLs defeated Node's resolve cache; the loader now
+  keeps successful resolutions per unstamped parent, so Node stops re-reading package.json scopes to
+  decide module formats on every file.
+
+- 6100732: Make `migrate` reproduce Jest's effective test set and settings, and report Babel plugins
+
+  `migrate` translated only an explicit `testMatch`, so a project that took its patterns from a
+  preset or from Jest's defaults was migrated to Vitest's default include instead. On a jest-expo
+  app this collected about twice as many files as Jest ran and missed some of Jest's own tests.
+  The suggested config now uses Jest's effective patterns: the config's `testMatch`, otherwise the
+  installed preset's (read from it the way Jest loads it), otherwise Jest's defaults for the
+  installed major. `testPathIgnorePatterns` and `modulePathIgnorePatterns` become `test.exclude`
+  globs where the regex has an exact glob form (and are reported where it does not), and
+  extensions missing from `moduleFileExtensions` are excluded, since Jest never sees those files.
+
+  Other changes:
+
+  - Flags that the `test` script passes to Jest are applied over the config as Jest applies them:
+    `--testTimeout`, `--maxWorkers`, `--runInBand` and `--config`. `--bail` is reported rather than
+    mapped because Vitest's `bail` counts failed tests, not suites.
+  - Anchored `moduleNameMapper` keys (`^name$`) become exact `resolve.alias` entries. A mapper whose
+    target is a file of the same package, for a specifier that package's `exports` already serves, is
+    dropped; a redirect to another package is kept.
+  - `transformIgnorePatterns` allowlists with nested and optional groups are now parsed. A package
+    goes into `transform` only when it ships a `.js` file under its entry point that is not standard
+    JavaScript (JSX or Flow) and the engine does not already compile it; the report names that file.
+  - Packages that run their own test mode under Vitest (react-native-mmkv 3 and later) are not
+    credited to a preset by either command, and the engine-detection baseline both commands use
+    is computed with the presets the plugin would actually enable.
+  - The project's Babel config is read, and its plugins are sorted into required (macro plugins),
+    mapped (`module-resolver` aliases become `resolve.alias`), not needed (worklets/reanimated
+    plugins, React Compiler) and unknown. `migrate` adds required plugins through
+    `@rolldown/plugin-babel` when Vite 8 and that package are installed, and otherwise prints the
+    snippet to add. `doctor` warns about the same plugins.
+  - The CLI no longer claims more than the presets do. The report and `doctor` name the modules the
+    expo preset shadows instead of saying Expo modules are covered. A manual `__mocks__` file is
+    called redundant only when an active preset shadows that module. Asset mappers are compared with
+    the extensions the plugin stubs by default.
 
 - 2233866: Stop a circular-dependency warning on an Expo project's first run
 
