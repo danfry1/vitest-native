@@ -1,7 +1,8 @@
 // Native-engine setup file (injected into test.setupFiles by the plugin). Installs
 // globals, registers the ESM loader hook, installs the CJS require hooks, and
 // builds any third-party preset mocks the project uses.
-import { createRequire, register } from "node:module";
+import { createRequire, register, registerHooks } from "node:module";
+import * as nativeLoader from "./loader.mjs";
 import path from "node:path";
 import { expect, vi } from "vitest";
 import { installGlobals, installErrorUtils } from "./globals.mjs";
@@ -148,6 +149,42 @@ if (typeof globalThis.expect === "undefined") {
 // file re-evaluates per test file in a persistent worker, and re-registering
 // would stack a new loader-hook layer on every file. (installGlobals and
 // installRequireHooks are internally guarded the same way.)
+/**
+ * Install the ESM loader hooks (loader.mjs).
+ *
+ * `module.register()` runs hooks on a separate loader thread, so every resolve and load
+ * of an externalized module blocks this thread on a synchronous cross-thread request
+ * (Node's makeSyncRequest). Profiled on a 105-file production suite, that wait was 18%
+ * of all worker CPU time. `module.registerHooks()` (Node 22.15+, 23.5+) runs the same
+ * hooks synchronously on this thread instead, so it is used wherever it exists; older
+ * Nodes keep `register()`. VITEST_NATIVE_LOADER_THREAD=1 forces the threaded hooks.
+ *
+ * In-thread hooks also run for `require()`. CommonJS is already handled by the require
+ * hooks (hooks.mjs), so those calls go straight to Node's default resolution, as they
+ * did when only `import` reached the threaded loader.
+ */
+function installLoaderHooks(data) {
+  if (typeof registerHooks !== "function" || process.env.VITEST_NATIVE_LOADER_THREAD === "1") {
+    register("./loader.mjs", import.meta.url, { data });
+    globalThis.__vitest_native_loader_mode = "thread";
+    return;
+  }
+  nativeLoader.initialize(data);
+  globalThis.__vitest_native_loader_mode = "in-thread";
+  const fromRequire = (context) =>
+    Array.isArray(context?.conditions) &&
+    context.conditions.includes("require") &&
+    !context.conditions.includes("import");
+  registerHooks({
+    resolve: (specifier, context, nextResolve) =>
+      fromRequire(context)
+        ? nextResolve(specifier, context)
+        : nativeLoader.resolveSync(specifier, context, nextResolve),
+    load: (url, context, nextLoad) =>
+      fromRequire(context) ? nextLoad(url, context) : nativeLoader.loadSync(url, context, nextLoad),
+  });
+}
+
 if (!globalThis.__vitest_native_loader_registered) {
   globalThis.__vitest_native_loader_registered = true;
   // Hot ESM generation (see loader.mjs): closes the hot runtime's one measured
@@ -162,17 +199,15 @@ if (!globalThis.__vitest_native_loader_registered) {
     globalThis.__vitest_native_hot_generation = new Int32Array(new SharedArrayBuffer(4));
     globalThis.__vitest_native_hot_generation[0] = 1;
   }
-  register("./loader.mjs", import.meta.url, {
-    data: {
-      projectRoot,
-      platform,
-      reactNativeVersion,
-      transformPkgs: nodeTransformPkgs,
-      presetExports,
-      assetExts,
-      sourceExts: process.env.VITEST_NATIVE_SOURCE_EXTS ? sourceExts : undefined,
-      hotGenerationBuffer: globalThis.__vitest_native_hot_generation?.buffer,
-    },
+  installLoaderHooks({
+    projectRoot,
+    platform,
+    reactNativeVersion,
+    transformPkgs: nodeTransformPkgs,
+    presetExports,
+    assetExts,
+    sourceExts: process.env.VITEST_NATIVE_SOURCE_EXTS ? sourceExts : undefined,
+    hotGenerationBuffer: globalThis.__vitest_native_hot_generation?.buffer,
   });
 }
 // Serve React Native from the precompiled registry when the plugin produced one
