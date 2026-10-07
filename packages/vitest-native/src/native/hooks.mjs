@@ -295,25 +295,39 @@ export function installRequireHooks(
     return exportsValue;
   }
 
-  const origLoad = Module._load;
-  Module._load = function (request, parent, ...rest) {
+  // What a require of `request` gets when a preset shadows it, or NO_PRESET. One
+  // function for both ways a preset package is required: by name here, and by resolved
+  // file from CommonJS that the ESM loader compiled (loader.mjs serves those through
+  // globalThis.__vitest_native_preset_require), so the two cannot disagree.
+  const NO_PRESET = Symbol("no preset");
+  function presetExportsFor(request) {
     const mocks = globalThis.__vitest_native_preset_mocks;
-    if (mocks) {
-      if (Object.prototype.hasOwnProperty.call(mocks, request)) return mocks[request];
-      // Subpath require of a preset package — the real deep entry would load the
-      // package's native runtime. Exempt: JSON subpaths (package.json version
-      // gates), asset subpaths (fonts/images, stubbed from their real files by
-      // the Module._extensions handlers above), and Node-safe utility entries
-      // (jest-utils, mock, plugin) — those fall through to the real file.
-      const reqExtMatch = /\.([a-z0-9]+)$/i.exec(request);
-      const reqExt = reqExtMatch ? reqExtMatch[1].toLowerCase() : "";
-      if (reqExt !== "json" && !assetExtSet.has(reqExt) && !isUtilitySubpath(request)) {
-        const pkg = packageNameOf(request);
-        if (pkg !== request && Object.prototype.hasOwnProperty.call(mocks, pkg)) {
-          return presetSubpathExports(mocks, pkg, request);
-        }
+    if (!mocks) return NO_PRESET;
+    if (Object.prototype.hasOwnProperty.call(mocks, request)) return mocks[request];
+    // Subpath require of a preset package — the real deep entry would load the
+    // package's native runtime. Exempt: JSON subpaths (package.json version
+    // gates), asset subpaths (fonts/images, stubbed from their real files by
+    // the Module._extensions handlers above), and Node-safe utility entries
+    // (jest-utils, mock, plugin) — those fall through to the real file.
+    const reqExtMatch = /\.([a-z0-9]+)$/i.exec(request);
+    const reqExt = reqExtMatch ? reqExtMatch[1].toLowerCase() : "";
+    if (reqExt !== "json" && !assetExtSet.has(reqExt) && !isUtilitySubpath(request)) {
+      const pkg = packageNameOf(request);
+      if (pkg !== request && Object.prototype.hasOwnProperty.call(mocks, pkg)) {
+        return presetSubpathExports(mocks, pkg, request);
       }
     }
+    return NO_PRESET;
+  }
+  globalThis.__vitest_native_preset_require = (request, file) => {
+    const shadowed = presetExportsFor(request);
+    return shadowed === NO_PRESET ? Module._load(file, null, false) : shadowed;
+  };
+
+  const origLoad = Module._load;
+  Module._load = function (request, parent, ...rest) {
+    const shadowed = presetExportsFor(request);
+    if (shadowed !== NO_PRESET) return shadowed;
     return origLoad.call(this, request, parent, ...rest);
   };
 

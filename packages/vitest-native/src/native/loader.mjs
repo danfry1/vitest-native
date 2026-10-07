@@ -54,6 +54,12 @@ function resolveExtensionless(base) {
 }
 // Synthetic URL scheme for preset mocks served to the ESM graph (see below).
 const PRESET_SCHEME = "vitest-native-preset:";
+// A preset reached by resolved file: only CommonJS that this loader compiled requires
+// through that path (see presetRequestForFile), and on Node 22.13 that `require` reads
+// a CommonJS cache an ES module job never fills ("Cannot read properties of undefined
+// (reading 'exports')"). So it is served as CommonJS, through the same function the
+// require hook uses for the package name (hooks.mjs).
+const PRESET_CJS_SCHEME = "vitest-native-preset-cjs:";
 let PROJECT_ROOT = process.cwd();
 let PLATFORM = "ios";
 let REACT_NATIVE_VERSION = "0.0.0";
@@ -200,7 +206,11 @@ export async function resolve(specifier, context, nextResolve) {
       ? fileURLToPath(context.parentURL)
       : null;
   const presetRequest = presetRequestForFile(specifier, parent);
-  if (presetRequest) return { url: PRESET_SCHEME + presetRequest, shortCircuit: true };
+  if (presetRequest) {
+    const file = specifier.startsWith("file:") ? fileURLToPath(specifier) : specifier;
+    const query = new URLSearchParams({ request: presetRequest, file });
+    return { url: `${PRESET_CJS_SCHEME}?${query}`, format: "commonjs", shortCircuit: true };
+  }
   let resolved;
   if (
     parent &&
@@ -275,6 +285,13 @@ export async function load(url, context, nextLoad) {
   // Serve the synthetic preset module. The generated source reads the mock built
   // by the native setup file from globalThis (this source executes in the main
   // realm, so globalThis is the populated one), mirroring the Vite virtual:preset.
+  if (url.startsWith(PRESET_CJS_SCHEME)) {
+    const query = new URLSearchParams(url.slice(url.indexOf("?") + 1));
+    const source = `module.exports = globalThis.__vitest_native_preset_require(${JSON.stringify(
+      query.get("request"),
+    )}, ${JSON.stringify(query.get("file"))});`;
+    return { format: "commonjs", source, shortCircuit: true };
+  }
   if (url.startsWith(PRESET_SCHEME)) {
     const specifier = url.slice(PRESET_SCHEME.length);
     const pkg = packageNameOf(specifier);
