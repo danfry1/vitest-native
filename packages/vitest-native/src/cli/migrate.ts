@@ -556,9 +556,10 @@ export function analyzeJestConfig(root: string): MigrationReport {
       );
     }
     if (scriptFlags) {
+      // Only point at "mapped above" when there were flags to map.
+      const mapped = scriptFlags.flags.size > 0 ? " (its flags are mapped above)" : "";
       attention.push(
-        `scripts.test runs Jest — point it at \`vitest run\` once the suite passes (its flags are ` +
-          `mapped above).`,
+        `scripts.test runs Jest — point it at \`vitest run\` once the suite passes${mapped}.`,
       );
     }
     if (otherJestScripts.length) {
