@@ -181,3 +181,21 @@ export function createJestObject(vi) {
     },
   });
 }
+
+// One `jest` per test file, shared by the global and `@jest/globals`, as in Jest where
+// `import { jest } from '@jest/globals'` is the global object. Kept on `vi` (one object
+// per worker) rather than in this module, which can load more than once, and replaced
+// for every file by the compat setup so a reassigned `jest.fn` never outlives its file.
+const CURRENT = Symbol.for("vitest-native.jest-compat.jest");
+
+/** Create this file's `jest` and make it the one `currentJestObject` returns. */
+export function installJestObject(vi) {
+  const jest = createJestObject(vi);
+  Object.defineProperty(vi, CURRENT, { value: jest, configurable: true, writable: true });
+  return jest;
+}
+
+/** The current file's `jest`, or a new one when the compat setup has not run. */
+export function currentJestObject(vi) {
+  return vi[CURRENT] ?? installJestObject(vi);
+}

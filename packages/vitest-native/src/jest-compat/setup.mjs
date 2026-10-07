@@ -15,7 +15,7 @@ import { vi } from "vitest";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { jestMockInterop } from "./interop.mjs";
-import { createJestObject } from "./jest-object.mjs";
+import { installJestObject } from "./jest-object.mjs";
 import { expandAlias } from "./aliases.mjs";
 import { callerFile } from "./caller.mjs";
 import { resolvePlatformFile } from "../native/resolve.mjs";
@@ -240,7 +240,7 @@ if (typeof vi.retryTimes !== "function") {
 
 // `vi`, with Jest's semantics for the mocks `jest.fn`/`jest.spyOn` create (see
 // jest-object.mjs). Everything else, including the members installed above, is `vi`.
-globalThis.jest = createJestObject(vi);
+globalThis.jest = installJestObject(vi);
 
 // Jest sets `JEST_WORKER_ID` in every worker (jest-worker: `JEST_WORKER_ID:
 // String(workerId + 1)`; jest-runner sets "1" when running in band), and code written for Jest tests
