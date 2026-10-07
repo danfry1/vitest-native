@@ -242,6 +242,19 @@ export function presetPackageOfFile(file, parentFile, isPresetPackage) {
 const stripDot = (p) => p.replace(/^\.\//, "");
 const stripExt = (p) => p.replace(/\.(?:[cm]?[jt]sx?|json)$/, "");
 
+/** The value every `*` in `target` stands for when it matches `subpath`, or null. */
+function patternMatch(target, subpath) {
+  const parts = target.split("*");
+  if (parts.length < 2) return null;
+  const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // The first `*` captures; every later one must repeat it.
+  const source = parts
+    .map((part, i) => (i === 0 ? "" : i === 1 ? "(.+?)" : "\\1") + escape(part))
+    .join("");
+  const match = new RegExp(`^${source}$`).exec(subpath);
+  return match ? match[1] : null;
+}
+
 /** Every file target in an `exports` value, whatever its condition nesting. */
 function exportTargets(value) {
   if (typeof value === "string") return [value];
@@ -272,12 +285,11 @@ export function requestForPackageFile(pkg, subpath, manifest) {
           if (t === sub) return key === "." ? pkg : `${pkg}/${stripDot(key)}`;
           continue;
         }
-        // Single-wildcard subpath pattern: "./*": "./dist/*.js".
-        const [before, after] = t.split("*");
-        if (after !== undefined && sub.startsWith(before) && sub.endsWith(after)) {
-          const star = sub.slice(before.length, sub.length - after.length);
-          return `${pkg}/${stripDot(key).replace("*", star)}`;
-        }
+        // Subpath pattern ("./*": "./dist/*.js"). Node allows one `*` in the key and
+        // replaces every `*` in the target with the same match, so the target's stars
+        // are one captured value.
+        const star = patternMatch(t, sub);
+        if (star !== null) return `${pkg}/${stripDot(key).split("*").join(star)}`;
       }
     }
   } else if (typeof exportsField === "string" && stripDot(exportsField) === sub) {

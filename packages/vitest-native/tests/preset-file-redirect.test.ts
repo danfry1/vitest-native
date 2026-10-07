@@ -106,6 +106,20 @@ describe("requestForPackageFile", () => {
   it("maps a wildcard subpath pattern", () => {
     const manifest = { exports: { ".": "./dist/index.js", "./*": "./dist/*.js" } };
     expect(requestForPackageFile("pkg", "dist/Swipeable.js", manifest)).toBe("pkg/Swipeable");
+    expect(
+      requestForPackageFile("pkg", "lib/a.b.js", { exports: { "./sub/*": "./lib/*.js" } }),
+    ).toBe("pkg/sub/a.b");
+  });
+
+  it("treats every `*` in a target as the same value, as Node does", () => {
+    const manifest = { exports: { "./*": "./dist/*/index/*.js" } };
+    expect(requestForPackageFile("pkg", "dist/Button/index/Button.js", manifest)).toBe(
+      "pkg/Button",
+    );
+    // Different values for the two stars: not this pattern, so the path is used.
+    expect(requestForPackageFile("pkg", "dist/Button/index/Other.js", manifest)).toBe(
+      "pkg/dist/Button/index/Other",
+    );
   });
 
   it("uses main, module and react-native entries, with or without an extension", () => {
