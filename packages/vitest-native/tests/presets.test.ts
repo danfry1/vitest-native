@@ -22,7 +22,7 @@ import {
   keyboardController,
 } from "../src/presets/index.js";
 import * as Presets from "../src/presets/index.js";
-import { AUTO_DETECT_PRESETS } from "../src/preset-map.js";
+import { AUTO_DETECT_PRESETS, PRESET_MODULES } from "../src/preset-map.js";
 import { renderHook } from "@testing-library/react-native";
 
 // --- Navigation ---
@@ -1355,5 +1355,19 @@ describe("preset auto-detect map", () => {
       }
     }
     expect(unwired).toEqual([]);
+  });
+
+  // PRESET_MODULES is what `migrate` and `doctor` print when they say what a preset
+  // covers ("the expo preset shadows expo-constants, expo-font, …"). The CLI cannot
+  // import the presets to ask, so the list is written out — and this compares it with
+  // every factory, both ways, so a printed claim cannot outlive the preset it names.
+  it("PRESET_MODULES lists exactly the modules every preset declares", () => {
+    const declared = Object.fromEntries(
+      Object.keys(presets).map((name) => [name, Object.keys(presets[name]().modules).sort()]),
+    );
+    const listed = Object.fromEntries(
+      Object.entries(PRESET_MODULES).map(([name, modules]) => [name, [...modules].sort()]),
+    );
+    expect(listed).toEqual(declared);
   });
 });
