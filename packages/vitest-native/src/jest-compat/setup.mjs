@@ -15,6 +15,7 @@ import { vi } from "vitest";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { jestMockInterop } from "./interop.mjs";
+import { installJestObject } from "./jest-object.mjs";
 import { expandAlias } from "./aliases.mjs";
 import { callerFile } from "./caller.mjs";
 import { resolvePlatformFile } from "../native/resolve.mjs";
@@ -237,7 +238,20 @@ if (typeof vi.retryTimes !== "function") {
   };
 }
 
-globalThis.jest = vi;
+// `vi`, with Jest's semantics for the mocks `jest.fn`/`jest.spyOn` create (see
+// jest-object.mjs). Everything else, including the members installed above, is `vi`.
+globalThis.jest = installJestObject(vi);
+
+// Jest sets `JEST_WORKER_ID` in every worker (jest-worker: `JEST_WORKER_ID:
+// String(workerId + 1)`; jest-runner sets "1" when running in band), and code written for Jest tests
+// for it to detect a test run — e.g. picking a local or production endpoint with
+// `__DEV__ && !process.env.JEST_WORKER_ID`. Unset, that code takes its non-test
+// branch. Vitest's equivalent is `VITEST_POOL_ID`, also a 1-based string, between 1
+// and maxWorkers, so it is the same value Jest would have given this worker. A value
+// already in the environment is left alone.
+if (process.env.JEST_WORKER_ID === undefined) {
+  process.env.JEST_WORKER_ID = process.env.VITEST_POOL_ID ?? "1";
+}
 
 // jest.mock factories are wrapped by jestMockTransform to route their return
 // value through Jest's CommonJS interop (so `import X from` sees the whole mock,
