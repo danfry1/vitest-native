@@ -88,12 +88,81 @@ describe("jest-compat: jestMockInterop (CJS interop semantics)", () => {
 
   it("respects an existing __esModule shape", () => {
     const esm = { __esModule: true, default: "d", a: 1 };
-    expect(jestMockInterop(esm)).toBe(esm);
+    const ns = jestMockInterop(esm);
+    expect(ns.default).toBe("d");
+    expect(Object.keys(ns)).toEqual(["__esModule", "default", "a"]);
   });
 
   it("respects an explicit default key", () => {
     const m = { default: "d", a: 1 };
-    expect(jestMockInterop(m)).toBe(m);
+    const ns = jestMockInterop(m);
+    expect(ns.default).toBe("d");
+    expect(ns.a).toBe(1);
+  });
+
+  it("does not run a getter until the export is read, and reads it live", () => {
+    // A factory runs during the hoisted imports, before the test file's `let`s are
+    // initialised, so a getter over one threw at interop time when the copy was a
+    // spread. Jest reads the property only when the app does.
+    let reads = 0;
+    let value = "first";
+    const exports = {
+      get IS_WEB() {
+        reads++;
+        return value;
+      },
+    };
+    const ns = jestMockInterop(exports);
+    expect(reads).toBe(0);
+    expect(ns.IS_WEB).toBe("first");
+    value = "second";
+    expect(ns.IS_WEB).toBe("second");
+    expect(ns.default).toBe(exports);
+  });
+
+  it("reads an accessor through the module, as an importer does in Jest", () => {
+    // `jest.requireActual('react-native')` is a proxy whose overrides live in its get
+    // trap; copying the getter itself would bypass them and read the original.
+    const real = {
+      get Platform() {
+        return { OS: "ios" };
+      },
+    };
+    const overridden = new Proxy(real, {
+      get: (target, key) => (key === "Platform" ? { OS: "android" } : Reflect.get(target, key)),
+    });
+    expect(jestMockInterop(overridden).Platform).toEqual({ OS: "android" });
+    // ...and runs with the module as `this`.
+    const withSibling = {
+      a: 1,
+      get b() {
+        return (this as { a: number }).a + 1;
+      },
+    };
+    expect(jestMockInterop(withSibling).b).toBe(2);
+  });
+
+  it("copies data properties and function statics as the spread did", () => {
+    const exports = { a: 1, fn: () => 2 };
+    const ns = jestMockInterop(exports);
+    expect({ ...ns }).toEqual({ a: 1, fn: exports.fn, default: exports });
+    ns.a = 5; // still a plain writable copy
+    expect(ns.a).toBe(5);
+    expect(exports.a).toBe(1);
+    const Component = Object.assign(() => null, { displayName: "C" });
+    expect(jestMockInterop(Component).displayName).toBe("C");
+  });
+
+  it("reports a missing export as present and undefined, as Jest's CommonJS does", () => {
+    // Vitest's mock proxy throws `No "x" export is defined` when `!(x in exports)`.
+    for (const exports of [{ a: 1 }, { __esModule: true, default: "d" }, () => null]) {
+      const ns = jestMockInterop(exports);
+      expect("applicationId" in ns).toBe(true);
+      expect(ns.applicationId).toBeUndefined();
+      // Enumeration still sees only the real members, and it is never a thenable.
+      expect(Object.keys(ns)).not.toContain("applicationId");
+      expect("then" in ns).toBe(false);
+    }
   });
 
   it("passes null/undefined through", () => {
@@ -113,7 +182,9 @@ describe("jest-compat: jestMockInterop (CJS interop semantics)", () => {
 
   it("leaves an already-ES-shaped promised module alone", async () => {
     const esm = { __esModule: true, default: "d", a: 1 };
-    expect(await jestMockInterop(Promise.resolve(esm))).toBe(esm);
+    const ns = await jestMockInterop(Promise.resolve(esm));
+    expect(ns.default).toBe("d");
+    expect(ns.a).toBe(1);
   });
 
   it("does not mistake a module exporting `then` for a promise", () => {
@@ -124,6 +195,134 @@ describe("jest-compat: jestMockInterop (CJS interop semantics)", () => {
       const ns = jestMockInterop(m);
       expect(ns.then).toBe(m.then);
       expect(ns.default).toBe(m);
+    }
+  });
+});
+
+describe("jest-compat: jest.fn / jest.spyOn follow Jest under `new`", () => {
+  type Jest = typeof vi;
+  let jest: Jest;
+  let createJestObject: (v: typeof vi) => unknown;
+  it("loads the jest object", async () => {
+    ({ createJestObject } = await import("../src/jest-compat/jest-object.mjs"));
+    jest = createJestObject(vi) as Jest;
+    expect(typeof jest.fn).toBe("function");
+  });
+
+  it("constructs with an arrow implementation and returns its object", () => {
+    // jest-mock applies the implementation even under `new`; Vitest constructs it,
+    // and an arrow function is not a constructor.
+    const instance = { fetch: 1 };
+    const viaImplementation = jest.fn().mockImplementation(() => instance);
+    const viaFactory = jest.fn(() => instance);
+    const viaOnce = jest.fn().mockImplementationOnce(() => instance);
+    for (const Ctor of [viaImplementation, viaFactory, viaOnce]) {
+      expect(new (Ctor as unknown as new () => unknown)()).toBe(instance);
+      expect(vi.isMockFunction(Ctor)).toBe(true);
+      expect(Ctor.mock.calls).toEqual([[]]);
+      expect(Ctor.mock.instances).toEqual([instance]);
+    }
+  });
+
+  it("returns the fresh instance when the implementation returns a primitive", () => {
+    const Ctor = jest.fn().mockImplementation(function (this: { x?: number }) {
+      this.x = 1;
+    }) as unknown as new () => { x: number };
+    expect(new Ctor().x).toBe(1);
+    const Arrow = jest.fn(() => 42) as unknown as new () => object;
+    expect(new Arrow()).toBeInstanceOf(Arrow);
+  });
+
+  it("the value helpers are defined through mockImplementation, as in jest-mock", async () => {
+    const value = { v: 1 };
+    const Returning = jest.fn().mockReturnValue(value) as unknown as new () => unknown;
+    expect(new Returning()).toBe(value);
+    const Once = jest.fn().mockReturnValueOnce(value) as unknown as new () => unknown;
+    expect(new Once()).toBe(value);
+    const resolved = jest.fn().mockResolvedValue(value);
+    await expect(resolved()).resolves.toBe(value);
+    const rejected = jest.fn().mockRejectedValueOnce(new Error("no"));
+    await expect(rejected()).rejects.toThrow("no");
+  });
+
+  it("keeps the rest of the mock API, and reports the implementation that was passed", () => {
+    const impl = (a: number) => a * 2;
+    const f = jest.fn(impl);
+    expect(f(2)).toBe(4);
+    expect(f.getMockImplementation()).toBe(impl);
+    expect(f.length).toBe(1);
+    f.mockReturnValue(7);
+    expect(f(1)).toBe(7);
+    f.mockReset();
+    expect(f(3)).toBe(6); // reset restores the jest.fn(impl) implementation
+    expect(jest.mocked(f)).toBe(f);
+    // A mock passed to jest.fn is returned as it is, as vi.fn does.
+    const existing = vi.fn();
+    expect(jest.fn(existing)).toBe(existing);
+  });
+
+  it("jest.spyOn gets the same semantics", () => {
+    const mod = {
+      Api: class {
+        real = true;
+      },
+    };
+    const spy = jest.spyOn(mod, "Api").mockImplementation(() => ({ fetch: 2 }));
+    expect(new mod.Api()).toEqual({ fetch: 2 });
+    spy.mockRestore();
+  });
+
+  it("jest.spyOn on an arrow, with no implementation set, calls it under `new`", () => {
+    // jest-mock's spyOn installs `function () { return original.apply(this, arguments) }`;
+    // Vitest constructs the original, and an arrow is not a constructor.
+    const makeClient = (url: string) => ({ url });
+    const mod = { makeClient };
+    const spy = jest.spyOn(mod, "makeClient");
+    const New = mod.makeClient as unknown as new (url: string) => unknown;
+    expect(new New("a")).toEqual({ url: "a" });
+    expect(spy).toHaveBeenCalledWith("a");
+    expect(spy.getMockImplementation()).toBeUndefined(); // as for a bare vi spy
+    spy.mockImplementation(() => ({ url: "mocked" }));
+    expect(new New("b")).toEqual({ url: "mocked" });
+    spy.mockReset(); // back to the original, still callable under `new`
+    expect(new New("c")).toEqual({ url: "c" });
+    expect(spy.getMockImplementation()).toBeUndefined();
+    spy.mockRestore();
+    expect(mod.makeClient).toBe(makeClient);
+  });
+
+  it("jest.spyOn leaves a mock it did not create alone, even behind an accessor", () => {
+    const existing = vi.fn();
+    const ownMethods = existing.mockReturnValue;
+    const mod = {
+      get makeClient() {
+        return existing;
+      },
+    };
+    expect(jest.spyOn(mod, "makeClient")).toBe(existing);
+    expect(existing.mockReturnValue).toBe(ownMethods);
+  });
+
+  it("assigning jest.fn / jest.spyOn replaces them on jest only", () => {
+    const own = createJestObject(vi) as Jest;
+    const replacement = (() => "patched") as unknown as Jest["fn"];
+    own.fn = replacement;
+    expect(own.fn).toBe(replacement);
+    expect(vi.fn).not.toBe(replacement);
+    const spyOn = (() => "patched") as unknown as Jest["spyOn"];
+    own.spyOn = spyOn;
+    expect(own.spyOn).toBe(spyOn);
+    expect(vi.spyOn).not.toBe(spyOn);
+  });
+
+  it("leaves vi.fn itself unchanged", () => {
+    expect(jest.isMockFunction).toBe(vi.isMockFunction);
+    const viMock = vi.fn().mockImplementation(() => ({}));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(() => new (viMock as unknown as new () => unknown)()).toThrow(/not a constructor/);
+    } finally {
+      warn.mockRestore();
     }
   });
 });
@@ -172,6 +371,36 @@ describe("jest-compat: setup", () => {
     // requireActual resolves a real module synchronously (use react — no Flow).
     const React = jestGlobal!.requireActual("react") as { createElement: unknown };
     expect(typeof React.createElement).toBe("function");
+  });
+
+  it("sets JEST_WORKER_ID from Vitest's pool id, as Jest's 1-based worker id", async () => {
+    const previous = process.env.JEST_WORKER_ID;
+    delete process.env.JEST_WORKER_ID;
+    try {
+      vi.resetModules();
+      await import("../src/jest-compat/setup.mjs");
+      expect(process.env.JEST_WORKER_ID).toBe(process.env.VITEST_POOL_ID);
+      expect(Number(process.env.JEST_WORKER_ID)).toBeGreaterThanOrEqual(1);
+      // A value already in the environment is the user's, and is left alone.
+      process.env.JEST_WORKER_ID = "7";
+      vi.resetModules();
+      await import("../src/jest-compat/setup.mjs");
+      expect(process.env.JEST_WORKER_ID).toBe("7");
+    } finally {
+      if (previous === undefined) delete process.env.JEST_WORKER_ID;
+      else process.env.JEST_WORKER_ID = previous;
+    }
+  });
+
+  it("the jest global constructs a jest.fn with an arrow implementation", async () => {
+    await import("../src/jest-compat/setup.mjs");
+    const jestGlobal = (globalThis as { jest?: typeof vi }).jest!;
+    const Ctor = jestGlobal.fn().mockImplementation(() => ({ fetch: 1 }));
+    expect(new (Ctor as unknown as new () => unknown)()).toEqual({ fetch: 1 });
+    // ...while members installed on vi stay reachable through it.
+    expect((jestGlobal as { requireActual?: unknown }).requireActual).toBe(
+      (vi as { requireActual?: unknown }).requireActual,
+    );
   });
 
   it("installs a global `require` so jest.mock factories can require() synchronously", async () => {

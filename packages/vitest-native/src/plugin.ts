@@ -14,6 +14,7 @@ import { PEER_REQUIREMENTS } from "./peer-requirements.js";
 import { VitestNativeError } from "./errors.mjs";
 import { serializableAliases } from "./jest-compat/aliases.mjs";
 import { tsconfigPathAliases } from "./native/tsconfig-paths.mjs";
+import { fsModuleCacheKey, shouldDefaultFsModuleCache } from "./fs-module-cache.js";
 import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
 import { detectEcosystemPackages } from "./native/ecosystem.js";
@@ -26,30 +27,6 @@ import {
   findNativeInlineConflicts,
   findNativeOwnershipConflict,
 } from "./native/ownership.mjs";
-
-const DEFAULT_ASSET_EXTS = [
-  "png",
-  "jpg",
-  "jpeg",
-  "gif",
-  "bmp",
-  "webp",
-  "svg",
-  "tiff",
-  "heic",
-  "heif",
-  "mp4",
-  "mp3",
-  "wav",
-  "aac",
-  "m4a",
-  "mov",
-  "webm",
-  "ttf",
-  "otf",
-  "woff",
-  "woff2",
-];
 
 function uniqueExtensions(values: readonly string[]): string[] {
   const seen = new Set<string>();
@@ -82,7 +59,7 @@ function stripFsPrefix(id: string): string {
   return id.startsWith("/@fs/") ? id.slice(4) : id;
 }
 
-import { AUTO_DETECT_PRESETS, presetForInstalled } from "./preset-map.js";
+import { AUTO_DETECT_PRESETS, DEFAULT_ASSET_EXTS, presetForInstalled } from "./preset-map.js";
 
 async function autoDetectPresets(diagnostics: boolean, projectRoot: string): Promise<Preset[]> {
   const detected: Preset[] = [];
@@ -1045,6 +1022,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // it gave each project root.
   const nativeRoots = new Set<string>();
   const contributedSetup = new Map<string, string>();
+  // This plugin's part of Vitest's persistent transform cache key, per root (see
+  // fs-module-cache.ts).
+  const cacheKeys = new Map<string, string>();
   let warnedMissingJestMockTransform = false;
   let warnedTsconfigPaths = false;
 
@@ -2199,6 +2179,24 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         if (test) test.execArgv = [...(test.execArgv ?? []), ...EXPORT_RECOVERY_ARGV];
         if (test) {
           const viteRoot = userConfig.root ? path.resolve(userConfig.root) : process.cwd();
+          const vitestMajor = Number(resolvePackageVersion("vitest", viteRoot)?.split(".")[0]);
+          const userTest = (
+            userConfig as { test?: Parameters<typeof shouldDefaultFsModuleCache>[1] }
+          ).test;
+          if (shouldDefaultFsModuleCache(vitestMajor, userTest)) {
+            (test as { fsModuleCache?: boolean }).fsModuleCache = true;
+          }
+          cacheKeys.set(
+            vitestRootOf(userConfig),
+            fsModuleCacheKey(
+              path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."),
+              viteRoot,
+              { options, env: (test as { env?: unknown }).env },
+            ),
+          );
+        }
+        if (test) {
+          const viteRoot = userConfig.root ? path.resolve(userConfig.root) : process.cwd();
           const viteMajor = Number(resolvePackageVersion("vite", viteRoot)?.split(".")[0]);
           const tsconfigPaths = expoTsconfigPaths(
             viteRoot,
@@ -2226,7 +2224,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     configureVitest({
       vitest,
       project,
+      defineCacheKeyGenerator,
+      experimental_defineCacheKeyGenerator,
     }: {
+      // Vitest 5; Vitest 4.1 spells it experimental_defineCacheKeyGenerator.
+      defineCacheKeyGenerator?: (generator: () => string) => void;
+      experimental_defineCacheKeyGenerator?: (generator: () => string) => void;
       vitest: {
         // Vitest 4 keeps the CLI flags on `_cliOptions` (internal); Vitest 5 on
         // `config.cliOptions`. The vitest-semantics gate runs both and fails by name
@@ -2250,6 +2253,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     }) {
       const projectConfig = project.config;
       const root = projectConfig.root ? path.resolve(projectConfig.root) : process.cwd();
+      const cacheKey = cacheKeys.get(root);
+      if (cacheKey)
+        (defineCacheKeyGenerator ?? experimental_defineCacheKeyGenerator)?.(() => cacheKey);
       // A project that shares a Vite server without this plugin's test config would
       // run without React Native's setup; say so instead of failing per file.
       const setupFile = contributedSetup.get(root);

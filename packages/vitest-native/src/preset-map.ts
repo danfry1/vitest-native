@@ -113,3 +113,84 @@ export function presetForInstalled(pkgName: string, req: NodeJS.Require): Preset
   if (testsItself(pkgName, installedVersion(pkgName, req))) return null;
   return AUTO_DETECT_PRESETS[pkgName as keyof typeof AUTO_DETECT_PRESETS] ?? null;
 }
+
+/**
+ * The module ids each preset shadows — `Object.keys(preset().modules)`, written out.
+ *
+ * The CLI states what a preset covers (`migrate`: "the expo preset shadows
+ * expo-constants, …"; "__mocks__/x — the y preset shadows it"), and a claim like that
+ * must come from the preset itself. The presets cannot be imported to ask: they load
+ * `vitest` and `react`, which the CLI must not require (doctor runs in projects where
+ * neither resolves yet). So the ids are listed here, and `tests/preset-map.test.ts`
+ * calls every preset factory and fails if a list and its preset disagree in either
+ * direction, so the two cannot drift without a red build.
+ */
+export const PRESET_MODULES = {
+  reanimated: ["react-native-reanimated"],
+  worklets: ["react-native-worklets"],
+  gestureHandler: ["react-native-gesture-handler"],
+  safeAreaContext: ["react-native-safe-area-context"],
+  navigation: [
+    "@react-navigation/native",
+    "@react-navigation/native-stack",
+    "@react-navigation/bottom-tabs",
+    "@react-navigation/drawer",
+    "@react-navigation/elements",
+  ],
+  asyncStorage: ["@react-native-async-storage/async-storage"],
+  screens: ["react-native-screens"],
+  expo: [
+    "expo-constants",
+    "expo-font",
+    "expo-asset",
+    "expo-splash-screen",
+    "expo-linking",
+    "expo-status-bar",
+  ],
+  deviceInfo: ["react-native-device-info"],
+  mmkv: ["react-native-mmkv"],
+  netInfo: ["@react-native-community/netinfo"],
+  svg: ["react-native-svg"],
+  webview: ["react-native-webview"],
+  vectorIcons: ["@react-native-vector-icons/common"],
+  flashList: ["@shopify/flash-list"],
+  bottomSheet: ["@gorhom/bottom-sheet"],
+  keyboardController: ["react-native-keyboard-controller"],
+} as const satisfies Record<PresetName, readonly string[]>;
+
+/** The preset that shadows `moduleId`, or undefined when none does. */
+export function presetShadowing(moduleId: string): PresetName | undefined {
+  for (const [preset, modules] of Object.entries(PRESET_MODULES)) {
+    if ((modules as readonly string[]).includes(moduleId)) return preset as PresetName;
+  }
+  return undefined;
+}
+
+/**
+ * Asset extensions the plugin stubs before any Metro profile or `assetExts` option
+ * adds more. Kept here, not in plugin.ts, so the CLI can say which of a Jest asset
+ * mapper's extensions are covered without loading the plugin.
+ */
+export const DEFAULT_ASSET_EXTS: readonly string[] = [
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "bmp",
+  "webp",
+  "svg",
+  "tiff",
+  "heic",
+  "heif",
+  "mp4",
+  "mp3",
+  "wav",
+  "aac",
+  "m4a",
+  "mov",
+  "webm",
+  "ttf",
+  "otf",
+  "woff",
+  "woff2",
+];

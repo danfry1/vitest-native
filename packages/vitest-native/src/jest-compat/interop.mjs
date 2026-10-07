@@ -34,12 +34,86 @@ export function jestMockInterop(mod) {
   const t = typeof mod;
   if (t === "object" || t === "function") {
     // Already ES-shaped — respect the author's/real module's default export.
-    if (mod.__esModule || "default" in mod) return mod;
+    if (mod.__esModule || "default" in mod) return missingExportsUndefined(mod);
     // CJS exports: a default import receives the whole module (object or
     // function); named imports keep working off its keys (object props / fn
-    // statics). `{ ...mod }` copies own enumerable props for the named side.
-    return { ...mod, default: mod };
+    // statics).
+    return missingExportsUndefined(withDefault(mod));
   }
   // Primitive export (rare): expose as default.
-  return { default: mod };
+  return missingExportsUndefined({ default: mod });
+}
+
+/**
+ * The module's own enumerable properties plus `default: mod` — what `{ ...mod,
+ * default: mod }` produced, except that an accessor is not read until it is imported.
+ *
+ * A spread reads every property, so it ran each getter while the factory was being
+ * evaluated. Jest reads a property only when the code under test does. The difference
+ * is visible because a factory runs during the hoisted imports, before the test file's
+ * own `let`/`const` bindings are initialised:
+ *
+ *   let mockIsWeb = false
+ *   jest.mock('#/env', () => ({ get IS_WEB() { return mockIsWeb } }))
+ *
+ * passes under Jest, where `IS_WEB` is read later, and threw `Cannot access
+ * 'mockIsWeb' before initialization` here. It also froze the value: a test changing
+ * `mockIsWeb` was never seen.
+ *
+ * An accessor is therefore forwarded to the module on each access, `mod[key]`, which
+ * is what an importer reads in Jest: the getter runs with the module as `this`, and a
+ * module that is itself a proxy — `jest.requireActual('react-native')` returns one,
+ * whose overrides live in its `get` trap — is read through that proxy. It also keeps
+ * React Native's lazy getters lazy when a factory returns the whole module, where the
+ * spread evaluated every one of them. Data properties are read the way the spread
+ * read them and stay plain writable copies.
+ */
+function withDefault(mod) {
+  const ns = {};
+  for (const key of Reflect.ownKeys(mod)) {
+    const descriptor = Object.getOwnPropertyDescriptor(mod, key);
+    if (!descriptor?.enumerable) continue;
+    if ("value" in descriptor) {
+      ns[key] = mod[key];
+    } else {
+      Object.defineProperty(ns, key, {
+        get: () => mod[key],
+        set: (value) => {
+          mod[key] = value;
+        },
+        enumerable: true,
+        configurable: true,
+      });
+    }
+  }
+  ns.default = mod;
+  return ns;
+}
+
+/**
+ * Report every string key as present, so an import the factory did not provide is
+ * `undefined`, as in Jest, instead of an error.
+ *
+ * Jest hands the factory's return to the importer as `module.exports`, and Babel's
+ * CommonJS output reads a named import as a property of it (`_m.applicationId`): a
+ * name the factory left out is simply `undefined`. Vitest instead wraps the factory
+ * result in a proxy (VitestMocker#callFunctionMock, the same in Vitest 4 and 5) whose
+ * `get` throws `No "x" export is defined on the "m" mock` when `!(prop in target)`.
+ * Mocking only what a test needs is ordinary in Jest suites, so a migrated suite
+ * failed on imports its tests never touched.
+ *
+ * `in` against this proxy is true for any string key, which satisfies that check; the
+ * value is still read from the module (`undefined` when absent). Nothing else changes:
+ * keys, descriptors and spreading see only the real members. `then` is excluded so the
+ * module never looks like a thenable to code that tests for one with `in`, and symbols
+ * are excluded because Vitest already exempts the well-known ones. The one visible
+ * difference from Jest is that `'x' in module` is true for a missing `x`.
+ *
+ * Only factories passed through jestMockTransform reach this; a `vi.mock` factory
+ * keeps Vitest's strict check.
+ */
+function missingExportsUndefined(ns) {
+  return new Proxy(ns, {
+    has: (target, key) => (typeof key === "string" && key !== "then") || Reflect.has(target, key),
+  });
 }

@@ -1,6 +1,6 @@
-// Trustworthiness: the jest-compat `jest` global is a transparent Proxy over `vi`
-// that ONLY overrides the two timer-advance methods to match Jest's leniency (no-op
-// when fake timers are not active, instead of vi's "timers are not mocked" throw).
+// Trustworthiness: the jest-compat `jest` global is `vi` with the two timer-advance
+// methods made lenient as in Jest (no-op when fake timers are not active, instead of
+// vi's "timers are not mocked" throw), and `fn`/`spyOn` given Jest's mock semantics.
 // Everything else must forward to `vi` untouched. RNTL's userEvent.setup({
 // advanceTimers }) commonly passes `jest.advanceTimersByTimeAsync` and calls it on
 // suites that never enable fake timers — so the throw would break them.
@@ -32,8 +32,11 @@ describe("jest-compat timer leniency", () => {
   });
 
   it("forwards the rest of the API to vi (fn, spyOn, identity)", () => {
-    expect(jest.fn).toBe(vi.fn);
+    // jest.fn/jest.spyOn are not vi's own functions — they give the mock Jest's
+    // behaviour under `new` (see jest-object.mjs) — but what they return is a vi mock.
+    expect(jest.useFakeTimers).toBe(vi.useFakeTimers);
     const mock = jest.fn(() => 7);
+    expect(vi.isMockFunction(mock)).toBe(true);
     expect(mock()).toBe(7);
     const obj = { greet: () => "hi" };
     const spy = jest.spyOn(obj, "greet").mockReturnValue("mocked");

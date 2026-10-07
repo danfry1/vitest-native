@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import { BaseSequencer, type TestSpecification } from "vitest/node";
 import { reactNative } from "../dist/index.mjs";
-import { jestMockTransform } from "../dist/jest-compat.mjs";
+import { jestCompatAliases, jestMockTransform } from "../dist/jest-compat.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -33,6 +33,8 @@ export default defineConfig(({ mode }) => {
       }),
       jestMockTransform(),
     ],
+    // As `migrate` writes it: @jest/globals and friends resolve to the compat shims.
+    resolve: { alias: { ...jestCompatAliases() } },
     test: {
       environment: "node",
       env: { VN_HOT_JEST_COMPAT_MODE: mode },
