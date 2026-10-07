@@ -32,6 +32,13 @@ describe("runtime mock members and require()", () => {
     expect(require(STORAGE).device.get("k")).toBe("real-storage:k");
   });
 
+  it("names a factory that requires the module it mocks, instead of recursing", () => {
+    const TRACING = "./fixtures/alias-app/registry/tracing";
+    jest.doMock(TRACING, () => require(TRACING));
+    expect(() => require(TRACING)).toThrow(/factory for '.*tracing' requires the module it mocks/);
+    jest.doUnmock(TRACING);
+  });
+
   it("jest.setMock applies to the next require, and jest.dontMock removes it", () => {
     const exports = { device: { get: () => "set-mocked" } };
     jest.setMock(STORAGE, exports);

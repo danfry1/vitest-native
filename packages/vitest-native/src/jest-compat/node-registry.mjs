@@ -32,6 +32,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expandAlias } from "./aliases.mjs";
 import { resolvePlatformFile } from "../native/resolve.mjs";
+import { VitestNativeError } from "../errors.mjs";
 
 const STATE = "__vitest_native_jest_registry";
 /** The manifest id under which the hot runtime clears the registry per file. */
@@ -170,8 +171,10 @@ function createState() {
   state.valueOf = (entry) => {
     if (entry.has) return entry.value;
     if (entry.evaluating) {
-      throw new Error(
-        `[vitest-native] the jest.mock factory for '${entry.spec}' requires the module it mocks. ` +
+      // Jest would re-enter the factory here until the stack overflowed.
+      throw new VitestNativeError(
+        "JEST_MOCK_FACTORY_CYCLE",
+        `the jest.mock factory for '${entry.spec}' requires the module it mocks. ` +
           "Use jest.requireActual() inside the factory for the real module.",
       );
     }
@@ -269,8 +272,11 @@ export function nodeRegistry() {
  * `.default`, so `import x from` in a Node-loaded module sees the default export.
  */
 const viteFacades = new WeakMap();
+// Source modules only. Vite serves JSON and assets as `{ default, … }` modules, while
+// Node's loader gives the parsed object or the asset stub (native/hooks.mjs) itself.
+const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
 function viteInstanceOf(filename) {
-  if (filename.endsWith(".json")) return NONE;
+  if (!SOURCE_FILE.test(filename)) return NONE;
   const modules = globalThis.__vitest_worker__?.evaluatedModules;
   if (typeof modules?.getModulesByFile !== "function") return NONE;
   const nodes = modules.getModulesByFile(filename.replace(/\\/g, "/"));

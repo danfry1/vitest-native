@@ -42,9 +42,7 @@ describe("a module loaded by jest.requireActual", () => {
 
 describe("jest.requireActual of a mocked module", () => {
   it("returns the real module, for that request only", () => {
-    expect(jest.requireActual("@vn-app/registry/storage").device.get("k")).toBe(
-      "real-storage:k",
-    );
+    expect(jest.requireActual("@vn-app/registry/storage").device.get("k")).toBe("real-storage:k");
     // The mock is still what everything else gets.
     expect(require("@vn-app/registry/storage").device.get("k")).toBe("mocked-storage:k");
   });

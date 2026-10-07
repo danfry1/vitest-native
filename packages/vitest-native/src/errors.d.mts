@@ -36,6 +36,8 @@ export type VitestNativeErrorCode =
   | "HELPERS_BEFORE_SETUP"
   | "JEST_API_UNSUPPORTED"
   | "REQUIRE_ACTUAL_ALIAS_UNSUPPORTED"
+  | "JEST_MOCK_FACTORY_CYCLE"
+  | "JEST_ISOLATE_NESTED"
   | "MATCHER_BAD_RECEIVER";
 
 export interface VitestNativeErrorOptions {

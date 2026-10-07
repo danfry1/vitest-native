@@ -60,9 +60,12 @@ describe("jest.resetModules with require()", () => {
   it("keeps React Native and other packages resident", () => {
     const reactNative = require("react-native");
     const react = require("react");
+    // A package first loaded by this test, after the registry was installed.
+    const firstLoadedHere = require("rn-condition-cjs-lib");
     jest.resetModules();
     expect(require("react-native")).toBe(reactNative);
     expect(require("react")).toBe(react);
+    expect(require("rn-condition-cjs-lib")).toBe(firstLoadedHere);
   });
 
   it("keeps the factory but re-runs it after a reset", () => {

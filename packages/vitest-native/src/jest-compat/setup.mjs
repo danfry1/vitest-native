@@ -351,7 +351,9 @@ function resetModules() {
 function beginIsolation(name) {
   const registry = nodeRegistry();
   if (registry.isolated) {
-    throw new Error(
+    // Jest's own wording (Runtime.isolateModules), after the package prefix.
+    throw new VitestNativeError(
+      "JEST_ISOLATE_NESTED",
       `${name} cannot be nested inside another isolateModules or isolateModulesAsync.`,
     );
   }
