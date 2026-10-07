@@ -435,6 +435,18 @@ describe("a jest-expo app's package.json#jest", () => {
     expect(text).toContain("Jest also hid these paths from module resolution");
   });
 
+  it("says the script's flags were mapped only when it has some", () => {
+    const pointer = (report: { attention: string[] }) =>
+      report.attention.find((line) => line.startsWith("scripts.test runs Jest"));
+    const bare = analyzeJestConfig(
+      fixture({ "package.json": { scripts: { test: "jest" }, jest: { preset: "react-native" } } }),
+    );
+    expect(pointer(bare)).toBe(
+      "scripts.test runs Jest — point it at `vitest run` once the suite passes.",
+    );
+    expect(pointer(analyzeJestConfig(blueskyLike()))).toContain("(its flags are mapped above)");
+  });
+
   it("applies --testTimeout from the test script and reports the flags it does not map", () => {
     const report = analyzeJestConfig(blueskyLike());
     expect(report.suggestedConfig).toContain("testTimeout: 20000");
