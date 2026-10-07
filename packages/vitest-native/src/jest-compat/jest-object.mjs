@@ -146,7 +146,7 @@ function originalOf(object, key, accessType) {
  * a copy, so members the compat setup installs on `vi` (requireActual, the timer
  * guards), and anything a suite assigns to `jest.*`, stay one shared object.
  */
-export function createJestObject(vi) {
+export function createJestObject(vi, members = {}) {
   function fn(impl) {
     // `vi.fn(existingMock)` returns that mock; it is someone else's, so leave it be.
     if (vi.isMockFunction(impl)) return vi.fn(impl);
@@ -166,6 +166,8 @@ export function createJestObject(vi) {
   const own = new Map([
     ["fn", fn],
     ["spyOn", spyOn],
+    // Jest's module-registry members, supplied by the compat setup (setup.mjs).
+    ...Object.entries(members),
   ]);
   return new Proxy(vi, {
     get(target, prop, receiver) {
@@ -189,8 +191,8 @@ export function createJestObject(vi) {
 const CURRENT = Symbol.for("vitest-native.jest-compat.jest");
 
 /** Create this file's `jest` and make it the one `currentJestObject` returns. */
-export function installJestObject(vi) {
-  const jest = createJestObject(vi);
+export function installJestObject(vi, members) {
+  const jest = createJestObject(vi, members);
   Object.defineProperty(vi, CURRENT, { value: jest, configurable: true, writable: true });
   return jest;
 }

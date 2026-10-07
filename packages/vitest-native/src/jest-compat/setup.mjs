@@ -12,7 +12,7 @@
 // form at transform time. `jest.fn`, `jest.spyOn`, `jest.requireActual`,
 // `jest.useFakeTimers` work at runtime via the `jest` global installed here.
 import { vi } from "vitest";
-import { createRequire } from "node:module";
+import Module, { createRequire } from "node:module";
 import path from "node:path";
 import { jestMockInterop } from "./interop.mjs";
 import { installJestObject } from "./jest-object.mjs";
@@ -20,6 +20,12 @@ import { expandAlias } from "./aliases.mjs";
 import { callerFile } from "./caller.mjs";
 import { resolvePlatformFile } from "../native/resolve.mjs";
 import { VitestNativeError } from "../errors.mjs";
+import {
+  NODE_MOCKS_STATE_ID,
+  nodeRegistry,
+  requireActualFile,
+  resetViteModules,
+} from "./node-registry.mjs";
 
 // Resolve modules from the consumer project root, not this file's location, so
 // `jest.requireActual('some-project-dep')` resolves the same module the suite sees.
@@ -104,9 +110,33 @@ function requireFrom(specifier) {
   }
 }
 
-if (typeof vi.requireActual !== "function")
-  vi.requireActual = (m) =>
-    m === "react-native" ? writableModuleFacade(require(m)) : requireFrom(m);
+// The file a specifier is resolved against: relative ones from the calling file, as
+// Jest resolves them, everything else from the project root (see requireFrom).
+function anchorFor(specifier) {
+  const caller = typeof specifier === "string" && specifier.startsWith(".") ? callerFile() : null;
+  return caller ?? path.join(projectRoot, "package.json");
+}
+
+// `jest.requireActual` is `Runtime.requireActual` → `requireModule(from, name, undefined,
+// true)` (jest-runtime 29.7): the real module for THIS request, while the modules it
+// loads still go through `requireModuleOrMock` and so still see the file's mocks. The
+// registry's loader hook skips the mock for exactly this one load.
+if (typeof vi.requireActual !== "function") {
+  vi.requireActual = (m) => {
+    // Loaded by the specifier itself, as before: a preset-shadowed package is
+    // shadowed by NAME (native/hooks.mjs), so loading its resolved path instead would
+    // reach the real native library.
+    const registry = nodeRegistry();
+    return requireActualFile(registry, registry.resolveFrom(m, anchorFor(m)), () =>
+      m === "react-native" ? writableModuleFacade(require(m)) : requireFrom(m),
+    );
+  };
+}
+// `jest.requireMock` returns the module registered by `jest.mock(spec, factory)`, the
+// same memoized value imports receive (`Runtime.requireMock` calls the factory once and
+// caches it in `_mockRegistry`): the require below goes through the registry's loader
+// hook, which serves it. A module mocked without a factory — `__mocks__` or automock —
+// has no Node-side mock, so it still loads the module itself.
 if (typeof vi.requireMock !== "function") vi.requireMock = (m) => requireFrom(m);
 // `jest.setTimeout(ms)` maps onto `vi.setConfig({ testTimeout })`, which applies for
 // the rest of the file — the same scope Jest gives it, since Vitest resets the config
@@ -163,9 +193,20 @@ const anchoredAtCaller = (specifier) => {
   const caller = callerFile();
   return caller ? path.resolve(path.dirname(caller), specifier) : specifier;
 };
-if (typeof vi.dontMock !== "function") vi.dontMock = (m) => vi.doUnmock(anchoredAtCaller(m));
+// Both reach the Node-side registry too (node-registry.mjs), as jestMockTransform's
+// rewrites of jest.doMock/doUnmock do: `jest.setMock` is `setMockFactory(name, () =>
+// mock)` in jest-runtime, the same registry `jest.mock` writes to.
+if (typeof vi.dontMock !== "function") {
+  vi.dontMock = (m) => {
+    nodeRegistry().unregister(anchorFor(m), m);
+    return vi.doUnmock(anchoredAtCaller(m));
+  };
+}
 if (typeof vi.setMock !== "function") {
-  vi.setMock = (m, exports) => vi.doMock(anchoredAtCaller(m), () => exports);
+  vi.setMock = (m, exports) => {
+    nodeRegistry().register(anchorFor(m), m, () => exports);
+    return vi.doMock(anchoredAtCaller(m), () => exports);
+  };
 }
 // `Date.now()` alone is right for both clocks: Vitest's fake timers replace Date, so
 // this returns the faked time when they are active and the real time otherwise —
@@ -191,10 +232,6 @@ function unsupported(name, guidance) {
   };
 }
 unsupported(
-  "isolateModules",
-  "Use vi.resetModules() plus a dynamic import() to get a fresh module copy.",
-);
-unsupported(
   "createMockFromModule",
   "Build the mock explicitly with vi.fn()/vi.mock(), or import the real module and override members.",
 );
@@ -203,10 +240,6 @@ unsupported(
   "Build the mock explicitly with vi.fn()/vi.mock(), or import the real module and override members.",
 );
 unsupported("deepUnmock", "Use vi.unmock()/vi.doUnmock() per module.");
-unsupported(
-  "isolateModulesAsync",
-  "Use vi.resetModules() plus a dynamic import() to get a fresh module copy.",
-);
 unsupported("unstable_mockModule", "Use vi.doMock(path, factory), which mocks ESM too.");
 unsupported(
   "replaceProperty",
@@ -240,7 +273,9 @@ if (typeof vi.retryTimes !== "function") {
 
 // `vi`, with Jest's semantics for the mocks `jest.fn`/`jest.spyOn` create (see
 // jest-object.mjs). Everything else, including the members installed above, is `vi`.
-globalThis.jest = installJestObject(vi);
+// The module-registry members are the `jest` object's own, not `vi`'s: `vi.resetModules`
+// keeps Vitest's meaning, and Vitest has no isolateModules to extend.
+globalThis.jest = installJestObject(vi, { resetModules, isolateModules, isolateModulesAsync });
 
 // Jest sets `JEST_WORKER_ID` in every worker (jest-worker: `JEST_WORKER_ID:
 // String(workerId + 1)`; jest-runner sets "1" when running in band), and code written for Jest tests
@@ -257,6 +292,106 @@ if (process.env.JEST_WORKER_ID === undefined) {
 // value through Jest's CommonJS interop (so `import X from` sees the whole mock,
 // and `() => Component` factories work). The wrapper calls this global.
 if (typeof globalThis.__vnInteropMock !== "function") globalThis.__vnInteropMock = jestMockInterop;
+
+// The Node-side registry (node-registry.mjs). jestMockTransform rewrites
+//   jest.mock('m', factory)  →  vi.mock('m', globalThis.__vnJestMock(import.meta.url, 'm', factory))
+// so the factory is registered where the call is hoisted to, and Vitest receives a
+// factory returning the registry's memoized value through the same CJS interop as
+// before. The raw value is what Node's `require` gets, as Jest's `module.exports`.
+{
+  const registry = nodeRegistry();
+  globalThis.__vnJestMock = (from, spec, factory) => {
+    const entry = registry.register(from, spec, factory);
+    return () => jestMockInterop(registry.valueOf(entry));
+  };
+  globalThis.__vnJestUnmock = (from, spec) => registry.unregister(from, spec);
+  // Hot runtime: one worker runs many files, and a mock registered by one must not
+  // apply in the next. Cleared at the file boundary, before any setup file runs, and
+  // verified empty, like every other piece of per-file state (state-manifest.mjs).
+  globalThis.__vitest_native_register_state?.({
+    id: NODE_MOCKS_STATE_ID,
+    capture: () => null,
+    restore: () => registry.clear(),
+    verify: () => {
+      if (!registry.isEmpty()) {
+        throw new VitestNativeError(
+          "HOT_STATE_RESTORE_FAILED",
+          `${registry.entries.size + registry.unresolved.size} jest.mock registrations remain`,
+        );
+      }
+    },
+  });
+}
+
+/**
+ * `jest.resetModules()`: `Runtime.resetModules` clears the module registry and the
+ * mock REGISTRY (`_mockRegistry`, the factories' cached results) but keeps the
+ * factories (`_mockFactories`), so the next require re-evaluates modules and re-runs
+ * factories. Here: Vite's graph (including the `mock:` nodes `vi.resetModules()` keeps,
+ * so an import after the reset gets the same new mock a require does), the project
+ * modules in Node's cache, and each factory's memoized value.
+ */
+function resetModules() {
+  const registry = nodeRegistry();
+  vi.resetModules();
+  resetViteModules();
+  registry.dropProjectModules();
+  for (const entry of [...registry.entries.values(), ...registry.unresolved.values()]) {
+    entry.has = false;
+    entry.value = undefined;
+  }
+}
+
+/**
+ * `jest.isolateModules(fn)` / `isolateModulesAsync(fn)`: `Runtime.isolateModules` runs
+ * `fn` against a fresh module registry AND mock registry, then discards both, so what
+ * `fn` loads is invisible outside and what was loaded before is untouched. Nesting
+ * throws, with Jest's message.
+ */
+function beginIsolation(name) {
+  const registry = nodeRegistry();
+  if (registry.isolated) {
+    throw new Error(
+      `${name} cannot be nested inside another isolateModules or isolateModulesAsync.`,
+    );
+  }
+  const outerModules = registry.dropProjectModules();
+  const outerValues = new Map();
+  for (const entry of [...registry.entries.values(), ...registry.unresolved.values()]) {
+    outerValues.set(entry, { has: entry.has, value: entry.value });
+    entry.has = false;
+    entry.value = undefined;
+  }
+  const restoreVite = resetViteModules({ snapshot: true });
+  registry.isolated = true;
+  return () => {
+    registry.isolated = false;
+    registry.dropProjectModules();
+    for (const [id, mod] of outerModules) Module._cache[id] = mod;
+    for (const entry of [...registry.entries.values(), ...registry.unresolved.values()]) {
+      const outer = outerValues.get(entry);
+      entry.has = outer?.has ?? false;
+      entry.value = outer?.value;
+    }
+    restoreVite?.();
+  };
+}
+function isolateModules(fn) {
+  const end = beginIsolation("isolateModules");
+  try {
+    fn();
+  } finally {
+    end();
+  }
+}
+async function isolateModulesAsync(fn) {
+  const end = beginIsolation("isolateModulesAsync");
+  try {
+    await fn();
+  } finally {
+    end();
+  }
+}
 
 // Jest test modules (and `jest.mock` factories) routinely call `require(...)`
 // synchronously — e.g. `jest.mock('x', () => require('react-native').View)`. ESM

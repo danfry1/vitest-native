@@ -56,6 +56,7 @@ describe("hot-runtime state manifest", () => {
       "console.descriptors",
       "react-native.error-utils",
       "expo.runtime",
+      "jest-compat.node-mocks",
     ]);
   });
 

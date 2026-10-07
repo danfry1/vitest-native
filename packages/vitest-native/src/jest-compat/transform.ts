@@ -5,6 +5,8 @@ import { MagicString } from "magic-string";
 const HOISTABLE = new Set(["mock", "unmock", "doMock", "doUnmock"]);
 // The ones that take a factory whose return needs Jest-style CJS interop.
 const WITH_FACTORY = new Set(["mock", "doMock"]);
+// The ones that remove a mock, which the Node-side registry must forget too.
+const UNMOCK = new Set(["unmock", "doUnmock"]);
 const TRANSFORMABLE = /\.(?:[cm]?[jt]sx?)$/;
 // Cheap pre-filter so we only parse files that actually use jest mock calls.
 const HAS_JEST_MOCK = /\bjest\s*\.\s*(?:mock|unmock|doMock|doUnmock)\s*\(/;
@@ -40,6 +42,11 @@ function walk(node: any, fn: (n: any) => void): void {
  *      jest.mock('m', () => ({ a, b }))    // Vitest: default import is undefined
  *    A factory already returning an ES shape (`__esModule`/explicit `default`) is
  *    passed through unchanged.
+ *
+ * 3. **One registry** — registers each factory, and each unmock, with the Node-side
+ *    registry the jest-compat setup installs, so `require()`, the modules
+ *    `jest.requireActual` loads, and `jest.requireMock` see the same mock the imports
+ *    do, as under Jest's single per-file module registry (see node-registry.mjs).
  *
  * Opt-in: add after `reactNative()`; pair with `jestCompatSetup` + `globals: true`.
  */
@@ -79,13 +86,38 @@ export function jestMockTransform(): Plugin {
         s.overwrite(obj.start, obj.end, "vi");
         changed = true;
 
-        // Wrap a function factory so its return is run through Jest CJS interop.
+        // The module specifier, when it is a string literal or a variable: it is
+        // repeated in the registration below, and repeating an arbitrary expression
+        // would evaluate it twice.
+        const specNode = node.arguments[0];
+        const spec =
+          specNode &&
+          ((specNode.type === "Literal" && typeof specNode.value === "string") ||
+            (specNode.type === "TemplateLiteral" && specNode.expressions.length === 0) ||
+            specNode.type === "Identifier")
+            ? code.slice(specNode.start, specNode.end)
+            : null;
+
         if (WITH_FACTORY.has(prop.name) && node.arguments.length >= 2) {
           const factory = node.arguments[1];
           if (factory.type === "ArrowFunctionExpression" || factory.type === "FunctionExpression") {
-            s.appendLeft(factory.start, "() => globalThis.__vnInteropMock((");
-            s.appendRight(factory.end, ")())");
+            if (spec !== null) {
+              // Register the factory with the Node-side registry at the call's own
+              // (hoisted) position, and give Vitest the registry's memoized value, so
+              // a require() of the module gets the same mock an import does. The
+              // registry applies the CJS interop for Vitest (see node-registry.mjs).
+              s.appendLeft(factory.start, `globalThis.__vnJestMock(import.meta.url, ${spec}, `);
+              s.appendRight(factory.end, ")");
+            } else {
+              // Wrap a function factory so its return is run through Jest CJS interop.
+              s.appendLeft(factory.start, "() => globalThis.__vnInteropMock((");
+              s.appendRight(factory.end, ")())");
+            }
           }
+        } else if (UNMOCK.has(prop.name) && spec !== null) {
+          // Unregister at the same position, so a later require() is unmocked too.
+          s.appendLeft(specNode.start, `(globalThis.__vnJestUnmock?.(import.meta.url, ${spec}), `);
+          s.appendRight(specNode.end, ")");
         }
       });
 

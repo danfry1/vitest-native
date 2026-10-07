@@ -15,8 +15,19 @@ const residentRnEntries = new Set([
   "react-native.event-listeners",
 ]);
 
+// Entries registered by the jest-compat setup exist only in a run that uses it, so
+// their mutation legs run the jest-compat isolation suite in hot mode instead.
+const jestCompatArgs = [
+  "--config",
+  path.join("tests-native", "vitest.hot-jest-compat.config.mts"),
+  "--mode",
+  "hot",
+];
+const jestCompatEntries = new Set(["jest-compat.node-mocks"]);
+
 for (const entry of HOT_STATE_MANIFEST_ENTRIES) {
-  const result = spawnSync(process.execPath, [vitestEntry, "run", "--config", config], {
+  const args = jestCompatEntries.has(entry) ? jestCompatArgs : ["--config", config];
+  const result = spawnSync(process.execPath, [vitestEntry, "run", ...args], {
     cwd: packageRoot,
     encoding: "utf8",
     env: {
