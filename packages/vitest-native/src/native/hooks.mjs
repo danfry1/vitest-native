@@ -13,6 +13,7 @@ import {
   parseNativeOwnershipManifest,
 } from "./ownership.mjs";
 import { explainUntransformedSyntaxError } from "./explain.mjs";
+import { expandAlias } from "../jest-compat/aliases.mjs";
 
 // Guarded via globalThis, not module scope: under the hot runtime this module
 // can be evaluated twice in one worker (once by the worker entry through Node's
@@ -294,28 +295,67 @@ export function installRequireHooks(
     return exportsValue;
   }
 
-  const origLoad = Module._load;
-  Module._load = function (request, parent, ...rest) {
+  // What a require of `request` gets when a preset shadows it, or NO_PRESET. One
+  // function for both ways a preset package is required: by name here, and by resolved
+  // file from CommonJS that the ESM loader compiled (loader.mjs serves those through
+  // globalThis.__vitest_native_preset_require), so the two cannot disagree.
+  const NO_PRESET = Symbol("no preset");
+  function presetExportsFor(request) {
     const mocks = globalThis.__vitest_native_preset_mocks;
-    if (mocks) {
-      if (Object.prototype.hasOwnProperty.call(mocks, request)) return mocks[request];
-      // Subpath require of a preset package — the real deep entry would load the
-      // package's native runtime. Exempt: JSON subpaths (package.json version
-      // gates), asset subpaths (fonts/images, stubbed from their real files by
-      // the Module._extensions handlers above), and Node-safe utility entries
-      // (jest-utils, mock, plugin) — those fall through to the real file.
-      const reqExtMatch = /\.([a-z0-9]+)$/i.exec(request);
-      const reqExt = reqExtMatch ? reqExtMatch[1].toLowerCase() : "";
-      if (reqExt !== "json" && !assetExtSet.has(reqExt) && !isUtilitySubpath(request)) {
-        const pkg = packageNameOf(request);
-        if (pkg !== request && Object.prototype.hasOwnProperty.call(mocks, pkg)) {
-          return presetSubpathExports(mocks, pkg, request);
-        }
+    if (!mocks) return NO_PRESET;
+    if (Object.prototype.hasOwnProperty.call(mocks, request)) return mocks[request];
+    // Subpath require of a preset package — the real deep entry would load the
+    // package's native runtime. Exempt: JSON subpaths (package.json version
+    // gates), asset subpaths (fonts/images, stubbed from their real files by
+    // the Module._extensions handlers above), and Node-safe utility entries
+    // (jest-utils, mock, plugin) — those fall through to the real file.
+    const reqExtMatch = /\.([a-z0-9]+)$/i.exec(request);
+    const reqExt = reqExtMatch ? reqExtMatch[1].toLowerCase() : "";
+    if (reqExt !== "json" && !assetExtSet.has(reqExt) && !isUtilitySubpath(request)) {
+      const pkg = packageNameOf(request);
+      if (pkg !== request && Object.prototype.hasOwnProperty.call(mocks, pkg)) {
+        return presetSubpathExports(mocks, pkg, request);
       }
     }
+    return NO_PRESET;
+  }
+  globalThis.__vitest_native_preset_require = (request, file) => {
+    const shadowed = presetExportsFor(request);
+    return shadowed === NO_PRESET ? Module._load(file, null, false) : shadowed;
+  };
+
+  const origLoad = Module._load;
+  Module._load = function (request, parent, ...rest) {
+    const shadowed = presetExportsFor(request);
+    if (shadowed !== NO_PRESET) return shadowed;
     return origLoad.call(this, request, parent, ...rest);
   };
 
+  let requireAliases;
+  const resolveAliasedRequest = (request, parent, resolveTarget) => {
+    if (requireAliases === undefined) {
+      try {
+        requireAliases = JSON.parse(process.env.VITEST_NATIVE_REQUIRE_ALIASES || "[]");
+      } catch {
+        requireAliases = [];
+      }
+    }
+    if (requireAliases.length === 0 || request.startsWith(".") || path.isAbsolute(request)) {
+      return null;
+    }
+    if (!parent?.filename || NODE_MODULES_PATH.test(parent.filename)) return null;
+    const expanded = expandAlias(request, requireAliases);
+    if (expanded === request) return null;
+    if (path.isAbsolute(expanded) && !path.extname(expanded)) {
+      const hit = resolvePlatformFile(expanded, platform, activeSourceExts);
+      if (hit) return hit;
+    }
+    try {
+      return resolveTarget(expanded);
+    } catch {
+      return null;
+    }
+  };
   const origResolve = Module._resolveFilename;
   Module._resolveFilename = function (request, parent, ...rest) {
     let resolved;
@@ -338,6 +378,14 @@ export function installRequireHooks(
       try {
         resolved = origResolve.call(this, request, parent, ...rest);
       } catch (err) {
+        // The project's aliases (resolve.alias string entries, and tsconfig `paths` when
+        // Vite resolves them for imports): a `require('#/lib/x')` in a test reaches here,
+        // not Vite. Only for requests from project files — packages never see the
+        // project's aliases, under Vite or Metro — and only once Node has failed, so no
+        // resolution that worked before can change.
+        const aliased = resolveAliasedRequest(request, parent, (target) =>
+          origResolve.call(this, target, parent, ...rest),
+        );
         // RN 0.87's exports map rejects the deep self-references its own Babel
         // preset emits (`react-native/src/private/…`); Metro resolves them via the
         // `react-native-legacy-deep-imports` condition. Mirror Metro by path.
@@ -346,6 +394,7 @@ export function installRequireHooks(
         // when the cache had to fall back to tmpdir.
         const fromDir = parent?.filename ? path.dirname(parent.filename) : projectRoot;
         const deep =
+          aliased ??
           resolveDeepPackageFile(request, fromDir, platform, activeSourceExts) ??
           (fromDir === projectRoot
             ? null

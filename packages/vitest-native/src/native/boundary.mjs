@@ -143,6 +143,11 @@ function turboStubSource(platform, version) {
   // (e.g. showShareActionSheetWithOptions(options, error, success)). For the latter,
   // the success callback is the LAST function arg.
   const __SUCCESS_LAST = new Set(["showShareActionSheetWithOptions"]);
+  // NitroModules.install() puts Nitro's JSI proxy on the global; see native/nitro.mjs.
+  const __installNitroProxy = () => {
+    globalThis.__vitest_native_install_nitro?.();
+    return undefined;
+  };
   // Stubs are memoized per module name in the shared boundary state, so
   // NativeModules.Foo === NativeModules.Foo === TurboModuleRegistry.get('Foo')
   // (matching bridgeless RN, where NativeModules proxies TurboModuleRegistry).
@@ -164,6 +169,7 @@ function turboStubSource(platform, version) {
         if (Object.prototype.hasOwnProperty.call(t, p)) return t[p];
         let v;
         if (p === "getConstants") v = () => (__C[name] || {});
+        else if (name === "NitroModules" && p === "install") v = __installNitroProxy;
         else if (p === "getColorScheme") {
           v = () => getBoundaryState(name).colorScheme ?? "light";
         } else if (p === "setColorScheme") {

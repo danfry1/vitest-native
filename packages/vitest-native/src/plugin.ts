@@ -13,6 +13,7 @@ import { validateOptions, validatePeerDependency, warnUnknownOptions } from "./v
 import { PEER_REQUIREMENTS } from "./peer-requirements.js";
 import { VitestNativeError } from "./errors.mjs";
 import { serializableAliases } from "./jest-compat/aliases.mjs";
+import { tsconfigPathAliases } from "./native/tsconfig-paths.mjs";
 import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
 import { detectEcosystemPackages } from "./native/ecosystem.js";
@@ -81,7 +82,7 @@ function stripFsPrefix(id: string): string {
   return id.startsWith("/@fs/") ? id.slice(4) : id;
 }
 
-import { AUTO_DETECT_PRESETS } from "./preset-map.js";
+import { AUTO_DETECT_PRESETS, presetForInstalled } from "./preset-map.js";
 
 async function autoDetectPresets(diagnostics: boolean, projectRoot: string): Promise<Preset[]> {
   const detected: Preset[] = [];
@@ -96,11 +97,7 @@ async function autoDetectPresets(diagnostics: boolean, projectRoot: string): Pro
   const req = createRequire(path.join(projectRoot, "package.json"));
 
   for (const [pkgName, exportName] of Object.entries(AUTO_DETECT_PRESETS)) {
-    let installed = false;
-    try {
-      req.resolve(pkgName);
-      installed = true;
-    } catch {}
+    const installed = presetForInstalled(pkgName, req) !== null;
     if (installed) {
       if (enabled.has(exportName)) continue;
       const factory = presetFactories[exportName];
@@ -112,7 +109,9 @@ async function autoDetectPresets(diagnostics: boolean, projectRoot: string): Pro
         }
       }
     } else if (diagnostics) {
-      console.log(`[vitest-native] Checked for ${pkgName}: not found, skipping preset`);
+      console.log(
+        `[vitest-native] Checked for ${pkgName}: not installed or tests itself, skipping preset`,
+      );
     }
   }
   return detected;
@@ -442,16 +441,15 @@ function autoDetectPresetNames(projectRoot: string, diagnostics: boolean): strin
   const req = createRequire(path.join(projectRoot, "package.json"));
   const names = new Set<string>();
   for (const [pkgName, exportName] of Object.entries(AUTO_DETECT_PRESETS)) {
-    try {
-      req.resolve(pkgName);
+    if (presetForInstalled(pkgName, req) !== null) {
       names.add(exportName);
       if (diagnostics) {
         console.log(`[vitest-native] Auto-detected ${pkgName} → enabled ${exportName} preset`);
       }
-    } catch {
-      if (diagnostics) {
-        console.log(`[vitest-native] Checked for ${pkgName}: not found, skipping preset`);
-      }
+    } else if (diagnostics) {
+      console.log(
+        `[vitest-native] Checked for ${pkgName}: not installed or tests itself, skipping preset`,
+      );
     }
   }
   return [...names];
@@ -887,6 +885,29 @@ export function pinInlineProjectRoots(test: unknown, declaringRoot: string): num
     pinned++;
   }
   return pinned;
+}
+
+/**
+ * Run React Native's setup before the user's own setup files.
+ *
+ * Vite merges a config hook's returned arrays AFTER the user's (`mergeConfig`
+ * concatenates left to right), so returning `setupFiles: [ours]` ran every user setup
+ * file first. A user setup that imports `@testing-library/react-native` or
+ * `react-native` then reached Node before the require hooks existed and failed on
+ * React Native's Flow source ("Unexpected token 'typeof'"). The hot runtime hid this
+ * by installing the hooks at worker boot; every other run broke. Jest has the same
+ * ordering contract: a preset's `setupFiles` run before the project's
+ * `setupFilesAfterEnv`. Moving the entry into the user's list (and out of the merged
+ * result) keeps a single copy at the front.
+ */
+function prependSetupFile(userConfig: UserConfig, contributed: { setupFiles?: unknown }): void {
+  const ours = (contributed.setupFiles as string[])[0];
+  const userTest = ((userConfig as { test?: { setupFiles?: unknown } }).test ??= {});
+  const existing = userTest.setupFiles;
+  const userFiles = Array.isArray(existing) ? existing : existing == null ? [] : [existing];
+  if (userFiles.length === 0) return;
+  userTest.setupFiles = [ours, ...userFiles.filter((f) => f !== ours)];
+  contributed.setupFiles = (contributed.setupFiles as string[]).slice(1);
 }
 
 function hasSetupFile(setupFiles: unknown, file: string): boolean {
@@ -1404,6 +1425,17 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         (userConfig as { resolve?: { alias?: unknown } }).resolve?.alias,
         resolvedRoot,
       );
+      // tsconfig `paths` too, whenever Vite resolves them for imports: the user turned
+      // `resolve.tsconfigPaths` on, or the plugin does for an Expo project (below).
+      const userTsconfigPaths = (userConfig.resolve as { tsconfigPaths?: unknown } | undefined)
+        ?.tsconfigPaths;
+      const viteMajorForPaths = Number(resolvePackageVersion("vite", resolvedRoot)?.split(".")[0]);
+      if (
+        userTsconfigPaths === true ||
+        expoTsconfigPaths(resolvedRoot, userTsconfigPaths, viteMajorForPaths) === "enable"
+      ) {
+        requireAliases.entries.push(...tsconfigPathAliases(resolvedRoot).entries);
+      }
       if (requireAliases.entries.length > 0) {
         env.VITEST_NATIVE_REQUIRE_ALIASES = JSON.stringify(requireAliases.entries);
       }
@@ -2157,6 +2189,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         )?.test;
         if (Array.isArray(test?.setupFiles) && typeof test.setupFiles[0] === "string") {
           contributedSetup.set(vitestRootOf(userConfig), test.setupFiles[0]);
+          prependSetupFile(userConfig, test);
         }
         // Both engines add `react-native` to the conditions Vitest forwards to every
         // worker, where it also governs how Vitest loads the test environment. Preload

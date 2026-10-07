@@ -151,6 +151,15 @@ test("unit ${i} renders through real React Native", () => {
 `,
     );
   }
+  // A user setup file that imports React Native, as migrated Jest setups do (RNTL's
+  // `configure`, `jest.mock` of RN modules). It only works if vitest-native's own
+  // setup ran first: React Native's source is Flow and needs the require hooks.
+  write(
+    "setup/imports-react-native.mjs",
+    `import { Platform } from "react-native";
+globalThis.__vn_user_setup_platform = Platform.OS;
+`,
+  );
   write(
     "src/flaky.test.mjs",
     `import fs from "node:fs";
@@ -466,6 +475,22 @@ try {
     ["default", {}, HOT, (r) => r.status === 0 && r.passed === all.total],
     ["hotRuntime:false", { plugin: { hotRuntime: false } }, "isolated", (r) => r.status === 0],
     ["isolate:true", { test: { isolate: true } }, "isolated", (r) => r.status === 0],
+    // vitest-native's setup must run BEFORE the user's: Vite appends a plugin's
+    // setupFiles after the user's, which left React Native's Flow source unhooked when
+    // a user setup imported it. The hot worker installs hooks at boot, so only the
+    // isolated row caught it; both run to keep the order honest in each mode.
+    [
+      "a user setup file importing react-native, isolated",
+      { plugin: { hotRuntime: false }, test: { setupFiles: ["setup/imports-react-native.mjs"] } },
+      "isolated",
+      (r) => r.status === 0 && r.passed === all.total,
+    ],
+    [
+      "a user setup file importing react-native, hot",
+      { test: { setupFiles: ["setup/imports-react-native.mjs"] } },
+      HOT,
+      (r) => r.status === 0 && r.passed === all.total,
+    ],
     // Vitest's isolate:false shares the module graph across files, so cross-file state
     // DOES carry over: the state checks fail, which is Vitest's own behaviour.
     [

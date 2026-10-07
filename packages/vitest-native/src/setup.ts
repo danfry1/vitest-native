@@ -23,7 +23,7 @@ import * as presetFactories from "./presets/index.js";
 import { createRequire } from "node:module";
 import path from "node:path";
 import type { Preset } from "./types.js";
-import { AUTO_DETECT_PRESETS } from "./preset-map.js";
+import { AUTO_DETECT_PRESETS, presetForInstalled } from "./preset-map.js";
 import { serializer as rnSerializer } from "./serializer.js";
 import { animatedMatchers } from "./matchers/animated.js";
 
@@ -164,7 +164,7 @@ function autoDetectPresets(): Preset[] {
   const enabled = new Set<string>();
   for (const [pkgName, exportName] of Object.entries(AUTO_DETECT_PRESETS)) {
     try {
-      projectReq.resolve(pkgName);
+      if (presetForInstalled(pkgName, projectReq) === null) continue;
       if (enabled.has(exportName)) continue;
       // Package is installed — load and call our preset factory
       const factory = loadPresetFactory(exportName);

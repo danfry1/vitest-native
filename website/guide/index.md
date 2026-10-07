@@ -32,7 +32,7 @@ Migrating a large, deeply Jest-coupled suite *wholesale* is possible but **not t
 - **Same toolchain as RN** — `native` Flow-strips real React Native via your project's Babel preset, the toolchain RN already uses. The `mock` engine needs no Babel — it's just Vite.
 - **100% public API coverage** (mock engine) — every stable React Native export is mocked. See [API Coverage](/api/coverage).
 - **RNTL compatible** — works with `@testing-library/react-native` automatically.
-- **Third-party presets** — auto-detected mocks for Reanimated, Gesture Handler, Safe Area, Navigation, Screens, AsyncStorage, Device Info, MMKV, SVG, WebView, and Expo.
+- **Third-party presets** — auto-detected mocks for native-runtime libraries; the [preset list](/guide/presets#available-presets) names every package covered.
 - **jest-compat layer** — `vitest-native/jest-compat` eases migrating existing Jest suites.
 - **Test helpers** — `setDimensions`, `setColorScheme`, `setInsets`, `mockNativeModule` for easy state control under both engines (plus mock-only `setPlatform`).
 - **TypeScript first** — full type safety across the entire API.
