@@ -29,6 +29,9 @@ import { VitestNativeError } from "../errors.mjs";
 // metro-config/src/defaults/index.js: `publicPath: "/assets"`. The default every
 // React Native template uses; it only feeds `httpServerLocation`.
 const PUBLIC_PATH = "/assets";
+// Expo CLI's dev server replaces it (@expo/cli build/src/start/server/metro/
+// instantiateMetro.js); Expo's asset step then URL-encodes the path value.
+const EXPO_PUBLIC_PATH = "/assets/?unstable_path=.";
 
 // metro/src/Assets.js `isAssetTypeAnImage` — the types Metro measures. Compared
 // case-sensitively there too, so `LOGO.PNG` is registered without dimensions.
@@ -182,6 +185,33 @@ export function imageDimensions(buffer) {
   return null;
 }
 
+const expoProjects = new Map();
+
+/**
+ * Whether Expo's bundler serves the project: `expo` resolves from it, the rule the
+ * Metro profile uses to load Expo's config (metro-profile-compiler.mjs). Expo's
+ * transform worker adds `fileHashes`, the md5 of each scale variant in `files` order,
+ * to every asset it registers (@expo/metro-config
+ * build/transform-worker/getAssets.js ensureOtaAssetHashesAsync), and expo-asset's
+ * source transformer resolves an asset through Expo only when they are present
+ * (expo-asset build/Asset.fx.js).
+ */
+function expoBundlesAssets(projectRoot) {
+  let expo = expoProjects.get(projectRoot);
+  if (expo === undefined) {
+    try {
+      createRequire(path.join(projectRoot, "package.json")).resolve("expo/package.json");
+      expo = true;
+    } catch {
+      expo = false;
+    }
+    expoProjects.set(projectRoot, expo);
+  }
+  return expo;
+}
+
+const md5 = (buffer) => crypto.createHash("md5").update(buffer).digest("hex");
+
 /**
  * The descriptor Metro registers for `file`: metro/src/Assets.js `getAssetData`,
  * minus the keys metro/src/Bundler/util.js `generateAssetCodeFileAst` strips
@@ -199,21 +229,30 @@ export function metroAssetDescriptor(file, { projectRoot, platform }) {
 
   // getAssetData: the URL directory is the asset's directory relative to the
   // project root, under publicPath; a path escaping the root keeps its `..`.
+  const expo = expoBundlesAssets(projectRoot);
+  const publicPath = expo ? EXPO_PUBLIC_PATH : PUBLIC_PATH;
   const localDir = path.dirname(path.relative(projectRoot, file));
-  const urlPath = localDir.startsWith("..")
-    ? `${PUBLIC_PATH.replace(/\/$/, "")}/${localDir}`
-    : path.join(PUBLIC_PATH, localDir);
+  let urlPath = (
+    localDir.startsWith("..")
+      ? `${publicPath.replace(/\/$/, "")}/${localDir}`
+      : path.join(publicPath, localDir)
+  ).replace(/\\/g, "/");
+  if (expo) {
+    const query = /\?unstable_path=(.*)/.exec(urlPath);
+    if (query?.[1]) urlPath = urlPath.replace(query[1], encodeURIComponent(query[1]));
+  }
 
   // getAbsoluteAssetInfo: one md5 over every scale variant, in scale order.
   const hasher = crypto.createHash("md5");
-  for (const variant of files) hasher.update(fs.readFileSync(variant));
+  const contents = files.map((variant) => fs.readFileSync(variant));
+  for (const content of contents) hasher.update(content);
 
   // getAssetData measures the SMALLEST variant and divides by its scale, so width
   // and height are in points whichever variant the app required.
   let dimensions = null;
   if (IMAGE_TYPES.has(path.extname(file).slice(1))) {
     try {
-      dimensions = imageDimensions(fs.readFileSync(files[0]));
+      dimensions = imageDimensions(contents[0]);
     } catch {
       dimensions = null;
     }
@@ -222,13 +261,14 @@ export function metroAssetDescriptor(file, { projectRoot, platform }) {
   return JSON.parse(
     JSON.stringify({
       __packager_asset: true,
-      httpServerLocation: urlPath.replace(/\\/g, "/"),
+      httpServerLocation: urlPath,
       width: dimensions ? dimensions.width / scale : undefined,
       height: dimensions ? dimensions.height / scale : undefined,
       scales,
       hash: hasher.digest("hex"),
       name: requested.name,
       type: requested.type,
+      fileHashes: expo ? contents.map(md5) : undefined,
     }),
   );
 }

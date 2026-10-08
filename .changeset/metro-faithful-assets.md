@@ -23,6 +23,9 @@ return `null`, because a file name is not a registered id, so code such as
   engine produces, on iOS and Android). The mock `AssetRegistry` now keeps its entries across
   `resetAllMocks()`: React Native's registry has no reset, and an asset module's id must stay valid
   for every test in the file.
+- **Expo.** In a project `expo` resolves from, assets carry what Expo's bundler adds: `fileHashes`
+  and the Expo CLI dev server's asset location. expo-asset then resolves them through Expo, as in an
+  Expo app. The descriptor is checked against `getUniversalAssetData` from the installed Expo.
 - **Scales and platforms.** `@2x`/`@3x` variants group as in Metro: `scales` lists them, the
   dimensions are the smallest variant's divided by its scale, and resolution picks the variant for
   the device's pixel ratio. A `.ios`/`.android` variant is preferred for the configured platform.

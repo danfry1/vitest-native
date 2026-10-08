@@ -15,6 +15,7 @@
  * they double as an oracle for the dimension reader.
  */
 import { afterAll, describe, it, expect } from "vitest";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -37,8 +38,13 @@ const FIXTURES = path.resolve(HERE, "../tests-native/fixtures/assets");
 const projectRoot = path.resolve(HERE, "..");
 
 /** The object Metro's generated asset module passes to registerAsset. */
-async function metroRegistered(file: string, platform: string | null, root = projectRoot) {
-  const data = await getAssetData(file, path.relative(root, file), [], platform, "/assets");
+async function metroRegistered(
+  file: string,
+  platform: string | null,
+  root = projectRoot,
+  publicPath = "/assets",
+) {
+  const data = await getAssetData(file, path.relative(root, file), [], platform, publicPath);
   const { code } = generate(generateAssetCodeFileAst("asset-registry", data));
   let registered: unknown;
   const module = { exports: undefined as unknown };
@@ -184,5 +190,37 @@ describe("image dimensions match Metro's (image-size) for each format", () => {
     const descriptor = ours(file, "ios", dir);
     expect(descriptor).toMatchObject({ name: "placeholder", type: "png", scales: [1] });
     expect(descriptor).not.toHaveProperty("width");
+  });
+});
+
+// Expo's transform worker registers Metro's descriptor, computed under Expo CLI's dev
+// publicPath, plus `fileHashes`, the md5 of each scale variant in `files` order, with
+// the path in httpServerLocation URL-encoded (@expo/metro-config
+// build/transform-worker/getAssets.js). consumer-tests/expo checks the result against
+// that function itself; here, against Metro, for a project `expo` resolves from.
+describe("assets in a project Expo bundles", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-expo-assets-"));
+  afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "node_modules", "expo"), { recursive: true });
+  fs.writeFileSync(path.join(root, "package.json"), "{}");
+  fs.writeFileSync(path.join(root, "node_modules", "expo", "package.json"), '{"name":"expo"}');
+
+  it("carry Metro's descriptor plus one md5 per scale variant", async () => {
+    const file = path.join(FIXTURES, "logo.png");
+    const md5 = (name: string) =>
+      crypto
+        .createHash("md5")
+        .update(fs.readFileSync(path.join(FIXTURES, name)))
+        .digest("hex");
+    const metro = (await metroRegistered(file, "ios", root, "/assets/?unstable_path=.")) as {
+      httpServerLocation: string;
+    };
+    const [location, value] = metro.httpServerLocation.split("?unstable_path=");
+    expect(ours(file, "ios", root)).toEqual({
+      ...metro,
+      httpServerLocation: `${location}?unstable_path=${encodeURIComponent(value)}`,
+      fileHashes: [md5("logo.png"), md5("logo@2x.png"), md5("logo@3x.png")],
+    });
+    expect(ours(file, "ios")).not.toHaveProperty("fileHashes");
   });
 });

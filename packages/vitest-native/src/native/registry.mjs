@@ -242,6 +242,9 @@ export function registryKey({
         // Reproduced by switching between two trees differing only in React's version;
         // clearing node_modules/.cache/vitest-native was the only way out.
         version("react"),
+        // React Native's own image assets are compiled in, and their descriptors carry
+        // Expo's fileHashes when Expo bundles the project (native/assets.mjs).
+        version("expo"),
         version("@react-native/babel-preset"),
         version("@babel/core"),
         process.env.BABEL_ENV || process.env.NODE_ENV || "none",
