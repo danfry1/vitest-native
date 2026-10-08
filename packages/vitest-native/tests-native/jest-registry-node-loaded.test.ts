@@ -41,15 +41,25 @@ describe("relative requires from a Node-loaded project file", () => {
   });
 });
 
+describe("directory requests from project files", () => {
+  // Project parents used to fall through to Node, which honours both; the platform scan
+  // that replaced it resolved `./lib/` to `lib.ts` and ignored package.json `main`.
+  it("resolve a trailing separator to the directory, and a directory through its main", () => {
+    expect(require("./fixtures/alias-app/registry/entry/lib/").which).toBe("lib/index.ts");
+    expect(require("./fixtures/alias-app/registry/entry/pkgdir").which).toBe("pkgdir/main.ts");
+    expect(require("./fixtures/alias-app/registry/entry/uses-entry").resolved()).toEqual([
+      "lib/index.ts",
+      "pkgdir/main.ts",
+    ]);
+  });
+});
+
 describe("Vitest's worker state, which the registry depends on", () => {
   // Without it the registry falls back to separate copies, with a warning. Asserted
   // here so a Vitest release that moves it fails by name on every matrix leg.
-  it("exposes the evaluated module graph and the running test file", () => {
+  it("exposes the evaluated module graph", () => {
     const worker = (globalThis as Record<string, any>).__vitest_worker__;
     expect(typeof worker.evaluatedModules.getModulesByFile).toBe("function");
     expect(worker.evaluatedModules.idToModuleMap).toBeInstanceOf(Map);
-    // The file the registry scopes registrations to in a reused worker. The hot runtime
-    // batches files and clears the registry through its state manifest instead.
-    expect(typeof worker.filepath).toBe("string");
   });
 });

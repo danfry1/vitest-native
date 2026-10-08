@@ -34,7 +34,7 @@ import { transformRN, isFlow, cacheRootFor, TRANSFORM_CACHE_VERSION } from "./tr
 
 import { boundarySourceFor, BOUNDARY_SOURCES } from "./boundary.mjs";
 import { assetRegistryPathFor, nativeAssetModuleSource } from "./assets.mjs";
-import { resolvePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
+import { resolveRelativePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
 import { createNativeOwnershipPolicy } from "./ownership.mjs";
 
 /**
@@ -141,11 +141,7 @@ function sourceFor(file, { projectRoot, platform, reactNativeVersion, assetExtSe
  */
 function resolveTarget(request, fromFile, platform, sourceExts) {
   if (request.startsWith(".") && !path.extname(request)) {
-    const hit = resolvePlatformFile(
-      path.resolve(path.dirname(fromFile), request),
-      platform,
-      sourceExts,
-    );
+    const hit = resolveRelativePlatformFile(request, fromFile, platform, sourceExts);
     if (hit) return hit;
   }
   try {

@@ -5,6 +5,8 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { jestCompatAliases, jestCompatSetup, jestMockTransform } from "../src/jest-compat/index.js";
+import { SETUP_ACCESSOR } from "../src/jest-compat/transform.js";
+import { isVitestNativeError } from "../src/errors.mjs";
 
 describe("jest-compat: jestMockTransform (hoist + CJS interop)", () => {
   // The plugin's transform hook needs a rollup-style `this.parse`; vitest runs in
@@ -16,6 +18,11 @@ describe("jest-compat: jestMockTransform (hoist + CJS interop)", () => {
   const run = (code: string, id = "/proj/src/foo.test.tsx") => {
     const t = plugin.transform as (this: any, c: string, i: string) => { code: string } | null;
     return t.call({ parse }, code, id);
+  };
+  /** The output after the setup accessor, which a file using a factory starts with. */
+  const body = (code: string) => {
+    expect(code.startsWith(SETUP_ACCESSOR)).toBe(true);
+    return code.slice(SETUP_ACCESSOR.length);
   };
   const hoistRe = /\b(?:vi|vitest)\s*\.\s*(?:mock|unmock|hoisted|doMock|doUnmock)\s*\(/;
 
@@ -34,14 +41,14 @@ describe("jest-compat: jestMockTransform (hoist + CJS interop)", () => {
     expect(hoistRe.test(out!.code)).toBe(true);
     // The factory is registered in a vi.hoisted beside the call, which Vitest hoists
     // with it, and vi.mock keeps an inline function as its factory.
-    expect(out!.code).toBe(
+    expect(body(out!.code)).toBe(
       "vi.hoisted(() => globalThis.__vnJestMock?.(import.meta.url, 'm', () => ({ a: 1 })));\n" +
-        "vi.mock('m', () => globalThis.__vnJestMocked(import.meta.url, 'm'));",
+        "vi.mock('m', () => __vn_jest_compat__(\"__vnJestMocked\")(import.meta.url, 'm'));",
     );
     // Not a statement of its own (or not hoisted): registered where it is evaluated.
-    expect(run("jest.doMock('m', () => () => null)")!.code).toBe(
+    expect(body(run("jest.doMock('m', () => () => null)")!.code)).toBe(
       "vi.doMock('m', (globalThis.__vnJestMock?.(import.meta.url, 'm', () => () => null), " +
-        "() => globalThis.__vnJestMocked(import.meta.url, 'm')))",
+        "() => __vn_jest_compat__(\"__vnJestMocked\")(import.meta.url, 'm')))",
     );
   });
 
@@ -62,9 +69,36 @@ describe("jest-compat: jestMockTransform (hoist + CJS interop)", () => {
   it("falls back to the plain CJS interop wrapper for a computed specifier", () => {
     // Repeating a non-literal specifier would evaluate it twice.
     const out = run("jest.mock(name(), () => () => null)");
-    expect(out!.code).toContain("globalThis.__vnInteropMock(");
+    expect(body(out!.code)).toContain('__vn_jest_compat__("__vnInteropMock")(');
     expect(out!.code).not.toContain("__vnJestMock");
     expect(hoistRe.test(out!.code)).toBe(true);
+  });
+
+  // Without the setup the factory used to fail with "__vnJestMocked is not a function".
+  it("names jestCompatSetup when a factory runs without the setup", () => {
+    const out = run("jest.mock('m', () => ({ a: 1 }));")!.code;
+    const accessor = new Function("vi", `${SETUP_ACCESSOR}; return __vn_jest_compat__;`)({
+      hoisted: (fn: () => unknown) => fn(),
+    });
+    let error: any;
+    try {
+      accessor("__vnJestMocked");
+    } catch (e) {
+      error = e;
+    }
+    expect(isVitestNativeError(error)).toBe(true);
+    expect(error.code).toBe("JEST_COMPAT_SETUP_MISSING");
+    expect(error.message).toMatch(/^\[vitest-native\] .*jestCompatSetup/);
+    // Vitest hoists the accessor with the mocks, so a factory can reach it.
+    expect(hoistRe.test(out.split("\n")[0])).toBe(true);
+    // With the setup, the setup's global is what the factory calls.
+    const installed = () => "installed";
+    (globalThis as any).__vnJestMockedProbe = installed;
+    try {
+      expect(accessor("__vnJestMockedProbe")).toBe(installed);
+    } finally {
+      delete (globalThis as any).__vnJestMockedProbe;
+    }
   });
 
   it("leaves a factory-less mock as it is", () => {
@@ -425,6 +459,22 @@ describe("jest-compat: setup", () => {
     expect((jestGlobal as { requireActual?: unknown }).requireActual).toBe(
       (vi as { requireActual?: unknown }).requireActual,
     );
+  });
+
+  // Outside the hot runtime nothing else clears jest.mock registrations, and a watch
+  // rerun of the same file in a reused worker kept the previous run's: clearing was
+  // keyed on Vitest's `filepath` changing.
+  it("starts each evaluation, so each test file, with an empty jest.mock registry", async () => {
+    const g = globalThis as Record<string, any>;
+    vi.resetModules();
+    await import("../src/jest-compat/setup.mjs");
+    g.__vnJestMock(import.meta.url, "vn-virtual-registry-probe", () => ({}));
+    const registry = g.__vitest_native_jest_registry;
+    expect(registry.isEmpty()).toBe(false);
+    vi.resetModules();
+    await import("../src/jest-compat/setup.mjs");
+    expect(g.__vitest_worker__.filepath).toBeTypeOf("string");
+    expect(registry.isEmpty()).toBe(true);
   });
 
   it("installs a global `require` so jest.mock factories can require() synchronously", async () => {

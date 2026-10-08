@@ -77,9 +77,13 @@ describe("jest.isolateModules", () => {
     expect(require(COUNTER)).toBe(inside);
   });
 
+  // Exactly Jest's error (jest-runtime 29.7, index.js:1074-1078): `toThrow(new Error(m))`
+  // compares the whole message, so a prefixed one fails a suite written against Jest.
   it("cannot be nested, with Jest's message", () => {
     expect(() => jest.isolateModules(() => jest.isolateModules(() => {}))).toThrow(
-      "isolateModules cannot be nested inside another isolateModules or isolateModulesAsync.",
+      new Error(
+        "isolateModules cannot be nested inside another isolateModules or isolateModulesAsync.",
+      ),
     );
     // The failed nesting did not leave the outer block open.
     expect(() => jest.isolateModules(() => {})).not.toThrow();
@@ -112,7 +116,9 @@ describe("jest.isolateModulesAsync", () => {
         await jest.isolateModulesAsync(async () => {});
       }),
     ).rejects.toThrow(
-      "isolateModulesAsync cannot be nested inside another isolateModulesAsync or isolateModules.",
+      new Error(
+        "isolateModulesAsync cannot be nested inside another isolateModulesAsync or isolateModules.",
+      ),
     );
   });
 });

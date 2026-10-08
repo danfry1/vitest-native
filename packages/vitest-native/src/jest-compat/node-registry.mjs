@@ -14,7 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expandAlias } from "./aliases.mjs";
-import { resolvePlatformFile } from "../native/resolve.mjs";
+import { resolvePlatformFile, resolveRelativePlatformFile } from "../native/resolve.mjs";
 import { resetEvaluatedModules, restoreEvaluatedModules } from "../native/module-reset.mjs";
 import { VitestNativeError } from "../errors.mjs";
 
@@ -86,6 +86,10 @@ function createState() {
     const hit = resolvePlatformFile(base, config.platform, exts);
     return hit && canonical(hit);
   };
+  const relativePlatformFile = (request, from) => {
+    const hit = resolveRelativePlatformFile(request, from, config.platform, exts);
+    return hit && canonical(hit);
+  };
 
   const state = {
     /** Resolved file -> entry. */
@@ -98,8 +102,6 @@ function createState() {
     bypass: null,
     /** The open isolateModules block, if any. */
     isolation: null,
-    /** The test file the registrations belong to. */
-    file: undefined,
     /** Module._cache keys present when the registry was installed: never reset. */
     baseline: new Set(Object.keys(Module._cache)),
   };
@@ -111,7 +113,7 @@ function createState() {
   function resolveUncached(request, parent) {
     const isPath = request.startsWith(".") || path.isAbsolute(request);
     if (isPath && !path.extname(request)) {
-      const hit = platformFile(path.resolve(path.dirname(parent.filename), request));
+      const hit = relativePlatformFile(request, parent.filename);
       if (hit) return hit;
     }
     try {
@@ -153,18 +155,6 @@ function createState() {
     return state.resolve(spec, file ? parentModuleFor(file) : rootParent);
   };
 
-  // Registrations are per test file, as in Jest. The hot runtime clears them at the
-  // file boundary (and its batches keep a stale `filepath`); a worker reused without
-  // it (`isolate: false`) drops them here.
-  function currentFile() {
-    if (globalThis.__vitest_native_hot_reset) return;
-    const file = worker()?.filepath;
-    if (file !== state.file) {
-      if (state.file !== undefined) state.clear();
-      state.file = file;
-    }
-  }
-
   // The memoized mock: `requireMock` caches the factory's result in `_mockRegistry`.
   state.valueOf = (entry) => {
     if (entry.has) return entry.value;
@@ -188,7 +178,6 @@ function createState() {
 
   /** The entry a load of `request` (resolved to `filename`) is served, if any. */
   state.lookup = (filename, request) => {
-    currentFile();
     if (state.bypass === (filename ?? `\0${request}`)) {
       // `requireActual`: this one load gets the real module; anything it requires
       // in turn is mocked as usual. A virtual mock has no real module, so Node's
@@ -200,7 +189,6 @@ function createState() {
   };
 
   state.register = (from, spec, factory) => {
-    currentFile();
     const filename = state.resolveFrom(spec, from);
     const entry = { spec, factory, has: false, value: undefined, evaluating: false };
     if (filename !== null) state.entries.set(filename, entry);
@@ -212,7 +200,6 @@ function createState() {
   state.byCall = new Map();
 
   state.unregister = (from, spec) => {
-    currentFile();
     const filename = state.resolveFrom(spec, from);
     if (filename !== null) state.entries.delete(filename);
     state.unresolved.delete(spec);
@@ -302,10 +289,10 @@ function createState() {
    */
   state.isolate = (name, other) => {
     if (state.isolation) {
-      throw new VitestNativeError(
-        "JEST_ISOLATE_NESTED",
-        `${name} cannot be nested inside another ${name} or ${other}.`,
-      );
+      // Jest's own error, word for word and a plain Error (index.js:1074-1078 and
+      // 1092-1096): Vitest's toThrow with an Error instance compares the whole error,
+      // name and own properties included, so only this matches a suite written for Jest.
+      throw new Error(`${name} cannot be nested inside another ${name} or ${other}.`);
     }
     const map = worker()?.evaluatedModules?.idToModuleMap;
     const isolation = {

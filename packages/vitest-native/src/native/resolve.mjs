@@ -69,10 +69,13 @@ export function existsExact(file) {
 // resolution cache, a newly-added platform variant is picked up on the next restart.
 const resolveCache = new Map();
 
+const TRAILING_SEPARATOR = /[\\/]$/;
+
 /**
  * Given an absolute base path with no extension (e.g. ".../Foo"), return the
- * first existing platform variant (".../Foo.ios.tsx", etc.) or directory index,
- * or null if none exist.
+ * first existing platform variant (".../Foo.ios.tsx", etc.) or the directory's
+ * entry point, or null if none exist. A base ending in a separator (`./lib/`) names
+ * the directory only.
  */
 export function resolvePlatformFile(absBase, platform = "ios", sourceExts = METRO_SOURCE_EXTS) {
   const key = platform + "\0" + sourceExts.join("\0") + "\0" + absBase;
@@ -83,16 +86,79 @@ export function resolvePlatformFile(absBase, platform = "ios", sourceExts = METR
   return resolved;
 }
 
-function scanPlatformFile(absBase, platform, sourceExts) {
-  const extensions = extensionsFor(platform, sourceExts);
+/**
+ * `resolvePlatformFile` for a relative, extensionless request as written in `fromFile`.
+ * `path.resolve` drops a trailing separator, and with it the request's meaning: Node
+ * and Metro both resolve `./lib/` to the directory, never to a sibling `lib.ts`.
+ */
+export function resolveRelativePlatformFile(request, fromFile, platform, sourceExts) {
+  const base = path.resolve(path.dirname(fromFile), request);
+  return resolvePlatformFile(
+    TRAILING_SEPARATOR.test(request) ? base + path.sep : base,
+    platform,
+    sourceExts,
+  );
+}
+
+// The main fields React Native's Metro config resolves a package entry point with
+// (@react-native/metro-config, dist/index.js:47; @expo/metro-config uses the same).
+const METRO_MAIN_FIELDS = ["react-native", "browser", "main"];
+
+/** metro-resolver's resolveFile for a source file: the exact path, then each variant. */
+function scanSourceFile(prefix, extensions, exact) {
+  if (exact && isFile(prefix)) return prefix;
   for (const ext of extensions) {
-    if (existsExact(absBase + ext)) return absBase + ext;
-  }
-  for (const ext of extensions) {
-    const idx = path.join(absBase, "index" + ext);
-    if (existsExact(idx)) return idx;
+    if (existsExact(prefix + ext)) return prefix + ext;
   }
   return null;
+}
+
+function isFile(file) {
+  try {
+    return fs.statSync(file).isFile() && existsExact(file);
+  } catch {
+    return false;
+  }
+}
+
+function scanPlatformFile(absBase, platform, sourceExts) {
+  const extensions = extensionsFor(platform, sourceExts);
+  // metro-resolver resolveModulePath (src/resolve.js:316-350): a path ending in a
+  // separator skips the file lookup and goes straight to the directory.
+  const dirOnly = TRAILING_SEPARATOR.test(absBase);
+  const dir = dirOnly ? absBase.slice(0, -1) : absBase;
+  if (!dirOnly) {
+    const file = scanSourceFile(absBase, extensions, false);
+    if (file) return file;
+  }
+  return resolveDirectoryEntry(dir, extensions);
+}
+
+/**
+ * metro-resolver's resolvePackageEntryPoint (src/resolve.js:433-473): a directory with
+ * a package.json resolves through its main fields (PackageResolve.js,
+ * getPackageEntryPoint), then that path's index; one without resolves its index.
+ * Null for the shapes left to Node: an unreadable package.json, and a main field
+ * holding an object (a `browser` replacement map, which Metro applies and Node
+ * ignores — here Node's resolution of the directory stands).
+ */
+function resolveDirectoryEntry(dir, extensions) {
+  const manifest = path.join(dir, "package.json");
+  if (!isFile(manifest)) return scanSourceFile(path.join(dir, "index"), extensions, false);
+  let pkg;
+  try {
+    pkg = JSON.parse(fs.readFileSync(manifest, "utf8"));
+  } catch {
+    return null;
+  }
+  const fields = METRO_MAIN_FIELDS.map((name) => pkg?.[name]);
+  if (fields.some((value) => value !== null && typeof value === "object")) return null;
+  const main = fields.find((value) => typeof value === "string" && value.length > 0) ?? "index";
+  const mainPath = path.join(dir, main);
+  return (
+    scanSourceFile(mainPath, extensions, true) ??
+    scanSourceFile(path.join(mainPath, "index"), extensions, false)
+  );
 }
 
 /**

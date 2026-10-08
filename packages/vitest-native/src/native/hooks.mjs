@@ -5,7 +5,11 @@ import path from "node:path";
 import fs from "node:fs";
 import { transformRN, isFlow, needsTransform, isTransforming } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
-import { resolvePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
+import {
+  resolvePlatformFile,
+  resolveRelativePlatformFile,
+  resolveDeepPackageFile,
+} from "./resolve.mjs";
 import { NODE_MODULES_PATH, isUtilitySubpath, packageNameOf, subpathLeafOf } from "./match.mjs";
 import {
   createNativeOwnershipPolicy,
@@ -364,11 +368,7 @@ export function installRequireHooks(
     // Relative, extensionless: Metro's platform order for every parent, app source
     // included (`./PlatformInfo` → `index.native.ts` before `index.ts`).
     if (parent?.filename && request.startsWith(".") && !path.extname(request)) {
-      resolved = resolvePlatformFile(
-        path.resolve(path.dirname(parent.filename), request),
-        platform,
-        activeSourceExts,
-      );
+      resolved = resolveRelativePlatformFile(request, parent.filename, platform, activeSourceExts);
     }
     if (!resolved) {
       try {

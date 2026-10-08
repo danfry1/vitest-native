@@ -239,6 +239,11 @@ if (typeof globalThis.__vnInteropMock !== "function") globalThis.__vnInteropMock
     return jestMockInterop(registry.valueOf(entry));
   };
   globalThis.__vnJestUnmock = (from, spec) => registry.unregister(from, spec);
+  // Registrations are per test file, as in Jest. This file evaluates before each test
+  // file, so a worker reused without the hot runtime (`isolate: false`, or a watch
+  // rerun of the same file) starts each one empty here. The hot runtime clears them at
+  // the file boundary instead, through its state manifest, which verifies it did.
+  if (!globalThis.__vitest_native_hot_reset) registry.clear();
   // Hot runtime: cleared at the file boundary and verified empty (state-manifest.mjs).
   globalThis.__vitest_native_register_state?.({
     id: NODE_MOCKS_STATE_ID,

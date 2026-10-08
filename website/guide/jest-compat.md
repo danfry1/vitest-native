@@ -44,7 +44,7 @@ export default defineConfig({
 
 ## One module registry per test file
 
-Jest keeps one module registry per test file, so a `jest.mock(spec, factory)` applies to every way the file loads that module. Under Vitest, imports go through Vite, while `require()`, `jest.requireActual` and whatever those load go through Node. With `jestMockTransform()` and `jestCompatSetup`, both loaders share one per-file registry of `jest.mock` factories, keyed by the resolved file (string `resolve.alias` entries and platform extensions included). Registrations last for the test file, also when Vitest reuses a worker (`isolate: false`, or the hot runtime):
+Jest keeps one module registry per test file, so a `jest.mock(spec, factory)` applies to every way the file loads that module. Under Vitest, imports go through Vite, while `require()`, `jest.requireActual` and whatever those load go through Node. With `jestMockTransform()` and `jestCompatSetup`, both loaders share one per-file registry of `jest.mock` factories, keyed by the resolved file (string `resolve.alias` entries and platform extensions included). Registrations last for the test file, also when Vitest reuses a worker (`isolate: false`, a watch rerun, or the hot runtime):
 
 | In your Jest test | Under jest-compat |
 |---|---|
@@ -59,7 +59,8 @@ Jest keeps one module registry per test file, so a `jest.mock(spec, factory)` ap
 | `jest.isolateModules(fn)` | modules `require`d inside `fn` are fresh; a mock already created before the block is reused, and one first created inside is fresh and discarded afterwards, as in Jest. Afterwards the earlier modules are back. `jest.resetModules()` inside ends the block, and nesting throws Jest's error |
 | `await jest.isolateModulesAsync(fn)` | the same across `await`s, for `require()` and for `import()` |
 | `require('./x')` after the test imported `./x` | the instance the import got, not a second copy, and assigning to it (`require('./x').FLAG = true`) is seen by the file's imports. A CommonJS file is required as what it set `module.exports` to |
-| a TypeScript project file Node loads (`require`, `requireActual` and what those load) | compiled with the project's Babel config, as babel-jest compiles it, so its macros and plugins apply; its relative imports resolve in Metro's platform-extension order (`./x` → `x.native.ts` before `x.ts`) |
+| a TypeScript project file Node loads (`require`, `requireActual` and what those load) | compiled with the options `@babel/core` loads for it, as babel-jest compiles it, so its macros and plugins apply. Any config Babel reads counts (`babel.config.*`, `.babelrc*`, `package.json#babel`), with its `overrides` and env- or caller-dependent settings. In a project with Expo the caller is jest-expo's Metro caller for the configured platform, so `babel-preset-expo` inlines `Platform.OS`. A file the config `ignore`s, or leaves out of `only`, fails with "Babel ignores …", as under babel-jest |
+| a relative `require` from a file Node loads | resolved as Metro resolves it: platform extensions first (`./x` → `x.native.ts` before `x.ts`), a trailing `/` names the directory (`./lib/` → `lib/index.ts`, never `lib.ts`), and a directory's `package.json` entry (`react-native`, then `browser`, then `main`) before its index |
 
 Remaining differences:
 
@@ -67,6 +68,10 @@ Remaining differences:
 - `jest.resetModules()` and `isolateModules` renew project modules only; Jest renews `node_modules` packages too.
 - After `jest.resetModules()`, a module that is both imported and `require`d is loaded once by each loader, so the two are separate copies.
 - A `jest.mock` / `jest.doMock` whose specifier is computed (anything but a string or a variable, such as `jest.mock(path.join(…))`) applies to imports only.
+- `jest.mock` must be at the top level of the file. Inside a `describe` it becomes a nested `vi.mock`, which Vitest rejects ("defined outside of the module's top level scope"); Jest hoists it from there.
+- A `jest.mock` in a helper file that Node loads (one a test `require`s) is not hoisted, and does not register for `require()`. babel-jest hoists it there, because it adds `babel-preset-jest` to every file it compiles. Put the call in the test file or in a setup file.
+- Finding which Babel options apply means loading the project's config and its plugins. That costs each worker about 0.25 s on a large Expo config, even when the transform cache is warm, the first time it loads a project TypeScript file through Node.
+- Without `jestCompatSetup` in `test.setupFiles`, a `jest.mock` factory fails with an error naming it (`JEST_COMPAT_SETUP_MISSING`). It must come before any setup file that calls `jest.mock`.
 
 ## What it does *not* do
 

@@ -23,7 +23,11 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 // @ts-expect-error — runtime .mjs
-import { resolvePlatformFile, METRO_SOURCE_EXTS } from "../src/native/resolve.mjs";
+import {
+  resolvePlatformFile,
+  resolveRelativePlatformFile,
+  METRO_SOURCE_EXTS,
+} from "../src/native/resolve.mjs";
 
 const req = createRequire(import.meta.url);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -40,7 +44,8 @@ function contextFor(originModulePath: string, sourceExts = METRO_SOURCE_EXTS) {
     originModulePath,
     sourceExts: [...sourceExts],
     preferNativePlatform: true,
-    mainFields: ["react-native", "main"],
+    // React Native's resolverMainFields (@react-native/metro-config, dist/index.js).
+    mainFields: ["react-native", "browser", "main"],
     nodeModulesPaths: [],
     extraNodeModules: null,
     allowHaste: false,
@@ -190,6 +195,51 @@ describe("platform resolution agrees with real metro-resolver", () => {
     fs.writeFileSync(path.join(dir, "index.ios.tsx"), "");
     for (const platform of ["ios", "android"] as const) {
       expect(ours(dir, platform)).toBe(metroResolve("./pkgdir", platform));
+    }
+  });
+
+  it("for a request ending in a separator, which names the directory only", () => {
+    // `./lib/` beside `lib.ts`: metro-resolver's resolveModulePath skips the file
+    // lookup for a trailing separator, as Node does.
+    fs.writeFileSync(path.join(root, "slashlib.ts"), "");
+    fs.mkdirSync(path.join(root, "slashlib"));
+    fs.writeFileSync(path.join(root, "slashlib", "index.ts"), "");
+    for (const platform of ["ios", "android"] as const) {
+      const expected = metroResolve("./slashlib/", platform);
+      expect(expected).toBe(fs.realpathSync(path.join(root, "slashlib", "index.ts")));
+      const actual = resolveRelativePlatformFile("./slashlib/", origin, platform);
+      expect(fs.realpathSync(actual)).toBe(expected);
+      // Without the separator the file wins, for both.
+      expect(ours(path.join(root, "slashlib"), platform)).toBe(
+        metroResolve("./slashlib", platform),
+      );
+    }
+  });
+
+  it("for a directory with a package.json, through its main fields", () => {
+    const cases: Array<[string, Record<string, unknown>, string[]]> = [
+      ["main-ts", { main: "main.ts" }, ["main.ts", "index.ts"]],
+      [
+        "main-extless",
+        { main: "./lib/entry" },
+        ["lib/entry.native.ts", "lib/entry.ts", "index.ts"],
+      ],
+      ["rn-field", { "react-native": "rn.ts", main: "main.ts" }, ["rn.ts", "main.ts", "index.ts"]],
+      ["main-dir", { main: "./src" }, ["src/index.ios.ts", "src/index.ts", "index.ts"]],
+      ["no-main", { name: "x" }, ["index.native.ts", "index.ts"]],
+    ];
+    for (const [name, manifest, files] of cases) {
+      const dir = path.join(root, name);
+      for (const rel of files) {
+        fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+        fs.writeFileSync(path.join(dir, rel), "");
+      }
+      fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify(manifest));
+      for (const platform of ["ios", "android"] as const) {
+        const expected = metroResolve(`./${name}`, platform);
+        expect(expected, name).not.toBe(null);
+        expect(ours(dir, platform), `${name} on ${platform}`).toBe(expected);
+      }
     }
   });
 });

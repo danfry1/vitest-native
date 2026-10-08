@@ -11,6 +11,20 @@ const TRANSFORMABLE = /\.(?:[cm]?[jt]sx?)$/;
 // Cheap pre-filter so we only parse files that actually use jest mock calls.
 const HAS_JEST_MOCK = /\bjest\s*\.\s*(?:mock|unmock|doMock|doUnmock)\s*\(/;
 
+// The globals the setup installs, reached through one hoisted accessor per file. A run
+// without the setup otherwise failed inside a mock factory with "__vnJestMocked is not
+// a function". The error is VitestNativeError by shape (name and code), which is how
+// errors.mjs identifies one: generated code cannot import that module.
+const SETUP = "__vn_jest_compat__";
+/** Prepended to a file whose mock factories use the setup. Exported for tests. */
+export const SETUP_ACCESSOR =
+  `const ${SETUP} = vi.hoisted(() => (name) => {\n` +
+  `  if (typeof globalThis[name] === "function") return globalThis[name];\n` +
+  `  throw Object.assign(new Error("[vitest-native] jest.mock() factories need the jest-compat setup, which this test run does not load. " +\n` +
+  `    "Add jestCompatSetup from 'vitest-native/jest-compat' to test.setupFiles, ahead of any setup file that calls jest.mock()."),\n` +
+  `    { name: "VitestNativeError", code: "JEST_COMPAT_SETUP_MISSING" });\n` +
+  `});\n`;
+
 /** Visit every node in an ESTree AST (depth-first), calling `fn` on each. */
 function walk(node: any, fn: (n: any) => void): void {
   if (!node || typeof node.type !== "string") return;
@@ -77,6 +91,8 @@ export function jestMockTransform(): Plugin {
       for (const statement of ast.body) {
         if (statement.type === "ExpressionStatement") topLevel.set(statement.expression, statement);
       }
+      // Whether a factory now reaches the setup's globals (SETUP_ACCESSOR).
+      let usesSetup = false;
       // Factories already replaced, whose source must not be edited again.
       const replaced: [number, number][] = [];
 
@@ -109,10 +125,11 @@ export function jestMockTransform(): Plugin {
         if (WITH_FACTORY.has(prop.name) && node.arguments.length >= 2) {
           const factory = node.arguments[1];
           if (factory.type === "ArrowFunctionExpression" || factory.type === "FunctionExpression") {
+            usesSetup = true;
             if (spec !== null) {
               // Registered where Vitest hoists the call (see node-registry.mjs).
               const register = `globalThis.__vnJestMock?.(import.meta.url, ${spec}, ${code.slice(factory.start, factory.end)})`;
-              const lookup = `() => globalThis.__vnJestMocked(import.meta.url, ${spec})`;
+              const lookup = `() => ${SETUP}("__vnJestMocked")(import.meta.url, ${spec})`;
               const statement = topLevel.get(node);
               if (prop.name === "mock" && statement) {
                 // Vitest 5's prewarmModuleGraph skips a mocked module's graph only
@@ -127,7 +144,7 @@ export function jestMockTransform(): Plugin {
               replaced.push([factory.start, factory.end]);
             } else {
               // Wrap a function factory so its return is run through Jest CJS interop.
-              s.appendLeft(factory.start, "() => globalThis.__vnInteropMock((");
+              s.appendLeft(factory.start, `() => ${SETUP}("__vnInteropMock")((`);
               s.appendRight(factory.end, ")())");
             }
           }
@@ -139,6 +156,7 @@ export function jestMockTransform(): Plugin {
       });
 
       if (!changed) return null;
+      if (usesSetup) s.prepend(SETUP_ACCESSOR);
       return { code: s.toString(), map: s.generateMap({ hires: true }) };
     },
   };

@@ -6,7 +6,7 @@ import fs from "node:fs";
 import { transformRN, isFlow, cjsExportNames, needsTransform } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import { nativeAssetModuleSource } from "./assets.mjs";
-import { extensionsFor, resolvePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
+import { extensionsFor, resolveRelativePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
 import {
   NODE_MODULES_PATH,
   isUtilitySubpath,
@@ -221,11 +221,7 @@ function resolveBefore(specifier, context) {
     specifier.startsWith(".") &&
     !path.extname(specifier)
   ) {
-    const hit = resolvePlatformFile(
-      path.resolve(path.dirname(parent), specifier),
-      PLATFORM,
-      SOURCE_EXTS,
-    );
+    const hit = resolveRelativePlatformFile(specifier, parent, PLATFORM, SOURCE_EXTS);
     // Not returned directly: `json` is a Metro source extension, so this can now
     // land on a .json file, which still needs the import attribute injected below.
     if (hit) resolved = { url: pathToFileURL(hit).href, shortCircuit: true };
