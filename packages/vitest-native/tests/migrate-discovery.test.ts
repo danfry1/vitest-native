@@ -447,6 +447,21 @@ describe("a jest-expo app's package.json#jest", () => {
     expect(pointer(analyzeJestConfig(blueskyLike()))).toContain("(its flags are mapped above)");
   });
 
+  it("maps Jest's mock-reset options to Vitest's names, keeping Jest's clearMocks default", () => {
+    const config = (jest: object) =>
+      analyzeJestConfig(fixture({ "package.json": { jest: { preset: "react-native", ...jest } } }))
+        .suggestedConfig;
+    // Jest's default is false; Vitest 5's is true.
+    expect(config({})).toContain("clearMocks: false");
+    const set = config({ clearMocks: true, resetMocks: true, restoreMocks: true });
+    expect(set).toContain("clearMocks: true");
+    expect(set).not.toContain("clearMocks: false");
+    // Vitest calls Jest's resetMocks `mockReset`, and ignores an unknown key.
+    expect(set).toContain("mockReset: true");
+    expect(set).not.toContain("resetMocks");
+    expect(set).toContain("restoreMocks: true");
+  });
+
   it("applies --testTimeout from the test script and reports the flags it does not map", () => {
     const report = analyzeJestConfig(blueskyLike());
     expect(report.suggestedConfig).toContain("testTimeout: 20000");
@@ -807,8 +822,13 @@ describe("the generated config, executed", () => {
       // The timeout: one test that reads its own resolved timeout.
       fs.writeFileSync(
         path.join(root, "src/components/Button.test.tsx"),
-        `import { test, expect } from 'vitest'
+        `import { test, expect, vi } from 'vitest'
+// A call made while the module loads, as a mocked dependency's import-time call is.
+const loaded = vi.fn()
+loaded('at import')
 test('timeout', ({ task }) => { expect(task.timeout).toBe(20000) })
+// Jest keeps it (clearMocks defaults to false); Vitest 5 clears it unless told not to.
+test('import-time mock calls survive', () => { expect(loaded).toHaveBeenCalledTimes(1) })
 `,
       );
       fs.writeFileSync(

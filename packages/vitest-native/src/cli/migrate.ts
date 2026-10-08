@@ -641,8 +641,14 @@ export function analyzeJestConfig(root: string): MigrationReport {
         if (key === "transform") {
           dropped.push(`transform — Babel/esbuild transforms are the plugin's job; dropped.`);
         } else if (key === "clearMocks" || key === "resetMocks" || key === "restoreMocks") {
-          automatic.push(`${key} → test.${key} (same name in Vitest).`);
-          testEntries.push(`${key}: ${JSON.stringify(config[key])}`);
+          // Vitest names Jest's resetMocks `mockReset`; an unknown key would be ignored.
+          const vitestKey = key === "resetMocks" ? "mockReset" : key;
+          automatic.push(
+            key === vitestKey
+              ? `${key} → test.${key} (same name in Vitest).`
+              : `${key} → test.${vitestKey} (Vitest's name for it).`,
+          );
+          testEntries.push(`${vitestKey}: ${JSON.stringify(config[key])}`);
         } else if (key === "snapshotSerializers") {
           attention.push(
             `snapshotSerializers — Vitest uses expect.addSnapshotSerializer; vitest-native ships one for RN trees.`,
@@ -651,6 +657,17 @@ export function analyzeJestConfig(root: string): MigrationReport {
           dropped.push(`${key} — no vitest-native equivalent needed; dropped.`);
         }
       }
+    }
+
+    // Jest's default is clearMocks: false; Vitest 5 defaults it to true (Vitest 4: false).
+    // Under true, calls a module makes while it loads are cleared before each test, so
+    // a test asserting on them fails only after migrating.
+    if (config.clearMocks === undefined) {
+      testEntries.push(`clearMocks: false`);
+      automatic.push(
+        `Jest keeps mock calls between tests unless clearMocks is set → test.clearMocks: false ` +
+          `(Vitest 5 clears them before each test by default).`,
+      );
     }
 
     for (const key of Object.keys(config)) {
