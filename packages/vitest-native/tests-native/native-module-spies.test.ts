@@ -8,7 +8,8 @@
  * SettingsManager are requested by Libraries/Vibration/NativeVibration.js and
  * src/private/specs_DEPRECATED/modules/NativeSettingsManager.js), or a module
  * required through getEnforcing. A name no app registers is absent from
- * NativeModules, as on a device (see native-module-lookups.test.ts).
+ * NativeModules, as on a device (see native-module-lookups.test.ts), and React
+ * Native's own modules have only their spec's methods, so the probes call those.
  */
 import { describe, it, expect, vi } from "vitest";
 import { NativeModules, TurboModuleRegistry } from "react-native";
@@ -16,7 +17,7 @@ import { NativeModules, TurboModuleRegistry } from "react-native";
 describe("NativeModules stubs under the native engine", () => {
   it("are identity-stable across property accesses", () => {
     expect(NativeModules.Vibration).toBe(NativeModules.Vibration);
-    expect(NativeModules.Vibration.someMethod).toBe(NativeModules.Vibration.someMethod);
+    expect(NativeModules.Vibration.vibrate).toBe(NativeModules.Vibration.vibrate);
   });
 
   it("share identity with TurboModuleRegistry", () => {
@@ -25,12 +26,12 @@ describe("NativeModules stubs under the native engine", () => {
   });
 
   it("support vi.spyOn on stub methods", () => {
-    const spy = vi.spyOn(NativeModules.Vibration, "doThing");
-    NativeModules.Vibration.doThing("payload", 42);
+    const spy = vi.spyOn(NativeModules.Vibration, "vibrateByPattern");
+    NativeModules.Vibration.vibrateByPattern([0, 100], -1);
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy).toHaveBeenCalledWith("payload", 42);
+    expect(spy).toHaveBeenCalledWith([0, 100], -1);
     spy.mockRestore();
-    expect(NativeModules.Vibration.doThing("x")).toBeUndefined();
+    expect(NativeModules.Vibration.vibrateByPattern([0], -1)).toBeUndefined();
   });
 
   it("support vi.spyOn on a module required through getEnforcing", () => {
@@ -47,9 +48,12 @@ describe("NativeModules stubs under the native engine", () => {
   it("keeps callback/promise conventions after memoization", async () => {
     // Callback-style: success callback is invoked so wrapping Promises settle.
     let called: unknown = "not called";
-    NativeModules.SettingsManager.fetchState((v: unknown) => {
-      called = v;
-    });
+    NativeModules.AccessibilityManager.getCurrentVoiceOverState(
+      (v: unknown) => {
+        called = v;
+      },
+      () => {},
+    );
     expect(called).toBe(false);
     // getConstants stays functional on the memoized stub.
     expect(typeof NativeModules.SettingsManager.getConstants()).toBe("object");

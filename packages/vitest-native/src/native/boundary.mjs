@@ -3,6 +3,8 @@
 // expressed as CJS source strings so both transform hooks (loader + require) can
 // serve them identically. Mirrors react-native/jest/setup.js's mock set.
 
+import { PERMISSIVE_NATIVE_MODULES_ENV } from "./native-modules.mjs";
+
 function parseVersion(version) {
   const [major = 0, minor = 0, patch = 0] = String(version || "0.0.0")
     .split(/[.-]/)
@@ -133,7 +135,11 @@ function turboStubSource(platform, version) {
   // React Native's own semantics (Libraries/TurboModule/TurboModuleRegistry.js) and
   // the Jest preset's (jest/mocks/NativeModules.js). Read at lookup time, because
   // the setup file installs the set and module mocks change during a test.
+  // The plugin's \`nativeModules: 'permissive'\`: every name present, every member a
+  // method, for suites written against that behaviour.
+  const __permissive = () => process.env[${JSON.stringify(PERMISSIVE_NATIVE_MODULES_ENV)}] === "permissive";
   const isKnownModule = (name) =>
+    __permissive() ||
     getModuleMock(name) != null ||
     Object.prototype.hasOwnProperty.call(__C, name) ||
     (globalThis.__vitest_native_known_modules?.has(name) ?? false);
@@ -167,6 +173,18 @@ function turboStubSource(platform, version) {
   // identity-stable across reads, and explicit writes win, so
   // vi.spyOn(NativeModules.Foo, 'method') records calls instead of silently
   // landing on a throwaway object.
+  // Whether a module's native object has a property. On a device a TurboModule
+  // exposes exactly the members of its codegen spec; anything else reads as
+  // undefined, so code probing an object (Node's EventEmitter reading
+  // options.captureRejections, \`await\` reading \`then\`) sees a plain object.
+  // React Native's own modules' specs are read from the installed copy (see
+  // native/native-modules.mjs); a module with no known spec answers every name.
+  const hasMember = (name, p) => {
+    const spec = globalThis.__vitest_native_module_specs?.get(name);
+    if (!spec || __permissive()) return true;
+    if (typeof p !== "string") return false;
+    return spec.has(p) || (p === "getConstants" && Object.prototype.hasOwnProperty.call(__C, name));
+  };
   const turboStub = (name) => {
     const state = getBoundaryState(name);
     if (state.__stub) return state.__stub;
@@ -179,6 +197,7 @@ function turboStubSource(platform, version) {
       get: (t, p) => {
         // Explicitly-set properties win (spies, manual overrides, memoized methods).
         if (Object.prototype.hasOwnProperty.call(t, p)) return t[p];
+        if (!hasMember(name, p)) return undefined;
         let v;
         if (p === "getConstants") v = () => (__C[name] || {});
         else if (name === "NitroModules" && p === "install") v = __installNitroProxy;
@@ -219,9 +238,9 @@ function turboStubSource(platform, version) {
         generated.set(p, v);
         return v;
       },
-      // Every property reads as a callable stub, so report them all as present —
+      // Every member reads as a callable stub, so report them all as present —
       // vi.spyOn refuses to spy on a property its \`in\` check can't see.
-      has: () => true,
+      has: (t, p) => Object.prototype.hasOwnProperty.call(t, p) || hasMember(name, p),
     });
     // Hot runtime: clear per-file state (spies, memoized methods) between files
     // via the surgical-reset registry, while keeping the stub's identity for

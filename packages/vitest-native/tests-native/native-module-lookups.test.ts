@@ -125,3 +125,31 @@ describe("the known set is React Native's own", () => {
     }
   });
 });
+
+// A TurboModule on a device exposes the members of its codegen spec and nothing else.
+// Code that probes an object for optional properties must see the same thing here:
+// Bluesky's Jest setup mocks NativeEventEmitter with Node's EventEmitter, so React
+// Native's Keyboard passes NativeKeyboardObserver to it as options, and Node reads
+// options.captureRejections. A stub answering every name with a function threw there.
+describe("React Native's own modules have their spec's members", () => {
+  it("every module React Native looks up has a spec, and the boundary uses it", () => {
+    const scan = scanReactNativeModuleRequests(reactNativeRootFor(projectRoot)!);
+    // A floor: if the spec format changes upstream, the scan finds no members and
+    // every module silently answers every name again.
+    for (const name of [...scan.get, ...scan.getEnforcing]) {
+      expect(scan.specs[name]?.length, name).toBeGreaterThan(0);
+    }
+    const specs = (globalThis as { __vitest_native_module_specs?: Map<string, Set<string>> })
+      .__vitest_native_module_specs;
+    expect(specs?.get("KeyboardObserver")).toEqual(new Set(scan.specs.KeyboardObserver));
+  });
+
+  it("an undeclared property reads as undefined, a declared method works", async () => {
+    const observer = TurboModuleRegistry.get<Record<string, unknown>>("KeyboardObserver")!;
+    expect(typeof observer.addListener).toBe("function");
+    expect(observer.captureRejections).toBeUndefined();
+    expect("captureRejections" in observer).toBe(false);
+    const { EventEmitter } = await import("node:events");
+    expect(() => new EventEmitter(observer as never)).not.toThrow();
+  });
+});

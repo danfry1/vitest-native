@@ -45,6 +45,12 @@ export const BOUNDARY_NATIVE_MODULES = Object.freeze([
  */
 export const KNOWN_NATIVE_MODULES_ENV = "VITEST_NATIVE_RN_NATIVE_MODULES";
 
+/** Set to "permissive" by the plugin's `nativeModules: 'permissive'` option. */
+export const PERMISSIVE_NATIVE_MODULES_ENV = "VITEST_NATIVE_NATIVE_MODULES";
+
+/** The same, for each module's spec members. */
+export const NATIVE_MODULE_SPECS_ENV = "VITEST_NATIVE_RN_NATIVE_MODULE_SPECS";
+
 const CALL_RE = /TurboModuleRegistry\s*\.\s*(get|getEnforcing)\b/g;
 // `TurboModuleRegistry.get<Spec>('Name')`, including the multi-line form the
 // formatter produces for long names. The type argument never contains a paren.
@@ -78,6 +84,36 @@ function walk(dir, files) {
   }
 }
 
+const SPEC_RE = /\binterface\s+Spec\s+extends\s+TurboModule\s*\{/g;
+
+/**
+ * The members of each `interface Spec extends TurboModule { ... }` in a source file:
+ * the methods (and getConstants) the module's codegen spec declares, which are the
+ * only properties its native object has on a device. Members are the names directly
+ * inside the interface body; names nested in parameter or object types sit deeper
+ * and are skipped.
+ */
+export function specMembers(source) {
+  const members = new Set();
+  for (const match of source.matchAll(SPEC_RE)) {
+    let depth = 1;
+    let atMemberStart = true;
+    for (let i = match.index + match[0].length; i < source.length && depth > 0; i++) {
+      const c = source[i];
+      if (c === "{" || c === "(" || c === "[") depth++;
+      else if (c === "}" || c === ")" || c === "]") depth--;
+      else if (depth === 1 && (c === ";" || c === "," || c === "\n")) atMemberStart = true;
+      else if (depth === 1 && atMemberStart && !/\s/.test(c)) {
+        atMemberStart = false;
+        // Variance is `+name` (Flow, React Native <= 0.86) or `readonly name` (0.87+).
+        const member = /^(?:\+|-|readonly\s+)?([A-Za-z_$][\w$]*)\??\s*:/.exec(source.slice(i));
+        if (member) members.add(member[1]);
+      }
+    }
+  }
+  return members;
+}
+
 /**
  * Every native module name React Native's own JavaScript requests, by lookup kind.
  * `unnamed` counts TurboModuleRegistry calls whose argument is not a string
@@ -90,15 +126,23 @@ export function scanReactNativeModuleRequests(reactNativeRoot) {
   const get = new Set();
   const getEnforcing = new Set();
   const nativeModules = new Set();
+  const specs = new Map();
   let unnamed = 0;
   for (const file of files) {
     const raw = fs.readFileSync(file, "utf8");
     if (!raw.includes("TurboModuleRegistry") && !raw.includes("NativeModules")) continue;
     const source = stripComments(raw);
     let named = 0;
+    const members = specMembers(source);
     for (const match of source.matchAll(NAMED_CALL_RE)) {
       (match[1] === "get" ? get : getEnforcing).add(match[3]);
       named++;
+      // A spec file declares the interface and looks the module up with it.
+      if (members.size > 0) {
+        const known = specs.get(match[3]) ?? new Set();
+        for (const member of members) known.add(member);
+        specs.set(match[3], known);
+      }
     }
     // The registry's own module defines get/getEnforcing; it requests nothing.
     if (!file.replace(/\\/g, "/").endsWith("/Libraries/TurboModule/TurboModuleRegistry.js")) {
@@ -114,6 +158,9 @@ export function scanReactNativeModuleRequests(reactNativeRoot) {
     get: sorted(get),
     getEnforcing: sorted(getEnforcing),
     nativeModules: sorted(nativeModules),
+    specs: Object.fromEntries(
+      [...specs.keys()].sort().map((name) => [name, sorted(specs.get(name))]),
+    ),
     unnamed,
   };
 }
@@ -130,46 +177,69 @@ export function reactNativeRootFor(projectRoot) {
 
 const memo = new Map();
 
+/** The installed React Native's scan, memoized per React Native root. */
+function scanFor(projectRoot) {
+  const root = reactNativeRootFor(projectRoot);
+  if (root === null) return null;
+  let scan = memo.get(root);
+  if (!scan) {
+    scan = scanReactNativeModuleRequests(root);
+    memo.set(root, scan);
+  }
+  return scan;
+}
+
 /**
  * The module names React Native's JavaScript requests, plus the boundary's own,
  * sorted. Memoized per React Native root: the scan reads ~600 files (~60-80ms
  * measured on 0.78-0.87), and several Vitest projects in one run share a copy.
  */
 export function knownNativeModulesFor(projectRoot) {
-  const root = reactNativeRootFor(projectRoot);
-  if (root === null) return [...BOUNDARY_NATIVE_MODULES];
-  let known = memo.get(root);
-  if (!known) {
-    const scan = scanReactNativeModuleRequests(root);
-    known = [
-      ...new Set([
-        ...scan.get,
-        ...scan.getEnforcing,
-        ...scan.nativeModules,
-        ...BOUNDARY_NATIVE_MODULES,
-      ]),
-    ].sort();
-    memo.set(root, known);
-  }
-  return [...known];
+  const scan = scanFor(projectRoot);
+  if (scan === null) return [...BOUNDARY_NATIVE_MODULES];
+  return [
+    ...new Set([
+      ...scan.get,
+      ...scan.getEnforcing,
+      ...scan.nativeModules,
+      ...BOUNDARY_NATIVE_MODULES,
+    ]),
+  ].sort();
 }
 
+/** Each React Native module's spec members, by module name (see specMembers). */
+export function nativeModuleSpecsFor(projectRoot) {
+  return scanFor(projectRoot)?.specs ?? {};
+}
+
+const fromEnv = (name) => {
+  try {
+    return JSON.parse(process.env[name] || "null");
+  } catch {
+    // Unreadable: recompute rather than run with an empty set.
+    return null;
+  }
+};
+
 /**
- * Publish the known set to the boundary (globalThis.__vitest_native_known_modules).
- * The plugin computes it once and passes it in the environment; without that
- * (a setup file run outside the plugin), it is computed here from the project.
+ * Publish the known set (globalThis.__vitest_native_known_modules) and each known
+ * module's spec members (globalThis.__vitest_native_module_specs) to the boundary.
+ * The plugin computes both once and passes them in the environment; without that
+ * (a setup file run outside the plugin), they are computed here from the project.
  */
 export function installKnownNativeModules(projectRoot) {
-  if (globalThis.__vitest_native_known_modules instanceof Set) return;
-  let names = null;
-  const fromEnv = process.env[KNOWN_NATIVE_MODULES_ENV];
-  if (fromEnv) {
-    try {
-      const parsed = JSON.parse(fromEnv);
-      if (Array.isArray(parsed)) names = parsed.map(String);
-    } catch {
-      // Unreadable: recompute below rather than run with an empty set.
-    }
+  if (!(globalThis.__vitest_native_known_modules instanceof Set)) {
+    const names = fromEnv(KNOWN_NATIVE_MODULES_ENV);
+    globalThis.__vitest_native_known_modules = new Set(
+      Array.isArray(names) ? names.map(String) : knownNativeModulesFor(projectRoot),
+    );
   }
-  globalThis.__vitest_native_known_modules = new Set(names ?? knownNativeModulesFor(projectRoot));
+  if (!(globalThis.__vitest_native_module_specs instanceof Map)) {
+    const specs = fromEnv(NATIVE_MODULE_SPECS_ENV);
+    globalThis.__vitest_native_module_specs = new Map(
+      Object.entries(
+        specs !== null && typeof specs === "object" ? specs : nativeModuleSpecsFor(projectRoot),
+      ).map(([name, members]) => [name, new Set(members)]),
+    );
+  }
 }

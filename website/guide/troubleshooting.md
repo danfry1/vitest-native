@@ -47,6 +47,8 @@ import { mockNativeModule } from 'vitest-native/helpers'
 mockNativeModule('SomeModule', { getValue: () => Promise.resolve(42) })
 ```
 
+The same applies to a method a React Native module's codegen spec does not declare: it is `undefined`, as on a device. To run a suite written against the earlier behaviour while you add registrations, set [`nativeModules: 'permissive'`](/guide/plugin-options#nativemodules).
+
 ## Snapshots mismatch after switching from Jest
 
 Under `engine: 'native'`, real React Native renders **real host component names** (`RCTText`, `RCTView`, `RCTScrollView`), whereas `@react-native/jest-preset` snapshots show mock names (`Text`, `View`). Run once with `vitest run -u` to re-record. Prefer explicit queries over large snapshots — they're robust across host names. See [Migrating from Jest](/migration/from-jest#re-record-snapshots).

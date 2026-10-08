@@ -190,6 +190,7 @@ import {
   BOUNDARY_NATIVE_MODULES,
   installKnownNativeModules,
   knownNativeModulesFor,
+  nativeModuleSpecsFor,
   scanReactNativeModuleRequests,
 } from "../src/native/native-modules.mjs";
 
@@ -202,15 +203,66 @@ describe("native boundary: which native modules exist", () => {
   });
   let savedKnown: unknown;
   let savedMocks: unknown;
+  let savedSpecs: unknown;
   beforeEach(() => {
     savedKnown = g.__vitest_native_known_modules;
     savedMocks = g.__vitest_native_module_mocks;
-    g.__vitest_native_known_modules = new Set(["Appearance"]);
+    savedSpecs = g.__vitest_native_module_specs;
+    g.__vitest_native_known_modules = new Set(["Appearance", "SpecKeyboardObserver"]);
     g.__vitest_native_module_mocks = Object.create(null);
+    g.__vitest_native_module_specs = new Map([
+      ["SpecKeyboardObserver", new Set(["addListener", "removeListeners"])],
+      ["PlatformConstants", new Set(["getAndroidID"])],
+    ]);
     return () => {
       g.__vitest_native_known_modules = savedKnown;
       g.__vitest_native_module_mocks = savedMocks;
+      g.__vitest_native_module_specs = savedSpecs;
     };
+  });
+
+  it("a module with a known spec has exactly its spec's members, as on a device", async () => {
+    const { tm } = load();
+    const observer = tm.get("SpecKeyboardObserver");
+    expect(typeof observer.addListener).toBe("function");
+    expect("removeListeners" in observer).toBe(true);
+    expect(observer.captureRejections).toBeUndefined();
+    expect(observer.then).toBeUndefined();
+    expect("then" in observer).toBe(false);
+    // React Native's Keyboard hands this object to a NativeEventEmitter; a test that
+    // mocks that emitter with Node's EventEmitter passes it as EventEmitter options.
+    const { EventEmitter } = await import("node:events");
+    expect(() => new EventEmitter(observer)).not.toThrow();
+    const spy = vi.spyOn(observer, "addListener");
+    observer.addListener("keyboardDidShow");
+    expect(spy).toHaveBeenCalledWith("keyboardDidShow");
+    spy.mockRestore();
+  });
+
+  it("a module with boundary constants keeps getConstants beside its spec", () => {
+    const { tm } = load();
+    const constants = tm.get("PlatformConstants");
+    expect(constants.getConstants().isTesting).toBe(true);
+    expect(typeof constants.getAndroidID).toBe("function");
+    expect(constants.forceTouchAvailable).toBeUndefined();
+  });
+
+  it("nativeModules: 'permissive' makes every name present with every member", () => {
+    vi.stubEnv("VITEST_NATIVE_NATIVE_MODULES", "permissive");
+    try {
+      const { tm, nm } = load();
+      expect(typeof nm.EXDevLauncher.anything).toBe("function");
+      expect("EXDevLauncher" in nm).toBe(true);
+      expect(tm.get("EXDevLauncher")).toBe(nm.EXDevLauncher);
+      expect(typeof tm.get("SpecKeyboardObserver").captureRejections).toBe("function");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("a module without a known spec answers every name", () => {
+    const { tm } = load();
+    expect(typeof tm.get("Appearance").anything).toBe("function");
   });
 
   it("an unregistered module is null from get() and undefined from NativeModules", () => {
@@ -280,7 +332,14 @@ describe("scanReactNativeModuleRequests", () => {
       };
       write(
         "Libraries/Foo/NativeFoo.js",
-        "export default TurboModuleRegistry.get<Spec>('Foo');\n" +
+        "export interface Spec extends TurboModule {\n" +
+          "  +getConstants: () => {|\n    +nested: string,\n  |};\n" +
+          "  +show: (\n    options: {| title?: string |},\n    callback: (index: number) => void,\n  ) => void;\n" +
+          "  +optional?: () => Promise<{| value: number |}>;\n" +
+          "  readonly current: () => void;\n" +
+          "  readonly: () => void;\n" +
+          "}\n" +
+          "export default TurboModuleRegistry.get<Spec>('Foo');\n" +
           "const B = TurboModuleRegistry.getEnforcing<Spec>(\n  'BarCxx',\n);\n" +
           "// TurboModuleRegistry.get('Commented')\n/* NativeModules.Documented */\n",
       );
@@ -293,6 +352,12 @@ describe("scanReactNativeModuleRequests", () => {
         get: ["Foo"],
         getEnforcing: ["BarCxx"],
         nativeModules: ["Baz", "Qux"],
+        // Only the interface's own members; names inside parameter and object types
+        // are not.
+        specs: {
+          Foo: ["current", "getConstants", "optional", "readonly", "show"],
+          BarCxx: ["current", "getConstants", "optional", "readonly", "show"],
+        },
         unnamed: 1,
       });
     } finally {
@@ -667,6 +732,16 @@ describe("plugin engine routing", () => {
       SERVE_ENV,
     );
     expect(mock.test.env?.VITEST_NATIVE_RN_NATIVE_MODULES).toBeUndefined();
+    expect(JSON.parse(native.test.env.VITEST_NATIVE_RN_NATIVE_MODULE_SPECS)).toEqual(
+      nativeModuleSpecsFor(projectRoot),
+    );
+    expect(native.test.env.VITEST_NATIVE_NATIVE_MODULES).toBeUndefined();
+    const permissive = await runPluginConfig(
+      reactNative({ engine: "native", nativeModules: "permissive" }) as any,
+      { root: projectRoot },
+      SERVE_ENV,
+    );
+    expect(permissive.test.env.VITEST_NATIVE_NATIVE_MODULES).toBe("permissive");
   });
 
   it("externalizes RN only under node_modules, not a project named react-native", async () => {

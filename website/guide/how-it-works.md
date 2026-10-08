@@ -51,6 +51,8 @@ React Native's modules are read from the installed `react-native` itself, once p
 
 `getEnforcing` returns a stub for any name instead of throwing. Its callers cannot run without the module, so a stub keeps code that requires a native module working without per-module setup. That stub is not registered by being requested: `NativeModules[name]` stays `undefined` for it.
 
+A React Native module's stub has the members its codegen spec declares (`interface Spec extends TurboModule` in React Native's `Native*.js` files, read from the same installed copy), as its native object does on a device. Any other property is `undefined`, so code that probes an object for optional properties sees what it would see on a device. `NativeKeyboardObserver.captureRejections`, for example, is `undefined`, which matters when a test hands that module to Node's `EventEmitter`. A stub for a module with no known spec (one returned by `getEnforcing` for another name) answers every property with a method.
+
 Stubs are stable objects, so `vi.spyOn(NativeModules.Vibration, 'vibrate')` records calls. To make a third-party module present, or to give it behaviour, register it with `mockNativeModule(name, impl)`; `resetAllMocks()` removes it again, and the hot runtime removes any registration a test file leaves behind before the next file runs.
 
 One deliberate component-level exception: `TextInput` is replaced with the same passthrough shape Jest's preset uses, because the real `TextInput`'s internal event wiring double-fires `onChangeText` under RNTL's `userEvent.type`. That substitution is verified against real RN by the differential cross-check.

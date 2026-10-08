@@ -11,6 +11,7 @@ reactNative({
   assetExts: [],         // Additional asset extensions (e.g. ['.lottie', '.m4b'])
   transform: [],         // Extra node_modules packages to transform (Flow/TS/JSX), native engine
   hotRuntime: 'auto',    // Hot runtime where it can be bounded (default); false to isolate per worker
+  nativeModules: 'device', // 'device' | 'permissive' — how native module lookups answer, native engine
   // presets — omitted on purpose: leaving it out auto-detects your installed
   // libraries. Passing an array uses ONLY that array, so `presets: []` means none.
 })
@@ -113,5 +114,16 @@ reactNative({ hotRuntime: false }) // opt out
 It can dramatically cut the per-file cost on large suites. The RN registry is reset from its in-memory factories per file, and the shared realm is restored through a mutation-tested state manifest. Arbitrary mutable state in an unknown resident third-party singleton cannot be discovered generically; a test that passes alone but fails after other files remains a correctness signal. See [Hot runtime](/guide/engines#hot-runtime) for the exact boundary and worker recycling.
 
 Hot mode installs a cgroup-aware memory plan by default and requires at least two workers so it can recycle at file boundaries. A deliberate externally bounded single-worker run can use `hotRuntime: { allowUnboundedMemory: true }`; this disables the automatic worker cap and process-RSS enforcement and is intentionally noisy.
+
+## `nativeModules`
+
+(Native engine.) How native module lookups answer.
+
+- `'device'` *(default)* — as on a device and under Jest's React Native preset. `NativeModules[name]` and `TurboModuleRegistry.get(name)` find React Native's own modules and those registered with [`mockNativeModule`](/guide/helpers#mocknativemodule-name-impl), and are `undefined` / `null` for any other name. A React Native module's stub has only the members of its codegen spec. See [which native modules exist](/guide/how-it-works#which-native-modules-exist).
+- `'permissive'` — every name is present for every lookup, and every stub answers every property with a method. An escape hatch for a suite written against that behaviour while you register the modules it needs; library feature detection (`if (NativeModules.X)`) takes the "present" branch for every module in this mode.
+
+```ts
+reactNative({ nativeModules: 'permissive' })
+```
 
 Next: [Third-Party Presets](/guide/presets).
