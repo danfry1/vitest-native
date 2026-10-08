@@ -362,6 +362,29 @@ export function installRequireHooks(
       return null;
     }
   };
+  // Node keys Module._cache by the path its resolver returns: the real path
+  // (Module._findPath → toRealPath), unless symlinks are preserved. A path found
+  // here instead must be spelled the same way, or one file loads twice: once under
+  // Node's key and once under ours — on Windows an alias target written with `/`,
+  // anywhere a target reached through a symlink.
+  const preserveSymlinks =
+    process.execArgv.includes("--preserve-symlinks") || process.env.NODE_PRESERVE_SYMLINKS === "1";
+  const nodeKeys = new Map();
+  const asNodeResolves = (file) => {
+    let key = nodeKeys.get(file);
+    if (key === undefined) {
+      key = path.resolve(file);
+      if (!preserveSymlinks) {
+        try {
+          key = fs.realpathSync(key);
+        } catch {
+          // Missing: leave it to the loader to report.
+        }
+      }
+      nodeKeys.set(file, key);
+    }
+    return key;
+  };
   const origResolve = Module._resolveFilename;
   Module._resolveFilename = function (request, parent, ...rest) {
     let resolved;
@@ -369,6 +392,7 @@ export function installRequireHooks(
     // included (`./PlatformInfo` → `index.native.ts` before `index.ts`).
     if (parent?.filename && request.startsWith(".") && !path.extname(request)) {
       resolved = resolveRelativePlatformFile(request, parent.filename, platform, activeSourceExts);
+      if (resolved) resolved = asNodeResolves(resolved);
     }
     if (!resolved) {
       try {
@@ -396,7 +420,7 @@ export function installRequireHooks(
             ? null
             : resolveDeepPackageFile(request, projectRoot, platform, activeSourceExts));
         if (deep === null) throw err;
-        resolved = deep;
+        resolved = asNodeResolves(deep);
       }
     }
     // Diagnostics only. The comparison sees Node's resolution and the package
