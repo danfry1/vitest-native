@@ -22,7 +22,7 @@ import path from "node:path";
 import zlib from "node:zlib";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { imageDimensions, metroAssetDescriptor } from "../src/native/assets.mjs";
+import { assetIdKey, imageDimensions, metroAssetDescriptor } from "../src/native/assets.mjs";
 
 const req = createRequire(import.meta.url);
 const metroRequire = createRequire(req.resolve("metro/package.json"));
@@ -222,5 +222,15 @@ describe("assets in a project Expo bundles", () => {
       fileHashes: [md5("logo.png"), md5("logo@2x.png"), md5("logo@3x.png")],
     });
     expect(ours(file, "ios")).not.toHaveProperty("fileHashes");
+  });
+});
+
+// One asset, one id: the Vite graph and Node's loaders spell a Windows path
+// differently, and both must reach the same registry entry.
+describe("asset id keys", () => {
+  it("spell a path one way whichever loader reached the file", () => {
+    expect(assetIdKey("D:\\a\\app\\logo.png")).toBe("D:/a/app/logo.png");
+    expect(assetIdKey("d:/a/app/logo.png")).toBe("D:/a/app/logo.png");
+    expect(assetIdKey("/app/logo.png")).toBe("/app/logo.png");
   });
 });

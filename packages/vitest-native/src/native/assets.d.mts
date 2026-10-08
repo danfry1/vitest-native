@@ -20,6 +20,7 @@ export function metroAssetDescriptor(
   options: AssetModuleOptions,
 ): MetroAssetDescriptor | null;
 export function assetRegistryPathFor(projectRoot: string): string | null;
+export function assetIdKey(file: string): string;
 export function nativeAssetModuleSource(
   file: string,
   options: AssetModuleOptions & { readonly format: "cjs" | "esm" },

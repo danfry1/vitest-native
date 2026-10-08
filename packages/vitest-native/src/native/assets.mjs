@@ -333,12 +333,19 @@ function cachedDescriptor(file, options) {
 // reached as a Vite-graph import, a Node require and a Node import (three modules),
 // and the registry is recreated with React Native for each test file, so ids are
 // remembered per registry object: a new registry starts the numbering again.
+//
+// The id is keyed by the file's path, spelled one way: on Windows the Vite graph
+// names it `D:/a/x.png` and Node's loaders `D:\a\x.png`, which would register the
+// asset twice under two ids.
+export const assetIdKey = (file) =>
+  file.replace(/\\/g, "/").replace(/^[a-z]:/, (drive) => drive.toUpperCase());
+
 const REGISTER = (registry, file, descriptor) =>
   `(() => { const r = ${registry}; ` +
   `const m = (globalThis[Symbol.for("vitest-native.asset-ids")] ??= new WeakMap()); ` +
   `let ids = m.get(r); if (!ids) m.set(r, (ids = new Map())); ` +
-  `let id = ids.get(${JSON.stringify(file)}); ` +
-  `if (id === undefined) ids.set(${JSON.stringify(file)}, (id = r.registerAsset(${JSON.stringify(descriptor)}))); ` +
+  `let id = ids.get(${JSON.stringify(assetIdKey(file))}); ` +
+  `if (id === undefined) ids.set(${JSON.stringify(assetIdKey(file))}, (id = r.registerAsset(${JSON.stringify(descriptor)}))); ` +
   `return id; })()`;
 
 /** The descriptor, or the error Metro would also stop on (`invalid asset file path`). */
