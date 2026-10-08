@@ -154,8 +154,10 @@ function createState() {
   };
 
   // Registrations are per test file, as in Jest. The hot runtime clears them at the
-  // file boundary; a worker reused without it (`isolate: false`) drops them here.
+  // file boundary (and its batches keep a stale `filepath`); a worker reused without
+  // it (`isolate: false`) drops them here.
   function currentFile() {
+    if (globalThis.__vitest_native_hot_reset) return;
     const file = worker()?.filepath;
     if (file !== state.file) {
       if (state.file !== undefined) state.clear();

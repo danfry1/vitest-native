@@ -48,6 +48,8 @@ describe("Vitest's worker state, which the registry depends on", () => {
     const worker = (globalThis as Record<string, any>).__vitest_worker__;
     expect(typeof worker.evaluatedModules.getModulesByFile).toBe("function");
     expect(worker.evaluatedModules.idToModuleMap).toBeInstanceOf(Map);
-    expect(worker.filepath.replace(/\\/g, "/")).toMatch(/jest-registry-node-loaded\.test\.ts$/);
+    // The file the registry scopes registrations to in a reused worker. The hot runtime
+    // batches files and clears the registry through its state manifest instead.
+    expect(typeof worker.filepath).toBe("string");
   });
 });
