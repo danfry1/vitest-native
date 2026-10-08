@@ -13,8 +13,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath, pathToFileURL } from "node:url";
 // @ts-expect-error — runtime .mjs
 import { transformRN } from "../src/native/transform.mjs";
+
+const TRANSFORM_URL = pathToFileURL(
+  path.join(path.dirname(fileURLToPath(import.meta.url)), "../src/native/transform.mjs"),
+).href;
 
 const req = createRequire(import.meta.url);
 
@@ -31,7 +37,12 @@ const stamp = (expression: string) => `{
   },
 }`;
 
-function makeRoot(): string {
+function makeRoot(
+  config: string | null = `module.exports = (api) => {
+       const caller = api.caller((c) => c && c.name);
+       return { plugins: [${stamp('"project-config:" + caller')}] };
+     };`,
+): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-babel-config-"));
   fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "app", private: true }));
   const presetDir = path.join(root, "node_modules", "@react-native", "babel-preset");
@@ -51,13 +62,7 @@ function makeRoot(): string {
     path.join(babelScope, "core"),
     "dir",
   );
-  fs.writeFileSync(
-    path.join(root, "babel.config.js"),
-    `module.exports = (api) => {
-       const caller = api.caller((c) => c && c.name);
-       return { plugins: [${stamp('"project-config:" + caller')}] };
-     };`,
-  );
+  if (config) fs.writeFileSync(path.join(root, "babel.config.js"), config);
   return root;
 }
 
@@ -77,6 +82,130 @@ describe("the project's Babel config", () => {
       );
       expect(transformRN(pkg, fs.readFileSync(pkg, "utf8"), root)).toContain(
         'var __VN_STAMP = "preset"',
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+/** A fresh process's transform of `file`: a new process reads the disk cache. */
+function transformInChild(file: string, root: string, env: Record<string, string>): string {
+  const script =
+    `const { transformRN } = await import(${JSON.stringify(TRANSFORM_URL)});` +
+    `const fs = await import("node:fs");` +
+    `process.stdout.write(transformRN(process.argv[1], fs.readFileSync(process.argv[1], "utf8"), process.argv[2]));`;
+  return execFileSync(process.execPath, ["--input-type=module", "-e", script, file, root], {
+    env: { ...process.env, ...env },
+    encoding: "utf8",
+  });
+}
+
+function writeApp(root: string, rel: string, source = "module.exports = 1;\n"): string {
+  const file = path.join(root, rel);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, source);
+  return file;
+}
+
+describe("the transform cache, for app source under a project Babel config", () => {
+  // babel-jest keys its cache on the options loadPartialConfig returns (build/index.js,
+  // getCacheKeyFromConfig). A function config can read the environment through
+  // api.cache.using, so the config file's bytes alone served the previous output.
+  it("is keyed on the options Babel loaded, not on the config file's bytes", () => {
+    const root = makeRoot(`module.exports = (api) => {
+         const flag = api.cache.using(() => process.env.RB_FLAG);
+         return { plugins: [["./flag-plugin.js", { flag }]] };
+       };`);
+    try {
+      fs.writeFileSync(
+        path.join(root, "flag-plugin.js"),
+        `module.exports = ({ types: t }) => ({
+           visitor: {
+             Identifier(p, state) {
+               if (p.node.name === "__FLAG__") p.replaceWith(t.stringLiteral(state.opts.flag));
+             },
+           },
+         });`,
+      );
+      const app = writeApp(root, "src/flag.ts", "module.exports = __FLAG__;\n");
+      expect(transformInChild(app, root, { RB_FLAG: "three" })).toContain('"three"');
+      expect(transformInChild(app, root, { RB_FLAG: "four" })).toContain('"four"');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("which Babel config applies to app source", () => {
+  // Babel decides, so every config it supports is found: package.json#babel was missed
+  // by a hand-kept list of file names, as were babel.config.ts and .babelrc.mjs.
+  it("is whatever @babel/core loads, package.json#babel included", () => {
+    const root = makeRoot(null);
+    try {
+      const pluginFile = path.join(root, "stamp-plugin.js");
+      fs.writeFileSync(pluginFile, `module.exports = () => (${stamp('"package-json"')});`);
+      fs.writeFileSync(
+        path.join(root, "package.json"),
+        JSON.stringify({ name: "app", private: true, babel: { plugins: ["./stamp-plugin.js"] } }),
+      );
+      const app = writeApp(root, "src/app.ts");
+      expect(transformRN(app, fs.readFileSync(app, "utf8"), root)).toContain(
+        'var __VN_STAMP = "package-json"',
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("is the React Native preset when the project has none", () => {
+    const root = makeRoot(null);
+    try {
+      const app = writeApp(root, "src/app.ts");
+      expect(transformRN(app, fs.readFileSync(app, "utf8"), root)).toContain(
+        'var __VN_STAMP = "preset"',
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // babel-jest's assertLoadedBabelConfig (build/index.js:103-113) throws for a file the
+  // config ignores; transformSync returns null for it, which crashed on `.code`.
+  it("rejects a file the config ignores, as babel-jest does", () => {
+    const root = makeRoot(`module.exports = { ignore: ["./src/ignored.ts"], only: ["./src"] };`);
+    try {
+      const ignored = writeApp(root, "src/ignored.ts");
+      const outside = writeApp(root, "lib/outside.ts");
+      expect(() => transformRN(ignored, fs.readFileSync(ignored, "utf8"), root)).toThrow(
+        /Babel ignores src\/ignored\.ts/,
+      );
+      expect(() => transformRN(outside, fs.readFileSync(outside, "utf8"), root)).toThrow(
+        /Babel ignores lib\/outside\.ts/,
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // jest-expo's platform presets configure babel-jest with a Metro caller carrying the
+  // platform (config/getPlatformPreset.js), which babel-preset-expo reads.
+  it("sees jest-expo's caller, with the platform, in a project with Expo", () => {
+    const root = makeRoot(`module.exports = (api) => {
+         const caller = api.caller((c) => c && [c.name, c.bundler, c.platform].join(":"));
+         return { plugins: [${stamp('"caller:" + caller')}] };
+       };`);
+    try {
+      const expo = path.join(root, "node_modules", "expo");
+      fs.mkdirSync(expo, { recursive: true });
+      fs.writeFileSync(path.join(expo, "package.json"), JSON.stringify({ name: "expo" }));
+      const app = writeApp(root, "src/app.ts");
+      const src = fs.readFileSync(app, "utf8");
+      expect(transformRN(app, src, root, "android")).toContain(
+        'var __VN_STAMP = "caller:metro:metro:android"',
+      );
+      expect(transformRN(app, src, root, "ios")).toContain(
+        'var __VN_STAMP = "caller:metro:metro:ios"',
       );
     } finally {
       fs.rmSync(root, { recursive: true, force: true });

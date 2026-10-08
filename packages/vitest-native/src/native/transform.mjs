@@ -9,10 +9,11 @@
 // Babel output embeds the filename — so restores are valid wherever the checkout
 // path is stable (CI runners use a fixed workspace path).
 //
-// @babel/core itself is loaded lazily, only on a cache MISS: on a warm cache the
-// default engine pays this module's init in every isolated worker, and requiring
-// Babel costs ~35ms vs ~0.5ms for resolving versions — pure waste when every file
-// is served from disk.
+// @babel/core itself is loaded lazily: on a warm cache the default engine pays this
+// module's init in every isolated worker, and requiring Babel costs ~35ms vs ~0.5ms
+// for resolving versions — pure waste when every file is served from disk. Package
+// files load it only on a cache MISS. App source loads it for its cache key, since
+// only Babel can say which project configuration applies (projectBabelOptions).
 import { createRequire } from "node:module";
 import path from "node:path";
 import fs from "node:fs";
@@ -167,7 +168,9 @@ function ctxFor(projectRoot) {
   fs.mkdirSync(cacheDir, { recursive: true });
   const ctx = {
     root,
-    projectConfig: projectBabelConfig(root),
+    // Whether the project resolves Expo, which selects jest-expo's Babel caller.
+    hasExpo: resolvable(req, "expo/package.json"),
+    configHashes: new Map(),
     req,
     preset,
     flowEnums,
@@ -181,31 +184,108 @@ function ctxFor(projectRoot) {
   return ctx;
 }
 
-// The project's root Babel config and a hash of it, or null. Jest compiles app files
-// with babel-jest, which loads that config (caller "babel-jest"); app source Node loads
-// here needs its plugins too (macros, module-resolver). Packages keep the RN preset.
-const BABEL_CONFIG_FILES = [
-  "babel.config.js",
-  "babel.config.cjs",
-  "babel.config.mjs",
-  "babel.config.cts",
-  "babel.config.json",
-  ".babelrc",
-  ".babelrc.js",
-  ".babelrc.cjs",
-  ".babelrc.json",
-];
-function projectBabelConfig(root) {
-  for (const name of BABEL_CONFIG_FILES) {
-    const file = path.join(root, name);
-    try {
-      const hash = crypto.createHash("sha1").update(fs.readFileSync(file)).digest("hex");
-      return { file, hash };
-    } catch {
-      // not this one
-    }
+// App source Node loads (require(), jest.requireActual, what those load) compiles as
+// babel-jest compiles it under Jest: @babel/core's loadPartialConfig decides, per file,
+// which configuration applies (babel.config.* in any of Babel's formats, .babelrc*,
+// package.json#babel, `only`/`ignore`, `overrides`, env- and caller-dependent function
+// configs), and the file compiles with the options it returns (babel-jest 29.7,
+// build/index.js:166-170 and 266-276). Macros and module-resolver aliases in the
+// project's config would otherwise be missing. Packages keep the React Native preset,
+// as does app source in a project with no Babel config of its own.
+const NODE_MODULES = /[\\/]node_modules[\\/]/;
+
+/** The caller babel-jest passes (build/index.js:196-237), or jest-expo's for Expo. */
+function babelJestCaller(ctx, platform) {
+  const flags = {
+    // Jest's defaults for a CommonJS module without --experimental-vm-modules
+    // (jest-runtime 29.7, build/index.js:173-179).
+    supportsDynamicImport: false,
+    supportsExportNamespaceFrom: false,
+    supportsStaticESM: false,
+    supportsTopLevelAwait: false,
+  };
+  // jest-expo's platform presets configure babel-jest with a Metro caller carrying the
+  // platform (jest-expo 57, config/getPlatformPreset.js:48-66), which babel-preset-expo
+  // reads to inline Platform.OS and process.env.EXPO_OS (build/common.js, getPlatform).
+  // The engine runs one platform, so a project with Expo gets that preset's caller.
+  if (ctx.hasExpo) return { name: "metro", bundler: "metro", platform, ...flags };
+  return { name: "babel-jest", ...flags };
+}
+
+/**
+ * The project's Babel options for `file`, or null when the React Native preset applies.
+ * Called once per file version and platform: transformRN's in-memory cache answers
+ * repeats. Measured on bluesky-social/social-app's Expo config: about 0.1 ms per file
+ * (p95 0.3 ms), after a first call that loads the config's presets and plugins.
+ */
+function projectBabelOptions(ctx, file, platform) {
+  if (!file.startsWith(ctx.root + path.sep) || NODE_MODULES.test(file)) return null;
+  if (!ctx.babel) ctx.babel = ctx.req("@babel/core");
+  let partial;
+  transformDepth++;
+  try {
+    partial = ctx.babel.loadPartialConfig({
+      filename: file,
+      cwd: ctx.root,
+      root: ctx.root,
+      caller: babelJestCaller(ctx, platform),
+    });
+  } catch (err) {
+    throw decorateTransformError(err, file, platform);
+  } finally {
+    transformDepth--;
   }
-  return null;
+  if (partial === null) {
+    // babel-jest's assertLoadedBabelConfig (build/index.js:103-113): compiling the file
+    // without the configuration that excludes it would run code the project never
+    // compiles that way.
+    throw new VitestNativeError(
+      "BABEL_IGNORES_FILE",
+      `Babel ignores ${path.relative(ctx.root, file).split(path.sep).join("/")}: the ` +
+        `project's Babel config excludes it through \`ignore\` or \`only\`, so it cannot ` +
+        `be compiled for Node's require(). babel-jest fails the same way under Jest. ` +
+        `Remove it from the config's \`ignore\`, or add it to \`only\`.`,
+    );
+  }
+  if (!partial.hasFilesystemConfig()) return null;
+  return {
+    options: partial.options,
+    // babel-jest keys its cache on the loaded options (getCacheKeyFromConfig,
+    // build/index.js:135-165): a function config's output can depend on the
+    // environment or the caller, which no file's bytes show. The config files' own
+    // bytes join it, so an edit to an inline plugin is picked up as well.
+    key: [
+      JSON.stringify(partial.options),
+      configFileHash(ctx, partial.config),
+      configFileHash(ctx, partial.babelrc),
+    ].join("\0"),
+  };
+}
+
+function resolvable(req, request) {
+  try {
+    req.resolve(request);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function configFileHash(ctx, file) {
+  if (!file) return "";
+  let st;
+  try {
+    st = fs.statSync(file);
+  } catch {
+    return "";
+  }
+  const memo = `${file}\0${st.mtimeMs}\0${st.size}`;
+  let hash = ctx.configHashes.get(memo);
+  if (hash === undefined) {
+    hash = crypto.createHash("sha1").update(fs.readFileSync(file)).digest("hex");
+    ctx.configHashes.set(memo, hash);
+  }
+  return hash;
 }
 
 /** A project's transform disk-cache directory, once resolved. Test hook. */
@@ -412,14 +492,9 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   const memHit = ctx.mem.get(memKey);
   if (memHit !== undefined) return memHit;
 
-  // App source under a project Babel config compiles with that config (see
-  // projectBabelConfig), so the config's content keys its output.
-  const projectConfig =
-    ctx.projectConfig &&
-    file.startsWith(ctx.root + path.sep) &&
-    !/[\\/]node_modules[\\/]/.test(file)
-      ? ctx.projectConfig
-      : null;
+  // App source under a project Babel config compiles with it (projectBabelOptions),
+  // and the options it loaded key the output.
+  const projectConfig = projectBabelOptions(ctx, file, platform);
   const hash = crypto
     .createHash("sha1")
     .update(platform)
@@ -427,7 +502,7 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
     .update(file)
     .update("\0")
     .update(src);
-  if (projectConfig) hash.update("\0babel-config\0").update(projectConfig.hash);
+  if (projectConfig) hash.update("\0babel-config\0").update(projectConfig.key);
   const key = hash.digest("hex");
   const cachePath = path.join(ctx.cacheDir, key + ".js");
   try {
@@ -443,19 +518,7 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
     out = ctx.babel.transformSync(
       src,
       projectConfig
-        ? {
-            // As babel-jest 29.7 passes it (build/index.js, createTransformer).
-            filename: file,
-            cwd: ctx.root,
-            root: ctx.root,
-            caller: {
-              name: "babel-jest",
-              supportsDynamicImport: false,
-              supportsStaticESM: false,
-              supportsExportNamespaceFrom: false,
-              supportsTopLevelAwait: false,
-            },
-          }
+        ? projectConfig.options
         : {
             filename: file,
             plugins: [ctx.flowEnums, ctx.exportNamespaceFrom].filter(Boolean),
