@@ -134,4 +134,5 @@ export const HOT_STATE_MANIFEST_ENTRIES = Object.freeze([
   "console.descriptors",
   "react-native.error-utils",
   "expo.runtime",
+  "jest-compat.node-mocks",
 ]);

@@ -18,7 +18,7 @@ import { installKnownNativeModules } from "./native-modules.mjs";
 import { installRequireHooks } from "./hooks.mjs";
 import { installHotReset } from "./reset.mjs";
 import { installRegistry } from "./registry.mjs";
-import { captureModuleBaseline } from "./module-reset.mjs";
+import { captureModuleBaseline, resetEvaluatedModules } from "./module-reset.mjs";
 import { registerRntlHooksOnImport } from "./rntl-hooks.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
 import { VitestNativeError } from "../errors.mjs";
@@ -167,8 +167,8 @@ let moduleRunner = null;
 // clears evaluation state on the rest; it does not throw the module graph away.
 // `ModuleRunner.clearCache()` does throw it away, Vitest's own dist included, which
 // measured 29% more peak memory and ~6% slower at 200 files — every file re-creating
-// module nodes, and re-evaluating Vitest itself, for nothing.
-const VITEST_RUNTIME = [/\/vitest\/dist\//, /vitest-virtual-\w+\/dist/, /@vitest\/dist/];
+// module nodes, and re-evaluating Vitest itself, for nothing. (resetEvaluatedModules,
+// in module-reset.mjs, which jest-compat's resetModules shares.)
 
 /**
  * Drop mocks queued but not yet resolved.
@@ -199,13 +199,7 @@ globalThis.__vitest_native_reset_module_runner = () => {
   if (!moduleRunner) return;
   moduleRunner.mocker?.reset();
   clearPendingMocks(moduleRunner.mocker);
-  for (const [id, node] of moduleRunner.evaluatedModules.idToModuleMap) {
-    if (VITEST_RUNTIME.some((re) => re.test(id))) continue;
-    node.promise = undefined;
-    node.exports = undefined;
-    node.evaluated = false;
-    node.importers.clear();
-  }
+  resetEvaluatedModules(moduleRunner.evaluatedModules.idToModuleMap);
 };
 
 init({

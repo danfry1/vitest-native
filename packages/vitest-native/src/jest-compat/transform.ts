@@ -5,9 +5,25 @@ import { MagicString } from "magic-string";
 const HOISTABLE = new Set(["mock", "unmock", "doMock", "doUnmock"]);
 // The ones that take a factory whose return needs Jest-style CJS interop.
 const WITH_FACTORY = new Set(["mock", "doMock"]);
+// The ones that remove a mock, which the Node-side registry must forget too.
+const UNMOCK = new Set(["unmock", "doUnmock"]);
 const TRANSFORMABLE = /\.(?:[cm]?[jt]sx?)$/;
 // Cheap pre-filter so we only parse files that actually use jest mock calls.
 const HAS_JEST_MOCK = /\bjest\s*\.\s*(?:mock|unmock|doMock|doUnmock)\s*\(/;
+
+// The globals the setup installs, reached through one hoisted accessor per file. A run
+// without the setup otherwise failed inside a mock factory with "__vnJestMocked is not
+// a function". The error is VitestNativeError by shape (name and code), which is how
+// errors.mjs identifies one: generated code cannot import that module.
+const SETUP = "__vn_jest_compat__";
+/** Prepended to a file whose mock factories use the setup. Exported for tests. */
+export const SETUP_ACCESSOR =
+  `const ${SETUP} = vi.hoisted(() => (name) => {\n` +
+  `  if (typeof globalThis[name] === "function") return globalThis[name];\n` +
+  `  throw Object.assign(new Error("[vitest-native] jest.mock() factories need the jest-compat setup, which this test run does not load. " +\n` +
+  `    "Add jestCompatSetup from 'vitest-native/jest-compat' to test.setupFiles, ahead of any setup file that calls jest.mock()."),\n` +
+  `    { name: "VitestNativeError", code: "JEST_COMPAT_SETUP_MISSING" });\n` +
+  `});\n`;
 
 /** Visit every node in an ESTree AST (depth-first), calling `fn` on each. */
 function walk(node: any, fn: (n: any) => void): void {
@@ -41,6 +57,11 @@ function walk(node: any, fn: (n: any) => void): void {
  *    A factory already returning an ES shape (`__esModule`/explicit `default`) is
  *    passed through unchanged.
  *
+ * 3. **One registry** — registers each factory, and each unmock, with the Node-side
+ *    registry the jest-compat setup installs, so `require()`, the modules
+ *    `jest.requireActual` loads, and `jest.requireMock` see the same mock the imports
+ *    do, as under Jest's single per-file module registry (see node-registry.mjs).
+ *
  * Opt-in: add after `reactNative()`; pair with `jestCompatSetup` + `globals: true`.
  */
 export function jestMockTransform(): Plugin {
@@ -65,9 +86,19 @@ export function jestMockTransform(): Plugin {
 
       const s = new MagicString(code);
       let changed = false;
+      // Statements at the top level, where a registration can be hoisted beside them.
+      const topLevel = new Map<any, any>();
+      for (const statement of ast.body) {
+        if (statement.type === "ExpressionStatement") topLevel.set(statement.expression, statement);
+      }
+      // Whether a factory now reaches the setup's globals (SETUP_ACCESSOR).
+      let usesSetup = false;
+      // Factories already replaced, whose source must not be edited again.
+      const replaced: [number, number][] = [];
 
       walk(ast, (node) => {
         if (node.type !== "CallExpression") return;
+        if (replaced.some(([start, end]) => node.start >= start && node.end <= end)) return;
         const callee = node.callee;
         if (!callee || callee.type !== "MemberExpression" || callee.computed) return;
         const obj = callee.object;
@@ -79,17 +110,53 @@ export function jestMockTransform(): Plugin {
         s.overwrite(obj.start, obj.end, "vi");
         changed = true;
 
-        // Wrap a function factory so its return is run through Jest CJS interop.
+        // The module specifier, when it is a string literal or a variable: it is
+        // repeated in the registration below, and repeating an arbitrary expression
+        // would evaluate it twice.
+        const specNode = node.arguments[0];
+        const spec =
+          specNode &&
+          ((specNode.type === "Literal" && typeof specNode.value === "string") ||
+            (specNode.type === "TemplateLiteral" && specNode.expressions.length === 0) ||
+            specNode.type === "Identifier")
+            ? code.slice(specNode.start, specNode.end)
+            : null;
+
         if (WITH_FACTORY.has(prop.name) && node.arguments.length >= 2) {
           const factory = node.arguments[1];
           if (factory.type === "ArrowFunctionExpression" || factory.type === "FunctionExpression") {
-            s.appendLeft(factory.start, "() => globalThis.__vnInteropMock((");
-            s.appendRight(factory.end, ")())");
+            usesSetup = true;
+            if (spec !== null) {
+              // Registered where Vitest hoists the call (see node-registry.mjs).
+              const register = `globalThis.__vnJestMock?.(import.meta.url, ${spec}, ${code.slice(factory.start, factory.end)})`;
+              const lookup = `() => ${SETUP}("__vnJestMocked")(import.meta.url, ${spec})`;
+              const statement = topLevel.get(node);
+              if (prop.name === "mock" && statement) {
+                // Vitest 5's prewarmModuleGraph skips a mocked module's graph only
+                // when the second argument is an inline function (@vitest/mocker
+                // hoistMocks: `hasFactory`), so the registration goes in a vi.hoisted
+                // beside it, which Vitest hoists in source order.
+                s.prependLeft(statement.start, `vi.hoisted(() => ${register});\n`);
+                s.overwrite(factory.start, factory.end, lookup);
+              } else {
+                s.overwrite(factory.start, factory.end, `(${register}, ${lookup})`);
+              }
+              replaced.push([factory.start, factory.end]);
+            } else {
+              // Wrap a function factory so its return is run through Jest CJS interop.
+              s.appendLeft(factory.start, `() => ${SETUP}("__vnInteropMock")((`);
+              s.appendRight(factory.end, ")())");
+            }
           }
+        } else if (UNMOCK.has(prop.name) && spec !== null) {
+          // Unregister at the same position, so a later require() is unmocked too.
+          s.appendLeft(specNode.start, `(globalThis.__vnJestUnmock?.(import.meta.url, ${spec}), `);
+          s.appendRight(specNode.end, ")");
         }
       });
 
       if (!changed) return null;
+      if (usesSetup) s.prepend(SETUP_ACCESSOR);
       return { code: s.toString(), map: s.generateMap({ hires: true }) };
     },
   };

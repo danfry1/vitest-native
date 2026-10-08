@@ -128,6 +128,19 @@ describe("every message this package throws is attributable", () => {
     path.join("native", "explain.mjs"),
   ];
 
+  // Single construction sites allowed a raw Error, matched by their source text:
+  //
+  //   Jest's isolateModules nesting error — reproduced as Jest throws it, a plain Error
+  //     with Jest's message. Vitest's `toThrow(new Error(m))` compares the whole error,
+  //     name and own properties included, so a suite written for Jest matches nothing else.
+  //   jestMockTransform's setup accessor — generated code inside a user's test file,
+  //     which cannot import errors.mjs; it builds the VitestNativeError shape (name and
+  //     code) that isVitestNativeError recognises.
+  const RAW_ALLOWED = [
+    "throw new Error(`${name} cannot be nested inside another ${name} or ${other}.`);",
+    'throw Object.assign(new Error("[vitest-native] jest.mock() factories need',
+  ];
+
   it("throws a vitest-native error class, or is an exemption with a stated reason", () => {
     const offenders: string[] = [];
     let converted = 0;
@@ -142,6 +155,9 @@ describe("every message this package throws is attributable", () => {
       // error, so it is skipped.
       for (const match of text.matchAll(/new ((?:Vitest)?\w*(?:Type|Syntax)?Error)\(\s*(.?)/g)) {
         if (match[2] === ")") continue;
+        const lineStart = text.lastIndexOf("\n", match.index) + 1;
+        const lineText = text.slice(lineStart, text.indexOf("\n", match.index));
+        if (RAW_ALLOWED.some((snippet) => lineText.includes(snippet))) continue;
         const cls = match[1];
         if (cls === "VitestNativeError" || cls === "VitestNativeTypeError") {
           converted += 1;

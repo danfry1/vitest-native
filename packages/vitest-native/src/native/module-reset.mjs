@@ -171,3 +171,32 @@ export function captureModuleBaseline() {
     return dropped;
   };
 }
+
+// Vitest's own runtime stays evaluated, as Vitest's `resetModules` leaves it.
+const VITEST_RUNTIME = [/\/vitest\/dist\//, /vitest-virtual-\w+\/dist/, /@vitest\/dist/];
+
+/**
+ * Clear the evaluation state of every node in a module runner's graph except Vitest's
+ * own: the fields Vitest's `resetModules(modules, resetMocks = true)` clears
+ * (vitest/dist/chunks/utils). With `saved`, each node's state is recorded first, for
+ * `restoreEvaluatedModules`.
+ */
+export function resetEvaluatedModules(map, saved) {
+  for (const [id, node] of map) {
+    if (VITEST_RUNTIME.some((re) => re.test(id))) continue;
+    saved?.set(node, [node.promise, node.exports, node.evaluated, [...node.importers]]);
+    node.promise = undefined;
+    node.exports = undefined;
+    node.evaluated = false;
+    node.importers.clear();
+  }
+}
+
+/** Put back what `resetEvaluatedModules` saved; nodes evaluated since are reset. */
+export function restoreEvaluatedModules(map, saved) {
+  resetEvaluatedModules(map);
+  for (const [node, [promise, exports, evaluated, importers]] of saved) {
+    Object.assign(node, { promise, exports, evaluated });
+    for (const importer of importers) node.importers.add(importer);
+  }
+}

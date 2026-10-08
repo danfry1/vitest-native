@@ -34,7 +34,7 @@ import { transformRN, isFlow, cacheRootFor, TRANSFORM_CACHE_VERSION } from "./tr
 
 import { boundarySourceFor, BOUNDARY_SOURCES } from "./boundary.mjs";
 import { assetRegistryPathFor, nativeAssetModuleSource } from "./assets.mjs";
-import { resolvePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
+import { resolveRelativePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
 import { createNativeOwnershipPolicy } from "./ownership.mjs";
 
 /**
@@ -88,7 +88,8 @@ export function _resetRegistryFailureReports() {
 // Bump when the emitted registry's shape or the walk's semantics change, so a
 // stale on-disk registry from an older vitest-native can never be reused.
 // 4: asset files compile to Metro's registering module instead of a file-name string.
-const REGISTRY_FORMAT_VERSION = 4;
+// 5: the registry's internal require consults jest-compat's Node-side mocks.
+const REGISTRY_FORMAT_VERSION = 5;
 
 /**
  * Literal `require('…')` / `require("…")` calls. The leading class excludes
@@ -140,11 +141,7 @@ function sourceFor(file, { projectRoot, platform, reactNativeVersion, assetExtSe
  */
 function resolveTarget(request, fromFile, platform, sourceExts) {
   if (request.startsWith(".") && !path.extname(request)) {
-    const hit = resolvePlatformFile(
-      path.resolve(path.dirname(fromFile), request),
-      platform,
-      sourceExts,
-    );
+    const hit = resolveRelativePlatformFile(request, fromFile, platform, sourceExts);
     if (hit) return hit;
   }
   try {
@@ -343,7 +340,16 @@ function emit(files, modules) {
     `  const r = function (q) {`,
     `    const t = map[q];`,
     `    if (t === undefined || t === null) return __ext(q);`,
-    `    return typeof t === "number" ? __r(t) : __ext(t);`,
+    `    if (typeof t !== "number") return __ext(t);`,
+    // A jest.mock of a React Native module (jest-compat's per-file registry, see
+    // jest-compat/node-registry.mjs) applies to RN's own requires of it, as under
+    // Jest. The global is undefined unless such a mock is registered.
+    `    const mock = globalThis.__vitest_native_node_mock_for;`,
+    `    if (mock !== undefined) {`,
+    `      const v = mock(__ids[t]);`,
+    `      if (v !== mock.NONE) return v;`,
+    `    }`,
+    `    return __r(t);`,
     `  };`,
     `  r.resolve = function (q) {`,
     `    const t = map[q];`,

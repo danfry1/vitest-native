@@ -130,9 +130,11 @@ few or none.
 - **`jest.spyOn(View.prototype, 'measure'/'measureInWindow')`** — Jest mocks `View` as a class with
   prototype methods; real RN's `View` is a `forwardRef` with no such prototype, so the spy target is
   `undefined`. Drive layout via `onLayout`/`fireEvent` instead, or accept as known-incompatible.
-- **`jest.mock('react-native/Libraries/…')` of internal submodules** (e.g. `Appearance`,
-  `AccessibilityInfo`) then spying them — externalized/resident RN isn't intercepted by a submodule
-  mock. Prefer the public API from `react-native`.
+- **Factory-less `jest.mock('react-native/Libraries/…')` of internal submodules** (e.g.
+  `Appearance`, `AccessibilityInfo`) then spying them — Vitest builds a factory-less mock for
+  imports only, so externalized/resident RN's own require of the submodule isn't intercepted.
+  Prefer the public API from `react-native`. A submodule mock **with a factory** does reach React
+  Native under jest-compat (see the jest-compat guide's "One module registry per test file").
 - **`image.props.source.uri` / raw `source`-shape assertions** — real RN normalizes `source`, so the
   raw shape differs. Native = real RN = ground truth; assert on behavior instead.
 - **`jest.mock('react-native', …)` nested inside `beforeAll`/`describe` callbacks** — Jest doesn't

@@ -79,8 +79,6 @@ describe("members mapped onto a Vitest equivalent", () => {
 describe("members with no equivalent", () => {
   // Each must name itself and point somewhere, rather than surfacing as a TypeError.
   const signposted: [string, unknown[]][] = [
-    ["isolateModules", [() => {}]],
-    ["isolateModulesAsync", [async () => {}]],
     ["createMockFromModule", ["some-module"]],
     ["genMockFromModule", ["some-module"]],
     ["deepUnmock", ["some-module"]],

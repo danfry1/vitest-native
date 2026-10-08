@@ -30,7 +30,8 @@ type Mocked =
   | "react-native"
   | "dir-mocked"
   | "automocked"
-  | "runtime-mocked";
+  | "runtime-mocked"
+  | "node-registry";
 
 const LEAK_MARKER = "hot-jest-compat rendered and never unmounted";
 
@@ -113,7 +114,21 @@ export function expectCleanExcept(mockedHere: Mocked[]): void {
   }
   if (!mine.has("runtime-mocked")) {
     expect(value(), "jest.doMock at runtime").toBe("real-runtime");
+    // The same doMock reaches Node's require through jest-compat's per-file registry.
+    expect(require("./fixtures/runtime-mocked").value(), "jest.doMock seen by require()").toBe(
+      "real-runtime",
+    );
   }
+  if (!mine.has("node-registry")) {
+    expect(
+      require("./fixtures/node-registry-mocked").value(),
+      "jest.mock seen by require() (jest-compat's per-file registry)",
+    ).toBe("real-node-registry");
+  }
+  expect(
+    () => (jest as unknown as { isolateModules(fn: () => void): void }).isolateModules(() => {}),
+    "an isolateModulesAsync block an earlier file left open",
+  ).not.toThrow();
   // A React Native Testing Library tree the previous file rendered and never
   // unmounted must not be what `screen` sees here. Before this file renders, screen
   // either has no tree (and throws) or has one without the marker.
