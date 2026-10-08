@@ -30,15 +30,33 @@ describe("jest-compat: jestMockTransform (hoist + CJS interop)", () => {
   });
 
   it("registers mock/doMock factories with the Node-side registry, and matches the hoist regex", () => {
-    const out = run("jest.mock('m', () => ({ a: 1 }))");
+    const out = run("jest.mock('m', () => ({ a: 1 }));");
     expect(hoistRe.test(out!.code)).toBe(true);
-    // The original factory is passed through, registered at the call's own position.
+    // The factory is registered in a vi.hoisted beside the call, which Vitest hoists
+    // with it, and vi.mock keeps an inline function as its factory.
     expect(out!.code).toBe(
-      "vi.mock('m', globalThis.__vnJestMock(import.meta.url, 'm', () => ({ a: 1 })))",
+      "vi.hoisted(() => globalThis.__vnJestMock?.(import.meta.url, 'm', () => ({ a: 1 })));\n" +
+        "vi.mock('m', () => globalThis.__vnJestMocked(import.meta.url, 'm'));",
     );
+    // Not a statement of its own (or not hoisted): registered where it is evaluated.
     expect(run("jest.doMock('m', () => () => null)")!.code).toBe(
-      "vi.doMock('m', globalThis.__vnJestMock(import.meta.url, 'm', () => () => null))",
+      "vi.doMock('m', (globalThis.__vnJestMock?.(import.meta.url, 'm', () => () => null), " +
+        "() => globalThis.__vnJestMocked(import.meta.url, 'm')))",
     );
+  });
+
+  it("keeps vi.mock's factory an inline function, which Vitest's prewarm requires", () => {
+    // @vitest/mocker's hoistMocks reports `hasFactory` only for an arrow or function
+    // expression, and Vitest 5's prewarmModuleGraph skips the mocked module's graph
+    // only when it is set.
+    const out = run("jest.mock('m', () => ({ a: jest.requireActual('x') }));\nimport a from 'b';");
+    const calls = (parse(out!.code) as any).body.filter(
+      (s: any) =>
+        s.type === "ExpressionStatement" && s.expression.callee?.property?.name === "mock",
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0].expression.arguments[1].type).toBe("ArrowFunctionExpression");
+    expect(calls[0].expression.arguments[1].params).toHaveLength(0);
   });
 
   it("falls back to the plain CJS interop wrapper for a computed specifier", () => {

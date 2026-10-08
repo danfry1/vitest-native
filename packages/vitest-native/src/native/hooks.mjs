@@ -361,15 +361,9 @@ export function installRequireHooks(
   const origResolve = Module._resolveFilename;
   Module._resolveFilename = function (request, parent, ...rest) {
     let resolved;
-    if (
-      parent &&
-      parent.filename &&
-      (NODE_MODULES_PATH.test(parent.filename) ||
-        ownership.isReactNativeFile(parent.filename) ||
-        isExtra(parent.filename)) &&
-      request.startsWith(".") &&
-      !path.extname(request)
-    ) {
+    // Relative, extensionless: Metro's platform order for every parent, app source
+    // included (`./PlatformInfo` → `index.native.ts` before `index.ts`).
+    if (parent?.filename && request.startsWith(".") && !path.extname(request)) {
       resolved = resolvePlatformFile(
         path.resolve(path.dirname(parent.filename), request),
         platform,

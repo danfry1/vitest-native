@@ -72,9 +72,17 @@ export function jestMockTransform(): Plugin {
 
       const s = new MagicString(code);
       let changed = false;
+      // Statements at the top level, where a registration can be hoisted beside them.
+      const topLevel = new Map<any, any>();
+      for (const statement of ast.body) {
+        if (statement.type === "ExpressionStatement") topLevel.set(statement.expression, statement);
+      }
+      // Factories already replaced, whose source must not be edited again.
+      const replaced: [number, number][] = [];
 
       walk(ast, (node) => {
         if (node.type !== "CallExpression") return;
+        if (replaced.some(([start, end]) => node.start >= start && node.end <= end)) return;
         const callee = node.callee;
         if (!callee || callee.type !== "MemberExpression" || callee.computed) return;
         const obj = callee.object;
@@ -102,12 +110,21 @@ export function jestMockTransform(): Plugin {
           const factory = node.arguments[1];
           if (factory.type === "ArrowFunctionExpression" || factory.type === "FunctionExpression") {
             if (spec !== null) {
-              // Register the factory with the Node-side registry at the call's own
-              // (hoisted) position, and give Vitest the registry's memoized value, so
-              // a require() of the module gets the same mock an import does. The
-              // registry applies the CJS interop for Vitest (see node-registry.mjs).
-              s.appendLeft(factory.start, `globalThis.__vnJestMock(import.meta.url, ${spec}, `);
-              s.appendRight(factory.end, ")");
+              // Registered where Vitest hoists the call (see node-registry.mjs).
+              const register = `globalThis.__vnJestMock?.(import.meta.url, ${spec}, ${code.slice(factory.start, factory.end)})`;
+              const lookup = `() => globalThis.__vnJestMocked(import.meta.url, ${spec})`;
+              const statement = topLevel.get(node);
+              if (prop.name === "mock" && statement) {
+                // Vitest 5's prewarmModuleGraph skips a mocked module's graph only
+                // when the second argument is an inline function (@vitest/mocker
+                // hoistMocks: `hasFactory`), so the registration goes in a vi.hoisted
+                // beside it, which Vitest hoists in source order.
+                s.prependLeft(statement.start, `vi.hoisted(() => ${register});\n`);
+                s.overwrite(factory.start, factory.end, lookup);
+              } else {
+                s.overwrite(factory.start, factory.end, `(${register}, ${lookup})`);
+              }
+              replaced.push([factory.start, factory.end]);
             } else {
               // Wrap a function factory so its return is run through Jest CJS interop.
               s.appendLeft(factory.start, "() => globalThis.__vnInteropMock((");

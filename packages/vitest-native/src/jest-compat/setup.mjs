@@ -12,25 +12,16 @@
 // form at transform time. `jest.fn`, `jest.spyOn`, `jest.requireActual`,
 // `jest.useFakeTimers` work at runtime via the `jest` global installed here.
 import { vi } from "vitest";
-import Module, { createRequire } from "node:module";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { jestMockInterop } from "./interop.mjs";
 import { installJestObject } from "./jest-object.mjs";
-import { expandAlias } from "./aliases.mjs";
 import { callerFile } from "./caller.mjs";
-import { resolvePlatformFile } from "../native/resolve.mjs";
 import { VitestNativeError } from "../errors.mjs";
-import {
-  NODE_MOCKS_STATE_ID,
-  nodeRegistry,
-  requireActualFile,
-  resetViteModules,
-} from "./node-registry.mjs";
+import { NODE_MOCKS_STATE_ID, config, nodeRegistry } from "./node-registry.mjs";
 
-// Resolve modules from the consumer project root, not this file's location, so
-// `jest.requireActual('some-project-dep')` resolves the same module the suite sees.
-const projectRoot = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
-const require = createRequire(path.join(projectRoot, "package.json"));
+// The global `require` below resolves from the consumer project root.
+const require = createRequire(path.join(config.projectRoot, "package.json"));
 
 // Real Jest suites commonly clone-and-override React Native:
 //   const RN = jest.requireActual('react-native'); RN.Platform = {...}; return RN
@@ -54,68 +45,8 @@ function writableModuleFacade(mod) {
   });
 }
 
-// The project's string-to-string `resolve.alias` entries, from the plugin. Vite applies
-// them to imports, but `requireActual` resolves through Node, so without this
-// `jest.requireActual('@/services/api')` could not find a module the suite imports.
-function envList(name) {
-  try {
-    const value = JSON.parse(process.env[name] || "[]");
-    return Array.isArray(value) ? value : [];
-  } catch {
-    return [];
-  }
-}
-const aliases = envList("VITEST_NATIVE_REQUIRE_ALIASES");
-const skippedAliases = envList("VITEST_NATIVE_REQUIRE_ALIASES_SKIPPED");
-const platform = process.env.VITEST_NATIVE_PLATFORM === "android" ? "android" : "ios";
-
-/**
- * An alias usually lands on an extensionless app path (`@/Button`), which Node alone
- * would not find as `Button.ios.tsx`: resolve it with the same platform-extension order
- * the engine uses for imports, then let Node (and the .ts/.tsx handlers) load it.
- */
-function resolveAliased(target) {
-  if (path.isAbsolute(target) && !path.extname(target)) {
-    return resolvePlatformFile(target, platform) ?? target;
-  }
-  return target;
-}
-
-/** Resolve as Jest does: relative against the caller, bare from the project root. */
-function requireFrom(specifier) {
-  if (typeof specifier === "string" && specifier.startsWith(".")) {
-    const caller = callerFile();
-    // A caller-relative miss is the honest answer. Falling back to the project root
-    // could resolve some other file that happens to sit at the same relative path.
-    if (caller) return createRequire(caller)(specifier);
-  }
-  if (typeof specifier === "string" && aliases.length > 0) {
-    const expanded = expandAlias(specifier, aliases);
-    if (expanded !== specifier) return require(resolveAliased(expanded));
-  }
-  try {
-    return require(specifier);
-  } catch (error) {
-    if (error?.code === "MODULE_NOT_FOUND" && skippedAliases.length > 0) {
-      throw new VitestNativeError(
-        "REQUIRE_ACTUAL_ALIAS_UNSUPPORTED",
-        `jest.requireActual('${specifier}') could not be resolved. The project defines ` +
-          `resolve.alias entries that cannot be applied to requireActual — only ` +
-          `string-to-string entries can be (skipped: ${skippedAliases.join(", ")}). ` +
-          `Use a string \`find\` for this alias, or a relative path.`,
-        { cause: error },
-      );
-    }
-    throw error;
-  }
-}
-
-// The file a specifier is resolved against: relative ones from the calling file, as
-// Jest resolves them, everything else from the project root (see requireFrom).
-function anchorFor(specifier) {
-  const caller = typeof specifier === "string" && specifier.startsWith(".") ? callerFile() : null;
-  return caller ?? path.join(projectRoot, "package.json");
-}
+/** The caller, for a relative specifier: Jest resolves those against the calling file. */
+const callerOf = (spec) => (typeof spec === "string" && spec.startsWith(".") ? callerFile() : null);
 
 // `jest.requireActual` is `Runtime.requireActual` → `requireModule(from, name, undefined,
 // true)` (jest-runtime 29.7): the real module for THIS request, while the modules it
@@ -123,21 +54,19 @@ function anchorFor(specifier) {
 // registry's loader hook skips the mock for exactly this one load.
 if (typeof vi.requireActual !== "function") {
   vi.requireActual = (m) => {
-    // Loaded by the specifier itself, as before: a preset-shadowed package is
-    // shadowed by NAME (native/hooks.mjs), so loading its resolved path instead would
-    // reach the real native library.
-    const registry = nodeRegistry();
-    return requireActualFile(registry, registry.resolveFrom(m, anchorFor(m)), () =>
-      m === "react-native" ? writableModuleFacade(require(m)) : requireFrom(m),
-    );
+    const actual = nodeRegistry().require(m, callerOf(m), true);
+    return m === "react-native" ? writableModuleFacade(actual) : actual;
   };
 }
 // `jest.requireMock` returns the module registered by `jest.mock(spec, factory)`, the
 // same memoized value imports receive (`Runtime.requireMock` calls the factory once and
-// caches it in `_mockRegistry`): the require below goes through the registry's loader
-// hook, which serves it. A module mocked without a factory — `__mocks__` or automock —
-// has no Node-side mock, so it still loads the module itself.
-if (typeof vi.requireMock !== "function") vi.requireMock = (m) => requireFrom(m);
+// caches it in `_mockRegistry`): the require goes through the registry's loader hook,
+// which serves it. A module mocked without a factory — `__mocks__` or automock — has
+// no Node-side mock, so it still loads the module itself.
+if (typeof vi.requireMock !== "function") {
+  vi.requireMock = (m) => nodeRegistry().require(m, callerOf(m));
+}
+
 // `jest.setTimeout(ms)` maps onto `vi.setConfig({ testTimeout })`, which applies for
 // the rest of the file — the same scope Jest gives it, since Vitest resets the config
 // after each test file.
@@ -198,13 +127,13 @@ const anchoredAtCaller = (specifier) => {
 // mock)` in jest-runtime, the same registry `jest.mock` writes to.
 if (typeof vi.dontMock !== "function") {
   vi.dontMock = (m) => {
-    nodeRegistry().unregister(anchorFor(m), m);
+    nodeRegistry().unregister(callerOf(m), m);
     return vi.doUnmock(anchoredAtCaller(m));
   };
 }
 if (typeof vi.setMock !== "function") {
   vi.setMock = (m, exports) => {
-    nodeRegistry().register(anchorFor(m), m, () => exports);
+    nodeRegistry().register(callerOf(m), m, () => exports);
     return vi.doMock(anchoredAtCaller(m), () => exports);
   };
 }
@@ -293,21 +222,24 @@ if (process.env.JEST_WORKER_ID === undefined) {
 // and `() => Component` factories work). The wrapper calls this global.
 if (typeof globalThis.__vnInteropMock !== "function") globalThis.__vnInteropMock = jestMockInterop;
 
-// The Node-side registry (node-registry.mjs). jestMockTransform rewrites
-//   jest.mock('m', factory)  →  vi.mock('m', globalThis.__vnJestMock(import.meta.url, 'm', factory))
-// so the factory is registered where the call is hoisted to, and Vitest receives a
-// factory returning the registry's memoized value through the same CJS interop as
-// before. The raw value is what Node's `require` gets, as Jest's `module.exports`.
+// The Node-side registry (node-registry.mjs): jestMockTransform registers each factory
+// with __vnJestMock where Vitest hoists it, and Vitest's factory (__vnJestMocked) returns
+// the memoized value through the CJS interop; Node's `require` gets the raw value.
 {
   const registry = nodeRegistry();
-  globalThis.__vnJestMock = (from, spec, factory) => {
-    const entry = registry.register(from, spec, factory);
-    return () => jestMockInterop(registry.valueOf(entry));
+  globalThis.__vnJestMock = (from, spec, factory) => void registry.register(from, spec, factory);
+  globalThis.__vnJestMocked = (from, spec) => {
+    const entry = registry.byCall.get(`${from}\0${spec}`);
+    if (entry === undefined) {
+      throw new VitestNativeError(
+        "JEST_API_UNSUPPORTED",
+        `the jest.mock('${spec}') factory was not registered in this test file.`,
+      );
+    }
+    return jestMockInterop(registry.valueOf(entry));
   };
   globalThis.__vnJestUnmock = (from, spec) => registry.unregister(from, spec);
-  // Hot runtime: one worker runs many files, and a mock registered by one must not
-  // apply in the next. Cleared at the file boundary, before any setup file runs, and
-  // verified empty, like every other piece of per-file state (state-manifest.mjs).
+  // Hot runtime: cleared at the file boundary and verified empty (state-manifest.mjs).
   globalThis.__vitest_native_register_state?.({
     id: NODE_MOCKS_STATE_ID,
     capture: () => null,
@@ -323,63 +255,14 @@ if (typeof globalThis.__vnInteropMock !== "function") globalThis.__vnInteropMock
   });
 }
 
-/**
- * `jest.resetModules()`: `Runtime.resetModules` clears the module registry and the
- * mock REGISTRY (`_mockRegistry`, the factories' cached results) but keeps the
- * factories (`_mockFactories`), so the next require re-evaluates modules and re-runs
- * factories. Here: Vite's graph (including the `mock:` nodes `vi.resetModules()` keeps,
- * so an import after the reset gets the same new mock a require does), the project
- * modules in Node's cache, and each factory's memoized value.
- */
+/** `jest.resetModules()`: see `resetModules` in node-registry.mjs. */
 function resetModules() {
-  const registry = nodeRegistry();
-  vi.resetModules();
-  resetViteModules();
-  registry.dropProjectModules();
-  for (const entry of [...registry.entries.values(), ...registry.unresolved.values()]) {
-    entry.has = false;
-    entry.value = undefined;
-  }
+  if (!nodeRegistry().resetModules()) vi.resetModules();
 }
 
-/**
- * `jest.isolateModules(fn)` / `isolateModulesAsync(fn)`: `Runtime.isolateModules` runs
- * `fn` against a fresh module registry AND mock registry, then discards both, so what
- * `fn` loads is invisible outside and what was loaded before is untouched. Nesting
- * throws, with Jest's message.
- */
-function beginIsolation(name) {
-  const registry = nodeRegistry();
-  if (registry.isolated) {
-    // Jest's own wording (Runtime.isolateModules), after the package prefix.
-    throw new VitestNativeError(
-      "JEST_ISOLATE_NESTED",
-      `${name} cannot be nested inside another isolateModules or isolateModulesAsync.`,
-    );
-  }
-  const outerModules = registry.dropProjectModules();
-  const outerValues = new Map();
-  for (const entry of [...registry.entries.values(), ...registry.unresolved.values()]) {
-    outerValues.set(entry, { has: entry.has, value: entry.value });
-    entry.has = false;
-    entry.value = undefined;
-  }
-  const restoreVite = resetViteModules({ snapshot: true });
-  registry.isolated = true;
-  return () => {
-    registry.isolated = false;
-    registry.dropProjectModules();
-    for (const [id, mod] of outerModules) Module._cache[id] = mod;
-    for (const entry of [...registry.entries.values(), ...registry.unresolved.values()]) {
-      const outer = outerValues.get(entry);
-      entry.has = outer?.has ?? false;
-      entry.value = outer?.value;
-    }
-    restoreVite?.();
-  };
-}
+/** `jest.isolateModules(fn)` / `isolateModulesAsync(fn)`: see `isolate` in node-registry.mjs. */
 function isolateModules(fn) {
-  const end = beginIsolation("isolateModules");
+  const end = nodeRegistry().isolate("isolateModules", "isolateModulesAsync");
   try {
     fn();
   } finally {
@@ -387,7 +270,7 @@ function isolateModules(fn) {
   }
 }
 async function isolateModulesAsync(fn) {
-  const end = beginIsolation("isolateModulesAsync");
+  const end = nodeRegistry().isolate("isolateModulesAsync", "isolateModules");
   try {
     await fn();
   } finally {

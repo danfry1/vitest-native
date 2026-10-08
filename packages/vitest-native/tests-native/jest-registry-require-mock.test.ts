@@ -16,6 +16,7 @@ declare const jest: {
   fn<T extends (...args: any[]) => any>(impl?: T): T & { mock: { calls: unknown[][] } };
   isMockFunction(value: unknown): boolean;
   requireMock<T = any>(path: string): T;
+  requireActual<T = any>(path: string): T;
 };
 
 jest.mock("./fixtures/alias-app/registry/sentry", () => ({
@@ -52,6 +53,8 @@ describe("jest.requireMock", () => {
   it("serves a mock of a module that does not exist (Jest's virtual mock)", () => {
     expect(require("vn-virtual-module").isVirtual).toBe(true);
     expect(jest.requireMock("vn-virtual-module")).toBe(require("vn-virtual-module"));
+    // There is no real module behind it: Jest's requireActual reports it missing.
+    expect(() => jest.requireActual("vn-virtual-module")).toThrow(/Cannot find module/);
   });
 
   it("has no Node-side mock for a factory-less jest.mock: require() gets the module", () => {

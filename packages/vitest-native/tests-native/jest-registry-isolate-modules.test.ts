@@ -12,11 +12,13 @@ declare const jest: {
   requireMock<T = any>(path: string): T;
   isolateModules(fn: () => void): void;
   isolateModulesAsync(fn: () => Promise<void>): Promise<void>;
+  resetModules(): void;
 };
 
 jest.mock("@vn-app/registry/storage", () => ({
   device: { get: (key: string) => `mocked-storage:${key}` },
 }));
+jest.mock("@vn-app/registry/sentry", () => ({ Sentry: "isolated-mock" }));
 
 type Counter = typeof import("./fixtures/alias-app/registry/counter");
 const COUNTER = "@vn-app/registry/counter";
@@ -43,14 +45,36 @@ describe("jest.isolateModules", () => {
     });
   });
 
-  it("gives the block its own mock instance, and restores the outer one", () => {
+  // jest-runtime 29.7 `requireMock` (build/index.js:932-943) looks in the isolated mock
+  // registry and then the outer `_mockRegistry`, and only stores a NEW mock in the
+  // isolated one.
+  it("reuses a mock created before the block", () => {
     const outer = jest.requireMock("@vn-app/registry/storage");
     let inner: unknown;
     jest.isolateModules(() => {
       inner = jest.requireMock("@vn-app/registry/storage");
     });
-    expect(inner).not.toBe(outer);
+    expect(inner).toBe(outer);
     expect(jest.requireMock("@vn-app/registry/storage")).toBe(outer);
+  });
+
+  it("creates a mock first used inside the block afresh, and discards it afterwards", () => {
+    let inner: unknown;
+    jest.isolateModules(() => {
+      inner = jest.requireMock("@vn-app/registry/sentry");
+      expect(jest.requireMock("@vn-app/registry/sentry")).toBe(inner);
+    });
+    expect((inner as { Sentry: string }).Sentry).toBe("isolated-mock");
+    expect(jest.requireMock("@vn-app/registry/sentry")).not.toBe(inner);
+  });
+
+  it("ends the block at jest.resetModules(), as Jest's resetModules nulls its registries", () => {
+    let inside: Counter | undefined;
+    jest.isolateModules(() => {
+      jest.resetModules();
+      inside = require(COUNTER);
+    });
+    expect(require(COUNTER)).toBe(inside);
   });
 
   it("cannot be nested, with Jest's message", () => {
@@ -88,7 +112,7 @@ describe("jest.isolateModulesAsync", () => {
         await jest.isolateModulesAsync(async () => {});
       }),
     ).rejects.toThrow(
-      "isolateModulesAsync cannot be nested inside another isolateModules or isolateModulesAsync.",
+      "isolateModulesAsync cannot be nested inside another isolateModulesAsync or isolateModules.",
     );
   });
 });

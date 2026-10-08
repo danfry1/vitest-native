@@ -1,37 +1,21 @@
 // One module registry per test file, for the modules Node loads.
 //
-// Jest has ONE module registry per test file (jest-runtime's `Runtime`), so a
-// `jest.mock(spec, factory)` applies to every load of that module in the file: an
-// import, a synchronous `require()`, a module that `jest.requireActual(other)` pulls
-// in, and `jest.requireMock(spec)`. Every one of those goes through
-// `Runtime.requireModuleOrMock` -> `_shouldMockCjs` -> `requireMock`, which calls the
-// factory once and caches the result in `_mockRegistry` (jest-runtime 29.7,
-// build/index.js, `requireMock`).
-//
-// Under Vitest, imports go through Vite's module runner, where `vi.mock` applies. A
-// `require()` from a test, `jest.requireActual`, and everything those load
-// transitively go through Node's CommonJS loader instead, where no mock applied. This
-// module bridges the two:
-//
-//   - jestMockTransform registers each `jest.mock`/`jest.doMock` factory here at the
-//     call's (hoisted) position, keyed by the RESOLVED file, and hands Vitest a factory
-//     that returns the same memoized value. One mock instance serves both graphs.
-//   - A `Module._load` wrapper serves registered mocks to Node's loader.
-//   - `requireActual` bypasses the mock for the requested module only, as
-//     `Runtime.requireActual` does (`requireModule(from, name, undefined, true)`): the
-//     modules it loads still see the file's mocks.
-//   - `resetModules` and `isolateModules(Async)` give fresh project modules, with the
-//     factories kept, as `Runtime.resetModules` / `Runtime.isolateModules` do.
-//
-// All state lives on globalThis: the setup file that installs this can evaluate more
-// than once in a worker (once per test file under the hot runtime), and the loader
-// hook must be installed exactly once.
-import Module from "node:module";
+// Jest has ONE registry per test file, so `jest.mock(spec, factory)` applies to every
+// load of the module: imports, `require()`, what `jest.requireActual` pulls in, and
+// `jest.requireMock` — all through `Runtime.requireModuleOrMock` -> `requireMock`,
+// which runs the factory once and caches it in `_mockRegistry` (jest-runtime 29.7,
+// build/index.js). Under Vitest only imports see `vi.mock`; `require()` and what it
+// loads go through Node's CommonJS loader. jestMockTransform registers each factory
+// here, keyed by the resolved file, and a `Module._load` wrapper serves the same
+// memoized value to Node. State lives on globalThis: the setup file can evaluate
+// more than once per worker, and the hook must install once.
+import Module, { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expandAlias } from "./aliases.mjs";
 import { resolvePlatformFile } from "../native/resolve.mjs";
+import { resetEvaluatedModules, restoreEvaluatedModules } from "../native/module-reset.mjs";
 import { VitestNativeError } from "../errors.mjs";
 
 const STATE = "__vitest_native_jest_registry";
@@ -41,6 +25,9 @@ export const NODE_MOCKS_STATE_ID = "jest-compat.node-mocks";
 const NODE_MODULES = /[\\/]node_modules[\\/]/;
 // Native addons cannot be unloaded and re-required (module-reset.mjs, UNRESETTABLE).
 const UNRESETTABLE = /\.node$/;
+// Source modules only are shared with Vite: it serves JSON and assets as `{ default }`
+// modules, while Node's loader gives the parsed object or the asset stub itself.
+const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
 const NONE = Symbol("vitest-native.jest-registry.none");
 
 function envList(name) {
@@ -52,10 +39,16 @@ function envList(name) {
   }
 }
 
-function sourceExtensions() {
-  const exts = envList("VITEST_NATIVE_SOURCE_EXTS");
-  return exts.length > 0 ? exts : undefined;
-}
+/** Configuration the plugin hands the worker, shared with the compat setup. */
+export const config = {
+  projectRoot: process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd(),
+  platform: process.env.VITEST_NATIVE_PLATFORM === "android" ? "android" : "ios",
+  // The project's string-to-string `resolve.alias` entries (and tsconfig `paths` when
+  // Vite resolves them), which Node knows nothing of.
+  aliases: envList("VITEST_NATIVE_REQUIRE_ALIASES"),
+  skippedAliases: envList("VITEST_NATIVE_REQUIRE_ALIASES_SKIPPED"),
+};
+const sourceExts = envList("VITEST_NATIVE_SOURCE_EXTS");
 
 const realpathCache = new Map();
 /** Node keys its cache by real path; a platform-variant scan does not resolve links. */
@@ -72,11 +65,6 @@ function canonical(file) {
   return real;
 }
 
-function asFile(from) {
-  if (typeof from !== "string") return null;
-  return from.startsWith("file://") ? fileURLToPath(from) : from;
-}
-
 /** A parent for Node's resolver, as `createRequire(file)` builds one. */
 function parentModuleFor(file) {
   const parent = new Module(file, null);
@@ -85,89 +73,97 @@ function parentModuleFor(file) {
   return parent;
 }
 
+/** Vitest's worker state: the evaluated module graph and the running test file. */
+const worker = () => globalThis.__vitest_worker__;
+
 function createState() {
-  const projectRoot = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
-  const rootParent = parentModuleFor(path.join(projectRoot, "package.json"));
-  const platform = process.env.VITEST_NATIVE_PLATFORM === "android" ? "android" : "ios";
-  const sourceExts = sourceExtensions();
-  const aliases = envList("VITEST_NATIVE_REQUIRE_ALIASES");
-  const registryFile = process.env.VITEST_NATIVE_RN_REGISTRY || null;
+  const rootFile = path.join(config.projectRoot, "package.json");
+  const rootParent = parentModuleFor(rootFile);
+  const registryFile = process.env.VITEST_NATIVE_RN_REGISTRY;
+  const realRegistryFile = registryFile ? canonical(registryFile) : null;
+  const exts = sourceExts.length > 0 ? sourceExts : undefined;
+  const platformFile = (base) => {
+    const hit = resolvePlatformFile(base, config.platform, exts);
+    return hit && canonical(hit);
+  };
 
   const state = {
     /** Resolved file -> entry. */
     entries: new Map(),
     /** Specifiers no resolver could place (Jest's virtual mocks) -> entry. */
     unresolved: new Map(),
-    /** `parentFile\0request` -> resolved file or null, for the loader hook. */
+    /** `parentFile\0request` -> resolved file or null. Valid for the worker's life. */
     resolutions: new Map(),
-    /** The file `requireActual` is loading right now; its next load skips the mock. */
+    /** What `requireActual` is loading: its next load skips the mock. */
     bypass: null,
-    /** Set while `isolateModules(Async)` runs. */
-    isolated: false,
+    /** The open isolateModules block, if any. */
+    isolation: null,
+    /** The test file the registrations belong to. */
+    file: undefined,
     /** Module._cache keys present when the registry was installed: never reset. */
     baseline: new Set(Object.keys(Module._cache)),
-    platform,
   };
 
-  /**
-   * Resolve `request` from `parent` (a Module, or a file path) the way the require
-   * hooks will when Node loads it, so registration and lookup agree on one key.
-   *
-   * An extensionless relative or absolute path tries the platform variants first, in
-   * Metro's order, as Vite's resolver and Jest's React Native preset (`defaultPlatform`
-   * + `platforms`) both do; Node's own extension list would pick `x.ts` over
-   * `x.ios.ts`. Then Node's resolver, which carries the hooks' alias, platform and
-   * deep-import fallbacks under the native engine; then the aliases directly, for the
-   * mock engine, which installs no hooks. Null when nothing resolves.
-   */
-  function resolve(request, parent) {
-    if (typeof request !== "string" || Module.isBuiltin(request)) return null;
-    const parentFile = parent?.filename ?? null;
+  // Resolve as the require hooks will, so registration and lookup share one key:
+  // platform variants first for an extensionless path (Metro's order, as Vite and
+  // Jest's RN preset do), then Node's resolver with the hooks' fallbacks, then the
+  // aliases directly (the mock engine installs no hooks). Null when nothing resolves.
+  function resolveUncached(request, parent) {
     const isPath = request.startsWith(".") || path.isAbsolute(request);
     if (isPath && !path.extname(request)) {
-      const base = parentFile ? path.resolve(path.dirname(parentFile), request) : request;
-      if (path.isAbsolute(base)) {
-        const hit = resolvePlatformFile(base, platform, sourceExts);
-        if (hit) return canonical(hit);
-      }
+      const hit = platformFile(path.resolve(path.dirname(parent.filename), request));
+      if (hit) return hit;
     }
     try {
-      const resolved = Module._resolveFilename(request, parent ?? rootParent, false);
-      // The hooks' fallbacks (aliases, deep React Native paths) return the path as
-      // found, not the real path Node's own resolution returns.
+      const resolved = Module._resolveFilename(request, parent, false);
+      // The hooks' fallbacks return the path as found, not the real path.
       return Module.isBuiltin(resolved) ? null : canonical(resolved);
     } catch {
       // fall through
     }
-    if (!isPath && aliases.length > 0) {
-      const expanded = expandAlias(request, aliases);
-      if (expanded !== request) {
-        if (path.isAbsolute(expanded) && !path.extname(expanded)) {
-          const hit = resolvePlatformFile(expanded, platform, sourceExts);
-          if (hit) return canonical(hit);
-        }
-        try {
-          return canonical(Module._resolveFilename(expanded, rootParent, false));
-        } catch {
-          // fall through
-        }
-      }
+    const expanded = isPath ? request : expandAlias(request, config.aliases);
+    if (expanded === request) return null;
+    if (path.isAbsolute(expanded) && !path.extname(expanded)) {
+      const hit = platformFile(expanded);
+      if (hit) return hit;
     }
-    return null;
+    try {
+      return canonical(Module._resolveFilename(expanded, rootParent, false));
+    } catch {
+      return null;
+    }
   }
-  state.resolve = resolve;
 
-  /** Resolve `spec` as written in `fromFile` (a test or setup file). */
-  state.resolveFrom = (spec, fromFile) => {
-    const file = asFile(fromFile);
-    return resolve(spec, file ? parentModuleFor(file) : rootParent);
+  /** Cached: resolution does not change within a worker, whatever is mocked. */
+  state.resolve = (request, parent) => {
+    if (typeof request !== "string" || Module.isBuiltin(request)) return null;
+    parent ??= rootParent;
+    const key = `${parent.filename}\0${request}`;
+    let filename = state.resolutions.get(key);
+    if (filename === undefined) {
+      filename = resolveUncached(request, parent);
+      state.resolutions.set(key, filename);
+    }
+    return filename;
   };
 
-  /**
-   * The memoized mock for an entry. `requireMock` caches the factory's result in
-   * `_mockRegistry` the first time and returns the cached value afterwards; the cache
-   * is what `resetModules` clears, while `_mockFactories` survives it.
-   */
+  /** Resolve `spec` as written in `from` (a file path or file URL). */
+  state.resolveFrom = (spec, from) => {
+    const file = typeof from === "string" && from.startsWith("file:") ? fileURLToPath(from) : from;
+    return state.resolve(spec, file ? parentModuleFor(file) : rootParent);
+  };
+
+  // Registrations are per test file, as in Jest. The hot runtime clears them at the
+  // file boundary; a worker reused without it (`isolate: false`) drops them here.
+  function currentFile() {
+    const file = worker()?.filepath;
+    if (file !== state.file) {
+      if (state.file !== undefined) state.clear();
+      state.file = file;
+    }
+  }
+
+  // The memoized mock: `requireMock` caches the factory's result in `_mockRegistry`.
   state.valueOf = (entry) => {
     if (entry.has) return entry.value;
     if (entry.evaluating) {
@@ -188,38 +184,76 @@ function createState() {
     return entry.value;
   };
 
-  state.register = (fromFile, spec, factory) => {
-    const filename = state.resolveFrom(spec, fromFile);
-    const entry = { spec, filename, factory, has: false, value: undefined, evaluating: false };
-    if (filename !== null) {
-      state.entries.set(filename, entry);
-    } else {
-      state.unresolved.set(spec, entry);
+  /** The entry a load of `request` (resolved to `filename`) is served, if any. */
+  state.lookup = (filename, request) => {
+    currentFile();
+    if (state.bypass === (filename ?? `\0${request}`)) {
+      // `requireActual`: this one load gets the real module; anything it requires
+      // in turn is mocked as usual. A virtual mock has no real module, so Node's
+      // loader reports it missing, as Jest does.
+      state.bypass = null;
+      return undefined;
     }
-    state.resolutions.clear();
+    return filename !== null ? state.entries.get(filename) : state.unresolved.get(request);
+  };
+
+  state.register = (from, spec, factory) => {
+    currentFile();
+    const filename = state.resolveFrom(spec, from);
+    const entry = { spec, factory, has: false, value: undefined, evaluating: false };
+    if (filename !== null) state.entries.set(filename, entry);
+    else state.unresolved.set(spec, entry);
+    // The hoisted `vi.mock` factory looks its entry up by where it was written.
+    state.byCall.set(`${from}\0${spec}`, entry);
     return entry;
   };
+  state.byCall = new Map();
 
-  state.unregister = (fromFile, spec) => {
-    const filename = state.resolveFrom(spec, fromFile);
+  state.unregister = (from, spec) => {
+    currentFile();
+    const filename = state.resolveFrom(spec, from);
     if (filename !== null) state.entries.delete(filename);
     state.unresolved.delete(spec);
-    state.resolutions.clear();
   };
 
-  /**
-   * Project modules in Node's cache that a reset drops. Jest clears its whole module
-   * registry (`_moduleRegistry.clear()`); here React Native and every other
-   * node_modules package stay resident — re-evaluating them would hand the test a
-   * second copy of their singletons — as do native addons, the precompiled React
-   * Native registry, and whatever was loaded before this file's registry existed.
-   */
+  // `require` for requireActual/requireMock: relative from the caller, else from the
+  // project root. Paths and aliases load by resolved file; a package by NAME, since
+  // presets shadow packages by name (native/hooks.mjs). `actual` bypasses the mock.
+  state.require = (spec, caller, actual = false) => {
+    const isPath = spec.startsWith(".") || path.isAbsolute(spec);
+    const anchor = isPath && caller ? caller : rootFile;
+    const filename = state.resolveFrom(spec, anchor);
+    if (actual) state.bypass = filename ?? `\0${spec}`;
+    try {
+      const load = createRequire(anchor);
+      if (filename !== null && (isPath || expandAlias(spec, config.aliases) !== spec)) {
+        return load(filename);
+      }
+      return load(spec);
+    } catch (error) {
+      if (error?.code === "MODULE_NOT_FOUND" && !isPath && config.skippedAliases.length > 0) {
+        throw new VitestNativeError(
+          "REQUIRE_ACTUAL_ALIAS_UNSUPPORTED",
+          `jest.requireActual('${spec}') could not be resolved. The project defines ` +
+            `resolve.alias entries that cannot be applied to requireActual — only ` +
+            `string-to-string entries can be (skipped: ${config.skippedAliases.join(", ")}). ` +
+            `Use a string \`find\` for this alias, or a relative path.`,
+          { cause: error },
+        );
+      }
+      throw error;
+    } finally {
+      if (actual) state.bypass = null;
+    }
+  };
+
+  // What a reset drops. Jest clears everything; node_modules (React Native's
+  // singletons), native addons, the RN registry and pre-existing modules stay.
   state.isResettable = (id) =>
     !state.baseline.has(id) &&
     !NODE_MODULES.test(id) &&
     !UNRESETTABLE.test(id) &&
-    id !== registryFile &&
-    !(registryFile !== null && id === canonical(registryFile));
+    id !== realRegistryFile;
 
   state.dropProjectModules = () => {
     const dropped = new Map();
@@ -228,16 +262,77 @@ function createState() {
       dropped.set(id, Module._cache[id]);
       delete Module._cache[id];
     }
-    state.resolutions.clear();
     return dropped;
+  };
+
+  const allEntries = () => [...state.entries.values(), ...state.unresolved.values()];
+  const forget = (entry) => {
+    entry.has = false;
+    entry.value = undefined;
+  };
+
+  /**
+   * `jest.resetModules()`. `Runtime.resetModules` (jest-runtime 29.7, index.js:1109)
+   * clears the module registry and `_mockRegistry` — the factories' cached results —
+   * but keeps `_mockFactories`, so the next load re-evaluates modules and re-runs
+   * factories. It also nulls the isolated registries, ending an open isolateModules
+   * block. Here: Vite's graph including the `mock:` nodes `vi.resetModules()` keeps (so
+   * an import after the reset gets the same new mock a require does), the project
+   * modules in Node's cache, and each memoized value. False when Vite's graph is not
+   * reachable, for the caller to fall back to `vi.resetModules()`.
+   */
+  state.resetModules = () => {
+    const map = worker()?.evaluatedModules?.idToModuleMap;
+    if (map) resetEvaluatedModules(map);
+    state.isolation = null;
+    state.dropProjectModules();
+    allEntries().forEach(forget);
+    return Boolean(map);
+  };
+
+  /**
+   * `jest.isolateModules(fn)` / `isolateModulesAsync(fn)` (index.js:1073-1108): `fn`
+   * runs against a fresh module registry and a fresh `_isolatedMockRegistry`, both
+   * discarded afterwards. `requireMock` (index.js:932-943) looks in the isolated mock
+   * registry and then the OUTER one, so a mock created before the block is reused
+   * inside it, and only a mock first created inside is fresh — and gone afterwards.
+   * Returns the function that ends the block.
+   */
+  state.isolate = (name, other) => {
+    if (state.isolation) {
+      throw new VitestNativeError(
+        "JEST_ISOLATE_NESTED",
+        `${name} cannot be nested inside another ${name} or ${other}.`,
+      );
+    }
+    const map = worker()?.evaluatedModules?.idToModuleMap;
+    const isolation = {
+      modules: state.dropProjectModules(),
+      had: new Set(allEntries().filter((entry) => entry.has)),
+      vite: map ? new Map() : null,
+    };
+    if (map) resetEvaluatedModules(map, isolation.vite);
+    state.isolation = isolation;
+    return () => {
+      // `resetModules` inside the block ended it, as in Jest, where it nulls the
+      // isolated registries and the block's `finally` finds nothing to clear.
+      if (state.isolation !== isolation) return;
+      state.isolation = null;
+      state.dropProjectModules();
+      for (const [id, mod] of isolation.modules) Module._cache[id] = mod;
+      allEntries()
+        .filter((entry) => !isolation.had.has(entry))
+        .forEach(forget);
+      if (map) restoreEvaluatedModules(map, isolation.vite);
+    };
   };
 
   state.clear = () => {
     state.entries.clear();
     state.unresolved.clear();
-    state.resolutions.clear();
+    state.byCall.clear();
     state.bypass = null;
-    state.isolated = false;
+    state.isolation = null;
   };
 
   state.isEmpty = () => state.entries.size === 0 && state.unresolved.size === 0;
@@ -252,47 +347,49 @@ export function nodeRegistry() {
   state = createState();
   Object.defineProperty(globalThis, STATE, { value: state, configurable: true, writable: true });
   installLoadHook(state);
+  if (typeof worker()?.evaluatedModules?.getModulesByFile !== "function") {
+    console.warn(
+      "[vitest-native] jest-compat cannot reach Vitest's module graph in this worker, so " +
+        "require() may load a second copy of a module the test imported, and " +
+        "jest.isolateModulesAsync() does not isolate import().",
+    );
+  }
   return state;
 }
 
 /**
- * Vite's instance of a project module this file has already evaluated, shaped for a
- * CommonJS consumer, or NONE.
- *
- * Without this, a test that imports `./store` and then `require`s a module that also
- * reads `./store` gets two copies: Vite's, which the test configured, and a fresh one
- * Node loads, which nobody did. Jest has one registry, so it never has two. Vite's
- * graph is reachable through Vitest's worker state (`evaluatedModules`, whose
- * `getModulesByFile` is Vite's public `EvaluatedModules` API); when it is not, Node
- * loads the file as before.
- *
- * Only an evaluated, unmocked node is used: a node mid-evaluation has incomplete
- * exports, and Vitest's mocked modules are served by this registry instead. The ES
- * namespace gets `__esModule`, which Babel's CommonJS output checks before reading
- * `.default`, so `import x from` in a Node-loaded module sees the default export.
+ * Vite's instance of a project module this file already evaluated, for a CommonJS
+ * consumer, or NONE — so `require('./store')` after `import './store'` is one module,
+ * as under Jest's single registry. Read from Vitest's worker state (`getModulesByFile`
+ * is Vite's `EvaluatedModules` API). Skipped: nodes mid-evaluation, `mock:` nodes
+ * (this registry serves those), and CommonJS Vite evaluated, whose `module.exports`
+ * is a plain `default` data property where an ES module's exports are all getters.
+ * The facade adds `__esModule` for Babel's interop, and a write defines a value on
+ * the shared exports object, as `require(x).FLAG = true` does under babel-jest.
  */
 const viteFacades = new WeakMap();
-// Source modules only. Vite serves JSON and assets as `{ default, … }` modules, while
-// Node's loader gives the parsed object or the asset stub (native/hooks.mjs) itself.
-const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
 function viteInstanceOf(filename) {
   if (!SOURCE_FILE.test(filename)) return NONE;
-  const modules = globalThis.__vitest_worker__?.evaluatedModules;
-  if (typeof modules?.getModulesByFile !== "function") return NONE;
-  const nodes = modules.getModulesByFile(filename.replace(/\\/g, "/"));
-  if (!nodes) return NONE;
-  for (const node of nodes) {
-    if (typeof node.id === "string" && node.id.startsWith("mock:")) continue;
-    if (!node.evaluated || node.exports == null) continue;
-    let facade = viteFacades.get(node.exports);
+  const nodes = worker()?.evaluatedModules?.getModulesByFile?.(filename.replace(/\\/g, "/"));
+  for (const node of nodes ?? []) {
+    if (node.id?.startsWith("mock:") || !node.evaluated || node.exports == null) continue;
+    const ns = node.exports;
+    if ("value" in (Object.getOwnPropertyDescriptor(ns, "default") ?? {})) return NONE;
+    let facade = viteFacades.get(ns);
     if (!facade) {
-      const ns = node.exports;
       facade = new Proxy(ns, {
         get: (target, key, receiver) =>
           key === "__esModule" && !Reflect.has(target, key)
             ? true
             : Reflect.get(target, key, receiver),
         has: (target, key) => key === "__esModule" || Reflect.has(target, key),
+        set: (target, key, value) =>
+          Reflect.defineProperty(target, key, {
+            value,
+            writable: true,
+            enumerable: true,
+            configurable: true,
+          }),
       });
       viteFacades.set(ns, facade);
     }
@@ -304,35 +401,25 @@ function viteInstanceOf(filename) {
 function installLoadHook(state) {
   const origLoad = Module._load;
   Module._load = function (request, parent, ...rest) {
-    // A project file is what a test or a Node-loaded project module requires; a
-    // request from a package can still hit a mock, but only when there is one.
+    // A project file is what a test or a Node-loaded project module requires. Only
+    // those requests can share Vite's instances; any request can hit a mock, but
+    // only when there is one.
     const fromProject =
-      parent != null &&
-      typeof parent.filename === "string" &&
+      typeof parent?.filename === "string" &&
       !NODE_MODULES.test(parent.filename) &&
       state.isResettable(parent.filename);
-    if ((state.isEmpty() && !fromProject) || Module.isBuiltin(request)) {
+    if ((!fromProject && state.isEmpty()) || Module.isBuiltin(request)) {
       return origLoad.call(this, request, parent, ...rest);
     }
-    const key = `${parent?.filename ?? ""}\0${request}`;
-    let filename = state.resolutions.get(key);
-    if (filename === undefined) {
-      filename = state.resolve(request, parent);
-      state.resolutions.set(key, filename);
-    }
-    if (filename !== null && state.bypass === filename) {
-      // `requireActual`: this one load gets the real module; anything it requires
-      // in turn is mocked as usual.
-      state.bypass = null;
-    } else if (!state.isEmpty()) {
-      const entry = filename !== null ? state.entries.get(filename) : state.unresolved.get(request);
-      if (entry !== undefined) return state.valueOf(entry);
-    }
+    const filename = state.resolve(request, parent);
+    const entry = state.lookup(filename, request);
+    if (entry !== undefined) return state.valueOf(entry);
     // A module Node already holds stays the one `require` returns: switching a later
     // require to Vite's copy would change its identity mid-file.
     if (
+      fromProject &&
       filename !== null &&
-      !state.isolated &&
+      !state.isolation &&
       !NODE_MODULES.test(filename) &&
       Module._cache[filename] === undefined
     ) {
@@ -351,73 +438,8 @@ function installLoadHook(state) {
     get: () => (state.entries.size === 0 ? undefined : nodeMockForRegistry),
   });
   function nodeMockForRegistry(filename) {
-    const entry = state.entries.get(canonical(filename));
+    const entry = state.lookup(canonical(filename), filename);
     return entry === undefined ? NONE : state.valueOf(entry);
   }
   nodeMockForRegistry.NONE = NONE;
-}
-
-/**
- * Snapshot and reset the state of Vite's evaluated modules, the way Vitest's own
- * `resetModules(modules, resetMocks)` does (vitest/dist/chunks/utils: it clears
- * `promise`, `exports`, `evaluated` and `importers`, skipping Vitest's own runtime).
- * `vi.resetModules()` keeps `mock:` nodes, so a mocked module imported after a reset
- * would still be the old factory result while Node's next require ran the factory
- * again; including them keeps one instance. Returns a restore function, or null when
- * Vitest's worker state is not reachable.
- */
-const VITEST_RUNTIME = [/\/vitest\/dist\//, /vitest-virtual-\w+\/dist/, /@vitest\/dist/];
-export function resetViteModules({ snapshot = false } = {}) {
-  const map = globalThis.__vitest_worker__?.evaluatedModules?.idToModuleMap;
-  if (!(map instanceof Map)) return null;
-  const saved = snapshot ? new Map() : null;
-  for (const [id, node] of map) {
-    if (VITEST_RUNTIME.some((re) => re.test(id))) continue;
-    if (saved) {
-      saved.set(node, {
-        promise: node.promise,
-        exports: node.exports,
-        evaluated: node.evaluated,
-        importers: new Set(node.importers),
-      });
-    }
-    node.promise = undefined;
-    node.exports = undefined;
-    node.evaluated = false;
-    node.importers.clear();
-  }
-  if (!saved) return null;
-  return () => {
-    for (const [, node] of map) {
-      const before = saved.get(node);
-      if (before) {
-        node.promise = before.promise;
-        node.exports = before.exports;
-        node.evaluated = before.evaluated;
-        node.importers.clear();
-        for (const importer of before.importers) node.importers.add(importer);
-      } else if (!VITEST_RUNTIME.some((re) => re.test(node.id ?? ""))) {
-        // First evaluated inside the isolated block: not visible outside it.
-        node.promise = undefined;
-        node.exports = undefined;
-        node.evaluated = false;
-        node.importers.clear();
-      }
-    }
-  };
-}
-
-/**
- * Run `load` (a require of the module `filename` resolves to) with that one load
- * unmocked: the loader hook skips the mock for the first request resolving to
- * `filename`, so the module's own requires still see every mock.
- */
-export function requireActualFile(state, filename, load) {
-  const previous = state.bypass;
-  state.bypass = filename;
-  try {
-    return load();
-  } finally {
-    state.bypass = previous;
-  }
 }

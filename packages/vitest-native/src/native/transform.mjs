@@ -166,6 +166,8 @@ function ctxFor(projectRoot) {
   );
   fs.mkdirSync(cacheDir, { recursive: true });
   const ctx = {
+    root,
+    projectConfig: projectBabelConfig(root),
     req,
     preset,
     flowEnums,
@@ -177,6 +179,33 @@ function ctxFor(projectRoot) {
   };
   contexts.set(root, ctx);
   return ctx;
+}
+
+// The project's root Babel config and a hash of it, or null. Jest compiles app files
+// with babel-jest, which loads that config (caller "babel-jest"); app source Node loads
+// here needs its plugins too (macros, module-resolver). Packages keep the RN preset.
+const BABEL_CONFIG_FILES = [
+  "babel.config.js",
+  "babel.config.cjs",
+  "babel.config.mjs",
+  "babel.config.cts",
+  "babel.config.json",
+  ".babelrc",
+  ".babelrc.js",
+  ".babelrc.cjs",
+  ".babelrc.json",
+];
+function projectBabelConfig(root) {
+  for (const name of BABEL_CONFIG_FILES) {
+    const file = path.join(root, name);
+    try {
+      const hash = crypto.createHash("sha1").update(fs.readFileSync(file)).digest("hex");
+      return { file, hash };
+    } catch {
+      // not this one
+    }
+  }
+  return null;
 }
 
 /** A project's transform disk-cache directory, once resolved. Test hook. */
@@ -383,14 +412,23 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   const memHit = ctx.mem.get(memKey);
   if (memHit !== undefined) return memHit;
 
-  const key = crypto
+  // App source under a project Babel config compiles with that config (see
+  // projectBabelConfig), so the config's content keys its output.
+  const projectConfig =
+    ctx.projectConfig &&
+    file.startsWith(ctx.root + path.sep) &&
+    !/[\\/]node_modules[\\/]/.test(file)
+      ? ctx.projectConfig
+      : null;
+  const hash = crypto
     .createHash("sha1")
     .update(platform)
     .update("\0")
     .update(file)
     .update("\0")
-    .update(src)
-    .digest("hex");
+    .update(src);
+  if (projectConfig) hash.update("\0babel-config\0").update(projectConfig.hash);
+  const key = hash.digest("hex");
   const cachePath = path.join(ctx.cacheDir, key + ".js");
   try {
     const cached = fs.readFileSync(cachePath, "utf8");
@@ -402,14 +440,31 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   transformDepth++;
   try {
     if (!ctx.babel) ctx.babel = ctx.req("@babel/core");
-    out = ctx.babel.transformSync(src, {
-      filename: file,
-      plugins: [ctx.flowEnums, ctx.exportNamespaceFrom].filter(Boolean),
-      presets: [[ctx.preset, { disableStaticViewConfigsCodegen: true }]],
-      babelrc: false,
-      configFile: false,
-      caller: { name: "metro", bundler: "metro", platform, supportsStaticESM: false },
-    }).code;
+    out = ctx.babel.transformSync(
+      src,
+      projectConfig
+        ? {
+            // As babel-jest 29.7 passes it (build/index.js, createTransformer).
+            filename: file,
+            cwd: ctx.root,
+            root: ctx.root,
+            caller: {
+              name: "babel-jest",
+              supportsDynamicImport: false,
+              supportsStaticESM: false,
+              supportsExportNamespaceFrom: false,
+              supportsTopLevelAwait: false,
+            },
+          }
+        : {
+            filename: file,
+            plugins: [ctx.flowEnums, ctx.exportNamespaceFrom].filter(Boolean),
+            presets: [[ctx.preset, { disableStaticViewConfigsCodegen: true }]],
+            babelrc: false,
+            configFile: false,
+            caller: { name: "metro", bundler: "metro", platform, supportsStaticESM: false },
+          },
+    ).code;
   } catch (err) {
     // Decorate here, at the single choke point, so every caller — the ESM
     // loader, the CJS require hook, requireActual's .ts handlers — surfaces

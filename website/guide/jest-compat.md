@@ -44,7 +44,7 @@ export default defineConfig({
 
 ## One module registry per test file
 
-Jest keeps one module registry per test file, so a `jest.mock(spec, factory)` applies to every way the file loads that module. Under Vitest, imports go through Vite, while `require()`, `jest.requireActual` and whatever those load go through Node. With `jestMockTransform()` and `jestCompatSetup`, both loaders share one per-file registry of `jest.mock` factories, keyed by the resolved file (aliases, tsconfig `paths` and platform extensions included):
+Jest keeps one module registry per test file, so a `jest.mock(spec, factory)` applies to every way the file loads that module. Under Vitest, imports go through Vite, while `require()`, `jest.requireActual` and whatever those load go through Node. With `jestMockTransform()` and `jestCompatSetup`, both loaders share one per-file registry of `jest.mock` factories, keyed by the resolved file (string `resolve.alias` entries and platform extensions included). Registrations last for the test file, also when Vitest reuses a worker (`isolate: false`, or the hot runtime):
 
 | In your Jest test | Under jest-compat |
 |---|---|
@@ -56,9 +56,10 @@ Jest keeps one module registry per test file, so a `jest.mock(spec, factory)` ap
 | `jest.mock('virtual', factory, { virtual: true })` | `require('virtual')` returns the mock |
 | `jest.doMock` / `jest.setMock` / `jest.unmock` / `jest.dontMock` | register and unregister for `require()` too |
 | `jest.resetModules()` then `require(…)` | a fresh copy of each project module, which still sees the mocks; factories run again on the next load. React Native and other `node_modules` packages stay loaded |
-| `jest.isolateModules(fn)` | modules `require`d inside `fn` are fresh, and so are mock instances; afterwards the earlier ones are back. Nesting throws Jest's error |
+| `jest.isolateModules(fn)` | modules `require`d inside `fn` are fresh; a mock already created before the block is reused, and one first created inside is fresh and discarded afterwards, as in Jest. Afterwards the earlier modules are back. `jest.resetModules()` inside ends the block, and nesting throws Jest's error |
 | `await jest.isolateModulesAsync(fn)` | the same across `await`s, for `require()` and for `import()` |
-| `require('./x')` after the test imported `./x` | the instance the import got, not a second copy |
+| `require('./x')` after the test imported `./x` | the instance the import got, not a second copy, and assigning to it (`require('./x').FLAG = true`) is seen by the file's imports. A CommonJS file is required as what it set `module.exports` to |
+| a TypeScript project file Node loads (`require`, `requireActual` and what those load) | compiled with the project's Babel config, as babel-jest compiles it, so its macros and plugins apply; its relative imports resolve in Metro's platform-extension order (`./x` → `x.native.ts` before `x.ts`) |
 
 Remaining differences:
 
