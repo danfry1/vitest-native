@@ -38,7 +38,7 @@
     },
     "packages/vitest-native": {
       "name": "vitest-native",
-      "version": "0.14.0-rc.3",
+      "version": "0.14.0-rc.2",
       "bin": {
         "vitest-native": "./dist/cli.mjs",
       },
