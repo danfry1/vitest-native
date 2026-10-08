@@ -9,6 +9,17 @@ export interface MetroAssetDescriptor {
   readonly type: string;
 }
 
+export function parseAssetPath(
+  filePath: string,
+  platform: string,
+): {
+  assetName: string;
+  name: string;
+  platform: string | null;
+  resolution: number;
+  type: string;
+} | null;
+
 export interface AssetModuleOptions {
   readonly projectRoot: string;
   readonly platform: string;
