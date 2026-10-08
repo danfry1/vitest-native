@@ -12,6 +12,7 @@ const KNOWN_OPTIONS = [
   "engine",
   "transform",
   "hotRuntime",
+  "nativeModules",
 ];
 const KNOWN_HOT_RUNTIME_OPTIONS = [
   "recycleAfterFiles",
@@ -61,6 +62,16 @@ export function validateOptions(options: Record<string, unknown>): void {
     options.platform !== "android"
   ) {
     throw new VitestNativeTypeError("INVALID_OPTION", `"platform" must be "ios" or "android".`);
+  }
+  if (
+    options.nativeModules !== undefined &&
+    options.nativeModules !== "device" &&
+    options.nativeModules !== "permissive"
+  ) {
+    throw new VitestNativeTypeError(
+      "INVALID_OPTION",
+      `"nativeModules" must be "device" or "permissive".`,
+    );
   }
   if (options.diagnostics !== undefined && typeof options.diagnostics !== "boolean") {
     throw new VitestNativeTypeError("INVALID_OPTION", `"diagnostics" must be a boolean.`);

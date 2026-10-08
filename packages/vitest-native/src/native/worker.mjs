@@ -14,6 +14,7 @@ import path from "node:path";
 import { isMainThread, parentPort, threadId } from "node:worker_threads";
 import { init, runBaseTests, setupEnvironment } from "vitest/worker";
 import { installGlobals, installErrorUtils } from "./globals.mjs";
+import { installKnownNativeModules } from "./native-modules.mjs";
 import { installRequireHooks } from "./hooks.mjs";
 import { installHotReset } from "./reset.mjs";
 import { installRegistry } from "./registry.mjs";
@@ -66,6 +67,7 @@ if (diagnostics) {
 // graph's bytecode is cached to disk for the next worker/run.
 enableV8CompileCache(projectRoot);
 installGlobals();
+installKnownNativeModules(projectRoot);
 // The registry must be installed BEFORE the preload below, not just by the setup
 // file: whichever path first resolves react-native decides which instance the
 // worker keeps resident, and a preload that bypassed the registry would leave the

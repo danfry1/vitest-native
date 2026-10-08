@@ -398,6 +398,21 @@ export interface VitestNativeOptions {
         preserveGlobals?: string[];
         esmGeneration?: boolean;
       };
+
+  /**
+   * `engine: 'native'` only. How native module lookups answer.
+   *
+   * - `'device'`: as on a device. `NativeModules[name]` and
+   *   `TurboModuleRegistry.get(name)` find React Native's own modules and those
+   *   registered with `mockNativeModule()`, and are `undefined`/`null` for any other
+   *   name. A React Native module's stub has only the members of its codegen spec.
+   * - `'permissive'`: every name is present for every lookup, and every stub answers
+   *   every property with a method. An escape hatch for suites written against that
+   *   behaviour; prefer registering the modules a test needs with `mockNativeModule()`.
+   *
+   * Default: `'device'`.
+   */
+  nativeModules?: "device" | "permissive";
 }
 
 export interface ResolvedOptions {

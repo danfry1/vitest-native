@@ -39,7 +39,7 @@ every subpath is loaded by specifier under both `require` and `import` in
 ### Plugin options
 
 The keys accepted by the plugin function are `engine`, `platform`, `presets`, `mocks`,
-`diagnostics`, `assetExts`, `metroConfig`, `transform`, `hotRuntime`. Their accepted types and their
+`diagnostics`, `assetExts`, `metroConfig`, `transform`, `hotRuntime`, `nativeModules`. Their accepted types and their
 defaults are covered. An unknown key is rejected at configuration time, so adding a key is a minor
 and removing or renaming one is a major.
 

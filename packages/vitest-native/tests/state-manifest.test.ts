@@ -46,6 +46,7 @@ describe("hot-runtime state manifest", () => {
     expect(HOT_STATE_MANIFEST_ENTRIES).toEqual([
       "vitest-runtime",
       "native-boundary-mocks",
+      "native-module-mocks",
       "react-native.dimensions",
       "react-native.appearance",
       "react-native.event-listeners",

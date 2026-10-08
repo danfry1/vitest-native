@@ -14,6 +14,7 @@ import { animatedMatchers } from "../matchers.mjs";
 import { serializer as rnSerializer } from "../serializer.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import { installNitroProxy } from "./nitro.mjs";
+import { installKnownNativeModules } from "./native-modules.mjs";
 
 // Non-enumerable key on the preset container: the mocks built so far in this file.
 const PRESETS_BUILT = Symbol.for("vitest-native.presets-built");
@@ -135,6 +136,8 @@ const nodeTransformPkgs = [...new Set([...transformPkgs, ...Object.keys(presetEx
 // and reused on the next file/worker/run. Covers the stock (non-hot) path.
 enableV8CompileCache(projectRoot);
 installGlobals();
+// Before React Native loads: its lookups ask the boundary which modules exist.
+installKnownNativeModules(projectRoot);
 // RNTL 13+ auto-registers matchers through the global expect when imported.
 // Expose Vitest's expect only when the consumer has not enabled globals.
 if (typeof globalThis.expect === "undefined") {

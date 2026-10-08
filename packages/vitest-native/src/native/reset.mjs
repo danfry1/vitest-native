@@ -203,6 +203,35 @@ export function installHotReset({ projectRoot, diagnostics, preserveGlobals = []
     },
   });
 
+  // mockNativeModule() registrations. A registered module EXISTS for NativeModules
+  // and TurboModuleRegistry.get() (native/boundary.mjs), so one a file never reset
+  // would make the next file's feature detection see a module no app registers.
+  const moduleMocks = () => globalThis.__vitest_native_module_mocks;
+  manifest.register({
+    id: "native-module-mocks",
+    capture: () => ({ ...moduleMocks() }),
+    restore: (snapshot) => {
+      const registry = moduleMocks();
+      if (!registry) return;
+      for (const name of Object.keys(registry)) {
+        if (!Object.hasOwn(snapshot, name)) delete registry[name];
+      }
+      for (const [name, implementation] of Object.entries(snapshot)) {
+        registry[name] = implementation;
+      }
+    },
+    verify: (snapshot) => {
+      const current = moduleMocks() ?? {};
+      const names = Object.keys(current);
+      if (
+        names.length !== Object.keys(snapshot).length ||
+        names.some((name) => !Object.hasOwn(snapshot, name) || current[name] !== snapshot[name])
+      ) {
+        throw stateFailure("mockNativeModule() registrations differ from the worker baseline");
+      }
+    },
+  });
+
   manifest.register({
     id: "react-native.dimensions",
     capture: () => ({

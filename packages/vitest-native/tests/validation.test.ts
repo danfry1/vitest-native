@@ -95,6 +95,8 @@ describe("option validation", () => {
   it("rejects invalid platform and engine values", () => {
     expect(() => reactNative({ platform: "web" } as any)).toThrow(/platform/);
     expect(() => reactNative({ engine: "device" } as any)).toThrow(/engine/);
+    expect(() => reactNative({ nativeModules: "loose" } as any)).toThrow(/nativeModules/);
+    expect(() => reactNative({ nativeModules: "permissive" })).not.toThrow();
   });
 
   it("rejects malformed hot runtime options", () => {

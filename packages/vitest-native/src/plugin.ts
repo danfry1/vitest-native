@@ -15,6 +15,13 @@ import { VitestNativeError } from "./errors.mjs";
 import { serializableAliases } from "./jest-compat/aliases.mjs";
 import { tsconfigPathAliases } from "./native/tsconfig-paths.mjs";
 import { fsModuleCacheKey, shouldDefaultFsModuleCache } from "./fs-module-cache.js";
+import {
+  KNOWN_NATIVE_MODULES_ENV,
+  NATIVE_MODULE_SPECS_ENV,
+  PERMISSIVE_NATIVE_MODULES_ENV,
+  knownNativeModulesFor,
+  nativeModuleSpecsFor,
+} from "./native/native-modules.mjs";
 import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
 import { detectEcosystemPackages } from "./native/ecosystem.js";
@@ -1424,6 +1431,15 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       }
       const reactNativeVersion = resolvePackageVersion("react-native", resolvedRoot);
       if (reactNativeVersion) env.VITEST_NATIVE_RN_VERSION = reactNativeVersion;
+      // The native modules a device would have registered, read once here from the
+      // installed React Native rather than by every worker (see native-modules.mjs).
+      if (engine === "native") {
+        env[KNOWN_NATIVE_MODULES_ENV] = JSON.stringify(knownNativeModulesFor(resolvedRoot));
+        env[NATIVE_MODULE_SPECS_ENV] = JSON.stringify(nativeModuleSpecsFor(resolvedRoot));
+        if (options?.nativeModules === "permissive") {
+          env[PERMISSIVE_NATIVE_MODULES_ENV] = "permissive";
+        }
+      }
       // Asset extensions for the Node require-hook to stub (matches the Vite-graph
       // asset stubbing): a CJS `require('./logo.png')` reaching Node's loader must
       // resolve to the basename string, not be compiled as JS.

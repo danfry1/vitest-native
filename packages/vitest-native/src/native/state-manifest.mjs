@@ -124,6 +124,7 @@ export function createStateManifest({ diagnostics = false, mutation = null } = {
 export const HOT_STATE_MANIFEST_ENTRIES = Object.freeze([
   "vitest-runtime",
   "native-boundary-mocks",
+  "native-module-mocks",
   "react-native.dimensions",
   "react-native.appearance",
   "react-native.event-listeners",

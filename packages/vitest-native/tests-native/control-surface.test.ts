@@ -44,9 +44,9 @@ describe("native engine: resetAllMocks restores driven state", () => {
 
     resetAllMocks();
 
-    // The injected implementation is gone (the module is undefined or, at most, a
-    // permissive stub — either way `ping()` no longer returns the injected value).
-    expect(NativeModules.VitestResetProbe?.ping?.()).not.toBe("pong");
+    // The injected module is gone: no app registers the name, so it is absent
+    // again, as React Native's NativeModules reports an unregistered module.
+    expect(NativeModules.VitestResetProbe).toBeUndefined();
   });
 });
 
