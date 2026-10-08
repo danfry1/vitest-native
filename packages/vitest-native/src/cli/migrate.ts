@@ -364,7 +364,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
     if (mapper) {
       for (const [pattern, target] of Object.entries(mapper)) {
         // An escaped-dot + extension-group pattern is Jest's classic asset mapper
-        // (`\.(png|jpg|...)$`). Covered only for the extensions the plugin stubs
+        // (`\.(png|jpg|...)$`). Covered only for the extensions the plugin handles
         // itself (DEFAULT_ASSET_EXTS, the list plugin.ts uses), and said per extension.
         const assetGroup = /\\\.\(\??:?([a-z0-9|]+)\)\$?$/i.exec(pattern);
         const literal = exactMapperKey(pattern);
@@ -373,13 +373,13 @@ export function analyzeJestConfig(root: string): MigrationReport {
           const missing = exts.filter((e) => !DEFAULT_ASSET_EXTS.includes(e));
           if (missing.length === 0) {
             presetCovered.push(
-              `moduleNameMapper '${pattern}' — the plugin stubs ${list(exts)} imports itself; delete.`,
+              `moduleNameMapper '${pattern}' — the plugin handles ${list(exts)} imports itself; delete.`,
             );
           } else {
             pluginOptions.push(`assetExts: ${JSON.stringify(missing)}`);
             automatic.push(
               `moduleNameMapper '${pattern}' — ${list(missing)} ${missing.length === 1 ? "is" : "are"} not among ` +
-                `the extensions the plugin stubs by default → reactNative({ assetExts: ${JSON.stringify(missing)} }).`,
+                `the extensions the plugin handles by default → reactNative({ assetExts: ${JSON.stringify(missing)} }).`,
             );
           }
         } else if (/^\^?@\/|\^~\/|\^src\//.test(pattern)) {

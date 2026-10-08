@@ -288,7 +288,7 @@ export interface VitestNativeOptions {
   /** Log plugin activity. Default: false */
   diagnostics?: boolean;
 
-  /** Additional asset file extensions to stub (e.g. ['.lottie', '.m4b']) */
+  /** Additional asset file extensions, loaded as Metro loads assets (e.g. ['.lottie', '.m4b']) */
   assetExts?: string[];
 
   /**

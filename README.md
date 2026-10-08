@@ -147,7 +147,7 @@ want no RN at all — fast, deterministic, environment-controllable.
 The plugin does three things automatically:
 
 1. **Module resolution** — Redirects `react-native` imports to virtual modules and resolves platform-specific files (`.ios.ts`, `.android.ts`, `.native.ts`)
-2. **Asset stubbing** — Stubs image/font/media imports with their filename, matching React Native's bundler
+2. **Asset modules** — Image/font/media imports evaluate to a registered asset id, as Metro's do, so `Image.resolveAssetSource` and `<Image source={require(...)}>` work as on device
 3. **Setup injection** — Auto-injects a setup file that registers all mocks, sets React Native globals (`__DEV__`, `requestAnimationFrame`, etc.), and wires up `@testing-library/react-native` if installed (registering its matchers, and setting host component names for older RNTL; RNTL ≥ 12 auto-detects them against real RN host names)
 
 ## Plugin Options

@@ -155,6 +155,7 @@
     "ext-platform-lib": "file:./tests-native/fixtures/ext-platform-lib",
     "ext-rn-named-lib": "file:./tests-native/fixtures/ext-rn-named-lib",
     "generic-mainfield-lib": "file:./tests-native/fixtures/generic-mainfield-lib",
+    "metro": "0.87.0",
     "metro-resolver": "0.87.1",
     "react": "^19.3.0",
     "react-native": "0.87.0",

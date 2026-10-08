@@ -278,7 +278,7 @@ describe("migrate", () => {
     );
     // asset mapper recognized as built-in, per extension; alias mapped ABSOLUTE (Vite
     // resolves string-substituted aliases relative to the importer); setup preserved.
-    expect(text).toContain("the plugin stubs png and jpg imports itself; delete");
+    expect(text).toContain("the plugin handles png and jpg imports itself; delete");
     expect(report.suggestedConfig).toContain(
       `"@": fileURLToPath(new URL("./src", import.meta.url))`,
     );

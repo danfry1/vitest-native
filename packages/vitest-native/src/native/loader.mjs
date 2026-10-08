@@ -5,6 +5,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { transformRN, isFlow, cjsExportNames, needsTransform } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
+import { nativeAssetModuleSource } from "./assets.mjs";
 import { extensionsFor, resolvePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
 import {
   NODE_MODULES_PATH,
@@ -69,7 +70,7 @@ let isExtra = () => false;
 let ownership = createNativeOwnershipPolicy({ projectRoot: PROJECT_ROOT });
 // Preset package name → its mock's named-export list (from the preset definition).
 let presetExports = {};
-// Asset file extensions (without leading dot, lower-cased) the loader should stub.
+// Asset file extensions (without leading dot, lower-cased) the loader serves as Metro asset modules.
 let assetExtSet = new Set();
 
 /**
@@ -405,16 +406,20 @@ export function loadSync(url, context, nextLoad) {
 
   // Asset imports (`import logo from './logo.png'`, `import font from './Icon.ttf'`)
   // from ANY package: Node's ESM loader can't parse a binary asset as a module and
-  // throws. Stub to the basename string — matching the CJS require hook (hooks.mjs)
-  // and the Vite graph. Applies regardless of whether the importing package is RN
-  // or in `transform`, since assets are pulled in by ecosystem libs too (e.g.
-  // `@react-navigation/elements`' back-icon.png).
+  // throws. Serve the module Metro generates for it (assets.mjs) — the same one the
+  // CJS require hook (hooks.mjs) and the Vite graph serve, registering into React
+  // Native's own asset registry through Node's CommonJS loader. Applies regardless of
+  // whether the importing package is RN or in `transform`, since assets are pulled in
+  // by ecosystem libs too (e.g. `@react-navigation/elements`' back-icon.png).
   const ext = path.extname(norm).slice(1).toLowerCase();
   if (ext && assetExtSet.has(ext)) {
-    const basename = norm.split("/").pop() || norm;
     return {
       format: "module",
-      source: `export default ${JSON.stringify(basename)};`,
+      source: nativeAssetModuleSource(file, {
+        projectRoot: PROJECT_ROOT,
+        platform: PLATFORM,
+        format: "esm",
+      }),
       shortCircuit: true,
     };
   }
