@@ -48,10 +48,37 @@ const IMAGE_TYPES = new Set([
   "ktx",
 ]);
 
-// metro/src/node-haste/lib/parsePlatformFilePath.js `PATH_RE` and
-// metro/src/node-haste/lib/AssetPaths.js `ASSET_BASE_NAME_RE`.
-const PATH_RE = /^(.+?)(\.([^.]+))?\.([^.]+)$/;
-const ASSET_BASE_NAME_RE = /(.+?)(@([\d.]+)x)?$/;
+/**
+ * metro/src/node-haste/lib/parsePlatformFilePath.js `PATH_RE`,
+ * `/^(.+?)(\.([^.]+))?\.([^.]+)$/`, as string operations: the type is the last
+ * dot-separated segment, and the one before it is a platform candidate when a
+ * non-empty name precedes it. The regex's lazy prefix with optional groups is
+ * polynomial on long names; tests/metro-assets-oracle.test.ts checks the two agree.
+ */
+function splitPlatformPath(basename) {
+  const typeAt = basename.lastIndexOf(".");
+  if (typeAt < 1 || typeAt === basename.length - 1) return null;
+  const head = basename.slice(0, typeAt);
+  const type = basename.slice(typeAt + 1);
+  const platformAt = head.lastIndexOf(".");
+  return platformAt >= 1 && platformAt < head.length - 1
+    ? { name: head.slice(0, platformAt), platform: head.slice(platformAt + 1), type }
+    : { name: head, platform: null, type };
+}
+
+/**
+ * metro/src/node-haste/lib/AssetPaths.js `ASSET_BASE_NAME_RE`,
+ * `/(.+?)(@([\d.]+)x)?$/`, likewise: a trailing `@<digits and dots>x` after a
+ * non-empty name is the scale.
+ */
+function splitScale(baseName) {
+  if (baseName === "") return null;
+  const at = baseName.lastIndexOf("@");
+  const scale = at >= 1 && baseName.endsWith("x") ? baseName.slice(at + 1, -1) : "";
+  return scale !== "" && /^[\d.]+$/.test(scale)
+    ? { name: baseName.slice(0, at), scale }
+    : { name: baseName, scale: null };
+}
 
 /**
  * metro/src/node-haste/lib/AssetPaths.js `tryParse`: split a file name into the
@@ -59,23 +86,23 @@ const ASSET_BASE_NAME_RE = /(.+?)(@([\d.]+)x)?$/;
  * 2, type `png`). A platform segment is recognised only for the platform being
  * built; any other `.android` stays part of the name, as in Metro.
  */
-function parseAssetPath(filePath, platform) {
+export function parseAssetPath(filePath, platform) {
   const dirPath = path.dirname(filePath);
-  const match = path.basename(filePath).match(PATH_RE);
+  const match = splitPlatformPath(path.basename(filePath));
   if (!match) return null;
-  const type = match[4];
-  let baseName = match[1];
-  let filePlatform = match[3] ?? null;
+  const { type } = match;
+  let baseName = match.name;
+  let filePlatform = match.platform;
   if (filePlatform !== null && filePlatform !== platform) {
-    baseName = `${match[1]}.${filePlatform}`;
+    baseName = `${match.name}.${filePlatform}`;
     filePlatform = null;
   }
-  const base = baseName.match(ASSET_BASE_NAME_RE);
+  const base = splitScale(baseName);
   if (!base) return null;
-  const parsed = base[3] != null ? Number.parseFloat(base[3]) : Number.NaN;
+  const parsed = base.scale != null ? Number.parseFloat(base.scale) : Number.NaN;
   return {
-    assetName: path.join(dirPath, `${base[1]}.${type}`),
-    name: base[1],
+    assetName: path.join(dirPath, `${base.name}.${type}`),
+    name: base.name,
     platform: filePlatform,
     resolution: Number.isNaN(parsed) ? 1 : parsed,
     type,

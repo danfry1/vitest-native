@@ -22,7 +22,12 @@ import path from "node:path";
 import zlib from "node:zlib";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { assetIdKey, imageDimensions, metroAssetDescriptor } from "../src/native/assets.mjs";
+import {
+  assetIdKey,
+  imageDimensions,
+  metroAssetDescriptor,
+  parseAssetPath,
+} from "../src/native/assets.mjs";
 
 const req = createRequire(import.meta.url);
 const metroRequire = createRequire(req.resolve("metro/package.json"));
@@ -30,6 +35,8 @@ const metroRequire = createRequire(req.resolve("metro/package.json"));
 const { getAssetData }: any = req("metro/private/Assets");
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const { generateAssetCodeFileAst }: any = req("metro/private/Bundler/util");
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const { tryParse }: any = req("metro/private/node-haste/lib/AssetPaths");
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const generate: any = metroRequire("@babel/generator").default;
 
@@ -232,5 +239,31 @@ describe("asset id keys", () => {
     expect(assetIdKey("D:\\a\\app\\logo.png")).toBe("D:/a/app/logo.png");
     expect(assetIdKey("d:/a/app/logo.png")).toBe("D:/a/app/logo.png");
     expect(assetIdKey("/app/logo.png")).toBe("/app/logo.png");
+  });
+});
+
+// File names split into name, platform, scale and type exactly as Metro's own
+// AssetPaths.tryParse does, over every sequence of up to seven of the tokens that
+// carry meaning in an asset name (dots, `@`, `x`, a digit, a platform). Metro does it
+// with regexes whose lazy prefixes are polynomial on long names; parseAssetPath uses
+// string operations, and this is what holds the two to the same answers.
+describe("asset file names split as Metro splits them", () => {
+  it("agrees with Metro's tryParse on every short name", () => {
+    const tokens = ["a", ".", "@", "x", "2", "ios"];
+    let names = [""];
+    let checked = 0;
+    for (let length = 1; length <= 7; length++) {
+      names = names.flatMap((name) => tokens.map((token) => name + token));
+      for (const name of names) {
+        const file = `dir/${name}`;
+        const expected = tryParse(file, new Set(["ios"]));
+        const actual = parseAssetPath(file, "ios");
+        if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+          expect({ name, actual }).toEqual({ name, actual: expected });
+        }
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(300_000);
   });
 });
