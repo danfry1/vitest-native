@@ -26,8 +26,77 @@
   `process.env.JEST_WORKER_ID` is set, so code that checks for Jest takes its test branch.
 - **`hotRuntime: true` is stricter.** Combined with a configured pool, `test.isolate`, or a conflicting
   CLI flag, it now fails at startup with `HOT_RUNTIME_OVERRIDDEN` instead of warning and overriding.
+- **Native modules answer as on a device.** Under the native engine, `NativeModules[name]` and
+  `TurboModuleRegistry.get(name)` are `undefined`/`null` for a module no app registers, and a React
+  Native module's stub has only the methods its codegen spec declares. Register a module a test needs
+  with `mockNativeModule(name, impl)`; `nativeModules: 'permissive'` restores the earlier behaviour.
+- **Assets are registered ids.** `require('./logo.png')` evaluates to the number React Native's asset
+  registry assigned, as with Metro, instead of the file name. Snapshots that contained an asset's name
+  change; re-record them with `-u`.
+- **`jest.mock` reaches `require()`.** With jest-compat, a `jest.mock` factory now applies to
+  `require()`, `jest.requireActual`'s dependencies and React Native's own requires of a mocked internal;
+  `jest.isolateModules` and `jest.isolateModulesAsync` work. TypeScript app files that Node loads are
+  compiled with the project's Babel config, as babel-jest compiles them.
 
 ### Minor Changes
+
+- 6724815: Native engine: native module lookups answer the way a device does
+
+  `NativeModules[name]` and `TurboModuleRegistry.get(name)` returned a stub for every name, so a module that no app registers looked present. Library feature detection then took the wrong branch: expo-constants checks `NativeModules.EXDevLauncher` and, finding it, threw at import while parsing the stub's `manifestString` as JSON.
+
+  React Native returns `undefined` from `NativeModules[name]` and `null` from `TurboModuleRegistry.get(name)` for an unregistered module, and Jest's React Native preset does the same. The native engine now does too:
+
+  - React Native's own native modules stay present for every lookup. The set is read from the installed `react-native`: every name its JavaScript passes to `TurboModuleRegistry.get` or `getEnforcing`, so it follows the project's React Native version.
+  - A React Native module's stub has only the members of its codegen spec, read from the same installed copy. Any other property is `undefined`, as on a device. A stub that answered every name with a function broke code that probes objects for optional properties: Node's `EventEmitter` read `captureRejections` from `NativeKeyboardObserver` when a test mocked `NativeEventEmitter` with it.
+  - `TurboModuleRegistry.getEnforcing(name)` still returns a stub for any name, where React Native would throw, so code that requires a native module keeps running without setup.
+  - A module registered with `mockNativeModule()` is present for all three lookups. Under the hot runtime, a registration a test file leaves behind is removed before the next file runs.
+
+  `nativeModules: 'permissive'` restores the earlier behaviour (every name present, every member a method) for a suite that depends on it.
+
+  If a test relied on an unregistered module being present through `NativeModules` or `TurboModuleRegistry.get`, or on a method a React Native module's spec does not declare, register it with `mockNativeModule(name, impl)` from `vitest-native/helpers`, in the test or a setup file.
+
+- 3d20592: jest-compat: one module registry per test file, as in Jest. A `jest.mock(spec, factory)` (and `jest.doMock`, `jest.setMock`) now applies to `require()` from a test, to the modules `jest.requireActual` loads, and to React Native's own requires of a mocked internal such as `react-native/Libraries/AppState/AppState`, with the same mock instance the file's imports see. `jest.requireActual` unmocks only the module requested, `jest.requireMock` returns the registered mock instead of the real module, and `jest.resetModules()` gives `require()` fresh project modules and re-runs mock factories while React Native stays loaded. `jest.isolateModules` and `jest.isolateModulesAsync`, which previously threw, are implemented with Jest's semantics. A project module the test has imported is the instance `require()` returns. Registrations last for one test file, including in a reused worker. Factory-less mocks (automock and `__mocks__`) still apply to imports only.
+
+  TypeScript project files that Node loads are now compiled as babel-jest compiles them, with the options `@babel/core` loads for each file (any config format, `overrides`, and env- or caller-dependent configs). In a project with Expo, Babel sees jest-expo's Metro caller for the configured platform. The transform cache is keyed on those options, and a file the config ignores fails with "Babel ignores …", as under babel-jest. Relative requires from any file Node loads resolve as Metro resolves them: in its platform-extension order, with a trailing `/` naming the directory, and through a directory's `package.json` `react-native`, `browser` or `main` field. `jest.isolateModules` nesting throws Jest's exact error. Without `jestCompatSetup`, a `jest.mock` factory now fails with an error naming it (`JEST_COMPAT_SETUP_MISSING`).
+
+- 12d413a: Asset imports and requires evaluate to what Metro gives an app: a registered asset id
+
+  `require('./logo.png')`, `import font from './Icon.ttf'` and every other asset now evaluate to a
+  number — the id React Native's asset registry assigned to the asset — instead of the file's name.
+  The module is the one Metro generates (`module.exports = require(assetRegistryPath).registerAsset({…})`),
+  with the descriptor Metro's `getAssetData` produces: `name`, `type`, `scales`, `hash`,
+  `httpServerLocation` and, for images, `width` and `height` in points. React Native code that consumes
+  assets therefore behaves as on device. `Image.resolveAssetSource(require('./splash.png'))` used to
+  return `null`, because a file name is not a registered id, so code such as
+  `Image.resolveAssetSource(source)!.uri` threw.
+
+  - **Native engine.** Assets register with React Native's own registry — the module Metro's
+    `assetRegistryPath` names (`react-native/asset-registry` on 0.87 and later,
+    `react-native/Libraries/Image/AssetRegistry` before) — on every load path: Vite-graph imports,
+    requires and imports through Node, and React Native's own image assets. `resolveAssetSource`,
+    `<Image source={require(…)}>` and `AssetRegistry.getAssetByID` resolve them.
+  - **Mock engine.** Assets register with the mock `AssetRegistry`, and the mock
+    `Image.resolveAssetSource` resolves a registered id as React Native does (the same URI the native
+    engine produces, on iOS and Android). The mock `AssetRegistry` now keeps its entries across
+    `resetAllMocks()`: React Native's registry has no reset, and an asset module's id must stay valid
+    for every test in the file.
+  - **Expo.** In a project `expo` resolves from, assets carry what Expo's bundler adds: `fileHashes`
+    and the Expo CLI dev server's asset location. expo-asset then resolves them through Expo, as in an
+    Expo app. The descriptor is checked against `getUniversalAssetData` from the installed Expo.
+  - **Scales and platforms.** `@2x`/`@3x` variants group as in Metro: `scales` lists them, the
+    dimensions are the smallest variant's divided by its scale, and resolution picks the variant for
+    the device's pixel ratio. A `.ios`/`.android` variant is preferred for the configured platform.
+  - **Dimensions** are read from PNG, JPEG, GIF, BMP and WebP headers, with no new dependency. SVG,
+    TIFF, PSD and KTX images, which Metro also measures, and files that are not valid images register
+    without `width` and `height`; Metro would fail the build on the latter.
+
+  ### Upgrading
+
+  Snapshots that contained an asset's file name now contain its registered id (a number), and under
+  the native engine a rendered `<Image source={require('./logo.png')} />` snapshots the resolved
+  source (`uri`, `width`, `height`, `scale`). Ids are assigned in registration order within a test
+  file, so they are stable for a given file. Update affected snapshots with `vitest -u`. Assertions
+  that compared an asset to its file name can compare `Image.resolveAssetSource(asset).uri` instead.
 
 - 52e80aa: Turn on Vitest 5's persistent transform cache, with a complete cache key
 
@@ -75,6 +144,14 @@
   extensions still apply and one warning names the gap. Default: `false`.
 
 ### Patch Changes
+
+- dc2543b: `migrate` writes Jest's mock-clearing behaviour correctly:
+
+  - Jest's `resetMocks` becomes `test.mockReset`, Vitest's name for it. It was written as `test.resetMocks`, which Vitest ignores.
+  - When the Jest config does not set `clearMocks`, the generated config sets `clearMocks: false`, Jest's default. Vitest 5 defaults it to `true`, which clears calls mocks received while modules loaded before each test.
+
+- b10cce3: `migrate` no longer says the test script's flags were "mapped above" when the script has no flags.
+- 3d20592: Native engine: a module the require hooks resolve themselves (Metro's platform-extension scan, the project's aliases, React Native's deep paths) is now keyed by its real path, as Node keys its own resolutions. A file reached through a symlink, or on Windows an alias target written with `/`, loaded a second time and gave two instances of one module.
 
 - 041fd77: Fix native-engine gaps found running a production Expo app's existing suite
 
