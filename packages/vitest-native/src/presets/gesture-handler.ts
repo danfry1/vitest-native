@@ -82,45 +82,53 @@ export function gestureHandler(): Preset {
             return component;
           }
 
+          // Builder methods return the gesture, as in RNGH. `vi.fn(impl)` rather than
+          // `vi.fn().mockReturnThis()`: vi.resetAllMocks() and `mockReset: true` keep
+          // the first and drop the second, so a gesture built before a reset stopped
+          // chaining.
+          function returnThis(this: unknown) {
+            return this;
+          }
+
           // Gesture API (v2)
           const Gesture = {
             Pan: vi.fn(() => ({
-              onStart: vi.fn().mockReturnThis(),
-              onUpdate: vi.fn().mockReturnThis(),
-              onEnd: vi.fn().mockReturnThis(),
-              onFinalize: vi.fn().mockReturnThis(),
-              enabled: vi.fn().mockReturnThis(),
-              minDistance: vi.fn().mockReturnThis(),
+              onStart: vi.fn(returnThis),
+              onUpdate: vi.fn(returnThis),
+              onEnd: vi.fn(returnThis),
+              onFinalize: vi.fn(returnThis),
+              enabled: vi.fn(returnThis),
+              minDistance: vi.fn(returnThis),
             })),
             Tap: vi.fn(() => ({
-              onStart: vi.fn().mockReturnThis(),
-              onEnd: vi.fn().mockReturnThis(),
-              numberOfTaps: vi.fn().mockReturnThis(),
-              enabled: vi.fn().mockReturnThis(),
+              onStart: vi.fn(returnThis),
+              onEnd: vi.fn(returnThis),
+              numberOfTaps: vi.fn(returnThis),
+              enabled: vi.fn(returnThis),
             })),
             LongPress: vi.fn(() => ({
-              onStart: vi.fn().mockReturnThis(),
-              onEnd: vi.fn().mockReturnThis(),
-              minDuration: vi.fn().mockReturnThis(),
-              enabled: vi.fn().mockReturnThis(),
+              onStart: vi.fn(returnThis),
+              onEnd: vi.fn(returnThis),
+              minDuration: vi.fn(returnThis),
+              enabled: vi.fn(returnThis),
             })),
             Pinch: vi.fn(() => ({
-              onStart: vi.fn().mockReturnThis(),
-              onUpdate: vi.fn().mockReturnThis(),
-              onEnd: vi.fn().mockReturnThis(),
-              enabled: vi.fn().mockReturnThis(),
+              onStart: vi.fn(returnThis),
+              onUpdate: vi.fn(returnThis),
+              onEnd: vi.fn(returnThis),
+              enabled: vi.fn(returnThis),
             })),
             Rotation: vi.fn(() => ({
-              onStart: vi.fn().mockReturnThis(),
-              onUpdate: vi.fn().mockReturnThis(),
-              onEnd: vi.fn().mockReturnThis(),
-              enabled: vi.fn().mockReturnThis(),
+              onStart: vi.fn(returnThis),
+              onUpdate: vi.fn(returnThis),
+              onEnd: vi.fn(returnThis),
+              enabled: vi.fn(returnThis),
             })),
             Fling: vi.fn(() => ({
-              direction: vi.fn().mockReturnThis(),
-              onStart: vi.fn().mockReturnThis(),
-              onEnd: vi.fn().mockReturnThis(),
-              enabled: vi.fn().mockReturnThis(),
+              direction: vi.fn(returnThis),
+              onStart: vi.fn(returnThis),
+              onEnd: vi.fn(returnThis),
+              enabled: vi.fn(returnThis),
             })),
             Simultaneous: vi.fn((..._gestures: any[]) => ({})),
             Exclusive: vi.fn((..._gestures: any[]) => ({})),
