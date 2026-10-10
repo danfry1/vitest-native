@@ -278,24 +278,31 @@ export function reanimated(): Preset {
           const ScrollView = makeAnimatedHost("ScrollView");
           const FlatList = makeAnimatedHost("FlatList");
 
-          // Helper to create chainable layout animation presets
+          // Helper to create chainable layout animation presets. Each modifier is
+          // `vi.fn(impl)`, not `.mockReturnValue()`: mockReset() (and `mockReset: true`)
+          // keeps the first and drops the second, so a reset broke the chain.
           function createLayoutAnim() {
             const obj: any = {};
-            obj.duration = vi.fn().mockReturnValue(obj);
-            obj.delay = vi.fn().mockReturnValue(obj);
-            obj.easing = vi.fn().mockReturnValue(obj);
-            obj.damping = vi.fn().mockReturnValue(obj);
-            obj.stiffness = vi.fn().mockReturnValue(obj);
-            obj.mass = vi.fn().mockReturnValue(obj);
-            obj.overshootClamping = vi.fn().mockReturnValue(obj);
-            obj.restDisplacementThreshold = vi.fn().mockReturnValue(obj);
-            obj.restSpeedThreshold = vi.fn().mockReturnValue(obj);
-            obj.springify = vi.fn().mockReturnValue(obj);
-            obj.withCallback = vi.fn().mockReturnValue(obj);
-            obj.withInitialValues = vi.fn().mockReturnValue(obj);
-            obj.randomDelay = vi.fn().mockReturnValue(obj);
+            obj.duration = vi.fn(() => obj);
+            obj.delay = vi.fn(() => obj);
+            obj.easing = vi.fn(() => obj);
+            obj.damping = vi.fn(() => obj);
+            obj.stiffness = vi.fn(() => obj);
+            obj.mass = vi.fn(() => obj);
+            obj.overshootClamping = vi.fn(() => obj);
+            obj.restDisplacementThreshold = vi.fn(() => obj);
+            obj.restSpeedThreshold = vi.fn(() => obj);
+            obj.springify = vi.fn(() => obj);
+            obj.withCallback = vi.fn(() => obj);
+            obj.withInitialValues = vi.fn(() => obj);
+            obj.randomDelay = vi.fn(() => obj);
             obj.build = vi.fn();
             return obj;
+          }
+
+          // `.mockReturnThis()` is dropped by mockReset() too; see createLayoutAnim.
+          function returnThis(this: unknown) {
+            return this;
           }
 
           return {
@@ -407,10 +414,10 @@ export function reanimated(): Preset {
             cancelAnimation: vi.fn(),
             makeMutable: vi.fn((init: any) => createSharedValue(init)),
             SharedTransition: {
-              duration: vi.fn().mockReturnThis(),
-              custom: vi.fn().mockReturnThis(),
-              progressAnimation: vi.fn().mockReturnThis(),
-              defaultTransitionType: vi.fn().mockReturnThis(),
+              duration: vi.fn(returnThis),
+              custom: vi.fn(returnThis),
+              progressAnimation: vi.fn(returnThis),
+              defaultTransitionType: vi.fn(returnThis),
             },
             ReduceMotion: { System: "system", Always: "always", Never: "never" },
             KeyboardState: { UNKNOWN: 0, OPENING: 1, OPEN: 2, CLOSING: 3, CLOSED: 4 },
