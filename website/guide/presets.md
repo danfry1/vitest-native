@@ -56,6 +56,15 @@ Presets apply under **both** engines.
 | `presets.flashList()` | `@shopify/flash-list` | `FlashList` rendering its data through `renderItem`, the ref surface, v2 recycler hooks |
 | `presets.bottomSheet()` | `@gorhom/bottom-sheet` | `BottomSheet`, `BottomSheetModal` + provider, sheet views, scroll/list variants, `BottomSheetTextInput`, backdrop, footer |
 | `presets.keyboardController()` | `react-native-keyboard-controller` | `KeyboardProvider`, `KeyboardAvoidingView`, `KeyboardAwareScrollView`, `KeyboardStickyView`, `KeyboardToolbar`; the imperative `KeyboardController` is inert |
+| `presets.skia()` | `@shopify/react-native-skia` | Skia's own test mock (`Mock(CanvasKit)`) over CanvasKit, Skia compiled to WebAssembly: the `Skia` API computes with real Skia, `Canvas` and its drawing render as Views; plus Skia's Reanimated helpers (`usePathValue`, `useTexture`, …) and a `matchFont` that returns a font |
+
+## Skia
+
+`@shopify/react-native-skia` draws through a native binding that cannot load in Node, so its preset uses Skia's own test support. It loads CanvasKit (Skia compiled to WebAssembly, a dependency of Skia itself) and serves Skia's own test mock over it. The `Skia` API (paths, matrices, colours, pictures) therefore computes with real Skia, and `Canvas` and its drawing render as React Native Views. No configuration is needed, and Skia's `jestEnv`/`jestSetup` files are not used.
+
+Beyond Skia's own mock, the preset adds Skia's Reanimated helpers (`usePathValue`, `useTexture`, `notifyChange`, …) running over the reanimated preset. It also makes `matchFont` return a font of the requested size, because CanvasKit has no system fonts to match.
+
+CanvasKit loads before each test file, as Skia's Jest environment does, so a project with Skia installed pays that start-up cost in every file (tens of milliseconds). If no test touches Skia, turn the preset off with `reactNative({ presets: { skia: false } })`.
 
 ## Mock resets
 

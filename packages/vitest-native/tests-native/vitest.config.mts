@@ -18,7 +18,12 @@ export default defineConfig({
     environment: "node",
     // jest-compat setup provides the `jest` global + the __vnInteropMock helper the
     // jestMockTransform-wrapped factories call (exercised by jest-mock-hoist.test).
-    setupFiles: [path.resolve(here, "../dist/jest-compat/setup.mjs")],
+    // preset-readiness records whether presets finished preparing before user setup
+    // files run (skia.test.tsx).
+    setupFiles: [
+      path.resolve(here, "../dist/jest-compat/setup.mjs"),
+      path.resolve(here, "support/preset-readiness.setup.ts"),
+    ],
     include: [
       "tests-native/*.test.tsx",
       "tests-native/*.test.ts",
