@@ -47,16 +47,24 @@ function mocksIn(root: unknown): Map<Mock, string> {
     if (vi.isMockFunction(value)) {
       found.set(value, at);
       // A mock may build something that holds more mocks, as a gesture or a
-      // layout-animation builder does. Calling it with no arguments is how a test
-      // file would create one at module scope; a mock that needs arguments throws,
-      // and has nothing further to find.
-      let result: unknown;
-      try {
-        result = value();
-      } catch {
-        result = undefined;
+      // layout-animation builder does: `Gesture.Pan()` is how a test file creates
+      // one at module scope. Only an implementation that takes no parameters is
+      // called. One that does (Image.getSize(uri, success)) can act on what it is
+      // given later, and a stray callback or rejection would surface as an unhandled
+      // error in whatever test runs next.
+      if (value.getMockImplementation()?.length === 0) {
+        let result: unknown;
+        try {
+          result = value();
+        } catch {
+          result = undefined;
+        }
+        if (typeof (result as PromiseLike<unknown> | undefined)?.then === "function") {
+          Promise.resolve(result).catch(() => {});
+        } else {
+          visit(result, `${at}()`, depth + 1);
+        }
       }
-      visit(result, `${at}()`, depth + 1);
     }
 
     for (const key of Object.keys(value)) {
