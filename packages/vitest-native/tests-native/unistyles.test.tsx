@@ -10,7 +10,9 @@ import { describe, it, expect } from "vitest";
 import React from "react";
 import { render, screen } from "@testing-library/react-native";
 import { Text, View } from "react-native";
+import { createRequire } from "node:module";
 import { StyleSheet, UnistylesRuntime, useUnistyles } from "react-native-unistyles";
+import { useAnimatedTheme } from "react-native-unistyles/reanimated";
 
 const themes = {
   light: { colors: { surface: "#ffffff", accent: "#0055ff" } },
@@ -50,5 +52,13 @@ describe("react-native-unistyles (preset, native engine)", () => {
     await render(<Card size="small" label="Dark" />);
     expect(screen.getByTestId("card")).toHaveStyle({ backgroundColor: "#000000", padding: 4 });
     expect(screen.getByText("Dark")).toHaveStyle({ color: "#66aaff" });
+  });
+
+  it("serves the reanimated entry from its own mock, by import and by require", () => {
+    // The entry is a module of its own in the preset; it must not be answered by the
+    // package root's mock with "reanimated" as a leaf.
+    expect(typeof useAnimatedTheme).toBe("function");
+    const req = createRequire(import.meta.url);
+    expect(req("react-native-unistyles/reanimated").useAnimatedTheme).toBe(useAnimatedTheme);
   });
 });
