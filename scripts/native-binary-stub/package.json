@@ -1,0 +1,6 @@
+{
+  "name": "native-binary-stub",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Stands in for prebuilt native binary packages (Skia's per-platform libraries) that only an iOS/Android build reads. Their JS never loads them; see the overrides in the root package.json."
+}

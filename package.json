@@ -10,7 +10,11 @@
   "overrides": {
     "esbuild": "0.28.1",
     "shell-quote": "1.8.4",
-    "vite": "8.0.16"
+    "vite": "8.0.16",
+    "react-native-skia-android": "file:./scripts/native-binary-stub",
+    "react-native-skia-apple-ios": "file:./scripts/native-binary-stub",
+    "react-native-skia-apple-macos": "file:./scripts/native-binary-stub",
+    "react-native-skia-apple-tvos": "file:./scripts/native-binary-stub"
   },
   "engines": {
     "node": ">=20.19.0"

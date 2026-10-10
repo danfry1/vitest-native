@@ -23,6 +23,7 @@ import * as presetFactories from "./presets/index.js";
 import { createRequire } from "node:module";
 import path from "node:path";
 import type { Preset } from "./types.js";
+import { untilPrepared } from "./preset-preparation.js";
 import { AUTO_DETECT_PRESETS, presetForInstalled } from "./preset-map.js";
 import { serializer as rnSerializer } from "./serializer.js";
 import { animatedMatchers } from "./matchers/animated.js";
@@ -206,7 +207,31 @@ g.__vitest_native_preset_mocks = g.__vitest_native_preset_mocks || Object.create
 // 1. The plugin's resolveId() redirecting ESM imports to virtual modules
 //    that read from globalThis.__vitest_native_preset_mocks
 // 2. The CJS bridge intercepting require() calls
+g.__vitest_native_preset_ready = g.__vitest_native_preset_ready || Object.create(null);
 for (const preset of presets) {
+  // A preset with async preparation (the skia preset loads CanvasKit). This file is
+  // also built as CommonJS, so it cannot await: its modules are built once the
+  // preparation settles, and the virtual ESM module for each awaits that first (see
+  // the plugin's virtual:preset load hook).
+  const preparation = preset.prepare?.();
+  if (preparation) {
+    for (const [modName, presetModule] of Object.entries(preset.modules)) {
+      let built: Record<string, any> | undefined;
+      const ready = preparation.then(() => {
+        built = presetModule.factory();
+        g.__vitest_native_preset_mocks[modName] = built;
+      });
+      // An importer sees a failure through `ready`; a file that never imports the
+      // package must not fail on an unhandled rejection.
+      ready.catch(() => {});
+      g.__vitest_native_preset_ready[modName] = ready;
+      installPresetCjsBridge(
+        modName,
+        untilPrepared(modName, () => built),
+      );
+    }
+    continue;
+  }
   for (const [modName, presetModule] of Object.entries(preset.modules)) {
     const presetMock = presetModule.factory();
     installPresetCjsBridge(modName, presetMock);

@@ -1094,6 +1094,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   const presetModules = new Map<string, () => Record<string, any>>();
   // Preset export names discovered by calling factories at config time.
   const presetExportNames = new Map<string, string[]>();
+  // Modules of presets with async preparation, which their virtual module awaits.
+  const preparedPresetModules = new Set<string>();
   let assetPattern: RegExp;
   // Real on-disk path of react-native/package.json (mock engine): version-gate
   // reads must see the real manifest, not the virtualized mock.
@@ -1905,6 +1907,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         for (const [moduleName, presetModule] of Object.entries(preset.modules)) {
           presetModules.set(moduleName, presetModule.factory);
           presetExportNames.set(moduleName, presetModule.exports);
+          if (typeof preset.prepare === "function") preparedPresetModules.add(moduleName);
         }
       }
 
@@ -2041,6 +2044,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         const leaf = specifier === pkg ? null : subpathLeafOf(specifier);
         const fallback = `('default' in _m ? _m['default'] : _m)`;
         const code = [
+          // The mock engine builds a prepared preset's module once its preparation
+          // settles (setup.ts); the native setup awaits it, leaving nothing here.
+          ...(preparedPresetModules.has(pkg)
+            ? [`await (globalThis.__vitest_native_preset_ready || {})[${JSON.stringify(pkg)}];`]
+            : []),
           `const _m = (globalThis.__vitest_native_preset_mocks || {})[${JSON.stringify(pkg)}] || {};`,
           ...exportNames.map((n) => `export const ${n} = _m['${n}'];`),
           ...(leaf

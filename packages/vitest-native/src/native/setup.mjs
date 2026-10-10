@@ -106,15 +106,20 @@ try {
 // hooks must be installed first.
 const presetDefs = []; // [{ pkg, mod, presetName }]
 const presetExports = {}; // pkg -> string[] (named exports, for the ESM loader)
+const presetPreparations = [];
 for (const name of presetNames) {
   const factory = presetFactories[name];
   if (typeof factory !== "function") continue;
   const preset = factory(presetConfig[name]);
+  if (typeof preset.prepare === "function") presetPreparations.push(preset.prepare());
   for (const [pkg, mod] of Object.entries(preset.modules)) {
     presetDefs.push({ pkg, mod, presetName: preset.name });
     presetExports[pkg] = mod.exports || [];
   }
 }
+// A preset's async preparation (the skia preset loads CanvasKit) completes before any
+// test file imports, so its mock can be built synchronously on first use.
+await Promise.all(presetPreparations);
 
 // Preset-shadowed packages join the Node-side transform set. Their bare and
 // subpath imports are redirected to the preset mock before any file loads, so the
