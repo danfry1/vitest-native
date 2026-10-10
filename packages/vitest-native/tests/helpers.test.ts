@@ -23,6 +23,22 @@ describe("setPlatform", () => {
     expect(Platform.select({ ios: "a", android: "b" })).toBe("b");
   });
 
+  it("keeps Platform.select on the set platform through vi.resetAllMocks()", () => {
+    // `mockReset: true` runs this before every test, after a setup file's setPlatform().
+    setPlatform("android");
+    vi.resetAllMocks();
+    expect(Platform.OS).toBe("android");
+    expect(Platform.select({ ios: "a", android: "b" })).toBe("b");
+    expect(Platform.select({ native: "n", default: "d" })).toBe("n");
+  });
+
+  it("selects by key presence, as RN does", () => {
+    // Platform.ios.js: `'ios' in spec ? spec.ios : 'native' in spec ? spec.native : spec.default`
+    expect(Platform.select({ ios: undefined, default: "d" })).toBeUndefined();
+    expect(Platform.select({ native: "n", default: "d" })).toBe("n");
+    expect(Platform.select({ android: "b", default: "d" })).toBe("d");
+  });
+
   it("resets back to ios", () => {
     setPlatform("android");
     resetAllMocks();

@@ -31,9 +31,6 @@ export function setPlatform(os: "ios" | "android"): void {
   const platform = mock.Platform;
   platform.OS = os;
   platform.Version = os === "ios" ? "17.0" : 34;
-  platform.select.mockImplementation((specifics: Record<string, any>) => {
-    return specifics[os] ?? specifics.default;
-  });
 }
 
 export function setDimensions(dims: {
@@ -214,9 +211,6 @@ export function resetAllMocks(): void {
   // Reset Platform
   mock.Platform.OS = "ios";
   mock.Platform.Version = "17.0";
-  mock.Platform.select.mockImplementation((specifics: Record<string, any>) => {
-    return specifics.ios ?? specifics.default;
-  });
 
   // Every mock exposing `_reset` — Dimensions, Appearance, Keyboard, AppState,
   // BackHandler, I18nManager and the event emitters — in one sweep.
