@@ -133,10 +133,14 @@ describe("every message this package throws is attributable", () => {
   //   Jest's isolateModules nesting error — reproduced as Jest throws it, a plain Error
   //     with Jest's message. Vitest's `toThrow(new Error(m))` compares the whole error,
   //     name and own properties included, so a suite written for Jest matches nothing else.
+  //   The unistyles preset's errors — the device runtime's own messages (Unistyles'
+  //     C++ throws them as plain Errors), so a test asserting on one, or a suite that
+  //     fails, reads as the app would. Same reason as mocks/apis.
   //   jestMockTransform's setup accessor — generated code inside a user's test file,
   //     which cannot import errors.mjs; it builds the VitestNativeError shape (name and
   //     code) that isVitestNativeError recognises.
   const RAW_ALLOWED = [
+    "new Error(`Unistyles: ${message}`",
     "throw new Error(`${name} cannot be nested inside another ${name} or ${other}.`);",
     'throw Object.assign(new Error("[vitest-native] jest.mock() factories need',
   ];
