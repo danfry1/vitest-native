@@ -41,6 +41,9 @@ function mocksIn(root: unknown): Map<Mock, string> {
   function visit(value: unknown, at: string, depth: number) {
     if (depth > MAX_DEPTH || value === null) return;
     if (typeof value !== "object" && typeof value !== "function") return;
+    // Binary data holds no mocks, and its keys are its indices: the skia preset's
+    // module reaches CanvasKit's WebAssembly heap, megabytes of them.
+    if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return;
     if (seen.has(value)) return;
     seen.add(value);
 
@@ -100,8 +103,11 @@ describe("preset mocks after vi.resetAllMocks()", () => {
   });
 
   for (const [presetName, create] of all) {
-    for (const [moduleName, mod] of Object.entries(create().modules)) {
-      it(`${presetName}: ${moduleName} keeps every mock's implementation`, () => {
+    const preset = create();
+    for (const [moduleName, mod] of Object.entries(preset.modules)) {
+      it(`${presetName}: ${moduleName} keeps every mock's implementation`, async () => {
+        // A preset with async preparation (skia loads CanvasKit) builds only after it.
+        await preset.prepare?.();
         expect(droppedByReset(mod.factory(), moduleName), "dropped by a reset").toEqual([]);
       });
     }
