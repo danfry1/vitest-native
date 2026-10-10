@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import { reactNative } from "../dist/index.mjs";
 import { jestMockTransform } from "../dist/jest-compat.mjs";
+import { NATIVE_SUITE_SETUP_FILES } from "./support/setup-files.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -16,14 +17,7 @@ export default defineConfig({
     globalSetup: [path.resolve(here, "../tests/support/temp-root.global.ts")],
     globals: true,
     environment: "node",
-    // jest-compat setup provides the `jest` global + the __vnInteropMock helper the
-    // jestMockTransform-wrapped factories call (exercised by jest-mock-hoist.test).
-    // preset-readiness records whether presets finished preparing before user setup
-    // files run (skia.test.tsx).
-    setupFiles: [
-      path.resolve(here, "../dist/jest-compat/setup.mjs"),
-      path.resolve(here, "support/preset-readiness.setup.ts"),
-    ],
+    setupFiles: NATIVE_SUITE_SETUP_FILES,
     include: [
       "tests-native/*.test.tsx",
       "tests-native/*.test.ts",
