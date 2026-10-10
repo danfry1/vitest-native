@@ -56,6 +56,25 @@ Presets apply under **both** engines.
 | `presets.flashList()` | `@shopify/flash-list` | `FlashList` rendering its data through `renderItem`, the ref surface, v2 recycler hooks |
 | `presets.bottomSheet()` | `@gorhom/bottom-sheet` | `BottomSheet`, `BottomSheetModal` + provider, sheet views, scroll/list variants, `BottomSheetTextInput`, backdrop, footer |
 | `presets.keyboardController()` | `react-native-keyboard-controller` | `KeyboardProvider`, `KeyboardAvoidingView`, `KeyboardAwareScrollView`, `KeyboardStickyView`, `KeyboardToolbar`; the imperative `KeyboardController` is inert |
+| `presets.unistyles()` | `react-native-unistyles`, `react-native-unistyles/reanimated` | Unistyles 3: `StyleSheet.configure`/`create` with themes, variants and compound variants, `useUnistyles`, `withUnistyles`, `UnistylesRuntime` theme switching, `mq` with `Display`/`Hide`; matches the library's own Jest mock and follows its source where that mock does less |
+
+## Unistyles
+
+Unistyles 3 resolves styles in native code, so its preset stands in for it. Its Babel plugin switches itself off under test (`NODE_ENV=test`), so nothing else needs configuring. The themes come from your app: load the module that calls `StyleSheet.configure` before any test renders, as the app does at startup:
+
+```ts
+// vitest.config.ts
+test: { setupFiles: ['./src/unistyles.ts'] }
+```
+
+The preset agrees with Unistyles' own Jest mock (`react-native-unistyles/mocks`), which a migrating suite was written against, so that mock is no longer needed. Where that mock does less than the library, the preset follows the library's source:
+
+- Variants and compound variants apply, and `styles.useVariants()` selects them.
+- `initialTheme` and `adaptiveThemes` choose the theme, and `UnistylesRuntime.setTheme()` switches it for the next render.
+- `Display` and `Hide` follow `mq` against the screen size.
+- `ScopedTheme` renders its children.
+
+One difference from a device: with several themes and none selected, a device throws on first use, while the preset falls back to the first theme, as Unistyles' Jest mock does.
 
 ## Mock resets
 
