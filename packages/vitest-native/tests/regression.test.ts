@@ -5,6 +5,8 @@
 import path from "node:path";
 import { describe, it, expect } from "vitest";
 import { NativeModules, Platform } from "react-native";
+import { reactNative } from "../src/index.js";
+import { runPluginConfig } from "./plugin-config.js";
 
 // --- Issue 1: NativeModules methods must be callable ---
 // Previously, the inner proxy returned objects (not functions), so
@@ -151,6 +153,16 @@ describe("options transport via process.env", () => {
     expect(process.env.VITEST_NATIVE_PROJECT_ROOT).toBeDefined();
     // Should be an absolute path, not empty (POSIX "/..." or Windows "C:\\...").
     expect(path.isAbsolute(process.env.VITEST_NATIVE_PROJECT_ROOT!)).toBe(true);
+  });
+
+  it("VITEST_NATIVE_PROJECT_ROOT follows test.root, the root Vitest gives Vite", async () => {
+    // It was Vite's `root` or the working directory, so a run started from a parent
+    // directory with `test.root` (or `--root`) resolved packages from the parent in
+    // every worker, while the plugin resolved them from the project.
+    const root = path.join(process.cwd(), "tests");
+    const plugin = reactNative({ engine: "mock" });
+    const result = await runPluginConfig(plugin as never, { test: { root } } as never);
+    expect(result.test.env.VITEST_NATIVE_PROJECT_ROOT).toBe(root);
   });
 });
 

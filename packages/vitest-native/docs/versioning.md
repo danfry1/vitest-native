@@ -24,7 +24,7 @@ and deep paths are not supported even when they happen to resolve.
 | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `vitest-native`                                                           | `reactNative`, `presets`, `disabledPresetNames`                                                                        |
 | `vitest-native/helpers`                                                   | `setPlatform`, `setDimensions`, `setColorScheme`, `setInsets`, `mockNativeModule`, `extendPresetMock`, `resetAllMocks` |
-| `vitest-native/presets`                                                   | the 17 preset factories, by name                                                                                       |
+| `vitest-native/presets`                                                   | the 18 preset factories, by name                                                                                        |
 | `vitest-native/matchers`                                                  | `toHaveAnimatedStyle`, `toHaveAnimatedProps`, `animatedMatchers`                                                       |
 | `vitest-native/serializer`                                                | `serializer`                                                                                                           |
 | `vitest-native/jest-compat`                                               | `jestMockTransform`, `jestCompatAliases`, `jestCompatSetup`                                                            |
@@ -50,7 +50,11 @@ and removing or renaming one is a major.
 The `Preset` and `PresetModule` types are a public extension point: third-party presets can be
 written and passed to `presets: [...]`. Covered: the shape `{ name, modules, config? }`, that
 `PresetModule.exports` is read at config time, and that `PresetModule.factory` is called only
-inside a Vitest worker.
+inside a Vitest worker. Also covered: the optional `Preset.prepare()`, which completes before
+any of the user's setup files or test files load, and the optional `PresetModule.exportsFor()`,
+which is called once at config time with `{ projectRoot, platform }` and returns the named
+exports read from the installed package, or `null` when it is not installed, in which case
+that module is not shadowed.
 
 `factory` may gain optional parameters in a minor, since that does not break an existing
 zero-argument factory. Its return type and call site will not change without a major.

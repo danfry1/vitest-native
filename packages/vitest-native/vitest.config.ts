@@ -9,6 +9,9 @@ export default defineConfig({
     // A temporary root per run, removed afterwards; then React Native's registry,
     // built once before any worker starts (see each file).
     globalSetup: ["./tests/support/temp-root.global.ts", "./tests/support/registry-warm.global.ts"],
+    // Records whether presets finished preparing before user setup files run
+    // (skia-preset.test.tsx).
+    setupFiles: ["./tests/support/preset-readiness.setup.ts"],
     // The native-engine suite (tests-native/) runs under its own config via
     // `test:native`; never run it under the default mock engine. `.tmp-spike*`
     // are scratch spikes that ship with their own setup. `crosscheck/**` runs only

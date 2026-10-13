@@ -25,6 +25,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as Presets from "../src/presets/index.js";
+import type { Preset } from "../src/types.js";
 
 const packageRoot = path.dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const devDependencies: Record<string, string> =
@@ -115,11 +116,19 @@ function unresolvedStarTargets(source: ts.SourceFile): string[] {
 function declaredSurfaces(): Map<string, { presets: Set<string>; exports: Set<string> }> {
   const byPackage = new Map<string, { presets: Set<string>; exports: Set<string> }>();
   for (const [presetName, factory] of Object.entries(Presets)) {
-    const preset = (factory as () => { modules: Record<string, { exports: string[] }> })();
+    const preset = (factory as () => Preset)();
     for (const [pkg, module] of Object.entries(preset.modules)) {
+      // A module that reads its names from the installed package (skia) is measured
+      // with what it reads from this repository's install.
+      const names = module.exportsFor
+        ? module.exportsFor({ projectRoot: process.cwd(), platform: "ios" })
+        : module.exports;
+      // Every preset package is a devDependency, so a module this cannot read would
+      // otherwise drop out of the measurement unnoticed.
+      if (names === null) throw new Error(`${pkg} is not installed in this repository`);
       const entry = byPackage.get(pkg) ?? { presets: new Set(), exports: new Set() };
       entry.presets.add(presetName);
-      for (const name of module.exports) entry.exports.add(name);
+      for (const name of names) entry.exports.add(name);
       byPackage.set(pkg, entry);
     }
   }

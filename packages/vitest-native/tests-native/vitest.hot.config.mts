@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import { reactNative } from "../dist/index.mjs";
 import { jestMockTransform } from "../dist/jest-compat.mjs";
+import { NATIVE_SUITE_SETUP_FILES } from "./support/setup-files.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -17,7 +18,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
-    setupFiles: [path.resolve(here, "../dist/jest-compat/setup.mjs")],
+    setupFiles: NATIVE_SUITE_SETUP_FILES,
     include: ["tests-native/*.test.tsx", "tests-native/*.test.ts"],
     // See vitest.config.mts: these two require their own dedicated config files.
     exclude: ["tests-native/android.test.ts", "tests-native/navigation-params.test.tsx"],

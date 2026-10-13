@@ -23,6 +23,7 @@ import * as presetFactories from "./presets/index.js";
 import { createRequire } from "node:module";
 import path from "node:path";
 import type { Preset } from "./types.js";
+import { VitestNativeError } from "./errors.mjs";
 import { AUTO_DETECT_PRESETS, presetForInstalled } from "./preset-map.js";
 import { serializer as rnSerializer } from "./serializer.js";
 import { animatedMatchers } from "./matchers/animated.js";
@@ -206,17 +207,47 @@ g.__vitest_native_preset_mocks = g.__vitest_native_preset_mocks || Object.create
 // 1. The plugin's resolveId() redirecting ESM imports to virtual modules
 //    that read from globalThis.__vitest_native_preset_mocks
 // 2. The CJS bridge intercepting require() calls
-for (const preset of presets) {
-  for (const [modName, presetModule] of Object.entries(preset.modules)) {
-    const presetMock = presetModule.factory();
-    installPresetCjsBridge(modName, presetMock);
-    // Store on globalThis so virtual ESM modules can access named exports.
-    g.__vitest_native_preset_mocks[modName] = presetMock;
-    if (diagnostics) {
-      console.log(`[vitest-native] Registered preset mock: ${modName} (${preset.name})`);
-    }
-  }
+// Which preset modules to shadow: the plugin read every module's named exports while
+// resolving its config, and a module whose package is not installed (null) is not
+// shadowed. Without the plugin's list, every module is.
+let presetExports: Record<string, string[] | null> = {};
+try {
+  if (process.env.VITEST_NATIVE_PRESET_EXPORTS)
+    presetExports = JSON.parse(process.env.VITEST_NATIVE_PRESET_EXPORTS);
+} catch (cause) {
+  throw new VitestNativeError(
+    "INVALID_OPTION",
+    "VITEST_NATIVE_PRESET_EXPORTS, which the plugin sets for its setup file, is not valid JSON.",
+    { cause },
+  );
 }
+const preparations: Promise<void>[] = [];
+for (const preset of presets) {
+  const modules = Object.entries(preset.modules).filter(
+    ([modName]) => presetExports[modName] !== null,
+  );
+  const register = () => {
+    for (const [modName, presetModule] of modules) {
+      const presetMock = presetModule.factory();
+      installPresetCjsBridge(modName, presetMock);
+      // Store on globalThis so virtual ESM modules can access named exports.
+      g.__vitest_native_preset_mocks[modName] = presetMock;
+      if (diagnostics) {
+        console.log(`[vitest-native] Registered preset mock: ${modName} (${preset.name})`);
+      }
+    }
+  };
+  // A preset with async preparation (the skia preset loads CanvasKit) registers its
+  // modules once that settles; preset-ready.mjs, the next setup file, awaits it.
+  const preparation = modules.length > 0 ? preset.prepare?.() : undefined;
+  if (preparation) preparations.push(preparation.then(register));
+  else register();
+}
+const presetsReady = Promise.all(preparations);
+// preset-ready.mjs surfaces a failure. Without it (this file listed by hand), a
+// failure surfaces where the module is used, not as an unhandled rejection.
+presetsReady.catch(() => {});
+g.__vitest_native_presets_ready = presetsReady;
 
 // --- 5. Configure @testing-library/react-native ---
 

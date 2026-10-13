@@ -101,20 +101,52 @@ try {
     presetConfig = JSON.parse(process.env.VITEST_NATIVE_PRESET_CONFIG);
 } catch {}
 
-// Discover preset module (package) names + their static export lists WITHOUT
-// building the mocks yet — building can lazily touch react-native, so the require
-// hooks must be installed first.
+// Discover preset module (package) names + their export lists WITHOUT building the
+// mocks yet — building can lazily touch react-native, so the require hooks must be
+// installed first. The plugin read the export lists while resolving its config and
+// passes them here, with null for a module whose package is not installed (not
+// shadowed). A module with exportsFor (skia) reads its own by parsing the installed
+// package with Vite, which this worker must not repeat: it would load Vite into
+// every test file's worker.
+let providedPresetExports = {};
+try {
+  if (process.env.VITEST_NATIVE_PRESET_EXPORTS)
+    providedPresetExports = JSON.parse(process.env.VITEST_NATIVE_PRESET_EXPORTS);
+} catch (cause) {
+  throw new VitestNativeError(
+    "INVALID_OPTION",
+    "VITEST_NATIVE_PRESET_EXPORTS, which the plugin sets for its setup file, is not valid JSON.",
+    { cause },
+  );
+}
 const presetDefs = []; // [{ pkg, mod, presetName }]
 const presetExports = {}; // pkg -> string[] (named exports, for the ESM loader)
+const presetPreparations = [];
 for (const name of presetNames) {
   const factory = presetFactories[name];
   if (typeof factory !== "function") continue;
   const preset = factory(presetConfig[name]);
+  let shadows = false;
   for (const [pkg, mod] of Object.entries(preset.modules)) {
+    const provided = providedPresetExports[pkg];
+    if (provided === null) continue;
+    if (provided === undefined && typeof mod.exportsFor === "function") {
+      throw new VitestNativeError(
+        "PRESET_UNAVAILABLE",
+        `the ${preset.name} preset reads the named exports of '${pkg}' from the ` +
+          `installed package, and the plugin passed none for this project. The plugin ` +
+          `sets them (VITEST_NATIVE_PRESET_EXPORTS) for each project it configures.`,
+      );
+    }
+    shadows = true;
     presetDefs.push({ pkg, mod, presetName: preset.name });
-    presetExports[pkg] = mod.exports || [];
+    presetExports[pkg] = provided ?? mod.exports ?? [];
   }
+  if (shadows && typeof preset.prepare === "function") presetPreparations.push(preset.prepare());
 }
+// A preset's async preparation (the skia preset loads CanvasKit) completes before any
+// test file imports, so its mock can be built synchronously on first use.
+await Promise.all(presetPreparations);
 
 // Preset-shadowed packages join the Node-side transform set. Their bare and
 // subpath imports are redirected to the preset mock before any file loads, so the

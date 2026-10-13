@@ -203,11 +203,24 @@ export interface PresetModule {
   factory: () => Record<string, any>;
   /** Static list of named exports for virtual ESM module generation. Read at Vite config time (no vitest available). */
   exports: string[];
+  /**
+   * Named exports read from the installed package, for a package whose API changes
+   * between releases; replaces `exports` when present. Called once at Vite config time
+   * with the project root and platform. `null` means the package is not installed, so
+   * the module is not shadowed at all.
+   */
+  exportsFor?: (context: { projectRoot: string; platform: "ios" | "android" }) => string[] | null;
 }
 
 export interface Preset {
   name: string;
   modules: Record<string, PresetModule>;
+  /**
+   * Optional async work the setup file awaits before each test file, ahead of any
+   * `factory`. For a mock that needs something only an async API provides: the skia
+   * preset loads CanvasKit (Skia's WebAssembly build) here.
+   */
+  prepare?: () => Promise<void>;
   /**
    * Optional JSON-serializable configuration for the preset. Presets are rebuilt
    * inside Vitest worker processes from their `name`, so any options passed to a

@@ -42,6 +42,9 @@ export const AUTO_DETECT_PRESETS = {
   "@shopify/flash-list": "flashList",
   "@gorhom/bottom-sheet": "bottomSheet",
   "react-native-keyboard-controller": "keyboardController",
+  // Skia's name from 2.15.0 and its name before.
+  "react-native-skia": "skia",
+  "@shopify/react-native-skia": "skia",
 } as const satisfies Record<string, PresetName>;
 
 /**
@@ -156,6 +159,7 @@ export const PRESET_MODULES = {
   flashList: ["@shopify/flash-list"],
   bottomSheet: ["@gorhom/bottom-sheet"],
   keyboardController: ["react-native-keyboard-controller"],
+  skia: ["react-native-skia", "@shopify/react-native-skia"],
 } as const satisfies Record<PresetName, readonly string[]>;
 
 /** The preset that shadows `moduleId`, or undefined when none does. */
