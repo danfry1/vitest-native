@@ -56,6 +56,31 @@ Presets apply under **both** engines.
 | `presets.flashList()` | `@shopify/flash-list` | `FlashList` rendering its data through `renderItem`, the ref surface, v2 recycler hooks |
 | `presets.bottomSheet()` | `@gorhom/bottom-sheet` | `BottomSheet`, `BottomSheetModal` + provider, sheet views, scroll/list variants, `BottomSheetTextInput`, backdrop, footer |
 | `presets.keyboardController()` | `react-native-keyboard-controller` | `KeyboardProvider`, `KeyboardAvoidingView`, `KeyboardAwareScrollView`, `KeyboardStickyView`, `KeyboardToolbar`; the imperative `KeyboardController` is inert |
+| `presets.unistyles()` | `react-native-unistyles`, `react-native-unistyles/reanimated` | Unistyles 3: `StyleSheet.configure`/`create` with themes, variants and compound variants, `useUnistyles`, `withUnistyles`, `UnistylesRuntime` theme switching, `mq` with `Display`/`Hide`; matches the library's own Jest mock and follows its source where that mock does less |
+
+## Unistyles
+
+Unistyles 3 resolves styles in native code, so its preset stands in for it. Its Babel plugin switches itself off under test (`NODE_ENV=test`), so nothing else needs configuring. The themes come from your app: load the module that calls `StyleSheet.configure` before any test renders, as the app does at startup:
+
+```ts
+// vitest.config.ts
+test: { setupFiles: ['./src/unistyles.ts'] }
+```
+
+The preset agrees with Unistyles' own Jest mock (`react-native-unistyles/mocks`), which a migrating suite was written against, so that mock is no longer needed; remove it from `setupFiles` (`vitest-native migrate` does), because its `jest.mock()` calls would replace the preset. Where that mock does less than the library, the preset follows the device runtime's source:
+
+- Styles resolve as the device parses them: breakpoint values (`{ xs: 10, md: 20 }`) and `mq` keys against the screen, `_web` styles dropped.
+- Variants and compound variants apply by the device's rules, and `styles.useVariants()` selects them.
+- `StyleSheet.configure()` validates its input and chooses the theme (`initialTheme`, `adaptiveThemes`, which follow the colour scheme) with the device's messages; `UnistylesRuntime.setTheme()`, `updateTheme()` and `setAdaptiveThemes()` take effect.
+- `ScopedTheme` scopes a theme to its children (`name`, `invertedAdaptive`, `reset`), and `withUnistyles` applies its mappings and `uniProps`.
+- `Display` and `Hide` follow `mq` against the screen size.
+- vitest-native's `resetAllMocks()` returns the theme to what `StyleSheet.configure()` set.
+
+What differs from a device:
+
+- **Re-rendering.** A device restyles mounted views natively when the theme or the screen changes, without a React render. Here, components that use `useUnistyles()`, `withUnistyles`, `Display`, `Hide` or `ScopedTheme` re-render on a change; a component that only reads `StyleSheet.create` styles shows it on its next render.
+- **Variants per component.** Unistyles' Babel plugin binds a `useVariants()` selection to each component, and the plugin is off under test, so the selection belongs to the stylesheet. A style read after another instance selected different variants (a `Pressable` style function, on press) sees that instance's selection.
+- **No theme selected.** With several themes and none selected, a device throws on first use, while the preset falls back to the first theme, as Unistyles' Jest mock does.
 
 ## Mock resets
 

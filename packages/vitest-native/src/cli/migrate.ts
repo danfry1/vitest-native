@@ -336,8 +336,18 @@ export function analyzeJestConfig(root: string): MigrationReport {
       const files = take<string[]>(key);
       if (!files?.length) continue;
       for (const f of files) {
+        // A library's own test setup (react-native-unistyles/mocks, a jestSetup.js):
+        // run under the jest-compat shim, its jest.mock() calls would replace the
+        // preset that already shadows the package.
+        const setupPackage = /^(@[^/]+\/[^/]+|[^@./][^/]*)\//.exec(f)?.[1];
+        const setupPreset = setupPackage ? presetShadowing(setupPackage) : undefined;
         if (/react-native\/jest\/setup/.test(f)) {
           presetCovered.push(`${key}: '${f}' — the plugin injects its own setup; delete.`);
+        } else if (setupPreset && active.includes(setupPreset)) {
+          presetCovered.push(
+            `${key}: '${f}' — ${setupPackage}'s own test setup; the auto-detected ${setupPreset} ` +
+              `preset shadows ${setupPackage}, and this file's jest.mock() calls would replace it; delete.`,
+          );
         } else if (/jest-expo/.test(f)) {
           attention.push(`${key}: '${f}' — ${expoPresetCoverage()}.`);
         } else if (f.startsWith("<rootDir>")) {

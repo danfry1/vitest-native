@@ -42,6 +42,7 @@ export const AUTO_DETECT_PRESETS = {
   "@shopify/flash-list": "flashList",
   "@gorhom/bottom-sheet": "bottomSheet",
   "react-native-keyboard-controller": "keyboardController",
+  "react-native-unistyles": "unistyles",
 } as const satisfies Record<string, PresetName>;
 
 /**
@@ -156,6 +157,7 @@ export const PRESET_MODULES = {
   flashList: ["@shopify/flash-list"],
   bottomSheet: ["@gorhom/bottom-sheet"],
   keyboardController: ["react-native-keyboard-controller"],
+  unistyles: ["react-native-unistyles", "react-native-unistyles/reanimated"],
 } as const satisfies Record<PresetName, readonly string[]>;
 
 /** The preset that shadows `moduleId`, or undefined when none does. */

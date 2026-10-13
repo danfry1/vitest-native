@@ -51,9 +51,10 @@ const compilerOptions: ts.CompilerOptions = {
  * export, and the reason each one is kept anyway.
  *
  * Presets are not pinned to a single major, so a name removed by a newer release is
- * still correct for consumers on the older one. Every entry here is that case, and
- * every entry is asserted to still be needed — a name that comes back is a stale
- * exception, not a silent pass.
+ * still correct for consumers on the older one, and a name added by a release newer
+ * than the installed devDependency is correct for consumers on that release. Every
+ * entry here is one of those cases, and every entry is asserted to still be needed —
+ * a name that comes back, or arrives, is a stale exception, not a silent pass.
  *
  * A name that never existed in ANY version does not belong here. Those are bugs and
  * have been removed from the presets.
@@ -73,6 +74,17 @@ const KNOWN_DIVERGENCES: Record<string, Record<string, string>> = {
   },
   "@gorhom/bottom-sheet": {
     useBottomSheetDynamicSnapPoints: "removed in bottom-sheet 5; present in 4.x",
+  },
+  // The devDependency is held at 3.4.0 by the seven-day minimum release age
+  // (bunfig.toml); 3.5.0 made these enums runtime exports, so a 3.5 app imports them.
+  // They go stale, and fail below, once the devDependency reaches 3.5.
+  "react-native-unistyles": {
+    ColorScheme: "a runtime export from Unistyles 3.5.0; type-only in 3.4",
+    Orientation: "a runtime export from Unistyles 3.5.0; type-only in 3.4",
+    StatusBarStyle: "a runtime export from Unistyles 3.5.0; type-only in 3.4",
+    IOSContentSizeCategory: "a runtime export from Unistyles 3.5.0; type-only in 3.4",
+    AndroidContentSizeCategory: "a runtime export from Unistyles 3.5.0; type-only in 3.4",
+    WebContentSizeCategory: "a runtime export from Unistyles 3.5.0; type-only in 3.4",
   },
   "expo-status-bar": {
     setStatusBarBackgroundColor: "Android-only setter removed in SDK 53; present earlier",
@@ -139,6 +151,33 @@ for (const pkg of declared.keys()) {
 const program = ts.createProgram([...entries.values()], compilerOptions);
 const checker = program.getTypeChecker();
 
+/**
+ * Whether an export reaches its declaration through `export type { X }` or
+ * `import type { X }` anywhere along the re-export chain. The aliased symbol of such
+ * an export can still be a value (an enum, a class), so the symbol's flags alone
+ * call it one, but no value exists at runtime: react-native-unistyles 3.4 re-exports
+ * its `IOSContentSizeCategory` enum this way.
+ */
+function reachedTypeOnly(exported: ts.Symbol): boolean {
+  let symbol: ts.Symbol | undefined = exported;
+  for (let depth = 0; symbol && depth < 32; depth++) {
+    for (const declaration of symbol.declarations ?? []) {
+      if (ts.isExportSpecifier(declaration)) {
+        if (declaration.isTypeOnly || declaration.parent.parent.isTypeOnly) return true;
+      } else if (ts.isImportSpecifier(declaration)) {
+        if (declaration.isTypeOnly || declaration.parent.parent.isTypeOnly) return true;
+      } else if (ts.isImportClause(declaration) && declaration.isTypeOnly) {
+        return true;
+      }
+    }
+    if (!(symbol.flags & ts.SymbolFlags.Alias)) return false;
+    const next: ts.Symbol | undefined = checker.getImmediateAliasedSymbol(symbol);
+    if (next === symbol) return false;
+    symbol = next;
+  }
+  return false;
+}
+
 const measured = new Map<string, RealSurface>();
 const unmeasurable = new Map<string, string>();
 
@@ -160,6 +199,7 @@ for (const [pkg, entry] of entries) {
   }
   const valueExports = new Set<string>();
   for (const exported of checker.getExportsOfModule(moduleSymbol)) {
+    if (reachedTypeOnly(exported)) continue;
     let symbol = exported;
     if (symbol.flags & ts.SymbolFlags.Alias) {
       try {
@@ -197,8 +237,15 @@ describe("preset surfaces do not over-declare", () => {
     // simply not checked, and the suite still reports green. Counting is not
     // enough either — with a dozen measurable packages, several could drop out
     // and still clear a threshold. The set is named, so any loss is a failure.
+    // A preset may shadow a subpath (`react-native-unistyles/reanimated`); it is
+    // measurable when the package it belongs to is installed.
     const installed = new Set(Object.keys(devDependencies));
-    const expected = [...declared.keys()].filter((pkg) => installed.has(pkg)).sort();
+    const packageOf = (id: string) =>
+      id
+        .split("/")
+        .slice(0, id.startsWith("@") ? 2 : 1)
+        .join("/");
+    const expected = [...declared.keys()].filter((id) => installed.has(packageOf(id))).sort();
     expect([...measured.keys()].sort()).toEqual(expected);
   });
 

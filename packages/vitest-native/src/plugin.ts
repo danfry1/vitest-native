@@ -2030,7 +2030,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         if (cached) return cached;
 
         const specifier = id.slice("\0virtual:preset:".length);
-        const pkg = packageNameOf(specifier);
+        // A preset can shadow a subpath as a module of its own
+        // (react-native-unistyles/reanimated); that module serves it, not the
+        // package root's mock with the subpath as a leaf.
+        const pkg = presetExportNames.has(specifier) ? specifier : packageNameOf(specifier);
         const exportNames = presetExportNames.get(pkg) || [];
         // Subpath imports (pkg/lib/Swipeable) get the mock export matching the
         // leaf module name as their default — real deep entries export that one

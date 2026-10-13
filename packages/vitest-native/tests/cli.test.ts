@@ -311,6 +311,30 @@ describe("migrate", () => {
     expect(covered).not.toContain("react-native-svg");
   });
 
+  it("deletes a library's own test setup that a detected preset replaces", () => {
+    // Unistyles documents `setupFiles: ['react-native-unistyles/mocks']` for Jest. Carried
+    // across, its jest.mock() calls (under the jest-compat shim) replaced the preset:
+    // variants stripped, no theme. A setup file of a package nothing shadows stays.
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": {
+        preset: "react-native",
+        setupFiles: ["react-native-unistyles/mocks", "some-lib/jest-setup"],
+      },
+      "node_modules/react-native-unistyles/package.json": {
+        name: "react-native-unistyles",
+        version: "3.4.0",
+      },
+    });
+    const report = analyzeJestConfig(root);
+    expect(report.presetCovered.join("\n")).toContain(
+      "setupFiles: 'react-native-unistyles/mocks' — react-native-unistyles's own test setup; " +
+        "the auto-detected unistyles preset shadows react-native-unistyles",
+    );
+    expect(report.suggestedConfig).not.toContain("react-native-unistyles/mocks");
+    expect(report.suggestedConfig).toContain('"some-lib/jest-setup"');
+  });
+
   it("rewrites <rootDir> in setup files instead of emitting it verbatim", () => {
     // The case above uses "./jest.setup.js", which happens to work as written. Real
     // Jest configs overwhelmingly say "<rootDir>/jest.setup.js", and Vitest does not

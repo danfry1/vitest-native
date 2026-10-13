@@ -370,7 +370,11 @@ export function loadSync(url, context, nextLoad) {
   }
   if (url.startsWith(PRESET_SCHEME)) {
     const specifier = url.slice(PRESET_SCHEME.length);
-    const pkg = packageNameOf(specifier);
+    // A subpath the preset shadows as a module of its own is served from that module
+    // (see the plugin's virtual:preset load hook).
+    const pkg = Object.prototype.hasOwnProperty.call(presetExports, specifier)
+      ? specifier
+      : packageNameOf(specifier);
     const names = presetExports[pkg] || [];
     // For a subpath import, prefer the mock export matching the leaf module name
     // (pkg/lib/Swipeable → mock.Swipeable) — real deep entries export that one
