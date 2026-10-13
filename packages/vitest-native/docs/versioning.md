@@ -47,8 +47,10 @@ and removing or renaming one is a major.
 
 ### Preset authoring
 
-The `Preset` and `PresetModule` types are a public extension point: third-party presets can be
-written and passed to `presets: [...]`. Covered: the shape `{ name, modules, config? }`, that
+The `Preset` and `PresetModule` types are a public extension point: a preset of a project's own
+is written in a module whose default export is a `Preset` (or a function returning one) and listed
+by path in `presets: [...]`. Covered: the module form and its resolution from the project root,
+the shape `{ name, modules, config? }`, that
 `PresetModule.exports` is read at config time, and that `PresetModule.factory` is called only
 inside a Vitest worker. Also covered: the optional `Preset.prepare()`, which completes before
 any of the user's setup files or test files load, and the optional `PresetModule.exportsFor()`,
