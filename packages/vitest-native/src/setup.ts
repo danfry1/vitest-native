@@ -24,6 +24,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import type { Preset } from "./types.js";
 import { VitestNativeError } from "./errors.mjs";
+import { importPresetModule, presetModulePaths } from "./preset-modules.mjs";
 import { AUTO_DETECT_PRESETS, presetForInstalled } from "./preset-map.js";
 import { serializer as rnSerializer } from "./serializer.js";
 import { animatedMatchers } from "./matchers/animated.js";
@@ -222,7 +223,8 @@ try {
   );
 }
 const preparations: Promise<void>[] = [];
-for (const preset of presets) {
+/** Registers a preset's modules, now or once its preparation settles. */
+function activate(preset: Preset): Promise<void> | void {
   const modules = Object.entries(preset.modules).filter(
     ([modName]) => presetExports[modName] !== null,
   );
@@ -240,8 +242,19 @@ for (const preset of presets) {
   // A preset with async preparation (the skia preset loads CanvasKit) registers its
   // modules once that settles; preset-ready.mjs, the next setup file, awaits it.
   const preparation = modules.length > 0 ? preset.prepare?.() : undefined;
-  if (preparation) preparations.push(preparation.then(register));
-  else register();
+  if (preparation) return preparation.then(register);
+  register();
+}
+for (const preset of presets) {
+  const pending = activate(preset);
+  if (pending) preparations.push(pending);
+}
+// Preset modules of the project's own (presets: ['./path']), imported through Vitest
+// so a TypeScript module loads; preset-ready.mjs awaits them like a preparation.
+for (const file of presetModulePaths()) {
+  preparations.push(
+    importPresetModule(vi, file).then((preset) => activate(preset as unknown as Preset)),
+  );
 }
 const presetsReady = Promise.all(preparations);
 // preset-ready.mjs surfaces a failure. Without it (this file listed by hand), a
