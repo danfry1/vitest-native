@@ -104,6 +104,43 @@ Preset mocks keep working through `vi.resetAllMocks()` and `mockReset: true`. A 
 
 If you're coming from Jest, you can usually **delete** your manual native-lib mocks — no more `jest.mock('react-native-reanimated', …)`, safe-area's `jest/mock`, or gesture-handler's jestSetup. Just have the package installed; the preset handles it. See [Migrating from Jest](/migration/from-jest#delete-third-party-native-lib-mocks).
 
+## Your own presets
+
+A library vitest-native has no preset for can get one of yours. Write it in a module whose default export is a preset, or a function returning one, and add the module's path to `presets`:
+
+```ts
+// test/presets/my-lib.ts
+import { vi } from 'vitest'
+
+export default () => ({
+  name: 'myLib',
+  modules: {
+    'my-lib': {
+      exports: ['useThing', 'ThingView'],
+      factory: () => ({ useThing: vi.fn(() => 'thing'), ThingView: () => null }),
+    },
+  },
+})
+```
+
+```ts
+// vitest.config.ts: beside the auto-detected presets
+reactNative({ presets: { './test/presets/my-lib.ts': true } })
+// or in a full list, which replaces auto-detection
+reactNative({ presets: [presets.reanimated(), './test/presets/my-lib.ts'] })
+```
+
+A preset is listed as a path, not as an object, because its factories run in the test workers, and a function in the config cannot reach them. The plugin imports the module once while it loads the config, to read its name and export names, and each worker imports it again. So that the config-time import works in Node:
+
+- the module is an ES module (`export default`);
+- `react-native` is a stand-in there, so the module may import it at its top level but should use it only inside its factories; anything else React Native needs (another React Native library, the app's code) is imported inside the factories;
+- an export name is a name a variable could have; the default import is the whole object the factory returns;
+- async work goes in the preset's `prepare()`, which the workers await before any setup or test file loads.
+
+A path resolves from the project root, the root each Vitest project gives Vite. A plugin shared by several projects with different roots therefore needs an absolute path, such as `fileURLToPath(new URL('./test/presets/my-lib.ts', import.meta.url))`. A package name resolves as `require()` resolves it from the root.
+
+A preset object that is not exactly what one of vitest-native's factories returned is refused with this advice, including a built-in preset copied or extended with modules of its own. For one-off overrides of a preset that already exists, [`extendPresetMock`](/guide/helpers#extendpresetmock-pkg-overrides) is lighter.
+
 ## Transitive imports
 
 Presets are redirected even when a library is reached *transitively* — for example Reanimated pulled in via Moti or keyboard-controller, or Gesture Handler via bottom-sheet. The redirect works through both the Vite graph and Node's loader hooks, so a library doesn't have to be a direct import to be shadowed.

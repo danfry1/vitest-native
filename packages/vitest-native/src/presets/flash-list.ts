@@ -1,5 +1,6 @@
 import type { Preset } from "../types.js";
 import React from "react";
+import { builtInPreset } from "./built-in.js";
 
 // @shopify/flash-list (v2) is a FlatList-replacement backed by a native recycler
 // that can't run in Node. Shadow it with a list that actually renders its data
@@ -7,7 +8,7 @@ import React from "react";
 // v2 recycler hooks (`useRecyclingState` etc.) real code calls — those resolve to
 // `undefined` without a shadow and throw when invoked.
 export function flashList(): Preset {
-  return {
+  return builtInPreset({
     name: "flashList",
     modules: {
       "@shopify/flash-list": {
@@ -116,5 +117,5 @@ export function flashList(): Preset {
         },
       },
     },
-  };
+  });
 }

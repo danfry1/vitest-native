@@ -1,5 +1,6 @@
 import type { Preset } from "../types.js";
 import React from "react";
+import { builtInPreset } from "./built-in.js";
 
 // @react-native-vector-icons v10+ split each icon set into its own package
 // (`@react-native-vector-icons/material-icons`, …), all built on a single shared
@@ -14,7 +15,7 @@ const DEFAULT_ICON_SIZE = 12;
 const DEFAULT_ICON_COLOR = "black";
 
 export function vectorIcons(): Preset {
-  return {
+  return builtInPreset({
     name: "vectorIcons",
     modules: {
       "@react-native-vector-icons/common": {
@@ -67,5 +68,5 @@ export function vectorIcons(): Preset {
         },
       },
     },
-  };
+  });
 }

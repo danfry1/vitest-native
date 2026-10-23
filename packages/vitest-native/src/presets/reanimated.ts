@@ -4,6 +4,7 @@ import React from "react";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { VitestNativeError } from "../errors.mjs";
+import { builtInPreset } from "./built-in.js";
 
 /**
  * Resolve the *active* React Native module — the mock under `engine: 'mock'`
@@ -24,7 +25,7 @@ function getRN(): Record<string, any> {
 }
 
 export function reanimated(): Preset {
-  return {
+  return builtInPreset({
     name: "reanimated",
     modules: {
       "react-native-reanimated": {
@@ -425,5 +426,5 @@ export function reanimated(): Preset {
         },
       },
     },
-  };
+  });
 }

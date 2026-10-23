@@ -1,9 +1,10 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
+import { builtInPreset } from "./built-in.js";
 
 export function expo(): Preset {
-  return {
+  return builtInPreset({
     name: "expo",
     modules: {
       "expo-constants": {
@@ -191,5 +192,5 @@ export function expo(): Preset {
         },
       },
     },
-  };
+  });
 }

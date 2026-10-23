@@ -3,6 +3,7 @@ import { vi } from "vitest";
 import React from "react";
 import { createViewMock } from "../mocks/components/View.js";
 import { createScrollViewMock } from "../mocks/components/ScrollView.js";
+import { builtInPreset } from "./built-in.js";
 
 // react-native-keyboard-controller drives keyboard animation through native
 // modules + worklets that can't run in Node. Shadow it the way its own
@@ -10,7 +11,7 @@ import { createScrollViewMock } from "../mocks/components/ScrollView.js";
 // through real RN (View/ScrollView), the imperative `KeyboardController` is inert,
 // and the animation hooks return stable shared-value-shaped handles.
 export function keyboardController(): Preset {
-  return {
+  return builtInPreset({
     name: "keyboardController",
     modules: {
       "react-native-keyboard-controller": {
@@ -162,5 +163,5 @@ export function keyboardController(): Preset {
         },
       },
     },
-  };
+  });
 }

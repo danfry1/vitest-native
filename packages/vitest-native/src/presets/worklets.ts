@@ -1,4 +1,5 @@
 import type { Preset } from "../types.js";
+import { builtInPreset } from "./built-in.js";
 
 // react-native-worklets is reanimated's low-level runtime (and is imported
 // directly by apps, e.g. `import { scheduleOnUI } from 'react-native-worklets'`).
@@ -21,7 +22,7 @@ const ID = <T>(value: T): T => value;
 const invoke = (callback: () => any) => callback();
 
 export function worklets(): Preset {
-  return {
+  return builtInPreset({
     name: "worklets",
     modules: {
       "react-native-worklets": {
@@ -133,5 +134,5 @@ export function worklets(): Preset {
         },
       },
     },
-  };
+  });
 }

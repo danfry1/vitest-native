@@ -5,8 +5,8 @@
 // It asks the readiness promise whether it has settled, as the first setup file after
 // vitest-native's own. CanvasKit takes about 20 ms to load, so a setup that did not
 // wait for it usually fails this, but not always: a cold transform of this file can
-// take as long. A check that does not depend on timing needs a preset whose
-// preparation is slower, which only a test-defined preset can provide. A settled
+// take as long. tests-native/custom-preset checks the same order with a preparation
+// slow enough not to depend on timing. A settled
 // promise runs its callback before the continuation of an `await` that follows; a
 // pending one does not.
 let settled = false;

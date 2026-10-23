@@ -1,9 +1,10 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
+import { builtInPreset } from "./built-in.js";
 
 export function screens(): Preset {
-  return {
+  return builtInPreset({
     name: "screens",
     modules: {
       "react-native-screens": {
@@ -137,5 +138,5 @@ export function screens(): Preset {
         },
       },
     },
-  };
+  });
 }

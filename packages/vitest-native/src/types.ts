@@ -272,17 +272,22 @@ export interface VitestNativeOptions {
    * way. Listing every other detected preset back by hand just to drop one is
    * both tedious and a thing that silently rots as dependencies change.
    *
-   * Only built-in presets are supported (reanimated, gestureHandler,
-   * safeAreaContext, navigation, asyncStorage, screens, expo). For custom
-   * module mocking, use vi.mock() in a setup file.
+   * Preset modules of your own are listed by path: a module whose default export is a
+   * `Preset` or a function returning one. In an array they sit beside vitest-native's
+   * presets (`presets.reanimated()`, ...); in the object form a path set to `true`
+   * adds one to the auto-detected presets. A preset object of your own cannot be
+   * listed directly, because its factories run in the test workers, which a function
+   * in the config cannot reach; the plugin imports the module there instead. A
+   * relative path resolves from the project root.
    *
    * @example
    * ```ts
    * import { reactNative, presets } from 'vitest-native';
-   * reactNative({ presets: [presets.reanimated(), presets.navigation()] })
+   * reactNative({ presets: { navigation: false, './test/presets/my-lib.ts': true } })
+   * reactNative({ presets: [presets.reanimated(), './test/presets/my-lib.ts'] })
    * ```
    */
-  presets?: Preset[] | Record<string, boolean>;
+  presets?: (Preset | string)[] | Record<string, boolean>;
 
   /**
    * `engine: 'mock'` only. Plain-data overrides merged into the react-native

@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { VitestNativeError } from "../errors.mjs";
 import { esmExportNames } from "./esm-export-names.js";
+import { builtInPreset } from "./built-in.js";
 
 // Skia draws through a JSI binding to its C++, which throws at import in Node
 // ("Native Skia Module failed to correctly install JSI Bindings"). Skia supports tests
@@ -159,7 +160,7 @@ function skiaModule(name: string): PresetModule {
 }
 
 export function skia(): Preset {
-  return {
+  return builtInPreset({
     name: "skia",
     async prepare() {
       // A project has one of the two installed; CanvasKit is that copy's dependency.
@@ -179,5 +180,5 @@ export function skia(): Preset {
       (globalThis as any).CanvasKit = await loadCanvasKit(dir);
     },
     modules: Object.fromEntries(SKIA_PACKAGES.map((name) => [name, skiaModule(name)])),
-  };
+  });
 }

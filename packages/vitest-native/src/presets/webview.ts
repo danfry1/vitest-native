@@ -1,11 +1,12 @@
 import type { Preset } from "../types.js";
 import React from "react";
+import { builtInPreset } from "./built-in.js";
 
 // react-native-webview renders a native WebView; its source also has extensionless
 // ESM imports that strict Node can't resolve. Shadow it with a host component
 // (default + named export, matching `import WebView` and `import { WebView }`).
 export function webview(): Preset {
-  return {
+  return builtInPreset({
     name: "webview",
     modules: {
       "react-native-webview": {
@@ -28,5 +29,5 @@ export function webview(): Preset {
         },
       },
     },
-  };
+  });
 }

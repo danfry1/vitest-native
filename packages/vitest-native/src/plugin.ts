@@ -11,7 +11,9 @@ import { createRequire } from "node:module";
 import flowRemoveTypes from "flow-remove-types";
 import { validateOptions, validatePeerDependency, warnUnknownOptions } from "./validate.js";
 import { PEER_REQUIREMENTS } from "./peer-requirements.js";
-import { VitestNativeError } from "./errors.mjs";
+import { VitestNativeError, VitestNativeTypeError } from "./errors.mjs";
+import { presetFromModule } from "./preset-modules.mjs";
+import { BUILT_IN_PRESET } from "./presets/built-in.js";
 import { serializableAliases } from "./jest-compat/aliases.mjs";
 import { tsconfigPathAliases } from "./native/tsconfig-paths.mjs";
 import { fsModuleCacheKey, shouldDefaultFsModuleCache } from "./fs-module-cache.js";
@@ -472,14 +474,17 @@ async function resolveOptions(
 
   // An array replaces auto-detection; an object keeps it and switches named presets
   // off; omitting it auto-detects everything.
-  let presets: Preset[];
-  if (Array.isArray(options.presets)) {
-    presets = options.presets;
+  const root = projectRoot ?? process.cwd();
+  const { listed, modulePaths } = selectPresets(options.presets, root);
+  let builtIn: Preset[];
+  if (listed) {
+    builtIn = listed;
   } else {
-    const detected = await autoDetectPresets(diagnostics, projectRoot ?? process.cwd());
+    const detected = await autoDetectPresets(diagnostics, root);
     const disabled = disabledPresetNames(options.presets);
-    presets = disabled.size > 0 ? detected.filter((p) => !disabled.has(p.name)) : detected;
+    builtIn = disabled.size > 0 ? detected.filter((p) => !disabled.has(p.name)) : detected;
   }
+  const presets = [...builtIn, ...(await loadPresetModules(modulePaths, root))];
 
   return {
     platform,
@@ -775,6 +780,198 @@ export function alignLegacyFieldsWithNode(
   if (!nodeFile) return null;
   if (path.resolve(dir, legacy) === nodeFile) return null;
   return nodeFile;
+}
+
+/** What the `presets` option selects, read once per project root. */
+export interface PresetSelection {
+  /** vitest-native's presets an array lists, or null when auto-detection chooses them. */
+  listed: Preset[] | null;
+  /** The project's own preset modules, as absolute paths (see preset-modules.mjs). */
+  modulePaths: string[];
+}
+
+/**
+ * The `presets` option, read. An array lists vitest-native's presets, which each worker
+ * rebuilds by name, and preset module paths. An object keeps auto-detection: `false`
+ * switches a preset off, and a key that is not one of vitest-native's names, set to
+ * `true`, adds a preset module. Paths resolve against the project root.
+ */
+export function selectPresets(
+  option: VitestNativeOptions["presets"],
+  root: string,
+): PresetSelection {
+  if (Array.isArray(option)) {
+    const listed: Preset[] = [];
+    const modulePaths: string[] = [];
+    for (const entry of option as unknown[]) {
+      if (typeof entry === "string") modulePaths.push(resolvePresetModule(entry, root));
+      else listed.push(listedBuiltInPreset(entry));
+    }
+    return { listed, modulePaths };
+  }
+  const modulePaths: string[] = [];
+  if (option !== null && typeof option === "object") {
+    for (const [key, enabled] of Object.entries(option)) {
+      if (enabled === true && !Object.hasOwn(PRESET_MODULES, key)) {
+        modulePaths.push(resolvePresetModule(key, root));
+      }
+    }
+  }
+  return { listed: null, modulePaths };
+}
+
+/**
+ * An array entry that is not a path: one of vitest-native's presets, exactly as its
+ * factory returned it. Workers rebuild these by name, so anything else (a preset of the
+ * project's own, or a built-in one copied or changed) would not reach them; it used to
+ * shadow its packages with modules whose every export was undefined.
+ */
+function listedBuiltInPreset(entry: unknown): Preset {
+  if (typeof entry === "function") {
+    throw new VitestNativeTypeError(
+      "INVALID_OPTION",
+      `An entry of "presets" is the preset factory ${entry.name || "(anonymous)"} itself; ` +
+        `call it: presets.${entry.name || "<name>"}().`,
+    );
+  }
+  const preset = entry as Preset & { [BUILT_IN_PRESET]?: string };
+  if (preset === null || typeof preset !== "object" || typeof preset.name !== "string") {
+    throw new VitestNativeTypeError(
+      "INVALID_OPTION",
+      `Each entry of "presets" must be a preset (presets.reanimated(), ...) or the path of a ` +
+        `preset module; received ${JSON.stringify(entry)}.`,
+    );
+  }
+  const name = preset.name;
+  if (!Object.hasOwn(PRESET_MODULES, name)) {
+    throw new VitestNativeTypeError(
+      "INVALID_OPTION",
+      `The preset '${name}' is not one of vitest-native's, and a preset object ` +
+        `cannot reach the test workers, which build each preset's modules. Default-export ` +
+        `it (or a function returning it) from a module, and list that module's path ` +
+        `instead: presets: ['./test/presets/${name}.ts'].`,
+    );
+  }
+  const own = (PRESET_MODULES as Record<string, readonly string[]>)[name]!;
+  const modules =
+    preset.modules !== null && typeof preset.modules === "object" ? preset.modules : {};
+  if (preset[BUILT_IN_PRESET] !== name || !Object.keys(modules).every((m) => own.includes(m))) {
+    throw new VitestNativeTypeError(
+      "INVALID_OPTION",
+      `This '${name}' preset is not the one presets.${name}() returns: it is a copy, or its ` +
+        `modules were added to or changed. The test workers rebuild vitest-native's presets ` +
+        `by name, so the changes would not reach them. List presets.${name}() as it is, and ` +
+        `put modules of your own in a preset module with a name of its own, listed by path.`,
+    );
+  }
+  return preset;
+}
+
+function resolvePresetModule(specifier: string, root: string): string {
+  if (specifier.startsWith(".") || path.isAbsolute(specifier)) {
+    const file = path.resolve(root, specifier);
+    if (!fs.existsSync(file)) {
+      throw new VitestNativeTypeError(
+        "INVALID_OPTION",
+        `The preset module '${specifier}' does not exist (resolved from ${root} to ${file}).`,
+      );
+    }
+    return file;
+  }
+  // A package name resolves as require() resolves it. Its entry is then imported as an
+  // ES module (loadPresetModules), so a package whose `exports` offer only `import`
+  // does not resolve here; its file's path does.
+  try {
+    return createRequire(path.join(root, "package.json")).resolve(specifier);
+  } catch (cause) {
+    const notExported = (cause as { code?: string }).code === "ERR_PACKAGE_PATH_NOT_EXPORTED";
+    throw new VitestNativeTypeError(
+      "INVALID_OPTION",
+      `The preset module '${specifier}' does not resolve from ${root}` +
+        (notExported
+          ? `: its package exports no entry for require(). List the preset file's path instead.`
+          : `. vitest-native's own presets are named ${Object.keys(PRESET_MODULES).join(", ")}.`),
+      { cause },
+    );
+  }
+}
+
+/**
+ * React Native while a preset module is imported in the plugin's process. The module
+ * may import it at its top level, as an app module does, but React Native's own source
+ * (Flow) cannot load in Node, and nothing there runs a factory: each name is bound,
+ * to undefined. The workers import the module again over the engine's React Native.
+ */
+const PRESET_MODULE_RN = "\0vitest-native:preset-module-react-native";
+const REACT_NATIVE_IMPORT = /^react-native(\/|$)/;
+const presetModuleReactNative: Plugin = {
+  name: "vitest-native:preset-module-react-native",
+  enforce: "pre",
+  resolveId(id) {
+    return id === "react-native" || id.startsWith("react-native/") ? PRESET_MODULE_RN : undefined;
+  },
+  load(id) {
+    if (id !== PRESET_MODULE_RN) return undefined;
+    return [
+      "export default {};",
+      ...RN_EXPORT_NAMES.map((name) => `export const ${name} = undefined;`),
+    ].join("\n");
+  },
+};
+
+/** Imports preset modules in the plugin's process, for their names and export names. */
+async function loadPresetModules(files: string[], root: string): Promise<Preset[]> {
+  if (files.length === 0) return [];
+  const { runnerImport } = await import("vite");
+  const presets: Preset[] = [];
+  for (const file of files) {
+    // configFile: false, so the project's own Vite config (which lists this plugin)
+    // is not loaded again to import one module.
+    let module: unknown;
+    try {
+      ({ module } = await runnerImport(file, {
+        root,
+        configFile: false,
+        logLevel: "error",
+        plugins: [presetModuleReactNative],
+        // A bare import is otherwise handed to Node before any plugin resolves it.
+        // `resolve.noExternal` is Vite 8's spelling for every environment;
+        // `ssr.noExternal` is Vite 6 and 7's.
+        resolve: { noExternal: [REACT_NATIVE_IMPORT] },
+        ssr: { noExternal: [REACT_NATIVE_IMPORT] },
+      } as Parameters<typeof runnerImport>[1]));
+    } catch (cause) {
+      throw new VitestNativeError(
+        "INVALID_OPTION",
+        `The preset module ${file} could not be imported while the plugin read its preset: ` +
+          `${cause instanceof Error ? cause.message : String(cause)}\n` +
+          `The plugin imports it in Node, with only react-native stood in, before any test ` +
+          `runs. It must be an ES module (export default), and anything else React Native ` +
+          `needs (another React Native library, the app's code) belongs inside its ` +
+          `factories, which run in the test workers.`,
+        { cause },
+      );
+    }
+    presets.push(presetFromModule(module, file) as unknown as Preset);
+  }
+  const seen = new Set<string>();
+  for (const preset of presets) {
+    if (Object.hasOwn(PRESET_MODULES, preset.name)) {
+      throw new VitestNativeTypeError(
+        "INVALID_OPTION",
+        `A preset module's preset is named '${preset.name}', which is one of vitest-native's ` +
+          `presets. It needs a name of its own.`,
+      );
+    }
+    if (seen.has(preset.name)) {
+      throw new VitestNativeTypeError(
+        "INVALID_OPTION",
+        `Two preset modules' presets are named '${preset.name}'. Each needs a name of its own.`,
+      );
+    }
+    seen.add(preset.name);
+  }
+  return presets;
 }
 
 /**
@@ -1493,25 +1690,29 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
               `mockNativeModule() for native modules, or set engine:'mock'.`,
           );
         }
-        // Third-party presets apply to the native engine too: native-runtime libs
-        // (Reanimated worklets, gesture-handler natives) can't run in Node and must
-        // be shadowed by the same self-contained mocks the mock engine uses. We
+        // Presets apply to the native engine too: native-runtime libs (Reanimated
+        // worklets, gesture-handler natives) can't run in Node and must be shadowed
+        // by the same self-contained mocks the mock engine uses. We
         // resolve which presets are active here (sync) and hand the names to the
         // native setup file via env; it builds the mocks in-worker. The actual
         // import redirection happens in resolveId/load (virtual:preset modules).
         const disabledNative = disabledPresetNames(options?.presets);
-        const nativePresetNames = Array.isArray(options?.presets)
-          ? options.presets.map((p) => p.name)
+        const selection = selectPresets(options?.presets, resolvedRoot);
+        const nativePresetNames = selection.listed
+          ? selection.listed.map((p) => p.name)
           : autoDetectPresetNames(resolvedRoot, diagnostics).filter((n) => !disabledNative.has(n));
         if (nativePresetNames.length > 0) {
           env.VITEST_NATIVE_PRESET_NAMES = JSON.stringify(nativePresetNames);
         }
+        if (selection.modulePaths.length > 0) {
+          env.VITEST_NATIVE_PRESET_MODULES = JSON.stringify(selection.modulePaths);
+        }
         // Per-preset config (e.g. navigation({ defaultRouteParams })) must travel to
         // the worker, where presets are rebuilt from their name. Only explicitly
         // configured presets carry config; auto-detected ones use their defaults.
-        if (Array.isArray(options?.presets)) {
+        if (selection.listed) {
           const presetConfig: Record<string, Record<string, unknown>> = {};
-          for (const p of options.presets) {
+          for (const p of selection.listed) {
             if (p.config && Object.keys(p.config).length > 0) presetConfig[p.name] = p.config;
           }
           if (Object.keys(presetConfig).length > 0) {
@@ -1768,8 +1969,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // object form keeps detection — the worker does that itself — and only needs to
       // know which names to drop. `resolved` is not assigned until configResolved,
       // so neither branch can read it here.
-      if (Array.isArray(options?.presets)) {
-        env.VITEST_NATIVE_PRESET_NAMES = JSON.stringify(options.presets.map((p) => p.name));
+      const selection = selectPresets(options?.presets, resolvedRoot);
+      if (selection.modulePaths.length > 0) {
+        env.VITEST_NATIVE_PRESET_MODULES = JSON.stringify(selection.modulePaths);
+      }
+      if (selection.listed) {
+        env.VITEST_NATIVE_PRESET_NAMES = JSON.stringify(selection.listed.map((p) => p.name));
       } else {
         const disabled = disabledPresetNames(options?.presets);
         if (disabled.size > 0) {

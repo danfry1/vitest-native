@@ -1,11 +1,12 @@
 import type { Preset } from "../types.js";
 import { useState } from "react";
+import { builtInPreset } from "./built-in.js";
 
 // react-native-mmkv pulls react-native-nitro-modules, which throws at import
 // without the native runtime. Shadow it with an in-memory implementation so the
 // MMKV API behaves (get/set round-trips) in tests.
 export function mmkv(): Preset {
-  return {
+  return builtInPreset({
     name: "mmkv",
     modules: {
       "react-native-mmkv": {
@@ -104,5 +105,5 @@ export function mmkv(): Preset {
         },
       },
     },
-  };
+  });
 }
