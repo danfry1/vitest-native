@@ -12,12 +12,12 @@
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
-    "@react-native/babel-preset": "^0.87.1",
-    "@testing-library/react-native": "^14.0.1",
+    "@react-native/babel-preset": "^0.88.0",
+    "@testing-library/react-native": "^14.1.0",
     "react-test-renderer": "^19.3.0",
     "typescript": "7.0.2",
-    "vite": "^8.3.1",
-    "vitest": "5.0.2",
+    "vite": "^8.3.4",
+    "vitest": "5.0.5",
     "vitest-native": "workspace:*"
   }
 }
