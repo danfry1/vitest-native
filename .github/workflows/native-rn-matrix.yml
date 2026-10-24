@@ -73,6 +73,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
       - id: docs
         env:
@@ -107,6 +108,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -131,8 +134,10 @@ jobs:
       # The install-age gate (bunfig.toml minimumReleaseAge) is respected here too:
       # we deliberately stay >=7 days behind. RN 0.81-0.85 are long past that.
       - name: Pin react-native + babel-preset to ${{ matrix.rn }}
+        env:
+          RN_VERSION: ${{ matrix.rn }}
         run: |
-          bun add -d "react-native@${{ matrix.rn }}" "@react-native/babel-preset@${{ matrix.rn }}" --cwd packages/vitest-native
+          bun add -d "react-native@$RN_VERSION" "@react-native/babel-preset@$RN_VERSION" --cwd packages/vitest-native
 
       # vitest-native's on-disk caches (Babel transform of the RN graph + V8
       # compile cache), keyed per matrix cell — each cell transforms a different
