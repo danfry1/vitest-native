@@ -1,5 +1,6 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
+import { builtInPreset } from "./built-in.js";
 
 /**
  * The state every fetch/listener resolves to until a test changes it.
@@ -34,7 +35,7 @@ const RESTING = {
 const state = () => structuredClone(RESTING) as Record<string, unknown>;
 
 export function netInfo(): Preset {
-  return {
+  return builtInPreset({
     name: "netInfo",
     modules: {
       "@react-native-community/netinfo": {
@@ -123,5 +124,5 @@ export function netInfo(): Preset {
         },
       },
     },
-  };
+  });
 }

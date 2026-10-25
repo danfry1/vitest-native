@@ -1,9 +1,10 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
+import { builtInPreset } from "./built-in.js";
 
 export function safeAreaContext(): Preset {
-  return {
+  return builtInPreset({
     name: "safeAreaContext",
     modules: {
       "react-native-safe-area-context": {
@@ -101,5 +102,5 @@ export function safeAreaContext(): Preset {
         },
       },
     },
-  };
+  });
 }

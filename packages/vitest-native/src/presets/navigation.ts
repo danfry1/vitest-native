@@ -1,6 +1,7 @@
 import type { NavigationPresetOptions, Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
+import { builtInPreset } from "./built-in.js";
 
 /** Builds a minimal navigation prop matching useNavigation()'s shape. */
 function createMockNavigation() {
@@ -149,7 +150,7 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
 
   const Screen = createMockScreen(NavigationContext, NavigationRouteContext, defaultRouteParams);
 
-  return {
+  return builtInPreset({
     name: "navigation",
     config: { defaultRouteParams },
     modules: {
@@ -586,5 +587,5 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
         },
       },
     },
-  };
+  });
 }

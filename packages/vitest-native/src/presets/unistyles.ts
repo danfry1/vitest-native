@@ -3,6 +3,7 @@ import { vi } from "vitest";
 import React from "react";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { builtInPreset } from "./built-in.js";
 
 // react-native-unistyles 3 resolves styles in C++ through Nitro hybrid objects, so
 // its JS cannot run without the native runtime. Its Babel plugin turns itself off
@@ -289,7 +290,7 @@ for (const [name, value] of Object.entries({ ...UnistyleDependency })) {
 }
 
 export function unistyles(): Preset {
-  return {
+  return builtInPreset({
     name: "unistyles",
     modules: {
       "react-native-unistyles": {
@@ -335,7 +336,7 @@ export function unistyles(): Preset {
         },
       },
     },
-  };
+  });
 }
 
 type Config = {

@@ -1,4 +1,5 @@
 import type { Preset } from "../types.js";
+import { builtInPreset } from "./built-in.js";
 
 // react-native-device-info exposes a default `DeviceInfo` object AND individual
 // named function exports. Without the native module the real lib returns
@@ -54,7 +55,7 @@ export function deviceInfo(): Preset {
     ...Object.keys(NUMBERS).map((k) => k + "Sync"),
   ];
 
-  return {
+  return builtInPreset({
     name: "deviceInfo",
     modules: {
       "react-native-device-info": {
@@ -77,5 +78,5 @@ export function deviceInfo(): Preset {
         },
       },
     },
-  };
+  });
 }

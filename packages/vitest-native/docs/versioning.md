@@ -47,14 +47,16 @@ and removing or renaming one is a major.
 
 ### Preset authoring
 
-The `Preset` and `PresetModule` types are a public extension point: third-party presets can be
-written and passed to `presets: [...]`. Covered: the shape `{ name, modules, config? }`, that
-`PresetModule.exports` is read at config time, and that `PresetModule.factory` is called only
-inside a Vitest worker.
+The `Preset` and `PresetModule` types are a public extension point: a preset of a project's own
+is written in a module whose default export is a `Preset` (or a function returning one) and listed
+by path in `presets` (`['./path']`, or `{ './path': true }` beside auto-detection). Covered: the
+module form and its resolution from the project root, the shape `{ name, modules, config? }`,
+that `PresetModule.exports` is read at config time, that `PresetModule.factory` is called only
+inside a Vitest worker, and the optional `Preset.prepare()`, which completes before any of the
+user's setup files or test files load.
 
-The optional `Preset.prepare()` and `PresetModule.exportsFor()`, which the built-in skia preset
-uses, are not yet covered for third-party presets. `prepare()` completes before any of the
-user's setup files or test files load. `exportsFor()` is called once at config time with
+The optional `PresetModule.exportsFor()`, which the built-in skia preset uses, is not yet covered
+for third-party presets. It is called once at config time with
 `{ projectRoot, platform }` and returns the named exports read from the installed package, or
 `null` when it is not installed, in which case that module is not shadowed.
 

@@ -13,6 +13,7 @@ import * as presetFactories from "../presets.mjs";
 import { animatedMatchers } from "../matchers.mjs";
 import { serializer as rnSerializer } from "../serializer.mjs";
 import { VitestNativeError } from "../errors.mjs";
+import { importPresetModule, presetModulePaths } from "../preset-modules.mjs";
 import { installNitroProxy } from "./nitro.mjs";
 import { installKnownNativeModules } from "./native-modules.mjs";
 
@@ -122,10 +123,8 @@ try {
 const presetDefs = []; // [{ pkg, mod, presetName }]
 const presetExports = {}; // pkg -> string[] (named exports, for the ESM loader)
 const presetPreparations = [];
-for (const name of presetNames) {
-  const factory = presetFactories[name];
-  if (typeof factory !== "function") continue;
-  const preset = factory(presetConfig[name]);
+/** Records a preset's shadowed modules, and starts its preparation. */
+function adopt(preset) {
   let shadows = false;
   for (const [pkg, mod] of Object.entries(preset.modules)) {
     const provided = providedPresetExports[pkg];
@@ -143,6 +142,20 @@ for (const name of presetNames) {
     presetExports[pkg] = provided ?? mod.exports ?? [];
   }
   if (shadows && typeof preset.prepare === "function") presetPreparations.push(preset.prepare());
+}
+// vitest-native's presets, rebuilt by name.
+for (const name of presetNames) {
+  const factory = presetFactories[name];
+  if (typeof factory === "function") adopt(factory(presetConfig[name]));
+}
+// Preset modules of the project's own (presets: ['./path']) are imported once the
+// require hooks below exist, so a module that imports react-native at its top level
+// loads. The ESM loader takes its export lists before then, from the plugin's.
+const presetModuleFiles = presetModulePaths();
+if (presetModuleFiles.length > 0) {
+  for (const [pkg, names] of Object.entries(providedPresetExports)) {
+    if (names !== null && !(pkg in presetExports)) presetExports[pkg] = names;
+  }
 }
 // A preset's async preparation (the skia preset loads CanvasKit) completes before any
 // test file imports, so its mock can be built synchronously on first use. The promise
@@ -272,6 +285,25 @@ installRequireHooks(
 );
 // After the hooks: the polyfill is Flow-typed and compiled by them (see globals.mjs).
 installErrorUtils(projectRoot);
+// Through Vitest, so a TypeScript preset module loads. Its export lists already
+// reached the ESM loader from the plugin; a module the plugin did not read would be
+// served by the real package there.
+for (const file of presetModuleFiles) {
+  const preset = await importPresetModule(vi, file);
+  const unread = Object.keys(preset.modules).filter((pkg) => !(pkg in providedPresetExports));
+  if (unread.length > 0) {
+    throw new VitestNativeError(
+      "PRESET_UNAVAILABLE",
+      `the preset module ${file} shadows ${unread.join(", ")}, which the plugin did not ` +
+        `read while resolving its config (VITEST_NATIVE_PRESET_EXPORTS). The plugin reads ` +
+        `preset modules once, when the run starts: restart it after changing one.`,
+    );
+  }
+  adopt(preset);
+}
+// The preset modules' preparations join the built-in presets' (above).
+globalThis.__vitest_native_presets_ready = Promise.all(presetPreparations);
+await globalThis.__vitest_native_presets_ready;
 
 // Preset mocks are built on first use in each file, not up front. A project with
 // twenty auto-detected presets otherwise builds ~900 vi.fn() mocks for every test

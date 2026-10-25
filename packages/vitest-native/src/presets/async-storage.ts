@@ -1,8 +1,9 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
+import { builtInPreset } from "./built-in.js";
 
 export function asyncStorage(): Preset {
-  return {
+  return builtInPreset({
     name: "asyncStorage",
     modules: {
       "@react-native-async-storage/async-storage": {
@@ -109,5 +110,5 @@ export function asyncStorage(): Preset {
         },
       },
     },
-  };
+  });
 }

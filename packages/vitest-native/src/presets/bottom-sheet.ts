@@ -9,6 +9,7 @@ import { createVirtualizedListMock } from "../mocks/components/VirtualizedList.j
 import { createTouchableOpacityMock } from "../mocks/components/TouchableOpacity.js";
 import { createTouchableHighlightMock } from "../mocks/components/TouchableHighlight.js";
 import { createTouchableWithoutFeedbackMock } from "../mocks/components/TouchableWithoutFeedback.js";
+import { builtInPreset } from "./built-in.js";
 
 // @gorhom/bottom-sheet renders through reanimated worklets + gesture-handler
 // natives that can't run in Node. Shadow it after the library's own
@@ -18,7 +19,7 @@ import { createTouchableWithoutFeedbackMock } from "../mocks/components/Touchabl
 // e.g. changeText and list rows), the sheet containers render their children with
 // no-op imperative refs, and the constants/hooks are re-exported.
 export function bottomSheet(): Preset {
-  return {
+  return builtInPreset({
     name: "bottomSheet",
     modules: {
       "@gorhom/bottom-sheet": {
@@ -158,5 +159,5 @@ export function bottomSheet(): Preset {
         },
       },
     },
-  };
+  });
 }

@@ -2,9 +2,10 @@ import type { Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
 import { createPressableMock } from "../mocks/components/Pressable.js";
+import { builtInPreset } from "./built-in.js";
 
 export function gestureHandler(): Preset {
-  return {
+  return builtInPreset({
     name: "gestureHandler",
     modules: {
       "react-native-gesture-handler": {
@@ -179,5 +180,5 @@ export function gestureHandler(): Preset {
         },
       },
     },
-  };
+  });
 }

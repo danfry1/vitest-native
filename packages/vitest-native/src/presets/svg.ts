@@ -1,5 +1,6 @@
 import type { Preset } from "../types.js";
 import React from "react";
+import { builtInPreset } from "./built-in.js";
 
 // react-native-svg renders native SVG host components. Shadow each element with a
 // host component that passes children through, so SVG-based UIs render in tests.
@@ -36,7 +37,7 @@ const SVG_COMPONENTS = [
 ];
 
 export function svg(): Preset {
-  return {
+  return builtInPreset({
     name: "svg",
     modules: {
       "react-native-svg": {
@@ -61,5 +62,5 @@ export function svg(): Preset {
         },
       },
     },
-  };
+  });
 }
