@@ -20,12 +20,22 @@ runs:
       with:
         node-version: ${{ inputs.node-version }}
 
+    # On Windows the workspace is on the runner's D: drive and bun's cache defaulted to
+    # the home directory on C:, so every package was unpacked onto the slower drive and
+    # then copied across, since hard links cannot span drives: restoring the cache took
+    # about 107 s and a cold install about 114 s, the largest step of the Windows full
+    # gate, CI's longest job. Beside the workspace, the install links from the cache.
+    - name: Keep bun's cache on the workspace drive (Windows)
+      if: runner.os == 'Windows'
+      shell: bash
+      run: echo "BUN_INSTALL_CACHE_DIR=${RUNNER_TEMP}\\bun-cache" >> "$GITHUB_ENV"
+
     # Package-download cache: bun still verifies against the frozen lockfile, it just
     # skips re-downloading unchanged tarballs.
     - name: Cache bun downloads
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: ~/.bun/install/cache
+        path: ${{ env.BUN_INSTALL_CACHE_DIR || '~/.bun/install/cache' }}
         key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
         restore-keys: bun-${{ runner.os }}-
 
