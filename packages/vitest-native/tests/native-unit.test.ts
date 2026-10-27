@@ -527,6 +527,23 @@ describe("resolvePlatformFile", () => {
 // @ts-expect-error — runtime .mjs
 import * as nativeLoader from "../src/native/loader.mjs";
 
+describe("in-thread loader hooks: require or import", () => {
+  // The contexts Node passes module.registerHooks, as measured on each version.
+  const requireOn22_19 = { conditions: ["require", "node", "node-addons", "module-sync"] };
+  const requireOn22_15 = { conditions: {} }; // 22.15–22.18 and 24.0–24.4
+  const importAnywhere = { conditions: ["node", "import", "module-sync", "node-addons"] };
+
+  it("reads a require on every Node with registerHooks", () => {
+    expect(nativeLoader.isRequireContext(requireOn22_19)).toBe(true);
+    expect(nativeLoader.isRequireContext(requireOn22_15)).toBe(true);
+    expect(nativeLoader.isRequireContext({})).toBe(true);
+  });
+
+  it("reads an import as an import", () => {
+    expect(nativeLoader.isRequireContext(importAnywhere)).toBe(false);
+  });
+});
+
 describe("native preset redirect (ESM loader)", () => {
   it("redirects a bare preset import to a synthetic preset URL", async () => {
     await nativeLoader.initialize({
