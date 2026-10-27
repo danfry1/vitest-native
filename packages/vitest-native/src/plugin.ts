@@ -74,6 +74,7 @@ import {
   DEFAULT_ASSET_EXTS,
   PRESET_MODULES,
   presetForInstalled,
+  autoDetectedPresetApplies,
 } from "./preset-map.js";
 
 async function autoDetectPresets(diagnostics: boolean, projectRoot: string): Promise<Preset[]> {
@@ -482,7 +483,9 @@ async function resolveOptions(
   } else {
     const detected = await autoDetectPresets(diagnostics, root);
     const disabled = disabledPresetNames(options.presets);
-    builtIn = disabled.size > 0 ? detected.filter((p) => !disabled.has(p.name)) : detected;
+    builtIn = detected.filter(
+      (p) => !disabled.has(p.name) && autoDetectedPresetApplies(p.name, engine, options.presets),
+    );
   }
   const presets = [...builtIn, ...(await loadPresetModules(modulePaths, root))];
 
@@ -1701,7 +1704,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         const selection = selectPresets(options?.presets, resolvedRoot);
         const nativePresetNames = selection.listed
           ? selection.listed.map((p) => p.name)
-          : autoDetectPresetNames(resolvedRoot, diagnostics).filter((n) => !disabledNative.has(n));
+          : autoDetectPresetNames(resolvedRoot, diagnostics).filter(
+              (n) =>
+                !disabledNative.has(n) && autoDetectedPresetApplies(n, "native", options?.presets),
+            );
         if (nativePresetNames.length > 0) {
           env.VITEST_NATIVE_PRESET_NAMES = JSON.stringify(nativePresetNames);
         }
@@ -2101,7 +2107,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       }
 
       // Now we have the real project root — resolve options from consumer context.
-      resolved = await resolveOptions(options, config.root, {
+      // With the engine decided in config(): `auto` reaching resolveOptions read as the
+      // mock engine, so presets the native engine does not apply were redirected anyway.
+      resolved = await resolveOptions({ ...options, engine }, config.root, {
         extensions,
         assetExts: assetExtList,
       });

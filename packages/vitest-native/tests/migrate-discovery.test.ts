@@ -508,12 +508,14 @@ describe("a jest-expo app's package.json#jest", () => {
     }
   });
 
-  it("names what the expo preset covers from the preset's module list", () => {
+  it("says how Expo modules run under the generated config, and its honest limit", () => {
     const report = analyzeJestConfig(blueskyLike());
     const line = report.attention.find((l) => l.startsWith("preset: 'jest-expo/ios'"))!;
-    // Every module the preset declares, and the honest limit — not "covered".
-    for (const id of PRESET_MODULES.expo) expect(line).toContain(id);
-    expect(line).toContain("is not reproduced");
+    // The native engine runs Expo modules as themselves (NATIVE_ENGINE_RUNS_PACKAGES);
+    // the expo preset's module list no longer describes what happens.
+    expect(line).toContain("Expo modules run their own JavaScript on native-module mocks");
+    expect(line).toContain("check tests that mock an Expo module's native side by hand");
+    for (const id of PRESET_MODULES.expo) expect(line).not.toContain(id);
     expect(report.automatic.join("\n")).not.toContain("are covered by");
   });
 

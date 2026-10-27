@@ -29,9 +29,19 @@ describe("native engine: React Native runtime globals", () => {
 
 describe("native engine: fabricated expo native-module stubs", () => {
   const modules = (globalThis as Record<string, any>).expo.modules;
-  // A module an installed Expo module defines (expo-constants, a devDependency here)
-  // that no package mock stands in for, so the stub's conventions apply.
-  const PRESENT = "ExponentConstants";
+  // A module that neither a package mock nor Expo's table describes (nothing probes for
+  // it, so it is present), where the stub's conventions apply.
+  const PRESENT = "VNWorkspaceModule";
+
+  it("answers a module Expo's table describes as jest-expo does", () => {
+    // expo-constants, a devDependency here, defines ExponentConstants.
+    expect(modules.ExponentConstants.statusBarHeight).toBe(54);
+    expect(modules.ExponentConstants.executionEnvironment).toBe("mock");
+    // No `expo` is installed here, so no table is the installed SDK's and a member the
+    // table leaves out keeps the stub's conventions. With an SDK's own table it is
+    // undefined (the expo and expo-sdk57 consumers).
+    expect(modules.ExponentConstants.someConstantItLacks()).toBeUndefined();
+  });
 
   it("keeps a module present unless an installed package only probes for it", () => {
     // Absence needs a probe (expo-image's for ExpoObserve), which nothing installed here

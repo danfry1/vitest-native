@@ -13,12 +13,7 @@
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
-import {
-  DEFAULT_ASSET_EXTS,
-  PRESET_MODULES,
-  presetShadowing,
-  type PresetName,
-} from "../preset-map.js";
+import { DEFAULT_ASSET_EXTS, presetShadowing, type PresetName } from "../preset-map.js";
 import { detectEcosystemPackages } from "../native/ecosystem.js";
 import { allows, extractAllowlistPackages, type AllowlistEntry } from "./allowlist.js";
 import {
@@ -144,14 +139,18 @@ function list(items: readonly string[]): string {
 }
 
 /**
- * What the expo preset covers, named from its module list. jest-expo's setup builds
- * a whole Expo runtime; the preset shadows these modules and nothing else.
+ * How Expo modules run after migrating. The generated config uses the native engine,
+ * where Expo modules run their own JavaScript on native-module mocks, as jest-expo
+ * runs them; the expo preset applies to the mock engine only (preset-map's
+ * NATIVE_ENGINE_RUNS_PACKAGES).
  */
 function expoPresetCoverage(): string {
   return (
-    `jest-expo's setup (its Expo runtime and native-module mocks) is not reproduced; the expo ` +
-    `preset shadows ${list(PRESET_MODULES.expo)} — other Expo modules load their real ` +
-    `JavaScript, so check the tests that use them`
+    `under the native engine, which the suggested config resolves to wherever React Native's ` +
+    `Babel toolchain is installed, Expo modules run their own JavaScript on native-module ` +
+    `mocks, as jest-expo runs them: each package's own mocks/ where it ships one, else ` +
+    `jest-expo's table of the native modules; check tests that mock an Expo module's ` +
+    `native side by hand`
   );
 }
 

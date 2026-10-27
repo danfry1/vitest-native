@@ -294,20 +294,28 @@ describe("migrate", () => {
 
   it("calls a manual mock covered only where an active preset shadows that module", () => {
     // The claim is read from PRESET_MODULES (held to the presets by
-    // tests/presets.test.ts) and the plugin's detection. expo-font is shadowed by the
-    // expo preset although only expo-constants triggers it; svg's preset is not
-    // detected here, so its manual mock stays.
+    // tests/presets.test.ts) and the plugin's detection. gesture-handler's preset is
+    // detected and shadows the module. The expo preset is detected too, but the native
+    // engine the generated config uses runs expo-font as itself
+    // (NATIVE_ENGINE_RUNS_PACKAGES), so its manual mock stays, as does svg's, whose
+    // preset is not detected.
     const root = fixture({
       "package.json": { name: "x" },
       "jest.config.json": { preset: "react-native" },
       "node_modules/expo-constants/package.json": { name: "expo-constants", version: "1.0.0" },
+      "node_modules/react-native-gesture-handler/package.json": {
+        name: "react-native-gesture-handler",
+        version: "2.20.0",
+      },
+      "__mocks__/react-native-gesture-handler.js": "module.exports = {};",
       "__mocks__/expo-font.js": "module.exports = {};",
       "__mocks__/react-native-svg.js": "module.exports = {};",
     });
     const covered = analyzeJestConfig(root).presetCovered.join("\n");
     expect(covered).toContain(
-      "__mocks__/expo-font — the auto-detected expo preset shadows expo-font",
+      "__mocks__/react-native-gesture-handler — the auto-detected gestureHandler preset shadows react-native-gesture-handler",
     );
+    expect(covered).not.toContain("expo-font");
     expect(covered).not.toContain("react-native-svg");
   });
 
@@ -395,14 +403,15 @@ describe("migrate", () => {
       const report = expoApp("jest-expo");
       expect(report.automatic.join("\n")).toContain("preset: 'jest-expo' → replaced by");
       expect(report.automatic.join("\n")).toContain("presets: { navigation: false }");
-      // What jest-expo set up is not claimed as covered: the line names the modules
-      // the expo preset shadows (its own list), and jest-expo is not installed in
-      // this fixture, so its testMatch could not be read.
+      // What jest-expo set up is not claimed as covered: the line says how the native
+      // engine runs Expo modules and where it can differ, and jest-expo is not
+      // installed in this fixture, so its testMatch could not be read.
       expect(report.attention).toEqual([
-        `preset: 'jest-expo' — jest-expo's setup (its Expo runtime and native-module mocks) is not ` +
-          `reproduced; the expo preset shadows ${PRESET_MODULES.expo.slice(0, -1).join(", ")} and ` +
-          `${PRESET_MODULES.expo.at(-1)} — other Expo modules load their real JavaScript, so check the ` +
-          `tests that use them.`,
+        `preset: 'jest-expo' — under the native engine, which the suggested config resolves to ` +
+          `wherever React Native's Babel toolchain is installed, Expo modules run their own ` +
+          `JavaScript on native-module mocks, as jest-expo runs them: each package's own mocks/ ` +
+          `where it ships one, else jest-expo's table of the native modules; check tests that ` +
+          `mock an Expo module's native side by hand.`,
         expect.stringContaining("preset: 'jest-expo' could not be loaded"),
       ]);
       expect(report.suggestedConfig).toContain(

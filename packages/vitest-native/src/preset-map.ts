@@ -62,6 +62,47 @@ export const SELF_TESTING_FROM_MAJOR: Partial<Record<keyof typeof AUTO_DETECT_PR
   "react-native-mmkv": 3,
 };
 
+/**
+ * Presets the native engine does not apply unless asked to, because the packages they
+ * cover run as themselves there. The native engine runs a package's own JavaScript and
+ * substitutes only its native module, the way jest-expo runs Expo packages: the real
+ * code is the whole API, current with every SDK, where a replacement covers only what
+ * was written into it.
+ *
+ * - expo: expo-constants, expo-font, expo-asset, expo-splash-screen, expo-linking and
+ *   expo-status-bar run against the engine's Expo runtime (native/globals.mjs) and
+ *   their own native-module mocks (native/expo-module-mocks.mjs). Measured on an
+ *   Expo SDK 58 app against jest-expo: 17 of 17 probes of these packages matched with
+ *   the preset off, 4 with it on. The preset was missing API (`hide`, `setOptions`,
+ *   `useAssets`, `canOpenURL` …) and answered with values jest-expo never gives
+ *   (`Constants.expoConfig.name === 'test-app'`).
+ *
+ * The mock engine has no real React Native to run them on, so it keeps these presets.
+ * `presets: { expo: true }` applies one under the native engine too.
+ */
+export const NATIVE_ENGINE_RUNS_PACKAGES: readonly PresetName[] = ["expo"];
+
+/**
+ * Whether an auto-detected preset applies under `engine`, given the `presets` option:
+ * every one under the mock engine, and under the native engine all but those in
+ * NATIVE_ENGINE_RUNS_PACKAGES, unless the option turns one on (`{ expo: true }`).
+ */
+export function autoDetectedPresetApplies(
+  preset: string,
+  engine: "mock" | "native",
+  presetsOption?: unknown,
+): boolean {
+  if (engine === "mock" || !(NATIVE_ENGINE_RUNS_PACKAGES as readonly string[]).includes(preset)) {
+    return true;
+  }
+  return (
+    presetsOption !== null &&
+    typeof presetsOption === "object" &&
+    !Array.isArray(presetsOption) &&
+    (presetsOption as Record<string, unknown>)[preset] === true
+  );
+}
+
 /** Whether `pkgName` at `version` runs its own test mode (SELF_TESTING_FROM_MAJOR). */
 export function testsItself(pkgName: string, version: unknown): boolean {
   const floor = SELF_TESTING_FROM_MAJOR[pkgName as keyof typeof AUTO_DETECT_PRESETS];

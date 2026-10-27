@@ -10,7 +10,12 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { AUTO_DETECT_PRESETS, testsItself, type PresetName } from "../preset-map.js";
+import {
+  AUTO_DETECT_PRESETS,
+  autoDetectedPresetApplies,
+  testsItself,
+  type PresetName,
+} from "../preset-map.js";
 
 /** A package's manifest, found by walking node_modules upward from root, or null. */
 export function installedManifest(root: string, pkg: string): Record<string, unknown> | null {
@@ -45,12 +50,17 @@ export function installedTestsItself(root: string, pkg: string): boolean {
 /**
  * The presets a run in this project enables, decided as the plugin decides it: a
  * preset is active when one of its packages is installed and does not test itself,
- * and the user has not switched it off.
+ * the engine applies it (autoDetectedPresetApplies), and the user has not switched it
+ * off.
  */
-export function activePresets(root: string, disabled: readonly string[] = []): PresetName[] {
+export function activePresets(
+  root: string,
+  disabled: readonly string[] = [],
+  engine: "mock" | "native" = "native",
+): PresetName[] {
   const active = new Set<PresetName>();
   for (const [pkg, preset] of Object.entries(AUTO_DETECT_PRESETS)) {
-    if (disabled.includes(preset)) continue;
+    if (disabled.includes(preset) || !autoDetectedPresetApplies(preset, engine)) continue;
     if (installedManifest(root, pkg) && !installedTestsItself(root, pkg)) active.add(preset);
   }
   return [...active];

@@ -30,6 +30,7 @@ import {
 // React Native's main entry (`react-native/index.js`).
 const RN_INDEX = /[\\/]react-native[\\/]index\.js$/;
 const TRANSFORMABLE = /\.(jsx?|tsx?|mjs|cjs)$/;
+const NODE_MODULES_TS = /[\\/]node_modules[\\/].*(?<!\.d)\.tsx?$/;
 // Extensions/index candidates for bundler-style extensionless resolution.
 
 /**
@@ -356,6 +357,58 @@ export async function load(url, context, nextLoad) {
   return loadSync(url, context, nextLoad);
 }
 
+/**
+ * A module this loader would compile, served as a facade that requires it, so Node's
+ * CommonJS loader owns the compiled module, compiled there by the require hook
+ * (hooks.mjs) with the same rules this loader applies.
+ *
+ * Compiled code handed to Node as source ran outside that loader: Node evaluated it as
+ * a module of its own, so a file React Native had already required was a second
+ * instance, and a module with state split in two (expo-asset 57's
+ * @react-native/assets-registry was empty, so every bundled asset was "missing from
+ * the asset registry"). And Node gives such a module a `require` that resolves through
+ * this loader rather than Module._load, which is where jest-compat serves a
+ * `jest.mock` factory, so a package's own require of a mocked module got the real one
+ * (expo-linking read the real expo-constants under jest.mock).
+ *
+ * Node takes the import's named exports from the facade's source with cjs-module-lexer,
+ * so the compiled code is carried inside a function the facade never calls: the lexer
+ * reads exactly the names it read when the code itself was served (Babel's
+ * `exports.x =` and `Object.defineProperty(exports, …)` forms, re-exports), and a
+ * function keeps the code's own declarations out of the facade's scope. Names the
+ * lexer cannot follow (`module.exports = { A() {}, b: () => 1 }`) are added in the form
+ * it does read, from the compiled code (cjsExportNames). Exported as a test seam.
+ */
+export function requireFacade(url, file, compiled) {
+  // A `#!` line is valid only as a source's first characters; carried inside the
+  // facade it would be a syntax error. The carried code is never run.
+  const code = compiled.startsWith("#!") ? compiled.replace(/^#!.*/, "") : compiled;
+  const names = cjsExportNames(code);
+  // An `.mjs` file is an ES module wherever it is loaded, so the CommonJS loader cannot
+  // own it: requiring it is Node's require(esm), which on Node 20.19 and 22.13 fails
+  // for a module this loader is still loading ("Cannot require() ES Module ... in a
+  // cycle"). It is served compiled, as every compiled module was before the facade. A
+  // compiled module's require() of it is compiled by the CommonJS hooks where this
+  // loader cannot see it (hooks.mjs), and both routes give one instance
+  // (tests-native/ecosystem-mjs.test.ts).
+  if (file.endsWith(".mjs")) {
+    return {
+      format: "commonjs",
+      source: names.length > 0 ? `${code}\n0 && (module.exports = { ${names.join(", ")} });` : code,
+      shortCircuit: true,
+    };
+  }
+  return {
+    format: "commonjs",
+    source: [
+      `module.exports = require("node:module").createRequire(${JSON.stringify(url)})(${JSON.stringify(file)});`,
+      `0 && function () {\n${code}\n};`,
+      ...(names.length > 0 ? [`0 && (module.exports = { ${names.join(", ")} });`] : []),
+    ].join("\n"),
+    shortCircuit: true,
+  };
+}
+
 /** `load` never awaits: every path returns a result or `nextLoad(...)` directly. */
 export function loadSync(url, context, nextLoad) {
   // Serve the synthetic preset module. The generated source reads the mock built
@@ -426,6 +479,19 @@ export function loadSync(url, context, nextLoad) {
 
   const rnPath = ownership.reactNativePathFor(file);
   const isRN = rnPath !== null;
+  // TypeScript under node_modules, from a package nothing selected for compiling. Node
+  // refuses it outright ("Stripping types is currently unsupported for files under
+  // node_modules"), so there is nothing to gain by passing it on: expo-modules-core
+  // before SDK 58 publishes only its TypeScript source, and a project that installs an
+  // Expo module without `expo` (whose dependencies are what detection follows) reached
+  // it undetected. The CommonJS `.ts` hook compiles any such file (hooks.mjs).
+  if (!isRN && !isExtra(norm) && NODE_MODULES_TS.test(norm)) {
+    return requireFacade(
+      url,
+      file,
+      transformRN(file, fs.readFileSync(file, "utf8"), PROJECT_ROOT, PLATFORM),
+    );
+  }
   if (!isRN && !isExtra(norm)) return nextLoad(url, context);
 
   if (isRN) {
@@ -452,22 +518,20 @@ export function loadSync(url, context, nextLoad) {
       ].join("\n");
       return { format: "commonjs", source: facade, shortCircuit: true };
     }
+    // Any other React Native module this loader would compile (a boundary stub, a Flow
+    // source) is served through Node's CommonJS loader (requireFacade).
     const boundary = boundarySourceFor(rnPath, PLATFORM, REACT_NATIVE_VERSION);
-    if (boundary != null) return { format: "commonjs", source: boundary, shortCircuit: true };
+    if (boundary != null) return requireFacade(url, file, boundary);
     if (norm.endsWith(".js")) {
       const src = fs.readFileSync(file, "utf8");
       if (isFlow(src))
-        return {
-          format: "commonjs",
-          source: transformRN(file, src, PROJECT_ROOT, PLATFORM),
-          shortCircuit: true,
-        };
+        return requireFacade(url, file, transformRN(file, src, PROJECT_ROOT, PLATFORM));
     }
     return nextLoad(url, context);
   }
 
-  // Configured third-party package: transform any JS/TS/JSX source to CJS, and tell
-  // Node what it exports.
+  // Configured third-party package: transform any JS/TS/JSX source to CJS, served
+  // through Node's CommonJS loader (requireFacade), and tell Node what it exports.
   //
   // When Node imports a CommonJS module from ESM it decides the named exports with
   // cjs-module-lexer, which reads the source statically and gives up partway through
@@ -488,7 +552,7 @@ export function loadSync(url, context, nextLoad) {
   // real `messageSocket.native.ts`, which throws "Cannot create devtools websocket
   // connections in embedded environments" — `import 'expo'` failed in every test.
   const stub = boundarySourceFor(norm, PLATFORM, REACT_NATIVE_VERSION);
-  if (stub != null) return { format: "commonjs", source: stub, shortCircuit: true };
+  if (stub != null) return requireFacade(url, file, stub);
 
   if (TRANSFORMABLE.test(norm)) {
     const src = fs.readFileSync(file, "utf8");
@@ -496,13 +560,7 @@ export function loadSync(url, context, nextLoad) {
     // accepts is handed straight back to Node, which is how the toolchain packages a
     // closure walk drags in stop reaching the Babel preset at all.
     if (!needsTransform(file, src)) return nextLoad(url, context);
-    const code = transformRN(file, src, PROJECT_ROOT, PLATFORM);
-    const names = cjsExportNames(code);
-    return {
-      format: "commonjs",
-      source: names.length > 0 ? `${code}\n0 && (module.exports = { ${names.join(", ")} });` : code,
-      shortCircuit: true,
-    };
+    return requireFacade(url, file, transformRN(file, src, PROJECT_ROOT, PLATFORM));
   }
   return nextLoad(url, context);
 }

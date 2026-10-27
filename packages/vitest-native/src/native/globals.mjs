@@ -111,9 +111,11 @@ function installExpoGlobal(g) {
   //   so they are memoized classes on SharedObject's prototype chain.
   // Explicitly-set properties (spies, overrides) always win.
   //
-  // A module whose package ships a mock (expo-module-mocks.mjs) is that mock's members,
-  // as under jest-expo; the conventions above apply to modules without one. Setup
-  // installs the lookup, since the mock files compile through the engine's hooks.
+  // A module is seeded as jest-expo answers it (expo-module-mocks.mjs): a package's own
+  // mock of it is the whole module, and members a mock leaves out are undefined; else
+  // Expo's table of the native modules gives the members it lists, and the conventions
+  // above answer the rest. Setup installs the lookup, since the mock files compile
+  // through the engine's hooks.
   const __moduleCache = new Map();
   const moduleResets = new Set();
   const makeModuleStub = (name) => {
@@ -121,12 +123,25 @@ function installExpoGlobal(g) {
     const fabricatedRecords = new Map();
     const directMutations = new Map();
     const target = new NativeModule();
-    const seeded = g.__vitest_native_expo_module_mock?.(name) ?? null;
+    const seed = g.__vitest_native_expo_module_mock?.(name) ?? null;
+    const seeded = seed?.members ?? null;
+    // A package's own mock is the whole module; a seed from Expo's table lists only
+    // the members it knew, and the conventions answer the rest.
+    const complete = seed?.complete === true;
+    const listsConstants = seed?.listsConstants === true;
     const seededMocks = [];
+    // Values seeded from Expo's table, restored as fresh copies per file: jest-expo builds
+    // them anew for every test file, and a file may change one (`platform.foo = 1`). The
+    // table's values are JSON; a package mock's are whatever it exports (a Date, an object
+    // with methods), so they are kept as they are, as before the table.
+    const seededValues = new Map();
     if (seeded) {
       for (const [prop, value] of Object.entries(seeded)) {
         target[prop] = value;
         if (typeof value?.mockReset === "function") seededMocks.push(value);
+        else if (!complete && typeof value !== "function") {
+          seededValues.set(prop, JSON.stringify(value));
+        }
       }
     }
     const trackDirectMutation = (prop) => {
@@ -143,7 +158,7 @@ function installExpoGlobal(g) {
         // A package mock is the whole module, as under jest-expo: a member it leaves
         // out is undefined (expo-file-system's mock has no documentDirectory, and
         // normalizeEndingSlash expects a string or nothing).
-        if (seeded) return undefined;
+        if (complete) return undefined;
         if (prop.endsWith("Async")) return () => Promise.resolve(undefined);
         if (/^[A-Z]/.test(prop)) {
           if (!fabricatedClasses.has(prop)) {
@@ -152,6 +167,14 @@ function installExpoGlobal(g) {
           }
           return fabricatedClasses.get(prop);
         }
+        // A module seeded from the installed SDK's table lists its constants and
+        // functions, so another lowercase name is most likely a constant the module does
+        // not have, which jest-expo leaves undefined and the package then defaults
+        // (expo-constants' `appOwnership` falls back to null). An async function or a
+        // class is still answered above: calling or extending undefined would throw where
+        // a newer member is reached. Another SDK's table does not list its members, so the
+        // conventions answer them.
+        if (listsConstants) return undefined;
         return () => undefined;
       },
       set(object, prop, value) {
@@ -179,6 +202,9 @@ function installExpoGlobal(g) {
         // A file's calls and overrides do not reach the next file; vi.fn(impl) keeps
         // its implementation through mockReset.
         for (const mock of seededMocks) mock.mockReset();
+        for (const [prop, json] of seededValues) {
+          target[prop] = json === undefined ? undefined : JSON.parse(json);
+        }
         // A mock that keeps state exports a reset for it (expo-file-system's in-memory
         // filesystem: __resetMockFileSystem). jest-expo requires the mock afresh for
         // every test file; the engine loads it once per worker, so it resets it, after

@@ -3,20 +3,21 @@ import { expect, test } from "vitest";
 
 const loaded = () =>
   Object.keys(createRequire(import.meta.url).cache).filter((file) =>
-    /[\\/]node_modules[\\/](expo-asset|expo-constants)[\\/]build[\\/]/.test(file),
+    /[\\/]node_modules[\\/](expo-asset|expo-constants)[\\/](build|src)[\\/]/.test(file),
   );
 
 // `expo` publishes TypeScript, so the native loader compiles it and hands Node CommonJS
-// with its source. Node runs that through the ESM translator, whose `require` resolves
-// to a file URL before the loader sees it — so `expo` → `expo-asset` → `expo-constants`
-// used to bypass the preset redirect and load the real packages, which crashed on
-// feature-detected native modules. Its dev-server message socket also threw on import.
+// with its source. Its dev-server message socket also threw on import.
 test("imports the expo package itself", async () => {
   const Expo = await import("expo");
   expect(typeof Expo.registerRootComponent).toBe("function");
 });
 
-test("packages expo requires internally are still the preset mocks", async () => {
+// The native engine runs Expo packages as themselves, on native-module mocks, as
+// jest-expo does: the expo preset applies to the mock engine (NATIVE_ENGINE_RUNS_PACKAGES
+// in the plugin's preset-map).
+test("packages expo requires internally load as themselves", async () => {
   await import("expo");
-  expect(loaded()).toEqual([]);
+  expect(loaded().some((file) => /expo-constants/.test(file))).toBe(true);
+  expect(loaded().some((file) => /expo-asset/.test(file))).toBe(true);
 });

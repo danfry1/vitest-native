@@ -990,6 +990,15 @@ describe("preset: expo", () => {
     it("hideAsync resolves", async () => {
       await expect(mock.hideAsync()).resolves.toBe(true);
     });
+
+    it("has hide and setOptions, Expo's synchronous calls since SDK 52", () => {
+      expect(preset.modules["expo-splash-screen"].exports).toEqual(
+        expect.arrayContaining(["hide", "setOptions"]),
+      );
+      expect(mock.hide()).toBeUndefined();
+      expect(mock.setOptions({ duration: 400, fade: true })).toBeUndefined();
+      expect(mock.setOptions).toHaveBeenCalledWith({ duration: 400, fade: true });
+    });
   });
 
   describe("expo-linking", () => {

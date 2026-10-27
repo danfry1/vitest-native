@@ -15,7 +15,13 @@ import { serializer as rnSerializer } from "../serializer.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import { importPresetModule, presetModulePaths } from "../preset-modules.mjs";
 import { installNitroProxy } from "./nitro.mjs";
-import { expoModuleMock, expoModuleMockIndex, expoAbsentModules } from "./expo-module-mocks.mjs";
+import {
+  expoAbsentModules,
+  expoModuleMock,
+  expoModuleMockIndex,
+  expoModuleTableDescribesInstalledSdk,
+  expoModuleTableMembers,
+} from "./expo-module-mocks.mjs";
 import { cacheRootFor } from "./transform.mjs";
 import { installKnownNativeModules } from "./native-modules.mjs";
 
@@ -351,8 +357,22 @@ const req = createRequire(path.join(projectRoot, "package.json"));
 const RN = req("react-native");
 // Expo modules' own mocks for their native modules (expo-module-mocks.mjs), read by
 // globalThis.expo.modules as each module is first required.
-g.__vitest_native_expo_module_mock = (name) =>
-  expoModuleMock(projectRoot, name, (implementation) => vi.fn(implementation));
+// A package's own mock is the whole module; otherwise Expo's table (as jest-expo
+// declares the module) seeds the members it lists, and the stub's conventions answer
+// the rest. `listsConstants`: the table is the installed SDK's, so a lowercase member it
+// leaves out is a constant the module lacks.
+g.__vitest_native_expo_module_mock = (name) => {
+  const mockFn = (implementation) => vi.fn(implementation);
+  const own = expoModuleMock(projectRoot, name, mockFn);
+  if (own) return { members: own, complete: true };
+  const listed = expoModuleTableMembers(projectRoot, name, mockFn);
+  if (!listed) return null;
+  return {
+    members: listed,
+    complete: false,
+    listsConstants: expoModuleTableDescribesInstalledSdk(projectRoot),
+  };
+};
 // Which native modules exist: every one except those an installed package only
 // probes for and no installed package defines (expoAbsentModules), unless a package
 // mock stands in for it. Read on the first lookup, so a file that touches no Expo
