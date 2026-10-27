@@ -41,7 +41,7 @@ const runtimeLine = (root: string, node: string) =>
   runDoctor(root, node).lines.find((l) => l.includes("Node ")) ?? "";
 
 const testingLine = (root: string) => {
-  const { lines } = runDoctor(root, "22.13.0");
+  const { lines } = runDoctor(root, "22.15.0");
   const start = lines.indexOf("Testing library");
   return lines.slice(start + 1, start + 2).join(" ");
 };
@@ -81,7 +81,7 @@ describe("doctor: RNTL 14 needs test-renderer", () => {
     const line = testingLine(root);
     expect(line).toContain("✗");
     expect(line).toContain("test-renderer");
-    expect(runDoctor(root, "22.13.0").ok).toBe(false);
+    expect(runDoctor(root, "22.15.0").ok).toBe(false);
   });
 
   it("passes when it is installed", () => {

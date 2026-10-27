@@ -27,7 +27,7 @@ import { reactNative } from 'vitest-native'
 export default defineConfig({ plugins: [reactNative()] })
 ```
 
-Requirements: Node >= 20, Vitest >= 4 < 5, Vite ^6.4.2 or ^7.3.2 or ^8.0.5, React >= 18, React Native 0.81–0.88 (native engine). RNTL (@testing-library/react-native) 12–14 is an optional peer; auto-configured when installed.
+Requirements: Node >= 22.15, Vitest 4.x or 5.x, Vite ^6.4.2 or ^7.3.2 or ^8.0.5, React >= 18, React Native 0.81–0.88 (native engine). RNTL (@testing-library/react-native) 12–14 is an optional peer; auto-configured when installed.
 
 ## Plugin options
 

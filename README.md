@@ -94,14 +94,14 @@ describe('MyComponent', () => {
 
 ## Requirements
 
-- **Node.js** >= 20.19 (the version that added `require(esm)`)
+- **Node.js** >= 22.15 (Node 20 reached end of life in April 2026; 22.15 is the first Node 22 with
+  in-thread `module.registerHooks`, which the native engine's loader uses)
 - **Vitest** 4.x or 5.x (both run the full gate in CI)
 - **Vite** ^6.4.2, ^7.3.2, or ^8.0.5
 - **React** >= 18
 - **`@testing-library/react-native`** (optional) — supported across `>=12 <15`. RNTL 14 made
   `render`, `fireEvent`, and `act` async, so `await` them (`await render(<App />)`); this is
-  back-compatible with RNTL 12/13, where the calls are synchronous and `await` is a no-op. Note RNTL
-  14 itself requires Node >= 22.13 — on Node 20, stay on RNTL 13.
+  back-compatible with RNTL 12/13, where the calls are synchronous and `await` is a no-op.
 - **`engine: 'native'`** (the default) needs `@react-native/babel-preset` + `@babel/core` (these
   ship with React Native projects; from Expo SDK 56 it uses Expo's own preset instead, as Metro
   does). The opt-in mock engine needs no Babel.

@@ -29,8 +29,8 @@ name: Native engine — Vitest × RN matrix
 # cross-check — the full real-RN gate against that (Vitest, RN) pair.
 #
 # RNTL is the third dependency but is pinned to the lockfile version (14) here, not
-# matrixed — the supported peer range (>=12 <15) is proven by the Node 20 / RNTL 13
-# back-compat leg in ci.yml, since RNTL 14 requires Node >=22.13.
+# matrixed — the supported peer range (>=12 <15) is proven by the RNTL 12 and 13
+# back-compat legs in ci.yml.
 
 on:
   push:
@@ -117,7 +117,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22.13.0'
+          node-version: '22.15.0'
 
       # Package-download cache: bun still verifies against the frozen lockfile,
       # it just skips re-downloading unchanged tarballs.
