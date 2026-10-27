@@ -971,7 +971,7 @@ that API.
 
 Every release must pass:
 
-- Linux on Node 20.19, 22.13, and 24, plus macOS and Windows on Node 22.13.
+- Linux on Node 22.13 (with RNTL 12, 13 and 14) and 24, plus macOS and Windows on Node 22.13.
 - The mock, native iOS, native Android, hot-runtime, isolation, and 100-file soak suites.
 - React Native 0.81–0.88 against both locked and newest-supported Vitest, plus the Vitest 4 floor
   on 0.81 and 0.88.
@@ -1001,14 +1001,15 @@ see [versioning and stability](docs/versioning.md).
 | `react`                                      | >= 18; use RN's matching React version    |
 | `vite`                                       | ^6.4.2, ^7.3.2, or ^8.0.5                |
 | `vitest`                                     | 4.x or 5.x                                |
-| `node`                                       | >= 20.19; RN/RNTL may impose a higher floor |
+| `node`                                       | 22.13+ on Node 22, or 24.3+               |
 | `react-native` (native engine)               | 0.81–0.88 validated                       |
 | `@react-native/babel-preset` (native engine) | Match the installed React Native minor    |
 | `@testing-library/react-native` (optional)   | 12.x, 13.x, or 14.x                       |
 
-RNTL 14 requires Node 22.13 or 24+ and uses async rendering APIs. React Native 0.86 requires
-Node 20.19.4, 22.13, or 24.3 or newer. Those are upstream requirements; the mock engine itself
-continues to support Node 20.
+Node 20 reached end of life in April 2026. Node 22.13 is the first Node 22 that both RNTL 14 and the
+engine's CommonJS entry points (`require(esm)`) support. On Node 24.0–24.2, `jest.mock`,
+`jest.isolateModules` and `jest.resetModules` do not reach modules Node loads, with either loader.
+Node 23 is past its end of life. RNTL 14 uses async rendering APIs.
 
 ---
 

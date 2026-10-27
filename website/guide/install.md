@@ -39,7 +39,7 @@ That's it. The plugin auto-injects its setup file, configures `@testing-library/
 
 | Requirement | Version |
 |---|---|
-| **Node.js** | >= 20 |
+| **Node.js** | 22.13+ on Node 22, or 24.3+ |
 | **Vitest** | 4.x |
 | **Vite** | ^6.4.2, ^7.3.2, or ^8.0.5 |
 | **React** | >= 18 |
@@ -50,7 +50,7 @@ The default **`engine: 'native'`** needs `@react-native/babel-preset` and `@babe
 The opt-in **`engine: 'mock'`** needs no Babel — it's just Vite.
 
 ::: tip Optional peer: RNTL
-[`@testing-library/react-native`](https://callstack.github.io/react-native-testing-library/) (RNTL 12–14) is an optional peer dependency. If it's installed, the plugin configures it automatically — you don't set `hostComponentNames` yourself. RNTL 14 uses async rendering APIs and requires Node 22.13 or 24+.
+[`@testing-library/react-native`](https://callstack.github.io/react-native-testing-library/) (RNTL 12–14) is an optional peer dependency. If it's installed, the plugin configures it automatically — you don't set `hostComponentNames` yourself. RNTL 14 uses async rendering APIs.
 :::
 
 Next: [Quick Start](/guide/quick-start) walks through writing and running your first test.

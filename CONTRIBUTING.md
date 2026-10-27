@@ -46,9 +46,10 @@ shebang, and from 0.22 it calls `Promise.withResolvers`, which Node did not ship
 21 — so building on Node 20 fails with `TypeError: Promise.withResolvers is not a
 function`. Bun's runtime has it.
 
-The Node 20 CI legs exist to prove the package's *runtime* floor and to pin RNTL 12 and
-13 as the lower-bound back-compat corners. What toolchain the build itself runs under is
-a separate question from what Node a consumer needs, so the floor stays where it is.
+What toolchain the build itself runs under is a separate question from what Node a
+consumer needs: the supported range is `engines.node` (Node 22.13+ or 24.3+), whose
+Node 22 floor the CI matrix runs at, with RNTL 12 and 13 as the lower-bound back-compat
+legs.
 
 The output is identical either way — verified by hashing `dist` from both runtimes on
 tsdown 0.21 and 0.22.

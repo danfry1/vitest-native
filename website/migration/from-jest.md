@@ -65,7 +65,7 @@ jest.mock('./api', () => ({ get: vi.fn() }))  // named-only → `import api from
 
 ### Upgrade RNTL to 12–14 (recommended)
 
-The `@jest/globals` alias unblocks RNTL < 12, but **upgrading to `@testing-library/react-native@^12` is the cleaner fix** (12 dropped the `@jest/globals` dependency). vitest-native supports RNTL 12–14. RNTL 14 requires Node 22.13 or 24+ and makes rendering APIs async, so await `render` and other APIs as described in its migration guide.
+The `@jest/globals` alias unblocks RNTL < 12, but **upgrading to `@testing-library/react-native@^12` is the cleaner fix** (12 dropped the `@jest/globals` dependency). vitest-native supports RNTL 12–14. RNTL 14 makes rendering APIs async, so await `render` and other APIs as described in its migration guide.
 
 ### Delete third-party native-lib mocks
 

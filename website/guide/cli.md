@@ -31,8 +31,7 @@ jest-compat setup file.
 
 Read-only environment diagnosis:
 
-- Node version against the floor (and the RNTL 14 ⇄ Node 22.13 interaction —
-  the one incompatibility that otherwise surfaces as a raw runtime failure).
+- Node version against the supported range (22.13+ on Node 22, or 24.3+).
 - Required peers (vitest, vite, react) against the supported ranges, including
   the per-major Vite security floors.
 - Which engine `auto` resolves to for this project, and why.

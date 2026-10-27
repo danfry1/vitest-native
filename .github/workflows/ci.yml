@@ -66,8 +66,8 @@ jobs:
         run: node packages/vitest-native/scripts/check-changeset.mjs "$BASE_SHA" "$HEAD_SHA"
 
   check:
-    # Unique per leg: the two Node 20 legs differ only by RNTL, and GitHub resolves a
-    # check name shared by two jobs ambiguously.
+    # Unique per leg: the two back-compat legs differ only by RNTL, and GitHub resolves
+    # a check name shared by two jobs ambiguously.
     name: Full gate (${{ matrix.os }}, Node ${{ matrix.node-version }}${{ matrix.rntl && format(', RNTL {0}', matrix.rntl) || '' }})
     needs: classify
     if: needs.classify.outputs.docs-only != 'true'
@@ -77,17 +77,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # RNTL 14 (the lockfile version) requires Node >=22.13, so the Node 20 legs
-        # double as the lower-bound back-compat corners: they pin RNTL 12 and 13 — the
-        # versions Node 20 users run — to prove the full supported peer range (>=12
-        # <15) and the Node floor on every push. The hot runtime and cross-check are
-        # calibrated on the current RNTL and run only on the RNTL 14 legs (step `if`s).
+        # Node 22.13 is the Node 22 floor (engines.node is >=22.13.0 <23 || >=24.3.0),
+        # and runs the threaded loader; Node 24.13 runs it in-thread
+        # (inThreadHooksReliable in native/loader.mjs). The back-compat legs pin RNTL 12
+        # and 13 to prove the full supported peer range (>=12 <15) on every push. The
+        # hot runtime and cross-check are calibrated on the current RNTL and run only on
+        # the RNTL 14 legs (step `if`s).
         include:
           - os: ubuntu-latest
-            node-version: 20.19.4
+            node-version: 22.13.0
             rntl: '12'
           - os: ubuntu-latest
-            node-version: 20.19.4
+            node-version: 22.13.0
             rntl: '13'
           - os: ubuntu-latest
             node-version: 22.13.0

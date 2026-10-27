@@ -3,8 +3,8 @@
  * actually broken and watching it report no blocking problems.
  *
  * 1. The Node floor was hardcoded as 20 and compared on the MAJOR only. When the real
- *    floor moved to 20.19 — the version that added require(esm), which the root entry
- *    point depends on — doctor kept passing Node 20.0 and kept printing "floor: 20".
+ *    floor moved to 20.19 doctor kept passing Node 20.0 and kept printing "floor: 20".
+ *    It now reads the whole supported range from engines.node.
  * 2. RNTL 14 declares `test-renderer` as a non-optional peer and reconciles through it.
  *    Without it every render throws "Cannot find module 'test-renderer'", naming no
  *    file and no package, while doctor said the project was fine.
@@ -13,7 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { nodeFloor, runDoctor } from "../src/cli/doctor.js";
+import { nodeRange, runDoctor, satisfiesNodeRange } from "../src/cli/doctor.js";
 
 const roots: string[] = [];
 afterAll(() => {
@@ -46,32 +46,47 @@ const testingLine = (root: string) => {
   return lines.slice(start + 1, start + 2).join(" ");
 };
 
-describe("doctor: the Node floor comes from engines.node", () => {
+describe("doctor: the supported Node range comes from engines.node", () => {
   it("matches this package's own manifest", () => {
     const manifest = JSON.parse(
       fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"),
     ) as { engines: { node: string } };
-    const [major, minor] = nodeFloor();
-    expect(manifest.engines.node).toContain(`${major}.${minor}`);
+    expect(nodeRange()).toBe(manifest.engines.node);
   });
 
-  it("prints the floor it actually enforces", () => {
-    const [major, minor] = nodeFloor();
-    expect(runtimeLine(project({}), "24.0.0")).toContain(`floor: ${major}.${minor}`);
+  it("prints the range it actually enforces", () => {
+    expect(runtimeLine(project({}), "24.13.0")).toContain(`supported: ${nodeRange()}`);
   });
 
-  it("fails a Node below the floor even when the major matches", () => {
-    const [major, minor] = nodeFloor();
-    // The bug: 20.18 has the right major, and passed.
-    expect(minor).toBeGreaterThan(0);
-    const line = runtimeLine(project({}), `${major}.${minor - 1}.0`);
-    expect(line).toContain("✗");
-    expect(line).toContain(`requires Node >= ${major}.${minor}`);
+  it("passes each line's first supported release and fails the one before it", () => {
+    // The bug this guards: 20.18 had the floor's major, and passed.
+    const line = (node: string) => runtimeLine(project({}), node);
+    expect(line("22.13.0")).toContain("✓");
+    expect(line("22.12.0")).toContain("✗");
+    expect(line("24.3.0")).toContain("✓");
+    expect(line("24.2.0")).toContain("✗");
+    expect(line("24.2.0")).toContain(`supports Node ${nodeRange()}`);
+  });
+});
+
+describe("satisfiesNodeRange", () => {
+  const range = ">=22.13.0 <23 || >=24.3.0";
+  it.each([
+    ["20.19.4", false],
+    ["22.12.0", false],
+    ["22.13.0", true],
+    ["22.22.3", true],
+    ["23.5.0", false],
+    ["24.2.9", false],
+    ["24.3.0", true],
+    ["26.0.0", true],
+    ["v24.13.0", true],
+  ])("%s → %s", (version, expected) => {
+    expect(satisfiesNodeRange(version, range)).toBe(expected);
   });
 
-  it("passes exactly at the floor", () => {
-    const [major, minor] = nodeFloor();
-    expect(runtimeLine(project({}), `${major}.${minor}.0`)).toContain("✓");
+  it("rejects what it cannot read rather than passing it", () => {
+    expect(satisfiesNodeRange("24.0.0", "^24")).toBe(false);
   });
 });
 
