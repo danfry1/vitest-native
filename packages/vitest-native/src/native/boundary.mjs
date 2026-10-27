@@ -373,8 +373,8 @@ export const BOUNDARY_SOURCES = {
 const SUFFIXES = Object.keys(BOUNDARY_SOURCES);
 
 /**
- * Expo modules whose only job is talking to a live dev server — an environment
- * that doesn't exist under Node. `expo`'s Expo.fx requires messageSocket whenever
+ * Expo modules that cannot run under Node. Most only talk to a live dev server —
+ * an environment that doesn't exist under Node: `expo`'s Expo.fx requires messageSocket whenever
  * `__DEV__ && globalThis.expo`, and the module throws at load time when the
  * bundle wasn't served over HTTP ("Cannot create devtools websocket connections
  * in embedded environments"), taking down any suite that imports an expo-*
@@ -387,6 +387,11 @@ const EXPO_DEV_STUBS = {
   "src/async-require/messageSocket.ts": "module.exports = {};",
   "build/async-require/messageSocket.native.js": "module.exports = {};",
   "build/async-require/messageSocket.js": "module.exports = {};",
+  // Expo's winter runtime rewrites FormData.prototype for React Native's `_parts`
+  // storage. Node's FormData has none, so append() and set() threw once Expo loaded.
+  // jest-expo mocks this module for the same reason (src/preset/setup.js).
+  "build/winter/FormData.js": "exports.installFormDataPatch = () => {};",
+  "src/winter/FormData.ts": "exports.installFormDataPatch = () => {};",
 };
 const EXPO_SUFFIXES = Object.keys(EXPO_DEV_STUBS);
 

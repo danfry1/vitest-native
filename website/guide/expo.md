@@ -83,6 +83,18 @@ From SDK 57, expo-router bundles its own React Navigation, which runs for real. 
 used the installed `@react-navigation/*` packages; there, add `presets: { navigation: false }` so the
 router's navigators are real rather than the navigation preset's mocks.
 
+## Expo's runtime globals, `fetch` and MSW
+
+Expo installs web globals such as `URL`, `structuredClone` and `TextDecoderStream` when it loads.
+As under jest-expo, vitest-native installs them before your setup files run, so anything a setup
+file installs wins, in every test file, whether or not it imports Expo.
+
+Global `fetch` stays Node's. Expo's own `fetch` is driven by a native module that cannot reach the
+network under Node, and it bypasses Node's HTTP stack, where MSW (`msw/node`), nock and undici's
+`MockAgent` intercept. With Node's, an MSW server started in a setup file serves your handlers,
+and a `fetch` mocked in a setup file stays mocked. An unmocked request goes to the network, as it
+would in any Node test. `import { fetch } from 'expo/fetch'` is unaffected.
+
 ## What the expo preset covers
 
 The `expo` preset is applied when `expo-constants` is installed. It covers `expo-constants`,

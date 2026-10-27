@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 // Globals React Native core expects at runtime, ported from react-native/jest/setup.js.
@@ -256,5 +257,46 @@ export function installErrorUtils(projectRoot) {
     req(errorGuard);
   } catch {
     // Not installed; leave the global undefined rather than shipping a lookalike.
+  }
+}
+
+/**
+ * Expo's winter runtime (`expo/build/winter`), which installs `URL`,
+ * `structuredClone` and the other web globals Expo provides on a device.
+ *
+ * jest-expo loads it in its own setup file, so it runs before a project's setup
+ * files (jest-expo src/preset/setup.js). Left to load with the first `expo` import,
+ * it ran after them instead and replaced whatever they had installed: a `fetch`
+ * mocked in a setup file was overwritten once a test imported Expo. Loaded here, a
+ * project's own setup wins, as under jest-expo.
+ *
+ * Global `fetch` stays Node's. Expo's replaces it with one driven by a native
+ * module, which under Node cannot reach the network and bypasses Node's HTTP stack,
+ * where MSW, nock and undici's MockAgent intercept. Installed for every test file,
+ * it broke MSW even in files that never import Expo. Expo's own switch for keeping
+ * the existing fetch, EXPO_PUBLIC_USE_RN_FETCH (read once, as the runtime loads), is
+ * set only while it loads, and a value the project set is left alone. `expo/fetch`
+ * imported explicitly is unaffected.
+ *
+ * Resolved from the project, so this is the module `expo`'s entry later finds in
+ * the require cache rather than a second copy. Silent when `expo` is not installed.
+ */
+export function installExpoRuntime(projectRoot) {
+  let winter;
+  try {
+    const req = createRequire(path.join(projectRoot, "package.json"));
+    const expoDir = path.dirname(req.resolve("expo/package.json"));
+    winter = path.join(expoDir, "build", "winter", "index.js");
+    if (!fs.existsSync(winter)) return;
+  } catch {
+    return;
+  }
+  const KEEP_FETCH = "EXPO_PUBLIC_USE_RN_FETCH";
+  const projectSet = Object.hasOwn(process.env, KEEP_FETCH);
+  if (!projectSet) process.env[KEEP_FETCH] = "1";
+  try {
+    createRequire(winter)(winter);
+  } finally {
+    if (!projectSet) delete process.env[KEEP_FETCH];
   }
 }
