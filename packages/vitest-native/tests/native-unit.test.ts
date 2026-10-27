@@ -1384,6 +1384,8 @@ describe("native globals: globalThis.expo shim", () => {
           ? { write: vi.fn((v: string) => store.add(v)), __resetMockStore: resetStore }
           : null;
       expo.modules.VNStatefulModule.write("a");
+      // A file that overrode the reset does not stop it running.
+      resetStore.mockImplementation(() => {});
       expo[Symbol.for("vitest-native.expo.reset")]();
       expect(store.size).toBe(0);
       expect(resetStore).not.toHaveBeenCalled(); // its own call history is reset too
