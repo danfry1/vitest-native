@@ -1007,6 +1007,25 @@ describe("preset: expo", () => {
       expect(parsed).toHaveProperty("hostname");
       expect(parsed).toHaveProperty("path");
     });
+
+    // expo-router 58 calls these while seeding a route tree's initial state.
+    it("has no launch URL and opens URLs successfully", async () => {
+      expect(mock.getLinkingURL()).toBeNull();
+      await expect(mock.openURL("https://example.com")).resolves.toBe(true);
+    });
+
+    it("unwrapDevLaunchURL behaves as expo-linking documents it", () => {
+      expect(
+        mock.unwrapDevLaunchURL(
+          "myapp://expo-development-client/?url=http%3A%2F%2F10.0.0.5%3A8081%2F--%2Fprofile",
+        ),
+      ).toBe("http://10.0.0.5:8081/--/profile");
+      expect(mock.unwrapDevLaunchURL("myapp://login?__expo_disable_fab=1")).toBe("myapp://login");
+      expect(mock.unwrapDevLaunchURL("myapp://x?__expo_url=myapp%3A%2F%2Fy")).toBe("myapp://y");
+      expect(mock.unwrapDevLaunchURL("myapp://expo-development-client/")).toBe("");
+      expect(mock.unwrapDevLaunchURL("myapp://home?tab=1")).toBe("myapp://home?tab=1");
+      expect(mock.unwrapDevLaunchURL("not a url")).toBe("not a url");
+    });
   });
 
   describe("expo-status-bar", () => {

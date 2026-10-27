@@ -126,6 +126,9 @@ export function expo(): Preset {
           "resolveScheme",
           "addEventListener",
           "getInitialURL",
+          "getLinkingURL",
+          "openURL",
+          "unwrapDevLaunchURL",
         ],
         factory: () => {
           const createURL = vi.fn((path: string) => `exp://localhost:19000/${path}`);
@@ -142,6 +145,33 @@ export function expo(): Preset {
           const resolveScheme = vi.fn(() => "exp");
           const addEventListener = vi.fn(() => ({ remove: () => {} }));
           const getInitialURL = vi.fn(async () => null);
+          // SDK 58's router also reads the launch URL synchronously, opens redirects
+          // with openURL, and unwraps dev-client launch URLs before matching a route.
+          const getLinkingURL = vi.fn(() => null);
+          const openURL = vi.fn(async (_url: string) => true as const);
+          // A pure function in expo-linking (src/devLaunchURL.ts), ported as is: it
+          // returns the target of a `__expo_url` (or legacy dev-client `url`) launch
+          // command, or the URL without its reserved `__expo_*` parameters.
+          const unwrapDevLaunchURL = vi.fn((url: string) => {
+            let parsed: URL;
+            try {
+              parsed = new URL(url);
+            } catch {
+              return url;
+            }
+            const isLegacyHost = parsed.hostname === "expo-development-client";
+            const target =
+              parsed.searchParams.get("__expo_url") ??
+              (isLegacyHost ? parsed.searchParams.get("url") : null);
+            if (target != null) return target;
+            if (isLegacyHost) return "";
+            const reserved = [...parsed.searchParams.keys()].filter((key) =>
+              key.startsWith("__expo_"),
+            );
+            if (!reserved.length) return url;
+            for (const key of reserved) parsed.searchParams.delete(key);
+            return parsed.toString();
+          });
 
           const exports = {
             createURL,
@@ -150,6 +180,9 @@ export function expo(): Preset {
             resolveScheme,
             addEventListener,
             getInitialURL,
+            getLinkingURL,
+            openURL,
+            unwrapDevLaunchURL,
           };
 
           return {

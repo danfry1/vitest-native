@@ -323,6 +323,13 @@ export const BOUNDARY_SOURCES = {
     module.exports = { __esModule: true, default: TextInput };
   `,
   "Libraries/Core/InitializeCore.js": `module.exports = { __esModule: true, default: {} };`,
+  // `react-native/setup-env` (0.87+) is the environment setup InitializeCore now
+  // delegates to, and Expo SDK 58's winter runtime requires it directly. It runs
+  // setUpTimers, which replaces the global setTimeout with RN's JSTimers. Those are
+  // driven by the native timing module, so under Node no timer ever fires and the
+  // first awaited one hangs the test file without an error. Like InitializeCore,
+  // it does not run under the native engine.
+  "src/setup-env.js": `module.exports = {};`,
   // AppContainer (which RNTL's render mounts) renders <LogBoxNotificationContainer/>
   // in dev. That component subscribes to LogBoxData and, in componentDidMount,
   // schedules a setTimeout/ setImmediate setState — which fires AFTER the test's
