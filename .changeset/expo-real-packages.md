@@ -9,7 +9,7 @@ Their native modules answer as jest-expo answers them: from a package's own `moc
 What a suite that relied on the preset sees instead, each as under jest-expo:
 
 - `Constants.expoConfig` is `{}` (was `{ name: 'test-app', slug: 'test-app', version: '1.0.0', extra: {} }`), so `expoConfig.name` and `expoConfig.extra` are `undefined`. `Constants.appOwnership` is `null` (was `'standalone'`), `executionEnvironment` is `'mock'` (was `'storeClient'`), and `getWebViewUserAgentAsync()` resolves `undefined`.
-- `Linking.createURL()` and `Linking.parse()` throw for want of a scheme in the Expo manifest (they returned `exp://localhost:19000/…` URLs). A test that needs them mocks `expo-constants` with a scheme, which now reaches expo-linking's own import of it, or mocks `expo-linking`.
+- `Linking.createURL()` and `Linking.parse()` throw for want of a scheme in the Expo manifest (they returned `exp://localhost:19000/…` URLs). A test that needs them mocks `expo-constants` with a scheme through `jest.mock` (the jest-compat layer), which now reaches expo-linking's own import of it, or mocks `expo-linking`; a `vi.mock` of `expo-constants` does not reach it yet (#322).
 - `Font.isLoaded()` is `false` until a font is loaded (was always `true`), and `Asset.fromModule()` of a number that is not a bundled asset throws (it returned a made-up asset). Bundled images and fonts load through the real expo-asset and expo-font.
 - `preventAutoHideAsync()` and `hideAsync()` resolve `undefined` (were `true`).
 

@@ -371,16 +371,21 @@ export async function load(url, context, nextLoad) {
  * `jest.mock` factory, so a package's own require of a mocked module got the real one
  * (expo-linking read the real expo-constants under jest.mock).
  *
- * Node takes the import's named exports from the facade's source, so they are read
- * from the compiled code (cjsExportNames) into the form cjs-module-lexer understands.
+ * Node takes the import's named exports from the facade's source with cjs-module-lexer,
+ * so the compiled code is carried inside a function the facade never calls: the lexer
+ * reads exactly the names it read when the code itself was served (Babel's
+ * `exports.x =` and `Object.defineProperty(exports, …)` forms, re-exports), and a
+ * function keeps the code's own declarations out of the facade's scope. Names the
+ * lexer cannot follow (`module.exports = { A() {}, b: () => 1 }`) are added in the form
+ * it does read, from the compiled code (cjsExportNames). Exported as a test seam.
  */
-function requireFacade(url, file, code) {
+export function requireFacade(url, file, code) {
   const names = cjsExportNames(code);
   return {
     format: "commonjs",
     source: [
-      `const { createRequire } = require("node:module");`,
-      `module.exports = createRequire(${JSON.stringify(url)})(${JSON.stringify(file)});`,
+      `module.exports = require("node:module").createRequire(${JSON.stringify(url)})(${JSON.stringify(file)});`,
+      `0 && function () {\n${code}\n};`,
       ...(names.length > 0 ? [`0 && (module.exports = { ${names.join(", ")} });`] : []),
     ].join("\n"),
     shortCircuit: true,
