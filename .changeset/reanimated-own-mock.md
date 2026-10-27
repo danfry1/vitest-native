@@ -9,7 +9,7 @@ The mock loads the real package and `react-native-worklets` in their JS implemen
 What a suite on the preset sees change, each as under Jest with Reanimated's mock:
 
 - A `useSharedValue` is a new `{ value }` on every render, so a value set before a re-render does not survive it; `makeMutable(x)` returns `x`, and `useAnimatedKeyboard()` returns plain numbers.
-- `cancelAnimation`, `scrollTo` and the other no-op functions are plain functions, not `vi.fn`, so `toHaveBeenCalled` on them fails; spy on them with `vi.spyOn` if a test needs to.
+- `cancelAnimation`, `scrollTo` and the other no-op functions are plain functions, not `vi.fn`, so `toHaveBeenCalled` on them fails.
 - `withReanimatedTimer` and `advanceAnimationByTime` use Jest's fake timers and need the jest-compat layer (`jestCompatSetup`).
 - Under the native engine the worklets preset no longer applies with Worklets 0.9 or later: `runOnJS`, `runOnUI`, `scheduleOnRN` and `scheduleOnUI` run their worklet on a later tick, as the real package does under Jest, where the preset ran it synchronously, so a test that reads the result awaits it (`await waitFor(...)`). `presets: { worklets: true }` keeps the preset.
 
