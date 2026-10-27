@@ -379,7 +379,10 @@ export async function load(url, context, nextLoad) {
  * lexer cannot follow (`module.exports = { A() {}, b: () => 1 }`) are added in the form
  * it does read, from the compiled code (cjsExportNames). Exported as a test seam.
  */
-export function requireFacade(url, file, code) {
+export function requireFacade(url, file, compiled) {
+  // A `#!` line is valid only as a source's first characters; carried inside the
+  // facade it would be a syntax error. The carried code is never run.
+  const code = compiled.startsWith("#!") ? compiled.replace(/^#!.*/, "") : compiled;
   const names = cjsExportNames(code);
   return {
     format: "commonjs",

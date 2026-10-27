@@ -58,3 +58,22 @@ it("gives an ESM importer the lexer's names and one CommonJS instance", () => {
   expect(out.same).toBe(true);
   expect(out.loads).toBe(1);
 });
+
+it("serves a compiled file that starts with a #! line", () => {
+  const file = path.join(dir, "bin.cjs");
+  const code = `#!/usr/bin/env node\n"use strict";\nexports.run = () => "ran";\n`;
+  fs.writeFileSync(file, code);
+  fs.writeFileSync(
+    path.join(dir, "bin-facade.cjs"),
+    requireFacade(pathToFileURL(file).href, file, code).source,
+  );
+  fs.writeFileSync(
+    path.join(dir, "bin-importer.mjs"),
+    `import { run } from "./bin-facade.cjs";\nconsole.log(run());\n`,
+  );
+  expect(
+    execFileSync(process.execPath, [path.join(dir, "bin-importer.mjs")], {
+      encoding: "utf8",
+    }).trim(),
+  ).toBe("ran");
+});
