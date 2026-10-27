@@ -72,7 +72,7 @@ export const SELF_TESTING_FROM_MAJOR: Partial<Record<keyof typeof AUTO_DETECT_PR
  * - expo: expo-constants, expo-font, expo-asset, expo-splash-screen, expo-linking and
  *   expo-status-bar run against the engine's Expo runtime (native/globals.mjs) and
  *   their own native-module mocks (native/expo-module-mocks.mjs). Measured on an
- *   Expo SDK 58 app against jest-expo: 15 of 17 probes of these packages matched with
+ *   Expo SDK 58 app against jest-expo: 17 of 17 probes of these packages matched with
  *   the preset off, 4 with it on. The preset was missing API (`hide`, `setOptions`,
  *   `useAssets`, `canOpenURL` …) and answered with values jest-expo never gives
  *   (`Constants.expoConfig.name === 'test-app'`).

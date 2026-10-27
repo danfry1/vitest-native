@@ -331,8 +331,10 @@ export function expoModuleMock(projectRoot, name, mockFn) {
  * table has no such module. Values follow jest-expo's `mock()` (src/preset/setup.js): a
  * member's own `mock` value, else a function (resolving for native async functions), `1`
  * for a number, `'mock'` for a string, `[]` for an array, and `{}` otherwise. A member
- * newer than the table is not here; the caller keeps its stub's conventions for those,
- * and for every unlisted member when no table is the installed SDK's.
+ * the table does not list is not here. With the installed SDK's own table the caller
+ * answers it `undefined`, as jest-expo does, except an `*Async` method or a PascalCase
+ * class, which keep the stub's conventions; with another SDK's table the conventions
+ * answer every unlisted member.
  */
 export function expoModuleTableMembers(projectRoot, name, mockFn) {
   const members = expoModuleTableFor(projectRoot).table.modules[name];
