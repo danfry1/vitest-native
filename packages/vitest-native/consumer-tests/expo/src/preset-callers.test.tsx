@@ -22,12 +22,12 @@ const CALLERS: Record<string, string[]> = {
 };
 
 /**
- * The smallest number of names each caller is expected to use. A scan that finds
- * fewer has stopped recognising the build's shape, which would otherwise pass as
- * "nothing to check".
+ * How many names the scan finds in the pinned expo-router today. A scan that finds
+ * fewer has stopped recognising part of the build's shape, which would otherwise pass
+ * as fewer things to check. Raise these when a router upgrade uses more.
  */
 const FLOOR: Record<string, number> = {
-  "expo-router>expo-linking": 4,
+  "expo-router>expo-linking": 5,
   "expo-router>expo-constants": 1,
 };
 
@@ -96,10 +96,12 @@ describe("presets cover what their callers use", () => {
         expect(named.length + onDefault.length).toBeGreaterThanOrEqual(
           FLOOR[`${caller}>${target}`] ?? 1,
         );
-        // Under the native engine this import is the preset, not the package.
+        // Under the native engine this import is the preset, not the package. Its
+        // module binds every DECLARED name, so presence is not enough: a declared name
+        // the factory never returns is bound to undefined, and the caller still throws.
         const mod: Record<string, any> = await import(target);
-        expect(named.filter((name) => !(name in mod))).toEqual([]);
-        expect(onDefault.filter((name) => !(name in (mod.default ?? {})))).toEqual([]);
+        expect(named.filter((name) => mod[name] === undefined)).toEqual([]);
+        expect(onDefault.filter((name) => mod.default?.[name] === undefined)).toEqual([]);
       });
     }
   }

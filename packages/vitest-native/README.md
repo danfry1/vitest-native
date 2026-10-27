@@ -5,7 +5,7 @@
 Run your React Native tests under Vitest, against **real React Native** — the same JavaScript that ships in your app, with only the native-module boundary mocked. That is the default and the point of the project. A lightweight pure-JS mock engine is available as an opt-in for fast, RN-free unit tests.
 
 > **Beta.** The release-supported native engine is validated across React Native 0.81–0.88,
-> Vite 6–8, Vitest 4–5, RNTL 12–14, bare apps, Expo SDK 57 (including expo-router's own testing
+> Vite 6–8, Vitest 4–5, RNTL 12–14, bare apps, Expo SDK 58 and 57 (including expo-router's own testing
 > library), and hoisted monorepos. The hot
 > runtime (on by default where it can be bounded) is marked experimental because it uses Vitest's
 > experimental custom-pool APIs.
@@ -580,9 +580,10 @@ expo-router and React Navigation — runs for real under the native engine.
 - **Expo SDK trails React Native.** Pin your `react-native` to the version your Expo SDK supports
   (SDK 54 and later are within this plugin's validated range), not the newest RN release.
 
-A packed Expo SDK 57 app is installed from the release tarball and tested in CI: Expo module
-auto-detection and rendering, expo-router's testing library against file-based `app/` routes, and
-the same routes under the configuration `migrate` generates from a jest-expo setup. See the
+Packed Expo SDK 58 and SDK 57 apps are installed from the release tarball and tested in CI: Expo
+module auto-detection and rendering, and expo-router's testing library against file-based `app/`
+routes. The SDK 58 app also runs those routes under the configuration `migrate` generates from a
+jest-expo setup. See the
 [Expo guide](https://danfry1.github.io/vitest-native/guide/expo).
 
 ---
@@ -968,12 +969,12 @@ Every release must pass:
 - Linux on Node 20.19, 22.13, and 24, plus macOS and Windows on Node 22.13.
 - The mock, native iOS, native Android, hot-runtime, isolation, and 100-file soak suites.
 - React Native 0.81–0.88 against both locked and newest-supported Vitest, plus the Vitest 4 floor
-  on 0.81 and 0.87.
+  on 0.81 and 0.88.
 - Vitest's own behaviour under the defaults, on Vitest 5 and the Vitest 4 floor: config and CLI
   flags, projects, watch mode, the jsdom and happy-dom environments, `--typecheck`, `vitest bench`,
   and the HTML reporter.
-- Packed consumers: bare RN 0.83/RNTL 12, a Jest-migration project, Expo SDK 57/RNTL 13 (with
-  expo-router and a `migrate`-generated jest-expo config), a mock-engine RNTL 14 project, npm- and
+- Packed consumers: bare RN 0.83/RNTL 12, a Jest-migration project, Expo SDK 58/RNTL 14 (with
+  expo-router and a `migrate`-generated jest-expo config), Expo SDK 57/RNTL 13 (with expo-router), a mock-engine RNTL 14 project, npm- and
   pnpm-workspace monorepos on Vite 8, and an RN 0.86 Android project.
 - Packed V8 and Istanbul coverage maps/counts matching default isolation exactly under hot workers.
 - Mock-versus-real-RN behavioral cross-checks, example-app tests, typecheck, lint, formatting, and
