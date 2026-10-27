@@ -159,3 +159,10 @@ MSW server that a setup file starts, from files that import Expo and files that 
 the presets provide every `expo-linking` and `expo-constants` member expo-router uses, that loading
 Expo leaves Node's timers and `Promise` in place, and runs its router suite under the configuration
 `migrate --write` generates from a jest-expo setup.
+
+A fourth app holds vitest-native to jest-expo directly. It installs both, runs the same probes of
+Expo's runtime, the common Expo modules and rendering under `jest` with the `jest-expo` preset and
+under vitest-native, and fails when the two answer differently. The exceptions are listed in
+`consumer-tests/expo-jest-parity/parity/run.mjs`, each with its reason (real host component
+names, bundled assets that jest-expo cannot load, jest-expo's hand-written `expo-file-system/legacy`
+mock), and a listed difference that stops differing fails too.

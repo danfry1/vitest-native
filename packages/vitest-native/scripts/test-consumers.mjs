@@ -76,6 +76,9 @@ try {
     "expo",
     "expo-sdk57",
     "expo-template",
+    // jest-expo and vitest-native run the same probes, which must agree except for the
+    // listed differences (consumer-tests/expo-jest-parity/parity/run.mjs).
+    "expo-jest-parity",
     "monorepo",
     "current-rn",
     "mock-rntl14",
