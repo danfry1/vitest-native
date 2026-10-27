@@ -285,9 +285,17 @@ export function installExpoRuntime(projectRoot) {
   let winter;
   try {
     const req = createRequire(path.join(projectRoot, "package.json"));
-    const expoDir = path.dirname(req.resolve("expo/package.json"));
-    winter = path.join(expoDir, "build", "winter", "index.js");
-    if (!fs.existsSync(winter)) return;
+    const manifestPath = req.resolve("expo/package.json");
+    const main = JSON.parse(fs.readFileSync(manifestPath, "utf8")).main;
+    if (typeof main !== "string") return;
+    // Beside the entry the package declares, which is what its entry imports as
+    // `./winter`: build/winter/index.js from SDK 58, src/winter/index.ts before it
+    // (those SDKs publish the runtime as TypeScript only).
+    const entryDir = path.join(path.dirname(manifestPath), path.dirname(main));
+    winter = ["index.js", "index.ts"]
+      .map((file) => path.join(entryDir, "winter", file))
+      .find((file) => fs.existsSync(file));
+    if (!winter) return;
   } catch {
     return;
   }

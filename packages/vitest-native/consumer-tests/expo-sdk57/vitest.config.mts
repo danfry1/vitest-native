@@ -11,5 +11,6 @@ export default defineConfig({
     // An explicit include also preserves Vitest's node_modules exclusion instead of
     // replacing its complete default `exclude` list with a narrower local pattern.
     include: ["src/**/*.test.tsx"],
+    setupFiles: ["./src/setup/msw.ts"],
   },
 });
