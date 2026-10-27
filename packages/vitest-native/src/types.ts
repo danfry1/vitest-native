@@ -383,7 +383,9 @@ export interface VitestNativeOptions {
    *   or exceeds this value, also between scheduler tasks. By default a
    *   constrained-memory-aware plan derives this threshold, caps automatic
    *   concurrency at four, reserves main-process and worker-replacement RSS,
-   *   and stops before crossing 90% of the host/container limit.
+   *   and stops before crossing 90% of the host/container limit. A worker count
+   *   you set (`maxWorkers`, `--maxWorkers` or `VITEST_MAX_WORKERS`) is capped
+   *   only by what that memory envelope admits.
    * - `allowUnboundedMemory`: explicitly permit configurations where Vitest
    *   cannot enforce file-boundary recycling, notably `maxWorkers: 1`. This
    *   also disables the automatic worker cap and process-RSS hard stop. Use

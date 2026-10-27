@@ -137,6 +137,8 @@ import { label } from "./label.mjs";
 // The hot worker installs its per-file reset before any test file loads.
 const hot = typeof globalThis.__vitest_native_hot_reset === "function";
 if (process.env.VN_MODE_FILE) fs.appendFileSync(process.env.VN_MODE_FILE, hot ? "hot\\n" : "isolated\\n");
+// The worker count the hot memory plan each worker received was sized for.
+if (process.env.VN_PLAN_FILE && process.env.VITEST_NATIVE_MEMORY_PLAN) fs.appendFileSync(process.env.VN_PLAN_FILE, JSON.parse(process.env.VITEST_NATIVE_MEMORY_PLAN).maxWorkers + "\\n");
 
 test("unit ${i} sees clean module state", () => {
   expect(state.dirtiedBy).toBe(null);
@@ -381,6 +383,13 @@ function readMode(modeFile) {
   return modes.length === 1 ? modes[0] : modes.length ? "mixed" : "none";
 }
 
+// The distinct worker counts the hot memory plan reached the workers with.
+const planFile = path.join(root, ".plan-workers");
+const plannedWorkers = () =>
+  fs.existsSync(planFile)
+    ? [...new Set(fs.readFileSync(planFile, "utf8").trim().split("\n"))].join(",")
+    : "none";
+
 function check(name, condition, detail) {
   if (condition) {
     console.log(`  ✓ ${name}`);
@@ -523,6 +532,37 @@ try {
       { plugin: { hotRuntime: true }, args: ["--maxWorkers=1"] },
       "none",
       (r) => r.status !== 0 && /HOT_RUNTIME_OVERRIDDEN|HOT_MEMORY_UNBOUNDED/.test(r.output),
+    ],
+    // Vitest applies --maxWorkers and VITEST_MAX_WORKERS after the plugin's config hook
+    // built the memory plan, so the plan (and each worker's heap threshold) was once
+    // sized for four while Vitest ran six. A count the user chose is bounded by memory
+    // only, not by the automatic cap of four; a CI runner's memory admits six.
+    [
+      "--maxWorkers above the automatic cap gets a plan for that count",
+      {
+        plugin: { diagnostics: true },
+        args: ["--maxWorkers=6"],
+        env: { VN_PLAN_FILE: planFile },
+        before: () => fs.rmSync(planFile, { force: true }),
+      },
+      "hot",
+      (r) =>
+        r.status === 0 &&
+        /requested\/admitted\/selected: 6 \/ \d+ \/ 6\b/.test(r.output) &&
+        plannedWorkers() === "6",
+    ],
+    [
+      "VITEST_MAX_WORKERS above the automatic cap gets a plan for that count",
+      {
+        plugin: { diagnostics: true },
+        env: { VITEST_MAX_WORKERS: "6", VN_PLAN_FILE: planFile },
+        before: () => fs.rmSync(planFile, { force: true }),
+      },
+      "hot",
+      (r) =>
+        r.status === 0 &&
+        /plan rebuilt for the 6 workers/.test(r.output) &&
+        plannedWorkers() === "6",
     ],
     ["--sequence.shuffle", { args: ["--sequence.shuffle"] }, HOT, (r) => r.status === 0],
     [
@@ -720,10 +760,13 @@ try {
     ],
     [
       // Vitest throws when projects in one sequence.groupOrder resolve to different
-      // worker counts. Seven workers in both projects is a config stock Vitest accepts;
-      // the hot memory plan caps the native project (and the root it shares a config
-      // with) at four or fewer, so on any machine 'auto' must fall back rather than fail
-      // the whole run. Without a pinned count the conflict depends on the CPU count.
+      // worker counts. Seven workers in both projects is a config stock Vitest accepts.
+      // Seven is the user's explicit count, which the hot memory plan admits whenever
+      // memory holds it (a CI runner's does), so the native project runs hot with the
+      // same seven and the group stays valid. The plan once capped it at four, where
+      // 'auto' had to fall back; the unit tests cover that fallback, since a memory cap
+      // is not reproducible on a runner. Without a pinned count the outcome depends on
+      // the CPU count.
       "a native project beside a plain project in one group",
       {
         test: {
@@ -737,7 +780,8 @@ try {
           ],
         },
       },
-      "isolated",
+      // An explicit count, so hot on any CPU count.
+      "hot",
       (r) => r.status === 0 && r.passed === all.total + 1,
     ],
     [

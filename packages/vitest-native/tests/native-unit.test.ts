@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
@@ -1125,6 +1125,187 @@ describe("plugin engine routing", () => {
       });
       expect(config.maxWorkers).toBeUndefined();
       err.mockRestore();
+    });
+
+    describe("a worker count Vitest resolved after config()", () => {
+      const GIB = 1024 ** 3;
+      // The host the rebuilt plan sees: 2 GiB admits four 256 MiB worker envelopes,
+      // 4 GiB eleven.
+      const host = (bytes: number) => {
+        vi.spyOn(os, "totalmem").mockReturnValue(bytes);
+        vi.spyOn(process, "constrainedMemory").mockReturnValue(0);
+      };
+      const poolWorker = (pool: any) =>
+        pool.createPoolWorker({
+          distPath: "/tmp/unused",
+          project: {
+            vitest: { logger: { outputStream: process.stdout, errorStream: process.stderr } },
+          },
+          method: "run",
+          environment: { name: "node", options: null },
+          execArgv: [],
+          env: {},
+        });
+      async function hotWithPool(hotRuntime: unknown) {
+        const plugin = reactNative({ engine: "native", hotRuntime } as any) as any;
+        const cfg = await runPluginConfig(
+          plugin,
+          { root: projectRoot, test: { maxWorkers: 3 } },
+          SERVE_ENV,
+        );
+        return { plugin, pool: cfg.test.pool, config: { root: projectRoot, ...cfg.test } };
+      }
+      const envPlan = (config: any) => JSON.parse(config.env.VITEST_NATIVE_MEMORY_PLAN);
+      afterEach(() => vi.restoreAllMocks());
+
+      it("rebuilds the memory plan for --maxWorkers, above the automatic cap of four", async () => {
+        const { plugin, pool, config } = await hotWithPool("auto");
+        expect(config.maxWorkers).toBe(3);
+        const planned = poolWorker(pool).memoryLimit;
+        host(4 * GIB);
+        run(plugin, config, { maxWorkers: 10, pool: "vitest-native" });
+        expect(config.pool).toBe("vitest-native");
+        expect(config.isolate).toBe(false);
+        expect(config.maxWorkers).toBe(10);
+        expect(envPlan(config)).toMatchObject({
+          requestedWorkers: 10,
+          maxWorkers: 10,
+          enforced: true,
+          effectiveLimit: 4 * GIB,
+        });
+        // Workers created from here on recycle at the heap threshold sized for ten.
+        const worker = poolWorker(pool);
+        expect(worker.memoryLimit).toBe(envPlan(config).workerHeapLimit);
+        expect(worker.memoryLimit).not.toBe(planned);
+        expect(worker.memoryPlan).toMatchObject({ maxWorkers: 10 });
+      });
+
+      it("caps it to what memory admits, with a warning, and keeps hot", async () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        for (const hotRuntime of ["auto", true]) {
+          const { plugin, pool, config } = await hotWithPool(hotRuntime);
+          host(2 * GIB);
+          // VITEST_MAX_WORKERS reaches the resolved config with no CLI flag at all.
+          config.maxWorkers = 8;
+          plugin.configureVitest({ vitest: { _cliOptions: {} }, project: { config } });
+          expect(config.isolate, String(hotRuntime)).toBe(false);
+          expect(config.maxWorkers).toBe(4);
+          expect(envPlan(config)).toMatchObject({ requestedWorkers: 8, maxWorkers: 4 });
+          expect(poolWorker(pool).memoryPlan).toMatchObject({ maxWorkers: 4 });
+          expect(warn).toHaveBeenCalledWith(
+            expect.stringMatching(/capped maxWorkers from 8 to 4 for the host memory budget/),
+          );
+        }
+      });
+
+      it("admits a config-file count the same way, warning when memory caps it", async () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const plan = async (bytes: number, maxWorkers: number) => {
+          host(bytes);
+          const plugin = reactNative({ engine: "native" }) as any;
+          const cfg = await runPluginConfig(
+            plugin,
+            { root: projectRoot, test: { maxWorkers } },
+            SERVE_ENV,
+          );
+          return { maxWorkers: cfg.test.maxWorkers, plan: envPlan(cfg.test) };
+        };
+        expect(await plan(4 * GIB, 6)).toMatchObject({ maxWorkers: 6, plan: { maxWorkers: 6 } });
+        expect(warn).not.toHaveBeenCalledWith(expect.stringMatching(/capped maxWorkers/));
+        // Implicit 'auto' still says so: the user asked for a count they will not get.
+        expect(await plan(2 * GIB, 8)).toMatchObject({ maxWorkers: 4 });
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringMatching(/capped maxWorkers from 8 to 4 for the host memory budget/),
+        );
+      });
+
+      it("re-caps a count config() already planned and warned about, once", async () => {
+        // Vitest 5 hands config() `--maxWorkers` too, then applies it again over the
+        // capped count config() returned.
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        host(2 * GIB);
+        const plugin = reactNative({ engine: "native" }) as any;
+        const cfg = await runPluginConfig(
+          plugin,
+          { root: projectRoot, test: { maxWorkers: 8 } },
+          SERVE_ENV,
+        );
+        const config = { root: projectRoot, ...cfg.test };
+        const before = config.env.VITEST_NATIVE_MEMORY_PLAN;
+        expect(config.maxWorkers).toBe(4);
+        run(plugin, config, { maxWorkers: 8, pool: "vitest-native" });
+        expect(config.maxWorkers).toBe(4);
+        expect(config.env.VITEST_NATIVE_MEMORY_PLAN).toBe(before);
+        expect(warn.mock.calls.filter(([m]) => /capped maxWorkers/.test(m))).toHaveLength(1);
+      });
+
+      it("prints the rebuilt plan under diagnostics", async () => {
+        const log = vi.spyOn(console, "log").mockImplementation(() => {});
+        const plugin = reactNative({ engine: "native", hotRuntime: "auto", diagnostics: true });
+        const cfg = await runPluginConfig(
+          plugin as any,
+          { root: projectRoot, test: { maxWorkers: 2 } },
+          SERVE_ENV,
+        );
+        const config = { root: projectRoot, ...cfg.test };
+        log.mockClear();
+        host(4 * GIB);
+        run(plugin, config, { maxWorkers: 6, pool: "vitest-native" });
+        expect(log).toHaveBeenCalledWith(
+          expect.stringContaining("workers requested/admitted/selected: 6 / 11 / 6"),
+        );
+      });
+
+      it("leaves the plan alone when Vitest kept the planned count", async () => {
+        const { plugin, pool, config } = await hotWithPool("auto");
+        const before = config.env.VITEST_NATIVE_MEMORY_PLAN;
+        const limit = poolWorker(pool).memoryLimit;
+        host(4 * GIB);
+        run(plugin, config, { maxWorkers: 3, pool: "vitest-native" });
+        expect(config.env.VITEST_NATIVE_MEMORY_PLAN).toBe(before);
+        expect(poolWorker(pool).memoryLimit).toBe(limit);
+      });
+
+      it("keeps a hotRuntime.memoryLimit the user set", async () => {
+        const { plugin, pool, config } = await hotWithPool({ memoryLimit: 123 * 1024 * 1024 });
+        host(4 * GIB);
+        run(plugin, config, { maxWorkers: 6, pool: "vitest-native" });
+        expect(config.maxWorkers).toBe(6);
+        expect(poolWorker(pool).memoryLimit).toBe(123 * 1024 * 1024);
+        expect(poolWorker(pool).memoryPlan).toMatchObject({ maxWorkers: 6 });
+      });
+
+      it("leaves allowUnboundedMemory's worker count to Vitest", async () => {
+        const { plugin, config } = await hotWithPool({ allowUnboundedMemory: true });
+        const before = config.env.VITEST_NATIVE_MEMORY_PLAN;
+        host(2 * GIB);
+        run(plugin, config, { maxWorkers: 12, pool: "vitest-native" });
+        expect(config.maxWorkers).toBe(12);
+        expect(config.env.VITEST_NATIVE_MEMORY_PLAN).toBe(before);
+      });
+
+      it("gives Vitest's count back when the capped count conflicts with its group", async () => {
+        const err = quiet();
+        vi.spyOn(console, "warn").mockImplementation(() => {});
+        const { plugin, config } = await hotWithPool("auto");
+        // Vitest 5 copies --maxWorkers into every project, so the plain one runs eight.
+        const self = { name: "native", config };
+        const other = { name: "plain", config: { maxWorkers: 8 } };
+        host(2 * GIB);
+        Object.assign(config, { maxWorkers: 8, pool: "vitest-native" });
+        plugin.configureVitest({
+          vitest: { config: { cliOptions: { maxWorkers: 8 } }, projects: [self, other] },
+          project: self,
+        });
+        expect(err).toHaveBeenCalledWith(
+          expect.stringMatching(
+            /hot runtime off: the project 'plain'.*8 workers to this project's 4/,
+          ),
+        );
+        expect(config.isolate).toBe(true);
+        expect(config.maxWorkers).toBe(8);
+        expect(config.env.VITEST_NATIVE_MEMORY_PLAN).toBeUndefined();
+      });
     });
 
     it("falls back when another project in its group runs a different worker count", async () => {
