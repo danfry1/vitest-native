@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
-import { containsPath } from "./match.mjs";
+import { NODE_MODULES_PATH, containsPath } from "./match.mjs";
 
 /**
  * Packages that must never be auto-inlined even though they depend on React
@@ -185,6 +185,68 @@ function manifestsFrom(projectRoot: string): { dir: string; manifest: Record<str
 }
 
 /**
+ * Where `resolve.alias` sends Vite into first-party source: the absolute,
+ * non-node_modules replacement of every entry, spelled as Node spells it.
+ *
+ * A workspace library aliased to its SOURCE is resolved by Vite. If detection also
+ * externalizes that library's directory, Vite resolves a file and Node loads it — two
+ * owners, which is two instances whenever the file is reached any other way (see
+ * `aliasesSource` in detectEcosystemPackages). This is how detection learns about it.
+ *
+ * - Both shapes of the option: an object, or an array of `{ find, replacement }`.
+ * - A regex entry's replacement is a template, and the part before its first `$` is
+ *   the only directory it can name. The same cut is applied to string entries, which
+ *   pass through `String.prototype.replace` too and so honour the same tokens.
+ * - Entries with a `customResolver` are skipped: what they resolve to is that
+ *   resolver's decision, not the replacement's.
+ * - Relative replacements are skipped: Vite resolves them against each importer, so no
+ *   single directory is named.
+ * - Real paths. Node keys packages by real path and Vite's alias is whatever was
+ *   written — through a symlink, macOS's `/var`, a Windows drive spelling. Comparing
+ *   the two as written misses exactly the layouts where it matters. A target that does
+ *   not exist yet resolves its nearest existing ancestor and keeps the rest.
+ */
+export function sourceAliasTargets(alias: unknown): string[] {
+  const list: unknown[] = Array.isArray(alias)
+    ? alias
+    : alias && typeof alias === "object"
+      ? Object.entries(alias).map(([find, replacement]) => ({ find, replacement }))
+      : [];
+  const targets = new Set<string>();
+  for (const item of list) {
+    if (!item || typeof item !== "object") continue;
+    const { replacement, customResolver } = item as {
+      replacement?: unknown;
+      customResolver?: unknown;
+    };
+    if (typeof replacement !== "string" || customResolver) continue;
+    const dollar = replacement.indexOf("$");
+    const prefix = dollar === -1 ? replacement : replacement.slice(0, dollar);
+    if (!prefix || !path.isAbsolute(prefix)) continue;
+    const target = realPathOf(path.resolve(prefix));
+    if (NODE_MODULES_PATH.test(target)) continue;
+    targets.add(target);
+  }
+  return [...targets];
+}
+
+/** `fs.realpathSync` of the nearest existing ancestor, with the remainder re-appended. */
+function realPathOf(file: string): string {
+  const rest: string[] = [];
+  let dir = file;
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(dir), ...rest.reverse());
+    } catch {
+      const parent = path.dirname(dir);
+      if (parent === dir) return file;
+      rest.push(path.basename(dir));
+      dir = parent;
+    }
+  }
+}
+
+/**
  * Packages in the project that declare React Native in their own manifest.
  *
  * These are the ones published the way the React Native ecosystem publishes:
@@ -213,6 +275,8 @@ export function detectEcosystemPackages(
   testRoots: string[] = [],
   neverTransform: string[] = [],
   activePresets?: readonly string[],
+  sourceAliases: readonly string[] = [],
+  onSourceAliased?: (name: string, dir: string) => void,
 ): string[] {
   // More than one root because `manifestsFrom` only walks UP. In a workspace the
   // run root is often above the package under test — Nx invokes tasks from the
@@ -258,17 +322,20 @@ export function detectEcosystemPackages(
   }
   if (candidates.size === 0) return [];
 
-  /** Resolve a package's manifest from whichever root can see it. */
-  const manifestOf = (name: string): Record<string, unknown> | null => {
+  /** Resolve a package's manifest, and where it lives, from whichever root can see it. */
+  const locate = (name: string): { manifest: Record<string, unknown>; dir: string } | null => {
     for (const req of requires) {
       try {
-        return req(`${name}/package.json`) as Record<string, unknown>;
+        const file = req.resolve(`${name}/package.json`);
+        return { manifest: req(file) as Record<string, unknown>, dir: path.dirname(file) };
       } catch {
         // Not resolvable from this root — try the next one.
       }
     }
     return null;
   };
+  const manifestOf = (name: string): Record<string, unknown> | null =>
+    locate(name)?.manifest ?? null;
 
   /**
    * The packages the run itself lives in — the project, in other words.
@@ -308,11 +375,53 @@ export function detectEcosystemPackages(
   );
   const ownsTheRun = (name: string): boolean => runOwners.has(name);
 
+  /**
+   * A package `resolve.alias` points into — its source, usually — belongs to Vite.
+   *
+   * The alias is the project saying how this package is loaded: Vite resolves its
+   * imports to files inside the package's directory. Detecting it as well made that
+   * directory a `server.deps.external` pattern, so Vite resolved each aliased file and
+   * Node loaded it. Two owners, and the outcome depended on the alias: a regex alias
+   * failed in Node ("Cannot find module", since Node's fallback reads only string
+   * entries), `import.meta` in the source failed to compile, and a string alias did
+   * not fail at all — a sibling's store, written through one copy, read back unset
+   * through the other.
+   *
+   * Matched by DIRECTORY, not by name: the alias's key need not be the package's name
+   * (`@feat` → `packages/feature/src`), and a regex alias has no name to compare.
+   * Inside the package only — an alias to a directory ABOVE several packages names
+   * none of them, and the packages it happens to contain are still imported by name
+   * and loaded as before. Excluded from detection and from the closure walk, exactly
+   * as the run's own package is; a Node-owned package that still requires it by name
+   * gets the copy Node resolves, and the require hook reports that when it happens
+   * (checkProjectSourceResolvedByNode in native/hooks.mjs).
+   *
+   * Real paths both sides: `require.resolve` returns Node's, and sourceAliasTargets
+   * converts the alias to the same spelling.
+   */
+  const aliasedDirs = new Map<string, string | null>();
+  const aliasesSource = (name: string): boolean => {
+    if (sourceAliases.length === 0) return false;
+    if (!aliasedDirs.has(name)) {
+      const located = locate(name)?.dir;
+      const dir = located === undefined ? null : realPathOf(located);
+      const owned =
+        dir !== null &&
+        !NODE_MODULES_PATH.test(dir) &&
+        sourceAliases.some((target) => containsPath(dir, target));
+      aliasedDirs.set(name, owned ? dir : null);
+      if (owned) onSourceAliased?.(name, dir);
+    }
+    return aliasedDirs.get(name) != null;
+  };
+
   const detected: string[] = [];
   for (const name of candidates) {
     if (skip.has(name) || name.startsWith("@react-native/")) continue;
     const pkg = manifestOf(name);
-    if (pkg && dependsOnReactNative(pkg) && !ownsTheRun(name)) detected.push(name);
+    if (pkg && dependsOnReactNative(pkg) && !ownsTheRun(name) && !aliasesSource(name)) {
+      detected.push(name);
+    }
   }
 
   // A detected package's own runtime dependencies are React Native code too, and the
@@ -442,6 +551,8 @@ export function detectEcosystemPackages(
       // A sibling that depends on the package under test would otherwise pull it
       // back in here, past the check above.
       if (ownsTheRun(dep)) continue;
+      // Likewise a library aliased to its source: Vite owns it, whoever depends on it.
+      if (aliasesSource(dep)) continue;
       const depManifest = manifestOf(dep);
       if (!depManifest) continue; // declared but not installed
       if (publishesOnlyEsm(depManifest)) continue;

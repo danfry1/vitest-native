@@ -120,15 +120,16 @@ export function checkProjectSourceResolvedByNode(resolved, parent, dirs = projec
   if (reportedProjectResolutions.has(file)) return;
   reportedProjectResolutions.add(file);
   console.warn(
-    `[vitest-native] Node resolved a file from the package under test.\n` +
+    `[vitest-native] Node resolved a file Vite owns as project source.\n` +
       `  file      ->  ${resolved}\n` +
       `  requested by ->  ${parent.filename}\n` +
       "  resolution observed -> Node; policy owner -> Vite (project-source)\n" +
       "  Resolution alone does not prove execution or duplicate instances. If both Node\n" +
       "  and Vite evaluate this file, their module-level state is not shared.\n" +
       "  This risk occurs when an installed React Native package depends on the very\n" +
-      "  package whose tests are running. Import it from one side only, or test it from a\n" +
-      "  package that does not sit underneath the dependency.",
+      "  package whose tests are running, or on a workspace package resolve.alias points\n" +
+      "  at. Import it from one side only, or test it from a package that does not sit\n" +
+      "  underneath the dependency.",
   );
 }
 function reportDuplicateInstance(pkg, nodeFile, viteFile, field) {
