@@ -15,9 +15,22 @@ describe("jest-compat: jestMockTransform (hoist + CJS interop)", () => {
   // Reuse Vite's parseAst — the same parser rollup's `this.parse` uses in prod.
   const { parseAst } = require("vite");
   const parse = (code: string) => parseAst(code);
-  const run = (code: string, id = "/proj/src/foo.test.tsx") => {
-    const t = plugin.transform as (this: any, c: string, i: string) => { code: string } | null;
-    return t.call({ parse }, code, id);
+  // Vite's resolveId, for the factories' `jest.requireActual` specifiers: project source
+  // through a relative path or an alias, a package, a virtual module, JSON, and nothing.
+  const resolve = async (spec: string, importer: string) => {
+    expect(importer).toBe("/proj/src/foo.test.tsx");
+    if (spec === "./data.json") return { id: "/proj/src/data.json" };
+    if (spec.startsWith("./")) return { id: `/proj/src/${spec.slice(2)}.ts` };
+    if (spec.startsWith("@/")) return { id: `/proj/src/${spec.slice(2)}.ts` };
+    if (spec === "pkg") return { id: "/proj/node_modules/pkg/index.js" };
+    if (spec === "ext") return { id: "/proj/src/ext.ts", external: true };
+    if (spec === "virtual:x") return { id: "\0virtual:x" };
+    return null;
+  };
+  // Synchronous unless a factory calls jest.requireActual, whose specifiers it resolves.
+  const run = (code: string, id = "/proj/src/foo.test.tsx"): any => {
+    const t = plugin.transform as (this: any, c: string, i: string) => unknown;
+    return t.call({ parse, resolve }, code, id);
   };
   /** The output after the setup accessor, which a file using a factory starts with. */
   const body = (code: string) => {
@@ -52,11 +65,13 @@ describe("jest-compat: jestMockTransform (hoist + CJS interop)", () => {
     );
   });
 
-  it("keeps vi.mock's factory an inline function, which Vitest's prewarm requires", () => {
+  it("keeps vi.mock's factory an inline function, which Vitest's prewarm requires", async () => {
     // @vitest/mocker's hoistMocks reports `hasFactory` only for an arrow or function
     // expression, and Vitest 5's prewarmModuleGraph skips the mocked module's graph
     // only when it is set.
-    const out = run("jest.mock('m', () => ({ a: jest.requireActual('x') }));\nimport a from 'b';");
+    const out = await run(
+      "jest.mock('m', () => ({ a: jest.requireActual('./x') }));\nimport a from 'b';",
+    );
     const calls = (parse(out!.code) as any).body.filter(
       (s: any) =>
         s.type === "ExpressionStatement" && s.expression.callee?.property?.name === "mock",
@@ -64,6 +79,95 @@ describe("jest-compat: jestMockTransform (hoist + CJS interop)", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].expression.arguments[1].type).toBe("ArrowFunctionExpression");
     expect(calls[0].expression.arguments[1].params).toHaveLength(0);
+  });
+
+  describe("a factory's jest.requireActual of project source", () => {
+    const lookup = (spec: string) =>
+      `vi.mock(${spec}, () => __vn_jest_compat__("__vnJestMocked")(import.meta.url, ${spec}));`;
+    const viaVite = (spec: string) =>
+      `(__vn_jest_compat__("__vnActualExports")(await vi.importActual(${spec})))`;
+
+    it("loads through Vite in an async variant, registered after the original", async () => {
+      const factory = "() => ({ ...jest.requireActual('./api'), other: jest.fn() })";
+      const out = await run(`jest.mock('./api', ${factory});`);
+      expect(body(out.code)).toBe(
+        `vi.hoisted(() => globalThis.__vnJestMock?.(import.meta.url, './api', ${factory}, ` +
+          `async () => ({ ...${viaVite("'./api'")}, other: jest.fn() })));\n` +
+          lookup("'./api'"),
+      );
+    });
+
+    it("does so for any specifier Vite resolves to project source, aliases included", async () => {
+      const out = await run(
+        "jest.mock('@/api', function () { const a = jest.requireActual(`@/api`); return a; });",
+      );
+      expect(body(out.code)).toContain(
+        `async function () { const a = ${viaVite("`@/api`")}; return a; }`,
+      );
+    });
+
+    it("keeps a factory that is already async, async once", async () => {
+      const out = await run("jest.mock('./a', async () => jest.requireActual('./a'));");
+      expect(body(out.code)).toContain(`, async () => ${viaVite("'./a'")})`);
+      expect(out.code).not.toContain("async async");
+    });
+
+    it("moves only the project-source calls of a factory that mixes them", async () => {
+      const out = await run(
+        "jest.mock('./a', () => ({ ...jest.requireActual('pkg'), ...jest.requireActual('./a') }));",
+      );
+      expect(body(out.code)).toContain(
+        `async () => ({ ...jest.requireActual('pkg'), ...${viaVite("'./a'")} })`,
+      );
+    });
+
+    it("leaves packages, externals, virtual modules, non-source and unresolved specifiers", async () => {
+      for (const spec of ["pkg", "ext", "virtual:x", "./data.json", "missing"]) {
+        const factory = `() => ({ ...jest.requireActual('${spec}') })`;
+        const out = await run(`jest.mock('m', ${factory});`);
+        expect(body(out.code)).toBe(
+          `vi.hoisted(() => globalThis.__vnJestMock?.(import.meta.url, 'm', ${factory}));\n` +
+            lookup("'m'"),
+        );
+      }
+    });
+
+    it("leaves calls in nested functions and class bodies, which run after the factory", async () => {
+      const factory =
+        "() => ({ read: () => jest.requireActual('./a').read(), " +
+        "get b() { return jest.requireActual('./a').b; }, " +
+        "C: class { m() { return jest.requireActual('./a'); } x = jest.requireActual('./a'); }, " +
+        "f: function () { return jest.requireActual('./a'); } })";
+      const out = await run(`jest.mock('./a', ${factory});`);
+      expect(out.code).not.toContain("importActual");
+      expect(out.code).not.toContain("async");
+    });
+
+    it("leaves a generator factory, which cannot be made async", async () => {
+      const out = await run("jest.mock('./a', function* () { yield jest.requireActual('./a'); });");
+      expect(out.code).not.toContain("importActual");
+    });
+
+    it("replaces a factory no Node-side load can reach, a computed specifier's", async () => {
+      const out = await run("jest.mock(name(), () => jest.requireActual('./a'));");
+      expect(body(out.code)).toBe(
+        `vi.mock(name(), () => __vn_jest_compat__("__vnInteropMock")((async () => ${viaVite("'./a'")})()));`,
+      );
+    });
+
+    it("moves a doMock factory's call as well", async () => {
+      const out = await run("jest.doMock('./a', () => jest.requireActual('./a'))");
+      expect(body(out.code)).toContain(
+        `'./a', () => jest.requireActual('./a'), async () => ${viaVite("'./a'")})`,
+      );
+    });
+
+    it("produces code that parses", async () => {
+      const out = await run(
+        "jest.mock('./api', () => ({ ...jest.requireActual('./api'), x: 1 }));\nimport a from './api';",
+      );
+      expect(() => parse(out.code)).not.toThrow();
+    });
   });
 
   it("falls back to the plain CJS interop wrapper for a computed specifier", () => {
