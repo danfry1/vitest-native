@@ -2086,10 +2086,28 @@ describe("the Expo native module resolver", () => {
       const own = resolver.seed("ExpoCrypto");
       expect(own.complete).toBe(true);
       expect(own.members.digest()).toBe("d");
-      // Layer 3: Expo's table, partial.
+      // Layer 3: Expo's table, partial. No expo is installed, so no table is the
+      // installed SDK's and the stub answers every member it leaves out.
       const listed = resolver.seed("ExpoDevice");
       expect(listed.complete).toBe(false);
+      expect(listed.listsConstants).toBe(false);
       expect(listed.members.modelName).toBe("mock");
+      // With expo installed, its SDK's table, which lists the module's constants. (A
+      // project of its own: the table chosen is cached per project root.)
+      const sdk57 = path.join(root, "sdk57");
+      fs.mkdirSync(path.join(sdk57, "node_modules", "expo"), { recursive: true });
+      fs.writeFileSync(path.join(sdk57, "package.json"), "{}");
+      fs.writeFileSync(
+        path.join(sdk57, "node_modules", "expo", "package.json"),
+        JSON.stringify({ name: "expo", version: "57.0.24" }),
+      );
+      const onSdk57 = createExpoNativeModuleResolver({
+        projectRoot: sdk57,
+        cacheDir: () => null,
+        mockFn: (fn: () => unknown) => vi.fn(fn),
+      }).seed("ExpoUpdates");
+      expect(onSdk57.listsConstants).toBe(true);
+      expect(onSdk57.members.manifest).toEqual({});
       // Layer 4: nothing to seed; the stub answers.
       expect(resolver.seed("AnythingElse")).toBeNull();
     } finally {
