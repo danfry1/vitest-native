@@ -5,6 +5,51 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { VitestNativeError } from "../errors.mjs";
 import { builtInPreset } from "./built-in.js";
+import { mockModuleExportNames } from "./esm-export-names.js";
+
+// Under the native engine the module is reanimated's own test mock
+// (`react-native-reanimated/mock`), as a Jest suite gets it with
+// `jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'))`:
+// its whole API, current with the installed version, over the real package in its JS
+// implementation. It loads because the engine applies reanimated's own Jest resolver
+// (native/jest-resolvers.mjs). The mock engine, which has no real React Native for the
+// real package to run on, keeps the module below.
+
+/** Whether this test run is under the native engine (its setup installs the control). */
+function underNativeEngine(): boolean {
+  return (
+    (globalThis as { __vitest_native_control?: { engine?: string } }).__vitest_native_control
+      ?.engine === "native"
+  );
+}
+
+/** The installed reanimated's directory, from `root`, or null. */
+function reanimatedDir(root: string): string | null {
+  try {
+    return path.dirname(
+      createRequire(path.join(root, "package.json")).resolve(
+        "react-native-reanimated/package.json",
+      ),
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** The names reanimated's own mock provides, read from the installed package. */
+function libraryMockNames(projectRoot: string): string[] | null {
+  const dir = reanimatedDir(projectRoot);
+  if (!dir) return null;
+  const names = new Set(mockModuleExportNames(path.join(dir, "lib/module/mock.js")));
+  // mock.js spreads mock-svg's names over the core mock.
+  const svg = path.join(dir, "lib/module/mock-svg.js");
+  try {
+    for (const name of mockModuleExportNames(svg)) names.add(name);
+  } catch {
+    // Not every version ships it.
+  }
+  return [...names].sort();
+}
 
 /**
  * Resolve the *active* React Native module — the mock under `engine: 'mock'`
@@ -121,7 +166,14 @@ export function reanimated(): Preset {
           "ReduceMotion",
           "KeyboardState",
         ],
+        exportsFor(context) {
+          return context.engine === "native" ? libraryMockNames(context.projectRoot) : this.exports;
+        },
         factory: () => {
+          if (underNativeEngine()) {
+            const root = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
+            return createRequire(path.join(root, "package.json"))("react-native-reanimated/mock");
+          }
           function createSharedValue(init: any) {
             const listeners = new Map<number, Function>();
             const sv = {

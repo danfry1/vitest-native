@@ -12,11 +12,13 @@ import { activePresets } from "../src/cli/manifest.js";
 import { autoDetectedPresetApplies, NATIVE_ENGINE_RUNS_PACKAGES } from "../src/preset-map.js";
 
 describe("autoDetectedPresetApplies", () => {
-  it("steps the expo preset aside under the native engine only", () => {
-    expect(NATIVE_ENGINE_RUNS_PACKAGES).toEqual(["expo"]);
-    expect(autoDetectedPresetApplies("expo", "native")).toBe(false);
-    expect(autoDetectedPresetApplies("expo", "mock")).toBe(true);
-    // A preset for a package that cannot run in Node keeps applying.
+  it("steps the expo and worklets presets aside under the native engine only", () => {
+    expect(NATIVE_ENGINE_RUNS_PACKAGES).toEqual(["expo", "worklets"]);
+    for (const preset of ["expo", "worklets"]) {
+      expect(autoDetectedPresetApplies(preset, "native")).toBe(false);
+      expect(autoDetectedPresetApplies(preset, "mock")).toBe(true);
+    }
+    // Reanimated's applies, with reanimated's own mock as its module there.
     expect(autoDetectedPresetApplies("reanimated", "native")).toBe(true);
   });
 

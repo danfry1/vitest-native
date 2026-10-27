@@ -2133,7 +2133,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         let shadows = false;
         for (const [moduleName, presetModule] of Object.entries(preset.modules)) {
           const names = presetModule.exportsFor
-            ? presetModule.exportsFor({ projectRoot: config.root, platform: resolved.platform })
+            ? presetModule.exportsFor({
+                projectRoot: config.root,
+                platform: resolved.platform,
+                engine,
+              })
             : presetModule.exports;
           exportsByModule[moduleName] = names;
           if (names === null) continue;

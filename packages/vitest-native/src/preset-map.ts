@@ -76,11 +76,15 @@ export const SELF_TESTING_FROM_MAJOR: Partial<Record<keyof typeof AUTO_DETECT_PR
  *   the preset off, 4 with it on. The preset was missing API (`hide`, `setOptions`,
  *   `useAssets`, `canOpenURL` …) and answered with values jest-expo never gives
  *   (`Constants.expoConfig.name === 'test-app'`).
+ * - worklets: react-native-worklets runs as itself in its JS implementation, through
+ *   its own Jest resolver (native/jest-resolvers.mjs), as under Jest. The reanimated
+ *   preset's module there is reanimated's own mock, which loads the real reanimated
+ *   over the real worklets.
  *
  * The mock engine has no real React Native to run them on, so it keeps these presets.
  * `presets: { expo: true }` applies one under the native engine too.
  */
-export const NATIVE_ENGINE_RUNS_PACKAGES: readonly PresetName[] = ["expo"];
+export const NATIVE_ENGINE_RUNS_PACKAGES: readonly PresetName[] = ["expo", "worklets"];
 
 /**
  * Whether an auto-detected preset applies under `engine`, given the `presets` option:
