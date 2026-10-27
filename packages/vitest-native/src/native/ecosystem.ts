@@ -258,16 +258,56 @@ export function detectEcosystemPackages(
   }
   if (candidates.size === 0) return [];
 
+  /**
+   * A package's manifest, and the directory it is installed in. `require.resolve`
+   * returns the real path, not the link's, unless Node runs with --preserve-symlinks,
+   * where Node resolves the package's own imports from the link too.
+   */
+  type Installed = { manifest: Record<string, unknown>; dir: string };
+  const installedVia = (req: NodeJS.Require, name: string): Installed | null => {
+    try {
+      const file = req.resolve(`${name}/package.json`);
+      return {
+        manifest: req(file) as Record<string, unknown>,
+        dir: path.dirname(file),
+      };
+    } catch {
+      return null;
+    }
+  };
   /** Resolve a package's manifest from whichever root can see it. */
-  const manifestOf = (name: string): Record<string, unknown> | null => {
+  const installedOf = (name: string): Installed | null => {
     for (const req of requires) {
-      try {
-        return req(`${name}/package.json`) as Record<string, unknown>;
-      } catch {
-        // Not resolvable from this root — try the next one.
-      }
+      const installed = installedVia(req, name);
+      if (installed) return installed;
     }
     return null;
+  };
+  const manifestOf = (name: string): Record<string, unknown> | null =>
+    installedOf(name)?.manifest ?? null;
+
+  // A dependency is resolved from the package that declares it, as Node resolves it
+  // when that package's code runs. One that does not resolve from there cannot load
+  // either, so it is not looked for elsewhere.
+  //
+  // Resolving it from the roots alone found only what is hoisted. An isolated install
+  // (pnpm, bun) links a project's direct dependencies into its node_modules and
+  // nothing else: @react-navigation/native's own dependencies, @react-navigation/core
+  // and @react-navigation/elements, are siblings of its real directory in the store
+  // and resolve from nowhere above the project. Every transitive dependency was then
+  // "declared but not installed" and left out of the walk, so with the navigation
+  // preset off, @react-navigation/native-stack imported an uncompiled
+  // @react-navigation/elements, whose ESM could not see the names the compiled
+  // @react-navigation/native re-exports from core: "does not provide an export named
+  // 'useTheme'".
+  const requireByDir = new Map<string, NodeJS.Require>();
+  const dependencyOf = (parent: Installed, name: string): Installed | null => {
+    let req = requireByDir.get(parent.dir);
+    if (!req) {
+      req = createRequire(path.join(parent.dir, "package.json"));
+      requireByDir.set(parent.dir, req);
+    }
+    return installedVia(req, name);
   };
 
   /**
@@ -343,13 +383,16 @@ export function detectEcosystemPackages(
   /** Every package reachable from `roots` through runtime dependencies. */
   const closureOf = (starts: string[]): Set<string> => {
     const seen = new Set<string>();
-    const pending = [...starts];
+    const pending: [string, Installed | null][] = starts.map((name) => [name, installedOf(name)]);
     while (pending.length > 0) {
-      const name = pending.pop() as string;
+      const [name, installed] = pending.pop() as [string, Installed | null];
       if (seen.has(name)) continue;
       seen.add(name);
-      const deps = manifestOf(name)?.dependencies;
-      if (deps && typeof deps === "object") pending.push(...Object.keys(deps as object));
+      const deps = installed?.manifest.dependencies;
+      if (!installed || !deps || typeof deps !== "object") continue;
+      for (const dep of Object.keys(deps as object)) {
+        if (!seen.has(dep)) pending.push([dep, dependencyOf(installed, dep)]);
+      }
     }
     return seen;
   };
@@ -430,10 +473,13 @@ export function detectEcosystemPackages(
   }
 
   const inClosure = new Set(detected);
-  const queue = detected.filter((name) => projectDeclared.has(name));
+  const queue = detected
+    .filter((name) => projectDeclared.has(name))
+    .map(installedOf)
+    .filter((installed): installed is Installed => installed !== null);
   while (queue.length > 0) {
-    const pkg = manifestOf(queue.pop() as string);
-    const deps = pkg?.dependencies;
+    const pkg = queue.pop() as Installed;
+    const deps = pkg.manifest.dependencies;
     if (!deps || typeof deps !== "object") continue;
     for (const dep of Object.keys(deps as object)) {
       if (inClosure.has(dep) || skip.has(dep) || dep.startsWith("@react-native/")) continue;
@@ -442,11 +488,11 @@ export function detectEcosystemPackages(
       // A sibling that depends on the package under test would otherwise pull it
       // back in here, past the check above.
       if (ownsTheRun(dep)) continue;
-      const depManifest = manifestOf(dep);
-      if (!depManifest) continue; // declared but not installed
-      if (publishesOnlyEsm(depManifest)) continue;
+      const installed = dependencyOf(pkg, dep);
+      if (!installed) continue; // declared but not installed
+      if (publishesOnlyEsm(installed.manifest)) continue;
       inClosure.add(dep);
-      queue.push(dep);
+      queue.push(installed);
     }
   }
 

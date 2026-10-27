@@ -15,6 +15,7 @@
  * inlining one into Vite as well would give the same package two owners.
  */
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -320,5 +321,126 @@ describe("ecosystem detection: whose closure gets walked", () => {
     );
     const detected = detectEcosystemPackages(path.join(root, "packages", "lib"));
     expect(detected).toContain("toolchain-helpers");
+  });
+});
+
+/**
+ * An isolated install (pnpm, bun) links only the project's direct dependencies into
+ * its node_modules. Each package's real directory sits in a store, with its own
+ * dependencies linked beside it, so a transitive dependency resolves from the package
+ * that declares it and from nowhere above the project.
+ *
+ * The walk used to resolve every member from the project root. Under this layout it
+ * found no transitive dependency at all: with the navigation preset off,
+ * @react-navigation/elements (a dependency of native-stack) was left uncompiled and
+ * failed at import against the compiled @react-navigation/native ("does not provide an
+ * export named 'useTheme'"). A hoisted layout hid it, because there everything
+ * resolves from the root.
+ */
+describe("ecosystem detection: an isolated install layout", () => {
+  /**
+   * `<root>/node_modules/.store/<name>/node_modules/<name>` holds each package, with
+   * its dependencies linked beside it; only `declares` are linked into the root.
+   */
+  function isolated(declares: string[], installed: Record<string, Pkg>): string {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-isolated-"));
+    roots.push(root);
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify({
+        name: "app",
+        dependencies: Object.fromEntries(declares.map((d) => [d, "*"])),
+      }),
+    );
+    const storeDir = (name: string) =>
+      path.join(root, "node_modules", ".store", name.replace("/", "+"), "node_modules", name);
+    const link = (target: string, at: string) => {
+      fs.mkdirSync(path.dirname(at), { recursive: true });
+      // A junction on Windows, which needs no privilege; ignored elsewhere.
+      fs.symlinkSync(target, at, "junction");
+    };
+    for (const [name, pkg] of Object.entries(installed)) {
+      const dir = storeDir(name);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, "package.json"),
+        JSON.stringify({
+          name,
+          version: "1.0.0",
+          main: "index.js",
+          ...(pkg.deps ? { dependencies: Object.fromEntries(pkg.deps.map((d) => [d, "*"])) } : {}),
+          ...(pkg.peerDeps
+            ? { peerDependencies: Object.fromEntries(pkg.peerDeps.map((d) => [d, "*"])) }
+            : {}),
+        }),
+      );
+      fs.writeFileSync(path.join(dir, "index.js"), "module.exports = {};");
+    }
+    for (const [name, pkg] of Object.entries(installed)) {
+      // The store's node_modules that holds `name`: its dependencies go beside it.
+      const modules = path.dirname(storeDir(name)).replace(/[\\/]@[^\\/]+$/, "");
+      for (const dep of pkg.deps ?? []) {
+        if (dep in installed) link(storeDir(dep), path.join(modules, ...dep.split("/")));
+      }
+    }
+    for (const name of declares) {
+      link(storeDir(name), path.join(root, "node_modules", ...name.split("/")));
+    }
+    return root;
+  }
+
+  const navigationLike = () =>
+    isolated(["react-native", "@nav/native", "@nav/native-stack"], {
+      "react-native": {},
+      "@nav/native": { peerDeps: ["react-native"], deps: ["@nav/core"] },
+      "@nav/native-stack": { peerDeps: ["react-native"], deps: ["@nav/elements"] },
+      // Neither is linked into the project; each resolves only from its parent.
+      "@nav/elements": { deps: ["@nav/core"] },
+      "@nav/core": { deps: ["deep-helper"] },
+      "deep-helper": {},
+    });
+
+  it("resolves no transitive dependency from the project root (the layout's premise)", () => {
+    // Control: if these resolved from the root, the layout would be hoisted and the
+    // assertions below would not distinguish the fix.
+    const root = navigationLike();
+    const req = createRequire(path.join(root, "package.json"));
+    expect(() => req.resolve("@nav/native/package.json")).not.toThrow();
+    for (const name of ["@nav/elements", "@nav/core", "deep-helper"]) {
+      expect(() => req.resolve(`${name}/package.json`)).toThrow();
+    }
+  });
+
+  it("includes transitive dependencies resolved from the package that declares them", () => {
+    const detected = detectEcosystemPackages(navigationLike());
+    expect(detected).toEqual(
+      expect.arrayContaining(["@nav/native", "@nav/native-stack", "@nav/elements", "@nav/core"]),
+    );
+  });
+
+  it("follows the closure through more than one store directory", () => {
+    expect(detectEcosystemPackages(navigationLike())).toContain("deep-helper");
+  });
+
+  it("still ignores a dependency that is installed nowhere", () => {
+    const root = isolated(["react-native", "rn-lib"], {
+      "react-native": {},
+      "rn-lib": { peerDeps: ["react-native"], deps: ["missing-dep"] },
+    });
+    expect(detectEcosystemPackages(root)).not.toContain("missing-dep");
+  });
+
+  it("excludes the toolchain's transitive closure, which resolves only from inside it", () => {
+    // The toolchain closure is computed the same way. Resolved from the root, it
+    // stopped at @babel/core's direct dependencies, so a deeper Babel dependency
+    // reached through a detected package would have been compiled with Babel.
+    const root = isolated(["react-native", "@babel/core", "rn-lib"], {
+      "react-native": {},
+      "@babel/core": { deps: ["babel-generator"] },
+      "babel-generator": { deps: ["babel-internal"] },
+      "babel-internal": {},
+      "rn-lib": { peerDeps: ["react-native"], deps: ["babel-internal"] },
+    });
+    expect(detectEcosystemPackages(root)).not.toContain("babel-internal");
   });
 });
