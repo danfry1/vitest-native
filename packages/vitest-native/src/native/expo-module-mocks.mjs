@@ -26,6 +26,7 @@ import expoModuleTable from "./expo-module-table.mjs";
 const packageLists = new Map();
 const indexes = new Map();
 const absentModules = new Map();
+const tableSdkMatches = new Map();
 
 /**
  * The Expo modules (directories with an expo-module.config.json) for `projectRoot`, in
@@ -331,7 +332,8 @@ export function expoModuleMock(projectRoot, name, mockFn) {
  * (src/preset/setup.js): a member's own `mock` value, else a function (resolving for
  * native async functions), `1` for a number, `'mock'` for a string, `[]` for an array,
  * and `{}` otherwise. A member newer than the table is not here; the caller keeps its
- * stub's conventions for those.
+ * stub's conventions for those, and for every unlisted member when the table is another
+ * SDK's (expoModuleTableDescribesInstalledSdk).
  */
 export function expoModuleTableMembers(name, mockFn) {
   const members = expoModuleTable.modules[name];
@@ -341,6 +343,30 @@ export function expoModuleTableMembers(name, mockFn) {
     out[member] = jestExpoMockValue(property, mockFn);
   }
   return out;
+}
+
+/**
+ * Whether Expo's table describes the SDK installed for `projectRoot`: the major of the
+ * jest-expo it was extracted from (jest-expo's major is the SDK's) against the major of
+ * the `expo` the project resolves. Only then is a member the table leaves out one the
+ * module does not have; another SDK's modules have members this table never listed
+ * (SDK 57's ExpoUpdates has a `manifest` constant), so false where expo is absent or
+ * of another SDK.
+ */
+export function expoModuleTableDescribesInstalledSdk(projectRoot) {
+  let installed = tableSdkMatches.get(projectRoot);
+  if (installed !== undefined) return installed;
+  const tableMajor = /@(\d+)\./.exec(expoModuleTable.source)?.[1];
+  let expoMajor;
+  try {
+    const file = createRequire(path.join(projectRoot, "package.json")).resolve("expo/package.json");
+    expoMajor = /^(\d+)\./.exec(JSON.parse(fs.readFileSync(file, "utf8")).version)?.[1];
+  } catch {
+    expoMajor = undefined;
+  }
+  installed = tableMajor !== undefined && expoMajor === tableMajor;
+  tableSdkMatches.set(projectRoot, installed);
+  return installed;
 }
 
 function jestExpoMockValue(property, mockFn) {

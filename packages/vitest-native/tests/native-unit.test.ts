@@ -1406,7 +1406,7 @@ describe("native globals: globalThis.expo shim", () => {
     const mockFn = (impl: () => unknown) => vi.fn(impl);
     g.__vitest_native_expo_module_mock = (name: string) => {
       const members = expoModuleTableMembers(name, mockFn);
-      return members ? { members, complete: false } : null;
+      return members ? { members, complete: false, listsConstants: true } : null;
     };
     try {
       // The values jest-expo's mock() gives ExpoDevice's table entries.
@@ -1433,6 +1433,25 @@ describe("native globals: globalThis.expo shim", () => {
       delete g.__vitest_native_expo_module_mock;
     }
   });
+
+  it("answers every member the table leaves out by the conventions when the table is another SDK's", () => {
+    installGlobals();
+    const g = globalThis as Record<string, any>;
+    const mockFn = (impl: () => unknown) => vi.fn(impl);
+    g.__vitest_native_expo_module_mock = (name: string) => {
+      const members = expoModuleTableMembers(name, mockFn);
+      return members ? { members, complete: false, listsConstants: false } : null;
+    };
+    try {
+      const battery = g.expo.modules.ExpoBattery;
+      expect(vi.isMockFunction(battery.getBatteryLevelAsync)).toBe(true);
+      // An SDK 57 member absent from SDK 58's table (ExpoAppMetrics.getAllSessions) is
+      // callable, as before the table.
+      expect(battery.someMemberOfAnotherSdk()).toBeUndefined();
+    } finally {
+      delete g.__vitest_native_expo_module_mock;
+    }
+  });
 });
 
 // @ts-expect-error — runtime .mjs
@@ -1440,6 +1459,7 @@ import {
   expoModuleMock,
   expoModuleMockIndex,
   expoAbsentModules,
+  expoModuleTableDescribesInstalledSdk,
   expoModuleTableMembers,
 } from "../src/native/expo-module-mocks.mjs";
 
@@ -1517,7 +1537,16 @@ describe("Expo's table of the native modules", () => {
     // @ts-expect-error — runtime .mjs
     const { default: table } = await import("../src/native/expo-module-table.mjs");
     expect(table.source).toMatch(/^jest-expo@\d+\.\d+\.\d+$/);
-    expect(table.license).toContain("MIT");
+    expect(table.license).toBe("MIT");
+    // jest-expo's whole notice ships with its data, as its licence requires.
+    const file = fs.readFileSync(
+      fileURLToPath(new URL("../src/native/expo-module-table.mjs", import.meta.url)),
+      "utf8",
+    );
+    expect(file).toContain("Copyright (c) 2015-present 650 Industries, Inc.");
+    expect(file).toContain(
+      "The above copyright notice and this permission notice shall be included",
+    );
     const modules = Object.keys(table.modules);
     expect(modules.length).toBeGreaterThan(50);
     expect(modules).toEqual(expect.arrayContaining(["ExpoDevice", "ExponentConstants"]));
@@ -1525,6 +1554,40 @@ describe("Expo's table of the native modules", () => {
     expect(
       expoModuleTableMembers("ExponentConstants", (fn: () => unknown) => fn)?.manifest,
     ).toEqual({});
+  });
+
+  it("describes the installed SDK only when expo's major is the table's", async () => {
+    // @ts-expect-error — runtime .mjs
+    const { default: table } = await import("../src/native/expo-module-table.mjs");
+    const tableMajor = Number(/@(\d+)\./.exec(table.source)![1]);
+    const project = (expoVersion: string | null) => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-expo-sdk-"));
+      fs.writeFileSync(path.join(root, "package.json"), "{}");
+      if (expoVersion) {
+        fs.mkdirSync(path.join(root, "node_modules", "expo"), { recursive: true });
+        fs.writeFileSync(
+          path.join(root, "node_modules", "expo", "package.json"),
+          JSON.stringify({ name: "expo", version: expoVersion }),
+        );
+      }
+      return root;
+    };
+    const roots = [
+      project(`${tableMajor}.0.3`),
+      project(`${tableMajor - 1}.0.9`),
+      project(`${tableMajor + 1}.0.0-canary`),
+      project(null),
+    ];
+    try {
+      expect(roots.map((root) => expoModuleTableDescribesInstalledSdk(root))).toEqual([
+        true,
+        false,
+        false,
+        false,
+      ]);
+    } finally {
+      for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

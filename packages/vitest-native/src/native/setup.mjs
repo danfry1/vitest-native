@@ -19,6 +19,7 @@ import {
   expoAbsentModules,
   expoModuleMock,
   expoModuleMockIndex,
+  expoModuleTableDescribesInstalledSdk,
   expoModuleTableMembers,
 } from "./expo-module-mocks.mjs";
 import { cacheRootFor } from "./transform.mjs";
@@ -358,13 +359,19 @@ const RN = req("react-native");
 // globalThis.expo.modules as each module is first required.
 // A package's own mock is the whole module; otherwise Expo's table (as jest-expo
 // declares the module) seeds the members it lists, and the stub's conventions answer
-// the rest.
+// the rest. `listsConstants`: the table is the installed SDK's, so a lowercase member it
+// leaves out is a constant the module lacks.
 g.__vitest_native_expo_module_mock = (name) => {
   const mockFn = (implementation) => vi.fn(implementation);
   const own = expoModuleMock(projectRoot, name, mockFn);
   if (own) return { members: own, complete: true };
   const listed = expoModuleTableMembers(name, mockFn);
-  return listed ? { members: listed, complete: false } : null;
+  if (!listed) return null;
+  return {
+    members: listed,
+    complete: false,
+    listsConstants: expoModuleTableDescribesInstalledSdk(projectRoot),
+  };
 };
 // Which native modules exist: every one except those an installed package only
 // probes for and no installed package defines (expoAbsentModules), unless a package

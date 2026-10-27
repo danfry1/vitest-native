@@ -128,6 +128,7 @@ function installExpoGlobal(g) {
     // A package's own mock is the whole module; a seed from Expo's table lists only
     // the members it knew, and the conventions answer the rest.
     const complete = seed?.complete === true;
+    const listsConstants = seed?.listsConstants === true;
     const seededMocks = [];
     // Seeded values (not functions), restored as fresh copies per file: jest-expo builds
     // them anew for every test file, and a file may change one (`platform.foo = 1`).
@@ -162,12 +163,14 @@ function installExpoGlobal(g) {
           }
           return fabricatedClasses.get(prop);
         }
-        // A module seeded from Expo's table lists its constants and functions, so another
-        // lowercase name is most likely a constant the module does not have, which jest-expo
-        // leaves undefined and the package then defaults (expo-constants' `appOwnership`
-        // falls back to null). An async function or a class is still answered above:
-        // calling or extending undefined would throw where a newer member is reached.
-        if (seeded) return undefined;
+        // A module seeded from the installed SDK's table lists its constants and
+        // functions, so another lowercase name is most likely a constant the module does
+        // not have, which jest-expo leaves undefined and the package then defaults
+        // (expo-constants' `appOwnership` falls back to null). An async function or a
+        // class is still answered above: calling or extending undefined would throw where
+        // a newer member is reached. Another SDK's table does not list its members, so the
+        // conventions answer them.
+        if (listsConstants) return undefined;
         return () => undefined;
       },
       set(object, prop, value) {
