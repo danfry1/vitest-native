@@ -442,7 +442,8 @@ You don't swap the test API:
 | `describe` / `it` / `expect` / `beforeEach` | same names, available as globals |
 
 **What it does *not* do:** it clears the API coupling, not the suite-specific work — you still
-write mocks for native libraries with no preset, re-record snapshots, and fix the occasional
+write mocks for native libraries with no preset, record snapshots for Vitest (it keys them
+differently from Jest), and fix the occasional
 factory that references an out-of-scope `mock`-prefixed variable (Jest's Babel plugin allows
 that; Vitest doesn't).
 

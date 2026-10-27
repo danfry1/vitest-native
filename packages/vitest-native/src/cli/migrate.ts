@@ -540,7 +540,10 @@ export function analyzeJestConfig(root: string): MigrationReport {
         );
       } else if (name === "ci") {
         dropped.push(
-          `scripts.test --ci — Vitest already refuses to write new snapshots when it detects CI.`,
+          // Vitest's `updateSnapshot` is "none" when std-env reports CI and "new" otherwise
+          // (resolveConfig); Jest's --ci defaults to ci-info's CI detection the same way.
+          `scripts.test --ci — Vitest writes no new snapshots when it detects CI, as Jest's --ci ` +
+            `defaults to; set CI=true to get that elsewhere.`,
         );
       } else if (
         (name === "silent" || name === "passWithNoTests") &&

@@ -89,7 +89,7 @@ Remaining differences:
 It clears the API coupling, not the suite-specific work — you still:
 
 - write mocks for native libraries with no [preset](/guide/presets),
-- re-record snapshots (`vitest -u`),
+- record snapshots for Vitest, which keys them differently from Jest (see [snapshots](/migration/from-jest#snapshots)),
 - and fix the occasional factory that references an out-of-scope `mock`-prefixed variable (Jest's Babel plugin allows that; Vitest doesn't).
 
 For the full migration walkthrough — including which manual mocks you can delete and how snapshots change — see [Migrating from Jest](/migration/from-jest).
