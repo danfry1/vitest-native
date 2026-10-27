@@ -586,7 +586,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
     }
     if (take("fakeTimers") !== undefined) {
       attention.push(
-        `fakeTimers — configure per-suite with vi.useFakeTimers() (the jest-compat shim covers jest.useFakeTimers()).`,
+        `fakeTimers — not carried over: pass the options to jest.useFakeTimers(), which the jest-compat shim translates, or call it in a setup file for enableGlobally.`,
       );
     }
 

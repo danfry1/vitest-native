@@ -36,11 +36,22 @@ export default defineConfig({
 
 | In your Jest test | Under jest-compat |
 |---|---|
-| `jest.fn()`, `jest.spyOn()`, `jest.useFakeTimers()` | work as-is (the global `jest` is `vi`, and its mocks are `vi` mocks) |
+| `jest.fn()`, `jest.spyOn()`, `jest.useFakeTimers()` | work as-is (the global `jest` is `vi`, and its mocks are `vi` mocks); `jest.useFakeTimers(options)` takes Jest's options — see [Fake timers](#fake-timers) |
 | `new` on a `jest.fn(() => ({ ... }))` | returns the implementation's object, as in Jest — Vitest's own `vi.fn` requires a `function` or `class` implementation for `new`, and `jest.fn` does not |
 | `import { jest } from '@jest/globals'` | resolves to the `vi`-backed `jest` (aliased) |
 | top-level `jest.mock('m', factory)` | hoisted + applied, with Jest's factory interop |
 | `describe` / `it` / `expect` / `beforeEach` | same names, available as globals |
+
+## Fake timers
+
+`jest.useFakeTimers(options)` translates Jest's options into Vitest's the way Jest translates them for `@sinonjs/fake-timers`, which both runners use: `advanceTimers` (`true` or a step in ms), `doNotFake`, `now` and `timerLimit` (default 100,000 as in Jest, where Vitest's is 10,000). It returns the `jest` object, as Jest does, so `jest.useFakeTimers().setSystemTime(date)` chains. Calling `vi.useFakeTimers` directly still takes Vitest's options.
+
+Two differences remain:
+
+- `process.nextTick` and `queueMicrotask` stay real. Jest fakes them by default; Vitest does not, because Node and Vitest's runner depend on them. Name them in Vitest's `toFake` if a test needs them faked.
+- `legacyFakeTimers: true` runs modern fake timers over the timer functions and leaves `Date` real, as legacy timers do. The timer functions are not mock functions, so assertions such as `expect(setTimeout).toHaveBeenCalled()` do not work; the first such call logs a warning.
+
+Options set in Jest's `fakeTimers` config are not read. Pass them to `jest.useFakeTimers(...)`, or set them in Vitest's names under `test.fakeTimers`, which applies to every call except for `loopLimit`: `jest.useFakeTimers` always passes Jest's `timerLimit`. For `enableGlobally`, call `jest.useFakeTimers()` in a setup file.
 
 ## One module registry per test file
 

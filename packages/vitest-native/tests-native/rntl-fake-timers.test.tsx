@@ -15,8 +15,9 @@
  * but `setTimeout.clock` IS set (Vitest's fake timers are @sinonjs/fake-timers, the
  * same library Jest uses) and `jest.getRealSystemTime` IS a function (the shim
  * forwards it to `vi`). So the detector fires and the swap genuinely runs — it is
- * not bypassed. It works because the shim forwards `useRealTimers`/`useFakeTimers`
- * to `vi` as well, so the round trip lands back on Vitest's own timers.
+ * not bypassed. It works because the shim's `useRealTimers`/`useFakeTimers` call
+ * `vi`'s (translating Jest's options, such as the `{ legacyFakeTimers: false }` RNTL
+ * passes back), so the round trip lands back on Vitest's own timers.
  *
  * That makes this a real dependency on the shim covering all three of
  * `getRealSystemTime`, `useRealTimers` and `useFakeTimers` — verified, not assumed:

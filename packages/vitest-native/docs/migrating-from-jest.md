@@ -114,8 +114,11 @@ Same entry is needed when a `vi.mock('<lib>')` must intercept an otherwise-exter
 Vitest config: `setupFiles`, `resolve.alias`, `test.environment: 'node'`. A suite on
 `testEnvironment: 'jsdom'` keeps it as `test.environment: 'jsdom'` (`'happy-dom'` works too): React
 Native renders there alongside the DOM, with either engine and with or without the hot runtime.
-`jest.setTimeout(ms)` is a no-op under the shim (use `test.testTimeout` in config or per-test
-`{ timeout }`).
+`jest.setTimeout(ms)` sets the timeout for the rest of the file, as in Jest (the shim maps it onto
+`vi.setConfig({ testTimeout })`). Jest's `fakeTimers` config is not read: pass its options to
+`jest.useFakeTimers(...)`, which translates them (`advanceTimers`, `doNotFake`, `now`,
+`timerLimit`), or call it in a setup file for `enableGlobally`. Unlike Jest, `process.nextTick` and
+`queueMicrotask` stay real.
 
 ---
 
