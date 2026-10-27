@@ -6,6 +6,9 @@
 # filtering pending, which blocks a required check ("Troubleshooting required status
 # checks", GitHub Docs).
 #
+# scripts/contributors.mjs counts as prose: it only rewrites README.md's contributors
+# list and nothing in CI runs it, so refreshing the list skips the test matrix.
+#
 # Two website pages are NOT prose: fidelity.md and fidelity-matrix.md are GENERATED
 # from the live corpus and gated by fidelity:check / the matrix placeholder test, so a
 # hand-edit there must still fail CI the way it did in #181. A merge-queue group is
@@ -26,7 +29,7 @@ if [ "$event" = "pull_request" ] || [ "$event" = "merge_group" ]; then
     echo "  $f"
     case "$f" in
       website/guide/fidelity.md|website/guide/fidelity-matrix.md) docs_only=false ;;
-      *.md|.changeset/*|LICENSE|website/public/*) ;;
+      *.md|.changeset/*|LICENSE|website/public/*|scripts/contributors.mjs) ;;
       *) docs_only=false ;;
     esac
   done < <(git diff --name-only "$base" "$head")

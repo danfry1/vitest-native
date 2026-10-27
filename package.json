@@ -25,7 +25,6 @@
   },
   "scripts": {
     "build": "bun run --filter vitest-native build",
-    "contributors": "node scripts/contributors.mjs",
     "test": "bun run --filter vitest-native test",
     "check:exports": "bun run --filter vitest-native check:exports",
     "test:native": "bun run --filter vitest-native test:native",

@@ -7,7 +7,10 @@
 // bots are left out. The list sits between the `contributors:start` and
 // `contributors:end` markers; everything else in the README is left as it is.
 //
-//   bun run contributors
+//   node scripts/contributors.mjs
+//
+// Nothing in CI runs it, so a pull request changing only it and README.md is docs-only
+// (.github/scripts/classify-change.sh) and skips the test matrix.
 //
 // Set GITHUB_TOKEN (for example `GITHUB_TOKEN=$(gh auth token)`) to avoid the
 // unauthenticated rate limit.
