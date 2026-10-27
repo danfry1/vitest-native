@@ -71,7 +71,7 @@ try {
   if (!tarballName) throw new Error("npm pack did not produce a tarball");
   const tarball = path.join(packRoot, tarballName);
 
-  for (const fixture of ["bare", "expo", "monorepo", "current-rn", "mock-rntl14"]) {
+  for (const fixture of ["bare", "expo", "expo-sdk57", "monorepo", "current-rn", "mock-rntl14"]) {
     const fixtureRoot = path.join(tempRoot, fixture);
     fs.cpSync(path.join(fixturesRoot, fixture), fixtureRoot, { recursive: true });
     addPackedDependency(fixtureRoot, tarball);
@@ -88,8 +88,12 @@ try {
     // file-based app/ routes with testRouter — the code a jest-expo suite already
     // contains, ported verbatim. Only meaningful from a packed install, where the
     // whole Expo SDK is a real dependency graph rather than the workspace's subset.
-    if (fixture === "expo") {
+    // `expo` tracks the current SDK; `expo-sdk57` keeps the previous one, which most
+    // projects on `latest` still run and whose router predates RNTL 14's async API.
+    if (fixture === "expo" || fixture === "expo-sdk57") {
       run("npm", ["run", "test:router"], fixtureRoot);
+    }
+    if (fixture === "expo") {
       // The same router suite under the config `migrate --write` generates from a
       // jest-expo setup, so the translation (the plugin, jest-compat, the Jest globals)
       // is proven by running it rather than by the substrings the unit tests check.

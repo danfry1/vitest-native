@@ -7,8 +7,8 @@ import { Text, View } from "react-native";
 import { expect, test } from "vitest";
 import { metroWinner } from "./metro-winner";
 
-test("runs a packed Expo consumer with auto-detected presets", () => {
-  render(
+test("runs a packed Expo consumer with auto-detected presets", async () => {
+  await render(
     <View testID="root">
       <StatusBar style="auto" />
       <Text>{Constants.expoConfig?.name}</Text>
@@ -27,8 +27,8 @@ test("uses Expo Metro's TypeScript-first source extension precedence", () => {
 // Collapsible renders, reaches expo-modules-core's src/polyfill/index.ts: a bare
 // `// noop` that Node parses fine but refuses to load from node_modules because of
 // its extension.
-test("renders an Expo module whose TypeScript source has no type syntax", () => {
-  render(
+test("renders an Expo module whose TypeScript source has no type syntax", async () => {
+  await render(
     <View testID="symbol-host">
       <SymbolView name={{ ios: "chevron.right", android: "chevron_right", web: "chevron_right" }} />
     </View>,

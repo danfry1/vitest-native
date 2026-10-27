@@ -22,13 +22,13 @@ semver, which are experimental, and how the peer ranges below are allowed to mov
 - Node 20.19 on Linux, with RNTL 12 and with RNTL 13.
 - Node 22.13 on Linux, macOS, and Windows; Node 24 on Linux.
 - Patched Vite lines ^6.4.2, ^7.3.2, and ^8.0.5 through packed consumers.
-- Vitest 5 (the lockfile release and the newest 5.x) against React Native 0.81–0.87, and the newest
+- Vitest 5 (the lockfile release and the newest 5.x) against React Native 0.81–0.88, and the newest
   Vitest 4.x against the oldest and newest of that range.
-- React Native 0.81–0.87 in the full native matrix (`.github/workflows/native-rn-matrix.yml`, the
+- React Native 0.81–0.88 in the full native matrix (`.github/workflows/native-rn-matrix.yml`, the
   source the published fidelity range is generated from).
 - React Native 0.86 in a pinned packed Android consumer.
 - React Native Testing Library 12, 13, and 14.
-- Expo 57, a hoisted npm-workspace monorepo, and a pnpm-workspace monorepo.
+- Expo SDK 58 and SDK 57, a hoisted npm-workspace monorepo, and a pnpm-workspace monorepo.
 
 Required Vite, Vitest, and React peer mismatches fail during configuration. Unsupported future major
 versions are rejected rather than allowed to fail later inside private runner internals.

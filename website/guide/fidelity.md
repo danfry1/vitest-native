@@ -13,8 +13,8 @@ generated from the corpus itself, so the numbers below are exactly what ships.
 
 ## Summary
 
-- **85 / 85 probes** match between the mock engine and real React Native (this page was generated against React Native 0.87.0).
-- CI runs the same corpus across **React Native 0.81–0.87** on every commit to main.
+- **85 / 85 probes** match between the mock engine and real React Native (this page was generated against React Native 0.88.0).
+- CI runs the same corpus across **React Native 0.81–0.88** on every commit to main.
 - Per-version results straight from the CI matrix: [Fidelity Matrix](/guide/fidelity-matrix).
 - Reproduce it yourself: `bun run crosscheck`.
 

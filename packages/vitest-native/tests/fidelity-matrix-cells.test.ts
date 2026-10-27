@@ -62,13 +62,13 @@ function render(cells: Parameters<typeof reportsDir>[0]): string {
 
 /** Every cell the matrix workflow gates — the set the headline quantifies over. */
 const ALL_CELLS = (() => {
-  const rns = ["0.81", "0.82", "0.83", "0.84", "0.85", "0.86", "0.87"];
+  const rns = ["0.81", "0.82", "0.83", "0.84", "0.85", "0.86", "0.87", "0.88"];
   const cells = rns.flatMap((rn) => [
     { rn, flavor: "locked", vitest: "5.0.1" },
     { rn, flavor: "latest-supported", vitest: "5.0.1" },
   ]);
   cells.push({ rn: "0.81", flavor: "v4", vitest: "4.1.11" });
-  cells.push({ rn: "0.87", flavor: "v4", vitest: "4.1.11" });
+  cells.push({ rn: "0.88", flavor: "v4", vitest: "4.1.11" });
   return cells;
 })();
 
@@ -110,6 +110,6 @@ describe("fidelity matrix cells", () => {
     const page = render(ALL_CELLS.filter((c) => c.flavor !== "v4"));
     expect(page).toContain("Incomplete matrix data");
     expect(page).toContain("0.81-v4");
-    expect(page).toContain("0.87-v4");
+    expect(page).toContain("0.88-v4");
   });
 });

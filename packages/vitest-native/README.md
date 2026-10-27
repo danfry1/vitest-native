@@ -4,7 +4,7 @@
 
 Run your React Native tests under Vitest, against **real React Native** — the same JavaScript that ships in your app, with only the native-module boundary mocked. That is the default and the point of the project. A lightweight pure-JS mock engine is available as an opt-in for fast, RN-free unit tests.
 
-> **Beta.** The release-supported native engine is validated across React Native 0.81–0.87,
+> **Beta.** The release-supported native engine is validated across React Native 0.81–0.88,
 > Vite 6–8, Vitest 4–5, RNTL 12–14, bare apps, Expo SDK 57 (including expo-router's own testing
 > library), and hoisted monorepos. The hot
 > runtime (on by default where it can be bounded) is marked experimental because it uses Vitest's
@@ -967,7 +967,7 @@ Every release must pass:
 
 - Linux on Node 20.19, 22.13, and 24, plus macOS and Windows on Node 22.13.
 - The mock, native iOS, native Android, hot-runtime, isolation, and 100-file soak suites.
-- React Native 0.81–0.87 against both locked and newest-supported Vitest, plus the Vitest 4 floor
+- React Native 0.81–0.88 against both locked and newest-supported Vitest, plus the Vitest 4 floor
   on 0.81 and 0.87.
 - Vitest's own behaviour under the defaults, on Vitest 5 and the Vitest 4 floor: config and CLI
   flags, projects, watch mode, the jsdom and happy-dom environments, `--typecheck`, `vitest bench`,
@@ -996,7 +996,7 @@ see [versioning and stability](docs/versioning.md).
 | `vite`                                       | ^6.4.2, ^7.3.2, or ^8.0.5                |
 | `vitest`                                     | 4.x or 5.x                                |
 | `node`                                       | >= 20.19; RN/RNTL may impose a higher floor |
-| `react-native` (native engine)               | 0.81–0.87 validated                       |
+| `react-native` (native engine)               | 0.81–0.88 validated                       |
 | `@react-native/babel-preset` (native engine) | Match the installed React Native minor    |
 | `@testing-library/react-native` (optional)   | 12.x, 13.x, or 14.x                       |
 
