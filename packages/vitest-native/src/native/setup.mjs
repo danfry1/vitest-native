@@ -18,6 +18,7 @@ import { installNitroProxy } from "./nitro.mjs";
 import { createExpoNativeModuleResolver } from "./expo-native-modules.mjs";
 import { cacheRootFor } from "./transform.mjs";
 import { installKnownNativeModules } from "./native-modules.mjs";
+import { registerVirtualTextHost } from "./rntl-text-host.mjs";
 
 // Non-enumerable key on the preset container: the mocks built so far in this file.
 const PRESETS_BUILT = Symbol.for("vitest-native.presets-built");
@@ -446,22 +447,37 @@ try {
   }
 }
 
-// --- RNTL 14: register RCTVirtualText as a text host ---
-// RNTL 14 reconciles with `test-renderer`, which enforces that string children
-// live under a "text" host component (the names in RNTL's HOST_TEXT_NAMES) and
-// otherwise throws "Text strings must be rendered within a <Text> component".
-// Real RN renders a NESTED <Text> as the host "RCTVirtualText", which RNTL's list
-// (['Text', 'RCTText']) omits — so any composite/nested <Text> crashes under the
-// native engine. (Jest's preset never hits this: it mocks Text to a single flat
-// "Text" host, hiding the real RCTText/RCTVirtualText split.) Add RCTVirtualText so
-// nested text reconciles and getByText matches across nested <Text>, matching how
-// RN actually renders. The helper is a leaf module (no RNTL main-module init), so
-// requiring it here is free of the evaluation-order hazards noted in the hot-reset
-// block. Gated on the list existing: a no-op for RNTL <=13 and the mock engine.
+// --- RNTL: register RCTVirtualText as a text host ---
+// Real RN renders a NESTED <Text> as the host "RCTVirtualText", which RNTL's text
+// hosts omit. On RNTL 14 that makes a nested <Text> throw "Text strings must be
+// rendered within a <Text> component"; on RNTL 12 and 13 the inner text is not a
+// text element, so getByText cannot find it. rntl-text-host.mjs explains both and
+// patches whichever shape the installed RNTL has (dist/ is 14, build/ is 12 and 13).
+//
+// Requiring the module here adds no evaluation-order hazard (see the hot-reset
+// block): on 13 and 14 it is a leaf, and on 12, where it requires react-native,
+// RNTL's config and render-act, the RNTL matchers loaded just above already
+// required it and react-native is loaded by now, so this is a cache hit. `req` is
+// the project-root require the matchers use, so both patch the same RNTL copy.
 try {
-  const hcn = req("@testing-library/react-native/dist/helpers/host-component-names");
-  if (Array.isArray(hcn?.HOST_TEXT_NAMES) && !hcn.HOST_TEXT_NAMES.includes("RCTVirtualText")) {
-    hcn.HOST_TEXT_NAMES.push("RCTVirtualText");
+  let registered = null;
+  let lastError;
+  for (const moduleId of [
+    "@testing-library/react-native/dist/helpers/host-component-names",
+    "@testing-library/react-native/build/helpers/host-component-names",
+  ]) {
+    let hostComponentNames;
+    try {
+      hostComponentNames = req(moduleId);
+    } catch (error) {
+      lastError = error;
+      continue;
+    }
+    registered = registerVirtualTextHost(hostComponentNames);
+    if (registered) break;
+  }
+  if (!registered) {
+    throw lastError ?? new Error("host-component-names has neither HOST_TEXT_NAMES nor isHostText");
   }
 } catch (e) {
   if (diagnostics) {
