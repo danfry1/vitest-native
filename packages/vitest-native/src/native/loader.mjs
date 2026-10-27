@@ -452,18 +452,29 @@ export function loadSync(url, context, nextLoad) {
       ].join("\n");
       return { format: "commonjs", source: facade, shortCircuit: true };
     }
+    // Any other React Native module this loader would compile (a boundary stub, a Flow
+    // source) is served as a facade that requires it, so an import and React Native's
+    // own require share the one instance in the CommonJS cache, compiled there by the
+    // require hook (hooks.mjs) as every require is. Serving the compiled source here
+    // instead evaluated it a second time once React Native had already required it,
+    // and a module with state split in two: @react-native/assets-registry, which React
+    // Native registers assets in and expo-asset 57 imports, answered every
+    // Asset.fromModule with "Module is missing from the asset registry". The names
+    // Node gives the import come from the compiled code (cjsExportNames), as below.
     const boundary = boundarySourceFor(rnPath, PLATFORM, REACT_NATIVE_VERSION);
-    if (boundary != null) return { format: "commonjs", source: boundary, shortCircuit: true };
-    if (norm.endsWith(".js")) {
+    let code = boundary;
+    if (code == null && norm.endsWith(".js")) {
       const src = fs.readFileSync(file, "utf8");
-      if (isFlow(src))
-        return {
-          format: "commonjs",
-          source: transformRN(file, src, PROJECT_ROOT, PLATFORM),
-          shortCircuit: true,
-        };
+      if (isFlow(src)) code = transformRN(file, src, PROJECT_ROOT, PLATFORM);
     }
-    return nextLoad(url, context);
+    if (code == null) return nextLoad(url, context);
+    const names = cjsExportNames(code);
+    const facade = [
+      `const { createRequire } = require("node:module");`,
+      `module.exports = createRequire(${JSON.stringify(url)})(${JSON.stringify(file)});`,
+      ...(names.length > 0 ? [`0 && (module.exports = { ${names.join(", ")} });`] : []),
+    ].join("\n");
+    return { format: "commonjs", source: facade, shortCircuit: true };
   }
 
   // Configured third-party package: transform any JS/TS/JSX source to CJS, and tell

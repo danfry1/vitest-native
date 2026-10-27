@@ -213,7 +213,9 @@ describe("native ownership policy", () => {
       `if (esmInner.format !== "commonjs" || esmInner.source === "sentinel" || esmInner.source.includes("value: string")) throw new Error("linked RN ESM loader did not transform Flow: " + JSON.stringify(esmInner));`,
       `const boundaryFile = ${JSON.stringify(path.join(canonicalLinkedRoot, "Libraries", "TurboModule", "TurboModuleRegistry.js"))};`,
       `const esmBoundary = await load(pathToFileURL(boundaryFile).href, {}, async () => ({ format: "module", source: "sentinel" }));`,
-      `if (!esmBoundary.source.includes("exports.get")) throw new Error("linked RN ESM loader missed the native boundary");`,
+      // The loader serves a facade that requires the file (one instance with React
+      // Native's own require), naming the boundary stub's exports for Node.
+      `if (!esmBoundary.source.includes("createRequire(") || !/module\\.exports = \\{[^}]*\\bget\\b/.test(esmBoundary.source)) throw new Error("linked RN ESM loader missed the native boundary: " + esmBoundary.source);`,
       `installRequireHooks(root, [], "ios", "0.0.0", []);`,
       `const live = req("react-native");`,
       `const value = live.identity("linked");`,
