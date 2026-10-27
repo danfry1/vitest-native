@@ -101,14 +101,22 @@ export function expo(): Preset {
       },
 
       "expo-splash-screen": {
-        exports: ["preventAutoHideAsync", "hideAsync"],
+        // The module's API since SDK 52 (expo-splash-screen 0.29): `hide()` and
+        // `setOptions()` are synchronous, and `hideAsync()` stays for backwards
+        // compatibility (build/SplashScreen.native.js). Under the native engine the real
+        // package runs instead; this serves the mock engine and `presets: { expo: true }`.
+        exports: ["preventAutoHideAsync", "hideAsync", "hide", "setOptions"],
         factory: () => {
           const preventAutoHideAsync = vi.fn(async () => true);
           const hideAsync = vi.fn(async () => true);
+          const hide = vi.fn(() => {});
+          const setOptions = vi.fn((_options: { duration?: number; fade?: boolean }) => {});
 
           const exports = {
             preventAutoHideAsync,
             hideAsync,
+            hide,
+            setOptions,
           };
 
           return {
