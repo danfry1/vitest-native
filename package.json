@@ -21,7 +21,7 @@
     "react-native-webgpu-dawn": "file:./scripts/native-binary-stub"
   },
   "engines": {
-    "node": ">=22.19.0 <23 || >=24.6.0"
+    "node": ">=22.13.0 <23 || >=24.3.0"
   },
   "scripts": {
     "build": "bun run --filter vitest-native build",

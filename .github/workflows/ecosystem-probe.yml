@@ -38,7 +38,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22.19.0
+          node-version: 22.13.0
 
       # npm 10 (bundled with Node 22) crashes resolving Vite 8.2+'s optional peer chain
       # (@vitejs/devtools -> @vitejs/devtools-vitest -> vitest: "*") once Vitest 5 is

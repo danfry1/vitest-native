@@ -83,7 +83,7 @@ describe("declared package entry points", () => {
  * root entry pulls in every preset, each of which imports `vi` from vitest at module
  * scope, so the root CJS bundle required vitest — and vitest throws when it is reached
  * through require(). The build no longer emits those CJS bundles: `exports` points
- * both conditions at the single .mjs build, which Node >= 22.19 loads from CommonJS
+ * both conditions at the single .mjs build, which Node >= 22.13 loads from CommonJS
  * through require(esm). `engines` pins that floor.
  */
 const KNOWN_UNLOADABLE: Record<string, string> = {};

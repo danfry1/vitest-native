@@ -18,7 +18,7 @@
 // `cjs-resolves-to-esm` had the same shape of bug. Some subpaths are deliberately
 // ESM-only: they depend on vitest, which throws when it is reached through
 // require(), so `exports` points both conditions at the .mjs build and Node
-// >= 22.19 loads it via require(esm). Ignoring the rule package-wide to excuse
+// >= 22.13 loads it via require(esm). Ignoring the rule package-wide to excuse
 // those also stopped it reporting on the subpaths that ship a real CJS build —
 // a dual entry could silently lose its .cjs and nothing would say so.
 //
