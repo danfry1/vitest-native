@@ -476,8 +476,10 @@ try {
     registered = registerVirtualTextHost(hostComponentNames);
     if (registered) break;
   }
-  if (!registered) {
-    throw lastError ?? new Error("host-component-names has neither HOST_TEXT_NAMES nor isHostText");
+  if (!registered && diagnostics) {
+    const reason =
+      lastError?.message ?? "host-component-names has neither HOST_TEXT_NAMES nor isHostText";
+    console.log(`[vitest-native] (native) could not register RCTVirtualText text host: ${reason}`);
   }
 } catch (e) {
   if (diagnostics) {
