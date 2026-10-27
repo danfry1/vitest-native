@@ -88,3 +88,81 @@ export function esmExportNames(entry: string, platform: "ios" | "android" = "ios
   names.delete("default");
   return [...names].sort();
 }
+
+/** A package's real export names, from its ESM entry (`module`, else `react-native`). */
+function packageExportNames(pkg: string, fromDir: string): string[] {
+  const manifestPath = createRequire(path.join(fromDir, "package.json")).resolve(
+    `${pkg}/package.json`,
+  );
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  const entry = manifest.module ?? manifest["react-native"];
+  if (!entry) {
+    throw new VitestNativeError("PRESET_UNAVAILABLE", `${pkg} declares no ESM entry`);
+  }
+  return esmExportNames(path.join(path.dirname(manifestPath), entry));
+}
+
+/**
+ * The names a library's test mock module provides, read without running it: its ESM
+ * named exports, and the keys of the object it assigns to `module.exports` or exports
+ * as default (following a variable to its object literal). A spread of
+ * `jest.requireActual(pkg)` or `require(pkg)` brings in that package's real export
+ * names. Mocks are written for Babel's module interop, so one file can mix `import`
+ * with `module.exports =` (reanimated's lib/module/mock.js).
+ */
+export function mockModuleExportNames(file: string): string[] {
+  const { parseAst } = createRequire(import.meta.url)("vite") as {
+    parseAst: (code: string) => { body: Node[] };
+  };
+  const body = parseAst(fs.readFileSync(file, "utf8")).body as any[];
+  const names = new Set<string>();
+  // A variable's initializer, so `const mock = {...}; module.exports = mock` reads.
+  const resolveBinding = (node: any): any => {
+    if (node?.type !== "Identifier") return node;
+    for (const stmt of body) {
+      if (stmt.type !== "VariableDeclaration") continue;
+      for (const d of stmt.declarations) {
+        if (d.id.type === "Identifier" && d.id.name === node.name) return resolveBinding(d.init);
+      }
+    }
+    return undefined;
+  };
+  const requiredPackage = (node: any): string | undefined => {
+    const callee = node?.type === "CallExpression" ? node.callee : undefined;
+    const isRequire =
+      (callee?.type === "Identifier" && callee.name === "require") ||
+      (callee?.type === "MemberExpression" && callee.property?.name === "requireActual");
+    return isRequire ? node.arguments[0]?.value : undefined;
+  };
+  const objectFor = (node: any): any => {
+    const value = resolveBinding(node);
+    return value?.type === "ObjectExpression" ? value : undefined;
+  };
+  const addObject = (object: any) => {
+    for (const prop of object?.properties ?? []) {
+      if (prop.type === "SpreadElement") {
+        const pkg = requiredPackage(resolveBinding(prop.argument));
+        if (pkg) for (const n of packageExportNames(pkg, path.dirname(file))) names.add(n);
+        else addObject(objectFor(prop.argument));
+      } else if (prop.key) {
+        names.add(prop.key.type === "Identifier" ? prop.key.name : String(prop.key.value));
+      }
+    }
+  };
+  for (const stmt of body) {
+    if (stmt.type === "ExportDefaultDeclaration") addObject(objectFor(stmt.declaration));
+    const expr = stmt.type === "ExpressionStatement" ? stmt.expression : undefined;
+    if (
+      expr?.type === "AssignmentExpression" &&
+      expr.left.type === "MemberExpression" &&
+      expr.left.object?.name === "module" &&
+      expr.left.property?.name === "exports"
+    ) {
+      addObject(objectFor(expr.right));
+    }
+  }
+  for (const n of esmExportNames(file)) names.add(n);
+  names.delete("default");
+  names.delete("__esModule");
+  return [...names].sort();
+}
