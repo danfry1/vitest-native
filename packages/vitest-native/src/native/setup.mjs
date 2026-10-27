@@ -223,10 +223,7 @@ function installLoaderHooks(data) {
   }
   nativeLoader.initialize(data);
   globalThis.__vitest_native_loader_mode = "in-thread";
-  const fromRequire = (context) =>
-    Array.isArray(context?.conditions) &&
-    context.conditions.includes("require") &&
-    !context.conditions.includes("import");
+  const fromRequire = nativeLoader.isRequireContext;
   registerHooks({
     resolve: (specifier, context, nextResolve) =>
       fromRequire(context)
