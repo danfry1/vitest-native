@@ -1405,7 +1405,7 @@ describe("native globals: globalThis.expo shim", () => {
     const expo = g.expo;
     const mockFn = (impl: () => unknown) => vi.fn(impl);
     g.__vitest_native_expo_module_mock = (name: string) => {
-      const members = expoModuleTableMembers(name, mockFn);
+      const members = expoModuleTableMembers(os.tmpdir(), name, mockFn);
       return members ? { members, complete: false, listsConstants: true } : null;
     };
     try {
@@ -1439,7 +1439,7 @@ describe("native globals: globalThis.expo shim", () => {
     const g = globalThis as Record<string, any>;
     const mockFn = (impl: () => unknown) => vi.fn(impl);
     g.__vitest_native_expo_module_mock = (name: string) => {
-      const members = expoModuleTableMembers(name, mockFn);
+      const members = expoModuleTableMembers(os.tmpdir(), name, mockFn);
       return members ? { members, complete: false, listsConstants: false } : null;
     };
     try {
@@ -1460,6 +1460,7 @@ import {
   expoModuleMockIndex,
   expoAbsentModules,
   expoModuleTableDescribesInstalledSdk,
+  expoModuleTableFor,
   expoModuleTableMembers,
 } from "../src/native/expo-module-mocks.mjs";
 
@@ -1533,60 +1534,97 @@ describe("Expo native module presence", () => {
 });
 
 describe("Expo's table of the native modules", () => {
-  it("is extracted from a published jest-expo", async () => {
+  // A project with `expo` of `expoVersion` installed, or none.
+  const project = (expoVersion: string | null, nested = false) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-expo-sdk-"));
+    fs.writeFileSync(path.join(root, "package.json"), "{}");
+    if (expoVersion) {
+      fs.mkdirSync(path.join(root, "node_modules", "expo"), { recursive: true });
+      fs.writeFileSync(
+        path.join(root, "node_modules", "expo", "package.json"),
+        // An `exports` that does not list ./package.json, as a package's may not.
+        JSON.stringify({ name: "expo", version: expoVersion, exports: { ".": "./index.js" } }),
+      );
+    }
+    if (!nested) return root;
+    // A workspace member: expo is hoisted to the root.
+    const member = path.join(root, "apps", "app");
+    fs.mkdirSync(member, { recursive: true });
+    fs.writeFileSync(path.join(member, "package.json"), "{}");
+    return member;
+  };
+
+  it("has a table per SDK, each extracted from that SDK's published jest-expo", async () => {
     // @ts-expect-error — runtime .mjs
-    const { default: table } = await import("../src/native/expo-module-table.mjs");
-    expect(table.source).toMatch(/^jest-expo@\d+\.\d+\.\d+$/);
-    expect(table.license).toBe("MIT");
-    // jest-expo's whole notice ships with its data, as its licence requires.
-    const file = fs.readFileSync(
-      fileURLToPath(new URL("../src/native/expo-module-table.mjs", import.meta.url)),
-      "utf8",
-    );
-    expect(file).toContain("Copyright (c) 2015-present 650 Industries, Inc.");
-    expect(file).toContain(
-      "The above copyright notice and this permission notice shall be included",
-    );
-    const modules = Object.keys(table.modules);
-    expect(modules.length).toBeGreaterThan(50);
-    expect(modules).toEqual(expect.arrayContaining(["ExpoDevice", "ExponentConstants"]));
-    // Any type jest-expo's mock() does not name answers `{}`, as there.
-    expect(
-      expoModuleTableMembers("ExponentConstants", (fn: () => unknown) => fn)?.manifest,
-    ).toEqual({});
+    const { default: tables } = await import("../src/native/expo-module-tables.mjs");
+    const sdks = Object.keys(tables).map(Number);
+    expect(sdks).toEqual(expect.arrayContaining([57, 58]));
+    for (const sdk of sdks) {
+      const table = tables[sdk];
+      expect(table.sdk).toBe(sdk);
+      expect(table.source).toMatch(new RegExp(`^jest-expo@${sdk}\\.\\d+\\.\\d+$`));
+      expect(table.license).toBe("MIT");
+      // jest-expo's whole notice ships with its data, as its licence requires.
+      const file = fs.readFileSync(
+        fileURLToPath(new URL(`../src/native/expo-module-table-${sdk}.mjs`, import.meta.url)),
+        "utf8",
+      );
+      expect(file).toContain("Copyright (c) 2015-present 650 Industries, Inc.");
+      expect(file).toContain(
+        "The above copyright notice and this permission notice shall be included",
+      );
+      const modules = Object.keys(table.modules);
+      expect(modules.length).toBeGreaterThan(50);
+      expect(modules).toEqual(expect.arrayContaining(["ExpoDevice", "ExponentConstants"]));
+    }
+    // The SDKs differ: SDK 57's ExpoUpdates has constants SDK 58's lacks.
+    expect(Object.keys(tables[57].modules.ExpoUpdates)).toContain("manifest");
+    expect(Object.keys(tables[58].modules.ExpoUpdates)).not.toContain("manifest");
   });
 
-  it("describes the installed SDK only when expo's major is the table's", async () => {
-    // @ts-expect-error — runtime .mjs
-    const { default: table } = await import("../src/native/expo-module-table.mjs");
-    const tableMajor = Number(/@(\d+)\./.exec(table.source)![1]);
-    const project = (expoVersion: string | null) => {
-      const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-expo-sdk-"));
-      fs.writeFileSync(path.join(root, "package.json"), "{}");
-      if (expoVersion) {
-        fs.mkdirSync(path.join(root, "node_modules", "expo"), { recursive: true });
-        fs.writeFileSync(
-          path.join(root, "node_modules", "expo", "package.json"),
-          JSON.stringify({ name: "expo", version: expoVersion }),
+  it("answers from the installed SDK's table", () => {
+    const sdk57 = project("57.0.4");
+    const sdk58 = project("58.0.16");
+    const mockFn = (fn: () => unknown) => fn;
+    try {
+      expect(expoModuleTableMembers(sdk57, "ExpoUpdates", mockFn)).toHaveProperty("manifest");
+      expect(expoModuleTableMembers(sdk58, "ExpoUpdates", mockFn)).not.toHaveProperty("manifest");
+      // Any type jest-expo's mock() does not name answers `{}`, as there.
+      expect(expoModuleTableMembers(sdk58, "ExponentConstants", mockFn)?.manifest).toEqual({});
+      expect(expoModuleTableMembers(sdk58, "VNNoSuchModule", mockFn)).toBeNull();
+    } finally {
+      for (const root of [sdk57, sdk58]) fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("is exact for an SDK with a table, else the nearest SDK's stands in", () => {
+    const cases: [string | null, boolean, number, boolean][] = [
+      // expo version, nested in a workspace, table SDK, exact
+      ["58.0.3", false, 58, true],
+      ["57.0.9", true, 57, true],
+      ["58.0.0-canary-20260909-ea7a89a", false, 58, true],
+      ["56.0.6", false, 57, false],
+      ["59.0.0", false, 58, false],
+      [null, false, 58, false],
+    ];
+    const roots = cases.map(([version, nested]) => project(version, nested));
+    try {
+      expect(
+        roots.map((root) => {
+          const { sdk, exact } = expoModuleTableFor(root);
+          return [sdk, exact, expoModuleTableDescribesInstalledSdk(root)];
+        }),
+      ).toEqual(cases.map(([, , sdk, exact]) => [sdk, exact, exact]));
+    } finally {
+      for (const root of roots) {
+        fs.rmSync(
+          root.endsWith(path.join("apps", "app")) ? path.dirname(path.dirname(root)) : root,
+          {
+            recursive: true,
+            force: true,
+          },
         );
       }
-      return root;
-    };
-    const roots = [
-      project(`${tableMajor}.0.3`),
-      project(`${tableMajor - 1}.0.9`),
-      project(`${tableMajor + 1}.0.0-canary`),
-      project(null),
-    ];
-    try {
-      expect(roots.map((root) => expoModuleTableDescribesInstalledSdk(root))).toEqual([
-        true,
-        false,
-        false,
-        false,
-      ]);
-    } finally {
-      for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
     }
   });
 });

@@ -11,12 +11,12 @@ permissions:
 
 jobs:
   expo-module-table:
-    name: Expo module table matches the newest jest-expo
+    name: Expo module tables match the newest jest-expo of each SDK
     runs-on: ubuntu-latest
-    # The native engine answers Expo native modules from jest-expo's table
-    # (packages/vitest-native/src/native/expo-module-table.mjs). A new jest-expo, as each
-    # Expo SDK ships one, fails this job so its table is adopted deliberately:
-    # `node packages/vitest-native/scripts/sync-expo-module-table.mjs` and review the diff.
+    # The native engine answers Expo native modules from jest-expo's table for the
+    # installed SDK (packages/vitest-native/src/native/expo-module-table-<sdk>.mjs). A new
+    # jest-expo of a committed SDK, or a new SDK on npm's latest tag, fails this job so the
+    # table is adopted deliberately: run the command the job prints and review the diff.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -24,7 +24,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22.13.0'
-      - name: Compare with jest-expo@latest
+      - name: Compare with the newest jest-expo of each SDK
         run: node packages/vitest-native/scripts/sync-expo-module-table.mjs --check
 
   check-latest-rn:

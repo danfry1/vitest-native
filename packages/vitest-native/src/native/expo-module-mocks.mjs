@@ -19,14 +19,14 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { threadId } from "node:worker_threads";
-import expoModuleTable from "./expo-module-table.mjs";
+import expoModuleTables from "./expo-module-tables.mjs";
 
 // Per module instance: once per worker under the hot runtime, once per test file with
 // isolation (about 15 ms there, with the on-disk scan cache warm).
 const packageLists = new Map();
 const indexes = new Map();
 const absentModules = new Map();
-const tableSdkMatches = new Map();
+const tableChoices = new Map();
 
 /**
  * The Expo modules (directories with an expo-module.config.json) for `projectRoot`, in
@@ -327,16 +327,15 @@ export function expoModuleMock(projectRoot, name, mockFn) {
 
 /**
  * The members jest-expo gives native module `name` from Expo's table of the native
- * modules (expo-module-table.mjs, extracted by scripts/sync-expo-module-table.mjs), or
- * null when the table has no such module. Values follow jest-expo's `mock()`
- * (src/preset/setup.js): a member's own `mock` value, else a function (resolving for
- * native async functions), `1` for a number, `'mock'` for a string, `[]` for an array,
- * and `{}` otherwise. A member newer than the table is not here; the caller keeps its
- * stub's conventions for those, and for every unlisted member when the table is another
- * SDK's (expoModuleTableDescribesInstalledSdk).
+ * modules for the SDK installed for `projectRoot` (expoModuleTableFor), or null when the
+ * table has no such module. Values follow jest-expo's `mock()` (src/preset/setup.js): a
+ * member's own `mock` value, else a function (resolving for native async functions), `1`
+ * for a number, `'mock'` for a string, `[]` for an array, and `{}` otherwise. A member
+ * newer than the table is not here; the caller keeps its stub's conventions for those,
+ * and for every unlisted member when no table is the installed SDK's.
  */
-export function expoModuleTableMembers(name, mockFn) {
-  const members = expoModuleTable.modules[name];
+export function expoModuleTableMembers(projectRoot, name, mockFn) {
+  const members = expoModuleTableFor(projectRoot).table.modules[name];
   if (!members) return null;
   const out = {};
   for (const [member, property] of Object.entries(members)) {
@@ -346,27 +345,59 @@ export function expoModuleTableMembers(name, mockFn) {
 }
 
 /**
- * Whether Expo's table describes the SDK installed for `projectRoot`: the major of the
- * jest-expo it was extracted from (jest-expo's major is the SDK's) against the major of
- * the `expo` the project resolves. Only then is a member the table leaves out one the
- * module does not have; another SDK's modules have members this table never listed
- * (SDK 57's ExpoUpdates has a `manifest` constant), so false where expo is absent or
- * of another SDK.
+ * Whether one of Expo's tables is the installed SDK's own (expoModuleTableFor). Only then
+ * is a member the table leaves out one the module does not have.
  */
 export function expoModuleTableDescribesInstalledSdk(projectRoot) {
-  let installed = tableSdkMatches.get(projectRoot);
-  if (installed !== undefined) return installed;
-  const tableMajor = /@(\d+)\./.exec(expoModuleTable.source)?.[1];
-  let expoMajor;
-  try {
-    const file = createRequire(path.join(projectRoot, "package.json")).resolve("expo/package.json");
-    expoMajor = /^(\d+)\./.exec(JSON.parse(fs.readFileSync(file, "utf8")).version)?.[1];
-  } catch {
-    expoMajor = undefined;
+  return expoModuleTableFor(projectRoot).exact;
+}
+
+/**
+ * Expo's table of the native modules for the SDK installed for `projectRoot`
+ * (expo-module-table-<sdk>.mjs, one per SDK, extracted by
+ * scripts/sync-expo-module-table.mjs from that SDK's jest-expo): the table of the major of
+ * the `expo` the project resolves, `exact`. Each SDK's modules differ (SDK 57's
+ * ExpoUpdates has a `manifest` constant SDK 58's lacks), so for an SDK with no table, or
+ * no `expo` installed, the nearest SDK's table (the newest, without expo) stands in for
+ * the members it lists, not `exact`.
+ */
+export function expoModuleTableFor(projectRoot) {
+  let chosen = tableChoices.get(projectRoot);
+  if (chosen) return chosen;
+  const sdks = Object.keys(expoModuleTables)
+    .map(Number)
+    .sort((a, b) => a - b);
+  const installed = installedExpoMajor(projectRoot);
+  if (installed !== undefined && expoModuleTables[installed]) {
+    chosen = { table: expoModuleTables[installed], sdk: installed, exact: true };
+  } else {
+    // Nearest first; between two as near, the newer.
+    const sdk =
+      installed === undefined
+        ? sdks.at(-1)
+        : sdks.reduce((best, candidate) =>
+            Math.abs(candidate - installed) <= Math.abs(best - installed) ? candidate : best,
+          );
+    chosen = { table: expoModuleTables[sdk], sdk, exact: false };
   }
-  installed = tableMajor !== undefined && expoMajor === tableMajor;
-  tableSdkMatches.set(projectRoot, installed);
-  return installed;
+  tableChoices.set(projectRoot, chosen);
+  return chosen;
+}
+
+// The major of the `expo` Node resolves from `projectRoot`, found as Node looks for it,
+// up the node_modules directories; reading its package.json directly, since expo's
+// `exports` decides whether `expo/package.json` resolves.
+function installedExpoMajor(projectRoot) {
+  for (let dir = path.resolve(projectRoot); ; dir = path.dirname(dir)) {
+    const manifest = path.join(dir, "node_modules", "expo", "package.json");
+    try {
+      const major = /^(\d+)\./.exec(JSON.parse(fs.readFileSync(manifest, "utf8")).version)?.[1];
+      return major === undefined ? undefined : Number(major);
+    } catch {
+      // Not here, or unreadable: keep looking up the tree.
+    }
+    if (path.dirname(dir) === dir) return undefined;
+  }
 }
 
 function jestExpoMockValue(property, mockFn) {

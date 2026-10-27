@@ -37,7 +37,10 @@ describe("native engine: fabricated expo native-module stubs", () => {
     // expo-constants, a devDependency here, defines ExponentConstants.
     expect(modules.ExponentConstants.statusBarHeight).toBe(54);
     expect(modules.ExponentConstants.executionEnvironment).toBe("mock");
-    expect(modules.ExponentConstants.someConstantItLacks).toBeUndefined();
+    // No `expo` is installed here, so no table is the installed SDK's and a member the
+    // table leaves out keeps the stub's conventions. With an SDK's own table it is
+    // undefined (the expo and expo-sdk57 consumers).
+    expect(modules.ExponentConstants.someConstantItLacks()).toBeUndefined();
   });
 
   it("keeps a module present unless an installed package only probes for it", () => {

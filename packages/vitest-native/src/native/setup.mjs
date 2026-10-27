@@ -365,7 +365,7 @@ g.__vitest_native_expo_module_mock = (name) => {
   const mockFn = (implementation) => vi.fn(implementation);
   const own = expoModuleMock(projectRoot, name, mockFn);
   if (own) return { members: own, complete: true };
-  const listed = expoModuleTableMembers(name, mockFn);
+  const listed = expoModuleTableMembers(projectRoot, name, mockFn);
   if (!listed) return null;
   return {
     members: listed,
