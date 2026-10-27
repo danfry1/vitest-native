@@ -15,6 +15,7 @@ import { serializer as rnSerializer } from "../serializer.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import { importPresetModule, presetModulePaths } from "../preset-modules.mjs";
 import { installNitroProxy } from "./nitro.mjs";
+import { expoModuleMock } from "./expo-module-mocks.mjs";
 import { installKnownNativeModules } from "./native-modules.mjs";
 
 // Non-enumerable key on the preset container: the mocks built so far in this file.
@@ -347,6 +348,10 @@ for (const { pkg, mod, presetName } of presetDefs) {
 // reports a clear configuration error instead of creating a split-brain graph.
 const req = createRequire(path.join(projectRoot, "package.json"));
 const RN = req("react-native");
+// Expo modules' own mocks for their native modules (expo-module-mocks.mjs), read by
+// globalThis.expo.modules as each module is first required.
+g.__vitest_native_expo_module_mock = (name) =>
+  expoModuleMock(projectRoot, name, (implementation) => vi.fn(implementation));
 // Before the project's setup files run, as jest-expo does (see globals.mjs).
 installExpoRuntime(projectRoot);
 const initialDimensions = {

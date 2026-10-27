@@ -1345,6 +1345,86 @@ describe("native globals: globalThis.expo shim", () => {
     residentSub.remove();
     controller();
   });
+
+  it("serves a package's own mock for its native module, as jest-expo does", () => {
+    installGlobals();
+    const g = globalThis as Record<string, any>;
+    const expo = g.expo;
+    class NativeClass {
+      a() {}
+      b() {}
+    }
+    const digest = vi.fn((input: string) => `digest:${input}`);
+    g.__vitest_native_expo_module_mock = (name: string) =>
+      name === "VNMockedModule" ? { digest, documentRoot: "/mock", NativeClass } : null;
+    try {
+      const mocked = expo.modules.VNMockedModule;
+      expect(mocked.digest("x")).toBe("digest:x");
+      expect(mocked.documentRoot).toBe("/mock");
+      expect(mocked.NativeClass).toBe(NativeClass);
+      // The mock is the whole module: nothing is invented for what it leaves out.
+      expect(mocked.cacheRoot).toBeUndefined();
+      expect(mocked.fetchAsync).toBeUndefined();
+      expect(typeof mocked.addListener).toBe("function");
+      // A module without one keeps the conventions.
+      expect(typeof expo.modules.VNUnmockedModule.fetchAsync).toBe("function");
+
+      // A file's calls and overrides do not reach the next; the implementation stays.
+      digest.mockReturnValue("overridden");
+      expect(mocked.digest("y")).toBe("overridden");
+      expo[Symbol.for("vitest-native.expo.reset")]();
+      expect(digest).not.toHaveBeenCalled();
+      expect(mocked.digest("z")).toBe("digest:z");
+    } finally {
+      delete g.__vitest_native_expo_module_mock;
+    }
+  });
+});
+
+// @ts-expect-error — runtime .mjs
+import { expoModuleMock, expoModuleMockIndex } from "../src/native/expo-module-mocks.mjs";
+
+describe("Expo module mocks", () => {
+  it("indexes the mocks/ of installed Expo modules by native module name", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-expo-mocks-"));
+    try {
+      const pkg = (dir: string, files: Record<string, string>, expoModule = true) => {
+        fs.mkdirSync(path.join(root, dir, "mocks"), { recursive: true });
+        fs.writeFileSync(path.join(root, dir, "package.json"), "{}");
+        if (expoModule) fs.writeFileSync(path.join(root, dir, "expo-module.config.json"), "{}");
+        for (const [file, src] of Object.entries(files)) {
+          fs.writeFileSync(path.join(root, dir, "mocks", file), src);
+        }
+      };
+      fs.writeFileSync(path.join(root, "package.json"), "{}");
+      pkg("node_modules/expo-crypto", {
+        "ExpoCrypto.js": "exports.digest = () => 'd'; exports.size = 1;",
+        "ExpoCrypto.d.ts": "",
+      });
+      pkg("node_modules/@scope/expo-thing", { "ExpoThing.js": "exports.x = () => 1;" });
+      pkg("node_modules/expo/node_modules/expo-asset", { "ExpoAsset.js": "exports.y = 1;" });
+      pkg("node_modules/.pnpm/expo-haptics@58.0.0/node_modules/expo-haptics", {
+        "ExpoHaptics.js": "exports.z = 1;",
+      });
+      // Not an Expo module: its mocks/ are its own business.
+      pkg("node_modules/some-lib", { "SomeLib.js": "exports.w = 1;" }, false);
+
+      const index = expoModuleMockIndex(root);
+      expect([...index.keys()].sort()).toEqual([
+        "ExpoAsset",
+        "ExpoCrypto",
+        "ExpoHaptics",
+        "ExpoThing",
+      ]);
+      const members = expoModuleMock(root, "ExpoCrypto", (fn: () => unknown) => vi.fn(fn));
+      expect(members.size).toBe(1);
+      expect(vi.isMockFunction(members.digest)).toBe(true);
+      expect(members.digest()).toBe("d");
+      expect(expoModuleMock(root, "NotAModule", vi.fn)).toBeNull();
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 import { gestureHandler } from "../src/presets/index.js";

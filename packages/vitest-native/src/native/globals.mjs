@@ -110,13 +110,25 @@ function installExpoGlobal(g) {
   //   subclasses (expo-file-system: `class File extends ExpoFileSystem.FileSystemFile`),
   //   so they are memoized classes on SharedObject's prototype chain.
   // Explicitly-set properties (spies, overrides) always win.
+  //
+  // A module whose package ships a mock (expo-module-mocks.mjs) is that mock's members,
+  // as under jest-expo; the conventions above apply to modules without one. Setup
+  // installs the lookup, since the mock files compile through the engine's hooks.
   const __moduleCache = new Map();
   const moduleResets = new Set();
-  const makeModuleStub = () => {
+  const makeModuleStub = (name) => {
     const fabricatedClasses = new Map();
     const fabricatedRecords = new Map();
     const directMutations = new Map();
     const target = new NativeModule();
+    const seeded = g.__vitest_native_expo_module_mock?.(name) ?? null;
+    const seededMocks = [];
+    if (seeded) {
+      for (const [prop, value] of Object.entries(seeded)) {
+        target[prop] = value;
+        if (typeof value?.mockReset === "function") seededMocks.push(value);
+      }
+    }
     const trackDirectMutation = (prop) => {
       if (directMutations.has(prop)) return;
       directMutations.set(prop, {
@@ -128,6 +140,10 @@ function installExpoGlobal(g) {
       get(object, prop) {
         if (prop in object) return object[prop];
         if (typeof prop === "symbol") return undefined;
+        // A package mock is the whole module, as under jest-expo: a member it leaves
+        // out is undefined (expo-file-system's mock has no documentDirectory, and
+        // normalizeEndingSlash expects a string or nothing).
+        if (seeded) return undefined;
         if (prop.endsWith("Async")) return () => Promise.resolve(undefined);
         if (/^[A-Z]/.test(prop)) {
           if (!fabricatedClasses.has(prop)) {
@@ -160,6 +176,9 @@ function installExpoGlobal(g) {
         directMutations.clear();
         for (const prop of fabricatedRecords.keys()) fabricatedClasses.delete(prop);
         fabricatedRecords.clear();
+        // A file's calls and overrides do not reach the next file; vi.fn(impl) keeps
+        // its implementation through mockReset.
+        for (const mock of seededMocks) mock.mockReset();
       },
       bless: (isResidentImport) => {
         for (const [prop, record] of directMutations) {
@@ -178,7 +197,7 @@ function installExpoGlobal(g) {
     {
       get(_t, prop) {
         if (typeof prop === "symbol") return undefined;
-        if (!__moduleCache.has(prop)) __moduleCache.set(prop, makeModuleStub());
+        if (!__moduleCache.has(prop)) __moduleCache.set(prop, makeModuleStub(prop));
         return __moduleCache.get(prop);
       },
       has: () => true,
