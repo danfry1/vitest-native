@@ -1396,7 +1396,65 @@ describe("native globals: globalThis.expo shim", () => {
 });
 
 // @ts-expect-error — runtime .mjs
-import { expoModuleMock, expoModuleMockIndex } from "../src/native/expo-module-mocks.mjs";
+import {
+  expoModuleMock,
+  expoModuleMockIndex,
+  expoNativeModuleNames,
+} from "../src/native/expo-module-mocks.mjs";
+
+describe("Expo native module names", () => {
+  it("collects the names the installed Expo modules' native sources define, cached on disk", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-expo-names-"));
+    const cache = path.join(root, "cache");
+    try {
+      fs.writeFileSync(path.join(root, "package.json"), "{}");
+      const pkg = (name: string, file: string, src: string) => {
+        const dir = path.join(root, "node_modules", name);
+        fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
+        fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ version: "1.0.0" }));
+        fs.writeFileSync(path.join(dir, "expo-module.config.json"), "{}");
+        fs.writeFileSync(path.join(dir, file), src);
+      };
+      pkg("expo-haptics", "ios/HapticsModule.swift", 'Name("ExpoHaptics")');
+      pkg("expo-crypto", "android/src/CryptoModule.kt", 'const val NAME = "ExpoCrypto"');
+      const names = expoNativeModuleNames(root, cache)!;
+      expect(names.has("ExpoHaptics")).toBe(true);
+      expect(names.has("ExpoCrypto")).toBe(true);
+      expect(names.has("ExpoObserve")).toBe(false);
+      const [cached] = fs.readdirSync(cache);
+      expect(cached).toMatch(/^expo-native-modules-[0-9a-f]{16}\.json$/);
+      expect(JSON.parse(fs.readFileSync(path.join(cache, cached), "utf8"))).toContain(
+        "ExpoHaptics",
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("is null where no Expo module is installed, so every name stays present", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-expo-names-none-"));
+    try {
+      fs.writeFileSync(path.join(root, "package.json"), "{}");
+      expect(expoNativeModuleNames(root, null)).toBeNull();
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("answers expo.modules from the presence check", () => {
+    installGlobals();
+    const g = globalThis as Record<string, any>;
+    g.__vitest_native_expo_module_present = (name: string) => name !== "VNAbsentModule";
+    try {
+      expect(g.expo.modules.VNAbsentModule).toBeUndefined();
+      expect("VNAbsentModule" in g.expo.modules).toBe(false);
+      expect(typeof g.expo.modules.VNPresentModule.addListener).toBe("function");
+      expect("VNPresentModule" in g.expo.modules).toBe(true);
+    } finally {
+      delete g.__vitest_native_expo_module_present;
+    }
+  });
+});
 
 describe("Expo module mocks", () => {
   it("indexes the mocks/ of installed Expo modules by native module name", () => {
