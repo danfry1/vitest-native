@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { installReportError } from "../report-error.mjs";
 // Globals React Native core expects at runtime, ported from react-native/jest/setup.js.
 export function installGlobals() {
   const g = globalThis;
@@ -25,6 +26,8 @@ export function installGlobals() {
   g.IS_REACT_NATIVE_TEST_ENVIRONMENT = true;
   g.__fbBatchedBridgeConfig = { remoteModuleConfig: [], localModulesConfig: [] };
   g.__vitest_native_module_mocks = g.__vitest_native_module_mocks || Object.create(null);
+  // Before react-test-renderer loads: it picks its error reporter once (report-error.mjs).
+  installReportError(g);
 
   installExpoGlobal(g);
 }
