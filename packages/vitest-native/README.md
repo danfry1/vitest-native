@@ -577,8 +577,11 @@ expo-router and React Navigation — runs for real under the native engine.
 - **expo-router screens:** `expo-router/testing-library` (`renderRouter`, `testRouter`,
   `toHavePathname`) runs as written with the jest-compat layer. From SDK 57 expo-router bundles its
   own React Navigation; before SDK 57, also set `presets: { navigation: false }`.
-- **Expo modules without a built-in preset** (e.g. `expo-image`, `expo-haptics`) still need a
-  setup-file `vi.mock`.
+- **Other Expo modules** run their real JavaScript. Where a package ships a mock of its native
+  module (`mocks/<Name>.ts`), it is served as under jest-expo; other native modules get a generic
+  stub, so a test that reads a constant such as `Device.modelName` still needs a `vi.mock`.
+  `expo-image` cannot be imported yet
+  ([#316](https://github.com/danfry1/vitest-native/issues/316)).
 - **Expo SDK trails React Native.** Pin your `react-native` to the version your Expo SDK supports
   (SDK 54 and later are within this plugin's validated range), not the newest RN release.
 
