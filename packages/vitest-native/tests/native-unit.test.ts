@@ -1396,7 +1396,80 @@ describe("native globals: globalThis.expo shim", () => {
 });
 
 // @ts-expect-error — runtime .mjs
-import { expoModuleMock, expoModuleMockIndex } from "../src/native/expo-module-mocks.mjs";
+import {
+  expoModuleMock,
+  expoModuleMockIndex,
+  expoAbsentModules,
+} from "../src/native/expo-module-mocks.mjs";
+
+describe("Expo native module presence", () => {
+  const make = () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-expo-presence-"));
+    fs.writeFileSync(path.join(root, "package.json"), "{}");
+    const mod = (dir: string, files: Record<string, string>) => {
+      fs.mkdirSync(path.join(root, dir), { recursive: true });
+      fs.writeFileSync(path.join(root, dir, "package.json"), JSON.stringify({ version: "1.0.0" }));
+      fs.writeFileSync(path.join(root, dir, "expo-module.config.json"), "{}");
+      for (const [file, src] of Object.entries(files)) {
+        fs.mkdirSync(path.dirname(path.join(root, dir, file)), { recursive: true });
+        fs.writeFileSync(path.join(root, dir, file), src);
+      }
+    };
+    return { root, mod };
+  };
+
+  it("is absent only when probed for and defined by no installed or local module", () => {
+    const { root, mod } = make();
+    try {
+      mod("node_modules/expo-image", {
+        "ios/ImageModule.swift": 'Name("ExpoImage")',
+        "build/observe.js":
+          "requireOptionalNativeModule('ExpoObserve'); requireOptionalNativeModule('ExpoHaptics');",
+      });
+      mod("node_modules/expo-haptics", {
+        "ios/HapticsModule.swift": '@ExpoModule("ExpoHaptics")',
+        "build/index.js": "requireOptionalNativeModule('ExpoHaptics');",
+      });
+      // A local module (modules/, which Expo autolinks) that a package probes for.
+      mod("modules/my-module", { "ios/MyModule.swift": 'Name("MyModule")' });
+      mod("node_modules/acme", { "build/index.js": "requireOptionalNativeModule('MyModule');" });
+      const absent = expoAbsentModules(root, path.join(root, "cache"));
+      expect([...absent]).toEqual(["ExpoObserve"]);
+      const [cached] = fs.readdirSync(path.join(root, "cache"));
+      expect(cached).toMatch(/^expo-native-modules-[0-9a-f]{16}\.json$/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a required module present whatever the scan finds", () => {
+    // create-expo-module's library layout: the module is the project root itself.
+    const { root, mod } = make();
+    try {
+      fs.writeFileSync(path.join(root, "expo-module.config.json"), "{}");
+      fs.mkdirSync(path.join(root, "src"));
+      fs.writeFileSync(path.join(root, "src", "index.ts"), "requireNativeModule('MyLib');");
+      mod("node_modules/expo-crypto", { "build/index.js": "requireNativeModule('ExpoCrypto');" });
+      expect(expoAbsentModules(root, null).size).toBe(0);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("answers expo.modules from the presence check", () => {
+    installGlobals();
+    const g = globalThis as Record<string, any>;
+    g.__vitest_native_expo_module_present = (name: string) => name !== "VNAbsentModule";
+    try {
+      expect(g.expo.modules.VNAbsentModule).toBeUndefined();
+      expect("VNAbsentModule" in g.expo.modules).toBe(false);
+      expect(typeof g.expo.modules.VNPresentModule.addListener).toBe("function");
+      expect("VNPresentModule" in g.expo.modules).toBe(true);
+    } finally {
+      delete g.__vitest_native_expo_module_present;
+    }
+  });
+});
 
 describe("Expo module mocks", () => {
   it("indexes the mocks/ of installed Expo modules by native module name", () => {
@@ -1424,7 +1497,7 @@ describe("Expo module mocks", () => {
       // The project's own copy wins over one nested inside another package.
       pkg("node_modules/expo/node_modules/expo-font", { "ExpoFont.js": "exports.v = 'nested';" });
       pkg("node_modules/expo-font", { "ExpoFont.js": "exports.v = 'top';" });
-      // Undeclared and not Expo's: not looked at.
+      // Undeclared and not named after Expo, but an Expo module: its mocks count.
       pkg("node_modules/@other/thing", { "OtherThing.js": "exports.u = 1;" });
       pkg("node_modules/.pnpm/expo-haptics@58.0.0/node_modules/expo-haptics", {
         "ExpoHaptics.js": "exports.z = 1;",
@@ -1439,6 +1512,7 @@ describe("Expo module mocks", () => {
         "ExpoFont",
         "ExpoHaptics",
         "ExpoThing",
+        "OtherThing",
       ]);
       expect(expoModuleMock(root, "ExpoFont", (fn: () => unknown) => fn).v).toBe("top");
       const members = expoModuleMock(root, "ExpoCrypto", (fn: () => unknown) => vi.fn(fn));

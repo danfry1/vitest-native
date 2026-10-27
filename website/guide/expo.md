@@ -111,7 +111,13 @@ test files, and members it leaves out are `undefined`. Without one, the stub's `
 resolve `undefined`, its PascalCase members are native classes, and other members are no-op
 functions. jest-expo also answers the remaining modules' constants from a generated table (for
 example `Device.modelName` is `'mock'`), which the engine does not, so mock those with `vi.mock`
-where a test reads them. `expo-image` cannot be imported yet ([#316](https://github.com/danfry1/vitest-native/issues/316)).
+where a test reads them.
+
+A package can probe for an optional native module with `requireOptionalNativeModule`, such as
+expo-image for expo-observe's. When no installed or local Expo module defines the probed module in
+its native sources, it reads as absent, as on a device, so the package takes the path it takes
+when that module is not installed. Every other module is present. The scan is cached until the
+install changes.
 
 ## SDK and React Native versions
 

@@ -29,25 +29,37 @@ describe("native engine: React Native runtime globals", () => {
 
 describe("native engine: fabricated expo native-module stubs", () => {
   const modules = (globalThis as Record<string, any>).expo.modules;
+  // A module an installed Expo module defines (expo-constants, a devDependency here)
+  // that no package mock stands in for, so the stub's conventions apply.
+  const PRESENT = "ExponentConstants";
+
+  it("keeps a module present unless an installed package only probes for it", () => {
+    // Absence needs a probe (expo-image's for ExpoObserve), which nothing installed here
+    // makes, so even a name no package defines stays present: reading a module that
+    // exists as absent would make requireNativeModule throw. The probe case is covered
+    // by the unit tests and the expo-template consumer.
+    expect(modules.ExpoObserve).toBeDefined();
+    expect(PRESENT in modules).toBe(true);
+  });
 
   it("resolves fabricated *Async methods to a Promise (Expo convention)", async () => {
-    await expect(modules.SomeFabricatedModule.getRegistrationInfoAsync()).resolves.toBeUndefined();
+    await expect(modules[PRESENT].getRegistrationInfoAsync()).resolves.toBeUndefined();
   });
 
   it("serves fabricated PascalCase properties as classes on SharedObject", () => {
-    const NativeClass = modules.SomeFabricatedModule.FileSystemFile;
+    const NativeClass = modules[PRESENT].FileSystemFile;
     class Sub extends NativeClass {}
     const instance = new Sub();
     expect(instance).toBeInstanceOf((globalThis as Record<string, any>).expo.SharedObject);
     expect(typeof instance.addListener).toBe("function");
     // Memoized: subclass identity must be stable across reads.
-    expect(modules.SomeFabricatedModule.FileSystemFile).toBe(NativeClass);
+    expect(modules[PRESENT].FileSystemFile).toBe(NativeClass);
   });
 
   it("keeps the no-op fallback for other fabricated methods and explicit overrides winning", () => {
-    expect(modules.SomeFabricatedModule.someMethod()).toBeUndefined();
-    modules.SomeFabricatedModule.getOverriddenAsync = () => "explicit";
-    expect(modules.SomeFabricatedModule.getOverriddenAsync()).toBe("explicit");
+    expect(modules[PRESENT].someMethod()).toBeUndefined();
+    modules[PRESENT].getOverriddenAsync = () => "explicit";
+    expect(modules[PRESENT].getOverriddenAsync()).toBe("explicit");
   });
 });
 
