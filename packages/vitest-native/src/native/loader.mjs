@@ -384,6 +384,18 @@ export function requireFacade(url, file, compiled) {
   // facade it would be a syntax error. The carried code is never run.
   const code = compiled.startsWith("#!") ? compiled.replace(/^#!.*/, "") : compiled;
   const names = cjsExportNames(code);
+  // An `.mjs` file is an ES module wherever it is loaded, so the CommonJS loader cannot
+  // own it: requiring it is Node's require(esm), which on Node 20.19 and 22.13 fails
+  // for a module this loader is still loading ("Cannot require() ES Module ... in a
+  // cycle"). It is served compiled, as every compiled module was before the facade;
+  // nothing requires an `.mjs` file, so no second instance can arise.
+  if (file.endsWith(".mjs")) {
+    return {
+      format: "commonjs",
+      source: names.length > 0 ? `${code}\n0 && (module.exports = { ${names.join(", ")} });` : code,
+      shortCircuit: true,
+    };
+  }
   return {
     format: "commonjs",
     source: [
