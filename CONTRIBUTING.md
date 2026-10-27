@@ -7,7 +7,7 @@ Thanks for your interest in contributing!
 ```bash
 # Clone the repo
 git clone https://github.com/danfry1/vitest-native.git
-cd vitest-react-native
+cd vitest-native
 
 # Install dependencies
 bun install
@@ -24,7 +24,7 @@ bun run test
 1. Create a branch from `main`
 2. Make your changes in `packages/vitest-native/`
 3. Run `bun run lint` and `bun run format` before committing
-4. Add a changeset: `npx changeset`
+4. Add a changeset: `bunx changeset`
 5. Open a pull request
 
 ## Scripts
@@ -63,7 +63,7 @@ tokens). A staged version is not installable until a maintainer approves it with
 
 ```bash
 # 1. Every pull request that changes shipped code carries a changeset (CI checks this).
-npx changeset
+bunx changeset
 
 # 2. On a release branch, version the package: bumps package.json, writes CHANGELOG.md.
 bunx changeset version

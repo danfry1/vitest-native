@@ -5,5 +5,5 @@ This project uses [changesets](https://github.com/changesets/changesets) for ver
 To add a changeset, run:
 
 ```bash
-npx changeset
+bunx changeset
 ```
