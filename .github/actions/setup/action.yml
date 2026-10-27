@@ -21,8 +21,12 @@ runs:
         node-version: ${{ inputs.node-version }}
 
     # Package-download cache: bun still verifies against the frozen lockfile, it just
-    # skips re-downloading unchanged tarballs.
+    # skips re-downloading unchanged tarballs. Not on Windows: there restoring the
+    # ~400 MB cache took about 107 s (6 s to download, the rest unpacking it), against
+    # 9 s for the install it saves the downloads of, which made setup the largest step
+    # of the Windows full gate, CI's longest job.
     - name: Cache bun downloads
+      if: runner.os != 'Windows'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ~/.bun/install/cache
