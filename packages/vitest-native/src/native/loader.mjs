@@ -333,6 +333,23 @@ export async function resolve(specifier, context, nextResolve) {
 }
 
 /**
+ * Whether Node's in-thread hooks (module.registerHooks) carry the engine on `version`:
+ * Node 22 from 22.22.3, Node 24 from 24.12.0, and Node 26 on. Measured across Node minors
+ * and patches, the releases before those that have the hooks fail with them in-thread
+ * while the threaded hooks (module.register) pass: expo-router's elements fail to load
+ * ("request for 'node:module' is from a module not been linked", through 22.22.2 and
+ * 24.11), and the hot runtime's CommonJS lookup reset stops mattering, so its mutation
+ * control passes when it must fail. Node 25 was not measured, and Node 23 is past its
+ * end of life, so both keep the threaded hooks.
+ */
+export function inThreadHooksReliable(version) {
+  const [major, minor, patch] = version.replace(/^v/, "").split(".").map(Number);
+  if (major === 22) return minor > 22 || (minor === 22 && patch >= 3);
+  if (major === 24) return minor >= 12;
+  return major >= 26;
+}
+
+/**
  * Whether an in-thread hook call (module.registerHooks) comes from `require()` rather
  * than `import`. An import's context always lists its conditions, "import" among them.
  * A require's lists "require" from Node 22.19 and 24.6, but is an empty object `{}` on

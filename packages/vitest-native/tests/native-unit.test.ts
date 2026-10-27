@@ -527,6 +527,24 @@ describe("resolvePlatformFile", () => {
 // @ts-expect-error — runtime .mjs
 import * as nativeLoader from "../src/native/loader.mjs";
 
+describe("in-thread loader hooks: where Node's are reliable", () => {
+  it.each([
+    ["22.13.0", false],
+    ["22.19.0", false],
+    ["22.22.2", false],
+    ["22.22.3", true],
+    ["22.23.0", true],
+    ["23.11.0", false],
+    ["24.11.0", false],
+    ["24.12.0", true],
+    ["v24.13.0", true],
+    ["25.2.0", false],
+    ["26.0.0", true],
+  ])("%s → %s", (version, expected) => {
+    expect(nativeLoader.inThreadHooksReliable(version)).toBe(expected);
+  });
+});
+
 describe("in-thread loader hooks: require or import", () => {
   // The contexts Node passes module.registerHooks, as measured on each version.
   const requireOn22_19 = { conditions: ["require", "node", "node-addons", "module-sync"] };

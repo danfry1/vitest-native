@@ -208,15 +208,20 @@ if (typeof globalThis.expect === "undefined") {
  * of an externalized module blocks this thread on a synchronous cross-thread request
  * (Node's makeSyncRequest). Profiled on a 105-file production suite, that wait was 18%
  * of all worker CPU time. `module.registerHooks()` (Node 22.15+, 23.5+) runs the same
- * hooks synchronously on this thread instead, so it is used wherever it exists; older
- * Nodes keep `register()`. VITEST_NATIVE_LOADER_THREAD=1 forces the threaded hooks.
+ * hooks synchronously on this thread instead, so it is used where Node's in-thread hooks
+ * are reliable (inThreadHooksReliable in loader.mjs); every other Node keeps
+ * `register()`. VITEST_NATIVE_LOADER_THREAD=1 forces the threaded hooks.
  *
  * In-thread hooks also run for `require()`. CommonJS is already handled by the require
  * hooks (hooks.mjs), so those calls go straight to Node's default resolution, as they
  * did when only `import` reached the threaded loader.
  */
 function installLoaderHooks(data) {
-  if (typeof registerHooks !== "function" || process.env.VITEST_NATIVE_LOADER_THREAD === "1") {
+  if (
+    typeof registerHooks !== "function" ||
+    process.env.VITEST_NATIVE_LOADER_THREAD === "1" ||
+    !nativeLoader.inThreadHooksReliable(process.versions.node)
+  ) {
     register("./loader.mjs", import.meta.url, { data });
     globalThis.__vitest_native_loader_mode = "thread";
     return;
