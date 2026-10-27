@@ -13,6 +13,10 @@ jobs:
   expo-module-table:
     name: Expo module tables match the newest jest-expo of each SDK
     runs-on: ubuntu-latest
+    # github-script opens a tracking issue when a table needs adopting.
+    permissions:
+      contents: read
+      issues: write
     # The native engine answers Expo native modules from jest-expo's table for the
     # installed SDK (packages/vitest-native/src/native/expo-module-table-<sdk>.mjs). A new
     # jest-expo of a committed SDK, or a new SDK on npm's latest tag, fails this job so the
@@ -26,6 +30,34 @@ jobs:
           node-version: '22.13.0'
       - name: Compare with the newest jest-expo of each SDK
         run: node packages/vitest-native/scripts/sync-expo-module-table.mjs --check
+
+      - name: Create issue on failure
+        if: failure()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v7
+        env:
+          RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        with:
+          script: |
+            const title = 'Expo module table differs from the newest jest-expo';
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'compat-check',
+            });
+            if (!issues.some((issue) => issue.title === title)) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body: [
+                  'The weekly check found a jest-expo whose table of the native modules differs from the committed one, or a new Expo SDK without a table.',
+                  '',
+                  `See the [failed run](${process.env.RUN_URL}) for the command to regenerate it, and review the diff.`,
+                ].join('\n'),
+                labels: ['compat-check'],
+              });
+            }
 
   check-latest-rn:
     name: Check against current React Native edge

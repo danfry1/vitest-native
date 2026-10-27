@@ -32,6 +32,8 @@ import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// This script as run from the current directory, for the commands it prints.
+const self = path.relative(process.cwd(), fileURLToPath(import.meta.url)) || ".";
 const nativeDir = path.join(packageRoot, "src", "native");
 const TABLE_FILE = /^expo-module-table-(\d+)\.mjs$/;
 const tableFile = (sdk) => path.join(nativeDir, `expo-module-table-${sdk}.mjs`);
@@ -55,7 +57,13 @@ const args = process.argv.slice(2);
 const check = args.includes("--check");
 const option = (name) => {
   const index = args.indexOf(name);
-  return index >= 0 ? args[index + 1] : undefined;
+  if (index < 0) return undefined;
+  const value = args[index + 1];
+  if (value === undefined || value.startsWith("--")) {
+    console.error(`${name} needs a value.`);
+    process.exit(2);
+  }
+  return value;
 };
 const requested = option("--version");
 const packageDir = option("--package-dir");
@@ -80,7 +88,7 @@ try {
       console.log(
         same
           ? `expo-module-table-${sdk}.mjs matches jest-expo@${version}.`
-          : `expo-module-table-${sdk}.mjs differs from jest-expo@${version}: run \`node scripts/sync-expo-module-table.mjs --version ${version}\` and review the change.`,
+          : `expo-module-table-${sdk}.mjs differs from jest-expo@${version}: run \`node ${self} --version ${version}\` and review the change.`,
       );
       failed ||= !same;
     }
@@ -90,7 +98,7 @@ try {
     const latestSdk = Number(latest.split(".")[0]);
     if (!committedSdks().includes(latestSdk)) {
       console.log(
-        `jest-expo@${latest} is SDK ${latestSdk}, which has no table: run \`node scripts/sync-expo-module-table.mjs --version ${latest}\` and review it.`,
+        `jest-expo@${latest} is SDK ${latestSdk}, which has no table: run \`node ${self} --version ${latest}\` and review it.`,
       );
       failed = true;
     }
@@ -124,7 +132,9 @@ try {
 }
 
 // The jest-expo `spec` resolves to on npm (a version, or the newest in a range), unpacked
-// into the work directory. Its files are read as data, never installed.
+// into the work directory, not installed. extract() then requires its moduleMocks/ files,
+// which are plain `module.exports = { … }` tables, so this runs code from npm: run it
+// only on a jest-expo you mean to adopt, and review the diff it writes.
 function fetchJestExpo(spec) {
   const into = fs.mkdtempSync(path.join(work, "pack-"));
   const tarball = execFileSync(
