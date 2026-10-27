@@ -4,7 +4,7 @@
 import { createRequire, register, registerHooks } from "node:module";
 import * as nativeLoader from "./loader.mjs";
 import path from "node:path";
-import { expect, vi } from "vitest";
+import { afterEach, expect, vi } from "vitest";
 import { installGlobals, installErrorUtils, installExpoRuntime } from "./globals.mjs";
 import { installRequireHooks } from "./hooks.mjs";
 import { installRegistry } from "./registry.mjs";
@@ -18,6 +18,7 @@ import { installNitroProxy } from "./nitro.mjs";
 import { createExpoNativeModuleResolver } from "./expo-native-modules.mjs";
 import { cacheRootFor } from "./transform.mjs";
 import { installKnownNativeModules } from "./native-modules.mjs";
+import { installRntlAutoCleanup } from "../rntl-support.mjs";
 
 // Non-enumerable key on the preset container: the mocks built so far in this file.
 const PRESETS_BUILT = Symbol.for("vitest-native.presets-built");
@@ -197,6 +198,10 @@ if (typeof globalThis.expect === "undefined") {
     writable: true,
   });
 }
+// RNTL registers its afterEach cleanup only through a global afterEach; without
+// test.globals, register it here (see rntl-support.mjs). Under the hot runtime RNTL
+// stays in Node's module cache across files, so rntl-hooks.mjs reports each import.
+installRntlAutoCleanup(afterEach, { trackImports: Boolean(globalThis.__vitest_native_hot_reset) });
 // register() once per WORKER, not per file: under the hot runtime this setup
 // file re-evaluates per test file in a persistent worker, and re-registering
 // would stack a new loader-hook layer on every file. (installGlobals and

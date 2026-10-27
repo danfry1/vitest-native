@@ -16,7 +16,7 @@
  * does NOT survive that boundary.
  */
 
-import { vi, afterAll, expect as vitestExpect } from "vitest";
+import { vi, afterAll, afterEach, expect as vitestExpect } from "vitest";
 import { buildReactNativeMock } from "./mocks/registry.js";
 import { installCjsBridge, uninstallCjsBridge, installPresetCjsBridge } from "./cjs-bridge.js";
 import * as presetFactories from "./presets/index.js";
@@ -28,6 +28,7 @@ import { importPresetModule, presetModulePaths } from "./preset-modules.mjs";
 import { AUTO_DETECT_PRESETS, presetForInstalled } from "./preset-map.js";
 import { serializer as rnSerializer } from "./serializer.js";
 import { animatedMatchers } from "./matchers/animated.js";
+import { installRntlAutoCleanup } from "./rntl-support.mjs";
 
 // --- Read options from process.env ---
 
@@ -264,8 +265,14 @@ g.__vitest_native_presets_ready = presetsReady;
 
 // --- 5. Configure @testing-library/react-native ---
 
+// RNTL registers its afterEach cleanup only through a global afterEach; without
+// test.globals, register it here (see rntl-support.mjs).
+installRntlAutoCleanup(afterEach);
+
 try {
-  const rntl = projectReq("@testing-library/react-native");
+  // `/pure`, not the package entry: loading the entry here would register RNTL's
+  // auto-cleanup for every file, including those that import `/pure` to opt out of it.
+  const rntl = projectReq("@testing-library/react-native/pure");
   // RNTL >=14 removed the `hostComponentNames` configure option: it now
   // auto-detects host components by rendering a probe (which works with the
   // mock's host names). Passing the option there is a no-op that logs an

@@ -121,8 +121,10 @@ test("renders a greeting", async () => {
 
 > Prefer Jest-style globals (`test`/`expect` without imports)? Set
 > `test: { globals: true }` in your Vitest config. vitest-native does not enable the full
-> globals mode; it only exposes `expect` when RNTL needs it to register matchers.
-> Awaiting `render` works with RNTL 12–13 and is required by RNTL 14.
+> globals mode; it only exposes `expect` when RNTL needs it to register matchers, and
+> registers RNTL's automatic cleanup after each test, which RNTL itself does only when
+> `afterEach` is a global. Awaiting `render` works with RNTL 12–13 and is required by
+> RNTL 14.
 
 Run it:
 

@@ -187,7 +187,8 @@
   "scripts": {
     "build": "bunx --bun tsdown && node scripts/copy-static-types.mjs",
     "test": "vitest run",
-    "test:native": "vitest run --config tests-native/vitest.config.mts && bun run test:native:preset-modules",
+    "test:native": "vitest run --config tests-native/vitest.config.mts && bun run test:native:preset-modules && bun run test:native:no-globals",
+    "test:native:no-globals": "vitest run --config tests-native/vitest.no-globals.config.mts --mode native && vitest run --config tests-native/vitest.no-globals.config.mts --mode hot",
     "test:native:preset-modules": "vitest run --config tests-native/vitest.custom-preset.config.mts --mode native && vitest run --config tests-native/vitest.custom-preset.config.mts --mode hot && vitest run --config tests-native/vitest.custom-preset.config.mts --mode mock",
     "test:native:forks": "vitest run --config tests-native/vitest.forks.config.mts",
     "test:native:navigation": "vitest run --config tests-native/vitest.navigation.config.mts",

@@ -31,7 +31,7 @@ The plugin auto-injects a setup file that:
 
 - registers all mocks,
 - sets React Native globals (`__DEV__`, `requestAnimationFrame`, etc.),
-- wires up [`@testing-library/react-native`](https://callstack.github.io/react-native-testing-library/) if it's installed — registering its matchers, and setting host component names for older RNTL (RNTL ≥ 12 auto-detects them against real RN host names).
+- wires up [`@testing-library/react-native`](https://callstack.github.io/react-native-testing-library/) if it's installed — registering its matchers, setting host component names for older RNTL (RNTL ≥ 12 auto-detects them against real RN host names), and running its automatic cleanup after each test without `test.globals` (RNTL registers that only through a global `afterEach`; importing `@testing-library/react-native/pure` or setting `RNTL_SKIP_AUTO_CLEANUP` still opts out).
 
 You do **not** add anything to `setupFiles` yourself, and you do **not** manually configure `hostComponentNames` — between the plugin and RNTL's own auto-detection, it's handled.
 
