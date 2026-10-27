@@ -77,8 +77,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Node 22.15 is the floor (engines.node), the first Node 22 with in-thread
-        # module.registerHooks. The back-compat legs pin RNTL 12 and 13 to prove the
+        # Node 22.15 is the Node 22 floor (engines.node is >=22.15.0 <23 || >=24.3.0),
+        # the first Node 22 with in-thread module.registerHooks; on 22.15–22.18 a
+        # require's hook context lists no conditions, which the engine must read. The back-compat legs pin RNTL 12 and 13 to prove the
         # full supported peer range (>=12 <15) on every push. The hot runtime and
         # cross-check are calibrated on the current RNTL and run only on the RNTL 14
         # legs (step `if`s).

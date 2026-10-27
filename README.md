@@ -94,8 +94,9 @@ describe('MyComponent', () => {
 
 ## Requirements
 
-- **Node.js** >= 22.15 (Node 20 reached end of life in April 2026; 22.15 is the first Node 22 with
-  in-thread `module.registerHooks`, which the native engine's loader uses)
+- **Node.js** 22.15 or later on Node 22, or 24.3 or later (Node 20 reached end of life in April 2026;
+  22.15 is the first Node 22 with in-thread `module.registerHooks`, which the native engine's loader
+  uses, and Node 24.0–24.2 do not let `jest.mock` reach modules Node loads)
 - **Vitest** 4.x or 5.x (both run the full gate in CI)
 - **Vite** ^6.4.2, ^7.3.2, or ^8.0.5
 - **React** >= 18

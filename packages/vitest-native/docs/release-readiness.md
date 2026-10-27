@@ -84,15 +84,15 @@ change.
   them; the caches every pull request starts from are the ones `main` saves. `pages.yml` also
   publishes the fidelity matrix from the latest successful `main` run of the RN matrix.
 
-The ATTW gate ignores legacy Node 10 resolution because the package requires Node 22.15+.
+The ATTW gate ignores legacy Node 10 resolution because the package requires Node 22.15+ or 24.3+.
 
 Seven of the eleven `exports` subpaths are ESM-only by design — `.`, `./setup`, `./presets`, the
 three `jest-compat` runtime shims, and the types-only `./rntl-matchers`. Each of the runtime ones
 depends on Vitest, which throws when it is reached through `require()`, so shipping a transpiled
 CommonJS build for them produced files that could not be loaded at all. They now declare a single
 ESM target for both conditions: a CommonJS consumer still reaches them, through Node's `require(esm)`
-support, which Node has had since 20.19 and 22.12; the floor itself is 22.15, for the in-thread
-loader hooks.
+support, which Node has had since 20.19 and 22.12; the range itself (22.15+ or 24.3+) is set by the
+in-thread loader hooks and by `jest.mock` reaching Node-loaded modules.
 
 The remaining four subpaths ship a real CommonJS build and are checked with `cjs-resolves-to-esm`
 enforced, so a dual entry cannot quietly lose its `.cjs`. Which subpaths are intentionally ESM-only

@@ -41,23 +41,66 @@ function packageVersion(root: string, name: string): string | null {
 }
 
 /**
- * The supported Node floor, as [major, minor], read from this package's own
- * `engines.node`. Single source: the manifest is what a package manager enforces
- * at install time, so a diagnostic must not carry its own copy of the number.
+ * The supported Node versions, as this package's own `engines.node` states them.
+ * Single source: the manifest is what a package manager enforces at install time, so a
+ * diagnostic must not carry its own copy of the range.
  */
-export function nodeFloor(): [number, number] {
-  const fallback: [number, number] = [20, 19];
+export function nodeRange(): string {
+  const fallback = ">=22.15.0 <23 || >=24.3.0";
   try {
     const manifest = JSON.parse(
       fs.readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
     ) as { engines?: { node?: string } };
-    const match = /(\d+)\.(\d+)/.exec(manifest.engines?.node ?? "");
-    return match ? [Number(match[1]), Number(match[2])] : fallback;
+    return manifest.engines?.node?.trim() || fallback;
   } catch {
-    // Bundled layouts can put the manifest elsewhere; a stale-but-close floor is
+    // Bundled layouts can put the manifest elsewhere; a stale-but-close range is
     // better than a diagnostic that throws.
     return fallback;
   }
+}
+
+const versionParts = (version: string): [number, number, number] => {
+  const [major = 0, minor = 0, patch = 0] = version
+    .replace(/^v/, "")
+    .split(/[.-]/)
+    .map((part) => Number.parseInt(part, 10) || 0);
+  return [major, minor, patch];
+};
+
+const compareVersions = (a: string, b: string): number => {
+  const [x, y] = [versionParts(a), versionParts(b)];
+  return x[0] - y[0] || x[1] - y[1] || x[2] - y[2];
+};
+
+/**
+ * Whether `version` is in `range`: `||`-separated sets of space-separated comparators
+ * (`>=`, `>`, `<=`, `<`, `=`), the forms `engines.node` uses. A version missing parts
+ * reads them as 0 (`<23` is `<23.0.0`).
+ */
+export function satisfiesNodeRange(version: string, range: string): boolean {
+  return range.split("||").some((set) =>
+    set
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .every((comparator) => {
+        const match = /^(>=|<=|>|<|=)?\s*v?(\d[\w.-]*)$/.exec(comparator);
+        if (!match) return false;
+        const order = compareVersions(version, match[2]);
+        switch (match[1] ?? "=") {
+          case ">=":
+            return order >= 0;
+          case ">":
+            return order > 0;
+          case "<=":
+            return order <= 0;
+          case "<":
+            return order < 0;
+          default:
+            return order === 0;
+        }
+      }),
+  );
 }
 
 /**
@@ -237,22 +280,16 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
 
   // --- Runtime ---
   lines.push("", "Runtime");
-  const nodeMajorMinor = nodeVersion.split(".").slice(0, 2).map(Number);
-  // The floor is read from this package's own `engines.node` rather than written
-  // out here. It was hardcoded as 20, and compared on the MAJOR only, so when the
-  // real floor moved to 20.19 — the version that added require(esm), which the
-  // root entry point now depends on — doctor kept passing Node 20.0 and kept
-  // printing "floor: 20". A number a user reads off a diagnostic has to come from
-  // the same place the runtime enforces it.
-  const [floorMajor, floorMinor] = nodeFloor();
-  const floorText = `${floorMajor}.${floorMinor}`;
-  if (
-    nodeMajorMinor[0] > floorMajor ||
-    (nodeMajorMinor[0] === floorMajor && nodeMajorMinor[1] >= floorMinor)
-  ) {
-    pass(`Node ${nodeVersion} (floor: ${floorText})`);
+  // The supported range is read from this package's own `engines.node` rather than
+  // written out here. The floor was once hardcoded as 20 and compared on the MAJOR
+  // only, so when the real floor moved to 20.19 doctor kept passing Node 20.0. A range
+  // a user reads off a diagnostic has to come from the same place a package manager
+  // enforces it.
+  const range = nodeRange();
+  if (satisfiesNodeRange(nodeVersion, range)) {
+    pass(`Node ${nodeVersion} (supported: ${range})`);
   } else {
-    fail(`Node ${nodeVersion} — vitest-native requires Node >= ${floorText}.`);
+    fail(`Node ${nodeVersion} — vitest-native supports Node ${range}.`);
   }
 
   // --- Required peers ---
@@ -374,10 +411,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
       );
     if (rntlError) {
       warn(rntlError);
-    } else if (
-      rntlMajor >= 14 &&
-      (nodeMajorMinor[0] < 22 || (nodeMajorMinor[0] === 22 && nodeMajorMinor[1] < 13))
-    ) {
+    } else if (rntlMajor >= 14 && !satisfiesNodeRange(nodeVersion, ">=22.13.0")) {
       fail(
         `@testing-library/react-native ${rntl} requires Node >= 22.13, but this is Node ${nodeVersion}. ` +
           `Upgrade Node or pin @testing-library/react-native@13.`,

@@ -1001,14 +1001,15 @@ see [versioning and stability](docs/versioning.md).
 | `react`                                      | >= 18; use RN's matching React version    |
 | `vite`                                       | ^6.4.2, ^7.3.2, or ^8.0.5                |
 | `vitest`                                     | 4.x or 5.x                                |
-| `node`                                       | >= 22.15                                  |
+| `node`                                       | 22.15+ on Node 22, or 24.3+               |
 | `react-native` (native engine)               | 0.81–0.88 validated                       |
 | `@react-native/babel-preset` (native engine) | Match the installed React Native minor    |
 | `@testing-library/react-native` (optional)   | 12.x, 13.x, or 14.x                       |
 
 Node 20 reached end of life in April 2026. Node 22.15 is the first Node 22 with in-thread
 `module.registerHooks`, which the native engine's loader uses; it also meets RNTL 14's own floor
-(Node 22.13). RNTL 14 uses async rendering APIs.
+(Node 22.13). On Node 24.0–24.2, `jest.mock` and `jest.resetModules` do not reach modules Node
+loads, so Node 24 is supported from 24.3. RNTL 14 uses async rendering APIs.
 
 ---
 
