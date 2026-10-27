@@ -6,14 +6,16 @@ import path from "node:path";
 import { VitestNativeError } from "../errors.mjs";
 import { builtInPreset } from "./built-in.js";
 import { mockModuleExportNames } from "./esm-export-names.js";
+import { shipsJestResolver } from "../preset-map.js";
 
 // Under the native engine the module is reanimated's own test mock
 // (`react-native-reanimated/mock`), as a Jest suite gets it with
 // `jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'))`:
 // its whole API, current with the installed version, over the real package in its JS
 // implementation. It loads because the engine applies reanimated's own Jest resolver
-// (native/jest-resolvers.mjs). The mock engine, which has no real React Native for the
-// real package to run on, keeps the module below.
+// (native/jest-resolvers.mjs), which reanimated ships from 4.7 and worklets from 0.9;
+// with an older one installed, and under the mock engine, which has no real React
+// Native for the real package to run on, the module below serves.
 
 /** Whether this test run is under the native engine (its setup installs the control). */
 function underNativeEngine(): boolean {
@@ -34,6 +36,21 @@ function reanimatedDir(root: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Whether reanimated's own mock can run for `projectRoot`: it loads the real package,
+ * whose JS implementation loads only through reanimated's and worklets' Jest resolvers
+ * (reanimated 4.7, worklets 0.9). Before those, the real package's `.native` initializers
+ * throw, and the module below serves instead, as under the mock engine.
+ */
+function libraryMockUsable(projectRoot: string): boolean {
+  const dir = reanimatedDir(projectRoot);
+  return (
+    dir !== null &&
+    shipsJestResolver(projectRoot, "react-native-reanimated") &&
+    shipsJestResolver(dir, "react-native-worklets")
+  );
 }
 
 /** The names reanimated's own mock provides, read from the installed package. */
@@ -167,11 +184,13 @@ export function reanimated(): Preset {
           "KeyboardState",
         ],
         exportsFor(context) {
-          return context.engine === "native" ? libraryMockNames(context.projectRoot) : this.exports;
+          return context.engine === "native" && libraryMockUsable(context.projectRoot)
+            ? libraryMockNames(context.projectRoot)
+            : this.exports;
         },
         factory: () => {
-          if (underNativeEngine()) {
-            const root = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
+          const root = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
+          if (underNativeEngine() && libraryMockUsable(root)) {
             return createRequire(path.join(root, "package.json"))("react-native-reanimated/mock");
           }
           function createSharedValue(init: any) {

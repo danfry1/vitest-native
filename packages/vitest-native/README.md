@@ -540,8 +540,8 @@ export default defineConfig({
 
 | Preset | Library | What's mocked |
 |--------|---------|---------------|
-| `presets.reanimated()` | `react-native-reanimated` | Native engine: Reanimated's own test mock (`react-native-reanimated/mock`), its whole API for the installed version, over the real package in its JS implementation, as a Jest suite gets it. Mock engine: `useSharedValue`, `useAnimatedStyle`, `withTiming`, `withSpring`, `withDelay`, `withSequence`, `withRepeat`, layout animations (`FadeIn`, `FadeOut`, `SlideInRight`), `Easing`, `interpolate`, `createAnimatedComponent` |
-| `presets.worklets()` | `react-native-worklets` | Native engine: none needed, the real package runs in its JS implementation, so `runOnJS`, `runOnUI`, `scheduleOnRN` and `scheduleOnUI` run their worklet on a later tick, as under Jest. Mock engine: they run synchronously on the JS thread |
+| `presets.reanimated()` | `react-native-reanimated` | Native engine with Reanimated 4.7+: Reanimated's own test mock (`react-native-reanimated/mock`), its whole API for the installed version, over the real package in its JS implementation, as a Jest suite gets it. Mock engine, or an older Reanimated: `useSharedValue`, `useAnimatedStyle`, `withTiming`, `withSpring`, `withDelay`, `withSequence`, `withRepeat`, layout animations (`FadeIn`, `FadeOut`, `SlideInRight`), `Easing`, `interpolate`, `createAnimatedComponent` |
+| `presets.worklets()` | `react-native-worklets` | Native engine with Worklets 0.9+: none needed, the real package runs in its JS implementation, so `runOnJS`, `runOnUI`, `scheduleOnRN` and `scheduleOnUI` run their worklet on a later tick, as under Jest. Mock engine, or an older Worklets: they run synchronously on the JS thread |
 | `presets.gestureHandler()` | `react-native-gesture-handler` | `GestureHandlerRootView`, gesture handlers (Pan, Tap, LongPress, Pinch, Rotation, Fling), `Gesture` API (v2), `GestureDetector`, `Swipeable`, touchable wrappers, state constants |
 | `presets.safeAreaContext()` | `react-native-safe-area-context` | `SafeAreaProvider`, `SafeAreaView`, `useSafeAreaInsets`, `useSafeAreaFrame`, `initialWindowMetrics`, `withSafeAreaInsets` |
 | `presets.navigation()` | `@react-navigation/native`, `@react-navigation/native-stack`, `@react-navigation/bottom-tabs`, `@react-navigation/drawer`, `@react-navigation/elements` | `NavigationContainer`, `useNavigation`, `useRoute`, `useFocusEffect`, `useIsFocused`, `CommonActions`, `StackActions`, `TabActions`, `DrawerActions`, navigators |
@@ -560,9 +560,9 @@ export default defineConfig({
 | `presets.unistyles()` | `react-native-unistyles`, `react-native-unistyles/reanimated` | Unistyles 3: `StyleSheet.configure`/`create` with themes, variants and compound variants, `useUnistyles`, `withUnistyles`, `UnistylesRuntime` theme switching, `mq` with `Display`/`Hide`; matches the library's own Jest mock and follows its source where that mock does less |
 | `presets.skia()` | `react-native-skia`, `@shopify/react-native-skia` | Skia's own test mock (`Mock(CanvasKit)`) over CanvasKit, Skia compiled to WebAssembly: the `Skia` API computes with real Skia, `Canvas` and its drawing render as Views; plus Skia's Reanimated helpers (`usePathValue`, `useTexture`, …) and a `matchFont` that returns a font |
 
-Presets apply under **both** engines: the mock engine and `engine: 'native'` (where they shadow each
-library's native runtime — worklets, native modules — exactly as Jest does, while the surrounding tree
-renders through real React Native).
+Presets apply under **both** engines. Under `engine: 'native'` they shadow each library's native
+runtime as Jest's setup does, while the surrounding tree renders through real React Native; there
+reanimated is Reanimated's own test mock, and Expo modules and worklets run as themselves (see each row).
 
 ### Expo
 

@@ -226,6 +226,20 @@ export function isUtilitySubpath(specifier) {
 // redirect never matches and the real native package loads. Files a preset package
 // loads from itself are its own internals and stay as they are (only reachable once
 // the real entry already loaded).
+/**
+ * The package `file` belongs to: the one after its last `node_modules/`, so a package
+ * nested inside another's node_modules is its own. Null outside node_modules.
+ */
+export function owningPackageOfFile(file) {
+  const norm = toPosix(file);
+  const marker = "/node_modules/";
+  const at = norm.lastIndexOf(marker);
+  if (at === -1) return null;
+  const rest = norm.slice(at + marker.length);
+  const pkg = packageNameOf(rest);
+  return pkg === rest ? null : pkg;
+}
+
 export function presetPackageOfFile(file, parentFile, isPresetPackage) {
   const norm = toPosix(file);
   const marker = "/node_modules/";

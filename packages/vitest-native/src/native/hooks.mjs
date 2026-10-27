@@ -12,7 +12,13 @@ import {
   resolveRelativeWithExtensions,
   resolveDeepPackageFile,
 } from "./resolve.mjs";
-import { NODE_MODULES_PATH, isUtilitySubpath, packageNameOf, subpathLeafOf } from "./match.mjs";
+import {
+  NODE_MODULES_PATH,
+  isUtilitySubpath,
+  owningPackageOfFile,
+  packageNameOf,
+  subpathLeafOf,
+} from "./match.mjs";
 import {
   createNativeOwnershipPolicy,
   findNativeOwnershipConflict,
@@ -325,9 +331,7 @@ export function installRequireHooks(
       // A package's request for one of its own files is the package's business, as a
       // jest.mock of the package name leaves it alone: reanimated's own mock loads the
       // real package, which requires react-native-reanimated/scripts/… by name.
-      const fromItself =
-        typeof fromFile === "string" &&
-        fromFile.replace(/\\/g, "/").includes(`/node_modules/${pkg}/`);
+      const fromItself = typeof fromFile === "string" && owningPackageOfFile(fromFile) === pkg;
       if (pkg !== request && !fromItself && Object.prototype.hasOwnProperty.call(mocks, pkg)) {
         return presetSubpathExports(mocks, pkg, request);
       }
