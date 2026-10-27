@@ -29,6 +29,8 @@ semver, which are experimental, and how the peer ranges below are allowed to mov
 - React Native 0.86 in a pinned packed Android consumer.
 - React Native Testing Library 12, 13, and 14.
 - Expo SDK 58 and SDK 57, a hoisted npm-workspace monorepo, and a pnpm-workspace monorepo.
+- jest-expo parity: the same probes under jest-expo and vitest-native in one Expo SDK 58 app, agreeing
+  except for listed differences.
 
 Required Vite, Vitest, and React peer mismatches fail during configuration. Unsupported future major
 versions are rejected rather than allowed to fail later inside private runner internals.

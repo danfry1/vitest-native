@@ -1,0 +1,1 @@
+{ "preset": "jest-expo", "roots": ["<rootDir>/parity"] }

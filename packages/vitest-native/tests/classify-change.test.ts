@@ -56,6 +56,16 @@ describe("classify-change.sh", () => {
     expect(classify("merge_group", repo)).toBe("false");
   });
 
+  it("treats a contributors-list refresh as docs, but not other scripts", () => {
+    const refresh = repoWith({
+      "README.md": "edited\n",
+      "scripts/contributors.mjs": "// edited\n",
+    });
+    expect(classify("pull_request", refresh)).toBe("true");
+    const other = repoWith({ "scripts/other.mjs": "// edited\n" });
+    expect(classify("pull_request", other)).toBe("false");
+  });
+
   it("never treats the generated fidelity pages as prose", () => {
     const repo = repoWith({ "website/guide/fidelity.md": "edited\n" });
     expect(classify("merge_group", repo)).toBe("false");
