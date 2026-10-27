@@ -1,0 +1,50 @@
+{
+  "$comment": "The configuration axes the config-axis matrix varies. See docs/config-axis-matrix.md. Install axes change what is in node_modules (one CI job each); runtime axes are AXIS_* variables read by fixture/apps/app/vitest.config.mts (several runs per job).",
+  "install": {
+    "vitest": ["4", "5"],
+    "rntl": ["12", "13", "14"],
+    "layout": ["hoisted", "isolated"]
+  },
+  "runtime": {
+    "engine": ["native", "mock"],
+    "globals": ["off", "on"],
+    "hot": ["off", "on"],
+    "jestCompat": ["off", "on"]
+  },
+  "constraints": [
+    {
+      "$comment": "The hot runtime is a native-engine pool; under the mock engine the option does nothing.",
+      "if": {
+        "hot": "on"
+      },
+      "then": {
+        "engine": "native"
+      }
+    },
+    {
+      "$comment": "jest-compat is documented as jestCompatSetup + globals: true (src/jest-compat/transform.ts, docs/migrating-from-jest.md): jestMockTransform hoists jest.mock to a global vi, so without globals a partial mock fails with 'vi is not defined'.",
+      "if": {
+        "jestCompat": "on"
+      },
+      "then": {
+        "globals": "on"
+      }
+    }
+  ],
+  "versions": {
+    "$comment": "npm ranges installed for each install-axis value. 'lockfile' means the version packages/vitest-native/package.json pins, so the newest cell is the one every other gate runs.",
+    "vitest": {
+      "4": "^4",
+      "5": "lockfile"
+    },
+    "rntl": {
+      "12": "^12",
+      "13": "^13",
+      "14": "lockfile"
+    },
+    "layout": {
+      "hoisted": "npm workspaces",
+      "isolated": "pnpm workspaces"
+    }
+  }
+}

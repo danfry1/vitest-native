@@ -1,0 +1,82 @@
+{
+  "$comment": "Probes that fail TODAY, where, and the pull request that fixes each (verdict.mjs). The list may only shrink: a listed probe that passes turns its cell red, so the fixing pull request deletes its entry. `when` maps an axis to a value or a list; an entry without `when` matches every run. Entries were derived from local runs on Vitest 5 (all RNTL versions, both engines, every runtime combination) except where `why` says otherwise.",
+  "entries": [
+    {
+      "probe": "rntl-auto-cleanup",
+      "when": { "globals": "off" },
+      "fixedBy": "#342",
+      "why": "RNTL registers cleanup only through a global afterEach. Both engines, every RNTL."
+    },
+    {
+      "probe": "rntl-findby-fake-timers",
+      "when": { "jestCompat": "off" },
+      "fixedBy": "#342",
+      "why": "RNTL drives fake timers only through a global jest, which only jest-compat defines. Both engines, every RNTL, globals on or off."
+    },
+    {
+      "probe": "rntl-nested-text",
+      "when": { "engine": "native", "rntl": ["12", "13"] },
+      "fixedBy": "#341",
+      "why": "RCTVirtualText is registered as a text host for RNTL 14 only."
+    },
+    {
+      "probe": "recoverable-error",
+      "when": { "rntl": ["12", "13"] },
+      "fixedBy": "#343",
+      "why": "react-test-renderer 19 reports a recoverable error through process.emit('uncaughtException'). RNTL 14 renders without it. Both engines."
+    },
+    {
+      "probe": "partial-mock-store",
+      "when": { "jestCompat": "on" },
+      "fixedBy": "#345",
+      "why": "A synchronous requireActual compiles a second module graph under Node. Both engines."
+    },
+    {
+      "probe": "aliased-sibling-string",
+      "when": { "engine": "native", "jestCompat": "off" },
+      "fixedBy": "#344",
+      "why": "The sibling's directory is externalized, so Node loads the aliased source and its own store. Observed to pass with jest-compat on, whose Node-side resolution reaches the same copy."
+    },
+    {
+      "probe": "aliased-sibling-regex",
+      "when": { "engine": "native" },
+      "fixedBy": "#344",
+      "why": "Node's alias fallback cannot represent a regex alias: Cannot find module."
+    },
+    {
+      "probe": "aliased-source-import-meta",
+      "when": { "engine": "native" },
+      "fixedBy": "#344",
+      "why": "Node compiles the aliased source to CommonJS: Cannot use 'import.meta' outside a module."
+    },
+    {
+      "probe": "esm-default-interop",
+      "when": { "engine": "native" },
+      "fixedBy": "#339",
+      "why": "Babel's interopRequireDefault reads exports.default from __esModule CommonJS."
+    },
+    {
+      "probe": "jest-fake-timer-options",
+      "when": { "jestCompat": "on" },
+      "fixedBy": "#340",
+      "why": "jest.useFakeTimers passes Jest's options to Vitest, which drops advanceTimers. Both engines."
+    },
+    {
+      "probe": "jest-error-equality",
+      "when": { "jestCompat": "on" },
+      "fixedBy": "#346",
+      "why": "Vitest compares Errors' own enumerable properties, per-instance methods included. Both engines."
+    },
+    {
+      "probe": "preset-banner",
+      "fixedBy": "#348",
+      "why": "The banner names no presets. Both engines."
+    },
+    {
+      "probe": "hot-automock",
+      "when": { "vitest": "4", "hot": "on" },
+      "fixedBy": "#338",
+      "why": "NOT observed locally (no Vitest 4 on this machine): from #338, which reproduced it on Vitest 4.1.11. Vitest 4.1 replays a remembered factory from a placeholder node the hot runtime keeps across files; Vitest 5 is unaffected."
+    }
+  ]
+}

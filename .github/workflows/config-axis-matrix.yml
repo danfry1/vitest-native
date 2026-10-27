@@ -1,0 +1,109 @@
+name: Config-axis matrix
+
+# The configuration axes a project chooses and our fixtures did not vary: Vitest 4 or 5,
+# RNTL 12, 13 or 14, a hoisted (npm) or isolated (pnpm) install, the mock or native
+# engine, Vitest globals on or off, the hot runtime on or off, jest-compat on or off.
+# A monorepo migration report found about sixteen defects, nearly all sitting on one or
+# two of these axes. Each cell installs a small probe workspace from the packed tarball
+# and runs a catalog of behaviour probes under every runtime combination, judging each
+# result against validation/config-axes/known-failing.json, which may only shrink.
+# Design, coverage map and costs: packages/vitest-native/docs/config-axis-matrix.md.
+#
+# Pull requests run a pairwise cover of the install axes (6 jobs); pushes to main, the
+# weekly schedule, manual runs and pull requests that change the matrix itself run every
+# install combination (12 jobs). See validation/config-axes/cells.mjs.
+#
+# Not a required check: `Config-axis verdict` is reported on every pull request, and
+# whether it joins branch protection is the maintainer's decision.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  merge_group:
+  workflow_dispatch:
+  schedule:
+    # Weekly, after the RN matrix (Mondays 09:00), so new Vitest and RNTL releases inside
+    # the ranges are installed at least once a week.
+    - cron: '0 10 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  # Docs-only changes skip the cells by job condition, as in ci.yml and
+  # native-rn-matrix.yml (.github/scripts/classify-change.sh).
+  classify:
+    name: Classify change
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs-only: ${{ steps.docs.outputs.docs-only }}
+      matrix: ${{ steps.cells.outputs.matrix }}
+      scope: ${{ steps.cells.outputs.scope }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: docs
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+        run: .github/scripts/classify-change.sh "$EVENT" "$BASE_SHA" "$HEAD_SHA"
+      - id: cells
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+        run: node packages/vitest-native/validation/config-axes/cells.mjs "$EVENT" "$BASE_SHA" "$HEAD_SHA"
+
+  cell:
+    name: axes — ${{ matrix.name }}
+    needs: classify
+    if: needs.classify.outputs.docs-only != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.classify.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+        with:
+          node-version: 22.13.0
+
+      # Node 22.13's bundled npm 10 crashes on these dependency graphs ("Cannot read
+      # properties of null (reading 'edgesOut')"); the same step as ci.yml's packed cells.
+      - name: Use an npm without the arborist edgesOut bug
+        run: npm install -g npm@11.20.0
+
+      - name: Build
+        run: bun run build
+
+      - name: Probes (${{ matrix.name }})
+        env:
+          CELL: ${{ matrix.cell }}
+        run: node packages/vitest-native/validation/config-axes/run.mjs --cell "$CELL"
+
+  verdict:
+    name: Config-axis verdict
+    needs: [classify, cell]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$RESULTS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")' > /dev/null
