@@ -1399,69 +1399,58 @@ describe("native globals: globalThis.expo shim", () => {
 import {
   expoModuleMock,
   expoModuleMockIndex,
-  expoNativeModuleNames,
+  expoAbsentModules,
 } from "../src/native/expo-module-mocks.mjs";
 
-describe("Expo native module names", () => {
-  it("collects the names the installed Expo modules' native sources define, cached on disk", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-expo-names-"));
-    const cache = path.join(root, "cache");
+describe("Expo native module presence", () => {
+  const make = () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-expo-presence-"));
+    fs.writeFileSync(path.join(root, "package.json"), "{}");
+    const mod = (dir: string, files: Record<string, string>) => {
+      fs.mkdirSync(path.join(root, dir), { recursive: true });
+      fs.writeFileSync(path.join(root, dir, "package.json"), JSON.stringify({ version: "1.0.0" }));
+      fs.writeFileSync(path.join(root, dir, "expo-module.config.json"), "{}");
+      for (const [file, src] of Object.entries(files)) {
+        fs.mkdirSync(path.dirname(path.join(root, dir, file)), { recursive: true });
+        fs.writeFileSync(path.join(root, dir, file), src);
+      }
+    };
+    return { root, mod };
+  };
+
+  it("is absent only when probed for and defined by no installed or local module", () => {
+    const { root, mod } = make();
     try {
-      fs.writeFileSync(path.join(root, "package.json"), "{}");
-      const pkg = (name: string, file: string, src: string) => {
-        const dir = path.join(root, "node_modules", name);
-        fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
-        fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ version: "1.0.0" }));
-        fs.writeFileSync(path.join(dir, "expo-module.config.json"), "{}");
-        fs.writeFileSync(path.join(dir, file), src);
-      };
-      pkg("expo-haptics", "ios/HapticsModule.swift", 'Name("ExpoHaptics")');
-      pkg("expo-crypto", "android/src/CryptoModule.kt", 'const val NAME = "ExpoCrypto"');
-      const names = expoNativeModuleNames(root, cache)!;
-      expect(names.has("ExpoHaptics")).toBe(true);
-      expect(names.has("ExpoCrypto")).toBe(true);
-      expect(names.has("ExpoObserve")).toBe(false);
-      const [cached] = fs.readdirSync(cache);
+      mod("node_modules/expo-image", {
+        "ios/ImageModule.swift": 'Name("ExpoImage")',
+        "build/observe.js":
+          "requireOptionalNativeModule('ExpoObserve'); requireOptionalNativeModule('ExpoHaptics');",
+      });
+      mod("node_modules/expo-haptics", {
+        "ios/HapticsModule.swift": '@ExpoModule("ExpoHaptics")',
+        "build/index.js": "requireOptionalNativeModule('ExpoHaptics');",
+      });
+      // A local module (modules/, which Expo autolinks) that a package probes for.
+      mod("modules/my-module", { "ios/MyModule.swift": 'Name("MyModule")' });
+      mod("node_modules/acme", { "build/index.js": "requireOptionalNativeModule('MyModule');" });
+      const absent = expoAbsentModules(root, path.join(root, "cache"));
+      expect([...absent]).toEqual(["ExpoObserve"]);
+      const [cached] = fs.readdirSync(path.join(root, "cache"));
       expect(cached).toMatch(/^expo-native-modules-[0-9a-f]{16}\.json$/);
-      expect(JSON.parse(fs.readFileSync(path.join(cache, cached), "utf8"))).toContain(
-        "ExpoHaptics",
-      );
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it("includes local modules and undeclared Expo modules of any name", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-expo-names-local-"));
-    const cache = path.join(root, "cache");
+  it("keeps a required module present whatever the scan finds", () => {
+    // create-expo-module's library layout: the module is the project root itself.
+    const { root, mod } = make();
     try {
-      fs.writeFileSync(path.join(root, "package.json"), "{}");
-      const mod = (dir: string, src: string) => {
-        fs.mkdirSync(path.join(root, dir, "ios"), { recursive: true });
-        fs.writeFileSync(
-          path.join(root, dir, "package.json"),
-          JSON.stringify({ version: "1.0.0" }),
-        );
-        fs.writeFileSync(path.join(root, dir, "expo-module.config.json"), "{}");
-        fs.writeFileSync(path.join(root, dir, "ios", "Module.swift"), src);
-      };
-      // `create-expo-module --local` puts the module in modules/, which Expo autolinks.
-      mod("modules/my-module", 'Name("MyModule")');
-      // An SDK package's own native module: neither Expo-named nor declared.
-      mod("node_modules/acme-native", 'Name("AcmeNative")');
-      const first = expoNativeModuleNames(root, cache)!;
-      expect(first.has("MyModule")).toBe(true);
-      expect(first.has("AcmeNative")).toBe(true);
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it("is null where no Expo module is installed, so every name stays present", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-expo-names-none-"));
-    try {
-      fs.writeFileSync(path.join(root, "package.json"), "{}");
-      expect(expoNativeModuleNames(root, null)).toBeNull();
+      fs.writeFileSync(path.join(root, "expo-module.config.json"), "{}");
+      fs.mkdirSync(path.join(root, "src"));
+      fs.writeFileSync(path.join(root, "src", "index.ts"), "requireNativeModule('MyLib');");
+      mod("node_modules/expo-crypto", { "build/index.js": "requireNativeModule('ExpoCrypto');" });
+      expect(expoAbsentModules(root, null).size).toBe(0);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

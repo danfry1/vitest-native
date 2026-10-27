@@ -113,11 +113,11 @@ functions. jest-expo also answers the remaining modules' constants from a genera
 example `Device.modelName` is `'mock'`), which the engine does not, so mock those with `vi.mock`
 where a test reads them.
 
-A native module exists when an installed package defines it, as on a device: the engine reads the
-module names from the installed Expo modules' native sources (cached until the install changes).
-`requireOptionalNativeModule` returns `null` for any other name, so a package that probes for an
-optional module (expo-image for expo-observe's) takes the path it takes when that module is not
-installed.
+A package can probe for an optional native module with `requireOptionalNativeModule`, such as
+expo-image for expo-observe's. When no installed or local Expo module defines the probed module in
+its native sources, it reads as absent, as on a device, so the package takes the path it takes
+when that module is not installed. Every other module is present. The scan is cached until the
+install changes.
 
 ## SDK and React Native versions
 

@@ -15,11 +15,7 @@ import { serializer as rnSerializer } from "../serializer.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import { importPresetModule, presetModulePaths } from "../preset-modules.mjs";
 import { installNitroProxy } from "./nitro.mjs";
-import {
-  expoModuleMock,
-  expoModuleMockIndex,
-  expoNativeModuleNames,
-} from "./expo-module-mocks.mjs";
+import { expoModuleMock, expoModuleMockIndex, expoAbsentModules } from "./expo-module-mocks.mjs";
 import { cacheRootFor } from "./transform.mjs";
 import { installKnownNativeModules } from "./native-modules.mjs";
 
@@ -357,13 +353,14 @@ const RN = req("react-native");
 // globalThis.expo.modules as each module is first required.
 g.__vitest_native_expo_module_mock = (name) =>
   expoModuleMock(projectRoot, name, (implementation) => vi.fn(implementation));
-// Which native modules exist: those the installed Expo modules define, and those a
-// package mock stands in for. Read on the first lookup, so a file that touches no
-// Expo module pays nothing.
-let expoNames;
+// Which native modules exist: every one except those an installed package only
+// probes for and no installed package defines (expoAbsentModules), unless a package
+// mock stands in for it. Read on the first lookup, so a file that touches no Expo
+// module pays nothing.
+let expoAbsent;
 g.__vitest_native_expo_module_present = (name) => {
-  expoNames ??= expoNativeModuleNames(projectRoot, cacheRootFor(projectRoot));
-  return expoNames === null || expoNames.has(name) || expoModuleMockIndex(projectRoot).has(name);
+  expoAbsent ??= expoAbsentModules(projectRoot, cacheRootFor(projectRoot));
+  return !expoAbsent.has(name) || expoModuleMockIndex(projectRoot).has(name);
 };
 // Before the project's setup files run, as jest-expo does (see globals.mjs).
 installExpoRuntime(projectRoot);

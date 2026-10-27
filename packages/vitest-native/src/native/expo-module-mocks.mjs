@@ -20,9 +20,14 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { threadId } from "node:worker_threads";
 
-const packageLists = new Map();
-const indexes = new Map();
-const nativeNames = new Map();
+// Kept on the realm, not in this module, so a test file run with isolation (a fresh
+// module graph on a reused worker) does not walk the install again.
+const memo = (globalThis[Symbol.for("vitest-native.expo-modules")] ??= {
+  packageLists: new Map(),
+  indexes: new Map(),
+  absent: new Map(),
+});
+const { packageLists, indexes } = memo;
 
 /**
  * The Expo modules (directories with an expo-module.config.json) for `projectRoot`, in
@@ -77,54 +82,92 @@ export function expoModuleMockIndex(projectRoot) {
 }
 
 /**
- * The native module names the installed Expo modules define, or null when none are
- * found (a layout this does not recognise, where every name stays present).
+ * The native modules an installed package only probes for and no installed package
+ * defines, which a device does not have.
  *
- * A native module exists on a device when an installed package's native code defines
- * it, and that code names it: `Name("ExpoHaptics")` in Swift and Kotlin, or a constant
- * holding the string. Every string literal in the packages' native sources is
- * collected, a superset of the module names. A module a package only probes for
- * (expo-image's requireOptionalNativeModule("ExpoObserve"), defined by expo-observe)
- * is then absent unless its own package is installed, as on a device.
+ * A package that needs a module requires it (requireNativeModule); one that can do
+ * without probes for it (requireOptionalNativeModule) and takes another path when it is
+ * missing. expo-image probes for expo-observe's ExpoObserve, which exists only when
+ * expo-observe is installed. A name is absent when an installed package's JavaScript
+ * probes for it and no installed or local Expo module's native sources mention it (the
+ * name appears there as `Name("ExpoHaptics")`, a constant, or an @ExpoModule argument,
+ * so every string literal in the sources is collected, a superset of the names).
  *
- * Reading the sources takes about 100 ms for a typical app's Expo modules, so the set
- * for installed packages is cached on disk, keyed by every package's path and version.
- * A package edited in place without a version change (patch-package) is not seen
- * until the cache under node_modules/.cache/vitest-native is cleared.
+ * Every other name stays present, including any this cannot account for: reading a
+ * module that exists as absent makes requireNativeModule throw, while reading one
+ * that does not as present only keeps the generic stub, as before. So a layout this
+ * does not model (a library's own module under development, an unusual autolinking
+ * search path) cannot break an import.
+ *
+ * Reading the installed packages takes a few hundred milliseconds, so it is cached on
+ * disk, keyed by each package's path and version. A package edited in place without a
+ * version change (patch-package) is seen once that cache is cleared. Local sources
+ * (local modules, file: and workspace links) are read every time.
  */
-export function expoNativeModuleNames(projectRoot, cacheDir) {
-  if (nativeNames.has(projectRoot)) return nativeNames.get(projectRoot);
+export function expoAbsentModules(projectRoot, cacheDir) {
+  if (memo.absent.has(projectRoot)) return memo.absent.get(projectRoot);
   const packages = expoModulePackages(projectRoot);
-  let names = null;
+  const absent = new Set();
   if (packages.length > 0) {
-    // Installed packages change with their version, so they are cached by it. Sources
-    // outside node_modules (local modules, file: and workspace links) change in place,
-    // so they are read every time.
-    const installed = packages.filter((pkgDir) => NODE_MODULES_DIR.test(realpath(pkgDir)));
+    const installed = packages.filter((pkgDir) => isInstalled(projectRoot, pkgDir));
     const local = packages.filter((pkgDir) => !installed.includes(pkgDir));
     const key = crypto
       .createHash("sha1")
-      .update(`v${NATIVE_NAMES_VERSION}`)
+      .update(`v${SCAN_VERSION}`)
       .update(installed.map((pkgDir) => `${pkgDir}@${packageVersion(pkgDir)}`).join("\0"))
       .digest("hex")
       .slice(0, 16);
     const file = cacheDir ? path.join(cacheDir, `expo-native-modules-${key}.json`) : null;
-    names = readCachedNames(file);
-    if (!names) {
-      names = scanNativeNames(installed);
-      if (file) writeCachedNames(file, names);
+    let scan = readCachedScan(file);
+    if (!scan) {
+      scan = { defined: scanNativeNames(installed), probed: scanProbedNames(installed) };
+      if (file) writeCachedScan(file, scan);
     }
-    for (const name of scanNativeNames(local)) names.add(name);
+    const defined = new Set([...scan.defined, ...scanNativeNames(local)]);
+    for (const name of scan.probed) if (!defined.has(name)) absent.add(name);
   }
-  nativeNames.set(projectRoot, names);
+  memo.absent.set(projectRoot, absent);
+  return absent;
+}
+
+// Bump when what is collected changes, so a cached scan from an older version is not reused.
+const SCAN_VERSION = 2;
+const NATIVE_SOURCE = /\.(swift|kt|java|m|mm)$/;
+const JS_SOURCE = /\.(js|mjs|cjs|ts|tsx)$/;
+const STRING_LITERAL = /"([A-Za-z][A-Za-z0-9_]{2,})"/g;
+const OPTIONAL_PROBE = /requireOptionalNativeModule\s*(?:<[^>]*>)?\s*\(\s*['"]([A-Za-z0-9_]+)['"]/g;
+
+// Installed: inside a node_modules, relative to the project (a project whose own path
+// passes through a node_modules directory still has local modules).
+function isInstalled(projectRoot, pkgDir) {
+  const relative = path.relative(realpath(projectRoot), realpath(pkgDir));
+  return relative.split(path.sep).includes("node_modules");
+}
+
+function scanProbedNames(packages) {
+  const names = new Set();
+  const walk = (dir) => {
+    for (const entry of readdirEntries(dir)) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!SKIPPED_DIRS.has(entry.name)) walk(full);
+      } else if (JS_SOURCE.test(entry.name) && !entry.name.endsWith(".d.ts")) {
+        let src;
+        try {
+          src = fs.readFileSync(full, "utf8");
+        } catch {
+          continue;
+        }
+        if (!src.includes("requireOptionalNativeModule")) continue;
+        for (const match of src.matchAll(OPTIONAL_PROBE)) names.add(match[1]);
+      }
+    }
+  };
+  for (const pkgDir of packages) walk(pkgDir);
   return names;
 }
 
-// Bump when what is collected changes, so a cached set from an older scan is not reused.
-const NATIVE_NAMES_VERSION = 1;
-const NATIVE_SOURCE = /\.(swift|kt|java|m|mm)$/;
-const NODE_MODULES_DIR = /[\\/]node_modules[\\/]/;
-const STRING_LITERAL = /"([A-Za-z][A-Za-z0-9_]{2,})"/g;
+const SKIPPED_DIRS = new Set(["node_modules", "ios", "android", "__tests__", "__mocks__", "mocks"]);
 
 function scanNativeNames(packages) {
   const names = new Set();
@@ -151,22 +194,23 @@ function scanNativeNames(packages) {
   return names;
 }
 
-function readCachedNames(file) {
+function readCachedScan(file) {
   if (!file) return null;
   try {
-    return new Set(JSON.parse(fs.readFileSync(file, "utf8")));
+    const { defined, probed } = JSON.parse(fs.readFileSync(file, "utf8"));
+    return { defined: new Set(defined), probed: new Set(probed) };
   } catch {
     return null;
   }
 }
 
-function writeCachedNames(file, names) {
+function writeCachedScan(file, scan) {
   if (fs.existsSync(file)) return;
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     // Written to a temporary name and renamed, so a concurrent worker never reads half.
     const tmp = `${file}.${process.pid}.${threadId}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify([...names]));
+    fs.writeFileSync(tmp, JSON.stringify({ defined: [...scan.defined], probed: [...scan.probed] }));
     fs.renameSync(tmp, file);
   } catch {
     // An unwritable cache only costs the next worker the scan.

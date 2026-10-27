@@ -205,12 +205,11 @@ function installExpoGlobal(g) {
     });
     return stub;
   };
-  // A native module exists when an installed package defines it (setup installs the
-  // answer: expoNativeModuleNames in expo-module-mocks.mjs). One that does not reads as
-  // undefined, as on a device: requireOptionalNativeModule returns null and
-  // requireNativeModule throws. Answering every name let a package probing for an
-  // optional module call into a stub instead: expo-image found expo-observe's
-  // ExpoObserve and failed as it loaded.
+  // A module an installed package only probes for, and no installed package defines,
+  // reads as undefined, as on a device, so requireOptionalNativeModule returns null
+  // (setup installs the answer: expoAbsentModules in expo-module-mocks.mjs). Answering
+  // every name let a probing package call into a stub instead: expo-image found
+  // expo-observe's ExpoObserve and failed as it loaded. Every other name is present.
   const present = (name) => g.__vitest_native_expo_module_present?.(name) ?? true;
   const modules = new Proxy(
     {},
