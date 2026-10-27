@@ -1,0 +1,270 @@
+{
+  "numTotalTestSuites": 14,
+  "numPassedTestSuites": 6,
+  "numFailedTestSuites": 8,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 15,
+  "numPassedTests": 9,
+  "numFailedTests": 3,
+  "numPendingTests": 3,
+  "numTodoTests": 0,
+  "snapshot": {
+    "added": 0,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 1,
+    "filesUpdated": 0,
+    "matched": 1,
+    "total": 2,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 1,
+    "updated": 0,
+    "didUpdate": false
+  },
+  "startTime": 1793137896928,
+  "success": false,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "loads under Vitest",
+          "status": "passed",
+          "title": "loads under Vitest",
+          "duration": 0.551124999999999,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        }
+      ],
+      "startTime": 1793137897087,
+      "endTime": 1793137897087.551,
+      "status": "passed",
+      "message": "",
+      "name": "/project/src/collect-fails-under-jest.check.js"
+    },
+    {
+      "assertionResults": [],
+      "startTime": 1793137896928,
+      "endTime": 1793137896928,
+      "status": "failed",
+      "message": "cannot load this file under Vitest",
+      "name": "/project/src/collect-fails-under-vitest.check.js"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["with setup"],
+          "fullName": "with setup needs the setup",
+          "status": "skipped",
+          "title": "needs the setup",
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        }
+      ],
+      "startTime": 1793137896928,
+      "endTime": 1793137896928,
+      "status": "failed",
+      "message": "",
+      "name": "/project/src/hook-fails-under-vitest.check.js"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["globals"],
+          "fullName": "globals uses the jest global",
+          "status": "failed",
+          "title": "uses the jest global",
+          "duration": 5.909957999999989,
+          "failureMessages": [
+            "AssertionError: expected 'undefined' to be 'object' // Object.is equality\n    at /project/src/runner-differences.check.js:6:25\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:1632:35\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:2801:26\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:3338:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///vitest/dist/chunks/run.BPv-BBRv.js:3333:10)\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:3318:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///vitest/dist/chunks/run.BPv-BBRv.js:3276:10)\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:3904:64"
+          ],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["globals"],
+          "fullName": "globals uses the vi global",
+          "status": "passed",
+          "title": "uses the vi global",
+          "duration": 0.14316700000000537,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "is skipped under Vitest only",
+          "status": "skipped",
+          "title": "is skipped under Vitest only",
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "exists under Vitest only",
+          "status": "passed",
+          "title": "exists under Vitest only",
+          "duration": 0.07450000000000045,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        }
+      ],
+      "startTime": 1793137897055,
+      "endTime": 1793137897062.0745,
+      "status": "failed",
+      "message": "",
+      "name": "/project/src/runner-differences.check.js"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["math"],
+          "fullName": "math adds",
+          "status": "passed",
+          "title": "adds",
+          "duration": 0.9560000000000031,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["math", "nested"],
+          "fullName": "math nested multiplies",
+          "status": "passed",
+          "title": "multiplies",
+          "duration": 0.09720799999999485,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["math"],
+          "fullName": "math repeats a title",
+          "status": "passed",
+          "title": "repeats a title",
+          "duration": 0.06104100000000301,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["math"],
+          "fullName": "math repeats a title",
+          "status": "passed",
+          "title": "repeats a title",
+          "duration": 0.055999999999997385,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "fails under both runners",
+          "status": "failed",
+          "title": "fails under both runners",
+          "duration": 3.0673749999999984,
+          "failureMessages": [
+            "AssertionError: expected 1 to be 2 // Object.is equality\n    at /project/src/same.check.js:19:13\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:1632:35\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:2801:26\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:3338:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///vitest/dist/chunks/run.BPv-BBRv.js:3333:10)\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:3318:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///vitest/dist/chunks/run.BPv-BBRv.js:3276:10)\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:3904:64"
+          ],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "is skipped under both runners",
+          "status": "skipped",
+          "title": "is skipped under both runners",
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        }
+      ],
+      "startTime": 1793137897060,
+      "endTime": 1793137897064.0674,
+      "status": "failed",
+      "message": "",
+      "name": "/project/src/same.check.js"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["badge"],
+          "fullName": "badge renders",
+          "status": "failed",
+          "title": "renders",
+          "duration": 2.8010830000000055,
+          "failureMessages": [
+            "Error: Snapshot `badge > renders 1` mismatched\n    at assertMatchResult (file:///vitest/dist/chunks/index.aTZaPVhf.js:7898:23)\n    at Proxy.<anonymous> (file:///vitest/dist/chunks/index.aTZaPVhf.js:7752:10)\n    at Proxy.<anonymous> (file:///vitest/dist/chunks/index.aTZaPVhf.js:1958:14)\n    at Proxy.methodWrapper (file:///repo/node_modules/.bun/chai@6.3.0/node_modules/chai/index.js:1737:25)\n    at /project/src/snapshot-unrecorded.check.js:4:30\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:1632:35\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:2801:26\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:3338:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///vitest/dist/chunks/run.BPv-BBRv.js:3333:10)"
+          ],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        }
+      ],
+      "startTime": 1793137897079,
+      "endTime": 1793137897081.801,
+      "status": "failed",
+      "message": "",
+      "name": "/project/src/snapshot-unrecorded.check.js"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["card"],
+          "fullName": "card renders",
+          "status": "passed",
+          "title": "renders",
+          "duration": 1.269874999999999,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        }
+      ],
+      "startTime": 1793137897073,
+      "endTime": 1793137897074.2698,
+      "status": "passed",
+      "message": "",
+      "name": "/project/src/snapshot.check.js"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "runs under Vitest only",
+          "status": "passed",
+          "title": "runs under Vitest only",
+          "duration": 1.0654170000000107,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        }
+      ],
+      "startTime": 1793137897071,
+      "endTime": 1793137897072.0654,
+      "status": "passed",
+      "message": "",
+      "name": "/project/src/vitest-only.check.js"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+// Each test here behaves differently under the two runners on purpose.
+const underVitest = typeof vi !== "undefined";
+
+describe("globals", () => {
+  it("uses the jest global", () => {
+    expect(typeof jest).toBe("object");
+  });
+  it("uses the vi global", () => {
+    expect(typeof vi).toBe("object");
+  });
+});
+
+(underVitest ? it.skip : it)("is skipped under Vitest only", () => {});
+
+if (underVitest) it("exists under Vitest only", () => {});
+else it("exists under Jest only", () => {});

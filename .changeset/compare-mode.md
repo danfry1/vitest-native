@@ -1,0 +1,7 @@
+---
+"vitest-native": minor
+---
+
+New `vitest-native compare` command: it runs a project's suite under its own Jest and under Vitest, one after the other, and lists every test whose result differs. Tests are matched by file, `describe` titles and title. Each lands in a bucket: same result, regression (passes under Jest, fails under Vitest), improvement, skipped differently, or collected by only one runner. Regressions are grouped by their first Vitest error. The summary makes one claim: every test that passes under Jest also passes under Vitest. A test that is skipped, missing or not collected under Vitest counts against that claim, and differences in which files each runner collects are always printed. The exit code is 0 when the claim holds, 1 when it does not, and 2 when a runner could not run.
+
+Neither run writes snapshots, and Vitest reads its own `__vitest_snapshots__/` unless the project's config sets `resolveSnapshotPath`. With `CI` set, Vitest still rewrote the header of every Jest `.snap` file it read. A project without a Vitest config is compared under the config `vitest-native migrate` would write, which compare runs without saving it. `--json <file>` writes a report to attach to an issue: test identities, statuses and error messages, with stack traces, code frames and absolute paths removed. `--jest-results <file>` reads a Jest `--json` report made elsewhere instead of running Jest. Each runner is a bounded child process (`--timeout`, default 1800 s) whose workers are stopped with it.

@@ -1,0 +1,378 @@
+{
+  "numFailedTestSuites": 3,
+  "numFailedTests": 2,
+  "numPassedTestSuites": 5,
+  "numPassedTests": 13,
+  "numPendingTestSuites": 0,
+  "numPendingTests": 1,
+  "numRuntimeErrorTestSuites": 1,
+  "numTodoTests": 0,
+  "numTotalTestSuites": 8,
+  "numTotalTests": 16,
+  "openHandles": [],
+  "snapshot": {
+    "added": 0,
+    "didUpdate": false,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 2,
+    "total": 2,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0
+  },
+  "startTime": 1793137895977,
+  "success": false,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["with setup"],
+          "duration": 1,
+          "failing": false,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "with setup needs the setup",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "startAt": 1793137896640,
+          "status": "passed",
+          "title": "needs the setup"
+        }
+      ],
+      "endTime": 1793137896642,
+      "message": "",
+      "name": "/project/src/hook-fails-under-vitest.check.js",
+      "startTime": 1793137896231,
+      "status": "passed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["card"],
+          "duration": 5,
+          "failing": false,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "card renders",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "startAt": 1793137896640,
+          "status": "passed",
+          "title": "renders"
+        }
+      ],
+      "endTime": 1793137896646,
+      "message": "",
+      "name": "/project/src/snapshot.check.js",
+      "startTime": 1793137896267,
+      "status": "passed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "duration": 3,
+          "failing": false,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "first",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "startAt": 1793137896656,
+          "status": "passed",
+          "title": "first"
+        },
+        {
+          "ancestorTitles": [],
+          "duration": 0,
+          "failing": false,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "second",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "startAt": 1793137896659,
+          "status": "passed",
+          "title": "second"
+        }
+      ],
+      "endTime": 1793137896660,
+      "message": "",
+      "name": "/project/src/collect-fails-under-vitest.check.js",
+      "startTime": 1793137896284,
+      "status": "passed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [],
+      "coverage": {},
+      "endTime": 1793137896739,
+      "message": "  ● Test suite failed to run\n\n    cannot load this file under Jest\n\n    \u001b[0m\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 1 |\u001b[39m \u001b[36mif\u001b[39m (\u001b[36mtypeof\u001b[39m vi \u001b[33m===\u001b[39m \u001b[32m\"undefined\"\u001b[39m) \u001b[36mthrow\u001b[39m \u001b[36mnew\u001b[39m \u001b[33mError\u001b[39m(\u001b[32m\"cannot load this file under Jest\"\u001b[39m)\u001b[33m;\u001b[39m\n     \u001b[90m   |\u001b[39m                                      \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n     \u001b[90m 2 |\u001b[39m\n     \u001b[90m 3 |\u001b[39m it(\u001b[32m\"loads under Vitest\"\u001b[39m\u001b[33m,\u001b[39m () \u001b[33m=>\u001b[39m {})\u001b[33m;\u001b[39m\n     \u001b[90m 4 |\u001b[39m\u001b[0m\n\n      at Object.<anonymous> (src/collect-fails-under-jest.check.js:1:38)\n",
+      "name": "/project/src/collect-fails-under-jest.check.js",
+      "startTime": 1793137896739,
+      "status": "failed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["badge"],
+          "duration": 4,
+          "failing": false,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "badge renders",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "startAt": 1793137896680,
+          "status": "passed",
+          "title": "renders"
+        }
+      ],
+      "endTime": 1793137896686,
+      "message": "",
+      "name": "/project/src/snapshot-unrecorded.check.js",
+      "startTime": 1793137896287,
+      "status": "passed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["globals"],
+          "duration": 2,
+          "failing": false,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "globals uses the jest global",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "startAt": 1793137896671,
+          "status": "passed",
+          "title": "uses the jest global"
+        },
+        {
+          "ancestorTitles": ["globals"],
+          "duration": 2,
+          "failing": false,
+          "failureDetails": [
+            {
+              "matcherResult": {
+                "actual": "undefined",
+                "expected": "object",
+                "message": "expect(received).toBe(expected) // Object.is equality\n\nExpected: \"object\"\nReceived: \"undefined\"",
+                "name": "toBe",
+                "pass": false
+              }
+            }
+          ],
+          "failureMessages": [
+            "Error: expect(received).toBe(expected) // Object.is equality\n\nExpected: \"object\"\nReceived: \"undefined\"\n    at Object.toBe (/project/src/runner-differences.check.js:9:23)\n    at Promise.finally.completed (/jest-circus/build/jestAdapterInit.js:1557:28)\n    at new Promise (<anonymous>)\n    at callAsyncCircusFn (/jest-circus/build/jestAdapterInit.js:1497:10)\n    at _callCircusTest (/jest-circus/build/jestAdapterInit.js:1007:40)\n    at processTicksAndRejections (node:internal/process/task_queues:103:5)\n    at _runTest (/jest-circus/build/jestAdapterInit.js:947:3)\n    at /jest-circus/build/jestAdapterInit.js:849:7\n    at _runTestsForDescribeBlock (/jest-circus/build/jestAdapterInit.js:862:11)\n    at _runTestsForDescribeBlock (/jest-circus/build/jestAdapterInit.js:857:11)\n    at run (/jest-circus/build/jestAdapterInit.js:761:3)\n    at runAndTransformResultsToJestFormat (/jest-circus/build/jestAdapterInit.js:1918:21)\n    at jestAdapter (/jest-circus/build/runner.js:101:19)\n    at runTestInternal (/jest-runner/build/testWorker.js:275:16)\n    at runTest (/jest-runner/build/testWorker.js:343:7)\n    at Object.worker (/jest-runner/build/testWorker.js:497:12)"
+          ],
+          "fullName": "globals uses the vi global",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "startAt": 1793137896673,
+          "status": "failed",
+          "title": "uses the vi global"
+        },
+        {
+          "ancestorTitles": [],
+          "duration": 1,
+          "failing": false,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "is skipped under Vitest only",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "startAt": 1793137896677,
+          "status": "passed",
+          "title": "is skipped under Vitest only"
+        },
+        {
+          "ancestorTitles": [],
+          "duration": 0,
+          "failing": false,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "exists under Jest only",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "startAt": 1793137896678,
+          "status": "passed",
+          "title": "exists under Jest only"
+        }
+      ],
+      "endTime": 1793137896691,
+      "message": "  ● globals › uses the vi global\n\n    expect(received).toBe(expected) // Object.is equality\n\n    Expected: \"object\"\n    Received: \"undefined\"\n\n    \u001b[0m \u001b[90m  7 |\u001b[39m   })\u001b[33m;\u001b[39m\n     \u001b[90m  8 |\u001b[39m   it(\u001b[32m\"uses the vi global\"\u001b[39m\u001b[33m,\u001b[39m () \u001b[33m=>\u001b[39m {\n    \u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m  9 |\u001b[39m     expect(\u001b[36mtypeof\u001b[39m vi)\u001b[33m.\u001b[39mtoBe(\u001b[32m\"object\"\u001b[39m)\u001b[33m;\u001b[39m\n     \u001b[90m    |\u001b[39m                       \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n     \u001b[90m 10 |\u001b[39m   })\u001b[33m;\u001b[39m\n     \u001b[90m 11 |\u001b[39m })\u001b[33m;\u001b[39m\n     \u001b[90m 12 |\u001b[39m\u001b[0m\n\n      at Object.toBe (src/runner-differences.check.js:9:23)\n",
+      "name": "/project/src/runner-differences.check.js",
+      "startTime": 1793137896265,
+      "status": "failed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "duration": 2,
+          "failing": false,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "runs under Jest only",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "startAt": 1793137896699,
+          "status": "passed",
+          "title": "runs under Jest only"
+        }
+      ],
+      "endTime": 1793137896702,
+      "message": "",
+      "name": "/project/src/jest-only.check.js",
+      "startTime": 1793137896305,
+      "status": "passed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["math"],
+          "duration": 3,
+          "failing": false,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "math adds",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "startAt": 1793137896682,
+          "status": "passed",
+          "title": "adds"
+        },
+        {
+          "ancestorTitles": ["math", "nested"],
+          "duration": 0,
+          "failing": false,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "math nested multiplies",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "startAt": 1793137896685,
+          "status": "passed",
+          "title": "multiplies"
+        },
+        {
+          "ancestorTitles": ["math"],
+          "duration": 0,
+          "failing": false,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "math repeats a title",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "startAt": 1793137896685,
+          "status": "passed",
+          "title": "repeats a title"
+        },
+        {
+          "ancestorTitles": ["math"],
+          "duration": 0,
+          "failing": false,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "math repeats a title",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "startAt": 1793137896685,
+          "status": "passed",
+          "title": "repeats a title"
+        },
+        {
+          "ancestorTitles": [],
+          "duration": 5,
+          "failing": false,
+          "failureDetails": [
+            {
+              "matcherResult": {
+                "actual": 1,
+                "expected": 2,
+                "message": "expect(received).toBe(expected) // Object.is equality\n\nExpected: 2\nReceived: 1",
+                "name": "toBe",
+                "pass": false
+              }
+            }
+          ],
+          "failureMessages": [
+            "Error: expect(received).toBe(expected) // Object.is equality\n\nExpected: 2\nReceived: 1\n    at Object.toBe (/project/src/same.check.js:19:13)\n    at Promise.finally.completed (/jest-circus/build/jestAdapterInit.js:1557:28)\n    at new Promise (<anonymous>)\n    at callAsyncCircusFn (/jest-circus/build/jestAdapterInit.js:1497:10)\n    at _callCircusTest (/jest-circus/build/jestAdapterInit.js:1007:40)\n    at processTicksAndRejections (node:internal/process/task_queues:103:5)\n    at _runTest (/jest-circus/build/jestAdapterInit.js:947:3)\n    at /jest-circus/build/jestAdapterInit.js:849:7\n    at _runTestsForDescribeBlock (/jest-circus/build/jestAdapterInit.js:862:11)\n    at run (/jest-circus/build/jestAdapterInit.js:761:3)\n    at runAndTransformResultsToJestFormat (/jest-circus/build/jestAdapterInit.js:1918:21)\n    at jestAdapter (/jest-circus/build/runner.js:101:19)\n    at runTestInternal (/jest-runner/build/testWorker.js:275:16)\n    at runTest (/jest-runner/build/testWorker.js:343:7)\n    at Object.worker (/jest-runner/build/testWorker.js:497:12)"
+          ],
+          "fullName": "fails under both runners",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "startAt": 1793137896685,
+          "status": "failed",
+          "title": "fails under both runners"
+        },
+        {
+          "ancestorTitles": [],
+          "duration": null,
+          "failing": false,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "is skipped under both runners",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "startAt": 1793137896694,
+          "status": "pending",
+          "title": "is skipped under both runners"
+        }
+      ],
+      "endTime": 1793137896715,
+      "message": "  ● fails under both runners\n\n    expect(received).toBe(expected) // Object.is equality\n\n    Expected: 2\n    Received: 1\n\n    \u001b[0m \u001b[90m 17 |\u001b[39m\n     \u001b[90m 18 |\u001b[39m it(\u001b[32m\"fails under both runners\"\u001b[39m\u001b[33m,\u001b[39m () \u001b[33m=>\u001b[39m {\n    \u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 19 |\u001b[39m   expect(\u001b[35m1\u001b[39m)\u001b[33m.\u001b[39mtoBe(\u001b[35m2\u001b[39m)\u001b[33m;\u001b[39m\n     \u001b[90m    |\u001b[39m             \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n     \u001b[90m 20 |\u001b[39m })\u001b[33m;\u001b[39m\n     \u001b[90m 21 |\u001b[39m\n     \u001b[90m 22 |\u001b[39m it\u001b[33m.\u001b[39mskip(\u001b[32m\"is skipped under both runners\"\u001b[39m\u001b[33m,\u001b[39m () \u001b[33m=>\u001b[39m {})\u001b[33m;\u001b[39m\u001b[0m\n\n      at Object.toBe (src/same.check.js:19:13)\n",
+      "name": "/project/src/same.check.js",
+      "startTime": 1793137896284,
+      "status": "failed",
+      "summary": ""
+    }
+  ],
+  "wasInterrupted": false
+}
