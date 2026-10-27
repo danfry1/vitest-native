@@ -1,0 +1,11 @@
+{
+  // The template extends "expo/tsconfig.base". expo 58.0.16, the newest release this
+  // repo's install-age policy admits today, does not export "./tsconfig.base" (58.0.17
+  // does), and Vite 8 loads a .ts file's tsconfig through package exports, so it would
+  // fail every file. The template's own ~58.0.19 is fine; restore the template's line
+  // when the pin moves past 58.0.16.
+  "extends": "expo/tsconfig.base.json",
+  "compilerOptions": {
+    "strict": true
+  }
+}
