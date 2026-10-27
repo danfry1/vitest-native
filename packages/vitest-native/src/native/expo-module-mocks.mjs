@@ -18,17 +18,19 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { threadId } from "node:worker_threads";
 
 const packageLists = new Map();
 const indexes = new Map();
 const nativeNames = new Map();
 
 /**
- * The installed Expo modules (packages with an expo-module.config.json) for
- * `projectRoot`, in resolution order: up the tree, as Node resolves (a hoisted
- * workspace installs packages above the project), nearest first; within a
- * node_modules, its own packages before the copies nested inside them (npm nests a
- * package's own version: expo/node_modules/expo-asset); then pnpm's store.
+ * The Expo modules (directories with an expo-module.config.json) for `projectRoot`, in
+ * resolution order. First the project's local modules, which Expo autolinks from
+ * `modules/` (or `expo.autolinking.nativeModulesDir`); then up the tree, as Node
+ * resolves (a hoisted workspace installs packages above the project), nearest first;
+ * within a node_modules, every package before the copies nested inside them (npm nests
+ * a package's own version: expo/node_modules/expo-asset); then pnpm's store.
  */
 export function expoModulePackages(projectRoot) {
   let list = packageLists.get(projectRoot);
@@ -38,11 +40,13 @@ export function expoModulePackages(projectRoot) {
   const add = (pkgDir) => {
     if (fs.existsSync(path.join(pkgDir, "expo-module.config.json"))) list.push(pkgDir);
   };
+  for (const pkgDir of packageDirs(localModulesDir(projectRoot))) add(pkgDir);
   for (let dir = path.resolve(projectRoot); ; dir = path.dirname(dir)) {
     const nodeModules = path.join(dir, "node_modules");
-    const candidates = packageDirs(nodeModules).filter((pkgDir) =>
-      isCandidate(pkgDir, nodeModules, declared),
-    );
+    // Every package here: an Expo module need not be named after Expo, or be declared
+    // by the project (an SDK package's own native module), and one missed reads as
+    // absent, so requireNativeModule throws. One stat each.
+    const candidates = packageDirs(nodeModules);
     for (const pkgDir of candidates) add(pkgDir);
     for (const pkgDir of candidates) {
       const nested = path.join(pkgDir, "node_modules");
@@ -84,22 +88,33 @@ export function expoModuleMockIndex(projectRoot) {
  * is then absent unless its own package is installed, as on a device.
  *
  * Reading the sources takes about 100 ms for a typical app's Expo modules, so the set
- * is cached on disk, keyed by every package's path and version.
+ * for installed packages is cached on disk, keyed by every package's path and version.
+ * A package edited in place without a version change (patch-package) is not seen
+ * until the cache under node_modules/.cache/vitest-native is cleared.
  */
 export function expoNativeModuleNames(projectRoot, cacheDir) {
   if (nativeNames.has(projectRoot)) return nativeNames.get(projectRoot);
   const packages = expoModulePackages(projectRoot);
   let names = null;
   if (packages.length > 0) {
+    // Installed packages change with their version, so they are cached by it. Sources
+    // outside node_modules (local modules, file: and workspace links) change in place,
+    // so they are read every time.
+    const installed = packages.filter((pkgDir) => NODE_MODULES_DIR.test(realpath(pkgDir)));
+    const local = packages.filter((pkgDir) => !installed.includes(pkgDir));
     const key = crypto
       .createHash("sha1")
       .update(`v${NATIVE_NAMES_VERSION}`)
-      .update(packages.map((pkgDir) => `${pkgDir}@${packageVersion(pkgDir)}`).join("\0"))
+      .update(installed.map((pkgDir) => `${pkgDir}@${packageVersion(pkgDir)}`).join("\0"))
       .digest("hex")
       .slice(0, 16);
     const file = cacheDir ? path.join(cacheDir, `expo-native-modules-${key}.json`) : null;
-    names = readCachedNames(file) ?? scanNativeNames(packages);
-    if (file) writeCachedNames(file, names);
+    names = readCachedNames(file);
+    if (!names) {
+      names = scanNativeNames(installed);
+      if (file) writeCachedNames(file, names);
+    }
+    for (const name of scanNativeNames(local)) names.add(name);
   }
   nativeNames.set(projectRoot, names);
   return names;
@@ -108,6 +123,7 @@ export function expoNativeModuleNames(projectRoot, cacheDir) {
 // Bump when what is collected changes, so a cached set from an older scan is not reused.
 const NATIVE_NAMES_VERSION = 1;
 const NATIVE_SOURCE = /\.(swift|kt|java|m|mm)$/;
+const NODE_MODULES_DIR = /[\\/]node_modules[\\/]/;
 const STRING_LITERAL = /"([A-Za-z][A-Za-z0-9_]{2,})"/g;
 
 function scanNativeNames(packages) {
@@ -149,11 +165,19 @@ function writeCachedNames(file, names) {
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     // Written to a temporary name and renamed, so a concurrent worker never reads half.
-    const tmp = `${file}.${process.pid}.tmp`;
+    const tmp = `${file}.${process.pid}.${threadId}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify([...names]));
     fs.renameSync(tmp, file);
   } catch {
     // An unwritable cache only costs the next worker the scan.
+  }
+}
+
+function realpath(dir) {
+  try {
+    return fs.realpathSync(dir);
+  } catch {
+    return dir;
   }
 }
 
@@ -173,12 +197,23 @@ function readdirEntries(dir) {
   }
 }
 
-// Expo's own packages (expo-*, @expo/*), and whatever the project declares, which is
-// where a third-party Expo module comes from. Checking every installed package's
-// directory cost about 20 ms per test file on a 500-package install.
+// Nested copies are looked for only among Expo's own packages (expo-*, @expo/*) and
+// what the project declares: checking every package's nested node_modules cost about
+// 20 ms per test file on a 500-package install.
 function isCandidate(pkgDir, nodeModules, declared) {
   const name = path.relative(nodeModules, pkgDir).split(path.sep).join("/");
   return name.startsWith("expo") || name.startsWith("@expo/") || declared.has(name);
+}
+
+function localModulesDir(projectRoot) {
+  let configured;
+  try {
+    const manifest = JSON.parse(fs.readFileSync(path.join(projectRoot, "package.json"), "utf8"));
+    configured = manifest.expo?.autolinking?.nativeModulesDir;
+  } catch {
+    configured = undefined;
+  }
+  return path.resolve(projectRoot, typeof configured === "string" ? configured : "modules");
 }
 
 function declaredDependencies(projectRoot) {

@@ -1431,6 +1431,32 @@ describe("Expo native module names", () => {
     }
   });
 
+  it("includes local modules and undeclared Expo modules of any name", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-expo-names-local-"));
+    const cache = path.join(root, "cache");
+    try {
+      fs.writeFileSync(path.join(root, "package.json"), "{}");
+      const mod = (dir: string, src: string) => {
+        fs.mkdirSync(path.join(root, dir, "ios"), { recursive: true });
+        fs.writeFileSync(
+          path.join(root, dir, "package.json"),
+          JSON.stringify({ version: "1.0.0" }),
+        );
+        fs.writeFileSync(path.join(root, dir, "expo-module.config.json"), "{}");
+        fs.writeFileSync(path.join(root, dir, "ios", "Module.swift"), src);
+      };
+      // `create-expo-module --local` puts the module in modules/, which Expo autolinks.
+      mod("modules/my-module", 'Name("MyModule")');
+      // An SDK package's own native module: neither Expo-named nor declared.
+      mod("node_modules/acme-native", 'Name("AcmeNative")');
+      const first = expoNativeModuleNames(root, cache)!;
+      expect(first.has("MyModule")).toBe(true);
+      expect(first.has("AcmeNative")).toBe(true);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("is null where no Expo module is installed, so every name stays present", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-expo-names-none-"));
     try {
@@ -1482,7 +1508,7 @@ describe("Expo module mocks", () => {
       // The project's own copy wins over one nested inside another package.
       pkg("node_modules/expo/node_modules/expo-font", { "ExpoFont.js": "exports.v = 'nested';" });
       pkg("node_modules/expo-font", { "ExpoFont.js": "exports.v = 'top';" });
-      // Undeclared and not Expo's: not looked at.
+      // Undeclared and not named after Expo, but an Expo module: its mocks count.
       pkg("node_modules/@other/thing", { "OtherThing.js": "exports.u = 1;" });
       pkg("node_modules/.pnpm/expo-haptics@58.0.0/node_modules/expo-haptics", {
         "ExpoHaptics.js": "exports.z = 1;",
@@ -1497,6 +1523,7 @@ describe("Expo module mocks", () => {
         "ExpoFont",
         "ExpoHaptics",
         "ExpoThing",
+        "OtherThing",
       ]);
       expect(expoModuleMock(root, "ExpoFont", (fn: () => unknown) => fn).v).toBe("top");
       const members = expoModuleMock(root, "ExpoCrypto", (fn: () => unknown) => vi.fn(fn));
