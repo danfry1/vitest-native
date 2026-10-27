@@ -1,7 +1,10 @@
 // React Native's JS expects a handful of globals to exist at runtime (it reads
 // them during module init and rendering). The native setup installs them; without
 // them real RN throws on import. These assert the contract the engine provides.
+import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
+
+const require = createRequire(import.meta.url);
 
 describe("native engine: React Native runtime globals", () => {
   it("installs __DEV__", () => {
@@ -66,5 +69,31 @@ describe("native engine: ErrorUtils", () => {
     ErrorUtils.setGlobalHandler(handler);
     expect(ErrorUtils.getGlobalHandler()).toBe(handler);
     ErrorUtils.setGlobalHandler(previous);
+  });
+});
+
+describe("native engine: React Native environment setup", () => {
+  // `react-native/setup-env` (0.87+) is what InitializeCore delegates to, and Expo
+  // SDK 58 requires it directly from its winter runtime. Run for real, its
+  // setUpTimers swaps the global setTimeout for RN's JSTimers, which only the native
+  // timing module drives, so the first awaited timer never fires and the test file
+  // hangs (#296).
+  const hasSetupEnv = "./setup-env" in (require("react-native/package.json").exports ?? {});
+
+  it.skipIf(!hasSetupEnv)("does not let react-native/setup-env replace Node's timers", () => {
+    const names = ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "setImmediate"];
+    const before = names.map((n) => Object.getOwnPropertyDescriptor(globalThis, n));
+    let replaced: string[];
+    try {
+      require("react-native/setup-env");
+    } finally {
+      // Compare, then put Node's timers back before asserting: with RN's in place,
+      // Vitest's own timers stop too and a regression would hang instead of failing.
+      replaced = names.filter(
+        (n, i) => globalThis[n as keyof typeof globalThis] !== before[i]?.value,
+      );
+      names.forEach((n, i) => Object.defineProperty(globalThis, n, before[i]!));
+    }
+    expect(replaced).toEqual([]);
   });
 });
