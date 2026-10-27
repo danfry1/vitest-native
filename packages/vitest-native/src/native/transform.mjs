@@ -1,13 +1,13 @@
-// Flow-strips a React Native source file via the project's @react-native/babel-preset
-// (the only transformer that lowers RN's `component` syntax). Used by BOTH the loader
-// hook (import) and the require hook, which run in separate threads: each gets its own
-// instance of this module, so the in-memory `mem` cache below is per-thread (no shared
-// mutable state to race on). The disk cache — keyed by CONTENT hash + platform, in a
-// directory versioned by preset + @babel/core versions — is the layer shared across
-// threads, workers, runs, and (because content-keyed entries survive fresh installs
-// and mtime normalization) CI cache restores. The path is part of the key too —
-// Babel output embeds the filename — so restores are valid wherever the checkout
-// path is stable (CI runners use a fixed workspace path).
+// Flow-strips a React Native source file via the project's React Native Babel preset
+// (babel-preset.mjs; the only transformer that lowers RN's `component` syntax). Used by
+// BOTH the loader hook (import) and the require hook, which run in separate threads:
+// each gets its own instance of this module, so the in-memory `mem` cache below is
+// per-thread (no shared mutable state to race on). The disk cache — keyed by CONTENT
+// hash + platform, in a directory versioned by preset + @babel/core versions — is the
+// layer shared across threads, workers, runs, and (because content-keyed entries
+// survive fresh installs and mtime normalization) CI cache restores. The path is part
+// of the key too — Babel output embeds the filename — so restores are valid wherever
+// the checkout path is stable (CI runners use a fixed workspace path).
 //
 // @babel/core itself is loaded lazily: on a warm cache the default engine pays this
 // module's init in every isolated worker, and requiring Babel costs ~35ms vs ~0.5ms
@@ -22,6 +22,7 @@ import crypto from "node:crypto";
 import vm from "node:vm";
 import { decorateTransformError } from "./explain.mjs";
 import { VitestNativeError } from "../errors.mjs";
+import { resolveTransformPreset } from "./babel-preset.mjs";
 
 // Toolchain state is scoped PER PROJECT ROOT, not per process. It used to be a
 // set of module globals initialized by the first caller — but registries for
@@ -108,10 +109,20 @@ function ctxFor(projectRoot) {
   let exportNamespaceFrom = null;
   let presetVersion;
   let babelVersion;
+  const transformPreset = resolveTransformPreset(root);
+  const requiresBabel = () =>
+    new VitestNativeError(
+      "ENGINE_REQUIRES_BABEL",
+      "engine 'native' requires a React Native Babel preset and '@babel/core' in " +
+        "your project: '@react-native/babel-preset', or in an Expo project from SDK 56 " +
+        "Expo's own (expo/internal/babel-preset). Install them as devDependencies " +
+        "(they ship with React Native and Expo projects by default).",
+    );
+  if (transformPreset === null) throw requiresBabel();
   try {
     // Resolve-only here (cheap); the actual require of @babel/core happens
     // lazily on the first cache miss.
-    preset = req.resolve("@react-native/babel-preset");
+    preset = transformPreset.file;
     req.resolve("@babel/core");
     // Flow enums must be transformed BEFORE @babel/plugin-transform-flow-strip-types
     // sees them, or the declaration is removed as if it were a type annotation. The
@@ -122,10 +133,11 @@ function ctxFor(projectRoot) {
     // 0.85.3 and 0.86.1, so this is the preset's ordering rather than version skew.
     //
     // Babel applies `plugins` before `presets`, so naming the plugin here runs it first
-    // and the enum survives. Resolved from the preset, which depends on it, so no new
-    // dependency is required.
+    // and the enum survives. Resolved from the preset, which depends on it (both
+    // babel-preset-expo and the React Native preset do), so no new dependency is
+    // required.
     try {
-      flowEnums = createRequire(req.resolve("@react-native/babel-preset/package.json")).resolve(
+      flowEnums = createRequire(path.join(transformPreset.packageDir, "package.json")).resolve(
         "babel-plugin-transform-flow-enums",
       );
     } catch {
@@ -144,15 +156,11 @@ function ctxFor(projectRoot) {
     } catch {
       exportNamespaceFrom = null;
     }
-    presetVersion = req("@react-native/babel-preset/package.json").version;
+    // The preset's name joins its version: the two presets' versions overlap.
+    presetVersion = `${transformPreset.name.replace("/", "+")}@${transformPreset.version}`;
     babelVersion = req("@babel/core/package.json").version;
   } catch {
-    throw new VitestNativeError(
-      "ENGINE_REQUIRES_BABEL",
-      "engine 'native' requires '@react-native/babel-preset' and " +
-        "'@babel/core' in your project. Install them as devDependencies " +
-        "(they ship with React Native projects by default).",
-    );
+    throw requiresBabel();
   }
   // Both transformer versions key the directory — a preset or Babel upgrade
   // must never serve output produced by the previous version — and so does the
@@ -168,6 +176,11 @@ function ctxFor(projectRoot) {
   fs.mkdirSync(cacheDir, { recursive: true });
   const ctx = {
     root,
+    // The React Native preset takes engine options babel-preset-expo does not.
+    presetOptions:
+      transformPreset.name === "@react-native/babel-preset"
+        ? { disableStaticViewConfigsCodegen: true }
+        : {},
     // Whether the project resolves Expo, which selects jest-expo's Babel caller.
     hasExpo: resolvable(req, "expo/package.json"),
     configHashes: new Map(),
@@ -529,7 +542,10 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
         : {
             filename: file,
             plugins: [ctx.flowEnums, ctx.exportNamespaceFrom].filter(Boolean),
-            presets: [[ctx.preset, { disableStaticViewConfigsCodegen: true }]],
+            // A fresh options object each call, as before Expo's preset was supported:
+            // Babel caches a preset's result per options object, so sharing one would
+            // change when the preset is instantiated.
+            presets: [[ctx.preset, { ...ctx.presetOptions }]],
             babelrc: false,
             configFile: false,
             caller: { name: "metro", bundler: "metro", platform, supportsStaticESM: false },

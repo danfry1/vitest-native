@@ -33,6 +33,7 @@ import crypto from "node:crypto";
 import { transformRN, isFlow, cacheRootFor, TRANSFORM_CACHE_VERSION } from "./transform.mjs";
 
 import { boundarySourceFor, BOUNDARY_SOURCES } from "./boundary.mjs";
+import { resolveTransformPreset } from "./babel-preset.mjs";
 import { assetRegistryPathFor, nativeAssetModuleSource } from "./assets.mjs";
 import { resolveRelativePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
 import { createNativeOwnershipPolicy } from "./ownership.mjs";
@@ -203,6 +204,7 @@ export function registryKey({
       return "0";
     }
   };
+  const transformPreset = resolveTransformPreset(projectRoot);
   const boundaries = crypto.createHash("sha1");
   for (const suffix of Object.keys(BOUNDARY_SOURCES).sort()) {
     boundaries.update(suffix);
@@ -242,7 +244,8 @@ export function registryKey({
         // React Native's own image assets are compiled in, and their descriptors carry
         // Expo's fileHashes when Expo bundles the project (native/assets.mjs).
         version("expo"),
-        version("@react-native/babel-preset"),
+        // The preset React Native compiles with (babel-preset.mjs), by name and version.
+        transformPreset ? `${transformPreset.name}@${transformPreset.version}` : "0",
         version("@babel/core"),
         process.env.BABEL_ENV || process.env.NODE_ENV || "none",
         ...sourceExts.map((extension) => `source:${extension}`),

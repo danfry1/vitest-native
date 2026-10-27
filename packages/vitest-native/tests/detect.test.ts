@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { detectEngine } from "../src/native/detect.js";
+import { resolveTransformPreset } from "../src/native/babel-preset.mjs";
 
 // Anchor the "deps present" root to the package dir (where @react-native/babel-preset
 // and @babel/core resolve), cwd-independent.
@@ -86,5 +87,93 @@ describe("detectEngine", () => {
     expect(d.engine).toBe("mock");
     expect(d.nativeAvailable).toBe(true);
     expect(d.notice).toBeNull();
+  });
+});
+
+// Expo from SDK 56: babel-preset-expo no longer depends on @react-native/babel-preset,
+// so a project from an SDK 56+ template has only Expo's preset (expo/internal/babel-preset,
+// nested babel-preset-expo as npm installs it). Stubs suffice: nothing is loaded.
+function project(packages: Record<string, string>): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-detect-preset-"));
+  fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "p", private: true }));
+  for (const [rel, version] of Object.entries(packages)) {
+    const dir = path.join(root, rel);
+    fs.mkdirSync(dir, { recursive: true });
+    const name = rel.split("node_modules/").pop()!;
+    fs.writeFileSync(
+      path.join(dir, "package.json"),
+      JSON.stringify({ name, version, main: "index.js" }),
+    );
+    fs.writeFileSync(path.join(dir, "index.js"), "module.exports = {};");
+  }
+  return root;
+}
+function withExpoPreset(root: string): string {
+  const internal = path.join(root, "node_modules", "expo", "internal");
+  fs.mkdirSync(internal, { recursive: true });
+  fs.writeFileSync(
+    path.join(internal, "babel-preset.js"),
+    "module.exports = require('babel-preset-expo');",
+  );
+  return root;
+}
+
+describe("the React Native Babel preset", () => {
+  const roots: string[] = [];
+  afterAll(() => {
+    for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
+  });
+  const make = (packages: Record<string, string>, expoPreset = false) => {
+    const root = project(packages);
+    roots.push(root);
+    return expoPreset ? withExpoPreset(root) : root;
+  };
+
+  it("uses Expo's preset in an Expo SDK 58 project, which has no React Native preset", () => {
+    const root = make(
+      {
+        "node_modules/react-native": "0.88.0",
+        "node_modules/@babel/core": "7.29.7",
+        "node_modules/expo": "58.0.19",
+        "node_modules/expo/node_modules/babel-preset-expo": "58.0.20",
+      },
+      true,
+    );
+    const d = detectEngine("auto", root);
+    expect(d.engine).toBe("native");
+    expect(d.missing).toEqual([]);
+    const preset = resolveTransformPreset(root)!;
+    expect(preset.name).toBe("babel-preset-expo");
+    expect(preset.version).toBe("58.0.20");
+    expect(preset.file).toBe(
+      fs.realpathSync(path.join(root, "node_modules", "expo", "internal", "babel-preset.js")),
+    );
+  });
+
+  it("keeps the React Native preset where it resolves, Expo or not", () => {
+    const root = make(
+      {
+        "node_modules/react-native": "0.86.3",
+        "node_modules/@babel/core": "7.29.7",
+        "node_modules/@react-native/babel-preset": "0.86.3",
+        "node_modules/expo": "57.0.24",
+        "node_modules/babel-preset-expo": "57.0.10",
+      },
+      true,
+    );
+    expect(resolveTransformPreset(root)!.name).toBe("@react-native/babel-preset");
+    expect(resolveTransformPreset(root)!.version).toBe("0.86.3");
+  });
+
+  it("reports the React Native preset missing when neither preset resolves", () => {
+    const root = make({
+      "node_modules/react-native": "0.88.0",
+      "node_modules/@babel/core": "7.29.7",
+      "node_modules/expo": "58.0.19",
+    });
+    expect(resolveTransformPreset(root)).toBeNull();
+    const d = detectEngine("auto", root);
+    expect(d.engine).toBe("mock");
+    expect(d.missing).toEqual(["@react-native/babel-preset"]);
   });
 });
