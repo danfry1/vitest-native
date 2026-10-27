@@ -111,11 +111,10 @@ function installExpoGlobal(g) {
   //   so they are memoized classes on SharedObject's prototype chain.
   // Explicitly-set properties (spies, overrides) always win.
   //
-  // A module is seeded as jest-expo answers it (expo-module-mocks.mjs): a package's own
-  // mock of it is the whole module, and members a mock leaves out are undefined; else
-  // Expo's table of the native modules gives the members it lists, and the conventions
-  // above answer the rest. Setup installs the lookup, since the mock files compile
-  // through the engine's hooks.
+  // What a module starts with, and whether it exists, come from the resolver setup
+  // installs (expo-native-modules.mjs, whose layers are documented there); the mock
+  // files it reads compile through the engine's hooks. The conventions above answer
+  // what a seed leaves out, unless the seed is the whole module (a package mock).
   const __moduleCache = new Map();
   const moduleResets = new Set();
   const makeModuleStub = (name) => {
@@ -123,7 +122,7 @@ function installExpoGlobal(g) {
     const fabricatedRecords = new Map();
     const directMutations = new Map();
     const target = new NativeModule();
-    const seed = g.__vitest_native_expo_module_mock?.(name) ?? null;
+    const seed = g.__vitest_native_expo_modules?.seed(name) ?? null;
     const seeded = seed?.members ?? null;
     // A package's own mock is the whole module; a seed from Expo's table lists only
     // the members it knew, and the conventions answer the rest.
@@ -231,12 +230,11 @@ function installExpoGlobal(g) {
     });
     return stub;
   };
-  // A module an installed package only probes for, and no installed package defines,
-  // reads as undefined, as on a device, so requireOptionalNativeModule returns null
-  // (setup installs the answer: expoAbsentModules in expo-module-mocks.mjs). Answering
-  // every name let a probing package call into a stub instead: expo-image found
-  // expo-observe's ExpoObserve and failed as it loaded. Every other name is present.
-  const present = (name) => g.__vitest_native_expo_module_present?.(name) ?? true;
+  // A module the resolver reads as absent is undefined, as on a device, so
+  // requireOptionalNativeModule returns null: answering every name let a probing package
+  // call into a stub instead (expo-image found expo-observe's ExpoObserve and failed as
+  // it loaded). Without a resolver every name is present.
+  const present = (name) => g.__vitest_native_expo_modules?.present(name) ?? true;
   const modules = new Proxy(
     {},
     {

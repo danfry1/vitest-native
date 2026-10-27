@@ -1355,10 +1355,13 @@ describe("native globals: globalThis.expo shim", () => {
       b() {}
     }
     const digest = vi.fn((input: string) => `digest:${input}`);
-    g.__vitest_native_expo_module_mock = (name: string) =>
-      name === "VNMockedModule"
-        ? { members: { digest, documentRoot: "/mock", NativeClass }, complete: true }
-        : null;
+    g.__vitest_native_expo_modules = {
+      present: () => true,
+      seed: (name: string) =>
+        name === "VNMockedModule"
+          ? { members: { digest, documentRoot: "/mock", NativeClass }, complete: true }
+          : null,
+    };
     try {
       const mocked = expo.modules.VNMockedModule;
       expect(mocked.digest("x")).toBe("digest:x");
@@ -1381,13 +1384,19 @@ describe("native globals: globalThis.expo shim", () => {
       // A mock that keeps state is reset with the reset it exports, once per file.
       const store = new Set<string>();
       const resetStore = vi.fn(() => store.clear());
-      g.__vitest_native_expo_module_mock = (name: string) =>
-        name === "VNStatefulModule"
-          ? {
-              members: { write: vi.fn((v: string) => store.add(v)), __resetMockStore: resetStore },
-              complete: true,
-            }
-          : null;
+      g.__vitest_native_expo_modules = {
+        present: () => true,
+        seed: (name: string) =>
+          name === "VNStatefulModule"
+            ? {
+                members: {
+                  write: vi.fn((v: string) => store.add(v)),
+                  __resetMockStore: resetStore,
+                },
+                complete: true,
+              }
+            : null,
+      };
       expo.modules.VNStatefulModule.write("a");
       // A file that overrode the reset does not stop it running.
       resetStore.mockImplementation(() => {});
@@ -1395,7 +1404,7 @@ describe("native globals: globalThis.expo shim", () => {
       expect(store.size).toBe(0);
       expect(resetStore).not.toHaveBeenCalled(); // its own call history is reset too
     } finally {
-      delete g.__vitest_native_expo_module_mock;
+      delete g.__vitest_native_expo_modules;
     }
   });
 
@@ -1405,10 +1414,13 @@ describe("native globals: globalThis.expo shim", () => {
     const expo = g.expo;
     const when = new Date(0);
     const helpers = { sum: (a: number, b: number) => a + b };
-    g.__vitest_native_expo_module_mock = (name: string) =>
-      name === "VNRichMockModule"
-        ? { members: { when, helpers, inf: Infinity, big: 10n }, complete: true }
-        : null;
+    g.__vitest_native_expo_modules = {
+      present: () => true,
+      seed: (name: string) =>
+        name === "VNRichMockModule"
+          ? { members: { when, helpers, inf: Infinity, big: 10n }, complete: true }
+          : null,
+    };
     try {
       const mocked = expo.modules.VNRichMockModule;
       expo[Symbol.for("vitest-native.expo.reset")]();
@@ -1417,7 +1429,7 @@ describe("native globals: globalThis.expo shim", () => {
       expect(mocked.inf).toBe(Infinity);
       expect(mocked.big).toBe(10n);
     } finally {
-      delete g.__vitest_native_expo_module_mock;
+      delete g.__vitest_native_expo_modules;
     }
   });
 
@@ -1426,9 +1438,12 @@ describe("native globals: globalThis.expo shim", () => {
     const g = globalThis as Record<string, any>;
     const expo = g.expo;
     const mockFn = (impl: () => unknown) => vi.fn(impl);
-    g.__vitest_native_expo_module_mock = (name: string) => {
-      const members = expoModuleTableMembers(os.tmpdir(), name, mockFn);
-      return members ? { members, complete: false, listsConstants: true } : null;
+    g.__vitest_native_expo_modules = {
+      present: () => true,
+      seed: (name: string) => {
+        const members = expoModuleTableMembers(os.tmpdir(), name, mockFn);
+        return members ? { members, complete: false, listsConstants: true } : null;
+      },
     };
     try {
       // The values jest-expo's mock() gives ExpoDevice's table entries.
@@ -1452,7 +1467,7 @@ describe("native globals: globalThis.expo shim", () => {
       expect(constants.statusBarHeight).toBe(54);
       expect(constants.executionEnvironment).toBe("mock");
     } finally {
-      delete g.__vitest_native_expo_module_mock;
+      delete g.__vitest_native_expo_modules;
     }
   });
 
@@ -1460,9 +1475,12 @@ describe("native globals: globalThis.expo shim", () => {
     installGlobals();
     const g = globalThis as Record<string, any>;
     const mockFn = (impl: () => unknown) => vi.fn(impl);
-    g.__vitest_native_expo_module_mock = (name: string) => {
-      const members = expoModuleTableMembers(os.tmpdir(), name, mockFn);
-      return members ? { members, complete: false, listsConstants: false } : null;
+    g.__vitest_native_expo_modules = {
+      present: () => true,
+      seed: (name: string) => {
+        const members = expoModuleTableMembers(os.tmpdir(), name, mockFn);
+        return members ? { members, complete: false, listsConstants: false } : null;
+      },
     };
     try {
       const battery = g.expo.modules.ExpoBattery;
@@ -1471,7 +1489,7 @@ describe("native globals: globalThis.expo shim", () => {
       // callable, as before the table.
       expect(battery.someMemberOfAnotherSdk()).toBeUndefined();
     } finally {
-      delete g.__vitest_native_expo_module_mock;
+      delete g.__vitest_native_expo_modules;
     }
   });
 });
@@ -1543,14 +1561,17 @@ describe("Expo native module presence", () => {
   it("answers expo.modules from the presence check", () => {
     installGlobals();
     const g = globalThis as Record<string, any>;
-    g.__vitest_native_expo_module_present = (name: string) => name !== "VNAbsentModule";
+    g.__vitest_native_expo_modules = {
+      present: (name: string) => name !== "VNAbsentModule",
+      seed: () => null,
+    };
     try {
       expect(g.expo.modules.VNAbsentModule).toBeUndefined();
       expect("VNAbsentModule" in g.expo.modules).toBe(false);
       expect(typeof g.expo.modules.VNPresentModule.addListener).toBe("function");
       expect("VNPresentModule" in g.expo.modules).toBe(true);
     } finally {
-      delete g.__vitest_native_expo_module_present;
+      delete g.__vitest_native_expo_modules;
     }
   });
 });
@@ -2020,5 +2041,59 @@ describe("cjsExportNames", () => {
 
   it("returns nothing for unparseable input instead of throwing", () => {
     expect(cjsExportNames("module.exports = {")).toEqual([]);
+  });
+});
+
+// @ts-expect-error — runtime .mjs
+import { createExpoNativeModuleResolver } from "../src/native/expo-native-modules.mjs";
+
+describe("the Expo native module resolver", () => {
+  it("answers each module from its layers in order", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-expo-resolver-"));
+    try {
+      fs.writeFileSync(path.join(root, "package.json"), "{}");
+      const pkg = (dir: string, files: Record<string, string>) => {
+        fs.mkdirSync(path.join(root, dir), { recursive: true });
+        fs.writeFileSync(
+          path.join(root, dir, "package.json"),
+          JSON.stringify({ version: "1.0.0" }),
+        );
+        fs.writeFileSync(path.join(root, dir, "expo-module.config.json"), "{}");
+        for (const [file, src] of Object.entries(files)) {
+          fs.mkdirSync(path.dirname(path.join(root, dir, file)), { recursive: true });
+          fs.writeFileSync(path.join(root, dir, file), src);
+        }
+      };
+      // A package mock, a probe for a module nothing defines, and a probe for one a
+      // package mock stands in for.
+      pkg("node_modules/expo-crypto", {
+        "mocks/ExpoCrypto.js": "exports.digest = () => 'd';",
+        "ios/CryptoModule.swift": 'Name("ExpoCrypto")',
+        "build/index.js":
+          "requireOptionalNativeModule('ExpoObserve'); requireOptionalNativeModule('MockedOnly');",
+      });
+      pkg("node_modules/expo-mocked-only", { "mocks/MockedOnly.js": "exports.x = 1;" });
+      const resolver = createExpoNativeModuleResolver({
+        projectRoot: root,
+        cacheDir: null,
+        mockFn: (fn: () => unknown) => vi.fn(fn),
+      });
+      // Layer 1: absent only when probed for and defined nowhere, unless mocked.
+      expect(resolver.present("ExpoObserve")).toBe(false);
+      expect(resolver.present("MockedOnly")).toBe(true);
+      expect(resolver.present("AnythingElse")).toBe(true);
+      // Layer 2: the package mock is the whole module.
+      const own = resolver.seed("ExpoCrypto");
+      expect(own.complete).toBe(true);
+      expect(own.members.digest()).toBe("d");
+      // Layer 3: Expo's table, partial.
+      const listed = resolver.seed("ExpoDevice");
+      expect(listed.complete).toBe(false);
+      expect(listed.members.modelName).toBe("mock");
+      // Layer 4: nothing to seed; the stub answers.
+      expect(resolver.seed("AnythingElse")).toBeNull();
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
