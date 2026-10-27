@@ -130,14 +130,18 @@ function installExpoGlobal(g) {
     const complete = seed?.complete === true;
     const listsConstants = seed?.listsConstants === true;
     const seededMocks = [];
-    // Seeded values (not functions), restored as fresh copies per file: jest-expo builds
-    // them anew for every test file, and a file may change one (`platform.foo = 1`).
+    // Values seeded from Expo's table, restored as fresh copies per file: jest-expo builds
+    // them anew for every test file, and a file may change one (`platform.foo = 1`). The
+    // table's values are JSON; a package mock's are whatever it exports (a Date, an object
+    // with methods), so they are kept as they are, as before the table.
     const seededValues = new Map();
     if (seeded) {
       for (const [prop, value] of Object.entries(seeded)) {
         target[prop] = value;
         if (typeof value?.mockReset === "function") seededMocks.push(value);
-        else if (typeof value !== "function") seededValues.set(prop, JSON.stringify(value));
+        else if (!complete && typeof value !== "function") {
+          seededValues.set(prop, JSON.stringify(value));
+        }
       }
     }
     const trackDirectMutation = (prop) => {

@@ -1399,6 +1399,28 @@ describe("native globals: globalThis.expo shim", () => {
     }
   });
 
+  it("keeps a package mock's values through the per-file reset, whatever they are", () => {
+    installGlobals();
+    const g = globalThis as Record<string, any>;
+    const expo = g.expo;
+    const when = new Date(0);
+    const helpers = { sum: (a: number, b: number) => a + b };
+    g.__vitest_native_expo_module_mock = (name: string) =>
+      name === "VNRichMockModule"
+        ? { members: { when, helpers, inf: Infinity, big: 10n }, complete: true }
+        : null;
+    try {
+      const mocked = expo.modules.VNRichMockModule;
+      expo[Symbol.for("vitest-native.expo.reset")]();
+      expect(mocked.when).toBe(when);
+      expect(mocked.helpers.sum(1, 2)).toBe(3);
+      expect(mocked.inf).toBe(Infinity);
+      expect(mocked.big).toBe(10n);
+    } finally {
+      delete g.__vitest_native_expo_module_mock;
+    }
+  });
+
   it("seeds a module from Expo's table as jest-expo answers it, keeping conventions for the rest", () => {
     installGlobals();
     const g = globalThis as Record<string, any>;
