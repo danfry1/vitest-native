@@ -441,6 +441,90 @@ export function needsTransform(file, src) {
   }
 }
 
+/** Is this file an ES module to Node: `.mjs`/`.mts`, or `type: module` and not `.cjs`/`.cts`? */
+function isModuleGoal(file) {
+  if (/\.m[jt]s$/.test(file)) return true;
+  if (/\.c[jt]s$/.test(file)) return false;
+  return moduleGoal(file);
+}
+
+/**
+ * The default import an ES module gets from what it imports, once it is compiled to
+ * CommonJS: the module's `default` export when it is a compiled ES module that has one,
+ * otherwise the whole `module.exports`.
+ *
+ * Why it is needed. Every ESM-goal file the engine compiles runs as CommonJS (see
+ * needsTransform), through the preset's @babel/plugin-transform-modules-commonjs with
+ * Babel's default interop, which reads `exports.default` from any module that sets
+ * `__esModule`. Node gives an ES module importing CommonJS the whole `module.exports` as
+ * its default ("When importing CommonJS modules, the module.exports object is provided
+ * as the default export", Node's ESM docs, "Interoperability with CommonJS"), and
+ * packages that ship an ESM wrapper for Node rely on it. tslib's `modules/index.js` —
+ * reached through its `exports['.'].import.node` condition (tslib 2.8.1), and imported by
+ * styled-components/native among others — is `import tslib from '../tslib.js'` over a
+ * CommonJS file that sets `__esModule` and has no `default`, so Babel's interop gave it
+ * `undefined`: "Cannot read properties of undefined (reading '__extends')". The same
+ * package left uncompiled ran under Node and worked.
+ *
+ * Why this rule and not Node's exactly. Node gives `module.exports` even when the target
+ * is Babel-compiled CommonJS with `__esModule` and a real `exports.default` — common in
+ * the React Native ecosystem, whose libraries are written against Metro's Babel interop
+ * and expect that default. Switching to Node's rule would change what those imports
+ * have resolved to under this engine so far, and what Metro gives the same code. The
+ * rule here keeps every case where Babel's interop finds a `default` and takes Node's
+ * answer only where Babel's would be `undefined`, which is never what an import meant.
+ * It is the rule Rolldown and esbuild apply to a module outside Node mode (`__toESM`:
+ * `default` is `module.exports` when `!mod.__esModule || !__hasOwnProp.call(mod,
+ * "default")`, rolldown 1.2 dist/experimental-runtime.mjs:28), and it gives an ES module
+ * this engine compiled, or a real one Node's require(esm) returns (which carries
+ * `__esModule` when it has a default export), its own `default`.
+ *
+ * Rejected:
+ * - Choosing interop per import by RESOLVING the target at compile time
+ *   (modules-commonjs' `importInterop` as a function: "node" for a CommonJS target,
+ *   "babel" for an ES one). The compiled `require()` resolves under the `require`
+ *   condition, not the `import` one the decision would naturally use — for tslib those
+ *   are different files — and the output would then depend on other packages' manifests
+ *   and files, which the content-keyed cache does not see: a dependency changing its
+ *   `type` would be served stale output. Deciding at run time, on the object the
+ *   require() actually returned, needs neither. It also needs a second copy of
+ *   modules-commonjs resolved beside the preset and kept in step with its options
+ *   (`strict`, `allowTopLevelThis`, `lazy`), where this only replaces one helper.
+ * - Not compiling valid ESM-goal files and letting Node load them as ES modules. That
+ *   is the eventual direction (see the NOTE in ecosystem.ts), but it moves those files
+ *   out of the CommonJS loader the engine's ownership and preset redirects run through,
+ *   and changes named exports and live bindings — a much larger change than this bug.
+ *
+ * Mechanism: Babel builds every helper through the file's `helperGenerator` when one is
+ * set (@babel/core lib/transformation/file/file.js, addHelper), which is how
+ * @babel/plugin-transform-runtime points helpers at @babel/runtime. It installs that in
+ * its `pre` hook, and every plugin's `pre` runs before traversal starts, so this wraps
+ * it at Program entry and answers `interopRequireDefault` alone. modules-commonjs asks
+ * for that helper at Program exit for each default import and `export { default } from`,
+ * lazy or not. `import * as ns` keeps Babel's interopRequireWildcard: its named members
+ * are right either way, and only `ns.default` of a module with no default differs.
+ */
+function esmImportInterop({ template }) {
+  return {
+    name: "vitest-native-esm-import-interop",
+    visitor: {
+      Program(_, state) {
+        const file = state.file;
+        const next = file.get("helperGenerator");
+        file.set("helperGenerator", (name) => {
+          if (name !== "interopRequireDefault") return next?.(name);
+          // A fresh node per call site: an AST node must not appear twice.
+          return template.expression.ast`function (e) {
+            return e && e.__esModule && Object.prototype.hasOwnProperty.call(e, "default")
+              ? e
+              : { default: e };
+          }`;
+        });
+      },
+    },
+  };
+}
+
 /** Is this file's nearest package.json `type: module`? Cached per directory. */
 const goalCache = new Map();
 function moduleGoal(file) {
@@ -535,6 +619,9 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   // App source under a project Babel config compiles with it (projectBabelOptions),
   // and the options it loaded key the output.
   const projectConfig = projectBabelOptions(ctx, file, platform);
+  // An ES module to Node gets the default-import interop described at esmImportInterop.
+  // App source under its own Babel config is left to that config, as babel-jest leaves it.
+  const esm = projectConfig === null && isModuleGoal(file);
   const hash = crypto
     .createHash("sha1")
     .update(platform)
@@ -543,6 +630,14 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
     .update("\0")
     .update(src);
   if (projectConfig) hash.update("\0babel-config\0").update(projectConfig.key);
+  // The goal comes from the nearest package.json, not from the file's bytes, so it keys
+  // the entry: a package changing its `type` must not be served output compiled for the
+  // other goal. Only ESM-goal entries change key, and their previous output is exactly
+  // what this fixes, so TRANSFORM_CACHE_VERSION is not bumped: script-goal entries,
+  // React Native's own sources and the precompiled registry (keyed on that version)
+  // are byte-for-byte unchanged and stay warm. Output does not depend on any OTHER
+  // package — the interop is decided at run time — so nothing else needs keying.
+  if (esm) hash.update("\0esm-goal");
   const key = hash.digest("hex");
   const cachePath = path.join(ctx.cacheDir, key + ".js");
   try {
@@ -561,7 +656,9 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
         ? projectConfig.options
         : {
             filename: file,
-            plugins: [ctx.flowEnums, ctx.exportNamespaceFrom].filter(Boolean),
+            plugins: [ctx.flowEnums, ctx.exportNamespaceFrom, esm && esmImportInterop].filter(
+              Boolean,
+            ),
             // A fresh options object each call, as before Expo's preset was supported:
             // Babel caches a preset's result per options object, so sharing one would
             // change when the preset is instantiated.
