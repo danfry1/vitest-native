@@ -222,7 +222,7 @@ function projectBabelOptions(ctx, file, platform) {
   if (!file.startsWith(ctx.root + path.sep) || NODE_MODULES.test(file)) return null;
   if (!ctx.babel) ctx.babel = ctx.req("@babel/core");
   let partial;
-  transformDepth++;
+  transformState.depth++;
   try {
     partial = ctx.babel.loadPartialConfig({
       filename: file,
@@ -233,7 +233,7 @@ function projectBabelOptions(ctx, file, platform) {
   } catch (err) {
     throw decorateTransformError(err, file, platform);
   } finally {
-    transformDepth--;
+    transformState.depth--;
   }
   if (partial === null) {
     // babel-jest's assertLoadedBabelConfig (build/index.js:103-113): compiling the file
@@ -471,11 +471,18 @@ function moduleGoal(file) {
 // "Accessing non-existent property 'then' of module exports inside circular
 // dependency" on a project's first run. They load as published, as they do under
 // Jest, whose transformer is never transformed.
-let transformDepth = 0;
+//
+// The depth lives on the realm, not in this module: when two copies of this module
+// share a thread (a test importing the source while the engine's hook runs from the
+// build), a module-local counter left each copy blind to the other's transform, and
+// the hook compiled @react-native/babel-preset's inline-platform-plugin while that
+// preset was loading: "Reentrant preset detected" (#296).
+const TRANSFORM_DEPTH = Symbol.for("vitest-native.transformDepth");
+const transformState = (globalThis[TRANSFORM_DEPTH] ??= { depth: 0 });
 
 /** Whether a transform is running on this thread (a require now is Babel's own). */
 export function isTransforming() {
-  return transformDepth > 0;
+  return transformState.depth > 0;
 }
 
 export function transformRN(file, src, projectRoot, platform = "ios") {
@@ -512,7 +519,7 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   } catch {}
 
   let out;
-  transformDepth++;
+  transformState.depth++;
   try {
     if (!ctx.babel) ctx.babel = ctx.req("@babel/core");
     out = ctx.babel.transformSync(
@@ -534,7 +541,7 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
     // the file, platform, and owning package instead of a bare Babel stack.
     throw decorateTransformError(err, file, platform);
   } finally {
-    transformDepth--;
+    transformState.depth--;
   }
   // Atomic write: multiple worker threads may transform the same RN file
   // concurrently on a cold cache. Write to a unique temp file then rename
