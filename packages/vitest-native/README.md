@@ -577,11 +577,10 @@ JavaScript runs for real — `expo` itself, expo-router, React Navigation and Ex
 - **expo-router screens:** `expo-router/testing-library` (`renderRouter`, `testRouter`,
   `toHavePathname`) runs as written with the jest-compat layer. From SDK 57 expo-router bundles its
   own React Navigation; before SDK 57, also set `presets: { navigation: false }`.
-- **Expo modules** run their real JavaScript. Where a package ships a mock of its native
-  module (`mocks/<Name>.ts`), it is served as under jest-expo; other native modules get a generic
-  stub, so a test that reads a constant such as `Device.modelName` still needs a `vi.mock`. An
-  optional native module a package probes for, and that no installed package defines, is
-  absent, as on a device.
+- **Expo modules** run their real JavaScript, and their native modules answer as under
+  jest-expo: from the package's own `mocks/<Name>.ts` where it ships one, else from Expo's table
+  of the native modules (`Device.modelName` is `'mock'`). An optional native module a package
+  probes for, and that no installed package defines, is absent, as on a device.
 - **Expo SDK trails React Native.** Pin your `react-native` to the version your Expo SDK supports
   (SDK 54 and later are within this plugin's validated range), not the newest RN release.
 

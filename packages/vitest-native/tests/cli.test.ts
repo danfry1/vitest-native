@@ -407,10 +407,11 @@ describe("migrate", () => {
       // engine runs Expo modules and where it can differ, and jest-expo is not
       // installed in this fixture, so its testMatch could not be read.
       expect(report.attention).toEqual([
-        `preset: 'jest-expo' — the native engine runs Expo modules' own JavaScript on ` +
-          `native-module mocks, as jest-expo does, using each package's own mocks/ where it ships ` +
-          `them; a native constant jest-expo answers from its generated table (for example ` +
-          `Device.modelName) may differ, so check the tests that read one.`,
+        `preset: 'jest-expo' — under the native engine, which the suggested config resolves to ` +
+          `wherever React Native's Babel toolchain is installed, Expo modules run their own ` +
+          `JavaScript on native-module mocks, as jest-expo runs them: each package's own mocks/ ` +
+          `where it ships one, else jest-expo's table of the native modules; check tests that ` +
+          `mock an Expo module's native side by hand.`,
         expect.stringContaining("preset: 'jest-expo' could not be loaded"),
       ]);
       expect(report.suggestedConfig).toContain(

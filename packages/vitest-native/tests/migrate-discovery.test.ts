@@ -513,8 +513,8 @@ describe("a jest-expo app's package.json#jest", () => {
     const line = report.attention.find((l) => l.startsWith("preset: 'jest-expo/ios'"))!;
     // The native engine runs Expo modules as themselves (NATIVE_ENGINE_RUNS_PACKAGES);
     // the expo preset's module list no longer describes what happens.
-    expect(line).toContain("runs Expo modules' own JavaScript on native-module mocks");
-    expect(line).toContain("may differ");
+    expect(line).toContain("Expo modules run their own JavaScript on native-module mocks");
+    expect(line).toContain("check tests that mock an Expo module's native side by hand");
     for (const id of PRESET_MODULES.expo) expect(line).not.toContain(id);
     expect(report.automatic.join("\n")).not.toContain("are covered by");
   });

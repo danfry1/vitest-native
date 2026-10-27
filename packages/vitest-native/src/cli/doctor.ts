@@ -406,23 +406,28 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   lines.push("", "Auto-detected presets");
   // Decided as the plugin decides (presetForInstalled): installed, and not a package
   // that runs its own test mode under Vitest (SELF_TESTING_FROM_MAJOR).
+  // The engine is the one `auto` resolves to here: doctor reads the config as text and
+  // does not evaluate it, so an `engine` or `presets` set there is named, not applied.
   const detected: string[] = [];
+  let installedAny = false;
   for (const [pkg, preset] of Object.entries(AUTO_DETECT_PRESETS)) {
     if (!installedManifest(root, pkg)) continue;
+    installedAny = true;
     if (installedTestsItself(root, pkg)) {
       lines.push(
         `  · ${pkg} ${installedMajor(root, pkg)} runs its own test mode under Vitest, so no preset replaces it`,
       );
     } else if (!autoDetectedPresetApplies(preset, decision.engine)) {
       lines.push(
-        `  · ${pkg} runs as itself under the native engine, on its native-module mocks (the ${preset} preset applies to the mock engine)`,
+        `  · ${pkg} runs as itself under the native engine, on its native-module mocks; ` +
+          `the ${preset} preset applies under the mock engine or with \`presets: { ${preset}: true }\``,
       );
     } else {
       detected.push(`${pkg} → ${preset}`);
     }
   }
   if (detected.length) for (const d of detected) pass(d);
-  else lines.push("  (none — no preset-covered packages installed)");
+  else if (!installedAny) lines.push("  (none — no preset-covered packages installed)");
 
   // --- Expo ---
   const expo = packageVersion(rootFor("expo"), "expo");
@@ -434,7 +439,9 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
     // shadows a handful of packages.
     pass(
       (decision.engine === "native"
-        ? `expo ${expo} detected. Expo modules run their real JavaScript on native-module mocks, as under jest-expo. `
+        ? `expo ${expo} detected. Under the native engine Expo modules run their real JavaScript on ` +
+          `native-module mocks, as under jest-expo (unless the config sets \`engine: 'mock'\` or ` +
+          `\`presets: { expo: true }\`, where the expo preset shadows ${PRESET_MODULES.expo.join(", ")}). `
         : `expo ${expo} detected. Under the mock engine the expo preset shadows ${PRESET_MODULES.expo.join(", ")}; ` +
           `other Expo modules load their real JavaScript. `) +
         `Coming from jest-expo, run \`vitest-native migrate\`. See https://danfry1.github.io/vitest-native/guide/expo`,

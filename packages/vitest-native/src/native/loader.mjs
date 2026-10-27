@@ -30,6 +30,7 @@ import {
 // React Native's main entry (`react-native/index.js`).
 const RN_INDEX = /[\\/]react-native[\\/]index\.js$/;
 const TRANSFORMABLE = /\.(jsx?|tsx?|mjs|cjs)$/;
+const NODE_MODULES_TS = /[\\/]node_modules[\\/].*(?<!\.d)\.tsx?$/;
 // Extensions/index candidates for bundler-style extensionless resolution.
 
 /**
@@ -456,6 +457,19 @@ export function loadSync(url, context, nextLoad) {
 
   const rnPath = ownership.reactNativePathFor(file);
   const isRN = rnPath !== null;
+  // TypeScript under node_modules, from a package nothing selected for compiling. Node
+  // refuses it outright ("Stripping types is currently unsupported for files under
+  // node_modules"), so there is nothing to gain by passing it on: expo-modules-core
+  // before SDK 58 publishes only its TypeScript source, and a project that installs an
+  // Expo module without `expo` (whose dependencies are what detection follows) reached
+  // it undetected. The CommonJS `.ts` hook compiles any such file (hooks.mjs).
+  if (!isRN && !isExtra(norm) && NODE_MODULES_TS.test(norm)) {
+    return requireFacade(
+      url,
+      file,
+      transformRN(file, fs.readFileSync(file, "utf8"), PROJECT_ROOT, PLATFORM),
+    );
+  }
   if (!isRN && !isExtra(norm)) return nextLoad(url, context);
 
   if (isRN) {

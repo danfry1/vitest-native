@@ -19,6 +19,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { threadId } from "node:worker_threads";
+import expoModuleTable from "./expo-module-table.mjs";
 
 // Per module instance: once per worker under the hot runtime, once per test file with
 // isolation (about 15 ms there, with the on-disk scan cache warm).
@@ -321,4 +322,52 @@ export function expoModuleMock(projectRoot, name, mockFn) {
     members[key] = typeof value === "function" && !isClass ? mockFn(value) : value;
   }
   return members;
+}
+
+/**
+ * The members jest-expo gives native module `name` from Expo's table of the native
+ * modules (expo-module-table.mjs, extracted by scripts/sync-expo-module-table.mjs), or
+ * null when the table has no such module. Values follow jest-expo's `mock()`
+ * (src/preset/setup.js): a member's own `mock` value, else a function (resolving for
+ * native async functions), `1` for a number, `'mock'` for a string, `[]` for an array,
+ * and `{}` otherwise. A member newer than the table is not here; the caller keeps its
+ * stub's conventions for those.
+ */
+export function expoModuleTableMembers(name, mockFn) {
+  const members = expoModuleTable.modules[name];
+  if (!members) return null;
+  const out = {};
+  for (const [member, property] of Object.entries(members)) {
+    out[member] = jestExpoMockValue(property, mockFn);
+  }
+  return out;
+}
+
+function jestExpoMockValue(property, mockFn) {
+  // Copied, so one file's mutation of a shared value does not reach the next.
+  if (property.mock !== undefined) return JSON.parse(JSON.stringify(property.mock));
+  switch (property.type) {
+    case "function":
+      return property.functionType === "promise"
+        ? mockFn(() => Promise.resolve())
+        : mockFn(() => undefined);
+    case "number":
+      return 1;
+    case "string":
+      return "mock";
+    case "array":
+      return [];
+    case "mock": {
+      const out = {};
+      for (const [key, definition] of Object.entries(property.mockDefinition ?? {})) {
+        out[key] = {};
+        for (const [member, inner] of Object.entries(definition)) {
+          out[key][member] = jestExpoMockValue(inner, mockFn);
+        }
+      }
+      return out;
+    }
+    default:
+      return {};
+  }
 }

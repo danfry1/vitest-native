@@ -146,10 +146,11 @@ function list(items: readonly string[]): string {
  */
 function expoPresetCoverage(): string {
   return (
-    `the native engine runs Expo modules' own JavaScript on native-module mocks, as jest-expo ` +
-    `does, using each package's own mocks/ where it ships them; a native constant jest-expo ` +
-    `answers from its generated table (for example Device.modelName) may differ, so check ` +
-    `the tests that read one`
+    `under the native engine, which the suggested config resolves to wherever React Native's ` +
+    `Babel toolchain is installed, Expo modules run their own JavaScript on native-module ` +
+    `mocks, as jest-expo runs them: each package's own mocks/ where it ships one, else ` +
+    `jest-expo's table of the native modules; check tests that mock an Expo module's ` +
+    `native side by hand`
   );
 }
 

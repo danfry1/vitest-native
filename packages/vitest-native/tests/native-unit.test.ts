@@ -1356,7 +1356,9 @@ describe("native globals: globalThis.expo shim", () => {
     }
     const digest = vi.fn((input: string) => `digest:${input}`);
     g.__vitest_native_expo_module_mock = (name: string) =>
-      name === "VNMockedModule" ? { digest, documentRoot: "/mock", NativeClass } : null;
+      name === "VNMockedModule"
+        ? { members: { digest, documentRoot: "/mock", NativeClass }, complete: true }
+        : null;
     try {
       const mocked = expo.modules.VNMockedModule;
       expect(mocked.digest("x")).toBe("digest:x");
@@ -1381,7 +1383,10 @@ describe("native globals: globalThis.expo shim", () => {
       const resetStore = vi.fn(() => store.clear());
       g.__vitest_native_expo_module_mock = (name: string) =>
         name === "VNStatefulModule"
-          ? { write: vi.fn((v: string) => store.add(v)), __resetMockStore: resetStore }
+          ? {
+              members: { write: vi.fn((v: string) => store.add(v)), __resetMockStore: resetStore },
+              complete: true,
+            }
           : null;
       expo.modules.VNStatefulModule.write("a");
       // A file that overrode the reset does not stop it running.
@@ -1393,6 +1398,41 @@ describe("native globals: globalThis.expo shim", () => {
       delete g.__vitest_native_expo_module_mock;
     }
   });
+
+  it("seeds a module from Expo's table as jest-expo answers it, keeping conventions for the rest", () => {
+    installGlobals();
+    const g = globalThis as Record<string, any>;
+    const expo = g.expo;
+    const mockFn = (impl: () => unknown) => vi.fn(impl);
+    g.__vitest_native_expo_module_mock = (name: string) => {
+      const members = expoModuleTableMembers(name, mockFn);
+      return members ? { members, complete: false } : null;
+    };
+    try {
+      // The values jest-expo's mock() gives ExpoDevice's table entries.
+      const device = expo.modules.ExpoDevice;
+      expect(device.modelName).toBe("mock");
+      expect(device.deviceYearClass).toBe(2026);
+      expect(device.isDevice).toBe(false);
+      expect(device.supportedCpuArchitectures).toEqual([]);
+      expect(vi.isMockFunction(device.getUptimeAsync)).toBe(true);
+      expect(device.getUptimeAsync()).toBeInstanceOf(Promise);
+      // A member the table does not list: an async function or a class keeps the stub's
+      // conventions, and anything else is undefined, as under jest-expo.
+      expect(device.someNewerMethodAsync()).toBeInstanceOf(Promise);
+      expect(typeof device.SomeNewerClass).toBe("function");
+      expect(device.someNewerConstant).toBeUndefined();
+      // A file's change to a seeded value does not reach the next file.
+      const constants = expo.modules.ExponentConstants;
+      constants.platform.changed = true;
+      expo[Symbol.for("vitest-native.expo.reset")]();
+      expect(constants.platform).toEqual({});
+      expect(constants.statusBarHeight).toBe(54);
+      expect(constants.executionEnvironment).toBe("mock");
+    } finally {
+      delete g.__vitest_native_expo_module_mock;
+    }
+  });
 });
 
 // @ts-expect-error — runtime .mjs
@@ -1400,6 +1440,7 @@ import {
   expoModuleMock,
   expoModuleMockIndex,
   expoAbsentModules,
+  expoModuleTableMembers,
 } from "../src/native/expo-module-mocks.mjs";
 
 describe("Expo native module presence", () => {
@@ -1468,6 +1509,22 @@ describe("Expo native module presence", () => {
     } finally {
       delete g.__vitest_native_expo_module_present;
     }
+  });
+});
+
+describe("Expo's table of the native modules", () => {
+  it("is extracted from a published jest-expo", async () => {
+    // @ts-expect-error — runtime .mjs
+    const { default: table } = await import("../src/native/expo-module-table.mjs");
+    expect(table.source).toMatch(/^jest-expo@\d+\.\d+\.\d+$/);
+    expect(table.license).toContain("MIT");
+    const modules = Object.keys(table.modules);
+    expect(modules.length).toBeGreaterThan(50);
+    expect(modules).toEqual(expect.arrayContaining(["ExpoDevice", "ExponentConstants"]));
+    // Any type jest-expo's mock() does not name answers `{}`, as there.
+    expect(
+      expoModuleTableMembers("ExponentConstants", (fn: () => unknown) => fn)?.manifest,
+    ).toEqual({});
   });
 });
 
