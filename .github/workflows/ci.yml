@@ -77,25 +77,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Node 22.15 is the Node 22 floor (engines.node is >=22.15.0 <23 || >=24.3.0),
-        # the first Node 22 with in-thread module.registerHooks; on 22.15–22.18 a
-        # require's hook context lists no conditions, which the engine must read. The back-compat legs pin RNTL 12 and 13 to prove the
+        # Node 22.19 is the Node 22 floor (engines.node is >=22.19.0 <23 || >=24.6.0):
+        # the first Node 22 whose module.registerHooks passes a require's conditions.
+        # The releases before it that have the hooks (22.15–22.18) fail the hot runtime
+        # and expo-router gates on Node bugs. The back-compat legs pin RNTL 12 and 13 to prove the
         # full supported peer range (>=12 <15) on every push. The hot runtime and
         # cross-check are calibrated on the current RNTL and run only on the RNTL 14
         # legs (step `if`s).
         include:
           - os: ubuntu-latest
-            node-version: 22.15.0
+            node-version: 22.19.0
             rntl: '12'
           - os: ubuntu-latest
-            node-version: 22.15.0
+            node-version: 22.19.0
             rntl: '13'
           - os: ubuntu-latest
-            node-version: 22.15.0
+            node-version: 22.19.0
           - os: macos-latest
-            node-version: 22.15.0
+            node-version: 22.19.0
           - os: windows-latest
-            node-version: 22.15.0
+            node-version: 22.19.0
           # Node 24 is the current release line and the matrix stopped at 22, which is
           # how a workspace-level Vitest mismatch went unnoticed locally for a whole
           # session. Everything runs here, hot runtime included.
@@ -133,7 +134,7 @@ jobs:
         run: bun run build
 
       - name: Enforce published package budget
-        if: runner.os == 'Linux' && matrix.node-version == '22.15.0' && !matrix.rntl
+        if: runner.os == 'Linux' && matrix.node-version == '22.19.0' && !matrix.rntl
         run: bun run --filter vitest-native check:size
 
       - name: React Native API coverage (pinned RN)
@@ -145,7 +146,7 @@ jobs:
         # the gap surfacing days later as a canary failure against a different
         # version. One leg is enough: RN is identical across the matrix, only RNTL
         # varies. The canary keeps its own edge run.
-        if: runner.os == 'Linux' && matrix.node-version == '22.15.0' && !matrix.rntl
+        if: runner.os == 'Linux' && matrix.node-version == '22.19.0' && !matrix.rntl
         run: bun run --filter vitest-native check-compat
 
       - name: Test
@@ -206,7 +207,7 @@ jobs:
         run: bun run test:example
 
       - name: Check package exports
-        if: runner.os == 'Linux' && matrix.node-version == '22.15.0'
+        if: runner.os == 'Linux' && matrix.node-version == '22.19.0'
         run: bun run check:exports
 
       # The loader-hook contracts were measured on Node 24. Reuse the existing job for a
@@ -260,7 +261,7 @@ jobs:
 
       - uses: ./.github/actions/setup
         with:
-          node-version: 22.15.0
+          node-version: 22.19.0
 
       # Every packed cell installs fixtures with npm. Node 22.13.0 bundled npm
       # 10.9.2, whose arborist crashes with "Cannot read properties of null (reading

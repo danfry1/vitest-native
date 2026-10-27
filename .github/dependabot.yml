@@ -12,7 +12,7 @@ updates:
       # Native's preset supports it, rather than reopening a failing PR every week.
       - dependency-name: "@babel/core"
         update-types: ["version-update:semver-major"]
-      # The package supports Node 22.15 and later. Newer @types/node majors describe
+      # The package supports Node 22.19 and later. Newer @types/node majors describe
       # APIs the supported floor lacks, so code could typecheck against them and fail
       # on Node 22. Move these types deliberately with the Node floor.
       - dependency-name: "@types/node"

@@ -46,7 +46,7 @@ function packageVersion(root: string, name: string): string | null {
  * diagnostic must not carry its own copy of the range.
  */
 export function nodeRange(): string {
-  const fallback = ">=22.15.0 <23 || >=24.3.0";
+  const fallback = ">=22.19.0 <23 || >=24.6.0";
   try {
     const manifest = JSON.parse(
       fs.readFileSync(new URL("../../package.json", import.meta.url), "utf8"),

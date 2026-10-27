@@ -19,7 +19,7 @@ semver, which are experimental, and how the peer ranges below are allowed to mov
 
 ## Blocking compatibility matrix
 
-- Node 22.15 (the floor) on Linux with RNTL 12, 13 and 14, and on macOS and Windows; Node 24 on
+- Node 22.19 (the floor) on Linux with RNTL 12, 13 and 14, and on macOS and Windows; Node 24 on
   Linux.
 - Patched Vite lines ^6.4.2, ^7.3.2, and ^8.0.5 through packed consumers.
 - Vitest 5 (the lockfile release and the newest 5.x) against React Native 0.81–0.88, and the newest
@@ -84,15 +84,15 @@ change.
   them; the caches every pull request starts from are the ones `main` saves. `pages.yml` also
   publishes the fidelity matrix from the latest successful `main` run of the RN matrix.
 
-The ATTW gate ignores legacy Node 10 resolution because the package requires Node 22.15+ or 24.3+.
+The ATTW gate ignores legacy Node 10 resolution because the package requires Node 22.19+ or 24.6+.
 
 Seven of the eleven `exports` subpaths are ESM-only by design — `.`, `./setup`, `./presets`, the
 three `jest-compat` runtime shims, and the types-only `./rntl-matchers`. Each of the runtime ones
 depends on Vitest, which throws when it is reached through `require()`, so shipping a transpiled
 CommonJS build for them produced files that could not be loaded at all. They now declare a single
 ESM target for both conditions: a CommonJS consumer still reaches them, through Node's `require(esm)`
-support, which Node has had since 20.19 and 22.12; the range itself (22.15+ or 24.3+) is set by the
-in-thread loader hooks and by `jest.mock` reaching Node-loaded modules.
+support, which Node has had since 20.19 and 22.12; the range itself (22.19+ or 24.6+) is set by the
+first releases whose in-thread loader hooks behave correctly.
 
 The remaining four subpaths ship a real CommonJS build and are checked with `cjs-resolves-to-esm`
 enforced, so a dual entry cannot quietly lose its `.cjs`. Which subpaths are intentionally ESM-only

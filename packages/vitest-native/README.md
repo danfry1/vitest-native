@@ -971,7 +971,7 @@ that API.
 
 Every release must pass:
 
-- Linux on Node 22.15 (with RNTL 12, 13 and 14) and 24, plus macOS and Windows on Node 22.15.
+- Linux on Node 22.19 (with RNTL 12, 13 and 14) and 24, plus macOS and Windows on Node 22.19.
 - The mock, native iOS, native Android, hot-runtime, isolation, and 100-file soak suites.
 - React Native 0.81–0.88 against both locked and newest-supported Vitest, plus the Vitest 4 floor
   on 0.81 and 0.88.
@@ -1001,15 +1001,17 @@ see [versioning and stability](docs/versioning.md).
 | `react`                                      | >= 18; use RN's matching React version    |
 | `vite`                                       | ^6.4.2, ^7.3.2, or ^8.0.5                |
 | `vitest`                                     | 4.x or 5.x                                |
-| `node`                                       | 22.15+ on Node 22, or 24.3+               |
+| `node`                                       | 22.19+ on Node 22, or 24.6+               |
 | `react-native` (native engine)               | 0.81–0.88 validated                       |
 | `@react-native/babel-preset` (native engine) | Match the installed React Native minor    |
 | `@testing-library/react-native` (optional)   | 12.x, 13.x, or 14.x                       |
 
-Node 20 reached end of life in April 2026. Node 22.15 is the first Node 22 with in-thread
-`module.registerHooks`, which the native engine's loader uses; it also meets RNTL 14's own floor
-(Node 22.13). On Node 24.0–24.2, `jest.mock` and `jest.resetModules` do not reach modules Node
-loads, so Node 24 is supported from 24.3. RNTL 14 uses async rendering APIs.
+Node 20 reached end of life in April 2026. Node 22.19 and 24.6 are the first releases whose
+in-thread `module.registerHooks`, which the native engine's loader uses, passes a `require()`'s
+conditions. Earlier releases that have the hooks are not supported: on 22.15 the hot runtime and
+expo-router fail on Node bugs, on 24.0–24.2 `jest.mock` does not reach modules Node loads, and the
+rest of that band (22.16–22.18, 24.3–24.5) has not been cleared through every gate. Node 22.19 also
+meets RNTL 14's own floor (Node 22.13). RNTL 14 uses async rendering APIs.
 
 ---
 

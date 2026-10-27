@@ -40,7 +40,7 @@ function project(files: Record<string, string>): string {
 
 /** The Config section of the report. */
 function configLines(root: string): string {
-  const { lines } = runDoctor(root, "22.15.0");
+  const { lines } = runDoctor(root, "22.19.0");
   return lines.slice(lines.lastIndexOf("Config")).join("\n");
 }
 

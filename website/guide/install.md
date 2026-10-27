@@ -39,7 +39,7 @@ That's it. The plugin auto-injects its setup file, configures `@testing-library/
 
 | Requirement | Version |
 |---|---|
-| **Node.js** | 22.15+ on Node 22, or 24.3+ |
+| **Node.js** | 22.19+ on Node 22, or 24.6+ |
 | **Vitest** | 4.x |
 | **Vite** | ^6.4.2, ^7.3.2, or ^8.0.5 |
 | **React** | >= 18 |
