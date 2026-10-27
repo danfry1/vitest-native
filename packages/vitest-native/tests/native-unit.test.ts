@@ -1375,6 +1375,18 @@ describe("native globals: globalThis.expo shim", () => {
       expo[Symbol.for("vitest-native.expo.reset")]();
       expect(digest).not.toHaveBeenCalled();
       expect(mocked.digest("z")).toBe("digest:z");
+
+      // A mock that keeps state is reset with the reset it exports, once per file.
+      const store = new Set<string>();
+      const resetStore = vi.fn(() => store.clear());
+      g.__vitest_native_expo_module_mock = (name: string) =>
+        name === "VNStatefulModule"
+          ? { write: vi.fn((v: string) => store.add(v)), __resetMockStore: resetStore }
+          : null;
+      expo.modules.VNStatefulModule.write("a");
+      expo[Symbol.for("vitest-native.expo.reset")]();
+      expect(store.size).toBe(0);
+      expect(resetStore).not.toHaveBeenCalled(); // its own call history is reset too
     } finally {
       delete g.__vitest_native_expo_module_mock;
     }
@@ -1396,13 +1408,22 @@ describe("Expo module mocks", () => {
           fs.writeFileSync(path.join(root, dir, "mocks", file), src);
         }
       };
-      fs.writeFileSync(path.join(root, "package.json"), "{}");
+      // A third-party Expo module counts when the project declares it.
+      fs.writeFileSync(
+        path.join(root, "package.json"),
+        JSON.stringify({ dependencies: { "@scope/expo-thing": "1.0.0" } }),
+      );
       pkg("node_modules/expo-crypto", {
         "ExpoCrypto.js": "exports.digest = () => 'd'; exports.size = 1;",
         "ExpoCrypto.d.ts": "",
       });
       pkg("node_modules/@scope/expo-thing", { "ExpoThing.js": "exports.x = () => 1;" });
       pkg("node_modules/expo/node_modules/expo-asset", { "ExpoAsset.js": "exports.y = 1;" });
+      // The project's own copy wins over one nested inside another package.
+      pkg("node_modules/expo/node_modules/expo-font", { "ExpoFont.js": "exports.v = 'nested';" });
+      pkg("node_modules/expo-font", { "ExpoFont.js": "exports.v = 'top';" });
+      // Undeclared and not Expo's: not looked at.
+      pkg("node_modules/@other/thing", { "OtherThing.js": "exports.u = 1;" });
       pkg("node_modules/.pnpm/expo-haptics@58.0.0/node_modules/expo-haptics", {
         "ExpoHaptics.js": "exports.z = 1;",
       });
@@ -1413,9 +1434,11 @@ describe("Expo module mocks", () => {
       expect([...index.keys()].sort()).toEqual([
         "ExpoAsset",
         "ExpoCrypto",
+        "ExpoFont",
         "ExpoHaptics",
         "ExpoThing",
       ]);
+      expect(expoModuleMock(root, "ExpoFont", (fn: () => unknown) => fn).v).toBe("top");
       const members = expoModuleMock(root, "ExpoCrypto", (fn: () => unknown) => vi.fn(fn));
       expect(members.size).toBe(1);
       expect(vi.isMockFunction(members.digest)).toBe(true);

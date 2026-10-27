@@ -9,7 +9,8 @@ import * as LegacyFileSystem from "expo-file-system/legacy";
 import { expect, it } from "vitest";
 
 it("loads a module that reads its native module at import time", () => {
-  // expo-file-system's mock leaves documentDirectory out, as under jest-expo.
+  // expo-file-system's mock of this native module leaves documentDirectory out.
+  // (jest-expo replaces expo-file-system/legacy with its own mock instead.)
   expect(LegacyFileSystem.documentDirectory).toBeNull();
 });
 

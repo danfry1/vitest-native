@@ -176,6 +176,12 @@ function installExpoGlobal(g) {
         directMutations.clear();
         for (const prop of fabricatedRecords.keys()) fabricatedClasses.delete(prop);
         fabricatedRecords.clear();
+        // A mock that keeps state exports a reset for it (expo-file-system's in-memory
+        // filesystem: __resetMockFileSystem). jest-expo requires the mock afresh for
+        // every test file; the engine loads it once per worker, so it resets it.
+        for (const [prop, value] of Object.entries(seeded ?? {})) {
+          if (prop.startsWith("__reset") && typeof value === "function") value();
+        }
         // A file's calls and overrides do not reach the next file; vi.fn(impl) keeps
         // its implementation through mockReset.
         for (const mock of seededMocks) mock.mockReset();

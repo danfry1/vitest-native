@@ -25,29 +25,50 @@ export function expoModuleMockIndex(projectRoot) {
   let index = indexes.get(projectRoot);
   if (index) return index;
   index = new Map();
-  // Up the tree, as Node resolves: a hoisted workspace installs packages above the
-  // project.
+  const declared = declaredDependencies(projectRoot);
+  // Up the tree, as Node resolves (a hoisted workspace installs packages above the
+  // project), nearest first; within a node_modules, its own packages before the copies
+  // nested inside them (npm nests a package's own version: expo/node_modules/expo-asset).
   for (let dir = path.resolve(projectRoot); ; dir = path.dirname(dir)) {
-    scanNodeModules(path.join(dir, "node_modules"), index, true);
+    const nodeModules = path.join(dir, "node_modules");
+    const candidates = packageDirs(nodeModules).filter((pkgDir) =>
+      isCandidate(pkgDir, nodeModules, declared),
+    );
+    for (const pkgDir of candidates) addMocks(pkgDir, index);
+    for (const pkgDir of candidates) {
+      const nested = path.join(pkgDir, "node_modules");
+      for (const nestedDir of packageDirs(nested)) {
+        if (isCandidate(nestedDir, nested, declared)) addMocks(nestedDir, index);
+      }
+    }
+    // pnpm keeps transitive packages in its store, outside the project's node_modules.
+    const store = path.join(nodeModules, ".pnpm");
+    for (const entry of readdir(store)) {
+      if (!/^(@expo\+)?expo/.test(entry)) continue;
+      for (const pkgDir of packageDirs(path.join(store, entry, "node_modules"))) {
+        addMocks(pkgDir, index);
+      }
+    }
     if (path.dirname(dir) === dir) break;
   }
   indexes.set(projectRoot, index);
   return index;
 }
 
-function scanNodeModules(nodeModules, index, nested) {
-  for (const pkgDir of packageDirs(nodeModules)) {
-    addMocks(pkgDir, index);
-    // npm nests a package's own copies of its dependencies (expo/node_modules/expo-asset).
-    if (nested) scanNodeModules(path.join(pkgDir, "node_modules"), index, false);
-  }
-  // pnpm keeps transitive packages in its store, outside the project's node_modules.
-  const store = path.join(nodeModules, ".pnpm");
-  for (const entry of readdir(store)) {
-    if (!/^(@expo\+)?expo/.test(entry)) continue;
-    for (const pkgDir of packageDirs(path.join(store, entry, "node_modules"))) {
-      addMocks(pkgDir, index);
-    }
+// Expo's own packages (expo-*, @expo/*), and whatever the project declares, which is
+// where a third-party Expo module comes from. Checking every installed package's
+// directory cost about 20 ms per test file on a 500-package install.
+function isCandidate(pkgDir, nodeModules, declared) {
+  const name = path.relative(nodeModules, pkgDir).split(path.sep).join("/");
+  return name.startsWith("expo") || name.startsWith("@expo/") || declared.has(name);
+}
+
+function declaredDependencies(projectRoot) {
+  try {
+    const manifest = JSON.parse(fs.readFileSync(path.join(projectRoot, "package.json"), "utf8"));
+    return new Set(Object.keys({ ...manifest.dependencies, ...manifest.devDependencies }));
+  } catch {
+    return new Set();
   }
 }
 
@@ -72,7 +93,7 @@ function addMocks(pkgDir, index) {
   for (const file of readdir(mocks)) {
     const match = /^(.+)\.(ts|tsx|js)$/.exec(file);
     if (!match || file.endsWith(".d.ts")) continue;
-    // The first copy found wins, nearest the project first.
+    // The first copy found wins (see the order in expoModuleMockIndex).
     if (!index.has(match[1])) index.set(match[1], fs.realpathSync(path.join(mocks, file)));
   }
 }
