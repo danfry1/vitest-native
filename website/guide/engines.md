@@ -11,7 +11,7 @@ reactNative({ engine: 'mock' })    // opt in to the fast pure-JS mock
 reactNative({ engine: 'auto' })    // the default — native when available, else mock (with a one-line notice)
 ```
 
-`reactNative()` with no options resolves to **native** whenever `@react-native/babel-preset` and `@babel/core` are present (i.e. any real RN app), falling back to `mock` only when they're absent.
+`reactNative()` with no options resolves to **native** whenever a React Native Babel preset (`@react-native/babel-preset`, or Expo's from SDK 56) and `@babel/core` are present (i.e. any real RN or Expo app), falling back to `mock` only when they're absent.
 
 ## `engine: 'native'` — real React Native
 
@@ -23,7 +23,7 @@ Runs **real React Native** JavaScript — the same code that ships in your app �
 - **Integration confidence** — testing how your components actually compose with real RN.
 - **No mock drift** — you're testing RN itself, not a reimplementation of it.
 
-It Flow-strips real React Native through your project's Babel preset — the toolchain RN already uses — so it needs `@react-native/babel-preset` + `@babel/core` (present in every RN app).
+It Flow-strips real React Native through your project's Babel preset — the toolchain RN already uses — so it needs `@react-native/babel-preset` + `@babel/core` (present in every RN app). From Expo SDK 56, whose `babel-preset-expo` no longer depends on the React Native preset, it compiles with Expo's preset (`expo/internal/babel-preset`), as Expo's Metro and jest-expo do.
 
 ## `engine: 'mock'` — fast pure-JS
 
@@ -44,7 +44,7 @@ The mock engine covers [100% of React Native's stable public API](/api/coverage)
 | What runs | **Real React Native** JS | Fast pure-JS reimplementation |
 | Mocks | Only the native boundary | All of React Native |
 | Fidelity | Highest | High, but a reimplementation |
-| Babel | `@react-native/babel-preset` + `@babel/core` | None |
+| Babel | `@react-native/babel-preset` (or Expo's, SDK 56+) + `@babel/core` | None |
 | Best for | Fidelity, integration, accessibility | Pure logic, environment control, determinism |
 | Test API | RNTL, helpers, presets | RNTL, helpers, presets |
 

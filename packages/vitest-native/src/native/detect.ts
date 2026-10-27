@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import fs from "node:fs";
+import { resolveTransformPreset } from "./babel-preset.mjs";
 
 export type RequestedEngine = "auto" | "mock" | "native";
 export type ResolvedEngine = "mock" | "native";
@@ -8,7 +9,8 @@ export type ResolvedEngine = "mock" | "native";
 /**
  * Whether `auto` prefers native when the project supports it.
  * true (since 0.4.0) — native is the zero-config default: `reactNative()` runs
- * real React Native whenever @react-native/babel-preset + @babel/core resolve.
+ * real React Native whenever a React Native Babel preset (@react-native/babel-preset,
+ * or Expo's from SDK 56: see babel-preset.mjs) and @babel/core resolve.
  * Falls back to the mock engine only when those deps are absent (with a notice).
  * `engine: 'mock'` remains an explicit opt-in for pure-logic / no-RN-install runs.
  */
@@ -16,7 +18,7 @@ export const AUTO_PREFERS_NATIVE = true;
 
 export interface EngineDecision {
   engine: ResolvedEngine;
-  /** True when react-native + @react-native/babel-preset + @babel/core resolve from projectRoot. */
+  /** True when react-native, a React Native Babel preset and @babel/core resolve from projectRoot. */
   nativeAvailable: boolean;
   /** The native-engine dependencies that did NOT resolve, in check order. */
   missing: string[];
@@ -44,12 +46,13 @@ function missingNativeDeps(projectRoot: string): string[] {
   // (the mock engine's CJS bridge answers `req.resolve("react-native")` from ANY
   // root, which would make this check unconditionally true under it).
   if (!reactNativeInstalledNear(projectRoot)) missing.push("react-native");
-  for (const dep of ["@react-native/babel-preset", "@babel/core"]) {
-    try {
-      req.resolve(dep);
-    } catch {
-      missing.push(dep);
-    }
+  // Reported under the React Native preset's name, which is what a project without
+  // Expo installs.
+  if (resolveTransformPreset(projectRoot) === null) missing.push("@react-native/babel-preset");
+  try {
+    req.resolve("@babel/core");
+  } catch {
+    missing.push("@babel/core");
   }
   return missing;
 }

@@ -45,7 +45,7 @@ That's it. The plugin auto-injects its setup file, configures `@testing-library/
 | **React** | >= 18 |
 | **React Native** | 0.81–0.88 validated in CI (native engine) |
 
-The default **`engine: 'native'`** needs `@react-native/babel-preset` and `@babel/core` — these already ship with React Native projects. The plugin uses them to Flow-strip real React Native, the same toolchain RN already uses.
+The default **`engine: 'native'`** needs `@react-native/babel-preset` and `@babel/core` — these already ship with React Native projects. From Expo SDK 56 the engine uses Expo's own preset instead, which `expo` brings with `@babel/core`, so an Expo app needs nothing extra. The plugin uses them to Flow-strip real React Native, the same toolchain RN already uses.
 
 The opt-in **`engine: 'mock'`** needs no Babel — it's just Vite.
 

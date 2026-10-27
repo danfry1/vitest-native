@@ -112,8 +112,15 @@ Expo SDKs trail React Native. Pin `react-native` to the version your SDK support
 newest release. SDK 54 (React Native 0.81) and later fall inside the validated React Native range,
 0.81–0.88.
 
-CI installs two packed Expo apps from the release tarball on every change: SDK 58 (React Native
-0.88, RNTL 14) and SDK 57 (React Native 0.86, RNTL 13). Each runs an Expo module smoke suite,
+From SDK 56, `babel-preset-expo` carries React Native's Babel plugins itself and no longer depends
+on `@react-native/babel-preset`, so a project created from an SDK 56, 57 or 58 template does not
+have it. The native engine then
+compiles with Expo's preset (`expo/internal/babel-preset`), as Expo's Metro and jest-expo do, and
+needs nothing installed beyond the app's own dependencies.
+
+CI installs three packed Expo apps from the release tarball on every change: SDK 58 (React Native
+0.88, RNTL 14), SDK 57 (React Native 0.86, RNTL 13), and the SDK 58 blank template with only
+vitest-native, Vitest and RNTL added, which runs real React Native with `reactNative()` alone. Each runs an Expo module smoke suite,
 expo-router's testing library against file-based `app/` routes, and `fetch` requests served by an
 MSW server that a setup file starts, from files that import Expo and files that do not. The SDK 58 app also checks that
 the presets provide every `expo-linking` and `expo-constants` member expo-router uses, that loading
