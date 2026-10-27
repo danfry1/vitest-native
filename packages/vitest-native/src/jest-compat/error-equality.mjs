@@ -13,7 +13,7 @@
 //
 // Adopting Jest's rule would be more lenient than Jest itself: a custom tester runs
 // before Vitest's `typeEquality`, so a message-only tester makes
-// `expect(new TypeError('x')).toStrictEqual(new Error('x'))` pass, and Vitest's toThrow
+// `expect(TypeError('x')).toStrictEqual(Error('x'))` pass, and Vitest's toThrow
 // compares through the same testers, so it would also ignore a differing `cause`, which
 // Jest 30's toThrow(object) checks (expect 30.2.0 build/index.js:1879-1884). So this
 // keeps Vitest's comparison and changes one thing: an own enumerable property that is a
