@@ -5,7 +5,7 @@ import { createRequire, register, registerHooks } from "node:module";
 import * as nativeLoader from "./loader.mjs";
 import path from "node:path";
 import { expect, vi } from "vitest";
-import { installGlobals, installErrorUtils } from "./globals.mjs";
+import { installGlobals, installErrorUtils, installExpoRuntime } from "./globals.mjs";
 import { installRequireHooks } from "./hooks.mjs";
 import { installRegistry } from "./registry.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
@@ -347,6 +347,8 @@ for (const { pkg, mod, presetName } of presetDefs) {
 // reports a clear configuration error instead of creating a split-brain graph.
 const req = createRequire(path.join(projectRoot, "package.json"));
 const RN = req("react-native");
+// Before the project's setup files run, as jest-expo does (see globals.mjs).
+installExpoRuntime(projectRoot);
 const initialDimensions = {
   window: { ...RN.Dimensions.get("window") },
   screen: { ...RN.Dimensions.get("screen") },

@@ -83,6 +83,21 @@ From SDK 57, expo-router bundles its own React Navigation, which runs for real. 
 used the installed `@react-navigation/*` packages; there, add `presets: { navigation: false }` so the
 router's navigators are real rather than the navigation preset's mocks.
 
+## Expo's runtime globals, `fetch` and MSW
+
+Expo installs web globals such as `URL`, `structuredClone`, `DOMException` and
+`TextDecoderStream` when it loads. As under jest-expo, vitest-native installs them before your
+setup files run, so anything a setup file installs wins, in every test file, whether or not it
+imports Expo. They are Expo's polyfills rather than Node's, with jest-expo's differences: for
+example `URL.createObjectURL` needs Expo's native blob module, an invalid URL's error has no
+`code`, and `structuredClone` does not keep an `Error`'s `cause`.
+
+Global `fetch` stays Node's. Expo's own `fetch` is driven by a native module that cannot reach the
+network under Node, and it bypasses Node's HTTP stack, where MSW (`msw/node`), nock and undici's
+`MockAgent` intercept. With Node's, an MSW server started in a setup file serves your handlers,
+and a `fetch` mocked in a setup file stays mocked. An unmocked request goes to the network, as it
+would in any Node test. `import { fetch } from 'expo/fetch'` is unaffected.
+
 ## What the expo preset covers
 
 The `expo` preset is applied when `expo-constants` is installed. It covers `expo-constants`,
@@ -98,8 +113,9 @@ newest release. SDK 54 (React Native 0.81) and later fall inside the validated R
 0.81–0.88.
 
 CI installs two packed Expo apps from the release tarball on every change: SDK 58 (React Native
-0.88, RNTL 14) and SDK 57 (React Native 0.86, RNTL 13). Each runs an Expo module smoke suite and
-expo-router's testing library against file-based `app/` routes. The SDK 58 app also checks that
+0.88, RNTL 14) and SDK 57 (React Native 0.86, RNTL 13). Each runs an Expo module smoke suite,
+expo-router's testing library against file-based `app/` routes, and `fetch` requests served by an
+MSW server that a setup file starts, from files that import Expo and files that do not. The SDK 58 app also checks that
 the presets provide every `expo-linking` and `expo-constants` member expo-router uses, that loading
 Expo leaves Node's timers and `Promise` in place, and runs its router suite under the configuration
 `migrate --write` generates from a jest-expo setup.
