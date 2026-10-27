@@ -20,14 +20,11 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { threadId } from "node:worker_threads";
 
-// Kept on the realm, not in this module, so a test file run with isolation (a fresh
-// module graph on a reused worker) does not walk the install again.
-const memo = (globalThis[Symbol.for("vitest-native.expo-modules")] ??= {
-  packageLists: new Map(),
-  indexes: new Map(),
-  absent: new Map(),
-});
-const { packageLists, indexes } = memo;
+// Per module instance: once per worker under the hot runtime, once per test file with
+// isolation (about 15 ms there, with the on-disk scan cache warm).
+const packageLists = new Map();
+const indexes = new Map();
+const absentModules = new Map();
 
 /**
  * The Expo modules (directories with an expo-module.config.json) for `projectRoot`, in
@@ -105,7 +102,7 @@ export function expoModuleMockIndex(projectRoot) {
  * (local modules, file: and workspace links) are read every time.
  */
 export function expoAbsentModules(projectRoot, cacheDir) {
-  if (memo.absent.has(projectRoot)) return memo.absent.get(projectRoot);
+  if (absentModules.has(projectRoot)) return absentModules.get(projectRoot);
   const packages = expoModulePackages(projectRoot);
   const absent = new Set();
   if (packages.length > 0) {
@@ -126,7 +123,7 @@ export function expoAbsentModules(projectRoot, cacheDir) {
     const defined = new Set([...scan.defined, ...scanNativeNames(local)]);
     for (const name of scan.probed) if (!defined.has(name)) absent.add(name);
   }
-  memo.absent.set(projectRoot, absent);
+  absentModules.set(projectRoot, absent);
   return absent;
 }
 
