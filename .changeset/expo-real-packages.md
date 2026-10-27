@@ -4,7 +4,7 @@
 
 Under the native engine, Expo modules run as their installed packages, answering as they do under jest-expo. The `expo` preset no longer replaces `expo-constants`, `expo-status-bar`, `expo-font`, `expo-asset`, `expo-splash-screen` and `expo-linking` there; their own JavaScript runs, so their whole API is present and current with the installed SDK. `import { hide } from 'expo-splash-screen'`, Expo's call since SDK 52, was `undefined` under the preset (#319), as were `setOptions`, `useAssets`, `getLoadedFonts`, `canOpenURL` and others.
 
-Their native modules answer as jest-expo answers them: from a package's own `mocks/`, else from Expo's table of the native modules, which jest-expo ships and vitest-native now carries, extracted from jest-expo 58.0.12 (`src/native/expo-module-table.mjs`; a weekly check compares it with the newest jest-expo). This also gives every other Expo module jest-expo's values: `Device.modelName` is `'mock'`, `Constants.statusBarHeight` is `54`. On an Expo SDK 58 app, every probe of these six packages matches jest-expo (17 of 17, against 4 with the preset).
+Their native modules answer as jest-expo answers them: from a package's own `mocks/`, else from Expo's table of the native modules, which jest-expo ships and vitest-native now carries, extracted from jest-expo 58.0.12 (`src/native/expo-module-table.mjs`; a weekly check compares it with the newest jest-expo). This also gives every other Expo module jest-expo's values: `Device.modelName` is `'mock'`, `Constants.statusBarHeight` is `54`. On Expo SDK 58 a constant the table does not list is `undefined`, as under jest-expo; on another SDK, whose modules have members this table never listed, such a member keeps the stub's no-op function. On an Expo SDK 58 app, every probe of these six packages matches jest-expo (17 of 17, against 4 with the preset).
 
 What a suite that relied on the preset sees instead, each as under jest-expo:
 
@@ -13,6 +13,6 @@ What a suite that relied on the preset sees instead, each as under jest-expo:
 - `Font.isLoaded()` is `false` until a font is loaded (was always `true`), and `Asset.fromModule()` of a number that is not a bundled asset throws (it returned a made-up asset). Bundled images and fonts load through the real expo-asset and expo-font.
 - `preventAutoHideAsync()` and `hideAsync()` resolve `undefined` (were `true`).
 
-A suite can keep the preset while it moves off it with `reactNative({ presets: { expo: true } })`. The mock engine keeps the preset.
+A suite can keep the preset while it moves off it with `reactNative({ presets: { expo: true } })`. The mock engine keeps the preset, whose `expo-splash-screen` now has `hide()` and `setOptions()`.
 
 Three engine changes come with it. A module the ESM loader compiles is now loaded through Node's CommonJS loader, so an import and a require share one instance (expo-asset 57's asset registry was a second, empty copy) and a `jest.mock` factory reaches a package's own require of the mocked module. TypeScript under node_modules from a package nothing selected for compiling is compiled rather than refused (an Expo module installed without `expo`). `doctor` and `migrate` describe the new behaviour.
