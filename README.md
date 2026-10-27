@@ -103,7 +103,8 @@ describe('MyComponent', () => {
   back-compatible with RNTL 12/13, where the calls are synchronous and `await` is a no-op. Note RNTL
   14 itself requires Node >= 22.13 — on Node 20, stay on RNTL 13.
 - **`engine: 'native'`** (the default) needs `@react-native/babel-preset` + `@babel/core` (these
-  ship with React Native projects). The opt-in mock engine needs no Babel.
+  ship with React Native projects; from Expo SDK 56 it uses Expo's own preset instead, as Metro
+  does). The opt-in mock engine needs no Babel.
 - **React Native** 0.81–0.88 validated in CI (native engine).
 - Tested against RNTL 12, 13, and 14 in CI.
 
@@ -116,8 +117,9 @@ reactNative({ engine: 'mock' })    // opt in to the fast pure-JS mock
 reactNative({ engine: 'auto' })    // the default — native when available, else mock (with a one-line notice)
 ```
 
-`reactNative()` with no options resolves to **native** whenever `@react-native/babel-preset` and
-`@babel/core` are present (i.e. any real RN app), falling back to `mock` only when they're absent.
+`reactNative()` with no options resolves to **native** whenever a React Native Babel preset
+(`@react-native/babel-preset`, or Expo's from SDK 56) and `@babel/core` are present (i.e. any real
+RN or Expo app), falling back to `mock` only when they're absent.
 Both engines share the same test API (RNTL, the helpers, the presets). Reach for `mock` when you
 want no RN at all — fast, deterministic, environment-controllable.
 

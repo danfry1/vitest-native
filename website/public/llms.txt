@@ -6,7 +6,7 @@
 
 Two engines behind one plugin (`reactNative()`), so you choose the fidelity each suite needs:
 
-- `engine: 'native'` (default): runs real React Native JS, mocking only the thin native boundary (the same modules Jest's preset mocks). Needs `@react-native/babel-preset` + `@babel/core` (present in any RN app). Highest fidelity.
+- `engine: 'native'` (default): runs real React Native JS, mocking only the thin native boundary (the same modules Jest's preset mocks). Needs `@react-native/babel-preset` (or Expo's preset, from Expo SDK 56) + `@babel/core` (present in any RN or Expo app). Highest fidelity.
 - `engine: 'mock'`: a fast, zero-dependency pure-JS reimplementation of React Native. No Babel. For pure-logic suites, environment control, maximum determinism. Covers 100% of RN's stable public API.
 - `engine: 'auto'` (the default): native when babel deps present, else mock.
 

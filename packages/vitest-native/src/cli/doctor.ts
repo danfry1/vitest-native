@@ -8,6 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { validatePeerDependency } from "../validate.js";
 import { detectEngine } from "../native/detect.js";
+import { resolveTransformPreset } from "../native/babel-preset.mjs";
 import { detectEcosystemPackages } from "../native/ecosystem.js";
 import {
   createNativeOwnershipPolicy,
@@ -271,14 +272,19 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   lines.push("", "Engine");
   const rnVersion = packageVersion(rootFor("react-native"), "react-native");
   const decision = detectEngine("auto", rootFor("@react-native/babel-preset"));
+  const transformPreset = resolveTransformPreset(rootFor("@react-native/babel-preset"));
+  const presetLabel = transformPreset
+    ? `${transformPreset.name} ${transformPreset.version}`
+    : "a React Native Babel preset";
   if (decision.engine === "native") {
     pass(
-      `engine 'auto' resolves to NATIVE — real React Native${rnVersion ? ` ${rnVersion}` : ""} with @react-native/babel-preset + @babel/core present.`,
+      `engine 'auto' resolves to NATIVE — real React Native${rnVersion ? ` ${rnVersion}` : ""} with ${presetLabel} + @babel/core present.`,
     );
   } else if (rnVersion) {
     warn(
       `engine 'auto' resolves to MOCK: react-native ${rnVersion} is installed but ` +
-        `@react-native/babel-preset and/or @babel/core do not resolve. Install both ` +
+        `no React Native Babel preset (@react-native/babel-preset, or Expo's from SDK 56) ` +
+        `and/or @babel/core resolve. Install both ` +
         `as devDependencies to run the real-RN native engine.`,
     );
   } else {

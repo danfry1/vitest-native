@@ -72,7 +72,9 @@ pnpm add -D vitest-native
 ```
 
 A real React Native project already provides what the native engine needs —
-`react-native`, `@react-native/babel-preset`, and `@babel/core`. Add
+`react-native`, `@react-native/babel-preset`, and `@babel/core`. From Expo SDK 56,
+`babel-preset-expo` no longer depends on `@react-native/babel-preset`, and the engine compiles
+with Expo's own preset instead, as Metro does. Add
 `@testing-library/react-native` if you don't have it yet (the examples below use it):
 
 ```bash
@@ -202,13 +204,13 @@ Choose how React Native is provided to your tests:
   requires a device. Jest's `react-native` preset replaces many of these modules with
   stubs, so the native engine exercises behavior Jest's mocks skip (see [Fidelity](#fidelity)
   below). Best for components, integration, RNTL, virtualized lists, and anywhere a false
-  pass is costly. Requires `@react-native/babel-preset` and `@babel/core` (present by
-  default in React Native apps).
+  pass is costly. Requires `@react-native/babel-preset` (or, from Expo SDK 56, Expo's
+  preset) and `@babel/core`, present by default in React Native and Expo apps.
 - `'mock'` — a lightweight, pure-JS reimplementation of React Native with **zero extra
   dependencies**. Best for pure-logic/unit tests, maximum determinism, or when you can't
   add the babel deps. Like Jest's preset, it is a simplification — see [Fidelity](#fidelity).
-- `'auto'` _(default)_ — picks automatically, and **resolves to `'native'`** whenever
-  `@react-native/babel-preset` and `@babel/core` are present (i.e. in any real RN app). It
+- `'auto'` _(default)_ — picks automatically, and **resolves to `'native'`** whenever a React
+  Native Babel preset and `@babel/core` are present (i.e. in any real RN or Expo app). It
   falls back to `'mock'` only when those deps are absent, printing one line to explain why.
   So `reactNative()` with no options runs real React Native. Set `engine: 'mock'` to opt out.
 
@@ -646,7 +648,8 @@ Upgrade npm (`npm install --global npm@11`), or use pnpm, Yarn or Bun.
 
 **`@react-native/babel-preset not found — using the mock engine`**
 You asked for the default (`auto`) engine but the native babel deps aren't installed, so it
-fell back to the mock engine. To run real React Native, install them:
+fell back to the mock engine. An Expo project from SDK 56 needs nothing extra: the engine uses
+Expo's preset, and `expo` brings `@babel/core`. Otherwise, to run real React Native, install them:
 
 ```bash
 npm i -D @react-native/babel-preset @babel/core
