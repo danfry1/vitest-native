@@ -32,6 +32,6 @@ it("registers the descriptor Expo's bundler registers", async () => {
   );
   const { files: _files, fileSystemLocation: _location, path: _path, ...registered } = data;
   expect(registered.fileHashes).toHaveLength(2);
-  const { getAssetByID } = projectRequire("react-native/Libraries/Image/AssetRegistry");
+  const { getAssetByID } = projectRequire("react-native/asset-registry");
   expect(getAssetByID(icon)).toEqual(registered);
 });

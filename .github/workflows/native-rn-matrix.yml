@@ -8,7 +8,7 @@ name: Native engine — Vitest × RN matrix
 #  • React Native (rows). The engine runs REAL RN JS and mocks only the ~7-module
 #    native boundary, so it is sensitive to RN-version drift (the boundary has
 #    broken before on SectionList / RendererProxy changes between minors).
-#    Supported range (verified): RN 0.81–0.87. 0.80 and earlier fail host-component
+#    Supported range (verified): RN 0.81–0.88. 0.80 and earlier fail host-component
 #    detection and are below the floor; latest is canaried in compat-check.yml.
 #    The rows and columns are defined once, in .github/rn-matrix.json. Keep the
 #    newest row in sync with the lockfile RN version — the fidelity page derives its

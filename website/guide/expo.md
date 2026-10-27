@@ -49,14 +49,17 @@ expo-router's own testing library works as its documentation shows:
 import { renderRouter, screen, testRouter } from 'expo-router/testing-library'
 import { expect, test } from 'vitest'
 
-test('navigates between file-based routes', () => {
-  renderRouter('./app', { initialUrl: '/' })
+test('navigates between file-based routes', async () => {
+  await renderRouter('./app', { initialUrl: '/' })
   expect(screen).toHavePathname('/')
 
-  testRouter.push('/details/42')
+  await testRouter.push('/details/42')
   expect(screen.getByText('details for 42')).toBeTruthy()
 })
 ```
+
+From SDK 58 the library is written for RNTL 14, where `renderRouter` and `testRouter`'s navigation
+return promises, so they are awaited as above. On SDK 57 and earlier (RNTL 13) they are synchronous.
 
 The library is written for Jest — it calls `jest.useFakeTimers` and `jest.mock` itself — so it needs
 the [jest-compat layer](/guide/jest-compat), which a migrated configuration already includes:
@@ -92,9 +95,11 @@ in a setup file, like any other native library without a preset.
 
 Expo SDKs trail React Native. Pin `react-native` to the version your SDK supports rather than the
 newest release. SDK 54 (React Native 0.81) and later fall inside the validated React Native range,
-0.81–0.87.
+0.81–0.88.
 
-CI installs a packed Expo SDK 57 app (React Native 0.86, RNTL 13) from the release tarball on every
-change. It runs an Expo module smoke suite, expo-router's testing library against file-based `app/`
-routes, and the same router suite under the configuration `migrate --write` generates from a
-jest-expo setup.
+CI installs two packed Expo apps from the release tarball on every change: SDK 58 (React Native
+0.88, RNTL 14) and SDK 57 (React Native 0.86, RNTL 13). Each runs an Expo module smoke suite and
+expo-router's testing library against file-based `app/` routes. The SDK 58 app also checks that
+the presets provide every `expo-linking` and `expo-constants` member expo-router uses, that loading
+Expo leaves Node's timers and `Promise` in place, and runs its router suite under the configuration
+`migrate --write` generates from a jest-expo setup.
