@@ -3,7 +3,9 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { installReportError } from "../report-error.mjs";
 // Globals React Native core expects at runtime, ported from react-native/jest/setup.js.
-export function installGlobals() {
+// With the project root and platform, also the environment Expo's packages read
+// (installExpoOs); the unit tests call it without them.
+export function installGlobals({ projectRoot, platform } = {}) {
   const g = globalThis;
   Object.defineProperties(g, {
     __DEV__: { configurable: true, writable: true, value: true },
@@ -30,6 +32,38 @@ export function installGlobals() {
   installReportError(g);
 
   installExpoGlobal(g);
+  if (projectRoot) installExpoOs(projectRoot, platform);
+}
+
+/**
+ * `process.env.EXPO_OS`, the platform Expo's packages branch on.
+ *
+ * babel-preset-expo inlines it as each file compiles, from the bundler caller's platform
+ * (babel-preset-expo 54, build/index.js:114), so nothing sets it at runtime on a device.
+ * The engine compiles node_modules with @react-native/babel-preset whenever that resolves
+ * (babel-preset.mjs), so Expo's packages read the real variable, which is unset:
+ * expo-modules-core warns that it "should be inlined by babel-preset-expo"
+ * (expo-modules-core 3.0, src/Platform.ts:14-16), its Platform.select answers undefined
+ * (26), and expo-router's `process.env.EXPO_OS === 'ios'` branches take the wrong side.
+ * Under Jest, jest-expo compiles the same packages with babel-preset-expo and a caller
+ * carrying the platform (jest-expo 57, config/getPlatformPreset.js:48-66), so each read
+ * is the platform.
+ *
+ * Defaulted to the engine's platform only in a project that resolves `expo`, the same
+ * test that selects jest-expo's Babel caller for app source (transform.mjs, hasExpo). A
+ * value already set when the engine starts (the environment, `test.env`) is left alone,
+ * and `vi.stubEnv` overrides it as any variable. The hot runtime's worker installs it
+ * before taking its process.env baseline (reset.mjs), so restoring that baseline between
+ * files keeps it.
+ */
+function installExpoOs(projectRoot, platform) {
+  if (Object.hasOwn(process.env, "EXPO_OS")) return;
+  try {
+    createRequire(path.join(projectRoot, "package.json")).resolve("expo/package.json");
+  } catch {
+    return;
+  }
+  process.env.EXPO_OS = platform === "android" ? "android" : "ios";
 }
 
 // expo-modules-core's JS reads its native runtime off `globalThis.expo`
