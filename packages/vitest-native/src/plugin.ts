@@ -254,11 +254,17 @@ function printEngineBanner(
   engine: "mock" | "native",
   platform: string,
   projectRoot: string,
+  presetNames: readonly string[],
   hotRuntime = false,
 ): void {
   const g = globalThis as { __vitest_native_banner_printed?: boolean };
   if (g.__vitest_native_banner_printed) return;
   g.__vitest_native_banner_printed = true;
+  // The presets are named because they are applied automatically, and each replaces a
+  // whole library: an app that drives a real navigator gets the navigation preset's
+  // pass-through NavigationContainer, and nothing else in the log points at it.
+  // `presetNames` is the list the workers are told to build, not a copy of it.
+  const mocked = presetNames.length > 0 ? ` · mocked: ${presetNames.join(", ")}` : "";
   if (engine === "native") {
     const rn = resolvePackageVersion("react-native", projectRoot);
     // The runtime is named because it is chosen automatically: a test that passes
@@ -266,13 +272,31 @@ function printEngineBanner(
     // line that tells someone reading the log that it is in play.
     const runtime = hotRuntime ? ", hot runtime" : "";
     console.error(
-      `[vitest-native] engine: native — real react-native${rn ? `@${rn}` : ""} (platform ${platform}${runtime})`,
+      `[vitest-native] engine: native — real react-native${rn ? `@${rn}` : ""}${mocked} (platform ${platform}${runtime})`,
     );
   } else {
     console.error(
-      `[vitest-native] engine: mock — React Native reimplementation, cross-checked against real RN (platform ${platform})`,
+      `[vitest-native] engine: mock — React Native reimplementation, cross-checked against real RN${mocked} (platform ${platform})`,
     );
   }
+}
+
+/**
+ * The presets a mock-engine worker applies, for the banner. The worker selects them
+ * itself (setup.ts): an array as listed, otherwise every auto-detected preset that is
+ * not switched off. Both read AUTO_DETECT_PRESETS through presetForInstalled, as
+ * autoDetectPresetNames does. The native engine's list is the one its workers are
+ * handed (VITEST_NATIVE_PRESET_NAMES), and its banner prints that.
+ */
+function mockEnginePresetNames(
+  listed: readonly Preset[] | null,
+  presetsOption: unknown,
+  projectRoot: string,
+): string[] {
+  if (listed) return listed.map((p) => p.name);
+  const disabled = disabledPresetNames(presetsOption);
+  // Diagnostics off: the workers log the detection themselves.
+  return autoDetectPresetNames(projectRoot, false).filter((n) => !disabled.has(n));
 }
 
 function getJsxTransformConfig(projectRoot: string): JsxTransformConfig {
@@ -1625,8 +1649,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // React Native while running the mock is the exact failure mode the engine
       // split exists to prevent.
       if (decision.notice) console.warn(decision.notice);
-      // The native engine's banner waits for the runtime decision below.
-      if (engine !== "native") printEngineBanner(engine, platform, resolvedRoot);
+      // Each engine's branch below prints the banner once it knows the presets (and,
+      // for the native engine, the runtime).
       const env: Record<string, string> = {
         VITEST_NATIVE_PLATFORM: platform,
         VITEST_NATIVE_DIAGNOSTICS: String(diagnostics),
@@ -1934,7 +1958,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             maxWorkers: hotMemory.allowUnboundedMemory ? undefined : hotMemory.plan.maxWorkers,
           };
         }
-        printEngineBanner(engine, platform, resolvedRoot, hot !== undefined);
+        printEngineBanner(engine, platform, resolvedRoot, nativePresetNames, hot !== undefined);
         if (hot) {
           hotSelections.set(vitestRootOf(userConfig), {
             pool: hot.pool,
@@ -1979,6 +2003,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // know which names to drop. `resolved` is not assigned until configResolved,
       // so neither branch can read it here.
       const selection = selectPresets(options?.presets, resolvedRoot);
+      printEngineBanner(
+        engine,
+        platform,
+        resolvedRoot,
+        mockEnginePresetNames(selection.listed, options?.presets, resolvedRoot),
+      );
       if (selection.modulePaths.length > 0) {
         env.VITEST_NATIVE_PRESET_MODULES = JSON.stringify(selection.modulePaths);
       }
