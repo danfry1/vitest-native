@@ -38,7 +38,7 @@ Read-only environment diagnosis:
 - Which engine `auto` resolves to for this project, and why.
 - Every auto-detected preset (installed package → preset), and installed
   packages that run their own test mode under Vitest instead (react-native-mmkv 3+).
-- Expo presence, and which Expo modules the expo preset shadows.
+- Expo presence, and how Expo modules run under the engine it resolves to.
 - Babel plugins from your Babel config that a vitest-native run does not apply
   (warnings only; a macro plugin is reported as required). To read them, doctor
   loads `babel.config.js` / `.babelrc.js` the way Babel would (with

@@ -7,16 +7,17 @@ import { Text, View } from "react-native";
 import { expect, test } from "vitest";
 import { metroWinner } from "./metro-winner";
 
-test("runs a packed Expo consumer with auto-detected presets", async () => {
+test("renders a packed Expo consumer with the real expo-constants and expo-status-bar", async () => {
   await render(
     <View testID="root">
       <StatusBar style="auto" />
-      <Text>{Constants.expoConfig?.name}</Text>
+      <Text>{Constants.expoConfig?.name ?? "no config"}</Text>
     </View>,
   );
 
-  expect(Constants.expoConfig?.name).toBe("test-app");
-  expect(screen.getByTestId("root")).toHaveTextContent("test-app");
+  // The package's own default export, not a preset's: no made-up app name.
+  expect(Constants.expoConfig?.name).not.toBe("test-app");
+  expect(screen.getByTestId("root")).toBeTruthy();
 });
 
 test("uses Expo Metro's TypeScript-first source extension precedence", () => {

@@ -566,10 +566,10 @@ renders through real React Native).
 
 ### Expo
 
-Expo apps need no Expo-specific package. The `expo` preset shadows the common Expo modules
-(`expo-constants`, `expo-status-bar`, `expo-font`, `expo-asset`, `expo-splash-screen`,
-`expo-linking`) the way `jest-expo` mocks them, and Expo's own JavaScript — `expo` itself,
-expo-router and React Navigation — runs for real under the native engine.
+Expo apps need no Expo-specific package. Under the native engine every Expo package's own
+JavaScript runs for real — `expo` itself, expo-router, React Navigation and Expo modules such as
+`expo-constants` or `expo-splash-screen` — and only their native modules are mocked, the way
+`jest-expo` runs them. (The mock engine replaces the common Expo modules with the `expo` preset.)
 
 - **Coming from jest-expo:** `npx vitest-native migrate --write` translates the `jest-expo`
   presets (`jest-expo/android` → `platform: 'android'`) and, because jest-expo does not mock React
@@ -577,7 +577,7 @@ expo-router and React Navigation — runs for real under the native engine.
 - **expo-router screens:** `expo-router/testing-library` (`renderRouter`, `testRouter`,
   `toHavePathname`) runs as written with the jest-compat layer. From SDK 57 expo-router bundles its
   own React Navigation; before SDK 57, also set `presets: { navigation: false }`.
-- **Other Expo modules** run their real JavaScript. Where a package ships a mock of its native
+- **Expo modules** run their real JavaScript. Where a package ships a mock of its native
   module (`mocks/<Name>.ts`), it is served as under jest-expo; other native modules get a generic
   stub, so a test that reads a constant such as `Device.modelName` still needs a `vi.mock`. An
   optional native module a package probes for, and that no installed package defines, is

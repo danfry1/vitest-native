@@ -8,7 +8,15 @@ import { NATIVE_SUITE_SETUP_FILES } from "./support/setup-files.mjs";
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
-  plugins: [reactNative({ engine: "native", hotRuntime: false }), jestMockTransform()],
+  // The workspace installs expo-constants and expo-status-bar without expo itself, so
+  // their real JavaScript cannot run here (expo-modules-core resolves to another
+  // SDK's TypeScript source). The expo preset, which the native engine applies only
+  // when asked (NATIVE_ENGINE_RUNS_PACKAGES), is turned on; the packed Expo consumers
+  // run the real packages.
+  plugins: [
+    reactNative({ engine: "native", hotRuntime: false, presets: { expo: true } }),
+    jestMockTransform(),
+  ],
   // A tsconfig-paths-style alias, which jest.requireActual must honour too
   // (requireactual-alias.test.tsx).
   resolve: { alias: { "@vn-app": path.resolve(here, "fixtures/alias-app") } },
