@@ -44,3 +44,23 @@ it("resets when Babel throws", () => {
   expect(() => transformRN(file, "const = ;\n", root)).toThrow();
   expect(isTransforming()).toBe(false);
 });
+
+it("is seen by every copy of the module on the thread (#296)", async () => {
+  // A test importing the source while the engine's hook runs from the build puts two
+  // copies of this module on one thread. The hook's copy has to see the other's
+  // transform, or it compiles the preset while that preset is loading.
+  // @ts-expect-error — runtime .mjs, no types for the test import path
+  const other = await import("../src/native/transform.mjs?second-copy");
+  expect(other.isTransforming).not.toBe(isTransforming);
+  const probe = (globalThis as Record<string, unknown>).__vnProbe;
+  (globalThis as Record<string, unknown>).__vnProbe = () => other.isTransforming();
+  try {
+    const file = path.join(root, "copies.js");
+    fs.writeFileSync(file, "const b = 2;\n");
+    (globalThis as Record<string, unknown>).__vnSeenDuringPreset = undefined;
+    transformRN(file, "const b = 2;\n", root);
+    expect((globalThis as Record<string, unknown>).__vnSeenDuringPreset).toBe(true);
+  } finally {
+    (globalThis as Record<string, unknown>).__vnProbe = probe;
+  }
+});
