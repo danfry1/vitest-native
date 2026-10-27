@@ -2075,7 +2075,7 @@ describe("the Expo native module resolver", () => {
       pkg("node_modules/expo-mocked-only", { "mocks/MockedOnly.js": "exports.x = 1;" });
       const resolver = createExpoNativeModuleResolver({
         projectRoot: root,
-        cacheDir: null,
+        cacheDir: () => null,
         mockFn: (fn: () => unknown) => vi.fn(fn),
       });
       // Layer 1: absent only when probed for and defined nowhere, unless mocked.

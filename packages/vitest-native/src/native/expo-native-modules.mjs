@@ -33,16 +33,18 @@ import {
  */
 
 /**
- * @param {{ projectRoot: string, cacheDir: string | null, mockFn: (impl: Function) => Function }} options
- *   `mockFn` wraps a mock's functions (vi.fn in a test run).
+ * @param {{ projectRoot: string, cacheDir: () => string | null, mockFn: (impl: Function) => Function }} options
+ *   `cacheDir` gives the directory the scans are cached in; `mockFn` wraps a mock's
+ *   functions (vi.fn in a test run).
  */
 export function createExpoNativeModuleResolver({ projectRoot, cacheDir, mockFn }) {
-  // Read on the first lookup, so a test file that touches no Expo module pays nothing.
+  // Read on the first lookup, cache directory included, so a test file that touches no
+  // Expo module pays nothing.
   let absent;
   return {
     /** Whether the module exists (layer 1). */
     present(name) {
-      absent ??= expoAbsentModules(projectRoot, cacheDir);
+      absent ??= expoAbsentModules(projectRoot, cacheDir());
       return !absent.has(name) || expoModuleMockIndex(projectRoot).has(name);
     },
     /**

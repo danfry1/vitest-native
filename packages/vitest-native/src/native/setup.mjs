@@ -353,7 +353,7 @@ const RN = req("react-native");
 // globalThis.expo.modules as a module is first required.
 g.__vitest_native_expo_modules = createExpoNativeModuleResolver({
   projectRoot,
-  cacheDir: cacheRootFor(projectRoot),
+  cacheDir: () => cacheRootFor(projectRoot),
   mockFn: (implementation) => vi.fn(implementation),
 });
 // Before the project's setup files run, as jest-expo does (see globals.mjs).
