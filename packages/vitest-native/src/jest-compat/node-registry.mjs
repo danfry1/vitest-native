@@ -271,12 +271,12 @@ function createState() {
    * reachable, for the caller to fall back to `vi.resetModules()`.
    */
   state.resetModules = () => {
-    const map = worker()?.evaluatedModules?.idToModuleMap;
-    if (map) resetEvaluatedModules(map);
+    const modules = worker()?.evaluatedModules;
+    if (modules) resetEvaluatedModules(modules);
     state.isolation = null;
     state.dropProjectModules();
     allEntries().forEach(forget);
-    return Boolean(map);
+    return Boolean(modules);
   };
 
   /**
@@ -294,13 +294,13 @@ function createState() {
       // name and own properties included, so only this matches a suite written for Jest.
       throw new Error(`${name} cannot be nested inside another ${name} or ${other}.`);
     }
-    const map = worker()?.evaluatedModules?.idToModuleMap;
+    const modules = worker()?.evaluatedModules;
     const isolation = {
       modules: state.dropProjectModules(),
       had: new Set(allEntries().filter((entry) => entry.has)),
-      vite: map ? new Map() : null,
+      vite: modules ? new Map() : null,
     };
-    if (map) resetEvaluatedModules(map, isolation.vite);
+    if (modules) resetEvaluatedModules(modules, isolation.vite);
     state.isolation = isolation;
     return () => {
       // `resetModules` inside the block ended it, as in Jest, where it nulls the
@@ -312,7 +312,7 @@ function createState() {
       allEntries()
         .filter((entry) => !isolation.had.has(entry))
         .forEach(forget);
-      if (map) restoreEvaluatedModules(map, isolation.vite);
+      if (modules) restoreEvaluatedModules(modules, isolation.vite);
     };
   };
 

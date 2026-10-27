@@ -180,11 +180,37 @@ const VITEST_RUNTIME = [/\/vitest\/dist\//, /vitest-virtual-\w+\/dist/, /@vitest
  * own: the fields Vitest's `resetModules(modules, resetMocks = true)` clears
  * (vitest/dist/chunks/utils). With `saved`, each node's state is recorded first, for
  * `restoreEvaluatedModules`.
+ *
+ * Beyond Vitest's fields, a node that stands in for a factory or redirect mock is
+ * invalidated outright. Vitest 4 fetches a module that is mocked that way as a
+ * placeholder whose `meta` is empty code plus `mockedModule`, the mock as registered
+ * then (startVitestModuleRunner chunk, the transport's `fetchModule`). On a later
+ * request, Vitest 4.1's `VitestModuleRunner.cachedRequest` replays that
+ * `meta.mockedModule` whenever the CURRENT registry has any mock for the id, and only
+ * looks the module up again when it has none. Vitest 5 asks the current registry
+ * instead (index chunk, `cachedRequest`). So under the hot runtime, where the graph
+ * outlives the file, a file that automocks a module the previous file had mocked with
+ * a factory got the previous file's factory. Per-file isolation never sees this: the
+ * graph is new for each file. Stock Vitest 4.1 with `isolate: false` leaks the same
+ * way, since its `resetModules` keeps `meta` too. `invalidateModule` is the module runner's own reset for
+ * a node (vite/module-runner, `EvaluatedModules`): it clears `meta`, so the next
+ * request fetches the module again, under the mocks of whoever asks. Dropping only
+ * `meta.mockedModule` is not enough: the placeholder's empty code would then be served
+ * as the module itself to a file that does not mock it.
  */
-export function resetEvaluatedModules(map, saved) {
-  for (const [id, node] of map) {
+export function resetEvaluatedModules(modules, saved) {
+  for (const [id, node] of modules.idToModuleMap) {
     if (VITEST_RUNTIME.some((re) => re.test(id))) continue;
-    saved?.set(node, [node.promise, node.exports, node.evaluated, [...node.importers]]);
+    saved?.set(node, [
+      node.promise,
+      node.exports,
+      node.evaluated,
+      [...node.importers],
+      node.meta,
+      node.map,
+      [...node.imports],
+    ]);
+    if (node.meta && "mockedModule" in node.meta) modules.invalidateModule(node);
     node.promise = undefined;
     node.exports = undefined;
     node.evaluated = false;
@@ -193,10 +219,11 @@ export function resetEvaluatedModules(map, saved) {
 }
 
 /** Put back what `resetEvaluatedModules` saved; nodes evaluated since are reset. */
-export function restoreEvaluatedModules(map, saved) {
-  resetEvaluatedModules(map);
-  for (const [node, [promise, exports, evaluated, importers]] of saved) {
-    Object.assign(node, { promise, exports, evaluated });
+export function restoreEvaluatedModules(modules, saved) {
+  resetEvaluatedModules(modules);
+  for (const [node, [promise, exports, evaluated, importers, meta, map, imports]] of saved) {
+    Object.assign(node, { promise, exports, evaluated, meta, map });
     for (const importer of importers) node.importers.add(importer);
+    for (const imported of imports) node.imports.add(imported);
   }
 }

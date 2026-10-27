@@ -199,7 +199,7 @@ globalThis.__vitest_native_reset_module_runner = () => {
   if (!moduleRunner) return;
   moduleRunner.mocker?.reset();
   clearPendingMocks(moduleRunner.mocker);
-  resetEvaluatedModules(moduleRunner.evaluatedModules.idToModuleMap);
+  resetEvaluatedModules(moduleRunner.evaluatedModules);
 };
 
 init({
