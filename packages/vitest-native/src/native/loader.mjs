@@ -332,6 +332,20 @@ export async function resolve(specifier, context, nextResolve) {
   return resolveAfter(resolved, context);
 }
 
+/**
+ * Whether an in-thread hook call (module.registerHooks) comes from `require()` rather
+ * than `import`. An import's context always lists its conditions, "import" among them.
+ * A require's lists "require" from Node 22.19 and 24.6, but is an empty object `{}` on
+ * 22.15–22.18 and 24.0–24.4 (measured on each), so anything but a list with "import" in
+ * it is a require. Read as an import there, every require reached this loader, which
+ * compiled Babel's own files as Babel loaded them ("Reentrant preset detected").
+ */
+export function isRequireContext(context) {
+  const conditions = context?.conditions;
+  if (!Array.isArray(conditions)) return true;
+  return !conditions.includes("import");
+}
+
 export function resolveSync(specifier, context, nextResolve) {
   const before = resolveBefore(specifier, context);
   if (before.done) return before.done;
