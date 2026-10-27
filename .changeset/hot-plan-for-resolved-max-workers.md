@@ -1,5 +1,5 @@
 ---
-"vitest-native": patch
+"vitest-native": minor
 ---
 
 The hot runtime's memory plan now matches the number of workers that actually run. Vitest applies `--maxWorkers` and `VITEST_MAX_WORKERS` over the worker count the plugin's plan selected, so the plan, the per-worker heap recycle threshold and `VITEST_NATIVE_MEMORY_PLAN` could be sized for fewer workers than ran: `VITEST_MAX_WORKERS=10` ran ten workers under a plan for four. The plan is now rebuilt for the count Vitest resolves, before any worker starts.
