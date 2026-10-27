@@ -475,6 +475,30 @@ export function installRequireHooks(
     return origJs(mod, filename);
   };
 
+  // An `.mjs` file a compiled module requires: Babel turns `import … from "./x.mjs"`
+  // into require("./x.mjs"), which is Node's require(esm). Where the ESM loader runs on
+  // its own thread (register() before Node 22.15, see installLoaderHooks in setup.mjs),
+  // require(esm) does not consult it, so the file, and React Native's Flow source beneath
+  // it, ran uncompiled. There the files the loader would compile (React Native's, and
+  // packages selected for compiling) are compiled here, as the loader compiles an `.mjs`
+  // it is handed (requireFacade in loader.mjs). In-thread hooks see require(esm) and the
+  // file's own imports, so Node keeps it there.
+  const origMjs = Module._extensions[".mjs"];
+  if (origMjs) {
+    Module._extensions[".mjs"] = function (mod, filename) {
+      if (globalThis.__vitest_native_loader_mode !== "thread" || isTransforming()) {
+        return origMjs(mod, filename);
+      }
+      const norm = filename.replace(/\\/g, "/");
+      const rnPath = ownership.reactNativePathFor(filename);
+      if (rnPath === null && !isExtra(norm)) return origMjs(mod, filename);
+      const boundary = boundarySourceFor(rnPath ?? norm, platform, reactNativeVersion);
+      if (boundary != null) return mod._compile(boundary, filename);
+      const src = fs.readFileSync(filename, "utf8");
+      return mod._compile(transformRN(filename, src, projectRoot, platform), filename);
+    };
+  }
+
   // Node's CJS loader has no `.ts`/`.tsx` handler, so a synchronous
   // `jest.requireActual('./app/Component')` (common in migrated Jest suites, e.g.
   // to spread a real module then override one export) fails to load app TypeScript.
