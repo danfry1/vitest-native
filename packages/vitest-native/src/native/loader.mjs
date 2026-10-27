@@ -440,6 +440,20 @@ export function requireFacade(url, file, compiled) {
   };
 }
 
+/**
+ * A file Node loads as published. True ESM among them is recorded in the ownership
+ * ledger (ownership-ledger.mjs), which the worker installs on its own globalThis: with
+ * the in-thread hooks this runs there, and the ledger sees Node's ESM evaluations. Off
+ * thread, `nextLoad` is async and the global is another realm's, so nothing is recorded
+ * — CommonJS is covered there by the ledger's `_compile` wrapper. CommonJS is never
+ * recorded here: it reaches `_compile`, whose record knows when the hot reset drops it.
+ */
+function loadAsPublished(url, context, nextLoad) {
+  const result = nextLoad(url, context);
+  if (result?.format === "module") globalThis.__vitest_native_ownership_node_esm?.(url);
+  return result;
+}
+
 /** `load` never awaits: every path returns a result or `nextLoad(...)` directly. */
 export function loadSync(url, context, nextLoad) {
   // Serve the synthetic preset module. The generated source reads the mock built
@@ -523,7 +537,7 @@ export function loadSync(url, context, nextLoad) {
       transformRN(file, fs.readFileSync(file, "utf8"), PROJECT_ROOT, PLATFORM),
     );
   }
-  if (!isRN && !isExtra(norm)) return nextLoad(url, context);
+  if (!isRN && !isExtra(norm)) return loadAsPublished(url, context, nextLoad);
 
   if (isRN) {
     // RN's main index exports everything via lazy getters (`module.exports = {
@@ -558,7 +572,7 @@ export function loadSync(url, context, nextLoad) {
       if (isFlow(src))
         return requireFacade(url, file, transformRN(file, src, PROJECT_ROOT, PLATFORM));
     }
-    return nextLoad(url, context);
+    return loadAsPublished(url, context, nextLoad);
   }
 
   // Configured third-party package: transform any JS/TS/JSX source to CJS, served
@@ -590,8 +604,8 @@ export function loadSync(url, context, nextLoad) {
     // Only compile what Node cannot run as published — see needsTransform. A file V8
     // accepts is handed straight back to Node, which is how the toolchain packages a
     // closure walk drags in stop reaching the Babel preset at all.
-    if (!needsTransform(file, src)) return nextLoad(url, context);
+    if (!needsTransform(file, src)) return loadAsPublished(url, context, nextLoad);
     return requireFacade(url, file, transformRN(file, src, PROJECT_ROOT, PLATFORM));
   }
-  return nextLoad(url, context);
+  return loadAsPublished(url, context, nextLoad);
 }

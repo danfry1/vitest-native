@@ -20,7 +20,25 @@ class ByName extends BaseSequencer {
 }
 
 export default defineConfig({
-  plugins: [reactNative({ engine: "native", hotRuntime: false }), jestMockTransform()],
+  plugins: [
+    reactNative({
+      engine: "native",
+      hotRuntime: false,
+      ownership: {
+        allow: [
+          {
+            path: path.resolve(here, "jest-registry-no-isolate/dep.ts"),
+            reason:
+              "plain isolate:false keeps Node's CommonJS cache for the worker's life, so " +
+              "b2's require() copy is still live when b3 imports the file through Vite. " +
+              "The files share one worker on purpose; a real twin, and the cost of " +
+              "isolate:false without the hot runtime.",
+          },
+        ],
+      },
+    }),
+    jestMockTransform(),
+  ],
   test: {
     environment: "node",
     globals: true,

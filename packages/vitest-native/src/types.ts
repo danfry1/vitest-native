@@ -435,6 +435,31 @@ export interface VitestNativeOptions {
    * Default: `'device'`.
    */
   nativeModules?: "device" | "permissive";
+
+  /**
+   * `engine: 'native'` only. What happens when one file is evaluated by both Node and
+   * Vite in a worker. Such a file exists twice, and module state written through one
+   * copy is not seen by the other; nothing else reports it.
+   *
+   * - `'warn'`: report each such file once per worker, naming both sides, the route
+   *   and the fix.
+   * - `'error'`: throw `MODULE_DUAL_EVALUATION` at the second evaluation, before the
+   *   second copy is used.
+   *
+   * The object form adds `allow`, the only exemption: a file or directory (resolved
+   * against the Vitest root) and the reason it is deliberate. Detection cannot be turned
+   * off. `VITEST_NATIVE_OWNERSHIP_MODE=error` overrides the mode for a whole run.
+   *
+   * Default: `'warn'`. It becomes `'error'` in the next minor release.
+   * See docs/ownership-guard.md.
+   */
+  ownership?:
+    | "warn"
+    | "error"
+    | {
+        mode?: "warn" | "error";
+        allow?: { path: string; reason: string }[];
+      };
 }
 
 export interface ResolvedOptions {

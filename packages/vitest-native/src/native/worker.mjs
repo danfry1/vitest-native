@@ -21,6 +21,7 @@ import { installRegistry } from "./registry.mjs";
 import { captureModuleBaseline, resetEvaluatedModules } from "./module-reset.mjs";
 import { registerRntlHooksOnImport } from "./rntl-hooks.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
+import { installOwnershipLedger } from "./ownership-ledger.mjs";
 import { VitestNativeError } from "../errors.mjs";
 
 if (isMainThread || !parentPort) {
@@ -66,6 +67,9 @@ if (diagnostics) {
 // Enable the V8 compile cache before any RN module compiles, so the resident
 // graph's bytecode is cached to disk for the next worker/run.
 enableV8CompileCache(projectRoot);
+// First, so the resident graph is in the ledger: a later Vite evaluation of a file this
+// worker keeps resident is the dual evaluation that outlives every per-file reset.
+installOwnershipLedger({ projectRoot });
 installGlobals();
 installKnownNativeModules(projectRoot);
 // The registry must be installed BEFORE the preload below, not just by the setup

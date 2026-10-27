@@ -350,11 +350,16 @@ export function nodeRegistry() {
  * Vite's instance of a project module this file already evaluated, for a CommonJS
  * consumer, or NONE — so `require('./store')` after `import './store'` is one module,
  * as under Jest's single registry. Read from Vitest's worker state (`getModulesByFile`
- * is Vite's `EvaluatedModules` API). Skipped: nodes mid-evaluation, `mock:` nodes
- * (this registry serves those), and CommonJS Vite evaluated, whose `module.exports`
- * is a plain `default` data property where an ES module's exports are all getters.
- * The facade adds `__esModule` for Babel's interop, and a write defines a value on
- * the shared exports object, as `require(x).FLAG = true` does under babel-jest.
+ * is Vite's `EvaluatedModules` API). Skipped: nodes mid-evaluation and `mock:` nodes
+ * (this registry serves those). The facade adds `__esModule` for Babel's interop, and
+ * a write defines a value on the shared exports object, as `require(x).FLAG = true`
+ * does under babel-jest.
+ *
+ * CommonJS that Vite evaluated is told apart by its `default`: a plain data property
+ * holding `module.exports` (Vitest's `_createCJSGlobals` stores it there), where an
+ * ES module's exports are all getters. Its `module.exports` is what `require` returns,
+ * so that value is handed back as is. It used to be skipped, and Node compiled a
+ * second copy of the file: the ownership guard reported it (docs/ownership-guard.md).
  */
 const viteFacades = new WeakMap();
 function viteInstanceOf(filename) {
@@ -363,7 +368,8 @@ function viteInstanceOf(filename) {
   for (const node of nodes ?? []) {
     if (node.id?.startsWith("mock:") || !node.evaluated || node.exports == null) continue;
     const ns = node.exports;
-    if ("value" in (Object.getOwnPropertyDescriptor(ns, "default") ?? {})) return NONE;
+    const cjs = Object.getOwnPropertyDescriptor(ns, "default");
+    if (cjs && "value" in cjs) return cjs.value;
     let facade = viteFacades.get(ns);
     if (!facade) {
       facade = new Proxy(ns, {

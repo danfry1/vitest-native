@@ -18,6 +18,7 @@ import { installNitroProxy } from "./nitro.mjs";
 import { createExpoNativeModuleResolver } from "./expo-native-modules.mjs";
 import { cacheRootFor } from "./transform.mjs";
 import { installKnownNativeModules } from "./native-modules.mjs";
+import { installOwnershipLedger } from "./ownership-ledger.mjs";
 
 // Non-enumerable key on the preset container: the mocks built so far in this file.
 const PRESETS_BUILT = Symbol.for("vitest-native.presets-built");
@@ -184,6 +185,10 @@ const nodeTransformPkgs = [...new Set([...transformPkgs, ...Object.keys(presetEx
 // imports react-native, after this setup runs) so its bytecode is cached to disk
 // and reused on the next file/worker/run. Covers the stock (non-hot) path.
 enableV8CompileCache(projectRoot);
+// Before anything else loads through Node: the guard records every evaluation from here
+// on, on both sides (docs/ownership-guard.md). Once per worker; the hot worker installs
+// it at boot instead.
+installOwnershipLedger({ projectRoot });
 installGlobals();
 // Before React Native loads: its lookups ask the boundary which modules exist.
 installKnownNativeModules(projectRoot);

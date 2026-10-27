@@ -31,6 +31,11 @@ import { containsPath, packageDirOf } from "./native/match.mjs";
 type AssetModules = typeof import("./native/assets.mjs");
 import type { HotMemoryPlan } from "./native/memory.mjs";
 import { workerVitestMismatch } from "./native/worker-vitest.js";
+import {
+  OWNERSHIP_GUARD_ENV,
+  OWNERSHIP_MODE_ENV,
+  viteMarkerFor,
+} from "./native/ownership-ledger.mjs";
 import type { NativeOwnershipPolicy } from "./native/ownership.mjs";
 import {
   createNativeOwnershipPolicy,
@@ -1231,6 +1236,37 @@ function workerVitestMismatchReason(workerEntry: string, projectRoot: string): s
 
 type CliOptions = { isolate?: unknown; pool?: unknown; maxWorkers?: unknown };
 
+/**
+ * The ownership guard's worker config (native/ownership-ledger.mjs). The mode comes from
+ * `ownership`, then the run-wide VITEST_NATIVE_OWNERSHIP_MODE override, which is how CI
+ * runs every native suite in `error` without editing each config. Exemptions are real
+ * paths, as both sides of the ledger key files by real path.
+ */
+export function ownershipGuardConfig(
+  options: VitestNativeOptions | undefined,
+  root: string,
+): { mode: "warn" | "error"; allow: { path: string; reason: string }[] } {
+  const option = options?.ownership;
+  const configured = typeof option === "string" ? option : option?.mode;
+  const override = process.env[OWNERSHIP_MODE_ENV];
+  const mode =
+    override === "error" || override === "warn"
+      ? override
+      : configured === "error"
+        ? "error"
+        : "warn";
+  const allow = (typeof option === "object" && option?.allow ? option.allow : []).map((entry) => {
+    let target = path.resolve(root, entry.path);
+    try {
+      target = fs.realpathSync(target);
+    } catch {
+      // Not on disk yet: kept as written, and matches nothing until it is.
+    }
+    return { path: target, reason: entry.reason };
+  });
+  return { mode, allow };
+}
+
 export function reactNative(options?: VitestNativeOptions): Plugin {
   // Per plugin INSTANCE, not module scope. A Vitest workspace calls reactNative() once
   // per project and they share this module, so module-level state means the last
@@ -1666,6 +1702,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         if (options?.nativeModules === "permissive") {
           env[PERMISSIVE_NATIVE_MODULES_ENV] = "permissive";
         }
+        env[OWNERSHIP_GUARD_ENV] = JSON.stringify(ownershipGuardConfig(options, resolvedRoot));
       }
       // Asset extensions for the Node require hook (matches the Vite graph): a CJS
       // `require('./logo.png')` reaching Node's loader must become a Metro-shaped
@@ -2399,7 +2436,13 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       if (engine === "native") {
         if (!nativeOwnership) return undefined;
         const conflict = findNativeOwnershipConflict(nativeOwnership, id, "vite");
-        if (!conflict) return undefined;
+        if (!conflict) {
+          // The ownership guard's Vite half: record the evaluation when the module
+          // finishes running (native/ownership-ledger.mjs). Appended, so no code moves
+          // and the source map stays the previous one (`map: null`).
+          const marker = viteMarkerFor(id);
+          return marker === null ? undefined : { code: code + marker, map: null };
+        }
         throw new VitestNativeError(
           "MODULE_OWNER_CONFLICT",
           `Vite attempted to transform '${id}', but the native ownership policy assigns ` +
