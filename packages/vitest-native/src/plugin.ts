@@ -484,7 +484,8 @@ async function resolveOptions(
     const detected = await autoDetectPresets(diagnostics, root);
     const disabled = disabledPresetNames(options.presets);
     builtIn = detected.filter(
-      (p) => !disabled.has(p.name) && autoDetectedPresetApplies(p.name, engine, options.presets),
+      (p) =>
+        !disabled.has(p.name) && autoDetectedPresetApplies(p.name, engine, options.presets, root),
     );
   }
   const presets = [...builtIn, ...(await loadPresetModules(modulePaths, root))];
@@ -1706,7 +1707,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           ? selection.listed.map((p) => p.name)
           : autoDetectPresetNames(resolvedRoot, diagnostics).filter(
               (n) =>
-                !disabledNative.has(n) && autoDetectedPresetApplies(n, "native", options?.presets),
+                !disabledNative.has(n) &&
+                autoDetectedPresetApplies(n, "native", options?.presets, resolvedRoot),
             );
         if (nativePresetNames.length > 0) {
           env.VITEST_NATIVE_PRESET_NAMES = JSON.stringify(nativePresetNames);
@@ -2133,7 +2135,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         let shadows = false;
         for (const [moduleName, presetModule] of Object.entries(preset.modules)) {
           const names = presetModule.exportsFor
-            ? presetModule.exportsFor({ projectRoot: config.root, platform: resolved.platform })
+            ? presetModule.exportsFor({
+                projectRoot: config.root,
+                platform: resolved.platform,
+                engine,
+              })
             : presetModule.exports;
           exportsByModule[moduleName] = names;
           if (names === null) continue;
