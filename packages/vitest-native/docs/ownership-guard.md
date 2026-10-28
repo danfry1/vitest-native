@@ -192,18 +192,31 @@ differ only in case, each evaluated by a different side. They would be reported 
     so nothing keeps the worker alive and nothing throws from an event-loop callback.
     These records arrive after the module ran. In `error` mode they fail the file at
     its end rather than at the import.
-- **Vite side.** The plugin puts one call at the top of each module it hands the runner,
-  after any hashbang and directive prologue:
-  `globalThis.__vitest_native_ownership_vite?.(key, file)`.
-  - The call runs before the module's body. In `error` mode a second Vite copy is
-    refused before any of its code has run (one side effect, not two).
-  - It runs in every pool and on Vitest 4 and 5.
-  - Under the native engine the transform is `order: 'post'`, after esbuild/oxc. The
-    marker is inserted with magic-string, and the inserted code is unmapped in the
-    returned source map. Coverage therefore reports only the file's own lines; a
-    six-line file has no `DA:8`. Measured with `@vitest/coverage-v8`.
-    `@vitest/coverage-istanbul` is not installed in this repository, so istanbul is
-    unverified.
+- **Vite side.** The plugin appends one call, on lines of its own, to each module it
+  hands the runner: `globalThis.__vitest_native_ownership_vite?.(key, file)`.
+  - It runs as the module finishes evaluating, in every pool and on Vitest 4 and 5.
+  - Under the native engine the transform is `order: 'post'`, after esbuild/oxc, and
+    returns `map: null`: no code moves, so the previous map stands and there is no map
+    work. Coverage is byte-identical to main. On a six-line file, main and this branch
+    both report `DA:2,1 DA:3,1 DA:5,0 LF:3 LH:2`; the lcov files were compared byte for
+    byte with `@vitest/coverage-v8`. `@vitest/coverage-istanbul` is not installed in
+    this repository, so istanbul is unverified.
+  - The marker's key is the real path, case-folded like Node's. Vite can keep a
+    symlinked directory in an id, so the directory is real-pathed once and cached; a
+    stat or two per module showed up as about 8% transform time on react-native-paper.
+    A symlinked FILE inside a real directory is not resolved. That is a known gap; pnpm
+    and workspaces link directories.
+  - **Rejected: a marker at the top of the module.** It would let the ledger refuse a
+    second Vite copy before its body ran, but it cost too much:
+    - Remapping attributed the unmapped insertion to line 1, a phantom covered line
+      (`LF:4 LH:3` against main's `LF:3 LH:2`).
+    - The high-resolution map it needed cost 30–40% more transform time on
+      react-native-paper; one 765 KB file went from 1.2 ms to 10.1 ms.
+    - The maintainer's rule is no change in results or speed for existing users, so the
+      marker is last. A Vite copy evaluated second is therefore seen after its body
+      ran. In `error` mode its import throws (the message says "Vite's copy ran; this
+      file fails") and the end-of-file check fails the test file.
+    - A Node copy evaluated second is still refused before it runs.
   - The mock engine keeps the transform `pre`, because its Flow strip must run before
     esbuild.
   - Query-suffixed ids (`./x.ts?v=1`) are the file's own code and are recorded under
@@ -261,9 +274,9 @@ Routes:
 
 ### Fail loud
 
-- **At the evaluation.** In `error` mode the second evaluation throws before it runs.
-  A Node `require` throws before `_compile`; a Vite import throws at the top of the
-  module.
+- **At the evaluation.** In `error` mode a second Node evaluation throws before
+  `_compile`, so it never runs. A second Vite evaluation has already run when its
+  marker is reached; its import throws, so the copy is not handed to the importer.
 - **At the end of each test file.** The setup file's `afterAll` lists every dual
   evaluation the file caused. A library's `try { require(x) } catch {}` turns the
   first throw into "x is not installed", and this check still fails the file in
@@ -282,15 +295,29 @@ Routes:
 | --- | --- |
 | `recordNode` | about 0.24–0.32 µs |
 | `recordVite` | about 0.11 µs |
+| react-native-paper, cold transform cache, 6 interleaved runs each | main 617–725 ms (mean 664), branch 637–694 ms (mean 667): within noise |
 | 3000-require benchmark, project files | 38–40 µs per require with or without the ledger (within noise) |
 | 3000-require benchmark, `node_modules` | 34–37 µs per require with or without the ledger (within noise) |
 
 A stack is captured only when a conflict is reported. The first version captured one
 per project-file compile, which cost about 9 µs each.
 
+The mode and the `allow` list reach the worker at run time and are kept out of the
+plugin's transform cache key. Switching `VITEST_NATIVE_OWNERSHIP_MODE`, or the option,
+re-transforms nothing. A test checks that the cache's entry count does not change. The
+marker itself does not depend on the mode.
+
+The end-of-run reporter starts each run empty, so in watch mode a fixed dual evaluation
+stops being reported on the next run.
+
 ### Known limits
 
 - The threaded loader's ESM records arrive after the fact, as described above.
+- A Vite copy evaluated second runs before it is seen (see the Vite side above).
+- **Unicode normalisation is untested.** APFS keeps a file name in the form it was
+  created in, and macOS can hand a path back in NFD where an import spells it in NFC.
+  If Node and Vite meet one file under the two forms, the keys differ and the dual
+  evaluation is missed. Neither side normalises today. This is a known gap.
 - A second copy inside one module system (two Node copies) is not this guard's job.
 
 ## Rollout
