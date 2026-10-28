@@ -485,14 +485,15 @@ React Native 0.84.1, Jest 29.7, Vitest 5.0.1:
 | | 50 files, 4 workers | 200 files, 8 workers | peak RSS @200f |
 |---|--:|--:|--:|
 | Jest (RN preset) | 1438ms | 3993ms | 4727MB |
-| `reactNative({ engine: 'native' })` — the default | 805ms (**1.79×**) | 1499ms (**2.66×**) | 1110MB |
-| `engine: 'native'`, `hotRuntime: false` | 3033ms (0.47×) | 11620ms (0.34×) | 905MB |
+| `engine: 'native'`, `hotRuntime: 'auto'` (opt-in) | 805ms (**1.79×**) | 1499ms (**2.66×**) | 1110MB |
+| `reactNative({ engine: 'native' })` — the default (`hotRuntime: false`) | 3033ms (0.47×) | 11620ms (0.34×) | 905MB |
 | `engine: 'mock'` | 2252ms (0.64×) | 6900ms (0.58×) | 1093MB |
 
-Out of the box the native engine runs the hot runtime (`hotRuntime: 'auto'`): workers are
-reused and React Native's precompiled module graph stays warm while every file still gets
-fresh app/test modules and verified process state. With per-file worker isolation instead
-(`hotRuntime: false`), the cost at scale is Vitest's worker-per-file model, which costs the
+By default the native engine gives every file a fresh worker (`hotRuntime: false`). Opting in
+to the hot runtime (`hotRuntime: 'auto'`) reuses workers and keeps React Native's precompiled
+module graph warm while every file still gets fresh app/test modules and verified process state;
+it has [known differences](https://danfry1.github.io/vitest-native/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files)
+from per-file isolation. With per-file worker isolation, the cost at scale is Vitest's worker-per-file model, which costs the
 pure-JS **mock** engine just as much and has nothing to do with React Native; Jest reuses
 workers and resets its module registry, which is what the hot runtime does too. At 200
 files every vitest-native configuration used a quarter or less of Jest's peak memory.
@@ -500,7 +501,7 @@ files every vitest-native configuration used a quarter or less of Jest's peak me
 This is one generated suite on one machine, so treat the ratios as indicative; your suite's
 shape decides yours. Where the hot runtime cannot be bounded (a single worker, an explicit
 pool, the worker and the project resolving different Vitest versions) `'auto'` keeps per-file
-isolation, and the row above is the one that applies. To reproduce, from `bench/`:
+isolation, and the default row is the one that applies. To reproduce, from `bench/`:
 `BENCH_FILES=50,200 BENCH_WORKERS_SWEEP=4,8 BENCH_ENGINES=jest,native-default,native-stock,mock node scale/run.mjs`.
 
 ## Contributing
