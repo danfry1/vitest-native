@@ -17,6 +17,8 @@ export interface StateManifest {
 export declare function createStateManifest(options?: {
   diagnostics?: boolean;
   mutation?: string | null;
+  trace?: boolean;
 }): StateManifest;
 
+/** Every built-in entry, in the order its restore must run. */
 export declare const HOT_STATE_MANIFEST_ENTRIES: readonly string[];

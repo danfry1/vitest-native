@@ -190,6 +190,9 @@ jobs:
       - name: Native engine hot-runtime isolation
         run: bun run test:native:hot:isolation
 
+      - name: Native engine hot-runtime state manifest (each restore observable, in order)
+        run: bun run test:native:hot:state-manifest
+
       - name: Native engine hot-runtime soak and recycling
         run: bun run test:native:hot:soak
 

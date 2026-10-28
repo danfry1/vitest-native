@@ -190,6 +190,13 @@ jobs:
         if: ${{ !matrix.rntl }}
         run: bun run test:native:hot:isolation
 
+      - name: Native engine hot-runtime state manifest (each restore observable, in order)
+        # Removes one restore at a time and requires the isolation suite to fail by
+        # name, then checks the restores run in the declared order (the #350 class).
+        # Calibrated with the isolation suite, so it runs on the same legs.
+        if: ${{ !matrix.rntl }}
+        run: bun run test:native:hot:state-manifest
+
       - name: Native engine hot-runtime soak and recycling
         if: ${{ !matrix.rntl }}
         run: bun run test:native:hot:soak

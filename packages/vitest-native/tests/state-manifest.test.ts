@@ -42,10 +42,11 @@ describe("hot-runtime import attribution", () => {
 });
 
 describe("hot-runtime state manifest", () => {
-  it("publishes the complete built-in entry list for diagnostics and mutation gates", () => {
+  it("publishes the complete built-in entry list, in restore order, for diagnostics and the gates", () => {
     expect(HOT_STATE_MANIFEST_ENTRIES).toEqual([
       "vitest-runtime",
       "native-boundary-mocks",
+      "jest-compat.node-mocks",
       "native-module-mocks",
       "react-native.dimensions",
       "react-native.appearance",
@@ -56,7 +57,6 @@ describe("hot-runtime state manifest", () => {
       "console.descriptors",
       "react-native.error-utils",
       "expo.runtime",
-      "jest-compat.node-mocks",
     ]);
   });
 

@@ -14,11 +14,12 @@ function messageOf(error) {
   return message.replace(/^\[vitest-native\] /, "");
 }
 
-export function createStateManifest({ diagnostics = false, mutation = null } = {}) {
+export function createStateManifest({ diagnostics = false, mutation = null, trace = false } = {}) {
   const records = [];
   const ids = new Set();
   let initialized = false;
   let dirty = false;
+  let lastTrace = null;
 
   function capture(record) {
     try {
@@ -75,6 +76,16 @@ export function createStateManifest({ diagnostics = false, mutation = null } = {
         (left.entry.restoreOrder ?? 0) - (right.entry.restoreOrder ?? 0) ||
         left.registrationIndex - right.registrationIndex,
     );
+    if (trace) {
+      // Ordering oracle for scripts/test-hot-state-manifest.mjs: the order these
+      // restores actually ran in, printed whenever it changes. Like `mutation`,
+      // an internal validation switch, not a user option.
+      const order = ordered.map(({ entry }) => entry.id).join(", ");
+      if (order !== lastTrace) {
+        lastTrace = order;
+        process.stderr.write(`[vitest-native] state restore order: ${order}\n`);
+      }
+    }
     for (const record of ordered) {
       const { entry, snapshot } = record;
       try {
@@ -121,9 +132,22 @@ export function createStateManifest({ diagnostics = false, mutation = null } = {
   });
 }
 
+// Every built-in entry, IN THE ORDER ITS RESTORES MUST RUN. Order is declared by each
+// registration's `restoreOrder` (then registration order), which lives next to the
+// restore it moves; this list is the independent statement of the contract, and
+// scripts/test-hot-state-manifest.mjs fails when a real hot run restores in any other
+// order. The constraints that make it an order rather than a set:
+// - vitest-runtime first: Vitest's fake-timer uninstall owns Date and deletes it if
+//   global.descriptors restores Date before it.
+// - native-boundary-mocks and jest-compat.node-mocks before every react-native.*
+//   restore: those reach RN modules through the boundary objects and Node's loader,
+//   so a previous file's override or `jest.mock(…, () => null)` would still answer
+//   them (#350: the Appearance restore read `null.setColorScheme` and the next file
+//   was never collected).
 export const HOT_STATE_MANIFEST_ENTRIES = Object.freeze([
   "vitest-runtime",
   "native-boundary-mocks",
+  "jest-compat.node-mocks",
   "native-module-mocks",
   "react-native.dimensions",
   "react-native.appearance",
@@ -134,5 +158,4 @@ export const HOT_STATE_MANIFEST_ENTRIES = Object.freeze([
   "console.descriptors",
   "react-native.error-utils",
   "expo.runtime",
-  "jest-compat.node-mocks",
 ]);

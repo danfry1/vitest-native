@@ -114,6 +114,7 @@ export function installHotReset({ projectRoot, diagnostics, preserveGlobals = []
   const manifest = createStateManifest({
     diagnostics,
     mutation: process.env.VITEST_NATIVE_HOT_STATE_MUTATION || null,
+    trace: process.env.VITEST_NATIVE_HOT_STATE_TRACE === "1",
   });
 
   // --- (1) Track listeners added to the RCTDeviceEventEmitter singleton ---
