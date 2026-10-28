@@ -206,14 +206,10 @@ export interface PresetModule {
   /**
    * Named exports read from the installed package, for a package whose API changes
    * between releases; replaces `exports` when present. Called once at Vite config time
-   * with the project root, platform and engine. `null` means the package is not
-   * installed, so the module is not shadowed at all.
+   * with the project root and platform. `null` means the package is not installed, so
+   * the module is not shadowed at all.
    */
-  exportsFor?: (context: {
-    projectRoot: string;
-    platform: "ios" | "android";
-    engine: "mock" | "native";
-  }) => string[] | null;
+  exportsFor?: (context: { projectRoot: string; platform: "ios" | "android" }) => string[] | null;
 }
 
 export interface Preset {
