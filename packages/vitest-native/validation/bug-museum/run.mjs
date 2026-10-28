@@ -27,7 +27,9 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { buildInfo } from "./lib/build-info.mjs";
+import { exhibitHash } from "./lib/hash.mjs";
 import { runLines } from "./lib/lines.mjs";
 import { findRntl, materialise, museumRoot, packageRoot } from "./lib/materialise.mjs";
 import { classify, validateSignature } from "./lib/verdict.mjs";
@@ -239,7 +241,11 @@ function main() {
         matchesBug: false,
       };
     }
-    verdicts[exhibit.id] = { ...verdict, build: provenance };
+    verdicts[exhibit.id] = {
+      ...verdict,
+      build: provenance,
+      exhibit: exhibitHash(museumRoot, exhibit),
+    };
     const tag =
       verdict.verdict === "FAIL"
         ? verdict.matchesBug
@@ -277,4 +283,4 @@ function main() {
   process.exitCode = count("FAIL") > 0 || na ? 1 : 0;
 }
 
-main();
+if (process.argv[1] === fileURLToPath(import.meta.url)) main();

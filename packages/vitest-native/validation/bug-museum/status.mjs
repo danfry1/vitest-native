@@ -20,6 +20,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { exhibitHash } from "./lib/hash.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const argument = (name) => {
@@ -102,6 +103,10 @@ for (const exhibit of manifest.exhibits) {
     else if (verdict.build.sha !== sha)
       problems.push(
         `${exhibit.id}: the ${column} verdict ran on ${verdict.build.sha}, but columns.json says ${sha ?? "(no entry)"}`,
+      );
+    if (verdict.exhibit !== exhibitHash(here, exhibit))
+      problems.push(
+        `${exhibit.id}: the ${column} verdict was measured on ${verdict.exhibit ? "an earlier version of" : "an unrecorded version of"} this exhibit; run it again`,
       );
     status[column] = cell(verdict);
   }

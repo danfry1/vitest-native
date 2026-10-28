@@ -5,15 +5,17 @@
 // prints the built package directory (<cache>/<sha>/packages/vitest-native). The ref is
 // exported with `git archive` (no worktree is created), installed from its own lockfile
 // (`bun install --frozen-lockfile`, from bun's cache: nothing new is downloaded when the
-// lockfile's packages are cached) and built. `.museum-build.json` records the SHA and the
-// ref, which run.mjs copies into every verdict. A cache entry is reused only when its
-// recorded SHA is the one the ref resolves to now. Default cache: os.tmpdir()/vn-bug-museum-builds.
+// lockfile's packages are cached) and built. `.museum-build.json` records the SHA, the ref
+// and a hash of package.json plus dist/, which run.mjs copies into every verdict. A cache
+// entry is reused only when its recorded SHA is the one the ref resolves to now and its
+// files still match the recorded hash. Default cache: os.tmpdir()/vn-bug-museum-builds.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { BUILD_INFO } from "./lib/build-info.mjs";
+import { BUILD_INFO, buildInfo } from "./lib/build-info.mjs";
+import { buildHash } from "./lib/hash.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "../../../..");
@@ -31,7 +33,10 @@ export function buildRef(ref, cache = path.join(os.tmpdir(), "vn-bug-museum-buil
   const root = path.join(cache, sha);
   const pkg = path.join(root, "packages/vitest-native");
   const info = path.join(pkg, BUILD_INFO);
-  if (fs.existsSync(info) && JSON.parse(fs.readFileSync(info, "utf8")).sha === sha) return pkg;
+  if (fs.existsSync(info)) {
+    const cached = buildInfo(pkg);
+    if (cached.verified && cached.sha === sha) return pkg;
+  }
   fs.rmSync(root, { recursive: true, force: true });
   fs.mkdirSync(root, { recursive: true });
   const run = (command, args, cwd, what) => {
@@ -48,7 +53,7 @@ export function buildRef(ref, cache = path.join(os.tmpdir(), "vn-bug-museum-buil
   run("sh", ["-c", `git -C '${repo}' archive '${sha}' | tar -x -C '${root}'`], root, "git archive");
   run("bun", ["install", "--frozen-lockfile"], root, "bun install --frozen-lockfile");
   run("nice", ["-n", "10", "bun", "run", "build"], pkg, "bun run build");
-  fs.writeFileSync(info, `${JSON.stringify({ sha, ref })}\n`);
+  fs.writeFileSync(info, `${JSON.stringify({ sha, ref, hash: buildHash(pkg) })}\n`);
   return pkg;
 }
 
