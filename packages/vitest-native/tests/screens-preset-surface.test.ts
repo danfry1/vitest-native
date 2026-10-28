@@ -107,12 +107,25 @@ describe("screens preset surface", () => {
     expect(screen.getByTestId("header-right-button")).toBeTruthy();
     expect(screen.getByTestId("content")).toBeTruthy();
 
-    const item = screen.getByTestId("item");
+    // Read the host tree: RNTL 12 and 13 return composite instances from queries,
+    // whose children are elements, where RNTL 14 returns host nodes.
+    type HostNode = { type: string; props: Record<string, unknown>; children?: unknown[] };
+    const findHost = (node: unknown, testID: string): HostNode | undefined => {
+      if (!node || typeof node !== "object") return undefined;
+      const host = node as HostNode;
+      if (host.props?.testID === testID) return host;
+      for (const child of host.children ?? []) {
+        const found = findHost(child, testID);
+        if (found) return found;
+      }
+      return undefined;
+    };
+    const item = findHost(screen.toJSON(), "item");
     // The header follows the content, as in the real component, and carries the
     // config as its own props; the item does not.
-    expect(item.props.headerConfig).toBeUndefined();
-    expect(item.props.screenId).toBe("home");
-    const header = item.children[1] as { type: string; props: Record<string, unknown> };
+    expect(item?.props.headerConfig).toBeUndefined();
+    expect(item?.props.screenId).toBe("home");
+    const header = item?.children?.[1] as HostNode;
     expect(header.type).toBe("ScreenStackHeaderConfig");
     expect(header.props).toMatchObject({ title: "Home", hidden: true });
   });
