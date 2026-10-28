@@ -4,6 +4,10 @@
 
 ### Upgrading from 0.13
 
+- **Node 22.13 or later on Node 22, or Node 24.3 or later.** `engines.node` is
+  `>=22.13.0 <23 || >=24.3.0` (it was `>=20.19.0`): Node 20 reached end of life in April 2026, and
+  on Node 24.0–24.2 `jest.mock`, `jest.isolateModules` and `jest.resetModules` do not reach modules
+  Node loads. `vitest-native doctor` checks the range.
 - **Per-file isolation stays the default.** `hotRuntime` defaults to `false`, as in 0.13.0: under
   the native engine each test file runs in a fresh worker. The hot runtime, which reuses workers
   across files and is faster on most suites, is available with `hotRuntime: 'auto'`. Four known
@@ -70,6 +74,8 @@
   preset while a suite moves off it.
 
 ### Minor Changes
+
+- 7cee4a7: **Breaking:** vitest-native supports Node 22.13 or later on Node 22, and Node 24.3 or later (`engines.node` is `>=22.13.0 <23 || >=24.3.0`; it was `>=20.19.0`). Node 20 reached end of life in April 2026. Node 22.13 is the first Node 22 that both RNTL 14 and the engine's CommonJS entry points (`require(esm)`) support. On Node 24.0–24.2, `jest.mock`, `jest.isolateModules` and `jest.resetModules` do not reach modules Node loads, with either loader. Node 23 is past its end of life. `doctor` checks the whole range. RNTL 12, 13 and 14 stay supported, and CI runs RNTL 12 and 13 on Node 22.13 instead of Node 20.
 
 - 191c286: Under the native engine, Expo modules run as their installed packages, answering as they do under jest-expo. The `expo` preset no longer replaces `expo-constants`, `expo-status-bar`, `expo-font`, `expo-asset`, `expo-splash-screen` and `expo-linking` there; their own JavaScript runs, so their whole API is present and current with the installed SDK. `import { hide } from 'expo-splash-screen'`, Expo's call since SDK 52, was `undefined` under the preset (#319), as were `setOptions`, `useAssets`, `getLoadedFonts`, `canOpenURL` and others.
 
@@ -223,6 +229,14 @@
   extensions still apply and one warning names the gap. Default: `false`.
 
 ### Patch Changes
+
+- 1785957: `hotRuntime` stays `false` by default, as in 0.13.0: under the native engine each test file runs in a fresh worker. The hot runtime, which reuses workers across files and is faster on most suites, is available with `hotRuntime: 'auto'`; four known differences from per-file isolation are listed in the troubleshooting guide. Release candidates 0.14.0-rc.1 to rc.8 defaulted to `'auto'`, so a project that relied on that sets `hotRuntime: 'auto'` to keep it.
+
+- ff23fde: The hot runtime no longer drops test files from a run. When a test file `jest.mock`ed a module that the per-file reset restores through Node, such as `jest.mock('react-native/Libraries/Utilities/Appearance', () => null)`, the reset for the next file threw before that file was collected. The file then had no result in any reporter, and the JSON report did not show it at all. With one worker, every later file of the run was lost the same way. On react-native-paper this dropped one file per run with four workers and 19 of 52 files with one. The `jest.mock` registrations are now cleared before the React Native state is restored. A reset that fails now fails the file it was for, with the error. A file that never runs because its worker's task broke is now reported as failed by name, and the run fails.
+
+- cbade8c: The native engine runs its ESM loader in-thread (`module.registerHooks`) only on Node 22.22.3 and later on Node 22, 24.12 and later on Node 24, and Node 26 on; other Node versions use the threaded loader (`module.register`), as Node 22.13 always has. On the earlier releases that have `registerHooks`, the in-thread hooks broke the engine: expo-router failed to load its navigation elements ("request for 'node:module' is from a module not been linked") through Node 22.22.2 and 24.11, and the hot runtime's module reset did not behave as on other versions. `VITEST_NATIVE_LOADER_THREAD=1` still forces the threaded loader anywhere.
+
+- 0c45e87: The native engine no longer reads every `require()` as an `import` on Node 22.15–22.18 and early Node 24 releases (24.3 and 24.4 measured), which 0.14.0's supported range now leaves out. Its in-thread loader hooks tell a `require()` from an `import` by the conditions Node passes them, and on those versions a `require()` reports its conditions as an empty object instead of a list. Every `require()` was read as an `import` and reached the engine's loader, which compiled Babel's own files as Babel loaded them, so every test failed with "Reentrant preset detected". Node 22.19 and 24.6 onwards list them and were unaffected, and so was Node 22.13, which uses the threaded loader.
 
 - ce3be7a: Under the native engine, a test that imports `expo` or `expo-router` from Expo SDK 58 (React Native 0.88) no longer hangs. Expo's runtime requires `react-native/setup-env`, which replaced Node's timers with React Native's native-driven ones, so the first awaited timer never fired. That entry is now skipped, as `InitializeCore` already was. The `expo-linking` preset also adds `getLinkingURL`, `openURL` and `unwrapDevLaunchURL`, which expo-router 58 calls while rendering a route tree.
 
