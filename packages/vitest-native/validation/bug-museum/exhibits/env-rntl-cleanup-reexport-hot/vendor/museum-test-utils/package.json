@@ -1,0 +1,9 @@
+{
+  "name": "museum-test-utils",
+  "version": "1.0.0",
+  "main": "index.js",
+  "peerDependencies": {
+    "react-native": "*",
+    "@testing-library/react-native": "*"
+  }
+}

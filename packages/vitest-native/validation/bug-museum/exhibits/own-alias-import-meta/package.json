@@ -1,0 +1,11 @@
+{
+  "name": "museum-own-alias-import-meta",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "dependencies": {
+    "@m/feature": "*"
+  }
+}

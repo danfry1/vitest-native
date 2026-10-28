@@ -1,0 +1,11 @@
+{
+  "name": "museum-own-partial-mock-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "dependencies": {
+    "@m/ui": "*"
+  }
+}

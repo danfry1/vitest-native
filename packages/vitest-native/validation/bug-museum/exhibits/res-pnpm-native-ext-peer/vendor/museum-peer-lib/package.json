@@ -1,0 +1,9 @@
+{
+  "name": "museum-peer-lib",
+  "version": "1.0.0",
+  "main": "index.js",
+  "peerDependencies": {
+    "react-native": "*",
+    "react-native-worklets": "*"
+  }
+}

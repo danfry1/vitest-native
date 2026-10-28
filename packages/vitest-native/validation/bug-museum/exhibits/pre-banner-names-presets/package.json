@@ -1,0 +1,8 @@
+{
+  "name": "museum-pre-banner-names-presets",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "react-native-safe-area-context": "*"
+  }
+}

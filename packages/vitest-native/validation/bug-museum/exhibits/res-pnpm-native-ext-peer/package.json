@@ -1,0 +1,8 @@
+{
+  "name": "museum-res-pnpm-native-ext-peer",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "museum-peer-lib": "1.0.0"
+  }
+}
