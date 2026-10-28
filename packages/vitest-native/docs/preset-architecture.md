@@ -15,7 +15,7 @@ suite wires up by hand:
 
 | Library | What it ships for Jest | What it replaces |
 |---|---|---|
-| react-native-reanimated (4.7+) | `react-native-reanimated/mock`, `jest/resolver.js` | the package, with its own mock over the real JS; the mock's no-op `interpolate`, `interpolateColor`, `clamp` and scroll handlers replaced (`extend` in presets/reanimated.ts) |
+| react-native-reanimated (4.7+) | `react-native-reanimated/mock`, `jest/resolver.js` | the package, with its own mock over the real JS; the mock's no-op `interpolate`, `interpolateColor`, `clamp`, scroll handlers and scroll offsets replaced while they are no-ops (`mockCorrections` in presets/reanimated.ts) |
 | react-native-worklets (0.9+) | `jest/resolver.js` | nothing: the JS implementation runs |
 | react-native-gesture-handler | `jestSetup.js` | its native module and host components; the JS is real |
 | @shopify/flash-list | `jestSetup.js` | layout measurement; the list is real |
