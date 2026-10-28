@@ -399,9 +399,7 @@ describe("the ownership guard reports a real dual evaluation", () => {
       const { status, output } = run("partial-mock", "error");
       const report = reportFor(output, partialStore());
       expect(report, output).not.toBe("");
-      expect(report).toContain(
-        "Vite's copy was refused before its body ran: the import threw (ownership: 'error')",
-      );
+      expect(report).toContain("Vite's copy ran; this file fails.");
       expect(status).not.toBe(0);
     },
     200_000,

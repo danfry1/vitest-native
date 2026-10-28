@@ -65,7 +65,7 @@ describe("a file evaluated by Node and then by Vite", () => {
     expect(message).toMatch(/second\s+-> Vite, imported by .*ownership-guard\.test\.ts/);
     expect(message).toContain("route        -> require() in a file Vite evaluated");
     if (ledger?.mode === "error") {
-      expect(message).toContain("Vite's copy was refused before its body ran");
+      expect(message).toContain("Vite's copy ran; this file fails.");
     }
     // Handled here on purpose: take it off this file's list, or the setup file's
     // end-of-file check fails the file for it (and the run summary lists it).

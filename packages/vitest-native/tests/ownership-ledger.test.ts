@@ -15,10 +15,14 @@ import {
   ledgerKey,
   nodeKey,
   parseOwnershipGuardConfig,
-  realKey,
   viteMarkerFor,
 } from "../src/native/ownership-ledger.mjs";
-import { ownershipGuardConfig, reactNative, withOwnershipMarker } from "../src/plugin.js";
+import {
+  OwnershipSummaryReporter,
+  ownershipGuardConfig,
+  reactNative,
+  withOwnershipMarker,
+} from "../src/plugin.js";
 import { validateOptions } from "../src/validate.js";
 
 const FILE = "/repo/app/src/store.ts";
@@ -162,25 +166,22 @@ describe("the Vite marker", () => {
     dir = "";
   });
 
-  it("is written for real JS/TS/JSON modules, keyed by real path, query stripped", () => {
-    dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-ledger-marker-")));
-    fs.mkdirSync(path.join(dir, "real"));
-    fs.writeFileSync(path.join(dir, "real", "a.ts"), "export {};\n");
-    fs.writeFileSync(path.join(dir, "real", "data.json"), "{}\n");
-    fs.symlinkSync(path.join(dir, "real"), path.join(dir, "link"), "junction");
-    const marker = viteMarkerFor(path.join(dir, "link", "a.ts"));
-    expect(marker).toContain(JSON.stringify(realKey(path.join(dir, "real", "a.ts"))));
-    expect(marker).toMatch(/^globalThis\.__vitest_native_ownership_vite\?\.\(/);
-    // The same file's code under a query is recorded under the file.
-    expect(viteMarkerFor(`${path.join(dir, "real", "a.ts")}?x=1`)).toBe(
-      viteMarkerFor(path.join(dir, "real", "a.ts")),
+  it("is written for JS/TS/JSON module ids, query stripped, without touching the disk", () => {
+    // Vite's ids are already real paths; the marker keys them as Node keys its files.
+    const id = "/Repo/src/A.ts";
+    const marker = viteMarkerFor(id);
+    expect(marker).toBe(
+      `globalThis.__vitest_native_ownership_vite?.(${JSON.stringify(nodeKey(id))}, ${JSON.stringify(id)});`,
     );
-    expect(viteMarkerFor(path.join(dir, "real", "data.json"))).not.toBeNull();
-    // Queries that serve something other than the module, virtual ids, missing files.
-    expect(viteMarkerFor(`${path.join(dir, "real", "a.ts")}?raw`)).toBeNull();
-    expect(viteMarkerFor(`${path.join(dir, "real", "a.ts")}?url`)).toBeNull();
+    // The same file's code under a query is recorded under the file.
+    expect(viteMarkerFor(`${id}?x=1`)).toBe(marker);
+    expect(viteMarkerFor("/repo/src/data.json")).not.toBeNull();
+    // Queries that serve something other than the module, virtual and relative ids.
+    expect(viteMarkerFor(`${id}?raw`)).toBeNull();
+    expect(viteMarkerFor(`${id}?url`)).toBeNull();
     expect(viteMarkerFor("\0virtual:x.ts")).toBeNull();
-    expect(viteMarkerFor(path.join(dir, "real", "missing.ts"))).toBeNull();
+    expect(viteMarkerFor("src/a.ts")).toBeNull();
+    expect(viteMarkerFor("/repo/src/a.css")).toBeNull();
   });
 
   it("folds case only where the file system ignores it", () => {
@@ -386,18 +387,43 @@ describe("the plugin's side of the guard", () => {
     expect(plugin.transform.order).toBe("pre");
   });
 
-  it("puts the marker after the directive prologue, with a map that moves no line", () => {
-    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-ledger-prologue-")));
+  it("appends the marker on lines of its own and leaves the map alone", () => {
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-ledger-eof-")));
     try {
       const file = path.join(dir, "m.js");
-      const code = '#!/usr/bin/env node\n"use strict";\nexport const a = 1;\n';
+      const code = "export const a = 1 // a trailing comment, no newline";
       fs.writeFileSync(file, code);
       const result = withOwnershipMarker(code, file)!;
-      expect(result.code.startsWith('#!/usr/bin/env node\n"use strict";globalThis.')).toBe(true);
-      expect(result.code.split("\n")).toHaveLength(code.split("\n").length);
-      expect(result.map.mappings).not.toBe("");
+      // Every original byte where it was; the marker after a newline, so a trailing
+      // line comment cannot swallow it.
+      expect(result.code.startsWith(`${code}\n;globalThis.__vitest_native_ownership_vite?.(`)).toBe(
+        true,
+      );
+      expect(result.map).toBeNull();
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("reports each watch-mode run's findings, not every run's so far", () => {
+    const written: string[] = [];
+    const reporter = new OwnershipSummaryReporter(
+      () => [],
+      (text) => written.push(text),
+    );
+    const file = (conflicts: { file: string; second: string; route: string }[]) => ({
+      moduleId: "/repo/src/a.test.ts",
+      meta: () => ({ vitestNativeOwnership: { mode: "warn", conflicts, allowUsed: [] } }),
+    });
+    reporter.onTestRunStart();
+    reporter.onTestModuleEnd(file([{ file: "/repo/src/store.ts", second: "vite", route: "r" }]));
+    reporter.onTestRunEnd();
+    expect(written.join("")).toContain("/repo/src/store.ts");
+    // Fixed in the next run: nothing to report.
+    written.length = 0;
+    reporter.onTestRunStart();
+    reporter.onTestModuleEnd(file([]));
+    reporter.onTestRunEnd();
+    expect(written).toEqual([]);
   });
 });

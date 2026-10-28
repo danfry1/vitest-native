@@ -31,7 +31,6 @@ import { containsPath, packageDirOf } from "./native/match.mjs";
 type AssetModules = typeof import("./native/assets.mjs");
 import type { HotMemoryPlan } from "./native/memory.mjs";
 import { workerVitestMismatch } from "./native/worker-vitest.js";
-import { MagicString } from "magic-string";
 import {
   OWNERSHIP_GUARD_ENV,
   OWNERSHIP_META_KEY,
@@ -1303,6 +1302,12 @@ export class OwnershipSummaryReporter {
     private readonly allow: () => { path: string; reason: string }[],
     private readonly write: (text: string) => void = (text) => process.stderr.write(text),
   ) {}
+  // Watch mode re-runs in one process: each run reports what that run found.
+  onTestRunStart(): void {
+    this.found.clear();
+    this.used.clear();
+    this.mode = "warn";
+  }
   onTestModuleEnd(testModule: { moduleId: string; meta(): Record<string, unknown> }): void {
     const data = testModule.meta()?.[OWNERSHIP_META_KEY] as
       | {
@@ -1344,25 +1349,30 @@ export class OwnershipSummaryReporter {
   }
 }
 
-// A directive prologue and hashbang must stay first; the marker goes after them.
-const PROLOGUE = /^(?:#!.*(?:\r?\n|$))?(?:\s*(?:"use [^"\n]*"|'use [^'\n]*')\s*;?)*/;
+/** The cache-key state without the ownership guard's run-time settings. */
+export function withoutOwnershipGuard(
+  options: VitestNativeOptions | undefined,
+  env: Record<string, string> | undefined,
+): { options: unknown; env: unknown } {
+  const { ownership: _ownership, ...rest } = options ?? {};
+  const { [OWNERSHIP_GUARD_ENV]: _guard, ...otherEnv } = env ?? {};
+  return { options: options ? rest : options, env: env ? otherEnv : env };
+}
 
 /**
- * The ownership guard's Vite half (native/ownership-ledger.mjs): a call at the top of
- * the module, so the ledger sees the evaluation before the module's body runs and, in
- * error mode, can refuse a second copy before it has any effect. This transform runs
- * after esbuild/oxc (`order: 'post'` under the native engine), and the inserted code
- * is unmapped in the returned map, so coverage reports only the file's own lines.
+ * The ownership guard's Vite half (native/ownership-ledger.mjs): a call appended at the
+ * end of the module, run as it finishes evaluating. Appended on lines of its own after
+ * esbuild/oxc (`order: 'post'`), so no code moves and the map is the previous one
+ * (`map: null`). A marker at the top had to be mapped, and it cost both a phantom
+ * covered line 1 in coverage and a high-resolution map per module: +30-40% transform
+ * time on react-native-paper (docs/ownership-guard.md).
  */
 export function withOwnershipMarker(
   code: string,
   id: string,
-): { code: string; map: ReturnType<MagicString["generateMap"]> } | undefined {
+): { code: string; map: null } | undefined {
   const marker = viteMarkerFor(id);
-  if (marker === null) return undefined;
-  const s = new MagicString(code);
-  s.appendLeft(PROLOGUE.exec(code)?.[0].length ?? 0, marker);
-  return { code: s.toString(), map: s.generateMap({ hires: true, source: id }) };
+  return marker === null ? undefined : { code: `${code}\n;${marker}\n`, map: null };
 }
 
 export function reactNative(options?: VitestNativeOptions): Plugin {
@@ -2648,7 +2658,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             fsModuleCacheKey(
               path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."),
               viteRoot,
-              { options, env: (test as { env?: unknown }).env },
+              // The ownership guard's mode and exemptions are read by the worker at run
+              // time and never change a transform: kept out of the key, so switching
+              // VITEST_NATIVE_OWNERSHIP_MODE or `allow` re-transforms nothing.
+              withoutOwnershipGuard(options, (test as { env?: Record<string, string> }).env),
             ),
           );
         }

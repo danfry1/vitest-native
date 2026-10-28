@@ -114,6 +114,8 @@ export default defineConfig({
     'import { expect, it } from "vitest";\nimport { covered } from "./fx/cov";\nit("cov", () => expect(covered(1)).toBe("pos"));\n',
   );
   write("src/fx/data.json", '{ "value": null }\n');
+  // A symlinked directory: Vite can keep the link in its id, Node keys the real path.
+  fs.symlinkSync(path.join(app, "src/fx"), path.join(app, "src/fxlink"), DIR);
   write("src/fx/esm.mjs", "export const store = { value: null };\n");
   write("src/fx/e2.mjs", "export const store = { value: null };\n");
   write(
@@ -145,6 +147,9 @@ export function out(name: string, split: boolean, file: RegExp, extra = "") {
     esm: `const viaNode = require("./fx/esm.mjs");
   const viaVite = await import("./fx/esm.mjs");
   out("esm", viaVite.store !== viaNode.store, /fx[\\\\/]esm\\.mjs/);`,
+    symlink: `const viaNode = require("./fxlink/rq.ts");
+  const viaVite = await import("./fxlink/rq");
+  out("symlink", viaVite.store !== viaNode.store, /fx(link)?[\\/]rq\\.ts/);`,
     query: `const viaNode = require("./fx/q.ts");
   // @ts-ignore
   const viaVite = await import("./fx/q.ts?x=1");
@@ -244,6 +249,7 @@ const SPLIT_SHAPES = [
   ["json", "node>vite:require-from-vite:json"],
   ["esm", "node>vite:require-from-vite:require-esm"],
   ["query", "node>vite:require-from-vite:cjs"],
+  ["symlink", "node>vite:require-from-vite:cjs"],
   ["spy", "vite>node:require-from-vite:cjs"],
   ["reqactual", "node>vite:jest-compat:cjs"],
   ["inline", "vite>node:vite-inline:cjs"],
@@ -269,8 +275,15 @@ describe.runIf(distExists)("the ownership guard on the review's shapes", () => {
       .split("\n").length;
     expect(lines.length, output).toBeGreaterThan(0);
     expect(Math.max(...lines.map(([line]) => line))).toBeLessThanOrEqual(fileLines);
-    // The branch not taken is the only uncovered line.
-    expect(lines.filter(([, hits]) => hits === 0).map(([line]) => line)).toEqual([5]);
+    // Exactly what main reports for this file (measured on 9c02b56): no phantom line 1
+    // and no line past the end, from a marker the map attributes to the file.
+    expect(lcov.match(/^(?:DA|LF|LH):.*$/gm)).toEqual([
+      "DA:2,1",
+      "DA:3,1",
+      "DA:5,0",
+      "LF:3",
+      "LH:2",
+    ]);
   }, 200_000);
 
   it("warn: every split is recorded with its route, and summarised whatever the reporter", () => {
@@ -289,6 +302,20 @@ describe.runIf(distExists)("the ownership guard on the review's shapes", () => {
     expect(status, output).toBe(0);
   }, 200_000);
 
+  it("switching the mode re-transforms nothing", () => {
+    // The guard's mode reaches the worker at run time; it must not be part of the
+    // transform cache key, or every switch would recompile the whole project.
+    const cache = path.join(app, "node_modules", ".vitest-cache");
+    fs.rmSync(cache, { recursive: true, force: true });
+    const entries = () =>
+      fs.existsSync(cache) ? fs.readdirSync(cache, { recursive: true }).length : 0;
+    run("warn", {}, ["src/cov.test.ts"]);
+    const afterWarn = entries();
+    run("error", {}, ["src/cov.test.ts"]);
+    expect(afterWarn).toBeGreaterThan(0);
+    expect(entries()).toBe(afterWarn);
+  }, 200_000);
+
   it("threaded loader: Node's ESM imports are still recorded", () => {
     const { probe, output } = run("warn", { VITEST_NATIVE_LOADER_THREAD: "1" });
     expect(probe("nodeesm"), output).toContain("mode=thread");
@@ -296,10 +323,14 @@ describe.runIf(distExists)("the ownership guard on the review's shapes", () => {
     expect(probe("esm"), output).toContain("reported=true");
   }, 200_000);
 
-  it("error: Vite's second copy is refused before its body runs", () => {
-    const { probe, output } = run("error");
-    expect(probe("side"), output).toContain("count=1 code=MODULE_DUAL_EVALUATION");
-    expect(output).toContain("Vite's copy was refused before its body ran");
+  it("error: Vite's second copy has run, so its import fails and so does the file", () => {
+    // The marker is the module's last statement (no map work, no phantom coverage), so
+    // Vite's second copy is seen after its body ran: count 2. Node's second copy is
+    // still refused before it runs (the alias and swallow shapes).
+    const { probe, output } = run("error", {}, ["src/side.test.ts"]);
+    expect(probe("side"), output).toContain("count=2 code=MODULE_DUAL_EVALUATION");
+    expect(output).toContain("Vite's copy ran; this file fails.");
+    expect(output).toMatch(/evaluated by both Node and Vite during this test file/);
   }, 200_000);
 
   it("error: a dual evaluation a library swallowed still fails its file", () => {
