@@ -12,22 +12,25 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { FAKEABLE_TIMER_APIS, toVitestFakeTimersConfig } from "../src/jest-compat/jest-object.mjs";
 
+/** The real clock the translation reads when no `now` is given. */
+const REAL_NOW = 1_700_000_000_000;
 const translate = (config?: Record<string, unknown>) =>
-  toVitestFakeTimersConfig(config) as Record<string, unknown>;
+  toVitestFakeTimersConfig(config, () => REAL_NOW) as Record<string, unknown>;
 
 describe("toVitestFakeTimersConfig", () => {
-  it("passes Jest's loopLimit default, and nothing else, for no config", () => {
+  it("passes Jest's loopLimit default and the real clock, and nothing else, for no config", () => {
     // Jest's `timerLimit || 100_000`; Vitest's own default is 10_000.
-    expect(translate()).toEqual({ loopLimit: 100_000 });
-    expect(translate({})).toEqual({ loopLimit: 100_000 });
-    expect(translate({ timerLimit: 50 })).toEqual({ loopLimit: 50 });
+    expect(translate()).toEqual({ loopLimit: 100_000, now: REAL_NOW });
+    expect(translate({})).toEqual({ loopLimit: 100_000, now: REAL_NOW });
+    expect(translate({ timerLimit: 50 })).toEqual({ loopLimit: 50, now: REAL_NOW });
     // `||`, as in Jest: 0 is not a limit.
-    expect(translate({ timerLimit: 0 })).toEqual({ loopLimit: 100_000 });
+    expect(translate({ timerLimit: 0 })).toEqual({ loopLimit: 100_000, now: REAL_NOW });
   });
 
   it("advanceTimers: true auto-advances with sinon's own delta", () => {
     expect(translate({ advanceTimers: true })).toEqual({
       loopLimit: 100_000,
+      now: REAL_NOW,
       shouldAdvanceTime: true,
     });
   });
@@ -35,15 +38,18 @@ describe("toVitestFakeTimersConfig", () => {
   it("advanceTimers: <number> is the delta", () => {
     expect(translate({ advanceTimers: 40 })).toEqual({
       loopLimit: 100_000,
+      now: REAL_NOW,
       shouldAdvanceTime: true,
       advanceTimeDelta: 40,
     });
     expect(translate({ advanceTimers: false })).toMatchObject({ shouldAdvanceTime: false });
   });
 
-  it("now is passed only when given", () => {
+  it("now is Jest's `now ?? Date.now()`, read from the real clock", () => {
     expect(translate({ now: 1234 })).toMatchObject({ now: 1234 });
-    expect("now" in translate({ now: undefined })).toBe(false);
+    expect(translate({ now: 0 })).toMatchObject({ now: 0 });
+    expect(translate({ now: undefined })).toMatchObject({ now: REAL_NOW });
+    expect(translate({ now: null })).toMatchObject({ now: REAL_NOW });
   });
 
   it("doNotFake becomes the fakeable list minus the named APIs and Vitest's kept-real two", () => {
@@ -88,27 +94,40 @@ describe("toVitestFakeTimersConfig", () => {
   });
 });
 
+/**
+ * The `FakeMethod` union of the @sinonjs/fake-timers that the installed Vitest bundles,
+ * read from the JSDoc typedef in its dist chunk, or undefined when the bundle carries
+ * no typedef. Vitest 5 keeps it; Vitest 4.1's bundle strips it.
+ */
+function bundledFakeMethods(dist: string): string[] | undefined {
+  const files = readdirSync(dist, { recursive: true, encoding: "utf8" }).filter((f) =>
+    f.endsWith(".js"),
+  );
+  const typedef = /@typedef \{((?:"\w+" \| )*"\w+")\} FakeMethod\b/;
+  for (const file of files) {
+    const match = typedef.exec(readFileSync(path.join(dist, file), "utf8"));
+    if (match) return [...match[1].matchAll(/"(\w+)"/g)].map((m) => m[1]);
+  }
+  return undefined;
+}
+
+const require = createRequire(import.meta.url);
+const vitestPkg = require.resolve("vitest/package.json");
+const vitestMajor = Number(
+  (JSON.parse(readFileSync(vitestPkg, "utf8")) as { version: string }).version.split(".")[0],
+);
+const fakeMethods = bundledFakeMethods(path.join(path.dirname(vitestPkg), "dist"));
+
 describe("FAKEABLE_TIMER_APIS", () => {
-  it("covers every FakeMethod of the @sinonjs/fake-timers bundled in the installed Vitest", () => {
-    // Vitest bundles sinon into a dist chunk; its JSDoc names the fakeable APIs. A
-    // name missing from FAKEABLE_TIMER_APIS would stay real under any `doNotFake`,
-    // where Vitest's default would have faked it. Extra names are harmless: Vitest
-    // installs with `ignoreMissingTimers: true`.
-    const require = createRequire(import.meta.url);
-    const dist = path.join(path.dirname(require.resolve("vitest/package.json")), "dist");
-    const files = readdirSync(dist, { recursive: true, encoding: "utf8" }).filter((f) =>
-      f.endsWith(".js"),
-    );
-    const typedef = /@typedef \{((?:"\w+" \| )*"\w+")\} FakeMethod\b/;
-    let union: string[] | undefined;
-    for (const file of files) {
-      const match = typedef.exec(readFileSync(path.join(dist, file), "utf8"));
-      if (match) {
-        union = [...match[1].matchAll(/"(\w+)"/g)].map((m) => m[1]);
-        break;
-      }
-    }
-    expect(union, "FakeMethod typedef not found in vitest/dist").toBeDefined();
-    expect(union!.filter((api) => !FAKEABLE_TIMER_APIS.includes(api))).toEqual([]);
-  });
+  // A name missing from FAKEABLE_TIMER_APIS would stay real under any `doNotFake`,
+  // where Vitest's default would have faked it. Extra names are harmless: Vitest
+  // installs with `ignoreMissingTimers: true`. Vitest 4's bundle has no typedef to
+  // read, so the check runs on Vitest 5 and later only, where a missing typedef fails.
+  it.skipIf(fakeMethods === undefined && vitestMajor < 5)(
+    "covers every FakeMethod of the bundled @sinonjs/fake-timers (Vitest 5+: Vitest 4 bundles no FakeMethod typedef to read)",
+    () => {
+      expect(fakeMethods, "FakeMethod typedef not found in vitest/dist").toBeDefined();
+      expect(fakeMethods!.filter((api) => !FAKEABLE_TIMER_APIS.includes(api))).toEqual([]);
+    },
+  );
 });

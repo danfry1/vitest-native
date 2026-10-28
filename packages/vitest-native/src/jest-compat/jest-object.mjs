@@ -158,8 +158,11 @@ function originalOf(object, key, accessType) {
 //
 // - A Jest option left out is left to Vitest, so a project's `test.fakeTimers` (the
 //   nearest thing to Jest's `fakeTimers` config, which Jest merges into every call)
-//   still applies. Jest's defaults and Vitest's agree for every key but one:
-//   `loopLimit` (Jest 100_000, Vitest 10_000), which is why it is always passed.
+//   still applies. Jest's defaults and Vitest's agree for every key but two, which are
+//   always passed: `loopLimit` (Jest 100_000, Vitest 10_000), and `now`, which Jest
+//   reads from the real clock on every install while Vitest resumes the last fake one.
+//   A `now` set in `test.fakeTimers` is therefore overridden, as in Jest only an
+//   explicit `now` sets the start.
 // - `nextTick` and `queueMicrotask` stay real. Jest fakes them by default; Vitest
 //   never fakes them unless asked, because Node and Vitest's runner use them
 //   internally ("Do not mock timers internally used by node by default", Vitest's
@@ -171,6 +174,15 @@ function originalOf(object, key, accessType) {
 //   jest.fn mocks). It is approximated with modern timers over the functions legacy
 //   timers replace, leaving Date real as they do, and warns once that assertions on
 //   the timer functions themselves cannot work.
+//
+// Known limitation: options given before React Native Testing Library loads do not
+// survive it. At import RNTL calls `jest.useRealTimers()` and then
+// `jest.useFakeTimers({ legacyFakeTimers: false })` (helpers/timers runWithRealTimers),
+// which this translates without the earlier options, so a setup file's top-level
+// `jest.useFakeTimers({ doNotFake })` ends up faking everything. Jest merges its
+// project `fakeTimers` config into that call; carrying a setup file's options across
+// it belongs to a versioned environment layer, not to this shim. Until then the docs
+// recommend a `beforeEach` call or Vitest's `test.fakeTimers`.
 
 /**
  * Every API @sinonjs/fake-timers can fake: its `FakeMethod` typedef, as bundled in
@@ -224,7 +236,7 @@ const loopLimitOf = (timerLimit) => timerLimit || 100_000;
  * Translate a Jest fake-timers config into the one `vi.useFakeTimers` takes. Keys that
  * are not Jest's (a Vitest option passed through `jest.*`) are kept as given.
  */
-export function toVitestFakeTimersConfig(config) {
+export function toVitestFakeTimersConfig(config, realNow = Date.now) {
   const { advanceTimers, doNotFake, legacyFakeTimers, now, timerLimit, ...rest } = config ?? {};
   const out = { ...rest, loopLimit: loopLimitOf(timerLimit) };
   if (legacyFakeTimers) {
@@ -235,8 +247,10 @@ export function toVitestFakeTimersConfig(config) {
     out.shouldAdvanceTime = Boolean(advanceTimers);
     if (typeof advanceTimers === "number") out.advanceTimeDelta = advanceTimers;
   }
-  // Only when given: left out, Vitest keeps a clock set by setSystemTime beforehand.
-  if (now !== undefined) out.now = now;
+  // Jest's `now ?? Date.now()`, read from the real clock on every install. Left out,
+  // Vitest would start the new clock where the last fake one stopped, so a date one
+  // test pinned with setSystemTime leaked into every later jest.useFakeTimers().
+  out.now = now ?? realNow();
   if (doNotFake !== undefined) {
     const real = new Set(doNotFake);
     out.toFake = FAKEABLE_TIMER_APIS.filter((api) => !KEPT_REAL.has(api) && !real.has(api));
@@ -281,7 +295,7 @@ export function createJestObject(vi, members = {}) {
   // `jest.useFakeTimers().setSystemTime(…)` chains on `jest`, not on `vi`.
   function useFakeTimers(config) {
     if (config?.legacyFakeTimers) warnLegacyOnce();
-    vi.useFakeTimers(toVitestFakeTimersConfig(config));
+    vi.useFakeTimers(toVitestFakeTimersConfig(config, () => vi.getRealSystemTime()));
     return jest;
   }
   function useRealTimers() {

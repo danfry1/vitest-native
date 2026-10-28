@@ -51,7 +51,11 @@ Two differences remain:
 - `process.nextTick` and `queueMicrotask` stay real. Jest fakes them by default; Vitest does not, because Node and Vitest's runner depend on them. Name them in Vitest's `toFake` if a test needs them faked.
 - `legacyFakeTimers: true` runs modern fake timers over the timer functions and leaves `Date` real, as legacy timers do. The timer functions are not mock functions, so assertions such as `expect(setTimeout).toHaveBeenCalled()` do not work; the first such call logs a warning.
 
-Options set in Jest's `fakeTimers` config are not read. Pass them to `jest.useFakeTimers(...)`, or set them in Vitest's names under `test.fakeTimers`, which applies to every call except for `loopLimit`: `jest.useFakeTimers` always passes Jest's `timerLimit`. For `enableGlobally`, call `jest.useFakeTimers()` in a setup file.
+Options set in Jest's `fakeTimers` config are not read. Pass them to `jest.useFakeTimers(...)` in the tests, where a `beforeEach(() => jest.useFakeTimers({ ... }))` in a setup file covers every test. Or set them in Vitest's names under `test.fakeTimers` (`doNotFake` as `toFake`, `advanceTimers` as `shouldAdvanceTime` and `advanceTimeDelta`), which applies to every call except for `loopLimit` and `now`: `jest.useFakeTimers` always passes Jest's `timerLimit`, and starts the clock at the real time unless given `now`.
+
+::: warning Known limitation: options in a setup file's top level
+A `jest.useFakeTimers(options)` at the top level of a setup file loses its options once React Native Testing Library loads. RNTL switches to real timers and back with `jest.useFakeTimers({ legacyFakeTimers: false })` at import, and that call does not carry the earlier options. A bare `jest.useFakeTimers()` there still fakes timers for the file, as Jest's `enableGlobally` does. With options, use a `beforeEach` or `test.fakeTimers` as above.
+:::
 
 ## One module registry per test file
 

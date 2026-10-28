@@ -95,9 +95,12 @@ under Jest. Only a top-level test without a hint has the same key in both. For e
 Vitest finds no snapshot and treats it as new:
 
 - Locally, it writes the new entry and the test **passes, whatever it rendered**. It also rewrites
-  the file's header to `// Vitest Snapshot v1` and leaves Jest's entries in place as obsolete. Jest
-  then refuses to run that test file ("Outdated snapshot: No snapshot header found").
-- In CI (`CI` set), it writes nothing and every such test fails as `mismatched`.
+  the file's header to `// Vitest Snapshot v1` and leaves Jest's entries in place as obsolete. A
+  plain local `jest` still passes, reports Vitest's entries as obsolete and puts its own header
+  back; `jest --ci` refuses the file ("Outdated snapshot: No snapshot header found").
+- In CI (`CI` set), it writes no new entries and every such test fails as `mismatched`. It still
+  rewrites the file's header, so a `jest --ci` run after it in the same checkout refuses the file
+  too.
 
 So a first local run is not a comparison with Jest's snapshots, and `vitest -u` rewrites Jest's
 files.
@@ -153,10 +156,14 @@ Vitest config: `setupFiles`, `resolve.alias`, `test.environment: 'node'`. A suit
 `testEnvironment: 'jsdom'` keeps it as `test.environment: 'jsdom'` (`'happy-dom'` works too): React
 Native renders there alongside the DOM, with either engine and with or without the hot runtime.
 `jest.setTimeout(ms)` sets the timeout for the rest of the file, as in Jest (the shim maps it onto
-`vi.setConfig({ testTimeout })`). Jest's `fakeTimers` config is not read: pass its options to
-`jest.useFakeTimers(...)`, which translates them (`advanceTimers`, `doNotFake`, `now`,
-`timerLimit`), or call it in a setup file for `enableGlobally`. Unlike Jest, `process.nextTick` and
-`queueMicrotask` stay real.
+`vi.setConfig({ testTimeout })`). Jest's `fakeTimers` config is not read. Pass its options to
+`jest.useFakeTimers(...)` in the tests, which translates them (`advanceTimers`, `doNotFake`, `now`,
+`timerLimit`); a `beforeEach(() => jest.useFakeTimers({ ... }))` in a setup file covers every test.
+Or set them in Vitest's names under `test.fakeTimers` (`doNotFake` as `toFake`, `advanceTimers` as
+`shouldAdvanceTime` and `advanceTimeDelta`). Don't call `jest.useFakeTimers(options)` at the top
+level of a setup file: RNTL switches to real timers and back with
+`jest.useFakeTimers({ legacyFakeTimers: false })` when it loads, and that drops the options. Unlike
+Jest, `process.nextTick` and `queueMicrotask` stay real.
 
 ---
 

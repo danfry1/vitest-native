@@ -92,9 +92,18 @@ describe("jest.useFakeTimers takes Jest's options", () => {
     expect(globalThis.Date).not.toBe(native.Date);
   });
 
-  it("now sets the fake clock", () => {
-    jest.useFakeTimers({ now: new Date("2020-01-01T00:00:00Z") });
-    expect(new Date().toISOString()).toBe("2020-01-01T00:00:00.000Z");
+  it("starts each install from the real clock, so a pinned date does not leak", () => {
+    // Jest's `now ?? Date.now()` reads the real clock on every install. Vitest resumes
+    // from the current (fake) Date.now(), so without the translation a date pinned in
+    // one test carried into the next test's jest.useFakeTimers().
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date("2000-01-01T00:00:00Z"));
+    jest.useFakeTimers();
+    expect(Math.abs(Date.now() - native.Date.now())).toBeLessThan(60_000);
+    // `now: null` is Jest's "the real clock" too, through the same `??`.
+    jest.setSystemTime(new Date("2000-01-01T00:00:00Z"));
+    jest.useFakeTimers({ now: null });
+    expect(Math.abs(Date.now() - native.Date.now())).toBeLessThan(60_000);
   });
 
   it("returns the jest object, so calls chain as in Jest", () => {

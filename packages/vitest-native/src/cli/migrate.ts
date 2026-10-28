@@ -589,7 +589,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
     }
     if (take("fakeTimers") !== undefined) {
       attention.push(
-        `fakeTimers — not carried over: pass the options to jest.useFakeTimers(), which the jest-compat shim translates, or call it in a setup file for enableGlobally.`,
+        `fakeTimers — not carried over: call jest.useFakeTimers(options) in a beforeEach, which the jest-compat shim translates, or set Vitest's test.fakeTimers. Not at a setup file's top level: RNTL's import drops options set there.`,
       );
     }
 
