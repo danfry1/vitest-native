@@ -23,26 +23,38 @@ function readJson(file) {
   }
 }
 
+const causedBy = (errors) => {
+  const causes = (errors ?? []).flatMap((error) => error.causes ?? []);
+  return causes.length > 0 ? ` (caused by: ${causes.join(" <- ")})` : "";
+};
+
 /**
  * Per-file results from Vitest's JSON report: { basename: { ok, failures: string[] } }.
  * `failures` holds one line per failed assertion (or the file's own error), each prefixed
  * with the file, so a known-failing entry's signature is matched against every one of them.
+ * The JSON report keeps only an error's message, so each line also carries the error's
+ * cause chain from the accounting record, when it has one.
  */
-export function fileResults(report) {
+export function fileResults(report, accounting = null) {
   if (!report) return null;
+  const modules = new Map(
+    (accounting?.modules ?? []).map((module) => [path.basename(module.file), module]),
+  );
   const results = {};
   for (const file of report.testResults ?? []) {
     const name = path.basename(file.name);
+    const module = modules.get(name);
     const assertions = file.assertionResults ?? [];
     const failed = assertions.filter((a) => a.status !== "passed");
     // A file with no passing assertion proves nothing, whatever its status says.
     const ok = file.status === "passed" && assertions.length > 0 && failed.length === 0;
-    const failures = failed.map(
-      (a) => `${name}: ${a.title}: ${firstLine((a.failureMessages ?? []).join(" "))}`,
-    );
+    const failures = failed.map((a) => {
+      const test = module?.failedTests?.find((t) => t.name === a.title);
+      return `${name}: ${a.title}: ${firstLine((a.failureMessages ?? []).join(" "))}${causedBy(test?.errors)}`;
+    });
     if (failures.length === 0 && !ok) {
       failures.push(
-        `${name}: ${firstLine(file.message) || (assertions.length === 0 ? "no tests ran" : file.status)}`,
+        `${name}: ${firstLine(file.message) || (assertions.length === 0 ? "no tests ran" : file.status)}${causedBy(module?.errors)}`,
       );
     }
     results[name] = { ok, failures };
@@ -93,13 +105,15 @@ export function runProblems(proc, expected, report, accounting) {
       );
     for (const error of accounting.unhandledErrors ?? []) {
       const where = error.testPath ? ` (from ${path.basename(error.testPath)})` : "";
-      problems.push(`unhandled error${where}: ${error.name}: ${error.message}`);
+      problems.push(
+        `unhandled error${where}: ${error.name}: ${error.message}${causedBy([error])}`,
+      );
     }
   }
 
   // The exit code against the results: 1 needs a failed file or an unhandled error, 0
   // needs neither. The JSON report's own `success` is a third opinion.
-  const results = fileResults(report);
+  const results = fileResults(report, accounting);
   const failedFiles = results ? Object.values(results).filter((r) => !r.ok).length : 0;
   const unhandled = accounting?.unhandledErrors?.length ?? 0;
   if (proc.status === 1 && results && accounting && failedFiles === 0 && unhandled === 0)
@@ -120,7 +134,7 @@ export function account(proc, expected, reportFile, accountingFile) {
   const report = readJson(reportFile);
   const accounting = readJson(accountingFile);
   return {
-    results: fileResults(report),
+    results: fileResults(report, accounting),
     problems: runProblems(proc, expected, report, accounting),
   };
 }
