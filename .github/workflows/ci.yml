@@ -44,6 +44,34 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         run: .github/scripts/classify-change.sh "$EVENT" "$BASE_SHA" "$HEAD_SHA"
 
+  # A docs-only pull request skips the gate, but some unit tests take a Markdown page as
+  # their source of truth (the versioning contract, the preset tables, the documented
+  # configuration block). Those still run here, so a page that drifts from the code
+  # fails its pull request instead of main's next push. The full gate runs them in
+  # `bun run test`, so this job only runs when the gate does not.
+  docs:
+    name: Docs checks
+    needs: classify
+    if: needs.classify.outputs.docs-only == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+        with:
+          node-version: 22.13.0
+
+      # The versioning contract checks the documented exports against the build.
+      - name: Build
+        run: bun run build
+
+      - name: Tests that read repository Markdown
+        working-directory: packages/vitest-native
+        run: bun run test:docs
+
   changeset:
     name: Changeset for shipped changes
     # Pull requests only: the check compares against the base branch, and a push to
@@ -346,7 +374,7 @@ jobs:
   # contexts reference).
   verdict:
     name: CI verdict
-    needs: [classify, changeset, check, packed]
+    needs: [classify, docs, changeset, check, packed]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
