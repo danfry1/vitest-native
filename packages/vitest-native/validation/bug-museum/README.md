@@ -17,13 +17,18 @@ It serves two purposes:
 ## Layout
 
 ```
-exhibits.json          one entry per exhibit: class, fixing PR, installs, measured status
+exhibits.json          one entry per exhibit: class, fixing PR, signature, installs, status
 exhibits/<id>/         README.md (bug, source, class, expected) + its own config and tests
+columns.json           the commit SHA each column's ref resolved to when STATUS.md was measured
 run.mjs                runs every exhibit, or a filter, against a built vitest-native
-status.mjs             records verdicts into exhibits.json and renders STATUS.md
+run-columns.mjs        builds every column's ref and runs its exhibits, one at a time
+build-ref.mjs          builds vitest-native at a git ref, cached by commit SHA
+status.mjs             checks every verdict's SHA, then renders STATUS.md and exhibits.json
+lib/verdict.mjs        "the bug" or "unexpected", judged by ../config-axes/verdict.mjs
+lib/lines.mjs          a run's failure lines (file: message, no titles)
+lib/build-info.mjs     the SHA a build directory was built from
 lib/materialise.mjs    builds an exhibit's workspace from this repository's install
 lib/vitest4.mjs        assembles Vitest 4.1.11 from bun's cache for the exhibits that need it
-lib/accounting*.mjs    the three-witness run accounting (copied from the config-axis matrix)
 ```
 
 ## Running
@@ -38,16 +43,38 @@ node validation/bug-museum/run.mjs --control    # each exhibit with its bug's pr
 MUSEUM_DEBUG=1 node validation/bug-museum/run.mjs --only <id>   # Vitest's own output too
 ```
 
-Each exhibit prints `PASS`, `FAIL (the bug)` (the failure matches its recorded
-`bugSignature`), `FAIL (unexpected)` (it fails some other way: on a buggy build that means
-the exhibit no longer reaches its bug) or `N/A` with the reason. The process exits 1 when
-any exhibit fails, so on today's main the suite is red by design: STATUS.md lists what is
-expected to fail until each fix lands.
+Each exhibit prints `PASS`, `FAIL (the bug)`, `FAIL (unexpected)` or `N/A` with the
+reason. The process exits 1 when any exhibit fails, and also when any is N/A (an exhibit
+that could not run is not evidence) unless `--allow-na` is given. On today's main the suite
+is red by design: STATUS.md lists what is expected to fail until each fix lands.
 
-A run passes only when three witnesses agree (`lib/accounting.mjs`): Vitest exited 0,
-the JSON report has passing tests for every test file of the exhibit, and the accounting
-reporter saw no unhandled error and no lost file. An exhibit may add `check.mjs` (a check
-of the run's output, such as the banner) or `runs` (several Vitest runs).
+A run passes only when three witnesses agree (the config-axis matrix's
+`../config-axes/accounting.mjs` and its accounting reporter): Vitest exited 0, the JSON
+report has passing tests for every test file of the exhibit, and the reporter saw no
+unhandled error and no lost file. An exhibit may add `check.mjs` (a check of the run's
+output, such as the banner) or `runs` (several Vitest runs).
+
+### The bug, or something else
+
+A failure is `FAIL (the bug)` only when the config-axis matrix's verdict rules
+(`../config-axes/verdict.mjs`, the one owner of them; `lib/verdict.mjs` adapts an exhibit to
+a probe with one known-failing entry) say so:
+
+- every exhibit has a `bugSignature`: a regex for its bug's OWN failure line, anchored to
+  the exhibit's file. It may not match any generic line (a crash, a lost file, a timeout,
+  an unrelated TypeError or assertion: `genericFailureLines` plus the museum's own), which
+  run.mjs checks before running anything;
+- `consequences` (optional) are lines the bug causes without identifying itself (a file
+  the run lost, an exit code), accepted only beside a line the signature matched;
+- EVERY failure line must be the signature or a consequence, or the verdict is
+  `FAIL (unexpected)`. An exhibit whose every file is lost is unexpected, unless it
+  declares `bugPreventsEveryFile` (its bug rejects the configuration before any file runs);
+- failure lines are `file: message`, never the test's title, so a signature cannot match
+  the exhibit's own description of what it expects. Where a bare message would be
+  generic, the exhibit's assertion carries a message (`expect(x, "…")`) that names it.
+
+An unrelated defect prepended to `dist/native/setup.mjs` makes every exhibit it reaches
+read `FAIL (unexpected)`, including the regression guards that pass on main.
 
 ### Where the dependencies come from
 
@@ -63,15 +90,16 @@ repository lacks are assembled from local copies (`requires` in exhibits.json):
 - `layout: pnpm`: the `pnpmShaped` packages moved into a pnpm-shaped store directory
   named after their peers (`.pnpm/<name>@<v>_<peer>@<v>/node_modules/<name>`).
 
-When a local copy is missing the exhibit is `N/A: requires-CI`, never skipped silently.
+When a local copy is missing the exhibit is `N/A: requires-CI`, and the run exits 1
+unless `--allow-na` is given.
 
 ## Proving an exhibit is load-bearing
 
 An exhibit that passes on a buggy build is useless. Each is proven one of four ways
 (STATUS.md, Proof column):
 
-- **fix proven**: fails on main with the bug's signature, passes on the build of its fix
-  branch (`fixRef`);
+- **fix proven**: fails as its bug on main (or, for a bug main cannot reach, on its
+  `buggyRef`), and passes on the build of its fix branch (`fixRef`);
 - **guard proven**: a regression a fix PR introduced; passes on main, fails on that PR's
   build (`buggyRef`);
 - **landed proven**: the fix is on main; fails on the build before it (`preFixRef`);
@@ -79,8 +107,13 @@ An exhibit that passes on a buggy build is useless. Each is proven one of four w
   `control` (edits that remove the bug's precondition, such as `hotRuntime: false` for a
   hot leak) passes, showing the exhibit can pass.
 
-To build a ref for the fix column: export it (`git archive <ref>`), `bun install
---frozen-lockfile`, `bun run build`, then `run.mjs --build <dir>/packages/vitest-native`.
+`run-columns.mjs --results <dir> [--cache <dir>] [--max-load 4]` measures every column:
+it builds each ref with `build-ref.mjs` (`git archive`, `bun install --frozen-lockfile`,
+`bun run build`, cached by commit SHA; `.museum-build.json` records the SHA), runs its
+exhibits, and writes `columns.json`. Every verdict carries the SHA of the build it ran on.
+`status.mjs --results <dir>` refuses to write anything when a verdict is missing, ran on an
+unverified build (a working tree's own dist), or ran on a SHA other than its column's in
+`columns.json`; otherwise it replaces STATUS.md and exhibits.json together.
 
 ## Classes
 
