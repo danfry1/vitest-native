@@ -32,6 +32,7 @@ describe("selectPresets", () => {
     expect(selectPresets([reanimated, "./my-preset.ts"], root)).toEqual({
       listed: [reanimated],
       modulePaths: [path.join(root, "my-preset.ts")],
+      moduleSpecs: ["./my-preset.ts"],
     });
   });
 
@@ -47,7 +48,11 @@ describe("selectPresets", () => {
     const root = project({ "my-preset.ts": PRESET_SOURCE });
     expect(
       selectPresets({ navigation: false, reanimated: true, "./my-preset.ts": true }, root),
-    ).toEqual({ listed: null, modulePaths: [path.join(root, "my-preset.ts")] });
+    ).toEqual({
+      listed: null,
+      modulePaths: [path.join(root, "my-preset.ts")],
+      moduleSpecs: ["./my-preset.ts"],
+    });
   });
 
   it("refuses a preset object of the project's own, naming the module form", () => {

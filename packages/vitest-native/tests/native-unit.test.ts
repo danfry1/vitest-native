@@ -1348,6 +1348,34 @@ describe("engine-selection notices", () => {
     }
   });
 
+  it("the banner names the project's own preset modules as the config names them", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-banner-preset-"));
+    const file = path.join(dir, "my-preset.mjs");
+    fs.writeFileSync(file, "export default { name: 'myLib', modules: {} };\n");
+    const banner = () =>
+      String(err.mock.calls.find((c) => String(c[0]).includes("engine:"))?.[0] ?? "");
+    try {
+      for (const engine of ["native", "mock"] as const) {
+        for (const option of [[file], { navigation: false, [file]: true }]) {
+          resetBanner();
+          err.mockClear();
+          await runPluginConfig(
+            reactNative({ engine, hotRuntime: false, presets: option as any }) as any,
+            { root: projectRoot },
+            SERVE_ENV,
+          );
+          expect(banner(), `${engine} ${JSON.stringify(option)}`).toMatch(
+            new RegExp(` · mocked: (.*, )?${file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\(`),
+          );
+        }
+      }
+    } finally {
+      err.mockRestore();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("the engine banner prints once per process, not once per project", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
     const plugin = reactNative({}) as any;

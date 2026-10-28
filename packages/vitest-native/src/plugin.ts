@@ -257,13 +257,18 @@ function printEngineBanner(
   presetNames: readonly string[],
   hotRuntime = false,
 ): void {
+  // Once per process, so a multi-project run prints the first project's line only: its
+  // engine, runtime and presets, which another project may not share. Naming each
+  // project's would need the project's name, which config() does not reliably have.
   const g = globalThis as { __vitest_native_banner_printed?: boolean };
   if (g.__vitest_native_banner_printed) return;
   g.__vitest_native_banner_printed = true;
   // The presets are named because they are applied automatically, and each replaces a
   // whole library: an app that drives a real navigator gets the navigation preset's
-  // pass-through NavigationContainer, and nothing else in the log points at it.
-  // `presetNames` is the list the workers are told to build, not a copy of it.
+  // pass-through NavigationContainer, and nothing else in the log points at it. Under
+  // the native engine `presetNames` is the list its workers are handed; under the mock
+  // engine, the same selection recomputed (see mockEnginePresetNames). The project's
+  // own preset modules are named as the config names them.
   const mocked = presetNames.length > 0 ? ` · mocked: ${presetNames.join(", ")}` : "";
   if (engine === "native") {
     const rn = resolvePackageVersion("react-native", projectRoot);
@@ -282,11 +287,13 @@ function printEngineBanner(
 }
 
 /**
- * The presets a mock-engine worker applies, for the banner. The worker selects them
- * itself (setup.ts): an array as listed, otherwise every auto-detected preset that is
- * not switched off. Both read AUTO_DETECT_PRESETS through presetForInstalled, as
- * autoDetectPresetNames does. The native engine's list is the one its workers are
- * handed (VITEST_NATIVE_PRESET_NAMES), and its banner prints that.
+ * The presets a mock-engine worker applies, for the banner. An array is the list the
+ * workers are handed (VITEST_NATIVE_PRESET_NAMES). Otherwise each worker detects its
+ * own (setup.ts: every auto-detected preset not switched off), so this is a second
+ * computation of that list, not a read of it: both read AUTO_DETECT_PRESETS through
+ * presetForInstalled, from the same project root, and agree as long as the package
+ * resolves the same way from the main process and the worker. The native engine's
+ * banner prints the list its workers are handed.
  */
 function mockEnginePresetNames(
   listed: readonly Preset[] | null,
@@ -816,6 +823,8 @@ export interface PresetSelection {
   listed: Preset[] | null;
   /** The project's own preset modules, as absolute paths (see preset-modules.mjs). */
   modulePaths: string[];
+  /** The same modules as the config names them (`'./my-preset.ts'`), for the banner. */
+  moduleSpecs: string[];
 }
 
 /**
@@ -831,21 +840,26 @@ export function selectPresets(
   if (Array.isArray(option)) {
     const listed: Preset[] = [];
     const modulePaths: string[] = [];
+    const moduleSpecs: string[] = [];
     for (const entry of option as unknown[]) {
-      if (typeof entry === "string") modulePaths.push(resolvePresetModule(entry, root));
-      else listed.push(listedBuiltInPreset(entry));
+      if (typeof entry === "string") {
+        modulePaths.push(resolvePresetModule(entry, root));
+        moduleSpecs.push(entry);
+      } else listed.push(listedBuiltInPreset(entry));
     }
-    return { listed, modulePaths };
+    return { listed, modulePaths, moduleSpecs };
   }
   const modulePaths: string[] = [];
+  const moduleSpecs: string[] = [];
   if (option !== null && typeof option === "object") {
     for (const [key, enabled] of Object.entries(option)) {
       if (enabled === true && !Object.hasOwn(PRESET_MODULES, key)) {
         modulePaths.push(resolvePresetModule(key, root));
+        moduleSpecs.push(key);
       }
     }
   }
-  return { listed: null, modulePaths };
+  return { listed: null, modulePaths, moduleSpecs };
 }
 
 /**
@@ -1958,7 +1972,13 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             maxWorkers: hotMemory.allowUnboundedMemory ? undefined : hotMemory.plan.maxWorkers,
           };
         }
-        printEngineBanner(engine, platform, resolvedRoot, nativePresetNames, hot !== undefined);
+        printEngineBanner(
+          engine,
+          platform,
+          resolvedRoot,
+          [...nativePresetNames, ...selection.moduleSpecs],
+          hot !== undefined,
+        );
         if (hot) {
           hotSelections.set(vitestRootOf(userConfig), {
             pool: hot.pool,
@@ -2003,12 +2023,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // know which names to drop. `resolved` is not assigned until configResolved,
       // so neither branch can read it here.
       const selection = selectPresets(options?.presets, resolvedRoot);
-      printEngineBanner(
-        engine,
-        platform,
-        resolvedRoot,
-        mockEnginePresetNames(selection.listed, options?.presets, resolvedRoot),
-      );
+      printEngineBanner(engine, platform, resolvedRoot, [
+        ...mockEnginePresetNames(selection.listed, options?.presets, resolvedRoot),
+        ...selection.moduleSpecs,
+      ]);
       if (selection.modulePaths.length > 0) {
         env.VITEST_NATIVE_PRESET_MODULES = JSON.stringify(selection.modulePaths);
       }

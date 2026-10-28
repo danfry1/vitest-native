@@ -380,10 +380,10 @@ export function detectEcosystemPackages(
   // and it is the one package in that closure React Native also owns.
   const rnOwned = new Set<string>(Object.keys(manifestOf("react-native")?.dependencies ?? {}));
 
-  /** Every package reachable from `roots` through runtime dependencies. */
-  const closureOf = (starts: string[]): Set<string> => {
+  /** Every package reachable from `starts` through runtime dependencies. */
+  const closureOf = (starts: [string, Installed | null][]): Set<string> => {
     const seen = new Set<string>();
-    const pending: [string, Installed | null][] = starts.map((name) => [name, installedOf(name)]);
+    const pending = [...starts];
     while (pending.length > 0) {
       const [name, installed] = pending.pop() as [string, Installed | null];
       if (seen.has(name)) continue;
@@ -426,12 +426,40 @@ export function detectEcosystemPackages(
   // compiling. This list is retained only for MODULE-goal toolchain packages, which
   // the parse check deliberately does not judge. It should be deleted when ESM-goal
   // files stop being force-converted, and not extended before then: a new name here is
-  // a sign the parse check was bypassed rather than that the list was incomplete.
+  // a sign the parse check was bypassed rather than that the list was incomplete. The
+  // two Expo names below are the exception, added to bound the walk rather than to
+  // keep anything from Babel: under an isolated install the walk reaches Expo's
+  // toolchain, which does not belong in the transform set.
+  //
+  // Each seed is resolved where the toolchain installs it, not only from the project
+  // root. Under an isolated install (pnpm) the root links only the project's direct
+  // dependencies, so `metro` and `@babel/runtime` resolved from nowhere and seeded
+  // nothing, while the walk below, which resolves each dependency from its parent,
+  // reached their closures through `expo`. On a pnpm Expo 58 app that handed 244
+  // packages to the transform, Metro's own chain and Jest's among them. React Native's
+  // directory resolves them as React Native's own tooling does, and `expo`'s resolves
+  // Expo's.
+  //
+  // Both transform presets the engine can resolve (resolveTransformPreset) are seeds:
+  // `@react-native/babel-preset`, and from Expo SDK 56 `babel-preset-expo`, which an
+  // Expo app's closure reaches through `expo` whichever of the two the engine uses.
+  // So is `@expo/metro`, Expo's Metro. `@expo/cli` is not: its closure holds runtime
+  // packages (`@expo/log-box`, `@expo/dom-webview`) that must still be compiled.
+  const reactNativeInstalled = installedOf("react-native");
+  const expoInstalled = installedOf("expo");
+  const seed = (name: string): [string, Installed | null] => [
+    name,
+    installedOf(name) ??
+      (reactNativeInstalled && dependencyOf(reactNativeInstalled, name)) ??
+      (expoInstalled && dependencyOf(expoInstalled, name)),
+  ];
   const toolchain = closureOf([
-    "@babel/core",
-    "@react-native/babel-preset",
-    "@babel/runtime",
-    "metro",
+    seed("@babel/core"),
+    seed("@react-native/babel-preset"),
+    seed("babel-preset-expo"),
+    seed("@babel/runtime"),
+    seed("metro"),
+    seed("@expo/metro"),
   ]);
 
   // Only packages the RUN can actually reach seed the walk.

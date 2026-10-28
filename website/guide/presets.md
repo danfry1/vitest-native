@@ -2,7 +2,7 @@
 
 Most React Native apps depend on native libraries — Reanimated, Gesture Handler, Navigation, and friends. Under Jest you wire up a manual mock or jest-setup for each. vitest-native ships **built-in presets** that stand in for these libraries, and they're **auto-detected** from your installed dependencies. A preset replaces the whole package it covers, its JavaScript API as well as its native code: an import of the package returns the preset's module, not the package's own entry, so behaviour the preset does not implement is absent from your tests.
 
-The engine banner at the start of a run names the presets that run applies:
+The engine banner at the start of a run names the presets that run applies, and the project's own preset modules as the config names them:
 
 ```
 [vitest-native] engine: native — real react-native@0.81.5 · mocked: gestureHandler, safeAreaContext, navigation, screens (platform ios, hot runtime)
@@ -80,6 +80,12 @@ Its `NavigationContainer` renders its children and nothing more: it never calls 
 
 ```ts
 reactNative({ presets: { navigation: false } })
+```
+
+A native-stack navigator (`@react-navigation/native-stack`) also needs the screens preset off. Native-stack draws its header through react-native-screens, and with the screens preset on, header content such as `headerLeft` and `headerRight` does not render, so a query for a header button finds nothing:
+
+```ts
+reactNative({ presets: { navigation: false, screens: false } })
 ```
 :::
 

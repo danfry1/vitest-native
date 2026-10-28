@@ -341,8 +341,15 @@ describe("ecosystem detection: an isolated install layout", () => {
   /**
    * `<root>/node_modules/.store/<name>/node_modules/<name>` holds each package, with
    * its dependencies linked beside it; only `declares` are linked into the root.
+   * `hoisted` are also linked into `node_modules/.store/node_modules`, where pnpm's
+   * `node_modules/.pnpm/node_modules` makes every package resolvable from inside the
+   * store but not from the project.
    */
-  function isolated(declares: string[], installed: Record<string, Pkg>): string {
+  function isolated(
+    declares: string[],
+    installed: Record<string, Pkg>,
+    hoisted: string[] = [],
+  ): string {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-isolated-"));
     roots.push(root);
     fs.writeFileSync(
@@ -385,6 +392,9 @@ describe("ecosystem detection: an isolated install layout", () => {
     }
     for (const name of declares) {
       link(storeDir(name), path.join(root, "node_modules", ...name.split("/")));
+    }
+    for (const name of hoisted) {
+      link(storeDir(name), path.join(root, "node_modules", ".store", "node_modules", name));
     }
     return root;
   }
@@ -442,5 +452,45 @@ describe("ecosystem detection: an isolated install layout", () => {
       "rn-lib": { peerDeps: ["react-native"], deps: ["babel-internal"] },
     });
     expect(detectEcosystemPackages(root)).not.toContain("babel-internal");
+  });
+
+  // pnpm links neither metro nor @babel/runtime into an Expo app, so seeded from the
+  // project root they reached nothing, while the walk reached their closures through
+  // expo's own dependencies: 244 packages on an Expo 58 app, Metro's chain among them.
+  it("seeds Metro from React Native's directory when the project does not link it", () => {
+    const root = isolated(
+      ["react-native", "expo-ish"],
+      {
+        "react-native": {},
+        metro: { deps: ["metro-config-ish"] },
+        "metro-config-ish": {},
+        // Expo's Metro configuration depends on Metro's packages directly.
+        "expo-ish": { peerDeps: ["react-native"], deps: ["@expo/metro-config-ish"] },
+        "@expo/metro-config-ish": { deps: ["metro", "metro-config-ish"] },
+      },
+      ["metro"],
+    );
+    const detected = detectEcosystemPackages(root);
+    expect(detected).toContain("@expo/metro-config-ish");
+    expect(detected).not.toContain("metro-config-ish");
+  });
+
+  it("seeds Expo's Babel preset from expo's directory", () => {
+    const root = isolated(["react-native", "expo"], {
+      "react-native": {},
+      expo: {
+        peerDeps: ["react-native"],
+        deps: ["babel-preset-expo", "expo-asset-ish", "@expo/config-ish"],
+      },
+      "babel-preset-expo": { deps: ["babel-plugin-ish"] },
+      "babel-plugin-ish": {},
+      "expo-asset-ish": {},
+      // The preset's plugins are reached by other routes through expo too.
+      "@expo/config-ish": { deps: ["babel-plugin-ish"] },
+    });
+    const detected = detectEcosystemPackages(root);
+    expect(detected).toContain("expo-asset-ish");
+    expect(detected).not.toContain("babel-preset-expo");
+    expect(detected).not.toContain("babel-plugin-ish");
   });
 });
