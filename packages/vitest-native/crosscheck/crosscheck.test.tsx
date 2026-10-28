@@ -1040,6 +1040,13 @@ probe("hunt-stylesheet-flatten-empty", () => ({
   emptyArray: nullish(StyleSheet.flatten([])),
   allFalsy: nullish(StyleSheet.flatten([null, undefined, false])),
   nestedEmpty: nullish(StyleSheet.flatten([[], [null]])),
+  // Real styles nested at depth, merged in order, beside a string element. A string is
+  // no style, so a flatten that tested truthiness instead of `typeof "object"` would
+  // spread it into {0: "a", 1: "b"}.
+  nestedStyles: nullish(
+    StyleSheet.flatten([{ margin: 1 }, [[{ padding: 2 }], [null, { margin: 3 }]], "ab" as never]),
+  ),
+  stringOnly: nullish(StyleSheet.flatten(["ab" as never])),
   number: nullish(StyleSheet.flatten(1 as never)),
   string: nullish(StyleSheet.flatten("" as never)),
 }));
