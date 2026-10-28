@@ -48,14 +48,17 @@ Vitest 4 × hot, isolated × a preset switched off.
 **Probes, not suites.** Each probe is one small test file, or a pair of files, that asserts the
 correct behaviour: what Jest, a device or Vitest's own semantics would give
 (`validation/config-axes/probes.mjs`). Each one names the report item it was written from. A
-probe that cannot observe its defect in a run is reported as `n/a`, not counted as a pass. A
-probe's `requires` covers every axis, install axes included. The jest-compat probes need
-jest-compat. The hot pairs need `hot: on`, and the automock pair also needs Vitest 4, because
-Vitest 5 has no mock placeholder to replay. recoverable-error needs RNTL 12 or 13, since RNTL
-14's renderer never takes that path. The #349 probes need the native engine in an isolated
+probe's `requires` says where it can run at all, and `observes` where it can also observe its
+defect; both cover every axis, install axes included. Where it cannot run it is `n/a`: the
+jest-compat probes need jest-compat, the hot pairs `hot: on`, and the #349 probes the native
+engine. Where it runs but cannot observe its defect, it still runs, because the behaviour it
+asserts is still correct there and can still regress. A pass there is reported as
+`unobserved`, not counted as evidence, and a failure is a REGRESSION. The automock pair cannot
+observe its defect on Vitest 5, which has no mock placeholder to replay. recoverable-error
+cannot on RNTL 14, whose renderer never takes that path. The #349 probes cannot in a hoisted
 layout, because only pnpm names a store directory after a peer. The alias, interop and
-nested-Text probes need the native engine: the mock engine has no Node-side aliasing, CommonJS
-interop or `RCTVirtualText` to get wrong, so a pass there is not evidence. The recoverable-error probe
+nested-Text probes cannot under the mock engine, which has no Node-side aliasing, CommonJS
+interop or `RCTVirtualText` to get wrong. The recoverable-error probe
 runs in its own process, because its verdict is the exit code. So does the #350 pair, because
 the defect loses every later file in the worker. The banner probe reads the run's output.
 
@@ -80,8 +83,9 @@ same `node_modules`: measured at 1–3 s warm and 7–11 s for the first.
 
 Two extra runs (`extraRuns` in `axes.json`) cover settings that no axis value spells.
 `defaults` leaves `engine` and `hotRuntime` unset, as a new project has them. It is judged as
-native with hot off, and the harness prints what `auto` resolved to: locally it chose the hot
-runtime. `hot, 2 workers` runs the hot runtime with `maxWorkers: 2`, as real suites do, and
+what `auto` resolved to (`resolve`): the harness reads the engine and the hot runtime from the
+banner of a run over no files, then judges the run as those values. Locally it chose the hot
+runtime. It leaves out the hot pairs, since `auto` chooses its own worker count. `hot, 2 workers` runs the hot runtime with `maxWorkers: 2`, as real suites do, and
 leaves out the hot pairs, which need one worker.
 
 Installs have no lockfile. Each job resolves the ranges in `axes.json` (and this package's
@@ -115,7 +119,9 @@ entry gives the axis values the probe fails on, the PR that fixes it, and why. T
   regex matches lines the bug causes but that do not identify it, such as the file #350 loses
   after the restore throws, or the exit code. Those lines are accepted only when the entry's
   own `failure` matched in the same run, so a lost file with no error beside it is never
-  "known". Every failure line must be accounted for. A signature may not match any of its
+  "known". `consequences` may match only lost-file and exit-code lines, never an assertion, a
+  TypeError or an unhandled error, and it cannot account for every file of the probe being
+  lost. Every failure line must be accounted for. A signature may not match any of its
   probe's generic lines (`genericFailureLines` in `verdict.mjs`): a crash, a lost or unrun
   file, Vitest's bare mocking error, an unrelated TypeError or unhandled error, each with the
   probe's own file names.

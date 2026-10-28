@@ -21,7 +21,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { activeProbes, PROBES } from "./probes.mjs";
+import { activeProbes, observes, PROBES } from "./probes.mjs";
 import { account } from "./accounting.mjs";
 import { INSTALL_TIMEOUT_MS, must, PNPM, sh } from "./sh.mjs";
 import { judge, readKnownFailing, validateEntries } from "./verdict.mjs";
@@ -346,21 +346,60 @@ function probeResult(probe, results) {
     : { status: "pass" };
 }
 
+const RUN_KEYS = ["label", "env", "excludes", "resolve"];
+
+/** The engine and hot runtime a run resolved to, from its engine banner. */
+function resolvedAxes(output) {
+  const banner = output.split("\n").find((line) => line.includes("[vitest-native] engine:"));
+  if (!banner) return null;
+  const engine = /engine: (native|mock)\b/.exec(banner)?.[1];
+  // The plugin may switch the hot runtime off after the banner, and says so.
+  const hot =
+    banner.includes(", hot runtime") && !output.includes("[vitest-native] hot runtime off:")
+      ? "on"
+      : "off";
+  return engine ? { engine, hot } : null;
+}
+
 function runCell(cell, root, entries) {
   const app = path.join(root, "apps/app");
   const only = argument("only")?.split(",");
   const selected = PROBES.filter((probe) => !only || only.includes(probe.id));
   const verdicts = [];
-  for (const [index, run] of cell.runs.entries()) {
+  for (const [index, planned] of cell.runs.entries()) {
+    // An extra run whose settings resolve at runtime (`resolve`: engine and hotRuntime
+    // left at 'auto') is judged as what they resolved to, read from the banner of a run
+    // over no files, so the probes it activates follow from it too.
+    let run = planned;
+    if (planned.resolve) {
+      const probeRun = runFiles(app, planned, [], path.join(root, `report-${index}-resolve`));
+      const resolved = resolvedAxes(probeRun.proc.output);
+      if (!resolved) {
+        verdicts.push({
+          probe: "(resolve)",
+          outcome: "ERROR",
+          ok: false,
+          message: `no engine banner to resolve ${planned.resolve.join(", ")} from:\n${probeRun.proc.output.slice(-2000)}`,
+          run: planned.label,
+          judged: {},
+        });
+        console.log(`\n${cellName(cell)} · ${planned.label}: no engine banner`);
+        continue;
+      }
+      run = { ...planned };
+      for (const axis of planned.resolve) run[axis] = resolved[axis];
+    }
     const full = { ...cell, ...run };
-    for (const key of ["runs", "label", "env", "excludes"]) delete full[key];
+    for (const key of ["runs", ...RUN_KEYS]) delete full[key];
     const axesLabel = Object.entries(run)
-      .filter(([key]) => !["label", "env", "excludes"].includes(key))
+      .filter(([key]) => !RUN_KEYS.includes(key))
       .map(([axis, value]) => `${axis}=${value}`)
       .join(" ");
-    const label = run.label ? `${run.label} (judged as ${axesLabel})` : axesLabel;
+    const label = run.label
+      ? `${run.label} (judged as ${run.resolve ? "resolved " : ""}${axesLabel})`
+      : axesLabel;
     const judgedAxes = Object.fromEntries(
-      Object.entries(run).filter(([key]) => !["label", "env", "excludes"].includes(key)),
+      Object.entries(run).filter(([key]) => !RUN_KEYS.includes(key)),
     );
     const results = new Map();
     const active = activeProbes(selected, cell, run);
@@ -414,6 +453,13 @@ function runCell(cell, root, entries) {
               message: `${result.failures.join("; ")}\n${result.output.slice(-2000)}`,
             }
           : judge(entries, probe, full, result);
+      // A pass where the probe cannot observe its defect is not evidence the defect is
+      // gone; its failure there is judged like any other.
+      const definition = selected.find((p) => p.id === probe);
+      if (verdict.outcome === "pass" && definition && !observes(definition, cell, run)) {
+        verdict.outcome = "unobserved";
+        verdict.message = "pass (cannot observe its bug here, so not counted as evidence)";
+      }
       verdicts.push({ ...verdict, run: label, judged: judgedAxes });
       console.log(
         `  ${verdict.outcome.padEnd(10)} ${probe}${verdict.message ? `  — ${verdict.message}` : ""}`,
@@ -458,7 +504,7 @@ try {
 const bad = verdicts.filter((verdict) => !verdict.ok);
 const known = verdicts.filter((verdict) => verdict.outcome === "known");
 console.log(
-  `\n${cellName(cell)}: ${verdicts.filter((v) => v.outcome === "pass").length} pass, ${known.length} known failures, ${bad.length} problems`,
+  `\n${cellName(cell)}: ${verdicts.filter((v) => v.outcome === "pass").length} pass, ${verdicts.filter((v) => v.outcome === "unobserved").length} unobserved passes, ${known.length} known failures, ${bad.length} problems`,
 );
 if (bad.length > 0) {
   console.log("\nTo accept a failure as known, add to known-failing.json (with the fixing PR):");

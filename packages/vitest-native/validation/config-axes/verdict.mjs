@@ -33,8 +33,11 @@
 //                                 or fails only for another entry's reason), so the entry
 //                                 must be deleted. Judged per entry, so two entries on one
 //                                 probe cannot hide a fixed bug and absorb its regression.
-//   n/a                           the probe cannot observe its defect in this run
-//                                 (probes.mjs `requires`)
+//   n/a                           the probe cannot run here (probes.mjs `requires`)
+//
+// A pass where the probe runs but cannot observe its defect (probes.mjs `observes`) is
+// reported by run.mjs as "unobserved": not evidence, though a failure there is judged here
+// like any other.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

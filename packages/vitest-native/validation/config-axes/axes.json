@@ -49,7 +49,7 @@
   },
   "extraRuns": [
     {
-      "$comment": "Every option at its default: engine and hotRuntime unset (both 'auto'), globals off. What a new project gets. Judged as native with hot off; 'auto' may choose the hot runtime by worker headroom (it did locally), and run.mjs prints what each setting resolved to. Nothing judged here depends on hot: the hot pairs require hot on and are n/a.",
+      "$comment": "Every option at its default: engine and hotRuntime unset (both 'auto'), globals off. What a new project gets. 'auto' may choose the hot runtime by worker headroom (it did locally), so `resolve` judges engine and hot as the engine banner says they resolved (run.mjs); `judgeAs` gives the values the static checks assume. The hot pairs are excluded: they need both files in one worker, and the defaults choose their own worker count.",
       "label": "defaults",
       "env": {
         "engine": "default",
@@ -62,7 +62,9 @@
         "globals": "off",
         "hot": "off",
         "jestCompat": "off"
-      }
+      },
+      "resolve": ["engine", "hot"],
+      "excludes": ["hot-automock", "hot-rn-module-mock"]
     },
     {
       "$comment": "The hot runtime with more than one worker, as real suites run it. The hot pairs need both files in one worker, so they are excluded here.",

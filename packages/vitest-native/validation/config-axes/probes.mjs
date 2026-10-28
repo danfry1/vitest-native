@@ -7,12 +7,17 @@
 //   id        the name used in known-failing.json and in the report
 //   files     test files under fixture/apps/app/probes that make up the probe
 //   requires  axis values (install or runtime; a value or a list) the probe needs to
-//             observe its defect. Elsewhere it is reported as n/a, not as a pass: a probe
-//             that cannot observe its defect must not count as evidence. That covers
-//             engine blindness (the mock engine has no Node-side aliasing, interop or
-//             RCTVirtualText to get wrong), install axes (RNTL 14 renders without the
-//             recoverable-error path, only pnpm names store directories after peers,
-//             Vitest 5 has no mock placeholder to replay) and runtime axes.
+//             RUN at all: the hot pairs need the hot runtime, the jest-compat probes a
+//             global jest, reanimated a native engine. Elsewhere it is reported as n/a.
+//   observes  axis values it additionally needs to OBSERVE its defect. Elsewhere it still
+//             runs, because the behaviour it asserts is still correct there and can still
+//             regress, but a pass is reported as "unobserved", not as a pass: a probe that
+//             cannot observe its defect must not count as evidence that the defect is
+//             gone. A failure there is a REGRESSION like any other. That covers engine
+//             blindness (the mock engine has no Node-side aliasing, interop or
+//             RCTVirtualText to get wrong), RNTL 14 (renders without the recoverable-error
+//             path), layout (only pnpm names store directories after peers) and Vitest 5
+//             (no mock placeholder to replay).
 //   alone     run in its own Vitest process, because its verdict includes the exit code,
 //             the unhandled errors or the files the run lost (accounting.mjs)
 //   output    a check of the run's output instead of test files (shared run's stderr)
@@ -32,13 +37,13 @@ export const PROBES = [
   {
     id: "rntl-nested-text",
     files: ["rntl-nested-text.test.tsx"],
-    requires: { engine: "native" },
+    observes: { engine: "native" },
     bug: "#16: nested Text (RCTVirtualText) is not a text host on RNTL 12/13",
   },
   {
     id: "recoverable-error",
     files: ["recoverable-error.test.tsx"],
-    requires: { rntl: ["12", "13"] },
+    observes: { rntl: ["12", "13"] },
     alone: true,
     bug: "#13: a recoverable React error exits 1 with every test passing",
   },
@@ -51,25 +56,25 @@ export const PROBES = [
   {
     id: "aliased-sibling-string",
     files: ["aliased-sibling-string.test.ts"],
-    requires: { engine: "native" },
+    observes: { engine: "native" },
     bug: "#1: a workspace library string-aliased to source loads twice",
   },
   {
     id: "aliased-sibling-regex",
     files: ["aliased-sibling-regex.test.ts"],
-    requires: { engine: "native" },
+    observes: { engine: "native" },
     bug: "#1: a workspace library regex-aliased to source cannot be found by Node",
   },
   {
     id: "aliased-source-import-meta",
     files: ["aliased-source-import-meta.test.ts"],
-    requires: { engine: "native" },
+    observes: { engine: "native" },
     bug: "#1: aliased workspace source using import.meta is a SyntaxError under Node",
   },
   {
     id: "esm-default-interop",
     files: ["esm-default-interop.test.ts"],
-    requires: { engine: "native" },
+    observes: { engine: "native" },
     bug: "#15: an ES module's default import of __esModule CommonJS is undefined",
   },
   {
@@ -87,7 +92,8 @@ export const PROBES = [
   {
     id: "hot-automock",
     files: ["hot-automock-a.test.ts", "hot-automock-b.test.ts"],
-    requires: { hot: "on", vitest: "4" },
+    requires: { hot: "on" },
+    observes: { vitest: "4" },
     bug: "#14: under hot on Vitest 4.1, an automock replays another file's factory",
   },
   {
@@ -102,9 +108,10 @@ export const PROBES = [
   {
     id: "native-ext-peer",
     files: ["native-ext-peer.test.ts"],
-    // Only a pnpm store names a directory after a peer, and the mock engine has no
-    // platform resolution for externalized packages to get wrong.
-    requires: { engine: "native", layout: "isolated" },
+    // The mock engine has no platform resolution for externalized packages; only a pnpm
+    // store names a directory after a peer.
+    requires: { engine: "native" },
+    observes: { layout: "isolated" },
     bug: "#349: a library whose pnpm store directory names worklets loses its .native files",
   },
   {
@@ -129,21 +136,38 @@ export const PROBES = [
   },
 ];
 
+const holds = (values, run) =>
+  Object.entries(values ?? {}).every(([axis, value]) =>
+    (Array.isArray(value) ? value : [value]).includes(run[axis]),
+  );
+
+/** Whether `probe` can run in `run`, a full assignment of every axis. */
+export function runs(probe, run) {
+  return holds(probe.requires, run);
+}
+
 /** Whether `probe` can observe its defect in `run`, a full assignment of every axis. */
 export function applies(probe, run) {
-  return Object.entries(probe.requires ?? {}).every(([axis, value]) =>
-    (Array.isArray(value) ? value : [value]).includes(run[axis]),
+  return runs(probe, run) && holds(probe.observes, run);
+}
+
+const assignment = (cell, run) => {
+  const { runs: _runs, ...install } = cell;
+  return { ...install, ...run };
+};
+
+/**
+ * The probes that run in one run of a cell: `requires` is judged on the cell's install
+ * axes and the run's runtime axes together. (Judged on the run alone, every probe that
+ * requires an install axis would be n/a everywhere, silently.)
+ */
+export function activeProbes(probes, cell, run) {
+  return probes.filter(
+    (probe) => !(run.excludes ?? []).includes(probe.id) && runs(probe, assignment(cell, run)),
   );
 }
 
-/**
- * The probes that can observe their defect in one run of a cell: `requires` is judged on
- * the cell's install axes and the run's runtime axes together. (Judged on the run alone,
- * every probe that requires an install axis would be n/a everywhere, silently.)
- */
-export function activeProbes(probes, cell, run) {
-  const { runs: _runs, ...install } = cell;
-  return probes.filter(
-    (probe) => !(run.excludes ?? []).includes(probe.id) && applies(probe, { ...install, ...run }),
-  );
+/** Whether an active probe can observe its defect in this run of the cell. */
+export function observes(probe, cell, run) {
+  return applies(probe, assignment(cell, run));
 }

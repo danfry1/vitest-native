@@ -126,11 +126,12 @@ export function cellsFor(def, scope) {
     .filter((row) => allowed(row, constraints));
   // The extra runs (axes.json `extraRuns`): settings no axis value spells, each judged as
   // the axis values it should behave like, in every cell of either scope.
-  const extra = (def.extraRuns ?? []).map(({ label, env, judgeAs, excludes }) => ({
+  const extra = (def.extraRuns ?? []).map(({ label, env, judgeAs, excludes, resolve }) => ({
     ...judgeAs,
     label,
     env,
     ...(excludes ? { excludes } : {}),
+    ...(resolve ? { resolve } : {}),
   }));
   return groupCells(rows, def).map((cell) => ({ ...cell, runs: [...cell.runs, ...extra] }));
 }

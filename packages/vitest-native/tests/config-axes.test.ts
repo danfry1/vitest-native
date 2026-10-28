@@ -17,7 +17,7 @@ import {
   scopeFor,
 } from "../validation/config-axes/cells.mjs";
 // @ts-expect-error — runtime .mjs, no types
-import { activeProbes, applies, PROBES } from "../validation/config-axes/probes.mjs";
+import { activeProbes, applies, PROBES, runs } from "../validation/config-axes/probes.mjs";
 // @ts-expect-error — runtime .mjs, no types
 import { must, sh } from "../validation/config-axes/sh.mjs";
 // @ts-expect-error — runtime .mjs, no types
@@ -89,7 +89,7 @@ describe("cells", () => {
           for (const id of run.excludes ?? []) expect(ids, run.label).not.toContain(id);
         }
         expect(extra.map((run) => run.label)).toEqual(axes.extraRuns.map((r: Row) => r.label));
-        for (const { label: _l, env: _e, excludes: _x, ...judged } of extra as Row[]) {
+        for (const { label: _l, env: _e, excludes: _x, resolve: _r, ...judged } of extra as Row[]) {
           const row = { ...install, ...judged };
           expect(
             allowedRows.some((r) => JSON.stringify(r) === JSON.stringify(row)),
@@ -482,18 +482,38 @@ describe("probe catalog", () => {
     }
   });
 
-  it("each cell's runs activate every probe that some allowed run of that cell can observe", () => {
+  it("each cell's runs activate every probe that some allowed run of that cell can run", () => {
     for (const cell of cellsFor(axes, "full") as Cell[]) {
-      const { runs, ...install } = cell;
+      const { runs: cellRuns, ...install } = cell;
       const ran = new Set(
-        runs.flatMap((run) => activeProbes(PROBES, cell, run).map((p: { id: string }) => p.id)),
+        cellRuns.flatMap((run) => activeProbes(PROBES, cell, run).map((p: { id: string }) => p.id)),
       );
-      const observable = PROBES.filter((probe: { requires?: Row }) =>
+      const runnable = PROBES.filter((probe: { requires?: Row }) =>
         allowedRows.some(
-          (row) => Object.entries(install).every(([a, v]) => row[a] === v) && applies(probe, row),
+          (row) => Object.entries(install).every(([a, v]) => row[a] === v) && runs(probe, row),
         ),
       ).map((p: { id: string }) => p.id);
-      expect([...ran].sort(), JSON.stringify(install)).toEqual(observable.sort());
+      expect([...ran].sort(), JSON.stringify(install)).toEqual(runnable.sort());
+    }
+  });
+
+  // The review's coverage loss: a probe that cannot observe its defect in a cell still
+  // asserts correct behaviour there, so it runs (and can regress) rather than being n/a.
+  it("a probe runs wherever it can, not only where it can observe its defect", () => {
+    const row = (over: Row) => ({ ...allowedRows[0], ...over });
+    const byId = (id: string) => PROBES.find((p: { id: string }) => p.id === id);
+    for (const [id, where] of [
+      ["native-ext-peer", { engine: "native", layout: "hoisted" }],
+      ["aliased-sibling-string", { engine: "mock", hot: "off" }],
+      ["aliased-sibling-regex", { engine: "mock", hot: "off" }],
+      ["aliased-source-import-meta", { engine: "mock", hot: "off" }],
+      ["esm-default-interop", { engine: "mock", hot: "off" }],
+      ["rntl-nested-text", { engine: "mock", hot: "off" }],
+      ["recoverable-error", { rntl: "14" }],
+      ["hot-automock", { vitest: "5", engine: "native", hot: "on" }],
+    ] as [string, Row][]) {
+      expect(runs(byId(id), row(where)), id).toBe(true);
+      expect(applies(byId(id), row(where)), id).toBe(false);
     }
   });
 
