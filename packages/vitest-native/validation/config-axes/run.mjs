@@ -21,6 +21,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { applies, PROBES } from "./probes.mjs";
+import { account } from "./accounting.mjs";
 import { judge, readKnownFailing, validateEntries } from "./verdict.mjs";
 import { cellName, readAxes } from "./cells.mjs";
 
@@ -47,6 +48,7 @@ function sh(command, args, cwd, env = process.env) {
   if (result.error && result.error.code !== "ETIMEDOUT") throw result.error;
   return {
     status: result.status,
+    signal: result.signal,
     timedOut: result.error?.code === "ETIMEDOUT",
     output: `${result.stdout ?? ""}${result.stderr ?? ""}`,
   };
@@ -115,7 +117,11 @@ function materialise(cell, axes) {
       name: "config-axes-app",
       private: true,
       type: "module",
-      dependencies: { ...dependencies, "axis-esm-lib": "1.0.0", "vitest-native": "*" },
+      dependencies: {
+        ...dependencies,
+        "axis-esm-lib": "1.0.0",
+        "vitest-native": "*",
+      },
     });
     return root;
   }
@@ -230,7 +236,7 @@ function linkLocal(root, app, source) {
 
 // --- run ----------------------------------------------------------------------------
 
-function vitestRun(app, run, files, outputFile) {
+function vitestRun(app, run, files, outputFile, accountingFile) {
   const env = { ...process.env, CI: "1" };
   // The harness may itself run under Vitest or with loader flags; none of it may reach
   // the child.
@@ -241,6 +247,7 @@ function vitestRun(app, run, files, outputFile) {
   env.AXIS_GLOBALS = run.globals;
   env.AXIS_HOT = run.hot;
   env.AXIS_JEST_COMPAT = run.jestCompat;
+  env.AXIS_ACCOUNTING_FILE = accountingFile;
   // pnpm links Vitest into the app; npm hoists it to the workspace root.
   const installed = [
     path.join(app, "node_modules/vitest"),
@@ -253,7 +260,8 @@ function vitestRun(app, run, files, outputFile) {
       bin,
       "run",
       "--reporter=json",
-      `--outputFile=${outputFile}`,
+      "--reporter=./accounting-reporter.mjs",
+      `--outputFile.json=${outputFile}`,
       ...files.map((f) => `probes/${f}`),
     ],
     app,
@@ -261,35 +269,26 @@ function vitestRun(app, run, files, outputFile) {
   );
 }
 
-/** Per-file results from Vitest's JSON report: { file: { ok, detail } }. */
-function fileResults(outputFile) {
-  if (!fs.existsSync(outputFile)) return null;
-  const report = JSON.parse(fs.readFileSync(outputFile, "utf8"));
-  const results = {};
-  for (const file of report.testResults ?? []) {
-    const assertions = file.assertionResults ?? [];
-    const failed = assertions.filter((a) => a.status !== "passed");
-    // A file with no passing assertion proves nothing, whatever its status says.
-    const ok = file.status === "passed" && assertions.length > 0 && failed.length === 0;
-    const detail =
-      failed
-        .map((a) => `${a.title}: ${(a.failureMessages ?? []).join(" ").split("\n")[0]}`)
-        .join("; ") ||
-      (file.message ?? "").split("\n")[0] ||
-      (assertions.length === 0 ? "no tests ran" : "");
-    results[path.basename(file.name)] = { ok, detail };
-  }
-  return results;
+/**
+ * One Vitest process over `files`: { proc, results, problems } (accounting.mjs).
+ * `problems` are the run-level checks, which hold whatever the probes did.
+ */
+function runFiles(app, run, files, base) {
+  const report = `${base}.json`;
+  const accounting = `${base}.accounting.json`;
+  const proc = vitestRun(app, run, files, report, accounting);
+  return { proc, ...account(proc, files, report, accounting) };
 }
 
-function probeResult(probe, results, extra = "") {
-  if (!results) return { status: "fail", detail: `no report: the run crashed${extra}` };
-  for (const file of probe.files) {
+/** A probe's result from its files' results: every failure line, not just the first. */
+function probeResult(probe, results) {
+  if (!results) return { status: "fail", failures: ["no report: the run crashed"] };
+  const failures = probe.files.flatMap((file) => {
     const result = results[file];
-    if (!result) return { status: "fail", detail: `${file} did not run${extra}` };
-    if (!result.ok) return { status: "fail", detail: `${file}: ${result.detail}` };
-  }
-  return { status: "pass" };
+    if (!result) return [`${file}: did not run`];
+    return result.ok ? [] : result.failures;
+  });
+  return failures.length > 0 ? { status: "fail", failures } : { status: "pass" };
 }
 
 function runCell(cell, root, entries) {
@@ -309,53 +308,59 @@ function runCell(cell, root, entries) {
       if (!active.includes(probe)) results.set(probe.id, { status: "n/a" });
 
     const shared = active.filter((probe) => !probe.alone && !probe.output);
-    const out = path.join(root, `report-${index}-shared.json`);
     const started = Date.now();
-    const sharedRun = vitestRun(
-      app,
-      run,
-      shared.flatMap((probe) => probe.files),
-      out,
-    );
-    const sharedResults = fileResults(out);
-    for (const probe of shared) results.set(probe.id, probeResult(probe, sharedResults));
-    // An exit code the per-file results do not explain (an unhandled error, a crash after
-    // the report) belongs to no probe; it fails the run rather than vanishing.
-    const allPassed = shared.every((probe) => results.get(probe.id).status === "pass");
-    if (sharedRun.status !== 0 && allPassed) {
+    const sharedFiles = shared.flatMap((probe) => probe.files);
+    // With no files Vitest would run every probe file in the fixture (its `include`).
+    const needShared = sharedFiles.length > 0 || active.some((probe) => probe.output);
+    const sharedRun = needShared
+      ? runFiles(app, run, sharedFiles, path.join(root, `report-${index}-shared`))
+      : null;
+    for (const probe of shared) results.set(probe.id, probeResult(probe, sharedRun.results));
+    // The shared run's own problems (an unhandled error, a crash, a dropped file, an exit
+    // code the results do not explain) belong to no probe, so no known-failing entry can
+    // absorb them. They are reported whether or not the probes passed.
+    if (sharedRun && sharedFiles.length > 0 && sharedRun.problems.length > 0) {
       results.set("(shared run)", {
-        status: "fail",
-        detail: `exit ${sharedRun.status}${sharedRun.timedOut ? " (timed out)" : ""} with every probe passing:\n${sharedRun.output.slice(-2000)}`,
+        status: "error",
+        failures: sharedRun.problems,
+        output: sharedRun.proc.output,
       });
     }
     for (const probe of active.filter((p) => p.output)) {
-      const problem = probe.check(sharedRun.output);
-      results.set(probe.id, problem ? { status: "fail", detail: problem } : { status: "pass" });
+      const problem = probe.check(sharedRun.proc.output);
+      results.set(probe.id, problem ? { status: "fail", failures: [problem] } : { status: "pass" });
     }
+    // A probe run alone is judged on its whole process: its verdict includes the exit
+    // code and the unhandled errors (recoverable-error), or a file the run lost (the #350
+    // pair). So the run-level problems are its own failure lines, and each one must match
+    // its known-failing entry's signature like any assertion failure.
     for (const probe of active.filter((p) => p.alone)) {
-      const own = path.join(root, `report-${index}-${probe.id}.json`);
-      const alone = vitestRun(app, run, probe.files, own);
-      const result = probeResult(probe, fileResults(own));
+      const own = runFiles(app, run, probe.files, path.join(root, `report-${index}-${probe.id}`));
+      const result = probeResult(probe, own.results);
+      const failures = [...(result.failures ?? []), ...own.problems];
       results.set(
         probe.id,
-        result.status === "pass" && alone.status !== 0
-          ? { status: "fail", detail: `every test passed but Vitest exited ${alone.status}` }
-          : result,
+        failures.length > 0 ? { status: "fail", failures } : { status: "pass" },
       );
     }
     const seconds = ((Date.now() - started) / 1000).toFixed(1);
     console.log(`\n${cellName(cell)} · ${label}  (${seconds}s)`);
     for (const [probe, result] of results) {
       const verdict =
-        probe === "(shared run)"
-          ? { probe, outcome: "ERROR", ok: false, message: result.detail }
+        result.status === "error"
+          ? {
+              probe,
+              outcome: "ERROR",
+              ok: false,
+              message: `${result.failures.join("; ")}\n${result.output.slice(-2000)}`,
+            }
           : judge(entries, probe, full, result);
       verdicts.push({ ...verdict, run: label });
       console.log(
         `  ${verdict.outcome.padEnd(10)} ${probe}${verdict.message ? `  — ${verdict.message}` : ""}`,
       );
     }
-    if (process.env.AXIS_DEBUG) console.log(sharedRun.output);
+    if (process.env.AXIS_DEBUG && sharedRun) console.log(sharedRun.proc.output);
   }
   return verdicts;
 }
@@ -393,7 +398,9 @@ if (bad.length > 0) {
   for (const verdict of bad.filter((v) => v.outcome === "REGRESSION")) {
     const run = Object.fromEntries(verdict.run.split(" ").map((pair) => pair.split("=")));
     const when = { vitest: cell.vitest, rntl: cell.rntl, layout: cell.layout, ...run };
-    console.log(`  ${JSON.stringify({ probe: verdict.probe, when, fixedBy: "#?", why: "?" })}`);
+    console.log(
+      `  ${JSON.stringify({ probe: verdict.probe, when, failure: "<regex of the expected failure>", fixedBy: "#?", why: "?" })}`,
+    );
   }
   process.exit(1);
 }

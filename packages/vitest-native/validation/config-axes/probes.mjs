@@ -9,7 +9,8 @@
 //   requires  runtime-axis values the probe needs to mean anything (otherwise it is
 //             reported as n/a, not as a pass: a probe that cannot observe its defect
 //             must not count as evidence)
-//   alone     run in its own Vitest process, because its verdict includes the exit code
+//   alone     run in its own Vitest process, because its verdict includes the exit code,
+//             the unhandled errors or the files the run lost (accounting.mjs)
 //   output    a check of the run's output instead of test files (shared run's stderr)
 //   bug       the report item it was written from (monorepo migration report, 2026-10)
 

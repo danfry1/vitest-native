@@ -1,80 +1,131 @@
 {
-  "$comment": "Probes that fail TODAY, where, and the pull request that fixes each (verdict.mjs). The list may only shrink: a listed probe that passes turns its cell red, so the fixing pull request deletes its entry. `when` maps an axis to a value or a list; an entry without `when` matches every run. Entries were derived from local runs on Vitest 5 (all RNTL versions, both engines, every runtime combination) except where `why` says otherwise.",
+  "$comment": "Probes that fail TODAY, where, how, and the pull request that fixes each (verdict.mjs). The list may only shrink: a listed probe that passes turns its cell red, so the fixing pull request deletes its entry. `when` maps an axis to a value or a list; an entry without `when` matches every run. `failure` is a regex for the expected failure: every failure line of the probe in that run must match it, so a crash, a TypeError or a lost file in a listed probe is still a REGRESSION. Entries and signatures were derived from local runs on Vitest 5 (RNTL 12.9, 13.3 and 14.1, both engines, every runtime combination) except where `why` says otherwise.",
   "entries": [
     {
       "probe": "rntl-auto-cleanup",
-      "when": { "globals": "off" },
+      "when": {
+        "globals": "off"
+      },
+      "failure": "^rntl-auto-cleanup\\.test\\.tsx: the previous test's tree was unmounted: AssertionError: expected \\+0 to be 1",
       "fixedBy": "#342",
       "why": "RNTL registers cleanup only through a global afterEach. Both engines, every RNTL."
     },
     {
       "probe": "rntl-findby-fake-timers",
-      "when": { "jestCompat": "off" },
+      "when": {
+        "jestCompat": "off"
+      },
+      "failure": "^rntl-findby-fake-timers\\.test\\.tsx: findBy advances Vitest's fake timers: Error: Unable to find an element with text: ready",
       "fixedBy": "#342",
-      "why": "RNTL drives fake timers only through a global jest, which only jest-compat defines. Both engines, every RNTL, globals on or off."
+      "why": "RNTL drives fake timers only through a global jest, which only jest-compat defines. Both engines, every RNTL, globals on or off. NOTE: #342 documents this as a limitation (use jest-compat, or advance timers by hand) and does not fix it, so this entry will not go stale when #342 merges; no open pull request fixes it."
     },
     {
       "probe": "rntl-nested-text",
-      "when": { "engine": "native", "rntl": ["12", "13"] },
+      "when": {
+        "engine": "native",
+        "rntl": ["12", "13"]
+      },
+      "failure": "^rntl-nested-text\\.test\\.tsx: nested Text is queryable by its own text: Error: Unable to find an element with text: inner",
       "fixedBy": "#341",
       "why": "RCTVirtualText is registered as a text host for RNTL 14 only."
     },
     {
       "probe": "recoverable-error",
-      "when": { "rntl": ["12", "13"] },
+      "when": {
+        "rntl": ["12", "13"]
+      },
+      "failure": "^(unhandled error \\(from recoverable-error\\.test\\.tsx\\): Error: There was an error during concurrent rendering but React was able to recover|the JSON report says success: true, but Vitest exited 1$)",
       "fixedBy": "#343",
       "why": "react-test-renderer 19 reports a recoverable error through process.emit('uncaughtException'). RNTL 14 renders without it. Both engines."
     },
     {
       "probe": "partial-mock-store",
-      "when": { "jestCompat": "on" },
+      "when": {
+        "engine": "native",
+        "jestCompat": "on"
+      },
+      "failure": "^partial-mock-store\\.test\\.ts: .*: AssertionError: expected null to be 'set-by-the-app'",
       "fixedBy": "#345",
-      "why": "A synchronous requireActual compiles a second module graph under Node. Both engines."
+      "why": "A synchronous requireActual compiles a second module graph under Node, so the mock's real `read` sees Node's store."
+    },
+    {
+      "probe": "partial-mock-store",
+      "when": {
+        "engine": "mock",
+        "jestCompat": "on"
+      },
+      "failure": "^partial-mock-store\\.test\\.ts: \\[vitest\\] There was an error when mocking a module\\.",
+      "fixedBy": "#345",
+      "why": "Under the mock engine the factory itself throws (Vitest reports only that mocking failed), a different symptom from the native engine's split store. #345 rewrites requireActual in the factory to vi.importActual for both engines, but that it clears this one is NOT yet observed."
     },
     {
       "probe": "aliased-sibling-string",
-      "when": { "engine": "native", "jestCompat": "off" },
+      "when": {
+        "engine": "native",
+        "jestCompat": "off"
+      },
+      "failure": "^aliased-sibling-string\\.test\\.ts: .*: AssertionError: expected null to be 'written by the test'",
       "fixedBy": "#344",
       "why": "The sibling's directory is externalized, so Node loads the aliased source and its own store. Observed to pass with jest-compat on, whose Node-side resolution reaches the same copy."
     },
     {
       "probe": "aliased-sibling-regex",
-      "when": { "engine": "native" },
+      "when": {
+        "engine": "native"
+      },
+      "failure": "^aliased-sibling-regex\\.test\\.ts: Cannot find module '@axis/rvalidator/store'",
       "fixedBy": "#344",
       "why": "Node's alias fallback cannot represent a regex alias: Cannot find module."
     },
     {
       "probe": "aliased-source-import-meta",
-      "when": { "engine": "native" },
+      "when": {
+        "engine": "native"
+      },
+      "failure": "^aliased-source-import-meta\\.test\\.ts: Cannot use 'import\\.meta' outside a module",
       "fixedBy": "#344",
       "why": "Node compiles the aliased source to CommonJS: Cannot use 'import.meta' outside a module."
     },
     {
       "probe": "esm-default-interop",
-      "when": { "engine": "native" },
+      "when": {
+        "engine": "native"
+      },
+      "failure": "^esm-default-interop\\.test\\.ts: .*: TypeError: Cannot read properties of undefined \\(reading '__extends'\\)",
       "fixedBy": "#339",
       "why": "Babel's interopRequireDefault reads exports.default from __esModule CommonJS."
     },
     {
       "probe": "jest-fake-timer-options",
-      "when": { "jestCompat": "on" },
+      "when": {
+        "jestCompat": "on"
+      },
+      "failure": "^jest-fake-timer-options\\.test\\.ts: .*: AssertionError: expected 'the fake clock stood still' to be 'fired'",
       "fixedBy": "#340",
       "why": "jest.useFakeTimers passes Jest's options to Vitest, which drops advanceTimers. Both engines."
     },
     {
       "probe": "jest-error-equality",
-      "when": { "jestCompat": "on" },
+      "when": {
+        "jestCompat": "on"
+      },
+      "failure": "^jest-error-equality\\.test\\.ts: .*: AssertionError: expected Error: bad input .* to deeply equal Error: bad input",
       "fixedBy": "#346",
       "why": "Vitest compares Errors' own enumerable properties, per-instance methods included. Both engines."
     },
     {
       "probe": "preset-banner",
+      "failure": "^the banner does not name the safeAreaContext preset: \\[vitest-native\\] engine: (native|mock) ",
       "fixedBy": "#348",
       "why": "The banner names no presets. Both engines."
     },
     {
       "probe": "hot-automock",
-      "when": { "vitest": "4", "hot": "on" },
+      "when": {
+        "vitest": "4",
+        "hot": "on"
+      },
+      "failure": "^hot-automock-[ab]\\.test\\.ts: gets its own factory, and an automock for the module it automocks: AssertionError: expected false to be true",
       "fixedBy": "#338",
       "why": "NOT observed locally (no Vitest 4 on this machine): from #338, which reproduced it on Vitest 4.1.11. Vitest 4.1 replays a remembered factory from a placeholder node the hot runtime keeps across files; Vitest 5 is unaffected."
     }

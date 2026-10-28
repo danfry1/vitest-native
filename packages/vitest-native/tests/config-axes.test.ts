@@ -18,9 +18,12 @@ import {
 } from "../validation/config-axes/cells.mjs";
 // @ts-expect-error — runtime .mjs, no types
 import { PROBES } from "../validation/config-axes/probes.mjs";
+// @ts-expect-error — runtime .mjs, no types
+import { runProblems } from "../validation/config-axes/accounting.mjs";
 import {
   judge,
   matchingEntries,
+  NOT_A_SIGNATURE,
   readKnownFailing,
   validateEntries,
   // @ts-expect-error — runtime .mjs, no types
@@ -94,19 +97,57 @@ describe("cells", () => {
 });
 
 describe("verdict", () => {
-  const entries = [{ probe: "p", when: { engine: "native", rntl: ["12", "13"] }, fixedBy: "#1" }];
+  const entries = [
+    {
+      probe: "p",
+      when: { engine: "native", rntl: ["12", "13"] },
+      failure: "^p\\.test\\.ts: cleans up: AssertionError: expected 0 to be 1",
+      fixedBy: "#1",
+    },
+  ];
+  const expected = {
+    status: "fail",
+    failures: ["p.test.ts: cleans up: AssertionError: expected 0 to be 1"],
+  };
   const run = (over: Row) => ({ ...allowedRows[0], engine: "native", rntl: "12", ...over });
 
   it("a listed failure is known; an unlisted one is a regression", () => {
-    expect(judge(entries, "p", run({}), { status: "fail" })).toMatchObject({
+    expect(judge(entries, "p", run({}), expected)).toMatchObject({
       outcome: "known",
       ok: true,
     });
-    expect(judge(entries, "p", run({ rntl: "14" }), { status: "fail" })).toMatchObject({
+    expect(judge(entries, "p", run({ rntl: "14" }), expected)).toMatchObject({
       outcome: "REGRESSION",
       ok: false,
     });
-    expect(judge(entries, "other", run({}), { status: "fail" })).toMatchObject({ ok: false });
+    expect(judge(entries, "other", run({}), expected)).toMatchObject({ ok: false });
+  });
+
+  // The masking hole the 2026-10 harness audit found: any failure of a listed probe read
+  // as "known", a crash included.
+  it("a listed probe failing some other way is a regression, not the known bug", () => {
+    for (const failures of [
+      ["p.test.ts: did not run", "the process was killed by SIGSEGV"],
+      ["p.test.ts: cleans up: TypeError: Cannot read properties of undefined (reading 'x')"],
+      ["no report: the run crashed"],
+      [],
+    ]) {
+      expect(
+        judge(entries, "p", run({}), { status: "fail", failures }),
+        failures.join(),
+      ).toMatchObject({
+        outcome: "REGRESSION",
+        ok: false,
+      });
+    }
+  });
+
+  it("every failure line must match: the known failure beside another one is a regression", () => {
+    const failures = [...expected.failures, "unhandled error: Error: stray"];
+    expect(judge(entries, "p", run({}), { status: "fail", failures })).toMatchObject({
+      outcome: "REGRESSION",
+      ok: false,
+    });
   });
 
   it("a listed probe that passes is stale, so the list can only shrink", () => {
@@ -143,7 +184,21 @@ describe("known-failing.json", () => {
         axes,
         PROBES,
       ),
-    ).toHaveLength(5);
+    ).toHaveLength(6);
+  });
+
+  it("every signature is specific: it matches none of the failures it must tell apart", () => {
+    const entry = { probe: PROBES[0].id, fixedBy: "#1", why: "x" };
+    for (const failure of [".*", "did not run", "TypeError", "(", "^$|x"]) {
+      expect(validateEntries([{ ...entry, failure }], axes, PROBES), failure).toHaveLength(1);
+    }
+    expect(validateEntries([{ ...entry, failure: "expected 0 to be 1" }], axes, PROBES)).toEqual(
+      [],
+    );
+    for (const { failure } of known) {
+      for (const line of NOT_A_SIGNATURE)
+        expect(new RegExp(failure).test(line), failure).toBe(false);
+    }
   });
 
   it("every entry matches some allowed run where its probe applies — otherwise it could never go stale", () => {
@@ -156,6 +211,80 @@ describe("known-failing.json", () => {
       );
     });
     expect(unreachable).toEqual([]);
+  });
+});
+
+describe("run-level accounting", () => {
+  const report = (files: Record<string, "passed" | "failed">) => ({
+    success: Object.values(files).every((s) => s === "passed"),
+    testResults: Object.entries(files).map(([name, status]) => ({
+      name: `/w/probes/${name}`,
+      status,
+      assertionResults: [
+        { title: "t", status, failureMessages: status === "failed" ? ["expected 0 to be 1"] : [] },
+      ],
+    })),
+  });
+  const accounting = (files: Record<string, string>, unhandledErrors: object[] = []) => ({
+    reason: "passed",
+    modules: Object.entries(files).map(([name, state]) => ({ file: `/w/probes/${name}`, state })),
+    unhandledErrors,
+  });
+  const exit = (status: number | null, signal: string | null = null) => ({
+    status,
+    signal,
+    timedOut: false,
+  });
+
+  it("a clean run and a run whose failures explain its exit have no problems", () => {
+    const files = { "a.test.ts": "passed", "b.test.ts": "passed" } as const;
+    expect(runProblems(exit(0), Object.keys(files), report(files), accounting(files))).toEqual([]);
+    const failing = { "a.test.ts": "failed", "b.test.ts": "passed" } as const;
+    expect(
+      runProblems(exit(1), Object.keys(failing), { ...report(failing) }, accounting(failing)),
+    ).toEqual([]);
+  });
+
+  // The second hole: an unexplained exit was checked only when every probe passed.
+  it("an unhandled error is reported beside a failing probe", () => {
+    const files = { "a.test.ts": "failed" } as const;
+    const problems = runProblems(
+      exit(1),
+      ["a.test.ts"],
+      report(files),
+      accounting(files, [{ name: "Error", message: "stray", testPath: "/w/probes/a.test.ts" }]),
+    );
+    expect(problems).toEqual(["unhandled error (from a.test.ts): Error: stray"]);
+  });
+
+  it("a file the run was given but never reported is a problem (#350's shape)", () => {
+    const files = { "a.test.ts": "failed" } as const;
+    const problems = runProblems(
+      exit(1),
+      ["a.test.ts", "b.test.ts"],
+      report(files),
+      accounting(files),
+    );
+    expect(problems).toEqual([
+      "file accounting: no result in the JSON report for b.test.ts",
+      "file accounting: Vitest never reported module b.test.ts",
+    ]);
+  });
+
+  it("an exit code the results do not explain is a problem, whatever the probes did", () => {
+    const passing = { "a.test.ts": "passed" } as const;
+    expect(runProblems(exit(1), ["a.test.ts"], report(passing), accounting(passing))).toEqual([
+      "Vitest exited 1, but no file failed and no error was unhandled",
+      "the JSON report says success: true, but Vitest exited 1",
+    ]);
+    const failing = { "a.test.ts": "failed" } as const;
+    expect(runProblems(exit(null, "SIGSEGV"), ["a.test.ts"], report(failing), null)).toEqual([
+      "the process was killed by SIGSEGV",
+      "no accounting record: the run ended before Vitest's onTestRunEnd",
+    ]);
+    expect(runProblems(exit(0), ["a.test.ts"], report(failing), accounting(failing))).toContain(
+      "Vitest exited 0 with 1 failed files and 0 unhandled errors",
+    );
   });
 });
 
