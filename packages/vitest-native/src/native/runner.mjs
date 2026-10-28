@@ -44,9 +44,41 @@ export default class NativeHotRunner extends TestRunner {
   // Vitest passes an array because the hook is shaped for a batch, but its per-file
   // loop invokes the run through startTests([file]) one file at a time, which is the
   // cadence the reset needs.
+  //
+  // A reset that throws must fail THIS file, not vanish it. Vitest calls the hook
+  // outside the per-file try/catch that turns a collection error into a failed file,
+  // so an error thrown from here rejects startTests, the file is never collected, and
+  // it is missing from every report: Vitest records only a run-level "Test Run Error",
+  // which the JSON reporter does not carry at all. The error is held and thrown from
+  // the file's first import instead, which IS inside that try/catch, so the file is
+  // reported failed with the restoration error naming the cause.
   async onBeforeCollect(paths) {
-    globalThis.__vitest_native_reset_module_runner?.();
+    this.vitestNativeFile = paths[0];
+    try {
+      globalThis.__vitest_native_reset_module_runner?.();
+    } catch (error) {
+      this.vitestNativeResetError = error;
+    }
     return super.onBeforeCollect?.(paths);
+  }
+
+  importFile(filepath, source) {
+    const resetError = this.vitestNativeResetError;
+    if (resetError) {
+      this.vitestNativeResetError = undefined;
+      throw resetError;
+    }
+    // Set by worker.mjs only while it reports files a rejected task never reached.
+    const lostFileError = globalThis.__vitest_native_lost_file_error;
+    if (lostFileError) throw lostFileError(this.vitestNativeFile ?? filepath);
+    return super.importFile(filepath, source);
+  }
+
+  // Every file that reaches this hook is reported to the main thread. The worker
+  // entry compares this against the files it was asked to run (worker.mjs).
+  async onCollected(files) {
+    for (const file of files) globalThis.__vitest_native_file_collected?.(file.filepath);
+    return super.onCollected?.(files);
   }
 
   async onBeforeRunFiles(files) {
