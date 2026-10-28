@@ -1,0 +1,97 @@
+/**
+ * Which names of reanimated's own mock the native engine replaces (mockCorrections):
+ * each only while the mock still answers it with a no-op, so a reanimated whose mock
+ * does better keeps its own. The no-op mock here is shaped as 4.7.1's (src/mock.ts);
+ * the native suite runs the installed one (tests-native/reanimated.test.tsx).
+ */
+import { createRequire } from "node:module";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+import { mockCorrections } from "../src/presets/reanimated.js";
+
+const dir = path.dirname(
+  createRequire(import.meta.url).resolve("react-native-reanimated/package.json"),
+);
+const NOOP = () => {};
+
+/** The names in question, as reanimated 4.7.1's mock has them. */
+function noOpMock() {
+  return {
+    interpolate: NOOP,
+    clamp: NOOP,
+    interpolateColor: NOOP,
+    useAnimatedScrollHandler: () => NOOP,
+    useComposedEventHandler: () => NOOP,
+    useScrollOffset: () => ({ value: 0 }),
+    useScrollViewOffset: () => ({ value: 0 }),
+    useSharedValue: (value: number) => ({ value, get: () => value }),
+    default: { interpolate: NOOP, clamp: NOOP, ScrollView: () => null },
+  };
+}
+
+/** The same names, as a mock that does what they say. */
+function workingMock() {
+  const value = { value: 0, get: () => 0 };
+  return {
+    interpolate: () => "theirs",
+    clamp: () => "theirs",
+    interpolateColor: () => "theirs",
+    useAnimatedScrollHandler:
+      (handlers: { onScroll: (e: unknown) => void }) => (e: { nativeEvent: unknown }) =>
+        handlers.onScroll(e.nativeEvent),
+    useComposedEventHandler: (hs: ((e: unknown) => void)[]) => (e: unknown) =>
+      hs.forEach((h) => h(e)),
+    useScrollOffset: () => value,
+    useScrollViewOffset: () => value,
+    useSharedValue: () => value,
+    default: { interpolate: () => "theirs", clamp: () => "theirs", ScrollView: () => null },
+  };
+}
+
+const NAMES = [
+  "interpolate",
+  "clamp",
+  "useAnimatedScrollHandler",
+  "useComposedEventHandler",
+  "useScrollOffset",
+  "useScrollViewOffset",
+] as const;
+
+describe("reanimated mock corrections", () => {
+  it("replace each name the mock answers with a no-op", () => {
+    const mock = noOpMock();
+    const fixed = mockCorrections(mock, dir);
+    for (const name of NAMES) expect(fixed[name], name).not.toBe(mock[name]);
+    expect(fixed.interpolate(5, [0, 10], [0, 100])).toBe(50);
+    expect(fixed.clamp(5, 0, 3)).toBe(3);
+    expect(fixed.default.interpolate(5, [0, 10], [0, 100])).toBe(50);
+    expect(fixed.default.ScrollView).not.toBe(mock.default.ScrollView);
+    expect(fixed.useSharedValue).toBe(mock.useSharedValue);
+  });
+
+  it("keep each name the mock answers itself", () => {
+    const mock = workingMock();
+    const fixed = mockCorrections(mock, dir);
+    for (const name of [...NAMES, "interpolateColor"] as const) {
+      expect(fixed[name], name).toBe(mock[name]);
+    }
+    expect(fixed.default.interpolate).toBe(mock.default.interpolate);
+    expect(fixed.default.ScrollView).toBe(mock.default.ScrollView);
+  });
+
+  it("keep a hook that needs a render (it throws outside one)", () => {
+    const needsRender = () => {
+      throw new Error("Invalid hook call");
+    };
+    const mock = {
+      ...noOpMock(),
+      useAnimatedScrollHandler: needsRender,
+      useComposedEventHandler: needsRender,
+      useScrollOffset: needsRender,
+    };
+    const fixed = mockCorrections(mock, dir);
+    expect(fixed.useAnimatedScrollHandler).toBe(needsRender);
+    expect(fixed.useComposedEventHandler).toBe(needsRender);
+    expect(fixed.useScrollOffset).toBe(needsRender);
+  });
+});
