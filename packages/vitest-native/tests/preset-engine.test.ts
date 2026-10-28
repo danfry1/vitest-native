@@ -12,28 +12,13 @@ import { activePresets } from "../src/cli/manifest.js";
 import { autoDetectedPresetApplies, NATIVE_ENGINE_RUNS_PACKAGES } from "../src/preset-map.js";
 
 describe("autoDetectedPresetApplies", () => {
-  it("steps the expo and worklets presets aside under the native engine only", () => {
-    expect(NATIVE_ENGINE_RUNS_PACKAGES).toEqual(["expo", "worklets"]);
-    // This package installs react-native-worklets 0.13, which ships its Jest resolver.
-    const root = path.resolve(import.meta.dirname, "..");
-    for (const preset of ["expo", "worklets"]) {
-      expect(autoDetectedPresetApplies(preset, "native", undefined, root)).toBe(false);
-      expect(autoDetectedPresetApplies(preset, "mock", undefined, root)).toBe(true);
-    }
-    // Reanimated's applies, with reanimated's own mock as its module there.
-    expect(autoDetectedPresetApplies("reanimated", "native", undefined, root)).toBe(true);
-  });
-
-  it("keeps the worklets preset where the installed worklets has no Jest resolver", () => {
-    // Before worklets 0.9 its `.native` initializers load and throw without one.
-    const bare = fs.mkdtempSync(path.join(os.tmpdir(), "vn-no-resolver-"));
-    try {
-      fs.writeFileSync(path.join(bare, "package.json"), "{}");
-      expect(autoDetectedPresetApplies("worklets", "native", undefined, bare)).toBe(true);
-      expect(autoDetectedPresetApplies("worklets", "native")).toBe(true);
-      expect(autoDetectedPresetApplies("expo", "native", undefined, bare)).toBe(false);
-    } finally {
-      fs.rmSync(bare, { recursive: true, force: true });
+  it("steps the expo preset aside under the native engine only", () => {
+    expect(NATIVE_ENGINE_RUNS_PACKAGES).toEqual(["expo"]);
+    expect(autoDetectedPresetApplies("expo", "native")).toBe(false);
+    expect(autoDetectedPresetApplies("expo", "mock")).toBe(true);
+    // These apply, with the library's own mock as their module there.
+    for (const preset of ["reanimated", "worklets", "safeAreaContext"]) {
+      expect(autoDetectedPresetApplies(preset, "native")).toBe(true);
     }
   });
 
