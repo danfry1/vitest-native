@@ -124,7 +124,15 @@ export function cellsFor(def, scope) {
   const rows = installs
     .flatMap((install) => runtime.map((run) => ({ ...install, ...run })))
     .filter((row) => allowed(row, constraints));
-  return groupCells(rows, def);
+  // The extra runs (axes.json `extraRuns`): settings no axis value spells, each judged as
+  // the axis values it should behave like, in every cell of either scope.
+  const extra = (def.extraRuns ?? []).map(({ label, env, judgeAs, excludes }) => ({
+    ...judgeAs,
+    label,
+    env,
+    ...(excludes ? { excludes } : {}),
+  }));
+  return groupCells(rows, def).map((cell) => ({ ...cell, runs: [...cell.runs, ...extra] }));
 }
 
 /** A short, stable job name: `vitest 5 · RNTL 14 · isolated`. */
@@ -143,7 +151,9 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
   const [event, base, head] = process.argv.slice(2);
   const changed =
     event === "pull_request" && base && head
-      ? execFileSync("git", ["diff", "--name-only", base, head], { encoding: "utf8" })
+      ? // Three dots: what the pull request changed since it branched, not what main
+        // changed since.
+        execFileSync("git", ["diff", "--name-only", `${base}...${head}`], { encoding: "utf8" })
           .split("\n")
           .filter(Boolean)
       : [];

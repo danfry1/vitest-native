@@ -18,10 +18,16 @@ export default defineConfig({
   plugins: [
     ...(jestCompat ? [jestMockTransform()] : []),
     reactNative({
-      engine: axis("ENGINE") === "mock" ? "mock" : "native",
-      // Explicit either way: the default ('auto') decides by worker headroom, and a
-      // cell must not change runtime with the runner's CPU count.
-      hotRuntime: hot ? { allowUnboundedMemory: true } : false,
+      // "default" leaves an option unset, as a new project has it (the extra "defaults"
+      // run in axes.json).
+      ...(axis("ENGINE") === "default"
+        ? {}
+        : { engine: axis("ENGINE") === "mock" ? ("mock" as const) : ("native" as const) }),
+      // Explicit otherwise: the default ('auto') decides by worker headroom, and a cell
+      // must not change runtime with the runner's CPU count.
+      ...(axis("HOT") === "default"
+        ? {}
+        : { hotRuntime: hot ? { allowUnboundedMemory: true } : false }),
     }),
   ],
   resolve: {
@@ -50,8 +56,8 @@ export default defineConfig({
     include: ["probes/**/*.test.{ts,tsx}"],
     testTimeout: 5_000,
     hookTimeout: 5_000,
-    // The hot pair (hot-automock-a/b) only shows its defect when both files run in one
-    // worker, one after the other.
-    ...(hot ? { maxWorkers: 1 } : {}),
+    // The hot pairs only show their defect when both files run in one worker, one after
+    // the other. The "hot, 2 workers" extra run sets AXIS_WORKERS and excludes them.
+    ...(hot ? { maxWorkers: Number(axis("WORKERS") ?? 1) } : {}),
   },
 });

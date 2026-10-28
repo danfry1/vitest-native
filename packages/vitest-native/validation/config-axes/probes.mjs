@@ -143,5 +143,7 @@ export function applies(probe, run) {
  */
 export function activeProbes(probes, cell, run) {
   const { runs: _runs, ...install } = cell;
-  return probes.filter((probe) => applies(probe, { ...install, ...run }));
+  return probes.filter(
+    (probe) => !(run.excludes ?? []).includes(probe.id) && applies(probe, { ...install, ...run }),
+  );
 }

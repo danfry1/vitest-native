@@ -46,5 +46,41 @@
       "hoisted": "npm workspaces",
       "isolated": "pnpm workspaces"
     }
-  }
+  },
+  "extraRuns": [
+    {
+      "$comment": "Every option at its default: engine and hotRuntime unset (both 'auto'), globals off. What a new project gets. Judged as native with hot off; 'auto' may choose the hot runtime by worker headroom (it did locally), and run.mjs prints what each setting resolved to. Nothing judged here depends on hot: the hot pairs require hot on and are n/a.",
+      "label": "defaults",
+      "env": {
+        "engine": "default",
+        "globals": "off",
+        "hot": "default",
+        "jestCompat": "off"
+      },
+      "judgeAs": {
+        "engine": "native",
+        "globals": "off",
+        "hot": "off",
+        "jestCompat": "off"
+      }
+    },
+    {
+      "$comment": "The hot runtime with more than one worker, as real suites run it. The hot pairs need both files in one worker, so they are excluded here.",
+      "label": "hot, 2 workers",
+      "env": {
+        "engine": "native",
+        "globals": "on",
+        "hot": "on",
+        "jestCompat": "off",
+        "workers": "2"
+      },
+      "judgeAs": {
+        "engine": "native",
+        "globals": "on",
+        "hot": "on",
+        "jestCompat": "off"
+      },
+      "excludes": ["hot-automock", "hot-rn-module-mock"]
+    }
+  ]
 }

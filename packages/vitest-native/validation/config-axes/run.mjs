@@ -16,7 +16,6 @@
 //
 //   --keep          keep the materialised workspace and print its path
 //   --only a,b      run only these probes (investigation; the verdict still applies)
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -24,6 +23,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { activeProbes, PROBES } from "./probes.mjs";
 import { account } from "./accounting.mjs";
+import { INSTALL_TIMEOUT_MS, must, PNPM, sh } from "./sh.mjs";
 import { judge, readKnownFailing, validateEntries } from "./verdict.mjs";
 import { cellName, readAxes } from "./cells.mjs";
 
@@ -35,32 +35,6 @@ function argument(name) {
   return index === -1 ? undefined : process.argv[index + 1];
 }
 const flag = (name) => process.argv.includes(`--${name}`);
-
-const RUN_TIMEOUT_MS = 240_000;
-
-function sh(command, args, cwd, env = process.env) {
-  const result = spawnSync(command, args, {
-    cwd,
-    env,
-    encoding: "utf8",
-    timeout: RUN_TIMEOUT_MS,
-    killSignal: "SIGKILL",
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  if (result.error && result.error.code !== "ETIMEDOUT") throw result.error;
-  return {
-    status: result.status,
-    signal: result.signal,
-    timedOut: result.error?.code === "ETIMEDOUT",
-    output: `${result.stdout ?? ""}${result.stderr ?? ""}`,
-  };
-}
-
-function must(result, what) {
-  if (result.status !== 0)
-    throw new Error(`${what} failed (exit ${result.status}):\n${result.output}`);
-  return result;
-}
 
 function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -178,12 +152,18 @@ function materialise(cell, axes) {
       `packages:\n  - apps/*\n  - packages/*\n# A week, in minutes: the repository's release cooldown.\nminimumReleaseAge: 10080\n`,
     );
     must(
-      sh("npx", ["--yes", "pnpm@10", "install", "--no-frozen-lockfile"], root, env),
+      sh("npx", ["--yes", PNPM, "install", "--no-frozen-lockfile"], root, env, INSTALL_TIMEOUT_MS),
       "pnpm install",
     );
   } else {
     must(
-      sh("npm", ["install", `--before=${before.toISOString()}`, "--legacy-peer-deps"], root, env),
+      sh(
+        "npm",
+        ["install", `--before=${before.toISOString()}`, "--legacy-peer-deps"],
+        root,
+        env,
+        INSTALL_TIMEOUT_MS,
+      ),
       "npm install",
     );
   }
@@ -308,10 +288,14 @@ function vitestRun(app, run, files, outputFile, accountingFile) {
   for (const key of Object.keys(env)) {
     if (key.startsWith("VITEST") || key === "NODE_OPTIONS" || key === "NODE_PATH") delete env[key];
   }
-  env.AXIS_ENGINE = run.engine;
-  env.AXIS_GLOBALS = run.globals;
-  env.AXIS_HOT = run.hot;
-  env.AXIS_JEST_COMPAT = run.jestCompat;
+  // An extra run (axes.json `extraRuns`) sets its own environment and is judged as the
+  // axis values it carries.
+  const settings = run.env ?? run;
+  env.AXIS_ENGINE = settings.engine;
+  env.AXIS_GLOBALS = settings.globals;
+  env.AXIS_HOT = settings.hot;
+  env.AXIS_JEST_COMPAT = settings.jestCompat;
+  if (settings.workers) env.AXIS_WORKERS = settings.workers;
   env.AXIS_ACCOUNTING_FILE = accountingFile;
   // pnpm links Vitest into the app; npm hoists it to the workspace root.
   const installed = [
@@ -363,10 +347,12 @@ function runCell(cell, root, entries) {
   const verdicts = [];
   for (const [index, run] of cell.runs.entries()) {
     const full = { ...cell, ...run };
-    delete full.runs;
-    const label = Object.entries(run)
+    for (const key of ["runs", "label", "env", "excludes"]) delete full[key];
+    const axesLabel = Object.entries(run)
+      .filter(([key]) => !["label", "env", "excludes"].includes(key))
       .map(([axis, value]) => `${axis}=${value}`)
       .join(" ");
+    const label = run.label ? `${run.label} (judged as ${axesLabel})` : axesLabel;
     const results = new Map();
     const active = activeProbes(selected, cell, run);
     for (const probe of selected)
@@ -424,6 +410,14 @@ function runCell(cell, root, entries) {
       console.log(
         `  ${verdict.outcome.padEnd(10)} ${probe}${verdict.message ? `  — ${verdict.message}` : ""}`,
       );
+    }
+    // An extra run's settings resolve at runtime (engine and hotRuntime 'auto'): say what
+    // they resolved to, from the engine banner.
+    if (run.env && sharedRun) {
+      const banner = sharedRun.proc.output
+        .split("\n")
+        .find((line) => line.includes("[vitest-native] engine:"));
+      console.log(`  resolved: ${banner?.trim() ?? "(no engine banner)"}`);
     }
     if (process.env.AXIS_DEBUG && sharedRun) console.log(sharedRun.proc.output);
   }

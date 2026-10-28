@@ -78,11 +78,26 @@ runs every allowed runtime combination (engine × globals × hot × jest-compat:
 `AXIS_*` variables read by one `vitest.config.mts`. A run is one more Vitest process over the
 same `node_modules`: measured at 1–3 s warm and 7–11 s for the first.
 
+Two extra runs (`extraRuns` in `axes.json`) cover settings that no axis value spells.
+`defaults` leaves `engine` and `hotRuntime` unset, as a new project has them. It is judged as
+native with hot off, and the harness prints what `auto` resolved to: locally it chose the hot
+runtime. `hot, 2 workers` runs the hot runtime with `maxWorkers: 2`, as real suites do, and
+leaves out the hot pairs, which need one worker.
+
+Installs have no lockfile. Each job resolves the ranges in `axes.json` (and this package's
+pins) a week behind the registry (`npm --before`, pnpm's `minimumReleaseAge`). So a cell can go
+red because a dependency moved, not because of the change under test: rerun the last green
+commit before blaming a merge. pnpm itself is pinned exactly (`sh.mjs`), fetched by `npx`, and
+added to no manifest. Each install has its own time budget (10 minutes), and a step that runs
+out reports "timed out" instead of the job being killed.
+
 **Pairwise on pull requests, full on schedule.** Installs are the expensive part, so pull
 requests run a two-way cover of the install axes (`cells.mjs`): 6 jobs, so every
 (Vitest, RNTL), (Vitest, layout) and (RNTL, layout) pair is installed once. Every runtime
 combination runs on each of them. Pushes to main, the weekly schedule, manual runs, and pull
-requests that change the matrix itself run all 12 installs × 9 runs. The generator is
+requests that change the matrix itself run all 12 installs × 9 runs (plus the extra runs). What
+a pull request changed is a three-dot diff, so changes main made since the branch point do not
+count. The generator is
 deterministic, and `tests/config-axes.test.ts` asserts that every pair of values of any two axes
 is covered.
 
@@ -121,8 +136,12 @@ than the report says. RNTL 12 also hits #13 (the report named 13). `findBy` fail
 globals on as well, whenever there is no jest-compat. The string-alias split does _not_ show
 with jest-compat on.
 
-**Not required.** `Config-axis verdict` reports on every pull request but is not in branch
-protection (required contexts stay `CI verdict`, `RN matrix verdict`, `Analyze`, `CodeQL`).
+**Not required, yet.** `Config-axis verdict` reports on every pull request but is not in
+branch protection (required contexts stay `CI verdict`, `RN matrix verdict`, `Analyze`,
+`CodeQL`). The plan is to make it required once it is calibrated. That means the first full
+CI runs on Vitest 4 and real npm and pnpm installs have confirmed or corrected every entry and
+signature, and a few weeks of scheduled runs have stayed green except for real changes. Making
+it required is the maintainer's decision.
 
 ## Cost
 

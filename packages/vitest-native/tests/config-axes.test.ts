@@ -19,6 +19,8 @@ import {
 // @ts-expect-error — runtime .mjs, no types
 import { activeProbes, applies, PROBES } from "../validation/config-axes/probes.mjs";
 // @ts-expect-error — runtime .mjs, no types
+import { must, sh } from "../validation/config-axes/sh.mjs";
+// @ts-expect-error — runtime .mjs, no types
 import { fileResults, runProblems } from "../validation/config-axes/accounting.mjs";
 import {
   judge,
@@ -30,13 +32,17 @@ import {
 } from "../validation/config-axes/verdict.mjs";
 
 type Row = Record<string, string>;
-type Cell = Row & { runs: Row[] };
+type Cell = Row & { runs: (Row & { env?: Row })[] };
 
 const axes = readAxes();
 const allAxes: Record<string, string[]> = { ...axes.install, ...axes.runtime };
 const names = Object.keys(allAxes);
+// The axis combinations, without the extra runs (axes.json `extraRuns`), which repeat
+// some combination's judged values with settings of their own.
 const rowsOf = (cells: Cell[]): Row[] =>
-  cells.flatMap(({ runs, ...install }) => runs.map((run) => ({ ...install, ...run })));
+  cells.flatMap(({ runs, ...install }) =>
+    runs.filter((run) => !run.env).map((run) => ({ ...install, ...run })),
+  );
 const allowedRows: Row[] = cartesian(allAxes).filter((row: Row) => allowed(row, axes.constraints));
 
 describe("cells", () => {
@@ -71,6 +77,27 @@ describe("cells", () => {
       ),
     );
     expect(cells.length).toBe(largestPair);
+  });
+
+  it("every cell, in either scope, carries the extra runs, each judged as an allowed combination", () => {
+    for (const scope of ["pairwise", "full"]) {
+      for (const cell of cellsFor(axes, scope) as Cell[]) {
+        const { runs, ...install } = cell;
+        const extra = runs.filter((run) => run.env);
+        for (const run of extra as (Row & { excludes?: string[] })[]) {
+          const ids = activeProbes(PROBES, cell, run).map((p: { id: string }) => p.id);
+          for (const id of run.excludes ?? []) expect(ids, run.label).not.toContain(id);
+        }
+        expect(extra.map((run) => run.label)).toEqual(axes.extraRuns.map((r: Row) => r.label));
+        for (const { label: _l, env: _e, excludes: _x, ...judged } of extra as Row[]) {
+          const row = { ...install, ...judged };
+          expect(
+            allowedRows.some((r) => JSON.stringify(r) === JSON.stringify(row)),
+            JSON.stringify(row),
+          ).toBe(true);
+        }
+      }
+    }
   });
 
   it("pairwise is deterministic", () => {
@@ -377,6 +404,20 @@ describe("run-level accounting", () => {
     expect(runProblems(exit(0), ["a.test.ts"], report(failing), accounting(failing))).toContain(
       "Vitest exited 0 with 1 failed files and 0 unhandled errors",
     );
+  });
+});
+
+describe("harness processes", () => {
+  it("a step that runs out of its time budget says it timed out", () => {
+    const slow = sh(
+      process.execPath,
+      ["-e", "setTimeout(() => {}, 5000)"],
+      process.cwd(),
+      process.env,
+      200,
+    );
+    expect(slow.timedOut).toBe(true);
+    expect(() => must(slow, "npm install")).toThrow(/^npm install timed out/);
   });
 });
 

@@ -13,8 +13,9 @@ name: Config-axis matrix
 # weekly schedule, manual runs and pull requests that change the matrix itself run every
 # install combination (12 jobs). See validation/config-axes/cells.mjs.
 #
-# Not a required check: `Config-axis verdict` is reported on every pull request, and
-# whether it joins branch protection is the maintainer's decision.
+# Not a required check yet: `Config-axis verdict` is reported on every pull request, and
+# whether it joins branch protection, once calibrated, is the maintainer's decision
+# (docs/config-axis-matrix.md, "Not required, yet").
 
 on:
   push:
