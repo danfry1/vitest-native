@@ -38,7 +38,7 @@
     },
     "packages/vitest-native": {
       "name": "vitest-native",
-      "version": "0.14.0-rc.11",
+      "version": "0.14.0-rc.12",
       "bin": {
         "vitest-native": "./dist/cli.mjs",
       },
@@ -93,6 +93,7 @@
         "untranspiled-jsx-lib": "file:./tests-native/fixtures/untranspiled-jsx-lib",
         "vite": "^8.3.5",
         "vitest": "5.0.5",
+        "vn-lib-two-entries": "file:./tests-native/fixtures/vn-lib-two-entries",
       },
       "peerDependencies": {
         "@babel/core": "*",
@@ -1962,6 +1963,8 @@
     "vitest-native/rn-singleton-lib": ["rn-singleton-lib@file:packages/vitest-native/tests-native/fixtures/rn-singleton-lib", { "dependencies": { "react-native": "*" } }],
 
     "vitest-native/untranspiled-jsx-lib": ["untranspiled-jsx-lib@file:packages/vitest-native/tests-native/fixtures/untranspiled-jsx-lib", {}],
+
+    "vitest-native/vn-lib-two-entries": ["vn-lib-two-entries@file:packages/vitest-native/tests-native/fixtures/vn-lib-two-entries", {}],
 
     "wrap-ansi/ansi-styles": ["ansi-styles@4.3.0", "", { "dependencies": { "color-convert": "^2.0.1" } }, "sha512-zbB9rCJAT1rbjiVDb2hqKFHNYLxgtk8NURxZ3IZwD3F6NtxbXZQCnnSi1Lkx+IDohdPlFp222wVALIheZJQSEg=="],
 
