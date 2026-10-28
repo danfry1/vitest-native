@@ -44,8 +44,8 @@ const CASES: Record<string, Case> = {
     preset: presets.reanimated,
     module: "react-native-reanimated",
     reference: mockOf("react-native-reanimated", "lib/module/mock.js", "mock"),
-    // Most of reanimated 4's API beyond the core hooks: layout presets, interpolateColor,
-    // clamp, Keyframe, the jest helpers (withReanimatedTimer, getAnimatedStyle) and more.
+    // Most of reanimated 4's API beyond the core hooks: layout presets, clamp, Keyframe,
+    // the jest helpers (withReanimatedTimer, getAnimatedStyle) and more.
     gaps: [
       "BaseAnimationBuilder",
       "BounceOutDown",
@@ -123,11 +123,9 @@ const CASES: Record<string, Case> = {
       "getStaticFeatureFlag",
       "getUseOfValueInStyleWarning",
       "getViewProp",
-      "interpolateColor",
       "isColor",
       "isConfigured",
       "isReanimated3",
-      "isSharedValue",
       "isWorkletFunction",
       "linear",
       "makeShareableCloneRecursive",
@@ -143,7 +141,6 @@ const CASES: Record<string, Case> = {
       "steps",
       "stopMapper",
       "useAnimatedSensor",
-      "useComposedEventHandler",
       "useEvent",
       "useHandler",
       "useScrollOffset",

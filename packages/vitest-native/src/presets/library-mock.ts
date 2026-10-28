@@ -31,6 +31,12 @@ export interface LibraryMock {
   exportKey?: string;
   /** Whether the installed package can run its mock here; by default, whether `file` exists. */
   available?: (packageDir: string, projectRoot: string) => boolean;
+  /**
+   * Corrections for names the library's mock gets wrong, as a copy of the loaded mock;
+   * the mock module itself is left as the library ships it. Each is the library's own
+   * code where it has one (see reanimated.ts), and every one is listed where it is made.
+   */
+  extend?: (mock: Record<string, any>, packageDir: string) => Record<string, any>;
 }
 
 /** Whether this test run is under the native engine (its setup installs the control). */
@@ -42,12 +48,12 @@ function underNativeEngine(): boolean {
 }
 
 /** The project root in a test worker, where the plugin sets it. */
-function workerRoot(): string {
+export function workerRoot(): string {
   return projectContext()?.projectRoot ?? process.cwd();
 }
 
 /** The installed package's directory, from `root`, or null. */
-function packageDir(pkg: string, root: string): string | null {
+export function packageDir(pkg: string, root: string): string | null {
   // On disk, up the node_modules directories: through require(), a preset's require()
   // bridge in a mock-engine worker answers for the package.
   for (let dir = path.resolve(root); ; dir = path.dirname(dir)) {
@@ -88,9 +94,11 @@ export function libraryMockModule(mock: LibraryMock, fallback: PresetModule): Pr
     },
     factory() {
       const root = workerRoot();
-      if (underNativeEngine() && usable(mock, root)) {
+      const dir = underNativeEngine() ? usable(mock, root) : null;
+      if (dir) {
         const loaded = createRequire(path.join(root, "package.json"))(`${mock.pkg}/${mock.entry}`);
-        return mock.exportKey ? loaded[mock.exportKey] : loaded;
+        const module = mock.exportKey ? loaded[mock.exportKey] : loaded;
+        return mock.extend ? mock.extend(module, dir) : module;
       }
       return fallback.factory();
     },
