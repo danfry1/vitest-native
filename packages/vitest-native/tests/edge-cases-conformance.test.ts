@@ -122,12 +122,20 @@ describe("StyleSheet edge cases", () => {
     expect(result).toEqual({ flex: 1, color: "red", fontSize: 14, margin: 10 });
   });
 
-  it("flatten with all falsy values returns undefined", () => {
-    expect(StyleSheet.flatten([null, undefined, false])).toBeUndefined();
+  // React Native's flattenStyle builds the result object before walking an array, so
+  // an array with no style in it still flattens to {} (crosscheck probe
+  // hunt-stylesheet-flatten-empty). Only a non-array, non-object style is undefined.
+  it("flatten with all falsy values returns an empty object", () => {
+    expect(StyleSheet.flatten([null, undefined, false])).toEqual({});
   });
 
-  it("flatten empty array returns undefined", () => {
-    expect(StyleSheet.flatten([])).toBeUndefined();
+  it("flatten empty array returns an empty object", () => {
+    expect(StyleSheet.flatten([])).toEqual({});
+  });
+
+  it("flatten of a primitive returns undefined", () => {
+    expect(StyleSheet.flatten(1 as never)).toBeUndefined();
+    expect(StyleSheet.flatten("" as never)).toBeUndefined();
   });
 
   it("create preserves object references", () => {

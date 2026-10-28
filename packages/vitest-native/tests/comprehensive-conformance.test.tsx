@@ -326,10 +326,16 @@ describe("StyleSheet extended (conformance)", () => {
     expect(result).toEqual([a, b]);
   });
 
-  it("compose with falsy second returns first", () => {
+  // React Native's composeStyles returns the present side itself, not an array
+  // (crosscheck probe hunt-stylesheet-compose-nullish).
+  it("compose with a nullish side returns the other side itself", () => {
     const a = { flex: 1 };
-    const result = StyleSheet.compose(a, undefined);
-    expect(result).toEqual([a, undefined]);
+    expect(StyleSheet.compose(a, undefined)).toBe(a);
+    expect(StyleSheet.compose(a, null)).toBe(a);
+    expect(StyleSheet.compose(null, a)).toBe(a);
+    expect(StyleSheet.compose(undefined, a)).toBe(a);
+    expect(StyleSheet.compose(null, null)).toBeNull();
+    expect(StyleSheet.compose(undefined, undefined)).toBeUndefined();
   });
 });
 
