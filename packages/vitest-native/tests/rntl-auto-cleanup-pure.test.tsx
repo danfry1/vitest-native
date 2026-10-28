@@ -2,8 +2,13 @@
 // engine's setup file must not opt the file back in by loading RNTL's entry itself.
 import React from "react";
 import { Text } from "react-native";
-import { cleanup, render, screen } from "@testing-library/react-native/pure";
+import * as rntl from "@testing-library/react-native/pure";
 import { expect, test } from "vitest";
+
+// RNTL 13's `cleanup` calls each unmount without awaiting it; its `cleanupAsync` waits.
+// RNTL 12's and 14's `cleanup` finish the unmount themselves (14's is async).
+const { cleanupAsync } = rntl as { cleanupAsync?: () => Promise<void> };
+const cleanUp = cleanupAsync ?? rntl.cleanup;
 
 let unmounted = 0;
 function Tracked() {
@@ -17,12 +22,12 @@ function Tracked() {
 }
 
 test("renders", async () => {
-  await render(<Tracked />);
+  await rntl.render(<Tracked />);
 });
 
 test("is not cleaned up automatically", async () => {
   expect(unmounted).toBe(0);
-  expect(screen.getByText("pure screen")).toBeTruthy();
-  await cleanup();
+  expect(rntl.screen.getByText("pure screen")).toBeTruthy();
+  await cleanUp();
   expect(unmounted).toBe(1);
 });
