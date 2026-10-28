@@ -124,6 +124,38 @@ describe("everything else about the errors is still compared", () => {
     expect(aggregate("a")).not.toEqual(aggregate("b"));
   });
 
+  it("a name from the prototype", () => {
+    class Named extends WithMethod {}
+    Named.prototype.name = "Named";
+    expect(new Named("x")).not.toEqual(new WithMethod("x"));
+  });
+
+  it("the toString tag", () => {
+    class Tagged extends WithMethod {
+      get [Symbol.toStringTag](): string {
+        return "Tagged";
+      }
+    }
+    expect(new Tagged("x")).not.toEqual(new WithMethod("x"));
+  });
+
+  it("an own enumerable __proto__ key, as data", () => {
+    const withProto = (value: unknown) => {
+      const error = new WithMethod("x");
+      Object.defineProperty(error, "__proto__", { value, enumerable: true });
+      return error;
+    };
+    expect(withProto({ code: 1 })).not.toEqual(withProto({ code: 2 }));
+    expect(withProto({ code: 1 })).toEqual(withProto({ code: 1 }));
+  });
+
+  it("a cause that cycles back on one side only", () => {
+    const cyclic = new WithMethod("x");
+    cyclic.cause = cyclic;
+    const chain = new WithMethod("x", { cause: new WithMethod("x", { cause: new Error("y") }) });
+    expect(cyclic).not.toEqual(chain);
+  });
+
   it("an undefined property against a missing one, as each matcher treats it", () => {
     expect(new WithMethod("x", { code: undefined })).toEqual(new WithMethod("x"));
     expect(new WithMethod("x", { code: undefined })).not.toStrictEqual(new WithMethod("x"));

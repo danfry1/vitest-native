@@ -59,10 +59,13 @@ function sharedMethodKeys(a, b) {
   return keys;
 }
 
-/** `{ ...value }` without `skip`. */
+/**
+ * `{ ...value }` without `skip`. The spread defines each key, where assigning would run
+ * the `__proto__` setter for an own `__proto__` key and hide that key's value.
+ */
 function ownData(value, skip) {
-  const data = {};
-  for (const key of ownEnumerableKeys(value)) if (!skip.has(key)) data[key] = value[key];
+  const data = { ...value };
+  for (const key of skip) delete data[key];
   return data;
 }
 
@@ -73,7 +76,12 @@ const aStack = [];
 const bStack = [];
 
 export function errorsWithMethodsEquality(a, b, customTesters) {
-  if (!isError(a) || !isError(b) || Object.is(a, b)) return undefined;
+  // Vitest runs the testers on every pair it compares, primitives and plain objects
+  // included, so the common case returns before `isError`.
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) {
+    return undefined;
+  }
+  if (a === b || !isError(a) || !isError(b)) return undefined;
   if (typeof this?.equals !== "function") return undefined;
   const skip = sharedMethodKeys(a, b);
   if (skip.size === 0) return undefined;

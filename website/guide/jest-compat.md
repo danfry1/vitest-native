@@ -71,6 +71,8 @@ Remaining differences:
 - `jest.mock` must be at the top level of the file. Inside a `describe` it becomes a nested `vi.mock`, which Vitest rejects ("defined outside of the module's top level scope"); Jest hoists it from there.
 - A `jest.mock` in a helper file that Node loads (one a test `require`s) is not hoisted, and does not register for `require()`. babel-jest hoists it there, because it adds `babel-preset-jest` to every file it compiles. Put the call in the test file or in a setup file.
 - Finding which Babel options apply means loading the project's config and its plugins. That costs each worker about 0.25 s on a large Expo config, even when the transform cache is warm, the first time it loads a project TypeScript file through Node.
+- Two errors are compared as Vitest compares them, except that an own property that is a function on both is left out, so two identical zod 3 `ZodError`s, whose methods are per-instance closures, are equal. `expect` is shared, so this applies to Vitest-style assertions anywhere in the project too.
+- Errors that differ in a data property, their `name` or their `cause` still differ under `toEqual`, as in Vitest. Jest compares two errors by message alone there, so it passes them.
 - Without `jestCompatSetup` in `test.setupFiles`, a `jest.mock` factory fails with an error naming it (`JEST_COMPAT_SETUP_MISSING`). It must come before any setup file that calls `jest.mock`.
 
 ## What it does *not* do
