@@ -471,7 +471,7 @@
         "main": "FAIL (bug)",
         "fix": "PASS",
         "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
-        "mainSignature": "recall.test.ts: AssertionError: expected 0 to be greater than or equal to 1793217649569",
+        "mainSignature": "recall.test.ts: AssertionError: expected 0 to be greater than or equal to 1793227096048",
         "proof": "fix proven"
       }
     },
