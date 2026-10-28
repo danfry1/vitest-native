@@ -139,7 +139,7 @@
       "failure": "^unhandled error: VitestNativeError: \\[vitest-native\\] hotRuntime state restoration failed: / - react-native\\.appearance restore: Cannot read properties of null \\(reading 'setColorScheme'\\)$",
       "consequences": "^(hot-rn-module-mock-[ab]\\.test\\.ts: did not run|file accounting: (no result in the JSON report for|Vitest never reported module) hot-rn-module-mock-[ab]\\.test\\.ts|the JSON report says success: true, but Vitest exited 1)$",
       "fixedBy": "#350",
-      "why": "The per-file reset restores React Native before it clears jest-compat's Node mock registry, so the Appearance restore reads the null mock and throws outside Vitest's per-file error handling: the second file is never collected, and the JSON report says success: true while Vitest exits 1."
+      "why": "The per-file reset restores React Native before it clears jest-compat's Node mock registry, so the Appearance restore reads the null mock and throws outside Vitest's per-file error handling: the second file is never collected, and the JSON report says success: true while Vitest exits 1. The pair is symmetric, so either file may be the lost one; both lost is a REGRESSION (verdict.mjs: a consequence cannot account for every file of the probe)."
     },
     {
       "probe": "native-ext-peer",

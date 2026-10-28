@@ -192,6 +192,28 @@ describe("verdict", () => {
     });
   });
 
+  it("a consequence cannot account for every file of the probe being lost", () => {
+    const pair = [
+      {
+        probe: "p",
+        when: { engine: "native" },
+        failure: "^unhandled error: E: the bug$",
+        consequences: "^[ab]\\.test\\.ts: did not run$",
+        fixedBy: "#1",
+      },
+    ];
+    const result = (...lost: string[]) => ({
+      status: "fail",
+      failures: ["unhandled error: E: the bug", ...lost.map((f) => `${f}: did not run`)],
+      files: ["a.test.ts", "b.test.ts"],
+    });
+    expect(judge(pair, "p", run({}), result("b.test.ts"))).toMatchObject({ outcome: "known" });
+    expect(judge(pair, "p", run({}), result("a.test.ts", "b.test.ts"))).toMatchObject({
+      outcome: "REGRESSION",
+      ok: false,
+    });
+  });
+
   // Two entries on one probe: one bug fixed, its entry left behind. Per-probe judgement
   // called the remaining failure "known" and would credit a later regression of the fixed
   // bug to its merged PR.
@@ -294,6 +316,21 @@ describe("known-failing.json", () => {
     expect(validateEntries([{ ...entry, failure: "expected 0 to be 1" }], axes, PROBES)).toEqual(
       [],
     );
+    // `consequences` may match only lost files and exit codes: `.+` would absorb a
+    // TypeError beside the bug.
+    for (const consequences of [".+", "TypeError", "unhandled error", "AssertionError", "^$"]) {
+      expect(
+        validateEntries([{ ...entry, failure: "expected 0 to be 1", consequences }], axes, PROBES),
+        consequences,
+      ).toHaveLength(1);
+    }
+    expect(
+      validateEntries(
+        [{ ...entry, failure: "expected 0 to be 1", consequences: `^${file}: did not run$` }],
+        axes,
+        PROBES,
+      ),
+    ).toEqual([]);
     for (const { probe: id, failure } of known) {
       const lines = genericFailureLines(PROBES.find((p: { id: string }) => p.id === id));
       for (const line of lines)

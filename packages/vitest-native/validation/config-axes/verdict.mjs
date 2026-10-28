@@ -18,7 +18,9 @@
 //   consequences  optional: a regex for lines the bug causes but that do not identify it
 //                 (a file the run lost after the bug threw, an exit code). Accepted only
 //                 when the entry's own `failure` matched a line in the same run, so a lost
-//                 file with no bug beside it is still a regression.
+//                 file with no bug beside it is still a regression. It may match only
+//                 lost-file and exit-code lines (consequenceShapedLines), and it cannot
+//                 account for every file of the probe being lost.
 //
 // Verdicts, per run:
 //
@@ -63,6 +65,33 @@ const MOCKING_FAILED =
  * one would absorb exactly the failures it exists to tell apart from the known bug.
  */
 export function genericFailureLines(probe) {
+  return [...consequenceShapedLines(probe), ...errorLines(probe)];
+}
+
+/**
+ * The generic lines a bug may legitimately cause without identifying itself: a file the
+ * run lost, and an exit code the results do not explain. Only these may an entry's
+ * `consequences` match.
+ */
+export function consequenceShapedLines(probe) {
+  const lines = [
+    "the JSON report says success: true, but Vitest exited 1",
+    "Vitest exited 1, but no file failed and no error was unhandled",
+  ];
+  for (const file of probe?.files ?? []) {
+    lines.push(
+      `${file}: did not run`,
+      `${file}: no tests ran`,
+      `file accounting: no result in the JSON report for ${file}`,
+      `file accounting: Vitest never reported module ${file}`,
+      `file accounting: unfinished module ${file} (queued)`,
+    );
+  }
+  return lines;
+}
+
+/** Crashes, assertions and errors: generic lines that neither field may match. */
+function errorLines(probe) {
   const lines = [
     "",
     "no report: the run crashed",
@@ -70,24 +99,17 @@ export function genericFailureLines(probe) {
     "the process was killed by SIGSEGV",
     "the process exited 134 (Vitest exits 0 or 1)",
     "the run timed out",
-    "the JSON report says success: true, but Vitest exited 1",
-    "Vitest exited 1, but no file failed and no error was unhandled",
     "unhandled error: Error: something unrelated",
     "unhandled error: VitestNativeError: [vitest-native] hotRuntime state restoration failed: / - some.other restore: boom",
   ];
   for (const file of probe?.files ?? []) {
     lines.push(
-      `${file}: did not run`,
-      `${file}: no tests ran`,
       `${file}: Error: Worker exited unexpectedly`,
       `${file}: Cannot find module 'something-else'`,
       `${file}: ${MOCKING_FAILED}`,
       `${file}: ${MOCKING_FAILED} (caused by: TypeError: mutant)`,
       `${file}: a test: TypeError: Cannot read properties of undefined (reading 'x')`,
       `${file}: a test: AssertionError: expected 1 to be 2 // Object.is equality`,
-      `file accounting: no result in the JSON report for ${file}`,
-      `file accounting: Vitest never reported module ${file}`,
-      `file accounting: unfinished module ${file} (queued)`,
       `unhandled error (from ${file}): Error: something unrelated`,
     );
   }
@@ -101,7 +123,8 @@ const describeEntry = (entry) => `/${entry.failure}/ (${entry.fixedBy})`;
 
 /**
  * The verdict for one probe in one run. `result` is { status: 'pass'|'fail'|'n/a',
- * failures? }. Returns { probe, outcome, ok, message }.
+ * failures?, files? } (`files`: the probe's test files, for the lost-file rule).
+ * Returns { probe, outcome, ok, message }.
  */
 export function judge(entries, probe, run, result) {
   if (result.status === "n/a") return { probe, outcome: "n/a", ok: true, message: "" };
@@ -132,6 +155,21 @@ export function judge(entries, probe, run, result) {
         signature(entry).test(line) ||
         (entry.consequences !== undefined && new RegExp(entry.consequences).test(line)),
     );
+  // A lost file is a consequence only while some file of the probe ran: the bug must
+  // have run to throw. Every file lost is a crash, whatever the entry says.
+  const lost = (result.files ?? []).filter((file) =>
+    failures.some(
+      (line) => line.includes(file) && !shown.some((entry) => signature(entry).test(line)),
+    ),
+  );
+  if (result.files?.length > 0 && lost.length === result.files.length) {
+    return {
+      probe,
+      outcome: "REGRESSION",
+      ok: false,
+      message: `fails, and every file of the probe was lost: ${failures.join("; ")}`,
+    };
+  }
   const unexpected = failures.filter((line) => !accounted(line));
   if (unexpected.length > 0) {
     return {
@@ -187,12 +225,22 @@ export function validateEntries(entries, axes, probes) {
         );
     }
     if (entry.consequences !== undefined) {
+      let consequences = null;
       try {
-        if (new RegExp(entry.consequences).test(""))
-          problems.push(`${at}: \`consequences\` matches an empty line`);
+        consequences = new RegExp(entry.consequences);
       } catch (error) {
         problems.push(`${at}: \`consequences\` is not a regular expression: ${error.message}`);
       }
+      // Only a lost file or an unexplained exit code: a pattern that matched an assertion,
+      // a TypeError or an unhandled error would absorb a second failure beside the bug.
+      const probe = probes.find((p) => p.id === entry.probe);
+      const absorbs = consequences
+        ? errorLines(probe).filter((line) => consequences.test(line))
+        : [];
+      if (absorbs.length > 0)
+        problems.push(
+          `${at}: \`consequences\` also matches ${absorbs.map((l) => JSON.stringify(l)).join(", ")}; it may match only lost files and exit codes`,
+        );
     }
     for (const [axis, value] of Object.entries(entry.when ?? {})) {
       if (!(axis in values)) {

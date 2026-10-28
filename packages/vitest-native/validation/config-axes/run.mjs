@@ -341,7 +341,9 @@ function probeResult(probe, results) {
     if (!result) return [`${file}: did not run`];
     return result.ok ? [] : result.failures;
   });
-  return failures.length > 0 ? { status: "fail", failures } : { status: "pass" };
+  return failures.length > 0
+    ? { status: "fail", failures, files: probe.files }
+    : { status: "pass" };
 }
 
 function runCell(cell, root, entries) {
@@ -397,7 +399,7 @@ function runCell(cell, root, entries) {
       const failures = [...(result.failures ?? []), ...own.problems];
       results.set(
         probe.id,
-        failures.length > 0 ? { status: "fail", failures } : { status: "pass" },
+        failures.length > 0 ? { status: "fail", failures, files: probe.files } : { status: "pass" },
       );
     }
     const seconds = ((Date.now() - started) / 1000).toFixed(1);
