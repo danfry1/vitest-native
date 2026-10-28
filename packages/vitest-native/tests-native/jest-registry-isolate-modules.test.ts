@@ -5,7 +5,7 @@
  * untouched afterwards (jest-runtime 29.7). Both used to throw "has no Vitest
  * equivalent".
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 declare const jest: {
   mock(path: string, factory: () => unknown): void;
@@ -108,6 +108,24 @@ describe("jest.isolateModulesAsync", () => {
     expect((await import("./fixtures/alias-app/registry/counter")).increment).toBe(
       outerImported.increment,
     );
+  });
+
+  // A module mocked with a factory is fetched as a placeholder node that remembers the
+  // factory, and the reset at the block's start invalidates it (module-reset.mjs).
+  // The end of the block puts back each node's evaluation state, not that `meta`:
+  // every request fetches `meta` anew, so restoring it changes nothing except on
+  // Vitest 4.1, whose `cachedRequest` would replay the remembered factory for a module
+  // that is now automocked. Without it, the module is looked up under the current
+  // mocks, as Vitest 5 always does. Only Vitest 4.1 can fail this.
+  it("a factoryless vi.doMock after the block automocks a module an earlier factory mocked", async () => {
+    vi.doMock("./fixtures/alias-app/registry/counter", () => ({ increment: () => -1 }));
+    expect((await import("./fixtures/alias-app/registry/counter")).increment()).toBe(-1);
+    await jest.isolateModulesAsync(async () => {});
+    vi.doMock("./fixtures/alias-app/registry/counter");
+    const automocked = await import("./fixtures/alias-app/registry/counter");
+    vi.doUnmock("./fixtures/alias-app/registry/counter");
+    expect(vi.isMockFunction(automocked.increment)).toBe(true);
+    expect(automocked.increment()).toBeUndefined();
   });
 
   it("cannot be nested", async () => {

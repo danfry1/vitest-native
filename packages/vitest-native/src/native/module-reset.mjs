@@ -197,19 +197,16 @@ const VITEST_RUNTIME = [/\/vitest\/dist\//, /vitest-virtual-\w+\/dist/, /@vitest
  * request fetches the module again, under the mocks of whoever asks. Dropping only
  * `meta.mockedModule` is not enough: the placeholder's empty code would then be served
  * as the module itself to a file that does not mock it.
+ *
+ * Only this reset does so. On Vitest 4.1 a factoryless `vi.doMock` that follows a
+ * `vi.doMock` with a factory in the same file still gets the factory when nothing
+ * between them resets the graph, or only `vi.resetModules()` does, since it keeps
+ * `meta`. That is stock Vitest 4.1 behaviour, left as it is.
  */
 export function resetEvaluatedModules(modules, saved) {
   for (const [id, node] of modules.idToModuleMap) {
     if (VITEST_RUNTIME.some((re) => re.test(id))) continue;
-    saved?.set(node, [
-      node.promise,
-      node.exports,
-      node.evaluated,
-      [...node.importers],
-      node.meta,
-      node.map,
-      [...node.imports],
-    ]);
+    saved?.set(node, [node.promise, node.exports, node.evaluated, [...node.importers]]);
     if (node.meta && "mockedModule" in node.meta) modules.invalidateModule(node);
     node.promise = undefined;
     node.exports = undefined;
@@ -218,12 +215,20 @@ export function resetEvaluatedModules(modules, saved) {
   }
 }
 
-/** Put back what `resetEvaluatedModules` saved; nodes evaluated since are reset. */
+/**
+ * Put back what `resetEvaluatedModules` saved; nodes evaluated since are reset.
+ *
+ * A placeholder's `meta` is not put back. Every request fetches `meta` anew
+ * (vite/module-runner, `getModuleInformation`): the transport answers a factory or
+ * redirect mock with a new placeholder, and only a module with no such mock is served
+ * from the node as it stands. So the restored `meta` would only matter on Vitest 4.1
+ * once the module is automocked, and there it would replay the factory from before the
+ * block (jest-registry-isolate-modules.test.ts).
+ */
 export function restoreEvaluatedModules(modules, saved) {
   resetEvaluatedModules(modules);
-  for (const [node, [promise, exports, evaluated, importers, meta, map, imports]] of saved) {
-    Object.assign(node, { promise, exports, evaluated, meta, map });
+  for (const [node, [promise, exports, evaluated, importers]] of saved) {
+    Object.assign(node, { promise, exports, evaluated });
     for (const importer of importers) node.importers.add(importer);
-    for (const imported of imports) node.imports.add(imported);
   }
 }
