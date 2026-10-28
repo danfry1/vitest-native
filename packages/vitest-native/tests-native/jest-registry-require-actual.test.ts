@@ -57,3 +57,18 @@ describe("require() from a test file", () => {
     expect(require("./fixtures/alias-app/registry/storage")).toBe(required);
   });
 });
+
+describe("jest.requireActual of a package a preset shadows", () => {
+  it("is the package, not the preset", () => {
+    // The safe-area-context preset shadows the package by name; Jest's requireActual
+    // gives the real one, which a library's own mock spreads (its jest/mock does).
+    const actual = jest.requireActual<Record<string, unknown>>("react-native-safe-area-context");
+    const shadowed = jest.requireMock<Record<string, unknown>>("react-native-safe-area-context");
+    expect(typeof actual.SafeAreaListener).toBe("function");
+    expect(shadowed.SafeAreaListener).toBeUndefined();
+    // Only that load: the next one by name is the preset again.
+    expect(jest.requireMock<Record<string, unknown>>("react-native-safe-area-context")).toBe(
+      shadowed,
+    );
+  });
+});

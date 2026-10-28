@@ -18,6 +18,7 @@ import { CONTEXT_ENV, assertBootContext, requireProjectContext } from "../contex
 import { importPresetModule, presetModulePaths } from "../preset-modules.mjs";
 import { installNitroProxy } from "./nitro.mjs";
 import { createExpoNativeModuleResolver } from "./expo-native-modules.mjs";
+import { beginTestFile, installLibraryJest } from "./library-jest.mjs";
 import { cacheRootFor } from "./transform.mjs";
 import { installKnownNativeModules } from "./native-modules.mjs";
 import { installRntlAutoCleanup } from "../rntl-support.mjs";
@@ -286,6 +287,12 @@ installErrorUtils(projectRoot);
 // Before any test or user setup file imports RNTL: its fake-timer support reads a
 // `jest` of its own (see rntl-hooks.mjs).
 installRntlJest(vi);
+// Libraries' own test support (their jestSetup and mock files) runs with a `jest` of
+// its own, with Jest's module-registry semantics (library-jest.mjs).
+installLibraryJest(vi);
+// Each test file keeps only what a still-loaded library support module registered,
+// under every pool: the hot runtime and `isolate: false` reuse a worker.
+beginTestFile();
 // Through Vitest, so a TypeScript preset module loads. Its export lists already
 // reached the ESM loader from the plugin; a module the plugin did not read would be
 // served by the real package there.
