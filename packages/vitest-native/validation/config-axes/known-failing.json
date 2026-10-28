@@ -54,9 +54,9 @@
         "engine": "mock",
         "jestCompat": "on"
       },
-      "failure": "^partial-mock-store\\.test\\.ts: \\[vitest\\] There was an error when mocking a module\\.",
+      "failure": "^partial-mock-store\\.test\\.ts: \\[vitest\\] There was an error when mocking a module\\..* \\(caused by: Error: Cannot find module '[^']*/src/partial-mock/store' imported from [^)]*/src/partial-mock/api\\.ts\\)$",
       "fixedBy": "#345",
-      "why": "Under the mock engine the factory itself throws (Vitest reports only that mocking failed), a different symptom from the native engine's split store. #345 rewrites requireActual in the factory to vi.importActual for both engines, but that it clears this one is NOT yet observed."
+      "why": "Under the mock engine the synchronous jest.requireActual reaches Node's ESM loader, which cannot resolve api.ts's extensionless import of ./store, so the factory throws: 'Cannot find module \u2026/src/partial-mock/store imported from \u2026/api.ts'. Vitest reports only that mocking failed, and the JSON report drops the cause, so the signature is on the cause the accounting reporter records. #345 rewrites requireActual in the factory to vi.importActual for both engines, but that it clears this symptom is NOT yet observed."
     },
     {
       "probe": "aliased-sibling-string",

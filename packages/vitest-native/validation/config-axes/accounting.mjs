@@ -105,9 +105,7 @@ export function runProblems(proc, expected, report, accounting) {
       );
     for (const error of accounting.unhandledErrors ?? []) {
       const where = error.testPath ? ` (from ${path.basename(error.testPath)})` : "";
-      problems.push(
-        `unhandled error${where}: ${error.name}: ${error.message}${causedBy([error])}`,
-      );
+      problems.push(`unhandled error${where}: ${error.name}: ${error.message}${causedBy([error])}`);
     }
   }
 

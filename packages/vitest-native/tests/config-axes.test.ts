@@ -19,7 +19,7 @@ import {
 // @ts-expect-error — runtime .mjs, no types
 import { PROBES } from "../validation/config-axes/probes.mjs";
 // @ts-expect-error — runtime .mjs, no types
-import { runProblems } from "../validation/config-axes/accounting.mjs";
+import { fileResults, runProblems } from "../validation/config-axes/accounting.mjs";
 import {
   judge,
   matchingEntries,
@@ -234,6 +234,37 @@ describe("run-level accounting", () => {
     status,
     signal,
     timedOut: false,
+  });
+
+  // The JSON report keeps only "[vitest] There was an error when mocking a module", which
+  // says nothing about why; a signature on it absorbed a TypeError in the factory.
+  it("failure lines carry the cause chain the accounting reporter recorded", () => {
+    const json = {
+      testResults: [
+        {
+          name: "/w/probes/a.test.ts",
+          status: "failed",
+          message: "mocking failed\nmore",
+          assertionResults: [],
+        },
+      ],
+    };
+    const record = {
+      modules: [
+        {
+          file: "/w/probes/a.test.ts",
+          state: "failed",
+          errors: [
+            { name: "Error", message: "mocking failed", causes: ["Error: Cannot find module 'x'"] },
+          ],
+          failedTests: [],
+        },
+      ],
+    };
+    expect(fileResults(json, record)["a.test.ts"].failures).toEqual([
+      "a.test.ts: mocking failed (caused by: Error: Cannot find module 'x')",
+    ]);
+    expect(fileResults(json, null)["a.test.ts"].failures).toEqual(["a.test.ts: mocking failed"]);
   });
 
   it("a clean run and a run whose failures explain its exit have no problems", () => {
