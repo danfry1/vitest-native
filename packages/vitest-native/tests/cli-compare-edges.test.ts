@@ -13,7 +13,7 @@ import {
   classify,
   normaliseReport,
   renderComparison,
-  sameTestTitle,
+  titleMatch,
   sanitizeMessage,
   unconfirmed,
   type NormaliseContext,
@@ -392,29 +392,50 @@ describe("compare: snapshots are never written", () => {
     expect(written.projectChanges).toEqual([]);
   }, 120_000);
 
-  it("fails the run, listing the file, when a run changes a source file, through a symlinked directory too", async () => {
+  it("fails the run on any change to a file that existed, wherever it is, and follows links only inside the root", async () => {
     const outside = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-shared-"));
     fs.writeFileSync(path.join(outside, "lib.js"), "module.exports = 1;\n");
     const root = scratchProject({
       files: {
         "vitest.config.mjs": VITEST_CONFIG,
+        "src/gql/a.graphql": "type Query { a: Int }\n",
+        // A coverage/ that is not the root's: the project's own files, checked.
+        "src/features/coverage/__snapshots__/plan.check.js.snap": "// Jest Snapshot v1\n",
+        "packages/shared/lib.js": "module.exports = 1;\n",
         "src/w.check.js":
           `const fs = require("node:fs"), path = require("node:path");\n` +
-          `test("rewrites a source file", () => {\n` +
-          `  if (typeof vi !== "undefined") fs.appendFileSync(path.join(__dirname, "shared", "lib.js"), "// x\\n");\n});\n`,
+          `test("edits files", () => {\n  if (typeof vi === "undefined") return;\n` +
+          `  fs.appendFileSync(path.join(__dirname, "gql/a.graphql"), " # edited");\n` +
+          `  fs.appendFileSync(path.join(__dirname, "features/coverage/__snapshots__/plan.check.js.snap"), "x");\n` +
+          `  fs.appendFileSync(path.join(__dirname, "inside/lib.js"), "// x\\n");\n` +
+          `  fs.appendFileSync(path.join(__dirname, "outside/lib.js"), "// x\\n");\n});\n`,
       },
     });
-    fs.symlinkSync(outside, path.join(root, "src", "shared"), "junction");
+    fs.symlinkSync(
+      path.join(root, "packages", "shared"),
+      path.join(root, "src", "inside"),
+      "junction",
+    );
+    fs.symlinkSync(outside, path.join(root, "src", "outside"), "junction");
     // A cycle the walk must not follow forever.
     fs.symlinkSync(path.join(root, "src"), path.join(root, "src", "loop"), "junction");
-    const jest = jestReport(root, { "src/w.check.js": [{ title: "rewrites a source file" }] });
+    const jest = jestReport(root, { "src/w.check.js": [{ title: "edits files" }] });
     const { code, text } = await runCli(["--root", root, "--jest-results", jest]);
     fs.rmSync(outside, { recursive: true, force: true });
     expect(code).toBe(2);
     expect(text).toContain(
-      "✗ The runs changed 1 snapshot or source file(s) in the project, which compare must never do:",
+      "✗ The runs changed 3 file(s) in the project, which compare must never do:",
     );
-    expect(text).toContain("changed src/shared/lib.js");
+    // The tests agree, but a run that changed files gets no ✓.
+    expect(text).not.toMatch(/^✓/m);
+    expect(text).toContain(
+      "but the runs changed files in the project (listed below), so the comparison does not count.",
+    );
+    expect(text).toContain("changed src/gql/a.graphql");
+    expect(text).toContain("changed src/features/coverage/__snapshots__/plan.check.js.snap");
+    expect(text).toMatch(/changed (packages\/shared|src\/inside)\/lib\.js/);
+    // The link out of the project is not followed.
+    expect(text).not.toContain("outside/lib.js");
   }, 120_000);
 
   it("turns coverage off, so a config that enables it neither loads a provider nor writes coverage/", async () => {
@@ -545,6 +566,33 @@ describe("compare: the report carries no source or absolute path", () => {
         "Error: boom\n\nThe above error occurred in the <SecretVault> component:\n\n    in SecretVault (at vault.js:3)\n    in App",
       ),
     ).toBe("Error: boom\n\nThe above error occurred in the <SecretVault> component:");
+  });
+
+  it("replaces CI and container checkouts and deep home paths that do not exist here", () => {
+    for (const [raw, clean] of [
+      [
+        "Error: read /mnt/c/Users/jdoe/proj/a.ts and /root/.config/gh/hosts.yml",
+        "Error: read <path> and <path>",
+      ],
+      ["Error: open C:/Users/Bob Smith/work/x.ts failed", "Error: open <path> failed"],
+      ["Error: failed at /app/src/billing/stripe-keys.json", "Error: failed at <path>"],
+      [
+        "Error: ENOENT '/github/workspace/apps/internal-payroll/src/env.ts'",
+        "Error: ENOENT '<path>'",
+      ],
+      ["from '/builds/acme-corp/secret-project/src/app.ts'", "from '<path>'"],
+      ["scandir '/home/alice/clients/initech-merger/assets'", "scandir '<path>'"],
+      [
+        "at /__w/app/app/src/a.ts and /runner/_work/x and /workspace/repo/y",
+        "at <path> and <path> and <path>",
+      ],
+      [
+        "at /opt/build/repo/src/a.ts and /buildkite/builds/agent/org/pipe/a.ts",
+        "at <path> and <path>",
+      ],
+    ]) {
+      expect(s(raw), raw).toBe(clean);
+    }
   });
 
   it("replaces UNC paths and paths with spaces, and keeps app routes", () => {
@@ -770,8 +818,17 @@ describe.skipIf(!posix)("compare: processes", () => {
 // ---------------------------------------------------------------------------
 
 describe("compare: matching", () => {
-  it("treats two titles as one test only where the runners are known to format them differently", () => {
-    // Pairs Jest 30.2 and Vitest 5.0.5 print for the same it.each rows.
+  it("confirms a pair only when the titles are the same; a shape match is for review", () => {
+    // The same title, up to quote style, whitespace and trailing commas.
+    for (const [jest, vitest] of [
+      ['fetches { id: "1" }', "fetches { id: '1' }"],
+      ["adds  1,  2", "adds 1, 2"],
+      ["list [ 1, 2, ]", "list [1, 2]"],
+    ]) {
+      expect(titleMatch(jest, vitest), `${jest} ⇄ ${vitest}`).toBe("same");
+    }
+    // Equal only if a printed value is ignored: Jest 30.2 and Vitest 5.0.5's prints of the
+    // same rows, and pairs that are different rows (an adversarial review's).
     for (const [jest, vitest] of [
       ["obj-s { a: 1, b: [Array] }", "obj-s { a: 1, b: [ 1, 2 ] }"],
       ['obj-p {"a": 1}', "obj-p %p"],
@@ -779,8 +836,11 @@ describe("compare: matching", () => {
       ["dollar-missing $nope", "dollar-missing undefined"],
       ["percent % a", "percent % a undefined"],
       ['tagged 1 {"x": 1}', "tagged 1 { x: 1 }"],
+      ["allows { user: [Object] }", "allows { user: { role: 'guest' } }"],
+      ["fetches { id: '1' }", "fetches { id: 1 }"],
+      ["returns $output for 1", "returns undefined for 1"],
     ]) {
-      expect(sameTestTitle(jest, vitest), `${jest} ⇄ ${vitest}`).toBe(true);
+      expect(titleMatch(jest, vitest), `${jest} ⇄ ${vitest}`).toBe("shape");
     }
     for (const [jest, vitest] of [
       ["should charge the card when the order is placed", "should render the footer"],
@@ -791,9 +851,41 @@ describe("compare: matching", () => {
       // %p stands for one value, not for the rest of the title.
       ['pretty {"a": 1} on ios', "pretty %p on android"],
     ]) {
-      expect(sameTestTitle(jest, vitest), `${jest} ⇄ ${vitest}`).toBe(false);
+      expect(titleMatch(jest, vitest), `${jest} ⇄ ${vitest}`).toBeNull();
     }
   });
+
+  it("blocks the claim on tests matched only by title shape, and maps %p rows one to one", async () => {
+    const root = scratchProject({
+      files: {
+        "vitest.config.mjs": VITEST_CONFIG,
+        "src/obj.check.js": `describe("access", () => { test.each([{ user: { role: "guest" } }])("allows %s", () => {}); });\n`,
+        "src/var.check.js": `describe("parser", () => { test("returns undefined for 1", () => {}); });\n`,
+        "src/rows.check.js": `test.each([[{ id: 1 }], [{ id: 2 }], [{ id: 3 }]])("loads %p", () => {});\n`,
+      },
+    });
+    // Jest 30's titles for its own rows: an admin, $output missing, and %p printed.
+    const jest = jestReport(root, {
+      "src/obj.check.js": [{ ancestors: ["access"], title: "allows { user: [Object] }" }],
+      "src/var.check.js": [{ ancestors: ["parser"], title: "returns $output for 1" }],
+      "src/rows.check.js": [
+        { title: 'loads {"id": 1}' },
+        { title: 'loads {"id": 2}' },
+        { title: 'loads {"id": 3}' },
+      ],
+    });
+    const { code, text } = await runCli(["--root", root, "--jest-results", jest]);
+    expect(code).toBe(1);
+    expect(text).toContain("5 of the 5 tests that pass under Jest do not pass under Vitest");
+    expect(text).toContain("5 matched only by title shape");
+    expect(text).toContain("✗ 5 tests could only be matched by title shape; check them");
+    expect(text).toContain("allows { user: [Object] }  ~  allows { user: { role: 'guest' } }");
+    expect(text).toContain('loads {"id": 3}  ~  loads %p');
+    // Every %p row is matched, none is left "not collected".
+    const headline = text.split("\n").find((l) => l.includes("do not pass under Vitest")) ?? "";
+    expect(headline).not.toContain("not collected");
+    expect(text).toMatch(/only under Vitest\s+0 /);
+  }, 120_000);
 
   it("never confirms a Jest test by an unrelated Vitest test at its place", async () => {
     const root = scratchProject({
@@ -847,12 +939,19 @@ describe("compare: matching", () => {
       "ios/build/b",
       "android/app/build/c",
       "coverage/d",
+      ".expo/e",
+      // Not at the root: the project's own, checked.
+      "src/features/coverage/x.snap",
       "src/.expo/e",
     ]) {
       fs.mkdirSync(path.dirname(path.join(root, f)), { recursive: true });
       fs.writeFileSync(path.join(root, f), "");
     }
-    expect([...(treeState(root)?.keys() ?? [])]).toEqual(["src/a.js"]);
+    expect([...(treeState(root)?.keys() ?? [])].sort()).toEqual([
+      "src/.expo/e",
+      "src/a.js",
+      "src/features/coverage/x.snap",
+    ]);
     fs.rmSync(root, { recursive: true, force: true });
   });
 

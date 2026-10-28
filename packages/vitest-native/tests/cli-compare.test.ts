@@ -121,16 +121,18 @@ describe("compare: classifying recorded Jest 30 and Vitest 5 reports", () => {
     });
   });
 
-  it("claims nothing: 8 of the 16 tests that pass under Jest have no passing Vitest result", () => {
+  it("claims nothing: 12 of the 16 tests that pass under Jest have no confirmed Vitest result", () => {
     const c = compareRecorded();
     expect(c.jestPassed).toBe(16);
-    expect(c.confirmed).toBe(8);
+    // The four it.each tests match only in shape, so they are listed, not confirmed.
+    expect(c.confirmed).toBe(4);
     expect(c.claimHolds).toBe(false);
   });
 
-  it("matches it.each tests by position when the runners format their titles differently", () => {
+  it("matches it.each tests by position, in shape only, when the runners print their values differently", () => {
     const each = compareRecorded().entries.filter((e) => e.file === "src/each.check.js");
     expect(each.map((e) => e.vitestTitle)).toEqual(VITEST_EACH_TITLES);
+    expect(each.map((e) => e.matchedBy)).toEqual(["shape", "shape", "shape", "shape"]);
   });
 
   it("does not match tests in different describe blocks by position", () => {
@@ -402,7 +404,8 @@ describe("compare: end to end with Vitest and a recorded Jest report", () => {
     ]);
 
     expect(code).toBe(1);
-    expect(text).toContain("✗ 8 of the 16 tests that pass under Jest do not pass under Vitest");
+    expect(text).toContain("✗ 12 of the 16 tests that pass under Jest do not pass under Vitest");
+    expect(text).toContain("✗ 4 tests could only be matched by title shape; check them");
     expect(text).toContain("✗ `vitest run` exits 1:");
     expect(text).toContain("snapshots read from an isolated copy");
     expect(text).toMatch(/2× cannot load this file under Vitest/);
@@ -411,7 +414,7 @@ describe("compare: end to end with Vitest and a recorded Jest report", () => {
     );
     expect(text).toContain("src/jest-only.check.js (1 test, passed)");
     expect(text).toContain(
-      "formats an object { a: 1, b: [Array] }  ⇄  formats an object { a: 1, b: [ 1, 2 ] }",
+      "formats an object { a: 1, b: [Array] }  ~  formats an object { a: 1, b: [ 1, 2 ] }",
     );
 
     const report = JSON.parse(fs.readFileSync(out, "utf8"));
@@ -419,7 +422,7 @@ describe("compare: end to end with Vitest and a recorded Jest report", () => {
     expect(report.verdict).toMatchObject({
       holds: false,
       jestPassed: 16,
-      confirmed: 8,
+      confirmed: 4,
       vitestExitCode: 1,
     });
     expect(report.projectChanges).toEqual([]);

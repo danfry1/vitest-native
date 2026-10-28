@@ -79,10 +79,12 @@ export interface Entry {
   jest: Side | null;
   vitest: Side | null;
   /**
-   * Set when the runners format the title differently (sameTestTitle) and the tests were
+   * Set when the runners format the title differently (titleMatch) and the tests were
    * matched by position in their block.
    */
   vitestTitle?: string;
+  /** Set when the titles match only in shape (titleMatch): listed for review, never confirmed. */
+  matchedBy?: "shape";
   /**
    * On a test only Jest reported: the unmatched Vitest test at its place in the block,
    * which may be it named differently. Unconfirmed either way.
@@ -206,10 +208,13 @@ const BOX = /^\s*[─-╿]/;
 const COMPONENT_STACK = /^\s+in [A-Z$_][\w$.]*(?: \(at [^)]*\)| \(created by [^)]*\))?\s*$/;
 
 /**
- * Directories that only ever hold a machine's files: a path under one of them is a path,
- * whatever it is followed by, spaces included (`/Volumes/Client Work/app.js`).
+ * Directories that only ever hold a machine's files — macOS's, a drive, a UNC share, and
+ * the checkouts CI and containers use (GitHub Actions `/github/workspace`, `/__w`,
+ * `/runner`; GitLab `/builds`; Buildkite; Netlify `/opt/build`; Docker's `/app`,
+ * `/workspace`; WSL's `/mnt`): a path under one is a path, whatever it is followed by,
+ * spaces included (`/Volumes/Client Work/app.js`).
  */
-const MACHINE_ROOT = String.raw`(?:\/(?:Users|Volumes|private|var\/folders)\/|[A-Za-z]:[\\/]|\\\\(?=[\w.$-]+\\))`;
+const MACHINE_ROOT = String.raw`(?:\/(?:Users|Volumes|private|var\/folders|builds|github\/workspace|app|runner|__w|workspace|opt\/build|buildkite|mnt)\/|[A-Za-z]:[\\/]|\\\\(?=[\w.$-]+\\))`;
 /** A machine-rooted path, up to a file name with an extension, else to the next space. */
 const MACHINE_PATH = new RegExp(
   String.raw`(?<![\w.<>/~:@-])${MACHINE_ROOT}(?:[^\n'"\`<>|]*?\.[A-Za-z0-9]{1,10}(?=[\s'"\`)\]},;:]|$)|[^\s'"\`)\]},;]*)`,
@@ -218,13 +223,16 @@ const MACHINE_PATH = new RegExp(
 /** Other absolute-looking spans; replaced only when they are paths (see isPath). */
 const POSIX_CANDIDATE = /(?<![\w.<>/~:@-])\/[\w.@+~-]+(?:\/[\w.@+~-]*)+/g;
 /** Roots shared with app routes (`/home/profile/edit`): a path needs a dotted segment there. */
-const SHARED_ROOT = /^\/(?:home\/[^/]+|tmp|var|opt|mnt|root|srv|etc|usr)\//;
+const SHARED_ROOT = /^\/(?:home\/[^/]+|tmp|var|opt|root|srv|etc|usr)\//;
+/** A home directory with at least two segments below the user: `/home/alice/clients/x`. */
+const DEEP_HOME = /^\/home\/[^/]+\/[^/]+\/[^/]+/;
 const FILE_URL = /file:\/\/\/[^\s'"`)\]},;]*/g;
 
 /**
  * Whether an absolute-looking span is a path on a machine, not an app route: it exists
- * on disk, or it sits under a root that routes share (`/home/<user>/`, `/tmp/`, …) and
- * names a file (`.npmrc`, `app.js`). `/home/profile/edit` and `/settings/privacy` stay.
+ * on disk, it goes two or more segments below a `/home/<user>/`, or it sits under a root
+ * that routes share (`/home/<user>/`, `/tmp/`, …) and names a file (`.npmrc`, `app.js`).
+ * `/home/profile/edit` and `/settings/privacy` stay.
  */
 function isPath(span: string): boolean {
   try {
@@ -232,6 +240,7 @@ function isPath(span: string): boolean {
   } catch {
     // unreadable: decide by shape
   }
+  if (DEEP_HOME.test(span)) return true;
   return SHARED_ROOT.test(span) && span.split("/").some((segment) => /\./.test(segment));
 }
 
@@ -510,6 +519,7 @@ function notRunSide(file: RunnerFile, runner: Runner): Side {
  */
 export function isConfirmed(e: Entry): boolean {
   return (
+    e.matchedBy !== "shape" &&
     e.jest?.status === "passed" &&
     e.vitest?.status === "passed" &&
     (e.vitest.copies ?? 1) >= (e.jest.copies ?? 1)
@@ -585,19 +595,27 @@ function sameValue(jest: string, vitest: string): boolean {
 }
 
 /**
- * Whether a Jest title and a Vitest title are the same parametrised test (`it.each`),
- * differing only where the two runners are known to format a title differently:
- *
- * - a printed value (`%s`/`%o` of an object, `$var`, tagged templates): the same value,
- *   printed by each runner's printer (sameValue);
- * - `%p`: Jest prints the value, Vitest leaves `%p` in the title;
- * - a `$var` the row lacks: Jest leaves `$var`, Vitest prints `undefined`;
- * - after `%%`, Vitest prints one more `undefined` for the argument it did not consume.
- *
- * Anything else is a different title: titles that merely share words are not matched.
+ * A title with only what cannot change its meaning normalised: quote style (`'` and `"`
+ * become one, quotes are kept), runs of whitespace, spaces inside brackets and around
+ * `,` and `:`, and trailing commas.
  */
-export function sameTestTitle(jest: string, vitest: string): boolean {
-  if (jest === vitest) return true;
+function normalTitle(t: string): string {
+  return t
+    .replace(/'/g, '"')
+    .replace(/\s+/g, " ")
+    .replace(/\s*([{}[\],:])\s*/g, "$1")
+    .replace(/,([}\]])/g, "$1")
+    .trim();
+}
+
+/**
+ * Whether two titles have the same shape: equal except where the runners are known to
+ * print a parametrised title (`it.each`) differently, each of which can hide a different
+ * value: a printed object or array (quotes and Jest's `[Array]` / `[Object]` ignored),
+ * Vitest's literal `%p` for one value, Jest's `$var` against Vitest's `undefined`, and
+ * the `undefined` Vitest appends after `%%`.
+ */
+function sameShape(jest: string, vitest: string): boolean {
   const j = titleTokens(jest);
   const v = titleTokens(vitest);
   let i = 0;
@@ -613,6 +631,22 @@ export function sameTestTitle(jest: string, vitest: string): boolean {
   }
   const rest = v.slice(i);
   return rest.length === 0 || (jest.includes("%") && rest.every((t) => t === "undefined"));
+}
+
+export type TitleMatch = "same" | "shape";
+
+/**
+ * How a Jest title matches a Vitest title, or null.
+ *
+ * - `same`: identical once quote style, whitespace and trailing commas are normalised
+ *   (normalTitle). The same test; it confirms a Jest pass.
+ * - `shape`: equal only once a printed value is ignored (sameShape). Possibly the same
+ *   test printed differently, possibly a different row (`allows { user: [Object] }` is
+ *   Jest's print of any user). Listed for review, and never confirms a Jest pass.
+ */
+export function titleMatch(jest: string, vitest: string): TitleMatch | null {
+  if (normalTitle(jest) === normalTitle(vitest)) return "same";
+  return sameShape(jest, vitest) ? "shape" : null;
 }
 
 export interface ClassifyOptions {
@@ -660,6 +694,7 @@ export function classify(
       a: Group | undefined;
       b: Group | undefined;
       vitestTitle?: string;
+      matchedBy?: TitleMatch;
       vitestCandidate?: string;
     }> = [];
     for (const key of new Set([...jg.keys(), ...vg.keys()])) {
@@ -671,21 +706,29 @@ export function classify(
         unmatched.jest.set(block, [...(unmatched.jest.get(block) ?? []), a]);
       } else if (b && !a && !jf.broken) {
         const block = JSON.stringify(b.ancestors);
-        unmatched.vitest.set(block, [...(unmatched.vitest.get(block) ?? []), b]);
+        // Vitest leaves `%p` unformatted, so every row of a `%p` table is one title there:
+        // one copy per row, each matched to Jest's row at its place.
+        const rows =
+          b.title.includes("%p") && b.tests.length > 1
+            ? b.tests.map((t) => ({ ancestors: b.ancestors, title: b.title, tests: [t] }))
+            : [b];
+        unmatched.vitest.set(block, [...(unmatched.vitest.get(block) ?? []), ...rows]);
       } else {
         pairs.push({ a, b });
       }
     }
     // Within a describe block, tests only one runner named are matched by position when
-    // their titles are the same test formatted by each runner (sameTestTitle). The rest
-    // stay unmatched; a Jest test with a Vitest test at its place is "named differently".
+    // their titles match (titleMatch): the same title, or the same shape, which is
+    // listed for review and does not confirm. The rest stay unmatched; a Jest test with a
+    // Vitest test at its place is "named differently".
     for (const [block, js] of unmatched.jest) {
       const vs = unmatched.vitest.get(block) ?? [];
       const left: Group[] = [];
       js.forEach((a, i) => {
         const b = vs[i];
-        if (b && sameTestTitle(a.title, b.title)) {
-          pairs.push({ a, b, vitestTitle: b.title });
+        const match = b ? titleMatch(a.title, b.title) : null;
+        if (b && match) {
+          pairs.push({ a, b, vitestTitle: b.title, matchedBy: match });
           vs[i] = undefined as unknown as Group;
         } else {
           pairs.push({ a, b: undefined, vitestCandidate: b?.title });
@@ -696,7 +739,7 @@ export function classify(
     }
     for (const vs of unmatched.vitest.values()) for (const b of vs) pairs.push({ a: undefined, b });
 
-    for (const { a, b, vitestTitle, vitestCandidate } of pairs) {
+    for (const { a, b, vitestTitle, matchedBy, vitestCandidate } of pairs) {
       const ref = (a ?? b) as Group;
       let j: Side | null = a ? aggregate(a) : jf.broken ? notRunSide(jf, "jest") : null;
       let v: Side | null = b ? aggregate(b) : vf.broken ? notRunSide(vf, "vitest") : null;
@@ -718,6 +761,7 @@ export function classify(
         vitest: v,
       };
       if (vitestTitle !== undefined && vitestTitle !== ref.title) entry.vitestTitle = vitestTitle;
+      if (matchedBy === "shape") entry.matchedBy = "shape";
       if (vitestCandidate !== undefined && !v) entry.vitestCandidate = vitestCandidate;
       const message = v?.message ?? "";
       if (bucket === "regression" && options.snapshotHint && SNAPSHOT_MISMATCH.test(message)) {
@@ -846,6 +890,8 @@ export interface RenderOptions {
   vitest: RunnerInfo;
   top: number;
   jsonPath?: string | null;
+  /** Set when the runs changed files in the project: no ✓, whatever the tests did. */
+  projectChanged?: boolean;
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -855,7 +901,7 @@ function totalsLine(t: Comparison["totals"]["jest"]): string {
 }
 
 /** Jest-passing tests that did not pass under Vitest, by why. */
-export type Unconfirmed = "failed" | "skipped" | "fewer" | "renamed" | "missing";
+export type Unconfirmed = "failed" | "skipped" | "fewer" | "shape" | "renamed" | "missing";
 
 /** Jest-passing tests that Vitest does not confirm (isConfirmed), by why. */
 export function unconfirmed(c: Comparison): Record<Unconfirmed, Entry[]> {
@@ -863,6 +909,7 @@ export function unconfirmed(c: Comparison): Record<Unconfirmed, Entry[]> {
     failed: [],
     skipped: [],
     fewer: [],
+    shape: [],
     renamed: [],
     missing: [],
   };
@@ -871,6 +918,7 @@ export function unconfirmed(c: Comparison): Record<Unconfirmed, Entry[]> {
     if (!e.vitest) out[e.vitestCandidate !== undefined ? "renamed" : "missing"].push(e);
     else if (e.vitest.status === "failed") out.failed.push(e);
     else if (e.vitest.status === "skipped") out.skipped.push(e);
+    else if (e.matchedBy === "shape") out.shape.push(e);
     else out.fewer.push(e);
   }
   return out;
@@ -880,6 +928,7 @@ const UNCONFIRMED_LABELS: Record<Unconfirmed, string> = {
   failed: "fail",
   skipped: "skipped",
   fewer: "run fewer times (a Jest project missing)",
+  shape: "matched only by title shape",
   renamed: "named differently",
   missing: "not collected",
 };
@@ -903,6 +952,11 @@ export function renderComparison(c: Comparison, options: RenderOptions): string[
   const engine = engineLabel(c.vitest.engine);
   if (c.jestPassed === 0) {
     lines.push("✗ No test passed under Jest, so there is nothing to compare against.");
+  } else if (c.claimHolds && options.projectChanged) {
+    lines.push(
+      `✗ All ${plural(c.jestPassed, "test")} that pass under Jest also pass under Vitest (${engine}), ` +
+        "but the runs changed files in the project (listed below), so the comparison does not count.",
+    );
   } else if (c.claimHolds) {
     lines.push(
       `✓ All ${plural(c.jestPassed, "test")} that pass under Jest also pass under Vitest (${engine}), ` +
@@ -922,6 +976,12 @@ export function renderComparison(c: Comparison, options: RenderOptions): string[
       `✗ ${c.jestPassed - c.confirmed} of the ${plural(c.jestPassed, "test")} that pass under Jest do not pass ` +
         `under Vitest (${engine}): ${why.join(", ")}.`,
     );
+    if (gap.shape.length) {
+      lines.push(
+        `✗ ${plural(gap.shape.length, "test")} could only be matched by title shape; check them ` +
+          `(Jest prints values differently, so a different row can look the same).`,
+      );
+    }
   }
   if (!c.vitest.engine) {
     lines.push(
@@ -1014,8 +1074,13 @@ export function renderComparison(c: Comparison, options: RenderOptions): string[
   );
   testList(
     "Matched by position: the same test, its title formatted differently by each runner (Jest ⇄ Vitest)",
-    c.entries.filter((e) => e.vitestTitle !== undefined),
+    c.entries.filter((e) => e.vitestTitle !== undefined && e.matchedBy !== "shape"),
     (e) => `${testName(e)}  ⇄  ${e.vitestTitle}`,
+  );
+  testList(
+    "Matched by title shape — review: equal only if the values Jest and Vitest print are (unconfirmed)",
+    c.entries.filter((e) => e.matchedBy === "shape"),
+    (e) => `${testName(e)}  ~  ${e.vitestTitle ?? e.title}`,
   );
   testList(
     "Named differently? Jest's test has no Vitest test of that name; at its place Vitest has another (unconfirmed)",
@@ -1096,6 +1161,7 @@ export function jsonReport(c: Comparison, meta: JsonMeta): Record<string, unknow
       ancestors: e.ancestors,
       title: e.title,
       ...(e.vitestTitle !== undefined ? { vitestTitle: e.vitestTitle } : {}),
+      ...(e.matchedBy ? { matchedBy: e.matchedBy } : {}),
       ...(e.vitestCandidate !== undefined ? { vitestCandidate: e.vitestCandidate } : {}),
       jest: e.jest,
       vitest: e.vitest,

@@ -28,7 +28,8 @@ the project has no Vitest config yet, compare uses the config `vitest-native mig
 That config is executed but never saved: it lives in a temporary directory under `node_modules/`,
 and its `import.meta.url` paths are pointed back at the root. The run adds `run --reporter=json`,
 `--reporter=default` and `--coverage.enabled=false`. Coverage is not compared, and both
-runners would write `coverage/` into the project. The default reporter's output is the only place unhandled errors and
+runners would write `coverage/` into the project. Because coverage is off in both runs, compare
+does not exercise `coverageThreshold` or any setup that only runs with coverage on. The default reporter's output is the only place unhandled errors and
 errors during close appear (its JSON says `success: true` for those). The engine is taken only from
 vitest-native's banner, which the plugin prints while Vitest resolves its config, before Vitest's
 `RUN` header. A test that prints the same words later cannot set it. Unhandled errors that Vitest's
@@ -58,16 +59,17 @@ environment variable, or a `resolveSnapshotPath` that points at Jest's `__snapsh
   covers files resolved through the project's `resolveSnapshotPath`, an inline project's, or
   `__vitest_snapshots__/` (the recipe) when there is none. Only a file with Vitest's header is
   copied. Projects listed by config-file path cannot be wrapped.
-- Every file under the root is stat'ed before Jest runs and after Vitest runs. The walk follows
-  symlinked directories, visiting each real directory once so that a cycle ends. It skips the
-  directories tools write as a matter of course: `node_modules`, `.git`, `coverage`, `.expo`,
-  `.gradle`, `.cache`, `.turbo`, `.nyc_output`, and `android/build`, `android/app/build`,
-  `ios/build`, `ios/Pods`, `ios/DerivedData`.
-  - These fail the run (exit 2) and are listed: a snapshot file added, changed or removed; a test
-    or source file (`.js`/`.ts`/… `.json`) changed or removed. That covers inline snapshots,
-    which are written into test sources.
-  - Other writes, such as a reporter's output or a file a test generates, are listed neutrally
-    ("the runs wrote these files") and do not fail it.
+- Every file under the root is stat'ed before Jest runs and after Vitest runs. The walk skips
+  `node_modules` and `.git` wherever they are. It also skips output directories, but only at their
+  root-relative paths: `coverage`, `.expo`, `.gradle`, `.cache`, `.turbo`, `.nyc_output`,
+  `android/build`, `android/app/build`, `android/.gradle`, `ios/build`, `ios/Pods`,
+  `ios/DerivedData`. A `src/features/coverage/` is checked. Symlinked directories are followed
+  only while they stay inside the root, each real directory once, so a cycle ends.
+  - These fail the run (exit 2) and are listed: any file that existed before and changed or went,
+    whatever its kind (`.graphql`, `.yaml`, an image), and any new snapshot file. Inline
+    snapshots are written into test sources, so they are covered.
+  - New files of other kinds, such as a reporter's output or a file a test generates, are listed
+    neutrally ("the runs wrote these files") and do not fail it.
 
 A `.snap` test with no Vitest snapshot fails under CI. Only then does the report say so, with the
 recipe: give Vitest its own directory first, then record. Following "run `vitest run`" without the
@@ -93,21 +95,26 @@ if Jest runs `ios` and `android` projects and Vitest one platform, the test is u
 fewer times").
 
 **Titles that differ.** Each runner formats parametrised titles (`it.each`) itself. Tests only
-one runner named are matched by position within the same file and `describe` block. A pair counts
-as the same test only when an explicit normaliser (`sameTestTitle`) finds that the titles differ
-in nothing but spans the two runners are known to print differently:
+one runner named are matched by position within the same file and `describe` block. `titleMatch`
+decides how:
 
-- a printed value: Jest's `{"a": 1}` or `{ a: 1, b: [Array] }` against Vitest's `{ a: 1 }` or
-  `{ a: 1, b: [ 1, 2 ] }`. Compared with spacing, quotes and trailing commas removed, Jest's
-  `[Array]`/`[Object]` standing for any value there.
-- `%p`, which Vitest leaves in the title;
-- a missing `$var`: Jest keeps `$var`, Vitest prints `undefined`;
-- the `undefined` Vitest appends after `%%`.
+- **Same title.** The titles are identical once quote style (`'` and `"`, quotes kept),
+  whitespace and trailing commas are normalised. The pair is the same test.
+- **Same shape — review.** The titles are equal only if a printed value is ignored: Jest's
+  `{"a": 1}` or `{ user: [Object] }` against Vitest's `{ a: 1 }` or `{ user: { role: 'guest' } }`,
+  Vitest's literal `%p`, Jest's `$var` against Vitest's `undefined`, or the `undefined` Vitest
+  appends after `%%`. That can be the same test printed differently, or a different row:
+  `[Object]` is Jest's print of any object. These pairs are listed with both titles. They never
+  confirm a Jest pass, so they block the claim: "✗ N tests could only be matched by title shape;
+  check them".
+- **Anything else** keeps both tests unmatched. A Jest test with a Vitest test at its place is
+  "named differently", which is unconfirmed too.
 
-Any other difference keeps both tests unmatched. "should charge the card…" against "should render
-the footer", or test.each rows that differ by data, are "named differently" in the report. They are
-unconfirmed and block the claim. The report lists matched pairs (`⇄`) and unmatched candidates
-(`≠`).
+Vitest leaves `%p` unformatted, so all rows of a `%p` table share one title there. Each row is
+matched to Jest's row at its place.
+
+Rows whose titles both runners print identically (`perms: [Array]` in both) cannot be told apart
+by title. Their results are compared, not their data.
 
 ## Buckets
 
@@ -167,10 +174,14 @@ from messages:
   (Jest's "Details:").
 - React component stacks (`in SecretVault (at vault.js:3)`).
 - Absolute paths. The root becomes `<root>`, the temp directory `<tmp>`, the home directory `~`.
-  Any other path on a machine becomes `<path>`: one under `/Users`, `/Volumes`, `/private`,
-  `/var/folders`, a drive letter or a UNC share (spaces included, up to the file name), one that
-  exists on disk, or one under a root that app routes share (`/home/<user>`, `/tmp`, `/var`, …)
-  naming a file. App routes such as `/home/profile/edit` are kept, so navigation diffs stay
+  Any other path on a machine becomes `<path>`:
+  - one under a root that only holds files: `/Users`, `/Volumes`, `/private`, `/var/folders`, a
+    drive letter, a UNC share, or a CI or container checkout (`/github/workspace`, `/__w`,
+    `/runner`, `/builds`, `/buildkite`, `/opt/build`, `/app`, `/workspace`, `/mnt`). Spaces are
+    included, up to the file name.
+  - one that exists on disk;
+  - one two or more segments below `/home/<user>`;
+  - one under a root that app routes share (`/home/<user>`, `/tmp`, `/var`, …) naming a file. App routes such as `/home/profile/edit` are kept, so navigation diffs stay
   readable.
 
 What is **not** guaranteed: a message keeps whatever a test put in its own error, such as received

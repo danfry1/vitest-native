@@ -652,34 +652,43 @@ export function forwardedScriptFlags(root: string): { forwarded: string[]; ignor
 
 type TreeState = Map<string, string>;
 
-/** Directories, by name anywhere, that tools write as a matter of course. */
-const OUTPUT_DIR_NAMES = new Set([
-  "node_modules",
-  ".git",
+/** Directories skipped by name anywhere: package installs and version control. */
+const SKIPPED_DIR_NAMES = new Set(["node_modules", ".git"]);
+/**
+ * Output directories tools write as a matter of course, by root-relative path only: a
+ * `coverage/` inside `src/features/` is the project's own and is checked.
+ */
+export const OUTPUT_DIR_PATHS = [
   "coverage",
   ".expo",
   ".gradle",
   ".cache",
   ".turbo",
   ".nyc_output",
-]);
-/** Directories, by root-relative path, that native builds write. */
-const OUTPUT_DIR_PATHS = [
   "android/build",
   "android/app/build",
+  "android/.gradle",
   "ios/build",
   "ios/Pods",
   "ios/DerivedData",
 ];
 
 /**
- * Size and modification time of every file under the root, following symlinked
- * directories (each real directory once, so a cycle ends), except the directories tools
- * write as a matter of course: node_modules, .git, coverage and native build output.
+ * Size and modification time of every file under the root, except in node_modules, .git
+ * and the output directories. Symlinked directories are followed only while they stay
+ * inside the root (each real directory once, so a cycle ends): a link out of the
+ * project leads to files the project does not own.
  */
 export function treeState(root: string, limit = 200_000): TreeState | null {
   const out: TreeState = new Map();
   const seen = new Set<string>();
+  let realRoot: string;
+  try {
+    realRoot = fs.realpathSync(root);
+  } catch {
+    return out;
+  }
+  const inside = (real: string) => real === realRoot || real.startsWith(realRoot + path.sep);
   const stack = [root];
   while (stack.length) {
     const dir = stack.pop() as string;
@@ -689,7 +698,7 @@ export function treeState(root: string, limit = 200_000): TreeState | null {
     } catch {
       continue;
     }
-    if (seen.has(real)) continue;
+    if (seen.has(real) || !inside(real)) continue;
     seen.add(real);
     let entries: fs.Dirent[];
     try {
@@ -698,7 +707,7 @@ export function treeState(root: string, limit = 200_000): TreeState | null {
       continue;
     }
     for (const e of entries) {
-      if (OUTPUT_DIR_NAMES.has(e.name)) continue;
+      if (SKIPPED_DIR_NAMES.has(e.name)) continue;
       const abs = path.join(dir, e.name);
       const rel = path.relative(root, abs).split(path.sep).join("/");
       if (OUTPUT_DIR_PATHS.includes(rel)) continue;
@@ -710,6 +719,13 @@ export function treeState(root: string, limit = 200_000): TreeState | null {
       }
       if (stat.isDirectory()) stack.push(abs);
       else if (stat.isFile()) {
+        if (e.isSymbolicLink()) {
+          try {
+            if (!inside(fs.realpathSync(abs))) continue;
+          } catch {
+            continue;
+          }
+        }
         out.set(rel, `${stat.size}:${stat.mtimeMs}`);
         if (out.size > limit) return null;
       }
@@ -719,28 +735,27 @@ export function treeState(root: string, limit = 200_000): TreeState | null {
 }
 
 export interface TreeChanges {
-  /** Snapshot files and test or source files changed, removed or (snapshots) added. */
+  /** Files that existed before the run and changed or went, and snapshot files added. */
   fatal: string[];
-  /** Everything else the runs wrote: reports, generated files. */
+  /** Files added outside the output directories (reports, generated files). */
   other: string[];
 }
 
-/** Test and source files, whose change means a runner wrote inline snapshots or code. */
-const SOURCE = /\.(?:[cm]?[jt]sx?|json|snap)$/;
 const SNAPSHOT = /(?:^|\/)(?:__snapshots__|__vitest_snapshots__)\/|\.snap$/;
 
+/**
+ * What the runs did to the project. A file that existed before is the project's, so any
+ * change to it, whatever its kind (`.graphql`, `.yaml`, an image), is fatal; so is a new
+ * snapshot file. Only new files of other kinds are reported neutrally.
+ */
 export function treeChanges(before: TreeState, after: TreeState): TreeChanges {
   const fatal: string[] = [];
   const other: string[] = [];
   for (const [file, state] of after) {
     if (!before.has(file)) (SNAPSHOT.test(file) ? fatal : other).push(`added ${file}`);
-    else if (before.get(file) !== state)
-      (SOURCE.test(file) || SNAPSHOT.test(file) ? fatal : other).push(`changed ${file}`);
+    else if (before.get(file) !== state) fatal.push(`changed ${file}`);
   }
-  for (const file of before.keys()) {
-    if (!after.has(file))
-      (SOURCE.test(file) || SNAPSHOT.test(file) ? fatal : other).push(`removed ${file}`);
-  }
+  for (const file of before.keys()) if (!after.has(file)) fatal.push(`removed ${file}`);
   return { fatal: fatal.sort(), other: other.sort() };
 }
 
@@ -1032,11 +1047,19 @@ export async function runCompare(options: CompareOptions): Promise<number> {
       vitestRun: { exitCode: run.code, errors: reader.errors, engine: reader.engine() },
     });
     vitestInfo.config += "; snapshots read from an isolated copy";
+    // compare must leave the project as it found it. Checked before the summary, so a
+    // run that changed files never shows a ✓, and before the --json report is written,
+    // which may be inside the root.
+    const after = treeState(root);
+    const changes = before && after ? treeChanges(before, after) : { fatal: [], other: [] };
+    if (!before || !after)
+      log("  The project has too many files to check that the runs changed none.");
     for (const line of renderComparison(comparison, {
       jest: jestInfo,
       vitest: vitestInfo,
       top: options.top,
       jsonPath: options.json ?? null,
+      projectChanged: changes.fatal.length > 0,
     })) {
       log(line);
     }
@@ -1046,12 +1069,7 @@ export async function runCompare(options: CompareOptions): Promise<number> {
           `they can explain differences.`,
       );
     }
-    // compare must leave the project as it found it; anything else is an error. Checked
-    // before the --json report is written, which may be inside the root.
-    const after = treeState(root);
-    const changes = before && after ? treeChanges(before, after) : { fatal: [], other: [] };
-    if (!before || !after)
-      log("  The project has too many files to check that the runs changed none.");
+
     if (changes.other.length) {
       // Reports and generated files a suite writes are its own business.
       log(`  The runs wrote ${changes.other.length} other file(s) in the project:`);
@@ -1072,7 +1090,7 @@ export async function runCompare(options: CompareOptions): Promise<number> {
     if (changes.fatal.length) {
       log("");
       log(
-        `✗ The runs changed ${changes.fatal.length} snapshot or source file(s) in the project, which compare must never do:`,
+        `✗ The runs changed ${changes.fatal.length} file(s) in the project, which compare must never do:`,
       );
       for (const c of changes.fatal.slice(0, options.top)) log(`    ${c}`);
       if (changes.fatal.length > options.top)
