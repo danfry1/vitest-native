@@ -311,7 +311,11 @@ function vitestRun(app, run, files, outputFile, accountingFile) {
       "--reporter=json",
       "--reporter=./accounting-reporter.mjs",
       `--outputFile.json=${outputFile}`,
-      ...files.map((f) => `probes/${f}`),
+      // No files (only output probes selected): a filter that matches nothing, or Vitest
+      // would run every probe file in the fixture's `include`.
+      ...(files.length > 0
+        ? files.map((f) => `probes/${f}`)
+        : ["--passWithNoTests", "probes/(no probe file selected)"]),
     ],
     app,
     env,
@@ -361,7 +365,6 @@ function runCell(cell, root, entries) {
     const shared = active.filter((probe) => !probe.alone && !probe.output);
     const started = Date.now();
     const sharedFiles = shared.flatMap((probe) => probe.files);
-    // With no files Vitest would run every probe file in the fixture (its `include`).
     const needShared = sharedFiles.length > 0 || active.some((probe) => probe.output);
     const sharedRun = needShared
       ? runFiles(app, run, sharedFiles, path.join(root, `report-${index}-shared`))
@@ -370,7 +373,7 @@ function runCell(cell, root, entries) {
     // The shared run's own problems (an unhandled error, a crash, a dropped file, an exit
     // code the results do not explain) belong to no probe, so no known-failing entry can
     // absorb them. They are reported whether or not the probes passed.
-    if (sharedRun && sharedFiles.length > 0 && sharedRun.problems.length > 0) {
+    if (sharedRun && sharedRun.problems.length > 0) {
       results.set("(shared run)", {
         status: "error",
         failures: sharedRun.problems,
