@@ -93,3 +93,37 @@ it("imports a package's published TypeScript again without reading it", async ()
   }
   expect(reads).toBe(0);
 });
+
+// An update that names only the source extensions, as resolution-memo.test.ts makes,
+// keeps the rest of what the hooks were installed with.
+const updateHooks = (next: object) =>
+  (globalThis as { __vitest_native_require_hooks_update?: (n: object) => void })
+    .__vitest_native_require_hooks_update!(next);
+const sourceExts = JSON.parse(
+  process.env.VITEST_NATIVE_SOURCE_EXTS ?? '["js","jsx","json","ts","tsx"]',
+) as string[];
+
+it("still compiles the selected package after an update of the source extensions alone", () => {
+  updateHooks({ sourceExts });
+  delete req.cache[file];
+  expect(req("untranspiled-jsx-lib")).toBeTypeOf("function");
+});
+
+it("still loads a preset package's image from its file after an update of the source extensions alone", () => {
+  // A package with a preset mock: a request for one of its subpaths is served from the
+  // mock, except for its assets, which load from their real files.
+  const holder = globalThis as { __vitest_native_preset_mocks?: Record<string, unknown> };
+  const hadMocks = holder.__vitest_native_preset_mocks !== undefined;
+  const mocks = (holder.__vitest_native_preset_mocks ??= {});
+  write("node_modules/preset-asset-pkg/package.json", JSON.stringify({ name: "preset-asset-pkg" }));
+  write("node_modules/preset-asset-pkg/logo.png", "");
+  mocks["preset-asset-pkg"] = { Mocked: true };
+  try {
+    updateHooks({ sourceExts });
+    const fromOutside = createRequire(write("app/index.js", ""));
+    expect(fromOutside("preset-asset-pkg/logo.png")).toBeTypeOf("number");
+  } finally {
+    delete mocks["preset-asset-pkg"];
+    if (!hadMocks) delete holder.__vitest_native_preset_mocks;
+  }
+});

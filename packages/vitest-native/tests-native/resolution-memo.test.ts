@@ -75,6 +75,18 @@ describe("a resolution held from an earlier require", () => {
     expect(req("removed-q")).toBe("outer");
   });
 
+  it("is resolved again once its entry file is gone, failing as Node does", () => {
+    const entry = exportsPackage("ge", "gone-entry-q", "here");
+    const req = requireFrom("ge");
+    expect(req("gone-entry-q")).toBe("here");
+    delete req.cache[entry];
+    // The package stays; only the file its `exports` names is removed.
+    fs.rmSync(entry);
+    expect(() => req("gone-entry-q")).toThrow(
+      expect.objectContaining({ code: "MODULE_NOT_FOUND" }),
+    );
+  });
+
   it("is dropped when the source extensions change", () => {
     const update = (globalThis as { __vitest_native_require_hooks_update?: (next: object) => void })
       .__vitest_native_require_hooks_update;
