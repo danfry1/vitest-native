@@ -6,7 +6,7 @@
  */
 import { createRequire } from "node:module";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { mockCorrections } from "../src/presets/reanimated.js";
 
 const dir = path.dirname(
@@ -36,9 +36,12 @@ function workingMock() {
     interpolate: () => "theirs",
     clamp: () => "theirs",
     interpolateColor: () => "theirs",
+    // Dispatching on the event's name, as reanimated's own scroll handler does.
     useAnimatedScrollHandler:
-      (handlers: { onScroll: (e: unknown) => void }) => (e: { nativeEvent: unknown }) =>
-        handlers.onScroll(e.nativeEvent),
+      (handlers: { onScroll: (e: unknown) => void }) =>
+      (e: { nativeEvent: { eventName?: string } }) => {
+        if (e.nativeEvent.eventName?.endsWith("onScroll")) handlers.onScroll(e.nativeEvent);
+      },
     useComposedEventHandler: (hs: ((e: unknown) => void)[]) => (e: unknown) =>
       hs.forEach((h) => h(e)),
     useScrollOffset: () => value,
@@ -71,6 +74,7 @@ describe("reanimated mock corrections", () => {
     expect(fixed.useSharedValue).not.toBe(mock.useSharedValue);
     const shared = fixed.useSharedValue(1);
     const seen: unknown[] = [];
+    expect("addListener" in shared && "removeListener" in shared).toBe(true);
     shared.addListener(7, (value: unknown) => seen.push(value));
     shared.value = 2;
     shared.removeListener(7);
@@ -103,5 +107,31 @@ describe("reanimated mock corrections", () => {
     expect(fixed.useAnimatedScrollHandler).toBe(needsRender);
     expect(fixed.useComposedEventHandler).toBe(needsRender);
     expect(fixed.useScrollOffset).toBe(needsRender);
+  });
+
+  it("probe hooks without printing what a hook that needs a render logs", () => {
+    const needsRender = () => {
+      console.error("Invalid hook call");
+      throw new Error("Invalid hook call");
+    };
+    const error = console.error;
+    const spy = vi.fn();
+    console.error = spy;
+    try {
+      mockCorrections(
+        {
+          ...noOpMock(),
+          useAnimatedScrollHandler: needsRender,
+          useComposedEventHandler: needsRender,
+          useScrollOffset: needsRender,
+          useSharedValue: needsRender,
+        },
+        dir,
+      );
+      expect(spy).not.toHaveBeenCalled();
+      expect(console.error).toBe(spy);
+    } finally {
+      console.error = error;
+    }
   });
 });

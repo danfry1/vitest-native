@@ -37,10 +37,10 @@ const REANIMATED_MOCK: LibraryMock = {
   // `undefined`; its `useAnimatedScrollHandler` and `useComposedEventHandler` never run
   // their handlers; its `useScrollOffset` and `useScrollViewOffset` return
   // `{ value: 0 }`, which is not a shared value; and its shared values have no
-  // listeners, which Gesture Handler 3 adds to one given as gesture config. Those names, and only while the mock's
-  // value still behaves so (mockCorrections), are replaced: the helpers by reanimated's
-  // own (ownHelpers), the rest by ones that work (scrollHandlers). A reanimated whose
-  // mock does better keeps its own.
+  // listeners, which Gesture Handler 3 adds to one given as gesture config. Those
+  // names, and only while the mock's value still behaves so (mockCorrections), are
+  // replaced: the helpers by reanimated's own (ownHelpers), the rest by ones that work
+  // (scrollHandlers, withListeners). A reanimated whose mock does better keeps its own.
   extend: (mock, dir) => mockCorrections(mock, dir),
 };
 
@@ -56,45 +56,82 @@ function returnsNothing(probe: () => unknown): boolean {
   }
 }
 
+/**
+ * `probe()`, with console.error silent while it runs. The probes call a mock's hooks
+ * outside a render, where a hook that needs React logs "Invalid hook call" before it
+ * throws; that is how a working hook is told apart, not something to report.
+ */
+function quietly<T>(probe: () => T): T {
+  const error = console.error;
+  console.error = () => {};
+  try {
+    return probe();
+  } finally {
+    console.error = error;
+  }
+}
+
+/**
+ * A scroll event as a scroll view's `onScroll` receives it, named as reanimated names
+ * the events its handlers dispatch on (`eventName` ending in "onScroll").
+ */
+const PROBE_SCROLL_EVENT = {
+  eventName: "onScroll",
+  nativeEvent: {
+    eventName: "onScroll",
+    contentOffset: { x: 0, y: 0 },
+    contentInset: { top: 0, left: 0, bottom: 0, right: 0 },
+    contentSize: { width: 0, height: 0 },
+    layoutMeasurement: { width: 0, height: 0 },
+    zoomScale: 1,
+  },
+};
+
 /** Whether an event handler built by `build` from a handler never calls it. */
 function neverCalls(build: (handler: () => void) => unknown): boolean {
-  try {
-    let called = false;
-    const built = build(() => {
-      called = true;
-    });
-    // Outside a render: a hook that needs React throws, and is taken as working.
-    if (typeof built === "function") built({ nativeEvent: {} });
-    return !called;
-  } catch {
-    return false;
-  }
+  return quietly(() => {
+    try {
+      let called = false;
+      const built = build(() => {
+        called = true;
+      });
+      // Outside a render: a hook that needs React throws, and is taken as working.
+      if (typeof built === "function") built(PROBE_SCROLL_EVENT);
+      return !called;
+    } catch {
+      return false;
+    }
+  });
 }
 
 /** Whether `useOffset` (called outside a render) returns something that is not a shared value. */
 function notASharedValue(useOffset: unknown): boolean {
   if (typeof useOffset !== "function") return false;
-  try {
-    const value = useOffset();
-    return !(value && typeof value.get === "function");
-  } catch {
-    return false;
-  }
+  return quietly(() => {
+    try {
+      const value = useOffset();
+      return !(value && typeof value.get === "function");
+    } catch {
+      return false;
+    }
+  });
 }
 
 /** Whether `useSharedValue` (called outside a render) gives a value without listeners. */
 function lacksListeners(useSharedValue: unknown): boolean {
   if (typeof useSharedValue !== "function") return false;
-  try {
-    const value = useSharedValue(0);
-    return (
-      value !== null &&
-      typeof value === "object" &&
-      (typeof value.addListener !== "function" || typeof value.removeListener !== "function")
-    );
-  } catch {
-    return false;
-  }
+  return quietly(() => {
+    try {
+      const value = useSharedValue(0);
+      return (
+        value !== null &&
+        typeof value === "object" &&
+        (typeof value.addListener !== "function" || typeof value.removeListener !== "function")
+      );
+    } catch {
+      return false;
+    }
+  });
 }
 
 /**
@@ -124,6 +161,9 @@ function withListeners<T extends object>(shared: T): T {
         };
       }
       return value;
+    },
+    has(target, prop) {
+      return prop === "addListener" || prop === "removeListener" || Reflect.has(target, prop);
     },
     set(target, prop, next) {
       const done = Reflect.set(target, prop, next);

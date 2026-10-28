@@ -240,6 +240,7 @@ describe("react-native-reanimated under native engine", () => {
     }
     await render(<Holder />);
     const seen: unknown[] = [];
+    expect("addListener" in shared && "removeListener" in shared).toBe(true);
     shared.addListener(1, (value: unknown) => seen.push(value));
     shared.value = 2;
     shared.set(3);
