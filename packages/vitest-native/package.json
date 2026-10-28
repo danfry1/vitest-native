@@ -206,6 +206,7 @@
     "typescript-6": "npm:typescript@6.0.3",
     "untranspiled-jsx-lib": "file:./tests-native/fixtures/untranspiled-jsx-lib",
     "vn-lib-jest-support": "file:./tests-native/fixtures/vn-lib-jest-support",
+    "vn-lib-two-entries": "file:./tests-native/fixtures/vn-lib-two-entries",
     "vite": "^8.3.5",
     "vitest": "5.0.5"
   },

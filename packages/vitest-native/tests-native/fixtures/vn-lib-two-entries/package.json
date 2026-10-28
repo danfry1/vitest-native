@@ -1,0 +1,7 @@
+{
+  "name": "vn-lib-two-entries",
+  "version": "1.0.0",
+  "private": true,
+  "main": "lib/index.js",
+  "react-native": "src/index.js"
+}
