@@ -10,9 +10,18 @@
 // deciding which of their files that applies to.
 import { createRequire } from "node:module";
 import path from "node:path";
+import { owningPackageOfFile } from "./match.mjs";
 
 // Reanimated's resolver applies worklets' for everything it does not handle itself.
 const RESOLVERS = ["react-native-reanimated/jest/resolver", "react-native-worklets/jest/resolver"];
+
+// The packages whose own files these resolvers decide for. The resolvers tell their
+// files apart by substring (`options.basedir.includes('react-native-worklets')`), which
+// also matches a package that merely sits beside them: pnpm names a package's store
+// directory after its peers (`.pnpm/expo-modules-core@58_react-native-worklets@0.13/…`),
+// and `react-native-worklets-core` is a different package. So they are consulted only
+// for files these packages own, and see each file at its package-relative path.
+const OWNERS = new Set(["react-native-reanimated", "react-native-worklets"]);
 
 const loaded = new Map();
 const CAPTURED = Symbol("captured");
@@ -41,12 +50,19 @@ function resolverFor(projectRoot) {
  * with, when it narrows `extensions`; else null, for the engine's own resolution.
  */
 export function libraryExtensionsFor(projectRoot, request, fromFile, extensions) {
+  const owner = owningPackageOfFile(fromFile);
+  if (!owner || !OWNERS.has(owner)) return null;
   const resolver = resolverFor(projectRoot);
   if (!resolver) return null;
+  // The directory from the owning package on (`node_modules/<pkg>/…`), without the
+  // store path before it. Only the resolver's substring checks read it: the engine
+  // resolves the request itself, from the real directory.
+  const posixDir = path.dirname(fromFile).split(path.sep).join("/");
+  const basedir = posixDir.slice(posixDir.lastIndexOf("/node_modules/"));
   let captured = null;
   try {
     const result = resolver(request, {
-      basedir: path.dirname(fromFile),
+      basedir,
       extensions,
       defaultResolver: (_request, options) => {
         captured = options?.extensions ?? extensions;
