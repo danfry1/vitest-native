@@ -23,7 +23,7 @@ import { fileResults, runProblems } from "../validation/config-axes/accounting.m
 import {
   judge,
   matchingEntries,
-  NOT_A_SIGNATURE,
+  genericFailureLines,
   readKnownFailing,
   validateEntries,
   // @ts-expect-error — runtime .mjs, no types
@@ -142,6 +142,59 @@ describe("verdict", () => {
     }
   });
 
+  it("consequences count only beside the entry's own failure", () => {
+    const withConsequences = [
+      {
+        ...entries[0],
+        consequences: "^file accounting: no result in the JSON report for p\\.test\\.ts$",
+      },
+    ];
+    const lost = "file accounting: no result in the JSON report for p.test.ts";
+    expect(
+      judge(withConsequences, "p", run({}), {
+        status: "fail",
+        failures: [...expected.failures, lost],
+      }),
+    ).toMatchObject({ outcome: "known", ok: true });
+    // The #350 class: a lost file with no error beside it is not the known bug.
+    expect(
+      judge(withConsequences, "p", run({}), { status: "fail", failures: [lost] }),
+    ).toMatchObject({
+      outcome: "REGRESSION",
+      ok: false,
+    });
+  });
+
+  // Two entries on one probe: one bug fixed, its entry left behind. Per-probe judgement
+  // called the remaining failure "known" and would credit a later regression of the fixed
+  // bug to its merged PR.
+  it("an applying entry whose failure no line matches is stale, even while the probe fails", () => {
+    const two = [
+      {
+        probe: "p",
+        when: { engine: "native" },
+        failure: "^p\\.test\\.ts: t: AssertionError: A",
+        fixedBy: "#1",
+      },
+      {
+        probe: "p",
+        when: { engine: "native" },
+        failure: "^p\\.test\\.ts: t: AssertionError: B",
+        fixedBy: "#2",
+      },
+    ];
+    const lines = (...ids: string[]) => ids.map((id) => `p.test.ts: t: AssertionError: ${id}`);
+    expect(judge(two, "p", run({}), { status: "fail", failures: lines("A", "B") })).toMatchObject({
+      outcome: "known",
+    });
+    for (const only of ["A", "B"]) {
+      expect(judge(two, "p", run({}), { status: "fail", failures: lines(only) })).toMatchObject({
+        outcome: "STALE",
+        ok: false,
+      });
+    }
+  });
+
   it("every failure line must match: the known failure beside another one is a regression", () => {
     const failures = [...expected.failures, "unhandled error: Error: stray"];
     expect(judge(entries, "p", run({}), { status: "fail", failures })).toMatchObject({
@@ -187,20 +240,6 @@ describe("known-failing.json", () => {
     ).toHaveLength(6);
   });
 
-  it("every signature is specific: it matches none of the failures it must tell apart", () => {
-    const entry = { probe: PROBES[0].id, fixedBy: "#1", why: "x" };
-    for (const failure of [".*", "did not run", "TypeError", "(", "^$|x"]) {
-      expect(validateEntries([{ ...entry, failure }], axes, PROBES), failure).toHaveLength(1);
-    }
-    expect(validateEntries([{ ...entry, failure: "expected 0 to be 1" }], axes, PROBES)).toEqual(
-      [],
-    );
-    for (const { failure } of known) {
-      for (const line of NOT_A_SIGNATURE)
-        expect(new RegExp(failure).test(line), failure).toBe(false);
-    }
-  });
-
   it("every entry matches some allowed run where its probe applies — otherwise it could never go stale", () => {
     const applies = (probe: { requires?: Row }, row: Row) =>
       Object.entries(probe.requires ?? {}).every(([axis, value]) => row[axis] === value);
@@ -211,6 +250,30 @@ describe("known-failing.json", () => {
       );
     });
     expect(unreachable).toEqual([]);
+  });
+
+  it("every signature is specific: it matches none of its own probe's generic failure lines", () => {
+    const probe = PROBES[0];
+    const entry = { probe: probe.id, fixedBy: "#1", why: "x" };
+    const file = probe.files[0].replaceAll(".", "\\.");
+    for (const failure of [
+      ".*",
+      "did not run",
+      "TypeError",
+      "(",
+      "^$|x",
+      `^${file}: did not run$`,
+    ]) {
+      expect(validateEntries([{ ...entry, failure }], axes, PROBES), failure).toHaveLength(1);
+    }
+    expect(validateEntries([{ ...entry, failure: "expected 0 to be 1" }], axes, PROBES)).toEqual(
+      [],
+    );
+    for (const { probe: id, failure } of known) {
+      const lines = genericFailureLines(PROBES.find((p: { id: string }) => p.id === id));
+      for (const line of lines)
+        expect(new RegExp(failure).test(line), `${id}: ${line}`).toBe(false);
+    }
   });
 });
 

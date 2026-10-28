@@ -4,25 +4,35 @@
 // values it fails on and the pull request that fixes it:
 //
 //   { "probe": "rntl-auto-cleanup", "when": { "globals": "off" },
-//     "failure": "the previous test's tree was unmounted: .*expected 0 to be 1",
+//     "failure": "the previous test's tree was unmounted: .*expected \\+0 to be 1",
 //     "fixedBy": "#342" }
 //
 // `when` maps axes to a value or a list of values; an entry with no `when` matches every
-// run. `failure` is a regular expression for the failure the entry expects: a probe's
-// result carries one line per failure (a failed assertion, a file that did not run, and
-// for a probe run alone its process's run-level problems), and EVERY line must match the
-// signature of an entry that matches the run. Otherwise the probe failed some other way
-// (a crash, a TypeError, a lost file) and that is a regression, not the known bug. The
-// list may only shrink:
+// run. A probe's result carries one line per failure: a failed assertion (with its cause
+// chain), a file that did not run, and for a probe run alone its process's run-level
+// problems (accounting.mjs).
 //
-//   pass, not listed   ok
-//   fail, listed       known, when every failure line matches a listed signature:
-//                      reported with its fixing pull request, the cell stays green
-//   fail, otherwise    REGRESSION: the cell goes red (not listed here, or failing in a
-//                      way the entry does not describe)
-//   pass, listed       STALE: the cell goes red, so an entry cannot outlive its fix —
-//                      the fixing pull request has to delete it
-//   n/a                the probe cannot observe its defect in this run (probes.mjs)
+//   failure       a regex for the failure the entry expects: the bug itself. It may not
+//                 match a generic line (genericFailureLines: a crash, a lost file, an
+//                 unrelated error, Vitest's bare "error when mocking a module").
+//   consequences  optional: a regex for lines the bug causes but that do not identify it
+//                 (a file the run lost after the bug threw, an exit code). Accepted only
+//                 when the entry's own `failure` matched a line in the same run, so a lost
+//                 file with no bug beside it is still a regression.
+//
+// Verdicts, per run:
+//
+//   pass, no entry applies        pass
+//   fail, every line accounted    known: each line matches the failure or consequences
+//                                 of an applying entry whose failure matched, and every
+//                                 applying entry's failure matched some line
+//   fail, a line unaccounted      REGRESSION: not listed, or failing some other way
+//   an applying entry unmatched   STALE: its bug no longer shows here (the probe passes,
+//                                 or fails only for another entry's reason), so the entry
+//                                 must be deleted. Judged per entry, so two entries on one
+//                                 probe cannot hide a fixed bug and absorb its regression.
+//   n/a                           the probe cannot observe its defect in this run
+//                                 (probes.mjs `requires`)
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,42 +54,66 @@ export function matchingEntries(entries, probe, run) {
   );
 }
 
+const MOCKING_FAILED =
+  '[vitest] There was an error when mocking a module. If you are using "vi.mock" factory, make sure there are no top level variables inside, since this call is hoisted to top of the file. Read more: https://vitest.dev/api/vi.html#vi-mock';
+
 /**
- * The verdict for one probe in one run. `result` is { status: 'pass'|'fail'|'n/a',
- * detail? }. Returns { probe, outcome, ok, message }.
+ * Failure lines that no signature may match, for one probe: what a crash, a lost file or
+ * an unrelated error look like in that probe's own files and runs. A signature matching
+ * one would absorb exactly the failures it exists to tell apart from the known bug.
  */
-/**
- * Failure lines that no signature may match: what a crash, a lost file or an unrelated
- * error look like. A signature matching one of them would absorb exactly the failures it
- * exists to tell apart from the known bug.
- */
-export const NOT_A_SIGNATURE = [
-  "",
-  "no report: the run crashed",
-  "the process was killed by SIGSEGV",
-  "the process exited 134 (Vitest exits 0 or 1)",
-  "the run timed out",
-  "x.test.ts: did not run",
-  "x.test.ts: a test: TypeError: Cannot read properties of undefined (reading 'x')",
-  "x.test.ts: Error: Worker exited unexpectedly",
-];
+export function genericFailureLines(probe) {
+  const lines = [
+    "",
+    "no report: the run crashed",
+    "no accounting record: the run ended before Vitest's onTestRunEnd",
+    "the process was killed by SIGSEGV",
+    "the process exited 134 (Vitest exits 0 or 1)",
+    "the run timed out",
+    "the JSON report says success: true, but Vitest exited 1",
+    "Vitest exited 1, but no file failed and no error was unhandled",
+    "unhandled error: Error: something unrelated",
+    "unhandled error: VitestNativeError: [vitest-native] hotRuntime state restoration failed: / - some.other restore: boom",
+  ];
+  for (const file of probe?.files ?? []) {
+    lines.push(
+      `${file}: did not run`,
+      `${file}: no tests ran`,
+      `${file}: Error: Worker exited unexpectedly`,
+      `${file}: Cannot find module 'something-else'`,
+      `${file}: ${MOCKING_FAILED}`,
+      `${file}: ${MOCKING_FAILED} (caused by: TypeError: mutant)`,
+      `${file}: a test: TypeError: Cannot read properties of undefined (reading 'x')`,
+      `${file}: a test: AssertionError: expected 1 to be 2 // Object.is equality`,
+      `file accounting: no result in the JSON report for ${file}`,
+      `file accounting: Vitest never reported module ${file}`,
+      `file accounting: unfinished module ${file} (queued)`,
+      `unhandled error (from ${file}): Error: something unrelated`,
+    );
+  }
+  return lines;
+}
 
 const failuresOf = (result) =>
   result.failures?.length > 0 ? result.failures : [result.detail ?? ""];
 
+const describeEntry = (entry) => `/${entry.failure}/ (${entry.fixedBy})`;
+
+/**
+ * The verdict for one probe in one run. `result` is { status: 'pass'|'fail'|'n/a',
+ * failures? }. Returns { probe, outcome, ok, message }.
+ */
 export function judge(entries, probe, run, result) {
   if (result.status === "n/a") return { probe, outcome: "n/a", ok: true, message: "" };
   const listed = matchingEntries(entries, probe, run);
-  const fixes = [...new Set(listed.map((entry) => entry.fixedBy))].join(", ");
   if (result.status === "pass") {
-    return listed.length === 0
-      ? { probe, outcome: "pass", ok: true, message: "" }
-      : {
-          probe,
-          outcome: "STALE",
-          ok: false,
-          message: `passes, but known-failing.json expects it to fail here (${fixes}). Delete the entry, or narrow its \`when\`.`,
-        };
+    if (listed.length === 0) return { probe, outcome: "pass", ok: true, message: "" };
+    return {
+      probe,
+      outcome: "STALE",
+      ok: false,
+      message: `passes, but known-failing.json expects ${listed.map(describeEntry).join(", ")} here. Delete the entry.`,
+    };
   }
   const failures = failuresOf(result);
   if (listed.length === 0) {
@@ -90,18 +124,33 @@ export function judge(entries, probe, run, result) {
       message: `fails and is not in known-failing.json: ${failures.join("; ") || "(no detail)"}`,
     };
   }
-  const unexpected = failures.filter(
-    (line) => !listed.some((entry) => new RegExp(entry.failure).test(line)),
-  );
+  const signature = (entry) => new RegExp(entry.failure);
+  const shown = listed.filter((entry) => failures.some((line) => signature(entry).test(line)));
+  const accounted = (line) =>
+    shown.some(
+      (entry) =>
+        signature(entry).test(line) ||
+        (entry.consequences !== undefined && new RegExp(entry.consequences).test(line)),
+    );
+  const unexpected = failures.filter((line) => !accounted(line));
   if (unexpected.length > 0) {
-    const expects = listed.map((entry) => `/${entry.failure}/ (${entry.fixedBy})`).join(", ");
     return {
       probe,
       outcome: "REGRESSION",
       ok: false,
-      message: `fails, but not as known-failing.json expects ${expects}: ${unexpected.join("; ")}`,
+      message: `fails, but not as known-failing.json expects ${listed.map(describeEntry).join(", ")}: ${unexpected.join("; ")}`,
     };
   }
+  const stale = listed.filter((entry) => !shown.includes(entry));
+  if (stale.length > 0) {
+    return {
+      probe,
+      outcome: "STALE",
+      ok: false,
+      message: `fails, but not with ${stale.map(describeEntry).join(", ")}: that bug no longer shows here. Delete the entry.`,
+    };
+  }
+  const fixes = [...new Set(shown.map((entry) => entry.fixedBy))].join(", ");
   return { probe, outcome: "known", ok: true, message: `fails as listed, fixed by ${fixes}` };
 }
 
@@ -128,11 +177,22 @@ export function validateEntries(entries, axes, probes) {
       } catch (error) {
         problems.push(`${at}: \`failure\` is not a regular expression: ${error.message}`);
       }
-      const absorbs = signature ? NOT_A_SIGNATURE.filter((line) => signature.test(line)) : [];
+      const probe = probes.find((p) => p.id === entry.probe);
+      const absorbs = signature
+        ? genericFailureLines(probe).filter((line) => signature.test(line))
+        : [];
       if (absorbs.length > 0)
         problems.push(
           `${at}: \`failure\` also matches ${absorbs.map((l) => JSON.stringify(l)).join(", ")}, so it would absorb other failures`,
         );
+    }
+    if (entry.consequences !== undefined) {
+      try {
+        if (new RegExp(entry.consequences).test(""))
+          problems.push(`${at}: \`consequences\` matches an empty line`);
+      } catch (error) {
+        problems.push(`${at}: \`consequences\` is not a regular expression: ${error.message}`);
+      }
     }
     for (const [axis, value] of Object.entries(entry.when ?? {})) {
       if (!(axis in values)) {

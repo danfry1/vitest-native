@@ -1,5 +1,5 @@
 {
-  "$comment": "Probes that fail TODAY, where, how, and the pull request that fixes each (verdict.mjs). The list may only shrink: a listed probe that passes turns its cell red, so the fixing pull request deletes its entry. `when` maps an axis to a value or a list; an entry without `when` matches every run. `failure` is a regex for the expected failure: every failure line of the probe in that run must match it, so a crash, a TypeError or a lost file in a listed probe is still a REGRESSION. Entries and signatures were derived from local runs on Vitest 5 (RNTL 12.9, 13.3 and 14.1, both engines, every runtime combination; the isolated layout as a pnpm-shaped store built by run.mjs --link-deps) except where `why` says otherwise.",
+  "$comment": "Probes that fail TODAY, where, how, and the pull request that fixes each (verdict.mjs). The list may only shrink: a listed probe that passes turns its cell red, so the fixing pull request deletes its entry. `when` maps an axis to a value or a list; an entry without `when` matches every run. `failure` is a regex for the expected failure, the bug itself; `consequences` (optional) matches lines the bug causes but that do not identify it, accepted only beside a `failure` match. Every failure line must be accounted for, so a crash, a TypeError or a lost file in a listed probe is still a REGRESSION, and an applying entry whose `failure` matches no line is STALE (verdict.mjs). Entries and signatures were derived from local runs on Vitest 5 (RNTL 12.9, 13.3 and 14.1, both engines, every runtime combination; the isolated layout as a pnpm-shaped store built by run.mjs --link-deps) except where `why` says otherwise.",
   "entries": [
     {
       "probe": "rntl-auto-cleanup",
@@ -34,7 +34,8 @@
       "when": {
         "rntl": ["12", "13"]
       },
-      "failure": "^(unhandled error \\(from recoverable-error\\.test\\.tsx\\): Error: There was an error during concurrent rendering but React was able to recover|the JSON report says success: true, but Vitest exited 1$)",
+      "failure": "^unhandled error \\(from recoverable-error\\.test\\.tsx\\): Error: There was an error during concurrent rendering but React was able to recover by instead synchronously rendering the entire root\\.",
+      "consequences": "^the JSON report says success: true, but Vitest exited 1$",
       "fixedBy": "#343",
       "why": "react-test-renderer 19 reports a recoverable error through process.emit('uncaughtException'). RNTL 14 renders without it. Both engines."
     },
@@ -135,7 +136,8 @@
         "hot": "on",
         "jestCompat": "on"
       },
-      "failure": "^(hot-rn-module-mock-[ab]\\.test\\.ts: did not run|file accounting: (no result in the JSON report for|Vitest never reported module) hot-rn-module-mock-[ab]\\.test\\.ts|unhandled error: VitestNativeError: \\[vitest-native\\] hotRuntime state restoration failed:|the JSON report says success: true, but Vitest exited 1)$",
+      "failure": "^unhandled error: VitestNativeError: \\[vitest-native\\] hotRuntime state restoration failed: / - react-native\\.appearance restore: Cannot read properties of null \\(reading 'setColorScheme'\\)$",
+      "consequences": "^(hot-rn-module-mock-[ab]\\.test\\.ts: did not run|file accounting: (no result in the JSON report for|Vitest never reported module) hot-rn-module-mock-[ab]\\.test\\.ts|the JSON report says success: true, but Vitest exited 1)$",
       "fixedBy": "#350",
       "why": "The per-file reset restores React Native before it clears jest-compat's Node mock registry, so the Appearance restore reads the null mock and throws outside Vitest's per-file error handling: the second file is never collected, and the JSON report says success: true while Vitest exits 1."
     },

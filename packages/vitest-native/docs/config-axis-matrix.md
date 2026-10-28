@@ -87,15 +87,24 @@ entry gives the axis values the probe fails on, the PR that fixes it, and why. T
 
 - A pass that is not listed is fine.
 - A listed failure is reported as "known" with its fixing PR, and the cell stays green, only
-  when it fails the way the entry says. Each entry has a `failure` regex, and every failure
-  line of the probe in that run (each failed assertion, each file that did not run, and, run
-  alone, each run-level problem) must match it. A signature may not match the samples in
-  `NOT_A_SIGNATURE` (`verdict.mjs`): an empty line, a crash, a lost file, an unrelated
-  TypeError.
+  when it fails the way the entry says. Each entry has a `failure` regex for the bug itself.
+  Failure lines carry the error's cause chain from the accounting reporter, since the JSON
+  report drops it. Vitest's bare "There was an error when mocking a module" says nothing, and
+  a signature on it once absorbed a TypeError in the factory. An optional `consequences`
+  regex matches lines the bug causes but that do not identify it, such as the file #350 loses
+  after the restore throws, or the exit code. Those lines are accepted only when the entry's
+  own `failure` matched in the same run, so a lost file with no error beside it is never
+  "known". Every failure line must be accounted for. A signature may not match any of its
+  probe's generic lines (`genericFailureLines` in `verdict.mjs`): a crash, a lost or unrun
+  file, Vitest's bare mocking error, an unrelated TypeError or unhandled error, each with the
+  probe's own file names.
 - Any other failure is a **REGRESSION**, and the cell goes red. That includes a listed probe
   failing some other way: a SIGSEGV or a TypeError in a probe whose entry expects an
   assertion message is not the known bug.
-- A listed probe that passes is **STALE**, and the cell goes red. So a fix PR must delete its
+- An entry is **STALE**, and the cell goes red, when it applies to the run but its `failure`
+  matches no line: the probe passes, or fails only for another entry's reason. Staleness is
+  judged per entry, so two entries on one probe cannot hide a fixed bug and absorb its later
+  regression. The remedy is to delete the entry. So a fix PR must delete its
   own entry. An entry that matches no possible run (it could never go stale) fails the unit test.
 
 Entries were derived from local runs, not from the report's prose, and each signature is the
