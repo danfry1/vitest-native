@@ -1,11 +1,17 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
-import { createRequire } from "node:module";
+import { createRequire, Module } from "node:module";
 import path from "node:path";
 import { VitestNativeError } from "../errors.mjs";
 import { builtInPreset } from "./built-in.js";
-import { libraryMockModule, packageDir, workerRoot, type LibraryMock } from "./library-mock.js";
+import {
+  libraryMockModule,
+  packageDir,
+  underNativeEngine,
+  workerRoot,
+  type LibraryMock,
+} from "./library-mock.js";
 import { shipsJestResolver } from "../preset-map.js";
 
 // Under the native engine the module is reanimated's own test mock
@@ -34,34 +40,141 @@ const REANIMATED_MOCK: LibraryMock = {
     shipsJestResolver(dir, "react-native-worklets"),
   // Reanimated's mock (4.7.1, and its main branch in October 2026) answers `interpolate`,
   // `interpolateColor` and `clamp` with a no-op, so every interpolated style is
-  // `undefined`, and its `useAnimatedScrollHandler` with one that never runs the
-  // handler. Those, and nothing else, are replaced: the three helpers by reanimated's
-  // own, from the installed package (ownHelpers), and the two event hooks by ones that
-  // run their handlers (scrollHandlers).
-  extend: (mock, dir) => {
-    const helpers = ownHelpers(dir);
-    return {
-      ...mock,
-      ...helpers,
-      ...scrollHandlers(),
-      default: { ...mock.default, ...helpers },
-    };
-  },
+  // `undefined`; its `useAnimatedScrollHandler` and `useComposedEventHandler` never run
+  // their handlers; and its `useScrollOffset` and `useScrollViewOffset` return
+  // `{ value: 0 }`, which is not a shared value. Those names, and only while the mock's
+  // value still behaves so (mockCorrections), are replaced: the helpers by reanimated's
+  // own (ownHelpers), the rest by ones that work (scrollHandlers). A reanimated whose
+  // mock does better keeps its own.
+  extend: (mock, dir) => mockCorrections(mock, dir),
 };
 
-type Helpers = Partial<
-  Record<"interpolate" | "clamp" | "interpolateColor", (...args: any[]) => any>
->;
+type Fn = (...args: any[]) => any;
+type Helpers = Partial<Record<"interpolate" | "clamp" | "interpolateColor", Fn>>;
+
+/** Whether `probe` returns `undefined` (a no-op), without throwing. */
+function returnsNothing(probe: () => unknown): boolean {
+  try {
+    return probe() === undefined;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether an event handler built by `build` from a handler never calls it. */
+function neverCalls(build: (handler: () => void) => unknown): boolean {
+  try {
+    let called = false;
+    const built = build(() => {
+      called = true;
+    });
+    // Outside a render: a hook that needs React throws, and is taken as working.
+    if (typeof built === "function") built({ nativeEvent: {} });
+    return !called;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether `useOffset` (called outside a render) returns something that is not a shared value. */
+function notASharedValue(useOffset: unknown): boolean {
+  if (typeof useOffset !== "function") return false;
+  try {
+    const value = useOffset();
+    return !(value && typeof value.get === "function");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Reanimated's mock, with the names it answers with a no-op replaced (see
+ * REANIMATED_MOCK). Exported for its tests.
+ */
+export function mockCorrections(mock: Record<string, any>, dir: string): Record<string, any> {
+  const helpers = ownHelpers(dir);
+  const probes: Record<keyof Helpers, (f: Fn) => unknown> = {
+    interpolate: (f) => f(5, [0, 10], [0, 100]),
+    clamp: (f) => f(5, 0, 3),
+    interpolateColor: (f) => f(0, [0, 1], ["#ff0000", "#0000ff"]),
+  };
+  const fixHelpers = (target: Record<string, any> | undefined) => {
+    const fixed: Record<string, Fn> = {};
+    for (const name of Object.keys(probes) as (keyof Helpers)[]) {
+      const own = helpers[name];
+      const current = target?.[name];
+      if (own && typeof current === "function" && returnsNothing(() => probes[name](current))) {
+        fixed[name] = own;
+      }
+    }
+    return fixed;
+  };
+  const handlers = scrollHandlers(mock.useSharedValue);
+  const fixed: Record<string, any> = { ...fixHelpers(mock) };
+  const scrollFixed = neverCalls((h) => mock.useAnimatedScrollHandler?.({ onScroll: h }));
+  if (scrollFixed) fixed.useAnimatedScrollHandler = handlers.useAnimatedScrollHandler;
+  if (neverCalls((h) => mock.useComposedEventHandler?.([h]))) {
+    fixed.useComposedEventHandler = handlers.useComposedEventHandler;
+  }
+  for (const name of ["useScrollOffset", "useScrollViewOffset"]) {
+    if (notASharedValue(mock[name])) fixed[name] = handlers.useScrollOffset;
+  }
+  const defaults: Record<string, any> = { ...mock.default, ...fixHelpers(mock.default) };
+  // The scroll views pass a handler's drag and momentum handlers on (withScrollEvents).
+  if (scrollFixed) {
+    for (const name of ["ScrollView", "FlatList"]) {
+      if (defaults[name]) defaults[name] = withScrollEvents(defaults[name]);
+    }
+  }
+  return { ...mock, ...fixed, default: defaults };
+}
+
+/**
+ * Loads one of reanimated's own files by path as Node loads any module (through the
+ * engine's transform, under the native engine), but not into the module cache, and
+ * with `stubbed` requests of that file answered by `stub`. interpolateColor.js before
+ * 4.5 imports reanimated's core and `useSharedValue` for `useInterpolateConfig` alone,
+ * and loading those initializes reanimated, which fails ("Native part of Reanimated
+ * doesn't seem to be initialized") and leaves its globals set.
+ */
+function loadOwnFile(file: string, stubbed: RegExp, stub: object): Record<string, any> {
+  const mod = new Module(file);
+  mod.filename = file;
+  mod.paths = (Module as any)._nodeModulePaths(path.dirname(file));
+  mod.require = function (this: Module, request: string) {
+    return stubbed.test(request) ? stub : Module.prototype.require.call(this, request);
+  } as Module["require"];
+  (Module as any)._extensions[".js"](mod, file);
+  mod.loaded = true;
+  return mod.exports;
+}
+
+/** What interpolateColor.js's core imports become (see loadOwnFile). */
+const NOT_LOADED = new Proxy(
+  {},
+  {
+    get: (_target, name) =>
+      name === "__esModule"
+        ? true
+        : () => {
+            throw new VitestNativeError(
+              "PRESET_UNAVAILABLE",
+              `reanimated's ${String(name)} is not available to interpolateColor here.`,
+            );
+          },
+  },
+);
 
 /**
  * Reanimated's own `interpolate`, `clamp` and `interpolateColor`, loaded from the
- * installed package by file path (by name, the preset answers): plain functions, which
- * reanimated also runs on the JS thread. A file that does not load here is left out,
- * and its names keep what the module had: interpolateColor.js imports React Native,
- * which the mock engine does not run.
+ * installed package's files (by name, the preset answers): plain functions, which
+ * reanimated also runs on the JS thread. A file that does not load is left out, and
+ * its names keep what the module had. Under the native engine both load from 3.17 on;
+ * under the mock engine, which runs no transform, interpolateColor.js does not load
+ * (it imports React Native's Flow source), nor, before 4.5, does interpolation.js
+ * (its imports have no file extension, which Node's ES module loader rejects).
  */
 function ownHelpers(dir: string): Helpers {
-  const load = createRequire(path.join(dir, "package.json"));
   const helpers: Helpers = {};
   const files: Record<string, (keyof Helpers)[]> = {
     "lib/module/interpolation.js": ["interpolate", "clamp"],
@@ -69,37 +182,108 @@ function ownHelpers(dir: string): Helpers {
   };
   for (const [file, names] of Object.entries(files)) {
     try {
-      const loaded = load(path.join(dir, file));
+      const loaded = loadOwnFile(
+        path.join(dir, file),
+        /^\.\/(core|hook\/useSharedValue)(\.js)?$/,
+        NOT_LOADED,
+      );
       for (const name of names) {
         if (typeof loaded[name] === "function") helpers[name] = loaded[name];
       }
     } catch {
-      // Not this version's layout, or it needs the native runtime to load.
+      // Not this version's layout, or not loadable under this engine.
     }
   }
   return helpers;
 }
 
+type Handler = (event: any, context?: Record<string, unknown>) => void;
+type ScrollHandlers = {
+  onScroll?: Handler;
+  onBeginDrag?: Handler;
+  onEndDrag?: Handler;
+  onMomentumBegin?: Handler;
+  onMomentumEnd?: Handler;
+};
+
+/** A built scroll handler's handlers for the scroll view props other than `onScroll`. */
+const SCROLL_EVENTS = Symbol.for("vitest-native.reanimated.scrollEvents");
+const EVENT_PROPS: Record<string, keyof ScrollHandlers> = {
+  onScrollBeginDrag: "onBeginDrag",
+  onScrollEndDrag: "onEndDrag",
+  onMomentumScrollBegin: "onMomentumBegin",
+  onMomentumScrollEnd: "onMomentumEnd",
+};
+
 /**
- * `useAnimatedScrollHandler` and `useComposedEventHandler` that run their handlers.
- * Passed as a scroll view's `onScroll`, the scroll handler gets each scroll event's
- * payload (`nativeEvent`) and a context object kept between events, as in the app.
- * Only `onScroll` reaches it: drag and momentum events arrive on other props of a
- * scroll view. A composed handler passes each event to every handler it was given.
+ * A scroll view that, given a scroll handler as `onScroll`, also passes it the view's
+ * drag and momentum events, as reanimated's animated scroll views do (they subscribe
+ * a handler to every event it handles). A prop the test gives itself still runs.
  */
-function scrollHandlers() {
-  type Handler = (event: any, context?: Record<string, unknown>) => void;
-  function useAnimatedScrollHandler(handlers: Handler | { onScroll?: Handler } | undefined) {
-    const context = React.useRef<Record<string, unknown>>({}).current;
-    const onScroll = typeof handlers === "function" ? handlers : handlers?.onScroll;
-    return (event: any) => onScroll?.(event?.nativeEvent ?? event, context);
+function withScrollEvents(Component: any): any {
+  const Wrapped = React.forwardRef((props: any, ref: any) => {
+    const events = props.onScroll?.[SCROLL_EVENTS] as Record<string, Fn> | undefined;
+    if (!events) return React.createElement(Component, { ...props, ref });
+    const extra: Record<string, Fn> = {};
+    for (const [prop, run] of Object.entries(events)) {
+      const own = props[prop];
+      extra[prop] = (event: unknown) => {
+        run(event);
+        if (typeof own === "function") own(event);
+      };
+    }
+    return React.createElement(Component, { ...props, ...extra, ref });
+  });
+  Wrapped.displayName = Component.displayName ?? Component.name ?? "ScrollView";
+  return Wrapped;
+}
+
+/**
+ * `useAnimatedScrollHandler`, `useComposedEventHandler` and `useScrollOffset` that work.
+ * The scroll handler is one function for the life of the component, as reanimated's
+ * handler is, and runs the handlers of the latest render. Passed as a scroll view's
+ * `onScroll`, it gets each scroll event's payload (`nativeEvent`) and a context object
+ * kept between events; a reanimated scroll view (withScrollEvents) passes it the drag
+ * and momentum events too, as `onBeginDrag`, `onEndDrag`, `onMomentumBegin` and
+ * `onMomentumEnd`. A composed handler passes each event to every handler it was given,
+ * and so the drag and momentum events of the scroll handlers among them. The offset
+ * hooks return a shared value (`useSharedValue(0)`, kept across renders).
+ */
+function scrollHandlers(useSharedValue?: Fn) {
+  function useAnimatedScrollHandler(handlers: Handler | ScrollHandlers | undefined) {
+    const latest = React.useRef<ScrollHandlers>({});
+    latest.current = typeof handlers === "function" ? { onScroll: handlers } : (handlers ?? {});
+    const built = React.useRef<any>(null);
+    if (!built.current) {
+      const context: Record<string, unknown> = {};
+      const run = (name: keyof ScrollHandlers) => (event: any) =>
+        latest.current[name]?.(event?.nativeEvent ?? event, context);
+      const handler: any = run("onScroll");
+      handler[SCROLL_EVENTS] = Object.fromEntries(
+        Object.entries(EVENT_PROPS).map(([prop, name]) => [prop, run(name)]),
+      );
+      built.current = handler;
+    }
+    return built.current;
   }
-  function useComposedEventHandler(handlers: (Handler | null | undefined)[]) {
-    return (event: any) => {
-      for (const handler of handlers ?? []) if (typeof handler === "function") handler(event);
+  function useComposedEventHandler(handlers: unknown[] | null | undefined) {
+    const list = (handlers ?? []).filter((h): h is Fn => typeof h === "function");
+    const composed: any = (event: unknown) => {
+      for (const handler of list) handler(event);
     };
+    const events: Record<string, Fn> = {};
+    for (const prop of Object.keys(EVENT_PROPS)) {
+      const runs = list.map((h: any) => h[SCROLL_EVENTS]?.[prop]).filter(Boolean) as Fn[];
+      if (runs.length > 0) events[prop] = (event) => runs.forEach((run) => run(event));
+    }
+    if (Object.keys(events).length > 0) composed[SCROLL_EVENTS] = events;
+    return composed;
   }
-  return { useAnimatedScrollHandler, useComposedEventHandler };
+  function useScrollOffset() {
+    const value = useSharedValue ? useSharedValue(0) : undefined;
+    return React.useRef(value).current;
+  }
+  return { useAnimatedScrollHandler, useComposedEventHandler, useScrollOffset };
 }
 
 /**
@@ -132,6 +316,8 @@ export function reanimated(): Preset {
           "useDerivedValue",
           "useAnimatedScrollHandler",
           "useComposedEventHandler",
+          "useScrollOffset",
+          "useScrollViewOffset",
           "useAnimatedGestureHandler",
           "useAnimatedReaction",
           "useAnimatedKeyboard",
@@ -209,6 +395,7 @@ export function reanimated(): Preset {
           "EntryExitTransition",
           "interpolate",
           "interpolateColor",
+          "clamp",
           "Extrapolation",
           "isSharedValue",
           "useAnimatedRef",
@@ -265,12 +452,32 @@ export function reanimated(): Preset {
             return createSharedValue(updater());
           }
 
-          const { useAnimatedScrollHandler, useComposedEventHandler } = scrollHandlers();
-          // Reanimated's own, from the installed package. Where its files do not load
-          // (interpolateColor.js imports React Native, which the mock engine does not
-          // run), interpolate keeps its stand-in and interpolateColor says why it fails.
+          const { useAnimatedScrollHandler, useComposedEventHandler, useScrollOffset } =
+            scrollHandlers(createSharedValue);
+          // Reanimated's own, from the installed package (ownHelpers). Where its file
+          // does not load, `interpolate` keeps the stand-in it always had (the first
+          // output value), and `clamp` and `interpolateColor` say why they fail.
           const reanimatedDir = packageDir("react-native-reanimated", workerRoot());
           const helpers = reanimatedDir ? ownHelpers(reanimatedDir) : {};
+          const unavailable = (name: string) => () => {
+            throw new VitestNativeError(
+              "PRESET_UNAVAILABLE",
+              `reanimated's ${name} did not load from ${reanimatedDir ?? "react-native-reanimated (not installed)"}. ` +
+                (underNativeEngine()
+                  ? "Its file is missing or failed to load; please report this with your reanimated version."
+                  : "The mock engine runs no transform, and its file needs one (it imports React " +
+                    "Native, or, before reanimated 4.5, modules without a file extension). It works " +
+                    "under the native engine (engine: 'native')."),
+            );
+          };
+          const interpolate = vi.fn(
+            helpers.interpolate ??
+              ((_value: number, _input: number[], output: number[]) => output[0]),
+          );
+          const interpolateColor = vi.fn(
+            helpers.interpolateColor ?? unavailable("interpolateColor"),
+          );
+          const clamp = vi.fn(helpers.clamp ?? unavailable("clamp"));
 
           function useAnimatedGestureHandler(_handler: any) {
             return vi.fn();
@@ -380,8 +587,8 @@ export function reanimated(): Preset {
           const View = makeAnimatedHost("View");
           const Text = makeAnimatedHost("Text");
           const Image = makeAnimatedHost("Image");
-          const ScrollView = makeAnimatedHost("ScrollView");
-          const FlatList = makeAnimatedHost("FlatList");
+          const ScrollView = withScrollEvents(makeAnimatedHost("ScrollView"));
+          const FlatList = withScrollEvents(makeAnimatedHost("FlatList"));
 
           // Helper to create chainable layout animation presets. Each modifier is
           // `vi.fn(impl)`, not `.mockReturnValue()`: mockReset() (and `mockReset: true`)
@@ -421,6 +628,10 @@ export function reanimated(): Preset {
               addWhitelistedUIProps,
               addWhitelistedNativeProps,
               configureProps,
+              // As on reanimated's own default export.
+              interpolate,
+              interpolateColor,
+              clamp,
             },
             addWhitelistedUIProps,
             addWhitelistedNativeProps,
@@ -431,6 +642,8 @@ export function reanimated(): Preset {
             useDerivedValue,
             useAnimatedScrollHandler,
             useComposedEventHandler,
+            useScrollOffset,
+            useScrollViewOffset: useScrollOffset,
             useAnimatedGestureHandler,
             useAnimatedReaction,
             useAnimatedKeyboard,
@@ -512,21 +725,9 @@ export function reanimated(): Preset {
             JumpingTransition: createLayoutAnim(),
             CurvedTransition: createLayoutAnim(),
             EntryExitTransition: createLayoutAnim(),
-            interpolate: vi.fn(
-              helpers.interpolate ??
-                ((_value: number, _input: number[], output: number[]) => output[0]),
-            ),
-            interpolateColor: vi.fn(
-              helpers.interpolateColor ??
-                (() => {
-                  throw new VitestNativeError(
-                    "PRESET_UNAVAILABLE",
-                    "interpolateColor is reanimated's own, and its file did not load here. " +
-                      "It needs real React Native, which the native engine runs " +
-                      "(engine: 'native').",
-                  );
-                }),
-            ),
+            interpolate,
+            interpolateColor,
+            clamp,
             Extrapolation: { CLAMP: "clamp", EXTEND: "extend", IDENTITY: "identity" },
             // As reanimated's own: what its shared values (createSharedValue above) carry.
             isSharedValue: (value: any) => value?._isReanimatedSharedValue === true,

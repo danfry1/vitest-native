@@ -44,7 +44,7 @@ const CASES: Record<string, Case> = {
     preset: presets.reanimated,
     module: "react-native-reanimated",
     reference: mockOf("react-native-reanimated", "lib/module/mock.js", "mock"),
-    // Most of reanimated 4's API beyond the core hooks: layout presets, clamp, Keyframe,
+    // Most of reanimated 4's API beyond the core hooks: layout presets, Keyframe,
     // the jest helpers (withReanimatedTimer, getAnimatedStyle) and more.
     gaps: [
       "BaseAnimationBuilder",
@@ -103,7 +103,6 @@ const CASES: Record<string, Case> = {
       "ZoomOutUp",
       "advanceAnimationByFrame",
       "advanceAnimationByTime",
-      "clamp",
       "configureReanimatedLogger",
       "contrastColor",
       "convertToRGBA",
@@ -143,8 +142,6 @@ const CASES: Record<string, Case> = {
       "useAnimatedSensor",
       "useEvent",
       "useHandler",
-      "useScrollOffset",
-      "useScrollViewOffset",
       "useTimestamp",
       "withClamp",
       "withReanimatedTimer",

@@ -20,6 +20,9 @@ import Animated, {
   isSharedValue,
   useAnimatedScrollHandler,
   useComposedEventHandler,
+  useScrollOffset,
+  useScrollViewOffset,
+  useAnimatedRef,
   useSharedValue,
   useAnimatedStyle,
   withSpring,
@@ -98,7 +101,7 @@ describe("react-native-reanimated under native engine", () => {
   });
 
   // Reanimated's mock answers these with no-ops; the preset puts reanimated's own
-  // helpers and handlers in their place, and nothing else (REANIMATED_MOCK.extend).
+  // helpers and working handlers in their place, and nothing else (mockCorrections).
   it("interpolates with reanimated's own helpers", () => {
     expect(interpolate(5, [0, 10], [0, 100])).toBe(50);
     expect(interpolate(20, [0, 10], [0, 100], Extrapolation.CLAMP)).toBe(100);
@@ -156,5 +159,76 @@ describe("react-native-reanimated under native engine", () => {
     const style = screen.getByTestId("fade").props.style;
     expect(style.animationDuration).toBe(200);
     expect(style.animationName.cssRules).toEqual({ from: { opacity: 0 }, to: { opacity: 1 } });
+  });
+
+  it("passes drag and momentum events to a scroll handler, as reanimated's scroll views do", async () => {
+    const seen: string[] = [];
+    function List() {
+      const onScroll = useAnimatedScrollHandler({
+        onScroll: () => seen.push("scroll"),
+        onBeginDrag: () => seen.push("begin"),
+        onEndDrag: () => seen.push("end"),
+        onMomentumBegin: () => seen.push("momentum begin"),
+        onMomentumEnd: (event) => seen.push(`momentum end ${event.contentOffset.y}`),
+      });
+      return (
+        <Animated.ScrollView
+          testID="list"
+          onScroll={onScroll}
+          onScrollEndDrag={() => seen.push("own")}
+        >
+          <Text>row</Text>
+        </Animated.ScrollView>
+      );
+    }
+    await render(<List />);
+    const list = screen.getByTestId("list");
+    const event = { nativeEvent: { contentOffset: { y: 9 } } };
+    await fireEvent(list, "scrollBeginDrag", event);
+    await fireEvent.scroll(list, event);
+    await fireEvent(list, "scrollEndDrag", event);
+    await fireEvent(list, "momentumScrollBegin", event);
+    await fireEvent(list, "momentumScrollEnd", event);
+    // The scroll view's own onScrollEndDrag still runs.
+    expect(seen).toEqual(["begin", "scroll", "end", "own", "momentum begin", "momentum end 9"]);
+  });
+
+  it("keeps one scroll handler across renders, running the latest render's handlers", async () => {
+    const built: unknown[] = [];
+    const seen: number[] = [];
+    function List({ id }: { id: number }) {
+      const onScroll = useAnimatedScrollHandler({ onScroll: () => seen.push(id) });
+      built.push(onScroll);
+      return (
+        <Animated.ScrollView testID="list" onScroll={onScroll}>
+          <Text>row</Text>
+        </Animated.ScrollView>
+      );
+    }
+    const { rerender } = await render(<List id={1} />);
+    await rerender(<List id={2} />);
+    await fireEvent.scroll(screen.getByTestId("list"), {
+      nativeEvent: { contentOffset: { y: 1 } },
+    });
+    expect(built[0]).toBe(built[built.length - 1]);
+    expect(seen).toEqual([2]);
+  });
+
+  it("gives scroll offsets as shared values", async () => {
+    const offsets: unknown[] = [];
+    function List() {
+      const ref = useAnimatedRef<any>();
+      offsets.push(useScrollOffset(ref), useScrollViewOffset(ref));
+      return (
+        <Animated.ScrollView ref={ref}>
+          <Text>row</Text>
+        </Animated.ScrollView>
+      );
+    }
+    await render(<List />);
+    for (const offset of offsets) {
+      expect(isSharedValue(offset)).toBe(true);
+      expect((offset as { get(): number }).get()).toBe(0);
+    }
   });
 });

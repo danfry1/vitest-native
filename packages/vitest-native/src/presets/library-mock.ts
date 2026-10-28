@@ -40,7 +40,7 @@ export interface LibraryMock {
 }
 
 /** Whether this test run is under the native engine (its setup installs the control). */
-function underNativeEngine(): boolean {
+export function underNativeEngine(): boolean {
   return (
     (globalThis as { __vitest_native_control?: { engine?: string } }).__vitest_native_control
       ?.engine === "native"
