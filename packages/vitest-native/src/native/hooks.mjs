@@ -6,19 +6,11 @@ import fs from "node:fs";
 import { transformRN, isFlow, needsTransform, isTransforming } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import {
-  extensionsFor,
   resolvePlatformFile,
   resolveRelativePlatformFile,
-  resolveRelativeWithExtensions,
   resolveDeepPackageFile,
 } from "./resolve.mjs";
-import {
-  NODE_MODULES_PATH,
-  isUtilitySubpath,
-  owningPackageOfFile,
-  packageNameOf,
-  subpathLeafOf,
-} from "./match.mjs";
+import { NODE_MODULES_PATH, isUtilitySubpath, packageNameOf, subpathLeafOf } from "./match.mjs";
 import {
   createNativeOwnershipPolicy,
   findNativeOwnershipConflict,
@@ -27,7 +19,6 @@ import {
 import { explainUntransformedSyntaxError } from "./explain.mjs";
 import { nativeAssetModuleSource } from "./assets.mjs";
 import { expandAlias } from "../jest-compat/aliases.mjs";
-import { libraryExtensionsFor } from "./jest-resolvers.mjs";
 
 // Guarded via globalThis, not module scope: under the hot runtime this module
 // can be evaluated twice in one worker (once by the worker entry through Node's
@@ -315,7 +306,7 @@ export function installRequireHooks(
   // file from CommonJS that the ESM loader compiled (loader.mjs serves those through
   // globalThis.__vitest_native_preset_require), so the two cannot disagree.
   const NO_PRESET = Symbol("no preset");
-  function presetExportsFor(request, fromFile) {
+  function presetExportsFor(request) {
     const mocks = globalThis.__vitest_native_preset_mocks;
     if (!mocks) return NO_PRESET;
     if (Object.prototype.hasOwnProperty.call(mocks, request)) return mocks[request];
@@ -328,11 +319,7 @@ export function installRequireHooks(
     const reqExt = reqExtMatch ? reqExtMatch[1].toLowerCase() : "";
     if (reqExt !== "json" && !assetExtSet.has(reqExt) && !isUtilitySubpath(request)) {
       const pkg = packageNameOf(request);
-      // A package's request for one of its own files is the package's business, as a
-      // jest.mock of the package name leaves it alone: reanimated's own mock loads the
-      // real package, which requires react-native-reanimated/scripts/… by name.
-      const fromItself = typeof fromFile === "string" && owningPackageOfFile(fromFile) === pkg;
-      if (pkg !== request && !fromItself && Object.prototype.hasOwnProperty.call(mocks, pkg)) {
+      if (pkg !== request && Object.prototype.hasOwnProperty.call(mocks, pkg)) {
         return presetSubpathExports(mocks, pkg, request);
       }
     }
@@ -345,7 +332,7 @@ export function installRequireHooks(
 
   const origLoad = Module._load;
   Module._load = function (request, parent, ...rest) {
-    const shadowed = presetExportsFor(request, parent?.filename);
+    const shadowed = presetExportsFor(request);
     if (shadowed !== NO_PRESET) return shadowed;
     return origLoad.call(this, request, parent, ...rest);
   };
@@ -404,17 +391,7 @@ export function installRequireHooks(
     // Relative, extensionless: Metro's platform order for every parent, app source
     // included (`./PlatformInfo` → `index.native.ts` before `index.ts`).
     if (parent?.filename && request.startsWith(".") && !path.extname(request)) {
-      // A library's own Jest resolver can narrow the extensions for its files
-      // (jest-resolvers.mjs: worklets' and reanimated's JS implementations).
-      const narrowed = libraryExtensionsFor(
-        projectRoot,
-        request,
-        parent.filename,
-        extensionsFor(platform, activeSourceExts),
-      );
-      resolved = narrowed
-        ? resolveRelativeWithExtensions(request, parent.filename, narrowed)
-        : resolveRelativePlatformFile(request, parent.filename, platform, activeSourceExts);
+      resolved = resolveRelativePlatformFile(request, parent.filename, platform, activeSourceExts);
       if (resolved) resolved = asNodeResolves(resolved);
     }
     if (!resolved) {
