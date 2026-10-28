@@ -31,8 +31,10 @@ import { containsPath, packageDirOf } from "./native/match.mjs";
 type AssetModules = typeof import("./native/assets.mjs");
 import type { HotMemoryPlan } from "./native/memory.mjs";
 import { workerVitestMismatch } from "./native/worker-vitest.js";
+import { MagicString } from "magic-string";
 import {
   OWNERSHIP_GUARD_ENV,
+  OWNERSHIP_META_KEY,
   OWNERSHIP_MODE_ENV,
   viteMarkerFor,
 } from "./native/ownership-ledger.mjs";
@@ -1241,6 +1243,10 @@ type CliOptions = { isolate?: unknown; pool?: unknown; maxWorkers?: unknown };
  * `ownership`, then the run-wide VITEST_NATIVE_OWNERSHIP_MODE override, which is how CI
  * runs every native suite in `error` without editing each config. Exemptions are real
  * paths, as both sides of the ledger key files by real path.
+ *
+ * An exemption covering the project root (`path: '.'`) is refused: it would exempt
+ * every file the guard watches, which is turning the guard off, and the guard has no
+ * off switch by design. Name the files or directories that are deliberate.
  */
 export function ownershipGuardConfig(
   options: VitestNativeOptions | undefined,
@@ -1249,12 +1255,19 @@ export function ownershipGuardConfig(
   const option = options?.ownership;
   const configured = typeof option === "string" ? option : option?.mode;
   const override = process.env[OWNERSHIP_MODE_ENV];
-  const mode =
-    override === "error" || override === "warn"
-      ? override
-      : configured === "error"
-        ? "error"
-        : "warn";
+  if (override !== undefined && override !== "" && override !== "error" && override !== "warn") {
+    throw new VitestNativeTypeError(
+      "INVALID_OPTION",
+      `${OWNERSHIP_MODE_ENV} must be "error" or "warn", not ${JSON.stringify(override)}.`,
+    );
+  }
+  const mode = override === "error" || override === "warn" ? override : (configured ?? "warn");
+  let realRoot = root;
+  try {
+    realRoot = fs.realpathSync(root);
+  } catch {
+    // The root exists for any real run; a test seam may pass one that does not.
+  }
   const allow = (typeof option === "object" && option?.allow ? option.allow : []).map((entry) => {
     let target = path.resolve(root, entry.path);
     try {
@@ -1262,9 +1275,94 @@ export function ownershipGuardConfig(
     } catch {
       // Not on disk yet: kept as written, and matches nothing until it is.
     }
+    if (containsPath(target, realRoot)) {
+      throw new VitestNativeTypeError(
+        "INVALID_OPTION",
+        `"ownership.allow" entry '${entry.path}' covers the whole project (${realRoot}), ` +
+          `which would turn the ownership guard off. Name the files or directories whose ` +
+          `dual evaluation is deliberate.`,
+      );
+    }
     return { path: target, reason: entry.reason };
   });
   return { mode, allow };
+}
+
+/**
+ * Prints the ownership guard's findings at the end of the run, whatever the reporter:
+ * worker console output is dropped by `silent`, by reporters that print only failures,
+ * and by Vitest 5's agent reporter, and a warning nobody sees is no warning. Each test
+ * file's dual evaluations arrive in its task meta (native/setup.mjs). Also names the
+ * `ownership.allow` entries that exempted nothing during the run.
+ */
+export class OwnershipSummaryReporter {
+  private readonly found = new Map<string, Set<string>>();
+  private readonly used = new Set<string>();
+  private mode = "warn";
+  constructor(
+    private readonly allow: () => { path: string; reason: string }[],
+    private readonly write: (text: string) => void = (text) => process.stderr.write(text),
+  ) {}
+  onTestModuleEnd(testModule: { moduleId: string; meta(): Record<string, unknown> }): void {
+    const data = testModule.meta()?.[OWNERSHIP_META_KEY] as
+      | {
+          mode: string;
+          conflicts: { file: string; second: string; route: string }[];
+          allowUsed: string[];
+        }
+      | undefined;
+    if (!data) return;
+    if (data.mode === "error") this.mode = "error";
+    for (const used of data.allowUsed) this.used.add(used);
+    for (const conflict of data.conflicts) {
+      const at = this.found.get(conflict.file) ?? new Set<string>();
+      at.add(`${path.relative(process.cwd(), testModule.moduleId)} (${conflict.route})`);
+      this.found.set(conflict.file, at);
+    }
+  }
+  onTestRunEnd(): void {
+    const lines: string[] = [];
+    if (this.found.size > 0) {
+      lines.push(
+        `[vitest-native] ownership: ${this.found.size} file(s) were evaluated by both Node ` +
+          `and Vite (${this.mode === "error" ? "failed: ownership 'error'" : "warning; an error from the next minor"}):`,
+      );
+      for (const [file, where] of this.found) {
+        lines.push(`  ${file}`, ...[...where].map((w) => `    in ${w}`));
+      }
+      lines.push("  See docs/ownership-guard.md.");
+    }
+    const unused = this.allow().filter((entry) => !this.used.has(entry.path));
+    if (unused.length > 0) {
+      lines.push(
+        `[vitest-native] ownership.allow: ${unused.length} entr${unused.length === 1 ? "y" : "ies"} exempted nothing in this run:`,
+        ...unused.map((entry) => `  ${entry.path} (${entry.reason})`),
+        "  Remove an entry whose dual evaluation is gone, so it cannot hide a new one.",
+      );
+    }
+    if (lines.length > 0) this.write(`${lines.join("\n")}\n`);
+  }
+}
+
+// A directive prologue and hashbang must stay first; the marker goes after them.
+const PROLOGUE = /^(?:#!.*(?:\r?\n|$))?(?:\s*(?:"use [^"\n]*"|'use [^'\n]*')\s*;?)*/;
+
+/**
+ * The ownership guard's Vite half (native/ownership-ledger.mjs): a call at the top of
+ * the module, so the ledger sees the evaluation before the module's body runs and, in
+ * error mode, can refuse a second copy before it has any effect. This transform runs
+ * after esbuild/oxc (`order: 'post'` under the native engine), and the inserted code
+ * is unmapped in the returned map, so coverage reports only the file's own lines.
+ */
+export function withOwnershipMarker(
+  code: string,
+  id: string,
+): { code: string; map: ReturnType<MagicString["generateMap"]> } | undefined {
+  const marker = viteMarkerFor(id);
+  if (marker === null) return undefined;
+  const s = new MagicString(code);
+  s.appendLeft(PROLOGUE.exec(code)?.[0].length ?? 0, marker);
+  return { code: s.toString(), map: s.generateMap({ hires: true, source: id }) };
 }
 
 export function reactNative(options?: VitestNativeOptions): Plugin {
@@ -1290,6 +1388,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // This plugin's part of Vitest's persistent transform cache key, per root (see
   // fs-module-cache.ts).
   const cacheKeys = new Map<string, string>();
+  // The ownership guard's exemptions per root, for the end-of-run reporter.
+  const ownershipAllow = new Map<string, { path: string; reason: string }[]>();
+  let ownershipReporterAdded = false;
   let warnedMissingJestMockTransform = false;
   let warnedTsconfigPaths = false;
 
@@ -1702,7 +1803,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         if (options?.nativeModules === "permissive") {
           env[PERMISSIVE_NATIVE_MODULES_ENV] = "permissive";
         }
-        env[OWNERSHIP_GUARD_ENV] = JSON.stringify(ownershipGuardConfig(options, resolvedRoot));
+        const guard = ownershipGuardConfig(options, resolvedRoot);
+        ownershipAllow.set(resolvedRoot, guard.allow);
+        env[OWNERSHIP_GUARD_ENV] = JSON.stringify(guard);
       }
       // Asset extensions for the Node require hook (matches the Vite graph): a CJS
       // `require('./logo.png')` reaching Node's loader must become a Metro-shaped
@@ -2001,6 +2104,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       }
 
       // --- mock engine (existing behaviour) ---
+      if (options?.ownership !== undefined) {
+        console.warn(
+          `[vitest-native] 'ownership' only applies to engine:'native' (resolved engine: '${engine}'); ignoring. The mock engine has one module system.`,
+        );
+      }
       if (hotRuntimeRequested && hotRuntimeExplicit) {
         console.warn(
           `[vitest-native] 'hotRuntime' only applies to engine:'native' (resolved engine: '${engine}'); ignoring.`,
@@ -2436,13 +2544,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       if (engine === "native") {
         if (!nativeOwnership) return undefined;
         const conflict = findNativeOwnershipConflict(nativeOwnership, id, "vite");
-        if (!conflict) {
-          // The ownership guard's Vite half: record the evaluation when the module
-          // finishes running (native/ownership-ledger.mjs). Appended, so no code moves
-          // and the source map stays the previous one (`map: null`).
-          const marker = viteMarkerFor(id);
-          return marker === null ? undefined : { code: code + marker, map: null };
-        }
+        if (!conflict) return withOwnershipMarker(code, id);
         throw new VitestNativeError(
           "MODULE_OWNER_CONFLICT",
           `Vite attempted to transform '${id}', but the native ownership policy assigns ` +
@@ -2490,9 +2592,22 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   } satisfies Plugin;
 
   const configHandler = pluginDefinition.config;
+  const transformHandler = pluginDefinition.transform;
   // Vite's Plugin type does not declare Vitest's configureVitest hook.
   return {
     ...pluginDefinition,
+    // Under the native engine the transform only checks ownership and inserts the
+    // ownership guard's marker (withOwnershipMarker), which has to run after esbuild/oxc:
+    // a marker added before them was compiled as part of the file, and coverage then
+    // reported a line the file does not have. The mock engine's Flow strip must run
+    // before them, as it always has. Vite reads `order` when it first sorts the
+    // transform hooks, after config() has resolved the engine.
+    transform: {
+      get order() {
+        return engine === "native" ? ("post" as const) : ("pre" as const);
+      },
+      handler: transformHandler,
+    },
     // Choosing from the original user object can create an unsafe hybrid such as
     // isolate:false + the hot runner + a later-overridden forks pool. Vite's
     // per-hook order lets only config run last while resolve/transform remain pre.
@@ -2577,8 +2692,14 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // `config.cliOptions`. The vitest-semantics gate runs both and fails by name
         // if either moves.
         _cliOptions?: CliOptions;
-        config?: { cliOptions?: CliOptions; watch?: boolean; maxWorkers?: unknown };
+        config?: {
+          cliOptions?: CliOptions;
+          watch?: boolean;
+          maxWorkers?: unknown;
+          reporters?: unknown[];
+        };
         projects?: readonly GroupedProject[];
+        reporters?: unknown[];
       };
       project: {
         config: {
@@ -2595,6 +2716,18 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     }) {
       const projectConfig = project.config;
       const root = projectConfig.root ? path.resolve(projectConfig.root) : process.cwd();
+      // One summary per run, for every native project of this plugin instance. Vitest 5
+      // builds its reporters from `config.reporters` after this hook; if a version has
+      // already built them, the instance joins the live list instead.
+      if (!ownershipReporterAdded && ownershipAllow.size > 0) {
+        ownershipReporterAdded = true;
+        const reporter = new OwnershipSummaryReporter(() => [...ownershipAllow.values()].flat());
+        if (Array.isArray(vitest.reporters) && vitest.reporters.length > 0) {
+          vitest.reporters.push(reporter);
+        } else if (Array.isArray(vitest.config?.reporters)) {
+          vitest.config.reporters.push(reporter);
+        }
+      }
       const cacheKey = cacheKeys.get(root);
       if (cacheKey)
         (defineCacheKeyGenerator ?? experimental_defineCacheKeyGenerator)?.(() => cacheKey);

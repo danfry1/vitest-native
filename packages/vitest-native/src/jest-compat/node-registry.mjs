@@ -19,6 +19,9 @@ import { resetEvaluatedModules, restoreEvaluatedModules } from "../native/module
 import { VitestNativeError } from "../errors.mjs";
 
 const STATE = "__vitest_native_jest_registry";
+// Shared by name with native/ownership-ledger.mjs, which jest-compat does not import:
+// the mock engine has no ledger.
+const JEST_REQUIRE_DEPTH = Symbol.for("vitest-native.jest-require-depth");
 /** The manifest id under which the hot runtime clears the registry per file. */
 export const NODE_MOCKS_STATE_ID = "jest-compat.node-mocks";
 
@@ -213,6 +216,10 @@ function createState() {
     const anchor = isPath && caller ? caller : rootFile;
     const filename = state.resolveFrom(spec, anchor);
     if (actual) state.bypass = filename ?? `\0${spec}`;
+    // Tells the ownership guard that what Node compiles now is a jest-compat load, so
+    // a dual evaluation it causes is reported with the jest-compat route and fix
+    // (native/ownership-ledger.mjs) without a stack captured per compile.
+    globalThis[JEST_REQUIRE_DEPTH] = (globalThis[JEST_REQUIRE_DEPTH] ?? 0) + 1;
     try {
       const load = createRequire(anchor);
       if (filename !== null && (isPath || expandAlias(spec, config.aliases) !== spec)) {
@@ -232,6 +239,7 @@ function createState() {
       }
       throw error;
     } finally {
+      globalThis[JEST_REQUIRE_DEPTH] -= 1;
       if (actual) state.bypass = null;
     }
   };

@@ -139,6 +139,7 @@ export function initialize(data) {
   if (data && data.assetExts)
     assetExtSet = new Set(data.assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
   if (data && data.hotGenerationBuffer) genView = new Int32Array(data.hotGenerationBuffer);
+  if (data?.ownershipPort) ownershipPort = data.ownershipPort;
 }
 
 // A `require()` inside a CommonJS module this loader compiled and returned with its
@@ -442,15 +443,28 @@ export function requireFacade(url, file, compiled) {
 
 /**
  * A file Node loads as published. True ESM among them is recorded in the ownership
- * ledger (ownership-ledger.mjs), which the worker installs on its own globalThis: with
- * the in-thread hooks this runs there, and the ledger sees Node's ESM evaluations. Off
- * thread, `nextLoad` is async and the global is another realm's, so nothing is recorded
- * — CommonJS is covered there by the ledger's `_compile` wrapper. CommonJS is never
- * recorded here: it reaches `_compile`, whose record knows when the hot reset drops it.
+ * ledger (ownership-ledger.mjs). In this thread (module.registerHooks) the ledger's
+ * global is called before Node evaluates the module. On the loader's own thread
+ * (module.register) the global is another realm's, so the URL is posted through the
+ * port the setup file passed in, and the worker drains it. CommonJS is never recorded
+ * here: it reaches `_compile`, whose record knows when the hot reset drops it.
  */
+let ownershipPort = null;
+function recordModule(url, result) {
+  if (result?.format !== "module") return;
+  // oxlint-disable-next-line unicorn/require-post-message-target-origin -- worker_threads MessagePort, not window
+  if (ownershipPort) ownershipPort.postMessage(url);
+  else globalThis.__vitest_native_ownership_node_esm?.(url);
+}
 function loadAsPublished(url, context, nextLoad) {
   const result = nextLoad(url, context);
-  if (result?.format === "module") globalThis.__vitest_native_ownership_node_esm?.(url);
+  if (typeof result?.then === "function") {
+    return result.then((settled) => {
+      recordModule(url, settled);
+      return settled;
+    });
+  }
+  recordModule(url, result);
   return result;
 }
 

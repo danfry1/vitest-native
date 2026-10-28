@@ -4,7 +4,7 @@
 import { createRequire, register, registerHooks } from "node:module";
 import * as nativeLoader from "./loader.mjs";
 import path from "node:path";
-import { expect, vi } from "vitest";
+import { afterAll, expect, vi } from "vitest";
 import { installGlobals, installErrorUtils, installExpoRuntime } from "./globals.mjs";
 import { installRequireHooks } from "./hooks.mjs";
 import { installRegistry } from "./registry.mjs";
@@ -18,7 +18,7 @@ import { installNitroProxy } from "./nitro.mjs";
 import { createExpoNativeModuleResolver } from "./expo-native-modules.mjs";
 import { cacheRootFor } from "./transform.mjs";
 import { installKnownNativeModules } from "./native-modules.mjs";
-import { installOwnershipLedger } from "./ownership-ledger.mjs";
+import { OWNERSHIP_META_KEY, installOwnershipLedger } from "./ownership-ledger.mjs";
 
 // Non-enumerable key on the preset container: the mocks built so far in this file.
 const PRESETS_BUILT = Symbol.for("vitest-native.presets-built");
@@ -188,7 +188,42 @@ enableV8CompileCache(projectRoot);
 // Before anything else loads through Node: the guard records every evaluation from here
 // on, on both sides (docs/ownership-guard.md). Once per worker; the hot worker installs
 // it at boot instead.
-installOwnershipLedger({ projectRoot });
+const ownershipLedger = installOwnershipLedger({ projectRoot });
+// Every dual evaluation this file caused, once its tests are done: one a library
+// swallowed (`try { require(x) } catch {}` turns the error into "x is missing") still
+// fails the file in error mode, and the reporter prints them all at the end of the run
+// whatever the reporter or `silent` setting (ownership-reporter in plugin.ts).
+const ownershipStart = ownershipLedger.conflicts.length;
+// No declared parameters: Vitest 5 parses a hook's first parameter as a fixture
+// pattern and passes the file suite second, Vitest 4 passes it first.
+afterAll(function () {
+  // oxlint-disable-next-line prefer-rest-params -- a rest parameter is parsed as a fixture too
+  const file = [...arguments].find((arg) => arg && typeof arg === "object" && "tasks" in arg);
+  ownershipLedger.drain();
+  const found = ownershipLedger.conflicts.slice(ownershipStart);
+  if (file && typeof file === "object") {
+    file.meta ??= {};
+    file.meta[OWNERSHIP_META_KEY] = {
+      mode: ownershipLedger.mode,
+      conflicts: found.map(({ file: f, first, second, route, via }) => ({
+        file: f,
+        first,
+        second,
+        route,
+        via,
+      })),
+      allowUsed: [...ownershipLedger.allowUsed],
+    };
+  }
+  if (ownershipLedger.mode === "error" && found.length > 0) {
+    throw new VitestNativeError(
+      "MODULE_DUAL_EVALUATION",
+      `${found.length} file(s) were evaluated by both Node and Vite during this test file ` +
+        `(ownership: 'error'), including any whose error a try/catch swallowed:\n` +
+        found.map((c) => c.message).join("\n\n"),
+    );
+  }
+});
 installGlobals();
 // Before React Native loads: its lookups ask the boundary which modules exist.
 installKnownNativeModules(projectRoot);
@@ -227,7 +262,13 @@ function installLoaderHooks(data) {
     process.env.VITEST_NATIVE_LOADER_THREAD === "1" ||
     !nativeLoader.inThreadHooksReliable(process.versions.node)
   ) {
-    register("./loader.mjs", import.meta.url, { data });
+    // The ownership ledger's port: this loader's thread cannot call the worker's ledger,
+    // so it posts what Node loads as ESM there (ownership-ledger.mjs drains it).
+    const ownershipPort = ownershipLedger.loaderPort();
+    register("./loader.mjs", import.meta.url, {
+      data: { ...data, ownershipPort },
+      transferList: [ownershipPort],
+    });
     globalThis.__vitest_native_loader_mode = "thread";
     return;
   }

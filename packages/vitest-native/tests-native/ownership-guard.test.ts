@@ -15,9 +15,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 declare const require: (id: string) => { store: { value: string | null } };
 
-const ledger = (globalThis as Record<symbol, { mode: "warn" | "error" } | undefined>)[
-  Symbol.for("vitest-native.ownership-ledger")
-];
+const ledger = (
+  globalThis as Record<
+    symbol,
+    { mode: "warn" | "error"; conflicts: { file: string }[] } | undefined
+  >
+)[Symbol.for("vitest-native.ownership-ledger")];
 
 const STORE = /fixtures[\\/]dual-evaluation[\\/]store\.ts was evaluated by both Node and Vite/;
 
@@ -61,5 +64,13 @@ describe("a file evaluated by Node and then by Vite", () => {
     );
     expect(message).toMatch(/second\s+-> Vite, imported by .*ownership-guard\.test\.ts/);
     expect(message).toContain("route        -> require() in a file Vite evaluated");
+    if (ledger?.mode === "error") {
+      expect(message).toContain("Vite's copy was refused before its body ran");
+    }
+    // Handled here on purpose: take it off this file's list, or the setup file's
+    // end-of-file check fails the file for it (and the run summary lists it).
+    const mine = ledger!.conflicts.filter((c) => /dual-evaluation[\\/]store\.ts$/.test(c.file));
+    expect(mine.length).toBeGreaterThan(0);
+    for (const conflict of mine) ledger!.conflicts.splice(ledger!.conflicts.indexOf(conflict), 1);
   });
 });

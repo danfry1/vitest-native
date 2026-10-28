@@ -342,7 +342,9 @@ describe("the ownership guard reports a real dual evaluation", () => {
       const { status, output } = run("alias", "error");
       const report = reportFor(output, store());
       expect(report, output).not.toBe("");
-      expect(report).toContain("The second copy was not evaluated (ownership: 'error')");
+      expect(report).toContain(
+        "Node's copy was never evaluated: the require threw (ownership: 'error')",
+      );
       expect(output).not.toContain("expected null to be 'written by the test'");
       expect(status).not.toBe(0);
     },
@@ -397,7 +399,9 @@ describe("the ownership guard reports a real dual evaluation", () => {
       const { status, output } = run("partial-mock", "error");
       const report = reportFor(output, partialStore());
       expect(report, output).not.toBe("");
-      expect(report).toContain("The second copy was not evaluated (ownership: 'error')");
+      expect(report).toContain(
+        "Vite's copy was refused before its body ran: the import threw (ownership: 'error')",
+      );
       expect(status).not.toBe(0);
     },
     200_000,

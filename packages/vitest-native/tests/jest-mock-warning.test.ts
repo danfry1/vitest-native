@@ -27,8 +27,8 @@ describe("the missing-jestMockTransform warning", () => {
   it("warns once for a project file that calls jest.mock()", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const plugin = await pluginWithoutTransform();
-    plugin.transform(CALL, "/app/src/user.test.ts");
-    plugin.transform(CALL, "/app/src/other.test.ts");
+    plugin.transform.handler(CALL, "/app/src/user.test.ts");
+    plugin.transform.handler(CALL, "/app/src/other.test.ts");
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0][0]).toMatch(/\/app\/src\/user\.test\.ts calls jest\.mock\(\)/);
   });
@@ -36,13 +36,13 @@ describe("the missing-jestMockTransform warning", () => {
   it("stays silent for dependencies and for vitest-native's own files", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const plugin = await pluginWithoutTransform();
-    plugin.transform(CALL, "/app/node_modules/some-lib/index.js");
-    plugin.transform(CALL, "/app/node_modules/vitest-native/dist/jest-compat/setup.mjs");
-    plugin.transform(CALL, path.join(PACKAGE_ROOT, "dist", "jest-compat", "setup.mjs"));
-    plugin.transform(CALL, path.join(PACKAGE_ROOT, "src", "plugin.ts"));
+    plugin.transform.handler(CALL, "/app/node_modules/some-lib/index.js");
+    plugin.transform.handler(CALL, "/app/node_modules/vitest-native/dist/jest-compat/setup.mjs");
+    plugin.transform.handler(CALL, path.join(PACKAGE_ROOT, "dist", "jest-compat", "setup.mjs"));
+    plugin.transform.handler(CALL, path.join(PACKAGE_ROOT, "src", "plugin.ts"));
     expect(warn).not.toHaveBeenCalled();
     // The project's own file still gets it.
-    plugin.transform(CALL, "/app/src/user.test.ts");
+    plugin.transform.handler(CALL, "/app/src/user.test.ts");
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
@@ -54,7 +54,7 @@ describe("the missing-jestMockTransform warning", () => {
       plugins: [{ name: "vitest-native:jest-mock-hoist" }],
       test: {},
     });
-    plugin.transform(CALL, "/app/src/user.test.ts");
+    plugin.transform.handler(CALL, "/app/src/user.test.ts");
     expect(warn).not.toHaveBeenCalled();
   });
 });

@@ -6,22 +6,26 @@
  * store written through one copy reads back unset through the other. The policy in
  * ownership.mjs decides who SHOULD own a file. This records who actually evaluated it,
  * and reports the moment a file reaches the second side while the first copy is still
- * live. Design, routes and rollout: docs/ownership-guard.md.
+ * live. Design, routes, limits and rollout: docs/ownership-guard.md.
  *
- * Node side: a wrapper on Module.prototype._compile (every CommonJS evaluation, from
- * whichever hook compiled it), plus loader.mjs for true ESM while the loader runs in
- * this thread. Vite side: a call the plugin appends to every module it transforms
- * (VITE_MARKER), which runs as the module finishes evaluating.
+ * Node side: wrappers on Module.prototype._compile (every CommonJS evaluation, and
+ * require() of an ES module, from whichever hook compiled it) and on the `.json`
+ * loader, plus true ESM from loader.mjs: called directly when the loader runs in this
+ * thread, posted through a MessagePort when it runs on its own. Vite side: a call the
+ * plugin puts at the top of every module it transforms (VITE_MARKER), so it runs
+ * before the module's own body.
  *
- * Cost is one Map lookup per evaluation. A hit is checked for LIVENESS before anything
- * is reported, which is what keeps per-file resets correct without hooks of their own:
- * the hot reset, jest.resetModules and isolateModules all drop the first copy, and a
- * dropped copy cannot split state with the next one.
+ * A hit is checked for LIVENESS before anything is reported, which is what keeps
+ * per-file resets correct without hooks of their own: the hot reset, jest.resetModules
+ * and isolateModules all drop a copy, and a dropped copy cannot split state with the
+ * next one. Node copies are held through WeakRefs, so the ledger never keeps a module
+ * the cache has let go of alive.
  */
 import Module from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { MessageChannel, receiveMessageOnPort } from "node:worker_threads";
 import { NODE_MODULES_PATH, containsPath } from "./match.mjs";
 import {
   TEST_RUNTIME_RESIDENT_PATH,
@@ -34,8 +38,12 @@ import { VitestNativeError } from "../errors.mjs";
 export const OWNERSHIP_GUARD_ENV = "VITEST_NATIVE_OWNERSHIP_GUARD";
 /** Run-wide override of the mode, read by the plugin: `error` or `warn`. */
 export const OWNERSHIP_MODE_ENV = "VITEST_NATIVE_OWNERSHIP_MODE";
-/** The global the plugin's appended call reaches. */
+/** The global the plugin's marker reaches. */
 export const VITE_MARKER = "__vitest_native_ownership_vite";
+/** Where a file's dual evaluations travel to the reporter (`testModule.meta()`). */
+export const OWNERSHIP_META_KEY = "vitestNativeOwnership";
+/** jest-compat raises this around its synchronous requireActual/requireMock loads. */
+export const JEST_REQUIRE_DEPTH = Symbol.for("vitest-native.jest-require-depth");
 const NODE_ESM_MARKER = "__vitest_native_ownership_node_esm";
 const INSTALLED = Symbol.for("vitest-native.ownership-ledger");
 
@@ -51,26 +59,53 @@ export const ENGINE_RUNTIME_DIR = path.resolve(path.dirname(fileURLToPath(import
 /**
  * One spelling for a path, so both sides key a file identically: forward slashes and an
  * upper-case drive letter. Vite reports `D:/a/x.ts`, Node `D:\a\x.ts` (path-spelling
- * keys). Real-pathing is the caller's job: Node's filenames already are real paths, and
- * the plugin real-paths Vite's ids when it writes the marker.
+ * keys). Real-pathing is the caller's job (realKey).
  */
 export function ledgerKey(file) {
   const forward = String(file).replace(/\\/g, "/");
   return /^[a-z]:\//.test(forward) ? forward[0].toUpperCase() + forward.slice(1) : forward;
 }
 
-/** The marker the plugin appends to a module it hands Vite's runner, or null. */
-export function viteMarkerFor(id) {
-  if (typeof id !== "string" || id.includes("\0") || id.includes("?")) return null;
-  if (!path.isAbsolute(id) || !/\.[cm]?[jt]sx?$/.test(id)) return null;
-  let real = id;
+/**
+ * macOS and Windows file systems are case-insensitive by default: `require('./CaseStore')`
+ * and `import './casestore'` are one file there, and each side keeps the case it was
+ * asked for. Keys are folded to lower case on those platforms. Asking the OS for the
+ * stored case (`realpathSync.native`) per Node compile measured about 10 µs per
+ * require of a project file; folding costs nothing. The price is a case-SENSITIVE
+ * volume on those platforms (rare) holding two files whose names differ only in case,
+ * each evaluated by a different side: reported as one. On Linux keys are not folded.
+ */
+const FOLD_CASE = process.platform === "darwin" || process.platform === "win32";
+const fold = FOLD_CASE ? (key) => key.toLowerCase() : (key) => key;
+
+/** Node's filename as a ledger key: Node's filenames are already real paths. */
+export function nodeKey(file) {
+  return fold(ledgerKey(file));
+}
+
+/** A path as a ledger key, real-pathed first (Vite's ids, and --preserve-symlinks). */
+export function realKey(file) {
   try {
-    real = fs.realpathSync(id);
+    return fold(ledgerKey(fs.realpathSync(file)));
   } catch {
-    // A module with no file on disk is nothing Node could load either.
-    return null;
+    return fold(ledgerKey(file));
   }
-  return `\n;globalThis.${VITE_MARKER}?.(${JSON.stringify(ledgerKey(real))}, ${JSON.stringify(id)});\n`;
+}
+
+// Queries that make Vite serve something other than the file's code as a module.
+const NOT_THE_MODULE = /[?&](?:raw|url|inline|worker|sharedworker)\b/;
+
+/**
+ * The call the plugin puts at the top of a module it hands Vite's runner, or null.
+ * Query-suffixed ids (`./x.ts?v=1`) are the same file's code and are recorded under
+ * the file; queries that serve something else (`?raw`, `?url`) are not.
+ */
+export function viteMarkerFor(id) {
+  if (typeof id !== "string" || id.includes("\0") || NOT_THE_MODULE.test(id)) return null;
+  const file = id.replace(/[?#].*$/, "");
+  if (!path.isAbsolute(file) || !/\.(?:[cm]?[jt]sx?|json)$/.test(file)) return null;
+  if (!fs.existsSync(file)) return null;
+  return `globalThis.${VITE_MARKER}?.(${JSON.stringify(realKey(file))}, ${JSON.stringify(file)});`;
 }
 
 /**
@@ -116,8 +151,8 @@ const ROUTES = {
     label: "an import from source Node evaluated",
     fix:
       "Node-owned code reached a file Vite owns, typically a workspace package Node " +
-      "owns whose source imports a sibling through a resolve.alias. Keep both packages " +
-      "on one side: alias neither to source, or alias both.",
+      "owns whose source imports a sibling through a resolve.alias or tsconfig paths. " +
+      "Keep both packages on one side.",
   },
   "installed-package": {
     label: "an installed package required it",
@@ -134,11 +169,19 @@ const ROUTES = {
       "sends Vite to it.",
   },
   "vite-inline": {
-    label: "Vite evaluated a file Node had already loaded",
+    label: "an installed file that Vite also evaluates",
     fix:
-      "A server.deps.inline rule, Vitest's default inlining or an alias sent Vite to a " +
-      "file Node already holds. Remove the rule or alias that gives it to Vite.",
+      "A server.deps.inline rule, Vitest's default inlining or an alias gave Vite a " +
+      "file under node_modules that Node also loads. Remove the rule or alias that " +
+      "gives it to Vite, so Node's copy is the only one.",
   },
+};
+
+const VIA = {
+  cjs: "CommonJS",
+  "require-esm": "require() of an ES module",
+  esm: "ESM loader",
+  json: "JSON",
 };
 
 const ENGINE_FRAME = ENGINE_RUNTIME_DIR + path.sep;
@@ -163,12 +206,17 @@ function frames(stack) {
 /**
  * The ledger. Pure apart from the liveness probes it is given, so tests drive it
  * directly; installOwnershipLedger wires it to Node and Vite.
+ *
+ * Node records are kept per MODULE, not per path: jest.isolateModules loads a second
+ * Node copy and later restores the first, and a single slot per path would have lost
+ * the restored one. Dead records are dropped whenever a path is recorded again.
  */
 export function createOwnershipLedger({
   mode = "warn",
   allow = [],
   exemptDirs = [ENGINE_RUNTIME_DIR],
   nodeLive = () => true,
+  collected = () => false,
   viteLive = () => true,
   viteImporter = () => null,
   ownerOf = () => null,
@@ -178,33 +226,37 @@ export function createOwnershipLedger({
   const vite = new Map();
   const reported = new Set();
   const conflicts = [];
+  const allowUsed = new Set();
 
-  const exemption = (key) => {
-    if (TEST_RUNTIME_RESIDENT_PATH.test(key)) return "the test runtime (vitest, chai)";
-    if (exemptDirs.some((dir) => containsPath(dir, key))) return "the engine's own runtime";
-    const hit = allow.find((entry) => containsPath(entry.path, key));
-    return hit ? `ownership.allow: ${hit.reason}` : null;
+  // Matched on the path as the evaluating side spelled it, not on the (case-folded) key.
+  const exemption = (file) => {
+    if (TEST_RUNTIME_RESIDENT_PATH.test(file)) return "the test runtime (vitest, chai)";
+    if (exemptDirs.some((dir) => containsPath(dir, file))) return "the engine's own runtime";
+    const hit = allow.find((entry) => containsPath(entry.path, file));
+    if (!hit) return null;
+    allowUsed.add(hit.path);
+    return `ownership.allow: ${hit.reason}`;
   };
 
+  const liveNode = (key) => node.get(key)?.find((record) => nodeLive(record));
+
   // How the Node copy came to exist: that is the actionable half, since the policy
-  // usually gives the file to Vite. Classified from the requiring parent, and from the
-  // stack, which is captured only for project files.
-  function routeOf(nodeEntry) {
+  // usually gives the file to Vite.
+  function routeOf(key, nodeEntry, owner) {
+    // Vite evaluating a file Node owns, or any installed file, is an inline/alias
+    // claim whichever side came first.
+    if (owner?.owner === "node" || NODE_MODULES_PATH.test(key)) return "vite-inline";
     if (nodeEntry.via === "esm") return "node-esm";
-    if (/\b(?:requireActual|requireMock)\b/.test(nodeEntry.stack ?? "")) return "jest-compat";
+    if (nodeEntry.jestRequire) return "jest-compat";
     const parent = nodeEntry.parent;
     if (typeof parent === "string" && NODE_MODULES_PATH.test(parent)) return "installed-package";
-    if (typeof parent === "string" && node.has(ledgerKey(parent))) return "node-owned-source";
+    if (typeof parent === "string" && node.has(nodeKey(parent))) return "node-owned-source";
     return "require-from-vite";
   }
 
-  function report(key, nodeEntry, viteEntry, second) {
+  function report(key, nodeEntry, viteEntry, second, { deferred = false } = {}) {
     const owner = ownerOf(nodeEntry.filename);
-    // Vite reaching a file Node owns, or one in node_modules, is the inline/alias case.
-    const route =
-      second === "vite" && (owner?.owner === "node" || NODE_MODULES_PATH.test(key))
-        ? "vite-inline"
-        : routeOf(nodeEntry);
+    const route = routeOf(key, nodeEntry, owner);
     const { label, fix } = ROUTES[route];
     const ownerName = { node: "Node", vite: "Vite", "vitest-default": "none declared" };
     const ownerLine = owner
@@ -212,17 +264,25 @@ export function createOwnershipLedger({
       : "unknown";
     const parent = nodeEntry.parent ?? "(no parent recorded)";
     const importer = viteImporter(viteEntry) ?? "(no importer recorded)";
-    const nodeLine = `Node (${nodeEntry.via === "esm" ? "ESM loader" : "CommonJS"}), required by ${parent}`;
+    const nodeLine = `Node (${VIA[nodeEntry.via] ?? nodeEntry.via}), required by ${parent}`;
     const viteLine = `Vite, imported by ${importer}`;
-    const conflict = Object.freeze({
-      code: "MODULE_DUAL_EVALUATION",
-      file: nodeEntry.filename,
-      first: second === "vite" ? "node" : "vite",
-      second,
-      route,
-      owner: owner?.owner ?? null,
-    });
-    const stack = frames(nodeEntry.stack);
+    // A stack only for the evaluation happening now, and only when there is something
+    // to report: capturing one per compile cost more than the rest of the ledger.
+    const stack = second === "node" && !deferred ? frames(new Error().stack) : [];
+    let outcome;
+    if (mode !== "error") {
+      outcome =
+        `  This is a warning today and an error from the next minor; set ` +
+        `reactNative({ ownership: 'error' }) to fail now. `;
+    } else if (deferred) {
+      outcome =
+        `  Node's ESM loader runs on its own thread here, so this was seen after both ` +
+        `copies existed; the test file fails at its end (ownership: 'error'). `;
+    } else if (second === "node") {
+      outcome = `  Node's copy was never evaluated: the require threw (ownership: 'error'). `;
+    } else {
+      outcome = `  Vite's copy was refused before its body ran: the import threw (ownership: 'error'). `;
+    }
     const message =
       `[vitest-native] ${nodeEntry.filename} was evaluated by both Node and Vite in this ` +
       `worker. It now exists twice, and module state written through one copy is not ` +
@@ -235,14 +295,22 @@ export function createOwnershipLedger({
       (stack.length > 0
         ? `  Node stack:\n${stack.map((line) => `    ${line}`).join("\n")}\n`
         : "") +
-      (mode === "error"
-        ? `  The second copy was not evaluated (ownership: 'error'). `
-        : `  This is a warning today and an error from the next minor; set ` +
-          `reactNative({ ownership: 'error' }) to fail now. `) +
+      outcome +
       `A deliberate case can be exempted with ownership.allow: [{ path, reason }] ` +
       `(docs/ownership-guard.md).`;
-    conflicts.push(conflict);
-    if (mode === "error") {
+    conflicts.push(
+      Object.freeze({
+        code: "MODULE_DUAL_EVALUATION",
+        file: nodeEntry.filename,
+        first: second === "vite" ? "node" : "vite",
+        second,
+        route,
+        via: nodeEntry.via,
+        owner: owner?.owner ?? null,
+        message,
+      }),
+    );
+    if (mode === "error" && !deferred) {
       throw new VitestNativeError("MODULE_DUAL_EVALUATION", message);
     }
     if (reported.has(key)) return;
@@ -253,28 +321,33 @@ export function createOwnershipLedger({
   return {
     mode,
     conflicts,
+    allowUsed,
     /**
      * Node is about to evaluate `filename`. Throws in error mode BEFORE the code runs,
-     * so the second copy never exists.
+     * so the second copy never exists. `deferred` is for records that arrive after the
+     * fact (the threaded ESM loader): they are reported, never thrown.
      */
-    recordNode(filename, entry) {
-      const key = ledgerKey(filename);
-      const record = entry;
-      record.filename = filename;
-      // A stack for project files only: they are what this guard hunts, and they are
-      // rarely compiled by Node at all. node_modules compiles stay at one lookup.
-      if (record.stack === undefined && !NODE_MODULES_PATH.test(key)) {
-        record.stack = new Error().stack;
-      }
+    recordNode(filename, entry, { key = nodeKey(filename), deferred = false } = {}) {
+      entry.filename = filename;
       const prior = vite.get(key);
-      if (prior && viteLive(prior) && !exemption(key)) report(key, record, prior, "node");
-      node.set(key, record);
+      if (prior && viteLive(prior) && !exemption(filename)) {
+        report(key, entry, prior, "node", { deferred });
+      }
+      const records = node.get(key);
+      if (records === undefined) node.set(key, [entry]);
+      else {
+        // Only records whose module is gone for good are dropped. A copy out of the
+        // cache may come back: isolateModules restores the outer copy afterwards.
+        const kept = records.filter((record) => !collected(record));
+        kept.push(entry);
+        node.set(key, kept);
+      }
     },
-    /** Vite finished evaluating the module whose real-path key is `key`. */
+    /** Vite is about to run the body of the module whose real-path key is `key`. */
     recordVite(key, file) {
       const entry = { file, key };
-      const prior = node.get(key);
-      if (prior && nodeLive(prior) && !exemption(key)) report(key, prior, entry, "vite");
+      const prior = liveNode(key);
+      if (prior && !exemption(file)) report(key, prior, entry, "vite");
       vite.set(key, entry);
     },
   };
@@ -312,6 +385,16 @@ export function installOwnershipLedger({ projectRoot = process.cwd() } = {}) {
     const view = globalThis.__vitest_native_hot_generation;
     return view ? Atomics.load(view, 0) : 0;
   };
+  const graph = () => globalThis.__vitest_worker__?.evaluatedModules;
+  // Vite's nodes for a file: by file, plus the `mock:` node vi.mock(path, { spy: true })
+  // runs the original under (Vitest 5 keys it `mock:<id>`, outside the file index).
+  const viteNodes = (file) => {
+    const g = graph();
+    const nodes = [...(g?.getModulesByFile?.(file) ?? [])];
+    const spy = g?.idToModuleMap?.get?.(`mock:${file}`);
+    if (spy) nodes.push(spy);
+    return nodes;
+  };
   const ledger = createOwnershipLedger({
     mode: config.mode,
     allow: config.allow.map((entry) => ({
@@ -319,79 +402,123 @@ export function installOwnershipLedger({ projectRoot = process.cwd() } = {}) {
       path: path.resolve(projectRoot, entry.path),
     })),
     ownerOf,
-    nodeLive: (entry) => {
-      if (entry.via === "esm") {
+    nodeLive: (record) => {
+      if (record.via === "esm") {
         // Node's ESM registry has no eviction. Only a hot generation stamp makes the
         // next import a different instance (versionable in loader.mjs).
-        return entry.generation == null || entry.generation === generation();
+        return record.generation == null || record.generation === generation();
       }
-      return Module._cache[entry.filename] === entry.module;
+      // The module is live while Node's cache still holds THAT module, under the key
+      // Node used for it (the link path under --preserve-symlinks).
+      const module = record.ref?.deref();
+      return module !== undefined && Module._cache[record.cacheKey] === module;
     },
+    collected: (record) => record.ref !== undefined && record.ref.deref() === undefined,
     viteLive: (entry) => {
-      const graph = globalThis.__vitest_worker__?.evaluatedModules;
-      if (typeof graph?.getModulesByFile !== "function") return true;
-      const nodes = graph.getModulesByFile(entry.file) ?? graph.getModulesByFile(entry.key);
-      for (const node of nodes ?? []) if (node.evaluated || node.promise) return true;
-      return false;
+      if (typeof graph()?.getModulesByFile !== "function") return true;
+      return viteNodes(entry.file).some((n) => n.evaluated || n.promise);
     },
     viteImporter: (entry) => {
-      const graph = globalThis.__vitest_worker__?.evaluatedModules;
-      const nodes = graph?.getModulesByFile?.(entry.file);
-      for (const node of nodes ?? []) {
-        const importer = node.importers?.values().next().value;
+      for (const n of viteNodes(entry.file)) {
+        const importer = n.importers?.values().next().value;
         if (importer) return importer;
       }
       return null;
     },
   });
 
-  const real = preserveSymlinks()
-    ? (file) => {
-        try {
-          return fs.realpathSync(file);
-        } catch {
-          return file;
-        }
-      }
-    : (file) => file;
+  // Node's filenames are real paths, except under --preserve-symlinks, where Node keys
+  // its cache by the link and the ledger has to real-path it to meet Vite's spelling.
+  const keyOf = preserveSymlinks() ? realKey : nodeKey;
+  const jestRequire = () => (globalThis[JEST_REQUIRE_DEPTH] ?? 0) > 0;
+  const nodeRecord = (module, filename, via) => ({
+    via,
+    ref: new WeakRef(module),
+    cacheKey: filename,
+    // The requirer: the module that first loaded this one, kept as a string so the
+    // record holds nothing alive. `module.parent` is a documentation-only deprecation
+    // (DEP0144): no warning unless the run passes --pending-deprecation.
+    parent: module.parent?.filename,
+    jestRequire: jestRequire(),
+  });
+
   const originalCompile = Module.prototype._compile;
-  Module.prototype._compile = function (content, filename, ...rest) {
-    if (typeof filename === "string") {
-      ledger.recordNode(real(filename), {
-        via: "cjs",
-        module: this,
-        // The requirer: the module that first loaded this one. `module.parent` is a
-        // documentation-only deprecation (DEP0144): no warning unless the run passes
-        // --pending-deprecation.
-        parent: this.parent?.filename,
-      });
+  // Modules already recorded by an extension handler below, so `_compile` does not
+  // record them a second time.
+  const recording = new WeakSet();
+  Module.prototype._compile = function (content, filename, format, ...rest) {
+    if (typeof filename === "string" && !recording.has(this)) {
+      ledger.recordNode(
+        filename,
+        nodeRecord(this, filename, format === "module" ? "require-esm" : "cjs"),
+        { key: keyOf(filename) },
+      );
     }
-    return originalCompile.call(this, content, filename, ...rest);
+    return originalCompile.call(this, content, filename, format, ...rest);
   };
+  // require() of an `.mjs` file. Node 24 routes it through `_compile` with format
+  // "module" (above); Node 22.13 evaluates it without `_compile`, and the threaded
+  // loader never sees a require, so the extension handler is where it shows. A second
+  // record of one module is harmless: it is reported once.
+  const originalMjs = Module._extensions[".mjs"];
+  if (typeof originalMjs === "function") {
+    Module._extensions[".mjs"] = function (module, filename, ...rest) {
+      if (!recording.has(module)) {
+        ledger.recordNode(filename, nodeRecord(module, filename, "require-esm"), {
+          key: keyOf(filename),
+        });
+        recording.add(module);
+      }
+      return originalMjs.call(this, module, filename, ...rest);
+    };
+  }
+  // JSON is module state too (`require('./config.json').flag = true`), and Node parses
+  // it without compiling.
+  const originalJson = Module._extensions[".json"];
+  Module._extensions[".json"] = function (module, filename, ...rest) {
+    ledger.recordNode(filename, nodeRecord(module, filename, "json"), { key: keyOf(filename) });
+    return originalJson.call(this, module, filename, ...rest);
+  };
+
   Object.defineProperty(globalThis, VITE_MARKER, {
     configurable: true,
-    value: (key, file) => ledger.recordVite(key, file),
-  });
-  // loader.mjs calls this for true ESM it lets Node load. Off-thread loaders run in
-  // another realm, where it is undefined; their ESM is outside the ledger.
-  Object.defineProperty(globalThis, NODE_ESM_MARKER, {
-    configurable: true,
-    value: (url, parentURL) => {
-      if (!url.startsWith("file:")) return;
-      const stamp = /[?&]vnhot=(\d+)/.exec(url);
-      let file;
-      try {
-        file = real(fileURLToPath(url));
-      } catch {
-        return;
-      }
-      ledger.recordNode(file, {
-        via: "esm",
-        generation: stamp ? Number(stamp[1]) : null,
-        parent: parentURL?.startsWith("file:") ? fileURLToPath(parentURL) : parentURL,
-      });
+    value: (key, file) => {
+      drain();
+      ledger.recordVite(key, file);
     },
   });
+  const recordEsm = (url, deferred) => {
+    if (typeof url !== "string" || !url.startsWith("file:")) return;
+    const stamp = /[?&]vnhot=(\d+)/.exec(url);
+    let file;
+    try {
+      file = fileURLToPath(url);
+    } catch {
+      return;
+    }
+    ledger.recordNode(
+      file,
+      { via: "esm", generation: stamp ? Number(stamp[1]) : null },
+      { key: keyOf(file), deferred },
+    );
+  };
+  // loader.mjs in this thread calls this directly, before Node evaluates the module.
+  Object.defineProperty(globalThis, NODE_ESM_MARKER, {
+    configurable: true,
+    value: (url) => recordEsm(url, false),
+  });
+  // A loader on its own thread posts what it lets Node load as ESM. Drained, never
+  // listened to: synchronously before each Vite evaluation (so a Node-first copy is
+  // seen in order) and at the end of each file. No listener means nothing keeps the
+  // worker alive and nothing throws from an event-loop callback.
+  const channel = new MessageChannel();
+  function drain() {
+    for (let message; (message = receiveMessageOnPort(channel.port1));) {
+      recordEsm(message.message, true);
+    }
+  }
+  ledger.drain = drain;
+  ledger.loaderPort = () => channel.port2;
   Object.defineProperty(globalThis, INSTALLED, { configurable: true, value: ledger });
   return ledger;
 }
