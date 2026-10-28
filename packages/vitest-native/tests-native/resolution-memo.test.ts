@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import Module, { createRequire } from "node:module";
 import os from "node:os";
@@ -61,8 +62,26 @@ describe("a resolution held from an earlier require", () => {
           _resolveFilename(r: string, p: Module, m: boolean, o: object): string;
         }
       )._resolveFilename("cond-q", parent, false, { conditions: new Set(conditions) });
-    expect(resolveWith(["require", "node", "vn-custom"])).toBe(a);
-    expect(resolveWith(["require", "node"])).toBe(b);
+    // `_resolveFilename` honours `options.conditions` on Node 22.22 and 24, and ignores
+    // them on 22.13, so the expected answers are plain Node's on this version, asked in a
+    // child process that carries none of vitest-native's hooks.
+    const plain = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          "-e",
+          `const M=require("node:module");const p=new M(${JSON.stringify(parent.id)});` +
+            `p.filename=p.id;p.paths=M._nodeModulePaths(${JSON.stringify(path.join(root, "cd"))});` +
+            `const r=c=>M._resolveFilename("cond-q",p,false,{conditions:new Set(c)});` +
+            `console.log(JSON.stringify([r(["require","node","vn-custom"]),r(["require","node"])]))`,
+        ],
+        { encoding: "utf8", env: { ...process.env, NODE_OPTIONS: "" } },
+      ),
+    ) as [string, string];
+    expect(plain[1]).toBe(b);
+    expect([a, b]).toContain(plain[0]);
+    expect(resolveWith(["require", "node", "vn-custom"])).toBe(plain[0]);
+    expect(resolveWith(["require", "node"])).toBe(plain[1]);
   });
 
   it("is resolved again once its file is gone, reaching the outer copy as Node does", () => {
