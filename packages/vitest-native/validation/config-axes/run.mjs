@@ -9,8 +9,10 @@
 //       [--rntl <dir of an installed @testing-library/react-native>] [--vitest-native <dir>]
 //       Local, without installing anything: link the packages from an existing
 //       node_modules (packages/vitest-native/node_modules is bun's isolated store, so
-//       this is an isolated layout whatever the cell says), copy an RNTL other than the
-//       one there, and use vitest-native from a directory (default: this package).
+//       every package is reached through a store path whatever the cell says), copy an
+//       RNTL other than the one there, and use vitest-native from a directory (default:
+//       this package). With layout "isolated", the packages pnpm names after their peers
+//       (PNPM_PEER_NAMED) are copied into a pnpm-shaped store directory.
 //
 //   --keep          keep the materialised workspace and print its path
 //   --only a,b      run only these probes (investigation; the verdict still applies)
@@ -83,6 +85,10 @@ function versionsFor(cell, axes) {
     "react-native": pinned("react-native"),
     // The preset banner probe needs a library whose preset applies under both engines.
     "react-native-safe-area-context": pinned("react-native-safe-area-context"),
+    // Reanimated and worklets ship the Jest resolvers the engine consults (#349), and
+    // pnpm names their dependants' store directories after them.
+    "react-native-reanimated": pinned("react-native-reanimated"),
+    "react-native-worklets": pinned("react-native-worklets"),
     // RNTL 12 and 13 render through react-test-renderer (a peer dependency).
     "react-test-renderer": pinned("react-test-renderer"),
     vite: pinned("vite"),
@@ -112,7 +118,7 @@ function materialise(cell, axes) {
   };
 
   if (local) {
-    linkLocal(root, app, local);
+    linkLocal(root, app, local, isolated);
     writeJson(path.join(app, "package.json"), {
       name: "config-axes-app",
       private: true,
@@ -120,6 +126,7 @@ function materialise(cell, axes) {
       dependencies: {
         ...dependencies,
         "axis-esm-lib": "1.0.0",
+        "axis-peer-lib": "1.0.0",
         "vitest-native": "*",
       },
     });
@@ -132,6 +139,10 @@ function materialise(cell, axes) {
   must(
     sh("npm", ["pack", "--pack-destination", vendor], path.join(vendor, "axis-esm-lib")),
     "npm pack axis-esm-lib",
+  );
+  must(
+    sh("npm", ["pack", "--pack-destination", vendor], path.join(vendor, "axis-peer-lib")),
+    "npm pack axis-peer-lib",
   );
   must(
     sh("npm", ["pack", "--ignore-scripts", "--pack-destination", vendor], packageRoot),
@@ -148,6 +159,7 @@ function materialise(cell, axes) {
     dependencies: {
       ...dependencies,
       "axis-esm-lib": tarball("axis-esm-lib-"),
+      "axis-peer-lib": tarball("axis-peer-lib-"),
       "vitest-native": tarball("vitest-native-"),
     },
   });
@@ -178,8 +190,55 @@ function materialise(cell, axes) {
   return root;
 }
 
+// Packages whose store directory pnpm names after their peers. In local mode with an
+// isolated layout they are copied into a directory of that shape
+// (`node_modules/.pnpm/<name>@<version>_<peer>@<version>/node_modules/<name>`, its
+// dependencies linked beside it), because the defect class (#349) reads the real path
+// and bun's store names a directory after a hash instead.
+const PNPM_PEER_NAMED = ["axis-peer-lib", "react-native-reanimated"];
+
+function placeInPnpmShape(modules, name, from) {
+  const manifest = JSON.parse(fs.readFileSync(path.join(from, "package.json"), "utf8"));
+  const peers = Object.keys(manifest.peerDependencies ?? {})
+    .filter((peer) => fs.existsSync(path.join(modules, peer)))
+    .map((peer) => {
+      const version = JSON.parse(
+        fs.readFileSync(path.join(modules, peer, "package.json"), "utf8"),
+      ).version;
+      return `${peer.replace("/", "+")}@${version}`;
+    });
+  const storeModules = path.join(
+    modules,
+    ".pnpm",
+    [`${name}@${manifest.version}`, ...peers].join("_"),
+    "node_modules",
+  );
+  fs.cpSync(from, path.join(storeModules, name), { recursive: true, dereference: true });
+  // Its dependencies as the original resolved them (bun keeps them beside it in its own
+  // store, not at the top level); peers as the workspace provides them.
+  const fromOriginal = createRequire(path.join(from, "package.json"));
+  for (const [dep, base] of [
+    ...Object.keys(manifest.dependencies ?? {}).map((id) => [id, "original"]),
+    ...Object.keys(manifest.peerDependencies ?? {}).map((id) => [id, "workspace"]),
+  ]) {
+    let target = path.join(modules, dep);
+    if (base === "original") {
+      try {
+        target = path.dirname(fromOriginal.resolve(`${dep}/package.json`));
+      } catch {
+        // Not resolvable from there: the workspace's copy, if any.
+      }
+    }
+    if (!fs.existsSync(target)) continue;
+    fs.mkdirSync(path.dirname(path.join(storeModules, dep)), { recursive: true });
+    fs.symlinkSync(fs.realpathSync(target), path.join(storeModules, dep));
+  }
+  fs.rmSync(path.join(modules, name), { recursive: true, force: true });
+  fs.symlinkSync(path.join(storeModules, name), path.join(modules, name));
+}
+
 /** Local mode: link packages from an existing node_modules instead of installing. */
-function linkLocal(root, app, source) {
+function linkLocal(root, app, source, isolated) {
   const modules = path.join(root, "node_modules");
   fs.mkdirSync(path.join(modules, "@axis"), { recursive: true });
   for (const name of MEMBERS) {
@@ -188,9 +247,9 @@ function linkLocal(root, app, source) {
   const vitestNative = path.resolve(argument("vitest-native") ?? packageRoot);
   fs.symlinkSync(vitestNative, path.join(modules, "vitest-native"));
   // A copy, as an install makes it (see materialise).
-  fs.cpSync(path.join(root, "vendor/axis-esm-lib"), path.join(modules, "axis-esm-lib"), {
-    recursive: true,
-  });
+  for (const name of ["axis-esm-lib", "axis-peer-lib"]) {
+    fs.cpSync(path.join(root, "vendor", name), path.join(modules, name), { recursive: true });
+  }
 
   const rntl = argument("rntl");
   if (rntl) {
@@ -219,6 +278,12 @@ function linkLocal(root, app, source) {
       if (fs.existsSync(to)) continue;
       fs.mkdirSync(path.dirname(to), { recursive: true });
       fs.symlinkSync(fs.realpathSync(path.join(source, name)), to);
+    }
+  }
+  if (isolated) {
+    for (const name of PNPM_PEER_NAMED) {
+      const at = path.join(modules, name);
+      if (fs.existsSync(at)) placeInPnpmShape(modules, name, fs.realpathSync(at));
     }
   }
   // Compiled package output requires Babel's helpers by name. Every real install puts

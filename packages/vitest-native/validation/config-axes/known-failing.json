@@ -1,5 +1,5 @@
 {
-  "$comment": "Probes that fail TODAY, where, how, and the pull request that fixes each (verdict.mjs). The list may only shrink: a listed probe that passes turns its cell red, so the fixing pull request deletes its entry. `when` maps an axis to a value or a list; an entry without `when` matches every run. `failure` is a regex for the expected failure: every failure line of the probe in that run must match it, so a crash, a TypeError or a lost file in a listed probe is still a REGRESSION. Entries and signatures were derived from local runs on Vitest 5 (RNTL 12.9, 13.3 and 14.1, both engines, every runtime combination) except where `why` says otherwise.",
+  "$comment": "Probes that fail TODAY, where, how, and the pull request that fixes each (verdict.mjs). The list may only shrink: a listed probe that passes turns its cell red, so the fixing pull request deletes its entry. `when` maps an axis to a value or a list; an entry without `when` matches every run. `failure` is a regex for the expected failure: every failure line of the probe in that run must match it, so a crash, a TypeError or a lost file in a listed probe is still a REGRESSION. Entries and signatures were derived from local runs on Vitest 5 (RNTL 12.9, 13.3 and 14.1, both engines, every runtime combination; the isolated layout as a pnpm-shaped store built by run.mjs --link-deps) except where `why` says otherwise.",
   "entries": [
     {
       "probe": "rntl-auto-cleanup",
@@ -128,6 +128,36 @@
       "failure": "^hot-automock-[ab]\\.test\\.ts: gets its own factory, and an automock for the module it automocks: AssertionError: expected false to be true",
       "fixedBy": "#338",
       "why": "NOT observed locally (no Vitest 4 on this machine): from #338, which reproduced it on Vitest 4.1.11. Vitest 4.1 replays a remembered factory from a placeholder node the hot runtime keeps across files; Vitest 5 is unaffected."
+    },
+    {
+      "probe": "hot-rn-module-mock",
+      "when": {
+        "hot": "on",
+        "jestCompat": "on"
+      },
+      "failure": "^(hot-rn-module-mock-[ab]\\.test\\.ts: did not run|file accounting: (no result in the JSON report for|Vitest never reported module) hot-rn-module-mock-[ab]\\.test\\.ts|unhandled error: VitestNativeError: \\[vitest-native\\] hotRuntime state restoration failed:|the JSON report says success: true, but Vitest exited 1)$",
+      "fixedBy": "#350",
+      "why": "The per-file reset restores React Native before it clears jest-compat's Node mock registry, so the Appearance restore reads the null mock and throws outside Vitest's per-file error handling: the second file is never collected, and the JSON report says success: true while Vitest exits 1."
+    },
+    {
+      "probe": "native-ext-peer",
+      "when": {
+        "layout": "isolated",
+        "engine": "native"
+      },
+      "failure": "^native-ext-peer\\.test\\.ts: .*: AssertionError: expected 'web' to be 'native'",
+      "fixedBy": "#349",
+      "why": "worklets' Jest resolver drops .native for any directory whose path contains its name, and pnpm names the library's store directory after its worklets peer. Observed locally in a pnpm-shaped store (run.mjs --link-deps); not yet in a real pnpm install."
+    },
+    {
+      "probe": "reanimated-render",
+      "when": {
+        "layout": "isolated",
+        "engine": "native"
+      },
+      "failure": "^reanimated-render\\.test\\.tsx: Cannot find module 'react-native-web/",
+      "fixedBy": "#349",
+      "why": "The same substring check matches reanimated's own store directory (named after its worklets peer), so all of reanimated resolves its web files, which import react-native-web. Observed locally in a pnpm-shaped store; not yet in a real pnpm install."
     }
   ]
 }

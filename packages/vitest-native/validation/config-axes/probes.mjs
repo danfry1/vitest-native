@@ -81,6 +81,27 @@ export const PROBES = [
     bug: "#14: under hot on Vitest 4.1, an automock replays another file's factory",
   },
   {
+    id: "hot-rn-module-mock",
+    files: ["hot-rn-module-mock-a.test.ts", "hot-rn-module-mock-b.test.ts"],
+    requires: { hot: "on", jestCompat: "on" },
+    // Alone: the defect loses every later file in the worker, which in the shared run
+    // would bury the other probes.
+    alone: true,
+    bug: "#350: under hot, a jest.mock of a React Native module to null loses the next file",
+  },
+  {
+    id: "native-ext-peer",
+    files: ["native-ext-peer.test.ts"],
+    // The mock engine has no platform resolution for externalized packages to get wrong.
+    requires: { engine: "native" },
+    bug: "#349: a library whose pnpm store directory names worklets loses its .native files",
+  },
+  {
+    id: "reanimated-render",
+    files: ["reanimated-render.test.tsx"],
+    bug: "#349: reanimated in a pnpm store, where its directory names worklets",
+  },
+  {
     id: "preset-banner",
     output: true,
     bug: "#5: the engine banner does not name the presets it applies",

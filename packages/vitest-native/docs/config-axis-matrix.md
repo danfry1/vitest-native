@@ -12,16 +12,16 @@ Workflow: `.github/workflows/config-axis-matrix.yml`. Unit tests for the machine
 
 ## The axes, and the defect that sat on each
 
-| Axis           | Values                         | Defect it hid (report item → fixing PR)                                                                                                                                                |
-| -------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Vitest globals | off (Vitest's default), on     | RNTL cleanup never ran without a global `afterEach` (#17 → #342)                                                                                                                       |
-| `jest` global  | jest-compat on, off            | `findBy*` under `vi.useFakeTimers()` timed out without a global `jest` (#18 → #342)                                                                                                    |
-| RNTL           | 12, 13, 14                     | nested `<Text>` unqueryable on 12/13 under native (#16 → #341); a recoverable React error exited 1 on 12/13 (#13 → #343)                                                               |
-| Engine         | native, mock                   | string/regex aliases into workspace source: two store instances, "Cannot find module", `import.meta` SyntaxError (#1 → #344); ESM default import of `__esModule` CommonJS (#15 → #339) |
-| Vitest         | 4, 5                           | under hot, Vitest 4.1 replays another file's factory for an automock (#14 → #338)                                                                                                      |
-| Hot runtime    | off, on                        | the same (#14), and per-file state in general                                                                                                                                          |
-| Install layout | hoisted (npm), isolated (pnpm) | `navigation: false` fails in isolated installs: transitive deps not compiled (#5 → #348)                                                                                               |
-| jest-compat    | off, on                        | partial-mock store split by import order (#10 → #345); fake-timer options dropped (#8 → #340); Error equality (#7 → #346)                                                              |
+| Axis           | Values                         | Defect it hid (report item → fixing PR)                                                                                                                                                               |
+| -------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Vitest globals | off (Vitest's default), on     | RNTL cleanup never ran without a global `afterEach` (#17 → #342)                                                                                                                                      |
+| `jest` global  | jest-compat on, off            | `findBy*` under `vi.useFakeTimers()` timed out without a global `jest` (#18 → #342)                                                                                                                   |
+| RNTL           | 12, 13, 14                     | nested `<Text>` unqueryable on 12/13 under native (#16 → #341); a recoverable React error exited 1 on 12/13 (#13 → #343)                                                                              |
+| Engine         | native, mock                   | string/regex aliases into workspace source: two store instances, "Cannot find module", `import.meta` SyntaxError (#1 → #344); ESM default import of `__esModule` CommonJS (#15 → #339)                |
+| Vitest         | 4, 5                           | under hot, Vitest 4.1 replays another file's factory for an automock (#14 → #338)                                                                                                                     |
+| Hot runtime    | off, on                        | the same (#14), and per-file state in general: a `jest.mock` of a React Native module to `null` lost the next file from every reporter (→ #350)                                                       |
+| Install layout | hoisted (npm), isolated (pnpm) | `navigation: false` fails in isolated installs: transitive deps not compiled (#5 → #348); a library whose pnpm store directory names worklets loses its `.native` files, reanimated included (→ #349) |
+| jest-compat    | off, on                        | partial-mock store split by import order (#10 → #345); fake-timer options dropped (#8 → #340); Error equality (#7 → #346)                                                                             |
 
 Two constraints remove combinations that do not exist. The hot runtime is a native-engine pool.
 jest-compat is documented as `jestCompatSetup` + `globals: true`: `jestMockTransform` hoists
@@ -50,8 +50,8 @@ correct behaviour: what Jest, a device or Vitest's own semantics would give
 (`validation/config-axes/probes.mjs`). Each one names the report item it was written from. A
 probe that cannot observe its defect in a run is reported as `n/a`, not counted as a pass (the
 hot pair needs `hot: on`; the jest-compat probes need jest-compat). The recoverable-error probe
-runs in its own process, because its verdict is the exit code. The banner probe reads the run's
-output.
+runs in its own process, because its verdict is the exit code. So does the #350 pair, because
+the defect loses every later file in the worker. The banner probe reads the run's output.
 
 **Every run is accounted for, whatever its probes did** (`validation/config-axes/accounting.mjs`).
 Each Vitest process has three witnesses: the process (exit code, signal, timeout), Vitest's JSON
@@ -130,7 +130,8 @@ fixtures) and is unmeasured until the first CI run.
   cells is the next probe to write.
 - **Vitest 4, real npm installs and real pnpm installs were not run locally** (no Vitest 4 is
   installed, and local verification may not install). The `hot-automock` entry and its
-  signature come from #338's own reproduction. Expect the first CI run to calibrate a few
+  signature come from #338's own reproduction. The isolated-layout entries (#349) were observed
+  in the pnpm-shaped store `--link-deps` builds, not in a pnpm install. Expect the first CI run to calibrate a few
   entries and signatures.
 - **`findBy*` under `vi.useFakeTimers()` without a global `jest` (#18)** has no fixing pull
   request: #342 documents it as a limitation. Its entry names #342 and says so; it will not go
@@ -148,6 +149,8 @@ node validation/config-axes/run.mjs --cell "$CELL" --link-deps node_modules
 node validation/config-axes/run.mjs --cell "$CELL" --link-deps node_modules --rntl <dir>/@testing-library/react-native
 ```
 
+With `"layout":"isolated"` the packages pnpm names after their peers (`axis-peer-lib`,
+reanimated) are copied into a pnpm-shaped store directory, so the #349 class shows locally.
 `--keep` keeps the materialised workspace, `--only a,b` limits the probes, and `AXIS_DEBUG=1`
 prints each run's output. Without `--link-deps` the harness installs from the registry, as CI
 does.
