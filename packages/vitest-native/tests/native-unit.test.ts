@@ -5,7 +5,11 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 // @ts-expect-error — runtime .mjs, no types
 import { transformRN } from "../src/native/transform.mjs";
-import { parseDeprecatedReactNativeExports, parseReactNativeExports } from "../src/plugin.js";
+import {
+  parseDeprecatedReactNativeExports,
+  parseReactNativeExports,
+  vitestMaxWorkers,
+} from "../src/plugin.js";
 import { PEER_REQUIREMENTS } from "../src/peer-requirements.js";
 import { validatePeerDependency } from "../src/validate.js";
 import { nativePool } from "../src/native/pool.js";
@@ -1142,11 +1146,38 @@ describe("plugin engine routing", () => {
       const config = { root: projectRoot, ...cfg.test, pool: "vitest-native" };
       Object.assign(config, { pool: "forks" });
       plugin.configureVitest({
-        vitest: { _cliOptions: { pool: "forks" }, config: { maxWorkers: 7 } },
+        // A root this plugin did not plan: another directory than the project's.
+        vitest: {
+          _cliOptions: { pool: "forks" },
+          config: { root: path.join(projectRoot, ".."), maxWorkers: 7 },
+        },
         project: { config },
       });
       expect(config.maxWorkers).toBe(7);
       err.mockRestore();
+    });
+
+    it("gives an `extends: true` project Vitest's own count, not the plan its shared root holds", async () => {
+      // The project and the root share a directory, so config() already set the
+      // root's count to the hot plan; inheriting it would keep the conflict. Eight
+      // CPUs, so Vitest's own count (7) differs from the capped plan on any host.
+      const cpus = vi.spyOn(os, "availableParallelism").mockReturnValue(8);
+      const err = quiet();
+      const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
+      const cfg = await runPluginConfig(plugin, { root: projectRoot }, SERVE_ENV);
+      const config = { root: projectRoot, ...cfg.test, pool: "vitest-native" };
+      Object.assign(config, { pool: "forks" });
+      plugin.configureVitest({
+        vitest: {
+          _cliOptions: { pool: "forks" },
+          config: { root: projectRoot, maxWorkers: cfg.test.maxWorkers },
+        },
+        project: { config },
+      });
+      expect(cfg.test.maxWorkers).toBeLessThan(7);
+      expect(config.maxWorkers).toBe(7);
+      err.mockRestore();
+      cpus.mockRestore();
     });
 
     describe("a worker count Vitest resolved after config()", () => {

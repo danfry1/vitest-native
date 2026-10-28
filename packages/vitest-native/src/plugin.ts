@@ -2747,11 +2747,14 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             ? 1
             : selection.userMaxWorkers === undefined &&
                 vitest.config !== projectConfig &&
-                typeof vitest.config?.maxWorkers === "number"
+                typeof vitest.config?.maxWorkers === "number" &&
+                vitestRootOf(vitest.config) !== root
               ? // The root's resolved count, which a project without its own inherits.
                 // Not undefined: Vitest resolved each project's count before this hook
                 // and groups projects by project.config.maxWorkers as it stands, so an
                 // unset count beside a plain project's failed the run (Vitest 5).
+                // Only a root this plugin did not plan: an `extends: true` project
+                // shares its root, whose count config() already set to the plan.
                 vitest.config.maxWorkers
               : vitestMaxWorkers(selection.userMaxWorkers, vitest.config?.watch === true);
       }

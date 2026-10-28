@@ -808,15 +808,25 @@ try {
 import { syncBuiltinESMExports } from "node:module";
 const cpus = Number(process.env.VN_CPUS);
 os.availableParallelism = () => cpus;
+// Some Vitest versions count CPUs with os.cpus(); keep both answers the same.
+const realCpus = os.cpus;
+os.cpus = () => {
+  const list = realCpus();
+  return Array.from({ length: cpus }, (_, i) => list[i % list.length]);
+};
 syncBuiltinESMExports();
 `,
           ),
       },
-      "isolated",
+      // Whether the counts differ is Vitest's to decide: Vitest 4 and 5.0.1 give a
+      // project without its own count the root's, so 'auto' stays hot; later 5.0
+      // releases (5.0.5 measured) resolve each project's and conflict. Either way
+      // the run must pass, and a fallback must say so.
+      ["isolated", HOT],
       (r) =>
         r.status === 0 &&
         r.passed === all.total + 1 &&
-        /hot runtime off: the project 'plain'/.test(r.output),
+        (r.mode !== "isolated" || /hot runtime off: the project 'plain'/.test(r.output)),
     ],
     [
       "projects with the plugin in each",
@@ -834,10 +844,12 @@ syncBuiltinESMExports();
       check(`${name}: finishes`, false, `no result after ${SCENARIO_TIMEOUT_MS / 1000}s`);
       continue;
     }
+    // A row may accept more than one runtime when Vitest's own version decides it.
+    const accepted = [expectedMode].flat();
     check(
       `${name}: runtime`,
-      result.mode === expectedMode,
-      `ran ${result.mode}, expected ${expectedMode}`,
+      accepted.includes(result.mode),
+      `ran ${result.mode}, expected ${accepted.join(" or ")}`,
     );
     check(
       `${name}: outcome`,
