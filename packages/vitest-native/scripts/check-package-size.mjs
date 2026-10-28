@@ -87,6 +87,81 @@ for (const entry of packageJson.files ?? []) {
   }
 }
 
+/**
+ * `source` with its comments blanked out. The runtime's comments are full of example
+ * imports (`require('./logo.png')`, `import config from './config'`) that are not
+ * dependencies, so the specifier scan must not see them. Strings, template literals
+ * and regular-expression literals are skipped over intact, so a `//` inside one is
+ * not taken for a comment. A small scanner rather than a parser: the package has no
+ * JavaScript parser of its own to depend on, and the build's output is plain ES.
+ */
+function stripComments(source) {
+  let out = "";
+  let i = 0;
+  let lastSignificant = "";
+  const templateDepths = [];
+  const regexMayStart = () =>
+    lastSignificant === "" || /[(,=:[!&|?{};+\-*%<>~^]/.test(lastSignificant);
+  while (i < source.length) {
+    const ch = source[i];
+    const next = source[i + 1];
+    if (ch === "/" && next === "/") {
+      while (i < source.length && source[i] !== "\n") i++;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      const end = source.indexOf("*/", i + 2);
+      const stop = end === -1 ? source.length : end + 2;
+      out += source.slice(i, stop).replace(/[^\n]/g, " ");
+      i = stop;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`" || (ch === "}" && templateDepths.at(-1) === 0)) {
+      // A string, a template literal, or the rest of a template after `${…}`.
+      const quote = ch === "}" ? "`" : ch;
+      if (ch === "}") templateDepths.pop();
+      let j = i + 1;
+      while (j < source.length) {
+        if (source[j] === "\\") j += 2;
+        else if (source[j] === quote) break;
+        else if (quote === "`" && source[j] === "$" && source[j + 1] === "{") {
+          templateDepths.push(0);
+          j += 1;
+          break;
+        } else j++;
+      }
+      out += source.slice(i, j + 1);
+      i = j + 1;
+      lastSignificant = '"';
+      continue;
+    }
+    if (ch === "/" && regexMayStart()) {
+      let j = i + 1;
+      let inClass = false;
+      while (j < source.length && source[j] !== "\n") {
+        if (source[j] === "\\") j += 2;
+        else if (source[j] === "[" || source[j] === "]") {
+          inClass = source[j] === "[";
+          j++;
+        } else if (source[j] === "/" && !inClass) break;
+        else j++;
+      }
+      out += source.slice(i, j + 1);
+      i = j + 1;
+      lastSignificant = "/";
+      continue;
+    }
+    if (templateDepths.length > 0) {
+      if (ch === "{") templateDepths[templateDepths.length - 1]++;
+      else if (ch === "}") templateDepths[templateDepths.length - 1]--;
+    }
+    out += ch;
+    if (!/\s/.test(ch)) lastSignificant = ch;
+    i++;
+  }
+  return out;
+}
+
 // Relative specifiers in static imports and re-exports, dynamic import() and
 // require(), as the bundler and the hand-written runtime emit them.
 const RELATIVE_IMPORT =
@@ -96,9 +171,13 @@ const queue = [...mustShip].filter((file) => CODE.test(file) && shipped.has(file
 const reached = new Set(queue);
 while (queue.length > 0) {
   const from = queue.pop();
-  const source = fs.readFileSync(path.join(root, from), "utf8");
+  const source = stripComments(fs.readFileSync(path.join(root, from), "utf8"));
+  const declaration = /\.d\.[cm]?ts$/.test(from);
   for (const [, specifier] of source.matchAll(RELATIVE_IMPORT)) {
-    const target = path.posix.normalize(path.posix.join(path.posix.dirname(from), specifier));
+    let target = path.posix.normalize(path.posix.join(path.posix.dirname(from), specifier));
+    // A declaration file names the JavaScript module; its types are the matching
+    // declaration file beside it.
+    if (declaration) target = target.replace(/\.(m|c)?js$/, (_, kind) => `.d.${kind ?? ""}ts`);
     if (reached.has(target)) continue;
     reached.add(target);
     mustShip.add(target);
