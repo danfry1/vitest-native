@@ -953,6 +953,25 @@ describe("plugin engine routing", () => {
         SERVE_ENV,
       ),
     ).rejects.toThrow(/one worker.*allowUnboundedMemory:true/s);
+    // The config chose one worker, not memory: the message says so, not memory's
+    // uncapped admission figure.
+    const error = await runPluginConfig(
+      reactNative({ engine: "native", hotRuntime: true }) as any,
+      { root: projectRoot, test: { maxWorkers: 1 } },
+      SERVE_ENV,
+    ).catch((e: Error) => e);
+    expect(String(error)).toMatch(/This config selects one worker/);
+    expect(String(error)).not.toMatch(/admits \d+ worker/);
+    // Memory that admits only one worker is named as the cause.
+    vi.spyOn(os, "totalmem").mockReturnValue(1024 ** 3);
+    vi.spyOn(process, "constrainedMemory").mockReturnValue(0);
+    const tight = await runPluginConfig(
+      reactNative({ engine: "native", hotRuntime: true }) as any,
+      { root: projectRoot, test: { maxWorkers: 4 } },
+      SERVE_ENV,
+    ).catch((e: Error) => e);
+    vi.restoreAllMocks();
+    expect(String(tight)).toMatch(/host memory ceiling admits only one worker/);
 
     const explicit = reactNative({
       engine: "native",
@@ -1113,17 +1132,20 @@ describe("plugin engine routing", () => {
       err.mockRestore();
     });
 
-    it("leaves an unset project worker count to the root config", async () => {
+    it("gives an unset project worker count the root config's resolved count", async () => {
+      // Not undefined: Vitest 5 groups projects by project.config.maxWorkers as it
+      // stands after this hook, and undefined beside a plain project's count fails the
+      // run ("have different 'maxWorkers' but same 'sequence.groupOrder'").
       const err = quiet();
       const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
       const cfg = await runPluginConfig(plugin, { root: projectRoot }, SERVE_ENV);
       const config = { root: projectRoot, ...cfg.test, pool: "vitest-native" };
       Object.assign(config, { pool: "forks" });
       plugin.configureVitest({
-        vitest: { _cliOptions: { pool: "forks" }, config: { maxWorkers: 2 } },
+        vitest: { _cliOptions: { pool: "forks" }, config: { maxWorkers: 7 } },
         project: { config },
       });
-      expect(config.maxWorkers).toBeUndefined();
+      expect(config.maxWorkers).toBe(7);
       err.mockRestore();
     });
 
@@ -1208,15 +1230,45 @@ describe("plugin engine routing", () => {
             { root: projectRoot, test: { maxWorkers } },
             SERVE_ENV,
           );
-          return { maxWorkers: cfg.test.maxWorkers, plan: envPlan(cfg.test) };
+          return { maxWorkers: cfg.test.maxWorkers, plan: envPlan(cfg.test), cfg, plugin };
         };
         expect(await plan(4 * GIB, 6)).toMatchObject({ maxWorkers: 6, plan: { maxWorkers: 6 } });
         expect(warn).not.toHaveBeenCalledWith(expect.stringMatching(/capped maxWorkers/));
         // Implicit 'auto' still says so: the user asked for a count they will not get.
-        expect(await plan(2 * GIB, 8)).toMatchObject({ maxWorkers: 4 });
+        // configureVitest prints it, once it knows hot still runs.
+        const capped = await plan(2 * GIB, 8);
+        expect(capped).toMatchObject({ maxWorkers: 4 });
+        expect(warn).not.toHaveBeenCalledWith(expect.stringMatching(/capped maxWorkers/));
+        const config = { root: projectRoot, ...capped.cfg.test };
+        capped.plugin.configureVitest({ vitest: { _cliOptions: {} }, project: { config } });
+        expect(config.isolate).toBe(false);
         expect(warn).toHaveBeenCalledWith(
           expect.stringMatching(/capped maxWorkers from 8 to 4 for the host memory budget/),
         );
+      });
+
+      it("does not warn of a cap when a group conflict hands the count back to Vitest", async () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const err = quiet();
+        host(2 * GIB);
+        const plugin = reactNative({ engine: "native" }) as any;
+        const cfg = await runPluginConfig(
+          plugin,
+          { root: projectRoot, test: { maxWorkers: 8 } },
+          SERVE_ENV,
+        );
+        const config = { root: projectRoot, ...cfg.test };
+        expect(config.maxWorkers).toBe(4);
+        const self = { name: "native", config };
+        const other = { name: "plain", config: { maxWorkers: 8 } };
+        plugin.configureVitest({
+          vitest: { _cliOptions: {}, config: { maxWorkers: 8 }, projects: [self, other] },
+          project: self,
+        });
+        expect(config.isolate).toBe(true);
+        expect(config.maxWorkers).toBe(8);
+        expect(warn).not.toHaveBeenCalledWith(expect.stringMatching(/capped maxWorkers/));
+        err.mockRestore();
       });
 
       it("re-caps a count config() already planned and warned about, once", async () => {

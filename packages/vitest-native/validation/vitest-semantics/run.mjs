@@ -15,7 +15,7 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(here, "../..");
@@ -382,6 +382,9 @@ function readMode(modeFile) {
     : [];
   return modes.length === 1 ? modes[0] : modes.length ? "mixed" : "none";
 }
+
+// Preloaded by a scenario that needs a CPU count other than the runner's.
+const cpusPreload = path.join(root, "simulate-cpus.mjs");
 
 // The distinct worker counts the hot memory plan reached the workers with.
 const planFile = path.join(root, ".plan-workers");
@@ -764,9 +767,7 @@ try {
       // Seven is the user's explicit count, which the hot memory plan admits whenever
       // memory holds it (a CI runner's does), so the native project runs hot with the
       // same seven and the group stays valid. The plan once capped it at four, where
-      // 'auto' had to fall back; the unit tests cover that fallback, since a memory cap
-      // is not reproducible on a runner. Without a pinned count the outcome depends on
-      // the CPU count.
+      // 'auto' had to fall back; the next row runs that fallback.
       "a native project beside a plain project in one group",
       {
         test: {
@@ -783,6 +784,39 @@ try {
       // An explicit count, so hot on any CPU count.
       "hot",
       (r) => r.status === 0 && r.passed === all.total + 1,
+    ],
+    [
+      // The same projects with no count anywhere: Vitest gives each its default of one
+      // fewer than the CPUs, while the hot plan caps the native project at four, so
+      // 'auto' falls back and must hand the native project Vitest's count again. It
+      // once left that count unset, and Vitest 5 rejected the group. Eight CPUs are
+      // simulated so the cap conflicts on any runner (a four-CPU one runs three
+      // everywhere and never reaches the fallback).
+      "a native project beside a plain project with no worker count",
+      {
+        test: {
+          projects: [
+            { extends: true, test: { name: "native" } },
+            { extends: false, test: { name: "plain", include: ["plain/*.test.mjs"] } },
+          ],
+        },
+        env: { NODE_OPTIONS: `--import=${pathToFileURL(cpusPreload).href}`, VN_CPUS: "8" },
+        before: () =>
+          write(
+            "simulate-cpus.mjs",
+            `import os from "node:os";
+import { syncBuiltinESMExports } from "node:module";
+const cpus = Number(process.env.VN_CPUS);
+os.availableParallelism = () => cpus;
+syncBuiltinESMExports();
+`,
+          ),
+      },
+      "isolated",
+      (r) =>
+        r.status === 0 &&
+        r.passed === all.total + 1 &&
+        /hot runtime off: the project 'plain'/.test(r.output),
     ],
     [
       "projects with the plugin in each",
