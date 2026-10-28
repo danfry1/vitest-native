@@ -20,12 +20,12 @@ import { vi, afterAll, expect as vitestExpect } from "vitest";
 import { buildReactNativeMock } from "./mocks/registry.js";
 import { installCjsBridge, uninstallCjsBridge, installPresetCjsBridge } from "./cjs-bridge.js";
 import * as presetFactories from "./presets/index.js";
-import { createRequire } from "node:module";
+import Module, { createRequire } from "node:module";
 import path from "node:path";
 import type { Preset } from "./types.js";
 import { VitestNativeError } from "./errors.mjs";
 import { importPresetModule, presetModulePaths } from "./preset-modules.mjs";
-import { installReportError } from "./report-error.mjs";
+import { installRendererReportError } from "./report-error.mjs";
 import { AUTO_DETECT_PRESETS, presetForInstalled } from "./preset-map.js";
 import { serializer as rnSerializer } from "./serializer.js";
 import { animatedMatchers } from "./matchers/animated.js";
@@ -131,7 +131,7 @@ if (typeof g.expect === "undefined") {
 g.IS_REACT_ACT_ENVIRONMENT = true;
 g.IS_REACT_NATIVE_TEST_ENVIRONMENT = true;
 // Before react-test-renderer loads: it picks its error reporter once (report-error.mjs).
-installReportError(g);
+installRendererReportError(Module, g);
 
 // --- 2. Build mock and install CJS bridge ---
 

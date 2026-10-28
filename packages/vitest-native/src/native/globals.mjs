@@ -1,7 +1,7 @@
 import fs from "node:fs";
-import { createRequire } from "node:module";
+import Module, { createRequire } from "node:module";
 import path from "node:path";
-import { installReportError } from "../report-error.mjs";
+import { installRendererReportError } from "../report-error.mjs";
 // Globals React Native core expects at runtime, ported from react-native/jest/setup.js.
 // With the project root and platform, also the environment Expo's packages read
 // (installExpoOs); the unit tests call it without them.
@@ -29,7 +29,7 @@ export function installGlobals({ projectRoot, platform } = {}) {
   g.__fbBatchedBridgeConfig = { remoteModuleConfig: [], localModulesConfig: [] };
   g.__vitest_native_module_mocks = g.__vitest_native_module_mocks || Object.create(null);
   // Before react-test-renderer loads: it picks its error reporter once (report-error.mjs).
-  installReportError(g);
+  installRendererReportError(Module, g);
 
   installExpoGlobal(g);
   if (projectRoot) installExpoOs(projectRoot, platform);

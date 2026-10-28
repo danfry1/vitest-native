@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { Text } from "react-native";
+import { reportRendererError } from "../src/report-error.mjs";
 
 const RECOVERED = "There was an error during concurrent rendering but React was able to recover";
 
@@ -26,8 +27,32 @@ function captureUncaught() {
 }
 
 describe("mock engine: React error reports", () => {
-  it("installs reportError before React loads", () => {
-    expect(typeof (globalThis as { reportError?: unknown }).reportError).toBe("function");
+  it("gives reportError to the renderer only", () => {
+    // react-test-renderer is loaded (imported above) and captured it as it evaluated;
+    // nothing else finds one, as under Node without vitest-native.
+    expect(typeof TestRenderer.create).toBe("function");
+    expect(Object.hasOwn(globalThis, "reportError")).toBe(false);
+  });
+
+  it("leaves a library that feature-detects reportError as it is under Node", () => {
+    const uncaught = captureUncaught();
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    // A web-standard-aware library reporting an error from a callback it must not
+    // throw from: with no reportError it logs.
+    function safeInvoke(callback: () => void) {
+      try {
+        callback();
+      } catch (error) {
+        const g = globalThis as { reportError?: (error: unknown) => void };
+        if (typeof g.reportError === "function") g.reportError(error);
+        else console.error("[lib] listener threw:", error);
+      }
+    }
+    safeInvoke(() => {
+      throw new Error("listener boom");
+    });
+    expect(uncaught).toEqual([]);
+    expect(logged).toHaveBeenCalledWith("[lib] listener threw:", expect.any(Error));
   });
 
   it("logs a recoverable error from a concurrent root instead of failing the run", async () => {
@@ -72,7 +97,7 @@ describe("mock engine: React error reports", () => {
     const uncaught = captureUncaught();
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     const error = new Error("uncaught");
-    const report = (globalThis as unknown as { reportError: (e: unknown) => void }).reportError;
+    const report = reportRendererError;
     // The name React's uncaught-error handler has; only the recoverable one is logged.
     function defaultOnUncaughtError(e: unknown) {
       report(e);
