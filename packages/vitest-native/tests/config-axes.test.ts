@@ -17,7 +17,12 @@ import {
   scopeFor,
 } from "../validation/config-axes/cells.mjs";
 // @ts-expect-error — runtime .mjs, no types
-import { activeProbes, applies, PROBES, runs } from "../validation/config-axes/probes.mjs";
+import {
+  activeProbes,
+  applies,
+  PROBES,
+  runs as canRun,
+} from "../validation/config-axes/probes.mjs";
 // @ts-expect-error — runtime .mjs, no types
 import { must, sh } from "../validation/config-axes/sh.mjs";
 // @ts-expect-error — runtime .mjs, no types
@@ -490,7 +495,7 @@ describe("probe catalog", () => {
       );
       const runnable = PROBES.filter((probe: { requires?: Row }) =>
         allowedRows.some(
-          (row) => Object.entries(install).every(([a, v]) => row[a] === v) && runs(probe, row),
+          (row) => Object.entries(install).every(([a, v]) => row[a] === v) && canRun(probe, row),
         ),
       ).map((p: { id: string }) => p.id);
       expect([...ran].sort(), JSON.stringify(install)).toEqual(runnable.sort());
@@ -512,7 +517,7 @@ describe("probe catalog", () => {
       ["recoverable-error", { rntl: "14" }],
       ["hot-automock", { vitest: "5", engine: "native", hot: "on" }],
     ] as [string, Row][]) {
-      expect(runs(byId(id), row(where)), id).toBe(true);
+      expect(canRun(byId(id), row(where)), id).toBe(true);
       expect(applies(byId(id), row(where)), id).toBe(false);
     }
   });
