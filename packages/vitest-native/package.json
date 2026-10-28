@@ -203,6 +203,7 @@
     "format:check": "oxfmt --check src/ tests/ consumer-tests/ scripts/",
     "check-compat": "bun scripts/check-compat.ts",
     "check:size": "node scripts/check-package-size.mjs",
+    "check:structure": "node scripts/structural-scorecard.mjs",
     "check:exports": "node scripts/check-exports.mjs",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",

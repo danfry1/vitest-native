@@ -120,6 +120,12 @@ jobs:
       - name: Check formatting
         run: bun run format:check
 
+      - name: Structural scorecard (patch sites, env switches, globals, swallowed catches may only fall)
+        # A ratchet for the in-place rebuild: scripts/structural-scorecard.mjs counts
+        # them in src/ and fails when any rises above scorecard.json, or falls without
+        # the baseline being lowered with it.
+        run: bun run --filter vitest-native check:structure
+
       - name: Typecheck
         run: bun run typecheck
 
