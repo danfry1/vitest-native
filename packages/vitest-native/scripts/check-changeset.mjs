@@ -16,7 +16,8 @@
 // fields decide how it installs and resolves: an `engines` change (#328), an
 // `exports` edit or a new peer range reaches every user as surely as a source edit.
 // The manifest is judged by field, so a devDependency bump or a new script does not
-// need a changeset.
+// need a changeset. A production `dependencies` change does, Dependabot's included:
+// it changes what every user installs, so it gets a patch changeset naming the bump.
 import { spawnSync } from "node:child_process";
 
 const PACKAGE = "packages/vitest-native/";
@@ -47,11 +48,34 @@ export const SHIPPED_MANIFEST_FIELDS = [
   "peerDependencies",
   "peerDependenciesMeta",
   "bundleDependencies",
+  "publishConfig",
+  "typesVersions",
 ];
 
+// Fields whose meaning is a set or a map: reordering them changes nothing a consumer
+// installs, so they compare in canonical order. Everything else compares as written;
+// `exports` above all, where condition order decides which target wins.
+const UNORDERED_SETS = new Set(["files", "os", "cpu", "bundleDependencies"]);
+const UNORDERED_MAPS = new Set([
+  "dependencies",
+  "optionalDependencies",
+  "peerDependencies",
+  "peerDependenciesMeta",
+  "engines",
+]);
+
+function canonical(field, value) {
+  if (UNORDERED_SETS.has(field) && Array.isArray(value)) return [...value].sort();
+  if (UNORDERED_MAPS.has(field) && value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).sort(([a], [b]) => (a < b ? -1 : 1)));
+  }
+  return value;
+}
+
 /**
- * The shipped fields that differ between two package.json texts. Compared as JSON,
- * key order included: the order of `exports` conditions decides which target wins.
+ * The shipped fields that differ between two package.json texts. Compared as JSON
+ * after `canonical()`, so a reordered `files` list or dependency map is no change,
+ * while the order of `exports` conditions, which decides the target, still is.
  *
  * @param {string | null} before manifest text at the base, or null if absent
  * @param {string | null} after manifest text at the head, or null if absent
@@ -62,7 +86,8 @@ export function shippedManifestChanges(before, after) {
   const a = parse(before);
   const b = parse(after);
   return SHIPPED_MANIFEST_FIELDS.filter(
-    (field) => JSON.stringify(a[field]) !== JSON.stringify(b[field]),
+    (field) =>
+      JSON.stringify(canonical(field, a[field])) !== JSON.stringify(canonical(field, b[field])),
   );
 }
 
@@ -125,6 +150,8 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split("/").pop()
         shipped.map((f) => `    ${f}`).join("\n") +
         "\n\n  Releases are cut from the changeset queue, so this would ship to users with no\n" +
         "  changelog entry and no version bump.\n\n" +
+        "  A production dependency change ships to users too, a Dependabot bump included: add a\n" +
+        '  patch changeset naming the bump (e.g. "Updates magic-string to 1.4.4.").\n\n' +
         "      bunx changeset            # user-visible change\n" +
         "      bunx changeset --empty    # refactor or comments only — records the decision",
     );

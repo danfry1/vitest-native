@@ -111,6 +111,29 @@ describe("shipped build files and package.json fields", () => {
     expect(changes(edit)).toEqual([field]);
   });
 
+  it("names bin, publishConfig and typesVersions", () => {
+    const before = JSON.stringify(base);
+    const edits: [string, Record<string, unknown>][] = [
+      ["bin", { bin: { "vitest-native": "./dist/cli.mjs" } }],
+      ["publishConfig", { publishConfig: { access: "public" } }],
+      ["typesVersions", { typesVersions: { "*": { helpers: ["dist/helpers.d.mts"] } } }],
+    ];
+    for (const [field, edit] of edits) {
+      expect(shippedManifestChanges(before, JSON.stringify({ ...base, ...edit }))).toEqual([field]);
+    }
+  });
+
+  it("ignores reordering a files list or a dependency map", () => {
+    const before = { ...base, files: ["dist", "LICENSE"] };
+    const after = {
+      ...before,
+      files: ["LICENSE", "dist"],
+      dependencies: { b: "1.0.0", a: "1.0.0" },
+    };
+    const withDeps = { ...before, dependencies: { a: "1.0.0", b: "1.0.0" } };
+    expect(shippedManifestChanges(JSON.stringify(withDeps), JSON.stringify(after))).toEqual([]);
+  });
+
   it("treats a reordered exports map as a change: condition order picks the target", () => {
     expect(
       changes((m) => {
@@ -168,6 +191,42 @@ describe("check-changeset.mjs against a repository", () => {
     });
     expect(result.status, result.stdout + result.stderr).toBe(1);
     expect(result.stderr).toContain(`${MANIFEST}#engines`);
+  });
+
+  it("compares the manifest from the merge base, not the moved base branch", () => {
+    // main changes `engines` after the branch point; the branch only bumps a
+    // devDependency. Against main's tip the branch's manifest would show an engines
+    // difference it never made.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-changeset-"));
+    roots.push(root);
+    const git = (...args: string[]) =>
+      spawnSync("git", args, { cwd: root, encoding: "utf8" }).stdout.trim();
+    const manifestPath = path.join(root, MANIFEST);
+    const write = (manifest: Record<string, unknown>) =>
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+    const manifest = {
+      name: "vitest-native",
+      engines: { node: ">=22.13.0" },
+      devDependencies: { typescript: "5.0.0" },
+    };
+    git("init", "-q", "-b", "main");
+    git("config", "user.email", "ci@example.invalid");
+    git("config", "user.name", "ci");
+    fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
+    write(manifest);
+    git("add", "-A");
+    git("commit", "-qm", "base");
+    git("checkout", "-qb", "branch");
+    write({ ...manifest, devDependencies: { typescript: "5.1.0" } });
+    git("commit", "-qam", "branch: devDependency");
+    git("checkout", "-q", "main");
+    write({ ...manifest, engines: { node: ">=22.15.0" } });
+    git("commit", "-qam", "main: engines");
+    const result = spawnSync(process.execPath, [script, "main", "branch"], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    expect(result.status, result.stdout + result.stderr).toBe(0);
   });
 
   it("passes a devDependency bump with no changeset", () => {
