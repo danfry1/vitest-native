@@ -296,6 +296,26 @@ installLibraryJest(vi);
 // Each test file keeps only what a still-loaded library support module registered,
 // under every pool: the hot runtime and `isolate: false` reuse a worker.
 beginTestFile();
+// The setup files of libraries that run as themselves (LIBRARY_SETUP_FILES in
+// preset-map.ts), ahead of the project's, as a Jest suite lists them. Run afresh for
+// every test file, so each file's mocks are new ones, as under Jest.
+let librarySetupFiles = [];
+try {
+  librarySetupFiles = JSON.parse(process.env.VITEST_NATIVE_LIBRARY_SETUP_FILES || "[]");
+} catch {
+  librarySetupFiles = [];
+}
+for (const request of librarySetupFiles) {
+  const load = createRequire(path.join(projectRoot, "package.json"));
+  let file;
+  try {
+    file = load.resolve(request);
+  } catch {
+    continue; // not installed in this project
+  }
+  delete load.cache[file];
+  load(request);
+}
 // Through Vitest, so a TypeScript preset module loads. Its export lists already
 // reached the ESM loader from the plugin; a module the plugin did not read would be
 // served by the real package there.

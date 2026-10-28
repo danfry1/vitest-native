@@ -145,6 +145,7 @@ function loaded(owner) {
 /**
  * Start a test file: of what libraries registered, only what a still-loaded support
  * entry made is kept (see the top of this file), and only those packages stay active.
+ * The engine's own library setup files run after this, for every file (setup.mjs).
  */
 export function beginTestFile() {
   active.clear();

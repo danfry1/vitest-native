@@ -16,7 +16,13 @@ import {
 } from "../native/ownership.mjs";
 import { createHotMemoryPlan, formatHotMemoryPlan } from "../native/memory.mjs";
 import { HOT_STATE_MANIFEST_ENTRIES } from "../native/state-manifest.mjs";
-import { AUTO_DETECT_PRESETS, PRESET_MODULES, autoDetectedPresetApplies } from "../preset-map.js";
+import {
+  AUTO_DETECT_PRESETS,
+  LIBRARY_SETUP_FILES,
+  PRESET_MODULES,
+  autoDetectedPresetApplies,
+  type PresetName,
+} from "../preset-map.js";
 import { babelRecipe, classifyBabelPlugins, readBabelConfig, viteMajor } from "./babel-config.js";
 import {
   activePresets,
@@ -452,8 +458,12 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
         `  · ${pkg} ${installedMajor(root, pkg)} runs its own test mode under Vitest, so no preset replaces it`,
       );
     } else if (!autoDetectedPresetApplies(preset, decision.engine)) {
+      const setupFile = LIBRARY_SETUP_FILES[preset as PresetName];
       lines.push(
-        `  · ${pkg} runs as itself under the native engine, on its native-module mocks; ` +
+        `  · ${pkg} runs as itself under the native engine, ` +
+          (setupFile
+            ? `with its own Jest setup (${setupFile}); `
+            : `on its native-module mocks; `) +
           `the ${preset} preset applies under the mock engine or with \`presets: { ${preset}: true }\``,
       );
     } else {

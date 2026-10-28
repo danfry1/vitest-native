@@ -69,6 +69,10 @@ export const SELF_TESTING_FROM_MAJOR: Partial<Record<keyof typeof AUTO_DETECT_PR
  * code is the whole API, current with every SDK, where a replacement covers only what
  * was written into it.
  *
+ * - gestureHandler, flashList: the packages run as themselves, with the Jest setup file
+ *   each ships (LIBRARY_SETUP_FILES) replacing their native layer, as under Jest. The
+ *   hand-written presets replaced the whole package and lacked most of its API
+ *   (gesture-handler 3's hook API, its builder methods; tests/preset-library-mocks.test.ts).
  * - expo: expo-constants, expo-font, expo-asset, expo-splash-screen, expo-linking and
  *   expo-status-bar run against the engine's Expo runtime (native/globals.mjs) and
  *   their own native-module mocks (native/expo-module-mocks.mjs). Measured on an
@@ -80,7 +84,24 @@ export const SELF_TESTING_FROM_MAJOR: Partial<Record<keyof typeof AUTO_DETECT_PR
  * The mock engine has no real React Native to run them on, so it keeps these presets.
  * `presets: { expo: true }` applies one under the native engine too.
  */
-export const NATIVE_ENGINE_RUNS_PACKAGES: readonly PresetName[] = ["expo"];
+export const NATIVE_ENGINE_RUNS_PACKAGES: readonly PresetName[] = [
+  "expo",
+  "gestureHandler",
+  "flashList",
+];
+
+/**
+ * The Jest setup files libraries ship for their real JavaScript, which the native engine
+ * runs before the project's own setup files for each installed package whose preset
+ * steps aside (NATIVE_ENGINE_RUNS_PACKAGES), as a Jest suite lists them in `setupFiles`.
+ * Each replaces only the library's native layer: gesture-handler's its native module
+ * and host components, flash-list's its layout measurement. They run with Jest's
+ * module-registry semantics (native/library-jest.mjs).
+ */
+export const LIBRARY_SETUP_FILES: Readonly<Partial<Record<PresetName, string>>> = {
+  gestureHandler: "react-native-gesture-handler/jestSetup.js",
+  flashList: "@shopify/flash-list/jestSetup.js",
+};
 
 /**
  * Whether `pkg`, resolved from `projectRoot`, ships the Jest resolver its JS

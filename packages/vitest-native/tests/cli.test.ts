@@ -287,15 +287,14 @@ describe("migrate", () => {
     expect(report.suggestedConfig).toContain("testTimeout: 15000");
     // manual mock covered by preset; unknown key surfaced.
     expect(text).toContain(
-      "__mocks__/react-native-gesture-handler — the auto-detected gestureHandler preset shadows",
+      "__mocks__/react-native-gesture-handler — the native engine runs react-native-gesture-handler with its own Jest setup",
     );
     expect(text).toContain("'someCustomKey' — unrecognized Jest key");
   });
 
   it("calls a manual mock covered only where an active preset shadows that module", () => {
     // The claim is read from PRESET_MODULES (held to the presets by
-    // tests/presets.test.ts) and the plugin's detection. gesture-handler's preset is
-    // detected and shadows the module. The expo preset is detected too, but the native
+    // tests/presets.test.ts) and the plugin's detection. The expo preset is detected, but the native
     // engine the generated config uses runs expo-font as itself
     // (NATIVE_ENGINE_RUNS_PACKAGES), so its manual mock stays, as does svg's, whose
     // preset is not detected.
@@ -312,8 +311,10 @@ describe("migrate", () => {
       "__mocks__/react-native-svg.js": "module.exports = {};",
     });
     const covered = analyzeJestConfig(root).presetCovered.join("\n");
+    // gesture-handler runs as itself under the native engine, with its own jestSetup
+    // standing in for its native layer (LIBRARY_SETUP_FILES), so its manual mock goes.
     expect(covered).toContain(
-      "__mocks__/react-native-gesture-handler — the auto-detected gestureHandler preset shadows react-native-gesture-handler",
+      "__mocks__/react-native-gesture-handler — the native engine runs react-native-gesture-handler with its own Jest setup",
     );
     expect(covered).not.toContain("expo-font");
     expect(covered).not.toContain("react-native-svg");
@@ -341,6 +342,56 @@ describe("migrate", () => {
     );
     expect(report.suggestedConfig).not.toContain("react-native-unistyles/mocks");
     expect(report.suggestedConfig).toContain('"some-lib/jest-setup"');
+  });
+
+  it("deletes the Jest setup the native engine runs for a library, however it is written", () => {
+    // gesture-handler's docs give `./node_modules/react-native-gesture-handler/jestSetup.js`;
+    // `<rootDir>/node_modules/...` and the package request are as common. The engine runs
+    // each library's own setup itself (LIBRARY_SETUP_FILES).
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": {
+        preset: "react-native",
+        setupFiles: [
+          "./node_modules/react-native-gesture-handler/jestSetup.js",
+          "<rootDir>/node_modules/@shopify/flash-list/jestSetup.js",
+        ],
+      },
+      "node_modules/react-native-gesture-handler/package.json": {
+        name: "react-native-gesture-handler",
+        version: "3.4.0",
+      },
+      "node_modules/@shopify/flash-list/package.json": {
+        name: "@shopify/flash-list",
+        version: "2.3.3",
+      },
+    });
+    const report = analyzeJestConfig(root);
+    const covered = report.presetCovered.join("\n");
+    expect(covered).toContain(
+      "'./node_modules/react-native-gesture-handler/jestSetup.js' — react-native-gesture-handler's own test setup, which the native engine runs",
+    );
+    expect(covered).toContain(
+      "'<rootDir>/node_modules/@shopify/flash-list/jestSetup.js' — @shopify/flash-list's own test setup, which the native engine runs",
+    );
+    expect(report.suggestedConfig).not.toContain("jestSetup");
+  });
+
+  it("keeps a library's other setup file, which the native engine does not run", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": {
+        preset: "react-native",
+        setupFiles: ["react-native-gesture-handler/lib/extra-setup.js"],
+      },
+      "node_modules/react-native-gesture-handler/package.json": {
+        name: "react-native-gesture-handler",
+        version: "3.4.0",
+      },
+    });
+    const report = analyzeJestConfig(root);
+    expect(report.presetCovered.join("\n")).not.toContain("extra-setup");
+    expect(report.suggestedConfig).toContain("extra-setup");
   });
 
   it("rewrites <rootDir> in setup files instead of emitting it verbatim", () => {

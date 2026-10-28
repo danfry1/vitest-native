@@ -13,7 +13,12 @@
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
-import { DEFAULT_ASSET_EXTS, presetShadowing, type PresetName } from "../preset-map.js";
+import {
+  DEFAULT_ASSET_EXTS,
+  LIBRARY_SETUP_FILES,
+  presetShadowing,
+  type PresetName,
+} from "../preset-map.js";
 import { detectEcosystemPackages } from "../native/ecosystem.js";
 import { allows, extractAllowlistPackages, type AllowlistEntry } from "./allowlist.js";
 import {
@@ -265,6 +270,10 @@ export function analyzeJestConfig(root: string): MigrationReport {
   // detects and compiles by itself under them. A `transform` entry for one of those
   // would take precedence over detection and externalize it instead.
   const active: PresetName[] = activePresets(root, navigationOff ? ["navigation"] : []);
+  // A preset that steps aside under the native engine for a library that runs as itself
+  // with the Jest setup file it ships (LIBRARY_SETUP_FILES).
+  const runsWithOwnSetup = (preset: PresetName): boolean =>
+    LIBRARY_SETUP_FILES[preset] !== undefined && !active.includes(preset);
   const autoInlined = new Set(detectEcosystemPackages(root, [], [], [], active));
 
   const addAlias = (key: string, value: string) => {
@@ -338,7 +347,10 @@ export function analyzeJestConfig(root: string): MigrationReport {
         // A library's own test setup (react-native-unistyles/mocks, a jestSetup.js):
         // run under the jest-compat shim, its jest.mock() calls would replace the
         // preset that already shadows the package.
-        const setupPackage = /^(@[^/]+\/[^/]+|[^@./][^/]*)\//.exec(f)?.[1];
+        // As a package request, or by path into node_modules, the form libraries' own
+        // docs give (`./node_modules/react-native-gesture-handler/jestSetup.js`).
+        const asRequest = f.replace(/^(?:<rootDir>\/|\.\/)?node_modules\//, "");
+        const setupPackage = /^(@[^/]+\/[^/]+|[^@./<][^/]*)\//.exec(asRequest)?.[1];
         const setupPreset = setupPackage ? presetShadowing(setupPackage) : undefined;
         if (/react-native\/jest\/setup/.test(f)) {
           presetCovered.push(`${key}: '${f}' — the plugin injects its own setup; delete.`);
@@ -346,6 +358,16 @@ export function analyzeJestConfig(root: string): MigrationReport {
           presetCovered.push(
             `${key}: '${f}' — ${setupPackage}'s own test setup; the auto-detected ${setupPreset} ` +
               `preset shadows ${setupPackage}, and this file's jest.mock() calls would replace it; delete.`,
+          );
+        } else if (
+          setupPreset &&
+          runsWithOwnSetup(setupPreset) &&
+          // Only the file the engine runs itself; another of the package's files stays.
+          asRequest.replace(/\.js$/, "") === LIBRARY_SETUP_FILES[setupPreset]?.replace(/\.js$/, "")
+        ) {
+          presetCovered.push(
+            `${key}: '${f}' — ${setupPackage}'s own test setup, which the native engine runs ` +
+              `before the setup files (${LIBRARY_SETUP_FILES[setupPreset]}); delete.`,
           );
         } else if (/jest-expo/.test(f)) {
           attention.push(`${key}: '${f}' — ${expoPresetCoverage()}.`);
@@ -704,6 +726,11 @@ export function analyzeJestConfig(root: string): MigrationReport {
         if (preset && active.includes(preset)) {
           presetCovered.push(
             `__mocks__/${candidate} — the auto-detected ${preset} preset shadows ${candidate}; delete the manual mock.`,
+          );
+        } else if (preset && runsWithOwnSetup(preset) && installedManifest(root, candidate)) {
+          presetCovered.push(
+            `__mocks__/${candidate} — the native engine runs ${candidate} with its own Jest setup ` +
+              `(${LIBRARY_SETUP_FILES[preset]}), which replaces its native layer; delete the manual mock.`,
           );
         } else if (installedManifest(root, candidate) && installedTestsItself(root, candidate)) {
           attention.push(
