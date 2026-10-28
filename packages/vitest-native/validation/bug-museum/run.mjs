@@ -6,7 +6,10 @@
 //
 //   --build   the package under test (default: this package). It must be built; its
 //             package.json + dist are copied into each exhibit's node_modules.
-//   --json    write the verdicts as JSON (status.mjs renders STATUS.md from them)
+//   --json    write the verdicts as JSON (status.mjs renders STATUS.md from them); each
+//             verdict records the build's git SHA (lib/build-info.mjs)
+//   --allow-na exit 0 even when an exhibit is N/A (by default N/A exits 1: an exhibit
+//             that could not run is not evidence)
 //   --work    where exhibits are materialised (default: a fresh directory in os.tmpdir())
 //   --control run each exhibit's control instead (exhibits.json `control`: edits that
 //             remove the bug's precondition). A control must PASS on any build: it shows
@@ -16,15 +19,18 @@
 // Every exhibit asserts the CORRECT behaviour, so it PASSes only on a build without the
 // bug. A run PASSes only when all three witnesses agree (lib/accounting.mjs): the process
 // exited 0, every expected test file reported passing tests, and the accounting reporter
-// saw no unhandled error and no lost file. A FAIL whose lines match the exhibit's
-// `bugSignature` is the recorded bug; any other FAIL is printed as "unexpected", which on
-// a buggy build means the exhibit no longer reaches the bug.
+// saw no unhandled error and no lost file (the config-axis matrix's accounting). A FAIL is
+// "the bug" only when EVERY failure line is the exhibit's `bugSignature` or one of its
+// `consequences` (lib/verdict.mjs, judged by the matrix's verdict.mjs); any other FAIL is
+// "unexpected", which on a buggy build means the exhibit no longer reaches its bug.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { account } from "./lib/accounting.mjs";
+import { buildInfo } from "./lib/build-info.mjs";
+import { runLines } from "./lib/lines.mjs";
 import { findRntl, materialise, museumRoot, packageRoot } from "./lib/materialise.mjs";
+import { classify, validateSignature } from "./lib/verdict.mjs";
 import { prepareVitest4 } from "./lib/vitest4.mjs";
 
 const argument = (name) => {
@@ -57,6 +63,10 @@ export function readExhibits() {
     else if (!fs.existsSync(path.join(dir, "README.md")))
       problems.push(`${exhibit.id}: no README.md`);
   }
+  for (const exhibit of manifest.exhibits) {
+    const dir = path.join(museumRoot, "exhibits", exhibit.id);
+    if (fs.existsSync(dir)) problems.push(...validateSignature(exhibit, testFiles(dir)));
+  }
   for (const dir of fs.readdirSync(path.join(museumRoot, "exhibits")))
     if (!ids.has(dir)) problems.push(`exhibits/${dir}: not in exhibits.json`);
   if (problems.length > 0) throw new Error(`exhibits.json:\n${problems.join("\n")}`);
@@ -68,7 +78,8 @@ function testFiles(dir) {
   const found = [];
   const walk = (at) => {
     for (const entry of fs.readdirSync(at, { withFileTypes: true })) {
-      if (["node_modules", "vendor", "packages"].includes(entry.name)) continue;
+      // fixture/: an inner project an exhibit's test runs itself
+      if (["node_modules", "vendor", "packages", "fixture"].includes(entry.name)) continue;
       const full = path.join(at, entry.name);
       if (entry.isDirectory()) walk(full);
       else if (/\.test\.[cm]?[jt]sx?$/.test(entry.name)) found.push(entry.name);
@@ -83,7 +94,7 @@ function childEnv(exhibit, accountingFile) {
   // The runner may itself run under Vitest or with loader flags; none of it reaches the child.
   for (const key of Object.keys(env))
     if (key.startsWith("VITEST") || key === "NODE_OPTIONS" || key === "NODE_PATH") delete env[key];
-  return { ...env, ...exhibit.env, MUSEUM_ACCOUNTING_FILE: accountingFile };
+  return { ...env, ...exhibit.env, AXIS_ACCOUNTING_FILE: accountingFile };
 }
 
 /** Why the exhibit cannot run here, or null. */
@@ -132,7 +143,7 @@ function runExhibit(original, context) {
         vitestBin,
         "run",
         "--reporter=json",
-        `--reporter=${path.join(museumRoot, "lib/accounting-reporter.mjs")}`,
+        `--reporter=${path.join(museumRoot, "../config-axes/fixture/apps/app/accounting-reporter.mjs")}`,
         `--outputFile.json=${reportFile}`,
         // MUSEUM_DEBUG=1 also prints Vitest's own report (and the tests' console output)
         ...(process.env.MUSEUM_DEBUG ? ["--reporter=default"] : []),
@@ -157,14 +168,10 @@ function runExhibit(original, context) {
     };
     output += `${proc.stdout ?? ""}${proc.stderr ?? ""}`;
     const files = run.files ?? expected;
-    const { results, problems } = account(result, files, reportFile, accountingFile);
     const prefix = runs.length > 1 ? `run ${index + 1}: ` : "";
-    // Test failures first: they name the assertion; the run-level problems follow.
-    if (results)
-      for (const file of files)
-        if (results[file] && !results[file].ok)
-          failures.push(...results[file].failures.map((l) => prefix + l));
-    failures.push(...problems.map((line) => prefix + line));
+    failures.push(
+      ...runLines(result, files, reportFile, accountingFile).map((line) => prefix + line),
+    );
   }
   const seconds = Number(((Date.now() - started) / 1000).toFixed(1));
   const checkFile = path.join(root, "check.mjs");
@@ -181,12 +188,13 @@ function runExhibit(original, context) {
   if (!context.keep) fs.rmSync(root, { recursive: true, force: true });
   const debug = process.env.MUSEUM_DEBUG ? { output: output.slice(-4000) } : {};
   if (failures.length === 0) return { verdict: "PASS", seconds, ...debug };
-  const signature = exhibit.bugSignature ? new RegExp(exhibit.bugSignature, "m") : null;
+  const { matchesBug, why } = classify(exhibit, expected, failures);
   return {
     verdict: "FAIL",
     seconds,
     failures: failures.map((line) => line.slice(0, 500)),
-    matchesBug: signature ? failures.some((line) => signature.test(line)) : null,
+    matchesBug,
+    ...(why ? { why: why.slice(0, 1000) } : {}),
     ...debug,
   };
 }
@@ -202,6 +210,7 @@ function main() {
     for (const id of only)
       if (!exhibits.some((e) => e.id === id)) throw new Error(`no exhibit ${id}`);
   const build = path.resolve(argument("build") ?? packageRoot);
+  const provenance = buildInfo(build);
   const work = argument("work")
     ? path.resolve(argument("work"))
     : fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-bug-museum-")));
@@ -230,14 +239,12 @@ function main() {
         matchesBug: false,
       };
     }
-    verdicts[exhibit.id] = verdict;
+    verdicts[exhibit.id] = { ...verdict, build: provenance };
     const tag =
       verdict.verdict === "FAIL"
-        ? verdict.matchesBug === false
-          ? "FAIL (unexpected)"
-          : verdict.matchesBug
-            ? "FAIL (the bug)"
-            : "FAIL"
+        ? verdict.matchesBug
+          ? "FAIL (the bug)"
+          : "FAIL (unexpected)"
         : verdict.verdict;
     const detail =
       verdict.verdict === "N/A"
@@ -250,7 +257,7 @@ function main() {
   }
   const count = (v) => Object.values(verdicts).filter((x) => x.verdict === v).length;
   console.log(
-    `\n${count("PASS")} pass, ${count("FAIL")} fail, ${count("N/A")} n/a (build: ${build})`,
+    `\n${count("PASS")} pass, ${count("FAIL")} fail, ${count("N/A")} n/a (build: ${build}, ${provenance.sha}${provenance.ref ? ` = ${provenance.ref}` : ""})`,
   );
   if (argument("json")) {
     const out = path.resolve(argument("json"));
@@ -259,11 +266,15 @@ function main() {
       ? JSON.parse(fs.readFileSync(out, "utf8"))
       : { verdicts: {} };
     // A filtered run updates its exhibits and keeps the others' earlier verdicts.
-    const merged = { build, verdicts: { ...previous.verdicts, ...verdicts } };
+    const merged = { verdicts: { ...previous.verdicts, ...verdicts } };
     fs.writeFileSync(out, `${JSON.stringify(merged, null, 2)}\n`);
   }
   if (!argument("work") && !context.keep) fs.rmSync(work, { recursive: true, force: true });
-  process.exitCode = count("FAIL") > 0 ? 1 : 0;
+  // N/A is not a pass: an exhibit that could not run (a missing local copy, a hand-set
+  // `na`) proves nothing, so it fails the run unless the caller says it may.
+  const na = count("N/A") > 0 && !flag("allow-na");
+  if (na) console.log(`${count("N/A")} exhibit(s) N/A: exiting 1 (pass --allow-na to accept)`);
+  process.exitCode = count("FAIL") > 0 || na ? 1 : 0;
 }
 
 main();

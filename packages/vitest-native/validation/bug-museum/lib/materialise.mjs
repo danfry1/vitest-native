@@ -20,8 +20,7 @@
 //                           directory named after their peers (#349's class reads it)
 //
 // The pnpm placement and the RNTL copy are adapted from the config-axis matrix harness
-// (feat/config-axis-matrix, validation/config-axes/run.mjs, not merged), as are
-// accounting.mjs and accounting-reporter.mjs.
+// (validation/config-axes/run.mjs); its accounting and verdict rules are imported as is.
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
