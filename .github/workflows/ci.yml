@@ -153,8 +153,10 @@ jobs:
 
       # Every native suite runs the ownership guard in `error` (docs/ownership-guard.md):
       # a file evaluated by both Node and Vite fails the step, so these suites prove
-      # there are none outside the exemptions their configs list with reasons. The
-      # default for users stays `warn` until the next minor.
+      # there are none outside the exemptions their configs list with reasons. On the
+      # Node 22.13 legs the ESM loader runs on its own thread; its records reach the
+      # guard through a port and fail the test file at its end rather than at the
+      # import. The default for users stays `warn` until the next minor.
       - name: Native engine tests
         env:
           VITEST_NATIVE_OWNERSHIP_MODE: error

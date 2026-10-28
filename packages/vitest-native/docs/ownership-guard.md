@@ -167,23 +167,68 @@ its workspace dependency is reached by name from both sides.
 
 ## Design: one ledger per worker
 
-`src/native/ownership-ledger.mjs` keeps two maps, keyed by real path (forward slashes,
-upper-case drive letter, see path-spelling-keys):
+`src/native/ownership-ledger.mjs` keeps one map per side, keyed by real path (forward
+slashes, upper-case drive letter, see path-spelling-keys). On macOS and Windows the key
+is also folded to lower case, because those file systems ignore case:
+`require('./CaseStore')` and `import './casestore'` are one file. Asking the OS for the
+stored case per compile cost about 10 µs per project require; folding costs nothing.
+The price is a case-sensitive volume on those platforms holding two files whose names
+differ only in case, each evaluated by a different side. They would be reported as one.
 
-- **Node side.** A wrapper on `Module.prototype._compile` covers every CommonJS
-  evaluation, whichever hook compiled it. `loadSync` covers ESM, but only while the
-  loader runs in the worker's thread (`module.registerHooks`, Node 22.22.3+/24.12+).
-- **Vite side.** The plugin's `transform` appends one call to each module it hands the
-  runner: `globalThis.__vitest_native_ownership_vite?.(key, file)`. It runs when the
-  module finishes evaluating, in every pool and on Vitest 4 and 5. Appending moves no
-  code, so the source map is returned as `null` (unchanged).
+- **Node side.**
+  - A wrapper on `Module.prototype._compile` covers every CommonJS evaluation,
+    whichever hook compiled it. It also sees `require()` of an ES module on Node 24,
+    where `_compile` gets format `module`; that case is labelled "require() of an ES
+    module".
+  - A wrapper on the `.mjs` extension covers `require()` of an ES module on Node 22.13,
+    where it bypasses `_compile`.
+  - A wrapper on the `.json` extension covers JSON, which Node parses without compiling.
+  - **True ESM in this thread**: with `module.registerHooks` (Node 22.22.3+ and 24.12+),
+    `loader.mjs` calls the ledger before Node evaluates the module.
+  - **True ESM on the loader's own thread**: with `module.register` (the Node 22.13 CI
+    legs, or `VITEST_NATIVE_LOADER_THREAD=1`), the loader posts each URL through a
+    `MessagePort` the setup file passes it. The worker drains the port synchronously
+    before every Vite evaluation and at the end of every file. There is no listener,
+    so nothing keeps the worker alive and nothing throws from an event-loop callback.
+    These records arrive after the module ran. In `error` mode they fail the file at
+    its end rather than at the import.
+- **Vite side.** The plugin puts one call at the top of each module it hands the runner,
+  after any hashbang and directive prologue:
+  `globalThis.__vitest_native_ownership_vite?.(key, file)`.
+  - The call runs before the module's body. In `error` mode a second Vite copy is
+    refused before any of its code has run (one side effect, not two).
+  - It runs in every pool and on Vitest 4 and 5.
+  - Under the native engine the transform is `order: 'post'`, after esbuild/oxc. The
+    marker is inserted with magic-string, and the inserted code is unmapped in the
+    returned source map. Coverage therefore reports only the file's own lines; a
+    six-line file has no `DA:8`. Measured with `@vitest/coverage-v8`.
+    `@vitest/coverage-istanbul` is not installed in this repository, so istanbul is
+    unverified.
+  - The mock engine keeps the transform `pre`, because its Flow strip must run before
+    esbuild.
+  - Query-suffixed ids (`./x.ts?v=1`) are the file's own code and are recorded under
+    the file. `?raw`, `?url`, `?inline` and worker queries serve something else and
+    are skipped.
 
-Each record is a `Map` lookup. On a hit, the earlier record has to still be **live**
-before anything is reported:
+**Node records are per module, not per path.** Each record holds a `WeakRef` to its
+module and the key Node cached it under. A dead record is dropped only once its module
+has been garbage-collected. `jest.isolateModules` takes the outer copy out of the cache,
+loads an inner one, and later puts the outer copy back. With one slot per path, the
+restored outer copy was invisible. With per-module records it is seen again.
 
-- Node: `Module._cache[filename]` still holds the recorded module.
-- Vite: `__vitest_worker__.evaluatedModules.getModulesByFile(file)` has an evaluated or
-  evaluating node.
+**The ledger keeps nothing alive.** A record holds a `WeakRef`, the cache key and the
+parent's filename as a string. Measured with 200 modules of 2 MB each evicted from the
+cache, the heap was 405 MB when records held the module strongly and 5 MB now. A
+`WeakRef` target does survive until the end of the current job, so a synchronous loop
+frees the memory only after its next `await`.
+
+On a hit, the earlier record has to still be **live** before anything is reported:
+
+- Node: `Module._cache[<key Node used>]` still holds that module. Under
+  `--preserve-symlinks` that key is the link path, not the real path.
+- Vite: `__vitest_worker__.evaluatedModules` has an evaluated or evaluating node for the
+  file. This includes the `mock:<id>` node that `vi.mock(path, { spy: true })` runs the
+  original under. Vitest 5 keeps that node outside the file index.
 
 The liveness check is what makes per-file resets correct with no extra hooks. Hot
 runtime resets drop Node's per-file modules (`module-reset.mjs`) and clear Vite's
@@ -197,31 +242,91 @@ The report names:
 
 - the file;
 - the policy owner and its reason;
-- the first evaluator: Node with its requiring parent, or Vite with its importer;
-- the second evaluator with a short stack;
-- the route, classified from the parent: an installed package, project source
-  (`require`/`jest.requireActual`), or Node's ESM loader;
+- the first and second evaluator: Node with how it loaded the file and the requiring
+  parent, or Vite with its importer;
+- a short stack for a second Node evaluation;
+- the route;
 - the fix for that route.
 
-Cost: one property read and one `Map` lookup per CommonJS compile and per Vite
-evaluation. A stack is captured only when a conflict is reported.
+Routes:
 
-Known blind spots, kept deliberately:
+| route | meaning |
+| --- | --- |
+| `jest-compat` | jest-compat sets a depth counter around its synchronous loads |
+| `installed-package` | a package under `node_modules` required it |
+| `node-owned-source` | source Node evaluated imported it |
+| `require-from-vite` | a `require` in a file Vite evaluated |
+| `node-esm` | Node's ESM loader imported it |
+| `vite-inline` | any file under `node_modules`, or one the policy gives to Node, that Vite also evaluated, in either order; `server.deps.inline` is the usual cause |
 
-- JSON, which Node parses without compiling.
-- ESM evaluated by the threaded loader (Node 22.13–22.22.2 and 24.0–24.11). The
-  CommonJS half is still covered there, and that is where project source goes.
+### Fail loud
+
+- **At the evaluation.** In `error` mode the second evaluation throws before it runs.
+  A Node `require` throws before `_compile`; a Vite import throws at the top of the
+  module.
+- **At the end of each test file.** The setup file's `afterAll` lists every dual
+  evaluation the file caused. A library's `try { require(x) } catch {}` turns the
+  first throw into "x is not installed", and this check still fails the file in
+  `error` mode. A conflict a test handles on purpose has to be removed from
+  `ledger.conflicts`, as `tests-native/ownership-guard.test.ts` does.
+- **At the end of the run.** The same findings travel in each file's task meta to a
+  reporter the plugin adds in `configureVitest`. It prints a summary to stderr in both
+  modes. Worker console output is dropped by `silent`, by reporters that print only
+  failures, and by Vitest 5's agent reporter, so a warning printed only there could be
+  missed. The summary also names `ownership.allow` entries that exempted nothing during
+  the run.
+
+### Cost, measured on Node 24.13 / macOS
+
+| operation | cost |
+| --- | --- |
+| `recordNode` | about 0.24–0.32 µs |
+| `recordVite` | about 0.11 µs |
+| 3000-require benchmark, project files | 38–40 µs per require with or without the ledger (within noise) |
+| 3000-require benchmark, `node_modules` | 34–37 µs per require with or without the ledger (within noise) |
+
+A stack is captured only when a conflict is reported. The first version captured one
+per project-file compile, which cost about 9 µs each.
+
+### Known limits
+
+- The threaded loader's ESM records arrive after the fact, as described above.
 - A second copy inside one module system (two Node copies) is not this guard's job.
 
 ## Rollout
 
 - `reactNative({ ownership: 'warn' })` is the default. Each dual-evaluated file is
-  reported once per worker.
-- `ownership: 'error'` throws `MODULE_DUAL_EVALUATION` at the second evaluation, so the
-  second instance is never used.
+  reported once per worker, and summarised at the end of the run.
+- `ownership: 'error'` throws `MODULE_DUAL_EVALUATION` at the second evaluation, and
+  fails the test file at its end.
 - `ownership: { mode, allow: [{ path, reason }] }` lists exemptions. `path` is a file or
   directory, resolved against the Vitest root. `reason` is required.
-- `VITEST_NATIVE_OWNERSHIP_MODE=error|warn` overrides the mode for a whole run. CI in
-  this repository sets `error` on every native suite.
-- Next minor: the default flips to `error`. The changeset for that release has to say
-  so, and the warning text says so now.
+  - An entry covering the project root itself (`'.'`, `'..'`, `'/'`) is refused with
+    `INVALID_OPTION`. It would exempt every file the guard watches, which is turning
+    the guard off. The guard has no off switch by design (the bake-off design's "no
+    global ignore twins"). A project that needs a broad exemption names the
+    directories.
+  - Entries that exempted nothing in a run are listed in the summary, so a stale
+    exemption cannot hide a new dual evaluation.
+- `VITEST_NATIVE_OWNERSHIP_MODE=error|warn` overrides the mode for a whole run. Any
+  other value is rejected with `INVALID_OPTION`, so a typo does not quietly mean
+  `warn`.
+- `ownership` under `engine: 'mock'` is ignored with a warning: there is one module
+  system.
+- CI in this repository sets `error` on every `test:native*` step. That includes the
+  Node 22.13 legs, where Node's ESM records arrive through the loader port and fail at
+  file end.
+- **Next minor: the default flips to `error`.** The changeset for that release has to
+  say so, and the warning text says so now.
+
+### Who the flip affects most: `isolate: false`
+
+Plain `isolate: false` without the hot runtime keeps Node's CommonJS cache for the
+whole worker. A `require('./x')` in one file and an `import './x'` in a later file are
+then two live copies in one worker, and the guard reports them. That is a real twin,
+the same one `tests-native/jest-registry-no-isolate` exempts. Such suites have three
+options:
+
+- use the hot runtime, whose per-file reset drops Node's copy between files;
+- replace the `require` with `import`, so both files use Vite's copy;
+- exempt the file with a reason, accepting that its state crosses files.
