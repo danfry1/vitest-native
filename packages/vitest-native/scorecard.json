@@ -1,7 +1,7 @@
 {
-  "_about": "Structural ratchet for src/ (scripts/structural-scorecard.mjs): counts that may only fall. A rise fails CI; a fall fails until this file is lowered with `node scripts/structural-scorecard.mjs --update`. Baseline 2026-10-28, origin/main 0f2400e.",
+  "_about": "Structural ratchet for src/ (scripts/structural-scorecard.mjs): counts that may only fall. A rise fails CI; a fall fails until this file is lowered with `node scripts/structural-scorecard.mjs --update`. Baseline 2026-10-28, origin/main 0f2400e. swallowedCatches 57 -> 64 when the rule widened to no-op bodies, bare return/continue/break and promise .catch(() => {}); the code did not change.",
   "nodePatchSites": 17,
   "envVars": 27,
   "globals": 27,
-  "swallowedCatches": 57
+  "swallowedCatches": 64
 }

@@ -4,19 +4,32 @@
 // a time. Each layer is meant to REMOVE patching, not add to it, so the counts below
 // may only fall. This counts them in src/ and compares with scorecard.json:
 //
-// - nodePatchSites: assignments to Node's module internals (Module._load,
-//   _resolveFilename, _extensions[…], Module.prototype._compile) and loader-hook
-//   installs (node:module's register / registerHooks). Restoring a saved original is
-//   an assignment too and counts: every site is a place the realm is mutated.
+// - nodePatchSites: writes to Node's module internals (Module._load,
+//   _resolveFilename, _extensions[…], Module.prototype._compile, require.extensions),
+//   dotted, string-keyed, through Reflect.set / defineProperty / defineProperties /
+//   Object.assign, or through a local alias of _extensions; and loader-hook installs
+//   (node:module's register / registerHooks, named, namespace or default import).
+//   Restoring a saved original is a write too and counts: every site is a place the
+//   realm is mutated.
 // - envVars: distinct VITEST_NATIVE_* names, each an undocumented switch to support.
 // - globals: distinct __vitest_native_* names, each a channel around module scope.
-// - swallowedCatches: catch blocks with nothing in them but whitespace or comments.
+// - swallowedCatches: catch blocks with nothing in them but whitespace, comments,
+//   no-ops (`void 0`, `undefined`, `;`) or a bare `return;` / `continue;` / `break;`,
+//   and `.catch(() => {})` / `.catch(() => undefined)`. A catch that returns a value
+//   (`return null`) is a fallback and is not counted.
 //
 // A RISE fails. A fall fails too until scorecard.json is lowered to match, so an
 // improvement is locked in by the change that makes it (`--update` writes the new
 // counts, and refuses while any count is above its baseline). Comments are stripped
 // before counting: the source explains its patches at length, and an explanation is
 // not a patch.
+//
+// This is a TRIPWIRE FOR HONEST CODE, not an enforcement boundary. It reads text
+// with regular expressions after a small scanner, so a computed key (`Module[k] =`),
+// a helper that does the write (`patch(Module, "_load", f)`) or an alias of Module
+// itself goes uncounted. That is deliberate: chasing every indirection would make
+// this a JavaScript analyser. Its job is to make the ordinary ways of adding a
+// patch, a switch, a global or a swallowed error show up in review.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,8 +47,19 @@ export function stripComments(source, { blankStrings = false } = {}) {
   let out = "";
   let i = 0;
   let last = "";
+  let lastWord = "";
   const templates = [];
-  const regexMayStart = () => last === "" || /[(,=:[!&|?{};+\-*%<>~^]/.test(last);
+  // For each open paren, whether a keyword (`if (…) /re/`) or an expression
+  // (`(a) / b`) introduced it, so a `/` after the matching `)` reads right.
+  const parens = [];
+  let closedKeywordParen = false;
+  const REGEX_AFTER_WORD =
+    /^(?:return|typeof|instanceof|in|of|new|delete|void|throw|case|do|else|yield|await)$/;
+  const regexMayStart = () =>
+    last === "" ||
+    /[(,=:[!&|?{};+\-*%<>~^]/.test(last) ||
+    (last === ")" && closedKeywordParen) ||
+    (/\w/.test(last) && REGEX_AFTER_WORD.test(lastWord));
   while (i < source.length) {
     const ch = source[i];
     const next = source[i + 1];
@@ -91,7 +115,10 @@ export function stripComments(source, { blankStrings = false } = {}) {
       if (ch === "{") templates[templates.length - 1]++;
       else if (ch === "}") templates[templates.length - 1]--;
     }
+    if (ch === "(") parens.push(/^(?:if|while|for|with)$/.test(lastWord) && /\w/.test(last));
+    if (ch === ")") closedKeywordParen = parens.pop() ?? false;
     out += ch;
+    if (/\w/.test(ch)) lastWord = /\w/.test(last) && last === source[i - 1] ? lastWord + ch : ch;
     if (!/\s/.test(ch)) last = ch;
     i++;
   }
@@ -104,14 +131,24 @@ const PATCH_ASSIGNMENTS = [
   new RegExp(String.raw`\._resolveFilename${ASSIGN}`, "g"),
   new RegExp(String.raw`\._extensions\s*(?:\[[^\]\n]+\]|\.\w+)${ASSIGN}`, "g"),
   new RegExp(String.raw`\.prototype\._compile${ASSIGN}`, "g"),
+  new RegExp(String.raw`\brequire\.extensions\s*(?:\[[^\]\n]+\]|\.\w+)${ASSIGN}`, "g"),
 ];
 // The same patches spelled with a string key or through defineProperty, which the
 // dotted forms above cannot see. Matched against code with strings intact.
 const INTERNAL = String.raw`["'](?:_load|_resolveFilename|_compile|_extensions)["']`;
 const PATCH_SPELLINGS = [
   new RegExp(String.raw`\[\s*${INTERNAL}\s*\]\s*(?:\[[^\]\n]+\]\s*)?=(?![=>])`, "g"),
-  new RegExp(String.raw`\bdefineProperty\(\s*[\w.]+\s*,\s*${INTERNAL}`, "g"),
+  new RegExp(String.raw`\b(?:defineProperty|Reflect\.set)\(\s*[\w.]+\s*,\s*${INTERNAL}`, "g"),
 ];
+// Object.assign(Module, { _load }) / Object.defineProperties(Module, { _load: … }).
+const PATCH_OBJECT_WRITES =
+  /\bObject\.(?:assign|defineProperties)\(\s*[\w.]+\s*,\s*\{[^}]*?\b(?:_load|_resolveFilename|_compile|_extensions)\b\s*[:,}]/g;
+// `const ext = Module._extensions;` (or require.extensions), then writes through it.
+const EXTENSIONS_ALIAS =
+  /\b(?:const|let|var)\s+(\w+)\s*=\s*[\w.]*(?:\._extensions|\brequire\.extensions)\s*[;\n]/g;
+// import * as nm / import nm from / const nm = require("node:module").
+const NODE_MODULE_NAMESPACE =
+  /import\s*\*\s*as\s+(\w+)\s+from\s*["']node:module["']|import\s+(\w+)\s*(?:,\s*\{[^}]*\}\s*)?from\s*["']node:module["']|(?:const|let|var)\s+(\w+)\s*=\s*require\(\s*["']node:module["']\s*\)/g;
 const NODE_MODULE_IMPORT =
   /import\s*\{([^}]*)\}\s*from\s*["']node:module["']|\{([^}]*)\}\s*=\s*require\(\s*["']node:module["']\s*\)/g;
 
@@ -124,9 +161,23 @@ export function countSource(raw) {
   let nodePatchSites = 0;
   for (const pattern of PATCH_ASSIGNMENTS) nodePatchSites += [...bare.matchAll(pattern)].length;
   for (const pattern of PATCH_SPELLINGS) nodePatchSites += [...code.matchAll(pattern)].length;
-  // module.register(…) / Module.registerHooks(…), and the bare names when imported
-  // from node:module (a manifest's own `register` method is not a loader hook).
-  nodePatchSites += [...bare.matchAll(/\b[Mm]odule\.register(?:Hooks)?\s*\(/g)].length;
+  nodePatchSites += [...bare.matchAll(PATCH_OBJECT_WRITES)].length;
+  for (const [, alias] of bare.matchAll(EXTENSIONS_ALIAS)) {
+    const write = new RegExp(String.raw`(?<![.\w])${alias}\s*(?:\[[^\]\n]+\]|\.\w+)${ASSIGN}`, "g");
+    nodePatchSites += [...bare.matchAll(write)].length;
+  }
+  // module.register(…) / Module.registerHooks(…), or through any namespace or default
+  // import of node:module, called or taken (`const r = nm.register`); and the bare
+  // names when imported from node:module (a manifest's own `register` is no hook).
+  const namespaces = new Set(["module", "Module"]);
+  for (const m of code.matchAll(NODE_MODULE_NAMESPACE)) namespaces.add(m[1] ?? m[2] ?? m[3]);
+  for (const ns of namespaces) {
+    const use = new RegExp(
+      String.raw`(?<![.\w])${ns}\.register(?:Hooks)?(?:\s*\(|(?=\s*[;,)\n]))`,
+      "g",
+    );
+    nodePatchSites += [...bare.matchAll(use)].length;
+  }
   const imported = new Set();
   for (const m of code.matchAll(NODE_MODULE_IMPORT)) {
     for (const part of (m[1] ?? m[2]).split(",")) {
@@ -138,7 +189,20 @@ export function countSource(raw) {
     nodePatchSites += [...bare.matchAll(new RegExp(String.raw`(?<![.\w])${name}\s*\(`, "g"))]
       .length;
   }
-  const swallowedCatches = [...bare.matchAll(/\bcatch\s*(?:\([^)]*\))?\s*\{\s*\}/g)].length;
+  // A body of only no-op statements (`void 0;`, `undefined;`, `;`), optionally ending
+  // in a bare `return;`, `continue;` or `break;`: the error is dropped and control
+  // moves on as if nothing happened. A body that returns a value (`return null`) is a
+  // fallback, not counted. Each repeat must consume a `;`, which keeps the pattern
+  // free of nested optional repeats to backtrack through.
+  const NO_OP = String.raw`\s*(?:(?:void\s+0|undefined|null)?\s*;\s*)*(?:(?:void\s+0|undefined|null|return|continue|break)\s*;?\s*)?`;
+  const swallowedCatches =
+    [...bare.matchAll(new RegExp(String.raw`\bcatch\s*(?:\([^)]*\))?\s*\{${NO_OP}\}`, "g"))]
+      .length +
+    [
+      ...bare.matchAll(
+        /\.catch\(\s*(?:\(\s*\w*\s*\)|\w+)\s*=>\s*(?:\{\s*\}|undefined|void\s+0|null)\s*\)/g,
+      ),
+    ].length;
   return {
     nodePatchSites,
     envVars: new Set(code.match(/\bVITEST_NATIVE_[A-Z0-9_]+/g) ?? []),

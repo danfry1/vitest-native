@@ -4,6 +4,8 @@
  * scripts/structural-scorecard.mjs.
  */
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { BASELINE_PATH, compare, countSource, measure } from "../scripts/structural-scorecard.mjs";
 
@@ -65,5 +67,70 @@ describe("structural scorecard", () => {
       expect.stringContaining("globals fell from 1 to 0"),
     ]);
     expect(compare(baseline, baseline)).toEqual([]);
+  });
+
+  it("counts the indirect patch spellings it claims to", () => {
+    const sources = [
+      'Reflect.set(Module, "_load", f);',
+      "Object.assign(Module, { _load: f });",
+      "Object.defineProperties(Module, { _resolveFilename: { value: f } });",
+      'const ext = Module._extensions;\next[".ts"] = h;',
+      'require.extensions[".ts"] = h;',
+      'import * as nm from "node:module";\nnm.register("./l.mjs", u);',
+      'import mod from "node:module";\nconst r = mod.register;\nr("./l.mjs");',
+    ];
+    for (const source of sources) expect(countSource(source).nodePatchSites, source).toBe(1);
+  });
+
+  it("counts no-op catch bodies and promise catches that drop the error", () => {
+    for (const source of [
+      "try { x() } catch { void 0 }",
+      "try { x() } catch (e) { ; }",
+      "try { x() } catch { undefined }",
+      "for (;;) { try { x() } catch { continue; } }",
+      "p.catch(() => {});",
+      "p.catch(() => undefined);",
+    ]) {
+      expect(countSource(source).swallowedCatches, source).toBe(1);
+    }
+    expect(countSource("try { x() } catch { return null; }").swallowedCatches).toBe(0);
+  });
+
+  it("reads a regular expression after a keyword's parenthesis, so it hides nothing", () => {
+    // `/"/` after `if (ok)` was read as division, its quote opened a string, and the
+    // string swallowed the patch that followed.
+    expect(
+      countSource('if (ok) /"/.test(s); Module._load = f; const q = "x";').nodePatchSites,
+    ).toBe(1);
+    expect(countSource('const r = (a) / 2; Module._load = f; const q = "x";').nodePatchSites).toBe(
+      1,
+    );
+  });
+
+  it("is stable when files are renamed and moved", () => {
+    const src = path.resolve(import.meta.dirname, "..", "src");
+    const moved = fs.mkdtempSync(path.join(os.tmpdir(), "vn-scorecard-"));
+    try {
+      const walk = (dir: string): string[] =>
+        fs
+          .readdirSync(dir, { withFileTypes: true })
+          .flatMap((e) =>
+            e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)],
+          );
+      walk(src).forEach((file, index) => {
+        // Every file to a new name, in a new, deeper directory, in another order.
+        const target = path.join(
+          moved,
+          `d${index % 3}`,
+          "nested",
+          `f${1000 - index}${path.extname(file)}`,
+        );
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.copyFileSync(file, target);
+      });
+      expect(measure(moved)).toEqual(measure(src));
+    } finally {
+      fs.rmSync(moved, { recursive: true, force: true });
+    }
   });
 });
