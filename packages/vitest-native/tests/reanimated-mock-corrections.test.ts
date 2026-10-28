@@ -31,7 +31,7 @@ function noOpMock() {
 
 /** The same names, as a mock that does what they say. */
 function workingMock() {
-  const value = { value: 0, get: () => 0 };
+  const value = { value: 0, get: () => 0, addListener: NOOP, removeListener: NOOP };
   return {
     interpolate: () => "theirs",
     clamp: () => "theirs",
@@ -49,6 +49,7 @@ function workingMock() {
 }
 
 const NAMES = [
+  "useSharedValue",
   "interpolate",
   "clamp",
   "useAnimatedScrollHandler",
@@ -66,7 +67,16 @@ describe("reanimated mock corrections", () => {
     expect(fixed.clamp(5, 0, 3)).toBe(3);
     expect(fixed.default.interpolate(5, [0, 10], [0, 100])).toBe(50);
     expect(fixed.default.ScrollView).not.toBe(mock.default.ScrollView);
-    expect(fixed.useSharedValue).toBe(mock.useSharedValue);
+    // Its shared values gain listeners, on the mock's own value.
+    expect(fixed.useSharedValue).not.toBe(mock.useSharedValue);
+    const shared = fixed.useSharedValue(1);
+    const seen: unknown[] = [];
+    shared.addListener(7, (value: unknown) => seen.push(value));
+    shared.value = 2;
+    shared.removeListener(7);
+    shared.value = 3;
+    expect(seen).toEqual([2]);
+    expect(shared.get()).toBe(1); // the mock's own get(), over its own state
   });
 
   it("keep each name the mock answers itself", () => {

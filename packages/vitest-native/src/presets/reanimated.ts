@@ -35,8 +35,9 @@ const REANIMATED_MOCK: LibraryMock = {
   // Reanimated's mock (4.7.1, and its main branch in October 2026) answers `interpolate`,
   // `interpolateColor` and `clamp` with a no-op, so every interpolated style is
   // `undefined`; its `useAnimatedScrollHandler` and `useComposedEventHandler` never run
-  // their handlers; and its `useScrollOffset` and `useScrollViewOffset` return
-  // `{ value: 0 }`, which is not a shared value. Those names, and only while the mock's
+  // their handlers; its `useScrollOffset` and `useScrollViewOffset` return
+  // `{ value: 0 }`, which is not a shared value; and its shared values have no
+  // listeners, which Gesture Handler 3 adds to one given as gesture config. Those names, and only while the mock's
   // value still behaves so (mockCorrections), are replaced: the helpers by reanimated's
   // own (ownHelpers), the rest by ones that work (scrollHandlers). A reanimated whose
   // mock does better keeps its own.
@@ -81,6 +82,57 @@ function notASharedValue(useOffset: unknown): boolean {
   }
 }
 
+/** Whether `useSharedValue` (called outside a render) gives a value without listeners. */
+function lacksListeners(useSharedValue: unknown): boolean {
+  if (typeof useSharedValue !== "function") return false;
+  try {
+    const value = useSharedValue(0);
+    return (
+      value !== null &&
+      typeof value === "object" &&
+      (typeof value.addListener !== "function" || typeof value.removeListener !== "function")
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `shared`, with a shared value's listeners: `addListener(id, listener)` and
+ * `removeListener(id)`, each listener called with the new value when `.value` is
+ * assigned or `.set()` called, as on reanimated's shared values. Gesture Handler 3
+ * listens to a shared value given as gesture config (`usePanGesture({ enabled })`).
+ */
+function withListeners<T extends object>(shared: T): T {
+  const listeners = new Map<unknown, (value: unknown) => void>();
+  const notify = () => {
+    for (const listener of listeners.values()) listener((shared as { value?: unknown }).value);
+  };
+  return new Proxy(shared, {
+    get(target, prop) {
+      if (prop === "addListener") {
+        return (id: unknown, listener: (value: unknown) => void) => {
+          listeners.set(id, listener);
+        };
+      }
+      if (prop === "removeListener") return (id: unknown) => listeners.delete(id);
+      const value = (target as Record<PropertyKey, unknown>)[prop];
+      if (prop === "set" && typeof value === "function") {
+        return (next: unknown) => {
+          value(next);
+          notify();
+        };
+      }
+      return value;
+    },
+    set(target, prop, next) {
+      const done = Reflect.set(target, prop, next);
+      if (done && prop === "value") notify();
+      return done;
+    },
+  });
+}
+
 /**
  * Reanimated's mock, with the names it answers with a no-op replaced (see
  * REANIMATED_MOCK). Exported for its tests.
@@ -110,8 +162,16 @@ export function mockCorrections(mock: Record<string, any>, dir: string): Record<
   if (neverCalls((h) => mock.useComposedEventHandler?.([h]))) {
     fixed.useComposedEventHandler = handlers.useComposedEventHandler;
   }
+  // Shared values without listeners get them; the offsets below are built on the result.
+  let useSharedValue = mock.useSharedValue;
+  if (lacksListeners(mock.useSharedValue)) {
+    const own = mock.useSharedValue;
+    useSharedValue = (init: unknown) => withListeners(own(init));
+    fixed.useSharedValue = useSharedValue;
+  }
+  const offsets = scrollHandlers(useSharedValue).useScrollOffset;
   for (const name of ["useScrollOffset", "useScrollViewOffset"]) {
-    if (notASharedValue(mock[name])) fixed[name] = handlers.useScrollOffset;
+    if (notASharedValue(mock[name])) fixed[name] = offsets;
   }
   const defaults: Record<string, any> = { ...mock.default, ...fixHelpers(mock.default) };
   // The scroll views pass a handler's drag and momentum handlers on (withScrollEvents).
