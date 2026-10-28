@@ -4,14 +4,16 @@
 
 ### Upgrading from 0.13
 
-- **The native engine reuses workers by default.** `hotRuntime` now defaults to `'auto'` (it was
-  `false`): workers are reused across test files, with React Native, the app and test modules, and
-  verified process state reset per file. It keeps Vitest's per-file isolation whenever the run cannot
-  be bounded, or when you set a pool or `test.isolate` yourself, in the config or on the command line.
-- **How to tell, and how to opt out.** When it is active, the startup banner names it, as in
-  `(platform ios, hot runtime)`. If a test passes on its own but fails alongside others, see
-  [troubleshooting](https://danfry1.github.io/vitest-native/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files);
-  `hotRuntime: false` restores per-file isolation.
+- **Per-file isolation stays the default.** `hotRuntime` defaults to `false`, as in 0.13.0: under
+  the native engine each test file runs in a fresh worker. The hot runtime, which reuses workers
+  across files and is faster on most suites, is available with `hotRuntime: 'auto'`. Four known
+  differences from per-file isolation are listed in
+  [troubleshooting](https://danfry1.github.io/vitest-native/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files).
+  Release candidates 0.14.0-rc.1 to rc.8 defaulted to `'auto'`, so a project that relied on that
+  sets `hotRuntime: 'auto'` to keep it.
+- **How to tell.** When the hot runtime is active, the startup banner names it, as in
+  `(platform ios, hot runtime)`. With `'auto'`, it keeps Vitest's per-file isolation whenever the run
+  cannot be bounded, or when you set a pool or `test.isolate` yourself, and prints the reason.
 - **Expo path aliases resolve.** In an Expo project on Vite 8, imports through tsconfig `paths` (the
   template's `@/…`) now resolve as Metro resolves them; a `vite-tsconfig-paths` plugin or a hand-written
   alias for them can go.

@@ -1482,11 +1482,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // Hot runtime (native engine only): persistent RN-hot workers with per-file
   // isolation via the custom pool. `auto` is a conservative selector: it keeps
   // stock isolation whenever config-time evidence cannot prove this path safe.
-  // 'auto' by default: the bounded hot runtime where config-time evidence shows it
-  // is safe, per-file isolation otherwise. Declines are reported only when the user
-  // asked for hot explicitly; the implicit default falls back quietly.
+  // Off by default, as in 0.13.0: each file runs in a fresh worker until the hot
+  // runtime's known per-file differences are detected and recovered (troubleshooting
+  // guide). 'auto' opts in: the bounded hot runtime where config-time evidence shows
+  // it is safe, per-file isolation otherwise, with the reason for any decline printed.
   const hotRuntimeExplicit = options?.hotRuntime !== undefined;
-  const hotRuntimeOpt = options?.hotRuntime ?? "auto";
+  const hotRuntimeOpt = options?.hotRuntime ?? false;
   const hotRuntimeRequested = hotRuntimeOpt !== false;
   const hotRuntimeAuto = hotRuntimeOpt === "auto";
   const hotRecycle = typeof hotRuntimeOpt === "object" ? hotRuntimeOpt : {};
