@@ -28,7 +28,7 @@ import { importPresetModule, presetModulePaths } from "./preset-modules.mjs";
 import { AUTO_DETECT_PRESETS, presetForInstalled } from "./preset-map.js";
 import { serializer as rnSerializer } from "./serializer.js";
 import { animatedMatchers } from "./matchers/animated.js";
-import { installRntlAutoCleanup } from "./rntl-support.mjs";
+import { installRntlAutoCleanup, installRntlLoadTracking } from "./rntl-support.mjs";
 
 // --- Read options from process.env ---
 
@@ -266,8 +266,13 @@ g.__vitest_native_presets_ready = presetsReady;
 // --- 5. Configure @testing-library/react-native ---
 
 // RNTL registers its afterEach cleanup only through a global afterEach; without
-// test.globals, register it here (see rntl-support.mjs).
-installRntlAutoCleanup(afterEach);
+// test.globals, register it here (see rntl-support.mjs). With `isolate: false` files
+// share Node's module cache, so the cleanup tracks which entries this file loads.
+const sharedWorker =
+  (globalThis as { __vitest_worker__?: { config?: { isolate?: boolean } } }).__vitest_worker__
+    ?.config?.isolate === false;
+if (sharedWorker) installRntlLoadTracking();
+installRntlAutoCleanup(afterEach, { trackImports: sharedWorker });
 
 try {
   // `/pure`, not the package entry: loading the entry here would register RNTL's

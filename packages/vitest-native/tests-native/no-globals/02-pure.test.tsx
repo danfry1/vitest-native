@@ -1,6 +1,7 @@
 // `@testing-library/react-native/pure` is RNTL's opt-out of auto-cleanup. Under
-// `--mode hot` this file runs after 01 in the same worker, whose module cache then
-// holds RNTL's entry: only an import by this file may turn the cleanup on.
+// `--mode hot` and `--mode noiso` this file runs after 01 in the same worker, whose
+// module cache then holds RNTL's entry: only an import by this file may turn the
+// cleanup on.
 import React from "react";
 import { Text } from "react-native";
 import { cleanup, render, screen } from "@testing-library/react-native/pure";
@@ -23,7 +24,7 @@ function Tracked() {
 
 test("ran in the worker the mode asks for", () => {
   // Without this the hot run could pass vacuously, one fresh worker per file.
-  const expected = process.env.VN_NO_GLOBALS_MODE === "hot" ? 2 : 1;
+  const expected = process.env.VN_NO_GLOBALS_MODE === "native" ? 1 : 2;
   expect(proc[FILES_SEEN]).toBe(expected);
 });
 

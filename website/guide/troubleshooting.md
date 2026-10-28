@@ -53,6 +53,10 @@ The same applies to a method a React Native module's codegen spec does not decla
 
 Under `engine: 'native'`, real React Native renders **real host component names** (`RCTText`, `RCTView`, `RCTScrollView`), whereas `@react-native/jest-preset` snapshots show mock names (`Text`, `View`). Run once with `vitest run -u` to re-record. Prefer explicit queries over large snapshots — they're robust across host names. See [Migrating from Jest](/migration/from-jest#re-record-snapshots).
 
+## `findBy*` or `waitFor` times out under `vi.useFakeTimers()`
+
+RNTL advances fake timers only when it finds a global `jest`, which the [jest-compat layer](/guide/jest-compat) provides. Without it, `waitFor` and `findBy*` wait in real time while the fake clock stands still. Add jest-compat, or advance the clock before querying: `await vi.advanceTimersByTimeAsync(ms)`. See [How it works](/guide/how-it-works).
+
 ## A test passes on its own but fails when run with other files
 
 The engine banner says `hot runtime` when the native engine is reusing workers across files (the default wherever the run can be bounded). The hot runtime resets app/test modules, mocks, timers and a verified list of process-wide state between files, but a library that keeps state somewhere else can carry it into the next file. To confirm, run with per-file isolation:

@@ -199,9 +199,15 @@ if (typeof globalThis.expect === "undefined") {
   });
 }
 // RNTL registers its afterEach cleanup only through a global afterEach; without
-// test.globals, register it here (see rntl-support.mjs). Under the hot runtime RNTL
-// stays in Node's module cache across files, so rntl-hooks.mjs reports each import.
-installRntlAutoCleanup(afterEach, { trackImports: Boolean(globalThis.__vitest_native_hot_reset) });
+// test.globals, register it here (see rntl-support.mjs). When files share a worker
+// (the hot runtime, or `isolate: false`) RNTL stays in Node's module cache across
+// files, so the cache cannot say whether this file loaded it: rntl-hooks.mjs and the
+// require hook (hooks.mjs) report each load instead.
+installRntlAutoCleanup(afterEach, {
+  trackImports:
+    Boolean(globalThis.__vitest_native_hot_reset) ||
+    globalThis.__vitest_worker__?.config?.isolate === false,
+});
 // register() once per WORKER, not per file: under the hot runtime this setup
 // file re-evaluates per test file in a persistent worker, and re-registering
 // would stack a new loader-hook layer on every file. (installGlobals and

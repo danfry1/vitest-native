@@ -8,3 +8,5 @@ export declare function installRntlAutoCleanup(
   options?: { trackImports?: boolean },
 ): void;
 export declare function noteRntlEntryImported(file: string): void;
+export declare function noteIfRntlEntryLoaded(exports: unknown): void;
+export declare function installRntlLoadTracking(): void;
