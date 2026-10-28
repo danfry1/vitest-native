@@ -1,6 +1,7 @@
 import { defineConfig } from 'tsdown';
 import fs from 'node:fs';
 import path from 'node:path';
+import { VERBATIM_DIRS, isVerbatimRuntimeFile } from './scripts/verbatim-runtime.mjs';
 
 export default defineConfig({
   entry: {
@@ -56,25 +57,17 @@ export default defineConfig({
           fs.rmSync(path.resolve('dist', `${name}.${ext}`), { force: true });
         }
       }
-      // Top-level runtime .mjs (errors.mjs) ships verbatim too: the shipped runtimes
-      // below import it by relative path, and the tests load those same files from src,
-      // so it must resolve in both trees as one module rather than a bundled copy.
-      for (const f of fs.readdirSync(path.resolve('src'))) {
-        if (f.endsWith('.mjs') || f.endsWith('.d.mts')) {
-          fs.copyFileSync(path.resolve('src', f), path.resolve('dist', f));
-        }
-      }
-      for (const sub of ['native', 'jest-compat']) {
+      // The runtime .mjs files and their hand-written .d.mts stubs ship verbatim
+      // (scripts/verbatim-runtime.mjs). That includes the top-level ones (errors.mjs):
+      // the shipped runtimes import them by relative path, and the tests load those
+      // same files from src, so each must resolve in both trees as one module rather
+      // than a bundled copy.
+      for (const sub of VERBATIM_DIRS) {
         const srcDir = path.resolve('src', sub);
         const outDir = path.resolve('dist', sub);
         fs.mkdirSync(outDir, { recursive: true });
         for (const f of fs.readdirSync(srcDir)) {
-          // The memory planner is a config/doctor build-time module and is already
-          // emitted as an internal code-split chunk. It is not loaded verbatim by
-          // Node's hooks, so copying it again would publish two unreachable files.
-          if (sub === 'native' && (f === 'memory.mjs' || f === 'memory.d.mts')) continue;
-          // Ship runtime .mjs verbatim, plus hand-written .d.mts type stubs for them.
-          if (f.endsWith('.mjs') || f.endsWith('.d.mts')) {
+          if (isVerbatimRuntimeFile(sub, f)) {
             fs.copyFileSync(path.join(srcDir, f), path.join(outDir, f));
           }
         }

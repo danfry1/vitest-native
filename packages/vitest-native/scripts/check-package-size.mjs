@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { VERBATIM_DIRS, isVerbatimRuntimeFile } from "./verbatim-runtime.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const budget = JSON.parse(fs.readFileSync(path.join(root, "package-budget.json"), "utf8"));
@@ -50,13 +51,14 @@ if (
  * artifact. A count cannot say WHICH file is missing, so the expectation is a list:
  *
  * - every path `exports` and `bin` declare (what a consumer resolves);
- * - every runtime .mjs and hand-written .d.mts in src/, src/native/ and
- *   src/jest-compat/, which tsdown.config.ts's build:done hook copies verbatim and
- *   Node loads by relative path at runtime, so no export map ever names most of them;
- * - every plain file listed in `files`.
- *
- * src/native/memory.* is the one exception, mirrored from build:done: the memory
- * planner is bundled into the CLI chunk and deliberately not copied.
+ * - every runtime .mjs and hand-written .d.mts that the build copies verbatim
+ *   (scripts/verbatim-runtime.mjs, shared with tsdown.config.ts), which Node loads by
+ *   relative path at runtime, so no export map names most of them;
+ * - every entry in `files`, which must exist: a listed file that is gone is a
+ *   deleted page or licence, not an optional one;
+ * - every file reachable by a relative import from those, transitively. Code-split
+ *   chunks (dist/ecosystem-*.mjs and the like) have hashed names no source states,
+ *   so the only way to require them is to follow the imports that load them.
  */
 function declaredPaths(value, into) {
   if (typeof value === "string") into.add(path.posix.normalize(value.replace(/^\.\//, "")));
@@ -66,31 +68,57 @@ function declaredPaths(value, into) {
   return into;
 }
 
+const shipped = new Set(artifact.files.map((file) => file.path));
 const mustShip = new Set();
+const problems = [];
 declaredPaths(packageJson.exports, mustShip);
 declaredPaths(packageJson.bin, mustShip);
-const verbatim = (file) => file.endsWith(".mjs") || file.endsWith(".d.mts");
-for (const sub of ["", "native", "jest-compat"]) {
+for (const sub of VERBATIM_DIRS) {
   for (const file of fs.readdirSync(path.join(root, "src", sub))) {
-    if (!verbatim(file)) continue;
-    if (sub === "native" && (file === "memory.mjs" || file === "memory.d.mts")) continue;
-    mustShip.add(path.posix.join("dist", sub, file));
+    if (isVerbatimRuntimeFile(sub, file)) mustShip.add(path.posix.join("dist", sub, file));
   }
 }
 for (const entry of packageJson.files ?? []) {
   const stat = fs.statSync(path.join(root, entry), { throwIfNoEntry: false });
-  if (stat?.isFile()) mustShip.add(entry);
+  if (!stat) problems.push(`${entry} (listed in package.json "files", does not exist)`);
+  else if (stat.isFile()) mustShip.add(entry);
+  else if (![...shipped].some((file) => file.startsWith(`${entry}/`))) {
+    problems.push(`${entry}/ (listed in package.json "files", ships nothing)`);
+  }
 }
 
-const shipped = new Set(artifact.files.map((file) => file.path));
-const missing = [...mustShip].filter((file) => !shipped.has(file)).sort();
+// Relative specifiers in static imports and re-exports, dynamic import() and
+// require(), as the bundler and the hand-written runtime emit them.
+const RELATIVE_IMPORT =
+  /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)["'](\.{1,2}\/[^"']+)["']/g;
+const CODE = /\.(?:mjs|cjs|js|d\.mts|d\.cts|d\.ts)$/;
+const queue = [...mustShip].filter((file) => CODE.test(file) && shipped.has(file));
+const reached = new Set(queue);
+while (queue.length > 0) {
+  const from = queue.pop();
+  const source = fs.readFileSync(path.join(root, from), "utf8");
+  for (const [, specifier] of source.matchAll(RELATIVE_IMPORT)) {
+    const target = path.posix.normalize(path.posix.join(path.posix.dirname(from), specifier));
+    if (reached.has(target)) continue;
+    reached.add(target);
+    mustShip.add(target);
+    if (!shipped.has(target)) problems.push(`${target} (imported by ${from})`);
+    else if (CODE.test(target)) queue.push(target);
+  }
+}
+
+for (const file of mustShip) {
+  if (!shipped.has(file) && !problems.some((p) => p.startsWith(`${file} (`))) problems.push(file);
+}
+problems.sort();
+const present = [...mustShip].filter((file) => shipped.has(file)).length;
 console.log(
-  `Must-ship files: ${mustShip.size - missing.length} / ${mustShip.size} in the artifact`,
+  `Must-ship files: ${present} / ${mustShip.size} in the artifact (${reached.size} reached by import)`,
 );
-if (missing.length > 0) {
+if (problems.length > 0) {
   console.error(
-    `\nThe published artifact is missing ${missing.length} file(s) the package declares or loads at runtime:\n` +
-      `${missing.map((file) => `  ${file}`).join("\n")}\n` +
+    `\nThe published artifact is missing ${problems.length} file(s) the package declares or loads at runtime:\n` +
+      `${problems.map((file) => `  ${file}`).join("\n")}\n` +
       "Check that the build ran to completion (tsdown.config.ts build:done copies the runtime .mjs files).",
   );
 }
@@ -141,7 +169,7 @@ const checks = [
 const warnRatio = typeof budget.warnHeadroomRatio === "number" ? budget.warnHeadroomRatio : 0;
 const isScaleBudget = (min, max) => typeof min === "number" && min !== max;
 
-let failed = missing.length > 0;
+let failed = problems.length > 0;
 const under = [];
 const tight = [];
 console.log("Published package budget:");
