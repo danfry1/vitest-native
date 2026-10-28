@@ -92,6 +92,7 @@
         "untranspiled-jsx-lib": "file:./tests-native/fixtures/untranspiled-jsx-lib",
         "vite": "^8.3.4",
         "vitest": "5.0.5",
+        "vn-lib-jest-support": "file:./tests-native/fixtures/vn-lib-jest-support",
       },
       "peerDependencies": {
         "@babel/core": "*",
@@ -1981,6 +1982,8 @@
     "vitest-native/rn-singleton-lib": ["rn-singleton-lib@file:packages/vitest-native/tests-native/fixtures/rn-singleton-lib", { "dependencies": { "react-native": "*" } }],
 
     "vitest-native/untranspiled-jsx-lib": ["untranspiled-jsx-lib@file:packages/vitest-native/tests-native/fixtures/untranspiled-jsx-lib", {}],
+
+    "vitest-native/vn-lib-jest-support": ["vn-lib-jest-support@file:packages/vitest-native/tests-native/fixtures/vn-lib-jest-support", {}],
 
     "wrap-ansi/ansi-styles": ["ansi-styles@4.3.0", "", { "dependencies": { "color-convert": "^2.0.1" } }, "sha512-zbB9rCJAT1rbjiVDb2hqKFHNYLxgtk8NURxZ3IZwD3F6NtxbXZQCnnSi1Lkx+IDohdPlFp222wVALIheZJQSEg=="],
 

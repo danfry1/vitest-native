@@ -318,6 +318,12 @@ export function installRequireHooks(
   function presetExportsFor(request, fromFile) {
     const mocks = globalThis.__vitest_native_preset_mocks;
     if (!mocks) return NO_PRESET;
+    // jest.requireActual of a shadowed package: this one load is the package itself
+    // (jest-compat/node-registry.mjs), as Jest's requireActual gives it.
+    if (globalThis.__vitest_native_preset_actual === request) {
+      globalThis.__vitest_native_preset_actual = undefined;
+      return NO_PRESET;
+    }
     if (Object.prototype.hasOwnProperty.call(mocks, request)) return mocks[request];
     // Subpath require of a preset package — the real deep entry would load the
     // package's native runtime. Exempt: JSON subpaths (package.json version
