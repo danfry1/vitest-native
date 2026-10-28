@@ -121,8 +121,16 @@ export function reanimatedDir(root: string): string | null {
 export interface LibraryMock {
   /** The package the preset shadows. */
   pkg: string;
-  /** The mock's built file inside the package, as `require` takes it. */
+  /** The mock's built file inside the package, which its export names are read from. */
   file: string;
+  /** The mock's path inside the package as `require` takes it ("mock", "jest/mock"); by default `file`. */
+  entry?: string;
+  /** Further files whose names the mock module also provides (reanimated's mock-svg). */
+  alsoFiles?: string[];
+  /** The export the mock module is, when it is not the whole module ("default"). */
+  exportKey?: string;
+  /** Whether the installed package can run its mock here; by default, whether `file` exists. */
+  available?: (packageDir: string, projectRoot: string) => boolean;
   /**
    * Whether the mock's module body sets up globals of the test environment
    * (worklets' sets `requestAnimationFrame`). Such a mock is built as each file is set
@@ -153,7 +161,9 @@ export function libraryMockDir(mock: LibraryMock, root: string): string | null {
     for (let at = path.resolve(root); ; at = path.dirname(at)) {
       const candidate = path.join(at, "node_modules", mock.pkg);
       if (fs.existsSync(path.join(candidate, "package.json"))) {
-        if (fs.existsSync(path.join(candidate, mock.file))) dir = fs.realpathSync(candidate);
+        const real = fs.realpathSync(candidate);
+        const available = mock.available ?? ((d: string) => fs.existsSync(path.join(d, mock.file)));
+        if (available(real, root)) dir = real;
         break;
       }
       if (path.dirname(at) === at) break;

@@ -281,3 +281,29 @@ describe("presets against each library's own mock", () => {
     });
   }
 });
+
+describe("presets that are the library's own mock under the native engine", () => {
+  // Reanimated's, worklets' and safe-area-context's modules there are the library's
+  // mocks (presets/library-mock.ts), so they provide every name the mock does.
+  const root = path.resolve(import.meta.dirname, "..");
+  for (const name of [
+    "reanimated",
+    "worklets",
+    "safe-area-context",
+    "keyboard-controller",
+    "bottom-sheet",
+    "netinfo",
+  ]) {
+    it(`${name} lacks nothing`, () => {
+      const { preset, module, reference } = CASES[name];
+      const names = preset().modules[module].exportsFor?.({
+        projectRoot: root,
+        platform: "ios",
+        engine: "native",
+      });
+      expect(names).not.toBeNull();
+      const missing = referenceNames(reference).filter((n) => !names!.includes(n));
+      expect(missing).toEqual([]);
+    });
+  }
+});

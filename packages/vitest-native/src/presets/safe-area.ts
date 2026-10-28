@@ -2,12 +2,26 @@ import type { Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
 import { builtInPreset } from "./built-in.js";
+import { libraryMockModule, type LibraryMock } from "./library-mock.js";
+
+// Under the native engine the module is safe-area-context's own Jest mock
+// (`react-native-safe-area-context/jest/mock`, its default export), as a Jest suite
+// installs it: the real package, with `useSafeAreaInsets` and `useSafeAreaFrame` as
+// mock functions that read the provider's metrics (`<SafeAreaProvider initialMetrics>`)
+// and zero insets on a 320x640 frame otherwise. Under the mock engine, and for a
+// version without that mock, the module below serves.
+const SAFE_AREA_MOCK: LibraryMock = {
+  pkg: "react-native-safe-area-context",
+  entry: "jest/mock",
+  file: "lib/module/jest/mock.js",
+  exportKey: "default",
+};
 
 export function safeAreaContext(): Preset {
   return builtInPreset({
     name: "safeAreaContext",
     modules: {
-      "react-native-safe-area-context": {
+      "react-native-safe-area-context": libraryMockModule(SAFE_AREA_MOCK, {
         exports: [
           "SafeAreaProvider",
           "SafeAreaView",
@@ -100,7 +114,7 @@ export function safeAreaContext(): Preset {
             },
           };
         },
-      },
+      }),
     },
   });
 }

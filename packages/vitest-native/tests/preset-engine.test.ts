@@ -17,7 +17,7 @@ describe("autoDetectedPresetApplies", () => {
     expect(autoDetectedPresetApplies("expo", "native")).toBe(false);
     expect(autoDetectedPresetApplies("expo", "mock")).toBe(true);
     // These apply, with the library's own mock as their module there.
-    for (const preset of ["reanimated", "worklets"]) {
+    for (const preset of ["reanimated", "worklets", "safeAreaContext"]) {
       expect(autoDetectedPresetApplies(preset, "native")).toBe(true);
     }
   });
