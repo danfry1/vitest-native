@@ -24,9 +24,12 @@ Usage:
                                                  list every test whose result differs
       --jest-args "<args>"    extra Jest arguments      --vitest-args "<args>"  extra Vitest arguments
       --vitest-config <file>  Vitest config to use      --jest-results <file>   read Jest's --json report
+      --jest-root <dir>       where that report was made (detected when omitted)
       --json <file>           write a report to attach to an issue (no source code)
       --top <n>               groups and files to list (10)
       --timeout <seconds>     per runner (1800)         --show-output           stream both runners' output
+      exits 0 when every Jest-passing test passes under Vitest and \`vitest run\` exits 0,
+      1 when not, 2 when a runner could not run or the project changed, 130 when interrupted
 Options:
   --root <dir>   project root (default: cwd)
   --help         this text

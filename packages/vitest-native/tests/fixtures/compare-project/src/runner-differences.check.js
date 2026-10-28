@@ -12,5 +12,6 @@ describe("globals", () => {
 
 (underVitest ? it.skip : it)("is skipped under Vitest only", () => {});
 
-if (underVitest) it("exists under Vitest only", () => {});
-else it("exists under Jest only", () => {});
+// In blocks of their own, so they are not matched by position with each other.
+if (underVitest) describe("vitest block", () => it("exists under Vitest only", () => {}));
+else describe("jest block", () => it("exists under Jest only", () => {}));

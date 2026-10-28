@@ -1,10 +1,10 @@
 {
-  "numTotalTestSuites": 14,
-  "numPassedTestSuites": 6,
+  "numTotalTestSuites": 16,
+  "numPassedTestSuites": 8,
   "numFailedTestSuites": 8,
   "numPendingTestSuites": 0,
-  "numTotalTests": 15,
-  "numPassedTests": 9,
+  "numTotalTests": 19,
+  "numPassedTests": 13,
   "numFailedTests": 3,
   "numPendingTests": 3,
   "numTodoTests": 0,
@@ -24,7 +24,7 @@
     "updated": 0,
     "didUpdate": false
   },
-  "startTime": 1793137896928,
+  "startTime": 1793186262030,
   "success": false,
   "testResults": [
     {
@@ -34,26 +34,79 @@
           "fullName": "loads under Vitest",
           "status": "passed",
           "title": "loads under Vitest",
-          "duration": 0.551124999999999,
+          "duration": 0.6785840000000007,
           "failureMessages": [],
           "meta": {},
           "tags": [],
           "benchmarks": []
         }
       ],
-      "startTime": 1793137897087,
-      "endTime": 1793137897087.551,
+      "startTime": 1793186262153,
+      "endTime": 1793186262153.6785,
       "status": "passed",
       "message": "",
       "name": "/project/src/collect-fails-under-jest.check.js"
     },
     {
       "assertionResults": [],
-      "startTime": 1793137896928,
-      "endTime": 1793137896928,
+      "startTime": 1793186262030,
+      "endTime": 1793186262030,
       "status": "failed",
       "message": "cannot load this file under Vitest",
       "name": "/project/src/collect-fails-under-vitest.check.js"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "formats an object { a: 1, b: [ 1, 2 ] }",
+          "status": "passed",
+          "title": "formats an object { a: 1, b: [ 1, 2 ] }",
+          "duration": 1.0067920000000044,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "pretty-formats %p",
+          "status": "passed",
+          "title": "pretty-formats %p",
+          "duration": 0.0637919999999923,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "interpolates { deep: true }",
+          "status": "passed",
+          "title": "interpolates { deep: true }",
+          "duration": 0.03754200000000196,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "keeps % a undefined",
+          "status": "passed",
+          "title": "keeps % a undefined",
+          "duration": 0.0383329999999944,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        }
+      ],
+      "startTime": 1793186262137,
+      "endTime": 1793186262138.0637,
+      "status": "passed",
+      "message": "",
+      "name": "/project/src/each.check.js"
     },
     {
       "assertionResults": [
@@ -68,8 +121,8 @@
           "benchmarks": []
         }
       ],
-      "startTime": 1793137896928,
-      "endTime": 1793137896928,
+      "startTime": 1793186262030,
+      "endTime": 1793186262030,
       "status": "failed",
       "message": "",
       "name": "/project/src/hook-fails-under-vitest.check.js"
@@ -81,7 +134,7 @@
           "fullName": "globals uses the jest global",
           "status": "failed",
           "title": "uses the jest global",
-          "duration": 5.909957999999989,
+          "duration": 5.121166000000002,
           "failureMessages": [
             "AssertionError: expected 'undefined' to be 'object' // Object.is equality\n    at /project/src/runner-differences.check.js:6:25\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:1632:35\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:2801:26\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:3338:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///vitest/dist/chunks/run.BPv-BBRv.js:3333:10)\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:3318:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///vitest/dist/chunks/run.BPv-BBRv.js:3276:10)\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:3904:64"
           ],
@@ -94,7 +147,7 @@
           "fullName": "globals uses the vi global",
           "status": "passed",
           "title": "uses the vi global",
-          "duration": 0.14316700000000537,
+          "duration": 0.14083300000000065,
           "failureMessages": [],
           "meta": {},
           "tags": [],
@@ -111,19 +164,19 @@
           "benchmarks": []
         },
         {
-          "ancestorTitles": [],
-          "fullName": "exists under Vitest only",
+          "ancestorTitles": ["vitest block"],
+          "fullName": "vitest block exists under Vitest only",
           "status": "passed",
           "title": "exists under Vitest only",
-          "duration": 0.07450000000000045,
+          "duration": 0.042541999999997415,
           "failureMessages": [],
           "meta": {},
           "tags": [],
           "benchmarks": []
         }
       ],
-      "startTime": 1793137897055,
-      "endTime": 1793137897062.0745,
+      "startTime": 1793186262140,
+      "endTime": 1793186262146.0425,
       "status": "failed",
       "message": "",
       "name": "/project/src/runner-differences.check.js"
@@ -135,7 +188,7 @@
           "fullName": "math adds",
           "status": "passed",
           "title": "adds",
-          "duration": 0.9560000000000031,
+          "duration": 0.6219999999999999,
           "failureMessages": [],
           "meta": {},
           "tags": [],
@@ -146,7 +199,7 @@
           "fullName": "math nested multiplies",
           "status": "passed",
           "title": "multiplies",
-          "duration": 0.09720799999999485,
+          "duration": 0.06904100000001279,
           "failureMessages": [],
           "meta": {},
           "tags": [],
@@ -157,7 +210,7 @@
           "fullName": "math repeats a title",
           "status": "passed",
           "title": "repeats a title",
-          "duration": 0.06104100000000301,
+          "duration": 0.047333999999992216,
           "failureMessages": [],
           "meta": {},
           "tags": [],
@@ -168,7 +221,7 @@
           "fullName": "math repeats a title",
           "status": "passed",
           "title": "repeats a title",
-          "duration": 0.055999999999997385,
+          "duration": 0.05983299999999758,
           "failureMessages": [],
           "meta": {},
           "tags": [],
@@ -179,7 +232,7 @@
           "fullName": "fails under both runners",
           "status": "failed",
           "title": "fails under both runners",
-          "duration": 3.0673749999999984,
+          "duration": 3.3204999999999956,
           "failureMessages": [
             "AssertionError: expected 1 to be 2 // Object.is equality\n    at /project/src/same.check.js:19:13\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:1632:35\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:2801:26\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:3338:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///vitest/dist/chunks/run.BPv-BBRv.js:3333:10)\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:3318:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///vitest/dist/chunks/run.BPv-BBRv.js:3276:10)\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:3904:64"
           ],
@@ -198,8 +251,8 @@
           "benchmarks": []
         }
       ],
-      "startTime": 1793137897060,
-      "endTime": 1793137897064.0674,
+      "startTime": 1793186262140,
+      "endTime": 1793186262144.3206,
       "status": "failed",
       "message": "",
       "name": "/project/src/same.check.js"
@@ -211,7 +264,7 @@
           "fullName": "badge renders",
           "status": "failed",
           "title": "renders",
-          "duration": 2.8010830000000055,
+          "duration": 2.382249999999999,
           "failureMessages": [
             "Error: Snapshot `badge > renders 1` mismatched\n    at assertMatchResult (file:///vitest/dist/chunks/index.aTZaPVhf.js:7898:23)\n    at Proxy.<anonymous> (file:///vitest/dist/chunks/index.aTZaPVhf.js:7752:10)\n    at Proxy.<anonymous> (file:///vitest/dist/chunks/index.aTZaPVhf.js:1958:14)\n    at Proxy.methodWrapper (file:///repo/node_modules/.bun/chai@6.3.0/node_modules/chai/index.js:1737:25)\n    at /project/src/snapshot-unrecorded.check.js:4:30\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:1632:35\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:2801:26\n    at file:///vitest/dist/chunks/run.BPv-BBRv.js:3338:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///vitest/dist/chunks/run.BPv-BBRv.js:3333:10)"
           ],
@@ -220,8 +273,8 @@
           "benchmarks": []
         }
       ],
-      "startTime": 1793137897079,
-      "endTime": 1793137897081.801,
+      "startTime": 1793186262150,
+      "endTime": 1793186262152.3823,
       "status": "failed",
       "message": "",
       "name": "/project/src/snapshot-unrecorded.check.js"
@@ -233,15 +286,15 @@
           "fullName": "card renders",
           "status": "passed",
           "title": "renders",
-          "duration": 1.269874999999999,
+          "duration": 1.839375000000004,
           "failureMessages": [],
           "meta": {},
           "tags": [],
           "benchmarks": []
         }
       ],
-      "startTime": 1793137897073,
-      "endTime": 1793137897074.2698,
+      "startTime": 1793186262138,
+      "endTime": 1793186262139.8394,
       "status": "passed",
       "message": "",
       "name": "/project/src/snapshot.check.js"
@@ -253,15 +306,15 @@
           "fullName": "runs under Vitest only",
           "status": "passed",
           "title": "runs under Vitest only",
-          "duration": 1.0654170000000107,
+          "duration": 0.4785839999999979,
           "failureMessages": [],
           "meta": {},
           "tags": [],
           "benchmarks": []
         }
       ],
-      "startTime": 1793137897071,
-      "endTime": 1793137897072.0654,
+      "startTime": 1793186262146,
+      "endTime": 1793186262146.4785,
       "status": "passed",
       "message": "",
       "name": "/project/src/vitest-only.check.js"
