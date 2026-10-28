@@ -357,6 +357,9 @@ function runCell(cell, root, entries) {
       .map(([axis, value]) => `${axis}=${value}`)
       .join(" ");
     const label = run.label ? `${run.label} (judged as ${axesLabel})` : axesLabel;
+    const judgedAxes = Object.fromEntries(
+      Object.entries(run).filter(([key]) => !["label", "env", "excludes"].includes(key)),
+    );
     const results = new Map();
     const active = activeProbes(selected, cell, run);
     for (const probe of selected)
@@ -409,7 +412,7 @@ function runCell(cell, root, entries) {
               message: `${result.failures.join("; ")}\n${result.output.slice(-2000)}`,
             }
           : judge(entries, probe, full, result);
-      verdicts.push({ ...verdict, run: label });
+      verdicts.push({ ...verdict, run: label, judged: judgedAxes });
       console.log(
         `  ${verdict.outcome.padEnd(10)} ${probe}${verdict.message ? `  — ${verdict.message}` : ""}`,
       );
@@ -458,8 +461,7 @@ console.log(
 if (bad.length > 0) {
   console.log("\nTo accept a failure as known, add to known-failing.json (with the fixing PR):");
   for (const verdict of bad.filter((v) => v.outcome === "REGRESSION")) {
-    const run = Object.fromEntries(verdict.run.split(" ").map((pair) => pair.split("=")));
-    const when = { vitest: cell.vitest, rntl: cell.rntl, layout: cell.layout, ...run };
+    const when = { vitest: cell.vitest, rntl: cell.rntl, layout: cell.layout, ...verdict.judged };
     console.log(
       `  ${JSON.stringify({ probe: verdict.probe, when, failure: "<regex of the expected failure>", fixedBy: "#?", why: "?" })}`,
     );

@@ -162,15 +162,48 @@ fixtures) and is unmeasured until the first CI run.
 - **Screens header and `navigation: false` in isolated installs** (#6 → #341, #5 → #348): both
   need React Navigation and react-native-screens in the workspace. Adding them to the isolated
   cells is the next probe to write.
-- **Vitest 4, real npm installs and real pnpm installs were not run locally** (no Vitest 4 is
-  installed, and local verification may not install). The `hot-automock` entry and its
-  signature come from #338's own reproduction. The isolated-layout entries (#349) were observed
-  in the pnpm-shaped store `--link-deps` builds, not in a pnpm install. Expect the first CI run to calibrate a few
-  entries and signatures.
+- **Real npm and pnpm installs were not run locally** (local verification may not install).
+  Every cell ran locally on Vitest 5 and on a Vitest 4.1.11 copy linked with `--link-deps`, with
+  RNTL 12.9, 13.3 and 14.1, in both a linked (hoisted-shaped) layout and the pnpm-shaped store.
+  The isolated-layout entries (#349) were observed in that pnpm-shaped store, not in a pnpm
+  install. Expect the first CI run to calibrate a few entries and signatures.
 - **`findBy*` under `vi.useFakeTimers()` without a global `jest` (#18)** has no fixing pull
   request: #342 documents it as a limitation. Its entry names #342 and says so; it will not go
   stale when #342 merges.
 - **Node and OS** are not axes here. `ci.yml` covers them.
+
+## The matrix and the bug museum
+
+The bug museum (`validation/bug-museum/`, being built on `feat/bug-museum`) keeps one exhibit
+per bug: its minimal reproduction, a control that removes the bug's precondition, and columns
+for main, the fix, and the build before the fix. The matrix asks a different question: does
+one behaviour hold on every combination of Vitest, RNTL, install layout, engine, globals, hot
+runtime and jest-compat? The two split the work this way, so neither repeats the other:
+
+- A bug gets a matrix probe only when it sat on a configuration axis. The probe then runs on
+  every cell, which an exhibit does not do.
+- Every other variant of a bug lives only in the museum, as an exhibit. That covers alias
+  forms beyond string and regex, ESM interop shapes beyond the default-only form, the v2
+  per-file-world hot bugs, the #351 library-mock bugs, worker-count configuration (#347),
+  `EXPO_OS` and the native-stack header.
+- Where both exist, the probe and the exhibit name the same fixing PR, so a fix makes the
+  probe's entry STALE and moves the exhibit's "main" column together.
+
+| Matrix probe (axes varied)                                 | Museum exhibit (bug at its repro)                                             |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| rntl-auto-cleanup                                          | env-rntl-auto-cleanup, env-rntl13-auto-cleanup, env-rntl-cleanup-reexport-hot |
+| rntl-findby-fake-timers                                    | env-rntl-findby-fake-timers                                                   |
+| rntl-nested-text                                           | pre-rntl12-nested-text, pre-rntl13-nested-text                                |
+| recoverable-error                                          | env-recoverable-error                                                         |
+| partial-mock-store                                         | own-partial-mock-store                                                        |
+| aliased-sibling-string, -regex, aliased-source-import-meta | own-alias-string, own-alias-regex, own-alias-import-meta                      |
+| esm-default-interop                                        | res-esm-default-interop                                                       |
+| jest-fake-timer-options                                    | env-jest-fake-timer-options                                                   |
+| jest-error-equality                                        | env-jest-error-equality                                                       |
+| hot-automock                                               | pfs-hot-automock-vitest4                                                      |
+| hot-rn-module-mock                                         | pfs-hot-dropped-file                                                          |
+| native-ext-peer, reanimated-render                         | res-pnpm-native-ext-peer, res-pnpm-reanimated-render                          |
+| preset-banner                                              | pre-banner-names-presets                                                      |
 
 ## Running it locally
 
@@ -185,6 +218,10 @@ node validation/config-axes/run.mjs --cell "$CELL" --link-deps node_modules --rn
 
 With `"layout":"isolated"` the packages pnpm names after their peers (`axis-peer-lib`,
 reanimated) are copied into a pnpm-shaped store directory, so the #349 class shows locally.
+Vitest 4: link a node_modules that has it, and a vitest-native copy (`package.json` and
+`dist/`) placed where it resolves that Vitest, not this package's Vitest 5. Otherwise the hot
+runtime refuses the mix (`HOT_RUNTIME_UNAVAILABLE`):
+`--link-deps <v4 node_modules> --vitest-native <v4 node_modules>/.vn-copy`.
 `--keep` keeps the materialised workspace, `--only a,b` limits the probes, and `AXIS_DEBUG=1`
 prints each run's output. Without `--link-deps` the harness installs from the registry, as CI
 does.
