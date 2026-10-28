@@ -254,6 +254,8 @@ export function installRequireHooks(
   let isExtraKey = JSON.stringify(transformPkgs);
   globalThis.__vitest_native_require_hooks_update = (next) => {
     const pkgs = next.transformPkgs;
+    // The deep-import fallback resolves with these, so a memoized resolution does too.
+    if (JSON.stringify(next.sourceExts) !== JSON.stringify(activeSourceExts)) resolutions.clear();
     activeSourceExts = next.sourceExts;
     assetExtSet = new Set(next.assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
     installAssetExtensions(next.assetExts);
@@ -398,6 +400,54 @@ export function installRequireHooks(
     }
     return key;
   };
+  // Bare requests Node resolved, per requiring directory, for the life of the worker.
+  //
+  // The hot runtime drops every module a test file loaded, and its reset drains the
+  // matching entries from Node's relativeResolveCache (module-reset.mjs), so a library
+  // re-loaded by the next file is resolved again, request by request. For a relative or
+  // `main`-field request Node then answers from Module._pathCache. A package resolved
+  // through its `exports` map never reaches that cache (Module._findPath returns the
+  // exports result before writing it), so each one ran Node's whole bare-specifier
+  // resolution again: the package scope lookup, the exports map read, the directory
+  // stats. A library that is its own test mock (reanimated's, from #336) re-loads a few
+  // hundred files per test file, and measured on a 60-file gesture-handler + reanimated
+  // suite this was most of the per-file cost those libraries added (counted, per file:
+  // ~120 uncached Node resolutions of `react`, `@babel/runtime/helpers/*` and the like).
+  //
+  // Kept without validation, as Node keeps the inputs: it caches every package.json it
+  // reads for the life of the process (an edited `exports` map is not seen, and an
+  // exports target is not checked on disk), and Module._pathCache is never invalidated
+  // either. Keyed as Node keys relativeResolveCache, by the parent's directory and the
+  // request, plus the conditions Node's module hooks pass: every input to a
+  // bare-specifier resolution (lookup paths, package scope, conditions) is a function of
+  // those within one process. Successful resolutions only,
+  // so a failure, and every fallback below, runs again. `require.resolve` with `paths`
+  // and main-module resolution are left to Node. The memo sits inside this hook, under
+  // the hot reset's tracking resolver, which still sees every call.
+  //
+  // Not done instead: keeping the libraries resident (no reset exists for their mock
+  // state, so it would leak between files), compiling their graphs into the precompiled
+  // registry (a much larger change for the same resolutions), and caching the libraries'
+  // Jest resolver decisions (jest-resolvers.mjs measured under 1% of the cost).
+  const resolutions = new Map();
+  const resolutionStats = (globalThis[Symbol.for("vitest-native.resolutionMemo")] ??= {
+    hits: 0,
+    misses: 0,
+  });
+  const resolutionKey = (request, parent, [isMain, options]) => {
+    if (typeof request !== "string" || typeof parent?.path !== "string" || isMain) return null;
+    if (request.startsWith(".") || path.isAbsolute(request) || Module.isBuiltin(request)) {
+      return null;
+    }
+    // Node's in-thread module hooks resolve a require with `{ conditions }`; any other
+    // option (`require.resolve`'s `paths`) is left to Node.
+    let conditions = "";
+    if (options != null) {
+      if (Object.keys(options).some((name) => name !== "conditions")) return null;
+      if (options.conditions != null) conditions = [...options.conditions].join(",");
+    }
+    return `${parent.path}\0${request}\0${conditions}`;
+  };
   const origResolve = Module._resolveFilename;
   Module._resolveFilename = function (request, parent, ...rest) {
     let resolved;
@@ -417,7 +467,13 @@ export function installRequireHooks(
         : resolveRelativePlatformFile(request, parent.filename, platform, activeSourceExts);
       if (resolved) resolved = asNodeResolves(resolved);
     }
+    const key = resolved ? null : resolutionKey(request, parent, rest);
+    if (key !== null && resolutions.has(key)) {
+      resolutionStats.hits++;
+      resolved = resolutions.get(key);
+    }
     if (!resolved) {
+      if (key !== null) resolutionStats.misses++;
       try {
         resolved = origResolve.call(this, request, parent, ...rest);
       } catch (err) {
@@ -445,6 +501,7 @@ export function installRequireHooks(
         if (deep === null) throw err;
         resolved = asNodeResolves(deep);
       }
+      if (key !== null) resolutions.set(key, resolved);
     }
     // Diagnostics only. The comparison sees Node's resolution and the package
     // manifest, never Vite's module graph, so it cannot tell a package both graphs
@@ -517,8 +574,7 @@ export function installRequireHooks(
       if (rnPath === null && !isExtra(norm)) return origMjs(mod, filename);
       const boundary = boundarySourceFor(rnPath ?? norm, platform, reactNativeVersion);
       if (boundary != null) return mod._compile(boundary, filename);
-      const src = fs.readFileSync(filename, "utf8");
-      return mod._compile(transformRN(filename, src, projectRoot, platform), filename);
+      return mod._compile(transformRN(filename, undefined, projectRoot, platform), filename);
     };
   }
 
@@ -539,8 +595,9 @@ export function installRequireHooks(
         reactNativeVersion,
       );
       if (boundary != null) return mod._compile(boundary, filename);
-      const src = fs.readFileSync(filename, "utf8");
-      return mod._compile(transformRN(filename, src, projectRoot, platform), filename);
+      // No source: transformRN reads the file only when its compiled output is not
+      // already held for this file's size and mtime.
+      return mod._compile(transformRN(filename, undefined, projectRoot, platform), filename);
     };
   }
 }

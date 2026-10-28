@@ -511,6 +511,10 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   const memKey = `${platform}\0${file}\0${st.mtimeMs}\0${st.size}`;
   const memHit = ctx.mem.get(memKey);
   if (memHit !== undefined) return memHit;
+  // A caller that has not read the file yet passes no source, and pays for the read
+  // only here, on a miss. The hot runtime re-loads a library a test file used on every
+  // file, so its sources would otherwise be read again each time just to find this hit.
+  if (src === undefined) src = fs.readFileSync(file, "utf8");
 
   // App source under a project Babel config compiles with it (projectBabelOptions),
   // and the options it loaded key the output.
