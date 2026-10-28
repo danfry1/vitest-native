@@ -95,6 +95,8 @@ import {
   presetForInstalled,
   autoDetectedPresetApplies,
   libraryRegistryEntries,
+  LIBRARY_SETUP_FILES,
+  type PresetName,
 } from "./preset-map.js";
 
 async function autoDetectPresets(diagnostics: boolean, projectRoot: string): Promise<Preset[]> {
@@ -1994,6 +1996,18 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             );
         if (nativePresetNames.length > 0) {
           fields.presetNames = nativePresetNames;
+        }
+        // The Jest setup files of installed libraries whose preset steps aside here and
+        // that run as themselves (LIBRARY_SETUP_FILES), for the native setup file to
+        // run ahead of the project's own.
+        if (!selection.listed) {
+          const librarySetupFiles = autoDetectPresetNames(resolvedRoot, diagnostics)
+            .filter((n) => !disabledNative.has(n) && !nativePresetNames.includes(n))
+            .map((n) => LIBRARY_SETUP_FILES[n as PresetName])
+            .filter((file): file is string => typeof file === "string");
+          if (librarySetupFiles.length > 0) {
+            env.VITEST_NATIVE_LIBRARY_SETUP_FILES = JSON.stringify(librarySetupFiles);
+          }
         }
         if (selection.modulePaths.length > 0) {
           fields.presetModules = selection.modulePaths;
