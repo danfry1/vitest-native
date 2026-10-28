@@ -258,13 +258,19 @@ export function installRequireHooks(
   });
   let isExtra = ownership.matchesNodeTransformedFile;
   let isExtraKey = JSON.stringify(transformPkgs);
+  // A field left out keeps its current value (tests-native/resolution-memo.test.ts
+  // changes the source extensions alone, and puts them back).
+  let activeAssetExts = assetExts;
   globalThis.__vitest_native_require_hooks_update = (next) => {
-    const pkgs = next.transformPkgs;
-    // The deep-import fallback resolves with these, so a memoized resolution does too.
-    if (JSON.stringify(next.sourceExts) !== JSON.stringify(activeSourceExts)) resolutions.clear();
-    activeSourceExts = next.sourceExts;
-    assetExtSet = new Set(next.assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
-    installAssetExtensions(next.assetExts);
+    const pkgs = next.transformPkgs ?? JSON.parse(isExtraKey);
+    const nextSourceExts = next.sourceExts ?? activeSourceExts;
+    activeAssetExts = next.assetExts ?? activeAssetExts;
+    // Platform resolution and the deep-import fallback resolve with these, so a
+    // memoized resolution made with others no longer holds.
+    if (JSON.stringify(nextSourceExts) !== JSON.stringify(activeSourceExts)) resolutions.clear();
+    activeSourceExts = nextSourceExts;
+    assetExtSet = new Set(activeAssetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
+    installAssetExtensions(activeAssetExts);
     const key = JSON.stringify(pkgs);
     if (key === isExtraKey) return;
     isExtraKey = key;
@@ -421,13 +427,24 @@ export function installRequireHooks(
   // file: 168 resolutions reached Node, 122 of them missing its caches; with the memo
   // 22 and 1.
   //
-  // Kept without validation, as Node keeps the inputs: it caches every package.json it
-  // reads for the life of the process (an edited `exports` map is not seen, and an
-  // exports target is not checked on disk), Module._pathCache is never invalidated, and
-  // the platform resolution's own cache (resolve.mjs) lives as long as the worker.
+  // A bare request's hit is checked with one stat, so a file that no longer exists is
+  // resolved again (measured: about 150 stats per test file on the suite above, against
+  // about 700 had relative hits been checked too, which the platform resolution's cache
+  // already answers without one):
+  // Node stats the lookup directories of an `exports` resolution on every call, and
+  // falls back to an outer copy when a nested one is removed. What the stat does not
+  // see is a copy installed NEARER than the one held: Node, which does not cache an
+  // `exports` resolution, would find it, and the memo keeps the outer one until the
+  // worker ends. Accepted: Node is already that stale for every package resolved
+  // through `main` (Module._pathCache is never invalidated) and for every edit to a
+  // package.json it has read (cached for the life of the process), the platform
+  // resolution's own cache (resolve.mjs) lives as long as the worker, and watch mode
+  // does not watch node_modules. Checking every directory between the parent and the
+  // held copy on each hit is the work the memo exists to remove.
+  //
   // Keyed as Node keys relativeResolveCache, by the parent's directory and the request,
-  // plus the conditions Node's module hooks pass: within one process every input to
-  // these resolutions is a function of those (and of the source extensions, which
+  // plus the conditions Node's module hooks pass: within one process every other input
+  // to these resolutions is a function of those (and of the source extensions, which
   // clear it when they change). Successful resolutions only, so a failure, and the
   // fallbacks after it, run again. A relative request with an extension, an absolute
   // one, a built-in, `require.resolve` with `paths` and the main module are left to
@@ -440,16 +457,19 @@ export function installRequireHooks(
   // libraries' Jest resolver decisions (jest-resolvers.mjs measured under 1% of the
   // cost).
   //
-  // Counters, a stable contract for tests and diagnostics (the resolution-memo pair in
-  // tests-native/hot-isolation reads them): `globalThis[Symbol.for("vitest-native.resolutionMemo")]`
-  // is `{ hits, misses }`, one object per worker thread. `misses` counts the keyed
-  // requests this hook resolved itself (platform resolution, Node and the fallbacks),
-  // `hits` those the memo answered. Requests the memo does not key are in neither.
-  // Both only grow.
+  // Counters, a stable contract for diagnostics and measurement (the tests assert the
+  // work itself instead, Node's resolver calls and source reads, which a memo that
+  // counted a hit and resolved anyway would not fake): `globalThis[Symbol.for("vitest-native.resolutionMemo")]`
+  // is `{ hits, misses, stale }`, one object per worker thread. `misses` counts the
+  // keyed requests this hook resolved itself (platform resolution, Node and the
+  // fallbacks), `hits` those the memo answered, and `stale` the held resolutions whose
+  // file was gone (each also a miss). Requests the memo does not key are in none of
+  // them. All only grow.
   const resolutions = new Map();
   const resolutionStats = (globalThis[Symbol.for("vitest-native.resolutionMemo")] ??= {
     hits: 0,
     misses: 0,
+    stale: 0,
   });
   const resolutionKey = (request, parent, [isMain, options]) => {
     if (typeof request !== "string" || typeof parent?.path !== "string" || isMain) return null;
@@ -472,11 +492,25 @@ export function installRequireHooks(
   Module._resolveFilename = function (request, parent, ...rest) {
     let resolved;
     const key = resolutionKey(request, parent, rest);
-    if (key !== null && resolutions.has(key)) {
-      resolutionStats.hits++;
-      resolved = resolutions.get(key);
-    } else if (key !== null) {
-      resolutionStats.misses++;
+    if (key !== null) {
+      const held = resolutions.get(key);
+      // A bare request's hit costs one stat: a file removed since (a nested copy
+      // uninstalled, a fixture a test deleted) is resolved again, as Node would, instead
+      // of failing to load. A relative one is answered as the platform resolution's own
+      // cache would answer it (resolve.mjs), which does not look at the disk again.
+      if (
+        held !== undefined &&
+        (request.startsWith(".") || fs.statSync(held, { throwIfNoEntry: false })?.isFile())
+      ) {
+        resolutionStats.hits++;
+        resolved = held;
+      } else {
+        if (held !== undefined) {
+          resolutionStats.stale++;
+          resolutions.delete(key);
+        }
+        resolutionStats.misses++;
+      }
     }
     // Relative, extensionless: Metro's platform order for every parent, app source
     // included (`./PlatformInfo` → `index.native.ts` before `index.ts`).
