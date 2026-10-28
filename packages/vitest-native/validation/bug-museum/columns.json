@@ -1,0 +1,29 @@
+{
+  "main": {
+    "ref": "origin/main",
+    "sha": "0f2400e22dad7fa62582b25995d8e5de1022c7fd"
+  },
+  "refs": {
+    "origin/fix/source-aliased-workspace-ownership": "643913e8d1686ec8d141d7e3675c0470ecda793e",
+    "origin/feat/fail-closed-ownership": "beb11f2853818463cf44fbb1539b5f0abec9d78c",
+    "origin/fix/require-actual-single-graph": "64b47ec821ad400b9f16e7637e10a017ff52f8c0",
+    "origin/fix/recoverable-errors-and-expo-os": "e1e4ebd76e25d513d3c13d0d47a67f8a6ad022d1",
+    "origin/fix/jest-compat-error-equality": "1523987070dd12c1a539544bbbd67110d08974bf",
+    "origin/fix/jest-compat-fake-timer-options": "801f1e7426d8606f8ad32a1cdc1bf1f07222ca37",
+    "origin/fix/rntl-cleanup-and-fake-timers": "42daf3e25b0335c40cd4c0cf9775d95843164926",
+    "origin/fix/hot-vitest4-mock-meta": "51ee2df407ad09ccfd16671ad77a4a7faa0e0025",
+    "origin/fix/hot-dropped-test-file": "83c54a68cd662fcdcf64fed349ea5880ccf74fe8",
+    "perf/library-mock-resolution-cache": "d166a42bb907183d7e1937013a12da613f6c5153",
+    "feat/library-jest-scope": "d0e17b2234d1d1af53c153127937046275aa8560",
+    "fix/issue-351-own-library-mocks": "cdb5de5c2abbe848414e4f173993e85c3af9bb4a",
+    "origin/fix/navigation-preset-visibility": "3addc99277836fb456e9fae30902ea21d9909c9c",
+    "fix/mock-stylesheet-compose": "a866bbd52b9c4585d55b174d4af782faba282cfe",
+    "origin/fix/screens-header-and-virtual-text": "b5ee2d877ee36ef08f7037081de4eaacf4822ce0",
+    "origin/fix/esm-goal-import-interop": "9bcad2ae48e592726eaa257339cae0293320a3f0",
+    "origin/fix/library-resolver-pnpm-store": "b1ccd04a7540dcc6a89afaff929bcc1101f1e138",
+    "origin/fix/cli-max-workers-memory-plan": "d0b6f324577752f41221679c9f3247dd2281487f",
+    "da5cd6c": "da5cd6cf66d97c3c2fb0242ad127f6941c212e27",
+    "400c240^": "8b18c2d57985c6f9b45377bc98f4bfdd552113e4",
+    "191c286^": "4daa887042013d0067edb4a136011d5d52d3cab6"
+  }
+}
