@@ -735,13 +735,24 @@ export function treeState(root: string, limit = 200_000): TreeState | null {
 }
 
 export interface TreeChanges {
-  /** Files that existed before the run and changed or went, and snapshot files added. */
+  /**
+   * Files that existed before the run and changed or went, and snapshot files added.
+   * Every one fails the run; the wording depends on whether it is a snapshot or a
+   * test/source file (isSnapshotOrSource).
+   */
   fatal: string[];
   /** Files added outside the output directories (reports, generated files). */
   other: string[];
 }
 
 const SNAPSHOT = /(?:^|\/)(?:__snapshots__|__vitest_snapshots__)\/|\.snap$/;
+const SOURCE = /\.(?:[cm]?[jt]sx?|json)$/;
+
+/** A change compare itself could have caused: a snapshot, or a test/source file (inline snapshots). */
+export function isSnapshotOrSource(change: string): boolean {
+  const file = change.replace(/^(?:added|changed|removed) /, "");
+  return SNAPSHOT.test(file) || SOURCE.test(file);
+}
 
 /**
  * What the runs did to the project. A file that existed before is the project's, so any
@@ -1088,14 +1099,30 @@ export async function runCompare(options: CompareOptions): Promise<number> {
       fs.writeFileSync(path.resolve(options.json), `${JSON.stringify(report, null, 2)}\n`);
     }
     if (changes.fatal.length) {
-      log("");
-      log(
-        `✗ The runs changed ${changes.fatal.length} file(s) in the project, which compare must never do:`,
-      );
-      for (const c of changes.fatal.slice(0, options.top)) log(`    ${c}`);
-      if (changes.fatal.length > options.top)
-        log(`    … and ${changes.fatal.length - options.top} more`);
-      log("  Restore them from version control, and report this with the command you ran.");
+      // Both fail the run. Only snapshots and test/source files are compare's to answer for;
+      // any other tracked file the suite rewrites is the suite's doing.
+      const own = changes.fatal.filter(isSnapshotOrSource);
+      const suites = changes.fatal.filter((c) => !isSnapshotOrSource(c));
+      const list = (items: string[]) => {
+        for (const c of items.slice(0, options.top)) log(`    ${c}`);
+        if (items.length > options.top) log(`    … and ${items.length - options.top} more`);
+      };
+      if (own.length) {
+        log("");
+        log(
+          `✗ The runs changed ${own.length} snapshot or source file(s) in the project, which compare must never do:`,
+        );
+        list(own);
+        log("  Restore them from version control, and report this with the command you ran.");
+      }
+      if (suites.length) {
+        log("");
+        log(
+          "✗ The test run changed these existing files (compare's comparison does not count while " +
+            "the suite rewrites tracked files):",
+        );
+        list(suites);
+      }
       return 2;
     }
     if (interrupted) {

@@ -104,9 +104,10 @@ export function main(
 }
 
 // Invoked as a bin (npx vitest-native / node dist/cli.mjs) — dispatch and
-// exit. Tests import main() directly, where argv[1] is the test runner.
+// exit. Tests import main() directly, where argv[1] is the test runner. The CLI
+// ships as ESM only (dist/cli.mjs, the `bin`).
 const entry = process.argv[1] ? path.basename(process.argv[1]) : "";
-if (entry === "cli.mjs" || entry === "cli.cjs" || entry === "vitest-native") {
+if (entry === "cli.mjs" || entry === "vitest-native") {
   const code = main(process.argv.slice(2));
   if (typeof code === "number") process.exit(code);
   else void code.then((c) => process.exit(c));

@@ -423,8 +423,13 @@ describe("compare: snapshots are never written", () => {
     const { code, text } = await runCli(["--root", root, "--jest-results", jest]);
     fs.rmSync(outside, { recursive: true, force: true });
     expect(code).toBe(2);
+    // A snapshot and a source file: compare's to answer for.
     expect(text).toContain(
-      "✗ The runs changed 3 file(s) in the project, which compare must never do:",
+      "✗ The runs changed 2 snapshot or source file(s) in the project, which compare must never do:",
+    );
+    // Another tracked file the suite rewrote: still exit 2, worded as the suite's doing.
+    expect(text).toContain(
+      "✗ The test run changed these existing files (compare's comparison does not count while the suite rewrites tracked files):",
     );
     // The tests agree, but a run that changed files gets no ✓.
     expect(text).not.toMatch(/^✓/m);
@@ -593,6 +598,23 @@ describe("compare: the report carries no source or absolute path", () => {
     ]) {
       expect(s(raw), raw).toBe(clean);
     }
+  });
+
+  it("keeps routes in assertion values, and replaces a home directory's user anywhere else", () => {
+    expect(s("Error: cannot open /home/alice/initech-merger")).toBe(
+      "Error: cannot open /home/<user>/initech-merger",
+    );
+    const routes =
+      'Expected: "/workspace/42/members"\nReceived: "/app/settings/privacy"\n' +
+      'Expected: "/home/profile/edit/photo"\n-   "path": "/home/alice/initech-merger",';
+    expect(s(routes)).toBe(routes);
+    // In assertion values, a span is replaced when it names a file, exists on disk, or
+    // begins with a root no route begins with.
+    expect(
+      s(
+        'Expected: "/github/workspace/apps/env.ts"\n+   "path": "/Users/bob/app/x",\nReceived: "/var/folders/T/x"',
+      ),
+    ).toBe('Expected: "<path>"\n+   "path": "<path>",\nReceived: "<tmp>/x"');
   });
 
   it("replaces UNC paths and paths with spaces, and keeps app routes", () => {
@@ -819,13 +841,24 @@ describe.skipIf(!posix)("compare: processes", () => {
 
 describe("compare: matching", () => {
   it("confirms a pair only when the titles are the same; a shape match is for review", () => {
-    // The same title, up to quote style, whitespace and trailing commas.
+    // The same title, up to quote style, whitespace runs and a trailing comma inside a
+    // printed value.
     for (const [jest, vitest] of [
       ['fetches { id: "1" }', "fetches { id: '1' }"],
-      ["adds  1,  2", "adds 1, 2"],
-      ["list [ 1, 2, ]", "list [1, 2]"],
+      ["obj { a:  1 }", "obj { a: 1 }"],
+      ["list [1, 2,]", "list [1, 2]"],
     ]) {
       expect(titleMatch(jest, vitest), `${jest} ⇄ ${vitest}`).toBe("same");
+    }
+    // Outside printed values nothing is normalised, and inside them only that: these are
+    // not the same title (a review's contrived false ✓).
+    for (const [jest, vitest] of [
+      ["it's on", 'it"s on'],
+      ["a , b", "a, b"],
+      ["{ x: 1 }", "{x:1}"],
+      ["adds  1,  2", "adds 1, 2"],
+    ]) {
+      expect(titleMatch(jest, vitest), `${jest} ⇄ ${vitest}`).not.toBe("same");
     }
     // Equal only if a printed value is ignored: Jest 30.2 and Vitest 5.0.5's prints of the
     // same rows, and pairs that are different rows (an adversarial review's).

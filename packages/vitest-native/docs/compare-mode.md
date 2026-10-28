@@ -68,6 +68,9 @@ environment variable, or a `resolveSnapshotPath` that points at Jest's `__snapsh
   - These fail the run (exit 2) and are listed: any file that existed before and changed or went,
     whatever its kind (`.graphql`, `.yaml`, an image), and any new snapshot file. Inline
     snapshots are written into test sources, so they are covered.
+  - Snapshot and test/source files are reported as something compare must never do, with
+    "restore them from version control". Any other tracked file is reported as the suite's own
+    rewrite, during which the comparison does not count.
   - New files of other kinds, such as a reporter's output or a file a test generates, are listed
     neutrally ("the runs wrote these files") and do not fail it.
 
@@ -98,8 +101,10 @@ fewer times").
 one runner named are matched by position within the same file and `describe` block. `titleMatch`
 decides how:
 
-- **Same title.** The titles are identical once quote style (`'` and `"`, quotes kept),
-  whitespace and trailing commas are normalised. The pair is the same test.
+- **Same title.** The titles are identical, except inside a printed `{…}` / `[…]` value, where
+  quote style (`'` and `"`, quotes kept), whitespace runs and a trailing comma may differ. Text
+  outside printed values must match exactly: `it's on` and `it"s on`, or `a , b` and `a, b`, are
+  different titles. The pair is the same test.
 - **Same shape — review.** The titles are equal only if a printed value is ignored: Jest's
   `{"a": 1}` or `{ user: [Object] }` against Vitest's `{ a: 1 }` or `{ user: { role: 'guest' } }`,
   Vitest's literal `%p`, Jest's `$var` against Vitest's `undefined`, or the `undefined` Vitest
@@ -181,7 +186,14 @@ from messages:
     included, up to the file name.
   - one that exists on disk;
   - one two or more segments below `/home/<user>`;
-  - one under a root that app routes share (`/home/<user>`, `/tmp`, `/var`, …) naming a file. App routes such as `/home/profile/edit` are kept, so navigation diffs stay
+  - one under a root that app routes share (`/home/<user>`, `/tmp`, `/var`, …) naming a file.
+
+  Any other `/home/<user>/…` span keeps its rest, but its user becomes `<user>`.
+
+  Assertion values (`Expected:`/`Received:` lines and a diff's `-`/`+` lines) usually hold app
+  data, such as routes like `"/home/profile/edit/photo"`, `"/workspace/42/members"` or
+  `"/app/settings/privacy"`. There a span is replaced only when it names a file, exists on disk,
+  or begins with `/Users`, `/Volumes`, `/private`, `/var/folders`, a drive letter or a UNC share. App routes such as `/home/profile/edit` are kept, so navigation diffs stay
   readable.
 
 What is **not** guaranteed: a message keeps whatever a test put in its own error, such as received

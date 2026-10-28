@@ -227,6 +227,58 @@ const SHARED_ROOT = /^\/(?:home\/[^/]+|tmp|var|opt|root|srv|etc|usr)\//;
 /** A home directory with at least two segments below the user: `/home/alice/clients/x`. */
 const DEEP_HOME = /^\/home\/[^/]+\/[^/]+\/[^/]+/;
 const FILE_URL = /file:\/\/\/[^\s'"`)\]},;]*/g;
+/** `/home/<user>/…`: the user segment, replaced wherever the rest of the span is kept. */
+const HOME_USER = /^\/home\/[^/]+\//;
+
+/**
+ * Roots that never begin an app route, for assertion values: macOS's, a drive, a UNC
+ * share. CI and container roots (`/app`, `/workspace`, …) begin routes too
+ * (`/app/settings/privacy`, `/workspace/42/members`), so there a span needs a file name.
+ */
+const STRONG_ROOT = /^(?:\/(?:Users|Volumes|private|var\/folders)\/|[A-Za-z]:[\\/]|\\\\)/;
+const STRONG_PATH = new RegExp(
+  String.raw`(?<![\w.<>/~:@-])(?:\/(?:Users|Volumes|private|var\/folders)\/|[A-Za-z]:[\\/]|\\\\(?=[\w.$-]+\\))(?:[^\n'"\`<>|]*?\.[A-Za-z0-9]{1,10}(?=[\s'"\`)\]},;:]|$)|[^\s'"\`)\]},;]*)`,
+  "g",
+);
+/** Any absolute-looking span, POSIX or Windows, without spaces. */
+const ANY_CANDIDATE =
+  /(?<![\w.<>/~:@-])(?:\/[\w.@+~-]+(?:\/[\w.@+~-]*)+|[A-Za-z]:[\\/][^\s'"`)\]},;]*)/g;
+/** An assertion's value lines: `Expected: …`, `Received: …`, and a diff's `-` / `+` lines. */
+const ASSERTION_VALUE = /^\s*(?:[-+]\s|Expected\b|Received\b)/;
+const namesFile = (span: string) => /\.[A-Za-z0-9]{1,10}$/.test(span.replace(/[\\/]+$/, ""));
+
+function exists(span: string): boolean {
+  try {
+    return fs.existsSync(span);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Paths in an assertion's values, which are usually app data — navigation routes such as
+ * `"/home/profile/edit/photo"` or `"/workspace/42/members"` — and must stay readable: a span
+ * is replaced only when it names a file, exists on disk, or begins with a root no route
+ * begins with (STRONG_ROOT).
+ */
+function stripAssertionLine(line: string): string {
+  return line
+    .replace(FILE_URL, "<path>")
+    .replace(STRONG_PATH, "<path>")
+    .replace(ANY_CANDIDATE, (span) =>
+      namesFile(span) || exists(span) || STRONG_ROOT.test(span) ? "<path>" : span,
+    );
+}
+
+/** Paths anywhere else in a message: every machine root, and a home directory's user. */
+function stripLine(line: string): string {
+  return line
+    .replace(FILE_URL, "<path>")
+    .replace(MACHINE_PATH, "<path>")
+    .replace(POSIX_CANDIDATE, (span) =>
+      isPath(span) ? "<path>" : span.replace(HOME_USER, "/home/<user>/"),
+    );
+}
 
 /**
  * Whether an absolute-looking span is a path on a machine, not an app route: it exists
@@ -288,9 +340,9 @@ export function sanitizeMessage(raw: string, ctx: SanitizeContext): string {
   replace(ctx.tmp ?? [], "<tmp>");
   if (ctx.home) replace([ctx.home], "~");
   text = text
-    .replace(FILE_URL, "<path>")
-    .replace(MACHINE_PATH, "<path>")
-    .replace(POSIX_CANDIDATE, (span) => (isPath(span) ? "<path>" : span));
+    .split("\n")
+    .map((line) => (ASSERTION_VALUE.test(line) ? stripAssertionLine(line) : stripLine(line)))
+    .join("\n");
   const capped = text.split("\n").slice(0, 30).join("\n");
   return capped.length > 4000 ? `${capped.slice(0, 4000)}…` : capped;
 }
@@ -595,17 +647,35 @@ function sameValue(jest: string, vitest: string): boolean {
 }
 
 /**
- * A title with only what cannot change its meaning normalised: quote style (`'` and `"`
- * become one, quotes are kept), runs of whitespace, spaces inside brackets and around
- * `,` and `:`, and trailing commas.
+ * A title with its printed values normalised and nothing else. Inside each balanced
+ * `{…}` / `[…]` value (titleTokens' groups), quote style is unified (`'` and `"` become
+ * one; quotes are kept), whitespace runs collapse to one space, and a trailing comma goes:
+ * the printers differ there. Text outside printed values is kept verbatim, so `it's on`
+ * and `it"s on`, or `a , b` and `a, b`, are different titles.
  */
 function normalTitle(t: string): string {
-  return t
-    .replace(/'/g, '"')
-    .replace(/\s+/g, " ")
-    .replace(/\s*([{}[\],:])\s*/g, "$1")
-    .replace(/,([}\]])/g, "$1")
-    .trim();
+  let out = "";
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (c !== "{" && c !== "[") {
+      out += c;
+      continue;
+    }
+    let depth = 0;
+    let j = i;
+    for (; j < t.length; j++) {
+      if (t[j] === "{" || t[j] === "[") depth++;
+      else if (t[j] === "}" || t[j] === "]") depth--;
+      if (depth === 0) break;
+    }
+    out += t
+      .slice(i, j + 1)
+      .replace(/'/g, '"')
+      .replace(/\s+/g, " ")
+      .replace(/,\s*([}\]])/g, "$1");
+    i = j;
+  }
+  return out;
 }
 
 /**
