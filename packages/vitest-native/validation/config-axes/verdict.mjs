@@ -71,6 +71,14 @@ export function genericFailureLines(probe) {
   return [...consequenceShapedLines(probe), ...errorLines(probe)];
 }
 
+// A suite that runs Vitest more than once prefixes each run's lines with `run N: `
+// (the bug museum's multi-run exhibits), so a generic line is generic under any prefix: a
+// pattern anchored on `^run 2: ` must not slip past the check.
+const withRunPrefixes = (lines) => [
+  ...lines,
+  ...lines.flatMap((line) => [1, 2, 9].map((n) => `run ${n}: ${line}`)),
+];
+
 /**
  * The generic lines a bug may legitimately cause without identifying itself: a file the
  * run lost, and an exit code the results do not explain. Only these may an entry's
@@ -90,15 +98,20 @@ export function consequenceShapedLines(probe) {
       `file accounting: unfinished module ${file} (queued)`,
     );
   }
-  return lines;
+  return withRunPrefixes(lines);
 }
 
 /** Crashes, assertions and errors: generic lines that neither field may match. */
-function errorLines(probe) {
+export function errorLines(probe) {
   const lines = [
     "",
+    // Both crash wordings: run.mjs's, and accounting.mjs's runProblems.
     "no report: the run crashed",
+    "no JSON report: the run crashed",
     "no accounting record: the run ended before Vitest's onTestRunEnd",
+    "file accounting: the JSON report has unrequested other.test.ts",
+    "Vitest exited 0 with 1 failed files and 0 unhandled errors",
+    "the JSON report says success: false, but Vitest exited 0",
     "the process was killed by SIGSEGV",
     "the process exited 134 (Vitest exits 0 or 1)",
     "the run timed out",
@@ -116,7 +129,7 @@ function errorLines(probe) {
       `unhandled error (from ${file}): Error: something unrelated`,
     );
   }
-  return lines;
+  return withRunPrefixes(lines);
 }
 
 const failuresOf = (result) =>

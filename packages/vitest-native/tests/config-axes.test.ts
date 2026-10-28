@@ -315,6 +315,9 @@ describe("known-failing.json", () => {
       "(",
       "^$|x",
       `^${file}: did not run$`,
+      // A multi-run suite's `run N: ` prefix, and runProblems' own crash wording.
+      "^run 2: .*",
+      "^no JSON report",
     ]) {
       expect(validateEntries([{ ...entry, failure }], axes, PROBES), failure).toHaveLength(1);
     }
@@ -323,7 +326,15 @@ describe("known-failing.json", () => {
     );
     // `consequences` may match only lost files and exit codes: `.+` would absorb a
     // TypeError beside the bug.
-    for (const consequences of [".+", "TypeError", "unhandled error", "AssertionError", "^$"]) {
+    for (const consequences of [
+      ".+",
+      "TypeError",
+      "unhandled error",
+      "AssertionError",
+      "^$",
+      "^run 2: .*",
+      "no JSON report: the run crashed",
+    ]) {
       expect(
         validateEntries([{ ...entry, failure: "expected 0 to be 1", consequences }], axes, PROBES),
         consequences,
