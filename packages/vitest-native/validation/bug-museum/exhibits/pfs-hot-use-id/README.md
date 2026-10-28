@@ -7,11 +7,11 @@
 
 ## The bug
 
-The hot runtime keeps React resident across test files. React's `useId` counter lives in the renderer, so the first id in the second file is `_r_1_` instead of `_r_0_`: a snapshot holding an id depends on which file ran before it in the worker.
+The hot runtime keeps React resident across test files. React's `useId` counter lives in the renderer, so the first id in the second file is not the first id the first file saw: a snapshot holding an id depends on which file ran before it in the worker.
 
 ## Expected behaviour
 
-Every file sees the same first id (`_r_0_`), as under Jest and stock isolation.
+A file's first id is the same whichever files ran before it in the worker, as under Jest and stock isolation.
 
 ## Notes
 

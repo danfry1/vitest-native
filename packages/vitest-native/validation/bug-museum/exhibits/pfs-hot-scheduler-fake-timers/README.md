@@ -11,7 +11,7 @@ File a turns on fake timers before the renderer loads. React's scheduler capture
 
 ## Expected behaviour
 
-File b's timer-driven update renders with real timers.
+File b's timer-driven update has rendered after 300 ms of real time.
 
 ## Notes
 

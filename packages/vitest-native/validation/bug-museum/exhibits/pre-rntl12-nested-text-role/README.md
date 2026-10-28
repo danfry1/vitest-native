@@ -2,7 +2,7 @@
 
 - **Class:** presets
 - **Source:** #341 adversarial review
-- **Fixed by:** open (#341 documents it) (`origin/fix/screens-header-and-virtual-text`)
+- **Fixed by:** open (#341 documents it as out of scope) (`origin/fix/screens-header-and-virtual-text`)
 - **Needs:** rntl 12
 
 ## The bug

@@ -22,5 +22,5 @@ test("renders a tree", async () => {
 });
 
 test("the previous test's tree was unmounted, its effects cleaned up", () => {
-  expect(unmounted).toBe(1);
+  expect(unmounted, "the previous test's tree was unmounted").toBe(1);
 });

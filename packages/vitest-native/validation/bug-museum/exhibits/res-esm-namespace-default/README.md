@@ -2,7 +2,7 @@
 
 - **Class:** transform/resolution
 - **Source:** #339 adversarial review
-- **Fixed by:** open (#339 fixes only the default-only form) (`origin/fix/esm-goal-import-interop`)
+- **Fixed by:** open (outside #339's stated scope: the namespace form) (`origin/fix/esm-goal-import-interop`)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

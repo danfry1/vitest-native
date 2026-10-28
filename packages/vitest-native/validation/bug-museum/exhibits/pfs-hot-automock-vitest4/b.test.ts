@@ -7,7 +7,7 @@ vi.mock("./src/y", () => ({ owner: () => "factory-b" }));
 vi.mock("./src/x");
 
 test("gets its own factory, and an automock for the module it automocks", () => {
-  expect(y()).toBe("factory-b");
-  expect(vi.isMockFunction(x)).toBe(true);
-  expect(x()).toBeUndefined();
+  expect(y(), "this file's own factory").toBe("factory-b");
+  expect(vi.isMockFunction(x), "an automock for the module this file automocks").toBe(true);
+  expect(x(), "the automock returns undefined").toBeUndefined();
 });

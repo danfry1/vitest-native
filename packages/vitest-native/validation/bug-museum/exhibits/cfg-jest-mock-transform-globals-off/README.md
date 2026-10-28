@@ -11,4 +11,4 @@
 
 ## Expected behaviour
 
-A file using `jest.mock` under jestMockTransform + jest-compat runs with globals: false (the transform brings its own `vi`), or the run names the missing setting.
+A file using `jest.mock` under jestMockTransform + jest-compat runs with globals: false (the transform brings its own `vi`), OR the run fails with a message that names the `globals` setting. The outer test runs the inner project in `fixture/` and accepts either.

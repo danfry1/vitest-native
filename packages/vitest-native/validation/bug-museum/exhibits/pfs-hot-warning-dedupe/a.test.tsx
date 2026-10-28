@@ -13,5 +13,5 @@ test("React warns about a list without keys", async () => {
   const warned = spy.mock.calls.some((c) => /unique "key"/.test(String(c[0])));
   console.log(`[leak:warn] ${expect.getState().testPath?.split("/").pop()} key warning seen = ${warned}`);
   spy.mockRestore();
-  expect(warned).toBe(true);
+  expect(warned, "React warned about the missing key in this file").toBe(true);
 });

@@ -4,6 +4,7 @@
 - **Source:** #339 adversarial review (a regression of #339's eager interop)
 - **Fixed by:** open (regression guard for #339)
 - **Needs:** nothing beyond this repository's install
+- **Bug build:** `origin/fix/esm-goal-import-interop` (has the bug; see STATUS.md)
 
 ## The bug
 

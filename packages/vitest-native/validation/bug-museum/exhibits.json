@@ -1,18 +1,18 @@
 {
-  "$comment": "One entry per exhibit (README.md). class: where the bug lives. fixedBy: the pull request that fixes it, or open. fixRef: the git ref built for the 'with fix' column. requires: install axes this repository lacks (rntl 12/13, vitest 4, layout pnpm). bugSignature: a regex every buggy build's failure matches. status: measured by status.mjs (main = origin/main at the recorded commit; fix = fixRef; preFix = the build before an already-landed fix).",
+  "$comment": "One entry per exhibit (README.md). class: where the bug lives. fixedBy: the pull request that fixes it, or open. fixRef: the git ref built for the 'with fix' column. requires: install axes this repository lacks (rntl 12/13, vitest 4, layout pnpm). bugSignature: a regex for the bug's own failure line (anchored to the exhibit's file); consequences: lines the bug causes without identifying itself (lost files, exit codes), accepted only beside a signature line; judged by validation/config-axes/verdict.mjs (lib/verdict.mjs). bugPreventsEveryFile: the bug rejects the configuration before any file runs. buggyRef: a build that has the bug (a fix PR's regression, or the pre-fix state of a bug main cannot reach). preFixRef: the build before a landed fix. status: written by status.mjs from run-columns.mjs verdicts, each checked against the SHA columns.json records for its column.",
   "exhibits": [
     {
       "id": "own-alias-array",
       "class": "ownership",
       "title": "A workspace library aliased to source in array form loads twice",
       "source": "monorepo migration report #1; ownership-ledger shape 8",
-      "fixedBy": "#344 (draft; ownership by resolution is planned for v2)",
+      "fixedBy": "#344 (draft)",
       "fixRef": "origin/fix/source-aliased-workspace-ownership",
       "links": {
         "@m/feature": "packages/feature",
         "@m/validator": "packages/validator"
       },
-      "bugSignature": "expected (null|'built copy') to be 'written by the test'",
+      "bugSignature": "^split\\.test\\.ts: AssertionError: expected null to be 'written by the test'",
       "control": {
         "why": "The library no longer peers on react-native, so the engine does not detect it and Vite owns it: the bug's precondition is gone.",
         "edits": [
@@ -24,11 +24,11 @@
         ]
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
-        "fix": "PASS",
         "control": "PASS",
-        "mainSignature": "split.test.ts: a store written through one import path reads back through the other: AssertionError: expected null to be 'written by the test' // Object.is equality",
+        "fix": "PASS",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "split.test.ts: AssertionError: expected null to be 'written by the test' // Object.is equality",
         "proof": "fix proven"
       }
     },
@@ -37,13 +37,13 @@
       "class": "ownership",
       "title": "A workspace library aliased to a source FILE loads twice",
       "source": "#344 review; ownership-ledger shape 2",
-      "fixedBy": "#344 (draft; ownership by resolution is planned for v2)",
+      "fixedBy": "#344 (draft)",
       "fixRef": "origin/fix/source-aliased-workspace-ownership",
       "links": {
         "@m/feature": "packages/feature",
         "@m/validator": "packages/validator"
       },
-      "bugSignature": "expected (null|'built copy') to be 'written by the test'",
+      "bugSignature": "^split\\.test\\.ts: AssertionError: expected null to be 'written by the test'",
       "control": {
         "why": "The library no longer peers on react-native, so the engine does not detect it and Vite owns it: the bug's precondition is gone.",
         "edits": [
@@ -55,11 +55,11 @@
         ]
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
-        "fix": "PASS",
         "control": "PASS",
-        "mainSignature": "split.test.ts: a store written through one import path reads back through the other: AssertionError: expected null to be 'written by the test' // Object.is equality",
+        "fix": "PASS",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "split.test.ts: AssertionError: expected null to be 'written by the test' // Object.is equality",
         "proof": "fix proven"
       }
     },
@@ -73,11 +73,11 @@
       "links": {
         "@m/feature": "packages/feature"
       },
-      "bugSignature": "Cannot use 'import\\.meta' outside a module",
+      "bugSignature": "^meta\\.test\\.ts: Cannot use 'import\\.meta' outside a module",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "fix": "PASS",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
         "mainSignature": "meta.test.ts: Cannot use 'import.meta' outside a module",
         "proof": "fix proven"
       }
@@ -87,13 +87,13 @@
       "class": "ownership",
       "title": "A parent alias over the packages directory loads a library twice",
       "source": "#344 review; ownership-ledger shape 3",
-      "fixedBy": "open (#344 does not fix it; v2 ownership by resolution)",
+      "fixedBy": "open (outside #344's scope by design: it matches aliases by real-path directory)",
       "fixRef": "origin/fix/source-aliased-workspace-ownership",
       "links": {
         "@m/feature": "packages/feature",
         "@m/validator": "packages/validator"
       },
-      "bugSignature": "expected (null|'built copy') to be 'written by the test'",
+      "bugSignature": "^split\\.test\\.ts: AssertionError: expected null to be 'written by the test'",
       "control": {
         "why": "The library no longer peers on react-native, so the engine does not detect it and Vite owns it: the bug's precondition is gone.",
         "edits": [
@@ -105,11 +105,11 @@
         ]
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
-        "fix": "FAIL (bug)",
         "control": "PASS",
-        "mainSignature": "split.test.ts: a store written through one import path reads back through the other: AssertionError: expected null to be 'written by the test' // Object.is equality",
+        "fix": "FAIL (bug)",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "split.test.ts: AssertionError: expected null to be 'written by the test' // Object.is equality",
         "proof": "open (control passes)"
       }
     },
@@ -118,13 +118,13 @@
       "class": "ownership",
       "title": "An alias added by a later plugin's config hook loads a library twice",
       "source": "#344 review; ownership-ledger shape 6",
-      "fixedBy": "#344 (draft; ownership by resolution is planned for v2)",
+      "fixedBy": "#344 (draft)",
       "fixRef": "origin/fix/source-aliased-workspace-ownership",
       "links": {
         "@m/feature": "packages/feature",
         "@m/validator": "packages/validator"
       },
-      "bugSignature": "expected (null|'built copy') to be 'written by the test'",
+      "bugSignature": "^split\\.test\\.ts: AssertionError: expected null to be 'written by the test'",
       "control": {
         "why": "The library no longer peers on react-native, so the engine does not detect it and Vite owns it: the bug's precondition is gone.",
         "edits": [
@@ -136,11 +136,11 @@
         ]
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
-        "fix": "PASS",
         "control": "PASS",
-        "mainSignature": "split.test.ts: a store written through one import path reads back through the other: AssertionError: expected null to be 'written by the test' // Object.is equality",
+        "fix": "PASS",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "split.test.ts: AssertionError: expected null to be 'written by the test' // Object.is equality",
         "proof": "fix proven"
       }
     },
@@ -149,13 +149,13 @@
       "class": "ownership",
       "title": "An alias declared on an inline project loads a library twice",
       "source": "#344 review; ownership-ledger shape 7",
-      "fixedBy": "#344 (draft; ownership by resolution is planned for v2)",
+      "fixedBy": "#344 (draft)",
       "fixRef": "origin/fix/source-aliased-workspace-ownership",
       "links": {
         "@m/feature": "packages/feature",
         "@m/validator": "packages/validator"
       },
-      "bugSignature": "expected (null|'built copy') to be 'written by the test'",
+      "bugSignature": "^split\\.test\\.ts: AssertionError: expected null to be 'written by the test'",
       "control": {
         "why": "The library no longer peers on react-native, so the engine does not detect it and Vite owns it: the bug's precondition is gone.",
         "edits": [
@@ -167,11 +167,11 @@
         ]
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
-        "fix": "PASS",
         "control": "PASS",
-        "mainSignature": "split.test.ts: a store written through one import path reads back through the other: AssertionError: expected null to be 'written by the test' // Object.is equality",
+        "fix": "PASS",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "split.test.ts: AssertionError: expected null to be 'written by the test' // Object.is equality",
         "proof": "fix proven"
       }
     },
@@ -180,13 +180,13 @@
       "class": "ownership",
       "title": "A workspace library regex-aliased to source cannot be loaded",
       "source": "monorepo migration report #1",
-      "fixedBy": "#344 (draft; ownership by resolution is planned for v2)",
+      "fixedBy": "#344 (draft)",
       "fixRef": "origin/fix/source-aliased-workspace-ownership",
       "links": {
         "@m/feature": "packages/feature",
         "@m/validator": "packages/validator"
       },
-      "bugSignature": "Cannot find module '@m/validator/store'|expected (null|'built copy') to be 'written by the test'",
+      "bugSignature": "^split\\.test\\.ts: Cannot find module '@m/validator/store'",
       "control": {
         "why": "The library no longer peers on react-native, so the engine does not detect it and Vite owns it: the bug's precondition is gone.",
         "edits": [
@@ -198,10 +198,10 @@
         ]
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
-        "fix": "PASS",
         "control": "PASS",
+        "fix": "PASS",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
         "mainSignature": "split.test.ts: Cannot find module '@m/validator/store'",
         "proof": "fix proven"
       }
@@ -211,13 +211,13 @@
       "class": "ownership",
       "title": "One regex alias covering every workspace package cannot be loaded",
       "source": "#344 review (#344 still fails it)",
-      "fixedBy": "open (#344 does not fix it; v2 ownership by resolution)",
+      "fixedBy": "open (outside #344's scope by design, though #344's description implies regex aliases are covered)",
       "fixRef": "origin/fix/source-aliased-workspace-ownership",
       "links": {
         "@m/feature": "packages/feature",
         "@m/validator": "packages/validator"
       },
-      "bugSignature": "Cannot find module '@m/validator/store'|expected (null|'built copy') to be 'written by the test'",
+      "bugSignature": "^split\\.test\\.ts: Cannot find module '@m/validator/store'",
       "control": {
         "why": "The library no longer peers on react-native, so the engine does not detect it and Vite owns it: the bug's precondition is gone.",
         "edits": [
@@ -229,10 +229,10 @@
         ]
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
-        "fix": "FAIL (bug)",
         "control": "PASS",
+        "fix": "FAIL (bug)",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
         "mainSignature": "split.test.ts: Cannot find module '@m/validator/store'",
         "proof": "open (control passes)"
       }
@@ -242,13 +242,13 @@
       "class": "ownership",
       "title": "A root alias over the workspace loads a library twice",
       "source": "#344 review; ownership-ledger shape 4",
-      "fixedBy": "open (#344 does not fix it; v2 ownership by resolution)",
+      "fixedBy": "open (outside #344's scope by design: it matches aliases by real-path directory)",
       "fixRef": "origin/fix/source-aliased-workspace-ownership",
       "links": {
         "@m/feature": "packages/feature",
         "@m/validator": "packages/validator"
       },
-      "bugSignature": "expected (null|'built copy') to be 'written by the test'",
+      "bugSignature": "^split\\.test\\.ts: AssertionError: expected null to be 'written by the test'",
       "control": {
         "why": "The library no longer peers on react-native, so the engine does not detect it and Vite owns it: the bug's precondition is gone.",
         "edits": [
@@ -260,11 +260,11 @@
         ]
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
-        "fix": "FAIL (bug)",
         "control": "PASS",
-        "mainSignature": "split.test.ts: a store written through one import path reads back through the other: AssertionError: expected null to be 'written by the test' // Object.is equality",
+        "fix": "FAIL (bug)",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "split.test.ts: AssertionError: expected null to be 'written by the test' // Object.is equality",
         "proof": "open (control passes)"
       }
     },
@@ -273,13 +273,13 @@
       "class": "ownership",
       "title": "A workspace library string-aliased to source loads twice",
       "source": "monorepo migration report #1",
-      "fixedBy": "#344 (draft; ownership by resolution is planned for v2)",
+      "fixedBy": "#344 (draft)",
       "fixRef": "origin/fix/source-aliased-workspace-ownership",
       "links": {
         "@m/feature": "packages/feature",
         "@m/validator": "packages/validator"
       },
-      "bugSignature": "expected (null|'built copy') to be 'written by the test'",
+      "bugSignature": "^split\\.test\\.ts: AssertionError: expected null to be 'written by the test'",
       "control": {
         "why": "The library no longer peers on react-native, so the engine does not detect it and Vite owns it: the bug's precondition is gone.",
         "edits": [
@@ -291,11 +291,11 @@
         ]
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
-        "fix": "PASS",
         "control": "PASS",
-        "mainSignature": "split.test.ts: a store written through one import path reads back through the other: AssertionError: expected null to be 'written by the test' // Object.is equality",
+        "fix": "PASS",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "split.test.ts: AssertionError: expected null to be 'written by the test' // Object.is equality",
         "proof": "fix proven"
       }
     },
@@ -306,12 +306,12 @@
       "source": "ownership ledger (#353), found by running the suites under ownership: 'error'",
       "fixedBy": "#353",
       "fixRef": "origin/feat/fail-closed-ownership",
-      "bugSignature": "expected \\[Function legacy\\] to be \\[Function legacy\\]|legacy:1",
+      "bugSignature": "^require\\.test\\.ts: AssertionError: expected \\[Function legacy\\] to be \\[Function legacy\\]",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "mainSignature": "require.test.ts: require() returns the module.exports the import gave: AssertionError: expected [Function legacy] to be [Function legacy] // Object.is equality",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "require.test.ts: AssertionError: expected [Function legacy] to be [Function legacy] // Object.is equality",
         "proof": "fix proven"
       }
     },
@@ -322,12 +322,12 @@
       "source": "monorepo migration report #10",
       "fixedBy": "#345 (draft)",
       "fixRef": "origin/fix/require-actual-single-graph",
-      "bugSignature": "expected null to be 'set-by-the-app'",
+      "bugSignature": "^partial-mock\\.test\\.ts: AssertionError: expected null to be 'set-by-the-app'",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "mainSignature": "partial-mock.test.ts: the real members of a partial mock share the app's store: AssertionError: expected null to be 'set-by-the-app' // Object.is equality",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "partial-mock.test.ts: AssertionError: expected null to be 'set-by-the-app' // Object.is equality",
         "proof": "fix proven"
       }
     },
@@ -341,11 +341,11 @@
         "@m/ui": "packages/ui"
       },
       "buggyRef": "origin/fix/require-actual-single-graph",
-      "bugSignature": "JEST_MOCK_FACTORY_CYCLE|cycle",
+      "bugSignature": "^partial-mock\\.test\\.ts: .*\\(caused by: VitestNativeError: \\[vitest-native\\] '@m/ui' was required while its jest\\.mock factory was still loading the real module",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "PASS",
         "buggy": "FAIL (bug)",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
         "proof": "guard proven"
       }
     },
@@ -354,13 +354,13 @@
       "class": "ownership",
       "title": "A workspace library whose main is its source loads its dependency twice",
       "source": "#344 review; ownership-ledger shape 9",
-      "fixedBy": "open (#344 does not fix it; v2 ownership by resolution)",
+      "fixedBy": "open (not an alias shape: outside #344's scope)",
       "fixRef": "origin/fix/source-aliased-workspace-ownership",
       "links": {
         "@m/feature": "packages/feature",
         "@m/validator": "packages/validator"
       },
-      "bugSignature": "expected (null|'built copy') to be 'written by the test'",
+      "bugSignature": "^split\\.test\\.ts: AssertionError: expected null to be 'written by the test'",
       "control": {
         "why": "The library no longer peers on react-native, so the engine does not detect it and Vite owns it: the bug's precondition is gone.",
         "edits": [
@@ -372,11 +372,11 @@
         ]
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
-        "fix": "FAIL (bug)",
         "control": "PASS",
-        "mainSignature": "split.test.ts: a store written through one import path reads back through the other: AssertionError: expected null to be 'written by the test' // Object.is equality",
+        "fix": "FAIL (bug)",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "split.test.ts: AssertionError: expected null to be 'written by the test' // Object.is equality",
         "proof": "open (control passes)"
       }
     },
@@ -385,13 +385,13 @@
       "class": "ownership",
       "title": "Workspace libraries mapped by tsconfig paths load twice",
       "source": "#344 review; ownership-ledger shape 5",
-      "fixedBy": "open (#344 does not fix it; v2 ownership by resolution)",
+      "fixedBy": "open (not an alias shape: outside #344's scope)",
       "fixRef": "origin/fix/source-aliased-workspace-ownership",
       "links": {
         "@m/feature": "packages/feature",
         "@m/validator": "packages/validator"
       },
-      "bugSignature": "expected (null|'built copy') to be 'written by the test'",
+      "bugSignature": "^split\\.test\\.ts: AssertionError: expected null to be 'written by the test'",
       "control": {
         "why": "The library no longer peers on react-native, so the engine does not detect it and Vite owns it: the bug's precondition is gone.",
         "edits": [
@@ -403,11 +403,11 @@
         ]
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
-        "fix": "FAIL (bug)",
         "control": "PASS",
-        "mainSignature": "split.test.ts: a store written through one import path reads back through the other: AssertionError: expected null to be 'written by the test' // Object.is equality",
+        "fix": "FAIL (bug)",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "split.test.ts: AssertionError: expected null to be 'written by the test' // Object.is equality",
         "proof": "open (control passes)"
       }
     },
@@ -418,12 +418,12 @@
       "source": "monorepo migration report #4",
       "fixedBy": "#343",
       "fixRef": "origin/fix/recoverable-errors-and-expo-os",
-      "bugSignature": "expected undefined to be 'ios'",
+      "bugSignature": "^expo-os\\.test\\.ts: AssertionError: expected undefined to be 'ios'",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "mainSignature": "expo-os.test.ts: EXPO_OS is the test platform: AssertionError: expected undefined to be 'ios' // Object.is equality",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "expo-os.test.ts: AssertionError: expected undefined to be 'ios' // Object.is equality",
         "proof": "fix proven"
       }
     },
@@ -434,12 +434,12 @@
       "source": "monorepo migration report #7",
       "fixedBy": "#346",
       "fixRef": "origin/fix/jest-compat-error-equality",
-      "bugSignature": "to deeply equal Error: bad input|toThrow|Error: bad input",
+      "bugSignature": "^error-equality\\.test\\.ts: AssertionError: expected Error: bad input \\{ issues: \\[\\], …\\(1\\) \\} to deeply equal Error: bad input",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "mainSignature": "error-equality.test.ts: errors differing only in per-instance methods are equal: AssertionError: expected Error: bad input { issues: [], …(1) } to deeply equal Error: bad input { issues: [], …(1) }",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "error-equality.test.ts: AssertionError: expected Error: bad input { issues: [], …(1) } to deeply equal Error: bad input { issues: [], …(1) }",
         "proof": "fix proven"
       }
     },
@@ -450,12 +450,12 @@
       "source": "monorepo migration report #8",
       "fixedBy": "#340",
       "fixRef": "origin/fix/jest-compat-fake-timer-options",
-      "bugSignature": "the fake clock stood still",
+      "bugSignature": "^fake-timer-options\\.test\\.ts: AssertionError: expected 'the fake clock stood still' to be 'fired'",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "mainSignature": "fake-timer-options.test.ts: advanceTimers: true advances the fake clock with real time: AssertionError: expected 'the fake clock stood still' to be 'fired' // Object.is equality",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "fake-timer-options.test.ts: AssertionError: expected 'the fake clock stood still' to be 'fired' // Object.is equality",
         "proof": "fix proven"
       }
     },
@@ -466,12 +466,12 @@
       "source": "#340 adversarial review",
       "fixedBy": "#340",
       "fixRef": "origin/fix/jest-compat-fake-timer-options",
-      "bugSignature": "expected 0 to be greater than or equal to",
+      "bugSignature": "^recall\\.test\\.ts: AssertionError: expected 0 to be greater than or equal to \\d+",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "mainSignature": "recall.test.ts: a second useFakeTimers() starts from the real current time: AssertionError: expected 0 to be greater than or equal to 1793215211162",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "recall.test.ts: AssertionError: expected 0 to be greater than or equal to 1793217649569",
         "proof": "fix proven"
       }
     },
@@ -485,11 +485,12 @@
       "requires": {
         "rntl": "13"
       },
-      "bugSignature": "There was an error during concurrent rendering but React was able to recover|Vitest exited 1",
+      "bugSignature": "^unhandled error \\(from recoverable-error\\.test\\.tsx\\): Error: There was an error during concurrent rendering but React was able to recover",
+      "consequences": "^(the JSON report says success: true, but Vitest exited 1|Vitest exited 1, but no file failed and no error was unhandled)$",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "fix": "PASS",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
         "mainSignature": "unhandled error (from recoverable-error.test.tsx): Error: There was an error during concurrent rendering but React was able to recover by instead synchronously rendering the entire root. (caused by: Error: first render fails)",
         "proof": "fix proven"
       }
@@ -502,12 +503,13 @@
       "fixedBy": "#343 (final version)",
       "fixRef": "origin/fix/recoverable-errors-and-expo-os",
       "buggyRef": "da5cd6c",
-      "bugSignature": "handled by the library",
+      "bugSignature": "^unhandled error \\(from report\\.test\\.ts\\): Error: handled by the library",
+      "consequences": "^(the JSON report says success: true, but Vitest exited 1|Vitest exited 1, but no file failed and no error was unhandled)$",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "PASS",
         "fix": "PASS",
         "buggy": "FAIL (bug)",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
         "proof": "guard proven"
       }
     },
@@ -518,12 +520,12 @@
       "source": "monorepo migration report #17",
       "fixedBy": "#342",
       "fixRef": "origin/fix/rntl-cleanup-and-fake-timers",
-      "bugSignature": "expected \\+?0 to be 1",
+      "bugSignature": "^auto-cleanup\\.test\\.tsx: AssertionError: the previous test's tree was unmounted: expected \\+0 to be 1",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "mainSignature": "auto-cleanup.test.tsx: the previous test's tree was unmounted, its effects cleaned up: AssertionError: expected +0 to be 1 // Object.is equality",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "auto-cleanup.test.tsx: AssertionError: the previous test's tree was unmounted: expected +0 to be 1 // Object.is equality",
         "proof": "fix proven"
       }
     },
@@ -534,12 +536,12 @@
       "source": "#342 adversarial review",
       "fixedBy": "#342",
       "fixRef": "origin/fix/rntl-cleanup-and-fake-timers",
-      "bugSignature": "expected \\+?0 to be 1",
+      "bugSignature": "^cleanup\\.test\\.tsx: AssertionError: the previous test's tree was unmounted: expected \\+0 to be 1",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "mainSignature": "cleanup.test.tsx: the previous test's tree was unmounted: AssertionError: expected +0 to be 1 // Object.is equality",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "cleanup.test.tsx: AssertionError: the previous test's tree was unmounted: expected +0 to be 1 // Object.is equality",
         "proof": "fix proven"
       }
     },
@@ -548,9 +550,9 @@
       "class": "env-contract",
       "title": "RNTL's findBy does not advance Vitest's fake timers",
       "source": "monorepo migration report #18",
-      "fixedBy": "open (#342 documents it; deferred to the v2 environment contract)",
+      "fixedBy": "open (#342 documents it as out of scope: use jest-compat or advance timers by hand)",
       "fixRef": "origin/fix/rntl-cleanup-and-fake-timers",
-      "bugSignature": "Unable to find an element with text: ready|timed out",
+      "bugSignature": "^findby-fake-timers\\.test\\.tsx: Error: Unable to find an element with text: ready",
       "control": {
         "why": "With real timers findBy polls and finds the element: the test itself is passable.",
         "edits": [
@@ -562,11 +564,11 @@
         ]
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
-        "fix": "FAIL (bug)",
         "control": "PASS",
-        "mainSignature": "findby-fake-timers.test.tsx: findBy advances Vitest's fake timers: Error: Unable to find an element with text: ready",
+        "fix": "FAIL (bug)",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "findby-fake-timers.test.tsx: Error: Unable to find an element with text: ready",
         "proof": "open (control passes)"
       }
     },
@@ -580,7 +582,7 @@
       "requires": {
         "vitest": "4"
       },
-      "bugSignature": "expected false to be true|factory-",
+      "bugSignature": "^[ab]\\.test\\.ts: AssertionError: (an automock for the module this file automocks: expected false to be true|this file's own factory: expected .* to be 'factory-[ab]')",
       "control": {
         "why": "The stock runtime (hotRuntime: false) gives every file a fresh module graph, as Jest does: the leak's precondition is gone.",
         "edits": [
@@ -592,11 +594,11 @@
         ]
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
-        "fix": "PASS",
         "control": "PASS",
-        "mainSignature": "b.test.ts: gets its own factory, and an automock for the module it automocks: AssertionError: expected false to be true // Object.is equality",
+        "fix": "PASS",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "b.test.ts: AssertionError: an automock for the module this file automocks: expected false to be true // Object.is equality",
         "proof": "fix proven"
       }
     },
@@ -607,7 +609,7 @@
       "source": "#350 (react-native-paper bake-off: hot gave 698-714 tests, nondeterministic)",
       "fixedBy": "#350",
       "fixRef": "origin/fix/hot-dropped-test-file",
-      "bugSignature": "hotRuntime state restoration failed|did not run|no result in the JSON report|never reported module|success: true, but Vitest exited 1",
+      "bugSignature": "^unhandled error: VitestNativeError: \\[vitest-native\\] hotRuntime state restoration failed: / - react-native\\.appearance restore: Cannot read properties of null \\(reading 'setColorScheme'\\)",
       "control": {
         "why": "The stock runtime (hotRuntime: false) gives every file a fresh module graph, as Jest does: the leak's precondition is gone.",
         "edits": [
@@ -618,11 +620,12 @@
           }
         ]
       },
+      "consequences": "^(file accounting: (no result in the JSON report for|Vitest never reported module) b\\.test\\.ts|b\\.test\\.ts: did not run|the JSON report says success: true, but Vitest exited 1|Vitest exited 1, but no file failed and no error was unhandled)$",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
-        "fix": "PASS",
         "control": "PASS",
+        "fix": "PASS",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
         "mainSignature": "file accounting: no result in the JSON report for b.test.ts",
         "proof": "fix proven"
       }
@@ -634,7 +637,7 @@
       "source": "M0 gate G3 (2026-10-28) and monorepo migration report #19 (the hot worker re-read the filesystem per file)",
       "fixedBy": "local branch perf/library-mock-resolution-cache (WIP, no PR)",
       "fixRef": "perf/library-mock-resolution-cache",
-      "bugSignature": "expected \\d+ to be less than (60|150)",
+      "bugSignature": "^[bc]\\.test\\.tsx: AssertionError: a warm file's (Module\\._resolveFilename|fs\\.readFileSync) calls: expected \\d+ to be less than (60|150)",
       "control": {
         "why": "Without the libraries (a plain render), a warm file's cost is the RN-core baseline.",
         "edits": [
@@ -656,11 +659,11 @@
         ]
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
-        "fix": "PASS",
         "control": "PASS",
-        "mainSignature": "b.test.tsx: file b renders, and a warm file costs few resolutions and reads: AssertionError: expected 163 to be less than 60",
+        "fix": "PASS",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "b.test.tsx: AssertionError: a warm file's Module._resolveFilename calls: expected 163 to be less than 60",
         "proof": "fix proven"
       }
     },
@@ -670,7 +673,7 @@
       "title": "Under hot, the scheduler keeps the fake timers it loaded under",
       "source": "v1 hot-runtime cross-file leaks (2026-10-28 M0 gates)",
       "fixedBy": "open (the v2 per-file world)",
-      "bugSignature": "timed out|Unable to find an element with text: done",
+      "bugSignature": "^b\\.test\\.tsx: AssertionError: the timer-driven update rendered within 300 ms: expected 'waiting' to be 'done'",
       "control": {
         "why": "The stock runtime (hotRuntime: false) gives every file a fresh module graph, as Jest does: the leak's precondition is gone.",
         "edits": [
@@ -682,10 +685,10 @@
         ]
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "control": "PASS",
-        "mainSignature": "b.test.tsx: file 2: an update from a real timer renders: Error: Test timed out in 10000ms.",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "b.test.tsx: AssertionError: the timer-driven update rendered within 300 ms: expected 'waiting' to be 'done' // Object.is equality",
         "proof": "open (control passes)"
       }
     },
@@ -695,7 +698,7 @@
       "title": "Under hot, an un-awaited act in one file poisons the next file",
       "source": "v1 hot-runtime cross-file leaks (2026-10-28 M0 gates)",
       "fixedBy": "open (the v2 per-file world)",
-      "bugSignature": "Unable to find an element with text: second file",
+      "bugSignature": "^b\\.test\\.tsx: AssertionError: this file's render committed a tree: expected null not to be null",
       "control": {
         "why": "The stock runtime (hotRuntime: false) gives every file a fresh module graph, as Jest does: the leak's precondition is gone.",
         "edits": [
@@ -707,10 +710,10 @@
         ]
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "control": "PASS",
-        "mainSignature": "b.test.tsx: an ordinary render in the next file: Error: Unable to find an element with text: second file",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "b.test.tsx: AssertionError: this file's render committed a tree: expected null not to be null",
         "proof": "open (control passes)"
       }
     },
@@ -720,7 +723,7 @@
       "title": "Under hot, useId carries over from the previous file",
       "source": "v1 hot-runtime cross-file leaks (2026-10-28 M0 gates)",
       "fixedBy": "open (the v2 per-file world)",
-      "bugSignature": "expected '_r_1_' to be '_r_0_'",
+      "bugSignature": "^b\\.test\\.tsx: AssertionError: this file's first useId is the earlier file's first useId: expected '[^']+' to be '[^']+'",
       "control": {
         "why": "The stock runtime (hotRuntime: false) gives every file a fresh module graph, as Jest does: the leak's precondition is gone.",
         "edits": [
@@ -732,10 +735,10 @@
         ]
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "control": "PASS",
-        "mainSignature": "b.test.tsx: the first useId in a file is the same in every file: AssertionError: expected '_r_1_' to be '_r_0_' // Object.is equality",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "b.test.tsx: AssertionError: this file's first useId is the earlier file's first useId: expected '_r_1_' to be '_r_0_' // Object.is equality",
         "proof": "open (control passes)"
       }
     },
@@ -745,7 +748,7 @@
       "title": "Under hot, React's warning dedupe hides a warning the file asserts",
       "source": "v1 hot-runtime cross-file leaks (2026-10-28 M0 gates)",
       "fixedBy": "open (the v2 per-file world)",
-      "bugSignature": "expected false to be true",
+      "bugSignature": "^b\\.test\\.tsx: AssertionError: React warned about the missing key in this file: expected false to be true",
       "control": {
         "why": "The stock runtime (hotRuntime: false) gives every file a fresh module graph, as Jest does: the leak's precondition is gone.",
         "edits": [
@@ -757,10 +760,10 @@
         ]
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "control": "PASS",
-        "mainSignature": "b.test.tsx: React warns about a list without keys: AssertionError: expected false to be true // Object.is equality",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "b.test.tsx: AssertionError: React warned about the missing key in this file: expected false to be true // Object.is equality",
         "proof": "open (control passes)"
       }
     },
@@ -769,14 +772,14 @@
       "class": "presets",
       "title": "Gesture Handler 3's components need hand-written jest.mocks",
       "source": "issue #351 (a user's migration: ~50 s under Jest -> ~8 s)",
-      "fixedBy": "local branch fix/issue-351-own-library-mocks (no PR yet)",
-      "fixRef": "fix/issue-351-own-library-mocks",
-      "bugSignature": "is not a function|Unable to find|Element type is invalid|undefined",
+      "fixedBy": "local branch feat/library-jest-scope (Gesture Handler runs as itself; no PR yet)",
+      "fixRef": "feat/library-jest-scope",
+      "bugSignature": "^issue351\\.test\\.tsx: AssertionError: Gesture Handler 3 exports Touchable: expected 'undefined' not to be 'undefined'",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "mainSignature": "issue351.test.tsx: GH 3 components render without user mocks: Error: Element type is invalid: expected a string (for built-in components) or a class/function (for composite components) but got: undefined. You likely forgot to export your co",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "issue351.test.tsx: AssertionError: Gesture Handler 3 exports Touchable: expected 'undefined' not to be 'undefined' // Object.is equality",
         "proof": "fix proven"
       }
     },
@@ -785,15 +788,18 @@
       "class": "presets",
       "title": "A Gesture Handler 3 gesture configured with a shared value crashes",
       "source": "issue #351 (a user's migration: ~50 s under Jest -> ~8 s)",
-      "fixedBy": "local branch fix/issue-351-own-library-mocks (no PR yet)",
+      "fixedBy": "local branch fix/issue-351-own-library-mocks (400c240; no PR yet)",
       "fixRef": "fix/issue-351-own-library-mocks",
-      "bugSignature": "addListener is not a function|is not a function",
+      "bugSignature": "^(issue351\\.test\\.tsx: |unhandled error \\(from issue351\\.test\\.tsx\\): )TypeError: \\S+\\.addListener is not a function",
+      "consequences": "^(the JSON report says success: true, but Vitest exited 1|Vitest exited 1, but no file failed and no error was unhandled)$",
+      "buggyRef": "400c240^",
       "status": {
-        "measuredOn": "0f2400e",
-        "main": "FAIL (bug)",
+        "main": "FAIL (other)",
         "fix": "PASS",
-        "mainSignature": "issue351.test.tsx: a pan gesture enabled by a shared value mounts beside a tap: TypeError: gh.useTapGesture is not a function",
-        "proof": "fix proven"
+        "buggy": "FAIL (bug)",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "issue351.test.tsx: TypeError: gh.useTapGesture is not a function",
+        "proof": "fix proven (bug on buggyRef)"
       }
     },
     {
@@ -803,12 +809,12 @@
       "source": "issue #351 (a user's migration: ~50 s under Jest -> ~8 s)",
       "fixedBy": "local branch fix/issue-351-own-library-mocks (no PR yet)",
       "fixRef": "fix/issue-351-own-library-mocks",
-      "bugSignature": "expected (undefined|0|-1) to be (50|3)|is not a function|to match|expected false to be true",
+      "bugSignature": "^issue351\\.test\\.tsx: AssertionError: (interpolate computes: expected undefined to be 50|clamp computes: expected .* to be 3|interpolateColor computes|Reanimated exports isSharedValue: expected 'undefined' to be 'function'|isSharedValue recognises a shared value)",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "mainSignature": "issue351.test.tsx: interpolate, clamp and interpolateColor compute: AssertionError: expected undefined to be 50 // Object.is equality",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "issue351.test.tsx: AssertionError: interpolate computes: expected undefined to be 50 // Object.is equality",
         "proof": "fix proven"
       }
     },
@@ -819,12 +825,12 @@
       "source": "issue #351 (a user's migration: ~50 s under Jest -> ~8 s)",
       "fixedBy": "local branch fix/issue-351-own-library-mocks (no PR yet)",
       "fixRef": "fix/issue-351-own-library-mocks",
-      "bugSignature": "expected \\[\\] to deeply equal|expected 'undefined' to be 'function'|is not a function",
+      "bugSignature": "^issue351\\.test\\.tsx: AssertionError: (the scroll handler received the scroll event: expected \\[\\] to deeply equal \\[ 7 \\]|useScrollOffset returns a shared value: expected 'undefined' to be 'function')",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "mainSignature": "issue351.test.tsx: useAnimatedScrollHandler forwards onScroll: AssertionError: expected [] to deeply equal [ 7 ]",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "issue351.test.tsx: AssertionError: the scroll handler received the scroll event: expected [] to deeply equal [ 7 ]",
         "proof": "fix proven"
       }
     },
@@ -835,11 +841,11 @@
       "source": "monorepo migration report #5",
       "fixedBy": "#348",
       "fixRef": "origin/fix/navigation-preset-visibility",
-      "bugSignature": "the banner does not name the safeAreaContext preset|no engine banner",
+      "bugSignature": "^check\\.mjs: the banner does not name the safeAreaContext preset: \\[vitest-native\\] engine:",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "fix": "PASS",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
         "mainSignature": "check.mjs: the banner does not name the safeAreaContext preset: [vitest-native] engine: native — real react-native@0.88.0 (platform ios)",
         "proof": "fix proven"
       }
@@ -851,12 +857,12 @@
       "source": "verification-harness audit 2026-10-28 (a mutation survived the crosscheck)",
       "fixedBy": "local branch fix/mock-stylesheet-compose (no PR yet)",
       "fixRef": "fix/mock-stylesheet-compose",
-      "bugSignature": "compose|flatten|expected \\[ null",
+      "bugSignature": "^stylesheet\\.test\\.ts: AssertionError: (expected \\[ null, \\{ color: 'red' \\} \\] to be \\{ color: 'red' \\}|expected .* to deeply equal \\{\\})",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "mainSignature": "stylesheet.test.ts: compose with a nullish side returns the other side: AssertionError: expected [ null, { color: 'red' } ] to be { color: 'red' } // Object.is equality",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "stylesheet.test.ts: AssertionError: expected [ null, { color: 'red' } ] to be { color: 'red' } // Object.is equality",
         "proof": "fix proven"
       }
     },
@@ -870,7 +876,7 @@
       "storeLinks": {
         "react-native-screens": "4.25.2"
       },
-      "bugSignature": "does not provide an export named|@react-navigation/elements|@react-navigation/core|Cannot find module|Unexpected token|SyntaxError",
+      "bugSignature": "^stack\\.test\\.tsx: (SyntaxError: )?The requested module '@react-navigation/native' does not provide an export named 'useTheme'",
       "control": {
         "why": "Compiling @react-navigation/elements explicitly (the workaround) removes the missing-closure precondition.",
         "edits": [
@@ -882,10 +888,10 @@
         ]
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
-        "fix": "PASS",
         "control": "PASS",
+        "fix": "PASS",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
         "mainSignature": "stack.test.tsx: The requested module '@react-navigation/native' does not provide an export named 'useTheme'",
         "proof": "fix proven"
       }
@@ -900,12 +906,12 @@
       "requires": {
         "rntl": "12"
       },
-      "bugSignature": "Unable to find an element with text: inner",
+      "bugSignature": "^nested-text\\.test\\.tsx: Error: Unable to find an element with text: inner",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "mainSignature": "nested-text.test.tsx: nested Text is queryable by its own text: Error: Unable to find an element with text: inner",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "nested-text.test.tsx: Error: Unable to find an element with text: inner",
         "proof": "fix proven"
       }
     },
@@ -914,22 +920,22 @@
       "class": "presets",
       "title": "A nested Text link is not findable by role on RNTL 12",
       "source": "#341 adversarial review",
-      "fixedBy": "open (#341 documents it)",
+      "fixedBy": "open (#341 documents it as out of scope)",
       "fixRef": "origin/fix/screens-header-and-virtual-text",
       "requires": {
         "rntl": "12"
       },
-      "bugSignature": "Unable to find an element with role: link",
+      "bugSignature": "^role\\.test\\.tsx: Error: Unable to find an element with role: link, name: docs",
       "control": {
         "why": "On RNTL 14 (this repository's) the same query finds the link.",
         "requires": {}
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
-        "fix": "FAIL (bug)",
         "control": "PASS",
-        "mainSignature": "role.test.tsx: a nested Text link is findable by role: Error: Unable to find an element with role: link, name: docs",
+        "fix": "FAIL (bug)",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "role.test.tsx: Error: Unable to find an element with role: link, name: docs",
         "proof": "open (control passes)"
       }
     },
@@ -943,12 +949,12 @@
       "requires": {
         "rntl": "13"
       },
-      "bugSignature": "Unable to find an element with text: inner",
+      "bugSignature": "^nested-text\\.test\\.tsx: Error: Unable to find an element with text: inner",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "mainSignature": "nested-text.test.tsx: nested Text is queryable by its own text: Error: Unable to find an element with text: inner",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "nested-text.test.tsx: Error: Unable to find an element with text: inner",
         "proof": "fix proven"
       }
     },
@@ -962,12 +968,12 @@
       "storeLinks": {
         "react-native-screens": "4.25.2"
       },
-      "bugSignature": "to include 'Go back'|to contain 'Go back'|Unable to find an element with label: Go back",
+      "bugSignature": "^header\\.test\\.tsx: AssertionError: expected \\[\\] to include 'Go back'",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "mainSignature": "header.test.tsx: the native-stack header renders its headerLeft: AssertionError: expected [] to include 'Go back'",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "header.test.tsx: AssertionError: expected [] to include 'Go back'",
         "proof": "fix proven"
       }
     },
@@ -977,12 +983,12 @@
       "title": "A default import read during an import cycle must stay live",
       "source": "#339 adversarial review (a regression of #339's eager interop)",
       "fixedBy": "open (regression guard for #339)",
-      "bugSignature": "is not a function|a-default",
+      "bugSignature": "^interop\\.test\\.ts: TypeError: \\(0 , _a\\.default\\) is not a function",
       "buggyRef": "origin/fix/esm-goal-import-interop",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "PASS",
         "buggy": "FAIL (bug)",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
         "proof": "guard proven"
       }
     },
@@ -991,9 +997,9 @@
       "class": "transform/resolution",
       "title": "A combined default + named import of __esModule CommonJS loses the default",
       "source": "#339 adversarial review",
-      "fixedBy": "open (#339 fixes only the default-only form)",
+      "fixedBy": "open (a gap in #339's claim: it fixes the default-only form)",
       "fixRef": "origin/fix/esm-goal-import-interop",
-      "bugSignature": "reading '__extends'|undefined",
+      "bugSignature": "^interop\\.test\\.ts: TypeError: Cannot read properties of undefined \\(reading '__extends'\\)",
       "control": {
         "why": "CommonJS that also sets exports.default (Babel's own output) is read correctly by Babel's helpers.",
         "edits": [
@@ -1005,11 +1011,11 @@
         ]
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
-        "fix": "FAIL (bug)",
         "control": "PASS",
-        "mainSignature": "interop.test.ts: a default + named import of __esModule CommonJS gives module.exports as the default: TypeError: Cannot read properties of undefined (reading '__extends')",
+        "fix": "FAIL (bug)",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "interop.test.ts: TypeError: Cannot read properties of undefined (reading '__extends')",
         "proof": "open (control passes)"
       }
     },
@@ -1020,12 +1026,12 @@
       "source": "monorepo migration report #15",
       "fixedBy": "#339 (draft)",
       "fixRef": "origin/fix/esm-goal-import-interop",
-      "bugSignature": "reading '__extends'",
+      "bugSignature": "^interop\\.test\\.ts: TypeError: Cannot read properties of undefined \\(reading '__extends'\\)",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "mainSignature": "interop.test.ts: a default import of __esModule CommonJS without a default is module.exports: TypeError: Cannot read properties of undefined (reading '__extends')",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "interop.test.ts: TypeError: Cannot read properties of undefined (reading '__extends')",
         "proof": "fix proven"
       }
     },
@@ -1034,9 +1040,9 @@
       "class": "transform/resolution",
       "title": "A namespace import's .default of __esModule CommonJS is undefined",
       "source": "#339 adversarial review",
-      "fixedBy": "open (#339 fixes only the default-only form)",
+      "fixedBy": "open (outside #339's stated scope: the namespace form)",
       "fixRef": "origin/fix/esm-goal-import-interop",
-      "bugSignature": "reading '__extends'|undefined",
+      "bugSignature": "^interop\\.test\\.ts: TypeError: Cannot read properties of undefined \\(reading '__extends'\\)",
       "control": {
         "why": "CommonJS that also sets exports.default (Babel's own output) is read correctly by Babel's helpers.",
         "edits": [
@@ -1048,11 +1054,11 @@
         ]
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
-        "fix": "FAIL (bug)",
         "control": "PASS",
-        "mainSignature": "interop.test.ts: a namespace import's default is module.exports: TypeError: Cannot read properties of undefined (reading '__extends')",
+        "fix": "FAIL (bug)",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "interop.test.ts: TypeError: Cannot read properties of undefined (reading '__extends')",
         "proof": "open (control passes)"
       }
     },
@@ -1062,12 +1068,12 @@
       "title": "A default import of a Proxy-served CommonJS module must read its trap",
       "source": "#339 adversarial review (a regression of #339's eager interop)",
       "fixedBy": "open (regression guard for #339)",
-      "bugSignature": "is not a function|proxy-default",
+      "bugSignature": "^interop\\.test\\.ts: TypeError: \\(0 , _proxy\\.default\\) is not a function",
       "buggyRef": "origin/fix/esm-goal-import-interop",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "PASS",
         "buggy": "FAIL (bug)",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
         "proof": "guard proven"
       }
     },
@@ -1078,11 +1084,11 @@
       "source": "monorepo migration report #2",
       "fixedBy": "#323 (merged)",
       "preFixRef": "191c286^",
-      "bugSignature": "Stripping types is currently unsupported|ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING|Unknown file extension",
+      "bugSignature": "^peer\\.test\\.ts: Stripping types is currently unsupported for files under node_modules",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "PASS",
         "preFix": "FAIL (bug)",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
         "proof": "landed proven"
       }
     },
@@ -1099,7 +1105,7 @@
       "pnpmShaped": [
         "museum-peer-lib"
       ],
-      "bugSignature": "expected 'web' to be 'native'",
+      "bugSignature": "^native-ext\\.test\\.ts: AssertionError: expected 'web' to be 'native'",
       "control": {
         "why": "Without the worklets peer, pnpm's directory name carries no worklets substring.",
         "edits": [
@@ -1111,11 +1117,11 @@
         ]
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
-        "fix": "PASS",
         "control": "PASS",
-        "mainSignature": "native-ext.test.ts: a library beside worklets in the store resolves its .native file: AssertionError: expected 'web' to be 'native' // Object.is equality",
+        "fix": "PASS",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "native-ext.test.ts: AssertionError: expected 'web' to be 'native' // Object.is equality",
         "proof": "fix proven"
       }
     },
@@ -1133,14 +1139,14 @@
         "react-native-worklets",
         "react-native-reanimated"
       ],
-      "bugSignature": "react-native-web",
+      "bugSignature": "^render\\.test\\.tsx: Cannot find module 'react-native-web/",
       "fixVerification": "requires-CI: a real pnpm install. Locally the fix cannot be shown: a COPY of reanimated outside bun's store fails to load its JS implementation on any build, with or without worklets in the directory name (Cannot read properties of undefined (reading 'get') in worklets' NativeWorkletsModule), so the local pnpm simulation reaches the bug but not a passing run.",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "fix": "FAIL (other)",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
         "mainSignature": "render.test.tsx: Cannot find module 'react-native-web/dist/cjs/exports/StyleSheet/compiler/createReactDOMStyle.js'",
-        "proof": "fix side requires-CI"
+        "proof": "bug shown; passing side requires-CI"
       }
     },
     {
@@ -1153,12 +1159,12 @@
       "requires": {
         "rntl": "13"
       },
-      "bugSignature": "expected \\+?0 to be 1",
+      "bugSignature": "^auto-cleanup\\.test\\.tsx: AssertionError: the previous test's tree was unmounted: expected \\+0 to be 1",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "mainSignature": "auto-cleanup.test.tsx: the previous test's tree was unmounted, its effects cleaned up: AssertionError: expected +0 to be 1 // Object.is equality",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "auto-cleanup.test.tsx: AssertionError: the previous test's tree was unmounted: expected +0 to be 1 // Object.is equality",
         "proof": "fix proven"
       }
     },
@@ -1172,15 +1178,15 @@
       "storeLinks": {
         "react-native-screens": "4.25.2"
       },
-      "bugSignature": "to include 'Go back'|to contain 'Go back'|Unable to find an element with label: Go back",
+      "bugSignature": "^header\\.test\\.tsx: AssertionError: expected \\[\\] to include 'Go back'",
       "requires": {
         "rntl": "13"
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "mainSignature": "header.test.tsx: the native-stack header renders its headerLeft: AssertionError: expected [] to include 'Go back'",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "header.test.tsx: AssertionError: expected [] to include 'Go back'",
         "proof": "fix proven"
       }
     },
@@ -1191,12 +1197,12 @@
       "source": "monorepo migration report #11 / #12",
       "fixedBy": "#347",
       "fixRef": "origin/fix/cli-max-workers-memory-plan",
-      "bugSignature": "expected 4 to be 6",
+      "bugSignature": "^workers\\.test\\.ts: AssertionError: expected 4 to be 6",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "mainSignature": "workers.test.ts: an explicit maxWorkers is honoured: AssertionError: expected 4 to be 6 // Object.is equality",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "workers.test.ts: AssertionError: expected 4 to be 6 // Object.is equality",
         "proof": "fix proven"
       }
     },
@@ -1207,12 +1213,31 @@
       "source": "#347 adversarial review (a HIGH bug on main in the same code)",
       "fixedBy": "#347",
       "fixRef": "origin/fix/cli-max-workers-memory-plan",
-      "bugSignature": "maxWorkers|groupOrder|no result in the JSON report|exited",
+      "runs": [
+        {
+          "args": [
+            "--project",
+            "native"
+          ],
+          "files": [
+            "native.test.tsx"
+          ]
+        },
+        {
+          "files": [
+            "native.test.tsx",
+            "plain.test.ts"
+          ]
+        }
+      ],
+      "bugPreventsEveryFile": true,
+      "bugSignature": "^run 2: unhandled error: Error: Projects \"native\" and \"plain\" have different 'maxWorkers' but same 'sequence\\.groupOrder'",
+      "consequences": "^run 2: (file accounting: (no result in the JSON report for|Vitest never reported module) (native\\.test\\.tsx|plain\\.test\\.ts)(, (native\\.test\\.tsx|plain\\.test\\.ts))?|the JSON report says success: true, but Vitest exited 1|Vitest exited 1, but no file failed and no error was unhandled|no JSON report: the run crashed|no accounting record: the run ended before Vitest's onTestRunEnd)$",
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "mainSignature": "file accounting: no result in the JSON report for native.test.tsx, plain.test.ts",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "run 2: file accounting: no result in the JSON report for native.test.tsx, plain.test.ts",
         "proof": "fix proven"
       }
     },
@@ -1222,22 +1247,22 @@
       "title": "jestMockTransform without globals: vi is not defined",
       "source": "config-axis matrix (feat/config-axis-matrix), 2026-10-27",
       "fixedBy": "open",
-      "bugSignature": "vi is not defined",
+      "bugSignature": "^outer\\.test\\.ts: AssertionError: jest\\.mock under globals: false works or names the setting: expected 'fails: vi is not defined' to match",
       "control": {
         "why": "globals: true defines the global vi the hoisted call uses.",
         "edits": [
           {
-            "file": "vitest.config.mts",
+            "file": "fixture/vitest.config.mts",
             "find": "    setupFiles: [jestCompatSetup],",
             "replace": "    globals: true,\n    setupFiles: [jestCompatSetup],"
           }
         ]
       },
       "status": {
-        "measuredOn": "0f2400e",
         "main": "FAIL (bug)",
         "control": "PASS",
-        "mainSignature": "mock.test.ts: vi is not defined",
+        "measuredOn": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
+        "mainSignature": "outer.test.ts: AssertionError: jest.mock under globals: false works or names the setting: expected 'fails: vi is not defined' to match /^(works|names the setting)$/",
         "proof": "open (control passes)"
       }
     }

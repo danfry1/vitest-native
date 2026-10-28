@@ -37,7 +37,7 @@ test("file b renders, and a warm file costs few resolutions and reads", async ()
   if (now.files > 1) {
     // Thresholds from the M0 G3 measurements: before #336 ~14 resolutions and ~13 reads
     // per file; the library-mock graph on main ~168 and ~353; with the fix ~22 and ~62.
-    expect(cost.resolve).toBeLessThan(60);
-    expect(cost.read).toBeLessThan(150);
+    expect(cost.resolve, "a warm file's Module._resolveFilename calls").toBeLessThan(60);
+    expect(cost.read, "a warm file's fs.readFileSync calls").toBeLessThan(150);
   }
 });

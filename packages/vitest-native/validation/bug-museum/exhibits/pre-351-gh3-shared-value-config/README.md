@@ -2,12 +2,13 @@
 
 - **Class:** presets
 - **Source:** issue #351 (a user's migration: ~50 s under Jest -> ~8 s)
-- **Fixed by:** local branch fix/issue-351-own-library-mocks (no PR yet) (`fix/issue-351-own-library-mocks`)
+- **Fixed by:** local branch fix/issue-351-own-library-mocks (400c240; no PR yet) (`fix/issue-351-own-library-mocks`)
 - **Needs:** nothing beyond this repository's install
+- **Bug build:** `400c240^` (has the bug; see STATUS.md)
 
 ## The bug
 
-GH 3 accepts shared values in gesture config (`usePanGesture({ enabled: sharedValue })`) and subscribes with `addListener`. The mock's shared value has no `addListener`: `TypeError: sharedValue.addListener is not a function`, uncaught, exit 1 (found as A14 in the #351 review).
+GH 3 accepts shared values in gesture config (`usePanGesture({ enabled: sharedValue })`) and subscribes with `addListener`. The mock's shared value has no `addListener`: `TypeError: sharedValue.addListener is not a function`, uncaught, exit 1 (found as A14 in the #351 review). Main cannot reach this bug: its hand-written Gesture Handler preset has no v3 hooks (`useTapGesture is not a function`, the gap `pre-351-gh3-components` holds), so main reads FAIL (other) here and the bug is shown on `400c240^`, the #351 branch before its listener fix.
 
 ## Expected behaviour
 

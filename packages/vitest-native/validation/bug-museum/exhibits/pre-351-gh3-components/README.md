@@ -2,12 +2,12 @@
 
 - **Class:** presets
 - **Source:** issue #351 (a user's migration: ~50 s under Jest -> ~8 s)
-- **Fixed by:** local branch fix/issue-351-own-library-mocks (no PR yet) (`fix/issue-351-own-library-mocks`)
+- **Fixed by:** local branch feat/library-jest-scope (Gesture Handler runs as itself; no PR yet) (`feat/library-jest-scope`)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug
 
-The reporter needed three `jest.mock`s in a setup file before Gesture Handler 3 rendered: `src/RNGestureHandlerModule` -> `src/mocks/module`, the v3 `Touchable`, and the v3 `GestureComponents`. The root cause was not Gesture Handler: GH 3 calls `Reanimated.isSharedValue` / `useComposedEventHandler` / `useEvent` / `useHandler`, which the hand-written reanimated preset lacked ("is not a function").
+The reporter needed three `jest.mock`s in a setup file before Gesture Handler 3 rendered: `src/RNGestureHandlerModule` -> `src/mocks/module`, the v3 `Touchable`, and the v3 `GestureComponents`. On main, Gesture Handler is the hand-written preset, which has no GH 3 surface: `Touchable` is undefined (and the v3 hooks are missing, which is also how `pre-351-gh3-shared-value-config` fails on main). Measured 2026-10-28: the exhibit passes once Gesture Handler runs as itself with its own Jest setup (feat/library-jest-scope, which the #351 branch is stacked on), so that branch is its fix.
 
 ## Expected behaviour
 

@@ -2,7 +2,7 @@
 
 - **Class:** ownership
 - **Source:** monorepo migration report #1
-- **Fixed by:** #344 (draft; ownership by resolution is planned for v2) (`origin/fix/source-aliased-workspace-ownership`)
+- **Fixed by:** #344 (draft) (`origin/fix/source-aliased-workspace-ownership`)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

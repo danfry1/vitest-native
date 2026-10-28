@@ -4,6 +4,7 @@
 - **Source:** #345 adversarial review (a regression of #345, not of main)
 - **Fixed by:** open (regression guard for #345)
 - **Needs:** nothing beyond this repository's install
+- **Bug build:** `origin/fix/require-actual-single-graph` (has the bug; see STATUS.md)
 
 ## The bug
 

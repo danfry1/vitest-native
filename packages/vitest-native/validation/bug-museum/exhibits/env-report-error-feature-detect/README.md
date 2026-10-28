@@ -4,6 +4,7 @@
 - **Source:** #343 adversarial review (a regression of #343's first version)
 - **Fixed by:** #343 (final version) (`origin/fix/recoverable-errors-and-expo-os`)
 - **Needs:** nothing beyond this repository's install
+- **Bug build:** `da5cd6c` (has the bug; see STATUS.md)
 
 ## The bug
 

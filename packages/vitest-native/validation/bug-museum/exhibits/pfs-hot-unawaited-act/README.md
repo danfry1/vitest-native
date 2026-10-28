@@ -11,7 +11,7 @@ File a leaves an async `act` scope open (`void act(async () => …)`). With Reac
 
 ## Expected behaviour
 
-A file's leaked act scope cannot affect the next file: b's ordinary render is visible.
+A file's leaked act scope cannot affect the next file: b's ordinary render commits a tree.
 
 ## Notes
 

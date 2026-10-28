@@ -2,7 +2,7 @@
 
 - **Class:** ownership
 - **Source:** #344 review (#344 still fails it)
-- **Fixed by:** open (#344 does not fix it; v2 ownership by resolution) (`origin/fix/source-aliased-workspace-ownership`)
+- **Fixed by:** open (outside #344's scope by design, though #344's description implies regex aliases are covered) (`origin/fix/source-aliased-workspace-ownership`)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

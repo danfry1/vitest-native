@@ -17,7 +17,7 @@ test("useAnimatedScrollHandler forwards onScroll", async () => {
   }
   await render(<C />);
   await fireEvent.scroll(screen.getByTestId("list"), { nativeEvent: { contentOffset: { y: 7 } } });
-  expect(seen).toEqual([7]);
+  expect(seen, "the scroll handler received the scroll event").toEqual([7]);
 });
 
 test("useScrollOffset is a shared value", async () => {
@@ -32,5 +32,5 @@ test("useScrollOffset is a shared value", async () => {
     );
   }
   await render(<C />);
-  expect(typeof offset?.get).toBe("function");
+  expect(typeof offset?.get, "useScrollOffset returns a shared value").toBe("function");
 });

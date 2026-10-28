@@ -2,7 +2,7 @@
 
 - **Class:** ownership
 - **Source:** #344 review; ownership-ledger shape 5
-- **Fixed by:** open (#344 does not fix it; v2 ownership by resolution) (`origin/fix/source-aliased-workspace-ownership`)
+- **Fixed by:** open (not an alias shape: outside #344's scope) (`origin/fix/source-aliased-workspace-ownership`)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

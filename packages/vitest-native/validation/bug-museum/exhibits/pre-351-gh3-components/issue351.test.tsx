@@ -6,6 +6,7 @@ import { FlatList, GestureHandlerRootView, ScrollView, Touchable } from "react-n
 import { expect, test } from "vitest";
 
 test("GH 3 components render without user mocks", async () => {
+  expect(typeof Touchable, "Gesture Handler 3 exports Touchable").not.toBe("undefined");
   await render(
     <GestureHandlerRootView>
       <Touchable onPress={() => {}}>

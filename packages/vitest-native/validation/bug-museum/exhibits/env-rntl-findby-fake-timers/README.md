@@ -2,7 +2,7 @@
 
 - **Class:** env-contract
 - **Source:** monorepo migration report #18
-- **Fixed by:** open (#342 documents it; deferred to the v2 environment contract) (`origin/fix/rntl-cleanup-and-fake-timers`)
+- **Fixed by:** open (#342 documents it as out of scope: use jest-compat or advance timers by hand) (`origin/fix/rntl-cleanup-and-fake-timers`)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import React, { useId } from "react";
 import { Text } from "react-native";
 import { render, screen } from "@testing-library/react-native";
@@ -7,11 +8,14 @@ function Label() {
   return <Text testID="label" nativeID={id}>{id}</Text>;
 }
 
-// The same component, rendered first in a fresh file: under Jest (and stock
-// isolation) every file sees the same first id, so a snapshot holding it is stable.
-test("the first useId in a file is the same in every file", async () => {
+// Under Jest (and stock isolation) every file renders in a fresh React, so the first id a
+// file sees does not depend on the files before it. Each file records its first id; a
+// later file in the worker must see the same one. (The id's format is React's own.)
+test("a file's first useId does not depend on the files before it", async () => {
   await render(<Label />);
   const id = screen.getByTestId("label").props.nativeID;
-  console.log(`[leak:useid] ${expect.getState().testPath?.split("/").pop()} first id = ${id}`);
-  expect(id).toBe("_r_0_");
+  const log = ".museum-first-ids.json";
+  const seen: string[] = fs.existsSync(log) ? JSON.parse(fs.readFileSync(log, "utf8")) : [];
+  fs.writeFileSync(log, JSON.stringify([...seen, id]));
+  if (seen.length > 0) expect(id, "this file's first useId is the earlier file's first useId").toBe(seen[0]);
 });

@@ -28,5 +28,5 @@ test("a pan gesture enabled by a shared value mounts beside a tap", async () => 
     </GH.GestureHandlerRootView>,
   );
   fireGestureHandler(getByGestureTestId("tap"));
-  expect(taps).toBe(1);
+  expect(taps, "the tap ran its callback once").toBe(1);
 });
