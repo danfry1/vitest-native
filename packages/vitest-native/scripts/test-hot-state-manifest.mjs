@@ -2,7 +2,10 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { HOT_STATE_MANIFEST_ENTRIES } from "../src/native/state-manifest.mjs";
+import {
+  HOT_STATE_MANIFEST_ENTRIES,
+  restoreOrderViolations,
+} from "../src/native/state-manifest.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(path.join(packageRoot, "package.json"));
@@ -38,9 +41,10 @@ function run(args, env) {
 // Ordering. Each mutation leg below proves a restore is OBSERVABLE, which is blind
 // to the order restores run in, and order was exactly #350: the jest-compat mock
 // registry cleared after the React Native restores, so one file's
-// `jest.mock(…, () => null)` broke the next file's reset. HOT_STATE_MANIFEST_ENTRIES
-// declares the order; each run's restores are traced and must follow it. The
-// jest-compat leg registers every built-in entry, so it sees the whole order.
+// `jest.mock(…, () => null)` broke the next file's reset. Each run's restores are
+// traced and checked against HOT_STATE_RESTORE_CONSTRAINTS, which neither the
+// registrations' restoreOrder nor the entry list can change. The jest-compat leg
+// registers every built-in entry, so it sees every constrained pair.
 const orderLegs = [
   { name: "hot isolation", args: ["--config", config], complete: false },
   { name: "hot jest-compat", args: jestCompatArgs, complete: true },
@@ -63,11 +67,12 @@ for (const leg of orderLegs) {
         `state-manifest entries missing from HOT_STATE_MANIFEST_ENTRIES: ${unknown.join(", ")}`,
       );
     }
-    const declared = HOT_STATE_MANIFEST_ENTRIES.filter((id) => observed.includes(id));
-    if (observed.join() !== declared.join()) {
+    const violations = restoreOrderViolations(observed);
+    if (violations.length > 0) {
       throw new Error(
-        `state-manifest restores ran out of declared order (${leg.name}):\n` +
-          `  declared: ${declared.join(", ")}\n  observed: ${observed.join(", ")}`,
+        `state-manifest restores ran out of order (${leg.name}):\n` +
+          violations.map((v) => `  - ${v}`).join("\n") +
+          `\n  observed: ${observed.join(", ")}`,
       );
     }
     if (leg.complete && observed.length !== HOT_STATE_MANIFEST_ENTRIES.length) {
@@ -77,7 +82,7 @@ for (const leg of orderLegs) {
       );
     }
   }
-  console.log(`[vitest-native] restore order matches the declaration: ${leg.name}`);
+  console.log(`[vitest-native] restore order meets the constraints: ${leg.name}`);
 }
 
 for (const entry of HOT_STATE_MANIFEST_ENTRIES) {
@@ -106,5 +111,5 @@ for (const entry of HOT_STATE_MANIFEST_ENTRIES) {
 }
 
 console.log(
-  `[vitest-native] state-manifest mutation gate passed: ${HOT_STATE_MANIFEST_ENTRIES.length} restore actions are observable and run in declared order`,
+  `[vitest-native] state-manifest mutation gate passed: ${HOT_STATE_MANIFEST_ENTRIES.length} restore actions are observable and run in the required order`,
 );

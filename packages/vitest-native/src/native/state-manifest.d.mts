@@ -20,5 +20,14 @@ export declare function createStateManifest(options?: {
   trace?: boolean;
 }): StateManifest;
 
-/** Every built-in entry, in the order its restore must run. */
+/** Every built-in entry (documentation order; see HOT_STATE_RESTORE_CONSTRAINTS). */
 export declare const HOT_STATE_MANIFEST_ENTRIES: readonly string[];
+
+export declare const HOT_STATE_RESTORE_CONSTRAINTS: readonly {
+  before: readonly string[] | ((id: string) => boolean);
+  after: readonly string[] | ((id: string) => boolean);
+  reason: string;
+}[];
+
+/** Violations of HOT_STATE_RESTORE_CONSTRAINTS in an observed restore order. */
+export declare function restoreOrderViolations(order: readonly string[]): string[];

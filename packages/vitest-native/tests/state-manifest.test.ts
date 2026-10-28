@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { createStateManifest, HOT_STATE_MANIFEST_ENTRIES } from "../src/native/state-manifest.mjs";
+import {
+  createStateManifest,
+  HOT_STATE_MANIFEST_ENTRIES,
+  restoreOrderViolations,
+} from "../src/native/state-manifest.mjs";
 import { isResidentImportListener } from "../src/native/reset.mjs";
 
 describe("hot-runtime import attribution", () => {
@@ -42,7 +46,7 @@ describe("hot-runtime import attribution", () => {
 });
 
 describe("hot-runtime state manifest", () => {
-  it("publishes the complete built-in entry list, in restore order, for diagnostics and the gates", () => {
+  it("publishes the complete built-in entry list for diagnostics and the gates", () => {
     expect(HOT_STATE_MANIFEST_ENTRIES).toEqual([
       "vitest-runtime",
       "native-boundary-mocks",
@@ -206,5 +210,41 @@ describe("hot-runtime state manifest", () => {
         ),
       }),
     );
+  });
+});
+
+describe("hot-runtime restore order constraints", () => {
+  it("accepts the order a hot run restores in today", () => {
+    expect(restoreOrderViolations(HOT_STATE_MANIFEST_ENTRIES)).toEqual([]);
+  });
+
+  it("rejects #350's order: jest.mock registrations cleared after React Native state", () => {
+    const order = [
+      ...HOT_STATE_MANIFEST_ENTRIES.filter((id) => id !== "jest-compat.node-mocks"),
+      "jest-compat.node-mocks",
+    ];
+    expect(restoreOrderViolations(order)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          "jest-compat.node-mocks must restore before react-native.appearance",
+        ),
+      ]),
+    );
+  });
+
+  it("rejects Vitest's runtime restored after global descriptors", () => {
+    const order = [
+      ...HOT_STATE_MANIFEST_ENTRIES.filter((id) => id !== "vitest-runtime"),
+      "vitest-runtime",
+    ];
+    expect(restoreOrderViolations(order)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("vitest-runtime must restore before global.descriptors"),
+      ]),
+    );
+  });
+
+  it("constrains nothing an order leaves out", () => {
+    expect(restoreOrderViolations(["react-native.appearance", "process.env"])).toEqual([]);
   });
 });

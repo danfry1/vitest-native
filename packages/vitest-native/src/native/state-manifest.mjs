@@ -132,18 +132,9 @@ export function createStateManifest({ diagnostics = false, mutation = null, trac
   });
 }
 
-// Every built-in entry, IN THE ORDER ITS RESTORES MUST RUN. Order is declared by each
-// registration's `restoreOrder` (then registration order), which lives next to the
-// restore it moves; this list is the independent statement of the contract, and
-// scripts/test-hot-state-manifest.mjs fails when a real hot run restores in any other
-// order. The constraints that make it an order rather than a set:
-// - vitest-runtime first: Vitest's fake-timer uninstall owns Date and deletes it if
-//   global.descriptors restores Date before it.
-// - native-boundary-mocks and jest-compat.node-mocks before every react-native.*
-//   restore: those reach RN modules through the boundary objects and Node's loader,
-//   so a previous file's override or `jest.mock(…, () => null)` would still answer
-//   them (#350: the Appearance restore read `null.setColorScheme` and the next file
-//   was never collected).
+// Every built-in entry. Listed in the order a hot run restores them today, as
+// documentation only: the order is decided by each registration's `restoreOrder`
+// (then registration order), and the contract is HOT_STATE_RESTORE_CONSTRAINTS below.
 export const HOT_STATE_MANIFEST_ENTRIES = Object.freeze([
   "vitest-runtime",
   "native-boundary-mocks",
@@ -159,3 +150,51 @@ export const HOT_STATE_MANIFEST_ENTRIES = Object.freeze([
   "react-native.error-utils",
   "expo.runtime",
 ]);
+
+const isReactNativeEntry = (id) => id.startsWith("react-native.");
+
+// The restore order the hot runtime depends on, as pairwise constraints: every entry
+// matching `before` must restore ahead of every entry matching `after`. Stated apart
+// from both the registrations' `restoreOrder` values and HOT_STATE_MANIFEST_ENTRIES,
+// so editing either one cannot also edit the expectation.
+// scripts/test-hot-state-manifest.mjs checks a real hot run's traced order against it.
+export const HOT_STATE_RESTORE_CONSTRAINTS = Object.freeze([
+  {
+    before: ["vitest-runtime"],
+    after: ["native-boundary-mocks", "jest-compat.node-mocks", "global.descriptors"],
+    // Vitest's fake-timer uninstall owns Date and deletes it if global.descriptors
+    // restores Date first; the mock registries are cleared after Vitest's own state.
+    reason: "Vitest's runtime state is restored before every other entry",
+  },
+  {
+    before: ["native-boundary-mocks", "jest-compat.node-mocks"],
+    after: isReactNativeEntry,
+    // The value-based RN restores reach their modules through the boundary objects and
+    // Node's loader, so a previous file's override or `jest.mock(…, () => null)` still
+    // answers them (#350: the Appearance restore read `null.setColorScheme` and the
+    // next file was never collected).
+    reason: "mocks are cleared before React Native state is restored through them",
+  },
+]);
+
+/**
+ * Violations of HOT_STATE_RESTORE_CONSTRAINTS in an observed restore order. Entries
+ * absent from `order` constrain nothing.
+ * @param {readonly string[]} order
+ * @returns {string[]}
+ */
+export function restoreOrderViolations(order) {
+  const matches = (selector, id) =>
+    typeof selector === "function" ? selector(id) : selector.includes(id);
+  const violations = [];
+  for (const { before, after, reason } of HOT_STATE_RESTORE_CONSTRAINTS) {
+    order.forEach((late, lateIndex) => {
+      if (!matches(after, late)) return;
+      for (const early of order.slice(lateIndex + 1)) {
+        if (matches(before, early))
+          violations.push(`${early} must restore before ${late}: ${reason}`);
+      }
+    });
+  }
+  return violations;
+}
