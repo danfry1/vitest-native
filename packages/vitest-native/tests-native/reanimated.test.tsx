@@ -231,4 +231,23 @@ describe("react-native-reanimated under native engine", () => {
       expect((offset as { get(): number }).get()).toBe(0);
     }
   });
+
+  it("gives shared values listeners, called on .value and .set()", async () => {
+    let shared: any;
+    function Holder() {
+      shared = useSharedValue(1);
+      return <Text>box</Text>;
+    }
+    await render(<Holder />);
+    const seen: unknown[] = [];
+    shared.addListener(1, (value: unknown) => seen.push(value));
+    shared.value = 2;
+    shared.set(3);
+    shared.set((current: number) => current + 1);
+    shared.removeListener(1);
+    shared.value = 5;
+    expect(seen).toEqual([2, 3, 4]);
+    expect(shared.get()).toBe(5);
+    expect(isSharedValue(shared)).toBe(true);
+  });
 });

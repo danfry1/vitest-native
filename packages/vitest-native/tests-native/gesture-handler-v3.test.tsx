@@ -6,17 +6,19 @@
  * which no hand-written replacement of the package could serve.
  */
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react-native";
+import { act, fireEvent, render, screen } from "@testing-library/react-native";
 import { Text, View } from "react-native";
 import {
   GestureDetector,
   GestureHandlerRootView,
   ScrollView,
   Touchable,
+  usePanGesture,
   useTapGesture,
 } from "react-native-gesture-handler";
+import { useSharedValue } from "react-native-reanimated";
 import { fireGestureHandler, getByGestureTestId } from "react-native-gesture-handler/jest-utils";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 describe("react-native-gesture-handler 3", () => {
   it("presses a Touchable", async () => {
@@ -65,5 +67,43 @@ describe("react-native-gesture-handler 3", () => {
     );
     fireGestureHandler(getByGestureTestId("tap"));
     expect(taps).toBe(1);
+  });
+
+  describe("with a shared value as gesture config", () => {
+    // Gesture Handler listens to it on its UI-runtime loop (a timer under worklets'
+    // mock), so a missing addListener throws there, after the test, outside any
+    // expect: an uncaught error that fails the run though every test passes.
+    const uncaught: unknown[] = [];
+    const record = (error: unknown) => uncaught.push(error);
+    afterEach(() => {
+      process.off("uncaughtException", record);
+    });
+
+    it("listens to it without an uncaught error", async () => {
+      process.on("uncaughtException", record);
+      let taps = 0;
+      function Gestures() {
+        const enabled = useSharedValue(true);
+        const tap = useTapGesture({ testID: "tap", onActivate: () => taps++ });
+        const pan = usePanGesture({ testID: "pan", enabled });
+        return (
+          <GestureDetector gesture={tap}>
+            <GestureDetector gesture={pan}>
+              <View />
+            </GestureDetector>
+          </GestureDetector>
+        );
+      }
+      await render(
+        <GestureHandlerRootView>
+          <Gestures />
+        </GestureHandlerRootView>,
+      );
+      // Past the UI-runtime frames that attach the listeners.
+      await act(() => new Promise((resolve) => setTimeout(resolve, 100)));
+      fireGestureHandler(getByGestureTestId("tap"));
+      expect(taps).toBe(1);
+      expect(uncaught).toEqual([]);
+    });
   });
 });
