@@ -1,7 +1,8 @@
 // jest-compat's per-file mock registry in a reused worker WITHOUT the hot runtime:
 // `isolate: false`, one worker, files in name order (b1 mocks, b2 and b3 must not see
 // it). The hot runtime clears the registry through its state manifest; this run has
-// no hot runtime, so it proves the registry clears itself when the file changes.
+// no hot runtime, so it proves the registry clears itself when the file changes. A
+// library's mocks, from a setup file that runs once (c1, c2), stay with its module.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
@@ -25,7 +26,10 @@ export default defineConfig({
     environment: "node",
     globals: true,
     isolate: false,
-    setupFiles: [path.resolve(here, "../dist/jest-compat/setup.mjs")],
+    setupFiles: [
+      path.resolve(here, "../dist/jest-compat/setup.mjs"),
+      path.resolve(here, "jest-registry-no-isolate/library-setup.ts"),
+    ],
     include: ["tests-native/jest-registry-no-isolate/*.test.ts"],
     fileParallelism: false,
     maxWorkers: 1,

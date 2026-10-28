@@ -259,7 +259,10 @@ function createState() {
   };
 
   // `asyncFactory` is jestMockTransform's async variant of `factory`, when it made one.
-  state.register = (from, spec, factory, asyncFactory) => {
+  // `library`: registered by a library's own test support (native/library-jest.mjs),
+  // whose lifetime the native setup decides at each file boundary; `owner` is what it
+  // keeps it by.
+  state.register = (from, spec, factory, asyncFactory, { library = false, owner = null } = {}) => {
     const filename = state.resolveFrom(spec, from);
     const entry = {
       spec,
@@ -269,6 +272,8 @@ function createState() {
       value: undefined,
       pending: null,
       evaluating: false,
+      library,
+      owner,
     };
     if (filename !== null) state.entries.set(filename, entry);
     else state.unresolved.set(spec, entry);
@@ -291,7 +296,12 @@ function createState() {
     const isPath = spec.startsWith(".") || path.isAbsolute(spec);
     const anchor = isPath && caller ? caller : rootFile;
     const filename = state.resolveFrom(spec, anchor);
-    if (actual) state.bypass = filename ?? `\0${spec}`;
+    if (actual) {
+      state.bypass = filename ?? `\0${spec}`;
+      // A preset shadows its package by name (native/hooks.mjs); the actual module is
+      // the package, as Jest's requireActual gives it, so this one load skips it too.
+      if (!isPath) globalThis.__vitest_native_preset_actual = spec;
+    }
     try {
       const load = createRequire(anchor);
       if (filename !== null && (isPath || expandAlias(spec, config.aliases) !== spec)) {
@@ -311,7 +321,10 @@ function createState() {
       }
       throw error;
     } finally {
-      if (actual) state.bypass = null;
+      if (actual) {
+        state.bypass = null;
+        globalThis.__vitest_native_preset_actual = undefined;
+      }
     }
   };
 
@@ -396,10 +409,21 @@ function createState() {
     };
   };
 
-  state.clear = () => {
-    state.entries.clear();
-    state.unresolved.clear();
-    state.byCall.clear();
+  /**
+   * Drop the registrations. The compat setup clears the test file's own before each
+   * file (`keepLibrary`): libraries' registrations were settled already, by the native
+   * setup, which runs first and keeps those `keep` says. The hot runtime clears
+   * everything at the file boundary, before the setup files run again.
+   */
+  state.clear = ({ keepLibrary = false, keep: kept } = {}) => {
+    const keep = (map) => {
+      for (const [key, entry] of map) {
+        if (!((keepLibrary && entry.library) || kept?.(entry))) map.delete(key);
+      }
+    };
+    keep(state.entries);
+    keep(state.unresolved);
+    keep(state.byCall);
     state.bypass = null;
     state.isolation = null;
   };
