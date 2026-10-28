@@ -7,8 +7,9 @@ export const RUN_TIMEOUT_MS = 240_000;
 // job's 30 minutes, so a hung install is reported as one instead of as a killed job.
 export const INSTALL_TIMEOUT_MS = 600_000;
 // Exact, as every other tool the repository runs is pinned (syncpack); pnpm is fetched by
-// npx, not added to any manifest.
-export const PNPM = "pnpm@10.34.9";
+// npx, not added to any manifest. Like the repository's release cooldown, the pinned
+// version is at least a week old when chosen (10.34.7 was published 2026-10-12).
+export const PNPM = "pnpm@10.34.7";
 
 export function sh(command, args, cwd, env = process.env, timeout = RUN_TIMEOUT_MS) {
   const result = spawnSync(command, args, {
