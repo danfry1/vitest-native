@@ -1230,9 +1230,9 @@
           ]
         }
       ],
-      "bugPreventsEveryFile": true,
+      "bugPreventsEveryFile": "Vitest rejects the two projects' configuration before it starts any test file, so run 2 loses both files by design.",
       "bugSignature": "^run 2: unhandled error: Error: Projects \"native\" and \"plain\" have different 'maxWorkers' but same 'sequence\\.groupOrder'",
-      "consequences": "^run 2: (file accounting: (no result in the JSON report for|Vitest never reported module) (native\\.test\\.tsx|plain\\.test\\.ts)(, (native\\.test\\.tsx|plain\\.test\\.ts))?|the JSON report says success: true, but Vitest exited 1|Vitest exited 1, but no file failed and no error was unhandled|no JSON report: the run crashed|no accounting record: the run ended before Vitest's onTestRunEnd)$",
+      "consequences": "^run 2: (file accounting: (no result in the JSON report for|Vitest never reported module) (native\\.test\\.tsx|plain\\.test\\.ts)(, (native\\.test\\.tsx|plain\\.test\\.ts))?|the JSON report says success: true, but Vitest exited 1|Vitest exited 1, but no file failed and no error was unhandled)$",
       "status": {
         "main": "FAIL (bug)",
         "fix": "PASS",

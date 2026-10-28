@@ -9,8 +9,11 @@
 //     the signature matched;
 //   - EVERY failure line must be accounted for, or the verdict is "unexpected";
 //   - an exhibit whose every file is lost is "unexpected", unless it declares
-//     `bugPreventsEveryFile` (its bug rejects the configuration before any file runs; its
-//     signature must then match the rejection itself).
+//     `bugPreventsEveryFile`: the reason, as a string. Only a bug that rejects the run
+//     before any file runs may, so its signature must be anchored on an unhandled error
+//     tied to no test file (`^unhandled error: `, or `^run N: unhandled error: `). The
+//     declaration is self-checking: it is "the bug" only when the run lost EVERY file, so
+//     adding it to an exhibit whose bug loses some files turns that bug "unexpected".
 //
 // Failure lines carry the file and the message, never the test's title (lines.mjs), so a
 // signature cannot match an exhibit's own wording of what it expects.
@@ -61,6 +64,19 @@ export function validateSignature(exhibit, files) {
     problems.push(
       `${at} bugSignature also matches generic lines: ${absorbs.map((l) => JSON.stringify(l)).join(", ")}`,
     );
+  if (exhibit.bugPreventsEveryFile !== undefined) {
+    if (
+      typeof exhibit.bugPreventsEveryFile !== "string" ||
+      exhibit.bugPreventsEveryFile.trim() === ""
+    )
+      problems.push(
+        `${at} bugPreventsEveryFile must state why the bug stops every file from running (a string)`,
+      );
+    if (!/^\^(run \d+: )?unhandled error: /.test(exhibit.bugSignature))
+      problems.push(
+        `${at} bugPreventsEveryFile needs a signature anchored on an unhandled error tied to no test file (^unhandled error: or ^run N: unhandled error: )`,
+      );
+  }
   if (exhibit.consequences !== undefined) {
     let consequences;
     try {
@@ -76,6 +92,10 @@ export function validateSignature(exhibit, files) {
   }
   return problems;
 }
+
+const isLost = (line, file) =>
+  /file accounting: (no result in the JSON report for|Vitest never reported module) /.test(line) &&
+  line.split(/[ ,]+/).includes(file);
 
 /**
  * "bug" when every failure line is the exhibit's bug or its consequence, else
@@ -95,9 +115,17 @@ export function classify(exhibit, files, failures) {
     {
       status: "fail",
       failures,
-      files: exhibit.bugPreventsEveryFile ? [] : files,
+      files: exhibit.bugPreventsEveryFile === undefined ? files : [],
     },
   );
+  if (exhibit.bugPreventsEveryFile !== undefined && verdict.outcome === "known") {
+    const ran = files.filter((file) => !failures.some((line) => isLost(line, file)));
+    if (ran.length > 0)
+      return {
+        matchesBug: false,
+        why: `bugPreventsEveryFile, but ${ran.join(", ")} ran: the bug cannot have stopped every file`,
+      };
+  }
   return verdict.outcome === "known"
     ? { matchesBug: true }
     : { matchesBug: false, why: verdict.message };

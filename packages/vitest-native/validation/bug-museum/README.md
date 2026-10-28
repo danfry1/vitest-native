@@ -26,7 +26,8 @@ build-ref.mjs          builds vitest-native at a git ref, cached by commit SHA
 status.mjs             checks every verdict's SHA, then renders STATUS.md and exhibits.json
 lib/verdict.mjs        "the bug" or "unexpected", judged by ../config-axes/verdict.mjs
 lib/lines.mjs          a run's failure lines (file: message, no titles)
-lib/build-info.mjs     the SHA a build directory was built from
+lib/build-info.mjs     the SHA a build directory was built from, checked by content hash
+lib/hash.mjs           content hashes of a build (package.json + dist/) and of an exhibit
 lib/materialise.mjs    builds an exhibit's workspace from this repository's install
 lib/vitest4.mjs        assembles Vitest 4.1.11 from bun's cache for the exhibits that need it
 ```
@@ -68,7 +69,9 @@ a probe with one known-failing entry) say so:
   the run lost, an exit code), accepted only beside a line the signature matched;
 - EVERY failure line must be the signature or a consequence, or the verdict is
   `FAIL (unexpected)`. An exhibit whose every file is lost is unexpected, unless it
-  declares `bugPreventsEveryFile` (its bug rejects the configuration before any file runs);
+  declares `bugPreventsEveryFile`: a string saying why, allowed only when the signature is
+  anchored on an unhandled error tied to no test file (`^unhandled error: ` or
+  `^run N: unhandled error: `), the shape of a run rejected before any file starts;
 - failure lines are `file: message`, never the test's title, so a signature cannot match
   the exhibit's own description of what it expects. Where a bare message would be
   generic, the exhibit's assertion carries a message (`expect(x, "…")`) that names it.
@@ -109,23 +112,27 @@ An exhibit that passes on a buggy build is useless. Each is proven one of four w
 
 `run-columns.mjs --results <dir> [--cache <dir>] [--max-load 4]` measures every column:
 it builds each ref with `build-ref.mjs` (`git archive`, `bun install --frozen-lockfile`,
-`bun run build`, cached by commit SHA; `.museum-build.json` records the SHA), runs its
-exhibits, and writes `columns.json`. Every verdict carries the SHA of the build it ran on.
+`bun run build`, cached by commit SHA; `.museum-build.json` records the SHA and a hash of
+package.json plus dist/), runs its exhibits, and writes `columns.json`. Every verdict
+carries the SHA of the build it ran on and a hash of the exhibit it ran. A build counts as
+verified only while its files still match the recorded hash, so a build edited after it
+was built, by hand or in the cache, is unverified.
 `status.mjs --results <dir>` refuses to write anything when a verdict is missing, ran on an
-unverified build (a working tree's own dist), or ran on a SHA other than its column's in
-`columns.json`; otherwise it replaces STATUS.md and exhibits.json together.
+unverified build (a working tree's own dist), ran on a SHA other than its column's in
+`columns.json`, or was measured on an earlier version of its exhibit; otherwise it replaces
+STATUS.md and exhibits.json together.
 
 ## Classes
 
-| Class | Where the bug lives |
-|---|---|
-| ownership | which module system (Node or Vite) evaluates a file; two copies of one module |
-| env-contract | the environment a test file sees: globals, timers, error reporting, RNTL wiring |
-| per-file-state | what survives from one test file to the next in a worker (the hot runtime) |
-| presets | a mock of a library (preset, or a library's own Jest mock) diverging from the real one |
-| transform/resolution | how a file is compiled or a request resolved (interop, extensions, pnpm paths) |
-| harness | how a test must be written to hold across RNTL majors |
-| config | how the plugin reads and writes Vitest's configuration |
+| Class                | Where the bug lives                                                                    |
+| -------------------- | -------------------------------------------------------------------------------------- |
+| ownership            | which module system (Node or Vite) evaluates a file; two copies of one module          |
+| env-contract         | the environment a test file sees: globals, timers, error reporting, RNTL wiring        |
+| per-file-state       | what survives from one test file to the next in a worker (the hot runtime)             |
+| presets              | a mock of a library (preset, or a library's own Jest mock) diverging from the real one |
+| transform/resolution | how a file is compiled or a request resolved (interop, extensions, pnpm paths)         |
+| harness              | how a test must be written to hold across RNTL majors                                  |
+| config               | how the plugin reads and writes Vitest's configuration                                 |
 
 ## Not exhibited, and why
 
