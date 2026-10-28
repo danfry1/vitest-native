@@ -498,6 +498,22 @@ export function isTransforming() {
   return transformState.depth > 0;
 }
 
+/**
+ * The compiled output transformRN already holds for `file` as it is on disk now
+ * (same size and mtime), or undefined. For a caller that must read the source to
+ * decide whether to compile at all (isFlow, needsTransform): a file it compiled before
+ * is answered without that read.
+ */
+export function heldTransform(file, projectRoot, platform = "ios") {
+  let st;
+  try {
+    st = fs.statSync(file);
+  } catch {
+    return undefined;
+  }
+  return ctxFor(projectRoot).mem.get(`${platform}\0${file}\0${st.mtimeMs}\0${st.size}`);
+}
+
 export function transformRN(file, src, projectRoot, platform = "ios") {
   const ctx = ctxFor(projectRoot);
   // The in-memory key uses mtime+size (one statSync) so the hot path skips
