@@ -29,6 +29,11 @@ function underNativeEngine(): boolean {
   );
 }
 
+/** The project root in a test worker, where the plugin sets it. */
+export function workerRoot(): string {
+  return projectContext()?.projectRoot ?? process.cwd();
+}
+
 /**
  * `fallback`, except under the native engine where the library's own mock can run:
  * there the module is the mock, with the mock's export names.
@@ -54,15 +59,17 @@ export function libraryMockModule(mock: LibraryMock, fallback: PresetModule): Pr
       return fallback.exportsFor ? fallback.exportsFor(context) : fallback.exports;
     },
     factory() {
-      const root = projectContext()?.projectRoot ?? process.cwd();
-      if (underNativeEngine() && libraryMockDir(mock, root)) {
+      const root = workerRoot();
+      const dir = underNativeEngine() ? libraryMockDir(mock, root) : null;
+      if (dir) {
         const loaded = createRequire(path.join(root, "package.json"))(
           `${mock.pkg}/${mock.entry ?? mock.file}`,
         );
         const module = mock.exportKey ? loaded?.[mock.exportKey] : loaded;
         // A mock without the export it is meant to be is no module of it: the preset's.
         if (module === undefined) return fallback.factory();
-        return mock.keepsPresetNames ? withPresetNames(module, fallback) : module;
+        const extended = mock.extend ? mock.extend(module, dir) : module;
+        return mock.keepsPresetNames ? withPresetNames(extended, fallback) : extended;
       }
       return fallback.factory();
     },

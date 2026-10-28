@@ -159,6 +159,12 @@ export interface LibraryMock {
    */
   keepsPresetNames?: boolean;
   /**
+   * Corrections for names the library's mock gets wrong, as a copy of the loaded mock;
+   * the mock module itself is left as the library ships it. Each is the library's own
+   * code where it has one (see reanimated.ts), and every one is listed where it is made.
+   */
+  extend?: (mock: Record<string, any>, packageDir: string) => Record<string, any>;
+  /**
    * Whether the mock's module body sets up globals of the test environment
    * (worklets' sets `requestAnimationFrame`). Such a mock is built as each file is set
    * up, as a Jest suite installs it in its setup, before a test can install fake timers

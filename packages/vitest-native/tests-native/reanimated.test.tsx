@@ -12,7 +12,14 @@ import { render, screen, fireEvent } from "@testing-library/react-native";
 import { Text, Pressable } from "react-native";
 import Animated, {
   Easing,
+  Extrapolation,
+  clamp,
+  css,
+  interpolate,
   interpolateColor,
+  isSharedValue,
+  useAnimatedScrollHandler,
+  useComposedEventHandler,
   useSharedValue,
   useAnimatedStyle,
   withSpring,
@@ -88,5 +95,66 @@ describe("react-native-reanimated under native engine", () => {
     withTiming(1, {}, (done?: boolean) => finished.push(done));
     withSpring(1, {}, (done?: boolean) => finished.push(done));
     expect(finished).toEqual([true, true]);
+  });
+
+  // Reanimated's mock answers these with no-ops; the preset puts reanimated's own
+  // helpers and handlers in their place, and nothing else (REANIMATED_MOCK.extend).
+  it("interpolates with reanimated's own helpers", () => {
+    expect(interpolate(5, [0, 10], [0, 100])).toBe(50);
+    expect(interpolate(20, [0, 10], [0, 100], Extrapolation.CLAMP)).toBe(100);
+    expect(interpolate(20, [0, 10], [0, 100])).toBe(200);
+    expect(clamp(5, 0, 3)).toBe(3);
+    expect(interpolateColor(0, [0, 1], ["#ff0000", "#0000ff"])).toBe("rgba(255, 0, 0, 1)");
+    expect(interpolateColor(1, [0, 1], ["#ff0000", "#0000ff"])).toBe("rgba(0, 0, 255, 1)");
+    // oxlint-disable-next-line import/no-named-as-default-member -- default API parity is intentional
+    expect(Animated.interpolate(5, [0, 10], [0, 100])).toBe(50);
+  });
+
+  it("runs a scroll handler, alone and composed, on its scroll view's scroll events", async () => {
+    const seen: number[] = [];
+    const composed: string[] = [];
+    function List() {
+      const onScroll = useAnimatedScrollHandler({
+        onScroll: (event, context: { calls?: number }) => {
+          context.calls = (context.calls ?? 0) + 1;
+          seen.push(event.contentOffset.y, context.calls);
+        },
+      });
+      const both = useComposedEventHandler([onScroll, () => composed.push("other")]);
+      return (
+        <Animated.ScrollView testID="list" onScroll={both}>
+          <Text>row</Text>
+        </Animated.ScrollView>
+      );
+    }
+    await render(<List />);
+    await fireEvent.scroll(screen.getByTestId("list"), {
+      nativeEvent: { contentOffset: { y: 40 } },
+    });
+    await fireEvent.scroll(screen.getByTestId("list"), {
+      nativeEvent: { contentOffset: { y: 80 } },
+    });
+    // The payload, and a context kept between events.
+    expect(seen).toEqual([40, 1, 80, 2]);
+    expect(composed).toEqual(["other", "other"]);
+  });
+
+  it("tells shared values apart, and keeps css keyframes as reanimated builds them", async () => {
+    let value: unknown;
+    function Fade() {
+      value = useSharedValue(0);
+      const fade = css.keyframes({ from: { opacity: 0 }, to: { opacity: 1 } });
+      return (
+        <Animated.View testID="fade" style={{ animationName: fade, animationDuration: 200 }}>
+          <Text>fade</Text>
+        </Animated.View>
+      );
+    }
+    await render(<Fade />);
+    expect(isSharedValue(value)).toBe(true);
+    expect(isSharedValue({ value: 0 })).toBe(false);
+    const style = screen.getByTestId("fade").props.style;
+    expect(style.animationDuration).toBe(200);
+    expect(style.animationName.cssRules).toEqual({ from: { opacity: 0 }, to: { opacity: 1 } });
   });
 });
