@@ -13,8 +13,9 @@ import {
   classify,
   normaliseReport,
   renderComparison,
-  sameTemplate,
+  sameTestTitle,
   sanitizeMessage,
+  unconfirmed,
   type NormaliseContext,
 } from "../src/cli/compare.js";
 import {
@@ -22,6 +23,8 @@ import {
   importSpecifier,
   parseCompareArgs,
   vitestOutputReader,
+  GUARDIAN,
+  treeState,
   WATCHDOG,
 } from "../src/cli/compare-run.js";
 import { jestReport, runCli, scratchProject, treeBytes } from "./support/compare-helpers.js";
@@ -65,8 +68,10 @@ describe("compare: the verdict includes `vitest run`'s exit code", () => {
     });
     const { code, text } = await runCli(["--root", root, "--jest-results", jest]);
     expect(code).toBe(1);
-    expect(text).toContain("✗ All 1 test that pass under Jest also pass under Vitest");
-    expect(text).toContain("✗ `vitest run` exits 1:");
+    // The headline leads with what failed.
+    expect(text).toMatch(
+      /^✗ `vitest run` exits 1 \(no vitest-native engine reported\), although all 1 test that pass under Jest also pass under Vitest:$/m,
+    );
     expect(text).toContain("Unhandled Rejection: Error: unhandled under vitest");
     expect(text).not.toMatch(/^✓/m);
   }, 120_000);
@@ -149,30 +154,57 @@ describe("compare: the verdict includes `vitest run`'s exit code", () => {
     expect(c.claimHolds).toBe(false);
   });
 
-  it("reads Jest projects' copies of a file as one test reported twice", () => {
-    const jest = normaliseReport(
-      {
-        testResults: ["ios", "android"].map(() => ({
-          name: "/project/src/plat.check.js",
-          status: "passed",
-          message: "",
-          assertionResults: [{ ancestorTitles: [], title: "t", status: "passed" }],
-        })),
-      },
-      "jest",
-      ctx,
+  it("does not confirm a test Vitest ran fewer times than Jest (a Jest project dropped)", () => {
+    const copies = (n: number) =>
+      Array.from({ length: n }, () => ({
+        name: "/project/src/plat.check.js",
+        status: "passed",
+        message: "",
+        assertionResults: [{ ancestorTitles: [], title: "t", status: "passed" }],
+      }));
+    const run = { vitestRun: { exitCode: 0, errors: [], engine: "native" } };
+    // Jest projects ios + android; Vitest runs one platform.
+    const dropped = classify(
+      normaliseReport({ testResults: copies(2) }, "jest", ctx),
+      normaliseReport({ testResults: copies(1) }, "vitest", ctx),
+      run,
     );
-    const c = classify(
-      jest,
-      normaliseReport(report({ "src/plat.check.js": [["t", "passed"]] }), "vitest", ctx),
-      {
-        vitestRun: { exitCode: 0, errors: [], engine: "native" },
-      },
+    expect(dropped.entries).toHaveLength(1);
+    expect(dropped.entries[0]).toMatchObject({ bucket: "same-pass", jest: { copies: 2 } });
+    expect(dropped.claimHolds).toBe(false);
+    expect(unconfirmed(dropped).fewer).toHaveLength(1);
+    const text = renderComparison(dropped, {
+      jest: { version: "30", config: "x" },
+      vitest: { version: "5", config: "y" },
+      top: 5,
+    }).join("\n");
+    expect(text).toContain("1 run fewer times (a Jest project missing)");
+    // Both platforms under Vitest too: confirmed.
+    const both = classify(
+      normaliseReport({ testResults: copies(2) }, "jest", ctx),
+      normaliseReport({ testResults: copies(2) }, "vitest", ctx),
+      run,
     );
-    expect(c.entries).toHaveLength(1);
-    expect(c.entries[0]).toMatchObject({ bucket: "same-pass", jest: { copies: 2 } });
-    expect(c.claimHolds).toBe(true);
+    expect(both.claimHolds).toBe(true);
   });
+
+  it("does not confirm a Jest project Vitest drops, end to end", async () => {
+    const root = scratchProject({
+      files: {
+        "vitest.config.mjs": VITEST_CONFIG,
+        "src/plat.check.js": `test("t", () => { expect(1).toBe(1); });\n`,
+      },
+    });
+    // What Jest 30 writes for `projects: [ios, android]`: the file once per project.
+    const file = jestReport(root, { "src/plat.check.js": [{ title: "t" }] });
+    const json = JSON.parse(fs.readFileSync(file, "utf8"));
+    json.testResults.push(json.testResults[0]);
+    fs.writeFileSync(file, JSON.stringify(json));
+    const { code, text } = await runCli(["--root", root, "--jest-results", file]);
+    expect(code).toBe(1);
+    expect(text).toContain("1 of the 1 test that pass under Jest do not pass under Vitest");
+    expect(text).toContain("(Jest 2×, Vitest 1×)");
+  }, 120_000);
 
   it("names the engine, or says that no vitest-native engine ran", () => {
     const passing = () => normaliseReport(report({ "a.test.js": [["t", "passed"]] }), "jest", ctx);
@@ -207,12 +239,46 @@ describe("compare: the verdict includes `vitest run`'s exit code", () => {
       reader.onLine(line);
     }
     expect(reader.engine()).toBe("native");
+    // A test printing the banner after Vitest's RUN header cannot set the engine.
+    const spoofed = vitestOutputReader((s) => s);
+    for (const line of [" RUN  v5.0.5 /x", "[vitest-native] engine: native — real react-native"])
+      spoofed.onLine(line);
+    expect(spoofed.engine()).toBeNull();
     expect(reader.errors).toEqual([
       "Unhandled Rejection: Error: boom",
       "Uncaught Exception: Error: process.exit unexpectedly called",
       "error during close: Error: teardown",
     ]);
   });
+});
+
+describe("compare: what Vitest prints but its exit code hides", () => {
+  it("does not take the engine from a test that prints the banner", async () => {
+    const root = scratchProject({
+      files: {
+        "vitest.config.mjs": VITEST_CONFIG,
+        "src/a.check.js": `test("a", () => { console.log("[vitest-native] engine: native — real react-native"); });\n`,
+      },
+    });
+    const jest = jestReport(root, { "src/a.check.js": [{ title: "a" }] });
+    const { text } = await runCli(["--root", root, "--jest-results", jest]);
+    expect(text).toContain("(no vitest-native engine reported)");
+    expect(text).not.toContain("engine: native");
+  }, 120_000);
+
+  it("prints unhandled errors Vitest's config tells it to ignore", async () => {
+    const root = scratchProject({
+      files: {
+        "vitest.config.mjs": `export default { test: { globals: true, include: ["**/*.check.js"], dangerouslyIgnoreUnhandledErrors: true } };\n`,
+        "src/u.check.js": `test("leaks", async () => { Promise.reject(new Error("ignored rejection")); await new Promise((r) => setTimeout(r, 20)); });\n`,
+      },
+    });
+    const jest = jestReport(root, { "src/u.check.js": [{ title: "leaks" }] });
+    const { code, text } = await runCli(["--root", root, "--jest-results", jest]);
+    expect(code, text).toBe(0);
+    expect(text).toContain("! Vitest printed these errors but exited 0");
+    expect(text).toContain("Unhandled Rejection: Error: ignored rejection");
+  }, 120_000);
 });
 
 // ---------------------------------------------------------------------------
@@ -267,12 +333,15 @@ describe("compare: snapshots are never written", () => {
     // Only the .snap cases get the recipe; inline and file snapshots fail with the same
     // message but are not recorded that way.
     expect(hints).toEqual({
-      b: "shared-snapshot-dir",
+      b: "shared-snapshot-dir-nested",
       plain: "shared-snapshot-dir",
       "inline new": undefined,
       "file snapshot": undefined,
     });
-    expect(text).toContain("your Vitest config resolves snapshots to Jest's .snap files");
+    expect(text).toContain("This snapshot's key is the same in both runners");
+    expect(text).toContain(
+      "Vitest names this snapshot differently (`a > b 1`, where Jest writes `a b 1`)",
+    );
     expect(text).not.toContain("then run `vitest run` once and review");
   }, 120_000);
 
@@ -297,22 +366,70 @@ describe("compare: snapshots are never written", () => {
     expect(code, text).toBe(0);
   }, 120_000);
 
-  it("fails the run, listing the file, when a test writes into the project", async () => {
+  it("reports other files a test writes, ignores output directories, and still compares", async () => {
     const root = scratchProject({
       files: {
         "vitest.config.mjs": VITEST_CONFIG,
-        "src/w.check.js": `test("writes", () => { if (typeof vi !== "undefined") require("node:fs").writeFileSync(__dirname + "/out.txt", "x"); });\n`,
+        "src/w.check.js":
+          `const fs = require("node:fs"), path = require("node:path");\n` +
+          `test("writes", () => {\n` +
+          `  if (typeof vi === "undefined") return;\n` +
+          `  fs.writeFileSync(path.join(__dirname, "out.txt"), "x");\n` +
+          `  for (const d of ["coverage", "android/build", "ios/Pods/P"]) {\n` +
+          `    fs.mkdirSync(path.join(__dirname, "..", d), { recursive: true });\n` +
+          `    fs.writeFileSync(path.join(__dirname, "..", d, "f.js"), "x");\n` +
+          `  }\n});\n`,
       },
     });
     const jest = jestReport(root, { "src/w.check.js": [{ title: "writes" }] });
     const out = path.join(path.dirname(root), `${path.basename(root)}-report.json`);
     const { code, text } = await runCli(["--root", root, "--jest-results", jest, "--json", out]);
+    expect(code, text).toBe(0);
+    expect(text).toContain("The runs wrote 1 other file(s) in the project:");
+    expect(text).not.toContain("compare must never do");
+    const written = JSON.parse(fs.readFileSync(out, "utf8"));
+    expect(written.projectWrites).toEqual(["added src/out.txt"]);
+    expect(written.projectChanges).toEqual([]);
+  }, 120_000);
+
+  it("fails the run, listing the file, when a run changes a source file, through a symlinked directory too", async () => {
+    const outside = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-shared-"));
+    fs.writeFileSync(path.join(outside, "lib.js"), "module.exports = 1;\n");
+    const root = scratchProject({
+      files: {
+        "vitest.config.mjs": VITEST_CONFIG,
+        "src/w.check.js":
+          `const fs = require("node:fs"), path = require("node:path");\n` +
+          `test("rewrites a source file", () => {\n` +
+          `  if (typeof vi !== "undefined") fs.appendFileSync(path.join(__dirname, "shared", "lib.js"), "// x\\n");\n});\n`,
+      },
+    });
+    fs.symlinkSync(outside, path.join(root, "src", "shared"), "junction");
+    // A cycle the walk must not follow forever.
+    fs.symlinkSync(path.join(root, "src"), path.join(root, "src", "loop"), "junction");
+    const jest = jestReport(root, { "src/w.check.js": [{ title: "rewrites a source file" }] });
+    const { code, text } = await runCli(["--root", root, "--jest-results", jest]);
+    fs.rmSync(outside, { recursive: true, force: true });
     expect(code).toBe(2);
     expect(text).toContain(
-      "✗ The runs changed 1 file(s) in the project, which compare must never do:",
+      "✗ The runs changed 1 snapshot or source file(s) in the project, which compare must never do:",
     );
-    expect(text).toContain("added src/out.txt");
-    expect(JSON.parse(fs.readFileSync(out, "utf8")).projectChanges).toEqual(["added src/out.txt"]);
+    expect(text).toContain("changed src/shared/lib.js");
+  }, 120_000);
+
+  it("turns coverage off, so a config that enables it neither loads a provider nor writes coverage/", async () => {
+    const root = scratchProject({
+      files: {
+        // No coverage provider is installed in the scratch project: enabling coverage
+        // would fail the run.
+        "vitest.config.mjs": `export default { test: { globals: true, include: ["**/*.check.js"], coverage: { enabled: true } } };\n`,
+        "src/a.check.js": `test("a", () => {});\n`,
+      },
+    });
+    const jest = jestReport(root, { "src/a.check.js": [{ title: "a" }] });
+    const { code, text } = await runCli(["--root", root, "--jest-results", jest]);
+    expect(code, text).toBe(0);
+    expect(fs.existsSync(path.join(root, "coverage"))).toBe(false);
   }, 120_000);
 
   it("refuses runner arguments outside the allow-list, short-flag clusters included", () => {
@@ -328,6 +445,10 @@ describe("compare: snapshots are never written", () => {
       ["--jest-args", "--updateSnapshot"],
       ["--jest-args", "--watchAll"],
       ["--jest-args", "--json"],
+      ["--jest-args", "--coverage"],
+      ["--jest-args", "--coverage false"],
+      ["--vitest-args", "--coverage.enabled"],
+      ["--vitest-args", "--coverage.enabled=true"],
     ]) {
       expect(parseCompareArgs(bad), bad.join(" ")).toHaveProperty("error");
     }
@@ -336,6 +457,12 @@ describe("compare: snapshots are never written", () => {
       ["--jest-args", "-t 'adds one' --selectProjects ios"],
       ["--vitest-args", "--no-watch --project ios -t name --shard 1/2 src/"],
       ["--vitest-args", "--no-file-parallelism"],
+      ["--jest-args", "--config jest.ci.config.js --no-watchman --verbose --bail --coverage=false"],
+      ["--jest-args", "--bail=2 -c jest.config.js"],
+      [
+        "--vitest-args",
+        "--root packages/app --coverage.enabled=false --bail 1 --allowOnly --sequence.shuffle",
+      ],
     ]) {
       expect(parseCompareArgs(good), good.join(" ")).not.toHaveProperty("error");
     }
@@ -399,6 +526,40 @@ describe("compare: the report carries no source or absolute path", () => {
     expect(s("see https://jestjs.io/docs/configuration and /^foo$/")).toBe(
       "see https://jestjs.io/docs/configuration and /^foo$/",
     );
+  });
+
+  it("drops TypeScript diagnostics, esbuild/Hermes excerpts, tab-indented carets and React component stacks", () => {
+    expect(
+      s(
+        `src/a.test.ts:2:7 - error TS2322: Type 'string' is not assignable to type 'number'.\n\n2 const apiKey: number = "sk-live-TS";\n        ~~~~~~`,
+      ),
+    ).toBe("src/a.test.ts:2:7 - error TS2322: Type 'string' is not assignable to type 'number'.");
+    expect(s("x.js:2:10: error: ';' expected\nconst hermesSecret = = 1\n         ^")).toBe(
+      "x.js:2:10: error: ';' expected",
+    );
+    expect(s("SyntaxError: Unexpected token\n\n  const leaked = 'tab-indented frame';\n\t^")).toBe(
+      "SyntaxError: Unexpected token",
+    );
+    expect(
+      s(
+        "Error: boom\n\nThe above error occurred in the <SecretVault> component:\n\n    in SecretVault (at vault.js:3)\n    in App",
+      ),
+    ).toBe("Error: boom\n\nThe above error occurred in the <SecretVault> component:");
+  });
+
+  it("replaces UNC paths and paths with spaces, and keeps app routes", () => {
+    expect(
+      s(
+        "Error: cannot read \\\\fileserver\\users\\jdoe\\proj\\x.js and \\\\fileserver\\users\\jdoe\\proj",
+      ),
+    ).toBe("Error: cannot read <path> and <path>");
+    expect(s("Error: cannot read /Volumes/Client Work/acme-secret/app.js")).toBe(
+      "Error: cannot read <path>",
+    );
+    expect(s("Error: ENOENT /home/jdoe/.npmrc")).toBe("Error: ENOENT <path>");
+    const routes = 'Expected: "/home/profile/edit"\nReceived: "/home/settings/privacy"';
+    expect(s(routes)).toBe(routes);
+    expect(s("navigated to /settings/privacy/edit")).toBe("navigated to /settings/privacy/edit");
   });
 
   it("keeps a TypeScript file's source out of the report when Vitest cannot parse it", async () => {
@@ -519,6 +680,73 @@ describe.skipIf(!posix)("compare: processes", () => {
     }
   }, 30_000);
 
+  it("removes compare's directories when compare is killed between the runs", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-guardian-"));
+    const owned = path.join(dir, "vn-compare-x");
+    fs.mkdirSync(path.join(owned, "deep"), { recursive: true });
+    const guardianFile = path.join(dir, "guardian.js");
+    fs.writeFileSync(guardianFile, GUARDIAN);
+    const ready = path.join(dir, "ready");
+    // A stand-in for compare between its runs: only the guardian is alive beside it.
+    const parent = spawn(
+      process.execPath,
+      [
+        "-e",
+        `const { spawn } = require("node:child_process");
+         const fs = require("node:fs");
+         const [file, owned, ready] = process.argv.slice(1);
+         spawn(process.execPath, ["-e", fs.readFileSync(file, "utf8"), "--", JSON.stringify([owned]), "[]"],
+           { stdio: ["ignore", "ignore", "ignore", "ipc"], detached: true });
+         fs.writeFileSync(ready, "");
+         setInterval(() => {}, 1000);`,
+        "--",
+        guardianFile,
+        owned,
+        ready,
+      ],
+      { stdio: "ignore" },
+    );
+    try {
+      expect(await until(() => fs.existsSync(ready), 10_000)).toBe(true);
+      parent.kill("SIGKILL");
+      expect(await until(() => !fs.existsSync(owned), 10_000)).toBe(true);
+    } finally {
+      if (parent.exitCode === null) parent.kill("SIGKILL");
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("cleans up and exits 130 on a signal after Vitest has finished", async () => {
+    const tmp = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-sigint-"));
+    const saved = process.env.TMPDIR;
+    process.env.TMPDIR = tmp;
+    try {
+      const root = scratchProject({
+        files: { "vitest.config.mjs": VITEST_CONFIG, "src/a.check.js": `test("a", () => {});\n` },
+      });
+      const jest = jestReport(root, { "src/a.check.js": [{ title: "a" }] });
+      const { main } = await import("../src/cli/index.js");
+      const lines: string[] = [];
+      // Sent while compare renders its summary, after both runs.
+      const code = await main(["compare", "--root", root, "--jest-results", jest], (l) => {
+        if (l.startsWith("Jest    ")) process.emit("SIGINT", "SIGINT");
+        lines.push(l);
+      });
+      expect(code, lines.join("\n")).toBe(130);
+      expect(lines).toContain("✗ compare was interrupted.");
+      expect(fs.existsSync(path.join(root, "node_modules", ".vitest-native"))).toBe(false);
+      expect(
+        fs
+          .readdirSync(tmp)
+          .filter((f) => f.startsWith("vn-compare-") && !f.startsWith("vn-compare-e2e-")),
+      ).toEqual([]);
+    } finally {
+      if (saved === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = saved;
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }, 120_000);
+
   it("stops the runner and cleans up on SIGHUP, exiting 130", async () => {
     const root = scratchProject({
       files: {
@@ -542,11 +770,61 @@ describe.skipIf(!posix)("compare: processes", () => {
 // ---------------------------------------------------------------------------
 
 describe("compare: matching", () => {
-  it("matches parametrised titles that share their template, and nothing else", () => {
-    expect(sameTemplate('obj-p {"a": 1}', "obj-p %p")).toBe(true);
-    expect(sameTemplate("dollar-missing $nope", "dollar-missing undefined")).toBe(true);
-    expect(sameTemplate("renders a card", "submits the form")).toBe(false);
+  it("treats two titles as one test only where the runners are known to format them differently", () => {
+    // Pairs Jest 30.2 and Vitest 5.0.5 print for the same it.each rows.
+    for (const [jest, vitest] of [
+      ["obj-s { a: 1, b: [Array] }", "obj-s { a: 1, b: [ 1, 2 ] }"],
+      ['obj-p {"a": 1}', "obj-p %p"],
+      ['dollar n {"deep": true}', "dollar n { deep: true }"],
+      ["dollar-missing $nope", "dollar-missing undefined"],
+      ["percent % a", "percent % a undefined"],
+      ['tagged 1 {"x": 1}', "tagged 1 { x: 1 }"],
+    ]) {
+      expect(sameTestTitle(jest, vitest), `${jest} ⇄ ${vitest}`).toBe(true);
+    }
+    for (const [jest, vitest] of [
+      ["should charge the card when the order is placed", "should render the footer"],
+      ["module Bluetooth is linked", "module WebView is linked"],
+      ['obj {"a": 1}', "obj { a: 2 }"],
+      ["renders a card", "renders a card twice"],
+      ["value 1", "value undefined"],
+      // %p stands for one value, not for the rest of the title.
+      ['pretty {"a": 1} on ios', "pretty %p on android"],
+    ]) {
+      expect(sameTestTitle(jest, vitest), `${jest} ⇄ ${vitest}`).toBe(false);
+    }
   });
+
+  it("never confirms a Jest test by an unrelated Vitest test at its place", async () => {
+    const root = scratchProject({
+      files: {
+        "vitest.config.mjs": VITEST_CONFIG,
+        "src/should.check.js": `test("should render the footer", () => {});\ntest("anchor", () => {});\n`,
+        "src/rows.check.js":
+          `describe("native modules", () => {\n` +
+          `  test.each(["Camera", "WebView"])("module %s is linked", (m) => { expect(m).toBeTruthy(); });\n});\n`,
+      },
+    });
+    const jest = jestReport(root, {
+      "src/should.check.js": [
+        { title: "should charge the card when the order is placed" },
+        { title: "anchor" },
+      ],
+      "src/rows.check.js": [
+        { ancestors: ["native modules"], title: "module Camera is linked" },
+        { ancestors: ["native modules"], title: "module Bluetooth is linked" },
+      ],
+    });
+    const { code, text } = await runCli(["--root", root, "--jest-results", jest]);
+    expect(code).toBe(1);
+    expect(text).toContain("2 of the 4 tests that pass under Jest do not pass under Vitest");
+    expect(text).toContain("2 named differently");
+    expect(text).toContain(
+      "should charge the card when the order is placed  ≠  should render the footer",
+    );
+    expect(text).toContain("module Bluetooth is linked  ≠  module WebView is linked");
+    expect(text).not.toContain("⇄");
+  }, 120_000);
 
   it("reads a Jest report made in CI, at another root", async () => {
     const root = scratchProject({
@@ -560,6 +838,23 @@ describe("compare: matching", () => {
     const explicit = await runCli(["--root", root, "--jest-results", jest, "--jest-root", ci]);
     expect(explicit.text).toContain("All 1 test that pass under Jest also pass under Vitest");
   }, 120_000);
+
+  it("leaves native build output and coverage out of the tree check", () => {
+    const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-tree-"));
+    for (const f of [
+      "src/a.js",
+      "ios/Pods/P/x.h",
+      "ios/build/b",
+      "android/app/build/c",
+      "coverage/d",
+      "src/.expo/e",
+    ]) {
+      fs.mkdirSync(path.dirname(path.join(root, f)), { recursive: true });
+      fs.writeFileSync(path.join(root, f), "");
+    }
+    expect([...(treeState(root)?.keys() ?? [])]).toEqual(["src/a.js"]);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
 
   it("imports a config on another Windows drive by its absolute path", () => {
     expect(

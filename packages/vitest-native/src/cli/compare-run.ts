@@ -71,7 +71,12 @@ export function splitArgs(value: string): string[] {
 // Arguments: an allow-list per runner
 // ---------------------------------------------------------------------------
 
-type ArgKind = "flag" | "value" | "false-only";
+/**
+ * `flag`: bare, `=true` or `=false`, or `--no-` form. `value`: `--x v` or `--x=v`.
+ * `optional`: bare or `--x=v`, never the next word. `false-only`: only `--x=false` or `--no-x`
+ * (`--x false` is refused: the `false` would be read as a path filter).
+ */
+type ArgKind = "flag" | "value" | "optional" | "false-only";
 interface ArgSpec {
   long: Record<string, ArgKind>;
   short: Record<string, ArgKind>;
@@ -106,8 +111,13 @@ const JEST_ARGS: ArgSpec = {
     watch: "false-only",
     cache: "flag",
     clearMocks: "flag",
+    config: "value",
+    watchman: "flag",
+    verbose: "flag",
+    bail: "optional",
+    coverage: "false-only",
   },
-  short: { i: "flag", w: "value", t: "value" },
+  short: { i: "flag", w: "value", t: "value", c: "value" },
 };
 
 const VITEST_ARGS: ArgSpec = {
@@ -129,6 +139,12 @@ const VITEST_ARGS: ArgSpec = {
     dir: "value",
     logHeapUsage: "flag",
     watch: "false-only",
+    root: "value",
+    "coverage.enabled": "false-only",
+    coverage: "false-only",
+    bail: "value",
+    allowOnly: "flag",
+    "sequence.shuffle": "flag",
   },
   short: { t: "value" },
 };
@@ -156,6 +172,8 @@ export function refusedArg(args: string[], spec: ArgSpec): string | null {
           if (args[i + 1] === undefined) return `${arg} (no value)`;
           i++;
         }
+      } else if (kind === "optional") {
+        if (negated) return arg;
       } else if (kind === "false-only") {
         if (!(negated || inline === "false")) return arg;
       } else if (inline !== undefined && inline !== "true" && inline !== "false") {
@@ -293,6 +311,45 @@ process.on("disconnect", () => {
 });
 `;
 
+/**
+ * Owns compare's temporary directories for the whole run: `node -e GUARDIAN -- <dirs
+ * JSON> <empty-parents JSON>`, over an IPC channel. When the channel closes — compare
+ * finished, or died between or during runs (SIGKILL included) — it removes the
+ * directories (a no-op after a normal run, which removed them) and exits.
+ */
+export const GUARDIAN = `
+const fs = require("node:fs");
+const [dirs, parents] = process.argv.slice(1).map((a) => JSON.parse(a));
+for (const s of ["SIGINT", "SIGHUP", "SIGTERM"]) process.on(s, () => {});
+process.on("disconnect", () => {
+  for (const d of dirs) { try { fs.rmSync(d, { recursive: true, force: true }); } catch {} }
+  for (const d of parents) { try { fs.rmdirSync(d); } catch {} }
+  process.exit(0);
+});
+`;
+
+function startGuardian(dirs: string[], parents: string[]): ReturnType<typeof spawn> | null {
+  try {
+    const guardian = spawn(
+      process.execPath,
+      ["-e", GUARDIAN, "--", JSON.stringify(dirs), JSON.stringify(parents)],
+      {
+        stdio: ["ignore", "ignore", "ignore", "ipc"],
+        detached: process.platform !== "win32",
+        windowsHide: true,
+      },
+    );
+    guardian.on("error", () => {});
+    guardian.unref();
+    (guardian.channel as { unref?: () => void } | undefined)?.unref?.();
+    return guardian;
+  } catch {
+    return null;
+  }
+}
+
+const SIGNALS: NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGHUP"];
+
 interface Bounded {
   code: number | null;
   timedOut: boolean;
@@ -379,7 +436,7 @@ function runBounded(
       interrupted = true;
       stop();
     };
-    const signals: NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGHUP"];
+    const signals = SIGNALS;
     for (const s of signals) process.on(s, onSignal);
 
     let settled = false;
@@ -595,16 +652,45 @@ export function forwardedScriptFlags(root: string): { forwarded: string[]; ignor
 
 type TreeState = Map<string, string>;
 
+/** Directories, by name anywhere, that tools write as a matter of course. */
+const OUTPUT_DIR_NAMES = new Set([
+  "node_modules",
+  ".git",
+  "coverage",
+  ".expo",
+  ".gradle",
+  ".cache",
+  ".turbo",
+  ".nyc_output",
+]);
+/** Directories, by root-relative path, that native builds write. */
+const OUTPUT_DIR_PATHS = [
+  "android/build",
+  "android/app/build",
+  "ios/build",
+  "ios/Pods",
+  "ios/DerivedData",
+];
+
 /**
- * Size and modification time of every file under the root except node_modules and
- * .git, where the runners keep their caches. Snapshot files, inline snapshots in test
- * sources and toMatchFileSnapshot outputs are all in it.
+ * Size and modification time of every file under the root, following symlinked
+ * directories (each real directory once, so a cycle ends), except the directories tools
+ * write as a matter of course: node_modules, .git, coverage and native build output.
  */
 export function treeState(root: string, limit = 200_000): TreeState | null {
   const out: TreeState = new Map();
+  const seen = new Set<string>();
   const stack = [root];
   while (stack.length) {
     const dir = stack.pop() as string;
+    let real: string;
+    try {
+      real = fs.realpathSync(dir);
+    } catch {
+      continue;
+    }
+    if (seen.has(real)) continue;
+    seen.add(real);
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -612,16 +698,19 @@ export function treeState(root: string, limit = 200_000): TreeState | null {
       continue;
     }
     for (const e of entries) {
-      if (e.name === "node_modules" || e.name === ".git") continue;
+      if (OUTPUT_DIR_NAMES.has(e.name)) continue;
       const abs = path.join(dir, e.name);
-      if (e.isDirectory()) stack.push(abs);
-      else if (e.isFile()) {
-        try {
-          const s = fs.statSync(abs);
-          out.set(path.relative(root, abs).split(path.sep).join("/"), `${s.size}:${s.mtimeMs}`);
-        } catch {
-          // gone already
-        }
+      const rel = path.relative(root, abs).split(path.sep).join("/");
+      if (OUTPUT_DIR_PATHS.includes(rel)) continue;
+      let stat: fs.Stats;
+      try {
+        stat = e.isSymbolicLink() ? fs.statSync(abs) : fs.lstatSync(abs);
+      } catch {
+        continue; // a dangling link, or gone already
+      }
+      if (stat.isDirectory()) stack.push(abs);
+      else if (stat.isFile()) {
+        out.set(rel, `${stat.size}:${stat.mtimeMs}`);
         if (out.size > limit) return null;
       }
     }
@@ -629,14 +718,30 @@ export function treeState(root: string, limit = 200_000): TreeState | null {
   return out;
 }
 
-export function treeChanges(before: TreeState, after: TreeState): string[] {
-  const changes: string[] = [];
+export interface TreeChanges {
+  /** Snapshot files and test or source files changed, removed or (snapshots) added. */
+  fatal: string[];
+  /** Everything else the runs wrote: reports, generated files. */
+  other: string[];
+}
+
+/** Test and source files, whose change means a runner wrote inline snapshots or code. */
+const SOURCE = /\.(?:[cm]?[jt]sx?|json|snap)$/;
+const SNAPSHOT = /(?:^|\/)(?:__snapshots__|__vitest_snapshots__)\/|\.snap$/;
+
+export function treeChanges(before: TreeState, after: TreeState): TreeChanges {
+  const fatal: string[] = [];
+  const other: string[] = [];
   for (const [file, state] of after) {
-    if (!before.has(file)) changes.push(`added ${file}`);
-    else if (before.get(file) !== state) changes.push(`changed ${file}`);
+    if (!before.has(file)) (SNAPSHOT.test(file) ? fatal : other).push(`added ${file}`);
+    else if (before.get(file) !== state)
+      (SOURCE.test(file) || SNAPSHOT.test(file) ? fatal : other).push(`changed ${file}`);
   }
-  for (const file of before.keys()) if (!after.has(file)) changes.push(`removed ${file}`);
-  return changes.sort();
+  for (const file of before.keys()) {
+    if (!after.has(file))
+      (SOURCE.test(file) || SNAPSHOT.test(file) ? fatal : other).push(`removed ${file}`);
+  }
+  return { fatal: fatal.sort(), other: other.sort() };
 }
 
 // ---------------------------------------------------------------------------
@@ -667,6 +772,7 @@ export function vitestOutputReader(sanitize: (s: string) => string) {
   const errors: string[] = [];
   let engine: string | null = null;
   let pending: string | null = null;
+  let running = false;
   // oxlint-disable-next-line no-control-regex -- ANSI escapes
   const plain = (line: string) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "");
   return {
@@ -674,7 +780,10 @@ export function vitestOutputReader(sanitize: (s: string) => string) {
     engine: () => engine,
     onLine(raw: string) {
       const line = plain(raw);
-      const m = /\[vitest-native\] engine: ([\w-]+)/.exec(line);
+      // Only the plugin's banner, printed while Vitest resolves its config, before the RUN
+      // header: a test that prints the same words cannot set the engine.
+      if (/^\s*RUN\s+v\d/.test(line)) running = true;
+      const m = running ? null : /^\[vitest-native\] engine: (native|mock) — /.exec(line);
       if (m) engine ??= m[1];
       const header = /⎯+\s*(Unhandled (?:Rejection|Error)|Uncaught Exception)\s*⎯+/.exec(line);
       if (header) {
@@ -722,12 +831,24 @@ export async function runCompare(options: CompareOptions): Promise<number> {
   const hadNodeModules = fs.existsSync(nodeModules);
   const configParent = path.join(nodeModules, ".vitest-native");
   const hadConfigParent = fs.existsSync(configParent);
-  let configDir: string | null = null;
+  fs.mkdirSync(configParent, { recursive: true });
+  const configDir = fs.mkdtempSync(path.join(configParent, "compare-"));
+  const cleanup = [work, configDir];
+  const emptyParents = [
+    ...(hadConfigParent ? [] : [configParent]),
+    ...(hadNodeModules ? [] : [nodeModules]),
+  ];
+  const guardian = startGuardian(cleanup, emptyParents);
+  // Installed for the whole run, so a signal between or after the runs (while
+  // classifying, checking the tree, rendering) is answered here, after cleanup, instead
+  // of killing compare with its temporary directories in place.
+  let interrupted = false;
+  const onSignal = () => {
+    interrupted = true;
+  };
+  for (const s of SIGNALS) process.on(s, onSignal);
   const before = treeState(root);
   try {
-    fs.mkdirSync(configParent, { recursive: true });
-    configDir = fs.mkdtempSync(path.join(configParent, "compare-"));
-    const cleanup = [work, configDir];
     let baseFile: string;
     let vitestConfigLabel: string;
     if (vitestConfigFile) {
@@ -793,6 +914,8 @@ export async function runCompare(options: CompareOptions): Promise<number> {
           (jest as Located).bin,
           "--json",
           `--outputFile=${out}`,
+          // Coverage is not compared, and it writes coverage/ in the project.
+          "--coverage=false",
           ...script.forwarded,
           ...options.jestArgs,
           "--ci",
@@ -839,6 +962,7 @@ export async function runCompare(options: CompareOptions): Promise<number> {
         "--reporter=json",
         `--outputFile.json=${vitestOut}`,
         "--reporter=default",
+        "--coverage.enabled=false",
         ...options.vitestArgs,
       ],
       {
@@ -925,33 +1049,47 @@ export async function runCompare(options: CompareOptions): Promise<number> {
     // compare must leave the project as it found it; anything else is an error. Checked
     // before the --json report is written, which may be inside the root.
     const after = treeState(root);
-    const changes = before && after ? treeChanges(before, after) : [];
+    const changes = before && after ? treeChanges(before, after) : { fatal: [], other: [] };
     if (!before || !after)
       log("  The project has too many files to check that the runs changed none.");
+    if (changes.other.length) {
+      // Reports and generated files a suite writes are its own business.
+      log(`  The runs wrote ${changes.other.length} other file(s) in the project:`);
+      for (const c of changes.other.slice(0, options.top)) log(`    ${c}`);
+      if (changes.other.length > options.top)
+        log(`    … and ${changes.other.length - options.top} more`);
+    }
     if (options.json) {
       const report = jsonReport(comparison, {
         vitestNative: (installedManifest(root, "vitest-native")?.version as string) ?? null,
         jest: jestInfo,
         vitest: vitestInfo,
       });
-      report.projectChanges = changes;
+      report.projectChanges = changes.fatal;
+      report.projectWrites = changes.other;
       fs.writeFileSync(path.resolve(options.json), `${JSON.stringify(report, null, 2)}\n`);
     }
-    if (changes.length) {
+    if (changes.fatal.length) {
       log("");
       log(
-        `✗ The runs changed ${changes.length} file(s) in the project, which compare must never do:`,
+        `✗ The runs changed ${changes.fatal.length} snapshot or source file(s) in the project, which compare must never do:`,
       );
-      for (const c of changes.slice(0, options.top)) log(`    ${c}`);
-      if (changes.length > options.top) log(`    … and ${changes.length - options.top} more`);
+      for (const c of changes.fatal.slice(0, options.top)) log(`    ${c}`);
+      if (changes.fatal.length > options.top)
+        log(`    … and ${changes.fatal.length - options.top} more`);
       log("  Restore them from version control, and report this with the command you ran.");
       return 2;
+    }
+    if (interrupted) {
+      log("✗ compare was interrupted.");
+      return 130;
     }
     if (comparison.jestPassed === 0) return 2;
     return comparison.claimHolds ? 0 : 1;
   } finally {
+    for (const s of SIGNALS) process.off(s, onSignal);
     fs.rmSync(work, { recursive: true, force: true });
-    if (configDir) fs.rmSync(configDir, { recursive: true, force: true });
+    fs.rmSync(configDir, { recursive: true, force: true });
     // Leave node_modules as it was: remove what compare created, if it is empty.
     for (const [dir, existed] of [
       [configParent, hadConfigParent],
@@ -964,6 +1102,7 @@ export async function runCompare(options: CompareOptions): Promise<number> {
         // not empty, or already gone
       }
     }
+    if (guardian?.connected) guardian.disconnect();
   }
 }
 
@@ -996,7 +1135,8 @@ function snapshotHint(
     : path.join(path.dirname(abs), "__snapshots__", `${path.basename(abs)}.snap`);
   const jestKey = key.split(" > ").join(" ");
   if (!read(jestFile).includes(`exports[\`${jestKey}\`]`)) return undefined;
-  if (resolution.foreign) return "shared-snapshot-dir";
+  if (resolution.foreign)
+    return key.includes(" > ") ? "shared-snapshot-dir-nested" : "shared-snapshot-dir";
   if (!resolution.copied) return "no-vitest-snapshot";
   return read(resolution.original).includes(`exports[\`${key}\`]`)
     ? undefined

@@ -17,7 +17,7 @@ npx vitest-native compare [--root <dir>] [--jest-args "<args>"] [--vitest-args "
 one Jest finds by itself, or the one the `test` script names with `--config`. The script's
 `--testTimeout`, `--maxWorkers`, `--runInBand`, `--silent` and `--passWithNoTests` are passed too,
 because `migrate` maps those into the Vitest config, so both sides get them. The run adds
-`--json --outputFile=<temp>`, and `--ci` last. `--jest-results <file>` reads the JSON of a Jest run
+`--json --outputFile=<temp> --coverage=false`, and `--ci` last. `--jest-results <file>` reads the JSON of a Jest run
 made elsewhere, such as in CI, instead of running Jest. Its absolute paths name that machine's
 checkout. compare finds that directory from the file names both runners report, or takes it from
 `--jest-root`.
@@ -26,15 +26,20 @@ checkout. compare finds that directory from the file names both runners report, 
 way Vitest finds it (`vitest.config.*`, then `vite.config.*`) or named with `--vitest-config`. If
 the project has no Vitest config yet, compare uses the config `vitest-native migrate` would write.
 That config is executed but never saved: it lives in a temporary directory under `node_modules/`,
-and its `import.meta.url` paths are pointed back at the root. The run adds `run --reporter=json`
-and `--reporter=default`. The default reporter's output is the only place unhandled errors and
-errors during close appear (its JSON says `success: true` for those), and it carries the engine
-vitest-native reports.
+and its `import.meta.url` paths are pointed back at the root. The run adds `run --reporter=json`,
+`--reporter=default` and `--coverage.enabled=false`. Coverage is not compared, and both
+runners would write `coverage/` into the project. The default reporter's output is the only place unhandled errors and
+errors during close appear (its JSON says `success: true` for those). The engine is taken only from
+vitest-native's banner, which the plugin prints while Vitest resolves its config, before Vitest's
+`RUN` header. A test that prints the same words later cannot set it. Unhandled errors that Vitest's
+config ignores (`dangerouslyIgnoreUnhandledErrors`) are printed even though Vitest exits 0.
 
 The two runs happen one after the other, not in parallel, so one does not slow the other down.
 
-`--jest-args` and `--vitest-args` accept an allow-list: worker, timeout, project, shard, name and
-path filters, `--silent`, `--watchAll=false` and the like (`JEST_ARGS`/`VITEST_ARGS` in
+`--jest-args` and `--vitest-args` accept an allow-list. It covers worker, timeout, project,
+shard, name and path filters, `--silent`, `--bail`, Jest's `--config`, `--verbose` and
+`--no-watchman`, Vitest's `--root`, `--allowOnly` and `--sequence.shuffle`, and switches that can
+only be off: `--watchAll=false`, `--coverage=false`, `--coverage.enabled=false` (`JEST_ARGS`/`VITEST_ARGS` in
 `src/cli/compare-run.ts`). Anything else is refused. An earlier deny-list let through `-ut .` (Vitest's
 `-u` in a cluster of short flags) and Jest's `--ci false`, and both write snapshots.
 
@@ -53,9 +58,16 @@ environment variable, or a `resolveSnapshotPath` that points at Jest's `__snapsh
   covers files resolved through the project's `resolveSnapshotPath`, an inline project's, or
   `__vitest_snapshots__/` (the recipe) when there is none. Only a file with Vitest's header is
   copied. Projects listed by config-file path cannot be wrapped.
-- Every file under the root except `node_modules/` and `.git/` is stat'ed before Jest runs and
-  after Vitest runs. Any added, changed or removed file fails the run (exit 2) and is listed. The
-  check also covers inline snapshots (written into test sources) and `toMatchFileSnapshot` outputs.
+- Every file under the root is stat'ed before Jest runs and after Vitest runs. The walk follows
+  symlinked directories, visiting each real directory once so that a cycle ends. It skips the
+  directories tools write as a matter of course: `node_modules`, `.git`, `coverage`, `.expo`,
+  `.gradle`, `.cache`, `.turbo`, `.nyc_output`, and `android/build`, `android/app/build`,
+  `ios/build`, `ios/Pods`, `ios/DerivedData`.
+  - These fail the run (exit 2) and are listed: a snapshot file added, changed or removed; a test
+    or source file (`.js`/`.ts`/… `.json`) changed or removed. That covers inline snapshots,
+    which are written into test sources.
+  - Other writes, such as a reporter's output or a file a test generates, are listed neutrally
+    ("the runs wrote these files") and do not fail it.
 
 A `.snap` test with no Vitest snapshot fails under CI. Only then does the report say so, with the
 recipe: give Vitest its own directory first, then record. Following "run `vitest run`" without the
@@ -76,13 +88,26 @@ file.
 **Copies.** Several results can share one identity: a repeated title, Vitest `test.projects`,
 Jest `projects`. They are one test that passes only if every copy passed. Pairing copies by order
 let a passing copy stand for a failing one when the runners ran them in another order
-(`test.concurrent`, Jest's `randomize`).
+(`test.concurrent`, Jest's `randomize`). Vitest must also run it at least as many times as Jest:
+if Jest runs `ios` and `android` projects and Vitest one platform, the test is unconfirmed ("run
+fewer times").
 
-**Titles that differ.** Each runner formats parametrised titles (`it.each`) itself: `%s` of an
-object, `%p`, `$var`, `%%`, tagged templates. Tests only one runner named are therefore matched in
-order within the same file and `describe` block, as long as the titles share their template: the
-first word and at least three characters. The report lists every such pair, Jest's title next to
-Vitest's.
+**Titles that differ.** Each runner formats parametrised titles (`it.each`) itself. Tests only
+one runner named are matched by position within the same file and `describe` block. A pair counts
+as the same test only when an explicit normaliser (`sameTestTitle`) finds that the titles differ
+in nothing but spans the two runners are known to print differently:
+
+- a printed value: Jest's `{"a": 1}` or `{ a: 1, b: [Array] }` against Vitest's `{ a: 1 }` or
+  `{ a: 1, b: [ 1, 2 ] }`. Compared with spacing, quotes and trailing commas removed, Jest's
+  `[Array]`/`[Object]` standing for any value there.
+- `%p`, which Vitest leaves in the title;
+- a missing `$var`: Jest keeps `$var`, Vitest prints `undefined`;
+- the `undefined` Vitest appends after `%%`.
+
+Any other difference keeps both tests unmatched. "should charge the card…" against "should render
+the footer", or test.each rows that differ by data, are "named differently" in the report. They are
+unconfirmed and block the claim. The report lists matched pairs (`⇄`) and unmatched candidates
+(`≠`).
 
 ## Buckets
 
@@ -136,10 +161,17 @@ from messages:
 
 - ANSI codes.
 - The stack, cut at the first `    at ` or `❯` frame.
-- Code-frame lines in each runner's style: `> 12 |`, `12| `, `12 │`, box drawing, `^` markers.
-- Node's `file:line` + source line + `^^^` blocks (Jest's "Details:").
-- Absolute paths. The root becomes `<root>`, the temp directory `<tmp>`, the home directory `~`, and
-  any other absolute path `<path>`. This covers Windows, JSON-escaped and file-URL spellings.
+- Code-frame lines in each runner's style: `> 12 |`, `12| `, `12 │`, box drawing.
+- Any line a `^^^` or `~~~` marker points at, with the marker. That covers Node's and esbuild's
+  source excerpts, TypeScript diagnostics and tab-indented frames, and Node's `file:line` heading
+  (Jest's "Details:").
+- React component stacks (`in SecretVault (at vault.js:3)`).
+- Absolute paths. The root becomes `<root>`, the temp directory `<tmp>`, the home directory `~`.
+  Any other path on a machine becomes `<path>`: one under `/Users`, `/Volumes`, `/private`,
+  `/var/folders`, a drive letter or a UNC share (spaces included, up to the file name), one that
+  exists on disk, or one under a root that app routes share (`/home/<user>`, `/tmp`, `/var`, …)
+  naming a file. App routes such as `/home/profile/edit` are kept, so navigation diffs stay
+  readable.
 
 What is **not** guaranteed: a message keeps whatever a test put in its own error, such as received
 values, an environment dump, or file contents it read. Read the report before posting it. Tests
@@ -161,6 +193,11 @@ with the same result under both runners are counted, not listed.
 - **Pipes held open.** A process a test starts in a session of its own (`detached: true`) is the
   test's, as it is under the runners, and compare does not stop it. If it holds the output pipe,
   compare stops waiting 2 s after the runner exits.
+- **Guardian.** One more small process owns compare's temporary directories for the whole run.
+  When its IPC channel closes, because compare finished or died (SIGKILL between or during the
+  runs included), it removes them.
+- **Signals.** compare keeps its SIGINT/SIGTERM/SIGHUP handlers for the whole run. A signal while
+  it classifies, checks the tree or renders is answered after cleanup, with exit 130.
 - **Environment.** Variables a parent test runner sets for its own workers (`VITEST*`,
   `JEST_WORKER_ID`) are removed from the children's environment, as is `UPDATE_SNAPSHOT`.
 
