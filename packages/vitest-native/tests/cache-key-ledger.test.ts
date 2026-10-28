@@ -202,8 +202,9 @@ describe("transform cache directory ledger", () => {
  * TRANSFORM_CACHE_VERSION in src/native/transform.mjs and ADD a row here; never edit
  * a recorded row, or a warm cache serves the old output to everyone who has one.
  */
-const OPTION_FINGERPRINTS: Record<number, string> = {
-  4: "75157f5fe5752a49",
+type Branch = "reactNative" | "expo";
+const OPTION_FINGERPRINTS: Record<number, Record<Branch, string>> = {
+  4: { reactNative: "75157f5fe5752a49", expo: "5cda116238ba12e4" },
 };
 
 function packageName(file: string): string {
@@ -213,48 +214,89 @@ function packageName(file: string): string {
   return parts[at + 1].startsWith("@") ? `${parts[at + 1]}/${parts[at + 2]}` : parts[at + 1];
 }
 
-describe("transform output guard", () => {
-  it("records a fingerprint of the transform's Babel options for this TRANSFORM_CACHE_VERSION", () => {
-    const options = transformOptionsFor(packageRoot, path.join(packageRoot, "fixture.js"), "ios");
-    const {
-      filename: _filename,
-      plugins,
-      presets,
-      ...rest
-    } = options as {
-      filename: string;
-      plugins: string[];
-      presets: [string, unknown][];
-    };
-    // Guards the fingerprint against measuring nothing: the Flow-enum plugin is the
-    // one whose addition required version 4.
-    expect(plugins.map(packageName)).toContain("babel-plugin-transform-flow-enums");
-    const normalised = {
-      ...rest,
-      // The optional plugin is applied when the project installs it, and its presence
-      // is keyed by the directory's `-ns` suffix (tested above), so it is left out
-      // here: the fingerprint must not depend on what an install happens to contain.
-      plugins: plugins
-        .map(packageName)
-        .filter((name) => name !== "@babel/plugin-transform-export-namespace-from"),
-      presets: presets.map(([preset, presetOptions]) => [packageName(preset), presetOptions]),
-    };
-    const fingerprint = crypto
-      .createHash("sha1")
-      .update(JSON.stringify(normalised))
-      .digest("hex")
-      .slice(0, 16);
+/**
+ * An Expo project with no React Native preset: the branch Expo SDK 56+ projects take
+ * by default (babel-preset.mjs resolves expo/internal/babel-preset). Stubs only, so
+ * nothing but option resolution runs.
+ */
+function expoOnlyRoot(): string {
+  const root = tempRoot("vn-transform-ledger-expo-");
+  writePackage(root, "expo", "57.0.0");
+  fs.mkdirSync(path.join(root, "node_modules", "expo", "internal"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "node_modules", "expo", "internal", "babel-preset.js"),
+    'module.exports = require("babel-preset-expo");',
+  );
+  writePackage(root, "babel-preset-expo", "57.0.0", "module.exports = () => ({});");
+  const babelScope = path.join(root, "node_modules", "@babel");
+  fs.mkdirSync(babelScope, { recursive: true });
+  fs.symlinkSync(
+    path.dirname(fs.realpathSync(req.resolve("@babel/core/package.json"))),
+    path.join(babelScope, "core"),
+    "dir",
+  );
+  return root;
+}
 
-    const recorded = OPTION_FINGERPRINTS[TRANSFORM_CACHE_VERSION];
-    const reused = Object.entries(OPTION_FINGERPRINTS).find(
-      ([version, value]) => value === fingerprint && Number(version) !== TRANSFORM_CACHE_VERSION,
-    );
-    expect(reused, "these options were already recorded under another version").toBeUndefined();
-    expect(
-      fingerprint,
-      recorded === undefined
-        ? `no fingerprint recorded for TRANSFORM_CACHE_VERSION ${TRANSFORM_CACHE_VERSION}: add ${TRANSFORM_CACHE_VERSION}: "${fingerprint}"`
-        : `the transform's Babel options changed under TRANSFORM_CACHE_VERSION ${TRANSFORM_CACHE_VERSION}, so warm caches would keep the old output. Bump it in src/native/transform.mjs and add a row ${TRANSFORM_CACHE_VERSION + 1}: "${fingerprint}". Options: ${JSON.stringify(normalised)}`,
-    ).toBe(recorded);
+function fingerprintOf(root: string) {
+  const options = transformOptionsFor(root, path.join(root, "fixture.js"), "ios");
+  const {
+    filename: _filename,
+    plugins,
+    presets,
+    ...rest
+  } = options as {
+    filename: string;
+    plugins: string[];
+    presets: [string, unknown][];
+  };
+  const normalised = {
+    ...rest,
+    // The optional plugin is applied when the project installs it, and its presence
+    // is keyed by the directory's `-ns` suffix (tested above), so it is left out
+    // here: the fingerprint must not depend on what an install happens to contain.
+    plugins: plugins
+      .map(packageName)
+      .filter((name) => name !== "@babel/plugin-transform-export-namespace-from"),
+    presets: presets.map(([preset, presetOptions]) => [packageName(preset), presetOptions]),
+  };
+  const fingerprint = crypto
+    .createHash("sha1")
+    .update(JSON.stringify(normalised))
+    .digest("hex")
+    .slice(0, 16);
+  return { plugins: normalised.plugins, presets: normalised.presets, normalised, fingerprint };
+}
+
+describe("transform output guard", () => {
+  const branches: [Branch, () => string][] = [
+    ["reactNative", () => packageRoot],
+    ["expo", expoOnlyRoot],
+  ];
+
+  it("measures both preset branches", () => {
+    // Guards the fingerprints against measuring nothing: the Flow-enum plugin is the
+    // one whose addition required version 4, and the Expo root must take Expo's preset.
+    expect(fingerprintOf(packageRoot).plugins).toContain("babel-plugin-transform-flow-enums");
+    expect(fingerprintOf(expoOnlyRoot()).presets.map(([name]) => name)).toEqual(["expo"]);
   });
+
+  it.each(branches)(
+    "records a fingerprint of the %s branch's Babel options for this TRANSFORM_CACHE_VERSION",
+    (branch, rootFor) => {
+      const { normalised, fingerprint } = fingerprintOf(rootFor());
+      const recorded = OPTION_FINGERPRINTS[TRANSFORM_CACHE_VERSION]?.[branch];
+      const reused = Object.entries(OPTION_FINGERPRINTS).find(
+        ([version, value]) =>
+          value[branch] === fingerprint && Number(version) !== TRANSFORM_CACHE_VERSION,
+      );
+      expect(reused, "these options were already recorded under another version").toBeUndefined();
+      expect(
+        fingerprint,
+        recorded === undefined
+          ? `no ${branch} fingerprint recorded for TRANSFORM_CACHE_VERSION ${TRANSFORM_CACHE_VERSION}: add ${branch}: "${fingerprint}"`
+          : `the transform's Babel options (${branch} preset) changed under TRANSFORM_CACHE_VERSION ${TRANSFORM_CACHE_VERSION}, so warm caches would keep the old output. Bump it in src/native/transform.mjs and add a row ${TRANSFORM_CACHE_VERSION + 1} with ${branch}: "${fingerprint}". Options: ${JSON.stringify(normalised)}`,
+      ).toBe(recorded);
+    },
+  );
 });
