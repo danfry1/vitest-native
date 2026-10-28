@@ -1,6 +1,16 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
 import { builtInPreset } from "./built-in.js";
+import { libraryMockModule, type LibraryMock } from "./library-mock.js";
+
+// Under the native engine the module is netinfo's own Jest mock
+// (`jest/netinfo-mock.js`), as a Jest suite installs it. Under the mock engine, and for
+// a version without that mock, the module below serves.
+const NETINFO_MOCK: LibraryMock = {
+  pkg: "@react-native-community/netinfo",
+  entry: "jest/netinfo-mock.js",
+  file: "jest/netinfo-mock.js",
+};
 
 /**
  * The state every fetch/listener resolves to until a test changes it.
@@ -38,7 +48,7 @@ export function netInfo(): Preset {
   return builtInPreset({
     name: "netInfo",
     modules: {
-      "@react-native-community/netinfo": {
+      "@react-native-community/netinfo": libraryMockModule(NETINFO_MOCK, {
         // Exactly the runtime surface: the six functions the entry exports, plus the
         // two enums re-exported through `export * from './internal/types'`. The rest
         // of that module is types, which have no runtime binding — declaring one
@@ -122,7 +132,7 @@ export function netInfo(): Preset {
             },
           };
         },
-      },
+      }),
     },
   });
 }

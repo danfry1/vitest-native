@@ -4,6 +4,17 @@ import React from "react";
 import { createViewMock } from "../mocks/components/View.js";
 import { createScrollViewMock } from "../mocks/components/ScrollView.js";
 import { builtInPreset } from "./built-in.js";
+import { libraryMockModule, type LibraryMock } from "./library-mock.js";
+
+// Under the native engine the module is keyboard-controller's own Jest mock
+// (`react-native-keyboard-controller/jest`), as a Jest suite installs it: its hooks
+// return React Native `Animated.Value`s and are mock functions. Under the mock engine,
+// and for a version without that mock, the module below serves.
+const KEYBOARD_CONTROLLER_MOCK: LibraryMock = {
+  pkg: "react-native-keyboard-controller",
+  entry: "jest",
+  file: "jest/index.js",
+};
 
 // react-native-keyboard-controller drives keyboard animation through native
 // modules + worklets that can't run in Node. Shadow it the way its own
@@ -14,7 +25,7 @@ export function keyboardController(): Preset {
   return builtInPreset({
     name: "keyboardController",
     modules: {
-      "react-native-keyboard-controller": {
+      "react-native-keyboard-controller": libraryMockModule(KEYBOARD_CONTROLLER_MOCK, {
         exports: [
           "KeyboardProvider",
           "KeyboardControllerView",
@@ -161,7 +172,7 @@ export function keyboardController(): Preset {
             useWindowDimensions: () => ({ width: 390, height: 844, scale: 3, fontScale: 1 }),
           };
         },
-      },
+      }),
     },
   });
 }

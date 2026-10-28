@@ -10,6 +10,17 @@ import { createTouchableOpacityMock } from "../mocks/components/TouchableOpacity
 import { createTouchableHighlightMock } from "../mocks/components/TouchableHighlight.js";
 import { createTouchableWithoutFeedbackMock } from "../mocks/components/TouchableWithoutFeedback.js";
 import { builtInPreset } from "./built-in.js";
+import { libraryMockModule, type LibraryMock } from "./library-mock.js";
+
+// Under the native engine the module is bottom-sheet's own Jest mock
+// (`@gorhom/bottom-sheet/mock`), as a Jest suite installs it with
+// `jest.mock('@gorhom/bottom-sheet', () => require('@gorhom/bottom-sheet/mock'))`.
+// Under the mock engine, and for a version without that mock, the module below serves.
+const BOTTOM_SHEET_MOCK: LibraryMock = {
+  pkg: "@gorhom/bottom-sheet",
+  entry: "mock",
+  file: "mock.js",
+};
 
 // @gorhom/bottom-sheet renders through reanimated worklets + gesture-handler
 // natives that can't run in Node. Shadow it after the library's own
@@ -22,7 +33,7 @@ export function bottomSheet(): Preset {
   return builtInPreset({
     name: "bottomSheet",
     modules: {
-      "@gorhom/bottom-sheet": {
+      "@gorhom/bottom-sheet": libraryMockModule(BOTTOM_SHEET_MOCK, {
         exports: [
           "BottomSheetModal",
           "BottomSheetModalProvider",
@@ -157,7 +168,7 @@ export function bottomSheet(): Preset {
             ...constants,
           };
         },
-      },
+      }),
     },
   });
 }

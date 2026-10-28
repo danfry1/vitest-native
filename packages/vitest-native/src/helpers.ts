@@ -80,6 +80,21 @@ export function setInsets(insets: {
   const safeArea = presetMocks?.["react-native-safe-area-context"];
   if (safeArea?._setInsets) {
     safeArea._setInsets(insets);
+    return;
+  }
+  // The library's own mock (the native engine): `useSafeAreaInsets` is a mock
+  // function whose implementation reads the provider's metrics; this answers with the
+  // given insets over what it answers, until resetAllMocks() returns it to the mock's own.
+  const hook = safeArea?.useSafeAreaInsets;
+  if (
+    typeof hook?.mockImplementation === "function" &&
+    typeof hook.getMockImplementation === "function"
+  ) {
+    const current = hook.getMockImplementation();
+    hook.mockImplementation((...args: unknown[]) => ({
+      ...(current ? current(...args) : { top: 0, right: 0, bottom: 0, left: 0 }),
+      ...insets,
+    }));
   }
 }
 

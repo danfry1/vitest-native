@@ -66,8 +66,10 @@ describe("@gorhom/bottom-sheet under native engine", () => {
         </BottomSheet>
       </BottomSheetModalProvider>,
     );
-    expect(screen.getByTestId("sheet")).toBeTruthy();
+    // bottom-sheet's own mock (mock.js) renders a view's children and nothing of its
+    // own, as under Jest, so the content is there and the view's testID is not.
     expect(screen.getByText("sheet content")).toBeTruthy();
+    expect(screen.queryByTestId("sheet")).toBeNull();
   });
 
   it("the constant enums are shadowed, not undefined", () => {

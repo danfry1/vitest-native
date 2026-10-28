@@ -212,7 +212,11 @@ const UTILITY_SUBPATH_LEAVES = new Set(["jest-utils", "jestSetup", "mock", "plug
 
 export function isUtilitySubpath(specifier) {
   const leaf = subpathLeafOf(specifier);
-  return leaf !== null && UTILITY_SUBPATH_LEAVES.has(leaf);
+  if (leaf !== null && UTILITY_SUBPATH_LEAVES.has(leaf)) return true;
+  // A package's `jest/` directory is its test tooling (react-native-worklets'
+  // jest/resolver.js, which reanimated's own resolver requires by name).
+  const pkg = packageNameOf(specifier);
+  return pkg !== specifier && specifier.slice(pkg.length + 1).split("/")[0] === "jest";
 }
 
 // The preset package a RESOLVED file belongs to, when the import that reached it came
