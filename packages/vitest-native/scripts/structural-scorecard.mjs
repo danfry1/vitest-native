@@ -105,6 +105,13 @@ const PATCH_ASSIGNMENTS = [
   new RegExp(String.raw`\._extensions\s*(?:\[[^\]\n]+\]|\.\w+)${ASSIGN}`, "g"),
   new RegExp(String.raw`\.prototype\._compile${ASSIGN}`, "g"),
 ];
+// The same patches spelled with a string key or through defineProperty, which the
+// dotted forms above cannot see. Matched against code with strings intact.
+const INTERNAL = String.raw`["'](?:_load|_resolveFilename|_compile|_extensions)["']`;
+const PATCH_SPELLINGS = [
+  new RegExp(String.raw`\[\s*${INTERNAL}\s*\]\s*(?:\[[^\]\n]+\]\s*)?=(?![=>])`, "g"),
+  new RegExp(String.raw`\bdefineProperty\(\s*[\w.]+\s*,\s*${INTERNAL}`, "g"),
+];
 const NODE_MODULE_IMPORT =
   /import\s*\{([^}]*)\}\s*from\s*["']node:module["']|\{([^}]*)\}\s*=\s*require\(\s*["']node:module["']\s*\)/g;
 
@@ -116,6 +123,7 @@ export function countSource(raw) {
   const bare = stripComments(raw, { blankStrings: true });
   let nodePatchSites = 0;
   for (const pattern of PATCH_ASSIGNMENTS) nodePatchSites += [...bare.matchAll(pattern)].length;
+  for (const pattern of PATCH_SPELLINGS) nodePatchSites += [...code.matchAll(pattern)].length;
   // module.register(…) / Module.registerHooks(…), and the bare names when imported
   // from node:module (a manifest's own `register` method is not a loader hook).
   nodePatchSites += [...bare.matchAll(/\b[Mm]odule\.register(?:Hooks)?\s*\(/g)].length;

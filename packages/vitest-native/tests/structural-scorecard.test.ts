@@ -24,8 +24,11 @@ describe("structural scorecard", () => {
       'register("./loader.mjs", import.meta.url);',
       "hooks({ resolve });",
       "module.registerHooks({ load });",
+      'Module["_load"] = wrapped;',
+      "Module['_extensions']['.ts'] = compileTs;",
+      'Object.defineProperty(Module, "_resolveFilename", { value: resolver });',
     ].join("\n");
-    expect(countSource(source).nodePatchSites).toBe(8);
+    expect(countSource(source).nodePatchSites).toBe(11);
   });
 
   it("does not count comments, comparisons or unrelated register methods", () => {
