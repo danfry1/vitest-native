@@ -93,6 +93,7 @@
         "vite": "^8.3.4",
         "vitest": "5.0.5",
         "vn-lib-jest-support": "file:./tests-native/fixtures/vn-lib-jest-support",
+        "vn-lib-two-entries": "file:./tests-native/fixtures/vn-lib-two-entries",
       },
       "peerDependencies": {
         "@babel/core": "*",
@@ -1984,6 +1985,8 @@
     "vitest-native/untranspiled-jsx-lib": ["untranspiled-jsx-lib@file:packages/vitest-native/tests-native/fixtures/untranspiled-jsx-lib", {}],
 
     "vitest-native/vn-lib-jest-support": ["vn-lib-jest-support@file:packages/vitest-native/tests-native/fixtures/vn-lib-jest-support", {}],
+
+    "vitest-native/vn-lib-two-entries": ["vn-lib-two-entries@file:packages/vitest-native/tests-native/fixtures/vn-lib-two-entries", {}],
 
     "wrap-ansi/ansi-styles": ["ansi-styles@4.3.0", "", { "dependencies": { "color-convert": "^2.0.1" } }, "sha512-zbB9rCJAT1rbjiVDb2hqKFHNYLxgtk8NURxZ3IZwD3F6NtxbXZQCnnSi1Lkx+IDohdPlFp222wVALIheZJQSEg=="],
 

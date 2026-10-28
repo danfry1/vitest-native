@@ -174,6 +174,7 @@
     "rn-condition-lib": "file:./tests-native/fixtures/rn-condition-lib",
     "rn-ecosystem-lib": "file:./tests-native/fixtures/rn-ecosystem-lib",
     "vn-lib-jest-support": "file:./tests-native/fixtures/vn-lib-jest-support",
+    "vn-lib-two-entries": "file:./tests-native/fixtures/vn-lib-two-entries",
     "rn-mainfield-lib": "file:./tests-native/fixtures/rn-mainfield-lib",
     "rn-platform-flow-lib": "file:./tests-native/fixtures/rn-platform-flow-lib",
     "rn-singleton-lib": "file:./tests-native/fixtures/rn-singleton-lib",

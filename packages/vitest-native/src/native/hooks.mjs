@@ -11,6 +11,7 @@ import {
   resolveRelativePlatformFile,
   resolveRelativeWithExtensions,
   resolveDeepPackageFile,
+  resolvePackageMainField,
 } from "./resolve.mjs";
 import {
   NODE_MODULES_PATH,
@@ -422,6 +423,24 @@ export function installRequireHooks(
         ? resolveRelativeWithExtensions(request, parent.filename, narrowed)
         : resolveRelativePlatformFile(request, parent.filename, platform, activeSourceExts);
       if (resolved) resolved = asNodeResolves(resolved);
+    }
+    // A whole package with a `react-native` field: the file Metro and Vite's import
+    // resolve it to, so an import and a require are one module (resolve.mjs).
+    if (
+      !resolved &&
+      parent?.filename &&
+      packageNameOf(request) === request &&
+      request !== "react-native" &&
+      !request.startsWith("@react-native/") &&
+      !Module.isBuiltin(request)
+    ) {
+      const entry = resolvePackageMainField(
+        request,
+        path.dirname(parent.filename),
+        platform,
+        activeSourceExts,
+      );
+      if (entry) resolved = asNodeResolves(entry);
     }
     if (!resolved) {
       try {

@@ -17,6 +17,7 @@ import { expandAlias } from "./aliases.mjs";
 import { resolvePlatformFile, resolveRelativePlatformFile } from "../native/resolve.mjs";
 import { resetEvaluatedModules, restoreEvaluatedModules } from "../native/module-reset.mjs";
 import { VitestNativeError } from "../errors.mjs";
+import { owningPackageOfFile, packageNameOf } from "../native/match.mjs";
 
 const STATE = "__vitest_native_jest_registry";
 /** The manifest id under which the hot runtime clears the registry per file. */
@@ -417,6 +418,21 @@ function viteInstanceOf(filename) {
   return NONE;
 }
 
+/**
+ * Whether a mock registered for a whole package (`jest.mock('react-native-reanimated',
+ * …)`) is being reached by the package's own relative import of its entry. The engine
+ * resolves a package as Metro does, through its `react-native` field, so the package's
+ * entry and the file its own mock imports (`./index`) are one file. Under Jest they are
+ * not: it resolves the package through `main` (lib/module/index.js), so the factory
+ * `() => require('react-native-reanimated/mock')` loads the real `src/index` unmocked.
+ * Serving the mock there would be the factory requiring itself.
+ */
+function isPackageOwnRelativeLoad(entry, request, parent) {
+  if (!request.startsWith(".") || typeof parent?.filename !== "string") return false;
+  if (typeof entry.spec !== "string" || packageNameOf(entry.spec) !== entry.spec) return false;
+  return owningPackageOfFile(parent.filename) === entry.spec;
+}
+
 function installLoadHook(state) {
   const origLoad = Module._load;
   Module._load = function (request, parent, ...rest) {
@@ -432,7 +448,9 @@ function installLoadHook(state) {
     }
     const filename = state.resolve(request, parent);
     const entry = state.lookup(filename, request);
-    if (entry !== undefined) return state.valueOf(entry);
+    if (entry !== undefined && !isPackageOwnRelativeLoad(entry, request, parent)) {
+      return state.valueOf(entry);
+    }
     // A module Node already holds stays the one `require` returns: switching a later
     // require to Vite's copy would change its identity mid-file.
     if (

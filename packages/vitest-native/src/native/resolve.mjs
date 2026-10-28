@@ -218,6 +218,53 @@ export function resolveDeepPackageFile(request, fromDir, platform, sourceExts = 
   return resolvePlatformFile(stem, platform, sourceExts);
 }
 
+/**
+ * The entry a bare `request` for a whole package resolves to through its `react-native`
+ * field, as Metro resolves it and as Vite does for an `import` under the native engine
+ * (native/apply.ts `resolve.mainFields`), or null. Node's `require` reads `main`, so a
+ * package naming a different file in each was loaded twice, from two files: the test's
+ * import got one instance and a library's require another (react-native-worklets:
+ * `src/index.ts` and `lib/module/index.js`). Only for a
+ * package without an `exports` map, which Node and Vite already read alike through the
+ * `react-native` condition.
+ */
+export function resolvePackageMainField(
+  request,
+  fromDir,
+  platform,
+  sourceExts = METRO_SOURCE_EXTS,
+) {
+  // Every bare require reaches here, so both lookups are cached: which directory holds
+  // the package from `fromDir`, and what that package.json says. Neither changes within
+  // a worker's life.
+  const dirKey = `${fromDir}\0${request}`;
+  let pkgDir = packageDirCache.get(dirKey);
+  if (pkgDir === undefined) {
+    pkgDir = findPackageDir(fromDir, request);
+    packageDirCache.set(dirKey, pkgDir);
+  }
+  if (!pkgDir) return null;
+  let manifest = manifestCache.get(pkgDir);
+  if (manifest === undefined) {
+    try {
+      manifest = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf8"));
+    } catch {
+      manifest = null;
+    }
+    manifestCache.set(pkgDir, manifest);
+  }
+  if (!manifest) return null;
+  if (manifest.exports !== undefined || typeof manifest["react-native"] !== "string") return null;
+  const target = path.join(pkgDir, manifest["react-native"]);
+  try {
+    if (fs.statSync(target).isFile()) return target;
+  } catch {}
+  return resolvePlatformFile(target.replace(/\.[cm]?[jt]sx?$/, ""), platform, sourceExts);
+}
+
+const packageDirCache = new Map();
+const manifestCache = new Map();
+
 function findPackageDir(startDir, pkg) {
   let dir = path.resolve(startDir);
   for (;;) {
