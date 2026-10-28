@@ -5,11 +5,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 // @ts-expect-error — runtime .mjs, no types
 import { transformRN } from "../src/native/transform.mjs";
-import {
-  parseDeprecatedReactNativeExports,
-  parseReactNativeExports,
-  vitestMaxWorkers,
-} from "../src/plugin.js";
+import { parseDeprecatedReactNativeExports, parseReactNativeExports } from "../src/plugin.js";
 import { PEER_REQUIREMENTS } from "../src/peer-requirements.js";
 import { validatePeerDependency } from "../src/validate.js";
 import { nativePool } from "../src/native/pool.js";
