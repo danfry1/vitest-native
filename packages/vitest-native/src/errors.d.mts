@@ -40,7 +40,8 @@ export type VitestNativeErrorCode =
   | "JEST_MOCK_FACTORY_CYCLE"
   | "JEST_COMPAT_SETUP_MISSING"
   | "BABEL_IGNORES_FILE"
-  | "MATCHER_BAD_RECEIVER";
+  | "MATCHER_BAD_RECEIVER"
+  | "COMPARE_REPORT_INVALID";
 
 export interface VitestNativeErrorOptions {
   cause?: unknown;

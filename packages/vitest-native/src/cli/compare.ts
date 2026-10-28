@@ -13,6 +13,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { VitestNativeError } from "../errors.mjs";
 
 export type Runner = "jest" | "vitest";
 export type Outcome = "passed" | "failed" | "skipped";
@@ -444,7 +445,10 @@ export function normaliseReport(
 ): RunnerResults {
   const report = json as { testResults?: unknown };
   if (!report || typeof report !== "object" || !Array.isArray(report.testResults)) {
-    throw new Error(`not a ${runner} JSON report: it has no testResults array`);
+    throw new VitestNativeError(
+      "COMPARE_REPORT_INVALID",
+      `not a ${runner} JSON report: it has no testResults array`,
+    );
   }
   const sanitize: SanitizeContext = {
     roots: rootSpellings(ctx),
