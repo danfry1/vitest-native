@@ -10,11 +10,14 @@ import { readFlag } from "./fixtures/alias-app/registry/reads-flag";
 describe("a CommonJS project file the test imported", () => {
   // Vite evaluates it with `module.exports` as a `default` data property; handing that
   // namespace to Node would make `require` return an object instead of the function.
-  it("is what module.exports was set to when required", () => {
+  // `require` returns that `module.exports` itself: Node compiling a second copy of the
+  // file was a dual evaluation the ownership guard reported.
+  it("is what module.exports was set to when required, and the same instance", () => {
     expect(legacy()).toBe("legacy");
     const required = require("./fixtures/alias-app/registry/cjs/legacy.js");
     expect(typeof required).toBe("function");
     expect(required()).toBe("legacy");
+    expect(required).toBe(legacy);
   });
 
   it("is callable from a Node-loaded module that requires it", () => {

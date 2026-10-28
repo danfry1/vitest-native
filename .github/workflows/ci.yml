@@ -151,7 +151,15 @@ jobs:
       - name: Test
         run: bun run test
 
+      # Every native suite runs the ownership guard in `error` (docs/ownership-guard.md):
+      # a file evaluated by both Node and Vite fails the step, so these suites prove
+      # there are none outside the exemptions their configs list with reasons. On the
+      # Node 22.13 legs the ESM loader runs on its own thread; its records reach the
+      # guard through a port and fail the test file at its end rather than at the
+      # import. The default for users stays `warn` until the next minor.
       - name: Native engine tests
+        env:
+          VITEST_NATIVE_OWNERSHIP_MODE: error
         run: bun run test:native
 
       - name: Native engine tests (forks pool)
@@ -160,18 +168,26 @@ jobs:
         # engine's module hooks have to install in a child process just as they do in a
         # worker thread. Cheap (a couple of seconds) for advice the plugin gives in an
         # error message.
+        env:
+          VITEST_NATIVE_OWNERSHIP_MODE: error
         run: bun run test:native:forks
 
       - name: Native engine tests (navigation preset)
+        env:
+          VITEST_NATIVE_OWNERSHIP_MODE: error
         run: bun run test:native:navigation
 
       - name: Native engine tests (Android)
+        env:
+          VITEST_NATIVE_OWNERSHIP_MODE: error
         run: bun run test:native:android
 
       - name: Native engine remediation advice
         # The explainer tells users to add a package to `transform: [...]` when Node
         # cannot parse its source — the most common migration blocker. That advice was
         # only ever asserted as a substring of the error message; this applies it.
+        env:
+          VITEST_NATIVE_OWNERSHIP_MODE: error
         run: bun run test:native:advice
 
       - name: Native engine tests (hot runtime)
@@ -184,14 +200,20 @@ jobs:
         # that only matter on older RNTL, and removing them fails this suite under
         # RNTL 13 while RNTL 14 stays green (see native/module-reset.mjs). The hot
         # runtime was in fact fine on RNTL 12/13 — nothing was checking.
+        env:
+          VITEST_NATIVE_OWNERSHIP_MODE: error
         run: bun run test:native:hot
 
       - name: Native engine hot-runtime isolation
         if: ${{ !matrix.rntl }}
+        env:
+          VITEST_NATIVE_OWNERSHIP_MODE: error
         run: bun run test:native:hot:isolation
 
       - name: Native engine hot-runtime soak and recycling
         if: ${{ !matrix.rntl }}
+        env:
+          VITEST_NATIVE_OWNERSHIP_MODE: error
         run: bun run test:native:hot:soak
 
       - name: Cross-check (mock ≡ real RN) + fidelity report freshness

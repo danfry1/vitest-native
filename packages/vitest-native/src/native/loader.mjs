@@ -139,6 +139,7 @@ export function initialize(data) {
   if (data && data.assetExts)
     assetExtSet = new Set(data.assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
   if (data && data.hotGenerationBuffer) genView = new Int32Array(data.hotGenerationBuffer);
+  if (data?.ownershipPort) ownershipPort = data.ownershipPort;
 }
 
 // A `require()` inside a CommonJS module this loader compiled and returned with its
@@ -440,6 +441,33 @@ export function requireFacade(url, file, compiled) {
   };
 }
 
+/**
+ * A file Node loads as published. True ESM among them is recorded in the ownership
+ * ledger (ownership-ledger.mjs). In this thread (module.registerHooks) the ledger's
+ * global is called before Node evaluates the module. On the loader's own thread
+ * (module.register) the global is another realm's, so the URL is posted through the
+ * port the setup file passed in, and the worker drains it. CommonJS is never recorded
+ * here: it reaches `_compile`, whose record knows when the hot reset drops it.
+ */
+let ownershipPort = null;
+function recordModule(url, result) {
+  if (result?.format !== "module") return;
+  // oxlint-disable-next-line unicorn/require-post-message-target-origin -- worker_threads MessagePort, not window
+  if (ownershipPort) ownershipPort.postMessage(url);
+  else globalThis.__vitest_native_ownership_node_esm?.(url);
+}
+function loadAsPublished(url, context, nextLoad) {
+  const result = nextLoad(url, context);
+  if (typeof result?.then === "function") {
+    return result.then((settled) => {
+      recordModule(url, settled);
+      return settled;
+    });
+  }
+  recordModule(url, result);
+  return result;
+}
+
 /** `load` never awaits: every path returns a result or `nextLoad(...)` directly. */
 export function loadSync(url, context, nextLoad) {
   // Serve the synthetic preset module. The generated source reads the mock built
@@ -523,7 +551,7 @@ export function loadSync(url, context, nextLoad) {
       transformRN(file, fs.readFileSync(file, "utf8"), PROJECT_ROOT, PLATFORM),
     );
   }
-  if (!isRN && !isExtra(norm)) return nextLoad(url, context);
+  if (!isRN && !isExtra(norm)) return loadAsPublished(url, context, nextLoad);
 
   if (isRN) {
     // RN's main index exports everything via lazy getters (`module.exports = {
@@ -558,7 +586,7 @@ export function loadSync(url, context, nextLoad) {
       if (isFlow(src))
         return requireFacade(url, file, transformRN(file, src, PROJECT_ROOT, PLATFORM));
     }
-    return nextLoad(url, context);
+    return loadAsPublished(url, context, nextLoad);
   }
 
   // Configured third-party package: transform any JS/TS/JSX source to CJS, served
@@ -590,8 +618,8 @@ export function loadSync(url, context, nextLoad) {
     // Only compile what Node cannot run as published — see needsTransform. A file V8
     // accepts is handed straight back to Node, which is how the toolchain packages a
     // closure walk drags in stop reaching the Babel preset at all.
-    if (!needsTransform(file, src)) return nextLoad(url, context);
+    if (!needsTransform(file, src)) return loadAsPublished(url, context, nextLoad);
     return requireFacade(url, file, transformRN(file, src, PROJECT_ROOT, PLATFORM));
   }
-  return nextLoad(url, context);
+  return loadAsPublished(url, context, nextLoad);
 }
