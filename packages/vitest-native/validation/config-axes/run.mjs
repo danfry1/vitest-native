@@ -22,7 +22,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { applies, PROBES } from "./probes.mjs";
+import { activeProbes, PROBES } from "./probes.mjs";
 import { account } from "./accounting.mjs";
 import { judge, readKnownFailing, validateEntries } from "./verdict.mjs";
 import { cellName, readAxes } from "./cells.mjs";
@@ -368,7 +368,7 @@ function runCell(cell, root, entries) {
       .map(([axis, value]) => `${axis}=${value}`)
       .join(" ");
     const results = new Map();
-    const active = selected.filter((probe) => applies(probe, run));
+    const active = activeProbes(selected, cell, run);
     for (const probe of selected)
       if (!active.includes(probe)) results.set(probe.id, { status: "n/a" });
 

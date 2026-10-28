@@ -48,8 +48,14 @@ Vitest 4 × hot, isolated × a preset switched off.
 **Probes, not suites.** Each probe is one small test file, or a pair of files, that asserts the
 correct behaviour: what Jest, a device or Vitest's own semantics would give
 (`validation/config-axes/probes.mjs`). Each one names the report item it was written from. A
-probe that cannot observe its defect in a run is reported as `n/a`, not counted as a pass (the
-hot pair needs `hot: on`; the jest-compat probes need jest-compat). The recoverable-error probe
+probe that cannot observe its defect in a run is reported as `n/a`, not counted as a pass. A
+probe's `requires` covers every axis, install axes included. The jest-compat probes need
+jest-compat. The hot pairs need `hot: on`, and the automock pair also needs Vitest 4, because
+Vitest 5 has no mock placeholder to replay. recoverable-error needs RNTL 12 or 13, since RNTL
+14's renderer never takes that path. The #349 probes need the native engine in an isolated
+layout, because only pnpm names a store directory after a peer. The alias, interop and
+nested-Text probes need the native engine: the mock engine has no Node-side aliasing, CommonJS
+interop or `RCTVirtualText` to get wrong, so a pass there is not evidence. The recoverable-error probe
 runs in its own process, because its verdict is the exit code. So does the #350 pair, because
 the defect loses every later file in the worker. The banner probe reads the run's output.
 

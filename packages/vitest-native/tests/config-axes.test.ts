@@ -17,7 +17,7 @@ import {
   scopeFor,
 } from "../validation/config-axes/cells.mjs";
 // @ts-expect-error — runtime .mjs, no types
-import { PROBES } from "../validation/config-axes/probes.mjs";
+import { activeProbes, applies, PROBES } from "../validation/config-axes/probes.mjs";
 // @ts-expect-error — runtime .mjs, no types
 import { fileResults, runProblems } from "../validation/config-axes/accounting.mjs";
 import {
@@ -241,8 +241,6 @@ describe("known-failing.json", () => {
   });
 
   it("every entry matches some allowed run where its probe applies — otherwise it could never go stale", () => {
-    const applies = (probe: { requires?: Row }, row: Row) =>
-      Object.entries(probe.requires ?? {}).every(([axis, value]) => row[axis] === value);
     const unreachable = known.filter((entry: { probe: string }) => {
       const probe = PROBES.find((p: { id: string }) => p.id === entry.probe);
       return !allowedRows.some(
@@ -392,6 +390,33 @@ describe("probe catalog", () => {
     const listed = PROBES.flatMap((probe: { files?: string[] }) => probe.files ?? []);
     expect(new Set(listed).size).toBe(listed.length);
     expect([...listed].sort()).toEqual(fs.readdirSync(dir).sort());
+  });
+
+  it("every probe can observe its defect in some allowed run, and `requires` names real values", () => {
+    const dead = PROBES.filter(
+      (probe: { requires?: Row }) => !allowedRows.some((row) => applies(probe, row)),
+    );
+    expect(dead).toEqual([]);
+    for (const probe of PROBES) {
+      for (const [axis, value] of Object.entries(probe.requires ?? {})) {
+        for (const v of [value].flat()) expect(allAxes[axis], `${probe.id} ${axis}`).toContain(v);
+      }
+    }
+  });
+
+  it("each cell's runs activate every probe that some allowed run of that cell can observe", () => {
+    for (const cell of cellsFor(axes, "full") as Cell[]) {
+      const { runs, ...install } = cell;
+      const ran = new Set(
+        runs.flatMap((run) => activeProbes(PROBES, cell, run).map((p: { id: string }) => p.id)),
+      );
+      const observable = PROBES.filter((probe: { requires?: Row }) =>
+        allowedRows.some(
+          (row) => Object.entries(install).every(([a, v]) => row[a] === v) && applies(probe, row),
+        ),
+      ).map((p: { id: string }) => p.id);
+      expect([...ran].sort(), JSON.stringify(install)).toEqual(observable.sort());
+    }
   });
 
   it("ids are unique, and every probe names the bug it was written from", () => {
