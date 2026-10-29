@@ -301,6 +301,34 @@ function configFileHash(ctx, file) {
   return hash;
 }
 
+/**
+ * The Babel options a file compiles with when no project Babel config applies.
+ *
+ * Nothing in them reaches the disk-cache key except through the directory name
+ * (preset and Babel versions, the Babel env, the optional plugin's presence) and
+ * TRANSFORM_CACHE_VERSION. So any edit here that changes what Babel emits has to bump
+ * that version: tests/cache-key-ledger.test.ts records a fingerprint of these options
+ * per version and fails when they change under the same one.
+ */
+function packageTransformOptions(ctx, file, platform) {
+  return {
+    filename: file,
+    plugins: [ctx.flowEnums, ctx.exportNamespaceFrom].filter(Boolean),
+    // A fresh options object each call, as before Expo's preset was supported:
+    // Babel caches a preset's result per options object, so sharing one would
+    // change when the preset is instantiated.
+    presets: [[ctx.preset, { ...ctx.presetOptions }]],
+    babelrc: false,
+    configFile: false,
+    caller: { name: "metro", bundler: "metro", platform, supportsStaticESM: false },
+  };
+}
+
+/** packageTransformOptions for a project, resolving its toolchain. Test hook. */
+export function transformOptionsFor(projectRoot, file, platform = "ios") {
+  return packageTransformOptions(ctxFor(projectRoot), file, platform);
+}
+
 /** A project's transform disk-cache directory, once resolved. Test hook. */
 export function transformCacheDir(projectRoot) {
   return contexts.get(canonicalRoot(projectRoot))?.cacheDir ?? null;
@@ -557,19 +585,7 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
     if (!ctx.babel) ctx.babel = ctx.req("@babel/core");
     out = ctx.babel.transformSync(
       src,
-      projectConfig
-        ? projectConfig.options
-        : {
-            filename: file,
-            plugins: [ctx.flowEnums, ctx.exportNamespaceFrom].filter(Boolean),
-            // A fresh options object each call, as before Expo's preset was supported:
-            // Babel caches a preset's result per options object, so sharing one would
-            // change when the preset is instantiated.
-            presets: [[ctx.preset, { ...ctx.presetOptions }]],
-            babelrc: false,
-            configFile: false,
-            caller: { name: "metro", bundler: "metro", platform, supportsStaticESM: false },
-          },
+      projectConfig ? projectConfig.options : packageTransformOptions(ctx, file, platform),
     ).code;
   } catch (err) {
     // Decorate here, at the single choke point, so every caller — the ESM
