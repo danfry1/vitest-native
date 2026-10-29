@@ -4,7 +4,13 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { projectContext } from "../context.mjs";
 import path from "node:path";
 import fs from "node:fs";
-import { transformRN, isFlow, cjsExportNames, needsTransform } from "./transform.mjs";
+import {
+  heldTransform,
+  transformRN,
+  isFlow,
+  cjsExportNames,
+  needsTransform,
+} from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import { nativeAssetModuleSource } from "./assets.mjs";
 import { extensionsFor, resolveRelativePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
@@ -522,11 +528,8 @@ export function loadSync(url, context, nextLoad) {
   // Expo module without `expo` (whose dependencies are what detection follows) reached
   // it undetected. The CommonJS `.ts` hook compiles any such file (hooks.mjs).
   if (!isRN && !isExtra(norm) && NODE_MODULES_TS.test(norm)) {
-    return requireFacade(
-      url,
-      file,
-      transformRN(file, fs.readFileSync(file, "utf8"), PROJECT_ROOT, PLATFORM),
-    );
+    // No source: transformRN reads the file only when it holds no output for it.
+    return requireFacade(url, file, transformRN(file, undefined, PROJECT_ROOT, PLATFORM));
   }
   if (!isRN && !isExtra(norm)) return nextLoad(url, context);
 
@@ -591,6 +594,10 @@ export function loadSync(url, context, nextLoad) {
   if (stub != null) return requireFacade(url, file, stub);
 
   if (TRANSFORMABLE.test(norm)) {
+    // Compiled before and unchanged since (the hot runtime re-loads it per test file):
+    // answered without reading it to decide again, as the require hook does.
+    const held = heldTransform(file, PROJECT_ROOT, PLATFORM);
+    if (held !== undefined) return requireFacade(url, file, held);
     const src = fs.readFileSync(file, "utf8");
     // Only compile what Node cannot run as published — see needsTransform. A file V8
     // accepts is handed straight back to Node, which is how the toolchain packages a
