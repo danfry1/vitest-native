@@ -238,7 +238,7 @@ describe("the running Vitest", () => {
       ),
     );
     expect(error.code).toBe("VITEST_TWIN_INSTANCE");
-    expect(error.message).toContain(fs.realpathSync(path.join(twin, "node_modules/vitest")));
+    expect(error.message).toContain(fs.realpathSync.native(path.join(twin, "node_modules/vitest")));
   });
 
   it("is refused for the hot worker when Node would load another copy beside it", async () => {

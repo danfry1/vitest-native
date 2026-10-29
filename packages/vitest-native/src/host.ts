@@ -92,13 +92,17 @@ export function ownVitestPackage(): { root: string; version: string } | null {
 }
 
 /**
- * A path's canonical spelling for comparison. `realpathSync.native` asks the OS, which
- * returns the on-disk case on Windows and macOS; Windows paths are also compared without
- * case, since NTFS lookups ignore it.
+ * A path's canonical spelling. `realpathSync.native` asks the OS, which returns the long
+ * on-disk spelling (no 8.3 short names) and the on-disk case on Windows and macOS. It is
+ * what the error messages show.
  */
 function realPath(file: string): string {
-  const real = fs.realpathSync.native(file);
-  return process.platform === "win32" ? real.toLowerCase() : real;
+  return fs.realpathSync.native(file);
+}
+
+/** Whether two canonical paths are one directory: without case on Windows, as NTFS looks up. */
+function samePath(a: string, b: string): boolean {
+  return process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
 }
 
 /** The directory of the package that contains `file`, by its nearest package.json. */
@@ -150,7 +154,7 @@ export async function assertHostResolvesRunningVitest(
   if (!id || !path.isAbsolute(id) || !fs.existsSync(id)) return;
   const runningRoot = packageRootOf(running.distPath);
   const loadedRoot = packageRootOf(id);
-  if (loadedRoot === runningRoot) return;
+  if (samePath(loadedRoot, runningRoot)) return;
   throw twinError(
     { root: runningRoot, version: running.version },
     loadedRoot,
@@ -175,7 +179,7 @@ export function assertHotWorkerLoadsRunningVitest(
   }
   const runningRoot = packageRootOf(running.distPath);
   const loadedRoot = realPath(path.dirname(manifest));
-  if (loadedRoot === runningRoot) return;
+  if (samePath(loadedRoot, runningRoot)) return;
   throw twinError(
     { root: runningRoot, version: running.version },
     loadedRoot,
