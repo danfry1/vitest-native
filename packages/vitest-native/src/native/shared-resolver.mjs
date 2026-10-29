@@ -1,34 +1,12 @@
 // One resolver for every loading path, behind `experimental.ownershipModel: 'resolver'`
-// (ADR-0004 and ADR-0005 in the architecture records).
-//
-// A package loaded by both module systems must be one module. Agreeing on a path is
-// not enough on its own: when Vite's resolveId, Node's CommonJS `_resolveFilename` and
-// the threaded ESM loader each run their own resolution, a dual-export package, an
-// alias, or a deep conditional export can land on different files, and the package
-// exists twice with separate module state. Each of the three paths calls the same
-// `resolve` here instead, built from the same inputs (the project context's
-// `resolverInputs`), so they cannot disagree.
-//
-// It answers bare requests only: package names, their subpaths, and the project's
-// aliases. Relative and absolute requests keep their existing, already-shared
-// resolution (Metro's platform order in resolve.mjs). React Native itself, the test
-// runtime and Node's built-ins are never answered here; the registry and Vitest own
-// those. A request it declines returns null and the caller's existing resolution runs.
-//
-// Where an `exports` target matches, the answer follows the context's conditions, never
-// the realm's own: `require` wins on both sides, so the Vite side loads the file Node's
-// require would (a deliberate change for dual-export packages, ADR-0005). A package
-// without `exports` is answered by the caller's Node resolution (`main`), which does
-// not depend on conditions.
-//
-// Nothing here fails quietly. A resolution that throws is counted as a fallback under
-// its reason; the native suite runs with the flag on and requires zero fallbacks
-// outside FALLBACK_ALLOWED (tests-native/ownership-model).
-//
-// Each loader realm (the Vite process, each worker's CommonJS loader, each threaded
-// ESM loader) holds its own resolver. They agree because the inputs and the code are
-// the same, not because they share a cache. The CommonJS realm passes `memo: false`:
-// the require hook's own resolution memo (hooks.mjs) already holds the answer.
+// (ADR-0004/0005; docs/ownership-model.md). Vite's resolveId, Node's CommonJS hook and
+// its ESM loader each call `resolve` here, built from the same inputs (the project
+// context's `resolverInputs`), so a package loaded by both module systems is one module.
+// Bare requests only; others return null and the caller's own resolution runs. An
+// `exports` target follows the context's conditions (`require` wins on both sides), a
+// package without one takes its `react-native` field or the caller's `main`. Errors are
+// counted as named fallbacks, never silent. Each realm holds its own resolver; the
+// CommonJS one keeps no memo, since the require hook's memo (hooks.mjs) holds answers.
 import crypto from "node:crypto";
 import { isBuiltin } from "node:module";
 import fs from "node:fs";
@@ -48,7 +26,7 @@ const OWNED_ELSEWHERE =
  * resolver error, which the native suite treats as a failure.
  */
 export const FALLBACK_ALLOWED = Object.freeze(["unresolved"]);
-const UNRESOLVED_CODES = new Set(["MODULE_NOT_FOUND", "ERR_PACKAGE_PATH_NOT_EXPORTED"]);
+const UNRESOLVED_CODES = new Set(["MODULE_NOT_FOUND", "ERR_PACKAGE_PATH_NOT_EXPORTED", "ENOENT"]);
 
 /** The option's values today; `'resolution'` arrives with the ownership predicate. */
 export const OWNERSHIP_MODEL_VALUES = Object.freeze(["resolver"]);
@@ -226,6 +204,14 @@ export function createSharedResolver(inputs, { realm = "unknown", memo: useMemo 
       // runs with --preserve-symlinks, where Node keys modules by the link.
       if (result && !preserveSymlinks) result = fs.realpathSync(result);
     } catch (error) {
+      // A package removed since its directory or manifest was held (a test deleting a
+      // fixture, an uninstall in watch mode): forget what was held for this request and
+      // let the caller's resolution answer, as it would have without the flag.
+      if (error?.code === "ENOENT") {
+        for (const dirKey of dirs.keys())
+          if (dirKey.startsWith(`${fromDir}\0`)) dirs.delete(dirKey);
+        manifests.clear();
+      }
       // Node's own "no such module" answers, which the caller's resolution then gives.
       const reason = UNRESOLVED_CODES.has(error?.code) ? "unresolved" : "error";
       // The first few, named, so a failing gate says which request and why.
