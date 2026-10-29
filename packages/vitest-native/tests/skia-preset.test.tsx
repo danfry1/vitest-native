@@ -22,6 +22,7 @@ import * as presets from "../src/presets/index.js";
 import { esmExportNames } from "../src/presets/esm-export-names.js";
 import { skia } from "../src/presets/skia.js";
 import { runPluginConfig } from "./plugin-config.js";
+import { contextOf, stubProjectContext } from "./project-context-helpers.js";
 
 const SKIA = "@shopify/react-native-skia";
 const SKIA_PACKAGES = ["react-native-skia", "@shopify/react-native-skia"];
@@ -117,12 +118,12 @@ describe("skia preset: wiring", () => {
     await plugin.configResolved({ root });
     const setupFiles = result.test.setupFiles;
     const project = (pool?: string) => ({
-      config: { root, pool, setupFiles, env: {} as Record<string, string> },
+      config: { root, pool, setupFiles, env: { ...result.test.env } as Record<string, string> },
     });
     const vitest = { config: { cliOptions: {} } };
     const threads = project("threads");
     plugin.configureVitest({ vitest, project: threads });
-    const passed = JSON.parse(threads.config.env.VITEST_NATIVE_PRESET_EXPORTS);
+    const passed = contextOf(threads.config).presetExports as Record<string, unknown>;
     expect(passed["react-native-skia"]).toEqual(installedNames("react-native-skia"));
     expect(passed[SKIA]).toEqual(installedNames(SKIA));
     expect(() => plugin.configureVitest({ vitest, project: project("vmThreads") })).toThrow(
@@ -173,7 +174,7 @@ describe("skia preset: wiring", () => {
     const g = globalThis as any;
     const canvasKit = g.CanvasKit;
     delete g.CanvasKit;
-    vi.stubEnv("VITEST_NATIVE_PROJECT_ROOT", shopifyOnlyProject());
+    stubProjectContext({ VITEST_NATIVE_PROJECT_ROOT: shopifyOnlyProject() });
     try {
       await expect(skia().prepare!()).rejects.toThrow(
         /could not load CanvasKit[\s\S]*canvaskit-wasm[\s\S]*presets: \{ skia: false \}/,
@@ -207,7 +208,7 @@ describe("skia preset: wiring", () => {
   it("says so when it is enabled and Skia is not installed", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-skia-none-"));
     fs.writeFileSync(path.join(root, "package.json"), "{}");
-    vi.stubEnv("VITEST_NATIVE_PROJECT_ROOT", root);
+    stubProjectContext({ VITEST_NATIVE_PROJECT_ROOT: root });
     try {
       await expect(skia().prepare!()).rejects.toThrow(
         /neither react-native-skia nor @shopify\/react-native-skia resolves/,

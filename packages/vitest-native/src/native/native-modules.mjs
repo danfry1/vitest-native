@@ -23,6 +23,7 @@
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
+import { projectContext } from "../context.mjs";
 
 /** Where React Native's JavaScript lives, relative to the package root. */
 export const REACT_NATIVE_SOURCE_DIRS = ["Libraries", "src"];
@@ -212,30 +213,24 @@ export function nativeModuleSpecsFor(projectRoot) {
   return scanFor(projectRoot)?.specs ?? {};
 }
 
-const fromEnv = (name) => {
-  try {
-    return JSON.parse(process.env[name] || "null");
-  } catch {
-    // Unreadable: recompute rather than run with an empty set.
-    return null;
-  }
-};
-
 /**
  * Publish the known set (globalThis.__vitest_native_known_modules) and each known
  * module's spec members (globalThis.__vitest_native_module_specs) to the boundary.
- * The plugin computes both once and passes them in the environment; without that
+ * The plugin computes both once and passes them in the project context; without that
  * (a setup file run outside the plugin), they are computed here from the project.
  */
 export function installKnownNativeModules(projectRoot) {
+  const context = projectContext();
+  // The plugin's `nativeModules: 'permissive'`, read by the boundary at lookup time.
+  globalThis.__vitest_native_permissive_modules = context?.nativeModules === "permissive";
   if (!(globalThis.__vitest_native_known_modules instanceof Set)) {
-    const names = fromEnv(KNOWN_NATIVE_MODULES_ENV);
+    const names = context?.knownNativeModules;
     globalThis.__vitest_native_known_modules = new Set(
       Array.isArray(names) ? names.map(String) : knownNativeModulesFor(projectRoot),
     );
   }
   if (!(globalThis.__vitest_native_module_specs instanceof Map)) {
-    const specs = fromEnv(NATIVE_MODULE_SPECS_ENV);
+    const specs = context?.nativeModuleSpecs;
     globalThis.__vitest_native_module_specs = new Map(
       Object.entries(
         specs !== null && typeof specs === "object" ? specs : nativeModuleSpecsFor(projectRoot),

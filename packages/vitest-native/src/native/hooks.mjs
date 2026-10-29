@@ -1,6 +1,7 @@
 // Patches Node's CJS loader so RN's internal require() chains are Flow-stripped and
 // native-boundary modules are mocked. The companion loader.mjs handles the import() path.
 import Module from "node:module";
+import { projectContext } from "../context.mjs";
 import path from "node:path";
 import fs from "node:fs";
 import { transformRN, isFlow, needsTransform, isTransforming } from "./transform.mjs";
@@ -61,14 +62,10 @@ export function _resetDuplicateReports() {
 let cachedProjectDirs;
 function projectDirs() {
   if (cachedProjectDirs) return cachedProjectDirs;
-  try {
-    const ownership = parseNativeOwnershipManifest(process.env.VITEST_NATIVE_OWNERSHIP);
-    const dirs =
-      ownership?.projectDirs ?? JSON.parse(process.env.VITEST_NATIVE_PROJECT_DIRS || "[]");
-    cachedProjectDirs = dirs.map((dir) => dir.replace(/\\/g, "/").replace(/\/+$/, "") + "/");
-  } catch {
-    cachedProjectDirs = [];
-  }
+  const context = projectContext();
+  const ownership = parseNativeOwnershipManifest(context?.ownership);
+  const dirs = ownership?.projectDirs ?? context?.projectDirs ?? [];
+  cachedProjectDirs = dirs.map((dir) => dir.replace(/\\/g, "/").replace(/\/+$/, "") + "/");
   return cachedProjectDirs;
 }
 
@@ -230,7 +227,7 @@ export function installRequireHooks(
   // Configured third-party packages to also transform (Flow/TS/JSX stripped).
   // `let` + the updater below: the hot worker installs the hooks at boot with the
   // raw env list, and the setup file re-calls with the preset-extended one.
-  const configuredOwnership = parseNativeOwnershipManifest(process.env.VITEST_NATIVE_OWNERSHIP);
+  const configuredOwnership = parseNativeOwnershipManifest(projectContext()?.ownership);
   const ownershipBase = {
     projectRoot,
     projectDirs: configuredOwnership?.projectDirs ?? [],
@@ -292,7 +289,7 @@ export function installRequireHooks(
               has: (t, p) => p === "default" || p === "__esModule" || Reflect.has(t, p),
             })
           : { __esModule: true, default: value };
-    } else if (process.env.VITEST_NATIVE_DIAGNOSTICS === "true") {
+    } else if (projectContext()?.diagnostics === true) {
       console.warn(
         `[vitest-native] '${request}' has no matching export on the '${pkg}' preset mock; serving the root mock namespace.`,
       );
@@ -340,11 +337,7 @@ export function installRequireHooks(
   let requireAliases;
   const resolveAliasedRequest = (request, parent, resolveTarget) => {
     if (requireAliases === undefined) {
-      try {
-        requireAliases = JSON.parse(process.env.VITEST_NATIVE_REQUIRE_ALIASES || "[]");
-      } catch {
-        requireAliases = [];
-      }
+      requireAliases = projectContext()?.requireAliases ?? [];
     }
     if (requireAliases.length === 0 || request.startsWith(".") || path.isAbsolute(request)) {
       return null;
@@ -429,7 +422,7 @@ export function installRequireHooks(
     // latter (Babel's source-map packages, RNTL's own test-renderer). Reported as
     // noise on every test file (#201); kept as an opt-in diagnostic for the silent
     // duplicate-instance failure it was written to surface.
-    if (process.env.VITEST_NATIVE_DIAGNOSTICS === "true") {
+    if (projectContext()?.diagnostics === true) {
       checkResolverAgreement(request, resolved);
     }
     // Every successful resolution (including platform hits) crosses this boundary.
