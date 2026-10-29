@@ -7,7 +7,7 @@ import path from "node:path";
 import { expect, vi } from "vitest";
 import { installGlobals, installErrorUtils, installExpoRuntime } from "./globals.mjs";
 import { installRequireHooks } from "./hooks.mjs";
-import { installRntlJest } from "./rntl-timers.mjs";
+import { installRntlJest } from "./rntl-hooks.mjs";
 import { installRegistry } from "./registry.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
 import * as presetFactories from "../presets.mjs";
@@ -271,7 +271,7 @@ installRequireHooks(
 // After the hooks: the polyfill is Flow-typed and compiled by them (see globals.mjs).
 installErrorUtils(projectRoot);
 // Before any test or user setup file imports RNTL: its fake-timer support reads a
-// `jest` of its own (see rntl-timers.mjs).
+// `jest` of its own (see rntl-hooks.mjs).
 installRntlJest(vi);
 // Through Vitest, so a TypeScript preset module loads. Its export lists already
 // reached the ESM loader from the plugin; a module the plugin did not read would be

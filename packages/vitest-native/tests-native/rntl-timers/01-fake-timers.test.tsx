@@ -1,5 +1,5 @@
 // RNTL's async helpers advance Vitest's fake timers without jest-compat: RNTL's own
-// files get a `jest` backed by `vi` (src/native/rntl-timers.mjs). Without it, findBy*
+// files get a `jest` backed by `vi` (src/native/rntl-hooks.mjs). Without it, findBy*
 // and waitFor poll in real time while the fake clock stands still, and time out.
 import React from "react";
 import { render, screen, userEvent, waitFor } from "@testing-library/react-native";

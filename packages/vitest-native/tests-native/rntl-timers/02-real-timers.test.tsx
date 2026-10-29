@@ -1,5 +1,5 @@
 // Without fake timers RNTL takes its real-timer path, as it did before it had a
-// `jest` of its own (src/native/rntl-timers.mjs): findBy* and waitFor wait in real time.
+// `jest` of its own (src/native/rntl-hooks.mjs): findBy* and waitFor wait in real time.
 import React from "react";
 import { render, screen, waitFor } from "@testing-library/react-native";
 import { expect, test, vi } from "vitest";

@@ -15,7 +15,7 @@
  * fake timers are @sinonjs/fake-timers, the same library Jest uses), so the modern
  * branch fires and the swap runs. The `jest` it reads is not the global one: RNTL's
  * own files get a `jest` of their own whose `getRealSystemTime`, `useRealTimers` and
- * `useFakeTimers` call `vi` (src/native/rntl-timers.mjs), with or without jest-compat.
+ * `useFakeTimers` call `vi` (src/native/rntl-hooks.mjs), with or without jest-compat.
  * The first test below checks the global's markers, which this suite's own code reads.
  */
 import { describe, expect, it, vi, afterEach } from "vitest";

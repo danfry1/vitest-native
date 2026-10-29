@@ -1,10 +1,10 @@
-// The `jest` RNTL's own files get under the native engine (src/native/rntl-timers.mjs),
+// The `jest` RNTL's own files get under the native engine (src/native/rntl-hooks.mjs),
 // against the installed RNTL's real fake-timer detection.
 import fs from "node:fs";
 import Module, { createRequire } from "node:module";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createRntlJest, needsRntlJest, withRntlJest } from "../src/native/rntl-timers.mjs";
+import { createRntlJest, needsRntlJest, withRntlJest } from "../src/native/rntl-hooks.mjs";
 
 const require = createRequire(import.meta.url);
 const rntlRoot = path.dirname(require.resolve("@testing-library/react-native/package.json"));
