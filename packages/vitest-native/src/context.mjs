@@ -52,6 +52,10 @@ const SCHEMA = {
   knownNativeModules: { valid: strings },
   nativeModuleSpecs: { valid: object },
   nativeModules: { valid: (v) => v === "permissive" },
+  // experimental.ownershipModel (ADR-0004/0005): absent unless the project opts in.
+  ownershipModel: { valid: (v) => v === "resolver" },
+  resolverInputs: { valid: object },
+  resolverInputsHash: { valid: (v) => typeof v === "string" },
 };
 
 function invalid(reason, field, detail, dir) {

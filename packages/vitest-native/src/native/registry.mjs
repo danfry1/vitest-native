@@ -196,6 +196,7 @@ export function registryKey({
   assetExts = [],
   sourceExts = ["js", "jsx", "json", "ts", "tsx"],
   additionalEntries = [],
+  ownershipModel,
 }) {
   const req = createRequire(path.join(projectRoot, "package.json"));
   const version = (name) => {
@@ -252,6 +253,10 @@ export function registryKey({
         ...sourceExts.map((extension) => `source:${extension}`),
         ...canonicalAssetExtensions(assetExts).map((extension) => `asset:${extension}`),
         ...canonicalAdditionalEntries(additionalEntries).map((entry) => `entry:${entry}`),
+        // experimental.ownershipModel emits externals resolved at run time (see emit),
+        // a different registry from the one with paths baked in. Absent with the flag
+        // off, so the key, and the cache, are unchanged for every other project.
+        ...(ownershipModel ? [`ownership:${ownershipModel}:2`] : []),
         boundaries.digest("hex"),
       ].join("\0"),
     )
@@ -321,12 +326,24 @@ function sourceMapFor(lineOwners, files) {
  * Emit the registry source for the walked module set, plus the source map that
  * keeps React Native's own files identifiable in stack traces.
  */
-function emit(files, modules) {
+function emit(files, modules, resolveExternalsAtRunTime = false) {
   const idOf = new Map(files.map((f, i) => [f, i]));
+  // A target outside the registry is a pre-resolved absolute path, or, under
+  // experimental.ownershipModel, `false`: required by its request from the React Native
+  // file that asked, so the require hook's shared resolver answers it as it answers
+  // every other realm (an absolute path would go around it).
   const deps = files.map((f) => {
     const out = {};
     for (const [request, target] of Object.entries(modules.get(f).deps)) {
-      out[request] = target === null ? null : (idOf.get(target) ?? target);
+      const id = target === null ? undefined : idOf.get(target);
+      out[request] =
+        target === null
+          ? null
+          : id !== undefined
+            ? id
+            : resolveExternalsAtRunTime && !path.isAbsolute(request) && !request.startsWith(".")
+              ? false
+              : target;
     }
     return JSON.stringify(out);
   });
@@ -339,11 +356,23 @@ function emit(files, modules) {
     `const __ids = ${JSON.stringify(files)};`,
     `const __deps = [${deps.join(",")}];`,
     `const __dirs = __ids.map((f) => f.slice(0, Math.max(f.lastIndexOf("/"), f.lastIndexOf("\\\\"))));`,
+    ...(resolveExternalsAtRunTime
+      ? [
+          `const __from = [];`,
+          `function __reqFrom(i) {`,
+          `  return (__from[i] ??= __ext("node:module").createRequire(__ids[i]));`,
+          `}`,
+        ]
+      : []),
     `function __req(i) {`,
     `  const map = __deps[i];`,
     `  const r = function (q) {`,
     `    const t = map[q];`,
     `    if (t === undefined || t === null) return __ext(q);`,
+    // Resolved once, through the require hook, then required by path as with the flag off.
+    ...(resolveExternalsAtRunTime
+      ? [`    if (t === false) return __ext((map[q] = __reqFrom(i).resolve(q)));`]
+      : []),
     `    if (typeof t !== "number") return __ext(t);`,
     // A jest.mock of a React Native module (jest-compat's per-file registry, see
     // jest-compat/node-registry.mjs) applies to RN's own requires of it, as under
@@ -358,6 +387,9 @@ function emit(files, modules) {
     `  r.resolve = function (q) {`,
     `    const t = map[q];`,
     `    if (t === undefined || t === null) return __ext.resolve(q);`,
+    ...(resolveExternalsAtRunTime
+      ? [`    if (t === false) return (map[q] = __reqFrom(i).resolve(q));`]
+      : []),
     `    return typeof t === "number" ? __ids[t] : t;`,
     `  };`,
     `  r.cache = __ext.cache;`,
@@ -425,6 +457,7 @@ export function buildRegistry({
   sourceExts = ["js", "jsx", "json", "ts", "tsx"],
   diagnostics = false,
   additionalEntries = [],
+  ownershipModel,
   // Internal orchestration controls. `cacheOnly` lets the long-lived Vite process
   // perform the cheap key/manifest check without ever loading Babel or compiling
   // RN. `failOnError` lets the bounded compiler child return a structured failure;
@@ -457,6 +490,7 @@ export function buildRegistry({
       assetExts,
       sourceExts,
       additionalEntries,
+      ownershipModel,
     });
     dir = path.join(cacheRootFor(projectRoot), "registry");
     fs.mkdirSync(dir, { recursive: true });
@@ -571,7 +605,7 @@ export function buildRegistry({
     }
 
     const files = [...modules.keys()];
-    const { code, map } = emit(files, modules);
+    const { code, map } = emit(files, modules, ownershipModel === "resolver");
     // Write via a unique temp file then rename: several workers may race here on a
     // cold cache, and a reader must never observe a partially written registry.
     // The map lands before the registry that points at it, so a reader can never

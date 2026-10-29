@@ -2,6 +2,9 @@
 // which Module._extensions cannot — Flow-stripping and serving boundary mock source.
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { projectContext } from "../context.mjs";
+import { createRequire } from "node:module";
+import { cjsConditionsWithout } from "./export-condition-recovery.mjs";
+import { checkResolverInputs, createSharedResolver } from "./shared-resolver.mjs";
 import path from "node:path";
 import fs from "node:fs";
 import {
@@ -129,6 +132,8 @@ function versionable(url) {
   return true;
 }
 
+let SHARED_RESOLVER = null;
+
 export function initialize(data) {
   if (data && data.projectRoot) PROJECT_ROOT = data.projectRoot;
   PLATFORM = data?.platform === "android" ? "android" : "ios";
@@ -138,6 +143,15 @@ export function initialize(data) {
   // The project context arrives by reference in `data`: this may be its own thread.
   const context = data?.context ? projectContext(data.context) : null;
   DIAGNOSTICS = context?.diagnostics === true;
+  // experimental.ownershipModel: the resolver Vite and the require hooks use, from the
+  // same record, checked here against the conditions Node applies in this thread.
+  // Never built with the flag off.
+  if (context?.ownershipModel === "resolver" && context.resolverInputs) {
+    checkResolverInputs(context.resolverInputs, context.resolverInputsHash, "ESM loader", {
+      nodeConditions: cjsConditionsWithout("react-native"),
+    });
+    SHARED_RESOLVER = createSharedResolver(context.resolverInputs, { realm: "esm" });
+  }
   const configuredOwnership = parseNativeOwnershipManifest(context?.ownership);
   ownership = createNativeOwnershipPolicy({
     projectRoot: PROJECT_ROOT,
@@ -237,6 +251,14 @@ function resolveBefore(specifier, context) {
     // Not returned directly: `json` is a Metro source extension, so this can now
     // land on a .json file, which still needs the import attribute injected below.
     if (hit) resolved = { url: pathToFileURL(hit).href, shortCircuit: true };
+  }
+  if (!resolved && SHARED_RESOLVER !== null && parent) {
+    // `require` wins, as in the other realms: a package without an `exports` target is
+    // answered by Node's CommonJS resolution (`main`).
+    const shared = SHARED_RESOLVER.resolve(specifier, parent, (id) =>
+      createRequire(parent).resolve(id),
+    );
+    if (shared) resolved = { url: pathToFileURL(shared).href, shortCircuit: true };
   }
 
   return { parent, resolved };
