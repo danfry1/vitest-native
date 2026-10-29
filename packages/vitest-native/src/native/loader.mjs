@@ -1,6 +1,7 @@
 // Node ESM loader hook (registered via module.register). Intercepts import() of RN —
 // which Module._extensions cannot — Flow-stripping and serving boundary mock source.
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { projectContext } from "../context.mjs";
 import path from "node:path";
 import fs from "node:fs";
 import {
@@ -73,6 +74,7 @@ let PLATFORM = "ios";
 let REACT_NATIVE_VERSION = "0.0.0";
 let SOURCE_EXTS = ["js", "jsx", "json", "ts", "tsx"];
 let HAS_SOURCE_PROFILE = false;
+let DIAGNOSTICS = false;
 let isExtra = () => false;
 let ownership = createNativeOwnershipPolicy({ projectRoot: PROJECT_ROOT });
 // Preset package name → its mock's named-export list (from the preset definition).
@@ -133,7 +135,10 @@ export function initialize(data) {
   if (data && data.reactNativeVersion) REACT_NATIVE_VERSION = data.reactNativeVersion;
   HAS_SOURCE_PROFILE = Array.isArray(data?.sourceExts);
   SOURCE_EXTS = HAS_SOURCE_PROFILE ? data.sourceExts : ["js", "jsx", "json", "ts", "tsx"];
-  const configuredOwnership = parseNativeOwnershipManifest(process.env.VITEST_NATIVE_OWNERSHIP);
+  // The project context arrives by reference in `data`: this may be its own thread.
+  const context = data?.context ? projectContext(data.context) : null;
+  DIAGNOSTICS = context?.diagnostics === true;
+  const configuredOwnership = parseNativeOwnershipManifest(context?.ownership);
   ownership = createNativeOwnershipPolicy({
     projectRoot: PROJECT_ROOT,
     projectDirs: configuredOwnership?.projectDirs ?? [],
@@ -480,7 +485,7 @@ export function loadSync(url, context, nextLoad) {
       ...(leaf
         ? [
             `const _hit = ${JSON.stringify(leaf)} in _m;`,
-            `if (!_hit && process.env.VITEST_NATIVE_DIAGNOSTICS === "true") console.warn(${JSON.stringify(
+            `if (!_hit && ${DIAGNOSTICS}) console.warn(${JSON.stringify(
               `[vitest-native] '${specifier}' has no matching export on the '${pkg}' preset mock; serving the root mock namespace.`,
             )});`,
             `export default (_hit ? _m[${JSON.stringify(leaf)}] : ${fallback});`,

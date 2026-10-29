@@ -24,6 +24,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { reactNative } from "../src/index.js";
 import { runPluginConfig } from "./plugin-config.js";
+import { contextOf } from "./project-context-helpers.js";
 
 const docPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -69,8 +70,7 @@ async function activePresets(options?: Record<string, unknown>): Promise<string[
   };
   await plugin.configResolved({ root: process.cwd() });
   const resolved = await runPluginConfig(plugin, { test: {} });
-  const names = resolved?.test?.env?.VITEST_NATIVE_PRESET_NAMES;
-  return names ? (JSON.parse(names) as string[]) : [];
+  return [...(contextOf(resolved).presetNames ?? [])];
 }
 
 describe("the documented configuration block", () => {

@@ -248,7 +248,8 @@ describe("native boundary: which native modules exist", () => {
   });
 
   it("nativeModules: 'permissive' makes every name present with every member", () => {
-    vi.stubEnv("VITEST_NATIVE_NATIVE_MODULES", "permissive");
+    stubProjectContext({ nativeModules: "permissive" });
+    installKnownNativeModules(projectRoot);
     try {
       const { tm, nm } = load();
       expect(typeof nm.EXDevLauncher.anything).toBe("function");
@@ -257,6 +258,7 @@ describe("native boundary: which native modules exist", () => {
       expect(typeof tm.get("SpecKeyboardObserver").captureRejections).toBe("function");
     } finally {
       vi.unstubAllEnvs();
+      installKnownNativeModules(projectRoot);
     }
   });
 
@@ -308,12 +310,12 @@ describe("native boundary: which native modules exist", () => {
 
   it("installKnownNativeModules reads the plugin's list, or computes it", () => {
     g.__vitest_native_known_modules = undefined;
-    vi.stubEnv("VITEST_NATIVE_RN_NATIVE_MODULES", JSON.stringify(["FromEnv"]));
+    stubProjectContext({ knownNativeModules: ["FromEnv"] });
     try {
       installKnownNativeModules(projectRoot);
       expect([...g.__vitest_native_known_modules]).toEqual(["FromEnv"]);
       g.__vitest_native_known_modules = undefined;
-      vi.stubEnv("VITEST_NATIVE_RN_NATIVE_MODULES", "");
+      stubProjectContext({});
       installKnownNativeModules(projectRoot);
       expect([...g.__vitest_native_known_modules]).toEqual(knownNativeModulesFor(projectRoot));
     } finally {
@@ -758,25 +760,21 @@ describe("plugin engine routing", () => {
       { root: projectRoot },
       SERVE_ENV,
     );
-    expect(JSON.parse(native.test.env.VITEST_NATIVE_RN_NATIVE_MODULES)).toEqual(
-      knownNativeModulesFor(projectRoot),
-    );
+    expect(contextOf(native).knownNativeModules).toEqual(knownNativeModulesFor(projectRoot));
     const mock = await runPluginConfig(
       reactNative({ engine: "mock" }) as any,
       { root: projectRoot },
       SERVE_ENV,
     );
-    expect(mock.test.env?.VITEST_NATIVE_RN_NATIVE_MODULES).toBeUndefined();
-    expect(JSON.parse(native.test.env.VITEST_NATIVE_RN_NATIVE_MODULE_SPECS)).toEqual(
-      nativeModuleSpecsFor(projectRoot),
-    );
-    expect(native.test.env.VITEST_NATIVE_NATIVE_MODULES).toBeUndefined();
+    expect(contextOf(mock).knownNativeModules).toBeUndefined();
+    expect(contextOf(native).nativeModuleSpecs).toEqual(nativeModuleSpecsFor(projectRoot));
+    expect(contextOf(native).nativeModules).toBeUndefined();
     const permissive = await runPluginConfig(
       reactNative({ engine: "native", nativeModules: "permissive" }) as any,
       { root: projectRoot },
       SERVE_ENV,
     );
-    expect(permissive.test.env.VITEST_NATIVE_NATIVE_MODULES).toBe("permissive");
+    expect(contextOf(permissive).nativeModules).toBe("permissive");
   });
 
   it("externalizes RN only under node_modules, not a project named react-native", async () => {
@@ -2090,6 +2088,7 @@ describe("cjsExportNames", () => {
 
 // @ts-expect-error — runtime .mjs
 import { createExpoNativeModuleResolver } from "../src/native/expo-native-modules.mjs";
+import { contextOf, stubProjectContext } from "./project-context-helpers.js";
 
 describe("the Expo native module resolver", () => {
   it("answers each module from its layers in order", () => {

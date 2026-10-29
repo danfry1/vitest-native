@@ -17,6 +17,7 @@ import { expandAlias } from "./aliases.mjs";
 import { resolvePlatformFile, resolveRelativePlatformFile } from "../native/resolve.mjs";
 import { resetEvaluatedModules, restoreEvaluatedModules } from "../native/module-reset.mjs";
 import { VitestNativeError } from "../errors.mjs";
+import { projectContext } from "../context.mjs";
 
 const STATE = "__vitest_native_jest_registry";
 /** The manifest id under which the hot runtime clears the registry per file. */
@@ -30,25 +31,18 @@ const UNRESETTABLE = /\.node$/;
 const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
 const NONE = Symbol("vitest-native.jest-registry.none");
 
-function envList(name) {
-  try {
-    const value = JSON.parse(process.env[name] || "[]");
-    return Array.isArray(value) ? value : [];
-  } catch {
-    return [];
-  }
-}
+const context = projectContext();
 
 /** Configuration the plugin hands the worker, shared with the compat setup. */
 export const config = {
-  projectRoot: process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd(),
-  platform: process.env.VITEST_NATIVE_PLATFORM === "android" ? "android" : "ios",
+  projectRoot: context?.projectRoot ?? process.cwd(),
+  platform: context?.platform === "android" ? "android" : "ios",
   // The project's string-to-string `resolve.alias` entries (and tsconfig `paths` when
   // Vite resolves them), which Node knows nothing of.
-  aliases: envList("VITEST_NATIVE_REQUIRE_ALIASES"),
-  skippedAliases: envList("VITEST_NATIVE_REQUIRE_ALIASES_SKIPPED"),
+  aliases: context?.requireAliases ?? [],
+  skippedAliases: context?.requireAliasesSkipped ?? [],
 };
-const sourceExts = envList("VITEST_NATIVE_SOURCE_EXTS");
+const sourceExts = context?.sourceExts ?? [];
 
 const realpathCache = new Map();
 /** Node keys its cache by real path; a platform-variant scan does not resolve links. */
@@ -79,7 +73,7 @@ const worker = () => globalThis.__vitest_worker__;
 function createState() {
   const rootFile = path.join(config.projectRoot, "package.json");
   const rootParent = parentModuleFor(rootFile);
-  const registryFile = process.env.VITEST_NATIVE_RN_REGISTRY;
+  const registryFile = context?.registry;
   const realRegistryFile = registryFile ? canonical(registryFile) : null;
   const exts = sourceExts.length > 0 ? sourceExts : undefined;
   const platformFile = (base) => {
