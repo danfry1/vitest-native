@@ -2,10 +2,10 @@
 "vitest-native": minor
 ---
 
-The hot runtime's memory plan now matches the number of workers that actually run. Vitest applies `--maxWorkers` and `VITEST_MAX_WORKERS` over the worker count the plugin's plan selected, so the plan, the per-worker heap recycle threshold and `VITEST_NATIVE_MEMORY_PLAN` could be sized for fewer workers than ran: `VITEST_MAX_WORKERS=10` ran ten workers under a plan for four. The plan is now rebuilt for the count Vitest resolves, before any worker starts.
+**With `hotRuntime` on, the memory plan is sized for the workers that actually run, and a worker count you set is limited only by memory.** No action needed. To keep the old ceiling of four, set `maxWorkers: 4`.
 
-A worker count set in the config, with `--maxWorkers` or with `VITEST_MAX_WORKERS` is now limited only by what host or container memory admits. The four-worker cap applies only when the count is chosen automatically. Before, a config-file count above four was cut to four however much memory was free, while the same count on the command line ran in full under the wrong plan. When memory does cap a count the user set, the warning now prints even when `hotRuntime` was left at its default, and only when the hot runtime still runs.
+- Before, Vitest applied `--maxWorkers` and `VITEST_MAX_WORKERS` after the plugin had planned, so `VITEST_MAX_WORKERS=10` ran ten workers under a plan and per-worker heap threshold sized for four. The plan is now rebuilt for the count Vitest resolves, before any worker starts.
+- A count set in the config, with `--maxWorkers` or with `VITEST_MAX_WORKERS` is now bounded only by what host or container memory admits; the cap of four applies only when the count is automatic. Before, a config-file `maxWorkers: 16` ran four workers on a 16 GB laptop; it now runs 16, each recycling at a 512 MiB heap. When memory does lower a count you set, `hotRuntime capped maxWorkers from N to M` is printed.
+- On Vitest 5, a native project beside a plain project with no worker count set no longer fails with "Projects … have different 'maxWorkers' but same 'sequence.groupOrder'". When `hotRuntime: 'auto'` falls back for such a group, the native project gets Vitest's resolved worker count.
 
-An explicit `maxWorkers` above four now runs in full when memory admits it: `maxWorkers: 16` on a 16 GB laptop runs 16 hot workers, each recycling at a 512 MiB heap, where it previously ran four.
-
-A native project beside a plain project, with no worker count set, no longer fails the run with "Projects … have different 'maxWorkers' but same 'sequence.groupOrder'" on Vitest 5. When the hot runtime falls back for such a group, the native project now gets Vitest's resolved worker count instead of none.
+`hotRuntime: { allowUnboundedMemory: true }` still leaves the count to Vitest.
