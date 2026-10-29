@@ -3,7 +3,6 @@
  * jest-compat (see import-then-require.test.ts). Each case is one property of the
  * facade or the load hook that hands it out (`viteInstanceOf` in node-registry.mjs).
  */
-import Module from "node:module";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import hello, { named } from "./fixtures/def";
 import { callAssigned, callSpied } from "./fixtures/consumer";
@@ -82,12 +81,23 @@ describe("what the load hook leaves to Node", () => {
 });
 
 it("the registry's resident set is taken after the setup's own loads", () => {
-  // The native setup requires RNTL's matchers before it installs the sharing; a reset
-  // must leave them, so they are in the baseline.
-  const matchers = require.resolve("@testing-library/react-native/matchers");
+  // The native setup requires RNTL's matchers (whichever path this RNTL major ships them
+  // at) before it installs the sharing; a reset must leave them, so they are in the baseline.
+  const candidates = [
+    "@testing-library/react-native/matchers",
+    "@testing-library/react-native/build/matchers",
+    "@testing-library/react-native/dist/matchers",
+  ];
+  const loaded = candidates.flatMap((id) => {
+    try {
+      return [require.resolve(id)];
+    } catch {
+      return [];
+    }
+  });
+  expect(loaded.length).toBeGreaterThan(0);
   const baseline = registry().baseline;
-  expect([...baseline].some((id) => id === matchers || id.endsWith("/matchers.js"))).toBe(true);
-  void Module;
+  expect(loaded.some((file) => baseline.has(file))).toBe(true);
 });
 
 it("an installed package required by its bare name goes to Node without being resolved", () => {
