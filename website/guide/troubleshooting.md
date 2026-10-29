@@ -81,7 +81,7 @@ It happens when all of these hold:
 - the importing file is in a subdirectory of the root, such as `src/`;
 - one run happened while the target was missing, for example before the other package was built.
 
-To recover, clear Vitest's cache with `vitest --clearCache`, or delete `node_modules/.vitest-cache` at the workspace root (or the directory set in `test.fsModuleCachePath`). To avoid it, build the other package before the first test run, or set `test.fsModuleCache: false` for that project.
+This is a Vitest bug, tracked in [vitest-dev/vitest#11789](https://github.com/vitest-dev/vitest/issues/11789). To recover, clear Vitest's cache with `vitest --clearCache`, or delete `node_modules/.vitest-cache` at the workspace root (or the directory set in `test.fsModuleCachePath`). To avoid it, build the other package before the first test run, or set `test.fsModuleCache: false` for that project.
 
 ## `CONTEXT_INVALID` at startup
 
