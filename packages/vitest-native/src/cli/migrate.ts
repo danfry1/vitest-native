@@ -543,7 +543,10 @@ export function analyzeJestConfig(root: string): MigrationReport {
         );
       } else if (name === "ci") {
         dropped.push(
-          `scripts.test --ci — Vitest already refuses to write new snapshots when it detects CI.`,
+          // Vitest's `updateSnapshot` is "none" when std-env reports CI and "new" otherwise
+          // (resolveConfig); Jest's --ci defaults to ci-info's CI detection the same way.
+          `scripts.test --ci — Vitest writes no new snapshots when it detects CI, as Jest's --ci ` +
+            `defaults to; set CI=true to get that elsewhere.`,
         );
       } else if (
         (name === "silent" || name === "passWithNoTests") &&
@@ -589,7 +592,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
     }
     if (take("fakeTimers") !== undefined) {
       attention.push(
-        `fakeTimers — configure per-suite with vi.useFakeTimers() (the jest-compat shim covers jest.useFakeTimers()).`,
+        `fakeTimers — not carried over: call jest.useFakeTimers(options) in a beforeEach, which the jest-compat shim translates, or set Vitest's test.fakeTimers. Not at a setup file's top level: RNTL's import drops options set there.`,
       );
     }
 

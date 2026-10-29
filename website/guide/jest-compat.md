@@ -36,11 +36,26 @@ export default defineConfig({
 
 | In your Jest test | Under jest-compat |
 |---|---|
-| `jest.fn()`, `jest.spyOn()`, `jest.useFakeTimers()` | work as-is (the global `jest` is `vi`, and its mocks are `vi` mocks) |
+| `jest.fn()`, `jest.spyOn()`, `jest.useFakeTimers()` | work as-is (the global `jest` is `vi`, and its mocks are `vi` mocks); `jest.useFakeTimers(options)` takes Jest's options — see [Fake timers](#fake-timers) |
 | `new` on a `jest.fn(() => ({ ... }))` | returns the implementation's object, as in Jest — Vitest's own `vi.fn` requires a `function` or `class` implementation for `new`, and `jest.fn` does not |
 | `import { jest } from '@jest/globals'` | resolves to the `vi`-backed `jest` (aliased) |
 | top-level `jest.mock('m', factory)` | hoisted + applied, with Jest's factory interop |
 | `describe` / `it` / `expect` / `beforeEach` | same names, available as globals |
+
+## Fake timers
+
+`jest.useFakeTimers(options)` translates Jest's options into Vitest's the way Jest translates them for `@sinonjs/fake-timers`, which both runners use: `advanceTimers` (`true` or a step in ms), `doNotFake`, `now` and `timerLimit` (default 100,000 as in Jest, where Vitest's is 10,000). It returns the `jest` object, as Jest does, so `jest.useFakeTimers().setSystemTime(date)` chains. Calling `vi.useFakeTimers` directly still takes Vitest's options.
+
+Two differences remain:
+
+- `process.nextTick` and `queueMicrotask` stay real. Jest fakes them by default; Vitest does not, because Node and Vitest's runner depend on them. Name them in Vitest's `toFake` if a test needs them faked.
+- `legacyFakeTimers: true` runs modern fake timers over the timer functions and leaves `Date` real, as legacy timers do. The timer functions are not mock functions, so assertions such as `expect(setTimeout).toHaveBeenCalled()` do not work; the first such call logs a warning.
+
+Options set in Jest's `fakeTimers` config are not read. Pass them to `jest.useFakeTimers(...)` in the tests, where a `beforeEach(() => jest.useFakeTimers({ ... }))` in a setup file covers every test. Or set them in Vitest's names under `test.fakeTimers` (`doNotFake` as `toFake`, `advanceTimers` as `shouldAdvanceTime` and `advanceTimeDelta`), which applies to every call except for `loopLimit` and `now`: `jest.useFakeTimers` always passes Jest's `timerLimit`, and starts the clock at the real time unless given `now`.
+
+::: warning Known limitation: options in a setup file's top level
+A `jest.useFakeTimers(options)` at the top level of a setup file loses its options once React Native Testing Library loads. RNTL switches to real timers and back with `jest.useFakeTimers({ legacyFakeTimers: false })` at import, and that call does not carry the earlier options. A bare `jest.useFakeTimers()` there still fakes timers for the file, as Jest's `enableGlobally` does. With options, use a `beforeEach` or `test.fakeTimers` as above.
+:::
 
 ## One module registry per test file
 
@@ -79,7 +94,7 @@ Remaining differences:
 It clears the API coupling, not the suite-specific work — you still:
 
 - write mocks for native libraries with no [preset](/guide/presets),
-- re-record snapshots (`vitest -u`),
+- record snapshots for Vitest, which keys them differently from Jest (see [snapshots](/migration/from-jest#snapshots)),
 - and fix the occasional factory that references an out-of-scope `mock`-prefixed variable (Jest's Babel plugin allows that; Vitest doesn't).
 
 For the full migration walkthrough — including which manual mocks you can delete and how snapshots change — see [Migrating from Jest](/migration/from-jest).
