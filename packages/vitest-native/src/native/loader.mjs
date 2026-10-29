@@ -83,7 +83,8 @@ let presetExports = {};
 let assetExtSet = new Set();
 
 /**
- * Hot-runtime ESM generation (experimental, `VITEST_NATIVE_HOT_ESM_GEN=1`).
+ * Hot-runtime ESM generation (on under the hot runtime; `VITEST_NATIVE_HOT_ESM_GEN=0`
+ * opts out, see setup.mjs).
  *
  * Node's ESM registry has no invalidation API, so a package a TEST FILE reaches
  * through `import` keeps its module state for the whole run — the per-file reset
