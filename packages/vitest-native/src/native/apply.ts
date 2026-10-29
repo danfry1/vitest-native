@@ -40,6 +40,7 @@
  * same library is not hosted identically by both kinds of run.
  */
 import type { PoolRunnerInitializer } from "vitest/node";
+import type { ProjectContextFields } from "../context.mjs";
 import type { NativeOwnershipPolicy } from "./ownership.mjs";
 import { createNativeOwnershipPolicy, formatNativeOwnershipManifest } from "./ownership.mjs";
 
@@ -49,7 +50,7 @@ export type JsxTransformConfig =
 
 export function nativeEngineConfig(
   setupFilePath: string,
-  env: Record<string, string>,
+  fields: ProjectContextFields,
   extensions: string[],
   transformPkgs: string[] = [],
   hot?: { pool: PoolRunnerInitializer; runnerPath: string; maxWorkers?: number },
@@ -96,10 +97,9 @@ export function nativeEngineConfig(
   // The Node hooks transform whatever the policy assigns to them; ecosystem packages
   // now load through Node, so they belong in that set rather than Vite's.
   const nodeTransformed = ownership.nodeTransformPackages;
-  const fullEnv = { ...env };
   const ownershipManifest = ownership.manifest();
-  fullEnv.VITEST_NATIVE_OWNERSHIP = JSON.stringify(ownershipManifest);
-  if (fullEnv.VITEST_NATIVE_DIAGNOSTICS === "true") {
+  fields.ownership = ownershipManifest as unknown as Record<string, unknown>;
+  if (fields.diagnostics) {
     for (const line of formatNativeOwnershipManifest(ownershipManifest)) {
       const report = `[vitest-native] ownership: ${line}`;
       if (line.startsWith("WARNING:")) console.warn(report);
@@ -107,7 +107,7 @@ export function nativeEngineConfig(
     }
   }
   if (nodeTransformed.length > 0) {
-    fullEnv.VITEST_NATIVE_TRANSFORM = JSON.stringify(nodeTransformed);
+    fields.transform = [...nodeTransformed];
   }
   return {
     // Match React Native's Babel preset: the automatic JSX runtime, so app/test
@@ -145,7 +145,8 @@ export function nativeEngineConfig(
     },
     test: {
       setupFiles: [setupFilePath],
-      env: fullEnv,
+      // The project context's reference, set by the plugin (withProjectContext).
+      env: {} as Record<string, string>,
       // Without the hot runtime we intentionally do NOT force `isolate`, so
       // Vitest's safe default (`isolate: true`) applies: each test file gets a
       // fresh module runner — but also a fresh worker, so RN reloads per file.
