@@ -206,14 +206,10 @@ export interface PresetModule {
   /**
    * Named exports read from the installed package, for a package whose API changes
    * between releases; replaces `exports` when present. Called once at Vite config time
-   * with the project root, platform and engine. `null` means the package is not
-   * installed, so the module is not shadowed at all.
+   * with the project root and platform. `null` means the package is not installed, so
+   * the module is not shadowed at all.
    */
-  exportsFor?: (context: {
-    projectRoot: string;
-    platform: "ios" | "android";
-    engine: "mock" | "native";
-  }) => string[] | null;
+  exportsFor?: (context: { projectRoot: string; platform: "ios" | "android" }) => string[] | null;
 }
 
 export interface Preset {
@@ -405,12 +401,12 @@ export interface VitestNativeOptions {
    *
    * `'auto'` selects the bounded hot runtime when the configuration has recyclable
    * task boundaries (enough memory headroom for at least two workers) and no
-   * explicit custom pool; otherwise the run keeps per-file isolation. Set
-   * explicitly, it prints the reason for falling back; as the default it falls
-   * back quietly (`diagnostics: true` shows the reason).
+   * explicit custom pool; otherwise the run keeps per-file isolation and prints the
+   * reason for falling back.
    *
-   * Default: `'auto'`. `false` always runs each file in a fresh worker, with React
-   * Native reloaded per file.
+   * Default: `false`, as in 0.13.0: each file runs in a fresh worker, with React
+   * Native reloaded per file. The hot runtime has known differences from per-file
+   * isolation, listed in the troubleshooting guide.
    */
   hotRuntime?:
     | boolean
