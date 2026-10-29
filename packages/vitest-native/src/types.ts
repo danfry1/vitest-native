@@ -431,6 +431,20 @@ export interface VitestNativeOptions {
    * Default: `'device'`.
    */
   nativeModules?: "device" | "permissive";
+  /**
+   * Behaviour changes still being proven, each with a decision date (see
+   * docs/versioning.md and the flag table in src/flags.ts). Off by default.
+   */
+  experimental?: {
+    /**
+     * `'resolver'`: Vite, Node's CommonJS loader and its ESM loader resolve every bare
+     * request through one shared resolver, from one set of inputs, so a package loaded
+     * by both module systems is one module. Where a package's `exports` map has both
+     * `import` and `require` builds, both sides load the `require` one. Native engine
+     * only. See docs/ownership-model.md.
+     */
+    ownershipModel?: "resolver";
+  };
 }
 
 export interface ResolvedOptions {

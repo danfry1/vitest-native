@@ -523,6 +523,14 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
     const usage = analyzeConfigUsage(content);
     if (usage.imports && usage.invokes) {
       pass(`${configFile} uses vitest-native.`);
+      // A static read: a flag set through a variable is not seen here, so the run's
+      // banner, which names it, stays the authority.
+      if (/\bownershipModel\s*:\s*["']resolver["']/.test(withoutComments(content))) {
+        lines.push(
+          "  · experimental.ownershipModel: 'resolver' is on: Vite and Node's loaders " +
+            "resolve bare imports through one shared resolver (docs/ownership-model.md).",
+        );
+      }
     } else if (usage.imports) {
       warn(
         `${configFile} imports vitest-native but never calls reactNative() — ` +

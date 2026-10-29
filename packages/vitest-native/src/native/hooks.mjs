@@ -26,6 +26,8 @@ import {
 import { explainUntransformedSyntaxError } from "./explain.mjs";
 import { nativeAssetModuleSource } from "./assets.mjs";
 import { expandAlias } from "../jest-compat/aliases.mjs";
+import { cjsConditionsWithout } from "./export-condition-recovery.mjs";
+import { checkResolverInputs, createSharedResolver } from "./shared-resolver.mjs";
 
 // Guarded via globalThis, not module scope: under the hot runtime this module
 // can be evaluated twice in one worker (once by the worker entry through Node's
@@ -467,10 +469,64 @@ export function installRequireHooks(
     }
     return `${parent.path}\0${request}\0${conditions}`;
   };
+  // experimental.ownershipModel: bare requests resolve through the resolver Vite and
+  // the ESM loader use, built from the context's record, which this realm first checks
+  // against the conditions Node applies here. Never built with the flag off. The memo
+  // above holds its answers, so it keeps none of its own.
+  const ownershipContext = projectContext();
+  let sharedResolver = null;
+  if (ownershipContext?.ownershipModel === "resolver" && ownershipContext.resolverInputs) {
+    checkResolverInputs(
+      ownershipContext.resolverInputs,
+      ownershipContext.resolverInputsHash,
+      "CommonJS hooks",
+      { nodeConditions: cjsConditionsWithout("react-native") },
+    );
+    sharedResolver = createSharedResolver(ownershipContext.resolverInputs, {
+      realm: "cjs",
+      memo: false,
+    });
+  }
+  // A caller passing other conditions than this realm's (none does but a direct
+  // `Module._resolveFilename` call) gets Node's own answer for them.
+  const recordConditions = new Set(ownershipContext?.resolverInputs?.conditions ?? []);
+  const conditionsMatchRecord = (conditions) =>
+    conditions == null ||
+    (() => {
+      const asked = new Set([...conditions].filter((c) => c !== "react-native"));
+      return (
+        asked.size === recordConditions.size && [...asked].every((c) => recordConditions.has(c))
+      );
+    })();
   const origResolve = Module._resolveFilename;
   Module._resolveFilename = function (request, parent, ...rest) {
     let resolved;
     const key = resolutionKey(request, parent, rest);
+    // `require.resolve(x, { paths })` and the main module are Node's to answer.
+    if (
+      !resolved &&
+      sharedResolver !== null &&
+      key !== null &&
+      !request.startsWith(".") &&
+      resolutions.get(key) === undefined &&
+      conditionsMatchRecord(rest[1]?.conditions)
+    ) {
+      resolved =
+        sharedResolver.resolve(request, parent?.filename, (target) =>
+          origResolve.call(this, target, parent, ...rest),
+        ) ?? undefined;
+      if (resolved !== undefined) {
+        // The shadow: what Node alone would have answered, once per distinct request
+        // (the memo holds the answer after this).
+        let previous = null;
+        try {
+          previous = origResolve.call(this, request, parent, ...rest);
+        } catch {
+          // Node alone could not resolve it: not a delta to report.
+        }
+        sharedResolver.shadow(request, parent?.filename, resolved, previous);
+      }
+    }
     if (key !== null) {
       const held = resolutions.get(key);
       // A bare request's hit costs one stat: a file removed since (a nested copy

@@ -1,0 +1,1 @@
+{"name":"vn-ownership-dual","version":"1.0.0","type":"module","exports":{".":{"import":"./esm.mjs","require":"./cjs.cjs"},"./reader":"./reader.cjs","./dynamic":"./dynamic.mjs","./sub":{"import":"./sub-esm.mjs","require":"./sub-cjs.cjs"}}}
