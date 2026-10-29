@@ -451,7 +451,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
       lines.push(
         `  · ${pkg} ${installedMajor(root, pkg)} runs its own test mode under Vitest, so no preset replaces it`,
       );
-    } else if (!autoDetectedPresetApplies(preset, decision.engine, undefined, root)) {
+    } else if (!autoDetectedPresetApplies(preset, decision.engine)) {
       lines.push(
         `  · ${pkg} runs as itself under the native engine, on its native-module mocks; ` +
           `the ${preset} preset applies under the mock engine or with \`presets: { ${preset}: true }\``,

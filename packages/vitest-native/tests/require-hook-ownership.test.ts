@@ -33,6 +33,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { installRequireHooks } from ${JSON.stringify(pathToFileURL(path.join(nativeDir, "hooks.mjs")).href)};
 import { createNativeOwnershipPolicy } from ${JSON.stringify(pathToFileURL(path.join(nativeDir, "ownership.mjs")).href)};
+import { writeProjectContext } from ${JSON.stringify(pathToFileURL(path.join(nativeDir, "..", "context.mjs")).href)};
 const root = ${JSON.stringify(root)};
 const scenario = ${JSON.stringify(scenario)};
 const sourceDir = path.join(root, scenario.vendored ? 'vendor/rn' : 'src');
@@ -48,7 +49,7 @@ const request = scenario.builtin ? 'node:fs' : scenario.extensionless ? relative
 const parent = path.join(parentDir, 'entry.cjs');
 fs.writeFileSync(parent, 'exports.run = () => require' + (scenario.resolveOnly ? '.resolve' : '') + '(' + JSON.stringify(request) + ');');
 const policy = createNativeOwnershipPolicy({ projectRoot: root, projectDirs: [root], reactNativeRoots: scenario.vendored ? [sourceDir] : [], serverDepsInlineAll: !!scenario.inlineAll });
-process.env.VITEST_NATIVE_OWNERSHIP = JSON.stringify(policy.manifest());
+process.env.VITEST_NATIVE_CONTEXT = writeProjectContext({ platform: 'ios', diagnostics: false, projectRoot: root, ownership: policy.manifest() }, path.join(root, '.contexts'));
 globalThis.__ownershipEvaluations = 0;
 const warnings = [];
 console.warn = (...args) => warnings.push({ text: args.join(' '), evaluations: globalThis.__ownershipEvaluations });

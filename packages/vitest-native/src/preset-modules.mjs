@@ -11,6 +11,7 @@
 // Plain .mjs, like errors.mjs: the native engine's setup file loads it as shipped, and
 // the plugin and the mock engine's setup bundle it.
 import { VitestNativeTypeError } from "./errors.mjs";
+import { projectContext } from "./context.mjs";
 
 // The plugin and the native loader generate `export const <name> = ...` for each named
 // export, so each must be a name a binding can have. `default` is the module object.
@@ -82,17 +83,7 @@ export function presetFromModule(namespace, file) {
 
 /** The preset module paths the plugin passed this worker, absolute. */
 export function presetModulePaths() {
-  const raw = process.env.VITEST_NATIVE_PRESET_MODULES;
-  if (!raw) return [];
-  try {
-    return JSON.parse(raw);
-  } catch (cause) {
-    throw new VitestNativeTypeError(
-      "INVALID_OPTION",
-      "VITEST_NATIVE_PRESET_MODULES, which the plugin sets for its setup file, is not valid JSON.",
-      { cause },
-    );
-  }
+  return [...(projectContext()?.presetModules ?? [])];
 }
 
 /** Imports a preset module in a test worker, through Vitest so TypeScript loads. */

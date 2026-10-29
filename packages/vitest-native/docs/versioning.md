@@ -96,7 +96,7 @@ are documented, tested, and gated in CI — they are simply not stable, and they
 
 | Surface | Why |
 | --- | --- |
-| `hotRuntime` and its options | Built on Vitest's experimental custom-pool API, which can change between Vitest minors. The default, `'auto'`, falls back to per-file isolation whenever the run cannot be bounded; `false` opts out. |
+| `hotRuntime` and its options | Built on Vitest's experimental custom-pool API, which can change between Vitest minors. The default is `false` (per-file isolation); `'auto'` opts in, and falls back to per-file isolation whenever the run cannot be bounded. |
 | `metroConfig` and its options | Opt-in declarative Metro profile ingestion. Framework loading, custom resolvers and the version matrix remain under investigation. Off by default. |
 
 A surface leaves this list by being promoted in a minor, and can change or be removed in a minor

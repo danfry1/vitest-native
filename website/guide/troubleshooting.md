@@ -55,13 +55,24 @@ Vitest keys snapshots differently from Jest (`a > b 1` against Jest's `a b 1`; `
 
 ## A test passes on its own but fails when run with other files
 
-The engine banner says `hot runtime` when the native engine is reusing workers across files (the default wherever the run can be bounded). The hot runtime resets app/test modules, mocks, timers and a verified list of process-wide state between files, but a library that keeps state somewhere else can carry it into the next file. To confirm, run with per-file isolation:
+If the engine banner says `hot runtime`, the native engine is reusing workers across files because `hotRuntime` is set to `'auto'` or `true`. The default, `hotRuntime: false`, gives every file a fresh worker. The hot runtime resets app/test modules, mocks, timers and a verified list of process-wide state between files, but some state is known to carry over. To confirm, run with per-file isolation:
 
 ```ts
 reactNative({ hotRuntime: false })
 ```
 
-If the failure goes away, keep `hotRuntime: false` for that project and please [open an issue](https://github.com/danfry1/vitest-native/issues) with the library involved — the hot runtime's isolation is meant to match per-file isolation, and a case where it does not is a bug. Setting `test.isolate` explicitly in your Vitest config also keeps Vitest's own isolation.
+Known differences from per-file isolation under the hot runtime:
+
+- **`useId` values continue from the previous file**, so a snapshot that contains a generated id can change with file order.
+- **React shows a development warning once per worker, not once per file.** A setup that fails a test on `console.error` can miss a warning in a later file.
+- **An un-awaited `act()` can leave the next file's render empty**, so the next file fails instead of the one that forgot `await`.
+- **Fake timers active when React first loads stay captured by React's scheduler**, so a later file's timer-driven updates never render, and that file fails at its test timeout. This happens when a setup file imports React and then enables fake timers, or when a test file enables fake timers before React is first loaded.
+
+If the failure goes away with `hotRuntime: false`, keep that setting for the project. If it is not one of the cases above, please [open an issue](https://github.com/danfry1/vitest-native/issues) with the library involved. Setting `test.isolate` explicitly in your Vitest config also keeps Vitest's own isolation.
+
+## `CONTEXT_INVALID` at startup
+
+The plugin writes one description of each Vitest project, its *project context*, to `node_modules/.cache/vitest-native/contexts/` (or the system temp directory when that cannot be written), and every worker reads its configuration from that file. `CONTEXT_INVALID` means a worker found it missing, from another version, changed after it was written, or with a field of the wrong shape; the message names the reason, the field and the directory. Re-run Vitest, and if it persists delete that directory. A worker started without the plugin's configuration reports it too.
 
 ## Still stuck?
 
