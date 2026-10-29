@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { VERBATIM_DIRS, isVerbatimRuntimeFile } from "./verbatim-runtime.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const budget = JSON.parse(fs.readFileSync(path.join(root, "package-budget.json"), "utf8"));
@@ -32,10 +33,173 @@ try {
 const requiredArtifactFields = ["size", "unpackedSize", "entryCount"];
 if (
   !artifact ||
-  requiredArtifactFields.some((field) => !Number.isInteger(artifact[field]) || artifact[field] < 0)
+  requiredArtifactFields.some(
+    (field) => !Number.isInteger(artifact[field]) || artifact[field] < 0,
+  ) ||
+  !Array.isArray(artifact.files)
 ) {
   console.error(`Package budget check received an unexpected npm report:\n${packed.stdout}`);
   process.exit(1);
+}
+
+/**
+ * Must-ship files, derived from sources the build cannot edit.
+ *
+ * The numeric floors alone did not catch the defect they were written for: with all
+ * of dist/native/ deleted (44 files, the whole native runtime) the artifact still had
+ * 72 files and 360 KB packed, above floors that had drifted to ~45% under the
+ * artifact. A count cannot say WHICH file is missing, so the expectation is a list:
+ *
+ * - every path `exports` and `bin` declare (what a consumer resolves);
+ * - every runtime .mjs and hand-written .d.mts that the build copies verbatim
+ *   (scripts/verbatim-runtime.mjs, shared with tsdown.config.ts), which Node loads by
+ *   relative path at runtime, so no export map names most of them;
+ * - every entry in `files`, which must exist: a listed file that is gone is a
+ *   deleted page or licence, not an optional one;
+ * - every file reachable by a relative import from those, transitively. Code-split
+ *   chunks (dist/ecosystem-*.mjs and the like) have hashed names no source states,
+ *   so the only way to require them is to follow the imports that load them.
+ */
+function declaredPaths(value, into) {
+  if (typeof value === "string") into.add(path.posix.normalize(value.replace(/^\.\//, "")));
+  else if (value && typeof value === "object") {
+    for (const nested of Object.values(value)) declaredPaths(nested, into);
+  }
+  return into;
+}
+
+const shipped = new Set(artifact.files.map((file) => file.path));
+const mustShip = new Set();
+const problems = [];
+declaredPaths(packageJson.exports, mustShip);
+declaredPaths(packageJson.bin, mustShip);
+for (const sub of VERBATIM_DIRS) {
+  for (const file of fs.readdirSync(path.join(root, "src", sub))) {
+    if (isVerbatimRuntimeFile(sub, file)) mustShip.add(path.posix.join("dist", sub, file));
+  }
+}
+for (const entry of packageJson.files ?? []) {
+  const stat = fs.statSync(path.join(root, entry), { throwIfNoEntry: false });
+  if (!stat) problems.push(`${entry} (listed in package.json "files", does not exist)`);
+  else if (stat.isFile()) mustShip.add(entry);
+  else if (![...shipped].some((file) => file.startsWith(`${entry}/`))) {
+    problems.push(`${entry}/ (listed in package.json "files", ships nothing)`);
+  }
+}
+
+/**
+ * `source` with its comments blanked out. The runtime's comments are full of example
+ * imports (`require('./logo.png')`, `import config from './config'`) that are not
+ * dependencies, so the specifier scan must not see them. Strings, template literals
+ * and regular-expression literals are skipped over intact, so a `//` inside one is
+ * not taken for a comment. A small scanner rather than a parser: the package has no
+ * JavaScript parser of its own to depend on, and the build's output is plain ES.
+ */
+function stripComments(source) {
+  let out = "";
+  let i = 0;
+  let lastSignificant = "";
+  const templateDepths = [];
+  const regexMayStart = () =>
+    lastSignificant === "" || /[(,=:[!&|?{};+\-*%<>~^]/.test(lastSignificant);
+  while (i < source.length) {
+    const ch = source[i];
+    const next = source[i + 1];
+    if (ch === "/" && next === "/") {
+      while (i < source.length && source[i] !== "\n") i++;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      const end = source.indexOf("*/", i + 2);
+      const stop = end === -1 ? source.length : end + 2;
+      out += source.slice(i, stop).replace(/[^\n]/g, " ");
+      i = stop;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`" || (ch === "}" && templateDepths.at(-1) === 0)) {
+      // A string, a template literal, or the rest of a template after `${…}`.
+      const quote = ch === "}" ? "`" : ch;
+      if (ch === "}") templateDepths.pop();
+      let j = i + 1;
+      while (j < source.length) {
+        if (source[j] === "\\") j += 2;
+        else if (source[j] === quote) break;
+        else if (quote === "`" && source[j] === "$" && source[j + 1] === "{") {
+          templateDepths.push(0);
+          j += 1;
+          break;
+        } else j++;
+      }
+      out += source.slice(i, j + 1);
+      i = j + 1;
+      lastSignificant = '"';
+      continue;
+    }
+    if (ch === "/" && regexMayStart()) {
+      let j = i + 1;
+      let inClass = false;
+      while (j < source.length && source[j] !== "\n") {
+        if (source[j] === "\\") j += 2;
+        else if (source[j] === "[" || source[j] === "]") {
+          inClass = source[j] === "[";
+          j++;
+        } else if (source[j] === "/" && !inClass) break;
+        else j++;
+      }
+      out += source.slice(i, j + 1);
+      i = j + 1;
+      lastSignificant = "/";
+      continue;
+    }
+    if (templateDepths.length > 0) {
+      if (ch === "{") templateDepths[templateDepths.length - 1]++;
+      else if (ch === "}") templateDepths[templateDepths.length - 1]--;
+    }
+    out += ch;
+    if (!/\s/.test(ch)) lastSignificant = ch;
+    i++;
+  }
+  return out;
+}
+
+// Relative specifiers in static imports and re-exports, dynamic import() and
+// require(), as the bundler and the hand-written runtime emit them.
+const RELATIVE_IMPORT =
+  /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)["'](\.{1,2}\/[^"']+)["']/g;
+const CODE = /\.(?:mjs|cjs|js|d\.mts|d\.cts|d\.ts)$/;
+const queue = [...mustShip].filter((file) => CODE.test(file) && shipped.has(file));
+const reached = new Set(queue);
+while (queue.length > 0) {
+  const from = queue.pop();
+  const source = stripComments(fs.readFileSync(path.join(root, from), "utf8"));
+  const declaration = /\.d\.[cm]?ts$/.test(from);
+  for (const [, specifier] of source.matchAll(RELATIVE_IMPORT)) {
+    let target = path.posix.normalize(path.posix.join(path.posix.dirname(from), specifier));
+    // A declaration file names the JavaScript module; its types are the matching
+    // declaration file beside it.
+    if (declaration) target = target.replace(/\.(m|c)?js$/, (_, kind) => `.d.${kind ?? ""}ts`);
+    if (reached.has(target)) continue;
+    reached.add(target);
+    mustShip.add(target);
+    if (!shipped.has(target)) problems.push(`${target} (imported by ${from})`);
+    else if (CODE.test(target)) queue.push(target);
+  }
+}
+
+for (const file of mustShip) {
+  if (!shipped.has(file) && !problems.some((p) => p.startsWith(`${file} (`))) problems.push(file);
+}
+problems.sort();
+const present = [...mustShip].filter((file) => shipped.has(file)).length;
+console.log(
+  `Must-ship files: ${present} / ${mustShip.size} in the artifact (${reached.size} reached by import)`,
+);
+if (problems.length > 0) {
+  console.error(
+    `\nThe published artifact is missing ${problems.length} file(s) the package declares or loads at runtime:\n` +
+      `${problems.map((file) => `  ${file}`).join("\n")}\n` +
+      "Check that the build ran to completion (tsdown.config.ts build:done copies the runtime .mjs files).",
+  );
 }
 
 const actual = {
@@ -84,7 +248,7 @@ const checks = [
 const warnRatio = typeof budget.warnHeadroomRatio === "number" ? budget.warnHeadroomRatio : 0;
 const isScaleBudget = (min, max) => typeof min === "number" && min !== max;
 
-let failed = false;
+let failed = problems.length > 0;
 const under = [];
 const tight = [];
 console.log("Published package budget:");
@@ -134,7 +298,8 @@ if (failed) {
         "and make sure the removal is in a changeset as a major.",
     );
   }
-  if (messages.length === 0) {
+  const overBudget = checks.some(({ key, max }) => typeof max === "number" && actual[key] > max);
+  if (messages.length === 0 && overBudget) {
     messages.push(
       "Package budget exceeded. Reduce the published surface or update the budget with an explicit justification.",
     );
