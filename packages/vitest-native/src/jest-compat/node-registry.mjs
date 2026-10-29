@@ -135,8 +135,11 @@ function createState() {
     }
   }
 
-  /** How often the load hook resolved, and how often it left a request to Node unresolved. */
-  state.stats = { resolves: 0, toNode: 0 };
+  /**
+   * How often the load hook asked `state.resolve`, how often that resolved afresh rather
+   * than from its cache, and how often a request went to Node without either.
+   */
+  state.stats = { resolves: 0, uncached: 0, toNode: 0 };
 
   /** Cached: resolution does not change within a worker, whatever is mocked. */
   state.resolve = (request, parent) => {
@@ -146,6 +149,7 @@ function createState() {
     const key = `${parent.filename}\0${request}`;
     let filename = state.resolutions.get(key);
     if (filename === undefined) {
+      state.stats.uncached++;
       filename = resolveUncached(request, parent);
       state.resolutions.set(key, filename);
     }
@@ -405,38 +409,25 @@ function viteInstanceOf(filename) {
 }
 
 /**
- * Whether `request` is a bare specifier no alias rewrites, for a package whose copy Node
- * would find from `parentFile` (the nearest `node_modules/<name>` up from its directory,
- * as Node looks) is a real installed package: its real path is under a node_modules
- * directory, as with npm, pnpm and bun stores, rather than a link to source. Cached per
- * directory and package for the worker's life; a package not found answers false.
+ * A bare specifier (a package name). Aliases need no check here: the require hooks
+ * apply them only after Node fails, so Node's answer for an aliased name is already the
+ * one `state.resolve` would reach.
  */
-const installedPackages = new Map();
-function installedBareSpecifier(request, parentFile) {
-  if (request.startsWith(".") || path.isAbsolute(request) || request.startsWith("file:")) {
-    return false;
+function isBare(request) {
+  return !(request.startsWith(".") || path.isAbsolute(request) || request.startsWith("file:"));
+}
+
+/**
+ * Node's real path for `request` from `parent` (the require hooks' resolver included), the
+ * same call `state.resolve` makes, or null when Node cannot resolve it.
+ */
+function nodeResolution(request, parent) {
+  try {
+    const resolved = Module._resolveFilename(request, parent, false);
+    return Module.isBuiltin(resolved) ? null : canonical(resolved);
+  } catch {
+    return null;
   }
-  if (expandAlias(request, config.aliases) !== request) return false;
-  const parts = request.split("/");
-  const name = request.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
-  const dir = path.dirname(parentFile);
-  const key = `${dir}\0${name}`;
-  let installed = installedPackages.get(key);
-  if (installed === undefined) {
-    installed = false;
-    for (const lookup of Module._nodeModulePaths(dir)) {
-      let real;
-      try {
-        real = fs.realpathSync(path.join(lookup, name));
-      } catch {
-        continue;
-      }
-      installed = NODE_MODULES.test(real + path.sep);
-      break;
-    }
-    installedPackages.set(key, installed);
-  }
-  return installed;
 }
 
 function installLoadHook(state) {
@@ -452,12 +443,17 @@ function installLoadHook(state) {
     if ((!fromProject && state.isEmpty()) || Module.isBuiltin(request)) {
       return origLoad.call(this, request, parent, ...rest);
     }
-    // With no mocks, only a project file can be served from Vite, so a bare specifier no
-    // alias rewrites, whose package is installed under node_modules, goes to Node as is.
-    // A workspace package linked from node_modules to its source is resolved as before.
-    if (state.isEmpty() && installedBareSpecifier(request, parent.filename)) {
-      state.stats.toNode++;
-      return origLoad.call(this, request, parent, ...rest);
+    // With no mocks, only a project file can be served from Vite. For a bare specifier,
+    // Node's own answer decides: a file under node_modules goes to Node's loader as is;
+    // anything else (a workspace link to source, a package's self-reference, an alias the
+    // hooks apply) is resolved as below, reusing that answer.
+    if (state.isEmpty() && isBare(request)) {
+      const resolved = nodeResolution(request, parent);
+      if (resolved !== null && NODE_MODULES.test(resolved)) {
+        state.stats.toNode++;
+        return origLoad.call(this, request, parent, ...rest);
+      }
+      if (resolved !== null) state.resolutions.set(`${parent.filename}\0${request}`, resolved);
     }
     const filename = state.resolve(request, parent);
     const entry = state.lookup(filename, request);

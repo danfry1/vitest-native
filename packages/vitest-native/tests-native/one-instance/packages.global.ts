@@ -3,7 +3,9 @@
 // - an installed `vn-fp-probe` at the package root, and a link of the same name in
 //   fixtures/fp-app/node_modules to the workspace source in fixtures/fp-src;
 // - an installed `vn-alias-probe` that exports only ".", whose `/feature` subpath the
-//   config aliases to a project file.
+//   config aliases to a project file;
+// - an installed `vn-self-probe`, named like the package in fixtures/self-pkg that
+//   requires itself by name.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,7 +14,12 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(here, "../..");
 const installed = (name: string) => path.join(packageRoot, "node_modules", name);
 const appModules = path.join(here, "fixtures", "fp-app", "node_modules");
-const created = [installed("vn-fp-probe"), installed("vn-alias-probe"), appModules];
+const created = [
+  installed("vn-fp-probe"),
+  installed("vn-alias-probe"),
+  installed("vn-self-probe"),
+  appModules,
+];
 
 function writePackage(dir: string, manifest: object, index: string) {
   fs.mkdirSync(dir, { recursive: true });
@@ -31,6 +38,11 @@ export function setup() {
     installed("vn-alias-probe"),
     { name: "vn-alias-probe", version: "1.0.0", exports: { ".": "./index.js" } },
     "exports.installed = true;\n",
+  );
+  writePackage(
+    installed("vn-self-probe"),
+    { name: "vn-self-probe", version: "1.0.0", exports: { "./store": "./index.js" } },
+    'exports.state = { value: "installed copy" };\n',
   );
   fs.mkdirSync(appModules, { recursive: true });
   fs.symlinkSync(
