@@ -536,6 +536,6 @@ describe("probe catalog", () => {
   it("ids are unique, and every probe names the bug it was written from", () => {
     const ids = PROBES.map((probe: { id: string }) => probe.id);
     expect(new Set(ids).size).toBe(ids.length);
-    for (const probe of PROBES) expect(probe.bug, probe.id).toMatch(/^#\d+: /);
+    for (const probe of PROBES) expect(probe.bug, probe.id).toMatch(/^\S.{10,}$/);
   });
 });

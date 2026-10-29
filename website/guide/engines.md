@@ -61,7 +61,7 @@ Because the mock is a reimplementation, it could drift from real RN behavior. A 
 
 ## Hot runtime
 
-Vitest's standard per-file worker isolation reloads React Native for every file, and on large suites that worker and module-loading tax dominates the run. The **hot runtime** keeps a precompiled React Native factory registry and worker realm warm while resetting RN module instances, app/test modules, and supported process-wide state between files. It is the default (`hotRuntime: 'auto'`) wherever the run can be bounded and recycled, and falls back quietly to per-file isolation otherwise:
+Vitest's standard per-file worker isolation reloads React Native for every file, and on large suites that worker and module-loading tax dominates the run. The **hot runtime** keeps a precompiled React Native factory registry and worker realm warm while resetting RN module instances, app/test modules, and supported process-wide state between files. It is opt-in (`hotRuntime: 'auto'`); the default, `hotRuntime: false`, gives each file a fresh worker, as in 0.13.0. With `'auto'` it runs wherever the run can be bounded and recycled, and falls back to per-file isolation otherwise, printing the reason. It has [known differences](/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files) from per-file isolation:
 
 ```ts
 reactNative({ hotRuntime: false }) // always isolate per worker
@@ -88,6 +88,6 @@ The runtime relies on Vitest's custom pool/worker APIs. The proposed upstream mo
 
 The hot runtime automatically derives a worker-total budget from the lower of host and container/cgroup memory. It reserves main-process and replacement headroom, caps automatic concurrency at four, recycles workers on local heap or process RSS, and stops before starting more work at the hard RSS boundary. Use `diagnostics: true` or `vitest-native doctor` to inspect the plan.
 
-Recycling only fires with **two or more workers** under current Vitest. In single-worker mode Vitest batches every file into one task and never exposes a recycle boundary, so the default `'auto'` keeps per-file isolation there and `hotRuntime: true` fails that configuration instead of silently trusting an inert limit. Use `maxWorkers >= 2` for hot mode. If an external scheduler already enforces the process boundary, `hotRuntime: { allowUnboundedMemory: true }` explicitly accepts the risk and disables the automatic worker cap and process-RSS enforcement.
+Recycling only fires with **two or more workers** under current Vitest. In single-worker mode Vitest batches every file into one task and never exposes a recycle boundary, so `'auto'` keeps per-file isolation there and `hotRuntime: true` fails that configuration instead of silently trusting an inert limit. Use `maxWorkers >= 2` for hot mode. If an external scheduler already enforces the process boundary, `hotRuntime: { allowUnboundedMemory: true }` explicitly accepts the risk and disables the automatic worker cap and process-RSS enforcement.
 
 Next: [How It Works](/guide/how-it-works) explains what the plugin does under the hood.

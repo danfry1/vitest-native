@@ -23,7 +23,10 @@
       "probe": "rntl-nested-text",
       "when": {
         "engine": "native",
-        "rntl": ["12", "13"]
+        "rntl": [
+          "12",
+          "13"
+        ]
       },
       "failure": "^rntl-nested-text\\.test\\.tsx: nested Text is queryable by its own text: Error: Unable to find an element with text: inner",
       "fixedBy": "#341",
@@ -32,7 +35,10 @@
     {
       "probe": "recoverable-error",
       "when": {
-        "rntl": ["12", "13"]
+        "rntl": [
+          "12",
+          "13"
+        ]
       },
       "failure": "^unhandled error \\(from recoverable-error\\.test\\.tsx\\): Error: There was an error during concurrent rendering but React was able to recover by instead synchronously rendering the entire root\\.",
       "consequences": "^the JSON report says success: true, but Vitest exited 1$",
@@ -55,9 +61,9 @@
         "engine": "mock",
         "jestCompat": "on"
       },
-      "failure": "^partial-mock-store\\.test\\.ts: \\[vitest\\] There was an error when mocking a module\\..* \\(caused by: Error: Cannot find module '[^']*/src/partial-mock/store' imported from [^)]*/src/partial-mock/api\\.ts\\)$",
+      "failure": "^partial-mock-store\\.test\\.ts: \\[vitest\\] There was an error when mocking a module\\..* \\(caused by: (Error: Cannot find module '[^']*/src/partial-mock/store' imported from [^)]*/src/partial-mock/api\\.ts|SyntaxError: Unexpected token '\\)')\\)$",
       "fixedBy": "#345",
-      "why": "Under the mock engine the synchronous jest.requireActual reaches Node's ESM loader, which cannot resolve api.ts's extensionless import of ./store, so the factory throws: 'Cannot find module \u2026/src/partial-mock/store imported from \u2026/api.ts'. Vitest reports only that mocking failed, and the JSON report drops the cause, so the signature is on the cause the accounting reporter records. #345 rewrites requireActual in the factory to vi.importActual for both engines, but that it clears this symptom is NOT yet observed."
+      "why": "Under the mock engine the synchronous jest.requireActual reaches Node's ESM loader, which cannot resolve api.ts's extensionless import of ./store, so the factory throws: 'Cannot find module …/src/partial-mock/store imported from …/api.ts'. Vitest reports only that mocking failed, and the JSON report drops the cause, so the signature is on the cause the accounting reporter records. The cause depends on the Node version: Node 22.18 and later strip api.ts's types and then fail on its extensionless import (the 'Cannot find module' cause), while Node 22.13 to 22.17 parse the raw TypeScript and fail with SyntaxError: Unexpected token ')'. Both reproduce in plain Node without vitest-native. #345 rewrites requireActual in the factory to vi.importActual for both engines, and its packed build passes this probe on Node 22.13 and 24.13."
     },
     {
       "probe": "aliased-sibling-string",
@@ -129,37 +135,6 @@
       "failure": "^hot-automock-[ab]\\.test\\.ts: gets its own factory, and an automock for the module it automocks: AssertionError: expected false to be true",
       "fixedBy": "#338",
       "why": "Vitest 4.1 replays a remembered factory from a placeholder node the hot runtime keeps across files; Vitest 5 is unaffected (the probe is n/a there). Observed locally on Vitest 4.1.11 (a copy linked with run.mjs --link-deps), matching #338's own reproduction."
-    },
-    {
-      "probe": "hot-rn-module-mock",
-      "when": {
-        "hot": "on",
-        "jestCompat": "on"
-      },
-      "failure": "^unhandled error: VitestNativeError: \\[vitest-native\\] hotRuntime state restoration failed: / - react-native\\.appearance restore: Cannot read properties of null \\(reading 'setColorScheme'\\)$",
-      "consequences": "^(hot-rn-module-mock-[ab]\\.test\\.ts: did not run|file accounting: (no result in the JSON report for|Vitest never reported module) hot-rn-module-mock-[ab]\\.test\\.ts|the JSON report says success: true, but Vitest exited 1)$",
-      "fixedBy": "#350",
-      "why": "The per-file reset restores React Native before it clears jest-compat's Node mock registry, so the Appearance restore reads the null mock and throws outside Vitest's per-file error handling: the second file is never collected, and the JSON report says success: true while Vitest exits 1. The pair is symmetric, so either file may be the lost one; both lost is a REGRESSION (verdict.mjs: a consequence cannot account for every file of the probe)."
-    },
-    {
-      "probe": "native-ext-peer",
-      "when": {
-        "layout": "isolated",
-        "engine": "native"
-      },
-      "failure": "^native-ext-peer\\.test\\.ts: .*: AssertionError: expected 'web' to be 'native'",
-      "fixedBy": "#349",
-      "why": "worklets' Jest resolver drops .native for any directory whose path contains its name, and pnpm names the library's store directory after its worklets peer. Observed locally in a pnpm-shaped store (run.mjs --link-deps); not yet in a real pnpm install."
-    },
-    {
-      "probe": "reanimated-render",
-      "when": {
-        "layout": "isolated",
-        "engine": "native"
-      },
-      "failure": "^reanimated-render\\.test\\.tsx: Cannot find module 'react-native-web/",
-      "fixedBy": "#349",
-      "why": "The same substring check matches reanimated's own store directory (named after its worklets peer), so all of reanimated resolves its web files, which import react-native-web. Observed locally in a pnpm-shaped store; not yet in a real pnpm install."
     }
   ]
 }
