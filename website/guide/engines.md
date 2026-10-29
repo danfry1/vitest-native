@@ -86,7 +86,7 @@ The runtime relies on Vitest's custom pool/worker APIs. The proposed upstream mo
 
 ### Compile cache
 
-Under the native engine, vitest-native turns on Node's on-disk V8 compile cache (`node_modules/.cache/vitest-native/v8`) so React Native's bytecode is reused across workers and runs. Hot workers leave it off while ESM generation is on, which is the default under the hot runtime: each test file re-evaluates the ES packages it imports under a new URL, and the cache would keep one entry per module per file. Leaving it off costs about 15–20 ms per hot worker boot, including each recycle. With `hotRuntime: { esmGeneration: false }`, hot workers keep the cache.
+Under the native engine, vitest-native turns on Node's on-disk V8 compile cache (`node_modules/.cache/vitest-native/v8`) so React Native's bytecode is reused by later workers and runs. Hot workers leave it off while ESM generation is on, which is the default under the hot runtime: each test file re-evaluates the ES packages it imports under a new URL, and the cache would keep one entry per module per file. Leaving it off cost about 15–20 ms per hot worker boot in one measured fixture, including each recycle. With `hotRuntime: { esmGeneration: false }`, hot workers keep the cache.
 
 If you set `NODE_COMPILE_CACHE` yourself, Node turns the cache on in every worker before vitest-native runs, and hot workers with ESM generation then write those per-file entries again. Unset it for hot runs, or set `esmGeneration: false`.
 
