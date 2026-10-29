@@ -23,35 +23,22 @@ import { captureModuleBaseline, resetEvaluatedModules } from "./module-reset.mjs
 import { registerRntlHooksOnImport } from "./rntl-hooks.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
 import { VitestNativeError } from "../errors.mjs";
+import { markBootContext, requireProjectContext } from "../context.mjs";
 
 if (isMainThread || !parentPort) {
   throw new VitestNativeError("HOT_WORKER_ENV", "hot worker entry must run in node:worker_threads");
 }
 
-const projectRoot = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
-const diagnostics = process.env.VITEST_NATIVE_DIAGNOSTICS === "true";
-const platform = process.env.VITEST_NATIVE_PLATFORM === "android" ? "android" : "ios";
-const reactNativeVersion = process.env.VITEST_NATIVE_RN_VERSION || "0.0.0";
-let transformPkgs = [];
-let preserveGlobals = [];
-let assetExts = [];
-let sourceExts = ["js", "jsx", "json", "ts", "tsx"];
-try {
-  if (process.env.VITEST_NATIVE_TRANSFORM)
-    transformPkgs = JSON.parse(process.env.VITEST_NATIVE_TRANSFORM);
-} catch {}
-try {
-  if (process.env.VITEST_NATIVE_SOURCE_EXTS)
-    sourceExts = JSON.parse(process.env.VITEST_NATIVE_SOURCE_EXTS);
-} catch {}
-try {
-  if (process.env.VITEST_NATIVE_ASSET_EXTS)
-    assetExts = JSON.parse(process.env.VITEST_NATIVE_ASSET_EXTS);
-} catch {}
-try {
-  if (process.env.VITEST_NATIVE_HOT_PRESERVE_GLOBALS)
-    preserveGlobals = JSON.parse(process.env.VITEST_NATIVE_HOT_PRESERVE_GLOBALS);
-} catch {}
+const context = requireProjectContext();
+markBootContext();
+const projectRoot = context.projectRoot;
+const diagnostics = context.diagnostics;
+const platform = context.platform;
+const reactNativeVersion = context.reactNativeVersion || "0.0.0";
+const transformPkgs = context.transform ?? [];
+const preserveGlobals = context.hotPreserveGlobals ?? [];
+const assetExts = context.assetExts ?? [];
+const sourceExts = context.sourceExts ?? ["js", "jsx", "json", "ts", "tsx"];
 
 if (diagnostics) {
   // One line per worker boot: under a hot pool, N files sharing a worker print
@@ -74,8 +61,8 @@ installKnownNativeModules(projectRoot);
 // worker keeps resident, and a preload that bypassed the registry would leave the
 // worker holding a second, separate copy of RN's singletons from the one every
 // test file sees.
-if (process.env.VITEST_NATIVE_RN_REGISTRY) {
-  installRegistry(process.env.VITEST_NATIVE_RN_REGISTRY, projectRoot, sourceExts);
+if (context.registry) {
+  installRegistry(context.registry, projectRoot, sourceExts);
 }
 installRequireHooks(
   projectRoot,

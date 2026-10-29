@@ -3,8 +3,6 @@
 // expressed as CJS source strings so both transform hooks (loader + require) can
 // serve them identically. Mirrors react-native/jest/setup.js's mock set.
 
-import { PERMISSIVE_NATIVE_MODULES_ENV } from "./native-modules.mjs";
-
 function parseVersion(version) {
   const [major = 0, minor = 0, patch = 0] = String(version || "0.0.0")
     .split(/[.-]/)
@@ -137,7 +135,7 @@ function turboStubSource(platform, version) {
   // the setup file installs the set and module mocks change during a test.
   // The plugin's \`nativeModules: 'permissive'\`: every name present, every member a
   // method, for suites written against that behaviour.
-  const __permissive = () => process.env[${JSON.stringify(PERMISSIVE_NATIVE_MODULES_ENV)}] === "permissive";
+  const __permissive = () => globalThis.__vitest_native_permissive_modules === true;
   const isKnownModule = (name) =>
     __permissive() ||
     getModuleMock(name) != null ||

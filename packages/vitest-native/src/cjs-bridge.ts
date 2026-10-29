@@ -13,6 +13,7 @@
  * Each vitest worker process gets its own Module state, so there's no
  * cross-test contamination in parallel runs.
  */
+import { projectContext } from "./context.mjs";
 
 const VIRTUAL_RN_PATH = "\0vitest-native:react-native";
 
@@ -177,7 +178,7 @@ export function installCjsBridge(mockObject: Record<string, any>): void {
 
     installed = true;
   } catch (e) {
-    if (process.env.VITEST_NATIVE_DIAGNOSTICS === "true") {
+    if (projectContext()?.diagnostics === true) {
       console.warn(`[vitest-native] CJS bridge install failed: ${(e as Error)?.message}`);
     }
   }
@@ -215,7 +216,7 @@ export function uninstallCjsBridge(): void {
 
     installed = false;
   } catch (e) {
-    if (process.env.VITEST_NATIVE_DIAGNOSTICS === "true") {
+    if (projectContext()?.diagnostics === true) {
       console.warn(`[vitest-native] CJS bridge uninstall failed: ${(e as Error)?.message}`);
     }
   }
@@ -238,7 +239,7 @@ export function installPresetCjsBridge(moduleName: string, mockObject: Record<st
     presetRedirects.set(moduleName, virtualPath);
     presetMocks.set(moduleName, mockObject);
   } catch (e) {
-    if (process.env.VITEST_NATIVE_DIAGNOSTICS === "true") {
+    if (projectContext()?.diagnostics === true) {
       console.warn(
         `[vitest-native] Preset CJS bridge for ${moduleName} failed: ${(e as Error)?.message}`,
       );

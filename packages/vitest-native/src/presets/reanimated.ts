@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { VitestNativeError } from "../errors.mjs";
 import { builtInPreset } from "./built-in.js";
+import { projectContext } from "../context.mjs";
 
 /**
  * Resolve the *active* React Native module — the mock under `engine: 'mock'`
@@ -16,7 +17,7 @@ let _rnCache: Record<string, any> | null = null;
 function getRN(): Record<string, any> {
   if (_rnCache) return _rnCache;
   try {
-    const base = path.join(process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd(), "package.json");
+    const base = path.join(projectContext()?.projectRoot ?? process.cwd(), "package.json");
     _rnCache = createRequire(base)("react-native");
   } catch {
     _rnCache = {};

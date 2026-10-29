@@ -30,6 +30,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import fs from "node:fs";
 import crypto from "node:crypto";
+import { projectContext } from "../context.mjs";
 import { transformRN, isFlow, cacheRootFor, TRANSFORM_CACHE_VERSION } from "./transform.mjs";
 
 import { boundarySourceFor, BOUNDARY_SOURCES } from "./boundary.mjs";
@@ -682,7 +683,7 @@ export function installRegistry(
         parent.filename === registryFile ||
         parent.filename === registryRealFile;
       const resolver = fromProject ? req : createRequire(parent.filename);
-      const platform = process.env.VITEST_NATIVE_PLATFORM === "android" ? "android" : "ios";
+      const platform = projectContext()?.platform === "android" ? "android" : "ios";
       let resolved;
       try {
         resolved = resolver.resolve(request);
