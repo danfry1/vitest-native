@@ -31,6 +31,8 @@ export default defineConfig({
       // The project context ships verbatim (copied below) and every bundle imports
       // that one file: one module instance per realm, and no inlined copies.
       /[\\/]src[\\/]context\.mjs$/,
+      // The shared resolver too: the plugin and Node's loaders run the same file.
+      /[\\/]src[\\/]native[\\/]shared-resolver\.mjs$/,
     ],
   },
   hooks: {

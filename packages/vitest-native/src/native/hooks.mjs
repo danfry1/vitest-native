@@ -498,17 +498,34 @@ export function installRequireHooks(
         asked.size === recordConditions.size && [...asked].every((c) => recordConditions.has(c))
       );
     })();
+  const onlyDefaultOptions = (options, parent) =>
+    options == null ||
+    Object.keys(options).every(
+      (name) =>
+        name === "conditions" ||
+        (name === "paths" && options.paths === undefined) ||
+        (name === "paths" &&
+          Array.isArray(options.paths) &&
+          Array.isArray(parent?.paths) &&
+          options.paths.length === parent.paths.length &&
+          options.paths.every((entry, i) => entry === parent.paths[i])),
+    );
   const origResolve = Module._resolveFilename;
   Module._resolveFilename = function (request, parent, ...rest) {
     let resolved;
     const key = resolutionKey(request, parent, rest);
-    // `require.resolve(x, { paths })` and the main module are Node's to answer.
+    // `require.resolve(x, { paths })` and the main module are Node's to answer. Not
+    // tied to the memo's key: Node 26's module hooks pass a plain require an options
+    // object with `paths: undefined` beside its conditions, which is no
+    // `require.resolve` option, so this realm still answers it.
     if (
       !resolved &&
       sharedResolver !== null &&
-      key !== null &&
+      typeof request === "string" &&
       !request.startsWith(".") &&
-      resolutions.get(key) === undefined &&
+      rest[0] !== true &&
+      onlyDefaultOptions(rest[1], parent) &&
+      (key === null || resolutions.get(key) === undefined) &&
       conditionsMatchRecord(rest[1]?.conditions)
     ) {
       resolved =
