@@ -67,6 +67,7 @@ Remaining differences:
 - A factory-less `jest.mock('x')` (automock or `__mocks__`) is built by Vitest for imports only: `require('x')` and `jest.requireMock('x')` return the real module.
 - `jest.resetModules()` and `isolateModules` renew project modules only; Jest renews `node_modules` packages too.
 - After `jest.resetModules()`, a module that is both imported and `require`d is loaded once by each loader, so the two are separate copies.
+- Inside `jest.isolateModules` and `jest.isolateModulesAsync`, a project module the block loads with `import()` and also `require`s is two copies; Jest's isolated registry gives one.
 - A `jest.mock` / `jest.doMock` whose specifier is computed (anything but a string or a variable, such as `jest.mock(path.join(…))`) applies to imports only.
 - `jest.mock` must be at the top level of the file. Inside a `describe` it becomes a nested `vi.mock`, which Vitest rejects ("defined outside of the module's top level scope"); Jest hoists it from there.
 - A `jest.mock` in a helper file that Node loads (one a test `require`s) is not hoisted, and does not register for `require()`. babel-jest hoists it there, because it adds `babel-preset-jest` to every file it compiles. Put the call in the test file or in a setup file.
