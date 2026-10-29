@@ -51,7 +51,7 @@ The same applies to a method a React Native module's codegen spec does not decla
 
 ## Snapshots mismatch after switching from Jest
 
-Under `engine: 'native'`, real React Native renders **real host component names** (`RCTText`, `RCTView`, `RCTScrollView`), whereas `@react-native/jest-preset` snapshots show mock names (`Text`, `View`). Run once with `vitest run -u` to re-record. Prefer explicit queries over large snapshots — they're robust across host names. See [Migrating from Jest](/migration/from-jest#re-record-snapshots).
+Vitest keys snapshots differently from Jest (`a > b 1` against Jest's `a b 1`; `name > hint 1` against `name: hint 1`), so it treats most of Jest's entries as missing: a local run writes new ones and passes, a CI run fails them as `mismatched`, and both rewrite the file's header to Vitest's, which `jest --ci` then refuses. Under `engine: 'native'`, real React Native also renders **real host component names** (`RCTText`, `RCTView`, `RCTScrollView`) where `@react-native/jest-preset` snapshots show mock names (`Text`, `View`). Running `vitest -u` against Jest's files rewrites them for Vitest and deletes Jest's entries. While both runners run, point Vitest at its own directory with `test.resolveSnapshotPath` and record there — see [Migrating from Jest](/migration/from-jest#snapshots). Prefer explicit queries over large snapshots — they're robust across host names.
 
 ## `findBy*` or `waitFor` times out under `vi.useFakeTimers()` with the mock engine
 

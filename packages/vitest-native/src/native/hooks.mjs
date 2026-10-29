@@ -458,11 +458,13 @@ export function installRequireHooks(
       return null;
     }
     if (Module.isBuiltin(request)) return null;
-    // Node's in-thread module hooks resolve a require with `{ conditions }`; any other
-    // option (`require.resolve`'s `paths`) is left to Node.
+    // Node's in-thread module hooks resolve a require with `{ conditions }` (Node 26
+    // adds `paths: undefined` to it); any other option that is set (`require.resolve`'s
+    // `paths`) is left to Node.
     let conditions = "";
     if (options != null) {
-      if (Object.keys(options).some((name) => name !== "conditions")) return null;
+      const set = (name) => options[name] !== undefined;
+      if (Object.keys(options).some((name) => name !== "conditions" && set(name))) return null;
       if (options.conditions != null) conditions = [...options.conditions].join(",");
     }
     return `${parent.path}\0${request}\0${conditions}`;

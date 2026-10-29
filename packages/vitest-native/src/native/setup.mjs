@@ -20,6 +20,7 @@ import { installNitroProxy } from "./nitro.mjs";
 import { createExpoNativeModuleResolver } from "./expo-native-modules.mjs";
 import { cacheRootFor } from "./transform.mjs";
 import { installKnownNativeModules } from "./native-modules.mjs";
+import { shareProjectModules } from "../jest-compat/node-registry.mjs";
 
 // Non-enumerable key on the preset container: the mocks built so far in this file.
 const PRESETS_BUILT = Symbol.for("vitest-native.presets-built");
@@ -457,6 +458,11 @@ try {
 
 expect.extend(animatedMatchers);
 expect.addSnapshotSerializer(rnSerializer);
+
+// One instance of a project module per test file: Node's `require` of a project file the
+// test already imported gets Vite's instance. Last, after React Native and the setup's
+// own loads, so those stay outside what the registry treats as the test's modules.
+shareProjectModules();
 
 // NOTE: the cosmetic React "update to LogBoxStateSubscription not wrapped in
 // act()" warning (which used to appear on every interaction) is fixed at the

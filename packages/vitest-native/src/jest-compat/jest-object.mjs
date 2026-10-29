@@ -141,10 +141,140 @@ function originalOf(object, key, accessType) {
   }
 }
 
+// `jest.useFakeTimers(config)` takes Jest's options, which are not Vitest's. Vitest
+// spreads its argument straight into @sinonjs/fake-timers' `install`, so passing
+// Jest's keys through unchanged drops them without a word: `{ advanceTimers: true }`
+// never advanced, `{ doNotFake: ['performance'] }` faked it anyway. Jest translates
+// them in `_toSinonFakeTimersConfig` (@jest/fake-timers 30.2, modernFakeTimers):
+//
+//   advanceTimeDelta: typeof advanceTimers === 'number' ? advanceTimers : undefined,
+//   loopLimit: timerLimit || 100_000,
+//   now: now ?? Date.now(),
+//   shouldAdvanceTime: Boolean(advanceTimers),
+//   shouldClearNativeTimers: true,
+//   toFake: every fakeable API minus doNotFake,
+//
+// and that translation is mirrored here, with these deliberate differences:
+//
+// - A Jest option left out is left to Vitest, so a project's `test.fakeTimers` (the
+//   nearest thing to Jest's `fakeTimers` config, which Jest merges into every call)
+//   still applies. Jest's defaults and Vitest's agree for every key but two, which are
+//   always passed: `loopLimit` (Jest 100_000, Vitest 10_000), and `now`, which Jest
+//   reads from the real clock on every install while Vitest resumes the last fake one.
+//   A `now` set in `test.fakeTimers` is therefore overridden, as in Jest only an
+//   explicit `now` sets the start.
+// - `nextTick` and `queueMicrotask` stay real. Jest fakes them by default; Vitest
+//   never fakes them unless asked, because Node and Vitest's runner use them
+//   internally ("Do not mock timers internally used by node by default", Vitest's
+//   FakeTimers.useFakeTimers). This keeps Vitest's choice.
+// - `doNotFake` becomes an explicit `toFake`. Vitest 5 also accepts `toNotFake`, but
+//   Vitest 4 always passes its own `toFake` to sinon, whose bundled version has no
+//   `toNotFake` at all, so only `toFake` means the same on every supported major.
+// - `legacyFakeTimers: true` has no Vitest counterpart (Jest's legacy timers are
+//   jest.fn mocks). It is approximated with modern timers over the functions legacy
+//   timers replace, leaving Date real as they do, and warns once that assertions on
+//   the timer functions themselves cannot work.
+//
+// Known limitation: options given before React Native Testing Library loads do not
+// survive it. At import RNTL calls `jest.useRealTimers()` and then
+// `jest.useFakeTimers({ legacyFakeTimers: false })` (helpers/timers runWithRealTimers),
+// which this translates without the earlier options, so a setup file's top-level
+// `jest.useFakeTimers({ doNotFake })` ends up faking everything. Jest merges its
+// project `fakeTimers` config into that call; carrying a setup file's options across
+// it belongs to a versioned environment layer, not to this shim. Until then the docs
+// recommend a `beforeEach` call or Vitest's `test.fakeTimers`.
+
 /**
- * The `jest` object: `vi` for everything except `fn` and `spyOn`. A proxy rather than
- * a copy, so members the compat setup installs on `vi` (requireActual, the timer
- * guards), and anything a suite assigns to `jest.*`, stay one shared object.
+ * Every API @sinonjs/fake-timers can fake: its `FakeMethod` typedef, as bundled in
+ * Vitest 5.0. Names the running sinon lacks are skipped (Vitest installs with
+ * `ignoreMissingTimers: true`); tests/jest-compat-fake-timers.test.ts fails if the
+ * installed sinon gains a name this list lacks.
+ */
+export const FAKEABLE_TIMER_APIS = [
+  "setTimeout",
+  "clearTimeout",
+  "setImmediate",
+  "clearImmediate",
+  "setInterval",
+  "clearInterval",
+  "Date",
+  "nextTick",
+  "hrtime",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+  "requestIdleCallback",
+  "cancelIdleCallback",
+  "performance",
+  "queueMicrotask",
+  "Intl",
+  "Temporal",
+];
+
+/** Faked only when asked for by name, as Vitest's own default list leaves them out. */
+const KEPT_REAL = new Set(["nextTick", "queueMicrotask"]);
+
+/**
+ * What Jest's legacy timers replace (LegacyFakeTimers.useFakeTimers, @jest/fake-timers
+ * 30.2): the timer functions and animation frames, never Date. `process.nextTick`,
+ * which they also replace, stays real for the reason above.
+ */
+const LEGACY_FAKED = [
+  "setTimeout",
+  "clearTimeout",
+  "setInterval",
+  "clearInterval",
+  "setImmediate",
+  "clearImmediate",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+];
+
+/** Jest's `timerLimit || 100_000`. */
+const loopLimitOf = (timerLimit) => timerLimit || 100_000;
+
+/**
+ * Translate a Jest fake-timers config into the one `vi.useFakeTimers` takes. Keys that
+ * are not Jest's (a Vitest option passed through `jest.*`) are kept as given.
+ */
+export function toVitestFakeTimersConfig(config, realNow = Date.now) {
+  const { advanceTimers, doNotFake, legacyFakeTimers, now, timerLimit, ...rest } = config ?? {};
+  const out = { ...rest, loopLimit: loopLimitOf(timerLimit) };
+  if (legacyFakeTimers) {
+    // Legacy timers take no options of their own: no auto-advance, no clock to set.
+    return { ...out, shouldAdvanceTime: false, toFake: [...LEGACY_FAKED] };
+  }
+  if (advanceTimers !== undefined) {
+    out.shouldAdvanceTime = Boolean(advanceTimers);
+    if (typeof advanceTimers === "number") out.advanceTimeDelta = advanceTimers;
+  }
+  // Jest's `now ?? Date.now()`, read from the real clock on every install. Left out,
+  // Vitest would start the new clock where the last fake one stopped, so a date one
+  // test pinned with setSystemTime leaked into every later jest.useFakeTimers().
+  out.now = now ?? realNow();
+  if (doNotFake !== undefined) {
+    const real = new Set(doNotFake);
+    out.toFake = FAKEABLE_TIMER_APIS.filter((api) => !KEPT_REAL.has(api) && !real.has(api));
+  }
+  return out;
+}
+
+let warnedLegacy = false;
+function warnLegacyOnce() {
+  if (warnedLegacy) return;
+  warnedLegacy = true;
+  console.warn(
+    "[vitest-native] jest.useFakeTimers({ legacyFakeTimers: true }) runs Vitest's modern " +
+      "fake timers over setTimeout/setInterval/setImmediate/requestAnimationFrame, with " +
+      "Date left real. The timer functions are not mock functions, so legacy-only " +
+      "assertions such as expect(setTimeout).toHaveBeenCalled() are not supported.",
+  );
+}
+
+/**
+ * The `jest` object: `vi` for everything except `fn`, `spyOn`, `useFakeTimers` and
+ * `useRealTimers`. A proxy rather than a copy, so members the compat setup installs
+ * on `vi` (requireActual, the timer guards), and anything a suite assigns to
+ * `jest.*`, stay one shared object.
  */
 export function createJestObject(vi, members = {}) {
   function fn(impl) {
@@ -160,16 +290,30 @@ export function createJestObject(vi, members = {}) {
     if (vi.isMockFunction(original) && spy === original) return spy;
     return withJestSemantics(spy, original);
   }
+  // Jest's options translated (see toVitestFakeTimersConfig), and Jest's return value:
+  // both return the `jest` object (jest-runtime's `useFakeTimers`/`useRealTimers`), so
+  // `jest.useFakeTimers().setSystemTime(…)` chains on `jest`, not on `vi`.
+  function useFakeTimers(config) {
+    if (config?.legacyFakeTimers) warnLegacyOnce();
+    vi.useFakeTimers(toVitestFakeTimersConfig(config, () => vi.getRealSystemTime()));
+    return jest;
+  }
+  function useRealTimers() {
+    vi.useRealTimers();
+    return jest;
+  }
   // Assigning `jest.fn`/`jest.spyOn` (a suite or library patching them) replaces them
   // here, as assigning to `jest` did when it was `vi`, without patching `vi` itself.
   // Any other assignment goes to `vi`, which the compat setup and suites share.
   const own = new Map([
     ["fn", fn],
     ["spyOn", spyOn],
+    ["useFakeTimers", useFakeTimers],
+    ["useRealTimers", useRealTimers],
     // Jest's module-registry members, supplied by the compat setup (setup.mjs).
     ...Object.entries(members),
   ]);
-  return new Proxy(vi, {
+  const jest = new Proxy(vi, {
     get(target, prop, receiver) {
       if (own.has(prop)) return own.get(prop);
       return Reflect.get(target, prop, receiver);
@@ -182,6 +326,7 @@ export function createJestObject(vi, members = {}) {
       return Reflect.set(target, prop, value, receiver);
     },
   });
+  return jest;
 }
 
 // One `jest` per test file, shared by the global and `@jest/globals`, as in Jest where
