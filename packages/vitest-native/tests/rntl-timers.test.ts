@@ -4,7 +4,12 @@ import fs from "node:fs";
 import Module, { createRequire } from "node:module";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createRntlJest, needsRntlJest, withRntlJest } from "../src/native/rntl-hooks.mjs";
+import {
+  createRntlJest,
+  needsRntlJest,
+  rntlSource,
+  withRntlJest,
+} from "../src/native/rntl-hooks.mjs";
 
 const require = createRequire(import.meta.url);
 const rntlRoot = path.dirname(require.resolve("@testing-library/react-native/package.json"));
@@ -13,6 +18,7 @@ const rntlBuild = ["build", "dist"]
   .find((dir) => fs.existsSync(path.join(dir, "helpers", "timers.js")))!;
 const timersFile = path.join(rntlBuild, "helpers", "timers.js");
 const KEY = "__vitest_native_rntl_jest";
+const RNTL_FILE = "/app/node_modules/@testing-library/react-native/build/x.js";
 
 /** RNTL's helpers/timers.js, compiled as the native engine compiles it. */
 function loadRntlTimers(): { jestFakeTimersAreEnabled(): boolean } {
@@ -31,7 +37,7 @@ afterEach(() => {
 });
 
 describe("RNTL's jest", () => {
-  it("is given to every RNTL file that reads a free jest, and only those", () => {
+  it("is given to the RNTL files that read a free jest, and not to its entry or other packages", () => {
     for (const file of ["helpers/timers.js", "wait-for.js", "user-event/setup/setup.js"]) {
       const full = path.join(rntlBuild, file);
       expect(needsRntlJest(full, fs.readFileSync(full, "utf8")), file).toBe(true);
@@ -45,12 +51,24 @@ describe("RNTL's jest", () => {
   });
 
   it("does not match a jest reached through another object or inside a word", () => {
-    const file = "/app/node_modules/@testing-library/react-native/build/x.js";
-    expect(needsRntlJest(file, "const a = config.jest.fn; require('jest-matcher-utils');")).toBe(
-      false,
-    );
-    expect(needsRntlJest(file, "if (typeof jest === 'undefined') {}")).toBe(true);
-    expect(needsRntlJest(file, "  jest.advanceTimersByTime(1);")).toBe(true);
+    expect(
+      needsRntlJest(RNTL_FILE, "const a = config.jest.fn; require('jest-matcher-utils');"),
+    ).toBe(false);
+    // Either form alone selects a file.
+    expect(needsRntlJest(RNTL_FILE, "if (typeof jest === 'undefined') {}")).toBe(true);
+    expect(needsRntlJest(RNTL_FILE, "  jest.advanceTimersByTime(1);")).toBe(true);
+  });
+
+  it("leaves a file it cannot wrap, and a file Node compiles as an ES module, as it is", () => {
+    const cjs = "if (typeof jest !== 'undefined') exports.a = 1;";
+    expect(rntlSource(cjs, RNTL_FILE, undefined)).toBe(withRntlJest(cjs));
+    expect(rntlSource(cjs, RNTL_FILE, null)).toBe(withRntlJest(cjs));
+    expect(rntlSource(cjs, RNTL_FILE, "module")).toBe(cjs);
+    // ES module syntax in a `.js` file whose format Node has not decided: Node detects it
+    // when compiling as CommonJS fails, which a wrapped copy would turn into a SyntaxError.
+    const esm = "import x from 'y';\nexport const a = typeof jest;";
+    expect(rntlSource(esm, RNTL_FILE, null)).toBe(esm);
+    expect(rntlSource(cjs, "/app/src/x.js", undefined)).toBe(cjs);
   });
 
   it("makes RNTL's detection see Vitest's fake timers, and only while they are on", () => {
@@ -88,5 +106,27 @@ describe("RNTL's jest", () => {
     expect(jest.getRealSystemTime()).toBeGreaterThan(1e12);
     jest.useRealTimers();
     expect(vi.isFakeTimers()).toBe(false);
+  });
+
+  it("advances asynchronously: a timer scheduled after a promise fires in the same advance", async () => {
+    const jest = createRntlJest(vi);
+    jest.useFakeTimers();
+    const fired: string[] = [];
+    setTimeout(async () => {
+      fired.push("first");
+      await Promise.resolve();
+      setTimeout(() => fired.push("second"), 10);
+    }, 10);
+    // RNTL 14's waitFor uses this for modern timers; a synchronous advance would fire
+    // only the first timer, as the second is scheduled after a microtask.
+    await jest.advanceTimersByTimeAsync(50);
+    expect(fired).toEqual(["first", "second"]);
+  });
+
+  it("does nothing when asked to advance with real timers, as Jest only warns", async () => {
+    const jest = createRntlJest(vi);
+    expect(vi.isFakeTimers()).toBe(false);
+    expect(() => jest.advanceTimersByTime(50)).not.toThrow();
+    await expect(jest.advanceTimersByTimeAsync(50)).resolves.toBeUndefined();
   });
 });

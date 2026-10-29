@@ -38,6 +38,7 @@
 import fs from "node:fs";
 import Module from "node:module";
 import { fileURLToPath } from "node:url";
+import vm from "node:vm";
 
 const RNTL_ENTRY =
   /[\\/]node_modules[\\/]@testing-library[\\/]react-native[\\/](?:build|dist)[\\/]index\.js$/;
@@ -82,8 +83,8 @@ export function registerRntlHooksOnImport(evaluator) {
 
 // --- 2. RNTL's fake-timer `jest` ---
 //
-// RNTL drives fake timers only through a free `jest` identifier, in three files of
-// every supported major (12.9, 13.3, 14.x):
+// RNTL drives fake timers only through a free `jest` identifier. Every supported major
+// (12.9, 13.3, 14.x) reads it in these three files, which its entry loads:
 //
 //   helpers/timers.js          `typeof jest`, then `setTimeout._isMockFunction` (legacy)
 //                              or `setTimeout.clock` + `jest.getRealSystemTime()`
@@ -93,6 +94,9 @@ export function registerRntlHooksOnImport(evaluator) {
 //   wait-for.js                `jest.advanceTimersByTime(interval)`, or
 //                              `jest.advanceTimersByTimeAsync` (14, modern timers);
 //   user-event/setup/setup.js  `jest.advanceTimersByTime(ms)` for its delays.
+//
+// 14.x also ships dist/test-utils/timers.js, RNTL's own test helper, which reads it too
+// and gets the same `jest` if something loads it.
 //
 // With no `jest` in scope RNTL takes the real-timer path under `vi.useFakeTimers()`:
 // `waitFor` and `findBy*` poll with a setInterval Vitest has faked, so the clock never
@@ -105,14 +109,22 @@ export function registerRntlHooksOnImport(evaluator) {
 // touched: other code reads `typeof jest` to decide whether it runs under Jest. It is
 // the same under jest-compat, whose global `jest` forwards these calls to `vi` too.
 //
-// Behaviour is RNTL's own under Jest, including two cases worth knowing:
+// Behaviour is RNTL's own under Jest, including three cases worth knowing:
 //   - RNTL reads a mock-function `setTimeout` (`vi.spyOn(globalThis, "setTimeout")`)
 //     as Jest's legacy fake timers, as it does under Jest, and `waitFor` then counts
-//     its timeout in fake time.
-//   - RNTL's helpers/timers.js, loaded while fake timers are on, switches to real
-//     timers and back to capture the real ones; the round trip re-installs Vitest's
-//     fake timers with the project's `fakeTimers` config, as Jest re-installs with its
-//     own, so per-call options and pending fake timers do not survive it.
+//     its timeout in fake time. The advance calls are then made with real timers, so
+//     they do nothing, as Jest's only warn: a throw would land inside RNTL's waitFor
+//     Promise executor, which never settles, and `userEvent` would throw.
+//   - RNTL's helpers/timers.js, loaded while fake timers are on (a setup file turned
+//     them on), switches to real timers and back to capture the real ones. Without
+//     the switch it would capture the fakes, and its cleanup and `waitFor` would
+//     wait on a fake setImmediate forever. The round trip re-installs Vitest's fake
+//     timers with the project's `fakeTimers` config, as Jest re-installs with its
+//     own, so per-call options, the system time and pending fake timers do not
+//     survive it.
+//   - The hot runtime keeps RNTL loaded across files, so that round trip happens in
+//     the first file that loads RNTL only. Per-file isolation repeats it in every
+//     file, as Jest does.
 const RNTL_FILE =
   /[\\/]node_modules[\\/]@testing-library[\\/]react-native[\\/](?:build|dist)[\\/].+\.js$/;
 // A free `jest`: `typeof jest`, or `jest.member` not reached through another object.
@@ -133,11 +145,12 @@ export function createRntlJest(vi) {
     getRealSystemTime() {
       return vi.getRealSystemTime();
     },
+    // A no-op with real timers, where Vitest would throw (see the top of this part).
     advanceTimersByTime(ms) {
-      vi.advanceTimersByTime(ms);
+      if (vi.isFakeTimers()) vi.advanceTimersByTime(ms);
     },
     async advanceTimersByTimeAsync(ms) {
-      await vi.advanceTimersByTimeAsync(ms);
+      if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(ms);
     },
   });
 }
@@ -175,11 +188,28 @@ export function installRntlJest(vi) {
   Object.defineProperty(globalThis, BRIDGE, { value: createRntlJest(vi), configurable: true });
   const compile = Module.prototype._compile;
   Module.prototype._compile = function (content, filename, ...rest) {
-    // `rest[0] === "module"` is Node compiling an ES module's source through the
-    // CommonJS loader (require(esm)); its syntax cannot sit in a function body.
-    if (rest[0] !== "module" && needsRntlJest(filename, content)) {
-      return compile.call(this, withRntlJest(content), filename, ...rest);
-    }
-    return compile.call(this, content, filename, ...rest);
+    return compile.call(this, rntlSource(content, filename, rest[0]), filename, ...rest);
   };
+}
+
+/**
+ * The source Node compiles for `filename`: wrapped when it is an RNTL file that reads
+ * a free `jest`, as it is otherwise. `format` is the one Node passes `_compile`.
+ */
+export function rntlSource(content, filename, format) {
+  // `"module"` is Node compiling an ES module's source through the CommonJS loader
+  // (require(esm)); its syntax cannot sit in a function body. A `.js` file whose format
+  // Node has not decided (`null`) may still be ES module syntax, which Node detects
+  // only once compiling it as CommonJS fails: such a file is left to Node as it is.
+  if (format === "module" || !needsRntlJest(filename, content)) return content;
+  const wrapped = withRntlJest(content);
+  return parses(wrapped, filename) ? wrapped : content;
+}
+
+function parses(code, filename) {
+  try {
+    return new vm.Script(code, { filename }) instanceof vm.Script;
+  } catch {
+    return false;
+  }
 }
