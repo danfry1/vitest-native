@@ -2047,7 +2047,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             );
           }
           // Only memory caps a worker count the user set, and running fewer workers
-          // than they asked for is worth a line even when hot was chosen implicitly.
+          // than they asked for is worth a line even when 'auto' chose hot.
           // configureVitest prints it, once it knows hot still runs: under 'auto' a
           // group conflict can hand the project back to Vitest's own count.
           const capWarning =

@@ -1252,7 +1252,7 @@ describe("plugin engine routing", () => {
         const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
         const plan = async (bytes: number, maxWorkers: number) => {
           host(bytes);
-          const plugin = reactNative({ engine: "native" }) as any;
+          const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
           const cfg = await runPluginConfig(
             plugin,
             { root: projectRoot, test: { maxWorkers } },
@@ -1262,7 +1262,7 @@ describe("plugin engine routing", () => {
         };
         expect(await plan(4 * GIB, 6)).toMatchObject({ maxWorkers: 6, plan: { maxWorkers: 6 } });
         expect(warn).not.toHaveBeenCalledWith(expect.stringMatching(/capped maxWorkers/));
-        // Implicit 'auto' still says so: the user asked for a count they will not get.
+        // 'auto' still says so: the user asked for a count they will not get.
         // configureVitest prints it, once it knows hot still runs.
         const capped = await plan(2 * GIB, 8);
         expect(capped).toMatchObject({ maxWorkers: 4 });
@@ -1279,7 +1279,7 @@ describe("plugin engine routing", () => {
         const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
         const err = quiet();
         host(2 * GIB);
-        const plugin = reactNative({ engine: "native" }) as any;
+        const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
         const cfg = await runPluginConfig(
           plugin,
           { root: projectRoot, test: { maxWorkers: 8 } },
@@ -1304,7 +1304,7 @@ describe("plugin engine routing", () => {
         // capped count config() returned.
         const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
         host(2 * GIB);
-        const plugin = reactNative({ engine: "native" }) as any;
+        const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
         const cfg = await runPluginConfig(
           plugin,
           { root: projectRoot, test: { maxWorkers: 8 } },
