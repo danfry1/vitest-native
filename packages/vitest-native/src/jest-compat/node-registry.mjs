@@ -332,12 +332,22 @@ export function nodeRegistry() {
   installLoadHook(state);
   if (typeof worker()?.evaluatedModules?.getModulesByFile !== "function") {
     console.warn(
-      "[vitest-native] jest-compat cannot reach Vitest's module graph in this worker, so " +
-        "require() may load a second copy of a module the test imported, and " +
+      "[vitest-native] cannot reach Vitest's module graph in this worker, so require() " +
+        "may load a second copy of a project module the test imported, and " +
         "jest.isolateModulesAsync() does not isolate import().",
     );
   }
   return state;
+}
+
+/**
+ * Installed by the native engine's setup in every worker, so a project file that a test
+ * imports and that Node later `require`s is one module (`viteInstanceOf`). It is the same
+ * registry jest-compat uses; before this, only jest-compat or a library's Jest setup
+ * created it, so whether a project file loaded once or twice depended on those.
+ */
+export function shareProjectModules() {
+  nodeRegistry();
 }
 
 /**
