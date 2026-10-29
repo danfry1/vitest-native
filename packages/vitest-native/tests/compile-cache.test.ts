@@ -7,10 +7,9 @@ import { fileURLToPath } from "node:url";
 
 // `enableV8CompileCache` reads `nodeModule.enableCompileCache` at call time, so we
 // drive its three branches by swapping the real (singleton) `Module.enableCompileCache`
-// and re-importing the module fresh each test — its module-scope `_enabled` guard is
-// sticky, so `vi.resetModules()` is what lets each case start from a clean slate.
-// Swapping also prevents these tests from actually enabling the cache on the test
-// process.
+// and re-importing the module fresh each test. The once-per-thread decision lives on
+// the global object, so each case clears it to start from a clean slate. Swapping
+// also prevents these tests from actually enabling the cache on the test process.
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 function findUp(rel: string, start: string): string {
   let dir = start;
@@ -26,17 +25,20 @@ const projectRoot = path.dirname(findUp("package.json", HERE));
 // Colocated with the transform cache under the project's node_modules/.cache.
 const EXPECTED_DIR = path.join(projectRoot, "node_modules", ".cache", "vitest-native", "v8");
 const FALLBACK_DIR = path.join(os.tmpdir(), "vitest-native-cache", "v8");
+const DECIDED = "__vitest_native_v8_compile_cache";
 
 describe("enableV8CompileCache", () => {
   let original: unknown;
 
   beforeEach(() => {
     original = (Module as unknown as Record<string, unknown>).enableCompileCache;
+    delete (globalThis as Record<string, unknown>)[DECIDED];
     vi.resetModules();
   });
 
   afterEach(() => {
     (Module as unknown as Record<string, unknown>).enableCompileCache = original;
+    delete (globalThis as Record<string, unknown>)[DECIDED];
   });
 
   async function load() {
@@ -53,9 +55,27 @@ describe("enableV8CompileCache", () => {
     const enableV8CompileCache = await load();
 
     enableV8CompileCache(projectRoot);
-    enableV8CompileCache(projectRoot); // idempotent: the per-realm guard suppresses the second call
+    enableV8CompileCache(projectRoot); // idempotent: the first call in a thread decides
 
     expect(dirs).toEqual([EXPECTED_DIR]);
+  });
+
+  it("leaves the cache off when the first call skips it, even for a second copy of the module", async () => {
+    const dirs: string[] = [];
+    (Module as unknown as Record<string, unknown>).enableCompileCache = (dir: string) => {
+      dirs.push(dir);
+      return { status: 1, directory: dir };
+    };
+    const enableV8CompileCache = await load();
+
+    // The hot worker decides first (ESM generation on), then the setup file calls
+    // again, possibly through a separately evaluated copy of this module.
+    enableV8CompileCache(projectRoot, { skip: true });
+    vi.resetModules();
+    const secondCopy = await load();
+    secondCopy(projectRoot);
+
+    expect(dirs).toEqual([]);
   });
 
   it("falls back to the tmpdir root when no project root is supplied", async () => {
