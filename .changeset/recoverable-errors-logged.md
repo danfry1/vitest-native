@@ -2,4 +2,8 @@
 "vitest-native": patch
 ---
 
-A recoverable React error no longer fails the run under either engine. With React 19's `react-test-renderer` (RNTL 12 and 13), a component that throws once during a concurrent render, which React then renders again successfully, was reported as an uncaught exception on Node, so Vitest exited with an unhandled error while every test passed. The renderer picks its error reporter once, when it loads, from `globalThis.reportError`; the engines now define one only while the renderer loads, and remove it after. React's recoverable errors are logged with `console.error`, as React 18.3's test renderer and RNTL 14's renderer log them (React Native on a device logs them as a warning), and every other report still fails the run as before. Other code still finds no `reportError`, so a library that feature-detects it behaves as it did.
+**With RNTL 12 or 13 (React 19's `react-test-renderer`), a recoverable React error is logged instead of failing the run.** Both engines. No action needed.
+
+Before, when a component threw once during a concurrent render and React rendered it again successfully, Node reported the error as an uncaught exception, so Vitest exited 1 with an unhandled error while every test passed. React's recoverable errors are now logged with `console.error`, as React 18.3's test renderer and RNTL 14's renderer log them (a device logs them as a warning). Any other error the renderer reports, such as an uncaught render error outside `act()`, still fails the run.
+
+`globalThis.reportError` is defined only while the renderer loads and removed after, so other code that feature-detects it behaves as before. The handler is recognised by React's function name; a React release that renames it would bring the failure back, and a test pinned to the installed renderer catches that.
