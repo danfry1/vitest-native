@@ -405,35 +405,36 @@ function viteInstanceOf(filename) {
 }
 
 /**
- * Whether `request` is a bare specifier no alias rewrites, for a package whose nearest copy
- * from the project root up is a real installed package (its real path is under a
- * node_modules directory, as with npm, pnpm and bun stores) rather than a link to source.
- * Cached per package for the worker's life; a package not found answers false.
+ * Whether `request` is a bare specifier no alias rewrites, for a package whose copy Node
+ * would find from `parentFile` (the nearest `node_modules/<name>` up from its directory,
+ * as Node looks) is a real installed package: its real path is under a node_modules
+ * directory, as with npm, pnpm and bun stores, rather than a link to source. Cached per
+ * directory and package for the worker's life; a package not found answers false.
  */
 const installedPackages = new Map();
-function installedBareSpecifier(request) {
+function installedBareSpecifier(request, parentFile) {
   if (request.startsWith(".") || path.isAbsolute(request) || request.startsWith("file:")) {
     return false;
   }
   if (expandAlias(request, config.aliases) !== request) return false;
   const parts = request.split("/");
   const name = request.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
-  let installed = installedPackages.get(name);
+  const dir = path.dirname(parentFile);
+  const key = `${dir}\0${name}`;
+  let installed = installedPackages.get(key);
   if (installed === undefined) {
     installed = false;
-    // The nearest node_modules holding it, from the project root up, as Node looks.
-    for (let dir = config.projectRoot; ; dir = path.dirname(dir)) {
+    for (const lookup of Module._nodeModulePaths(dir)) {
       let real;
       try {
-        real = fs.realpathSync(path.join(dir, "node_modules", name));
+        real = fs.realpathSync(path.join(lookup, name));
       } catch {
-        if (path.dirname(dir) === dir) break;
         continue;
       }
       installed = NODE_MODULES.test(real + path.sep);
       break;
     }
-    installedPackages.set(name, installed);
+    installedPackages.set(key, installed);
   }
   return installed;
 }
@@ -454,7 +455,7 @@ function installLoadHook(state) {
     // With no mocks, only a project file can be served from Vite, so a bare specifier no
     // alias rewrites, whose package is installed under node_modules, goes to Node as is.
     // A workspace package linked from node_modules to its source is resolved as before.
-    if (state.isEmpty() && installedBareSpecifier(request)) {
+    if (state.isEmpty() && installedBareSpecifier(request, parent.filename)) {
       state.stats.toNode++;
       return origLoad.call(this, request, parent, ...rest);
     }

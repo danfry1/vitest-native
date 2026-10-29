@@ -108,3 +108,11 @@ it("an installed package required by its bare name goes to Node without being re
   expect(stats.toNode).toBe(before.toNode + 1);
   expect(stats.resolves).toBe(before.resolves);
 });
+
+it("the baseline is fixed once per worker: installing the sharing again leaves it", async () => {
+  require("./fixtures/late-loaded.cjs");
+  const late = require.resolve("./fixtures/late-loaded.cjs");
+  const { shareProjectModules } = await import("../../dist/jest-compat/node-registry.mjs");
+  shareProjectModules();
+  expect(registry().baseline.has(late)).toBe(false);
+});
