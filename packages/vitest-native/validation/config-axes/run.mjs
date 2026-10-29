@@ -63,8 +63,10 @@ function versionsFor(cell, axes) {
     // pnpm names their dependants' store directories after them.
     "react-native-reanimated": pinned("react-native-reanimated"),
     "react-native-worklets": pinned("react-native-worklets"),
-    // RNTL 12 and 13 render through react-test-renderer (a peer dependency).
+    // RNTL 12 and 13 render through react-test-renderer, and RNTL 14 through
+    // test-renderer: both are peer dependencies the user installs.
     "react-test-renderer": pinned("react-test-renderer"),
+    "test-renderer": pinned("test-renderer"),
     vite: pinned("vite"),
     vitest: pick("vitest", "vitest"),
   };
