@@ -256,7 +256,7 @@ export function registryKey({
         // experimental.ownershipModel emits externals resolved at run time (see emit),
         // a different registry from the one with paths baked in. Absent with the flag
         // off, so the key, and the cache, are unchanged for every other project.
-        ...(ownershipModel ? [`ownership:${ownershipModel}`] : []),
+        ...(ownershipModel ? [`ownership:${ownershipModel}:2`] : []),
         boundaries.digest("hex"),
       ].join("\0"),
     )
@@ -369,7 +369,10 @@ function emit(files, modules, resolveExternalsAtRunTime = false) {
     `  const r = function (q) {`,
     `    const t = map[q];`,
     `    if (t === undefined || t === null) return __ext(q);`,
-    ...(resolveExternalsAtRunTime ? [`    if (t === false) return __reqFrom(i)(q);`] : []),
+    // Resolved once, through the require hook, then required by path as with the flag off.
+    ...(resolveExternalsAtRunTime
+      ? [`    if (t === false) return __ext((map[q] = __reqFrom(i).resolve(q)));`]
+      : []),
     `    if (typeof t !== "number") return __ext(t);`,
     // A jest.mock of a React Native module (jest-compat's per-file registry, see
     // jest-compat/node-registry.mjs) applies to RN's own requires of it, as under
@@ -384,7 +387,9 @@ function emit(files, modules, resolveExternalsAtRunTime = false) {
     `  r.resolve = function (q) {`,
     `    const t = map[q];`,
     `    if (t === undefined || t === null) return __ext.resolve(q);`,
-    ...(resolveExternalsAtRunTime ? [`    if (t === false) return __reqFrom(i).resolve(q);`] : []),
+    ...(resolveExternalsAtRunTime
+      ? [`    if (t === false) return (map[q] = __reqFrom(i).resolve(q));`]
+      : []),
     `    return typeof t === "number" ? __ids[t] : t;`,
     `  };`,
     `  r.cache = __ext.cache;`,
