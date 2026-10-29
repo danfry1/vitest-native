@@ -1,10 +1,9 @@
 # Configuration-axis matrix
 
-A project chooses several things our fixtures never varied. A monorepo migration report
-(October 2026, Vitest 4.1.11, 286 files) found about sixteen defects. Nearly all of them sat on
-one or two of those choices, and every gate we had was green. This matrix varies the choices
-and runs a small set of behaviour probes on each combination, so the next defect of this kind
-fails our CI and not a user's migration.
+A project chooses several things our fixtures never varied. About sixteen defects found in
+October 2026 sat on one or two of those choices while every gate we had was green. This matrix
+varies the choices and runs a small set of behaviour probes on each combination, so the next
+defect of this kind fails our CI and not a user's migration.
 
 Code: `validation/config-axes/` (fixture, probes, generator, harness, known-failing list).
 Workflow: `.github/workflows/config-axis-matrix.yml`. Unit tests for the machinery:
@@ -12,16 +11,16 @@ Workflow: `.github/workflows/config-axis-matrix.yml`. Unit tests for the machine
 
 ## The axes, and the defect that sat on each
 
-| Axis           | Values                         | Defect it hid (report item → fixing PR)                                                                                                                                                               |
+| Axis           | Values                         | Defect it hid (→ fixing PR)                                                                                                                                                                            |
 | -------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Vitest globals | off (Vitest's default), on     | RNTL cleanup never ran without a global `afterEach` (#17 → #342)                                                                                                                                      |
-| `jest` global  | jest-compat on, off            | `findBy*` under `vi.useFakeTimers()` timed out without a global `jest` (#18 → #342)                                                                                                                   |
-| RNTL           | 12, 13, 14                     | nested `<Text>` unqueryable on 12/13 under native (#16 → #341); a recoverable React error exited 1 on 12/13 (#13 → #343)                                                                              |
-| Engine         | native, mock                   | string/regex aliases into workspace source: two store instances, "Cannot find module", `import.meta` SyntaxError (#1 → #344); ESM default import of `__esModule` CommonJS (#15 → #339)                |
-| Vitest         | 4, 5                           | under hot, Vitest 4.1 replays another file's factory for an automock (#14 → #338)                                                                                                                     |
-| Hot runtime    | off, on                        | the same (#14), and per-file state in general: a `jest.mock` of a React Native module to `null` lost the next file from every reporter (→ #350)                                                       |
-| Install layout | hoisted (npm), isolated (pnpm) | `navigation: false` fails in isolated installs: transitive deps not compiled (#5 → #348); a library whose pnpm store directory names worklets loses its `.native` files, reanimated included (→ #349) |
-| jest-compat    | off, on                        | partial-mock store split by import order (#10 → #345); fake-timer options dropped (#8 → #340); Error equality (#7 → #346)                                                                             |
+| Vitest globals | off (Vitest's default), on     | RNTL cleanup never ran without a global `afterEach` (→ #342)                                                                                                                                      |
+| `jest` global  | jest-compat on, off            | `findBy*` under `vi.useFakeTimers()` timed out without a global `jest` (→ #342)                                                                                                                   |
+| RNTL           | 12, 13, 14                     | nested `<Text>` unqueryable on 12/13 under native (→ #341); a recoverable React error exited 1 on 12/13 (→ #343)                                                                              |
+| Engine         | native, mock                   | string/regex aliases into workspace source: two store instances, "Cannot find module", `import.meta` SyntaxError (→ #344); ESM default import of `__esModule` CommonJS (→ #339)                |
+| Vitest         | 4, 5                           | under hot, Vitest 4.1 replays another file's factory for an automock (→ #338)                                                                                                                     |
+| Hot runtime    | off, on                        | the same (→ #338), and per-file state in general: a `jest.mock` of a React Native module to `null` lost the next file from every reporter (→ #350)                                                       |
+| Install layout | hoisted (npm), isolated (pnpm) | `navigation: false` fails in isolated installs: transitive deps not compiled (→ #348); a library whose pnpm store directory names worklets loses its `.native` files, reanimated included (→ #349) |
+| jest-compat    | off, on                        | partial-mock store split by import order (→ #345); fake-timer options dropped (→ #340); Error equality (→ #346)                                                                             |
 
 Two constraints remove combinations that do not exist. The hot runtime is a native-engine pool.
 jest-compat is documented as `jestCompatSetup` + `globals: true`: `jestMockTransform` hoists
@@ -39,15 +38,15 @@ That error is itself worth a clearer message (see Open questions).
 | Mock engine     | `bun run test` (globals off), `consumer-tests/mock-rntl14`                              | RNTL 14 only on the packed side                                            |
 | jest-compat     | `consumer-tests/bare`, `tests-native/vitest.hot-jest-compat.config.mts`                 | `globals: true`; RNTL 12 (bare)                                            |
 
-So each axis was covered somewhere, but almost never two at a time. The monorepo report's
-defects mostly need two: globals off × any RNTL test that renders twice, RNTL 12/13 × native,
+So each axis was covered somewhere, but almost never two at a time. Those defects mostly need
+two: globals off × any RNTL test that renders twice, RNTL 12/13 × native,
 Vitest 4 × hot, isolated × a preset switched off.
 
 ## Design
 
 **Probes, not suites.** Each probe is one small test file, or a pair of files, that asserts the
 correct behaviour: what Jest, a device or Vitest's own semantics would give
-(`validation/config-axes/probes.mjs`). Each one names the report item it was written from. A
+(`validation/config-axes/probes.mjs`). Each one names the defect it guards against. A
 probe's `requires` says where it can run at all, and `observes` where it can also observe its
 defect; both cover every axis, install axes included. Where it cannot run it is `n/a`: the
 jest-compat probes need jest-compat, the hot pairs `hot: on`, and the #349 probes the native
@@ -134,11 +133,11 @@ entry gives the axis values the probe fails on, the PR that fixes it, and why. T
   regression. The remedy is to delete the entry. So a fix PR must delete its
   own entry. An entry that matches no possible run (it could never go stale) fails the unit test.
 
-Entries were derived from local runs, not from the report's prose, and each signature is the
-failure observed there. Requiring signatures found one entry that had been absorbing a different
+Entries were derived from local runs, not from a description of the defect, and each
+signature is the failure observed there. Requiring signatures found one entry that had been absorbing a different
 failure: under the mock engine, `partial-mock-store` fails because the mock factory throws, not
 because the store is split. It now has its own entry. Three cases came out wider
-than the report says. RNTL 12 also hits #13 (the report named 13). `findBy` fails with
+than first described. The recoverable-error exit hits RNTL 12 as well as 13. `findBy` fails with
 globals on as well, whenever there is no jest-compat. The string-alias split does _not_ show
 with jest-compat on.
 
@@ -163,9 +162,9 @@ fixtures) and is unmeasured until the first CI run.
 
 ## Gaps (deliberate, for now)
 
-- **EXPO_OS** (#4 → #343): it needs `expo` to resolve, which means installing the Expo SDK into
+- **EXPO_OS** (→ #343): it needs `expo` to resolve, which means installing the Expo SDK into
   every cell. It belongs in `consumer-tests/expo`, not here.
-- **Screens header and `navigation: false` in isolated installs** (#6 → #341, #5 → #348): both
+- **Screens header and `navigation: false` in isolated installs** (→ #341, #348): both
   need React Navigation and react-native-screens in the workspace. Adding them to the isolated
   cells is the next probe to write.
 - **Real npm and pnpm installs were not run locally** (local verification may not install).
@@ -173,7 +172,7 @@ fixtures) and is unmeasured until the first CI run.
   RNTL 12.9, 13.3 and 14.1, in both a linked (hoisted-shaped) layout and the pnpm-shaped store.
   The isolated-layout entries (#349) were observed in that pnpm-shaped store, not in a pnpm
   install. Expect the first CI run to calibrate a few entries and signatures.
-- **`findBy*` under `vi.useFakeTimers()` without a global `jest` (#18)** has no fixing pull
+- **`findBy*` under `vi.useFakeTimers()` without a global `jest`** has no fixing pull
   request: #342 documents it as a limitation. Its entry names #342 and says so; it will not go
   stale when #342 merges.
 - **Node and OS** are not axes here. `ci.yml` covers them.

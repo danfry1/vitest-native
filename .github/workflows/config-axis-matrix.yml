@@ -3,8 +3,8 @@ name: Config-axis matrix
 # The configuration axes a project chooses and our fixtures did not vary: Vitest 4 or 5,
 # RNTL 12, 13 or 14, a hoisted (npm) or isolated (pnpm) install, the mock or native
 # engine, Vitest globals on or off, the hot runtime on or off, jest-compat on or off.
-# A monorepo migration report found about sixteen defects, nearly all sitting on one or
-# two of these axes. Each cell installs a small probe workspace from the packed tarball
+# Defects that sit on one or two of these axes pass every fixed-configuration gate, so this
+# workflow varies them. Each cell installs a small probe workspace from the packed tarball
 # and runs a catalog of behaviour probes under every runtime combination, judging each
 # result against validation/config-axes/known-failing.json, which may only shrink.
 # Design, coverage map and costs: packages/vitest-native/docs/config-axis-matrix.md.

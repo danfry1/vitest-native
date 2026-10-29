@@ -35,7 +35,7 @@ export default defineConfig({
       ...(jestCompat
         ? Object.entries(jestCompatAliases()).map(([find, replacement]) => ({ find, replacement }))
         : []),
-      // String aliases into workspace source, keyed by package name: the reported shape.
+      // String aliases into workspace source, keyed by package name: the shape that loaded twice.
       { find: "@axis/feature", replacement: path.join(ws, "packages/feature/src") },
       { find: "@axis/validator", replacement: path.join(ws, "packages/validator/src") },
       // Regex aliases, the shape Jest's moduleNameMapper migrates to.

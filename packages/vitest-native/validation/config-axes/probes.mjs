@@ -4,7 +4,7 @@
 // semantics would give — never what the engine happens to do today. Where it fails today
 // on some cells, known-failing.json says which cells and which pull request fixes it.
 //
-//   id        the name used in known-failing.json and in the report
+//   id        the name used in known-failing.json and in the run's report
 //   files     test files under fixture/apps/app/probes that make up the probe
 //   requires  axis values (install or runtime; a value or a list) the probe needs to
 //             RUN at all: the hot pairs need the hot runtime, the jest-compat probes a
@@ -21,80 +21,80 @@
 //   alone     run in its own Vitest process, because its verdict includes the exit code,
 //             the unhandled errors or the files the run lost (accounting.mjs)
 //   output    a check of the run's output instead of test files (shared run's stderr)
-//   bug       the report item it was written from (monorepo migration report, 2026-10)
+//   bug       the defect the probe guards against, in one line
 
 export const PROBES = [
   {
     id: "rntl-auto-cleanup",
     files: ["rntl-auto-cleanup.test.tsx"],
-    bug: "#17: RNTL's auto-cleanup registers only when afterEach is a global",
+    bug: "RNTL's auto-cleanup registers only when afterEach is a global",
   },
   {
     id: "rntl-findby-fake-timers",
     files: ["rntl-findby-fake-timers.test.tsx"],
-    bug: "#18: RNTL advances fake timers only through a global jest",
+    bug: "RNTL advances fake timers only through a global jest",
   },
   {
     id: "rntl-nested-text",
     files: ["rntl-nested-text.test.tsx"],
     observes: { engine: "native" },
-    bug: "#16: nested Text (RCTVirtualText) is not a text host on RNTL 12/13",
+    bug: "nested Text (RCTVirtualText) is not a text host on RNTL 12/13",
   },
   {
     id: "recoverable-error",
     files: ["recoverable-error.test.tsx"],
     observes: { rntl: ["12", "13"] },
     alone: true,
-    bug: "#13: a recoverable React error exits 1 with every test passing",
+    bug: "a recoverable React error exits 1 with every test passing",
   },
   {
     id: "partial-mock-store",
     files: ["partial-mock-store.test.ts"],
     requires: { jestCompat: "on" },
-    bug: "#10: a partial mock of project source gets a second module graph",
+    bug: "a partial mock of project source gets a second module graph",
   },
   {
     id: "aliased-sibling-string",
     files: ["aliased-sibling-string.test.ts"],
     observes: { engine: "native" },
-    bug: "#1: a workspace library string-aliased to source loads twice",
+    bug: "a workspace library string-aliased to source loads twice",
   },
   {
     id: "aliased-sibling-regex",
     files: ["aliased-sibling-regex.test.ts"],
     observes: { engine: "native" },
-    bug: "#1: a workspace library regex-aliased to source cannot be found by Node",
+    bug: "a workspace library regex-aliased to source cannot be found by Node",
   },
   {
     id: "aliased-source-import-meta",
     files: ["aliased-source-import-meta.test.ts"],
     observes: { engine: "native" },
-    bug: "#1: aliased workspace source using import.meta is a SyntaxError under Node",
+    bug: "aliased workspace source using import.meta is a SyntaxError under Node",
   },
   {
     id: "esm-default-interop",
     files: ["esm-default-interop.test.ts"],
     observes: { engine: "native" },
-    bug: "#15: an ES module's default import of __esModule CommonJS is undefined",
+    bug: "an ES module's default import of __esModule CommonJS is undefined",
   },
   {
     id: "jest-fake-timer-options",
     files: ["jest-fake-timer-options.test.ts"],
     requires: { jestCompat: "on" },
-    bug: "#8: jest.useFakeTimers drops Jest's options",
+    bug: "jest.useFakeTimers drops Jest's options",
   },
   {
     id: "jest-error-equality",
     files: ["jest-error-equality.test.ts"],
     requires: { jestCompat: "on" },
-    bug: "#7: errors with per-instance methods are unequal under jest-compat",
+    bug: "errors with per-instance methods are unequal under jest-compat",
   },
   {
     id: "hot-automock",
     files: ["hot-automock-a.test.ts", "hot-automock-b.test.ts"],
     requires: { hot: "on" },
     observes: { vitest: "4" },
-    bug: "#14: under hot on Vitest 4.1, an automock replays another file's factory",
+    bug: "under hot on Vitest 4.1, an automock replays another file's factory",
   },
   {
     id: "hot-rn-module-mock",
@@ -103,7 +103,7 @@ export const PROBES = [
     // Alone: the defect loses every later file in the worker, which in the shared run
     // would bury the other probes.
     alone: true,
-    bug: "#350: under hot, a jest.mock of a React Native module to null loses the next file",
+    bug: "under hot, a jest.mock of a React Native module to null loses the next file (#350)",
   },
   {
     id: "native-ext-peer",
@@ -112,18 +112,18 @@ export const PROBES = [
     // store names a directory after a peer.
     requires: { engine: "native" },
     observes: { layout: "isolated" },
-    bug: "#349: a library whose pnpm store directory names worklets loses its .native files",
+    bug: "a library whose pnpm store directory names worklets loses its .native files (#349)",
   },
   {
     id: "reanimated-render",
     files: ["reanimated-render.test.tsx"],
     requires: { engine: "native", layout: "isolated" },
-    bug: "#349: reanimated in a pnpm store, where its directory names worklets",
+    bug: "reanimated in a pnpm store, where its directory names worklets (#349)",
   },
   {
     id: "preset-banner",
     output: true,
-    bug: "#5: the engine banner does not name the presets it applies",
+    bug: "the engine banner does not name the presets it applies",
     // The fixture depends on react-native-safe-area-context, whose preset applies under
     // both engines, so the banner must name it.
     check: (output) => {
