@@ -11,6 +11,7 @@
  * without hand edits.
  */
 import { createRequire } from "node:module";
+import { usesVitePlus } from "../host.js";
 import fs from "node:fs";
 import path from "node:path";
 import { DEFAULT_ASSET_EXTS, presetShadowing, type PresetName } from "../preset-map.js";
@@ -58,6 +59,8 @@ export interface MigrationReport {
   dropped: string[];
   /** The generated config text. */
   suggestedConfig: string;
+  /** The project runs its tests through Vite+ (`vp test`). */
+  vitePlus?: boolean;
   ok: boolean;
 }
 
@@ -818,8 +821,13 @@ export function analyzeJestConfig(root: string): MigrationReport {
       regexAliases.map((e) => `      ${e},\n`).join("") +
       `    ]`
     : `{ ${["...jestCompatAliases()", ...aliasEntries].join(", ")} }`;
-  const suggestedConfig = `import { ${excludeGlobs.length ? "configDefaults, " : ""}defineConfig } from 'vitest/config'
-import { reactNative } from 'vitest-native'
+  // Under Vite+ the config is vite.config.ts with defineConfig from 'vite-plus', and
+  // Vitest's own exports come through vite-plus/test (viteplus.dev/guide/test).
+  const vitePlus = usesVitePlus(root);
+  const configImports = vitePlus
+    ? `import { defineConfig } from 'vite-plus'\n${excludeGlobs.length ? "import { configDefaults } from 'vite-plus/test/config'\n" : ""}`
+    : `import { ${excludeGlobs.length ? "configDefaults, " : ""}defineConfig } from 'vitest/config'\n`;
+  const suggestedConfig = `${configImports}import { reactNative } from 'vitest-native'
 import { jestCompatAliases, jestCompatSetup, jestMockTransform } from 'vitest-native/jest-compat'
 ${needsUrlImport ? "import { fileURLToPath } from 'node:url'\n" : ""}${extraImports.map((i) => `${i}\n`).join("")}
 export default defineConfig({
@@ -842,6 +850,7 @@ export default defineConfig({
     presetCovered,
     dropped,
     suggestedConfig,
+    vitePlus,
     ok: source !== null,
   };
 }
@@ -934,10 +943,12 @@ export function renderMigrationReport(report: MigrationReport): string[] {
   section("Covered by presets — delete", report.presetCovered);
   section("Needs your attention", report.attention);
   section("Dropped (no equivalent needed)", report.dropped);
-  lines.push("Suggested vitest.config:", "");
+  lines.push(report.vitePlus ? "Suggested vite.config:" : "Suggested vitest.config:", "");
   lines.push(...report.suggestedConfig.split("\n").map((l) => `  ${l}`));
   lines.push(
-    "Re-run with --write to save this config, then: npx vitest-native doctor && npx vitest",
+    report.vitePlus
+      ? "Re-run with --write to save this config, then: npx vitest-native doctor && vp test"
+      : "Re-run with --write to save this config, then: npx vitest-native doctor && npx vitest",
   );
   return lines;
 }
