@@ -248,7 +248,8 @@ describe("native boundary: which native modules exist", () => {
   });
 
   it("nativeModules: 'permissive' makes every name present with every member", () => {
-    vi.stubEnv("VITEST_NATIVE_NATIVE_MODULES", "permissive");
+    stubProjectContext({ nativeModules: "permissive" });
+    installKnownNativeModules(projectRoot);
     try {
       const { tm, nm } = load();
       expect(typeof nm.EXDevLauncher.anything).toBe("function");
@@ -257,6 +258,7 @@ describe("native boundary: which native modules exist", () => {
       expect(typeof tm.get("SpecKeyboardObserver").captureRejections).toBe("function");
     } finally {
       vi.unstubAllEnvs();
+      installKnownNativeModules(projectRoot);
     }
   });
 
@@ -308,12 +310,12 @@ describe("native boundary: which native modules exist", () => {
 
   it("installKnownNativeModules reads the plugin's list, or computes it", () => {
     g.__vitest_native_known_modules = undefined;
-    vi.stubEnv("VITEST_NATIVE_RN_NATIVE_MODULES", JSON.stringify(["FromEnv"]));
+    stubProjectContext({ knownNativeModules: ["FromEnv"] });
     try {
       installKnownNativeModules(projectRoot);
       expect([...g.__vitest_native_known_modules]).toEqual(["FromEnv"]);
       g.__vitest_native_known_modules = undefined;
-      vi.stubEnv("VITEST_NATIVE_RN_NATIVE_MODULES", "");
+      stubProjectContext({});
       installKnownNativeModules(projectRoot);
       expect([...g.__vitest_native_known_modules]).toEqual(knownNativeModulesFor(projectRoot));
     } finally {
@@ -728,19 +730,17 @@ describe("plugin engine routing", () => {
   });
 
   it("uses the legacy esbuild JSX configuration for Vite 6 and 7", async () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vn-vite-7-"));
-    try {
-      const viteDir = path.join(tmp, "node_modules", "vite");
-      fs.mkdirSync(viteDir, { recursive: true });
-      fs.writeFileSync(path.join(tmp, "package.json"), JSON.stringify({ name: "fixture" }));
-      fs.writeFileSync(path.join(viteDir, "package.json"), JSON.stringify({ version: "7.3.2" }));
-      const plugin = reactNative({ engine: "mock" }) as any;
-      const cfg = await runPluginConfig(plugin, { root: tmp }, SERVE_ENV);
-      expect(cfg.esbuild).toEqual({ jsx: "automatic" });
-      expect(cfg.oxc).toBeUndefined();
-    } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
-    }
+    // The version is the running Vite's, as its hook context states it (src/host.ts),
+    // not the version of a package named `vite` under the project root.
+    const plugin = reactNative({ engine: "mock" }) as any;
+    const handler = plugin.config.handler ?? plugin.config;
+    const cfg = await handler.call(
+      { meta: { viteVersion: "7.3.2" } },
+      { root: projectRoot },
+      SERVE_ENV,
+    );
+    expect(cfg.esbuild).toEqual({ jsx: "automatic" });
+    expect(cfg.oxc).toBeUndefined();
   });
 
   it("explicit native sets RN external + a native setup file, and does NOT virtualize react-native", async () => {
@@ -758,25 +758,21 @@ describe("plugin engine routing", () => {
       { root: projectRoot },
       SERVE_ENV,
     );
-    expect(JSON.parse(native.test.env.VITEST_NATIVE_RN_NATIVE_MODULES)).toEqual(
-      knownNativeModulesFor(projectRoot),
-    );
+    expect(contextOf(native).knownNativeModules).toEqual(knownNativeModulesFor(projectRoot));
     const mock = await runPluginConfig(
       reactNative({ engine: "mock" }) as any,
       { root: projectRoot },
       SERVE_ENV,
     );
-    expect(mock.test.env?.VITEST_NATIVE_RN_NATIVE_MODULES).toBeUndefined();
-    expect(JSON.parse(native.test.env.VITEST_NATIVE_RN_NATIVE_MODULE_SPECS)).toEqual(
-      nativeModuleSpecsFor(projectRoot),
-    );
-    expect(native.test.env.VITEST_NATIVE_NATIVE_MODULES).toBeUndefined();
+    expect(contextOf(mock).knownNativeModules).toBeUndefined();
+    expect(contextOf(native).nativeModuleSpecs).toEqual(nativeModuleSpecsFor(projectRoot));
+    expect(contextOf(native).nativeModules).toBeUndefined();
     const permissive = await runPluginConfig(
       reactNative({ engine: "native", nativeModules: "permissive" }) as any,
       { root: projectRoot },
       SERVE_ENV,
     );
-    expect(permissive.test.env.VITEST_NATIVE_NATIVE_MODULES).toBe("permissive");
+    expect(contextOf(permissive).nativeModules).toBe("permissive");
   });
 
   it("externalizes RN only under node_modules, not a project named react-native", async () => {
@@ -919,17 +915,16 @@ describe("plugin engine routing", () => {
     }
   });
 
-  it("defaults to hotRuntime:'auto' and falls back quietly", async () => {
-    const byDefault = reactNative({ engine: "native" }) as any;
-    const hot = await runPluginConfig(byDefault, { root: projectRoot }, SERVE_ENV);
-    expect(hot.test.isolate).toBe(false);
-    expect(hot.test.pool).toMatchObject({ name: "vitest-native" });
-
-    // A decline the user did not ask about is not worth a warning on every run.
+  it("defaults to per-file isolation; an explicit 'auto' selects the hot runtime", async () => {
+    // Unset keeps 0.13.0's default: no hot pool, and nothing to warn about.
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const quiet = reactNative({ engine: "native" }) as any;
+    const byDefault = reactNative({ engine: "native" }) as any;
+    const stockByDefault = await runPluginConfig(byDefault, { root: projectRoot }, SERVE_ENV);
+    expect(stockByDefault.test.isolate).toBeUndefined();
+    expect(stockByDefault.test.pool).not.toMatchObject({ name: "vitest-native" });
+    const withPool = reactNative({ engine: "native" }) as any;
     const stock = await runPluginConfig(
-      quiet,
+      withPool,
       { root: projectRoot, test: { maxWorkers: 2, pool: "forks" } },
       SERVE_ENV,
     );
@@ -937,6 +932,12 @@ describe("plugin engine routing", () => {
     expect(stock.test.pool).toBe("forks");
     expect(warn).not.toHaveBeenCalledWith(expect.stringMatching(/kept default isolation/));
     warn.mockRestore();
+
+    // Opting in with 'auto' selects it where the run can be bounded.
+    const optIn = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
+    const hot = await runPluginConfig(optIn, { root: projectRoot }, SERVE_ENV);
+    expect(hot.test.isolate).toBe(false);
+    expect(hot.test.pool).toMatchObject({ name: "vitest-native" });
 
     // Explicitly off stays off.
     const off = reactNative({ engine: "native", hotRuntime: false }) as any;
@@ -1256,17 +1257,18 @@ describe("engine-selection notices", () => {
       String(err.mock.calls.find((c) => String(c[0]).includes("engine:"))?.[0] ?? "");
 
     await runPluginConfig(
-      reactNative({ engine: "native" }) as any,
+      reactNative({ engine: "native", hotRuntime: "auto" }) as any,
       { root: projectRoot },
       SERVE_ENV,
     );
     expect(banner()).toMatch(/\(platform ios, hot runtime\)$/);
 
+    // The default keeps per-file isolation, and the banner says nothing about hot.
     resetBanner();
     err.mockClear();
     await runPluginConfig(
       reactNative({ engine: "native" }) as any,
-      { root: projectRoot, test: { isolate: true } },
+      { root: projectRoot },
       SERVE_ENV,
     );
     expect(banner()).toMatch(/\(platform ios\)$/);
@@ -1943,8 +1945,8 @@ describe("hot pool: Vitest version guard", () => {
 
   it("makes 'auto' fall back instead of failing, and keeps explicit hot fail-closed", async () => {
     // A project that resolves every real dependency from this repository, except a
-    // Vitest of another version. Under the default the user never asked for hot, so
-    // the mismatch is a reason to keep per-file isolation, not an error.
+    // Vitest of another version. Under 'auto' the mismatch is a reason to keep
+    // per-file isolation, not an error.
     const mismatched = fakeProject("9.9.9");
     const repoModules = path.join(projectRoot, "node_modules");
     // Each package links to its REAL path: install layouts (bun's among them) make
@@ -1981,13 +1983,16 @@ describe("hot pool: Vitest version guard", () => {
     // for a fresh project root is the slow part of a plugin config run.
     vi.stubEnv("VITEST_NATIVE_NO_REGISTRY", "1");
     try {
-      const byDefault = await runPluginConfig(
-        reactNative({ engine: "native" }) as any,
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const auto = await runPluginConfig(
+        reactNative({ engine: "native", hotRuntime: "auto" }) as any,
         { root: mismatched, test: { maxWorkers: 2 } },
         SERVE_ENV,
       );
-      expect(byDefault.test.isolate).toBeUndefined();
-      expect(byDefault.test.env.VITEST_NATIVE_MEMORY_PLAN).toBeUndefined();
+      expect(auto.test.isolate).toBeUndefined();
+      expect(auto.test.env.VITEST_NATIVE_MEMORY_PLAN).toBeUndefined();
+      expect(warn).toHaveBeenCalledWith(expect.stringMatching(/kept default isolation/));
+      warn.mockRestore();
 
       await expect(
         runPluginConfig(
@@ -2081,6 +2086,7 @@ describe("cjsExportNames", () => {
 
 // @ts-expect-error — runtime .mjs
 import { createExpoNativeModuleResolver } from "../src/native/expo-native-modules.mjs";
+import { contextOf, stubProjectContext } from "./project-context-helpers.js";
 
 describe("the Expo native module resolver", () => {
   it("answers each module from its layers in order", () => {

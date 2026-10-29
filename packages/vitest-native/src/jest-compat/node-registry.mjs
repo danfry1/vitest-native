@@ -17,6 +17,7 @@ import { expandAlias } from "./aliases.mjs";
 import { resolvePlatformFile, resolveRelativePlatformFile } from "../native/resolve.mjs";
 import { resetEvaluatedModules, restoreEvaluatedModules } from "../native/module-reset.mjs";
 import { VitestNativeError } from "../errors.mjs";
+import { projectContext } from "../context.mjs";
 
 const STATE = "__vitest_native_jest_registry";
 /** The manifest id under which the hot runtime clears the registry per file. */
@@ -30,25 +31,18 @@ const UNRESETTABLE = /\.node$/;
 const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
 const NONE = Symbol("vitest-native.jest-registry.none");
 
-function envList(name) {
-  try {
-    const value = JSON.parse(process.env[name] || "[]");
-    return Array.isArray(value) ? value : [];
-  } catch {
-    return [];
-  }
-}
+const context = projectContext();
 
 /** Configuration the plugin hands the worker, shared with the compat setup. */
 export const config = {
-  projectRoot: process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd(),
-  platform: process.env.VITEST_NATIVE_PLATFORM === "android" ? "android" : "ios",
+  projectRoot: context?.projectRoot ?? process.cwd(),
+  platform: context?.platform === "android" ? "android" : "ios",
   // The project's string-to-string `resolve.alias` entries (and tsconfig `paths` when
   // Vite resolves them), which Node knows nothing of.
-  aliases: envList("VITEST_NATIVE_REQUIRE_ALIASES"),
-  skippedAliases: envList("VITEST_NATIVE_REQUIRE_ALIASES_SKIPPED"),
+  aliases: context?.requireAliases ?? [],
+  skippedAliases: context?.requireAliasesSkipped ?? [],
 };
-const sourceExts = envList("VITEST_NATIVE_SOURCE_EXTS");
+const sourceExts = context?.sourceExts ?? [];
 
 const realpathCache = new Map();
 /** Node keys its cache by real path; a platform-variant scan does not resolve links. */
@@ -79,7 +73,7 @@ const worker = () => globalThis.__vitest_worker__;
 function createState() {
   const rootFile = path.join(config.projectRoot, "package.json");
   const rootParent = parentModuleFor(rootFile);
-  const registryFile = process.env.VITEST_NATIVE_RN_REGISTRY;
+  const registryFile = context?.registry;
   const realRegistryFile = registryFile ? canonical(registryFile) : null;
   const exts = sourceExts.length > 0 ? sourceExts : undefined;
   const platformFile = (base) => {
@@ -102,8 +96,13 @@ function createState() {
     bypass: null,
     /** The open isolateModules block, if any. */
     isolation: null,
-    /** Module._cache keys present when the registry was installed: never reset. */
+    /**
+     * Module._cache keys a reset never drops. Taken when the registry is created, then
+     * once more where the native setup installs the sharing (`shareProjectModules`), so a
+     * library's Jest setup or a preset that creates the registry earlier cannot shrink it.
+     */
     baseline: new Set(Object.keys(Module._cache)),
+    baselineFixed: false,
   };
 
   // Resolve as the require hooks will, so registration and lookup share one key:
@@ -136,13 +135,21 @@ function createState() {
     }
   }
 
+  /**
+   * How often the load hook asked `state.resolve`, how often that resolved afresh rather
+   * than from its cache, and how often a request went to Node without either.
+   */
+  state.stats = { resolves: 0, uncached: 0, toNode: 0 };
+
   /** Cached: resolution does not change within a worker, whatever is mocked. */
   state.resolve = (request, parent) => {
     if (typeof request !== "string" || Module.isBuiltin(request)) return null;
+    state.stats.resolves++;
     parent ??= rootParent;
     const key = `${parent.filename}\0${request}`;
     let filename = state.resolutions.get(key);
     if (filename === undefined) {
+      state.stats.uncached++;
       filename = resolveUncached(request, parent);
       state.resolutions.set(key, filename);
     }
@@ -271,12 +278,12 @@ function createState() {
    * reachable, for the caller to fall back to `vi.resetModules()`.
    */
   state.resetModules = () => {
-    const map = worker()?.evaluatedModules?.idToModuleMap;
-    if (map) resetEvaluatedModules(map);
+    const modules = worker()?.evaluatedModules;
+    if (modules) resetEvaluatedModules(modules);
     state.isolation = null;
     state.dropProjectModules();
     allEntries().forEach(forget);
-    return Boolean(map);
+    return Boolean(modules);
   };
 
   /**
@@ -294,13 +301,13 @@ function createState() {
       // name and own properties included, so only this matches a suite written for Jest.
       throw new Error(`${name} cannot be nested inside another ${name} or ${other}.`);
     }
-    const map = worker()?.evaluatedModules?.idToModuleMap;
+    const modules = worker()?.evaluatedModules;
     const isolation = {
       modules: state.dropProjectModules(),
       had: new Set(allEntries().filter((entry) => entry.has)),
-      vite: map ? new Map() : null,
+      vite: modules ? new Map() : null,
     };
-    if (map) resetEvaluatedModules(map, isolation.vite);
+    if (modules) resetEvaluatedModules(modules, isolation.vite);
     state.isolation = isolation;
     return () => {
       // `resetModules` inside the block ended it, as in Jest, where it nulls the
@@ -312,7 +319,7 @@ function createState() {
       allEntries()
         .filter((entry) => !isolation.had.has(entry))
         .forEach(forget);
-      if (map) restoreEvaluatedModules(map, isolation.vite);
+      if (modules) restoreEvaluatedModules(modules, isolation.vite);
     };
   };
 
@@ -338,12 +345,26 @@ export function nodeRegistry() {
   installLoadHook(state);
   if (typeof worker()?.evaluatedModules?.getModulesByFile !== "function") {
     console.warn(
-      "[vitest-native] jest-compat cannot reach Vitest's module graph in this worker, so " +
-        "require() may load a second copy of a module the test imported, and " +
+      "[vitest-native] cannot reach Vitest's module graph in this worker, so require() " +
+        "may load a second copy of a project module the test imported, and " +
         "jest.isolateModulesAsync() does not isolate import().",
     );
   }
   return state;
+}
+
+/**
+ * Installed by the native engine's setup in every worker, so a project file that a test
+ * imports and that Node later `require`s is one module (`viteInstanceOf`). It is the same
+ * registry jest-compat uses; before this, only jest-compat or a library's Jest setup
+ * created it, so whether a project file loaded once or twice depended on those. Its call
+ * is also the fixed point the registry's baseline is taken at, once per worker.
+ */
+export function shareProjectModules() {
+  const state = nodeRegistry();
+  if (state.baselineFixed) return;
+  state.baseline = new Set(Object.keys(Module._cache));
+  state.baselineFixed = true;
 }
 
 /**
@@ -387,6 +408,28 @@ function viteInstanceOf(filename) {
   return NONE;
 }
 
+/**
+ * A bare specifier (a package name). Aliases need no check here: the require hooks
+ * apply them only after Node fails, so Node's answer for an aliased name is already the
+ * one `state.resolve` would reach.
+ */
+function isBare(request) {
+  return !(request.startsWith(".") || path.isAbsolute(request) || request.startsWith("file:"));
+}
+
+/**
+ * Node's real path for `request` from `parent` (the require hooks' resolver included), the
+ * same call `state.resolve` makes, or null when Node cannot resolve it.
+ */
+function nodeResolution(request, parent) {
+  try {
+    const resolved = Module._resolveFilename(request, parent, false);
+    return Module.isBuiltin(resolved) ? null : canonical(resolved);
+  } catch {
+    return null;
+  }
+}
+
 function installLoadHook(state) {
   const origLoad = Module._load;
   Module._load = function (request, parent, ...rest) {
@@ -399,6 +442,18 @@ function installLoadHook(state) {
       state.isResettable(parent.filename);
     if ((!fromProject && state.isEmpty()) || Module.isBuiltin(request)) {
       return origLoad.call(this, request, parent, ...rest);
+    }
+    // With no mocks, only a project file can be served from Vite. For a bare specifier,
+    // Node's own answer decides: a file under node_modules goes to Node's loader as is;
+    // anything else (a workspace link to source, a package's self-reference, an alias the
+    // hooks apply) is resolved as below, reusing that answer.
+    if (state.isEmpty() && isBare(request)) {
+      const resolved = nodeResolution(request, parent);
+      if (resolved !== null && NODE_MODULES.test(resolved)) {
+        state.stats.toNode++;
+        return origLoad.call(this, request, parent, ...rest);
+      }
+      if (resolved !== null) state.resolutions.set(`${parent.filename}\0${request}`, resolved);
     }
     const filename = state.resolve(request, parent);
     const entry = state.lookup(filename, request);

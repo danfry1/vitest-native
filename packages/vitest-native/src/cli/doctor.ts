@@ -25,6 +25,7 @@ import {
   installedTestsItself,
 } from "./manifest.js";
 import { PEER_REQUIREMENTS } from "../peer-requirements.js";
+import { installedViteVersion, ownVitestPackage, usesVitePlus } from "../host.js";
 
 export interface DoctorResult {
   lines: string[];
@@ -297,10 +298,29 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   for (const { name, minimum, maximumMajor, minimumByMajor, optional } of PEER_REQUIREMENTS) {
     if (optional) continue; // reported under "Testing library", and never blocking
     const from = rootFor(name);
-    const error = validatePeerDependency(name, minimum, from, maximumMajor, minimumByMajor);
+    // Vite's version from its module, not its manifest: under Vite+ the package named
+    // `vite` is a wrapper's core whose manifest states its own version. Vitest, when the
+    // project root cannot resolve it (Vite+ under pnpm), from where this package's own
+    // runtime would load it (host.ts), but only for a Vite+ project; anywhere else a
+    // Vitest the project cannot resolve is reported missing, as it always was.
+    const running =
+      name === "vite"
+        ? installedViteVersion(from)
+        : name === "vitest"
+          ? (packageVersion(from, name) ??
+            (usesVitePlus(from) ? (ownVitestPackage()?.version ?? null) : null))
+          : null;
+    const error = validatePeerDependency(
+      name,
+      minimum,
+      from,
+      maximumMajor,
+      minimumByMajor,
+      running,
+    );
     if (error) fail(error);
     else {
-      pass(`${name} ${packageVersion(from, name)}`);
+      pass(`${name} ${running ?? packageVersion(from, name)}`);
       if (from !== root) lines.push(`      (resolved from ${from}, not from here)`);
     }
   }
@@ -451,7 +471,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
       lines.push(
         `  · ${pkg} ${installedMajor(root, pkg)} runs its own test mode under Vitest, so no preset replaces it`,
       );
-    } else if (!autoDetectedPresetApplies(preset, decision.engine, undefined, root)) {
+    } else if (!autoDetectedPresetApplies(preset, decision.engine)) {
       lines.push(
         `  · ${pkg} runs as itself under the native engine, on its native-module mocks; ` +
           `the ${preset} preset applies under the mock engine or with \`presets: { ${preset}: true }\``,
