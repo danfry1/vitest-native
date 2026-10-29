@@ -5,11 +5,10 @@
 // under a new URL (`?vnhot=N`), and Node keys compile-cache entries by URL. With the
 // cache on, every file added entries for the modules it re-evaluated, all written when
 // the worker exits, inside Vitest's teardownTimeout. This gate runs a project whose
-// test files import an ES package of many modules, on one worker, from a cold cache:
-// once with ESM generation off, where every module has one URL, and once with it on,
-// which must not add entries. It also checks that per-file isolation and hot without
-// ESM generation still fill the cache, so the gate cannot pass by turning the cache
-// off everywhere.
+// test files import an ES package of many modules, on one worker, from a cold cache.
+// With ESM generation on, the worker must write no entries at all. With it off (by
+// config and by the environment escape hatch) and under per-file isolation, the cache
+// must still fill, so the gate cannot pass by turning the cache off everywhere.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -99,6 +98,13 @@ function countEntries(dir) {
   return n;
 }
 
+// The gate counts only the entries vitest-native's own decision writes. A developer's
+// NODE_COMPILE_CACHE turns Node's cache on in every worker before our code runs (and
+// NODE_DISABLE_COMPILE_CACHE turns it off), so neither is passed to the runs.
+const inheritedEnv = { ...process.env };
+delete inheritedEnv.NODE_COMPILE_CACHE;
+delete inheritedEnv.NODE_DISABLE_COMPILE_CACHE;
+
 function run(label, files, hotRuntime, extraEnv = {}) {
   setFiles(files);
   // Clear the transform cache too, so every run is equally cold: Babel then loads in
@@ -111,7 +117,7 @@ function run(label, files, hotRuntime, extraEnv = {}) {
       cwd: fixture,
       encoding: "utf8",
       env: {
-        ...process.env,
+        ...inheritedEnv,
         FORCE_COLOR: "0",
         NO_COLOR: "1",
         VN_CC_HOT: JSON.stringify(hotRuntime),
@@ -142,17 +148,27 @@ try {
   setUp();
   console.log("hot compile cache:");
   const hot = { allowUnboundedMemory: true };
-  // Without ESM generation every module has one URL, so that run is the ceiling: ESM
-  // generation must not add entries on top of it (it added hundreds before).
-  const noGen = run("hot without ESM generation", FILES, hot, { VITEST_NATIVE_HOT_ESM_GEN: "0" });
+  // ESM generation off through the config option, the documented opt-out: every module
+  // has one URL, and the cache stays on.
+  const noGen = run("hot, esmGeneration: false", FILES, { ...hot, esmGeneration: false });
   check(
     noGen > 0,
-    `the hot runtime without ESM generation still fills the cache (${noGen} entries)`,
+    `the hot runtime with esmGeneration: false still fills the cache (${noGen} entries)`,
   );
+  // The same through the environment escape hatch.
+  const noGenEnv = run("hot, VITEST_NATIVE_HOT_ESM_GEN=0", FILES, hot, {
+    VITEST_NATIVE_HOT_ESM_GEN: "0",
+  });
+  check(
+    noGenEnv > 0,
+    `the hot runtime with VITEST_NATIVE_HOT_ESM_GEN=0 still fills the cache (${noGenEnv} entries)`,
+  );
+  // With ESM generation on, the cache stays off in the worker, so a run writes nothing:
+  // any entry means some copy of the decision turned it back on.
   const withGen = run("hot with ESM generation", FILES, hot);
   check(
-    withGen <= noGen,
-    `ESM generation adds no compile-cache entries (${withGen}, against ${noGen} without it)`,
+    withGen === 0,
+    `ESM generation leaves the compile cache off (${withGen} entries, expected 0)`,
   );
   const stock = run("per-file isolation", FILES, false);
   check(stock > 0, `per-file isolation still fills the cache (${stock} entries)`);
