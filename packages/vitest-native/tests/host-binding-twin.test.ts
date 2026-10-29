@@ -16,7 +16,13 @@ const REPO = path.resolve(PACKAGE_ROOT, "../..");
 const EXAMPLE = path.join(REPO, "apps/example");
 // The installed Vitest, copied twice into each fixture: two physical copies of one
 // version, laid out the way a peer-variant install leaves them, on any machine.
-const INSTALLED = fs.realpathSync(path.join(PACKAGE_ROOT, "node_modules/vitest"));
+/** Where the install put a package for `dirs`: beside them, or hoisted to the root. */
+function installed(name: string, dirs: string[]): string | undefined {
+  return dirs.map((dir) => path.join(dir, "node_modules", name)).find((dir) => fs.existsSync(dir));
+}
+const INSTALLED = fs.realpathSync(
+  installed("vitest", [PACKAGE_ROOT, REPO]) ?? path.join(PACKAGE_ROOT, "node_modules/vitest"),
+);
 const built = fs.existsSync(path.join(PACKAGE_ROOT, "dist/index.mjs"));
 const ready = built && fs.existsSync(EXAMPLE);
 const temps: string[] = [];
@@ -72,9 +78,16 @@ function twinProject(pluginOptions: string): string {
   fs.writeFileSync(path.join(root, "vitest.config.ts"), config);
   const modules = path.join(root, "node_modules");
   fs.mkdirSync(modules);
-  for (const entry of fs.readdirSync(path.join(EXAMPLE, "node_modules"))) {
-    if (["vitest", "vitest-native", ".bin"].includes(entry)) continue;
-    linkDir(path.join(EXAMPLE, "node_modules", entry), path.join(modules, entry));
+  // The example's declared dependencies, found where the install put them: beside the
+  // example in an isolated layout, or hoisted to the repository root (bun on Windows).
+  const manifest = JSON.parse(fs.readFileSync(path.join(EXAMPLE, "package.json"), "utf8"));
+  const names = Object.keys({ ...manifest.dependencies, ...manifest.devDependencies });
+  for (const name of names) {
+    if (name === "vitest" || name === "vitest-native") continue;
+    const from = installed(name, [EXAMPLE, REPO]);
+    if (!from) throw new Error(`${name}, a dependency of apps/example, is not installed`);
+    fs.mkdirSync(path.dirname(path.join(modules, name)), { recursive: true });
+    linkDir(from, path.join(modules, name));
   }
   copyVitest(path.join(modules, "vitest"));
   // A real directory, so React and the other peers resolve from the project.
@@ -83,7 +96,9 @@ function twinProject(pluginOptions: string): string {
   fs.cpSync(path.join(PACKAGE_ROOT, "dist"), path.join(own, "dist"), { recursive: true });
   fs.copyFileSync(path.join(PACKAGE_ROOT, "package.json"), path.join(own, "package.json"));
   for (const dep of ["flow-remove-types", "magic-string"]) {
-    linkDir(path.join(PACKAGE_ROOT, "node_modules", dep), path.join(own, "node_modules", dep));
+    const from = installed(dep, [PACKAGE_ROOT, REPO]);
+    if (!from) throw new Error(`${dep}, a dependency of vitest-native, is not installed`);
+    linkDir(from, path.join(own, "node_modules", dep));
   }
   copyVitest(path.join(own, "node_modules/vitest"));
   return root;
