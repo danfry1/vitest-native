@@ -234,8 +234,8 @@ export default defineConfig({
 
 | Preset | Library | What's mocked |
 |--------|---------|---------------|
-| `presets.reanimated()` | `react-native-reanimated` | Native engine with Reanimated 4.7+: Reanimated's own test mock (`react-native-reanimated/mock`), its whole API for the installed version, over the real package in its JS implementation, as a Jest suite gets it. Mock engine, or an older Reanimated: `useSharedValue`, `useAnimatedStyle`, `withTiming`, `withSpring`, `withDelay`, `withSequence`, `withRepeat`, layout animations (`FadeIn`, `FadeOut`, `SlideInRight`), `Easing`, `interpolate`, `createAnimatedComponent` |
-| `presets.worklets()` | `react-native-worklets` | Native engine with Worklets 0.9+: none needed, the real package runs in its JS implementation, so `runOnJS`, `runOnUI`, `scheduleOnRN` and `scheduleOnUI` run their worklet on a later tick, as under Jest. Mock engine, or an older Worklets: they run synchronously on the JS thread |
+| `presets.reanimated()` | `react-native-reanimated` | `useSharedValue`, `useAnimatedStyle`, `withTiming`, `withSpring`, `withDelay`, `withSequence`, `withRepeat`, layout animations (`FadeIn`, `FadeOut`, `SlideInRight`), `Easing`, `interpolate`, `createAnimatedComponent` |
+| `presets.worklets()` | `react-native-worklets` | `runOnJS`, `runOnUI`, `scheduleOnRN`, `scheduleOnUI`, `createWorkletRuntime`, … run synchronously on the JS thread |
 | `presets.gestureHandler()` | `react-native-gesture-handler` | `GestureHandlerRootView`, gesture handlers (Pan, Tap, LongPress, Pinch, Rotation, Fling), `Gesture` API (v2), `GestureDetector`, `Swipeable`, touchable wrappers, state constants |
 | `presets.safeAreaContext()` | `react-native-safe-area-context` | `SafeAreaProvider`, `SafeAreaView`, `useSafeAreaInsets`, `useSafeAreaFrame`, `initialWindowMetrics`, `withSafeAreaInsets` |
 | `presets.navigation()` | `@react-navigation/native`, `@react-navigation/native-stack`, `@react-navigation/bottom-tabs`, `@react-navigation/drawer`, `@react-navigation/elements` | `NavigationContainer`, `useNavigation`, `useRoute`, `useFocusEffect`, `useIsFocused`, `CommonActions`, `StackActions`, `TabActions`, `DrawerActions`, navigators |
@@ -485,14 +485,15 @@ React Native 0.84.1, Jest 29.7, Vitest 5.0.1:
 | | 50 files, 4 workers | 200 files, 8 workers | peak RSS @200f |
 |---|--:|--:|--:|
 | Jest (RN preset) | 1438ms | 3993ms | 4727MB |
-| `reactNative({ engine: 'native' })` — the default | 805ms (**1.79×**) | 1499ms (**2.66×**) | 1110MB |
-| `engine: 'native'`, `hotRuntime: false` | 3033ms (0.47×) | 11620ms (0.34×) | 905MB |
+| `engine: 'native'`, `hotRuntime: 'auto'` (opt-in) | 805ms (**1.79×**) | 1499ms (**2.66×**) | 1110MB |
+| `reactNative({ engine: 'native' })` — the default (`hotRuntime: false`) | 3033ms (0.47×) | 11620ms (0.34×) | 905MB |
 | `engine: 'mock'` | 2252ms (0.64×) | 6900ms (0.58×) | 1093MB |
 
-Out of the box the native engine runs the hot runtime (`hotRuntime: 'auto'`): workers are
-reused and React Native's precompiled module graph stays warm while every file still gets
-fresh app/test modules and verified process state. With per-file worker isolation instead
-(`hotRuntime: false`), the cost at scale is Vitest's worker-per-file model, which costs the
+By default the native engine gives every file a fresh worker (`hotRuntime: false`). Opting in
+to the hot runtime (`hotRuntime: 'auto'`) reuses workers and keeps React Native's precompiled
+module graph warm while every file still gets fresh app/test modules and verified process state;
+it has [known differences](https://danfry1.github.io/vitest-native/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files)
+from per-file isolation. With per-file worker isolation, the cost at scale is Vitest's worker-per-file model, which costs the
 pure-JS **mock** engine just as much and has nothing to do with React Native; Jest reuses
 workers and resets its module registry, which is what the hot runtime does too. At 200
 files every vitest-native configuration used a quarter or less of Jest's peak memory.
@@ -500,7 +501,7 @@ files every vitest-native configuration used a quarter or less of Jest's peak me
 This is one generated suite on one machine, so treat the ratios as indicative; your suite's
 shape decides yours. Where the hot runtime cannot be bounded (a single worker, an explicit
 pool, the worker and the project resolving different Vitest versions) `'auto'` keeps per-file
-isolation, and the row above is the one that applies. To reproduce, from `bench/`:
+isolation, and the default row is the one that applies. To reproduce, from `bench/`:
 `BENCH_FILES=50,200 BENCH_WORKERS_SWEEP=4,8 BENCH_ENGINES=jest,native-default,native-stock,mock node scale/run.mjs`.
 
 ## Contributing
