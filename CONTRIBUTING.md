@@ -24,7 +24,11 @@ bun run test
 1. Create a branch from `main`
 2. Make your changes in `packages/vitest-native/`
 3. Run `bun run lint` and `bun run format` before committing
-4. Add a changeset: `bunx changeset`
+4. Add a changeset: `bunx changeset`. CI requires one when the change ships: anything under
+   `packages/vitest-native/src/`, the build files, or a consumer-facing `package.json` field
+   (`exports`, `engines`, `bin`, `files`, `dependencies`, peers and the like). A production
+   dependency bump, a Dependabot one included, takes a patch changeset naming the bump.
+   An internal refactor takes `bunx changeset --empty`.
 5. Open a pull request
 
 ## Scripts
