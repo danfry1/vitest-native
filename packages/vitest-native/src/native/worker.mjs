@@ -11,6 +11,7 @@
 // file, hot RN graph.
 import { createRequire } from "node:module";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { isMainThread, parentPort, threadId } from "node:worker_threads";
 import { init, runBaseTests, setupEnvironment } from "vitest/worker";
 import { installGlobals, installErrorUtils } from "./globals.mjs";
@@ -22,35 +23,22 @@ import { captureModuleBaseline, resetEvaluatedModules } from "./module-reset.mjs
 import { registerRntlHooksOnImport } from "./rntl-hooks.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
 import { VitestNativeError } from "../errors.mjs";
+import { markBootContext, requireProjectContext } from "../context.mjs";
 
 if (isMainThread || !parentPort) {
   throw new VitestNativeError("HOT_WORKER_ENV", "hot worker entry must run in node:worker_threads");
 }
 
-const projectRoot = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
-const diagnostics = process.env.VITEST_NATIVE_DIAGNOSTICS === "true";
-const platform = process.env.VITEST_NATIVE_PLATFORM === "android" ? "android" : "ios";
-const reactNativeVersion = process.env.VITEST_NATIVE_RN_VERSION || "0.0.0";
-let transformPkgs = [];
-let preserveGlobals = [];
-let assetExts = [];
-let sourceExts = ["js", "jsx", "json", "ts", "tsx"];
-try {
-  if (process.env.VITEST_NATIVE_TRANSFORM)
-    transformPkgs = JSON.parse(process.env.VITEST_NATIVE_TRANSFORM);
-} catch {}
-try {
-  if (process.env.VITEST_NATIVE_SOURCE_EXTS)
-    sourceExts = JSON.parse(process.env.VITEST_NATIVE_SOURCE_EXTS);
-} catch {}
-try {
-  if (process.env.VITEST_NATIVE_ASSET_EXTS)
-    assetExts = JSON.parse(process.env.VITEST_NATIVE_ASSET_EXTS);
-} catch {}
-try {
-  if (process.env.VITEST_NATIVE_HOT_PRESERVE_GLOBALS)
-    preserveGlobals = JSON.parse(process.env.VITEST_NATIVE_HOT_PRESERVE_GLOBALS);
-} catch {}
+const context = requireProjectContext();
+markBootContext();
+const projectRoot = context.projectRoot;
+const diagnostics = context.diagnostics;
+const platform = context.platform;
+const reactNativeVersion = context.reactNativeVersion || "0.0.0";
+const transformPkgs = context.transform ?? [];
+const preserveGlobals = context.hotPreserveGlobals ?? [];
+const assetExts = context.assetExts ?? [];
+const sourceExts = context.sourceExts ?? ["js", "jsx", "json", "ts", "tsx"];
 
 if (diagnostics) {
   // One line per worker boot: under a hot pool, N files sharing a worker print
@@ -73,8 +61,8 @@ installKnownNativeModules(projectRoot);
 // worker keeps resident, and a preload that bypassed the registry would leave the
 // worker holding a second, separate copy of RN's singletons from the one every
 // test file sees.
-if (process.env.VITEST_NATIVE_RN_REGISTRY) {
-  installRegistry(process.env.VITEST_NATIVE_RN_REGISTRY, projectRoot, sourceExts);
+if (context.registry) {
+  installRegistry(context.registry, projectRoot, sourceExts);
 }
 installRequireHooks(
   projectRoot,
@@ -191,16 +179,91 @@ function clearPendingMocks(mocker) {
 }
 
 globalThis.__vitest_native_reset_module_runner = () => {
-  // The previous file's realm state (fake timers, stubbed globals, listeners) must be
-  // gone before ANY setup file of the next one runs. It used to be reset from this
-  // package's setup file, which Vitest runs after the user's own: a user setup that
-  // installs fake timers then found the previous file's still installed.
-  globalThis.__vitest_native_hot_reset?.();
-  if (!moduleRunner) return;
-  moduleRunner.mocker?.reset();
-  clearPendingMocks(moduleRunner.mocker);
-  resetEvaluatedModules(moduleRunner.evaluatedModules.idToModuleMap);
+  try {
+    // The previous file's realm state (fake timers, stubbed globals, listeners) must be
+    // gone before ANY setup file of the next one runs. It used to be reset from this
+    // package's setup file, which Vitest runs after the user's own: a user setup that
+    // installs fake timers then found the previous file's still installed.
+    globalThis.__vitest_native_hot_reset?.();
+  } finally {
+    // A failed realm restore is reported by the runner as this file's failure; the
+    // previous file's modules and mocks are still dropped, so what follows does not
+    // inherit them on top of it.
+    if (moduleRunner) {
+      moduleRunner.mocker?.reset();
+      clearPendingMocks(moduleRunner.mocker);
+      resetEvaluatedModules(moduleRunner.evaluatedModules.idToModuleMap);
+    }
+  }
 };
+
+// --- Every scheduled file gets a result ---
+//
+// Vitest runs a task's files in one loop, and anything that throws out of that loop
+// (rather than inside a file's own collection or tests) rejects the whole task. The
+// main thread then records one run-level "Test Run Error" and every file of the task
+// that had not been collected yet is simply absent: no file entry, no failed test, and
+// nothing at all in the JSON reporter, which does not carry run-level errors. In
+// single-worker mode a task is the whole suite. The hot runtime adds steps to that loop
+// (the per-file reset and bless in runner.mjs), so it owns making that loss loud.
+//
+// The runner reports each file it hands to the main thread. When a task rejects, the
+// files it never reached are run again through Vitest's own path with their import
+// replaced by an error that names the cause, so each one is reported as a failed file
+// by every reporter. The original error is rethrown too, so the run still fails with
+// it. Only our runner reports collection, so a project that replaced it is left alone.
+const ownRunner = path.join(path.dirname(fileURLToPath(import.meta.url)), "runner.mjs");
+const collected = new Set();
+globalThis.__vitest_native_file_collected = (filepath) => collected.add(filepath);
+
+function usesOwnRunner(state) {
+  const runner = state.ctx?.config?.runner;
+  return typeof runner === "string" && path.resolve(runner) === ownRunner;
+}
+
+async function runAccounted(method, state, traces) {
+  collected.clear();
+  try {
+    await runBaseTests(method, state, traces);
+  } catch (error) {
+    const lost = usesOwnRunner(state)
+      ? state.ctx.files.filter((file) => !collected.has(file.filepath))
+      : [];
+    if (lost.length > 0) await reportLostFiles(method, state, traces, lost, error);
+    throw error;
+  }
+}
+
+async function reportLostFiles(method, state, traces, lost, cause) {
+  const reason = cause instanceof Error ? cause.message : String(cause);
+  globalThis.__vitest_native_lost_file_error = (filepath) =>
+    new VitestNativeError(
+      "HOT_FILE_NOT_RUN",
+      `hotRuntime: ${filepath} was scheduled on this worker but never ran, because an ` +
+        `earlier step of the same task threw outside any test file: ${reason}`,
+      { cause },
+    );
+  try {
+    await runBaseTests(
+      method,
+      { ...state, ctx: { ...state.ctx, files: lost, invalidates: [] } },
+      traces,
+    );
+  } catch {
+    // The rethrown original error still fails the run; the message names every file.
+  } finally {
+    globalThis.__vitest_native_lost_file_error = undefined;
+  }
+  const missing = lost.filter((file) => !collected.has(file.filepath));
+  if (missing.length > 0) {
+    throw new VitestNativeError(
+      "HOT_FILE_NOT_RUN",
+      `hotRuntime: ${missing.length} scheduled test file(s) produced no result: ` +
+        `${missing.map((file) => file.filepath).join(", ")}. Cause: ${reason}`,
+      { cause },
+    );
+  }
+}
 
 init({
   // oxlint-disable-next-line unicorn/require-post-message-target-origin -- worker_threads MessagePort, not window
@@ -208,8 +271,8 @@ init({
   on: (callback) => parentPort.on("message", callback),
   off: (callback) => parentPort.off("message", callback),
   teardown: () => parentPort.removeAllListeners("message"),
-  runTests: (state, traces) => runBaseTests("run", state, traces),
-  collectTests: (state, traces) => runBaseTests("collect", state, traces),
+  runTests: (state, traces) => runAccounted("run", state, traces),
+  collectTests: (state, traces) => runAccounted("collect", state, traces),
   onModuleRunner: (runner) => {
     moduleRunner = runner;
     registerRntlHooksOnImport(runner.evaluator);

@@ -247,6 +247,12 @@ if (typeof globalThis.__vnInteropMock !== "function") globalThis.__vnInteropMock
   // Hot runtime: cleared at the file boundary and verified empty (state-manifest.mjs).
   globalThis.__vitest_native_register_state?.({
     id: NODE_MOCKS_STATE_ID,
+    // Before the value-based React Native restores. They reach their module through
+    // Node's loader (react-native's index getters `require` it), and while the
+    // previous file's `jest.mock` is still registered that load returns the mock:
+    // `jest.mock('react-native/Libraries/Utilities/Appearance', () => null)` made the
+    // Appearance restore read `null.setColorScheme` and fail the NEXT file's reset.
+    restoreOrder: -100,
     capture: () => null,
     restore: () => registry.clear(),
     verify: () => {
