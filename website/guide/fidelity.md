@@ -13,7 +13,7 @@ generated from the corpus itself, so the numbers below are exactly what ships.
 
 ## Summary
 
-- **85 / 85 probes** match between the mock engine and real React Native (this page was generated against React Native 0.88.0).
+- **87 / 87 probes** match between the mock engine and real React Native (this page was generated against React Native 0.88.0).
 - CI runs the same corpus across **React Native 0.81–0.88** on every commit to main.
 - Per-version results straight from the CI matrix: [Fidelity Matrix](/guide/fidelity-matrix).
 - Reproduce it yourself: `bun run crosscheck`.
@@ -70,7 +70,9 @@ across both engines.
 | `hunt-pressable-press-in-out` | ✅ match |
 | `hunt-pressable-style-fn` | ✅ match |
 | `hunt-processcolor-edge` | ✅ match |
+| `hunt-stylesheet-compose-nullish` | ✅ match |
 | `hunt-stylesheet-flatten-direct-falsy` | ✅ match |
+| `hunt-stylesheet-flatten-empty` | ✅ match |
 | `hunt-textinput-maxlength` | ✅ match |
 | `i18nmanager-isrtl` | ✅ match |
 | `image-render` | ✅ match |
