@@ -123,7 +123,7 @@
     "test": "vitest run",
     "test:native": "vitest run --config tests-native/vitest.config.mts && bun run test:native:preset-modules && bun run test:native:shared-root && bun run test:native:context",
     "test:native:context": "vitest run --config tests-native/vitest.context.config.mts && node --conditions=vn-probe node_modules/vitest/vitest.mjs run --config tests-native/vitest.context.config.mts --project threads",
-    "test:native:shared-root": "vitest run --config tests-native/vitest.shared-root.config.mts --mode stock && vitest run --config tests-native/vitest.shared-root.config.mts --mode hot && vitest run --config tests-native/vitest.shared-root.config.mts --mode extends",
+    "test:native:shared-root": "vitest run --config tests-native/vitest.shared-root.config.mts --mode stock && vitest run --config tests-native/vitest.shared-root.config.mts --mode hot && vitest run --config tests-native/vitest.shared-root-extends.config.mts",
     "test:native:preset-modules": "vitest run --config tests-native/vitest.custom-preset.config.mts --mode native && vitest run --config tests-native/vitest.custom-preset.config.mts --mode hot && vitest run --config tests-native/vitest.custom-preset.config.mts --mode mock",
     "test:native:forks": "vitest run --config tests-native/vitest.forks.config.mts",
     "test:native:navigation": "vitest run --config tests-native/vitest.navigation.config.mts",

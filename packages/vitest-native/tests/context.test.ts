@@ -58,16 +58,13 @@ describe("the project context", () => {
   });
 
   it("falls back to the temp directory when the cache cannot be written", () => {
+    // A file where the contexts directory goes: unwritable on every platform (a
+    // read-only mode is not enforced for directories on Windows).
     const root = tmp();
-    fs.mkdirSync(path.join(root, "contexts"));
-    fs.chmodSync(path.join(root, "contexts"), 0o500);
-    try {
-      const ref = writeProjectContext({ ...base, reactNativeVersion: `ro-${Date.now()}` }, root);
-      expect(fileOf(ref).startsWith(path.join(os.tmpdir(), "vitest-native-cache"))).toBe(true);
-      expect(projectContext(ref)?.platform).toBe("android");
-    } finally {
-      fs.chmodSync(path.join(root, "contexts"), 0o700);
-    }
+    fs.writeFileSync(path.join(root, "contexts"), "");
+    const ref = writeProjectContext({ ...base, reactNativeVersion: `ro-${Date.now()}` }, root);
+    expect(fileOf(ref).startsWith(path.join(os.tmpdir(), "vitest-native-cache"))).toBe(true);
+    expect(projectContext(ref)?.platform).toBe("android");
   });
 
   it("tolerates another run having renamed the same file into place first", () => {
@@ -128,11 +125,14 @@ describe("the project context", () => {
     it("a missing file", () => {
       const ref = write();
       fs.rmSync(fileOf(ref));
-      expect(() => projectContext(ref)).toThrow(
-        new RegExp(
-          `\\(missing\\)[\\s\\S]*delete ${path.dirname(fileOf(ref)).replace(/[\\\\^$.*+?()[\]{}|]/g, "\\\\$&")}`,
-        ),
-      );
+      let message = "";
+      try {
+        projectContext(ref);
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toMatch(/\(missing\)/);
+      expect(message).toContain(`delete ${path.dirname(fileOf(ref))}`);
     });
     it("a reference without a key", () => {
       expect(() => projectContext("/nowhere.json")).toThrow(/\(missing\)/);
