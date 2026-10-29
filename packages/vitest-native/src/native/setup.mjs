@@ -13,6 +13,7 @@ import * as presetFactories from "../presets.mjs";
 import { animatedMatchers } from "../matchers.mjs";
 import { serializer as rnSerializer } from "../serializer.mjs";
 import { VitestNativeError } from "../errors.mjs";
+import { CONTEXT_ENV, assertBootContext, requireProjectContext } from "../context.mjs";
 import { importPresetModule, presetModulePaths } from "../preset-modules.mjs";
 import { installNitroProxy } from "./nitro.mjs";
 import { createExpoNativeModuleResolver } from "./expo-native-modules.mjs";
@@ -54,27 +55,18 @@ if (globalThis.__vitest_native_hot_reset) {
   // creates the evaluation-order hazard that corrupted rendering (Rocket.Chat).
 }
 
-const projectRoot = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
-const diagnostics = process.env.VITEST_NATIVE_DIAGNOSTICS === "true";
-const platform = process.env.VITEST_NATIVE_PLATFORM === "android" ? "android" : "ios";
-const reactNativeVersion = process.env.VITEST_NATIVE_RN_VERSION || "0.0.0";
+const runContext = requireProjectContext();
+// Under the hot runtime a worker serves many files, all from the project it booted for.
+assertBootContext();
+const projectRoot = runContext.projectRoot;
+const diagnostics = runContext.diagnostics;
+const platform = runContext.platform;
+const reactNativeVersion = runContext.reactNativeVersion || "0.0.0";
 // Extra node_modules packages to transform (from the plugin's `transform` option).
-let transformPkgs = [];
-try {
-  if (process.env.VITEST_NATIVE_TRANSFORM)
-    transformPkgs = JSON.parse(process.env.VITEST_NATIVE_TRANSFORM);
-} catch {}
+const transformPkgs = runContext.transform ?? [];
 // Asset extensions the Node require hook loads as Metro asset modules (matches the Vite graph).
-let assetExts = [];
-let sourceExts = ["js", "jsx", "json", "ts", "tsx"];
-try {
-  if (process.env.VITEST_NATIVE_ASSET_EXTS)
-    assetExts = JSON.parse(process.env.VITEST_NATIVE_ASSET_EXTS);
-} catch {}
-try {
-  if (process.env.VITEST_NATIVE_SOURCE_EXTS)
-    sourceExts = JSON.parse(process.env.VITEST_NATIVE_SOURCE_EXTS);
-} catch {}
+const assetExts = runContext.assetExts ?? [];
+const sourceExts = runContext.sourceExts ?? ["js", "jsx", "json", "ts", "tsx"];
 
 // --- Third-party preset mocks ---
 //
@@ -91,18 +83,11 @@ try {
 // All three read the mock object from globalThis.__vitest_native_preset_mocks
 // (populated below). (2) and (3) close the gap where a third-party library pulls
 // in a preset package itself — those requests never reach Vite.
-let presetNames = [];
-try {
-  if (process.env.VITEST_NATIVE_PRESET_NAMES)
-    presetNames = JSON.parse(process.env.VITEST_NATIVE_PRESET_NAMES);
-} catch {}
+const presetNames = runContext.presetNames ?? [];
 // Per-preset config (preset name → JSON config), e.g. navigation route params.
-// Presets are rebuilt here from their name, so any factory options come via env.
-let presetConfig = {};
-try {
-  if (process.env.VITEST_NATIVE_PRESET_CONFIG)
-    presetConfig = JSON.parse(process.env.VITEST_NATIVE_PRESET_CONFIG);
-} catch {}
+// Presets are rebuilt here from their name, so any factory options come via the context.
+// Copied: the context is frozen, and a preset factory owns what it is given.
+const presetConfig = structuredClone(runContext.presetConfig ?? {});
 
 // Discover preset module (package) names + their export lists WITHOUT building the
 // mocks yet — building can lazily touch react-native, so the require hooks must be
@@ -111,17 +96,7 @@ try {
 // shadowed). A module with exportsFor (skia) reads its own by parsing the installed
 // package with Vite, which this worker must not repeat: it would load Vite into
 // every test file's worker.
-let providedPresetExports = {};
-try {
-  if (process.env.VITEST_NATIVE_PRESET_EXPORTS)
-    providedPresetExports = JSON.parse(process.env.VITEST_NATIVE_PRESET_EXPORTS);
-} catch (cause) {
-  throw new VitestNativeError(
-    "INVALID_OPTION",
-    "VITEST_NATIVE_PRESET_EXPORTS, which the plugin sets for its setup file, is not valid JSON.",
-    { cause },
-  );
-}
+const providedPresetExports = runContext.presetExports ?? {};
 const presetDefs = []; // [{ pkg, mod, presetName }]
 const presetExports = {}; // pkg -> string[] (named exports, for the ESM loader)
 const presetPreparations = [];
@@ -136,7 +111,7 @@ function adopt(preset) {
         "PRESET_UNAVAILABLE",
         `the ${preset.name} preset reads the named exports of '${pkg}' from the ` +
           `installed package, and the plugin passed none for this project. The plugin ` +
-          `sets them (VITEST_NATIVE_PRESET_EXPORTS) for each project it configures.`,
+          `sets them (the context's presetExports) for each project it configures.`,
       );
     }
     shadows = true;
@@ -249,7 +224,11 @@ if (!globalThis.__vitest_native_loader_registered) {
   // otherwise. Shared rather than passed by value because loader hooks run on their
   // own thread. Set VITEST_NATIVE_HOT_ESM_GEN=0 to opt out (and to mutation-test the
   // isolation gate that covers this).
-  if (globalThis.__vitest_native_hot_reset && process.env.VITEST_NATIVE_HOT_ESM_GEN !== "0") {
+  if (
+    globalThis.__vitest_native_hot_reset &&
+    runContext.hotEsmGeneration !== false &&
+    process.env.VITEST_NATIVE_HOT_ESM_GEN !== "0"
+  ) {
     globalThis.__vitest_native_hot_generation = new Int32Array(new SharedArrayBuffer(4));
     globalThis.__vitest_native_hot_generation[0] = 1;
   }
@@ -260,7 +239,8 @@ if (!globalThis.__vitest_native_loader_registered) {
     transformPkgs: nodeTransformPkgs,
     presetExports,
     assetExts,
-    sourceExts: process.env.VITEST_NATIVE_SOURCE_EXTS ? sourceExts : undefined,
+    sourceExts: runContext.sourceExts,
+    context: process.env[CONTEXT_ENV],
     hotGenerationBuffer: globalThis.__vitest_native_hot_generation?.buffer,
   });
 }
@@ -269,8 +249,8 @@ if (!globalThis.__vitest_native_loader_registered) {
 // redirect wraps this one and keeps precedence. Any module the registry cannot
 // serve — a computed require, a package in `transform` — falls through to the
 // hooks below, so this is purely a faster path to the same modules.
-if (process.env.VITEST_NATIVE_RN_REGISTRY) {
-  const installed = installRegistry(process.env.VITEST_NATIVE_RN_REGISTRY, projectRoot, sourceExts);
+if (runContext.registry) {
+  const installed = installRegistry(runContext.registry, projectRoot, sourceExts);
   if (diagnostics) {
     console.log(
       `[vitest-native] (native) precompiled RN registry ${installed ? "installed" : "unavailable; using per-file module loading"}`,
@@ -299,7 +279,7 @@ for (const file of presetModuleFiles) {
     throw new VitestNativeError(
       "PRESET_UNAVAILABLE",
       `the preset module ${file} shadows ${unread.join(", ")}, which the plugin did not ` +
-        `read while resolving its config (VITEST_NATIVE_PRESET_EXPORTS). The plugin reads ` +
+        `read while resolving its config (the context's presetExports). The plugin reads ` +
         `preset modules once, when the run starts: restart it after changing one.`,
     );
   }
