@@ -498,6 +498,22 @@ export function isTransforming() {
   return transformState.depth > 0;
 }
 
+/**
+ * The compiled output transformRN already holds for `file` as it is on disk now
+ * (same size and mtime), or undefined. For a caller that must read the source to
+ * decide whether to compile at all (isFlow, needsTransform): a file it compiled before
+ * is answered without that read.
+ */
+export function heldTransform(file, projectRoot, platform = "ios") {
+  let st;
+  try {
+    st = fs.statSync(file);
+  } catch {
+    return undefined;
+  }
+  return ctxFor(projectRoot).mem.get(`${platform}\0${file}\0${st.mtimeMs}\0${st.size}`);
+}
+
 export function transformRN(file, src, projectRoot, platform = "ios") {
   const ctx = ctxFor(projectRoot);
   // The in-memory key uses mtime+size (one statSync) so the hot path skips
@@ -511,6 +527,10 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   const memKey = `${platform}\0${file}\0${st.mtimeMs}\0${st.size}`;
   const memHit = ctx.mem.get(memKey);
   if (memHit !== undefined) return memHit;
+  // A caller that has not read the file yet passes no source, and pays for the read
+  // only here, on a miss. The hot runtime re-loads a library a test file used on every
+  // file, so its sources would otherwise be read again each time just to find this hit.
+  if (src === undefined) src = fs.readFileSync(file, "utf8");
 
   // App source under a project Babel config compiles with it (projectBabelOptions),
   // and the options it loaded key the output.

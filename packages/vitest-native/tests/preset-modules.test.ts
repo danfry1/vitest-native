@@ -12,6 +12,7 @@ import { reactNative, selectPresets } from "../src/plugin.js";
 import { presets } from "../src/index.js";
 import { presetFromModule } from "../src/preset-modules.mjs";
 import { runPluginConfig } from "./plugin-config.js";
+import { contextOf } from "./project-context-helpers.js";
 
 function project(files: Record<string, string>): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-preset-modules-"));
@@ -154,7 +155,7 @@ describe("the plugin with a preset module", () => {
     const file = path.join(root, "my-preset.ts");
     const plugin2 = reactNative({ engine: "mock", presets: [file] }) as any;
     const result = await runPluginConfig(plugin2, { root: process.cwd() });
-    expect(JSON.parse(result.test.env.VITEST_NATIVE_PRESET_MODULES)).toEqual([file]);
+    expect(contextOf(result).presetModules).toEqual([file]);
     await plugin2.configResolved({ root: process.cwd() });
     const id = plugin2.resolveId("my-lib", undefined);
     expect(id).toBe("\0virtual:preset:my-lib");

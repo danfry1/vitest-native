@@ -28,6 +28,9 @@ export default defineConfig({
       '@testing-library/react-native/build/matchers/extend-expect',
       '@testing-library/react-native/build/matchers',
       'react-test-renderer',
+      // The project context ships verbatim (copied below) and every bundle imports
+      // that one file: one module instance per realm, and no inlined copies.
+      /[\\/]src[\\/]context\.mjs$/,
     ],
   },
   hooks: {
