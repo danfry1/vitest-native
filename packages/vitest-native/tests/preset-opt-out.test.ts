@@ -13,6 +13,7 @@
 import { describe, expect, it } from "vitest";
 import { disabledPresetNames, reactNative } from "../src/index.js";
 import { runPluginConfig } from "./plugin-config.js";
+import { contextOf } from "./project-context-helpers.js";
 
 type PluginLike = {
   configResolved: (config: { root: string }) => Promise<void>;
@@ -22,8 +23,7 @@ async function activePresets(options?: unknown): Promise<string[]> {
   const plugin = reactNative(options as never) as unknown as PluginLike;
   await plugin.configResolved({ root: process.cwd() });
   const resolved = await runPluginConfig(plugin as never, { test: {} });
-  const names = resolved?.test?.env?.VITEST_NATIVE_PRESET_NAMES;
-  return names ? (JSON.parse(names) as string[]) : [];
+  return [...(contextOf(resolved).presetNames ?? [])];
 }
 
 describe("disabledPresetNames", () => {

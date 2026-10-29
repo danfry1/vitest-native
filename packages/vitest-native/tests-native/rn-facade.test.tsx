@@ -3,9 +3,10 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import * as RN from "react-native";
 import { Dimensions, Platform, StyleSheet } from "react-native";
+import { projectContext } from "../src/context.mjs";
 
 const req = createRequire(
-  path.join(process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd(), "package.json"),
+  path.join(projectContext()?.projectRoot ?? process.cwd(), "package.json"),
 );
 
 // The facade must be indistinguishable from importing React Native directly: same
