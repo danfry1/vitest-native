@@ -8,6 +8,7 @@
  * 'babel-plugin-macros'`), an error that names nothing about Babel.
  */
 import { createRequire } from "node:module";
+import { installedViteVersion } from "../host.js";
 import fs from "node:fs";
 import path from "node:path";
 import { AUTO_DETECT_PRESETS, presetShadowing, type PresetName } from "../preset-map.js";
@@ -266,7 +267,13 @@ export function classifyBabelPlugins(
 
 /** The installed major version of `vite`, or null. */
 export function viteMajor(root: string): number | null {
-  return installedMajor(root, "vite");
+  // From the module, not the manifest: see installedViteVersion.
+  const major = Number(
+    installedViteVersion(root)
+      ?.replace(/^[^0-9]*/, "")
+      .split(".")[0],
+  );
+  return Number.isFinite(major) ? major : installedMajor(root, "vite");
 }
 
 /** Whether `name` is installed where the project resolves it. */
