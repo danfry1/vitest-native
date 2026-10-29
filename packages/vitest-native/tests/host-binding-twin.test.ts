@@ -25,6 +25,11 @@ afterAll(() => {
   for (const dir of temps) fs.rmSync(dir, { recursive: true, force: true });
 });
 
+/** A directory link: a junction on Windows, which needs no symlink privilege. */
+function linkDir(target: string, dest: string): void {
+  fs.symlinkSync(fs.realpathSync(target), dest, process.platform === "win32" ? "junction" : "dir");
+}
+
 /**
  * A physical copy of the installed Vitest at `dest`, with its own dependencies linked
  * beside it in a nested node_modules, so the copy resolves them without the store.
@@ -40,21 +45,19 @@ function copyVitest(dest: string): void {
     if (entry.startsWith("@")) {
       fs.mkdirSync(path.join(deps, entry), { recursive: true });
       for (const scoped of fs.readdirSync(from)) {
-        fs.symlinkSync(
-          fs.realpathSync(path.join(from, scoped)),
-          path.join(deps, entry, scoped),
-          "dir",
-        );
+        linkDir(path.join(from, scoped), path.join(deps, entry, scoped));
       }
     } else {
-      fs.symlinkSync(fs.realpathSync(from), path.join(deps, entry), "dir");
+      linkDir(from, path.join(deps, entry));
     }
   }
 }
 
 /** apps/example whose `vitest` and vitest-native's own `vitest` are two physical copies. */
 function twinProject(pluginOptions: string): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-twin-"));
+  // The long spelling of the temp directory: Windows runners report an 8.3 short name
+  // (RUNNER~1), and two spellings of one file are two module instances to Vite.
+  const root = fs.mkdtempSync(path.join(fs.realpathSync.native(os.tmpdir()), "vn-twin-"));
   temps.push(root);
   for (const entry of ["__tests__", "src", "package.json"]) {
     fs.cpSync(path.join(EXAMPLE, entry), path.join(root, entry), { recursive: true });
@@ -71,10 +74,7 @@ function twinProject(pluginOptions: string): string {
   fs.mkdirSync(modules);
   for (const entry of fs.readdirSync(path.join(EXAMPLE, "node_modules"))) {
     if (["vitest", "vitest-native", ".bin"].includes(entry)) continue;
-    fs.symlinkSync(
-      fs.realpathSync(path.join(EXAMPLE, "node_modules", entry)),
-      path.join(modules, entry),
-    );
+    linkDir(path.join(EXAMPLE, "node_modules", entry), path.join(modules, entry));
   }
   copyVitest(path.join(modules, "vitest"));
   // A real directory, so React and the other peers resolve from the project.
@@ -83,10 +83,7 @@ function twinProject(pluginOptions: string): string {
   fs.cpSync(path.join(PACKAGE_ROOT, "dist"), path.join(own, "dist"), { recursive: true });
   fs.copyFileSync(path.join(PACKAGE_ROOT, "package.json"), path.join(own, "package.json"));
   for (const dep of ["flow-remove-types", "magic-string"]) {
-    fs.symlinkSync(
-      fs.realpathSync(path.join(PACKAGE_ROOT, "node_modules", dep)),
-      path.join(own, "node_modules", dep),
-    );
+    linkDir(path.join(PACKAGE_ROOT, "node_modules", dep), path.join(own, "node_modules", dep));
   }
   copyVitest(path.join(own, "node_modules/vitest"));
   return root;
