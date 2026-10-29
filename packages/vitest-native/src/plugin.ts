@@ -20,7 +20,7 @@ import { fsModuleCacheKey, shouldDefaultFsModuleCache } from "./fs-module-cache.
 import { knownNativeModulesFor, nativeModuleSpecsFor } from "./native/native-modules.mjs";
 import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
-import { detectEcosystemPackages } from "./native/ecosystem.js";
+import { detectEcosystemPackages, sourceAliasTargets } from "./native/ecosystem.js";
 import { containsPath, packageDirOf } from "./native/match.mjs";
 type AssetModules = typeof import("./native/assets.mjs");
 import type { HotMemoryPlan } from "./native/memory.mjs";
@@ -1818,12 +1818,27 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         const userInline = (userConfig as { test?: { server?: { deps?: { inline?: unknown } } } })
           .test?.server?.deps?.inline;
         const userInlinesEverything = userInline === true;
+        // Workspace packages `resolve.alias` points into are Vite's (see `aliasesSource`
+        // in native/ecosystem.ts). Their directories join the project's below, so the
+        // require hook reports a Node-owned package that still requires one by name —
+        // the one way such a package can still end up loaded twice. `test.alias` is
+        // read as well: Vitest merges it into `resolve.alias`.
+        const sourceAliasedDirs: string[] = [];
+        const aliasConfig = userConfig as {
+          resolve?: { alias?: unknown };
+          test?: { alias?: unknown };
+        };
         const ecosystem = detectEcosystemPackages(
           [resolvedRoot, ...includeRoots],
           transformPkgs,
           includeRoots,
           neverTransform,
           nativePresetNames,
+          [
+            ...sourceAliasTargets(aliasConfig.resolve?.alias),
+            ...sourceAliasTargets(aliasConfig.test?.alias),
+          ],
+          (_name, dir) => sourceAliasedDirs.push(dir),
         );
         // The directories Vite owns outright. Handed to the worker so the require
         // hook can say so if Node loads one of their files anyway — which happens
@@ -1843,11 +1858,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           .map((name) => packageDirOf(name, resolvedRoot))
           .filter((dir): dir is string => dir !== null && !/[\\/]node_modules[\\/]/.test(dir));
         const projectDirs = [
-          ...new Set(
-            [resolvedRoot, ...includeRoots]
+          ...new Set([
+            ...[resolvedRoot, ...includeRoots]
               .map((dir) => nearestPackageDir(dir))
               .filter((dir): dir is string => dir !== null),
-          ),
+            ...sourceAliasedDirs,
+          ]),
         ].filter((dir) => !linkedDetectedDirs.some((detected) => containsPath(dir, detected)));
         if (projectDirs.length > 0) {
           fields.projectDirs = projectDirs;

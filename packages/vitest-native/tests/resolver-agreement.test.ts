@@ -158,7 +158,8 @@ describe("Node resolving the project's own source", () => {
       dirs,
     );
     expect(warn).toHaveBeenCalledOnce();
-    expect(warn.mock.calls[0][0]).toContain("package under test");
+    expect(warn.mock.calls[0][0]).toContain("a file Vite owns as project source");
+    expect(warn.mock.calls[0][0]).toContain("package whose tests are running");
     expect(warn.mock.calls[0][0]).toContain("some-rn-lib");
     expect(warn.mock.calls[0][0]).toContain("Resolution alone does not prove execution");
     expect(warn.mock.calls[0][0]).not.toMatch(/Node loaded|now exists twice|observed owner/);
