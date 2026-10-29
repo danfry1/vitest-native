@@ -2650,9 +2650,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // A cache cleared during a watch session: rewrite the file before each rerun.
         const fields = writtenContexts.get(ref);
         if (fields) {
-          (vitest as { onTestsRerun?: (fn: () => void) => void }).onTestsRerun?.(() =>
-            ensureProjectContext(ref, fields),
-          );
+          (vitest as { onTestsRerun?: (fn: () => void) => void }).onTestsRerun?.(() => {
+            projectConfig.env![CONTEXT_ENV] = ensureProjectContext(
+              projectConfig.env![CONTEXT_ENV] ?? ref,
+              fields,
+            );
+          });
         }
       }
       const cli = vitest._cliOptions ?? vitest.config?.cliOptions ?? {};

@@ -91,10 +91,19 @@ const keyOf = (fields) =>
 /** Files older than this are removed whenever a context is written. */
 const PRUNE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 
+/** Files this process wrote or reused: never pruned while it runs. */
+const inUse = new Set();
+
 function writeIn(dir, key, body) {
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `${key}.json`);
-  if (fs.existsSync(file)) return file;
+  inUse.add(file);
+  if (fs.existsSync(file)) {
+    // Reused: mark it fresh, or another run's pruning would remove it mid-run.
+    const now = new Date();
+    fs.utimesSync(file, now, now);
+    return file;
+  }
   const tmp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
   try {
     fs.writeFileSync(tmp, body, { mode: 0o600 });
@@ -112,7 +121,9 @@ function writeIn(dir, key, body) {
   for (const name of fs.readdirSync(dir)) {
     const old = path.join(dir, name);
     try {
-      if (Date.now() - fs.statSync(old).mtimeMs > PRUNE_AFTER_MS) fs.rmSync(old, { force: true });
+      if (!inUse.has(old) && Date.now() - fs.statSync(old).mtimeMs > PRUNE_AFTER_MS) {
+        fs.rmSync(old, { force: true });
+      }
     } catch {
       // Removed by a concurrent run.
     }
@@ -163,23 +174,19 @@ function read(ref) {
 
 /**
  * Main process: make sure the file behind `ref` holds `fields`, rewriting it when it
- * is missing or fails validation (a cache cleared during a watch session).
+ * is missing or fails validation (a cache cleared during a watch session). Returns the
+ * reference to use, which moves to the temp directory if the cache cannot be written.
  */
 export function ensureProjectContext(ref, fields) {
+  const file = ref.slice(0, ref.lastIndexOf("#"));
   try {
     read(ref);
+    const now = new Date();
+    fs.utimesSync(file, now, now);
+    return ref;
   } catch {
-    const hash = ref.lastIndexOf("#");
-    fs.rmSync(ref.slice(0, hash), { force: true });
-    writeIn(
-      path.dirname(ref.slice(0, hash)),
-      ref.slice(hash + 1),
-      JSON.stringify({
-        version: CONTEXT_VERSION,
-        key: ref.slice(hash + 1),
-        fields,
-      }),
-    );
+    fs.rmSync(file, { force: true });
+    return writeProjectContext(fields, path.dirname(path.dirname(file)));
   }
 }
 

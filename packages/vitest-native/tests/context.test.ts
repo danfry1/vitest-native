@@ -1,8 +1,10 @@
 // The project context (src/context.mjs): one validated, frozen description of a project
 // that workers read instead of per-setting environment variables (ADR-0003).
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CONTEXT_ENV,
@@ -23,6 +25,18 @@ const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "vn-context-"));
 const fileOf = (ref: string) => ref.slice(0, ref.lastIndexOf("#"));
 
 afterEach(() => vi.restoreAllMocks());
+
+/** Writes a context from its own process, as another run would. */
+function writeAsAnotherRun(fields: object, root: string): string {
+  const script = `const { writeProjectContext } = await import(${JSON.stringify(
+    pathToFileURL(path.join(SRC, "context.mjs")).href,
+  )}); process.stdout.write(writeProjectContext(${JSON.stringify(fields)}, ${JSON.stringify(root)}));`;
+  const run = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    encoding: "utf8",
+  });
+  if (run.status !== 0) throw new Error(run.stderr);
+  return run.stdout;
+}
 
 describe("the project context", () => {
   it("round-trips typed and frozen, read once per realm", () => {
@@ -69,11 +83,24 @@ describe("the project context", () => {
 
   it("removes files older than a week when it writes", () => {
     const root = tmp();
-    const old = writeProjectContext({ ...base, reactNativeVersion: "old" }, root);
+    const old = writeAsAnotherRun({ ...base, reactNativeVersion: "old" }, root);
     const week = (Date.now() - 8 * 24 * 60 * 60 * 1000) / 1000;
     fs.utimesSync(fileOf(old), week, week);
     writeProjectContext({ ...base, reactNativeVersion: "new" }, root);
     expect(fs.existsSync(fileOf(old))).toBe(false);
+  });
+
+  it("never prunes a file another run reuses, however old it was", () => {
+    // Run B's config has been unchanged for eight days; run A, with another config,
+    // writes while B runs. Each is its own process, as two runs are.
+    const root = tmp();
+    const write = (fields: object) => writeAsAnotherRun(fields, root);
+    const b = write({ ...base, reactNativeVersion: "run-b" });
+    const old = (Date.now() - 8 * 24 * 60 * 60 * 1000) / 1000;
+    fs.utimesSync(fileOf(b), old, old);
+    expect(write({ ...base, reactNativeVersion: "run-b" })).toBe(b); // run B starts
+    write({ ...base, reactNativeVersion: "run-a" }); // run A starts, and prunes
+    expect(projectContext(b)?.reactNativeVersion).toBe("run-b");
   });
 
   it("is rewritten when the cache is cleared during a run", () => {
@@ -222,7 +249,9 @@ describe("worker code reads no other VITEST_NATIVE_ names", () => {
   // Main-process modules, which may name the retired variables (to warn about them).
   const MAIN_PROCESS = new Set(["plugin.ts", "native/apply.ts", "native/pool.ts"]);
   const ALLOWED = new Set([CONTEXT_ENV, ...ESCAPE_HATCHES]);
-  const NAME = /\bVITEST_NATIVE_[A-Z0-9_]+/g;
+  // `*`, not `+`: the bare prefix is how a name gets built (`"VITEST_NATIVE_" + x`,
+  // a template literal, a startsWith filter), so it is flagged too.
+  const NAME = /VITEST_NATIVE_[A-Z0-9_]*/g;
   const ENV_CONSTANT = /\b[A-Z][A-Z0-9_]*_ENV\b/g;
   const offences = (rel: string, source: string) => [
     ...[...source.matchAll(NAME)].filter((m) => !ALLOWED.has(m[0])).map((m) => `${rel}: ${m[0]}`),
@@ -265,6 +294,11 @@ describe("worker code reads no other VITEST_NATIVE_ names", () => {
   it("can see a name or a constant (negative control)", () => {
     expect(offences("x", "process.env.VITEST_NATIVE_PLATFORM")).toHaveLength(1);
     expect(offences("x", 'const KNOWN_ENV = "x"; process.env[KNOWN_ENV]')).toHaveLength(2);
+    expect(offences("x", 'process.env["VITEST_NATIVE_" + name]')).toHaveLength(1);
+    expect(offences("x", "process.env[`VITEST_NATIVE_${name}`]")).toHaveLength(1);
+    expect(
+      offences("x", 'Object.keys(process.env).filter((k) => k.startsWith("VITEST_NATIVE_"))'),
+    ).toHaveLength(1);
   });
 });
 

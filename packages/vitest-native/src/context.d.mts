@@ -33,7 +33,7 @@ export declare function writeProjectContext(
   fields: ProjectContextFields,
   cacheRoot: string,
 ): string;
-export declare function ensureProjectContext(ref: string, fields: ProjectContextFields): void;
+export declare function ensureProjectContext(ref: string, fields: ProjectContextFields): string;
 export declare function projectContext(ref?: string): Readonly<ProjectContextFields> | null;
 export declare function requireProjectContext(ref?: string): Readonly<ProjectContextFields>;
 export declare function markBootContext(ref?: string): void;
