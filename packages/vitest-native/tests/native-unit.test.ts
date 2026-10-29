@@ -730,19 +730,17 @@ describe("plugin engine routing", () => {
   });
 
   it("uses the legacy esbuild JSX configuration for Vite 6 and 7", async () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vn-vite-7-"));
-    try {
-      const viteDir = path.join(tmp, "node_modules", "vite");
-      fs.mkdirSync(viteDir, { recursive: true });
-      fs.writeFileSync(path.join(tmp, "package.json"), JSON.stringify({ name: "fixture" }));
-      fs.writeFileSync(path.join(viteDir, "package.json"), JSON.stringify({ version: "7.3.2" }));
-      const plugin = reactNative({ engine: "mock" }) as any;
-      const cfg = await runPluginConfig(plugin, { root: tmp }, SERVE_ENV);
-      expect(cfg.esbuild).toEqual({ jsx: "automatic" });
-      expect(cfg.oxc).toBeUndefined();
-    } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
-    }
+    // The version is the running Vite's, as its hook context states it (src/host.ts),
+    // not the version of a package named `vite` under the project root.
+    const plugin = reactNative({ engine: "mock" }) as any;
+    const handler = plugin.config.handler ?? plugin.config;
+    const cfg = await handler.call(
+      { meta: { viteVersion: "7.3.2" } },
+      { root: projectRoot },
+      SERVE_ENV,
+    );
+    expect(cfg.esbuild).toEqual({ jsx: "automatic" });
+    expect(cfg.oxc).toBeUndefined();
   });
 
   it("explicit native sets RN external + a native setup file, and does NOT virtualize react-native", async () => {
