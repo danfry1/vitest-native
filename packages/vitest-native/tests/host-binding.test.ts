@@ -17,6 +17,7 @@ import { runInit } from "../src/cli/init.js";
 import { runDoctor } from "../src/cli/doctor.js";
 import { viteMajor } from "../src/cli/babel-config.js";
 import { analyzeJestConfig } from "../src/cli/migrate.js";
+import { contextOf } from "./project-context-helpers.js";
 
 // vitest-native binds to the Vite and Vitest that are running, not to the packages a
 // lookup by name finds from the project root (src/host.ts, issue #354). Under Vite+ the
@@ -148,11 +149,11 @@ describe("the running Vite", () => {
     const eight = await configUnder(reactNative({ engine: "mock" }) as any, "8.3.4", root);
     expect(eight.oxc).toBeDefined();
     expect(eight.resolve?.tsconfigPaths).toBe(true);
-    expect(eight.test.env.VITEST_NATIVE_REQUIRE_ALIASES).toContain("@/");
+    expect(JSON.stringify(contextOf(eight).requireAliases)).toContain("@/");
     const seven = await configUnder(reactNative({ engine: "mock" }) as any, "7.3.2", root);
     expect(seven.esbuild).toEqual({ jsx: "automatic" });
     expect(seven.resolve?.tsconfigPaths).toBeUndefined();
-    expect(seven.test.env.VITEST_NATIVE_REQUIRE_ALIASES).toBeUndefined();
+    expect(contextOf(seven).requireAliases).toBeUndefined();
   });
 });
 
