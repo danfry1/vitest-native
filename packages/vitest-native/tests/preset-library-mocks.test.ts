@@ -7,15 +7,16 @@
  * fails at the call site ("X is not a function"). Every such name is listed below with
  * the preset that lacks it, so a new gap fails here, and a listed gap the preset has
  * since filled fails too: the lists only shrink. Names are read from the installed
- * package's files, without running them (esmExportNames, mockModuleExportNames).
+ * package's files, without running them (esmExportNames, cjsExportNames).
  *
  * The unistyles and skia presets have their own gates (unistyles-preset.test.ts, and
  * skia's preset is built from Skia's own mock).
  */
+import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { esmExportNames, mockModuleExportNames } from "../src/presets/esm-export-names.js";
+import { esmExportNames } from "../src/presets/esm-export-names.js";
 import * as presets from "../src/presets/index.js";
 import type { Preset } from "../src/types.js";
 
@@ -255,8 +256,78 @@ const CASES: Record<string, Case> = {
   },
 };
 
+type Node = { type: string; [key: string]: any };
+const { parseAst } = require("vite") as { parseAst: (code: string) => { body: Node[] } };
+
+/** A package's real export names, from its ESM entry (`module`, else `react-native`). */
+function packageExportNames(pkg: string): string[] {
+  const dir = packageDir(pkg);
+  const manifest = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
+  const entry = manifest.module ?? manifest["react-native"];
+  if (!entry) throw new Error(`${pkg} declares no ESM entry`);
+  return esmExportNames(path.join(dir, entry));
+}
+
+/**
+ * The names a mock module provides, read without running it: its ESM named exports,
+ * and the keys of the object it assigns to `module.exports` or exports as default
+ * (following a variable to its object literal). A spread of `jest.requireActual(pkg)`
+ * or `require(pkg)` brings in that package's real export names.
+ */
+function mockExportNames(file: string): string[] {
+  const body = parseAst(fs.readFileSync(file, "utf8")).body;
+  const names = new Set<string>();
+  // A variable's initializer, so `const mock = {...}; module.exports = mock` reads.
+  const resolve = (node: Node | undefined): Node | undefined => {
+    if (node?.type !== "Identifier") return node;
+    for (const stmt of body) {
+      if (stmt.type !== "VariableDeclaration") continue;
+      for (const d of stmt.declarations) {
+        if (d.id.type === "Identifier" && d.id.name === node.name) return resolve(d.init);
+      }
+    }
+    return undefined;
+  };
+  const requiredPackage = (node: Node | undefined): string | undefined => {
+    const callee = node?.type === "CallExpression" ? node.callee : undefined;
+    const isRequire =
+      (callee?.type === "Identifier" && callee.name === "require") ||
+      (callee?.type === "MemberExpression" && callee.property?.name === "requireActual");
+    return isRequire ? node!.arguments[0]?.value : undefined;
+  };
+  const objectFor = (node: Node | undefined): Node | undefined => {
+    const value = resolve(node);
+    return value?.type === "ObjectExpression" ? value : undefined;
+  };
+  const addObject = (object: Node | undefined) => {
+    for (const prop of object?.properties ?? []) {
+      if (prop.type === "SpreadElement") {
+        const pkg = requiredPackage(resolve(prop.argument));
+        if (pkg) for (const n of packageExportNames(pkg)) names.add(n);
+        else addObject(objectFor(prop.argument));
+      } else if (prop.key) {
+        names.add(prop.key.type === "Identifier" ? prop.key.name : String(prop.key.value));
+      }
+    }
+  };
+  for (const stmt of body) {
+    if (stmt.type === "ExportDefaultDeclaration") addObject(objectFor(stmt.declaration));
+    const expr = stmt.type === "ExpressionStatement" ? stmt.expression : undefined;
+    if (
+      expr?.type === "AssignmentExpression" &&
+      expr.left.type === "MemberExpression" &&
+      expr.left.object?.name === "module" &&
+      expr.left.property?.name === "exports"
+    ) {
+      addObject(objectFor(expr.right));
+    }
+  }
+  for (const n of esmExportNames(file)) names.add(n);
+  return [...names];
+}
+
 function referenceNames({ kind, file }: Reference): string[] {
-  const names = kind === "esm" ? esmExportNames(file) : mockModuleExportNames(file);
+  const names = kind === "esm" ? esmExportNames(file) : mockExportNames(file);
   return [...new Set(names)].filter((name) => name !== "default" && name !== "__esModule").sort();
 }
 

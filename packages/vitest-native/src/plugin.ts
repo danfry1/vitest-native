@@ -484,8 +484,7 @@ async function resolveOptions(
     const detected = await autoDetectPresets(diagnostics, root);
     const disabled = disabledPresetNames(options.presets);
     builtIn = detected.filter(
-      (p) =>
-        !disabled.has(p.name) && autoDetectedPresetApplies(p.name, engine, options.presets, root),
+      (p) => !disabled.has(p.name) && autoDetectedPresetApplies(p.name, engine, options.presets),
     );
   }
   const presets = [...builtIn, ...(await loadPresetModules(modulePaths, root))];
@@ -1483,11 +1482,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // Hot runtime (native engine only): persistent RN-hot workers with per-file
   // isolation via the custom pool. `auto` is a conservative selector: it keeps
   // stock isolation whenever config-time evidence cannot prove this path safe.
-  // 'auto' by default: the bounded hot runtime where config-time evidence shows it
-  // is safe, per-file isolation otherwise. Declines are reported only when the user
-  // asked for hot explicitly; the implicit default falls back quietly.
+  // Off by default, as in 0.13.0: each file runs in a fresh worker until the hot
+  // runtime's known per-file differences are detected and recovered (troubleshooting
+  // guide). 'auto' opts in: the bounded hot runtime where config-time evidence shows
+  // it is safe, per-file isolation otherwise, with the reason for any decline printed.
   const hotRuntimeExplicit = options?.hotRuntime !== undefined;
-  const hotRuntimeOpt = options?.hotRuntime ?? "auto";
+  const hotRuntimeOpt = options?.hotRuntime ?? false;
   const hotRuntimeRequested = hotRuntimeOpt !== false;
   const hotRuntimeAuto = hotRuntimeOpt === "auto";
   const hotRecycle = typeof hotRuntimeOpt === "object" ? hotRuntimeOpt : {};
@@ -1707,8 +1707,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           ? selection.listed.map((p) => p.name)
           : autoDetectPresetNames(resolvedRoot, diagnostics).filter(
               (n) =>
-                !disabledNative.has(n) &&
-                autoDetectedPresetApplies(n, "native", options?.presets, resolvedRoot),
+                !disabledNative.has(n) && autoDetectedPresetApplies(n, "native", options?.presets),
             );
         if (nativePresetNames.length > 0) {
           env.VITEST_NATIVE_PRESET_NAMES = JSON.stringify(nativePresetNames);
@@ -2135,11 +2134,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         let shadows = false;
         for (const [moduleName, presetModule] of Object.entries(preset.modules)) {
           const names = presetModule.exportsFor
-            ? presetModule.exportsFor({
-                projectRoot: config.root,
-                platform: resolved.platform,
-                engine,
-              })
+            ? presetModule.exportsFor({ projectRoot: config.root, platform: resolved.platform })
             : presetModule.exports;
           exportsByModule[moduleName] = names;
           if (names === null) continue;

@@ -122,32 +122,7 @@ function isFile(file) {
 }
 
 function scanPlatformFile(absBase, platform, sourceExts) {
-  return scanWithExtensions(absBase, extensionsFor(platform, sourceExts));
-}
-
-/**
- * `resolveRelativePlatformFile` with an explicit extension list: a library's own Jest
- * resolver can narrow the list for its files (jest-resolvers.mjs).
- */
-export function resolveRelativeWithExtensions(request, fromFile, extensions) {
-  const base = path.resolve(path.dirname(fromFile), request);
-  const key =
-    "\0ext\0" +
-    extensions.join("\0") +
-    "\0" +
-    base +
-    (TRAILING_SEPARATOR.test(request) ? path.sep : "");
-  const cached = resolveCache.get(key);
-  if (cached !== undefined) return cached;
-  const resolved = scanWithExtensions(
-    TRAILING_SEPARATOR.test(request) ? base + path.sep : base,
-    extensions,
-  );
-  resolveCache.set(key, resolved);
-  return resolved;
-}
-
-function scanWithExtensions(absBase, extensions) {
+  const extensions = extensionsFor(platform, sourceExts);
   // metro-resolver resolveModulePath (src/resolve.js:316-350): a path ending in a
   // separator skips the file lookup and goes straight to the directory.
   const dirOnly = TRAILING_SEPARATOR.test(absBase);
