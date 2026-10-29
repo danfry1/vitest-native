@@ -1,6 +1,6 @@
 {
   "name": "vitest-native",
-  "version": "0.14.0-rc.8",
+  "version": "0.14.0-rc.9",
   "description": "Run real React Native tests under Vitest. One install, zero config.",
   "keywords": [
     "expo",
