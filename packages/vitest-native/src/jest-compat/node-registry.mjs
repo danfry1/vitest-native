@@ -96,8 +96,13 @@ function createState() {
     bypass: null,
     /** The open isolateModules block, if any. */
     isolation: null,
-    /** Module._cache keys present when the registry was installed: never reset. */
+    /**
+     * Module._cache keys a reset never drops. Taken when the registry is created, then
+     * once more where the native setup installs the sharing (`shareProjectModules`), so a
+     * library's Jest setup or a preset that creates the registry earlier cannot shrink it.
+     */
     baseline: new Set(Object.keys(Module._cache)),
+    baselineFixed: false,
   };
 
   // Resolve as the require hooks will, so registration and lookup share one key:
@@ -130,9 +135,13 @@ function createState() {
     }
   }
 
+  /** How often the load hook resolved, and how often it left a request to Node unresolved. */
+  state.stats = { resolves: 0, toNode: 0 };
+
   /** Cached: resolution does not change within a worker, whatever is mocked. */
   state.resolve = (request, parent) => {
     if (typeof request !== "string" || Module.isBuiltin(request)) return null;
+    state.stats.resolves++;
     parent ??= rootParent;
     const key = `${parent.filename}\0${request}`;
     let filename = state.resolutions.get(key);
@@ -344,10 +353,14 @@ export function nodeRegistry() {
  * Installed by the native engine's setup in every worker, so a project file that a test
  * imports and that Node later `require`s is one module (`viteInstanceOf`). It is the same
  * registry jest-compat uses; before this, only jest-compat or a library's Jest setup
- * created it, so whether a project file loaded once or twice depended on those.
+ * created it, so whether a project file loaded once or twice depended on those. Its call
+ * is also the fixed point the registry's baseline is taken at, once per worker.
  */
 export function shareProjectModules() {
-  nodeRegistry();
+  const state = nodeRegistry();
+  if (state.baselineFixed) return;
+  state.baseline = new Set(Object.keys(Module._cache));
+  state.baselineFixed = true;
 }
 
 /**
@@ -391,6 +404,40 @@ function viteInstanceOf(filename) {
   return NONE;
 }
 
+/**
+ * Whether `request` is a bare specifier no alias rewrites, for a package whose nearest copy
+ * from the project root up is a real installed package (its real path is under a
+ * node_modules directory, as with npm, pnpm and bun stores) rather than a link to source.
+ * Cached per package for the worker's life; a package not found answers false.
+ */
+const installedPackages = new Map();
+function installedBareSpecifier(request) {
+  if (request.startsWith(".") || path.isAbsolute(request) || request.startsWith("file:")) {
+    return false;
+  }
+  if (expandAlias(request, config.aliases) !== request) return false;
+  const parts = request.split("/");
+  const name = request.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
+  let installed = installedPackages.get(name);
+  if (installed === undefined) {
+    installed = false;
+    // The nearest node_modules holding it, from the project root up, as Node looks.
+    for (let dir = config.projectRoot; ; dir = path.dirname(dir)) {
+      let real;
+      try {
+        real = fs.realpathSync(path.join(dir, "node_modules", name));
+      } catch {
+        if (path.dirname(dir) === dir) break;
+        continue;
+      }
+      installed = NODE_MODULES.test(real + path.sep);
+      break;
+    }
+    installedPackages.set(name, installed);
+  }
+  return installed;
+}
+
 function installLoadHook(state) {
   const origLoad = Module._load;
   Module._load = function (request, parent, ...rest) {
@@ -402,6 +449,13 @@ function installLoadHook(state) {
       !NODE_MODULES.test(parent.filename) &&
       state.isResettable(parent.filename);
     if ((!fromProject && state.isEmpty()) || Module.isBuiltin(request)) {
+      return origLoad.call(this, request, parent, ...rest);
+    }
+    // With no mocks, only a project file can be served from Vite, so a bare specifier no
+    // alias rewrites, whose package is installed under node_modules, goes to Node as is.
+    // A workspace package linked from node_modules to its source is resolved as before.
+    if (state.isEmpty() && installedBareSpecifier(request)) {
+      state.stats.toNode++;
       return origLoad.call(this, request, parent, ...rest);
     }
     const filename = state.resolve(request, parent);
