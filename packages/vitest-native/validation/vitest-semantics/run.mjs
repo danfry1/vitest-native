@@ -1,4 +1,7 @@
-// Packed gate: Vitest behaves as Vitest users know it under vitest-native's defaults.
+// Packed gate: Vitest behaves as Vitest users know it under vitest-native, both with the
+// default per-file isolation and with the hot runtime opted into (`hotRuntime: 'auto'`).
+// The rows run with the opt-in, where reused workers put Vitest's semantics most at risk;
+// the `default` row runs bare and asserts the default stays per-file isolation.
 //
 // One packed install, many runs. Each scenario sets Vitest config and/or CLI flags the
 // way a user would and asserts three things:
@@ -115,8 +118,9 @@ import { reactNative } from "vitest-native";
 
 const plugin = JSON.parse(process.env.VN_PLUGIN ?? "{}");
 const test = JSON.parse(process.env.VN_TEST ?? "{}");
+const optIn = process.env.VN_BARE ? {} : { hotRuntime: "auto" };
 export default defineConfig({
-  plugins: [reactNative({ engine: "native", ...plugin })],
+  plugins: [reactNative({ engine: "native", ...optIn, ...plugin })],
   test: { environment: "node", include: ["src/**/*.test.mjs"], ...test },
 });
 `,
@@ -260,7 +264,7 @@ test("fails when VN_FAIL is set", () => {
       `import { defineConfig } from "vitest/config";
 import { reactNative } from "vitest-native";
 export default defineConfig({
-  plugins: [reactNative({ engine: "native" })],
+  plugins: [reactNative({ engine: "native", hotRuntime: "auto" })],
   test: { name: "${name}", environment: "node", root: import.meta.dirname, include: ["*.test.mjs"] },
 });
 `,
@@ -288,7 +292,7 @@ export default defineConfig({ test: { projects: ["nested/container"] } });
     `import { defineConfig } from "vitest/config";
 import { reactNative } from "vitest-native";
 export default defineConfig({
-  plugins: [reactNative({ engine: "native" })],
+  plugins: [reactNative({ engine: "native", hotRuntime: "auto" })],
   test: {
     environment: "node",
     include: ["*.test.mjs"],
@@ -472,7 +476,13 @@ try {
   const INLINE_PROJECTS = ["a", "b"].map((name) => ({ extends: true, test: { name } }));
   const rows = [
     // [name, scenario, expected mode, expectation(result)]
-    ["default", {}, HOT, (r) => r.status === 0 && r.passed === all.total],
+    [
+      "default",
+      { env: { VN_BARE: "1" } },
+      "isolated",
+      (r) => r.status === 0 && r.passed === all.total,
+    ],
+    ["hotRuntime:'auto'", {}, HOT, (r) => r.status === 0 && r.passed === all.total],
     ["hotRuntime:false", { plugin: { hotRuntime: false } }, "isolated", (r) => r.status === 0],
     ["isolate:true", { test: { isolate: true } }, "isolated", (r) => r.status === 0],
     // vitest-native's setup must run BEFORE the user's: Vite appends a plugin's

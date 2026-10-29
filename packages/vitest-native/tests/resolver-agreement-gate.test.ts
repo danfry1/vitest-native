@@ -17,6 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
+import { CONTEXT_ENV, writeProjectContext } from "../src/context.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const HOOKS = path.join(HERE, "..", "src", "native", "hooks.mjs");
@@ -56,7 +57,10 @@ function warningsWhenResolving(diagnostics: boolean): string {
     encoding: "utf8",
     env: {
       ...process.env,
-      VITEST_NATIVE_DIAGNOSTICS: diagnostics ? "true" : "false",
+      [CONTEXT_ENV]: writeProjectContext(
+        { platform: "ios", diagnostics, projectRoot: root },
+        path.join(root, ".contexts"),
+      ),
     },
   });
   if (run.status !== 0) throw new Error(`resolving through the hook failed:\n${run.stderr}`);

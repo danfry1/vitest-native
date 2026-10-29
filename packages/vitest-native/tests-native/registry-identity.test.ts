@@ -2,18 +2,19 @@ import { describe, it, expect } from "vitest";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { Dimensions, DeviceEventEmitter, Platform } from "react-native";
+import { projectContext } from "../src/context.mjs";
 
 // Integration checks for the registry as the ENGINE serves it, rather than for the
 // builder in isolation (tests-native/registry.test.ts covers that). The property
 // that matters here is single-instance: an ecosystem package requiring React Native
 // internals through Node must observe the same singletons the test's own imports do,
 // or state set in one place is invisible in the other.
-const projectRoot = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
+const projectRoot = projectContext()?.projectRoot ?? process.cwd();
 const req = createRequire(path.join(projectRoot, "package.json"));
 
 describe("native engine: React Native module identity", () => {
   it("serves the precompiled registry", () => {
-    expect(process.env.VITEST_NATIVE_RN_REGISTRY).toBeTruthy();
+    expect(projectContext()?.registry).toBeTruthy();
     expect((globalThis as Record<string, unknown>).__vitest_native_registry_installed).toBe(true);
   });
 
@@ -43,8 +44,7 @@ describe("native engine: React Native module identity", () => {
     // The registry only contains what react-native's entry can reach. Anything else
     // — a module only some ecosystem package imports, or one reached by a computed
     // require — must still load, Flow-stripped, through the hooks.
-    const ids: string[] = req(process.env.VITEST_NATIVE_RN_REGISTRY as string)
-      .__vitestNativeRegistry.ids;
+    const ids: string[] = req(projectContext()!.registry as string).__vitestNativeRegistry.ids;
     const outside = "react-native/Libraries/Utilities/HMRClient";
     expect(ids.some((f) => f.replace(/\\/g, "/").endsWith("/Utilities/HMRClient.js"))).toBe(false);
     expect(typeof req(outside).default).toBe("object");

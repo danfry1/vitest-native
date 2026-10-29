@@ -1,9 +1,11 @@
 import { captureModuleBaseline } from "./node_modules/vitest-native/dist/native/module-reset.mjs";
 import { installHotReset } from "./node_modules/vitest-native/dist/native/reset.mjs";
+import { projectContext } from "./node_modules/vitest-native/dist/context.mjs";
 
 if (globalThis.__vitest_native_module_mode_bootstrap) {
-  const projectRoot = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
-  const diagnostics = process.env.VITEST_NATIVE_DIAGNOSTICS === "true";
+  const context = projectContext();
+  const projectRoot = context?.projectRoot ?? process.cwd();
+  const diagnostics = context?.diagnostics === true;
   let preserveGlobals = [];
   try {
     if (process.env.VITEST_NATIVE_HOT_PRESERVE_GLOBALS) {

@@ -10,8 +10,8 @@
  * 6. Auto-registers RNTL matchers
  * 7. Registers snapshot serializer
  *
- * Options are received via process.env (set by the plugin's config() hook
- * via test.env). This is necessary because the plugin runs in Vite's main
+ * Options are received through the project context, which the plugin's config() hook
+ * writes and names in test.env. This is necessary because the plugin runs in Vite's main
  * process while this setup file runs in Vitest worker processes — globalThis
  * does NOT survive that boundary.
  */
@@ -23,56 +23,31 @@ import * as presetFactories from "./presets/index.js";
 import Module, { createRequire } from "node:module";
 import path from "node:path";
 import type { Preset } from "./types.js";
-import { VitestNativeError } from "./errors.mjs";
 import { importPresetModule, presetModulePaths } from "./preset-modules.mjs";
 import { installRendererReportError } from "./report-error.mjs";
 import { AUTO_DETECT_PRESETS, presetForInstalled } from "./preset-map.js";
 import { serializer as rnSerializer } from "./serializer.js";
 import { animatedMatchers } from "./matchers/animated.js";
+import { projectContext, type ProjectContextFields } from "./context.mjs";
 
-// --- Read options from process.env ---
+// --- Read options from the project context ---
 
-const platform = (process.env.VITEST_NATIVE_PLATFORM as "ios" | "android") || "ios";
-const diagnostics = process.env.VITEST_NATIVE_DIAGNOSTICS === "true";
-const projectRoot = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
+// Without the plugin (the setup file imported on its own), the defaults it always had.
+const context: Partial<ProjectContextFields> = projectContext() ?? {};
+const platform = context.platform ?? "ios";
+const diagnostics = context.diagnostics === true;
+const projectRoot = context.projectRoot ?? process.cwd();
 const projectReq = createRequire(path.join(projectRoot, "package.json"));
 
-let customMocks: Record<string, any> = {};
-if (process.env.VITEST_NATIVE_MOCKS) {
-  try {
-    customMocks = JSON.parse(process.env.VITEST_NATIVE_MOCKS);
-  } catch (e) {
-    if (diagnostics) {
-      console.warn(`[vitest-native] Failed to parse VITEST_NATIVE_MOCKS: ${(e as Error)?.message}`);
-    }
-  }
-}
+// Copied: the context is frozen, and these become the test's own mutable mocks.
+const customMocks: Record<string, any> =
+  context.mocks && typeof context.mocks === "object" ? structuredClone(context.mocks) : {};
 
 // Explicit preset names from plugin config, or null for auto-detect.
-let explicitPresetNames: string[] | null = null;
+const explicitPresetNames: string[] | null = context.presetNames ? [...context.presetNames] : null;
 // Names switched off by `presets: { name: false }`. Auto-detection still runs in the
 // worker; these are removed from what it finds.
-let disabledPresetNames: string[] = [];
-if (process.env.VITEST_NATIVE_PRESET_DISABLED) {
-  try {
-    disabledPresetNames = JSON.parse(process.env.VITEST_NATIVE_PRESET_DISABLED) as string[];
-  } catch {
-    disabledPresetNames = [];
-  }
-}
-
-if (process.env.VITEST_NATIVE_PRESET_NAMES) {
-  try {
-    explicitPresetNames = JSON.parse(process.env.VITEST_NATIVE_PRESET_NAMES);
-  } catch (e) {
-    if (diagnostics) {
-      console.warn(
-        `[vitest-native] Failed to parse VITEST_NATIVE_PRESET_NAMES: ${(e as Error)?.message}`,
-      );
-    }
-    explicitPresetNames = null;
-  }
-}
+const disabledPresetNames: string[] = [...(context.presetDisabled ?? [])];
 
 // --- 1. Globals ---
 
@@ -214,17 +189,7 @@ g.__vitest_native_preset_mocks = g.__vitest_native_preset_mocks || Object.create
 // Which preset modules to shadow: the plugin read every module's named exports while
 // resolving its config, and a module whose package is not installed (null) is not
 // shadowed. Without the plugin's list, every module is.
-let presetExports: Record<string, string[] | null> = {};
-try {
-  if (process.env.VITEST_NATIVE_PRESET_EXPORTS)
-    presetExports = JSON.parse(process.env.VITEST_NATIVE_PRESET_EXPORTS);
-} catch (cause) {
-  throw new VitestNativeError(
-    "INVALID_OPTION",
-    "VITEST_NATIVE_PRESET_EXPORTS, which the plugin sets for its setup file, is not valid JSON.",
-    { cause },
-  );
-}
+const presetExports = (context.presetExports ?? {}) as Record<string, string[] | null>;
 const preparations: Promise<void>[] = [];
 /** Registers a preset's modules, now or once its preparation settles. */
 function activate(preset: Preset): Promise<void> | void {
