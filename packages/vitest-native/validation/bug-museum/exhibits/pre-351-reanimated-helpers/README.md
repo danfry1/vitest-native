@@ -15,4 +15,4 @@ The helpers compute what they compute on a device: interpolate(5, [0,10], [0,100
 
 ## Notes
 
-The fix branch is local (not pushed): it is stacked on feat/library-jest-scope (GH and flash-list run as themselves) and #349. The reporter's own jest.mock workarounds are not used here: the exhibit asserts the libraries work as installed.
+The fix branch is local (not pushed): it is stacked on feat/library-jest-scope (GH and flash-list run as themselves) and #349. The jest.mock workarounds posted in #351 are not used here: the exhibit asserts the libraries work as installed.

@@ -1,7 +1,7 @@
 # Nested Text is not queryable on RNTL 12
 
 - **Class:** presets
-- **Source:** monorepo migration report #16
+- **Source:** migration testing (2026-10)
 - **Fixed by:** #341 (`origin/fix/screens-header-and-virtual-text`)
 - **Needs:** rntl 12
 

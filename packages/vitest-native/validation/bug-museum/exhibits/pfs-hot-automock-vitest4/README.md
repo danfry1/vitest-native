@@ -1,7 +1,7 @@
 # Under hot on Vitest 4.1, an automock replays another file's factory
 
 - **Class:** per-file-state
-- **Source:** monorepo migration report #14
+- **Source:** migration testing (2026-10)
 - **Fixed by:** #338 (`origin/fix/hot-vitest4-mock-meta`)
 - **Needs:** vitest 4
 

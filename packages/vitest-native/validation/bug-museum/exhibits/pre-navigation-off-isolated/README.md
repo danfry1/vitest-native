@@ -1,7 +1,7 @@
 # presets: { navigation: false } fails in an isolated (pnpm/bun) install
 
 - **Class:** presets
-- **Source:** monorepo migration report #5 (found while verifying it)
+- **Source:** migration testing (2026-10) (found while verifying it)
 - **Fixed by:** #348 (`origin/fix/navigation-preset-visibility`)
 - **Needs:** nothing beyond this repository's install
 

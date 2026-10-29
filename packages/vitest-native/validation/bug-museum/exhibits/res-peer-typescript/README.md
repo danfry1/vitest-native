@@ -1,7 +1,7 @@
 # TypeScript under node_modules reached by a peer edge is handed to Node
 
 - **Class:** transform/resolution
-- **Source:** monorepo migration report #2
+- **Source:** migration testing (2026-10)
 - **Fixed by:** #323 (merged)
 - **Needs:** nothing beyond this repository's install
 

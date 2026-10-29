@@ -1,7 +1,7 @@
 # The engine banner does not name the presets it applies
 
 - **Class:** presets
-- **Source:** monorepo migration report #5
+- **Source:** migration testing (2026-10)
 - **Fixed by:** #348 (`origin/fix/navigation-preset-visibility`)
 - **Needs:** nothing beyond this repository's install
 

@@ -1,7 +1,7 @@
 # A workspace library regex-aliased to source cannot be loaded
 
 - **Class:** ownership
-- **Source:** monorepo migration report #1
+- **Source:** migration testing (2026-10)
 - **Fixed by:** #344 (draft) (`origin/fix/source-aliased-workspace-ownership`)
 - **Needs:** nothing beyond this repository's install
 

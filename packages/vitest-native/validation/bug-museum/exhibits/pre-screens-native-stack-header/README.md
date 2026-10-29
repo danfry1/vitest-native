@@ -1,7 +1,7 @@
 # The screens preset drops native-stack's header
 
 - **Class:** presets
-- **Source:** monorepo migration report #6
+- **Source:** migration testing (2026-10)
 - **Fixed by:** #341 (`origin/fix/screens-header-and-virtual-text`)
 - **Needs:** nothing beyond this repository's install
 

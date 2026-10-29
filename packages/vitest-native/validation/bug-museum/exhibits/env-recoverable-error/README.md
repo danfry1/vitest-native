@@ -1,7 +1,7 @@
 # A recoverable React error exits 1 with every test passing
 
 - **Class:** env-contract
-- **Source:** monorepo migration report #13
+- **Source:** migration testing (2026-10)
 - **Fixed by:** #343 (`origin/fix/recoverable-errors-and-expo-os`)
 - **Needs:** rntl 13
 

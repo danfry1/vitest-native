@@ -1,8 +1,7 @@
 # Bug museum
 
-One minimal, runnable repro ("exhibit") for every real bug found in the October 2026
-migration-report period: the monorepo migration report's issues, #349-#351, the four
-hot-runtime cross-file leaks, the M0 G3 per-file resolution cost, and the shapes the
+One minimal, runnable repro ("exhibit") for every real bug found in October 2026:
+the defects found in migration testing, #349-#351, the four hot-runtime cross-file leaks, the M0 G3 per-file resolution cost, and the shapes the
 adversarial reviews of #339-#353 found. Each exhibit asserts the CORRECT behaviour (what
 Jest, a device or Vitest's own semantics give), so it fails on any build that has the bug.
 
@@ -136,17 +135,17 @@ STATUS.md and exhibits.json together.
 
 ## Not exhibited, and why
 
-- **Report #3** (the V8 compile cache grows under hot, one entry per `?vnhot=N` stamp):
+- **V8 compile-cache growth under hot** (one entry per `?vnhot=N` stamp):
   DROPPED. It could not be made to fail on main `0f2400e`: two runs over the same files,
   and a run of two files followed by a run of four over the same installed ES module,
-  both added 0 entries (495 -> 495). Either it changed since rc.4 or it needs the
-  reporter's suite shape; a counter exhibit that passes on main would prove nothing.
-- **Report #9** (snapshot key format differs from Jest's): documentation only; the
+  both added 0 entries (495 -> 495). Either it changed since rc.4 or it needs a
+  larger suite's shape; a counter exhibit that passes on main would prove nothing.
+- **Snapshot key format differs from Jest's**: documentation only; the
   behaviour is Vitest's, and #340 documents the coexistence recipe.
-- **Report #12** (the automatic worker cap should scale with cores): a performance
+- **The automatic worker cap should scale with cores**: a performance
   proposal measured only on bake-offs; the deterministic half (explicit counts are
   honoured) is `cfg-explicit-max-workers`.
-- **Report #19** (the hot worker re-reads the filesystem per file): its deterministic
+- **The hot worker re-reads the filesystem per file**: its deterministic
   form is the read counter in `pfs-hot-library-mock-cost`.
 - **The `compare` command's review blockers (#352)** and the **verification-harness
   gate bugs** (check:size floors, unguarded cache keys): defects of unmerged tooling and

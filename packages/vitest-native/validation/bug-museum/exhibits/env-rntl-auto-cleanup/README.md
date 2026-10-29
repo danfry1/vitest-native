@@ -1,7 +1,7 @@
 # RNTL's auto-cleanup never runs with globals: false
 
 - **Class:** env-contract
-- **Source:** monorepo migration report #17
+- **Source:** migration testing (2026-10)
 - **Fixed by:** #342 (`origin/fix/rntl-cleanup-and-fake-timers`)
 - **Needs:** nothing beyond this repository's install
 

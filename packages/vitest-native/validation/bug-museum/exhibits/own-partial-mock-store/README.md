@@ -1,7 +1,7 @@
 # A Jest partial mock of project source gets a second module graph
 
 - **Class:** ownership
-- **Source:** monorepo migration report #10
+- **Source:** migration testing (2026-10)
 - **Fixed by:** #345 (draft) (`origin/fix/require-actual-single-graph`)
 - **Needs:** nothing beyond this repository's install
 

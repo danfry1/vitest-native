@@ -1,7 +1,7 @@
 # jest.useFakeTimers drops Jest's options
 
 - **Class:** env-contract
-- **Source:** monorepo migration report #8
+- **Source:** migration testing (2026-10)
 - **Fixed by:** #340 (`origin/fix/jest-compat-fake-timer-options`)
 - **Needs:** nothing beyond this repository's install
 

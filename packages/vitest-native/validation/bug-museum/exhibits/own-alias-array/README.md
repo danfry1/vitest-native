@@ -1,7 +1,7 @@
 # A workspace library aliased to source in array form loads twice
 
 - **Class:** ownership
-- **Source:** monorepo migration report #1; ownership-ledger shape 8
+- **Source:** migration testing (2026-10); ownership-ledger shape 8
 - **Fixed by:** #344 (draft) (`origin/fix/source-aliased-workspace-ownership`)
 - **Needs:** nothing beyond this repository's install
 

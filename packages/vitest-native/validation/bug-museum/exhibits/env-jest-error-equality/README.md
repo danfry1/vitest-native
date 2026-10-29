@@ -1,7 +1,7 @@
 # Errors with per-instance methods are unequal under jest-compat
 
 - **Class:** env-contract
-- **Source:** monorepo migration report #7
+- **Source:** migration testing (2026-10)
 - **Fixed by:** #346 (`origin/fix/jest-compat-error-equality`)
 - **Needs:** nothing beyond this repository's install
 

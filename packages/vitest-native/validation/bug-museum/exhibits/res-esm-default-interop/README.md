@@ -1,7 +1,7 @@
 # An ES module's default import of __esModule CommonJS is undefined
 
 - **Class:** transform/resolution
-- **Source:** monorepo migration report #15
+- **Source:** migration testing (2026-10)
 - **Fixed by:** #339 (draft) (`origin/fix/esm-goal-import-interop`)
 - **Needs:** nothing beyond this repository's install
 

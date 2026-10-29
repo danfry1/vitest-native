@@ -1,7 +1,7 @@
 # An explicit maxWorkers above 4 is capped under the hot runtime
 
 - **Class:** config
-- **Source:** monorepo migration report #11 / #12
+- **Source:** migration testing (2026-10)
 - **Fixed by:** #347 (`origin/fix/cli-max-workers-memory-plan`)
 - **Needs:** nothing beyond this repository's install
 

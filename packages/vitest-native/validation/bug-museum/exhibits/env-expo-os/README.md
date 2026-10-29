@@ -1,7 +1,7 @@
 # EXPO_OS is unset under the native engine
 
 - **Class:** env-contract
-- **Source:** monorepo migration report #4
+- **Source:** migration testing (2026-10)
 - **Fixed by:** #343 (`origin/fix/recoverable-errors-and-expo-os`)
 - **Needs:** nothing beyond this repository's install
 

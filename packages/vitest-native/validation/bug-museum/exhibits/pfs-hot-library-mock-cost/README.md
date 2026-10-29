@@ -1,7 +1,7 @@
 # Under hot, every file re-resolves a library's own-mock graph
 
 - **Class:** per-file-state
-- **Source:** M0 gate G3 (2026-10-28) and monorepo migration report #19 (the hot worker re-read the filesystem per file)
+- **Source:** M0 gate G3 (2026-10-28) and migration testing (2026-10) (the hot worker re-read the filesystem per file)
 - **Fixed by:** local branch perf/library-mock-resolution-cache (WIP, no PR) (`perf/library-mock-resolution-cache`)
 - **Needs:** nothing beyond this repository's install
 
