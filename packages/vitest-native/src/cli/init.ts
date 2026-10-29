@@ -4,8 +4,8 @@
  * migration guide documents, so docs and CLI can never drift apart by shape).
  */
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import path from "node:path";
+import { usesVitePlus } from "../host.js";
 
 export interface InitOptions {
   jestCompat?: boolean;
@@ -68,16 +68,6 @@ export function renderInitConfig(jestCompat: boolean, vitePlus = false): string 
     : source;
 }
 
-/** Whether the project runs its tests through Vite+ (`vp test`). */
-export function usesVitePlus(root: string): boolean {
-  try {
-    createRequire(path.join(root, "package.json")).resolve("vite-plus/package.json");
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function existingConfig(root: string, vitePlus: boolean): string | null {
   for (const name of [
     ...(vitePlus ? ["vite.config.ts", "vite.config.mts", "vite.config.js", "vite.config.mjs"] : []),
@@ -97,6 +87,26 @@ export function runInit(root: string, opts: InitOptions = {}): InitResult {
   const lines: string[] = [];
   const vitePlus = usesVitePlus(root);
   const existing = existingConfig(root, vitePlus);
+  if (existing && vitePlus && existing.startsWith("vite.config")) {
+    // A Vite+ project keeps one config for build, lint and tests; replacing it would
+    // drop the rest. The plugin goes into the existing file instead.
+    return {
+      lines: [
+        `✗ ${existing} already exists. Vite+ keeps tests in the same config, so add`,
+        `  vitest-native to it rather than replacing it:`,
+        ``,
+        `  import { reactNative } from 'vitest-native'`,
+        ``,
+        `  export default defineConfig({`,
+        `    plugins: [reactNative()],`,
+        `    test: { environment: 'node' },`,
+        `  })`,
+        ``,
+        `  Then run: vp test`,
+      ],
+      ok: false,
+    };
+  }
   if (existing && !opts.force) {
     return {
       lines: [

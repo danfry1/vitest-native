@@ -25,7 +25,7 @@ import {
   installedTestsItself,
 } from "./manifest.js";
 import { PEER_REQUIREMENTS } from "../peer-requirements.js";
-import { installedViteVersion, ownVitestPackage } from "../host.js";
+import { installedViteVersion, ownVitestPackage, usesVitePlus } from "../host.js";
 
 export interface DoctorResult {
   lines: string[];
@@ -301,12 +301,14 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
     // Vite's version from its module, not its manifest: under Vite+ the package named
     // `vite` is a wrapper's core whose manifest states its own version. Vitest, when the
     // project root cannot resolve it (Vite+ under pnpm), from where this package's own
-    // runtime would load it (host.ts).
+    // runtime would load it (host.ts), but only for a Vite+ project; anywhere else a
+    // Vitest the project cannot resolve is reported missing, as it always was.
     const running =
       name === "vite"
         ? installedViteVersion(from)
         : name === "vitest"
-          ? (packageVersion(from, name) ?? ownVitestPackage()?.version ?? null)
+          ? (packageVersion(from, name) ??
+            (usesVitePlus(from) ? (ownVitestPackage()?.version ?? null) : null))
           : null;
     const error = validatePeerDependency(
       name,

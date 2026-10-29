@@ -15,17 +15,31 @@ import { VitestNativeError } from "./errors.mjs";
  * The version of the Vite running this config.
  *
  * Vite 7 and later state it on every hook's context (`this.meta.viteVersion`). Vite 6
- * does not, so there the version comes from the `vite` module this package resolves,
- * which is the one Vitest itself imports in every supported layout. That fallback is
- * still a lookup by name; it reads the module's own `version` export rather than its
- * manifest, which is what keeps it right under Vite+.
+ * does not, so there the version is the `version` export of the `vite` module that this
+ * package resolves. That fallback is a lookup by name: it is right when this package and
+ * the running Vite resolve the same copy, and under a wrapper whose `vite` module
+ * reports the Vite it bundles, but nothing checks that they do.
  */
 export async function runningViteVersion(context: unknown): Promise<string | null> {
+  return (await runningVite(context))?.version ?? null;
+}
+
+/** The running Vite's version, and where it was read, for messages that name it. */
+export async function runningVite(
+  context: unknown,
+): Promise<{ version: string; source: string } | null> {
   const fromHost = (context as { meta?: { viteVersion?: unknown } } | undefined)?.meta?.viteVersion;
-  if (typeof fromHost === "string") return fromHost;
+  if (typeof fromHost === "string") return { version: fromHost, source: "the running Vite" };
   try {
     const vite = (await import("vite")) as { version?: unknown };
-    return typeof vite.version === "string" ? vite.version : null;
+    if (typeof vite.version !== "string") return null;
+    let at = "";
+    try {
+      at = ` at ${path.dirname(createRequire(import.meta.url).resolve("vite/package.json"))}`;
+    } catch {
+      // The module loaded, so the version stands without a location.
+    }
+    return { version: vite.version, source: `the vite module${at}` };
   } catch {
     return null;
   }
@@ -55,55 +69,118 @@ export function installedViteVersion(root: string): string | null {
   }
 }
 
-/** The `vitest` package this package's own runtime files import, or null. */
+/** Whether the project at `root` runs its tests through Vite+. */
+export function usesVitePlus(root: string): boolean {
+  try {
+    createRequire(path.join(root, "package.json")).resolve("vite-plus/package.json");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The `vitest` package this package's own files resolve by name, or null. */
 export function ownVitestPackage(): { root: string; version: string } | null {
   try {
     const req = createRequire(import.meta.url);
     const manifest = req.resolve("vitest/package.json");
     const { version } = req(manifest) as { version: string };
-    return { root: fs.realpathSync(path.dirname(manifest)), version };
+    return { root: realPath(path.dirname(manifest)), version };
   } catch {
     return null;
   }
 }
 
-/** The package directory holding Vitest's built `dist` directory. */
-function packageRootOf(distPath: string): string {
-  let dir = fs.realpathSync(distPath);
+/**
+ * A path's canonical spelling for comparison. `realpathSync.native` asks the OS, which
+ * returns the on-disk case on Windows and macOS; Windows paths are also compared without
+ * case, since NTFS lookups ignore it.
+ */
+function realPath(file: string): string {
+  const real = fs.realpathSync.native(file);
+  return process.platform === "win32" ? real.toLowerCase() : real;
+}
+
+/** The directory of the package that contains `file`, by its nearest package.json. */
+function packageRootOf(file: string): string {
+  let dir = realPath(file);
+  const start = dir;
   for (;;) {
     if (fs.existsSync(path.join(dir, "package.json"))) return dir;
     const parent = path.dirname(dir);
-    if (parent === dir) return fs.realpathSync(distPath);
+    if (parent === dir) return start;
     dir = parent;
   }
 }
 
-/**
- * Fail fast when this package's runtime would load a different physical copy of Vitest
- * from the one running.
- *
- * vitest-native's setup files and workers import `vitest` from this package's location.
- * When that resolves to another copy (a project that keeps its own `vitest` beside a
- * wrapper's, a linked package, a hoisted monorepo), suites register with a Vitest that
- * is not collecting them, and every file fails with an error that names neither copy.
- * Real paths are compared, so the same copy reached through symlinks (pnpm, bun) is one
- * copy. When this package cannot resolve `vitest` at all, nothing is decided here: its
- * own imports fail with Node's error, which names the package.
- */
-export function assertRunningVitestIsOwn(running: { distPath: string; version: string }): void {
-  const own = ownVitestPackage();
-  if (own === null) return;
-  const runningRoot = packageRootOf(running.distPath);
-  if (runningRoot === own.root) return;
-  throw new VitestNativeError(
+function twinError(
+  running: { root: string; version: string },
+  other: string,
+  via: string,
+  alternative = "",
+): VitestNativeError {
+  return new VitestNativeError(
     "VITEST_TWIN_INSTANCE",
-    `Two copies of Vitest are installed, and vitest-native would bind to the one that is ` +
-      `not running.\n` +
-      `  running:              vitest@${running.version} at ${runningRoot}\n` +
-      `  vitest-native loads:  vitest@${own.version} at ${own.root}\n` +
-      `Every test file would fail, because suites register with a Vitest that is not ` +
-      `collecting them. Install one Vitest that both the runner and vitest-native resolve, ` +
-      `for example by removing the project's own \`vitest\` when a wrapper such as Vite+ ` +
-      `provides it, or by deduplicating the install.`,
+    `Two copies of Vitest are installed, and ${via} loads the one that is not running.\n` +
+      `  running:  vitest@${running.version} at ${running.root}\n` +
+      `  loaded:   ${other}\n` +
+      `Suites register with a Vitest that is not collecting them, so every test file would ` +
+      `fail. Install one Vitest that both resolve, for example by removing the project's own ` +
+      `\`vitest\` when a wrapper such as Vite+ provides it, or by deduplicating the install.` +
+      alternative,
+  );
+}
+
+/**
+ * Fail fast when what the host actually loads for vitest-native's own `import 'vitest'`
+ * is not the running Vitest.
+ *
+ * A second physical copy is not a problem by itself: Vitest's own resolver maps every
+ * `vitest` import in a module it runs (setup files included) to the running copy, which
+ * is how peer-variant installs (two copies of the same version) work. So the question is
+ * put to the host, through the project's Vite resolver, for the file that imports it.
+ */
+export async function assertHostResolvesRunningVitest(
+  running: { distPath: string; version: string },
+  resolveId: (id: string, importer: string) => Promise<{ id: string } | string | null | undefined>,
+  importer: string,
+): Promise<void> {
+  const resolved = await resolveId("vitest", importer);
+  const id = typeof resolved === "string" ? resolved : resolved?.id;
+  if (!id || !path.isAbsolute(id) || !fs.existsSync(id)) return;
+  const runningRoot = packageRootOf(running.distPath);
+  const loadedRoot = packageRootOf(id);
+  if (loadedRoot === runningRoot) return;
+  throw twinError(
+    { root: runningRoot, version: running.version },
+    loadedRoot,
+    "the Vite resolver, for vitest-native's setup file,",
+  );
+}
+
+/**
+ * Fail fast when the hot runtime's worker, which Node loads directly and so outside
+ * Vitest's resolver, would import a different physical copy of Vitest from the running
+ * one.
+ */
+export function assertHotWorkerLoadsRunningVitest(
+  running: { distPath: string; version: string },
+  workerEntry: string,
+): void {
+  let manifest: string;
+  try {
+    manifest = createRequire(workerEntry).resolve("vitest/package.json");
+  } catch {
+    return; // The worker's own import then fails with Node's error, which names it.
+  }
+  const runningRoot = packageRootOf(running.distPath);
+  const loadedRoot = realPath(path.dirname(manifest));
+  if (loadedRoot === runningRoot) return;
+  throw twinError(
+    { root: runningRoot, version: running.version },
+    loadedRoot,
+    "the hot runtime's worker",
+    " Or set `hotRuntime: false`: per-file isolation loads Vitest through Vitest's own " +
+      "resolver, which reaches the running copy.",
   );
 }
