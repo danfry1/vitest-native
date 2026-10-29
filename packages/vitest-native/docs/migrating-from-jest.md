@@ -162,6 +162,10 @@ see the [Expo guide](https://danfry1.github.io/vitest-native/guide/expo).
    Jest-mock-coupled assertion (section 3). For runtime issues (large-suite memory limits,
    error-boundary console noise, overriding a preset's mock), see the
    [Troubleshooting](../README.md#troubleshooting) section.
+6. While both runners are in use, `npx vitest-native compare` runs the suite under each and lists
+   every test that passes under Jest but not under Vitest, grouped by error. Neither run writes
+   snapshots, and `--json` writes a report for an issue
+   ([compare mode](https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/docs/compare-mode.md)).
 
 ## 5. What "done" looks like
 

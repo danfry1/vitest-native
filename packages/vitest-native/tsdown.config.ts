@@ -59,6 +59,43 @@ export default defineConfig({
           fs.rmSync(path.resolve('dist', `${name}.${ext}`), { force: true });
         }
       }
+      // Keep exactly the .cjs files reachable from the `require` targets in package.json's
+      // `exports`, following each file's require("./…") calls, and delete the rest with
+      // their declarations: the ESM build and the verbatim runtimes never load a .cjs. This
+      // removes the CLI's CJS build (`bin` names dist/cli.mjs and no `exports` entry reaches
+      // a CJS CLI, so cli.cjs could never be loaded) and the shared chunks that only it and
+      // the removed index/setup/presets builds used.
+      const manifest = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+      const roots: string[] = [];
+      const collect = (node: unknown) => {
+        if (!node || typeof node !== 'object') return;
+        for (const [key, value] of Object.entries(node)) {
+          if (key === 'require') {
+            const target = typeof value === 'string' ? value : (value as { default?: string }).default;
+            if (target?.endsWith('.cjs')) roots.push(path.resolve(target));
+          } else {
+            collect(value);
+          }
+        }
+      };
+      collect(manifest.exports);
+      const reachable = new Set<string>();
+      const queue = [...roots];
+      while (queue.length) {
+        const file = queue.pop() as string;
+        if (reachable.has(file) || !fs.existsSync(file)) continue;
+        reachable.add(file);
+        for (const m of fs.readFileSync(file, 'utf8').matchAll(/require\("(\.\/[^"]+\.cjs)"\)/g)) {
+          queue.push(path.resolve(path.dirname(file), m[1]));
+        }
+      }
+      for (const f of fs.readdirSync(path.resolve('dist'))) {
+        const abs = path.resolve('dist', f);
+        if (f.endsWith('.cjs') && !reachable.has(abs)) {
+          fs.rmSync(abs);
+          fs.rmSync(abs.replace(/\.cjs$/, '.d.cts'), { force: true });
+        }
+      }
       // Top-level runtime .mjs (errors.mjs) ships verbatim too: the shipped runtimes
       // below import it by relative path, and the tests load those same files from src,
       // so it must resolve in both trees as one module rather than a bundled copy.
