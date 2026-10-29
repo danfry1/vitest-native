@@ -9,6 +9,5 @@ test("runs with its own project's context and platform", () => {
   const expected = process.env.VN_EXPECTED_PLATFORM;
   expect(expected === "ios" || expected === "android").toBe(true);
   expect(projectContext()?.platform).toBe(expected);
-  expect(projectContext()?.resolverInputs.platform).toBe(expected);
   expect(Platform.OS).toBe(expected);
 });

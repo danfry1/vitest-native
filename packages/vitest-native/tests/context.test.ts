@@ -3,113 +3,127 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CONTEXT_ENV,
-  CONTEXT_FIELD_ENVS,
   ESCAPE_HATCHES,
-  checkResolverInputs,
-  localResolverView,
-  contextFieldsFromSettings,
+  assertBootContext,
+  ensureProjectContext,
+  markBootContext,
   projectContext,
   requireProjectContext,
   writeProjectContext,
 } from "../src/context.mjs";
-import { resolverInputsSetting } from "./project-context-helpers.js";
+import { reactNative } from "../src/index.js";
+import { runPluginConfig } from "./plugin-config.js";
 
 const SRC = path.resolve(__dirname, "../src");
-const base = {
-  VITEST_NATIVE_PLATFORM: "android",
-  VITEST_NATIVE_DIAGNOSTICS: "false",
-  VITEST_NATIVE_PROJECT_ROOT: path.resolve("/project"),
-  VITEST_NATIVE_RESOLVER_INPUTS: resolverInputsSetting(path.resolve("/project"), "android"),
-};
-const cacheRoot = () => fs.mkdtempSync(path.join(os.tmpdir(), "vn-context-"));
+const base = { platform: "android" as const, diagnostics: false, projectRoot: path.resolve("/p") };
+const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "vn-context-"));
+const fileOf = (ref: string) => ref.slice(0, ref.lastIndexOf("#"));
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("the project context", () => {
-  it("round-trips the plugin's settings, typed and frozen", () => {
-    const ref = writeProjectContext(
-      contextFieldsFromSettings({
-        ...base,
-        VITEST_NATIVE_TRANSFORM: JSON.stringify(["a-lib"]),
-        VITEST_NATIVE_DIAGNOSTICS: "true",
-      }),
-      cacheRoot(),
-    );
+  it("round-trips typed and frozen, read once per realm", () => {
+    const ref = writeProjectContext({ ...base, transform: ["a-lib"], diagnostics: true }, tmp());
     const context = projectContext(ref)!;
-    expect(context.platform).toBe("android");
-    expect(context.diagnostics).toBe(true);
     expect(context.transform).toEqual(["a-lib"]);
-    expect(Object.isFrozen(context)).toBe(true);
+    expect(context.diagnostics).toBe(true);
     expect(Object.isFrozen(context.transform)).toBe(true);
-    // One read per realm and reference.
     expect(projectContext(ref)).toBe(context);
   });
 
-  it("is content-addressed: the same settings give the same file", () => {
-    const root = cacheRoot();
-    const a = writeProjectContext(contextFieldsFromSettings(base), root);
-    const b = writeProjectContext(contextFieldsFromSettings(base), root);
-    const c = writeProjectContext(
-      contextFieldsFromSettings({ ...base, VITEST_NATIVE_PLATFORM: "ios" }),
-      root,
-    );
-    expect(a).toBe(b);
-    expect(c).not.toBe(a);
+  it("is content-addressed, written 0600, with no temporary file left", () => {
+    const root = tmp();
+    const a = writeProjectContext(base, root);
+    expect(writeProjectContext(base, root)).toBe(a);
+    expect(writeProjectContext({ ...base, platform: "ios" }, root)).not.toBe(a);
+    if (process.platform !== "win32") expect(fs.statSync(fileOf(a)).mode & 0o777).toBe(0o600);
+    expect(fs.readdirSync(path.dirname(fileOf(a))).filter((f) => f.endsWith(".tmp"))).toEqual([]);
   });
 
-  it("returns null only when no reference was given", () => {
+  it("falls back to the temp directory when the cache cannot be written", () => {
+    const root = tmp();
+    fs.mkdirSync(path.join(root, "contexts"));
+    fs.chmodSync(path.join(root, "contexts"), 0o500);
+    try {
+      const ref = writeProjectContext({ ...base, reactNativeVersion: `ro-${Date.now()}` }, root);
+      expect(fileOf(ref).startsWith(path.join(os.tmpdir(), "vitest-native-cache"))).toBe(true);
+      expect(projectContext(ref)?.platform).toBe("android");
+    } finally {
+      fs.chmodSync(path.join(root, "contexts"), 0o700);
+    }
+  });
+
+  it("tolerates another run having renamed the same file into place first", () => {
+    const root = tmp();
+    const real = fs.renameSync;
+    vi.spyOn(fs, "renameSync").mockImplementation((from, to) => {
+      real(from, to);
+      throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+    });
+    const ref = writeProjectContext({ ...base, reactNativeVersion: "race" }, root);
+    expect(projectContext(ref)?.reactNativeVersion).toBe("race");
+  });
+
+  it("removes files older than a week when it writes", () => {
+    const root = tmp();
+    const old = writeProjectContext({ ...base, reactNativeVersion: "old" }, root);
+    const week = (Date.now() - 8 * 24 * 60 * 60 * 1000) / 1000;
+    fs.utimesSync(fileOf(old), week, week);
+    writeProjectContext({ ...base, reactNativeVersion: "new" }, root);
+    expect(fs.existsSync(fileOf(old))).toBe(false);
+  });
+
+  it("is rewritten when the cache is cleared during a run", () => {
+    const fields = { ...base, reactNativeVersion: "heal" };
+    const ref = writeProjectContext(fields, tmp());
+    fs.rmSync(path.dirname(fileOf(ref)), { recursive: true });
+    ensureProjectContext(ref, fields);
+    fs.writeFileSync(fileOf(ref), "{");
+    ensureProjectContext(ref, fields);
+    expect(JSON.parse(fs.readFileSync(fileOf(ref), "utf8")).fields).toEqual(fields);
+  });
+
+  it("returns null only when no reference is given", () => {
     expect(projectContext("")).toBeNull();
-    expect(() => requireProjectContext("")).toThrow(
-      /CONTEXT_INVALID|context is invalid \(missing\)/,
-    );
+    expect(() => requireProjectContext("")).toThrow(/context is invalid \(missing\)/);
   });
 
-  describe("fails by name instead of limping on", () => {
-    const write = () => writeProjectContext(contextFieldsFromSettings(base), cacheRoot());
+  describe("fails by name, naming the cache path", () => {
+    const write = () => writeProjectContext(base, tmp());
     const rewrite = (ref: string, edit: (doc: any) => void) => {
-      const file = ref.slice(0, ref.lastIndexOf("#"));
-      const doc = JSON.parse(fs.readFileSync(file, "utf8"));
+      const doc = JSON.parse(fs.readFileSync(fileOf(ref), "utf8"));
       edit(doc);
-      fs.writeFileSync(file, JSON.stringify(doc));
+      fs.writeFileSync(fileOf(ref), JSON.stringify(doc));
     };
-
     it("a missing file", () => {
       const ref = write();
-      fs.rmSync(ref.slice(0, ref.lastIndexOf("#")));
-      expect(() => projectContext(ref)).toThrow(/context is invalid \(missing\)/);
+      fs.rmSync(fileOf(ref));
+      expect(() => projectContext(ref)).toThrow(
+        new RegExp(
+          `\\(missing\\)[\\s\\S]*delete ${path.dirname(fileOf(ref)).replace(/[\\\\^$.*+?()[\]{}|]/g, "\\\\$&")}`,
+        ),
+      );
     });
-
     it("a reference without a key", () => {
       expect(() => projectContext("/nowhere.json")).toThrow(/\(missing\)/);
     });
-
     it("another version", () => {
       const ref = write();
       rewrite(ref, (doc) => (doc.version = 99));
       expect(() => projectContext(ref)).toThrow(/\(version\)/);
     });
-
     it("a file changed after it was written", () => {
       const ref = write();
       rewrite(ref, (doc) => (doc.fields.platform = "ios"));
       expect(() => projectContext(ref)).toThrow(/\(key\)/);
     });
-
-    it("a key that is not the file's", () => {
-      const ref = write();
-      expect(() => projectContext(`${ref.slice(0, ref.lastIndexOf("#"))}#other`)).toThrow(
-        /\(key\)/,
-      );
-    });
-
-    // Every field, mutated in turn, fails naming that field.
     const mutations: Record<string, unknown> = {
       platform: "web",
       diagnostics: "yes",
-      projectRoot: "relative/root",
+      projectRoot: "relative",
       reactNativeVersion: 81,
       transform: "a-lib",
       sourceExts: [1],
@@ -119,9 +133,9 @@ describe("the project context", () => {
       registry: "relative.cjs",
       ownership: [],
       projectDirs: "dir",
-      requireAliases: [["only-one"]],
+      requireAliases: [["one"]],
       requireAliasesSkipped: [1],
-      presetNames: "reanimated",
+      presetNames: "x",
       presetConfig: [],
       presetExports: "x",
       presetModules: {},
@@ -129,155 +143,147 @@ describe("the project context", () => {
       knownNativeModules: "Foo",
       nativeModuleSpecs: [],
       nativeModules: "everything",
+      surprise: 1,
     };
     for (const [field, value] of Object.entries(mutations)) {
       it(`field ${field}`, () => {
-        expect(() =>
-          writeProjectContext(
-            { ...contextFieldsFromSettings(base), [field]: value } as never,
-            cacheRoot(),
-          ),
-        ).toThrow(new RegExp(`\\(schema: ${field}\\)`));
+        expect(() => writeProjectContext({ ...base, [field]: value } as never, tmp())).toThrow(
+          new RegExp(`\\(schema: ${field}\\)`),
+        );
       });
     }
-
-    it("an unknown field", () => {
-      expect(() =>
-        writeProjectContext(
-          { ...contextFieldsFromSettings(base), surprise: 1 } as never,
-          cacheRoot(),
-        ),
-      ).toThrow(/\(schema: surprise\)/);
-    });
-
-    it("a setting that does not parse, at config time", () => {
-      expect(() =>
-        contextFieldsFromSettings({ ...base, VITEST_NATIVE_TRANSFORM: "[not json" }),
-      ).toThrow(/\(schema: transform\)/);
-    });
   });
 });
 
-describe("every resolver realm resolves from the recorded inputs", () => {
-  const context = () =>
-    projectContext(writeProjectContext(contextFieldsFromSettings(base), cacheRoot()))!;
+describe("one project per hot worker", () => {
+  const handle = Symbol.for("vitest-native");
+  afterEach(() => delete (globalThis as any)[handle]);
 
-  it("passes when this realm sees what the record holds", () => {
-    expect(() => checkResolverInputs(context(), "test realm")).not.toThrow();
-  });
-
-  it("names the field and the realm when they differ", () => {
-    expect(() =>
-      checkResolverInputs(context(), "ESM loader", {
-        conditions: [...localResolverView().conditions, "extra"],
-      }),
-    ).toThrow(/the ESM loader would resolve packages with a different 'conditions'/);
-    expect(() =>
-      checkResolverInputs(context(), "Vite side", { projectRoot: path.resolve("/elsewhere") }),
-    ).toThrow(/different 'projectRoot'/);
-  });
-
-  it("a worker started with its own --conditions fails instead of resolving apart", () => {
-    // The record says what the plugin computed for the run; this process adds a
-    // condition only it will use, the way a per-worker execArgv would.
-    // A plain Node process's own conditions: no execArgv, no NODE_OPTIONS.
-    const plain = ["require", "node", "node-addons"];
-    if ((process.features as { require_module?: boolean }).require_module)
-      plain.push("module-sync");
-    const inputs = JSON.parse(base.VITEST_NATIVE_RESOLVER_INPUTS);
-    const ref = writeProjectContext(
-      contextFieldsFromSettings({
-        ...base,
-        VITEST_NATIVE_RESOLVER_INPUTS: JSON.stringify({ ...inputs, conditions: plain }),
-      }),
-      cacheRoot(),
+  it("a file from another project fails by name", () => {
+    markBootContext("/a.json#a");
+    expect(() => assertBootContext("/a.json#a")).not.toThrow();
+    expect(() => assertBootContext("/b.json#b")).toThrow(
+      /\(project\)[\s\S]*booted for \/a\.json#a/,
     );
-    const script = [
-      `const { checkResolverInputs, requireProjectContext } = await import(${JSON.stringify(
-        pathToFileURL(path.join(SRC, "context.mjs")).href,
-      )});`,
-      `checkResolverInputs(requireProjectContext(), "CommonJS hooks");`,
-    ].join("\n");
-    const run = (extra: string[]) =>
-      spawnSync(process.execPath, [...extra, "--input-type=module", "-e", script], {
-        encoding: "utf8",
-        env: { ...process.env, [CONTEXT_ENV]: ref, NODE_OPTIONS: "" },
-      });
-    expect(run([]).status, run([]).stderr).toBe(0);
-    const apart = run(["--conditions", "only-this-worker"]);
-    expect(apart.status).not.toBe(0);
-    expect(apart.stderr).toMatch(/RESOLVER_INPUT_MISMATCH|different 'conditions'/);
   });
 
-  it("the resolver inputs are part of the content key: platform and root included", () => {
-    const root = cacheRoot();
-    const ios = writeProjectContext(
-      contextFieldsFromSettings({
-        ...base,
-        VITEST_NATIVE_PLATFORM: "ios",
-        VITEST_NATIVE_RESOLVER_INPUTS: resolverInputsSetting(path.resolve("/project"), "ios"),
-      }),
-      root,
-    );
-    const android = writeProjectContext(contextFieldsFromSettings(base), root);
-    expect(ios).not.toBe(android);
-    expect(projectContext(ios)!.resolverInputs.platform).toBe("ios");
-    expect(projectContext(android)!.resolverInputs.platform).toBe("android");
+  it("the native setup file runs the check for every file, and the hot worker marks it", () => {
+    const setup = fs.readFileSync(path.join(SRC, "native/setup.mjs"), "utf8");
+    const worker = fs.readFileSync(path.join(SRC, "native/worker.mjs"), "utf8");
+    expect(setup).toMatch(/^assertBootContext\(\);$/m);
+    expect(worker).toMatch(/^markBootContext\(\);$/m);
   });
 });
 
-describe("workers read no other VITEST_NATIVE_ variables", () => {
-  // The worker-side runtime: everything except the plugin's own main-process modules.
-  const MAIN_PROCESS = new Set([
-    "plugin.ts",
-    "context.mjs",
-    "context.d.mts",
-    "native/apply.ts",
-    "native/pool.ts",
-    "native/memory.mjs",
-    "errors.d.mts",
-  ]);
+describe("the Vite side", () => {
+  const configure = async (envRoot: string) => {
+    const plugin = reactNative({ engine: "mock" }) as any;
+    const own = await runPluginConfig(plugin, { root: process.cwd() });
+    const other = await runPluginConfig(reactNative({ engine: "mock" }) as any, { root: envRoot });
+    await plugin.configResolved({ root: process.cwd() });
+    const project = {
+      config: { root: process.cwd(), setupFiles: own.test.setupFiles, env: { ...other.test.env } },
+    };
+    return () => plugin.configureVitest({ vitest: { config: { cliOptions: {} } }, project });
+  };
+
+  it("refuses a project handed another project's context", async () => {
+    const run = await configure(path.join(process.cwd(), "tests"));
+    expect(run).toThrow(/context is invalid \(project\)[\s\S]*was handed the context for/);
+  });
+
+  it("accepts its own", async () => {
+    const run = await configure(process.cwd());
+    expect(run).not.toThrow();
+  });
+});
+
+describe("variables the context replaced", () => {
+  it("warns once, by name, when one is still set", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubEnv("VITEST_NATIVE_PLATFORM", "android");
+    try {
+      vi.resetModules();
+      const { reactNative: fresh } = await import("../src/index.js");
+      await runPluginConfig(fresh({ engine: "mock" }), { root: process.cwd() });
+      await runPluginConfig(fresh({ engine: "mock" }), { root: process.cwd() });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    const said = warn.mock.calls
+      .map((c) => String(c[0]))
+      .filter((m) => m.includes("no longer read"));
+    expect(said).toHaveLength(1);
+    expect(said[0]).toContain("VITEST_NATIVE_PLATFORM");
+  });
+});
+
+describe("worker code reads no other VITEST_NATIVE_ names", () => {
+  // Main-process modules, which may name the retired variables (to warn about them).
+  const MAIN_PROCESS = new Set(["plugin.ts", "native/apply.ts", "native/pool.ts"]);
+  const ALLOWED = new Set([CONTEXT_ENV, ...ESCAPE_HATCHES]);
+  const NAME = /\bVITEST_NATIVE_[A-Z0-9_]+/g;
+  const ENV_CONSTANT = /\b[A-Z][A-Z0-9_]*_ENV\b/g;
+  const offences = (rel: string, source: string) => [
+    ...[...source.matchAll(NAME)].filter((m) => !ALLOWED.has(m[0])).map((m) => `${rel}: ${m[0]}`),
+    ...[...source.matchAll(ENV_CONSTANT)]
+      .filter((m) => !["CONTEXT_ENV", "NODE_ENV", "BABEL_ENV", "HOT_WORKER_ENV"].includes(m[0]))
+      .map((m) => `${rel}: ${m[0]}`),
+  ];
   const files: string[] = [];
   const walk = (dir: string) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (entry.name !== "cli") walk(full);
-      } else if (/\.(m?js|ts|tsx)$/.test(entry.name)) {
-        files.push(full);
-      }
+      if (entry.isDirectory()) walk(full);
+      else files.push(full);
     }
   };
   walk(SRC);
 
-  it("outside the escape hatches and the context's own variable", () => {
-    const allowed = new Set([CONTEXT_ENV, ...ESCAPE_HATCHES]);
-    const reads: string[] = [];
+  it("in any source file a worker loads, of any extension", () => {
+    const found: string[] = [];
     for (const file of files) {
       const rel = path.relative(SRC, file).split(path.sep).join("/");
-      if (MAIN_PROCESS.has(rel)) continue;
-      const source = fs.readFileSync(file, "utf8");
-      // A read is `process.env.NAME` or `process.env["NAME"]`.
-      for (const match of source.matchAll(
-        /process\.env(?:\.|\[\s*["'`])(VITEST_NATIVE_[A-Z0-9_]+)/g,
-      )) {
-        if (!allowed.has(match[1]!)) reads.push(`${rel}: ${match[1]}`);
-      }
+      if (MAIN_PROCESS.has(rel) || rel.startsWith("cli/")) continue;
+      found.push(...offences(rel, fs.readFileSync(file, "utf8")));
     }
-    expect(reads).toEqual([]);
+    expect(found).toEqual([]);
   });
 
-  it("the gate can see a read (negative control)", () => {
-    const sample = "const x = process.env.VITEST_NATIVE_PLATFORM;";
-    expect([
-      ...sample.matchAll(/process\.env(?:\.|\[\s*["'`])(VITEST_NATIVE_[A-Z0-9_]+)/g),
-    ]).toHaveLength(1);
+  it("in the code the plugin generates for workers", async () => {
+    const plugin = reactNative({ engine: "mock", diagnostics: true }) as any;
+    await runPluginConfig(plugin, { root: process.cwd() });
+    await plugin.configResolved({ root: process.cwd() });
+    const ids = ["react-native-reanimated", "react-native-reanimated/lib/Unknown"]
+      .map((source) => plugin.resolveId(source, undefined))
+      .filter(Boolean);
+    expect(ids.length).toBeGreaterThan(0);
+    const found = ids.flatMap((id: string) => offences(id, String(plugin.load(id) ?? "")));
+    expect(found).toEqual([]);
   });
 
-  it("every field the context replaces is a context field, not an escape hatch", () => {
-    for (const name of CONTEXT_FIELD_ENVS) {
-      if (name === "VITEST_NATIVE_HOT_ESM_GEN") continue; // both: the plugin's opt-out and a hand-set one
-      expect(ESCAPE_HATCHES).not.toContain(name);
-    }
+  it("can see a name or a constant (negative control)", () => {
+    expect(offences("x", "process.env.VITEST_NATIVE_PLATFORM")).toHaveLength(1);
+    expect(offences("x", 'const KNOWN_ENV = "x"; process.env[KNOWN_ENV]')).toHaveLength(2);
+  });
+});
+
+describe("the ESM loader takes diagnostics from the context", () => {
+  it("bakes the context's diagnostics into a preset subpath module", async () => {
+    const loader = await import("../src/native/loader.mjs");
+    const source = (diagnostics: boolean) => {
+      loader.initialize({
+        projectRoot: process.cwd(),
+        presetExports: { "some-preset-lib": ["Thing"] },
+        context: writeProjectContext({ ...base, projectRoot: process.cwd(), diagnostics }, tmp()),
+      });
+      return String(
+        loader.loadSync("vitest-native-preset:some-preset-lib/lib/Missing", {}, () => {
+          throw new Error("unreachable");
+        }).source,
+      );
+    };
+    expect(source(true)).toContain("if (!_hit && true)");
+    expect(source(false)).toContain("if (!_hit && false)");
   });
 });

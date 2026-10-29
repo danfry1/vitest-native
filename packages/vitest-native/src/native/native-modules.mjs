@@ -40,18 +40,6 @@ export const BOUNDARY_NATIVE_MODULES = Object.freeze([
   "NitroModules",
 ]);
 
-/**
- * The environment variable carrying the known set from the plugin (computed once,
- * in the main process) to the workers.
- */
-export const KNOWN_NATIVE_MODULES_ENV = "VITEST_NATIVE_RN_NATIVE_MODULES";
-
-/** Set to "permissive" by the plugin's `nativeModules: 'permissive'` option. */
-export const PERMISSIVE_NATIVE_MODULES_ENV = "VITEST_NATIVE_NATIVE_MODULES";
-
-/** The same, for each module's spec members. */
-export const NATIVE_MODULE_SPECS_ENV = "VITEST_NATIVE_RN_NATIVE_MODULE_SPECS";
-
 const CALL_RE = /TurboModuleRegistry\s*\.\s*(get|getEnforcing)\b/g;
 // `TurboModuleRegistry.get<Spec>('Name')`, including the multi-line form the
 // formatter produces for long names. The type argument never contains a paren.

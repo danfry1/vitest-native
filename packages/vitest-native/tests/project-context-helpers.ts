@@ -4,8 +4,6 @@ import path from "node:path";
 import { vi } from "vitest";
 import {
   CONTEXT_ENV,
-  contextFieldsFromSettings,
-  localResolverView,
   projectContext,
   writeProjectContext,
   type ProjectContextFields,
@@ -13,40 +11,23 @@ import {
 
 /** The context a plugin config hands its workers. */
 export function contextOf(config: unknown): Readonly<ProjectContextFields> {
-  const env =
-    (config as { test?: { env?: Record<string, string> }; env?: Record<string, string> })?.test
-      ?.env ?? (config as { env?: Record<string, string> })?.env;
-  const context = projectContext(env?.[CONTEXT_ENV]);
+  const c = config as { test?: { env?: Record<string, string> }; env?: Record<string, string> };
+  const context = projectContext((c?.test?.env ?? c?.env)?.[CONTEXT_ENV]);
   if (!context) throw new Error(`no ${CONTEXT_ENV} in the config's env`);
   return context;
 }
 
-const cacheRoot = path.join(os.tmpdir(), "vitest-native-test-contexts");
+export const testCacheRoot = path.join(os.tmpdir(), "vitest-native-test-contexts");
 
-/**
- * Point this worker at a context built from `settings`, the variables the plugin
- * assembles, over the base a run needs. Undone by vi.unstubAllEnvs().
- */
-export function stubProjectContext(settings: Record<string, string>): void {
-  const root = settings.VITEST_NATIVE_PROJECT_ROOT ?? process.cwd();
-  const fields = contextFieldsFromSettings({
-    VITEST_NATIVE_PLATFORM: "ios",
-    VITEST_NATIVE_DIAGNOSTICS: "false",
-    VITEST_NATIVE_PROJECT_ROOT: root,
-    VITEST_NATIVE_RESOLVER_INPUTS: resolverInputsSetting(root),
-    ...settings,
-  });
-  vi.stubEnv(CONTEXT_ENV, writeProjectContext(fields, cacheRoot));
+/** A context's reference, with the fields a run always has filled in. */
+export function testContext(fields: Partial<ProjectContextFields> = {}, root = testCacheRoot) {
+  return writeProjectContext(
+    { platform: "ios", diagnostics: false, projectRoot: process.cwd(), ...fields },
+    root,
+  );
 }
 
-/** The resolver-input record a run in this process would get, as its setting string. */
-export function resolverInputsSetting(projectRoot: string, platform = "ios"): string {
-  return JSON.stringify({
-    projectRoot,
-    platform,
-    sourceExts: ["js", "jsx", "json", "ts", "tsx"],
-    ...localResolverView(),
-    viteConditions: [],
-    aliases: { entries: [], skipped: [] },
-  });
+/** Point this worker at a context with `fields`. Undone by vi.unstubAllEnvs(). */
+export function stubProjectContext(fields: Partial<ProjectContextFields>): void {
+  vi.stubEnv(CONTEXT_ENV, testContext(fields));
 }

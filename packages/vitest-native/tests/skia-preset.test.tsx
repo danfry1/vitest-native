@@ -174,7 +174,7 @@ describe("skia preset: wiring", () => {
     const g = globalThis as any;
     const canvasKit = g.CanvasKit;
     delete g.CanvasKit;
-    stubProjectContext({ VITEST_NATIVE_PROJECT_ROOT: shopifyOnlyProject() });
+    stubProjectContext({ projectRoot: shopifyOnlyProject() });
     try {
       await expect(skia().prepare!()).rejects.toThrow(
         /could not load CanvasKit[\s\S]*canvaskit-wasm[\s\S]*presets: \{ skia: false \}/,
@@ -208,7 +208,7 @@ describe("skia preset: wiring", () => {
   it("says so when it is enabled and Skia is not installed", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-skia-none-"));
     fs.writeFileSync(path.join(root, "package.json"), "{}");
-    stubProjectContext({ VITEST_NATIVE_PROJECT_ROOT: root });
+    stubProjectContext({ projectRoot: root });
     try {
       await expect(skia().prepare!()).rejects.toThrow(
         /neither react-native-skia nor @shopify\/react-native-skia resolves/,

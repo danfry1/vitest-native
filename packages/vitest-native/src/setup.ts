@@ -27,14 +27,15 @@ import { importPresetModule, presetModulePaths } from "./preset-modules.mjs";
 import { AUTO_DETECT_PRESETS, presetForInstalled } from "./preset-map.js";
 import { serializer as rnSerializer } from "./serializer.js";
 import { animatedMatchers } from "./matchers/animated.js";
-import { requireProjectContext } from "./context.mjs";
+import { projectContext, type ProjectContextFields } from "./context.mjs";
 
 // --- Read options from the project context ---
 
-const context = requireProjectContext();
-const platform = context.platform;
-const diagnostics = context.diagnostics;
-const projectRoot = context.projectRoot;
+// Without the plugin (the setup file imported on its own), the defaults it always had.
+const context: Partial<ProjectContextFields> = projectContext() ?? {};
+const platform = context.platform ?? "ios";
+const diagnostics = context.diagnostics === true;
+const projectRoot = context.projectRoot ?? process.cwd();
 const projectReq = createRequire(path.join(projectRoot, "package.json"));
 
 // Copied: the context is frozen, and these become the test's own mutable mocks.

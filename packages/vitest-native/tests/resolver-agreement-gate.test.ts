@@ -17,8 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
-import { CONTEXT_ENV, contextFieldsFromSettings, writeProjectContext } from "../src/context.mjs";
-import { resolverInputsSetting } from "./project-context-helpers.js";
+import { CONTEXT_ENV, writeProjectContext } from "../src/context.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const HOOKS = path.join(HERE, "..", "src", "native", "hooks.mjs");
@@ -59,12 +58,7 @@ function warningsWhenResolving(diagnostics: boolean): string {
     env: {
       ...process.env,
       [CONTEXT_ENV]: writeProjectContext(
-        contextFieldsFromSettings({
-          VITEST_NATIVE_PLATFORM: "ios",
-          VITEST_NATIVE_DIAGNOSTICS: diagnostics ? "true" : "false",
-          VITEST_NATIVE_PROJECT_ROOT: root,
-          VITEST_NATIVE_RESOLVER_INPUTS: resolverInputsSetting(root),
-        }),
+        { platform: "ios", diagnostics, projectRoot: root },
         path.join(root, ".contexts"),
       ),
     },

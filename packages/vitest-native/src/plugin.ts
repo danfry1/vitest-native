@@ -17,13 +17,7 @@ import { BUILT_IN_PRESET } from "./presets/built-in.js";
 import { serializableAliases } from "./jest-compat/aliases.mjs";
 import { tsconfigPathAliases } from "./native/tsconfig-paths.mjs";
 import { fsModuleCacheKey, shouldDefaultFsModuleCache } from "./fs-module-cache.js";
-import {
-  KNOWN_NATIVE_MODULES_ENV,
-  NATIVE_MODULE_SPECS_ENV,
-  PERMISSIVE_NATIVE_MODULES_ENV,
-  knownNativeModulesFor,
-  nativeModuleSpecsFor,
-} from "./native/native-modules.mjs";
+import { knownNativeModulesFor, nativeModuleSpecsFor } from "./native/native-modules.mjs";
 import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
 import { detectEcosystemPackages } from "./native/ecosystem.js";
@@ -33,15 +27,10 @@ import type { HotMemoryPlan } from "./native/memory.mjs";
 import { workerVitestMismatch } from "./native/worker-vitest.js";
 import {
   CONTEXT_ENV,
-  CONTEXT_FIELD_ENVS,
-  checkResolverInputs,
-  contextFieldsFromSettings,
-  localResolverView,
+  ensureProjectContext,
   projectContext,
-  serializeAliasList,
   writeProjectContext,
   type ProjectContextFields,
-  type ResolverInputs,
 } from "./context.mjs";
 import { cacheRootFor } from "./native/transform.mjs";
 import type { NativeOwnershipPolicy } from "./native/ownership.mjs";
@@ -449,119 +438,22 @@ function asCompatibleViteConfig(config: object): Omit<UserConfig, "plugins"> {
   return config as unknown as Omit<UserConfig, "plugins">;
 }
 
-const contextFieldNames = new Set(CONTEXT_FIELD_ENVS);
-/** Fields of every context this process wrote, by reference, for later amendment. */
+/** Fields of every context this process wrote, by reference. */
 const writtenContexts = new Map<string, ProjectContextFields>();
 
 /**
- * The worker environment for one project: the settings the plugin assembled become
- * one validated context file (context.mjs), and workers get only its reference.
- * Variables that are not context fields (the memory plan the pool reads back from the
- * config) pass through unchanged.
+ * The worker environment for one project: its fields become one context file, and
+ * workers get only the reference. `env` (the memory plan, read back from the config)
+ * passes through.
  */
 function withProjectContext(
-  settings: Record<string, string>,
+  fields: ProjectContextFields,
+  env: Record<string, string>,
   projectRoot: string,
 ): Record<string, string> {
-  const fields = contextFieldsFromSettings(settings);
   const ref = writeProjectContext(fields, cacheRootFor(projectRoot));
   writtenContexts.set(ref, fields);
-  const env: Record<string, string> = { [CONTEXT_ENV]: ref };
-  for (const [name, value] of Object.entries(settings)) {
-    if (!contextFieldNames.has(name)) env[name] = value;
-  }
-  return env;
-}
-
-/**
- * The inputs every resolver realm must share, computed once here. Node's CommonJS
- * conditions are this process's plus whatever the project passes its workers, which is
- * what each worker's own Node will see (checked there by checkResolverInputs).
- */
-function resolverInputsFor(
-  userConfig: UserConfig,
-  projectRoot: string,
-  platform: "ios" | "android",
-  sourceExts: readonly string[],
-): ResolverInputs {
-  const test = (userConfig as { test?: Record<string, unknown> }).test ?? {};
-  const workerArgv = [
-    ...((test.execArgv as string[] | undefined) ?? []),
-    ...Object.values((test.poolOptions as Record<string, { execArgv?: string[] }>) ?? {}).flatMap(
-      (pool) => pool?.execArgv ?? [],
-    ),
-  ];
-  const view = localResolverView(
-    [...process.execArgv, ...workerArgv],
-    (test.env as Record<string, string> | undefined)?.NODE_OPTIONS ?? process.env.NODE_OPTIONS,
-  );
-  const conditionsOf = (value: unknown) =>
-    Array.isArray(value) ? value.filter((c): c is string => typeof c === "string") : [];
-  const resolve = userConfig.resolve as { conditions?: unknown; alias?: unknown } | undefined;
-  const ssr = (userConfig as { ssr?: { resolve?: { conditions?: unknown } } }).ssr;
-  return {
-    projectRoot,
-    platform,
-    sourceExts: [...sourceExts],
-    conditions: view.conditions,
-    viteConditions: [
-      ...new Set([...conditionsOf(resolve?.conditions), ...conditionsOf(ssr?.resolve?.conditions)]),
-    ],
-    preserveSymlinks: view.preserveSymlinks,
-    aliases: serializeAliasList(
-      [...aliasEntriesOf((test as { alias?: unknown }).alias), ...aliasEntriesOf(resolve?.alias)],
-      projectRoot,
-    ),
-  };
-}
-
-interface ViteConditionsConfig {
-  isProduction?: boolean;
-  resolve?: { conditions?: string[]; alias?: unknown };
-  ssr?: { resolve?: { conditions?: string[] } };
-}
-
-/**
- * The conditions Vitest hands a project's workers, as its own resolveConditions
- * computes them (vitest/dist, Vitest 4 and 5): Vite 6+'s resolved
- * `ssr.resolve.conditions`, with `development|production` settled by mode.
- */
-function vitestWorkerConditions(config: ViteConditionsConfig, viteMajor: number): string[] {
-  const listed =
-    viteMajor >= 6
-      ? (config.ssr?.resolve?.conditions ?? [])
-      : ["production", "development", ...(config.resolve?.conditions ?? [])];
-  return [
-    ...new Set(
-      listed
-        .filter((c) =>
-          c === "production"
-            ? config.isProduction
-            : c === "development"
-              ? !config.isProduction
-              : true,
-        )
-        .map((c) =>
-          viteMajor >= 6 && c === "development|production"
-            ? config.isProduction
-              ? "production"
-              : "development"
-            : c,
-        ),
-    ),
-  ];
-}
-
-function viteVersionOf(root: string): string | undefined {
-  return resolvePackageVersion("vite", root) ?? undefined;
-}
-
-function aliasEntriesOf(alias: unknown): unknown[] {
-  return Array.isArray(alias)
-    ? alias
-    : alias && typeof alias === "object"
-      ? Object.entries(alias).map(([find, replacement]) => ({ find, replacement }))
-      : [];
+  return { ...env, [CONTEXT_ENV]: ref };
 }
 
 /** The same context with `changes` applied, written as its own file. */
@@ -576,6 +468,38 @@ function amendProjectContext(
   const next = writeProjectContext(fields, cacheRootFor(projectRoot));
   writtenContexts.set(next, fields);
   return next;
+}
+
+/**
+ * Settings that were `VITEST_NATIVE_*` environment variables before the project
+ * context. Set by hand in the shell or `test.env`, they no longer reach the workers,
+ * so the plugin says so once.
+ */
+const RETIRED_VARIABLES = new Set(
+  (
+    "PLATFORM DIAGNOSTICS PROJECT_ROOT RN_VERSION TRANSFORM SOURCE_EXTS ASSET_EXTS " +
+    "HOT_PRESERVE_GLOBALS RN_REGISTRY OWNERSHIP PROJECT_DIRS REQUIRE_ALIASES " +
+    "REQUIRE_ALIASES_SKIPPED PRESET_NAMES PRESET_CONFIG PRESET_EXPORTS PRESET_MODULES " +
+    "PRESET_DISABLED MOCKS RN_NATIVE_MODULES RN_NATIVE_MODULE_SPECS NATIVE_MODULES"
+  )
+    .split(" ")
+    .map((name) => `VITEST_NATIVE_${name}`),
+);
+let warnedRetired = false;
+function warnRetiredVariables(...sources: Array<Record<string, unknown> | undefined>): void {
+  if (warnedRetired) return;
+  const found = [
+    ...new Set(
+      sources.flatMap((env) => Object.keys(env ?? {}).filter((k) => RETIRED_VARIABLES.has(k))),
+    ),
+  ];
+  if (found.length === 0) return;
+  warnedRetired = true;
+  console.warn(
+    `[vitest-native] ${found.join(", ")} ${found.length === 1 ? "is" : "are"} set but no ` +
+      `longer read: workers take their configuration from reactNative()'s options, ` +
+      `through the project context. Set the matching option instead.`,
+  );
 }
 
 /**
@@ -1769,14 +1693,14 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       if (decision.notice) console.warn(decision.notice);
       // The native engine's banner waits for the runtime decision below.
       if (engine !== "native") printEngineBanner(engine, platform, resolvedRoot);
-      const env: Record<string, string> = {
-        VITEST_NATIVE_PLATFORM: platform,
-        VITEST_NATIVE_DIAGNOSTICS: String(diagnostics),
-        VITEST_NATIVE_PROJECT_ROOT: resolvedRoot,
-        VITEST_NATIVE_RESOLVER_INPUTS: JSON.stringify(
-          resolverInputsFor(userConfig, resolvedRoot, platform, sourceExts),
-        ),
-      };
+      warnRetiredVariables(
+        process.env,
+        (userConfig as { test?: { env?: Record<string, unknown> } }).test?.env,
+      );
+      // What workers get: the project context's fields, and `env` for the few
+      // variables read back from the config in this process (the memory plan).
+      const fields: ProjectContextFields = { platform, diagnostics, projectRoot: resolvedRoot };
+      const env: Record<string, string> = {};
       // jest.requireActual resolves through Node, which does not apply resolve.alias.
       // Hand the serializable entries to the compat setup so an aliased specifier
       // (`@/services/api`) reaches the same file the suite's imports do.
@@ -1795,37 +1719,30 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       ) {
         requireAliases.entries.push(...tsconfigPathAliases(resolvedRoot).entries);
       }
-      if (requireAliases.entries.length > 0) {
-        env.VITEST_NATIVE_REQUIRE_ALIASES = JSON.stringify(requireAliases.entries);
-      }
-      if (requireAliases.skipped.length > 0) {
-        env.VITEST_NATIVE_REQUIRE_ALIASES_SKIPPED = JSON.stringify(requireAliases.skipped);
-      }
+      if (requireAliases.entries.length > 0) fields.requireAliases = requireAliases.entries;
+      if (requireAliases.skipped.length > 0) fields.requireAliasesSkipped = requireAliases.skipped;
       const reactNativeVersion = resolvePackageVersion("react-native", resolvedRoot);
-      if (reactNativeVersion) env.VITEST_NATIVE_RN_VERSION = reactNativeVersion;
+      if (reactNativeVersion) fields.reactNativeVersion = reactNativeVersion;
       // The native modules a device would have registered, read once here from the
       // installed React Native rather than by every worker (see native-modules.mjs).
       if (engine === "native") {
-        env[KNOWN_NATIVE_MODULES_ENV] = JSON.stringify(knownNativeModulesFor(resolvedRoot));
-        env[NATIVE_MODULE_SPECS_ENV] = JSON.stringify(nativeModuleSpecsFor(resolvedRoot));
-        if (options?.nativeModules === "permissive") {
-          env[PERMISSIVE_NATIVE_MODULES_ENV] = "permissive";
-        }
+        fields.knownNativeModules = knownNativeModulesFor(resolvedRoot);
+        fields.nativeModuleSpecs = nativeModuleSpecsFor(resolvedRoot);
+        if (options?.nativeModules === "permissive") fields.nativeModules = "permissive";
       }
       // Asset extensions for the Node require hook (matches the Vite graph): a CJS
       // `require('./logo.png')` reaching Node's loader must become a Metro-shaped
       // asset module (native/assets.mjs), not be compiled as JS.
-      env.VITEST_NATIVE_ASSET_EXTS = JSON.stringify(assetExtList);
+      fields.assetExts = assetExtList;
       if (metroOption === true || typeof metroOption === "object") {
-        env.VITEST_NATIVE_SOURCE_EXTS = JSON.stringify(sourceExts);
+        fields.sourceExts = sourceExts;
       }
       if (hotRuntimeRequested && hotRecycle.preserveGlobals?.length) {
-        env.VITEST_NATIVE_HOT_PRESERVE_GLOBALS = JSON.stringify(hotRecycle.preserveGlobals);
+        fields.hotPreserveGlobals = hotRecycle.preserveGlobals;
       }
-      // Only the opt-out is passed: the setup file defaults this on under hot, so
-      // an absent variable means "on" and nothing has to be forwarded to say so.
+      // Only the opt-out is recorded: the setup file defaults this on under hot.
       if (hotRuntimeRequested && hotRecycle.esmGeneration === false) {
-        env.VITEST_NATIVE_HOT_ESM_GEN = "0";
+        fields.hotEsmGeneration = false;
       }
 
       // Native engine: externalize RN so it loads through Node's single CJS graph,
@@ -1855,10 +1772,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
                 !disabledNative.has(n) && autoDetectedPresetApplies(n, "native", options?.presets),
             );
         if (nativePresetNames.length > 0) {
-          env.VITEST_NATIVE_PRESET_NAMES = JSON.stringify(nativePresetNames);
+          fields.presetNames = nativePresetNames;
         }
         if (selection.modulePaths.length > 0) {
-          env.VITEST_NATIVE_PRESET_MODULES = JSON.stringify(selection.modulePaths);
+          fields.presetModules = selection.modulePaths;
         }
         // Per-preset config (e.g. navigation({ defaultRouteParams })) must travel to
         // the worker, where presets are rebuilt from their name. Only explicitly
@@ -1869,7 +1786,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             if (p.config && Object.keys(p.config).length > 0) presetConfig[p.name] = p.config;
           }
           if (Object.keys(presetConfig).length > 0) {
-            env.VITEST_NATIVE_PRESET_CONFIG = JSON.stringify(presetConfig);
+            fields.presetConfig = presetConfig;
           }
         }
         // Precompile React Native's require graph into a single file of lazy
@@ -1933,7 +1850,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           ),
         ].filter((dir) => !linkedDetectedDirs.some((detected) => containsPath(dir, detected)));
         if (projectDirs.length > 0) {
-          env.VITEST_NATIVE_PROJECT_DIRS = JSON.stringify(projectDirs);
+          fields.projectDirs = projectDirs;
         }
         nativeOwnership = createNativeOwnershipPolicy({
           projectRoot: resolvedRoot,
@@ -2054,7 +1971,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           sourceExts,
           diagnostics,
         });
-        if (registryFile) env.VITEST_NATIVE_RN_REGISTRY = registryFile;
+        if (registryFile) fields.registry = registryFile;
 
         // Lazy import: pulls in vitest/node, which only exists when running under
         // Vitest (not plain Vite). Memory admission above deliberately has no
@@ -2091,7 +2008,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         }
         const nativeConfig = nativeEngineConfig(
           nativeSetupPath,
-          env,
+          fields,
           extensions,
           transformPkgs,
           hot,
@@ -2103,7 +2020,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           projectDirs,
           nativeOwnership,
         );
-        nativeConfig.test.env = withProjectContext(nativeConfig.test.env, resolvedRoot);
+        nativeConfig.test.env = withProjectContext(fields, env, resolvedRoot);
         return asCompatibleViteConfig(nativeConfig);
       }
 
@@ -2115,7 +2032,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       }
       // Custom mock overrides (validated above to be serializable).
       if (options?.mocks && Object.keys(options.mocks).length > 0) {
-        env.VITEST_NATIVE_MOCKS = JSON.stringify(options.mocks);
+        fields.mocks = options.mocks;
       }
 
       // An explicit ARRAY is the full list, so setup.ts must not auto-detect. The
@@ -2124,14 +2041,14 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // so neither branch can read it here.
       const selection = selectPresets(options?.presets, resolvedRoot);
       if (selection.modulePaths.length > 0) {
-        env.VITEST_NATIVE_PRESET_MODULES = JSON.stringify(selection.modulePaths);
+        fields.presetModules = selection.modulePaths;
       }
       if (selection.listed) {
-        env.VITEST_NATIVE_PRESET_NAMES = JSON.stringify(selection.listed.map((p) => p.name));
+        fields.presetNames = selection.listed.map((p) => p.name);
       } else {
         const disabled = disabledPresetNames(options?.presets);
         if (disabled.size > 0) {
-          env.VITEST_NATIVE_PRESET_DISABLED = JSON.stringify([...disabled]);
+          fields.presetDisabled = [...disabled];
         }
       }
 
@@ -2169,7 +2086,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         },
         test: {
           setupFiles: [setupFilePath, presetReadyPath],
-          env: withProjectContext(env, resolvedRoot),
+          env: withProjectContext(fields, env, resolvedRoot),
         },
       });
     },
@@ -2713,45 +2630,28 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // the hot runtime cannot remove).
       const presetExports = presetExportsByRoot.get(root);
       const contextRef = projectConfig.env?.[CONTEXT_ENV];
-      // The Vite side of the record: the project Vitest runs is the one the context
-      // describes. A shared Vite server or inline project that kept another
-      // project's context would resolve one project's packages with another's inputs.
-      const ownContext = typeof contextRef === "string" ? projectContext(contextRef) : null;
-      if (ownContext) {
-        checkResolverInputs(ownContext, `Vite side of project ${root}`, {
-          projectRoot: root,
-        });
-      }
-      if (ownContext) {
-        // Vitest passes its workers the conditions Vite resolved for this project
-        // (`--conditions …`, its resolveConditions), which config() could not see yet.
-        // Record what the workers' Node will actually use, so each realm can check
-        // it resolves from the same inputs.
-        const viteConfig = (project as { vite?: { config?: ViteConditionsConfig } }).vite?.config;
-        const changes: Partial<ProjectContextFields> = {};
-        if (presetExports) changes.presetExports = presetExports;
-        if (viteConfig) {
-          const vite = vitestWorkerConditions(
-            viteConfig,
-            Number(viteVersionOf(root)?.split(".")[0]),
+      if (typeof contextRef === "string") {
+        // The project Vitest runs must be the one its context describes: a shared Vite
+        // server or an inline project that kept another project's context would run
+        // with another project's configuration.
+        const own = writtenContexts.get(contextRef) ?? projectContext(contextRef);
+        if (own && own.projectRoot !== root) {
+          throw new VitestNativeError(
+            "CONTEXT_INVALID",
+            `the project context is invalid (project): the Vitest project at ${root} ` +
+              `was handed the context for ${own.projectRoot}. Give each project its own ` +
+              `\`root\`, or report this, with the Vitest config, as a vitest-native bug.`,
           );
-          const test = projectConfig as { execArgv?: string[] };
-          changes.resolverInputs = {
-            ...ownContext.resolverInputs,
-            conditions: localResolverView([
-              ...process.execArgv,
-              ...(test.execArgv ?? []),
-              ...vite.flatMap((c) => ["--conditions", c]),
-            ]).conditions,
-            viteConditions: vite,
-            aliases: serializeAliasList(viteConfig.resolve?.alias, root),
-          };
         }
-        if (Object.keys(changes).length > 0) {
-          projectConfig.env![CONTEXT_ENV] = amendProjectContext(
-            contextRef as string,
-            changes,
-            root,
+        const ref = presetExports
+          ? amendProjectContext(contextRef, { presetExports }, root)
+          : contextRef;
+        projectConfig.env![CONTEXT_ENV] = ref;
+        // A cache cleared during a watch session: rewrite the file before each rerun.
+        const fields = writtenContexts.get(ref);
+        if (fields) {
+          (vitest as { onTestsRerun?: (fn: () => void) => void }).onTestsRerun?.(() =>
+            ensureProjectContext(ref, fields),
           );
         }
       }

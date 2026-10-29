@@ -23,17 +23,14 @@ import { captureModuleBaseline, resetEvaluatedModules } from "./module-reset.mjs
 import { registerRntlHooksOnImport } from "./rntl-hooks.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
 import { VitestNativeError } from "../errors.mjs";
-import { CONTEXT_ENV, checkResolverInputs, requireProjectContext } from "../context.mjs";
+import { markBootContext, requireProjectContext } from "../context.mjs";
 
 if (isMainThread || !parentPort) {
   throw new VitestNativeError("HOT_WORKER_ENV", "hot worker entry must run in node:worker_threads");
 }
 
 const context = requireProjectContext();
-checkResolverInputs(context, "hot worker's CommonJS hooks");
-// The context this worker booted with: a file from another project must not run here
-// (setup.mjs checks it per file).
-(globalThis[Symbol.for("vitest-native")] ??= {}).bootContext = process.env[CONTEXT_ENV];
+markBootContext();
 const projectRoot = context.projectRoot;
 const diagnostics = context.diagnostics;
 const platform = context.platform;

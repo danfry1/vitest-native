@@ -70,12 +70,9 @@ Known differences from per-file isolation under the hot runtime:
 
 If the failure goes away with `hotRuntime: false`, keep that setting for the project. If it is not one of the cases above, please [open an issue](https://github.com/danfry1/vitest-native/issues) with the library involved. Setting `test.isolate` explicitly in your Vitest config also keeps Vitest's own isolation.
 
-## `CONTEXT_INVALID` or `RESOLVER_INPUT_MISMATCH` at startup
+## `CONTEXT_INVALID` at startup
 
-The plugin writes one description of each Vitest project, its *project context*, to `node_modules/.cache/vitest-native/contexts/` (or the system temp directory when `node_modules` is read-only), and every worker reads its configuration from that file.
-
-- **`CONTEXT_INVALID`** means a worker found the file missing, from another version, changed after it was written, or with a field of the wrong shape. The message names the reason and the field. Re-run Vitest; if it persists, delete the `contexts` directory. A worker started outside the plugin's configuration also reports it.
-- **`RESOLVER_INPUT_MISMATCH`** means one part of the run would resolve packages differently from the rest, for example a `--conditions` flag given to only some workers, so a package could load as two copies. The message names the setting and both values. Pass Node options for the whole run, through `test.execArgv` or `NODE_OPTIONS`.
+The plugin writes one description of each Vitest project, its *project context*, to `node_modules/.cache/vitest-native/contexts/` (or the system temp directory when that cannot be written), and every worker reads its configuration from that file. `CONTEXT_INVALID` means a worker found it missing, from another version, changed after it was written, or with a field of the wrong shape; the message names the reason, the field and the directory. Re-run Vitest, and if it persists delete that directory. A worker started without the plugin's configuration reports it too.
 
 ## Still stuck?
 

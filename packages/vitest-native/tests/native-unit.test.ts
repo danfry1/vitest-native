@@ -248,7 +248,7 @@ describe("native boundary: which native modules exist", () => {
   });
 
   it("nativeModules: 'permissive' makes every name present with every member", () => {
-    stubProjectContext({ VITEST_NATIVE_NATIVE_MODULES: "permissive" });
+    stubProjectContext({ nativeModules: "permissive" });
     installKnownNativeModules(projectRoot);
     try {
       const { tm, nm } = load();
@@ -310,7 +310,7 @@ describe("native boundary: which native modules exist", () => {
 
   it("installKnownNativeModules reads the plugin's list, or computes it", () => {
     g.__vitest_native_known_modules = undefined;
-    stubProjectContext({ VITEST_NATIVE_RN_NATIVE_MODULES: JSON.stringify(["FromEnv"]) });
+    stubProjectContext({ knownNativeModules: ["FromEnv"] });
     try {
       installKnownNativeModules(projectRoot);
       expect([...g.__vitest_native_known_modules]).toEqual(["FromEnv"]);

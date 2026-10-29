@@ -13,7 +13,7 @@ import * as presetFactories from "../presets.mjs";
 import { animatedMatchers } from "../matchers.mjs";
 import { serializer as rnSerializer } from "../serializer.mjs";
 import { VitestNativeError } from "../errors.mjs";
-import { CONTEXT_ENV, checkResolverInputs, requireProjectContext } from "../context.mjs";
+import { CONTEXT_ENV, assertBootContext, requireProjectContext } from "../context.mjs";
 import { importPresetModule, presetModulePaths } from "../preset-modules.mjs";
 import { installNitroProxy } from "./nitro.mjs";
 import { createExpoNativeModuleResolver } from "./expo-native-modules.mjs";
@@ -56,19 +56,8 @@ if (globalThis.__vitest_native_hot_reset) {
 }
 
 const runContext = requireProjectContext();
-checkResolverInputs(runContext, "CommonJS hooks");
-// Under the hot runtime a worker serves many files; every one must be from the project
-// it booted for. Vitest already refuses to reuse a runner across projects (its
-// isEqualRunner); this is the backstop.
-const bootContext = globalThis[Symbol.for("vitest-native")]?.bootContext;
-if (bootContext !== undefined && bootContext !== process.env[CONTEXT_ENV]) {
-  throw new VitestNativeError(
-    "CONTEXT_INVALID",
-    `the project context is invalid (project): this worker booted for ${bootContext} ` +
-      `and was handed a file from ${process.env[CONTEXT_ENV]}. A worker must serve one ` +
-      `project; report this, with the Vitest config, as a vitest-native bug.`,
-  );
-}
+// Under the hot runtime a worker serves many files, all from the project it booted for.
+assertBootContext();
 const projectRoot = runContext.projectRoot;
 const diagnostics = runContext.diagnostics;
 const platform = runContext.platform;
