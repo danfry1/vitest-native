@@ -31,6 +31,7 @@ import { containsPath, packageDirOf } from "./native/match.mjs";
 type AssetModules = typeof import("./native/assets.mjs");
 import type { HotMemoryPlan } from "./native/memory.mjs";
 import { workerVitestMismatch } from "./native/worker-vitest.js";
+import { assertRunningVitestIsOwn, ownVitestPackage, runningViteVersion } from "./host.js";
 import type { NativeOwnershipPolicy } from "./native/ownership.mjs";
 import {
   createNativeOwnershipPolicy,
@@ -275,9 +276,12 @@ function printEngineBanner(
   }
 }
 
-function getJsxTransformConfig(projectRoot: string): JsxTransformConfig {
-  const viteVersion = resolvePackageVersion("vite", projectRoot);
-  const viteMajor = Number(viteVersion?.split(".")[0]);
+/** The major of a version string, or NaN. */
+function majorOf(version: string | null | undefined): number {
+  return Number(version?.replace(/^[^0-9]*/, "").split(".")[0]);
+}
+
+function getJsxTransformConfig(viteMajor: number): JsxTransformConfig {
   return viteMajor >= 8
     ? { oxc: { jsx: { runtime: "automatic" } } }
     : { esbuild: { jsx: "automatic" } };
@@ -1255,6 +1259,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   const cacheKeys = new Map<string, string>();
   let warnedMissingJestMockTransform = false;
   let warnedTsconfigPaths = false;
+  // The version of the Vite running this config, from the host rather than the package
+  // named `vite` (host.ts). Set at the start of config(); every version decision reads it.
+  let hostViteVersion: string | null = null;
 
   const warnIfJestMockUnhoisted = (code: string, id: string): void => {
     if (jestMockTransformPresent || warnedMissingJestMockTransform) return;
@@ -1526,6 +1533,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     // config decision is wrapped as an order:"post" hook below. Automatic hot
     // selection must see pools and setup files contributed by later plugins.
     async config(userConfig, _env) {
+      hostViteVersion = await runningViteVersion(this);
       // Serialize options that need to cross from the Vite main process
       // into Vitest worker processes. globalThis does NOT survive this
       // boundary — we use test.env to inject process.env vars instead.
@@ -1600,7 +1608,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           );
         }
       }
-      const jsxTransform = getJsxTransformConfig(resolvedRoot);
+      const jsxTransform = getJsxTransformConfig(majorOf(hostViteVersion));
       // Resolve the concrete engine now that the project root is known. Default
       // (auto) prefers native when RN's Babel deps resolve; silently, with a notice
       // only when it must fall back to mock. See detect.ts / AUTO_PREFERS_NATIVE.
@@ -1643,7 +1651,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // `resolve.tsconfigPaths` on, or the plugin does for an Expo project (below).
       const userTsconfigPaths = (userConfig.resolve as { tsconfigPaths?: unknown } | undefined)
         ?.tsconfigPaths;
-      const viteMajorForPaths = Number(resolvePackageVersion("vite", resolvedRoot)?.split(".")[0]);
+      const viteMajorForPaths = majorOf(hostViteVersion);
       if (
         userTsconfigPaths === true ||
         expoTsconfigPaths(resolvedRoot, userTsconfigPaths, viteMajorForPaths) === "enable"
@@ -2076,12 +2084,16 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       const peerErrors: string[] = [];
       for (const { name, minimum, maximumMajor, minimumByMajor, optional } of PEER_REQUIREMENTS) {
         if (optional) continue; // reported below, never fatal
+        // Vitest is checked in configureVitest against the running instance: under a
+        // wrapper such as Vite+ the project root may not resolve `vitest` at all.
+        if (name === "vitest") continue;
         const error = validatePeerDependency(
           name,
           minimum,
           config.root,
           maximumMajor,
           minimumByMajor,
+          name === "vite" ? hostViteVersion : undefined,
         );
         if (error) peerErrors.push(error);
       }
@@ -2473,7 +2485,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         if (test) test.execArgv = [...(test.execArgv ?? []), ...EXPORT_RECOVERY_ARGV];
         if (test) {
           const viteRoot = userConfig.root ? path.resolve(userConfig.root) : process.cwd();
-          const vitestMajor = Number(resolvePackageVersion("vitest", viteRoot)?.split(".")[0]);
+          // The Vitest this package's runtime binds to; configureVitest refuses a run
+          // driven by any other copy (host.ts), so it is the running one.
+          const vitestMajor = majorOf(
+            ownVitestPackage()?.version ?? resolvePackageVersion("vitest", viteRoot),
+          );
           const userTest = (
             userConfig as { test?: Parameters<typeof shouldDefaultFsModuleCache>[1] }
           ).test;
@@ -2491,7 +2507,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         }
         if (test) {
           const viteRoot = userConfig.root ? path.resolve(userConfig.root) : process.cwd();
-          const viteMajor = Number(resolvePackageVersion("vite", viteRoot)?.split(".")[0]);
+          const viteMajor = majorOf(hostViteVersion);
           const tsconfigPaths = expoTsconfigPaths(
             viteRoot,
             (userConfig.resolve as { tsconfigPaths?: unknown } | undefined)?.tsconfigPaths,
@@ -2525,6 +2541,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       defineCacheKeyGenerator?: (generator: () => string) => void;
       experimental_defineCacheKeyGenerator?: (generator: () => string) => void;
       vitest: {
+        version?: string;
+        distPath?: string;
         // Vitest 4 keeps the CLI flags on `_cliOptions` (internal); Vitest 5 on
         // `config.cliOptions`. The vitest-semantics gate runs both and fails by name
         // if either moves.
@@ -2547,6 +2565,29 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     }) {
       const projectConfig = project.config;
       const root = projectConfig.root ? path.resolve(projectConfig.root) : process.cwd();
+      // The running Vitest, as Vitest states it, rather than the package a lookup from the
+      // project root finds (host.ts).
+      if (typeof vitest.version === "string") {
+        const vitestPeer = PEER_REQUIREMENTS.find((peer) => peer.name === "vitest");
+        const error =
+          vitestPeer &&
+          validatePeerDependency(
+            "vitest",
+            vitestPeer.minimum,
+            root,
+            vitestPeer.maximumMajor,
+            vitestPeer.minimumByMajor,
+            vitest.version,
+          );
+        if (error)
+          throw new VitestNativeError(
+            "UNSUPPORTED_PEER",
+            `Unsupported peer dependencies:\n- ${error}`,
+          );
+      }
+      if (typeof vitest.distPath === "string" && typeof vitest.version === "string") {
+        assertRunningVitestIsOwn({ distPath: vitest.distPath, version: vitest.version });
+      }
       const cacheKey = cacheKeys.get(root);
       if (cacheKey)
         (defineCacheKeyGenerator ?? experimental_defineCacheKeyGenerator)?.(() => cacheKey);
