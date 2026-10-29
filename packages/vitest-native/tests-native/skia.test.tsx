@@ -23,6 +23,7 @@ import { createRequire } from "node:module";
 import { Skia as Skia3, SkiaGraphiteView } from "react-native-skia";
 import * as skia2 from "@shopify/react-native-skia";
 import * as skia3 from "react-native-skia";
+import { projectContext } from "../src/context.mjs";
 
 describe("Skia (preset, native engine)", () => {
   it("finishes preparing the preset before user setup files run", () => {
@@ -83,7 +84,7 @@ describe("Skia (preset, native engine)", () => {
     // The plugin reads the names from the installed version while it resolves its
     // config (checked against Skia's own ESM build in tests/skia-preset.test.tsx);
     // reading them here would load Vite into the test worker.
-    const provided = JSON.parse(process.env.VITEST_NATIVE_PRESET_EXPORTS ?? "{}");
+    const provided = (projectContext()?.presetExports ?? {}) as Record<string, unknown>;
     for (const [name, ns] of [
       ["react-native-skia", skia3],
       ["@shopify/react-native-skia", skia2],

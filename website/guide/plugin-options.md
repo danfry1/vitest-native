@@ -10,7 +10,7 @@ reactNative({
   mocks: {},             // Custom mock overrides
   assetExts: [],         // Additional asset extensions (e.g. ['.lottie', '.m4b'])
   transform: [],         // Extra node_modules packages to transform (Flow/TS/JSX), native engine
-  hotRuntime: 'auto',    // Hot runtime where it can be bounded (default); false to isolate per worker
+  hotRuntime: false,     // Per-file isolation (default); 'auto' opts in to the hot runtime
   nativeModules: 'device', // 'device' | 'permissive' — how native module lookups answer, native engine
   // presets — omitted on purpose: leaving it out auto-detects your installed
   // libraries. Passing an array uses ONLY that array, so `presets: []` means none.
@@ -105,7 +105,7 @@ reactNative({
 
 (Native engine.) Keeps React Native's precompiled factory registry and worker realm warm while resetting RN instances, app/test modules, and a verified manifest of supported process-wide state. Uses Vitest's custom worker APIs, which Vitest labels experimental.
 
-The default, `'auto'`, uses it when the run can be bounded and recycled (at least two workers, no explicitly configured pool or `test.isolate`) and otherwise falls back quietly to per-file isolation; `diagnostics: true` prints why. `false` always isolates per worker; `true` requires hot mode and fails closed when it cannot be bounded or when an explicit pool, `test.isolate`, or a CLI flag such as `--no-isolate` conflicts with it (`HOT_RUNTIME_OVERRIDDEN`).
+The default, `false`, always isolates per worker, as in 0.13.0. `'auto'` opts in: it uses the hot runtime when the run can be bounded and recycled (at least two workers, no explicitly configured pool or `test.isolate`) and otherwise falls back to per-file isolation, printing why; `true` requires hot mode and fails closed when it cannot be bounded or when an explicit pool, `test.isolate`, or a CLI flag such as `--no-isolate` conflicts with it (`HOT_RUNTIME_OVERRIDDEN`).
 
 ```ts
 reactNative({ hotRuntime: false }) // opt out
