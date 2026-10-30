@@ -160,7 +160,7 @@ const nodeTransformPkgs = [...new Set([...transformPkgs, ...Object.keys(presetEx
 // imports react-native, after this setup runs) so its bytecode is cached to disk
 // and reused on the next file/worker/run. Covers the stock (non-hot) path.
 enableV8CompileCache(projectRoot);
-installGlobals();
+installGlobals({ projectRoot, platform });
 // Before React Native loads: its lookups ask the boundary which modules exist.
 installKnownNativeModules(projectRoot);
 // RNTL 13+ auto-registers matchers through the global expect when imported.

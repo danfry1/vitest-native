@@ -58,7 +58,7 @@ if (diagnostics) {
 const hotEsmGeneration =
   context.hotEsmGeneration !== false && process.env.VITEST_NATIVE_HOT_ESM_GEN !== "0";
 enableV8CompileCache(projectRoot, { skip: hotEsmGeneration });
-installGlobals();
+installGlobals({ projectRoot, platform });
 installKnownNativeModules(projectRoot);
 // The registry must be installed BEFORE the preload below, not just by the setup
 // file: whichever path first resolves react-native decides which instance the
