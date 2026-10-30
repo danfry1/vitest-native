@@ -164,7 +164,7 @@ describe("bounded Metro profile loader", () => {
       import { pathToFileURL, fileURLToPath } from 'node:url';
       import { buildRegistry } from ${JSON.stringify(new URL("registry.mjs", runtime).href)};
       import { installRequireHooks } from ${JSON.stringify(new URL("hooks.mjs", runtime).href)};
-      import { initialize, resolve } from ${JSON.stringify(new URL("loader.mjs", runtime).href)};
+      import { initialize, resolveSync } from ${JSON.stringify(new URL("loader.mjs", runtime).href)};
       const root = ${JSON.stringify(root)};
       const sourceExts = ['tsx', 'js'];
       const req = createRequire(root + '/package.json');
@@ -172,7 +172,7 @@ describe("bounded Metro profile loader", () => {
       assert.ok(registry);
       assert.equal(req(registry).winner, 'tsx');
       await initialize({ projectRoot: root, sourceExts });
-      const result = await resolve('./Feature', { parentURL: pathToFileURL(root + '/node_modules/react-native/index.js').href }, () => { throw new Error('unexpected Node fallback'); });
+      const result = resolveSync('./Feature', { parentURL: pathToFileURL(root + '/node_modules/react-native/index.js').href }, () => { throw new Error('unexpected Node fallback'); });
       assert.ok(fileURLToPath(result.url).endsWith('Feature.tsx'));
       installRequireHooks(root, [], 'ios', '0.0.0', [], sourceExts);
       assert.equal(req('react-native').winner, 'tsx');

@@ -27,7 +27,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22.13.0'
+          node-version: '22.22.3'
       - name: Compare with the newest jest-expo of each SDK
         run: node packages/vitest-native/scripts/sync-expo-module-table.mjs --check
 
@@ -76,7 +76,7 @@ jobs:
           bun-version: 1.3.14
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22.13.0'
+          node-version: '22.22.3'
 
       - name: Install with latest react-native
         # This scheduled edge job intentionally bypasses the seven-day adoption

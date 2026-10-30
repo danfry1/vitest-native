@@ -41,7 +41,7 @@ const runtimeLine = (root: string, node: string) =>
   runDoctor(root, node).lines.find((l) => l.includes("Node ")) ?? "";
 
 const testingLine = (root: string) => {
-  const { lines } = runDoctor(root, "22.13.0");
+  const { lines } = runDoctor(root, "22.22.3");
   const start = lines.indexOf("Testing library");
   return lines.slice(start + 1, start + 2).join(" ");
 };
@@ -61,11 +61,13 @@ describe("doctor: the supported Node range comes from engines.node", () => {
   it("passes each line's first supported release and fails the one before it", () => {
     // The bug this guards: 20.18 had the floor's major, and passed.
     const line = (node: string) => runtimeLine(project({}), node);
-    expect(line("22.13.0")).toContain("✓");
-    expect(line("22.12.0")).toContain("✗");
-    expect(line("24.3.0")).toContain("✓");
-    expect(line("24.2.0")).toContain("✗");
-    expect(line("24.2.0")).toContain(`supports Node ${nodeRange()}`);
+    expect(line("22.22.3")).toContain("✓");
+    expect(line("22.22.2")).toContain("✗");
+    expect(line("24.12.0")).toContain("✓");
+    expect(line("24.11.1")).toContain("✗");
+    expect(line("25.0.0")).toContain("✗");
+    expect(line("26.0.0")).toContain("✓");
+    expect(line("24.11.1")).toContain(`supports Node ${nodeRange()}`);
   });
 });
 
@@ -96,7 +98,7 @@ describe("doctor: RNTL 14 needs test-renderer", () => {
     const line = testingLine(root);
     expect(line).toContain("✗");
     expect(line).toContain("test-renderer");
-    expect(runDoctor(root, "22.13.0").ok).toBe(false);
+    expect(runDoctor(root, "22.22.3").ok).toBe(false);
   });
 
   it("passes when it is installed", () => {

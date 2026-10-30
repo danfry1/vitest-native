@@ -69,7 +69,7 @@ This is the same architecture as the original [`vitest-community/vitest-react-na
 
 ### Loader hooks run in-thread
 
-Externalized packages loaded with `import` pass through vitest-native's Node loader hooks (preset redirects, platform extensions, on-the-fly compilation). On Node 22.22.3+ on Node 22, 24.12+ on Node 24, and Node 26 on, these are installed with `module.registerHooks()` and run synchronously on each test worker's own thread. Other Node versions use `module.register()` (earlier releases with `registerHooks` fail with it in-thread: expo-router's navigation elements do not load, and the hot runtime's module reset misbehaves), which runs the hooks on a separate loader thread, so every resolve and load waits on a cross-thread request. Measured on a 104-file production suite, that wait was 18% of worker CPU time. `VITEST_NATIVE_LOADER_THREAD=1` forces the threaded hooks, for comparing the two.
+Externalized packages loaded with `import` pass through vitest-native's Node loader hooks (preset redirects, platform extensions, on-the-fly compilation). They are installed with `module.registerHooks()` and run synchronously on each test worker's own thread, beside the require hooks. That is why the supported Node versions start at 22.22.3 and 24.12: earlier releases that have `registerHooks` fail with it (expo-router's navigation elements do not load, and the hot runtime's module reset misbehaves), and the only alternative, `module.register()`, runs the hooks on a separate thread where every resolve and load waits on a cross-thread request (18% of worker CPU time on a 104-file production suite).
 
 ### A consequence worth knowing
 

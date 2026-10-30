@@ -93,8 +93,7 @@ let assetExtSet = new Set();
  *
  * The registry is keyed by full URL, query included, so stamping a generation onto
  * the URL makes the next file's import a different module and Node evaluates it
- * again. The counter lives in a SharedArrayBuffer because loader hooks run on their
- * own thread; the worker bumps it in the per-file reset.
+ * again. The worker bumps the counter in the per-file reset.
  *
  * Cost is bounded by ownership: a CommonJS package re-enters through Module._cache,
  * which the reset already drops, so only a thin namespace wrapper is retained per
@@ -136,7 +135,6 @@ export function initialize(data) {
   if (data && data.reactNativeVersion) REACT_NATIVE_VERSION = data.reactNativeVersion;
   HAS_SOURCE_PROFILE = Array.isArray(data?.sourceExts);
   SOURCE_EXTS = HAS_SOURCE_PROFILE ? data.sourceExts : ["js", "jsx", "json", "ts", "tsx"];
-  // The project context arrives by reference in `data`: this may be its own thread.
   const context = data?.context ? projectContext(data.context) : null;
   DIAGNOSTICS = context?.diagnostics === true;
   const configuredOwnership = parseNativeOwnershipManifest(context?.ownership);
@@ -319,55 +317,12 @@ function stampedResolutionKey(specifier, context) {
   ].join("\0");
 }
 
-// One implementation, two hook APIs. `module.register()` (off-thread, async) is the
-// only option before Node 22.15; `module.registerHooks()` runs the same logic
-// synchronously on the calling thread, without a cross-thread round trip per
-// resolve and load (see installLoaderHooks in setup.mjs).
-export async function resolve(specifier, context, nextResolve) {
-  const before = resolveBefore(specifier, context);
-  if (before.done) return before.done;
-  let resolved = before.resolved;
-  if (!resolved) {
-    const key = stampedResolutionKey(specifier, context);
-    // A hit skips nextResolve, which Node accepts only from a short-circuited result.
-    const hit = key ? stampedResolutions.get(key) : undefined;
-    resolved = hit ? { ...hit, shortCircuit: true } : undefined;
-    if (!resolved) {
-      try {
-        resolved = await nextResolve(specifier, context);
-        if (key) stampedResolutions.set(key, resolved);
-      } catch (err) {
-        resolved = resolveRecover(err, specifier, before.parent);
-      }
-    }
-  }
-  return resolveAfter(resolved, context);
-}
-
-/**
- * Whether Node's in-thread hooks (module.registerHooks) carry the engine on `version`:
- * Node 22 from 22.22.3, Node 24 from 24.12.0, and Node 26 on. Measured across Node minors
- * and patches, the releases before those that have the hooks fail with them in-thread
- * while the threaded hooks (module.register) pass: expo-router's elements fail to load
- * ("request for 'node:module' is from a module not been linked", through 22.22.2 and
- * 24.11), and the hot runtime's CommonJS lookup reset stops mattering, so its mutation
- * control passes when it must fail. Node 25 was not measured, and Node 23 is past its
- * end of life, so both keep the threaded hooks.
- */
-export function inThreadHooksReliable(version) {
-  const [major, minor, patch] = version.replace(/^v/, "").split(".").map(Number);
-  if (major === 22) return minor > 22 || (minor === 22 && patch >= 3);
-  if (major === 24) return minor >= 12;
-  return major >= 26;
-}
-
 /**
  * Whether an in-thread hook call (module.registerHooks) comes from `require()` rather
- * than `import`. An import's context always lists its conditions, "import" among them.
- * A require's lists "require" from Node 22.19 and 24.6, but is an empty object `{}` on
- * 22.15–22.18 and 24.0–24.4 (measured on each), so anything but a list with "import" in
- * it is a require. Read as an import there, every require reached this loader, which
- * compiled Babel's own files as Babel loaded them ("Reentrant preset detected").
+ * than `import`. An import's context always lists its conditions, "import" among them,
+ * so anything but a list with "import" in it is a require. Read as an import, every
+ * require reached this loader, which compiled Babel's own files as Babel loaded them
+ * ("Reentrant preset detected").
  */
 export function isRequireContext(context) {
   const conditions = context?.conditions;
@@ -394,10 +349,6 @@ export function resolveSync(specifier, context, nextResolve) {
     }
   }
   return resolveAfter(resolved, context);
-}
-
-export async function load(url, context, nextLoad) {
-  return loadSync(url, context, nextLoad);
 }
 
 /**
@@ -431,9 +382,8 @@ export function requireFacade(url, file, compiled) {
   // own it: requiring it is Node's require(esm), which on Node 20.19 and 22.13 fails
   // for a module this loader is still loading ("Cannot require() ES Module ... in a
   // cycle"). It is served compiled, as every compiled module was before the facade. A
-  // compiled module's require() of it is compiled by the CommonJS hooks where this
-  // loader cannot see it (hooks.mjs), and both routes give one instance
-  // (tests-native/ecosystem-mjs.test.ts).
+  // compiled module's require() of it reaches this loader too (the hooks run in-thread),
+  // and both routes give one instance (tests-native/ecosystem-mjs.test.ts).
   if (file.endsWith(".mjs")) {
     return {
       format: "commonjs",
@@ -584,9 +534,8 @@ export function loadSync(url, context, nextLoad) {
   //
   // The dead `0 && (module.exports = { … })` hint is the form the lexer does
   // understand — the same trick react-native's index facade uses below. Names are
-  // read from the transform's own output rather than by requiring the module: this
-  // hook runs on the module-loader thread, where the CJS require hooks that compile
-  // JSX are not installed, so a require here fails with "Unexpected token '<'".
+  // read from the transform's own output rather than by requiring the module, which
+  // would evaluate it from inside this hook.
   // Boundary stubs outside react-native (expo's dev-server message socket). The CJS
   // `.ts` hook applies them; without this, a package this loader compiles reached the
   // real `messageSocket.native.ts`, which throws "Cannot create devtools websocket

@@ -127,21 +127,6 @@ describe("doctor", () => {
     expect(result.lines.join("\n")).toContain("vitest");
   });
 
-  it("flags RNTL 14 on a Node below 22.13", () => {
-    const root = fixture({
-      "package.json": { name: "x" },
-      "node_modules/@testing-library/react-native/package.json": {
-        name: "@testing-library/react-native",
-        version: "14.0.0",
-        main: "index.js",
-      },
-      "node_modules/@testing-library/react-native/index.js": "module.exports = {};",
-    });
-    const result = runDoctor(root, "22.12.0");
-    expect(result.lines.join("\n")).toContain("requires Node >= 22.13");
-    expect(result.ok).toBe(false);
-  });
-
   it("points an Expo project at what works, not at a removed caveat", () => {
     const root = fixture({
       "package.json": { name: "x" },

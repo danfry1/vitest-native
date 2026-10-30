@@ -75,7 +75,7 @@ on the literal `jest.mock` member form, not `jest` aliased to another local name
 ### 2b. Upgrade RNTL to 12–14 (recommended)
 The `@jest/globals` alias unblocks RNTL < 12, but **upgrading to `@testing-library/react-native@^12`
 is the cleaner fix** (12 dropped the `@jest/globals` dependency). vitest-native supports RNTL
-12–14. RNTL 14 requires Node 22.13 or 24+ and makes rendering APIs async, so await `render` and
+12–14. RNTL 14 requires a supported Node (22.22.3+, 24.12+ or 26+) and makes rendering APIs async, so await `render` and
 other APIs as described in its migration guide.
 
 ### 2c. Delete third-party native-lib mocks — they're automatic now

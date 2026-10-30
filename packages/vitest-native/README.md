@@ -976,7 +976,7 @@ that API.
 
 Every release must pass:
 
-- Linux on Node 22.13 (with RNTL 12, 13 and 14) and 24, plus macOS and Windows on Node 22.13.
+- Linux on Node 22.22.3 (with RNTL 12, 13 and 14), 24 and 26, plus macOS and Windows on Node 22.22.3.
 - The mock, native iOS, native Android, hot-runtime, isolation, and 100-file soak suites.
 - React Native 0.81–0.88 against both locked and newest-supported Vitest, plus the Vitest 4 floor
   on 0.81 and 0.88.
@@ -1006,15 +1006,16 @@ see [versioning and stability](docs/versioning.md).
 | `react`                                      | >= 18; use RN's matching React version    |
 | `vite`                                       | ^6.4.2, ^7.3.2, or ^8.0.5                |
 | `vitest`                                     | 4.x or 5.x                                |
-| `node`                                       | 22.13+ on Node 22, or 24.3+               |
+| `node`                                       | 22.22.3+ on Node 22, 24.12+ on 24, or 26+ |
 | `react-native` (native engine)               | 0.81–0.88 validated                       |
 | `@react-native/babel-preset` (native engine) | Match the installed React Native minor    |
 | `@testing-library/react-native` (optional)   | 12.x, 13.x, or 14.x                       |
 
-Node 20 reached end of life in April 2026. Node 22.13 is the first Node 22 that both RNTL 14 and the
-engine's CommonJS entry points (`require(esm)`) support. On Node 24.0–24.2, `jest.mock`,
-`jest.isolateModules` and `jest.resetModules` do not reach modules Node loads, with either loader.
-Node 23 is past its end of life. RNTL 14 uses async rendering APIs.
+Each Node line starts at the release where Node's in-thread module hooks (`module.registerHooks`)
+carry the engine: earlier releases fail it (expo-router's navigation elements do not load, and the
+hot runtime's module reset misbehaves). Node 23 is past its end of life and Node 25 was never
+measured. On an unsupported Node the plugin stops at startup with `UNSUPPORTED_NODE`; an update
+within the same Node major is enough. RNTL 14 uses async rendering APIs.
 
 ---
 

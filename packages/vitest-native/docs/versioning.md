@@ -114,7 +114,25 @@ handled explicitly:
   release notes. The package does not promise to outlive its own dependencies.
 - **Dropping a version upstream still supports** is a **major**.
 - **Raising the Node floor** is a **minor** when the versions dropped are end-of-life, and a
-  **major** otherwise.
+  **major** otherwise. Raising it to a later patch or minor **within a Node line that stays
+  supported** is a **minor**: upstream ships fixes only in a line's newest release, and an
+  update within the same major is all it asks of a project.
+
+### Support policy
+
+What the package supports, and the rule for moving each range. The aim is a small, current set
+that the engine can support without version-specific workarounds; a project on an older release
+is asked to update rather than the engine carrying a second code path for it.
+
+| Upstream | Supported | Rule |
+| --- | --- | --- |
+| Node | 22.22.3+ on Node 22, 24.12+ on Node 24, 26+ | The active and maintenance LTS lines and Current, each from the release where Node's in-thread module hooks (`module.registerHooks`) carry the engine. Odd lines are not supported. |
+| Vitest | 4.x and 5.x | The current and previous major. A new major is added; the oldest is then dropped in a minor. |
+| React Native Testing Library | 12.x, 13.x and 14.x, moving to 13.x and 14.x | The current and previous major. |
+| React | 18 and 19, moving to 19 | The version React Native's current releases use. |
+
+On an unsupported Node the plugin stops at startup with `UNSUPPORTED_NODE`, naming the range, and
+`vitest-native doctor` reports the same.
 
 The currently supported ranges are in [Requirements](../README.md#requirements) and the blocking
 matrix in [`release-readiness.md`](./release-readiness.md#blocking-compatibility-matrix). Those are

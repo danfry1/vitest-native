@@ -12,6 +12,7 @@ import flowRemoveTypes from "flow-remove-types";
 import { validateOptions, validatePeerDependency, warnUnknownOptions } from "./validate.js";
 import { PEER_REQUIREMENTS } from "./peer-requirements.js";
 import { VitestNativeError, VitestNativeTypeError } from "./errors.mjs";
+import { assertSupportedNode } from "./node-range.js";
 import { presetFromModule } from "./preset-modules.mjs";
 import { BUILT_IN_PRESET } from "./presets/built-in.js";
 import { serializableAliases } from "./jest-compat/aliases.mjs";
@@ -1309,6 +1310,9 @@ type HostResolver = {
 };
 
 export function reactNative(options?: VitestNativeOptions): Plugin {
+  // Before anything else: on an unsupported Node the loader hooks below are unreliable,
+  // and the failures they cause look like the project's own bugs.
+  assertSupportedNode();
   // Per plugin INSTANCE, not module scope. A Vitest workspace calls reactNative() once
   // per project and they share this module, so module-level state means the last
   // project's configResolved decides for all of them — suppressing the warning for a

@@ -17,11 +17,10 @@ it("imports an .mjs file from an auto-detected package", () => {
   expect(fromMjs).toBe("mjs");
 });
 
-// A compiled module's import of an `.mjs` file is a require() of it. Where the ESM
-// loader runs on its own thread (Node before 22.15), Node's require(esm) does not
-// consult it, so the file and React Native's Flow source beneath it ran uncompiled
-// ("Unexpected token '<'", "Unexpected token 'typeof'"). The CommonJS hooks compile it
-// (hooks.mjs).
+// A compiled module's import of an `.mjs` file is a require() of it: Node's require(esm),
+// which the in-thread loader hooks see, so the file and React Native's Flow source
+// beneath it are compiled (without that, "Unexpected token '<'", "Unexpected token
+// 'typeof'").
 it("compiles an .mjs file a compiled module requires, and what it imports", () => {
   expect(viaMjs.os).toBe("ios");
   expect(viaMjs.tree.props.testID).toBe("from-mjs");

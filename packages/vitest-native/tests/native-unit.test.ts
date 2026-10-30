@@ -529,33 +529,13 @@ describe("resolvePlatformFile", () => {
 // @ts-expect-error — runtime .mjs
 import * as nativeLoader from "../src/native/loader.mjs";
 
-describe("in-thread loader hooks: where Node's are reliable", () => {
-  it.each([
-    ["22.13.0", false],
-    ["22.19.0", false],
-    ["22.22.2", false],
-    ["22.22.3", true],
-    ["22.23.0", true],
-    ["23.11.0", false],
-    ["24.11.0", false],
-    ["24.12.0", true],
-    ["v24.13.0", true],
-    ["25.2.0", false],
-    ["26.0.0", true],
-  ])("%s → %s", (version, expected) => {
-    expect(nativeLoader.inThreadHooksReliable(version)).toBe(expected);
-  });
-});
-
 describe("in-thread loader hooks: require or import", () => {
   // The contexts Node passes module.registerHooks, as measured on each version.
   const requireOn22_19 = { conditions: ["require", "node", "node-addons", "module-sync"] };
-  const requireOn22_15 = { conditions: {} }; // 22.15–22.18 and 24.0–24.4
   const importAnywhere = { conditions: ["node", "import", "module-sync", "node-addons"] };
 
-  it("reads a require on every Node with registerHooks", () => {
+  it("reads a require as a require", () => {
     expect(nativeLoader.isRequireContext(requireOn22_19)).toBe(true);
-    expect(nativeLoader.isRequireContext(requireOn22_15)).toBe(true);
     expect(nativeLoader.isRequireContext({})).toBe(true);
   });
 
@@ -571,7 +551,7 @@ describe("native preset redirect (ESM loader)", () => {
       transformPkgs: [],
       presetExports: { "react-native-reanimated": ["useSharedValue", "View"] },
     });
-    const result = await nativeLoader.resolve(
+    const result = nativeLoader.resolveSync(
       "react-native-reanimated",
       { parentURL: undefined },
       () => {
@@ -583,13 +563,9 @@ describe("native preset redirect (ESM loader)", () => {
   });
 
   it("serves ESM source that re-exports the runtime mock from globalThis", async () => {
-    const result = await nativeLoader.load(
-      "vitest-native-preset:react-native-reanimated",
-      {},
-      () => {
-        throw new Error("nextLoad should not be called for a preset URL");
-      },
-    );
+    const result = nativeLoader.loadSync("vitest-native-preset:react-native-reanimated", {}, () => {
+      throw new Error("nextLoad should not be called for a preset URL");
+    });
     expect(result.format).toBe("module");
     expect(result.source).toContain("globalThis.__vitest_native_preset_mocks");
     expect(result.source).toContain('export const useSharedValue = _m["useSharedValue"];');
@@ -600,7 +576,7 @@ describe("native preset redirect (ESM loader)", () => {
 
   it("passes non-preset specifiers through to the next resolver", async () => {
     const sentinel = { url: "file:///passthrough", shortCircuit: true };
-    const result = await nativeLoader.resolve(
+    const result = nativeLoader.resolveSync(
       "some-unrelated-package",
       { parentURL: undefined },
       () => sentinel,
@@ -615,7 +591,7 @@ describe("native preset redirect (ESM loader)", () => {
       presetExports: { "react-native-gesture-handler": ["Swipeable", "State"] },
       assetExts: ["png", "ttf"],
     });
-    const resolved = await nativeLoader.resolve(
+    const resolved = nativeLoader.resolveSync(
       "react-native-gesture-handler/Swipeable",
       { parentURL: undefined },
       () => {
@@ -623,7 +599,7 @@ describe("native preset redirect (ESM loader)", () => {
       },
     );
     expect(resolved.url).toBe("vitest-native-preset:react-native-gesture-handler/Swipeable");
-    const loaded = await nativeLoader.load(resolved.url, {}, () => {
+    const loaded = nativeLoader.loadSync(resolved.url, {}, () => {
       throw new Error("nextLoad should not be called for a preset URL");
     });
     // Default = the mock export matching the leaf name, falling back to the
@@ -635,7 +611,7 @@ describe("native preset redirect (ESM loader)", () => {
 
   it("passes preset package.json and asset subpaths through to the real resolver", async () => {
     // package.json falls through (and gets the JSON import attribute injected).
-    const jsonResult = await nativeLoader.resolve(
+    const jsonResult = nativeLoader.resolveSync(
       "react-native-gesture-handler/package.json",
       { parentURL: undefined },
       () => ({ url: "file:///real/package.json", shortCircuit: true }),
@@ -644,7 +620,7 @@ describe("native preset redirect (ESM loader)", () => {
     expect(jsonResult.importAttributes?.type).toBe("json");
     // Assets fall through so the real file is stubbed from disk.
     const assetSentinel = { url: "file:///real/back-icon.png", shortCircuit: true };
-    const assetResult = await nativeLoader.resolve(
+    const assetResult = nativeLoader.resolveSync(
       "react-native-gesture-handler/assets/back-icon.png",
       { parentURL: undefined },
       () => assetSentinel,
@@ -674,11 +650,7 @@ describe("native preset redirect (ESM loader)", () => {
       "react-native-reanimated/plugin",
     ]) {
       const sentinel = { url: `file:///real/${specifier.split("/").pop()}.js`, shortCircuit: true };
-      const result = await nativeLoader.resolve(
-        specifier,
-        { parentURL: undefined },
-        () => sentinel,
-      );
+      const result = nativeLoader.resolveSync(specifier, { parentURL: undefined }, () => sentinel);
       expect(result).toBe(sentinel);
     }
   });
