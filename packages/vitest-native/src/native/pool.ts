@@ -221,7 +221,13 @@ class NativePoolWorker extends ThreadsPoolWorker {
   }
 }
 
-/** Pool initializer for `test.pool` — keeps RN-hot workers alive across files. */
+/**
+ * Pool initializer for `test.pool` — keeps RN-hot workers alive across files.
+ *
+ * Each worker reads `options` as Vitest creates it, which is after every plugin's
+ * configureVitest hook, so the plugin can still swap in a memory plan rebuilt for the
+ * worker count Vitest resolved from `--maxWorkers` (see replanForVitestWorkers).
+ */
 export function nativePool(options: NativePoolOptions): PoolRunnerInitializer {
   const mismatch = workerVitestMismatch(path.resolve(options.workerEntry), options.projectRoot);
   if (mismatch) throw workerVitestMismatchError(mismatch);
