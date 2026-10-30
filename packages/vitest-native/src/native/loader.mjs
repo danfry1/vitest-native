@@ -1,4 +1,4 @@
-// Node ESM loader hook (registered via module.register). Intercepts import() of RN —
+// Node ESM loader hooks (installed in-thread with module.registerHooks). Intercepts import() of RN —
 // which Module._extensions cannot — Flow-stripping and serving boundary mock source.
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { projectContext } from "../context.mjs";

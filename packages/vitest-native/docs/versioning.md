@@ -126,13 +126,15 @@ is asked to update rather than the engine carrying a second code path for it.
 
 | Upstream | Supported | Rule |
 | --- | --- | --- |
-| Node | 22.22.3+ on Node 22, 24.12+ on Node 24, 26+ | The active and maintenance LTS lines and Current, each from the release where Node's in-thread module hooks (`module.registerHooks`) carry the engine. Odd lines are not supported. |
+| Node | 22.22.3+ on Node 22, 24.12+ on Node 24, 26+ | Each line from the release where Node's in-thread module hooks (`module.registerHooks`) carry the engine. End-of-life lines (20, 23, 25) are not supported. Lines from 26 on are admitted, and are added to CI as they ship. |
 | Vitest | 4.x and 5.x | The current and previous major. A new major is added; the oldest is then dropped in a minor. |
 | React Native Testing Library | 12.x, 13.x and 14.x, moving to 13.x and 14.x | The current and previous major. |
 | React | 18 and 19, moving to 19 | The version React Native's current releases use. |
 
-On an unsupported Node the plugin stops at startup with `UNSUPPORTED_NODE`, naming the range, and
-`vitest-native doctor` reports the same.
+On an unsupported Node the plugin stops at startup with `UNSUPPORTED_NODE`, for both engines, and
+`vitest-native doctor` reports the same. Below a supported line's floor (22.x before 22.22.3, 24.x
+before 24.12) an update within that major is enough; on another line the message names the
+supported ones.
 
 The currently supported ranges are in [Requirements](../README.md#requirements) and the blocking
 matrix in [`release-readiness.md`](./release-readiness.md#blocking-compatibility-matrix). Those are

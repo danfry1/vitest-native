@@ -43,11 +43,9 @@ function packageVersion(root: string, name: string): string | null {
 }
 
 /**
- * The supported Node versions, as this package's own `engines.node` states them.
- * Single source: the manifest is what a package manager enforces at install time, so a
- * diagnostic must not carry its own copy of the range.
+ * The supported Node range: SUPPORTED_NODE, the constant the plugin enforces at startup,
+ * which a test holds equal to `engines.node` (what a package manager enforces).
  */
-/** The supported Node range: engines.node, held to SUPPORTED_NODE by a test. */
 export function nodeRange(): string {
   return SUPPORTED_NODE;
 }

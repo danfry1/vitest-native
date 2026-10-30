@@ -188,6 +188,16 @@ if (typeof globalThis.expect === "undefined") {
  * hooks (hooks.mjs), so those calls go straight to Node's default resolution.
  */
 function installLoaderHooks(data) {
+  if (typeof registerHooks !== "function") {
+    // A runtime that reports a supported Node version without Node's in-thread hooks
+    // (Bun reports Node 26) cannot run the native engine's loader.
+    throw new VitestNativeError(
+      "UNSUPPORTED_NODE",
+      `This runtime reports Node ${process.versions.node} but has no \`module.registerHooks\`, ` +
+        `which the native engine's loader needs. Run Vitest with Node 22.22.3 or later on Node 22, ` +
+        `24.12.0 or later on Node 24, or Node 26 and later.`,
+    );
+  }
   nativeLoader.initialize(data);
   const fromRequire = nativeLoader.isRequireContext;
   registerHooks({

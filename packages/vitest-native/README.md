@@ -1013,9 +1013,10 @@ see [versioning and stability](docs/versioning.md).
 
 Each Node line starts at the release where Node's in-thread module hooks (`module.registerHooks`)
 carry the engine: earlier releases fail it (expo-router's navigation elements do not load, and the
-hot runtime's module reset misbehaves). Node 23 is past its end of life and Node 25 was never
-measured. On an unsupported Node the plugin stops at startup with `UNSUPPORTED_NODE`; an update
-within the same Node major is enough. RNTL 14 uses async rendering APIs.
+hot runtime's module reset misbehaves). End-of-life lines (20, 23, 25) are not supported; lines
+from 26 on are admitted. On an unsupported Node the plugin stops at startup with
+`UNSUPPORTED_NODE`, with either engine; on Node 22 or 24 an update within that major is enough.
+RNTL 14 uses async rendering APIs.
 
 ---
 

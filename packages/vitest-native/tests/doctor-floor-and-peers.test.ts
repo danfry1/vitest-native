@@ -46,7 +46,7 @@ const testingLine = (root: string) => {
   return lines.slice(start + 1, start + 2).join(" ");
 };
 
-describe("doctor: the supported Node range comes from engines.node", () => {
+describe("doctor: the supported Node range is the one the plugin enforces", () => {
   it("matches this package's own manifest", () => {
     const manifest = JSON.parse(
       fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"),
