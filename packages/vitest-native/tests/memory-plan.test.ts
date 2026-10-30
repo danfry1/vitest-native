@@ -44,6 +44,42 @@ describe("hot memory planning", () => {
     expect(plan(2 * GIB).hardRssLimit).toBeLessThan(2 * GIB);
   });
 
+  it("caps only the automatic worker count at four; memory bounds an explicit one", () => {
+    const host = (requestedWorkers: number, explicitWorkers?: boolean) =>
+      createHotMemoryPlan({
+        totalMemory: 4 * GIB,
+        constrainedMemory: 0,
+        requestedWorkers,
+        explicitWorkers,
+      });
+    expect(host(10)).toMatchObject({ admittedWorkers: 4, maxWorkers: 4 });
+    // 4 GiB leaves an envelope of eleven 256 MiB workers.
+    expect(host(10, true)).toMatchObject({ requestedWorkers: 10, maxWorkers: 10 });
+    expect(host(16, true)).toMatchObject({ admittedWorkers: 11, maxWorkers: 11 });
+    // More workers share the same envelope, so each recycles at a lower heap.
+    expect(host(10, true).workerHeapLimit).toBeLessThan(host(10).workerHeapLimit);
+    expect(host(3, true)).toMatchObject({ maxWorkers: 3 });
+
+    // Memory still caps an explicit request: 2 GiB admits four 256 MiB envelopes.
+    expect(
+      createHotMemoryPlan({
+        totalMemory: 16 * GIB,
+        constrainedMemory: 2 * GIB,
+        requestedWorkers: 8,
+        explicitWorkers: true,
+      }),
+    ).toMatchObject({ requestedWorkers: 8, admittedWorkers: 4, maxWorkers: 4 });
+    // With no known limit nothing admits more than the measured default.
+    expect(
+      createHotMemoryPlan({
+        totalMemory: 0,
+        constrainedMemory: 0,
+        requestedWorkers: 8,
+        explicitWorkers: true,
+      }),
+    ).toMatchObject({ source: "unknown", maxWorkers: 4 });
+  });
+
   it("resolves Vitest worker counts and percentage syntax", () => {
     expect(resolveRequestedWorkers(undefined, { parallelism: 10 })).toBe(9);
     expect(resolveRequestedWorkers("50%", { parallelism: 10 })).toBe(5);
