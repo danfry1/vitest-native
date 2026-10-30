@@ -14,12 +14,7 @@ import {
 import { boundarySourceFor } from "./boundary.mjs";
 import { nativeAssetModuleSource } from "./assets.mjs";
 import { extensionsFor, resolveRelativePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
-import {
-  NODE_MODULES_PATH,
-  isUtilitySubpath,
-  packageNameOf,
-  subpathLeafOf,
-} from "./match.mjs";
+import { NODE_MODULES_PATH, isUtilitySubpath, packageNameOf, subpathLeafOf } from "./match.mjs";
 import {
   createNativeOwnershipPolicy,
   isRuntimeResidentFile,

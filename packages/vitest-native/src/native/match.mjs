@@ -214,4 +214,3 @@ export function isUtilitySubpath(specifier) {
   const leaf = subpathLeafOf(specifier);
   return leaf !== null && UTILITY_SUBPATH_LEAVES.has(leaf);
 }
-
