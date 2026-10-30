@@ -54,7 +54,7 @@ if (diagnostics) {
 // Enable the V8 compile cache before any RN module compiles, so the resident
 // graph's bytecode is cached to disk for the next worker/run.
 enableV8CompileCache(projectRoot);
-installGlobals();
+installGlobals({ projectRoot, platform });
 installKnownNativeModules(projectRoot);
 // The registry must be installed BEFORE the preload below, not just by the setup
 // file: whichever path first resolves react-native decides which instance the
