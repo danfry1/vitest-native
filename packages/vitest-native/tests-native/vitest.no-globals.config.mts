@@ -19,22 +19,40 @@ class ByName extends BaseSequencer {
 }
 
 export default defineConfig(({ mode }) => {
-  const modes = ["native", "hot", "noiso", "mock-noiso"];
+  // `<engine>-fakes-setup` and `<engine>-fakes-leak` run no-globals-fakes/ with
+  // `isolate: false`: a setup file that turns on fake timers, or a file that ends with
+  // them on. Vitest keeps them across files then, so the cleanup's own wait must not use
+  // the global setImmediate.
+  const modes = [
+    "native",
+    "hot",
+    "noiso",
+    "mock-noiso",
+    "noiso-fakes-setup",
+    "noiso-fakes-leak",
+    "mock-noiso-fakes-setup",
+    "mock-noiso-fakes-leak",
+  ];
   if (!modes.includes(mode)) {
     throw new Error(`run with --mode ${modes.join(", ")} (got '${mode}')`);
   }
+  const fakes = mode.includes("-fakes-") ? mode.split("-fakes-")[1] : null;
+  const engineMode = mode.split("-fakes-")[0];
   return {
     plugins: [
       reactNative({
-        engine: mode === "mock-noiso" ? "mock" : "native",
-        hotRuntime: mode === "hot" ? { allowUnboundedMemory: true } : false,
+        engine: engineMode === "mock-noiso" ? "mock" : "native",
+        hotRuntime: engineMode === "hot" ? { allowUnboundedMemory: true } : false,
       }),
     ],
     test: {
       environment: "node",
-      env: { VN_NO_GLOBALS_MODE: mode },
-      ...(mode.endsWith("noiso") ? { isolate: false } : {}),
-      include: ["tests-native/no-globals/*.test.tsx"],
+      env: { VN_NO_GLOBALS_MODE: engineMode },
+      ...(engineMode.endsWith("noiso") ? { isolate: false } : {}),
+      include: fakes
+        ? [`tests-native/no-globals-fakes/${fakes}/*.test.tsx`]
+        : ["tests-native/no-globals/*.test.tsx"],
+      setupFiles: fakes === "setup" ? ["tests-native/no-globals-fakes/setup/fake-timers.setup.ts"] : [],
       // The shared test-utils fixture goes to Node, as an installed package would, so
       // RNTL is reached through a module Vite does not evaluate (05, 06).
       server: { deps: { external: [/fixtures[\\/]rntl-reexport[\\/]/] } },

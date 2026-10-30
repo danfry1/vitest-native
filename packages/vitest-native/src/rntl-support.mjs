@@ -5,6 +5,7 @@
 // state only through the global symbol below, never through module identity.
 import fs from "node:fs";
 import Module from "node:module";
+import { setImmediate as realSetImmediate } from "node:timers";
 
 /** RNTL's package entry: `build/index.js` (12, 13) or `dist/index.js` (14). */
 export const RNTL_ENTRY =
@@ -87,8 +88,11 @@ function rntlEntriesInFileGraph() {
  *     flush-micro-tasks.js:9) or 12's `flushMicroTasksLegacy` (12.9 :27) wait. RNTL uses
  *     the `setImmediate` it captured when it loaded (12.9/13.3 build/helpers/timers.js:67,
  *     14.1 dist/helpers/timers.js:74), not the current one, so a test that ends with fake
- *     timers still installed does not hang its cleanup. This hook's own wait captures the
- *     real one when the setup file runs, for the same reason. (That RNTL's capture is the
+ *     timers still installed does not hang its cleanup. This hook's own wait uses
+ *     `node:timers`' `setImmediate`, which Vitest's fake timers never replace: a capture
+ *     of the global when the setup file runs is not enough, because under
+ *     `isolate: false` Vitest leaves the previous file's fake timers installed, so the
+ *     setup file of a later file would capture a fake one and every cleanup would hang. (That RNTL's capture is the
  *     real one even when fake timers are on at load is native/rntl-hooks.mjs's `jest`.)
  *
  * Order: Vitest runs `afterEach` hooks in reverse order of registration (its default
@@ -113,7 +117,6 @@ function rntlEntriesInFileGraph() {
  */
 export function installRntlAutoCleanup(afterEach, { trackImports = false } = {}) {
   if (typeof globalThis.afterEach === "function") return;
-  const setImmediate = globalThis.setImmediate;
   const state = { imported: trackImports ? new Set() : null };
   Object.defineProperty(globalThis, AUTO_CLEANUP, {
     configurable: true,
@@ -134,7 +137,7 @@ export function installRntlAutoCleanup(afterEach, { trackImports = false } = {})
       if (typeof cleanup === "function") entries.push(cleanup);
     }
     if (entries.length === 0) return;
-    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => realSetImmediate(resolve));
     for (const cleanup of entries) await cleanup();
   });
 }
