@@ -258,16 +258,56 @@ export function detectEcosystemPackages(
   }
   if (candidates.size === 0) return [];
 
+  /**
+   * A package's manifest, and the directory it is installed in. `require.resolve`
+   * returns the real path, not the link's, unless Node runs with --preserve-symlinks,
+   * where Node resolves the package's own imports from the link too.
+   */
+  type Installed = { manifest: Record<string, unknown>; dir: string };
+  const installedVia = (req: NodeJS.Require, name: string): Installed | null => {
+    try {
+      const file = req.resolve(`${name}/package.json`);
+      return {
+        manifest: req(file) as Record<string, unknown>,
+        dir: path.dirname(file),
+      };
+    } catch {
+      return null;
+    }
+  };
   /** Resolve a package's manifest from whichever root can see it. */
-  const manifestOf = (name: string): Record<string, unknown> | null => {
+  const installedOf = (name: string): Installed | null => {
     for (const req of requires) {
-      try {
-        return req(`${name}/package.json`) as Record<string, unknown>;
-      } catch {
-        // Not resolvable from this root — try the next one.
-      }
+      const installed = installedVia(req, name);
+      if (installed) return installed;
     }
     return null;
+  };
+  const manifestOf = (name: string): Record<string, unknown> | null =>
+    installedOf(name)?.manifest ?? null;
+
+  // A dependency is resolved from the package that declares it, as Node resolves it
+  // when that package's code runs. One that does not resolve from there cannot load
+  // either, so it is not looked for elsewhere.
+  //
+  // Resolving it from the roots alone found only what is hoisted. An isolated install
+  // (pnpm, bun) links a project's direct dependencies into its node_modules and
+  // nothing else: @react-navigation/native's own dependencies, @react-navigation/core
+  // and @react-navigation/elements, are siblings of its real directory in the store
+  // and resolve from nowhere above the project. Every transitive dependency was then
+  // "declared but not installed" and left out of the walk, so with the navigation
+  // preset off, @react-navigation/native-stack imported an uncompiled
+  // @react-navigation/elements, whose ESM could not see the names the compiled
+  // @react-navigation/native re-exports from core: "does not provide an export named
+  // 'useTheme'".
+  const requireByDir = new Map<string, NodeJS.Require>();
+  const dependencyOf = (parent: Installed, name: string): Installed | null => {
+    let req = requireByDir.get(parent.dir);
+    if (!req) {
+      req = createRequire(path.join(parent.dir, "package.json"));
+      requireByDir.set(parent.dir, req);
+    }
+    return installedVia(req, name);
   };
 
   /**
@@ -340,16 +380,19 @@ export function detectEcosystemPackages(
   // and it is the one package in that closure React Native also owns.
   const rnOwned = new Set<string>(Object.keys(manifestOf("react-native")?.dependencies ?? {}));
 
-  /** Every package reachable from `roots` through runtime dependencies. */
-  const closureOf = (starts: string[]): Set<string> => {
+  /** Every package reachable from `starts` through runtime dependencies. */
+  const closureOf = (starts: [string, Installed | null][]): Set<string> => {
     const seen = new Set<string>();
     const pending = [...starts];
     while (pending.length > 0) {
-      const name = pending.pop() as string;
+      const [name, installed] = pending.pop() as [string, Installed | null];
       if (seen.has(name)) continue;
       seen.add(name);
-      const deps = manifestOf(name)?.dependencies;
-      if (deps && typeof deps === "object") pending.push(...Object.keys(deps as object));
+      const deps = installed?.manifest.dependencies;
+      if (!installed || !deps || typeof deps !== "object") continue;
+      for (const dep of Object.keys(deps as object)) {
+        if (!seen.has(dep)) pending.push([dep, dependencyOf(installed, dep)]);
+      }
     }
     return seen;
   };
@@ -383,12 +426,40 @@ export function detectEcosystemPackages(
   // compiling. This list is retained only for MODULE-goal toolchain packages, which
   // the parse check deliberately does not judge. It should be deleted when ESM-goal
   // files stop being force-converted, and not extended before then: a new name here is
-  // a sign the parse check was bypassed rather than that the list was incomplete.
+  // a sign the parse check was bypassed rather than that the list was incomplete. The
+  // two Expo names below are the exception, added to bound the walk rather than to
+  // keep anything from Babel: under an isolated install the walk reaches Expo's
+  // toolchain, which does not belong in the transform set.
+  //
+  // Each seed is resolved where the toolchain installs it, not only from the project
+  // root. Under an isolated install (pnpm) the root links only the project's direct
+  // dependencies, so `metro` and `@babel/runtime` resolved from nowhere and seeded
+  // nothing, while the walk below, which resolves each dependency from its parent,
+  // reached their closures through `expo`. On a pnpm Expo 58 app that handed 244
+  // packages to the transform, Metro's own chain and Jest's among them. React Native's
+  // directory resolves them as React Native's own tooling does, and `expo`'s resolves
+  // Expo's.
+  //
+  // Both transform presets the engine can resolve (resolveTransformPreset) are seeds:
+  // `@react-native/babel-preset`, and from Expo SDK 56 `babel-preset-expo`, which an
+  // Expo app's closure reaches through `expo` whichever of the two the engine uses.
+  // So is `@expo/metro`, Expo's Metro. `@expo/cli` is not: its closure holds runtime
+  // packages (`@expo/log-box`, `@expo/dom-webview`) that must still be compiled.
+  const reactNativeInstalled = installedOf("react-native");
+  const expoInstalled = installedOf("expo");
+  const seed = (name: string): [string, Installed | null] => [
+    name,
+    installedOf(name) ??
+      (reactNativeInstalled && dependencyOf(reactNativeInstalled, name)) ??
+      (expoInstalled && dependencyOf(expoInstalled, name)),
+  ];
   const toolchain = closureOf([
-    "@babel/core",
-    "@react-native/babel-preset",
-    "@babel/runtime",
-    "metro",
+    seed("@babel/core"),
+    seed("@react-native/babel-preset"),
+    seed("babel-preset-expo"),
+    seed("@babel/runtime"),
+    seed("metro"),
+    seed("@expo/metro"),
   ]);
 
   // Only packages the RUN can actually reach seed the walk.
@@ -430,10 +501,13 @@ export function detectEcosystemPackages(
   }
 
   const inClosure = new Set(detected);
-  const queue = detected.filter((name) => projectDeclared.has(name));
+  const queue = detected
+    .filter((name) => projectDeclared.has(name))
+    .map(installedOf)
+    .filter((installed): installed is Installed => installed !== null);
   while (queue.length > 0) {
-    const pkg = manifestOf(queue.pop() as string);
-    const deps = pkg?.dependencies;
+    const pkg = queue.pop() as Installed;
+    const deps = pkg.manifest.dependencies;
     if (!deps || typeof deps !== "object") continue;
     for (const dep of Object.keys(deps as object)) {
       if (inClosure.has(dep) || skip.has(dep) || dep.startsWith("@react-native/")) continue;
@@ -442,11 +516,11 @@ export function detectEcosystemPackages(
       // A sibling that depends on the package under test would otherwise pull it
       // back in here, past the check above.
       if (ownsTheRun(dep)) continue;
-      const depManifest = manifestOf(dep);
-      if (!depManifest) continue; // declared but not installed
-      if (publishesOnlyEsm(depManifest)) continue;
+      const installed = dependencyOf(pkg, dep);
+      if (!installed) continue; // declared but not installed
+      if (publishesOnlyEsm(installed.manifest)) continue;
       inClosure.add(dep);
-      queue.push(dep);
+      queue.push(installed);
     }
   }
 

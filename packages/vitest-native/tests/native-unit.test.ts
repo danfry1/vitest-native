@@ -1535,6 +1535,108 @@ describe("engine-selection notices", () => {
     err.mockRestore();
   });
 
+  // A preset replaces a whole library, so the banner names each one applied. The names
+  // are read back from the list the workers receive, so the banner cannot drift from it.
+  it("the native banner names the presets the workers are told to build", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const banner = () =>
+      String(err.mock.calls.find((c) => String(c[0]).includes("engine:"))?.[0] ?? "");
+    const workerPresets = (cfg: any): string[] => [...(contextOf(cfg).presetNames ?? [])];
+    try {
+      const auto = await runPluginConfig(
+        reactNative({ engine: "native" }) as any,
+        { root: projectRoot },
+        SERVE_ENV,
+      );
+      const names = workerPresets(auto);
+      // This package's devDependencies include React Navigation.
+      expect(names).toContain("navigation");
+      expect(banner()).toContain(` · mocked: ${names.join(", ")} (platform ios`);
+
+      resetBanner();
+      err.mockClear();
+      const optedOut = await runPluginConfig(
+        reactNative({ engine: "native", presets: { navigation: false } }) as any,
+        { root: projectRoot },
+        SERVE_ENV,
+      );
+      const remaining = workerPresets(optedOut);
+      expect(remaining).not.toContain("navigation");
+      expect(banner()).toContain(` · mocked: ${remaining.join(", ")} (platform ios`);
+      expect(banner()).not.toMatch(/\bnavigation\b/);
+
+      resetBanner();
+      err.mockClear();
+      await runPluginConfig(
+        reactNative({ engine: "native", presets: [] }) as any,
+        { root: projectRoot },
+        SERVE_ENV,
+      );
+      expect(banner()).toContain("engine: native");
+      expect(banner()).not.toContain("mocked:");
+    } finally {
+      err.mockRestore();
+    }
+  });
+
+  it("the mock banner names the presets the workers are told to build", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { presets } = await import("../src/index.js");
+      const cfg = await runPluginConfig(
+        reactNative({ engine: "mock", presets: [presets.navigation(), presets.screens()] }) as any,
+        { root: projectRoot },
+        SERVE_ENV,
+      );
+      const names = contextOf(cfg).presetNames;
+      expect(names).toEqual(["navigation", "screens"]);
+      const banner = String(err.mock.calls.find((c) => String(c[0]).includes("engine:"))?.[0]);
+      expect(banner).toMatch(/engine: mock — .* · mocked: navigation, screens \(platform ios\)$/);
+
+      // Auto-detected, the workers detect for themselves and drop what is switched off.
+      resetBanner();
+      err.mockClear();
+      await runPluginConfig(
+        reactNative({ engine: "mock", presets: { navigation: false } }) as any,
+        { root: projectRoot },
+        SERVE_ENV,
+      );
+      const auto = String(err.mock.calls.find((c) => String(c[0]).includes("engine:"))?.[0]);
+      expect(auto).toContain("safeAreaContext");
+      expect(auto).not.toMatch(/\bnavigation\b/);
+    } finally {
+      err.mockRestore();
+    }
+  });
+
+  it("the banner names the project's own preset modules as the config names them", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-banner-preset-"));
+    const file = path.join(dir, "my-preset.mjs");
+    fs.writeFileSync(file, "export default { name: 'myLib', modules: {} };\n");
+    const banner = () =>
+      String(err.mock.calls.find((c) => String(c[0]).includes("engine:"))?.[0] ?? "");
+    try {
+      for (const engine of ["native", "mock"] as const) {
+        for (const option of [[file], { navigation: false, [file]: true }]) {
+          resetBanner();
+          err.mockClear();
+          await runPluginConfig(
+            reactNative({ engine, hotRuntime: false, presets: option as any }) as any,
+            { root: projectRoot },
+            SERVE_ENV,
+          );
+          expect(banner(), `${engine} ${JSON.stringify(option)}`).toMatch(
+            new RegExp(` · mocked: (.*, )?${file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\(`),
+          );
+        }
+      }
+    } finally {
+      err.mockRestore();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("the engine banner prints once per process, not once per project", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
     const plugin = reactNative({}) as any;
