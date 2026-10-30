@@ -1,6 +1,12 @@
 # Third-Party Presets
 
-Most React Native apps depend on native libraries — Reanimated, Gesture Handler, Navigation, and friends. Under Jest you wire up a manual mock or jest-setup for each. vitest-native ships **built-in presets** that shadow these libraries' native runtimes, and they're **auto-detected** from your installed dependencies.
+Most React Native apps depend on native libraries — Reanimated, Gesture Handler, Navigation, and friends. Under Jest you wire up a manual mock or jest-setup for each. vitest-native ships **built-in presets** that stand in for these libraries, and they're **auto-detected** from your installed dependencies. A preset replaces the whole package it covers, its JavaScript API as well as its native code: an import of the package returns the preset's module, not the package's own entry, so behaviour the preset does not implement is absent from your tests.
+
+The engine banner at the start of a run names the presets that run applies, and the project's own preset modules as the config names them:
+
+```
+[vitest-native] engine: native — real react-native@0.81.5 · mocked: gestureHandler, safeAreaContext, navigation, screens (platform ios, hot runtime)
+```
 
 ## Auto-detection
 
@@ -33,7 +39,15 @@ export default defineConfig({
 })
 ```
 
-Presets apply under **both** engines.
+Presets apply under **both** engines, with two exceptions under the native engine. `expo` steps aside: the Expo packages it covers run as themselves, against the engine's Expo runtime, unless `presets: { expo: true }` turns it on. `worklets` steps aside when the installed react-native-worklets (0.9+) ships its Jest resolver, so the real package runs in its JS implementation.
+
+## Turning a preset off
+
+An object keeps auto-detection and switches off the presets set to `false`; the package's real code then runs:
+
+```ts
+reactNative({ presets: { navigation: false } })
+```
 
 ## Available presets
 
@@ -58,6 +72,24 @@ Presets apply under **both** engines.
 | `presets.keyboardController()` | `react-native-keyboard-controller` | `KeyboardProvider`, `KeyboardAvoidingView`, `KeyboardAwareScrollView`, `KeyboardStickyView`, `KeyboardToolbar`; the imperative `KeyboardController` is inert |
 | `presets.unistyles()` | `react-native-unistyles`, `react-native-unistyles/reanimated` | Unistyles 3: `StyleSheet.configure`/`create` with themes, variants and compound variants, `useUnistyles`, `withUnistyles`, `UnistylesRuntime` theme switching, `mq` with `Display`/`Hide`; matches the library's own Jest mock and follows its source where that mock does less |
 | `presets.skia()` | `react-native-skia`, `@shopify/react-native-skia` | Skia's own test mock (`Mock(CanvasKit)`) over CanvasKit, Skia compiled to WebAssembly: the `Skia` API computes with real Skia, `Canvas` and its drawing render as Views; plus Skia's Reanimated helpers (`usePathValue`, `useTexture`, …) and a `matchFont` that returns a font |
+
+## React Navigation
+
+::: warning The navigation preset replaces React Navigation
+Its `NavigationContainer` renders its children and nothing more: it never calls `onReady` and keeps no navigation state. A navigator renders every `Screen` it lists at once, and the `navigation` object's methods (`navigate`, `goBack`, `reset`, …) are `vi.fn()`s that do nothing. That suits a test that renders one screen and asserts on the calls it makes. It does not suit a test that renders the app's navigator and moves between screens, or app code that waits for `onReady` before it renders: navigating changes nothing, and the failure does not mention the preset. Turn it off to run the real React Navigation, which is plain JavaScript and runs under the native engine:
+
+```ts
+reactNative({ presets: { navigation: false } })
+```
+
+A native-stack navigator (`@react-navigation/native-stack`) also needs the screens preset off. Native-stack draws its header through react-native-screens, and with the screens preset on, header content such as `headerLeft` and `headerRight` does not render, so a query for a header button finds nothing:
+
+```ts
+reactNative({ presets: { navigation: false, screens: false } })
+```
+:::
+
+The preset is detected from the `@react-navigation/*` packages in the table above. From Expo SDK 57, expo-router bundles its own React Navigation and installs none of them, so the preset never applies there and `navigation: false` changes nothing; the router's navigators already run for real. Before SDK 57, expo-router uses the installed `@react-navigation/*` packages, so its tests need `navigation: false` (see [Expo](/guide/expo)).
 
 ## Unistyles
 

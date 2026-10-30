@@ -18,7 +18,7 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(here, "../..");
@@ -141,6 +141,8 @@ import { label } from "./label.mjs";
 // The hot worker installs its per-file reset before any test file loads.
 const hot = typeof globalThis.__vitest_native_hot_reset === "function";
 if (process.env.VN_MODE_FILE) fs.appendFileSync(process.env.VN_MODE_FILE, hot ? "hot\\n" : "isolated\\n");
+// The worker count the hot memory plan each worker received was sized for.
+if (process.env.VN_PLAN_FILE && process.env.VITEST_NATIVE_MEMORY_PLAN) fs.appendFileSync(process.env.VN_PLAN_FILE, JSON.parse(process.env.VITEST_NATIVE_MEMORY_PLAN).maxWorkers + "\\n");
 
 test("unit ${i} sees clean module state", () => {
   expect(state.dirtiedBy).toBe(null);
@@ -385,6 +387,16 @@ function readMode(modeFile) {
   return modes.length === 1 ? modes[0] : modes.length ? "mixed" : "none";
 }
 
+// Preloaded by a scenario that needs a CPU count other than the runner's.
+const cpusPreload = path.join(root, "simulate-cpus.mjs");
+
+// The distinct worker counts the hot memory plan reached the workers with.
+const planFile = path.join(root, ".plan-workers");
+const plannedWorkers = () =>
+  fs.existsSync(planFile)
+    ? [...new Set(fs.readFileSync(planFile, "utf8").trim().split("\n"))].join(",")
+    : "none";
+
 function check(name, condition, detail) {
   if (condition) {
     console.log(`  ✓ ${name}`);
@@ -533,6 +545,37 @@ try {
       { plugin: { hotRuntime: true }, args: ["--maxWorkers=1"] },
       "none",
       (r) => r.status !== 0 && /HOT_RUNTIME_OVERRIDDEN|HOT_MEMORY_UNBOUNDED/.test(r.output),
+    ],
+    // Vitest applies --maxWorkers and VITEST_MAX_WORKERS after the plugin's config hook
+    // built the memory plan, so the plan (and each worker's heap threshold) was once
+    // sized for four while Vitest ran six. A count the user chose is bounded by memory
+    // only, not by the automatic cap of four; a CI runner's memory admits six.
+    [
+      "--maxWorkers above the automatic cap gets a plan for that count",
+      {
+        plugin: { diagnostics: true },
+        args: ["--maxWorkers=6"],
+        env: { VN_PLAN_FILE: planFile },
+        before: () => fs.rmSync(planFile, { force: true }),
+      },
+      "hot",
+      (r) =>
+        r.status === 0 &&
+        /requested\/admitted\/selected: 6 \/ \d+ \/ 6\b/.test(r.output) &&
+        plannedWorkers() === "6",
+    ],
+    [
+      "VITEST_MAX_WORKERS above the automatic cap gets a plan for that count",
+      {
+        plugin: { diagnostics: true },
+        env: { VITEST_MAX_WORKERS: "6", VN_PLAN_FILE: planFile },
+        before: () => fs.rmSync(planFile, { force: true }),
+      },
+      "hot",
+      (r) =>
+        r.status === 0 &&
+        /plan rebuilt for the 6 workers/.test(r.output) &&
+        plannedWorkers() === "6",
     ],
     ["--sequence.shuffle", { args: ["--sequence.shuffle"] }, HOT, (r) => r.status === 0],
     [
@@ -730,10 +773,11 @@ try {
     ],
     [
       // Vitest throws when projects in one sequence.groupOrder resolve to different
-      // worker counts. Seven workers in both projects is a config stock Vitest accepts;
-      // the hot memory plan caps the native project (and the root it shares a config
-      // with) at four or fewer, so on any machine 'auto' must fall back rather than fail
-      // the whole run. Without a pinned count the conflict depends on the CPU count.
+      // worker counts. Seven workers in both projects is a config stock Vitest accepts.
+      // Seven is the user's explicit count, which the hot memory plan admits whenever
+      // memory holds it (a CI runner's does), so the native project runs hot with the
+      // same seven and the group stays valid. The plan once capped it at four, where
+      // 'auto' had to fall back; the next row runs that fallback.
       "a native project beside a plain project in one group",
       {
         test: {
@@ -747,8 +791,52 @@ try {
           ],
         },
       },
-      "isolated",
+      // An explicit count, so hot on any CPU count.
+      "hot",
       (r) => r.status === 0 && r.passed === all.total + 1,
+    ],
+    [
+      // The same projects with no count anywhere: Vitest gives each its default of one
+      // fewer than the CPUs, while the hot plan caps the native project at four, so
+      // 'auto' falls back and must hand the native project Vitest's count again. It
+      // once left that count unset, and Vitest 5 rejected the group. Eight CPUs are
+      // simulated so the cap conflicts on any runner (a four-CPU one runs three
+      // everywhere and never reaches the fallback).
+      "a native project beside a plain project with no worker count",
+      {
+        test: {
+          projects: [
+            { extends: true, test: { name: "native" } },
+            { extends: false, test: { name: "plain", include: ["plain/*.test.mjs"] } },
+          ],
+        },
+        env: { NODE_OPTIONS: `--import=${pathToFileURL(cpusPreload).href}`, VN_CPUS: "8" },
+        before: () =>
+          write(
+            "simulate-cpus.mjs",
+            `import os from "node:os";
+import { syncBuiltinESMExports } from "node:module";
+const cpus = Number(process.env.VN_CPUS);
+os.availableParallelism = () => cpus;
+// Some Vitest versions count CPUs with os.cpus(); keep both answers the same.
+const realCpus = os.cpus;
+os.cpus = () => {
+  const list = realCpus();
+  return Array.from({ length: cpus }, (_, i) => list[i % list.length]);
+};
+syncBuiltinESMExports();
+`,
+          ),
+      },
+      // Whether the counts differ is Vitest's to decide: Vitest 4 and 5.0.1 give a
+      // project without its own count the root's, so 'auto' stays hot; later 5.0
+      // releases (5.0.5 measured) resolve each project's and conflict. Either way
+      // the run must pass, and a fallback must say so.
+      ["isolated", HOT],
+      (r) =>
+        r.status === 0 &&
+        r.passed === all.total + 1 &&
+        (r.mode !== "isolated" || /hot runtime off: the project 'plain'/.test(r.output)),
     ],
     [
       "projects with the plugin in each",
@@ -766,10 +854,12 @@ try {
       check(`${name}: finishes`, false, `no result after ${SCENARIO_TIMEOUT_MS / 1000}s`);
       continue;
     }
+    // A row may accept more than one runtime when Vitest's own version decides it.
+    const accepted = [expectedMode].flat();
     check(
       `${name}: runtime`,
-      result.mode === expectedMode,
-      `ran ${result.mode}, expected ${expectedMode}`,
+      accepted.includes(result.mode),
+      `ran ${result.mode}, expected ${accepted.join(" or ")}`,
     );
     check(
       `${name}: outcome`,

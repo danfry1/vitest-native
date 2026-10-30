@@ -87,8 +87,9 @@ function rntlEntriesInFileGraph() {
  *     flush-micro-tasks.js:9) or 12's `flushMicroTasksLegacy` (12.9 :27) wait. RNTL uses
  *     the `setImmediate` it captured when it loaded (12.9/13.3 build/helpers/timers.js:67,
  *     14.1 dist/helpers/timers.js:74), not the current one, so a test that ends with fake
- *     timers still installed does not hang its cleanup. This captures the real one when
- *     the setup file runs, for the same reason.
+ *     timers still installed does not hang its cleanup. This hook's own wait captures the
+ *     real one when the setup file runs, for the same reason. (That RNTL's capture is the
+ *     real one even when fake timers are on at load is native/rntl-hooks.mjs's `jest`.)
  *
  * Order: Vitest runs `afterEach` hooks in reverse order of registration (its default
  * `sequence.hooks: 'stack'`), and a setup file registers before the test file, so this

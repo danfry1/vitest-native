@@ -68,6 +68,16 @@ export function expectSetupAppliedOnce(): void {
   expect(advance, "jest-compat's timer guard wrapped once per worker").toBe(
     proc[FIRST_ADVANCE] as unknown,
   );
+  // Vitest's equality testers outlive the file under the hot runtime, and each file
+  // evaluates the setup again: a count above 1 is a tester added per file.
+  const marker = Symbol.for("vitest-native.jest-compat.error-methods-equality");
+  const testers = (
+    globalThis as unknown as Record<symbol, { customEqualityTesters: Record<symbol, unknown>[] }>
+  )[Symbol.for("$$jest-matchers-object")].customEqualityTesters;
+  expect(
+    testers.filter((tester) => tester[marker]).length,
+    "jest-compat's error equality tester registered once per worker",
+  ).toBe(1);
 }
 
 /** Assert every surface this file did not mock itself is in its pristine state. */
