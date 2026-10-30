@@ -97,8 +97,15 @@ export function reportRendererError(error) {
     console.error(error);
     return;
   }
-  // react-test-renderer 19.3.0's fallback, cjs/react-test-renderer.development.js:16280-16305.
-  if (typeof window === "object" && typeof window.ErrorEvent === "function") {
+  // react-test-renderer 19.3.0's fallback, cjs/react-test-renderer.development.js:16280-16305,
+  // which also checks `dispatchEvent` here: React Native's setup makes `window` the global
+  // object, and Node 26 adds a global `ErrorEvent` but no `dispatchEvent` on it, so React's
+  // own check alone would call a missing function.
+  if (
+    typeof window === "object" &&
+    typeof window.ErrorEvent === "function" &&
+    typeof window.dispatchEvent === "function"
+  ) {
     const event = new window.ErrorEvent("error", {
       bubbles: true,
       cancelable: true,
