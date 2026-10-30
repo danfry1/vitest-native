@@ -397,7 +397,10 @@ export interface VitestNativeOptions {
    *   re-execution: a suite whose files import many externalized (non-React
    *   Native) packages measured 55% more wall clock at the extreme — still 9x
    *   stock isolation, against 13.9x with it off. Set false to trade that back,
-   *   accepting that a package holding state across files will keep it.
+   *   accepting that a package holding state across files will keep it. While it
+   *   is on, hot workers leave Node's V8 compile cache off, because every file
+   *   would add an entry per re-evaluated module (unless `NODE_COMPILE_CACHE` is
+   *   set, which turns the cache on before vitest-native runs).
    *
    * `'auto'` selects the bounded hot runtime when the configuration has recyclable
    * task boundaries (enough memory headroom for at least two workers) and no
