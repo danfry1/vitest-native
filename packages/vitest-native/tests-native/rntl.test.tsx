@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from "vitest";
 import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react-native";
 import { View, Text, Pressable, TextInput } from "react-native";
-import { rntlMajor } from "../tests/support/rntl";
 
 function Counter() {
   const [n, setN] = React.useState(0);
@@ -38,8 +37,10 @@ describe("RNTL under native engine", () => {
   // Real RN renders a nested <Text> as the host "RCTVirtualText". Under RNTL 14
   // (test-renderer) a string child must live under a registered text host, so
   // nested/composite text would crash ("Text strings must be rendered within a
-  // <Text> component") unless RCTVirtualText is registered as a text host. See the
-  // native setup. This is the case jest's flat "Text" mock never exercises.
+  // <Text> component") unless RCTVirtualText is registered as a text host; under
+  // RNTL 12 and 13 the inner <Text> is not a text element, so getByText cannot find
+  // it alone. See native/rntl-text-host.mjs. This is the case jest's flat "Text"
+  // mock never exercises.
   it("renders nested <Text> and matches composite text", async () => {
     await render(
       <Text testID="outer">
@@ -48,9 +49,8 @@ describe("RNTL under native engine", () => {
     );
     // getByText flattens across the nested <Text> (RCTText + RCTVirtualText).
     expect(screen.getByText("Hello World")).toBeTruthy();
-    // RNTL >=14 exposes the nested fragment as an independently matchable text host;
-    // 12/13's react-test-renderer flattens it into the parent, so gate this.
-    if (rntlMajor >= 14) expect(screen.getByText("World")).toBeTruthy();
+    // The nested <Text> is a text host of its own on every supported RNTL.
+    expect(screen.getByText("World")).toBeTruthy();
   });
 
   it("renders deeply nested <Text> without crashing", async () => {
