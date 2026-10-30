@@ -8,10 +8,11 @@ import * as rntl from "@testing-library/react-native/pure";
 import { render, screen } from "@testing-library/react-native/pure";
 import { expect, test } from "vitest";
 
-// RNTL 13's `cleanup` calls each unmount without awaiting it (13.3 build/cleanup.js), so
-// whether the effect's destructor has run when it returns depends on the Node version's
-// microtask timing; its `cleanupAsync` awaits each one. RNTL 12's `cleanup` and 14's
-// (async, no `cleanupAsync`) finish the unmount themselves.
+// RNTL 13's `cleanup` calls each queued unmount without awaiting it (13.3
+// build/cleanup.js: `cleanupQueue.forEach(fn => fn())`, where the queued function is the
+// async unmount), so the effect's destructor has not run when it returns; its
+// `cleanupAsync` awaits each one. RNTL 12's `cleanup` and 14's (async, no
+// `cleanupAsync`) finish the unmount themselves.
 const cleanup = (rntl as { cleanupAsync?: () => Promise<void> }).cleanupAsync ?? rntl.cleanup;
 
 const FILES_SEEN = Symbol.for("vitest-native.no-globals.files-seen");
