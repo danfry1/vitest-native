@@ -52,7 +52,8 @@ export default defineConfig(({ mode }) => {
       include: fakes
         ? [`tests-native/no-globals-fakes/${fakes}/*.test.tsx`]
         : ["tests-native/no-globals/*.test.tsx"],
-      setupFiles: fakes === "setup" ? ["tests-native/no-globals-fakes/setup/fake-timers.setup.ts"] : [],
+      setupFiles:
+        fakes === "setup" ? ["tests-native/no-globals-fakes/setup/fake-timers.setup.ts"] : [],
       // The shared test-utils fixture goes to Node, as an installed package would, so
       // RNTL is reached through a module Vite does not evaluate (05, 06).
       server: { deps: { external: [/fixtures[\\/]rntl-reexport[\\/]/] } },
