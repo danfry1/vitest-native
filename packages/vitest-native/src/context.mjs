@@ -14,7 +14,6 @@ export const CONTEXT_VERSION = 1;
 
 /** Hand-set diagnostic switches that stay environment variables. */
 export const ESCAPE_HATCHES = Object.freeze([
-  "VITEST_NATIVE_LOADER_THREAD",
   "VITEST_NATIVE_NO_REGISTRY",
   "VITEST_NATIVE_HOT_ESM_GEN",
   "VITEST_NATIVE_HOT_STATE_MUTATION",

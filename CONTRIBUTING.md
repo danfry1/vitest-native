@@ -76,7 +76,7 @@ shebang, and from 0.22 it calls `Promise.withResolvers`, which Node did not ship
 function`. Bun's runtime has it.
 
 What toolchain the build itself runs under is a separate question from what Node a
-consumer needs: the supported range is `engines.node` (Node 22.13+ or 24.3+), whose
+consumer needs: the supported range is `engines.node` (Node 22.22.3+, 24.12+ or 26+), whose
 Node 22 floor the CI matrix runs at, with RNTL 12 and 13 as the lower-bound back-compat
 legs.
 

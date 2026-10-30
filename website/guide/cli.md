@@ -31,7 +31,7 @@ jest-compat setup file.
 
 Read-only environment diagnosis:
 
-- Node version against the supported range (22.13+ on Node 22, or 24.3+).
+- Node version against the supported range (22.22.3+ on Node 22, 24.12+ on Node 24, or 26+).
 - Required peers (vitest, vite, react) against the supported ranges, including
   the per-major Vite security floors.
 - Which engine `auto` resolves to for this project, and why.

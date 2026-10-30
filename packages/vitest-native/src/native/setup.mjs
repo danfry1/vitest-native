@@ -1,7 +1,7 @@
 // Native-engine setup file (injected into test.setupFiles by the plugin). Installs
 // globals, registers the ESM loader hook, installs the CJS require hooks, and
 // builds any third-party preset mocks the project uses.
-import { createRequire, register, registerHooks } from "node:module";
+import { createRequire, registerHooks } from "node:module";
 import * as nativeLoader from "./loader.mjs";
 import path from "node:path";
 import { expect, vi } from "vitest";
@@ -175,37 +175,30 @@ if (typeof globalThis.expect === "undefined") {
     writable: true,
   });
 }
-// register() once per WORKER, not per file: under the hot runtime this setup
+// Install the loader hooks once per WORKER, not per file: under the hot runtime this setup
 // file re-evaluates per test file in a persistent worker, and re-registering
 // would stack a new loader-hook layer on every file. (installGlobals and
 // installRequireHooks are internally guarded the same way.)
 /**
- * Install the ESM loader hooks (loader.mjs).
- *
- * `module.register()` runs hooks on a separate loader thread, so every resolve and load
- * of an externalized module blocks this thread on a synchronous cross-thread request
- * (Node's makeSyncRequest). Profiled on a 105-file production suite, that wait was 18%
- * of all worker CPU time. `module.registerHooks()` (Node 22.15+, 23.5+) runs the same
- * hooks synchronously on this thread instead, so it is used where Node's in-thread hooks
- * are reliable (inThreadHooksReliable in loader.mjs); every other Node keeps
- * `register()`. VITEST_NATIVE_LOADER_THREAD=1 forces the threaded hooks.
+ * Install the ESM loader hooks (loader.mjs) on this thread with `module.registerHooks()`,
+ * which runs them synchronously beside the require hooks. Every supported Node has
+ * reliable in-thread hooks (engines.node starts at 22.22.3 and 24.12 for that reason).
  *
  * In-thread hooks also run for `require()`. CommonJS is already handled by the require
- * hooks (hooks.mjs), so those calls go straight to Node's default resolution, as they
- * did when only `import` reached the threaded loader.
+ * hooks (hooks.mjs), so those calls go straight to Node's default resolution.
  */
 function installLoaderHooks(data) {
-  if (
-    typeof registerHooks !== "function" ||
-    process.env.VITEST_NATIVE_LOADER_THREAD === "1" ||
-    !nativeLoader.inThreadHooksReliable(process.versions.node)
-  ) {
-    register("./loader.mjs", import.meta.url, { data });
-    globalThis.__vitest_native_loader_mode = "thread";
-    return;
+  if (typeof registerHooks !== "function") {
+    // A runtime that reports a supported Node version without Node's in-thread hooks
+    // (Bun reports Node 26) cannot run the native engine's loader.
+    throw new VitestNativeError(
+      "UNSUPPORTED_NODE",
+      `This runtime reports Node ${process.versions.node} but has no \`module.registerHooks\`, ` +
+        `which the native engine's loader needs. Run Vitest with Node 22.22.3 or later on Node 22, ` +
+        `24.12.0 or later on Node 24, or Node 26 and later.`,
+    );
   }
   nativeLoader.initialize(data);
-  globalThis.__vitest_native_loader_mode = "in-thread";
   const fromRequire = nativeLoader.isRequireContext;
   registerHooks({
     resolve: (specifier, context, nextResolve) =>
@@ -224,8 +217,7 @@ if (!globalThis.__vitest_native_loader_registered) {
   // for the whole run because Node's ESM registry cannot be invalidated. Only
   // meaningful under the hot runtime — `__vitest_native_hot_reset` is installed by
   // the hot worker before this setup file runs, and nothing bumps the counter
-  // otherwise. Shared rather than passed by value because loader hooks run on their
-  // own thread. Set VITEST_NATIVE_HOT_ESM_GEN=0 to opt out (and to mutation-test the
+  // otherwise. Set VITEST_NATIVE_HOT_ESM_GEN=0 to opt out (and to mutation-test the
   // isolation gate that covers this).
   if (
     globalThis.__vitest_native_hot_reset &&
