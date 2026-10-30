@@ -18,8 +18,6 @@ import {
   NODE_MODULES_PATH,
   isUtilitySubpath,
   packageNameOf,
-  presetPackageOfFile,
-  requestForPackageFile,
   subpathLeafOf,
 } from "./match.mjs";
 import {
@@ -63,12 +61,6 @@ function resolveExtensionless(base) {
 }
 // Synthetic URL scheme for preset mocks served to the ESM graph (see below).
 const PRESET_SCHEME = "vitest-native-preset:";
-// A preset reached by resolved file: only CommonJS that this loader compiled requires
-// through that path (see presetRequestForFile), and on Node 22.13 that `require` reads
-// a CommonJS cache an ES module job never fills ("Cannot read properties of undefined
-// (reading 'exports')"). So it is served as CommonJS, through the same function the
-// require hook uses for the package name (hooks.mjs).
-const PRESET_CJS_SCHEME = "vitest-native-preset-cjs:";
 let PROJECT_ROOT = process.cwd();
 let PLATFORM = "ios";
 let REACT_NATIVE_VERSION = "0.0.0";
@@ -151,45 +143,6 @@ export function initialize(data) {
   if (data && data.hotGenerationBuffer) genView = new Int32Array(data.hotGenerationBuffer);
 }
 
-// A `require()` inside a CommonJS module this loader compiled and returned with its
-// source arrives here already resolved, as a file URL (see presetPackageOfFile). Map a
-// file inside a preset package back to the request the bare-name redirect above would
-// have seen — recovered from the package's own manifest (requestForPackageFile) — and
-// apply the same exemptions to it: the entry → the package name, any other file → its
-// subpath (served by leaf name, as `pkg/Swipeable` is).
-const manifestMemo = new Map();
-function packageManifest(pkgDir) {
-  if (!manifestMemo.has(pkgDir)) {
-    let manifest = null;
-    try {
-      manifest = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf8"));
-    } catch {
-      // No readable manifest: the subpath is used as written.
-    }
-    manifestMemo.set(pkgDir, manifest);
-  }
-  return manifestMemo.get(pkgDir);
-}
-
-function presetRequestForFile(specifier, parent) {
-  const file = specifier.startsWith("file:")
-    ? fileURLToPath(specifier)
-    : path.isAbsolute(specifier)
-      ? specifier
-      : null;
-  if (!file) return null;
-  const hit = presetPackageOfFile(file, parent, (pkg) =>
-    Object.prototype.hasOwnProperty.call(presetExports, pkg),
-  );
-  if (!hit) return null;
-  const ext = /\.([a-z0-9]+)$/i.exec(hit.subpath)?.[1]?.toLowerCase() ?? "";
-  if (ext === "json" || assetExtSet.has(ext)) return null;
-  const norm = file.replace(/\\/g, "/");
-  const pkgDir = norm.slice(0, norm.length - hit.subpath.length - 1);
-  const request = requestForPackageFile(hit.pkg, hit.subpath, packageManifest(pkgDir));
-  return isUtilitySubpath(request) ? null : request;
-}
-
 function resolveBefore(specifier, context) {
   // Preset redirect (ESM): a bare import of a preset package — whether from the
   // test graph or, crucially, nested inside an externalized third-party lib — is
@@ -217,14 +170,6 @@ function resolveBefore(specifier, context) {
     context.parentURL && context.parentURL.startsWith("file:")
       ? fileURLToPath(context.parentURL)
       : null;
-  const presetRequest = presetRequestForFile(specifier, parent);
-  if (presetRequest) {
-    const file = specifier.startsWith("file:") ? fileURLToPath(specifier) : specifier;
-    const query = new URLSearchParams({ request: presetRequest, file });
-    return {
-      done: { url: `${PRESET_CJS_SCHEME}?${query}`, format: "commonjs", shortCircuit: true },
-    };
-  }
   let resolved;
   if (
     parent &&
@@ -378,19 +323,6 @@ export function requireFacade(url, file, compiled) {
   // facade it would be a syntax error. The carried code is never run.
   const code = compiled.startsWith("#!") ? compiled.replace(/^#!.*/, "") : compiled;
   const names = cjsExportNames(code);
-  // An `.mjs` file is an ES module wherever it is loaded, so the CommonJS loader cannot
-  // own it: requiring it is Node's require(esm), which on Node 20.19 and 22.13 fails
-  // for a module this loader is still loading ("Cannot require() ES Module ... in a
-  // cycle"). It is served compiled, as every compiled module was before the facade. A
-  // compiled module's require() of it reaches this loader too (the hooks run in-thread),
-  // and both routes give one instance (tests-native/ecosystem-mjs.test.ts).
-  if (file.endsWith(".mjs")) {
-    return {
-      format: "commonjs",
-      source: names.length > 0 ? `${code}\n0 && (module.exports = { ${names.join(", ")} });` : code,
-      shortCircuit: true,
-    };
-  }
   return {
     format: "commonjs",
     source: [
@@ -407,13 +339,6 @@ export function loadSync(url, context, nextLoad) {
   // Serve the synthetic preset module. The generated source reads the mock built
   // by the native setup file from globalThis (this source executes in the main
   // realm, so globalThis is the populated one), mirroring the Vite virtual:preset.
-  if (url.startsWith(PRESET_CJS_SCHEME)) {
-    const query = new URLSearchParams(url.slice(url.indexOf("?") + 1));
-    const source = `module.exports = globalThis.__vitest_native_preset_require(${JSON.stringify(
-      query.get("request"),
-    )}, ${JSON.stringify(query.get("file"))});`;
-    return { format: "commonjs", source, shortCircuit: true };
-  }
   if (url.startsWith(PRESET_SCHEME)) {
     const specifier = url.slice(PRESET_SCHEME.length);
     // A subpath the preset shadows as a module of its own is served from that module
