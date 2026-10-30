@@ -1531,6 +1531,53 @@ describe("native globals: globalThis.expo shim", () => {
   });
 });
 
+describe("native globals: process.env.EXPO_OS", () => {
+  // A project root that resolves `expo` (or not), as installGlobals is given it.
+  const project = (withExpo: boolean) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-expo-os-"));
+    fs.writeFileSync(path.join(root, "package.json"), "{}");
+    if (withExpo) {
+      fs.mkdirSync(path.join(root, "node_modules", "expo"), { recursive: true });
+      fs.writeFileSync(
+        path.join(root, "node_modules", "expo", "package.json"),
+        JSON.stringify({ name: "expo", version: "58.0.0" }),
+      );
+    }
+    return root;
+  };
+  const roots: string[] = [];
+  const run = (withExpo: boolean, platform: string) => {
+    const root = project(withExpo);
+    roots.push(root);
+    installGlobals({ projectRoot: root, platform });
+    return process.env.EXPO_OS;
+  };
+  beforeEach(() => {
+    vi.stubEnv("EXPO_OS", undefined);
+    return () => {
+      vi.unstubAllEnvs();
+      for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
+    };
+  });
+
+  it("defaults to the engine's platform in a project that resolves expo", () => {
+    expect(Object.hasOwn(process.env, "EXPO_OS")).toBe(false);
+    expect(run(true, "ios")).toBe("ios");
+    vi.stubEnv("EXPO_OS", undefined);
+    expect(run(true, "android")).toBe("android");
+  });
+
+  it("is left unset in a project without expo", () => {
+    expect(run(false, "ios")).toBeUndefined();
+    expect(Object.hasOwn(process.env, "EXPO_OS")).toBe(false);
+  });
+
+  it("keeps a value the project set", () => {
+    vi.stubEnv("EXPO_OS", "web");
+    expect(run(true, "ios")).toBe("web");
+  });
+});
+
 // @ts-expect-error — runtime .mjs
 import {
   expoModuleMock,
