@@ -25,6 +25,7 @@ import { detectEcosystemPackages } from "./native/ecosystem.js";
 import { containsPath, packageDirOf } from "./native/match.mjs";
 type AssetModules = typeof import("./native/assets.mjs");
 import type { HotMemoryPlan } from "./native/memory.mjs";
+import type { NativePoolOptions } from "./native/pool.js";
 import { workerVitestMismatch } from "./native/worker-vitest.js";
 import {
   assertHostResolvesRunningVitest,
@@ -263,11 +264,22 @@ function printEngineBanner(
   engine: "mock" | "native",
   platform: string,
   projectRoot: string,
+  presetNames: readonly string[],
   hotRuntime = false,
 ): void {
+  // Once per process, so a multi-project run prints the first project's line only: its
+  // engine, runtime and presets, which another project may not share. Naming each
+  // project's would need the project's name, which config() does not reliably have.
   const g = globalThis as { __vitest_native_banner_printed?: boolean };
   if (g.__vitest_native_banner_printed) return;
   g.__vitest_native_banner_printed = true;
+  // The presets are named because they are applied automatically, and each replaces a
+  // whole library: an app that drives a real navigator gets the navigation preset's
+  // pass-through NavigationContainer, and nothing else in the log points at it. Under
+  // the native engine `presetNames` is the list its workers are handed; under the mock
+  // engine, the same selection recomputed (see mockEnginePresetNames). The project's
+  // own preset modules are named as the config names them.
+  const mocked = presetNames.length > 0 ? ` · mocked: ${presetNames.join(", ")}` : "";
   if (engine === "native") {
     const rn = resolvePackageVersion("react-native", projectRoot);
     // The runtime is named because it is chosen automatically: a test that passes
@@ -275,13 +287,33 @@ function printEngineBanner(
     // line that tells someone reading the log that it is in play.
     const runtime = hotRuntime ? ", hot runtime" : "";
     console.error(
-      `[vitest-native] engine: native — real react-native${rn ? `@${rn}` : ""} (platform ${platform}${runtime})`,
+      `[vitest-native] engine: native — real react-native${rn ? `@${rn}` : ""}${mocked} (platform ${platform}${runtime})`,
     );
   } else {
     console.error(
-      `[vitest-native] engine: mock — React Native reimplementation, cross-checked against real RN (platform ${platform})`,
+      `[vitest-native] engine: mock — React Native reimplementation, cross-checked against real RN${mocked} (platform ${platform})`,
     );
   }
+}
+
+/**
+ * The presets a mock-engine worker applies, for the banner. An array is the list the
+ * workers are handed (the project context's `presetNames`). Otherwise each worker
+ * detects its own (setup.ts: every auto-detected preset not switched off), so this is
+ * a second computation of that list, not a read of it: both read AUTO_DETECT_PRESETS
+ * through presetForInstalled, from the same project root, and agree as long as the
+ * package resolves the same way from the main process and the worker. The native
+ * engine's banner prints the list its workers are handed.
+ */
+function mockEnginePresetNames(
+  listed: readonly Preset[] | null,
+  presetsOption: unknown,
+  projectRoot: string,
+): string[] {
+  if (listed) return listed.map((p) => p.name);
+  const disabled = disabledPresetNames(presetsOption);
+  // Diagnostics off: the workers log the detection themselves.
+  return autoDetectPresetNames(projectRoot, false).filter((n) => !disabled.has(n));
 }
 
 /** The major of a version string, or NaN. */
@@ -867,6 +899,8 @@ export interface PresetSelection {
   listed: Preset[] | null;
   /** The project's own preset modules, as absolute paths (see preset-modules.mjs). */
   modulePaths: string[];
+  /** The same modules as the config names them (`'./my-preset.ts'`), for the banner. */
+  moduleSpecs: string[];
 }
 
 /**
@@ -882,21 +916,26 @@ export function selectPresets(
   if (Array.isArray(option)) {
     const listed: Preset[] = [];
     const modulePaths: string[] = [];
+    const moduleSpecs: string[] = [];
     for (const entry of option as unknown[]) {
-      if (typeof entry === "string") modulePaths.push(resolvePresetModule(entry, root));
-      else listed.push(listedBuiltInPreset(entry));
+      if (typeof entry === "string") {
+        modulePaths.push(resolvePresetModule(entry, root));
+        moduleSpecs.push(entry);
+      } else listed.push(listedBuiltInPreset(entry));
     }
-    return { listed, modulePaths };
+    return { listed, modulePaths, moduleSpecs };
   }
   const modulePaths: string[] = [];
+  const moduleSpecs: string[] = [];
   if (option !== null && typeof option === "object") {
     for (const [key, enabled] of Object.entries(option)) {
       if (enabled === true && !Object.hasOwn(PRESET_MODULES, key)) {
         modulePaths.push(resolvePresetModule(key, root));
+        moduleSpecs.push(key);
       }
     }
   }
-  return { listed: null, modulePaths };
+  return { listed: null, modulePaths, moduleSpecs };
 }
 
 /**
@@ -1217,11 +1256,11 @@ type GroupedProject = {
  * Vitest schedules projects that share a `sequence.groupOrder` (0 unless set) as one
  * group, and throws when they resolve to different `maxWorkers` ("Projects … have
  * different 'maxWorkers' but same 'sequence.groupOrder'", groupSpecs in Vitest 4 and
- * 5). The hot runtime's memory plan caps workers (at most four), while a project
- * beside it gets Vitest's default of one fewer than the CPUs, so a native project next
- * to a mock or non-React-Native project failed on any machine with more than five
- * cores. Mirrors Vitest's resolveMaxWorkers and its grouping, including the exemption
- * for a single-worker isolated project in the default group.
+ * 5). The hot runtime's memory plan caps workers (at most four unless the user set the
+ * count), while a project beside it gets Vitest's default of one fewer than the CPUs,
+ * so a native project next to a mock or non-React-Native project failed on any machine
+ * with more than five cores. Mirrors Vitest's resolveMaxWorkers and its grouping,
+ * including the exemption for a single-worker isolated project in the default group.
  */
 export function sharedGroupConflict(
   self: GroupedProject,
@@ -1309,6 +1348,85 @@ type HostResolver = {
   resolveId?: (id: string, importer?: string) => Promise<{ id: string } | string | null>;
 };
 
+/** An enforced hot memory plan and what configureVitest needs to rebuild it. */
+type HotMemorySelection = {
+  plan: HotMemoryPlan;
+  /** The options object the hot pool reads as it creates each worker. */
+  poolOptions: NativePoolOptions;
+  /** hotRuntime.memoryLimit was set, so the plan does not choose the heap threshold. */
+  userMemoryLimit: boolean;
+  /** A plan for a worker count the user chose (memory admission, no automatic cap). */
+  replan: (requestedWorkers: number) => HotMemoryPlan;
+  formatPlan: (plan: HotMemoryPlan) => string[];
+  /** config() capped the user's count; configureVitest warns if hot still runs. */
+  capWarning: boolean;
+};
+
+function warnWorkersCapped(requestedWorkers: number, plan: HotMemoryPlan): void {
+  console.warn(
+    `[vitest-native] hotRuntime capped maxWorkers from ${requestedWorkers} to ` +
+      `${plan.maxWorkers} for the ${plan.source} memory budget. ` +
+      `Set diagnostics:true to see the full envelope.`,
+  );
+}
+
+function printHotMemoryPlan(lines: readonly string[]): void {
+  for (const line of lines) console.log(`[vitest-native] memory: ${line}`);
+}
+
+/**
+ * Rebuild the hot memory plan for the worker count Vitest resolved, when it is not the
+ * count config() planned for. Vitest applies `--maxWorkers` and `VITEST_MAX_WORKERS`
+ * over the `maxWorkers` every config hook returned (resolveConfig in Vitest 4.1 and 5;
+ * Vitest 5 also copies `--maxWorkers` into each project), and config() never sees the
+ * environment variable: `VITEST_MAX_WORKERS=10` ran ten workers on a heap threshold
+ * and plan sized for four. The count is the user's explicit choice, so memory
+ * admission alone bounds it, as it does for one in the config file. Sets the
+ * project's `maxWorkers` to the admitted count and returns the new plan, which takes
+ * effect through applyHotMemoryPlan; returns undefined when the plan already fits.
+ * Vitest 5 hands config() `--maxWorkers` too, so a memory-capped request comes back
+ * here as the same plan config() built and warned about; that is not a new plan.
+ */
+function replanForVitestWorkers(
+  memory: HotMemorySelection,
+  projectConfig: { maxWorkers?: unknown },
+): HotMemoryPlan | undefined {
+  const workers = projectConfig.maxWorkers;
+  if (typeof workers !== "number" || workers === memory.plan.maxWorkers) return undefined;
+  const plan = memory.replan(workers);
+  projectConfig.maxWorkers = plan.maxWorkers;
+  const unchanged =
+    plan.maxWorkers === memory.plan.maxWorkers &&
+    plan.requestedWorkers === memory.plan.requestedWorkers;
+  return unchanged ? undefined : plan;
+}
+
+/**
+ * Hand a rebuilt plan to everything that consumes it. The hot pool reads its options as
+ * Vitest creates each worker, and Vitest passes `env` to workers as it starts them;
+ * both happen when the run starts, after every configureVitest hook has returned.
+ */
+function applyHotMemoryPlan(
+  memory: HotMemorySelection,
+  plan: HotMemoryPlan,
+  projectConfig: { env?: Record<string, string> },
+  diagnostics: boolean,
+): void {
+  memory.plan = plan;
+  memory.poolOptions.memoryPlan = plan;
+  if (!memory.userMemoryLimit) memory.poolOptions.memoryLimit = plan.workerHeapLimit;
+  projectConfig.env ??= {};
+  projectConfig.env.VITEST_NATIVE_MEMORY_PLAN = JSON.stringify({ ...plan, enforced: true });
+  if (plan.maxWorkers < plan.requestedWorkers) warnWorkersCapped(plan.requestedWorkers, plan);
+  if (diagnostics) {
+    console.log(
+      `[vitest-native] memory: plan rebuilt for the ${plan.requestedWorkers} workers ` +
+        `Vitest resolved after config (--maxWorkers or VITEST_MAX_WORKERS)`,
+    );
+    printHotMemoryPlan(memory.formatPlan(plan));
+  }
+}
+
 export function reactNative(options?: VitestNativeOptions): Plugin {
   // Before anything else: on an unsupported Node the loader hooks below are unreliable,
   // and the failures they cause look like the project's own bugs.
@@ -1323,7 +1441,16 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // more than one project (a config re-used by several, or Vitest 4 workspaces).
   const hotSelections = new Map<
     string,
-    { pool: unknown; userPool: unknown; userMaxWorkers: unknown; singleWorkerAccepted: boolean }
+    {
+      pool: unknown;
+      userPool: unknown;
+      userMaxWorkers: unknown;
+      singleWorkerAccepted: boolean;
+      // The enforced memory plan and what it was built from, so configureVitest can
+      // rebuild it for a worker count Vitest applied after config(). Absent under
+      // allowUnboundedMemory, which leaves the worker count to Vitest.
+      memory?: HotMemorySelection;
+    }
   >();
   // Project roots this instance configured for the native engine, and the setup file
   // it gave each project root.
@@ -1714,8 +1841,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // React Native while running the mock is the exact failure mode the engine
       // split exists to prevent.
       if (decision.notice) console.warn(decision.notice);
-      // The native engine's banner waits for the runtime decision below.
-      if (engine !== "native") printEngineBanner(engine, platform, resolvedRoot);
+      // Each engine's branch below prints the banner once it knows the presets (and,
+      // for the native engine, the runtime).
       warnRetiredVariables(
         process.env,
         (userConfig as { test?: { env?: Record<string, unknown> } }).test?.env,
@@ -1912,6 +2039,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
               plan: HotMemoryPlan;
               memoryLimit: number;
               allowUnboundedMemory: boolean;
+              replan: (requestedWorkers: number) => HotMemoryPlan;
+              formatPlan: (plan: HotMemoryPlan) => string[];
+              capWarning: boolean;
             }
           | undefined;
         if (hotRuntimeRequested) {
@@ -1920,7 +2050,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           const requestedWorkers = resolveRequestedWorkers(userTest?.maxWorkers, {
             fileParallelism: userTest?.fileParallelism,
           });
-          const plan = createHotMemoryPlan({ requestedWorkers });
+          // A worker count the user set is bounded by memory alone; the four-worker
+          // cap applies to the automatic choice (see createHotMemoryPlan).
+          const plan = createHotMemoryPlan({
+            requestedWorkers,
+            explicitWorkers: userTest?.maxWorkers != null,
+          });
           const allowUnboundedMemory = hotRecycle.allowUnboundedMemory === true;
           const configConflict = hotAutoConfigDeclineReason(userPool, userTest?.isolate);
           if (!hotRuntimeAuto && configConflict !== null)
@@ -1942,30 +2077,28 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             throw new VitestNativeError(
               "HOT_MEMORY_UNBOUNDED",
               `hotRuntime cannot enforce its memory budget with one worker because Vitest ` +
-                `batches every file into one unrecyclable task. The effective ` +
-                `${plan.source} memory ceiling admits ${plan.admittedWorkers} worker, ` +
-                `or this config explicitly selects one. Use hotRuntime:false, provide enough ` +
+                `batches every file into one unrecyclable task. ` +
+                // admittedWorkers is memory's figure, uncapped for a count the user set,
+                // so name whichever of the two chose one worker.
+                (plan.admittedWorkers < 2
+                  ? `The effective ${plan.source} memory ceiling admits only one worker. `
+                  : `This config selects one worker (maxWorkers or fileParallelism). `) +
+                `Use hotRuntime:false, provide enough ` +
                 `memory for at least two workers, or explicitly accept unbounded growth with ` +
                 `hotRuntime:{ allowUnboundedMemory:true }.`,
             );
           }
-          if (
+          // Only memory caps a worker count the user set, and running fewer workers
+          // than they asked for is worth a line even when 'auto' chose hot.
+          // configureVitest prints it, once it knows hot still runs: under 'auto' a
+          // group conflict can hand the project back to Vitest's own count.
+          const capWarning =
             autoDeclineReason === null &&
-            (hotRuntimeExplicit || diagnostics) &&
             !allowUnboundedMemory &&
             userTest?.maxWorkers != null &&
-            plan.maxWorkers < requestedWorkers
-          ) {
-            console.warn(
-              `[vitest-native] hotRuntime capped maxWorkers from ${requestedWorkers} to ` +
-                `${plan.maxWorkers} for the ${plan.source} memory budget. ` +
-                `Set diagnostics:true to see the full envelope.`,
-            );
-          }
+            plan.maxWorkers < requestedWorkers;
           if (autoDeclineReason === null && diagnostics) {
-            for (const line of formatHotMemoryPlan(plan)) {
-              console.log(`[vitest-native] memory: ${line}`);
-            }
+            printHotMemoryPlan(formatHotMemoryPlan(plan));
             if (allowUnboundedMemory) {
               console.warn(
                 `[vitest-native] memory: allowUnboundedMemory:true disables the automatic ` +
@@ -1982,6 +2115,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
               plan,
               memoryLimit: hotRecycle.memoryLimit ?? plan.workerHeapLimit,
               allowUnboundedMemory,
+              replan: (count) =>
+                createHotMemoryPlan({ requestedWorkers: count, explicitWorkers: true }),
+              formatPlan: formatHotMemoryPlan,
+              capWarning,
             };
           }
         }
@@ -2002,29 +2139,48 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         let hot:
           | { pool: PoolRunnerInitializer; runnerPath: string; maxWorkers?: number }
           | undefined;
+        let hotPoolOptions: NativePoolOptions | undefined;
         if (hotMemory) {
           const { nativePool } = await import("./native/pool.js");
+          hotPoolOptions = {
+            workerEntry: nativeWorkerPath,
+            projectRoot: resolvedRoot,
+            recycleAfterFiles: hotRecycle.recycleAfterFiles,
+            memoryLimit: hotMemory.memoryLimit,
+            memoryPlan: hotMemory.plan,
+            allowUnboundedMemory: hotMemory.allowUnboundedMemory,
+            diagnostics,
+          };
           hot = {
-            pool: nativePool({
-              workerEntry: nativeWorkerPath,
-              projectRoot: resolvedRoot,
-              recycleAfterFiles: hotRecycle.recycleAfterFiles,
-              memoryLimit: hotMemory.memoryLimit,
-              memoryPlan: hotMemory.plan,
-              allowUnboundedMemory: hotMemory.allowUnboundedMemory,
-              diagnostics,
-            }),
+            pool: nativePool(hotPoolOptions),
             runnerPath: nativeRunnerPath,
             maxWorkers: hotMemory.allowUnboundedMemory ? undefined : hotMemory.plan.maxWorkers,
           };
         }
-        printEngineBanner(engine, platform, resolvedRoot, hot !== undefined);
+        printEngineBanner(
+          engine,
+          platform,
+          resolvedRoot,
+          [...nativePresetNames, ...selection.moduleSpecs],
+          hot !== undefined,
+        );
         if (hot) {
           hotSelections.set(vitestRootOf(userConfig), {
             pool: hot.pool,
             userPool,
             userMaxWorkers: userTest?.maxWorkers,
             singleWorkerAccepted: hotMemory?.allowUnboundedMemory === true,
+            memory:
+              hotMemory && hotPoolOptions && !hotMemory.allowUnboundedMemory
+                ? {
+                    plan: hotMemory.plan,
+                    poolOptions: hotPoolOptions,
+                    userMemoryLimit: hotRecycle.memoryLimit !== undefined,
+                    replan: hotMemory.replan,
+                    formatPlan: hotMemory.formatPlan,
+                    capWarning: hotMemory.capWarning,
+                  }
+                : undefined,
           });
         } else {
           hotSelections.delete(vitestRootOf(userConfig));
@@ -2063,6 +2219,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // know which names to drop. `resolved` is not assigned until configResolved,
       // so neither branch can read it here.
       const selection = selectPresets(options?.presets, resolvedRoot);
+      printEngineBanner(engine, platform, resolvedRoot, [
+        ...mockEnginePresetNames(selection.listed, options?.presets, resolvedRoot),
+        ...selection.moduleSpecs,
+      ]);
       if (selection.modulePaths.length > 0) {
         fields.presetModules = selection.modulePaths;
       }
@@ -2665,13 +2825,35 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     }
     const selection = hotSelections.get(root);
     if (!selection) return;
+    const override = hotOverrideReason(
+      projectConfig,
+      cli,
+      selection.pool,
+      selection.singleWorkerAccepted,
+    );
+    // Before the group check, which must compare the worker count hot will run.
+    const vitestWorkers = projectConfig.maxWorkers;
+    const replanned =
+      override === null && selection.memory
+        ? replanForVitestWorkers(selection.memory, projectConfig)
+        : undefined;
     const reason =
-      hotOverrideReason(projectConfig, cli, selection.pool, selection.singleWorkerAccepted) ??
+      override ??
       sharedGroupConflict(project, vitest.projects ?? [], {
         maxWorkers: vitest.config?.maxWorkers,
         watch: vitest.config?.watch,
       });
-    if (reason === null) return;
+    if (reason === null) {
+      if (replanned && selection.memory) {
+        applyHotMemoryPlan(selection.memory, replanned, projectConfig, diagnostics);
+      } else if (selection.memory?.capWarning) {
+        warnWorkersCapped(selection.memory.plan.requestedWorkers, selection.memory.plan);
+      }
+      if (selection.memory) selection.memory.capWarning = false;
+      return;
+    }
+    // Hot is off, so the count Vitest resolved applies as it stood.
+    projectConfig.maxWorkers = vitestWorkers;
     if (!hotRuntimeAuto) throw hotRuntimeOverridden(reason);
     projectConfig.pool = cli.pool ?? selection.userPool ?? "threads";
     projectConfig.isolate = cli.isolate ?? true;
@@ -2681,9 +2863,17 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       projectConfig.maxWorkers =
         projectConfig.fileParallelism === false
           ? 1
-          : selection.userMaxWorkers === undefined && vitest.config !== projectConfig
-            ? // Unset here: Vitest falls back to the root config's value, then its default.
-              undefined
+          : selection.userMaxWorkers === undefined &&
+              vitest.config !== projectConfig &&
+              typeof vitest.config?.maxWorkers === "number" &&
+              vitestRootOf(vitest.config as { root?: unknown }) !== root
+            ? // The root's resolved count, which a project without its own inherits.
+              // Not undefined: Vitest resolved each project's count before this hook
+              // and groups projects by project.config.maxWorkers as it stands, so an
+              // unset count beside a plain project's failed the run (Vitest 5).
+              // Only a root this plugin did not plan: an `extends: true` project
+              // shares its root, whose count config() already set to the plan.
+              vitest.config.maxWorkers
             : vitestMaxWorkers(selection.userMaxWorkers, vitest.config?.watch === true);
     }
     if (projectConfig.env) delete projectConfig.env.VITEST_NATIVE_MEMORY_PLAN;
