@@ -60,7 +60,8 @@ describe("native module lookups for a module the app does not register", () => {
     // Loaded by path through Node, past the expo preset that normally shadows it.
     const req = createRequire(path.join(projectRoot, "package.json"));
     const dir = path.dirname(req.resolve("expo-constants/package.json"));
-    // babel-preset-expo inlines this in an app build; expo warns when it is absent.
+    // babel-preset-expo inlines this in an app build; expo warns when it is absent. The
+    // engine defaults it only where `expo` resolves (globals.mjs), which it does not here.
     vi.stubEnv("EXPO_OS", "ios");
     // With an always-present EXDevLauncher, the module threw at import:
     // `JSON.parse(NativeModules.EXDevLauncher.manifestString)` parsed a function.
