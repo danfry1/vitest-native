@@ -31,7 +31,11 @@ The plugin auto-injects a setup file that:
 
 - registers all mocks,
 - sets React Native globals (`__DEV__`, `requestAnimationFrame`, etc.),
-- wires up [`@testing-library/react-native`](https://callstack.github.io/react-native-testing-library/) if it's installed — registering its matchers, and setting host component names for older RNTL (RNTL ≥ 12 auto-detects them against real RN host names).
+- wires up [`@testing-library/react-native`](https://callstack.github.io/react-native-testing-library/) if it's installed — registering its matchers, setting host component names for older RNTL (RNTL ≥ 12 auto-detects them against real RN host names), and running its automatic cleanup after each test without `test.globals` (RNTL registers that only through a global `afterEach`; importing `@testing-library/react-native/pure` or setting `RNTL_SKIP_AUTO_CLEANUP` still opts out). The cleanup runs after the test file's own `afterEach` hooks, which is also where RNTL's runs under Vitest with `test.globals: true`; Jest runs RNTL's cleanup first, so an `afterEach` that expects the tree to be unmounted already needs to call `cleanup()` itself.
+
+::: warning Known limitation: RNTL and `vi.useFakeTimers()` without jest-compat
+RNTL detects fake timers only through a global `jest`. Without the [jest-compat layer](/guide/jest-compat) there is none, so under `vi.useFakeTimers()` RNTL's `waitFor` and `findBy*` poll on real time while the fake clock stands still, and time out. Use jest-compat, or advance the clock yourself: `await vi.advanceTimersByTimeAsync(ms)` before the query, or `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })` for user events.
+:::
 
 You do **not** add anything to `setupFiles` yourself, and you do **not** manually configure `hostComponentNames` — between the plugin and RNTL's own auto-detection, it's handled.
 

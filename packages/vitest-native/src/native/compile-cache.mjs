@@ -16,18 +16,30 @@ import os from "node:os";
 import path from "node:path";
 import { cacheRootFor } from "./transform.mjs";
 
-let _enabled = false;
+// Decided once per thread, on the global object rather than in module scope: under
+// the hot runtime the setup file can reach a second copy of this module, and its
+// call must not undo the worker's decision.
+const DECIDED = "__vitest_native_v8_compile_cache";
 
 /**
- * Enable Node's persistent V8 compile cache for this worker/thread. Idempotent and
- * guarded per realm. Colocated with the transform disk cache (the project's
- * node_modules/.cache/vitest-native when available — persistent and CI-restorable —
- * else tmpdir) so both caches share a lifecycle. Must be called before RN's modules
- * are first compiled.
+ * Enable Node's persistent V8 compile cache for this worker/thread. Idempotent: the
+ * first call in a thread decides. Colocated with the transform disk cache (the
+ * project's node_modules/.cache/vitest-native when available — persistent and
+ * CI-restorable — else tmpdir) so both caches share a lifecycle. Must be called
+ * before RN's modules are first compiled.
+ *
+ * `skip` leaves the cache off for the thread. The hot runtime passes it while ESM
+ * generation is on: each test file re-evaluates the externalized ES modules it
+ * imports under a new URL (`?vnhot=N`, loader.mjs), and Node keys compile-cache
+ * entries by URL, so the cache would gain one entry per module per file. Node
+ * writes them all when the worker exits, inside Vitest's teardownTimeout, and a
+ * resident worker compiles React Native once anyway, so the cache saves nothing
+ * there.
  */
-export function enableV8CompileCache(projectRoot) {
-  if (_enabled) return;
-  _enabled = true;
+export function enableV8CompileCache(projectRoot, { skip = false } = {}) {
+  if (globalThis[DECIDED]) return;
+  globalThis[DECIDED] = skip ? "off" : "on";
+  if (skip) return;
   const enable = nodeModule.enableCompileCache;
   if (typeof enable !== "function") return; // Node < 22.8: feature absent
   try {

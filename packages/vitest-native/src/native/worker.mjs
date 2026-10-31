@@ -52,9 +52,13 @@ if (diagnostics) {
 // listener tracking in reset.mjs, so RN's own boot state is preserved across
 // per-file resets rather than wrongly torn down with test pollution.
 // Enable the V8 compile cache before any RN module compiles, so the resident
-// graph's bytecode is cached to disk for the next worker/run.
-enableV8CompileCache(projectRoot);
-installGlobals();
+// graph's bytecode is cached to disk for the next worker/run. Not while hot ESM
+// generation is on (the same test setup.mjs makes): every file would add an entry
+// per re-evaluated ES module (compile-cache.mjs).
+const hotEsmGeneration =
+  context.hotEsmGeneration !== false && process.env.VITEST_NATIVE_HOT_ESM_GEN !== "0";
+enableV8CompileCache(projectRoot, { skip: hotEsmGeneration });
+installGlobals({ projectRoot, platform });
 installKnownNativeModules(projectRoot);
 // The registry must be installed BEFORE the preload below, not just by the setup
 // file: whichever path first resolves react-native decides which instance the
@@ -192,7 +196,7 @@ globalThis.__vitest_native_reset_module_runner = () => {
     if (moduleRunner) {
       moduleRunner.mocker?.reset();
       clearPendingMocks(moduleRunner.mocker);
-      resetEvaluatedModules(moduleRunner.evaluatedModules.idToModuleMap);
+      resetEvaluatedModules(moduleRunner.evaluatedModules);
     }
   }
 };

@@ -86,7 +86,7 @@ Explicit hot mode computes one project memory plan before registry compilation:
 - the plan reserves 256 MiB for the main process and 192 MiB for overlapping old/new
   workers during replacement;
 - one worker is admitted per remaining 256 MiB envelope, with an automatic maximum
-  of four;
+  of four that a user-set worker count is not held to;
 - the worker-local heap recycle threshold is 65% of its envelope, clamped to
   96–512 MiB.
 
@@ -95,7 +95,13 @@ recycle may be in flight, so simultaneous workers cannot all create replacement
 overlap. A task is rejected before it starts if RSS has reached the hard boundary.
 Explicit `maxWorkers` above the admitted count is capped with a warning; default
 concurrency is capped silently and becomes explainable with `diagnostics:true` and
-in `vitest-native doctor`.
+in `vitest-native doctor`. An explicit count is one the user set in the config file,
+with `--maxWorkers` or with `VITEST_MAX_WORKERS`. Vitest applies the last two after
+plugins' config hooks, so `configureVitest` rebuilds the plan for the count Vitest
+resolved before any worker starts. The four-worker maximum bounds only the automatic
+choice: the worker-count curve that set it found eight workers about 6% faster than
+four for about 512 MiB more peak RSS, a cost/benefit default rather than a safety
+limit, which memory admission still enforces for an explicit count.
 
 **Single-worker is the residual unsafe case in current Vitest.** With
 `isolate:false`, Vitest batches every file into one scheduler task, so no pool can

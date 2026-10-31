@@ -86,12 +86,53 @@ installed; delete the manual mock. (Reanimated, Gesture Handler, Safe Area, Navi
 AsyncStorage, Expo are covered out of the box. Validated under the native engine —
 `tests-native/third-party-stack.test.tsx`.)
 
-### 2d. Re-record snapshots (`vitest -u`)
-This is the most common surprise. Under `engine: 'native'`, real React Native renders **real host
-component names** (`RCTText`, `RCTView`, `RCTScrollView`), whereas `@react-native/jest-preset`
-snapshots show mock names (`Text`, `View`). Existing snapshots will mismatch on names only. Run once
-with `-u` to re-record; the rendered structure is otherwise equivalent. (In the Paper run, every
-own-test passed after a single `-u`.)
+### 2d. Snapshots: keep Jest's and Vitest's apart, then record Vitest's
+Jest's `.snap` files are not something Vitest can check against, for two reasons.
+
+**Keys differ.** Vitest names a snapshot by joining the `describe` and test names with ` > `
+(`a > b 1`), Jest with a space (`a b 1`). A hint is `name > hint 1` under Vitest, `name: hint 1`
+under Jest. Only a top-level test without a hint has the same key in both. For every other entry
+Vitest finds no snapshot and treats it as new:
+
+- Locally, it writes the new entry and the test **passes, whatever it rendered**. It also rewrites
+  the file's header to `// Vitest Snapshot v1` and leaves Jest's entries in place as obsolete. A
+  plain local `jest` still passes, reports Vitest's entries as obsolete and puts its own header
+  back; `jest --ci` refuses the file ("Outdated snapshot: No snapshot header found").
+- In CI (`CI` set), it writes no new entries and every such test fails as `mismatched`. It still
+  rewrites the file's header, so a `jest --ci` run after it in the same checkout refuses the file
+  too.
+
+So a first local run is not a comparison with Jest's snapshots, and `vitest -u` rewrites Jest's
+files.
+
+**Trees differ.** Under `engine: 'native'`, real React Native renders **real host component names**
+(`RCTText`, `RCTView`, `RCTScrollView`) and the host props it computes, whereas
+`@react-native/jest-preset` snapshots show mock names (`Text`, `View`). So even an entry whose key
+matches usually differs.
+
+While both runners run, give Vitest its own directory, so that neither rewrites the other's files:
+
+```ts
+// vitest.config.mts
+import path from "node:path";
+
+export default defineConfig({
+  test: {
+    // Jest keeps __snapshots__/; Vitest writes __vitest_snapshots__/ beside it.
+    resolveSnapshotPath: (testPath, snapExtension) =>
+      path.join(
+        path.dirname(testPath),
+        "__vitest_snapshots__",
+        path.basename(testPath) + snapExtension,
+      ),
+  },
+});
+```
+
+Run `vitest run` once locally to record them, review the new files as you would any new snapshot,
+and commit them. CI then checks against them, and Jest's own runs, `jest -u` included, leave them
+alone. Once Jest is gone, either keep the setting and delete `__snapshots__/`, or delete Jest's
+files, remove the setting and record again with `vitest run -u`.
 
 > Tip: prefer explicit queries (`getByText`, `getByTestId`, `getByRole`) over large snapshots —
 > they're robust across the engine's real host names and far easier to review.
@@ -114,8 +155,15 @@ Same entry is needed when a `vi.mock('<lib>')` must intercept an otherwise-exter
 Vitest config: `setupFiles`, `resolve.alias`, `test.environment: 'node'`. A suite on
 `testEnvironment: 'jsdom'` keeps it as `test.environment: 'jsdom'` (`'happy-dom'` works too): React
 Native renders there alongside the DOM, with either engine and with or without the hot runtime.
-`jest.setTimeout(ms)` is a no-op under the shim (use `test.testTimeout` in config or per-test
-`{ timeout }`).
+`jest.setTimeout(ms)` sets the timeout for the rest of the file, as in Jest (the shim maps it onto
+`vi.setConfig({ testTimeout })`). Jest's `fakeTimers` config is not read. Pass its options to
+`jest.useFakeTimers(...)` in the tests, which translates them (`advanceTimers`, `doNotFake`, `now`,
+`timerLimit`); a `beforeEach(() => jest.useFakeTimers({ ... }))` in a setup file covers every test.
+Or set them in Vitest's names under `test.fakeTimers` (`doNotFake` as `toFake`, `advanceTimers` as
+`shouldAdvanceTime` and `advanceTimeDelta`). Don't call `jest.useFakeTimers(options)` at the top
+level of a setup file: RNTL switches to real timers and back with
+`jest.useFakeTimers({ legacyFakeTimers: false })` when it loads, and that drops the options. Unlike
+Jest, `process.nextTick` and `queueMicrotask` stay real.
 
 ---
 
@@ -157,7 +205,8 @@ see the [Expo guide](https://danfry1.github.io/vitest-native/guide/expo).
 1. Add the jest-compat config (section 1). Upgrade RNTL to a supported 12–14 release (2b).
 2. Delete manual third-party native-lib mocks and `@react-native/jest-preset` (2c, 2e).
 3. Convert any **top-level** `jest.mock(...)` to `vi.mock(...)`; leave runtime `jest.*` as-is (2a).
-4. Run `vitest run -u` once to re-record snapshots (2d), then `vitest run` to confirm green.
+4. Point Vitest's snapshots at their own directory and record them with one local `vitest run`
+   (2d), then run `vitest run` again to confirm green.
 5. Triage remaining failures — a missing query update, a suite-specific mock, or a known
    Jest-mock-coupled assertion (section 3). For runtime issues (large-suite memory limits,
    error-boundary console noise, overriding a preset's mock), see the
@@ -166,7 +215,7 @@ see the [Expo guide](https://danfry1.github.io/vitest-native/guide/expo).
 ## 5. What "done" looks like
 
 A migrated suite runs under Vitest with: the jest-compat aliases + setup, RNTL 12–14, no manual
-third-party native mocks, top-level mocks converted, and snapshots re-recorded. You get Vitest's
+third-party native mocks, top-level mocks converted, and snapshots recorded by Vitest. You get Vitest's
 speed/watch/UI while keeping `engine: 'native'` real-RN fidelity (or `engine: 'mock'` for the fast
 path). The compat layer is intentionally small — it removes the mechanical Jest coupling so the only
 work left is the genuinely suite-specific bits.
