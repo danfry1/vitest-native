@@ -4,9 +4,10 @@
 import { createRequire, register, registerHooks } from "node:module";
 import * as nativeLoader from "./loader.mjs";
 import path from "node:path";
-import { expect, vi } from "vitest";
+import { afterEach, expect, vi } from "vitest";
 import { installGlobals, installErrorUtils, installExpoRuntime } from "./globals.mjs";
 import { installRequireHooks } from "./hooks.mjs";
+import { installRntlJest } from "./rntl-hooks.mjs";
 import { installRegistry } from "./registry.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
 import * as presetFactories from "../presets.mjs";
@@ -19,6 +20,9 @@ import { installNitroProxy } from "./nitro.mjs";
 import { createExpoNativeModuleResolver } from "./expo-native-modules.mjs";
 import { cacheRootFor } from "./transform.mjs";
 import { installKnownNativeModules } from "./native-modules.mjs";
+import { installRntlAutoCleanup } from "../rntl-support.mjs";
+import { registerVirtualTextHost } from "./rntl-text-host.mjs";
+import { shareProjectModules } from "../jest-compat/node-registry.mjs";
 
 // Non-enumerable key on the preset container: the mocks built so far in this file.
 const PRESETS_BUILT = Symbol.for("vitest-native.presets-built");
@@ -159,7 +163,7 @@ const nodeTransformPkgs = [...new Set([...transformPkgs, ...Object.keys(presetEx
 // imports react-native, after this setup runs) so its bytecode is cached to disk
 // and reused on the next file/worker/run. Covers the stock (non-hot) path.
 enableV8CompileCache(projectRoot);
-installGlobals();
+installGlobals({ projectRoot, platform });
 // Before React Native loads: its lookups ask the boundary which modules exist.
 installKnownNativeModules(projectRoot);
 // RNTL 13+ auto-registers matchers through the global expect when imported.
@@ -172,6 +176,16 @@ if (typeof globalThis.expect === "undefined") {
     writable: true,
   });
 }
+// RNTL registers its afterEach cleanup only through a global afterEach; without
+// test.globals, register it here (see rntl-support.mjs). When files share a worker
+// (the hot runtime, or `isolate: false`) RNTL stays in Node's module cache across
+// files, so the cache cannot say whether this file loaded it: rntl-hooks.mjs and the
+// require hook (hooks.mjs) report each load instead.
+installRntlAutoCleanup(afterEach, {
+  trackImports:
+    Boolean(globalThis.__vitest_native_hot_reset) ||
+    globalThis.__vitest_worker__?.config?.isolate === false,
+});
 // register() once per WORKER, not per file: under the hot runtime this setup
 // file re-evaluates per test file in a persistent worker, and re-registering
 // would stack a new loader-hook layer on every file. (installGlobals and
@@ -269,6 +283,9 @@ installRequireHooks(
 );
 // After the hooks: the polyfill is Flow-typed and compiled by them (see globals.mjs).
 installErrorUtils(projectRoot);
+// Before any test or user setup file imports RNTL: its fake-timer support reads a
+// `jest` of its own (see rntl-hooks.mjs).
+installRntlJest(vi);
 // Through Vitest, so a TypeScript preset module loads. Its export lists already
 // reached the ESM loader from the plugin; a module the plugin did not read would be
 // served by the real package there.
@@ -426,22 +443,39 @@ try {
   }
 }
 
-// --- RNTL 14: register RCTVirtualText as a text host ---
-// RNTL 14 reconciles with `test-renderer`, which enforces that string children
-// live under a "text" host component (the names in RNTL's HOST_TEXT_NAMES) and
-// otherwise throws "Text strings must be rendered within a <Text> component".
-// Real RN renders a NESTED <Text> as the host "RCTVirtualText", which RNTL's list
-// (['Text', 'RCTText']) omits — so any composite/nested <Text> crashes under the
-// native engine. (Jest's preset never hits this: it mocks Text to a single flat
-// "Text" host, hiding the real RCTText/RCTVirtualText split.) Add RCTVirtualText so
-// nested text reconciles and getByText matches across nested <Text>, matching how
-// RN actually renders. The helper is a leaf module (no RNTL main-module init), so
-// requiring it here is free of the evaluation-order hazards noted in the hot-reset
-// block. Gated on the list existing: a no-op for RNTL <=13 and the mock engine.
+// --- RNTL: register RCTVirtualText as a text host ---
+// Real RN renders a NESTED <Text> as the host "RCTVirtualText", which RNTL's text
+// hosts omit. On RNTL 14 that makes a nested <Text> throw "Text strings must be
+// rendered within a <Text> component"; on RNTL 12 and 13 the inner text is not a
+// text element, so getByText cannot find it. rntl-text-host.mjs explains both and
+// patches whichever shape the installed RNTL has (dist/ is 14, build/ is 12 and 13).
+//
+// Requiring the module here adds no evaluation-order hazard (see the hot-reset
+// block): on 13 and 14 it is a leaf, and on 12, where it requires react-native,
+// RNTL's config and render-act, the RNTL matchers loaded just above already
+// required it and react-native is loaded by now, so this is a cache hit. `req` is
+// the project-root require the matchers use, so both patch the same RNTL copy.
 try {
-  const hcn = req("@testing-library/react-native/dist/helpers/host-component-names");
-  if (Array.isArray(hcn?.HOST_TEXT_NAMES) && !hcn.HOST_TEXT_NAMES.includes("RCTVirtualText")) {
-    hcn.HOST_TEXT_NAMES.push("RCTVirtualText");
+  let registered = null;
+  let lastError;
+  for (const moduleId of [
+    "@testing-library/react-native/dist/helpers/host-component-names",
+    "@testing-library/react-native/build/helpers/host-component-names",
+  ]) {
+    let hostComponentNames;
+    try {
+      hostComponentNames = req(moduleId);
+    } catch (error) {
+      lastError = error;
+      continue;
+    }
+    registered = registerVirtualTextHost(hostComponentNames);
+    if (registered) break;
+  }
+  if (!registered && diagnostics) {
+    const reason =
+      lastError?.message ?? "host-component-names has neither HOST_TEXT_NAMES nor isHostText";
+    console.log(`[vitest-native] (native) could not register RCTVirtualText text host: ${reason}`);
   }
 } catch (e) {
   if (diagnostics) {
@@ -453,6 +487,11 @@ try {
 
 expect.extend(animatedMatchers);
 expect.addSnapshotSerializer(rnSerializer);
+
+// One instance of a project module per test file: Node's `require` of a project file the
+// test already imported gets Vite's instance. Last, after React Native and the setup's
+// own loads, so those stay outside what the registry treats as the test's modules.
+shareProjectModules();
 
 // NOTE: the cosmetic React "update to LogBoxStateSubscription not wrapped in
 // act()" warning (which used to appear on every interaction) is fixed at the

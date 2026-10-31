@@ -11,12 +11,13 @@
 // this entry) to rewrite top-level jest.mock/unmock/doMock to the hoisted vi.*
 // form at transform time. `jest.fn`, `jest.spyOn`, `jest.requireActual`,
 // `jest.useFakeTimers` work at runtime via the `jest` global installed here.
-import { vi } from "vitest";
+import { expect, vi } from "vitest";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { jestMockInterop } from "./interop.mjs";
 import { installJestObject } from "./jest-object.mjs";
 import { callerFile } from "./caller.mjs";
+import { errorsWithMethodsEquality } from "./error-equality.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import { NODE_MOCKS_STATE_ID, config, nodeRegistry } from "./node-registry.mjs";
 
@@ -205,6 +206,25 @@ if (typeof vi.retryTimes !== "function") {
 // The module-registry members are the `jest` object's own, not `vi`'s: `vi.resetModules`
 // keeps Vitest's meaning, and Vitest has no isolateModules to extend.
 globalThis.jest = installJestObject(vi, { resetModules, isolateModules, isolateModulesAsync });
+
+// Two identical errors whose class assigns methods as instance fields (zod 3's
+// ZodError) are never equal under Vitest, which compares an error's own properties and
+// so its per-instance closures; Jest compares errors by message. See error-equality.mjs
+// for why the tester ignores only those methods rather than adopting Jest's rule.
+//
+// The testers live in Vitest's expect state, which outlives this file under the hot
+// runtime, and each evaluation of this file brings a new function. Look for a tester
+// carrying the marker in the list itself (`globalThis[Symbol.for('$$jest-matchers-
+// object')]` is where `expect.addEqualityTesters` pushes, in Jest and Vitest alike), so
+// it is registered once however many files the worker runs.
+const ERROR_METHODS_EQUALITY = Symbol.for("vitest-native.jest-compat.error-methods-equality");
+{
+  const registered = globalThis[Symbol.for("$$jest-matchers-object")]?.customEqualityTesters;
+  if (!registered?.some((tester) => tester?.[ERROR_METHODS_EQUALITY])) {
+    errorsWithMethodsEquality[ERROR_METHODS_EQUALITY] = true;
+    expect.addEqualityTesters([errorsWithMethodsEquality]);
+  }
+}
 
 // Jest sets `JEST_WORKER_ID` in every worker (jest-worker: `JEST_WORKER_ID:
 // String(workerId + 1)`; jest-runner sets "1" when running in band), and code written for Jest tests

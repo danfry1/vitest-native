@@ -26,6 +26,7 @@ import {
 import { explainUntransformedSyntaxError } from "./explain.mjs";
 import { nativeAssetModuleSource } from "./assets.mjs";
 import { expandAlias } from "../jest-compat/aliases.mjs";
+import { noteIfRntlEntryLoaded } from "../rntl-support.mjs";
 
 // Guarded via globalThis, not module scope: under the hot runtime this module
 // can be evaluated twice in one worker (once by the worker entry through Node's
@@ -345,7 +346,14 @@ export function installRequireHooks(
   Module._load = function (request, parent, ...rest) {
     const shadowed = presetExportsFor(request);
     if (shadowed !== NO_PRESET) return shadowed;
-    return origLoad.call(this, request, parent, ...rest);
+    const exports = origLoad.call(this, request, parent, ...rest);
+    // Every require of RNTL's main entry, cached or not, tells the setup file's
+    // auto-cleanup that this test file loaded it (see noteIfRntlEntryLoaded). Vite's
+    // evaluator reports the file's own imports (rntl-hooks.mjs); this sees the entry
+    // reached through a package Node loads, such as a shared test-utils that
+    // re-exports RNTL.
+    noteIfRntlEntryLoaded(exports);
+    return exports;
   };
 
   let requireAliases;
@@ -458,11 +466,13 @@ export function installRequireHooks(
       return null;
     }
     if (Module.isBuiltin(request)) return null;
-    // Node's in-thread module hooks resolve a require with `{ conditions }`; any other
-    // option (`require.resolve`'s `paths`) is left to Node.
+    // Node's in-thread module hooks resolve a require with `{ conditions }` (Node 26
+    // adds `paths: undefined` to it); any other option that is set (`require.resolve`'s
+    // `paths`) is left to Node.
     let conditions = "";
     if (options != null) {
-      if (Object.keys(options).some((name) => name !== "conditions")) return null;
+      const set = (name) => options[name] !== undefined;
+      if (Object.keys(options).some((name) => name !== "conditions" && set(name))) return null;
       if (options.conditions != null) conditions = [...options.conditions].join(",");
     }
     return `${parent.path}\0${request}\0${conditions}`;

@@ -121,8 +121,14 @@ test("renders a greeting", async () => {
 
 > Prefer Jest-style globals (`test`/`expect` without imports)? Set
 > `test: { globals: true }` in your Vitest config. vitest-native does not enable the full
-> globals mode; it only exposes `expect` when RNTL needs it to register matchers.
-> Awaiting `render` works with RNTL 12–13 and is required by RNTL 14.
+> globals mode; it only exposes `expect` when RNTL needs it to register matchers, and
+> registers RNTL's automatic cleanup after each test, which RNTL itself does only when
+> `afterEach` is a global. That cleanup runs after the file's own `afterEach` hooks, as
+> RNTL's does under Vitest with `globals: true` (Jest runs it first). Without the
+> [jest-compat layer](https://danfry1.github.io/vitest-native/guide/jest-compat), RNTL cannot
+> see `vi.useFakeTimers()`, so `waitFor` and `findBy*` do not advance the fake clock: use
+> jest-compat, or advance it yourself (`await vi.advanceTimersByTimeAsync(ms)`). Awaiting
+> `render` works with RNTL 12–13 and is required by RNTL 14.
 
 Run it:
 
@@ -637,7 +643,7 @@ export default defineConfig({
 ```
 
 This is **not** a turnkey drop-in — a real suite still needs a small per-suite cleanup (convert
-top-level `jest.mock` → `vi.mock`, RNTL ≥ 12, re-record snapshots once with `-u`). The full recipe,
+top-level `jest.mock` → `vi.mock`, RNTL ≥ 12, record snapshots for Vitest in their own directory). The full recipe,
 with a worked real-app example, is in **[docs/migrating-from-jest.md](docs/migrating-from-jest.md)**.
 
 ---
@@ -684,7 +690,10 @@ preset.
 
 **Snapshots differ after switching from Jest or the mock engine**
 Real RN computes host props (e.g. `<Text>`'s `accessible`, `allowFontScaling`) that mocks omit, so
-the tree is richer. Re-record once with `npx vitest -u` after migrating.
+the tree is richer. Vitest also keys snapshots differently from Jest (`a > b 1`, not `a b 1`), so
+it cannot check Jest's `.snap` files, and `vitest -u` rewrites them for Vitest. While both runners
+run, give Vitest its own directory with `test.resolveSnapshotPath`; see
+[docs/migrating-from-jest.md](docs/migrating-from-jest.md#2d-snapshots-keep-jests-and-vitests-apart-then-record-vitests).
 
 **`Worker terminated due to reaching memory limit` / `JS heap out of memory` (large native suites)**
 Every test file that renders real React Native loads a full renderer, so a large suite can grow a

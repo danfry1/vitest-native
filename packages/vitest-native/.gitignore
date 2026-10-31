@@ -1,1 +1,3 @@
 crosscheck/.out/
+# Fixture scripts/test-hot-compile-cache.mjs builds and removes; left only if a run is killed.
+.compile-cache-fixture-*/

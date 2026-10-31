@@ -11,19 +11,12 @@
  *   legacy — globalThis.setTimeout._isMockFunction
  *   modern — globalThis.setTimeout.clock && jest.getRealSystemTime
  *
- * Under Vitest with the jest-compat layer, measured: `_isMockFunction` is undefined,
- * but `setTimeout.clock` IS set (Vitest's fake timers are @sinonjs/fake-timers, the
- * same library Jest uses) and `jest.getRealSystemTime` IS a function (the shim
- * forwards it to `vi`). So the detector fires and the swap genuinely runs — it is
- * not bypassed. It works because the shim forwards `useRealTimers`/`useFakeTimers`
- * to `vi` as well, so the round trip lands back on Vitest's own timers.
- *
- * That makes this a real dependency on the shim covering all three of
- * `getRealSystemTime`, `useRealTimers` and `useFakeTimers` — verified, not assumed:
- * deleting `jest.getRealSystemTime` for one test makes `waitFor` fail. Which is the
- * most likely explanation for the original report, since it ran against a
- * hand-rolled jest shim rather than this one: a partial shim satisfies RNTL's
- * detection and then cannot complete the swap.
+ * Under Vitest, `_isMockFunction` is undefined but `setTimeout.clock` IS set (Vitest's
+ * fake timers are @sinonjs/fake-timers, the same library Jest uses), so the modern
+ * branch fires and the swap runs. The `jest` it reads is not the global one: RNTL's
+ * own files get a `jest` of their own whose `getRealSystemTime`, `useRealTimers` and
+ * `useFakeTimers` call `vi` (src/native/rntl-hooks.mjs), with or without jest-compat.
+ * The first test below checks the global's markers, which this suite's own code reads.
  */
 import { describe, expect, it, vi, afterEach } from "vitest";
 import React from "react";
