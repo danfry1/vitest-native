@@ -7,6 +7,16 @@ import fs from "node:fs";
 import path from "node:path";
 import { usesVitePlus } from "../host.js";
 
+/**
+ * Printed after `init` and `migrate`: the hot runtime is off by default, so a user
+ * reading only the CLI output would not otherwise learn it exists or what it costs.
+ */
+export const HOT_RUNTIME_NOTE = [
+  "Hot runtime: off by default. `hotRuntime: 'auto'` reuses workers between test files, which",
+  "usually makes large native-engine suites faster. It has known differences from per-file isolation:",
+  "  https://danfry1.github.io/vitest-native/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files",
+];
+
 export interface InitOptions {
   jestCompat?: boolean;
   force?: boolean;
@@ -141,5 +151,6 @@ export function runInit(root: string, opts: InitOptions = {}): InitResult {
       `  4. migrating a Jest suite? \`vitest-native migrate\` maps your jest.config onto this file.`,
     );
   }
+  lines.push("", ...HOT_RUNTIME_NOTE);
   return { lines, ok: true, wrote: file };
 }

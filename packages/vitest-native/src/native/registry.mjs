@@ -162,6 +162,14 @@ function ownVersion() {
   }
 }
 
+function resolvedOrZero(req, request) {
+  try {
+    return req.resolve(request);
+  } catch {
+    return "0";
+  }
+}
+
 function canonicalAdditionalEntries(entries) {
   return [...new Set(entries)].sort();
 }
@@ -228,6 +236,21 @@ export function registryKey({
         // transform was fixed and a warm registry kept serving modules built without it.
         `t${TRANSFORM_CACHE_VERSION}`,
         ownVersion(),
+        // Where the graph is seeded from. The registry bakes in absolute paths to every
+        // package it resolved, so it is only valid for the files those seeds resolve to.
+        // Without this, a checkout copied together with its cache reused the original's
+        // registry: the manifest check passed because the original's files still
+        // existed, and the copy loaded React Native from the original against its own
+        // React, failing every test with "more than one copy of React". The same holds
+        // when `react-native` starts resolving to a different copy from the same root.
+        // Keyed on the resolved files rather than the project root: require.resolve
+        // returns the spelling Node loads modules under (real paths, unless
+        // --preserve-symlinks), and projects that resolve the same graph — sibling
+        // workspaces, a Vitest project in a subdirectory — share one registry.
+        ...["react-native", ...canonicalAdditionalEntries(additionalEntries)].map((request) =>
+          resolvedOrZero(req, request),
+        ),
+        assetRegistryPathFor(projectRoot) ?? "0",
         platform,
         reactNativeVersion,
         version("react-native"),
