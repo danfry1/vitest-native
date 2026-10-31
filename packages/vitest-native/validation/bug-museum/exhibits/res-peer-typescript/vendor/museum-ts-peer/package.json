@@ -1,0 +1,8 @@
+{
+  "name": "museum-ts-peer",
+  "version": "1.0.0",
+  "exports": {
+    "react-native": "./src/index.ts",
+    "default": "./src/index.ts"
+  }
+}

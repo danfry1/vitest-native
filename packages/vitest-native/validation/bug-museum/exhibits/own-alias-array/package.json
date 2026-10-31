@@ -1,0 +1,12 @@
+{
+  "name": "museum-own-alias-array",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "dependencies": {
+    "@m/feature": "*",
+    "@m/validator": "*"
+  }
+}

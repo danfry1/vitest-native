@@ -1,0 +1,11 @@
+{
+  "name": "museum-pre-navigation-off-isolated",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@react-navigation/native": "*",
+    "@react-navigation/native-stack": "*",
+    "react-native-screens": "*",
+    "react-native-safe-area-context": "*"
+  }
+}
