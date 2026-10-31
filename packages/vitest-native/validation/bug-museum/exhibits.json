@@ -1123,6 +1123,15 @@
       "preFixRef": "0f2400e"
     },
     {
+      "id": "res-registry-sloppy-modules",
+      "class": "transform/resolution",
+      "title": "The precompiled registry runs React Native's sloppy modules in strict mode",
+      "source": "registry fidelity review (2026-10)",
+      "fixedBy": "open (fix/registry-module-strictness)",
+      "fixRef": "fix/registry-module-strictness",
+      "bugSignature": "^sloppy\\.test\\.ts: TypeError: Cannot assign to read only property '__constants'"
+    },
+    {
       "id": "env-rntl13-auto-cleanup",
       "class": "harness",
       "title": "RNTL 13 with globals: false: no auto-cleanup between tests",
