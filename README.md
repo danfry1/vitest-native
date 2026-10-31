@@ -428,7 +428,7 @@ export default defineConfig({
 
 | Piece | What it does |
 |---|---|
-| `jestCompatSetup` | Installs a `jest` global backed by Vitest's `vi`, so `jest.fn` / `jest.spyOn` / `jest.useFakeTimers` work unchanged. Adds the sync `jest.requireActual` / `requireMock` that Vitest only ships as async, a global `require`, and no-ops `jest.setTimeout`. |
+| `jestCompatSetup` | Installs a `jest` global backed by Vitest's `vi`, so `jest.fn` / `jest.spyOn` / `jest.useFakeTimers` work unchanged. Adds the sync `jest.requireActual` / `requireMock` that Vitest only ships as async, a global `require`, and maps `jest.setTimeout` onto the file's test timeout. |
 | `jestMockTransform()` | A Vite plugin that makes top-level `jest.mock(...)` actually apply. Vitest only hoists `vi.mock`, so it rewrites `jest.mock` / `unmock` / `doMock` / `doUnmock` to the hoisted `vi.*` form, and runs each factory's return through Jest's CommonJS interop (so `() => Component` and named-only factories resolve the way Jest resolves them). |
 | `jestCompatAliases()` | `resolve.alias` entries: `@jest/globals` → a Vitest-globals shim (unblocks `@testing-library/react-native` < 12), and `@testing-library/jest-native/extend-expect` → a no-op (those matchers are already registered). |
 
@@ -436,13 +436,14 @@ You don't swap the test API:
 
 | In your Jest test | Under jest-compat |
 |---|---|
-| `jest.fn()`, `jest.spyOn()`, `jest.useFakeTimers()` | work as-is (the global `jest` **is** `vi`) |
+| `jest.fn()`, `jest.spyOn()`, `jest.useFakeTimers()` | work as-is (the global `jest` is `vi`; `jest.useFakeTimers(options)` takes Jest's options) |
 | `import { jest } from '@jest/globals'` | resolves to the `vi`-backed `jest` (aliased) |
 | top-level `jest.mock('m', factory)` | hoisted + applied, with Jest's factory interop |
 | `describe` / `it` / `expect` / `beforeEach` | same names, available as globals |
 
 **What it does *not* do:** it clears the API coupling, not the suite-specific work — you still
-write mocks for native libraries with no preset, re-record snapshots, and fix the occasional
+write mocks for native libraries with no preset, record snapshots for Vitest (it keys them
+differently from Jest), and fix the occasional
 factory that references an out-of-scope `mock`-prefixed variable (Jest's Babel plugin allows
 that; Vitest doesn't).
 
