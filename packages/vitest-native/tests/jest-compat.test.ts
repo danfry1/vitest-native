@@ -217,6 +217,9 @@ describe("jest-compat: jestMockTransform (hoist + CJS interop)", () => {
         expect(await runIn(partial("@shared/util"), { external, inline: [/util/] })).toContain(
           viaVite("'@shared/util'"),
         );
+        expect(await runIn(partial("@shared/util"), { external, inline: true })).toContain(
+          viaVite("'@shared/util'"),
+        );
       });
     });
   });

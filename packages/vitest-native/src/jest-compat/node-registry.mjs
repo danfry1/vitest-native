@@ -486,12 +486,46 @@ const isCommonJsNamespace = (ns) =>
 /**
  * What `jest.requireActual` returns for a module `vi.importActual` loaded, for a factory
  * jestMockTransform made async (transform.ts): `module.exports` for CommonJS, so
- * `jest.requireActual('./legacy')()` still calls the function a CommonJS file exports,
- * and an ES module's namespace as `require()` sees it (`requireFacade`).
+ * `jest.requireActual('./legacy')()` still calls the function a CommonJS file exports.
+ *
+ * For an ES module, an object as babel-jest's `require()` gives one: `__esModule`, and
+ * a member per export that reads the module live. Vite seals a module's namespace, so
+ * the namespace itself (or a Proxy over it) cannot take the writes a Jest factory makes
+ * to the actual module (`actual.other = jest.fn(); return actual`); here a write
+ * replaces that member, and a new key is added, on this object only. One object per
+ * module, so every `requireActual` of it in a file is the same object, as under Jest.
  */
+const actualObjects = new WeakMap();
 export function actualExports(ns) {
   if (ns == null || typeof ns !== "object") return ns;
-  return isCommonJsNamespace(ns) ? ns.default : requireFacade(ns);
+  if (isCommonJsNamespace(ns)) return ns.default;
+  let actual = actualObjects.get(ns);
+  if (actual) return actual;
+  actual = {};
+  for (const key of Object.keys(ns)) {
+    Object.defineProperty(actual, key, {
+      enumerable: true,
+      configurable: true,
+      get: () => ns[key],
+      set: (value) => {
+        Object.defineProperty(actual, key, {
+          value,
+          writable: true,
+          enumerable: true,
+          configurable: true,
+        });
+      },
+    });
+  }
+  if (!("__esModule" in actual)) {
+    Object.defineProperty(actual, "__esModule", {
+      value: true,
+      configurable: true,
+      writable: true,
+    });
+  }
+  actualObjects.set(ns, actual);
+  return actual;
 }
 
 function requireFacade(ns) {

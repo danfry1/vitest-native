@@ -128,6 +128,8 @@ interface Project {
 
 const matchesRegExp = (patterns: unknown[], file: string) =>
   patterns.some((pattern) => {
+    // `server.deps.inline: true` inlines everything, as Vitest reads it.
+    if (pattern === true) return true;
     if (!(pattern instanceof RegExp)) return false;
     pattern.lastIndex = 0;
     const hit = pattern.test(file);
@@ -147,7 +149,7 @@ const matchesRegExp = (patterns: unknown[], file: string) =>
  * change's first version relied on it and refused such a partial mock as a cycle).
  * Where the policy defers to Vitest, or there is none (the mock engine), Vitest's own
  * rule applies: a file outside node_modules is inlined unless a `server.deps.external`
- * regex names it and no `server.deps.inline` regex does. The engine also lists its
+ * regex names it and no `server.deps.inline` regex (or `inline: true`) does. The engine also lists its
  * Node-owned patterns there (native/apply.ts), so the two agree.
  */
 function isViteOwnedSource(

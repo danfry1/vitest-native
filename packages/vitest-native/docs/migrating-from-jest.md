@@ -193,14 +193,16 @@ The `jest.requireActual('react-native')` clone-and-override pattern is supported
 writable under the compat layer). `jest.requireActual` and `jest.requireMock` also apply the
 project's `resolve.alias` string entries, so a partial mock of `'@/services/api'` works the way
 `babel-plugin-module-resolver` or jest-expo's path mapping made it work under Jest. Configure the
-alias with a string `find` (`{ "@": path.resolve(__dirname, "src") }`); regex aliases and custom
-resolvers cannot be applied to `requireActual`, and an unresolved specifier says so.
+alias with a string `find` (`{ "@": path.resolve(__dirname, "src") }`). Outside a `jest.mock` factory's
+own body (in a test, or in a function the factory returns), regex aliases and custom resolvers
+cannot be applied to `requireActual`, and an unresolved specifier says so.
 
 The partial-mock shape `jest.mock(p, () => ({ ...jest.requireActual(p), x: jest.fn() }))` of
 your own source is loaded through Vite by `jestMockTransform()`, so the real members share module
 state (a store, a cache) with the app code the test imports, and any alias Vite applies — regex
 ones included — works there. This covers `requireActual` calls in the factory's own body; one
-inside a function the factory returns still loads a separate copy through Node. **Coming from
+inside a function the factory returns, or a `require()` of the module that runs before any import,
+still loads a separate copy through Node. **Coming from
 jest-expo:** `migrate` translates its presets, and expo-router's own testing library runs as written —
 see the [Expo guide](https://danfry1.github.io/vitest-native/guide/expo).
 
