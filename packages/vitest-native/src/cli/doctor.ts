@@ -26,6 +26,7 @@ import {
 } from "./manifest.js";
 import { PEER_REQUIREMENTS } from "../peer-requirements.js";
 import { installedViteVersion, ownVitestPackage, usesVitePlus } from "../host.js";
+import { fsModuleCacheOnByDefault } from "../fs-module-cache.js";
 
 export interface DoctorResult {
   lines: string[];
@@ -139,6 +140,105 @@ function findConfigFile(root: string): string | null {
 /** Source with comments removed, so a mention inside one cannot be mistaken for use. */
 function withoutComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+}
+
+type CacheSetting = "off" | "set" | null;
+
+const settingOf = (value: string | undefined): CacheSetting =>
+  value === undefined ? null : value === "false" ? "off" : "set";
+
+/**
+ * How a config sets Vitest's `fsModuleCache`, read as text, in each spelling: inside
+ * `experimental: { ... }` (Vitest 4.0.11 and later) and anywhere else (the top-level
+ * option, Vitest 5). `off` for a literal `false`, `set` for any other value, null when
+ * that spelling is absent.
+ */
+export function fsModuleCacheSetting(source: string): {
+  experimental: CacheSetting;
+  topLevel: CacheSetting;
+} {
+  const code = withoutComments(source);
+  const nested = /\bexperimental\s*:\s*\{[^{}]*?\bfsModuleCache\s*:\s*([^,}\s]*)/.exec(code);
+  const rest = nested ? code.replace(nested[0], " ") : code;
+  const top = /\bfsModuleCache\s*:\s*([^,}\s]*)/.exec(rest);
+  return { experimental: settingOf(nested?.[1]), topLevel: settingOf(top?.[1]) };
+}
+
+/** Whether `version` is at or above `[major, minor, patch]`. */
+function versionAtLeast(version: string, floor: [number, number, number]): boolean {
+  const parts = version
+    .replace(/^[^0-9]*/, "")
+    .split(/[.-]/)
+    .slice(0, 3)
+    .map(Number);
+  for (let i = 0; i < 3; i++) {
+    const part = parts[i] ?? 0;
+    if (part !== floor[i]) return part > floor[i];
+  }
+  return true;
+}
+
+/** The first Vitest with `experimental.fsModuleCache`. */
+const EXPERIMENTAL_FS_MODULE_CACHE_FROM: [number, number, number] = [4, 0, 11];
+
+const TROUBLESHOOTING_STALE_IMPORT =
+  "https://danfry1.github.io/vitest-native/guide/troubleshooting#cannot-find-module-keeps-failing-after-the-missing-file-exists";
+
+/**
+ * The transform-cache note for a Vitest the plugin does not turn the cache on for.
+ * Empty where it does (fsModuleCacheOnByDefault, which the plugin reads too), and where
+ * the config turns the cache off on purpose.
+ */
+export function transformCacheAdvice(
+  vitestVersion: string | null,
+  configSource: string | null,
+): string[] {
+  const major = Number(vitestVersion?.replace(/^[^0-9]*/, "").split(".")[0]);
+  // Below 4 is an unsupported peer, reported above.
+  if (!vitestVersion || !(major >= 4) || fsModuleCacheOnByDefault(major)) return [];
+  const setting =
+    configSource === null
+      ? { experimental: null, topLevel: null }
+      : fsModuleCacheSetting(configSource);
+  if (setting.experimental === "off") return [];
+  const hasOption = versionAtLeast(vitestVersion, EXPERIMENTAL_FS_MODULE_CACHE_FROM);
+  const caveat =
+    `A Vitest bug can keep a "Cannot find module" failure cached after the file exists ` +
+    `(reproduced on Vitest 5.0.5, unverified on 4); ${TROUBLESHOOTING_STALE_IMPORT} ` +
+    `lists when it happens and how to recover.`;
+  if (setting.experimental === "set" && hasOption) {
+    return [
+      `Vitest ${vitestVersion}: the config sets \`experimental.fsModuleCache\`; while it is on, ` +
+        `transformed modules are kept on disk between runs. ${caveat}`,
+    ];
+  }
+  const lines = [
+    `Vitest ${vitestVersion} re-transforms every imported module on each run, ` +
+      `about half a second per thousand imported modules on one benchmark. ` +
+      `Vitest 5 keeps transformed modules on disk between runs, and vitest-native turns that on.`,
+  ];
+  if (setting.topLevel !== null) {
+    lines.push(
+      "The config sets `test.fsModuleCache`, the Vitest 5 spelling, which has no effect on Vitest 4.",
+    );
+  }
+  lines.push(
+    hasOption
+      ? `To keep them on disk on Vitest 4, set \`test.experimental.fsModuleCache: true\`. ${caveat}`
+      : `Vitest 4.0.11 adds \`test.experimental.fsModuleCache\` to keep them on disk.`,
+  );
+  return lines;
+}
+
+/**
+ * The Vitest that runs here, as the peer check reports it: the project's own, or under
+ * Vite+ the copy this package loads.
+ */
+function runningVitestVersion(from: string): string | null {
+  return (
+    packageVersion(from, "vitest") ??
+    (usesVitePlus(from) ? (ownVitestPackage()?.version ?? null) : null)
+  );
 }
 
 /**
@@ -307,8 +407,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
       name === "vite"
         ? installedViteVersion(from)
         : name === "vitest"
-          ? (packageVersion(from, name) ??
-            (usesVitePlus(from) ? (ownVitestPackage()?.version ?? null) : null))
+          ? runningVitestVersion(from)
           : null;
     const error = validatePeerDependency(
       name,
@@ -536,10 +635,12 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   // --- Config ---
   lines.push("", "Config");
   const configFile = findConfigFile(configRoot);
+  let configSource: string | null = null;
   if (!configFile) {
     warn("no vitest.config.* found — run `vitest-native init` to create one.");
   } else {
     const content = fs.readFileSync(path.join(configRoot, configFile), "utf8");
+    configSource = content;
     const usage = analyzeConfigUsage(content);
     if (usage.imports && usage.invokes) {
       pass(`${configFile} uses vitest-native.`);
@@ -564,6 +665,15 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
           " — add `reactNative()` to `plugins: [...]`, or run `vitest-native init`.",
       );
     }
+  }
+
+  // --- Transform cache ---
+  // Advisory only, and only on a Vitest the plugin does not turn the cache on for. The
+  // version is the one the peer check reports.
+  const advice = transformCacheAdvice(runningVitestVersion(rootFor("vitest")), configSource);
+  if (advice.length) {
+    lines.push("", "Transform cache");
+    for (const line of advice) lines.push(`  · ${line}`);
   }
 
   lines.push("", ok ? "✓ No blocking problems found." : "✗ Blocking problems found (see ✗ above).");
