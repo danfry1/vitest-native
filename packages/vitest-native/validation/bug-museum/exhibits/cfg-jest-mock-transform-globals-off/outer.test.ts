@@ -11,9 +11,18 @@ import { expect, test } from "vitest";
 test("jest.mock under globals: false works, or the run names the setting", () => {
   const require = createRequire(import.meta.url);
   const bin = path.join(path.dirname(require.resolve("vitest/package.json")), "vitest.mjs");
+  // The inner run's output must not depend on where the museum runs: under GitHub Actions
+  // Vitest adds its own reporter, whose `::error` lines put the code frame on the same line
+  // as the error, with newlines encoded as `%0A`.
   const env = { ...process.env };
   for (const key of Object.keys(env))
-    if (key.startsWith("VITEST") || key === "AXIS_ACCOUNTING_FILE") delete env[key];
+    if (
+      key.startsWith("VITEST") ||
+      key === "AXIS_ACCOUNTING_FILE" ||
+      key === "GITHUB_ACTIONS" ||
+      key === "CI"
+    )
+      delete env[key];
   const run = spawnSync(process.execPath, [bin, "run", "--root", "fixture"], {
     encoding: "utf8",
     env,
@@ -27,7 +36,12 @@ test("jest.mock under globals: false works, or the run names the setting", () =>
     run.status !== 0 &&
     errors.some((line) => /\bglobals: true\b|\btest\.globals\b/.test(line)) &&
     !/vi is not defined/.test(output);
-  const reference = output.match(/ReferenceError: ([^\n]*)/)?.[1];
+  // Only the error's own first line, so a code frame or an encoded newline never reaches
+  // the summary the signature is anchored to.
+  const reference = output
+    .match(/ReferenceError: ([^\n]*)/)?.[1]
+    ?.split("%0A")[0]
+    .trim();
   const outcome =
     run.status === 0
       ? "works"
