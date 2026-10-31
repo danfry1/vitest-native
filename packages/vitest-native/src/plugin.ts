@@ -10,7 +10,11 @@ import os from "node:os";
 import { createRequire } from "node:module";
 import flowRemoveTypes from "flow-remove-types";
 import { validateOptions, validatePeerDependency, warnUnknownOptions } from "./validate.js";
-import { PEER_REQUIREMENTS } from "./peer-requirements.js";
+import {
+  installedExpoVersion,
+  PEER_REQUIREMENTS,
+  unsupportedExpoSdkMessage,
+} from "./peer-requirements.js";
 import { VitestNativeError, VitestNativeTypeError } from "./errors.mjs";
 import { presetFromModule } from "./preset-modules.mjs";
 import { BUILT_IN_PRESET } from "./presets/built-in.js";
@@ -316,6 +320,9 @@ function mockEnginePresetNames(
 }
 
 /** The major of a version string, or NaN. */
+/** The unsupported-Expo-SDK warnings already printed in this process. */
+const warnedExpoProblems = new Set<string>();
+
 function majorOf(version: string | null | undefined): number {
   return Number(version?.replace(/^[^0-9]*/, "").split(".")[0]);
 }
@@ -2346,6 +2353,16 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         if (error && !error.includes("not found")) {
           console.warn(`[vitest-native] ${error}`);
         }
+      }
+
+      // An Expo SDK outside the supported range: a warning, as for the optional peers.
+      // Failing the run would stop the tests that pass on it too. Once per process: every
+      // project of a run, and the root config, resolve their config here.
+      const expoVersion = installedExpoVersion(config.root);
+      const expoProblem = expoVersion && unsupportedExpoSdkMessage(expoVersion);
+      if (expoProblem && !warnedExpoProblems.has(expoProblem)) {
+        warnedExpoProblems.add(expoProblem);
+        console.warn(`[vitest-native] ${expoProblem}`);
       }
 
       // Now we have the real project root — resolve options from consumer context.
