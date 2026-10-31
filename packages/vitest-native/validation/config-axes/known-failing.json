@@ -20,15 +20,6 @@
       "why": "Node compiles the aliased source to CommonJS: Cannot use 'import.meta' outside a module."
     },
     {
-      "probe": "esm-default-interop",
-      "when": {
-        "engine": "native"
-      },
-      "failure": "^esm-default-interop\\.test\\.ts: .*: TypeError: Cannot read properties of undefined \\(reading '__extends'\\)",
-      "fixedBy": "#339",
-      "why": "Babel's interopRequireDefault reads exports.default from __esModule CommonJS."
-    },
-    {
       "probe": "rntl-findby-fake-timers",
       "when": {
         "engine": "mock",
