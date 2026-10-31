@@ -70,6 +70,18 @@ reactNative({ hotRuntime: true })  // require hot; fail if it cannot be bounded
 
 It uses Vitest's custom worker APIs, which Vitest labels experimental.
 
+### Choosing the hot runtime
+
+Turn it on when a suite is large enough that loading React Native in every file dominates the run, and the suite passes the same way with and without it. On the repository's generated benchmark suite it ran 1.79× faster than Jest at 50 files and 2.66× at 200, where per-file isolation ran at 0.47× and 0.34× Jest's speed, about 2× and 3× slower ([the repository README](https://github.com/danfry1/vitest-native#readme) has the table and the conditions). Treat those as indicative and measure your own suite with both settings.
+
+What it changes: workers stay alive across test files, so React Native loads once per worker instead of once per file. Your app and test modules, mocks, timers and a verified list of process-wide state are still reset per file. Some state is known to carry over, and each case can change a test's result depending on which files ran before it in the same worker: generated `useId` values, React's once-per-worker development warnings, an un-awaited `act()`, fake timers captured by React's scheduler, and fake timers RNTL reinstalls only once. [Troubleshooting](/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files) describes each one and how to confirm it.
+
+It is opt-in because those differences can change a test's result depending on file order. It can become the default again once:
+
+- each known difference is closed, or detected and reported against the file that caused it;
+- real-app suites pass the same way with and without it across the supported Vitest and RNTL versions;
+- it has shipped as the recommended opt-in for a stable minor release with no open hot-only defect that can make a test pass wrongly.
+
 ### When it helps
 
 On large, render-heavy suites it removes most filesystem, transform, compilation, and worker-start cost — in internal benchmarks roughly a 12× reduction in import/setup time at 100 files. The bigger the suite and the more of its time goes to loading React Native, the larger the win.
@@ -93,6 +105,8 @@ If you set `NODE_COMPILE_CACHE` yourself, Node turns the cache on in every worke
 ### Worker recycling
 
 The hot runtime automatically derives a worker-total budget from the lower of host and container/cgroup memory. It reserves main-process and replacement headroom, caps automatic concurrency at four, recycles workers on local heap or process RSS, and stops before starting more work at the hard RSS boundary. Use `diagnostics: true` or `vitest-native doctor` to inspect the plan.
+
+The cap of four applies only to the worker count vitest-native picks itself; in the measurement behind it, eight workers were about 6% faster than four for about 512 MiB more peak memory. A count you set — `test.maxWorkers` in the config, `--maxWorkers` on the command line, or `VITEST_MAX_WORKERS` — is honoured up to what the memory budget holds, so setting one is how to run more than four hot workers. Where no memory limit can be read, the cap of four applies to an explicit count too.
 
 Recycling only fires with **two or more workers** under current Vitest. In single-worker mode Vitest batches every file into one task and never exposes a recycle boundary, so `'auto'` keeps per-file isolation there and `hotRuntime: true` fails that configuration instead of silently trusting an inert limit. Use `maxWorkers >= 2` for hot mode. If an external scheduler already enforces the process boundary, `hotRuntime: { allowUnboundedMemory: true }` explicitly accepts the risk and disables the automatic worker cap and process-RSS enforcement.
 
