@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "paths": {
+      "@m/feature": [
+        "packages/feature/src/index.ts"
+      ],
+      "@m/validator/*": [
+        "packages/validator/src/*"
+      ]
+    }
+  },
+  "include": [
+    "*.ts",
+    "packages/*/src/**/*.ts"
+  ]
+}

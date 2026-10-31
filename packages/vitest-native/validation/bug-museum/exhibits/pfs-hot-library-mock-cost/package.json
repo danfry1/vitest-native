@@ -1,0 +1,10 @@
+{
+  "name": "museum-pfs-hot-library-mock-cost",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "react-native-gesture-handler": "*",
+    "react-native-reanimated": "*",
+    "react-native-worklets": "*"
+  }
+}
