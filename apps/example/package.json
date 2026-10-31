@@ -7,14 +7,14 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "react": "^19.3.0",
+    "react": "^19.3.1",
     "react-native": "^0.86.0"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
     "@react-native/babel-preset": "^0.88.0",
     "@testing-library/react-native": "^14.1.0",
-    "react-test-renderer": "^19.3.0",
+    "react-test-renderer": "^19.3.1",
     "typescript": "7.0.2",
     "vite": "^8.3.4",
     "vitest": "5.0.5",
