@@ -84,6 +84,12 @@ A tell-tale sign is **a test that passes in isolation but fails when run after o
 
 The runtime relies on Vitest's custom pool/worker APIs. The proposed upstream module-isolation primitive would remove those private seams; it is not required for the current correctness model.
 
+### Compile cache
+
+Under the native engine, vitest-native turns on Node's on-disk V8 compile cache (`node_modules/.cache/vitest-native/v8`) so React Native's bytecode is reused by later workers and runs. Hot workers leave it off while ESM generation is on, which is the default under the hot runtime: each test file re-evaluates the ES packages it imports under a new URL, and the cache would keep one entry per module per file. Leaving it off cost about 15–20 ms per hot worker boot in one measured fixture, including each recycle. With `hotRuntime: { esmGeneration: false }`, hot workers keep the cache.
+
+If you set `NODE_COMPILE_CACHE` yourself, Node turns the cache on in every worker before vitest-native runs, and hot workers with ESM generation then write those per-file entries again. Unset it for hot runs, or set `esmGeneration: false`.
+
 ### Worker recycling
 
 The hot runtime automatically derives a worker-total budget from the lower of host and container/cgroup memory. It reserves main-process and replacement headroom, caps automatic concurrency at four, recycles workers on local heap or process RSS, and stops before starting more work at the hard RSS boundary. Use `diagnostics: true` or `vitest-native doctor` to inspect the plan.
