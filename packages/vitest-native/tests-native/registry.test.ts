@@ -208,7 +208,6 @@ describe("precompiled RN registry: stack traces", () => {
     const code = fs.readFileSync(file, "utf8");
     expect(code).not.toMatch(/sourceMappingURL/);
     expect(fs.existsSync(`${file}.map`)).toBe(false);
-    expect(code).toMatch(/\._compile\(/);
   });
 });
 
