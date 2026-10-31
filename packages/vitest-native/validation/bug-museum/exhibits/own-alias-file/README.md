@@ -2,7 +2,7 @@
 
 - **Class:** ownership
 - **Source:** #344 review; ownership-ledger shape 2
-- **Fixed by:** #344 (draft) (`origin/fix/source-aliased-workspace-ownership`)
+- **Fixed by:** #371 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

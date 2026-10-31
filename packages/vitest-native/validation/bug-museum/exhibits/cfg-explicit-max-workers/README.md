@@ -2,7 +2,7 @@
 
 - **Class:** config
 - **Source:** migration testing (2026-10)
-- **Fixed by:** #347 (`origin/fix/cli-max-workers-memory-plan`)
+- **Fixed by:** #347 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

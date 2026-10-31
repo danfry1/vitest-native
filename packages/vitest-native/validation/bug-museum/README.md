@@ -23,6 +23,7 @@ run.mjs                runs every exhibit, or a filter, against a built vitest-n
 run-columns.mjs        builds every column's ref and runs its exhibits, one at a time
 build-ref.mjs          builds vitest-native at a git ref, cached by commit SHA
 status.mjs             checks every verdict's SHA, then renders STATUS.md and exhibits.json
+compare.mjs            compares one run's verdicts with main's recorded ones (the CI check)
 lib/verdict.mjs        "the bug" or "unexpected", judged by ../config-axes/verdict.mjs
 lib/lines.mjs          a run's failure lines (file: message, no titles)
 lib/build-info.mjs     the SHA a build directory was built from, checked by content hash
@@ -95,6 +96,20 @@ repository lacks are assembled from local copies (`requires` in exhibits.json):
 When a local copy is missing the exhibit is `N/A: requires-CI`, and the run exits 1
 unless `--allow-na` is given.
 
+## In CI
+
+`.github/workflows/bug-museum.yml` runs every exhibit against the packed package on pull
+requests that touch the package, on Node 22.13.0, and `compare.mjs` compares each verdict
+with the main verdict exhibits.json records. Since open bugs fail on main by design, the
+check fails only when a pull request regresses an exhibit: one that passes on main fails,
+or one that fails as its bug fails some other way. An exhibit that now passes is listed,
+to be recorded with `run-columns.mjs` and `status.mjs`.
+
+The check is advisory, not required; the workflow's header says when it becomes one. It
+skips the exhibits that need RNTL 12 or 13 or Vitest 4 (N/A there), and reports
+`cfg-group-conflict-fallback` as inconclusive when hot auto picks per-file isolation on
+the runner.
+
 ## Proving an exhibit is load-bearing
 
 An exhibit that passes on a buggy build is useless. Each is proven one of four ways
@@ -140,6 +155,7 @@ STATUS.md and exhibits.json together.
   and a run of two files followed by a run of four over the same installed ES module,
   both added 0 entries (495 -> 495). Either it changed since rc.4 or it needs a
   larger suite's shape; a counter exhibit that passes on main would prove nothing.
+  #376 has since kept the compile cache off in hot workers that re-evaluate ES modules.
 - **Snapshot key format differs from Jest's**: documentation only; the
   behaviour is Vitest's, and #340 documents the coexistence recipe.
 - **The automatic worker cap should scale with cores**: a performance

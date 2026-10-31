@@ -2,7 +2,7 @@
 
 - **Class:** harness
 - **Source:** #341 (CI caught it on RNTL 12/13)
-- **Fixed by:** #341 (`origin/fix/screens-header-and-virtual-text`)
+- **Fixed by:** #341 (merged)
 - **Needs:** rntl 13
 
 ## The bug

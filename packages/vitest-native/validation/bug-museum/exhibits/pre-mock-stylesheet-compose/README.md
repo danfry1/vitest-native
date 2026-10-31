@@ -2,7 +2,7 @@
 
 - **Class:** presets
 - **Source:** verification-harness audit 2026-10-28 (a mutation survived the crosscheck)
-- **Fixed by:** local branch fix/mock-stylesheet-compose (no PR yet) (`fix/mock-stylesheet-compose`)
+- **Fixed by:** #359 (`origin/fix/mock-stylesheet-compose`)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

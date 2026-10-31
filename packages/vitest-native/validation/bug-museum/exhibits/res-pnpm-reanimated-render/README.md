@@ -2,7 +2,7 @@
 
 - **Class:** transform/resolution
 - **Source:** #349
-- **Fixed by:** #349 (`origin/fix/library-resolver-pnpm-store`)
+- **Fixed by:** #363 (merged: reverts #336, which introduced it); #349 keeps it fixed when #336 relands (`origin/fix/library-resolver-pnpm-store`)
 - **Needs:** layout pnpm
 
 ## The bug

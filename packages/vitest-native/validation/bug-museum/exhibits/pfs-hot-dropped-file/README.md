@@ -2,7 +2,7 @@
 
 - **Class:** per-file-state
 - **Source:** #350 (react-native-paper bake-off: hot gave 698-714 tests, nondeterministic)
-- **Fixed by:** #350 (`origin/fix/hot-dropped-test-file`)
+- **Fixed by:** #350 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

@@ -2,7 +2,7 @@
 
 - **Class:** presets
 - **Source:** migration testing (2026-10) (found while verifying it)
-- **Fixed by:** #348 (`origin/fix/navigation-preset-visibility`)
+- **Fixed by:** #348 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

@@ -2,7 +2,7 @@
 
 - **Class:** per-file-state
 - **Source:** migration testing (2026-10)
-- **Fixed by:** #338 (`origin/fix/hot-vitest4-mock-meta`)
+- **Fixed by:** #338 (merged)
 - **Needs:** vitest 4
 
 ## The bug

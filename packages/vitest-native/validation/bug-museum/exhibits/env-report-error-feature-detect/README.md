@@ -2,7 +2,7 @@
 
 - **Class:** env-contract
 - **Source:** #343 adversarial review (a regression of #343's first version)
-- **Fixed by:** #343 (final version) (`origin/fix/recoverable-errors-and-expo-os`)
+- **Fixed by:** #343 (merged; regression guard for its first version)
 - **Needs:** nothing beyond this repository's install
 - **Bug build:** `da5cd6c` (has the bug; see STATUS.md)
 

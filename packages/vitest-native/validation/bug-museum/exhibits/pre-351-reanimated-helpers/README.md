@@ -2,7 +2,7 @@
 
 - **Class:** presets
 - **Source:** issue #351 (a user's migration: ~50 s under Jest -> ~8 s)
-- **Fixed by:** local branch fix/issue-351-own-library-mocks (no PR yet) (`fix/issue-351-own-library-mocks`)
+- **Fixed by:** local branch fix/issue-351-own-library-mocks (no PR yet; main has the hand-written preset again since #363 reverted #336) (`fix/issue-351-own-library-mocks`)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

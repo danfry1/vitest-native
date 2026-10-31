@@ -2,7 +2,7 @@
 
 - **Class:** env-contract
 - **Source:** #342 adversarial review
-- **Fixed by:** #342 (`origin/fix/rntl-cleanup-and-fake-timers`)
+- **Fixed by:** #342 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

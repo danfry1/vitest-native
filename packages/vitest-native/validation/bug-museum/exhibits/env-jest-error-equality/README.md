@@ -2,7 +2,7 @@
 
 - **Class:** env-contract
 - **Source:** migration testing (2026-10)
-- **Fixed by:** #346 (`origin/fix/jest-compat-error-equality`)
+- **Fixed by:** #346 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

@@ -2,7 +2,7 @@
 
 - **Class:** per-file-state
 - **Source:** M0 gate G3 (2026-10-28) and migration testing (2026-10) (the hot worker re-read the filesystem per file)
-- **Fixed by:** local branch perf/library-mock-resolution-cache (WIP, no PR) (`perf/library-mock-resolution-cache`)
+- **Fixed by:** #364 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

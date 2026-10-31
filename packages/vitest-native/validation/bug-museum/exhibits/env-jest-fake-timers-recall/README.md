@@ -2,7 +2,7 @@
 
 - **Class:** env-contract
 - **Source:** #340 adversarial review
-- **Fixed by:** #340 (`origin/fix/jest-compat-fake-timer-options`)
+- **Fixed by:** #340 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

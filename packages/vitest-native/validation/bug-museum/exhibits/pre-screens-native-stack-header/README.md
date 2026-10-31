@@ -2,7 +2,7 @@
 
 - **Class:** presets
 - **Source:** migration testing (2026-10)
-- **Fixed by:** #341 (`origin/fix/screens-header-and-virtual-text`)
+- **Fixed by:** #341 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

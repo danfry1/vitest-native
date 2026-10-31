@@ -2,7 +2,7 @@
 
 - **Class:** env-contract
 - **Source:** migration testing (2026-10)
-- **Fixed by:** #340 (`origin/fix/jest-compat-fake-timer-options`)
+- **Fixed by:** #340 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

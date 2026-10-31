@@ -2,7 +2,7 @@
 
 - **Class:** env-contract
 - **Source:** migration testing (2026-10)
-- **Fixed by:** open (#342 documents it as out of scope: use jest-compat or advance timers by hand) (`origin/fix/rntl-cleanup-and-fake-timers`)
+- **Fixed by:** #374 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

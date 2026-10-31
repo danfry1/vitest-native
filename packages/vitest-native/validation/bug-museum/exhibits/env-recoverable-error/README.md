@@ -2,7 +2,7 @@
 
 - **Class:** env-contract
 - **Source:** migration testing (2026-10)
-- **Fixed by:** #343 (`origin/fix/recoverable-errors-and-expo-os`)
+- **Fixed by:** #343 (merged)
 - **Needs:** rntl 13
 
 ## The bug
