@@ -2,26 +2,6 @@
   "$comment": "Probes that fail TODAY, where, how, and the pull request that fixes each (verdict.mjs). The list may only shrink: a listed probe that passes turns its cell red, so the fixing pull request deletes its entry. `when` maps an axis to a value or a list; an entry without `when` matches every run. `failure` is a regex for the expected failure, the bug itself; `consequences` (optional) matches lines the bug causes but that do not identify it, accepted only beside a `failure` match. Every failure line must be accounted for, so a crash, a TypeError or a lost file in a listed probe is still a REGRESSION, and an applying entry whose `failure` matches no line is STALE (verdict.mjs). Entries and signatures were derived from local runs on Vitest 5 and 4.1.11 (RNTL 12.9, 13.3 and 14.1, both engines, every runtime combination; the isolated layout as a pnpm-shaped store built by run.mjs --link-deps) except where `why` says otherwise.",
   "entries": [
     {
-      "probe": "rntl-nested-text",
-      "when": {
-        "engine": "native",
-        "rntl": ["12", "13"]
-      },
-      "failure": "^rntl-nested-text\\.test\\.tsx: nested Text is queryable by its own text: Error: Unable to find an element with text: inner",
-      "fixedBy": "#341",
-      "why": "RCTVirtualText is registered as a text host for RNTL 14 only."
-    },
-    {
-      "probe": "recoverable-error",
-      "when": {
-        "rntl": ["12", "13"]
-      },
-      "failure": "^unhandled error \\(from recoverable-error\\.test\\.tsx\\): Error: There was an error during concurrent rendering but React was able to recover by instead synchronously rendering the entire root\\.",
-      "consequences": "^the JSON report says success: true, but Vitest exited 1$",
-      "fixedBy": "#343",
-      "why": "react-test-renderer 19 reports a recoverable error through process.emit('uncaughtException'). RNTL 14 renders without it. Both engines."
-    },
-    {
       "probe": "partial-mock-store",
       "when": {
         "engine": "native",
@@ -67,16 +47,6 @@
       "failure": "^esm-default-interop\\.test\\.ts: .*: TypeError: Cannot read properties of undefined \\(reading '__extends'\\)",
       "fixedBy": "#339",
       "why": "Babel's interopRequireDefault reads exports.default from __esModule CommonJS."
-    },
-    {
-      "probe": "hot-automock",
-      "when": {
-        "vitest": "4",
-        "hot": "on"
-      },
-      "failure": "^hot-automock-[ab]\\.test\\.ts: gets its own factory, and an automock for the module it automocks: AssertionError: expected false to be true",
-      "fixedBy": "#338",
-      "why": "Vitest 4.1 replays a remembered factory from a placeholder node the hot runtime keeps across files; Vitest 5 is unaffected (the probe is n/a there). Observed locally on Vitest 4.1.11 (a copy linked with run.mjs --link-deps), matching #338's own reproduction."
     },
     {
       "probe": "rntl-findby-fake-timers",
