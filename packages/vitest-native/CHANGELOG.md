@@ -10,7 +10,7 @@
   Node loads. `vitest-native doctor` checks the range.
 - **Per-file isolation stays the default.** `hotRuntime` defaults to `false`, as in 0.13.0: under
   the native engine each test file runs in a fresh worker. The hot runtime, which reuses workers
-  across files and is faster on most suites, is available with `hotRuntime: 'auto'`. Four known
+  across files and is faster on most suites, is available with `hotRuntime: 'auto'`. Five known
   differences from per-file isolation are listed in
   [troubleshooting](https://danfry1.github.io/vitest-native/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files).
   Release candidates 0.14.0-rc.1 to rc.8 defaulted to `'auto'`, so a project that relied on that
@@ -249,6 +249,12 @@
   extensions still apply and one warning names the gap. Default: `false`.
 
 ### Patch Changes
+
+- 0ffc361: **A copied checkout no longer fails with "more than one copy of React" under the native engine.** A project copied together with `node_modules/.cache/vitest-native` reused the original's precompiled React Native registry, which loads React Native from the original checkout. Every test failed until the cache was deleted. No action needed: the copy now builds its own registry on its first run.
+
+  The same fix covers a project whose `react-native` starts resolving to a different installed copy, for example a workspace package that gains its own. A symlinked path to the same project keeps its cache.
+
+- 7596cea: **`vitest-native init` and `vitest-native migrate` say how to turn on the hot runtime.** No action needed. Both commands now end with a short note: the hot runtime is off by default (`hotRuntime: false`), `hotRuntime: 'auto'` reuses workers between test files and can make large native-engine suites faster, and it has known differences from per-file isolation, linked to the troubleshooting guide. The generated config is unchanged.
 
 - 8319b1f: **React Native Testing Library's automatic cleanup runs without `test.globals: true`** (RNTL 12–14, both engines, the hot runtime and `isolate: false`). No action needed. If a suite relied on trees staying mounted between tests, import `@testing-library/react-native/pure` or set `RNTL_SKIP_AUTO_CLEANUP`.
 
