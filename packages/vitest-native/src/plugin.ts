@@ -1721,6 +1721,13 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     name: "vitest-native",
     enforce: "pre",
 
+    // For sibling plugins: jestMockTransform() asks who owns a module before it moves a
+    // factory's `jest.requireActual` to Vite (jest-compat/transform.ts). Null until
+    // config() has built the policy, and under the mock engine.
+    api: {
+      nativeOwnership: (): NativeOwnershipPolicy | null => nativeOwnership,
+    },
+
     // This plugin is `enforce:"pre"` for resolution/transform semantics, but its
     // config decision is wrapped as an order:"post" hook below. Automatic hot
     // selection must see pools and setup files contributed by later plugins.

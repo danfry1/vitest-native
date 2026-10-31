@@ -2,26 +2,6 @@
   "$comment": "Probes that fail TODAY, where, how, and the pull request that fixes each (verdict.mjs). The list may only shrink: a listed probe that passes turns its cell red, so the fixing pull request deletes its entry. `when` maps an axis to a value or a list; an entry without `when` matches every run. `failure` is a regex for the expected failure, the bug itself; `consequences` (optional) matches lines the bug causes but that do not identify it, accepted only beside a `failure` match. Every failure line must be accounted for, so a crash, a TypeError or a lost file in a listed probe is still a REGRESSION, and an applying entry whose `failure` matches no line is STALE (verdict.mjs). Entries and signatures were derived from local runs on Vitest 5 and 4.1.11 (RNTL 12.9, 13.3 and 14.1, both engines, every runtime combination; the isolated layout as a pnpm-shaped store built by run.mjs --link-deps) except where `why` says otherwise.",
   "entries": [
     {
-      "probe": "partial-mock-store",
-      "when": {
-        "engine": "native",
-        "jestCompat": "on"
-      },
-      "failure": "^partial-mock-store\\.test\\.ts: .*: AssertionError: expected null to be 'set-by-the-app'",
-      "fixedBy": "#345",
-      "why": "A synchronous requireActual compiles a second module graph under Node, so the mock's real `read` sees Node's store."
-    },
-    {
-      "probe": "partial-mock-store",
-      "when": {
-        "engine": "mock",
-        "jestCompat": "on"
-      },
-      "failure": "^partial-mock-store\\.test\\.ts: \\[vitest\\] There was an error when mocking a module\\..* \\(caused by: (Error: Cannot find module '[^']*/src/partial-mock/store' imported from [^)]*/src/partial-mock/api\\.ts|SyntaxError: Unexpected token '\\)')\\)$",
-      "fixedBy": "#345",
-      "why": "Under the mock engine the synchronous jest.requireActual reaches Node's ESM loader, which cannot resolve api.ts's extensionless import of ./store, so the factory throws: 'Cannot find module …/src/partial-mock/store imported from …/api.ts'. Vitest reports only that mocking failed, and the JSON report drops the cause, so the signature is on the cause the accounting reporter records. The cause depends on the Node version: Node 22.18 and later strip api.ts's types and then fail on its extensionless import (the 'Cannot find module' cause), while Node 22.13 to 22.17 parse the raw TypeScript and fail with SyntaxError: Unexpected token ')'. Both reproduce in plain Node without vitest-native. #345 rewrites requireActual in the factory to vi.importActual for both engines, and its packed build passes this probe on Node 22.13 and 24.13."
-    },
-    {
       "probe": "aliased-sibling-regex",
       "when": {
         "engine": "native"
