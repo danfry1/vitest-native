@@ -2690,7 +2690,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     defineCacheKeyGenerator,
     experimental_defineCacheKeyGenerator,
   }: {
-    // Vitest 5; Vitest 4.1 spells it experimental_defineCacheKeyGenerator.
+    // Vitest 5; Vitest 4.0.11 and later 4.x spell it experimental_defineCacheKeyGenerator.
     defineCacheKeyGenerator?: (generator: () => string) => void;
     experimental_defineCacheKeyGenerator?: (generator: () => string) => void;
     vitest: {
