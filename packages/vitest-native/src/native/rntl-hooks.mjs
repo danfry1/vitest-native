@@ -39,19 +39,22 @@ import fs from "node:fs";
 import Module from "node:module";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { noteRntlEntryImported, RNTL_ENTRY } from "../rntl-support.mjs";
 
-const RNTL_ENTRY =
-  /[\\/]node_modules[\\/]@testing-library[\\/]react-native[\\/](?:build|dist)[\\/]index\.js$/;
 const WRAPPED = Symbol.for("vitest-native.rntl-hooks");
 
-function residentEntry(id) {
+function entryFile(id) {
   let file;
   try {
     file = id.startsWith("file://") ? fileURLToPath(id) : id.replace(/[?#].*$/, "");
   } catch {
     return null;
   }
-  if (!RNTL_ENTRY.test(file)) return null;
+  return RNTL_ENTRY.test(file) ? file : null;
+}
+
+// The key Node's module cache holds `file` under, if it is cached.
+function cachedEntry(file) {
   if (Module._cache[file]) return file;
   try {
     const real = fs.realpathSync(file);
@@ -72,9 +75,18 @@ export function registerRntlHooksOnImport(evaluator) {
     // Read before the import: afterwards the entry is always cached. A stubbed id
     // never loads the file, so it never re-runs it either.
     const stubbed = this?.stubs != null && typeof id === "string" && id in this.stubs;
-    const resident = typeof id === "string" && !stubbed ? residentEntry(id) : null;
+    const entry = typeof id === "string" && !stubbed ? entryFile(id) : null;
+    const resident = entry ? cachedEntry(entry) : null;
     const namespace = await run.call(this, id);
     if (resident) new Module(resident, null).load(resident);
+    // Without test.globals the entry registers no hooks, re-run or not. The setup file's
+    // afterEach cleans up in its place and needs to know this file imported it (see
+    // installRntlAutoCleanup in rntl-support.mjs); it calls the cached instance's cleanup,
+    // which is the one the re-run's exports read through to.
+    if (entry) {
+      const cached = resident ?? cachedEntry(entry);
+      if (cached) noteRntlEntryImported(cached);
+    }
     return namespace;
   };
   wrapped[WRAPPED] = true;

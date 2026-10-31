@@ -57,6 +57,10 @@ Vitest keys snapshots differently from Jest (`a > b 1` against Jest's `a b 1`; `
 
 RNTL advances fake timers only through a `jest` it can see. Under `engine: 'native'`, RNTL's own files get one backed by `vi`, so `findBy*`, `waitFor` and `userEvent` delays advance Vitest's fake clock, with or without jest-compat. The mock engine does not give RNTL one yet. Without the [jest-compat layer](/guide/jest-compat), these helpers wait in real time while the fake clock stands still, and time out. Add jest-compat, or advance the clock before querying: `await vi.advanceTimersByTimeAsync(ms)`.
 
+## `findBy*` or `waitFor` times out under `vi.useFakeTimers()`
+
+RNTL advances fake timers only when it finds a global `jest`, which the [jest-compat layer](/guide/jest-compat) provides. Without it, `waitFor` and `findBy*` wait in real time while the fake clock stands still. Add jest-compat, or advance the clock before querying: `await vi.advanceTimersByTimeAsync(ms)`. See [How it works](/guide/how-it-works).
+
 ## A test passes on its own but fails when run with other files
 
 If the engine banner says `hot runtime`, the native engine is reusing workers across files because `hotRuntime` is set to `'auto'` or `true`. The default, `hotRuntime: false`, gives every file a fresh worker. The hot runtime resets app/test modules, mocks, timers and a verified list of process-wide state between files, but some state is known to carry over. To confirm, run with per-file isolation:

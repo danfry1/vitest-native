@@ -4,7 +4,7 @@
 import { createRequire, register, registerHooks } from "node:module";
 import * as nativeLoader from "./loader.mjs";
 import path from "node:path";
-import { expect, vi } from "vitest";
+import { afterEach, expect, vi } from "vitest";
 import { installGlobals, installErrorUtils, installExpoRuntime } from "./globals.mjs";
 import { installRequireHooks } from "./hooks.mjs";
 import { installRntlJest } from "./rntl-hooks.mjs";
@@ -20,6 +20,7 @@ import { installNitroProxy } from "./nitro.mjs";
 import { createExpoNativeModuleResolver } from "./expo-native-modules.mjs";
 import { cacheRootFor } from "./transform.mjs";
 import { installKnownNativeModules } from "./native-modules.mjs";
+import { installRntlAutoCleanup } from "../rntl-support.mjs";
 import { registerVirtualTextHost } from "./rntl-text-host.mjs";
 import { shareProjectModules } from "../jest-compat/node-registry.mjs";
 
@@ -175,6 +176,16 @@ if (typeof globalThis.expect === "undefined") {
     writable: true,
   });
 }
+// RNTL registers its afterEach cleanup only through a global afterEach; without
+// test.globals, register it here (see rntl-support.mjs). When files share a worker
+// (the hot runtime, or `isolate: false`) RNTL stays in Node's module cache across
+// files, so the cache cannot say whether this file loaded it: rntl-hooks.mjs and the
+// require hook (hooks.mjs) report each load instead.
+installRntlAutoCleanup(afterEach, {
+  trackImports:
+    Boolean(globalThis.__vitest_native_hot_reset) ||
+    globalThis.__vitest_worker__?.config?.isolate === false,
+});
 // register() once per WORKER, not per file: under the hot runtime this setup
 // file re-evaluates per test file in a persistent worker, and re-registering
 // would stack a new loader-hook layer on every file. (installGlobals and

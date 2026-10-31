@@ -16,6 +16,15 @@ function Counter() {
 }
 
 describe("RNTL under native engine", () => {
+  it("leaves auto-cleanup to RNTL when Vitest's globals are on", () => {
+    // RNTL's entry registered its own afterEach through the global one; a second
+    // registration by the setup file (rntl-support.mjs) would clean up twice.
+    expect(typeof (globalThis as Record<string, unknown>).afterEach).toBe("function");
+    expect(
+      (globalThis as Record<symbol, unknown>)[Symbol.for("vitest-native.rntl-auto-cleanup")],
+    ).toBeUndefined();
+  });
+
   it("renders and queries by text", async () => {
     await render(<Counter />);
     expect(screen.getByText("count: 0")).toBeTruthy();
@@ -56,7 +65,10 @@ describe("RNTL under native engine", () => {
   it("renders deeply nested <Text> without crashing", async () => {
     await render(
       <Text>
-        a<Text>b<Text>c</Text></Text>
+        a
+        <Text>
+          b<Text>c</Text>
+        </Text>
       </Text>,
     );
     expect(screen.getByText("abc")).toBeTruthy();
