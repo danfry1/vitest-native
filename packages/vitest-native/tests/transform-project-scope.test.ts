@@ -119,4 +119,38 @@ describe("transformer state is scoped per project root", () => {
       fs.rmSync(rootY, { recursive: true, force: true });
     }
   });
+
+  it("each root compiles with its own @babel/core", () => {
+    const rootX = makeRoot("X");
+    const rootZ = makeRoot("Z");
+    try {
+      // Z's @babel/core is a stand-in that says which Babel compiled the file.
+      const core = path.join(rootZ, "node_modules", "@babel", "core");
+      fs.rmSync(core, { recursive: true, force: true });
+      fs.mkdirSync(core);
+      fs.writeFileSync(
+        path.join(core, "package.json"),
+        JSON.stringify({ name: "@babel/core", version: "7.0.0-stub", main: "index.js" }),
+      );
+      fs.writeFileSync(
+        path.join(core, "index.js"),
+        "exports.loadPartialConfig = () => ({ hasFilesystemConfig: () => false });\n" +
+          `exports.transformSync = () => ({ code: "var __VN_BABEL = 'Z';" });\n`,
+      );
+      const fileX = path.join(rootX, "moduleX.js");
+      const fileZ = path.join(rootZ, "moduleZ.js");
+      fs.writeFileSync(fileX, "export const a = 1;\n");
+      fs.writeFileSync(fileZ, "export const a = 1;\n");
+
+      expect(transformRN(fileX, fs.readFileSync(fileX, "utf8"), rootX)).toContain(
+        '__VN_TOOLCHAIN = "X"',
+      );
+      expect(transformRN(fileZ, fs.readFileSync(fileZ, "utf8"), rootZ)).toBe(
+        "var __VN_BABEL = 'Z';",
+      );
+    } finally {
+      fs.rmSync(rootX, { recursive: true, force: true });
+      fs.rmSync(rootZ, { recursive: true, force: true });
+    }
+  });
 });

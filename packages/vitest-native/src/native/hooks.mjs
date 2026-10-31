@@ -4,13 +4,7 @@ import Module from "node:module";
 import { projectContext } from "../context.mjs";
 import path from "node:path";
 import fs from "node:fs";
-import {
-  heldTransform,
-  transformRN,
-  isFlow,
-  needsTransform,
-  isTransforming,
-} from "./transform.mjs";
+import { heldTransform, transformRN, isFlow, needsTransform } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import {
   resolvePlatformFile,
@@ -553,9 +547,6 @@ export function installRequireHooks(
 
   const origJs = Module._extensions[".js"];
   Module._extensions[".js"] = function (mod, filename) {
-    // Babel loading its own toolchain mid-transform: never compile it (see
-    // isTransforming in transform.mjs).
-    if (isTransforming()) return origJs(mod, filename);
     const norm = filename.replace(/\\/g, "/");
     const rnPath = ownership.reactNativePathFor(filename);
     const boundary = boundarySourceFor(rnPath ?? norm, platform, reactNativeVersion);
@@ -608,7 +599,7 @@ export function installRequireHooks(
   const origMjs = Module._extensions[".mjs"];
   if (origMjs) {
     Module._extensions[".mjs"] = function (mod, filename) {
-      if (globalThis.__vitest_native_loader_mode !== "thread" || isTransforming()) {
+      if (globalThis.__vitest_native_loader_mode !== "thread") {
         return origMjs(mod, filename);
       }
       const norm = filename.replace(/\\/g, "/");
