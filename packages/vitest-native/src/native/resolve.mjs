@@ -77,31 +77,40 @@ export function firstExact(prefix, suffixes) {
   return null;
 }
 
-// Directory listings: directory → { mtimeMs, ctimeMs, names }, where `names` maps each
-// entry's exact name to whether it is a symbolic link (null: the directory is unreadable).
+// Directory listings: directory → { mtimeMs, ctimeMs, ino, dev, names }, where `names`
+// maps each entry's exact name to whether it is a symbolic link (null: the directory
+// cannot be read).
 //
 // One listing answers the existence and the exact-case question for every candidate in a
 // directory. Before, each candidate cost an `existsSync` and each hit a fresh
 // `readdirSync` of its directory; in a flat directory of 2000 modules (generated icons,
 // locales) that re-read the same directory 2000 times.
 //
-// A listing is reused only while its directory's mtime and ctime are the ones it was read
-// at. Adding, removing or renaming an entry changes both, so a file created during
-// `vitest --watch`, or between two test files in a long-lived worker, is seen on the next
-// lookup: there is no event to miss and nothing to invalidate. That costs one `stat` of
-// the directory per lookup. A directory changed less than RACY_MS before it was read is
-// not kept: where timestamps are coarse (HFS+ and ext3 count seconds, FAT two), a second
-// change within the same tick would leave the times as they were, so a listing is kept
-// only once its directory has been still for longer than that (git's "racily clean"
-// rule).
+// A listing is reused only while its directory's stat matches the one it was read at:
+// mtime and ctime, which adding, removing or renaming an entry changes, and inode and
+// device, which differ when a symlinked path (a pnpm store link) now points at another
+// directory that happens to carry the same times. The listing therefore adds no
+// staleness of its own; what a watch run sees is decided by the resolution caches above
+// it, as before. That costs one `stat` of the directory per lookup.
+//
+// A directory changed less than RACY_MS before it was read is not kept: where timestamps
+// are coarse (HFS+ and ext3 count seconds, FAT two), a second change within the same tick
+// would leave the times as they were, so a listing is kept only once its directory has
+// been still for longer than that (git's "racily clean" rule). This assumes the local
+// clock agrees with the file times. The clock is the real one, captured at load:
+// the resolver runs in the test's realm, where `vi.useFakeTimers()` moves `Date.now`.
 //
 // Keyed by the directory as spelled, not by its real path: the answers are names within
 // a directory, which every spelling of it shares (through a symlink, `D:/` or `D:\`), and
-// each spelling is checked against that directory's own times, so two spellings cost two
+// each spelling is checked against that directory's own stat, so two spellings cost two
 // reads but cannot disagree. No module identity is keyed here.
+//
+// Lifetime is the process: in the main process, the whole watch session. Memory is
+// bounded by the directories resolution touches, at about 156 bytes per listed entry.
 const listings = new Map();
 const RACY_MS = 2000;
 const NO_ENTRIES = new Map();
+const realNow = Date.now;
 
 function listDirectory(dir) {
   let stat;
@@ -112,7 +121,13 @@ function listDirectory(dir) {
   }
   if (!stat.isDirectory()) return NO_ENTRIES;
   const held = listings.get(dir);
-  if (held !== undefined && held.mtimeMs === stat.mtimeMs && held.ctimeMs === stat.ctimeMs) {
+  if (
+    held !== undefined &&
+    held.mtimeMs === stat.mtimeMs &&
+    held.ctimeMs === stat.ctimeMs &&
+    held.ino === stat.ino &&
+    held.dev === stat.dev
+  ) {
     return held.names;
   }
   let names = new Map();
@@ -120,11 +135,19 @@ function listDirectory(dir) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       names.set(entry.name, entry.isSymbolicLink());
     }
-  } catch {
+  } catch (error) {
+    // A permission error stands until the directory changes. Anything else (EMFILE, a
+    // directory removed mid-read) is answered by the filesystem for this call only, so
+    // the exact-case check comes back on the next lookup.
+    if (error?.code !== "EACCES" && error?.code !== "EPERM") {
+      listings.delete(dir);
+      return null;
+    }
     names = null;
   }
-  if (Date.now() - stat.mtimeMs > RACY_MS) {
-    listings.set(dir, { mtimeMs: stat.mtimeMs, ctimeMs: stat.ctimeMs, names });
+  if (realNow() - stat.mtimeMs > RACY_MS) {
+    const { mtimeMs, ctimeMs, ino, dev } = stat;
+    listings.set(dir, { mtimeMs, ctimeMs, ino, dev, names });
   } else {
     listings.delete(dir);
   }
