@@ -2,7 +2,7 @@ import type { Plugin, UserConfig } from "vite";
 import type { PoolRunnerInitializer } from "vitest/node";
 import type { VitestNativeOptions, ResolvedOptions, Preset } from "./types.js";
 import { getConfiguredPlatformExtensions, getPlatformExtensions } from "./resolve.js";
-import { existsExact } from "./native/resolve.mjs";
+import { firstExact } from "./native/resolve.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
@@ -1566,22 +1566,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       const importerDir = path.dirname(importer);
       const absolute = path.resolve(importerDir, source);
 
-      // Try as a file with extensions
-      for (const ext of extensions) {
-        const candidate = absolute + ext;
-        if (existsExact(candidate)) {
-          resolveCache.set(cacheKey, candidate);
-          return candidate;
-        }
-      }
-
-      // Try as a directory with index file
-      for (const ext of extensions) {
-        const candidate = path.join(absolute, `index${ext}`);
-        if (existsExact(candidate)) {
-          resolveCache.set(cacheKey, candidate);
-          return candidate;
-        }
+      // As a file with each extension, then as a directory with an index file.
+      const candidate =
+        firstExact(absolute, extensions) ?? firstExact(path.join(absolute, "index"), extensions);
+      if (candidate !== null) {
+        resolveCache.set(cacheKey, candidate);
+        return candidate;
       }
 
       // Cache misses too to avoid re-scanning the filesystem.
