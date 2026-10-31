@@ -7,7 +7,7 @@ Run your React Native tests under Vitest, against **real React Native** — the 
 > **Beta.** The release-supported native engine is validated across React Native 0.81–0.88,
 > Vite 6–8, Vitest 4–5, RNTL 12–14, bare apps, Expo SDK 58 and 57 (including expo-router's own testing
 > library), and hoisted monorepos. The hot
-> runtime (on by default where it can be bounded) is marked experimental because it uses Vitest's
+> runtime (opt-in with `hotRuntime: 'auto'`) is marked experimental because it uses Vitest's
 > experimental custom-pool APIs.
 >
 > Maintained successor to [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native) — same core idea (externalize RN, run its real JS under Node), rebuilt for modern Vitest (4+). Coming from it? See [Migrating from `vitest-react-native`](#migrating-from-vitest-react-native).
@@ -707,7 +707,7 @@ export default defineConfig({
 });
 ```
 
-The hot runtime (the default where it can be bounded) also helps: it keeps React Native's precompiled
+The hot runtime (`hotRuntime: 'auto'`, opt-in) also helps: it keeps React Native's precompiled
 factory registry warm, resets its module instances from memory per file, and recycles workers on a
 memory/file budget.
 

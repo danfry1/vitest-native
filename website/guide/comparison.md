@@ -29,9 +29,9 @@ So the difference is **where the boundary sits**, not "real vs mocked." vitest-n
 | Native modules / host components | Mocked | Mocked |
 | Rendered host names | `View`, `Text` | `RCTView`, `RCTText` |
 
-## Speed: faster by default, but not the reason to switch
+## Speed: faster with the hot runtime, but not the reason to switch
 
-With its hot runtime turned on (`hotRuntime: 'auto'`, opt-in), the native engine reuses workers, and on the repository's head-to-head benchmark — the same generated React Native Testing Library suite for both — it ran 1.8× faster than Jest at 50 files and 2.7× faster at 200, with about a quarter of Jest's peak memory (Apple M5, Node 24.13, React Native 0.84.1, Jest 29.7, Vitest 5.0.1; the README has the full table and the command to reproduce it). With per-file worker isolation, the default (`hotRuntime: false`), it is slower than Jest at scale. [Choosing the hot runtime](/guide/engines#choosing-the-hot-runtime) covers the trade-off.
+With its hot runtime turned on (`hotRuntime: 'auto'`, opt-in), the native engine reuses workers, and on the repository's head-to-head benchmark — the same generated React Native Testing Library suite for both — it ran 1.8× faster than Jest at 50 files and 2.7× faster at 200, with about a quarter of Jest's peak memory (Apple M5, Node 24.13, React Native 0.84.1, Jest 29.7, Vitest 5.0.1; the README has the full table and the command to reproduce it). With per-file worker isolation, the default (`hotRuntime: false`), it ran slower than Jest on that suite. [Choosing the hot runtime](/guide/engines#choosing-the-hot-runtime) covers the trade-off.
 
 That is one generated suite on one machine, and your suite's shape decides your numbers. Choose vitest-native for the **fidelity option and DX**; treat the speed as a bonus to measure on your own suite, not a promise.
 
