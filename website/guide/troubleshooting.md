@@ -75,6 +75,19 @@ Known differences from per-file isolation under the hot runtime:
 
 If the failure goes away with `hotRuntime: false`, keep that setting for the project. If it is not one of the cases above, please [open an issue](https://github.com/danfry1/vitest-native/issues) with the library involved. Setting `test.isolate` explicitly in your Vitest config also keeps Vitest's own isolation.
 
+## "Cannot find module" keeps failing after the missing file exists
+
+On Vitest 5 the plugin turns on Vitest's persistent transform cache, `fsModuleCache` (see [how it works](/guide/how-it-works#_4-transform-cache)). Vitest 5.0.5 can keep a test file's transform from a run where one of its imports did not resolve, and reuse it after the import target exists. The error names a root-relative path, such as `'/lib/components'` for `import '../../lib/components'`, and it persists across runs.
+
+It happens when all of these hold:
+
+- the import is relative and points outside the Vitest project's root, for example to another workspace package's build output;
+- the import is dynamic: an `import()` in the file, or a static import that Vitest turns into one because the file calls `vi.mock` (any `vi.mock`, not only one of that module);
+- the importing file is in a subdirectory of the root, such as `src/`;
+- one run happened while the target was missing, for example before the other package was built.
+
+This is a Vitest bug, tracked in [vitest-dev/vitest#11789](https://github.com/vitest-dev/vitest/issues/11789). To recover, clear Vitest's cache with `vitest --clearCache`, or delete `node_modules/.vitest-cache` at the workspace root (or the directory set in `test.fsModuleCachePath`). To avoid it, build the other package before the first test run, or set `test.fsModuleCache: false` for that project.
+
 ## `CONTEXT_INVALID` at startup
 
 The plugin writes one description of each Vitest project, its _project context_, to `node_modules/.cache/vitest-native/contexts/` (or the system temp directory when that cannot be written), and every worker reads its configuration from that file. `CONTEXT_INVALID` means a worker found it missing, from another version, changed after it was written, or with a field of the wrong shape; the message names the reason, the field and the directory. Re-run Vitest, and if it persists delete that directory. A worker started without the plugin's configuration reports it too.
