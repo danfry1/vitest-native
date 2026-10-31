@@ -437,6 +437,35 @@ function emit(files, modules) {
 }
 
 /**
+ * Where the registry for these options lives: its file, and the metadata file that is
+ * published last and so marks a complete registry. Computing it never creates a
+ * directory or compiles anything. Throws when the cache key cannot be computed.
+ */
+export function registryLocation({
+  projectRoot,
+  platform = "ios",
+  reactNativeVersion = "0.0.0",
+  assetExts = [],
+  sourceExts = ["js", "jsx", "json", "ts", "tsx"],
+  additionalEntries = [],
+}) {
+  const key = registryKey({
+    projectRoot,
+    platform,
+    reactNativeVersion,
+    assetExts,
+    sourceExts,
+    additionalEntries,
+  });
+  const registryFile = path.join(
+    cacheRootFor(projectRoot),
+    "registry",
+    `rn-${platform}-${key}.cjs`,
+  );
+  return { key, registryFile, metaFile: `${registryFile}.json` };
+}
+
+/**
  * Build (or reuse) the precompiled registry for a project. Returns the registry
  * file path, or null when a registry cannot be produced — in which case the caller
  * simply keeps using the per-file hooks.
@@ -471,27 +500,25 @@ export function buildRegistry({
     }
     return null;
   }
-  let dir;
   let key;
+  let registryFile;
+  let metaFile;
   try {
-    key = registryKey({
+    ({ key, registryFile, metaFile } = registryLocation({
       projectRoot,
       platform,
       reactNativeVersion,
       assetExts,
       sourceExts,
       additionalEntries,
-    });
-    dir = path.join(cacheRootFor(projectRoot), "registry");
-    fs.mkdirSync(dir, { recursive: true });
+    }));
+    fs.mkdirSync(path.dirname(registryFile), { recursive: true });
   } catch (error) {
     if (failOnError) throw error;
     warnRegistryUnavailable(error?.message ?? "cache directory unavailable");
     return null;
   }
 
-  const registryFile = path.join(dir, `rn-${platform}-${key}.cjs`);
-  const metaFile = `${registryFile}.json`;
   try {
     const meta = JSON.parse(fs.readFileSync(metaFile, "utf8"));
     if (meta.key === key && fs.existsSync(registryFile) && manifestValid(meta.manifest)) {

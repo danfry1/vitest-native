@@ -14,7 +14,12 @@ import * as presetFactories from "../presets.mjs";
 import { animatedMatchers } from "../matchers.mjs";
 import { serializer as rnSerializer } from "../serializer.mjs";
 import { VitestNativeError } from "../errors.mjs";
-import { CONTEXT_ENV, assertBootContext, requireProjectContext } from "../context.mjs";
+import {
+  CONTEXT_ENV,
+  activeRegistry,
+  assertBootContext,
+  requireProjectContext,
+} from "../context.mjs";
 import { importPresetModule, presetModulePaths } from "../preset-modules.mjs";
 import { installNitroProxy } from "./nitro.mjs";
 import { createExpoNativeModuleResolver } from "./expo-native-modules.mjs";
@@ -259,12 +264,14 @@ if (!globalThis.__vitest_native_loader_registered) {
   });
 }
 // Serve React Native from the precompiled registry when the plugin produced one
-// (see registry.mjs). Installed BEFORE the require hooks so their preset-mock
+// (see registry.mjs), or when the one it is compiling in the background has landed
+// (activeRegistry). Installed BEFORE the require hooks so their preset-mock
 // redirect wraps this one and keeps precedence. Any module the registry cannot
 // serve — a computed require, a package in `transform` — falls through to the
 // hooks below, so this is purely a faster path to the same modules.
-if (runContext.registry) {
-  const installed = installRegistry(runContext.registry, projectRoot, sourceExts);
+const registryFile = activeRegistry(runContext);
+if (registryFile) {
+  const installed = installRegistry(registryFile, projectRoot, sourceExts);
   if (diagnostics) {
     console.log(
       `[vitest-native] (native) precompiled RN registry ${installed ? "installed" : "unavailable; using per-file module loading"}`,
