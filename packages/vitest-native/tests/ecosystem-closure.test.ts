@@ -26,7 +26,8 @@ afterAll(() => {
   for (const r of roots) fs.rmSync(r, { recursive: true, force: true });
 });
 
-type Pkg = { deps?: string[]; peerDeps?: string[] };
+// `fields`: other manifest fields, where a helper writes them (the workspace helper).
+type Pkg = { deps?: string[]; peerDeps?: string[]; fields?: Record<string, unknown> };
 
 /** A project root with `installed` packages, and the project depending on `declares`. */
 function project(declares: string[], installed: Record<string, Pkg>): string {
@@ -492,5 +493,231 @@ describe("ecosystem detection: an isolated install layout", () => {
     expect(detected).toContain("expo-asset-ish");
     expect(detected).not.toContain("babel-preset-expo");
     expect(detected).not.toContain("babel-plugin-ish");
+  });
+});
+
+/**
+ * A package detected on a sibling's declaration that the run reaches anyway.
+ *
+ * In a workspace the app declares `expo`, so `expo` is detected; a library under test
+ * declares expo-image, whose peer `expo` is then loaded by the library's tests too. The
+ * walk started only from the library's own declarations, and stopped at any package
+ * already in the set, so `expo` was compiled and its dependencies were not: under an
+ * isolated install expo-asset is expo's dependency and nobody's declaration, and its
+ * `build/` ES modules loaded raw ("Cannot find module 'expo-asset/build/Asset.fx'").
+ * The layout is isolated here, but what matters is the declaration: a hoisted install
+ * leaves expo-asset just as undeclared.
+ */
+describe("ecosystem detection: a sibling-declared package the run reaches", () => {
+  // The native engine's presets: the expo preset is off there, so expo-constants and
+  // its siblings run as themselves (an empty set; undefined treats every preset as on).
+  const detect = (root: string) => detectEcosystemPackages(root, [], [], [], []);
+  type Member = { declares: string[] };
+  /**
+   * A workspace whose members link `declares` from a store, each package's
+   * dependencies and installed peers linked beside it there, as pnpm lays them out.
+   */
+  function workspace(members: Record<string, Member>, installed: Record<string, Pkg>): string {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-reached-"));
+    roots.push(root);
+    const write = (file: string, value: unknown) => {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify(value));
+    };
+    const link = (target: string, at: string) => {
+      fs.mkdirSync(path.dirname(at), { recursive: true });
+      fs.symlinkSync(target, at, "junction");
+    };
+    write(path.join(root, "package.json"), {
+      name: "w",
+      private: true,
+      workspaces: ["packages/*"],
+    });
+    const storeDir = (name: string) =>
+      path.join(root, "node_modules", ".pnpm", name.replace("/", "+"), "node_modules", name);
+    for (const [name, pkg] of Object.entries(installed)) {
+      write(path.join(storeDir(name), "package.json"), {
+        ...pkg.fields,
+        name,
+        version: "1.0.0",
+        ...(pkg.deps ? { dependencies: Object.fromEntries(pkg.deps.map((d) => [d, "*"])) } : {}),
+        ...(pkg.peerDeps
+          ? { peerDependencies: Object.fromEntries(pkg.peerDeps.map((d) => [d, "*"])) }
+          : {}),
+      });
+    }
+    for (const [name, pkg] of Object.entries(installed)) {
+      const beside = path.dirname(storeDir(name)).replace(/[\\/]@[^\\/]+$/, "");
+      for (const dep of [...(pkg.deps ?? []), ...(pkg.peerDeps ?? [])]) {
+        if (dep in installed) link(storeDir(dep), path.join(beside, ...dep.split("/")));
+      }
+    }
+    for (const [member, { declares }] of Object.entries(members)) {
+      const dir = path.join(root, "packages", member);
+      write(path.join(dir, "package.json"), {
+        name: `@w/${member}`,
+        dependencies: Object.fromEntries(declares.map((d) => [d, "*"])),
+      });
+      for (const name of declares) {
+        link(storeDir(name), path.join(dir, "node_modules", ...name.split("/")));
+      }
+    }
+    return root;
+  }
+
+  const expoLike: Record<string, Pkg> = {
+    "react-native": {},
+    expo: { peerDeps: ["react-native"], deps: ["expo-asset", "expo-constants"] },
+    // Each declares react-native as a peer, as the real ones do, and is detected on
+    // that only where something declares it.
+    "expo-asset": { peerDeps: ["expo", "react-native"] },
+    "expo-constants": { peerDeps: ["expo", "react-native"], deps: ["constants-helper"] },
+    "constants-helper": {},
+  };
+
+  it("walks a detected package the run reaches through a peer", () => {
+    const root = workspace(
+      {
+        app: { declares: ["react-native", "expo"] },
+        ui: { declares: ["react-native", "expo-image"] },
+      },
+      { ...expoLike, "expo-image": { peerDeps: ["expo", "react", "react-native"] } },
+    );
+    const detected = detect(path.join(root, "packages", "ui"));
+    expect(detected).toEqual(expect.arrayContaining(["expo-image", "expo"]));
+    expect(detected).toEqual(
+      expect.arrayContaining(["expo-asset", "expo-constants", "constants-helper"]),
+    );
+  });
+
+  it("walks a detected package the run reaches through a dependency", () => {
+    const root = workspace(
+      {
+        app: { declares: ["react-native", "expo"] },
+        ui: { declares: ["react-native", "design-system"] },
+      },
+      { ...expoLike, "design-system": { peerDeps: ["react-native"], deps: ["expo"] } },
+    );
+    const detected = detect(path.join(root, "packages", "ui"));
+    expect(detected).toEqual(expect.arrayContaining(["expo-asset", "expo-constants"]));
+  });
+
+  it("still does not walk a sibling-declared package the run does not reach", () => {
+    const root = workspace(
+      {
+        app: { declares: ["react-native", "expo"] },
+        ui: { declares: ["react-native", "rn-widget"] },
+      },
+      { ...expoLike, "rn-widget": { peerDeps: ["react-native"] } },
+    );
+    const detected = detect(path.join(root, "packages", "ui"));
+    expect(detected, "detected on the sibling's declaration").toContain("expo");
+    expect(detected).not.toContain("expo-asset");
+    expect(detected).not.toContain("constants-helper");
+  });
+
+  it("walks a detected package that publishes only ES modules", () => {
+    // The ES-module test is for packages the closure alone brings in. A detected one is
+    // compiled whatever it publishes, and so is its closure.
+    const root = workspace(
+      {
+        app: { declares: ["react-native", "esm-rn-lib"] },
+        ui: { declares: ["react-native", "design-system"] },
+      },
+      {
+        "react-native": {},
+        "design-system": { peerDeps: ["react-native"], deps: ["esm-rn-lib"] },
+        "esm-rn-lib": {
+          peerDeps: ["react-native"],
+          deps: ["esm-rn-helper"],
+          fields: { type: "module" },
+        },
+        "esm-rn-helper": {},
+      },
+    );
+    expect(detect(path.join(root, "packages", "ui"))).toContain("esm-rn-helper");
+  });
+
+  it("does not take a peer edge into React Native's own dependencies", () => {
+    // The same exclusions as a dependency edge: the registry owns what React Native
+    // depends on, so nothing reached from it is compiled.
+    const root = workspace(
+      {
+        app: { declares: ["react-native", "rn-owned"] },
+        ui: { declares: ["react-native", "peer-lib"] },
+      },
+      {
+        "react-native": { deps: ["rn-owned"] },
+        "peer-lib": { peerDeps: ["react-native", "rn-owned"] },
+        "rn-owned": { peerDeps: ["react-native"], deps: ["rn-owned-child"] },
+        "rn-owned-child": {},
+      },
+    );
+    expect(detect(path.join(root, "packages", "ui"))).not.toContain("rn-owned-child");
+  });
+
+  it("follows a peer only into a package something declares", () => {
+    // An installed peer nobody declares (expo-router's, for an app that never imports
+    // it) is not added, and neither is its closure.
+    const root = workspace(
+      { ui: { declares: ["react-native", "expo-image"] } },
+      {
+        ...expoLike,
+        "expo-image": { peerDeps: ["expo", "react-native", "router-ish"] },
+        "router-ish": { peerDeps: ["react-native"], deps: ["router-helper"] },
+        "router-helper": {},
+      },
+    );
+    const detected = detect(path.join(root, "packages", "ui"));
+    expect(detected).not.toContain("router-ish");
+    expect(detected).not.toContain("router-helper");
+  });
+});
+
+describe("ecosystem detection: a package named in transform", () => {
+  // react-native-flash-message's shape: a detected package whose dependency,
+  // react-native-iphone-screen-helper, is an ES module that imports react-native.
+  const flashLike = () =>
+    project(["react-native", "flash-ish"], {
+      "react-native": {},
+      "flash-ish": { peerDeps: ["react-native"], deps: ["screen-helper-ish"] },
+      "screen-helper-ish": { peerDeps: ["react-native"], deps: ["helper-dep"] },
+      "helper-dep": {},
+    });
+
+  it("walks its closure as it walks a detected package's", () => {
+    const detected = detectEcosystemPackages(flashLike(), ["flash-ish"]);
+    expect(detected).toEqual(expect.arrayContaining(["screen-helper-ish", "helper-dep"]));
+  });
+
+  it("leaves the named package itself to the transform option", () => {
+    expect(detectEcosystemPackages(flashLike(), ["flash-ish"])).not.toContain("flash-ish");
+  });
+
+  it("does not walk a named package an active preset shadows", () => {
+    // @gorhom/bottom-sheet, named in transform and shadowed by its preset: its real source
+    // never loads, so @gorhom/portal is not handed to Node.
+    const root = project(["react-native", "@gorhom/bottom-sheet"], {
+      "react-native": {},
+      "@gorhom/bottom-sheet": { peerDeps: ["react-native"], deps: ["@gorhom/portal"] },
+      "@gorhom/portal": {},
+    });
+    const named = ["@gorhom/bottom-sheet"];
+    expect(detectEcosystemPackages(root, named, [], [], ["bottomSheet"])).not.toContain(
+      "@gorhom/portal",
+    );
+    // With the preset off, the package runs as itself and its closure is walked.
+    expect(detectEcosystemPackages(root, named, [], [], [])).toContain("@gorhom/portal");
+  });
+
+  it("does not walk a named package transform.exclude also names", () => {
+    const detected = detectEcosystemPackages(flashLike(), ["flash-ish"], [], ["flash-ish"]);
+    expect(detected).not.toContain("screen-helper-ish");
+  });
+
+  it("still honours transform.exclude inside that closure", () => {
+    const detected = detectEcosystemPackages(flashLike(), ["flash-ish"], [], ["screen-helper-ish"]);
+    expect(detected).not.toContain("screen-helper-ish");
+    expect(detected).not.toContain("helper-dep");
   });
 });

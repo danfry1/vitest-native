@@ -163,24 +163,81 @@ function createState() {
   };
 
   // The memoized mock: `requireMock` caches the factory's result in `_mockRegistry`.
-  state.valueOf = (entry) => {
-    if (entry.has) return entry.value;
-    if (entry.evaluating) {
-      // Jest would re-enter the factory here until the stack overflowed.
-      throw new VitestNativeError(
-        "JEST_MOCK_FACTORY_CYCLE",
-        `the jest.mock factory for '${entry.spec}' requires the module it mocks. ` +
-          "Use jest.requireActual() inside the factory for the real module.",
-      );
-    }
+  //
+  // A factory jestMockTransform made async (its `jest.requireActual` of project source
+  // now loads through Vite: see transform.ts) yields a promise, as does one the author
+  // wrote async. What is memoized is the SETTLED value, so every load gets the same
+  // object, never the promise: Vite's import awaits it (`valueForImport`), and Vite
+  // runs the factory while it evaluates the test file's imports, so a `require()` or
+  // `jest.requireMock` in the test body finds it settled. A Node-side load that comes
+  // first runs the synchronous original instead, which is what it did before the
+  // rewrite, and Vite's import then gets that value. One that comes while the promise
+  // is pending — Node requiring the module from inside its own factory's import graph,
+  // a cycle — cannot wait, so it throws, as the synchronous cycle does.
+  const settle = (entry, factory) => {
     entry.evaluating = true;
+    let result;
     try {
-      entry.value = entry.factory();
-      entry.has = true;
+      result = factory();
     } finally {
       entry.evaluating = false;
     }
-    return entry.value;
+    // By tag, not by a `then` method: see jestMockInterop in interop.mjs.
+    if (Object.prototype.toString.call(result) !== "[object Promise]") {
+      entry.value = result;
+      entry.has = true;
+      return result;
+    }
+    const pending = result.then(
+      (value) => {
+        if (entry.pending === pending) {
+          entry.pending = null;
+          entry.value = value;
+          entry.has = true;
+        }
+        return value;
+      },
+      (error) => {
+        if (entry.pending === pending) entry.pending = null;
+        throw error;
+      },
+    );
+    entry.pending = pending;
+    return pending;
+  };
+  const cycle = (entry) =>
+    // Jest would re-enter the factory here until the stack overflowed.
+    new VitestNativeError(
+      "JEST_MOCK_FACTORY_CYCLE",
+      `the jest.mock factory for '${entry.spec}' requires the module it mocks. ` +
+        "Use jest.requireActual() inside the factory for the real module.",
+    );
+
+  /** The mock for a Node-side load, which cannot wait for a promise. */
+  state.valueOf = (entry) => {
+    if (entry.has) return entry.value;
+    if (entry.evaluating) throw cycle(entry);
+    if (entry.pending) {
+      // An author's own async factory has always handed Node its promise.
+      if (!entry.asyncFactory) return entry.pending;
+      throw new VitestNativeError(
+        "JEST_MOCK_FACTORY_CYCLE",
+        `'${entry.spec}' was required while its jest.mock factory was still loading the ` +
+          "real module, which require() cannot wait for. Something that factory loads " +
+          "requires the mocked module back; break the cycle, or import the module instead.",
+      );
+    }
+    // An async factory the author wrote has no synchronous original, so this load gets
+    // its promise, as it always has; later loads get the settled value.
+    return settle(entry, entry.factory);
+  };
+
+  /** The mock for Vite's import: the settled value, or a promise of it. */
+  state.valueForImport = (entry) => {
+    if (entry.has) return entry.value;
+    if (entry.pending) return entry.pending;
+    if (entry.evaluating) throw cycle(entry);
+    return settle(entry, entry.asyncFactory ?? entry.factory);
   };
 
   /** The entry a load of `request` (resolved to `filename`) is served, if any. */
@@ -195,9 +252,18 @@ function createState() {
     return filename !== null ? state.entries.get(filename) : state.unresolved.get(request);
   };
 
-  state.register = (from, spec, factory) => {
+  // `asyncFactory` is jestMockTransform's async variant of `factory`, when it made one.
+  state.register = (from, spec, factory, asyncFactory) => {
     const filename = state.resolveFrom(spec, from);
-    const entry = { spec, factory, has: false, value: undefined, evaluating: false };
+    const entry = {
+      spec,
+      factory,
+      asyncFactory,
+      has: false,
+      value: undefined,
+      pending: null,
+      evaluating: false,
+    };
     if (filename !== null) state.entries.set(filename, entry);
     else state.unresolved.set(spec, entry);
     // The hoisted `vi.mock` factory looks its entry up by where it was written.
@@ -265,6 +331,7 @@ function createState() {
   const forget = (entry) => {
     entry.has = false;
     entry.value = undefined;
+    entry.pending = null;
   };
 
   /**
@@ -384,26 +451,8 @@ function viteInstanceOf(filename) {
   for (const node of nodes ?? []) {
     if (node.id?.startsWith("mock:") || !node.evaluated || node.exports == null) continue;
     const ns = node.exports;
-    if ("value" in (Object.getOwnPropertyDescriptor(ns, "default") ?? {})) return NONE;
-    let facade = viteFacades.get(ns);
-    if (!facade) {
-      facade = new Proxy(ns, {
-        get: (target, key, receiver) =>
-          key === "__esModule" && !Reflect.has(target, key)
-            ? true
-            : Reflect.get(target, key, receiver),
-        has: (target, key) => key === "__esModule" || Reflect.has(target, key),
-        set: (target, key, value) =>
-          Reflect.defineProperty(target, key, {
-            value,
-            writable: true,
-            enumerable: true,
-            configurable: true,
-          }),
-      });
-      viteFacades.set(ns, facade);
-    }
-    return facade;
+    if (isCommonJsNamespace(ns)) return NONE;
+    return requireFacade(ns);
   }
   return NONE;
 }
@@ -428,6 +477,77 @@ function nodeResolution(request, parent) {
   } catch {
     return null;
   }
+}
+
+/** Vite's namespace for CommonJS: `module.exports` as a plain `default` data property. */
+const isCommonJsNamespace = (ns) =>
+  "value" in (Object.getOwnPropertyDescriptor(ns, "default") ?? {});
+
+/**
+ * What `jest.requireActual` returns for a module `vi.importActual` loaded, for a factory
+ * jestMockTransform made async (transform.ts): `module.exports` for CommonJS, so
+ * `jest.requireActual('./legacy')()` still calls the function a CommonJS file exports.
+ *
+ * For an ES module, an object as babel-jest's `require()` gives one: `__esModule`, and
+ * a member per export that reads the module live. Vite seals a module's namespace, so
+ * the namespace itself (or a Proxy over it) cannot take the writes a Jest factory makes
+ * to the actual module (`actual.other = jest.fn(); return actual`); here a write
+ * replaces that member, and a new key is added, on this object only. One object per
+ * module, so every `requireActual` of it in a file is the same object, as under Jest.
+ */
+const actualObjects = new WeakMap();
+export function actualExports(ns) {
+  if (ns == null || typeof ns !== "object") return ns;
+  if (isCommonJsNamespace(ns)) return ns.default;
+  let actual = actualObjects.get(ns);
+  if (actual) return actual;
+  actual = {};
+  for (const key of Object.keys(ns)) {
+    Object.defineProperty(actual, key, {
+      enumerable: true,
+      configurable: true,
+      get: () => ns[key],
+      set: (value) => {
+        Object.defineProperty(actual, key, {
+          value,
+          writable: true,
+          enumerable: true,
+          configurable: true,
+        });
+      },
+    });
+  }
+  if (!("__esModule" in actual)) {
+    Object.defineProperty(actual, "__esModule", {
+      value: true,
+      configurable: true,
+      writable: true,
+    });
+  }
+  actualObjects.set(ns, actual);
+  return actual;
+}
+
+function requireFacade(ns) {
+  let facade = viteFacades.get(ns);
+  if (!facade) {
+    facade = new Proxy(ns, {
+      get: (target, key, receiver) =>
+        key === "__esModule" && !Reflect.has(target, key)
+          ? true
+          : Reflect.get(target, key, receiver),
+      has: (target, key) => key === "__esModule" || Reflect.has(target, key),
+      set: (target, key, value) =>
+        Reflect.defineProperty(target, key, {
+          value,
+          writable: true,
+          enumerable: true,
+          configurable: true,
+        }),
+    });
+    viteFacades.set(ns, facade);
+  }
+  return facade;
 }
 
 function installLoadHook(state) {
