@@ -1,4 +1,5 @@
 import type { Plugin } from "vite";
+import fs from "node:fs";
 import path from "node:path";
 import { MagicString } from "magic-string";
 
@@ -63,10 +64,11 @@ function walk(node: any, fn: (n: any) => boolean | void): void {
 // any import has run the async one, which keeps today's behaviour there instead of
 // handing Node a promise (node-registry.mjs, `valueOf`).
 //
-// Only what Vite owns is rewritten: a specifier Vite resolves to a source file outside
-// node_modules. That covers relative and absolute paths and every alias Vite applies
-// (string, regex, tsconfig paths) without restating Vite's alias rules here. A package
-// keeps the Node load: presets shadow packages by name there (native/hooks.mjs). Calls
+// Only what Vite owns is rewritten (isViteOwnedSource): a specifier Vite resolves to a
+// source file that the engine and Vitest leave to Vite. That covers relative and
+// absolute paths and every alias Vite applies (string, regex, tsconfig paths) without
+// restating Vite's alias rules here. A package keeps the Node load: presets shadow
+// packages by name there (native/hooks.mjs). Calls
 // in nested functions run after the factory has returned, where nothing can be
 // awaited, and stay synchronous.
 //
@@ -110,16 +112,62 @@ function ownRequireActualCalls(factory: any): { node: any; spec: string }[] {
   return calls;
 }
 
-/** Whether a resolveId result is a source file Vite evaluates itself. */
-function isViteOwnedSource(resolved: { id: string; external?: unknown } | null): boolean {
+/** The slice of reactNative()'s ownership policy this transform asks (native/ownership.mjs). */
+interface Ownership {
+  decideFile(file: string): { owner: string };
+}
+
+/** What the transform knows of the project it runs in, read in configResolved. */
+interface Project {
+  /** reactNative()'s policy under the native engine, else null. */
+  ownership: () => Ownership | null;
+  /** Vitest's `server.deps.inline` and `server.deps.external`. */
+  inline: unknown[];
+  external: unknown[];
+}
+
+const matchesRegExp = (patterns: unknown[], file: string) =>
+  patterns.some((pattern) => {
+    if (!(pattern instanceof RegExp)) return false;
+    pattern.lastIndex = 0;
+    const hit = pattern.test(file);
+    pattern.lastIndex = 0;
+    return hit;
+  });
+
+/**
+ * Whether a resolveId result is a source file Vite evaluates itself, so the real
+ * module `vi.importActual` loads is the one the app imports.
+ *
+ * The owner is the engine's ownership policy, as for every other load: a workspace
+ * package the engine detected as React Native, or one named in `transform`, resolves
+ * outside node_modules but is Node's, and loading its actual module through Vite would
+ * make the second copy this rewrite exists to avoid. `resolved.external` cannot say so:
+ * Vitest externalizes in its module runner, after resolveId, and never sets it (this
+ * change's first version relied on it and refused such a partial mock as a cycle).
+ * Where the policy defers to Vitest, or there is none (the mock engine), Vitest's own
+ * rule applies: a file outside node_modules is inlined unless a `server.deps.external`
+ * regex names it and no `server.deps.inline` regex does. The engine also lists its
+ * Node-owned patterns there (native/apply.ts), so the two agree.
+ */
+function isViteOwnedSource(
+  resolved: { id: string; external?: unknown } | null,
+  project: Project,
+): boolean {
   if (!resolved || resolved.external) return false;
-  const file = resolved.id.split("?")[0];
-  return (
-    !file.startsWith("\0") &&
-    path.isAbsolute(file) &&
-    !NODE_MODULES.test(file) &&
-    SOURCE_FILE.test(file)
-  );
+  const id = resolved.id.split("?")[0];
+  if (id.startsWith("\0") || !path.isAbsolute(id) || !SOURCE_FILE.test(id)) return false;
+  let file = id;
+  try {
+    file = fs.realpathSync.native(id);
+  } catch {
+    // not on disk (a virtual id that looks like a path): judged as resolved
+  }
+  const owner = project.ownership()?.decideFile(file).owner;
+  if (owner === "vite") return true;
+  if (owner === "node" || NODE_MODULES.test(file)) return false;
+  const normalized = file.replace(/\\/g, "/");
+  return matchesRegExp(project.inline, normalized) || !matchesRegExp(project.external, normalized);
 }
 
 /**
@@ -147,8 +195,26 @@ function isViteOwnedSource(resolved: { id: string; external?: unknown } | null):
  * Opt-in: add after `reactNative()`; pair with `jestCompatSetup` + `globals: true`.
  */
 export function jestMockTransform(): Plugin {
+  let project: Project = { ownership: () => null, inline: [], external: [] };
   return {
     name: "vitest-native:jest-mock-hoist",
+    configResolved(config) {
+      const native = config.plugins.find((plugin) => plugin.name === "vitest-native") as
+        | { api?: { nativeOwnership?: () => Ownership | null } }
+        | undefined;
+      const deps = (
+        config as unknown as {
+          test?: { server?: { deps?: { inline?: unknown; external?: unknown } } };
+        }
+      ).test?.server?.deps;
+      const list = (value: unknown) =>
+        Array.isArray(value) ? value : value == null ? [] : [value];
+      project = {
+        ownership: () => native?.api?.nativeOwnership?.() ?? null,
+        inline: list(deps?.inline),
+        external: list(deps?.external),
+      };
+    },
     // No `enforce` (normal order): this must run AFTER Vite's esbuild strips
     // TS/JSX (so `this.parse`, which is acorn, gets plain JS) but BEFORE Vitest's
     // enforce:post `vitest:mocks` hoister. enforce:'pre' would see raw TSX and fail
@@ -181,7 +247,7 @@ export function jestMockTransform(): Plugin {
       return Promise.all(
         [...specs].map(async (spec) => {
           try {
-            return [spec, isViteOwnedSource(await this.resolve(spec, id))] as const;
+            return [spec, isViteOwnedSource(await this.resolve(spec, id), project)] as const;
           } catch {
             return [spec, false] as const; // unresolvable: leave it to requireActual's error
           }

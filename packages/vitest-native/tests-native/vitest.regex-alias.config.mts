@@ -18,6 +18,8 @@ export default defineConfig({
         find: /^@partial-mock\/(.*)$/,
         replacement: `${path.resolve(here, "fixtures/partial-mock")}/$1`,
       },
+      // A string alias, the shape tsconfig `paths` migrate to (partial-mock-string.test.ts).
+      { find: "@partial-mock-string", replacement: path.resolve(here, "fixtures/partial-mock") },
     ],
   },
   test: {

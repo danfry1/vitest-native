@@ -168,6 +168,57 @@ describe("jest-compat: jestMockTransform (hoist + CJS interop)", () => {
       );
       expect(() => parse(out.code)).not.toThrow();
     });
+
+    describe("decides who owns the actual module as the engine does", () => {
+      // reactNative()'s policy: a detected workspace package is Node's, project source
+      // Vite's, anything else left to Vitest.
+      const decideFile = (file: string) => ({
+        owner: file.startsWith("/proj/packages/ui/")
+          ? "node"
+          : file.startsWith("/proj/src/")
+            ? "vite"
+            : "vitest-default",
+      });
+      const resolveOwned = async (spec: string) =>
+        ({
+          "@ui/button": { id: "/proj/packages/ui/src/button.ts" },
+          "@/api": { id: "/proj/src/api.ts" },
+          "@shared/util": { id: "/shared/src/util.ts" },
+        })[spec] ?? null;
+      const runIn = async (code: string, deps: { inline?: unknown; external?: unknown } = {}) => {
+        const owned = jestMockTransform();
+        const native = { name: "vitest-native", api: { nativeOwnership: () => ({ decideFile }) } };
+        (owned.configResolved as (c: unknown) => void)({
+          plugins: [native, owned],
+          test: { server: { deps } },
+        });
+        const t = owned.transform as (this: any, c: string, i: string) => any;
+        return (await t.call({ parse, resolve: resolveOwned }, code, "/proj/src/foo.test.tsx"))
+          .code as string;
+      };
+      const partial = (spec: string) =>
+        `jest.mock('${spec}', () => ({ ...jest.requireActual('${spec}'), x: jest.fn() }));`;
+
+      it("leaves a module the policy gives Node outside node_modules", async () => {
+        expect(await runIn(partial("@ui/button"))).not.toContain("importActual");
+      });
+
+      it("moves a module the policy gives Vite", async () => {
+        expect(await runIn(partial("@/api"))).toContain(viaVite("'@/api'"));
+      });
+
+      it("moves source the policy leaves to Vitest, which inlines it", async () => {
+        expect(await runIn(partial("@shared/util"))).toContain(viaVite("'@shared/util'"));
+      });
+
+      it("leaves source a server.deps.external pattern names, unless an inline one does", async () => {
+        const external = [/\/shared\//];
+        expect(await runIn(partial("@shared/util"), { external })).not.toContain("importActual");
+        expect(await runIn(partial("@shared/util"), { external, inline: [/util/] })).toContain(
+          viaVite("'@shared/util'"),
+        );
+      });
+    });
   });
 
   it("falls back to the plain CJS interop wrapper for a computed specifier", () => {
