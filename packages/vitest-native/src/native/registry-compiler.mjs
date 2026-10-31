@@ -14,6 +14,12 @@ function respond(value) {
   fs.writeSync(3, JSON.stringify(value));
 }
 
+// Internal test oracle, not a user-facing option: holds the compiler before it starts,
+// so the background-build tests can tell a stopped compiler from a finished one on a
+// machine of any speed (tests-native/registry-background.test.ts).
+const testDelayMs = Number(process.env.VITEST_NATIVE_REGISTRY_TEST_DELAY_MS);
+if (testDelayMs > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, testDelayMs);
+
 try {
   const options = JSON.parse(fs.readFileSync(0, "utf8"));
   const started = performance.now();
