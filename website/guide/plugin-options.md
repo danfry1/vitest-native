@@ -101,6 +101,8 @@ reactNative({
 })
 ```
 
+A listed package's own dependencies are compiled too, as an auto-detected package's are.
+
 ## `hotRuntime`
 
 (Native engine.) Keeps React Native's precompiled factory registry and worker realm warm while resetting RN instances, app/test modules, and a verified manifest of supported process-wide state. Uses Vitest's custom worker APIs, which Vitest labels experimental.

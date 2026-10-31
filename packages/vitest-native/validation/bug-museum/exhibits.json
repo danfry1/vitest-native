@@ -1132,6 +1132,44 @@
       "bugSignature": "^sloppy\\.test\\.ts: TypeError: Cannot assign to read only property '__constants'"
     },
     {
+      "id": "res-sibling-declared-closure",
+      "class": "transform/resolution",
+      "title": "A sibling-declared package's dependencies are not compiled when the run reaches it",
+      "source": "an Expo workspace: a library declaring expo-image, an app declaring expo (\"Cannot find module 'expo-asset/build/Asset.fx'\"); SDK 58's expo, expo-asset and expo-constants have this shape",
+      "fixedBy": "open (fix/closure-walk-reached-packages)",
+      "fixRef": "fix/closure-walk-reached-packages",
+      "bugSignature": "^closure\\.test\\.ts: (Error: )?Cannot find module '[^']*museum-expo-asset/build/Asset\\.fx'",
+      "control": {
+        "why": "Declaring museum-expo in the project itself makes it a seed of the walk, which removes the precondition.",
+        "edits": [
+          {
+            "file": "package.json",
+            "find": "\"museum-image\": \"1.0.0\"",
+            "replace": "\"museum-image\": \"1.0.0\",\n    \"museum-expo\": \"58.0.0\""
+          }
+        ]
+      }
+    },
+    {
+      "id": "res-transform-named-closure",
+      "class": "transform/resolution",
+      "title": "A package named in transform no longer has its dependencies compiled",
+      "source": "react-native-flash-message named in transform: react-native-iphone-screen-helper read Platform.OS from undefined",
+      "fixedBy": "open (fix/closure-walk-reached-packages)",
+      "fixRef": "fix/closure-walk-reached-packages",
+      "bugSignature": "^closure\\.test\\.ts: AssertionError: museum-screen-helper's Platform\\.OS: expected undefined to be 'ios'",
+      "control": {
+        "why": "Without museum-flash in transform, detection seeds the walk from it, which removes the precondition.",
+        "edits": [
+          {
+            "file": "vitest.config.mts",
+            "find": ", transform: [\"museum-flash\"]",
+            "replace": ""
+          }
+        ]
+      }
+    },
+    {
       "id": "env-rntl13-auto-cleanup",
       "class": "harness",
       "title": "RNTL 13 with globals: false: no auto-cleanup between tests",

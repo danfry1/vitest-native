@@ -1,0 +1,9 @@
+{
+  "name": "museum-expo-asset",
+  "version": "12.0.0",
+  "main": "build/index.js",
+  "peerDependencies": {
+    "museum-expo": "*",
+    "react-native": "*"
+  }
+}

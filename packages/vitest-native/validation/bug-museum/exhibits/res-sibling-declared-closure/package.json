@@ -1,0 +1,11 @@
+{
+  "name": "museum-res-sibling-declared-closure",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "dependencies": {
+    "museum-image": "1.0.0"
+  }
+}
