@@ -63,6 +63,21 @@ describe("fsModuleCacheKey", () => {
     fs.writeFileSync(path.join(project, "bun.lock"), "v2");
     expect(fsModuleCacheKey(own, project, { platform: "ios" })).not.toBe(base);
   });
+
+  it("changes with the project's location, and not through a symlink to it", () => {
+    // The plugin's contribution names files inside the project, so a copied checkout
+    // must not reuse the original's entries.
+    const own = dir({ "package.json": '{"version":"1.0.0"}' });
+    const project = dir({ "package.json": "{}", "bun.lock": "v1" });
+    const copy = dir({ "package.json": "{}", "bun.lock": "v1" });
+    const base = fsModuleCacheKey(own, project, { platform: "ios" });
+    expect(fsModuleCacheKey(own, copy, { platform: "ios" })).not.toBe(base);
+    if (process.platform === "win32") return;
+    const link = `${copy}-link`;
+    fs.symlinkSync(project, link, "dir");
+    roots.push(link);
+    expect(fsModuleCacheKey(own, link, { platform: "ios" })).toBe(base);
+  });
 });
 
 describe("shouldDefaultFsModuleCache", () => {

@@ -162,6 +162,14 @@ function ownVersion() {
   }
 }
 
+function realProjectRoot(projectRoot) {
+  try {
+    return fs.realpathSync(projectRoot);
+  } catch {
+    return path.resolve(projectRoot);
+  }
+}
+
 function canonicalAdditionalEntries(entries) {
   return [...new Set(entries)].sort();
 }
@@ -228,6 +236,16 @@ export function registryKey({
         // transform was fixed and a warm registry kept serving modules built without it.
         `t${TRANSFORM_CACHE_VERSION}`,
         ownVersion(),
+        // The registry bakes in absolute paths to every package it resolved from the
+        // project, so it belongs to the project's location. Without this, a copied
+        // checkout (cache included) reused the original's registry: the manifest check
+        // passed because the original's files still existed, and the copy loaded React
+        // Native's graph from the original against its own React, failing every test
+        // with "more than one copy of React". A moved checkout was caught only because
+        // the old files were gone. The real path, so a symlinked path to the same
+        // project is the same location and keeps its cache (the spelling Node resolves
+        // modules under, as for every path-keyed cache here).
+        realProjectRoot(projectRoot),
         platform,
         reactNativeVersion,
         version("react-native"),

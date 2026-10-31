@@ -11,20 +11,35 @@
  */
 import fs from "node:fs";
 import os from "node:os";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 // @ts-expect-error — runtime .mjs, no types
 import { registryKey } from "../src/native/registry.mjs";
 
+const moduleCache = createRequire(import.meta.url).cache;
 const roots: string[] = [];
 afterAll(() => {
   for (const dir of roots) fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** A project root whose installed dependency versions are exactly as given. */
+/**
+ * A project root whose installed dependency versions are exactly as given. The key
+ * includes the project's location, so comparisons install into one root: a fresh root
+ * per key would differ by location alone and every "changes when" below would pass
+ * vacuously.
+ */
+let shared: string | undefined;
 function projectWith(versions: Record<string, string>): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-registry-key-"));
-  roots.push(root);
+  if (!shared) {
+    // The real path: require() caches under it, and the purge below matches by prefix.
+    shared = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-registry-key-")));
+    roots.push(shared);
+  }
+  const root = shared;
+  fs.rmSync(path.join(root, "node_modules"), { recursive: true, force: true });
+  // registryKey reads versions with require(), which caches each manifest by path.
+  for (const id of Object.keys(moduleCache)) if (id.startsWith(root)) delete moduleCache[id];
   fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "fixture" }));
   for (const [name, version] of Object.entries(versions)) {
     const dir = path.join(root, "node_modules", ...name.split("/"));
@@ -74,6 +89,21 @@ describe("registry cache key", () => {
           }) as string)
         : keyFor(changed);
     expect(key).not.toBe(keyFor(BASE));
+  });
+
+  it("changes with the project's location, and not through a symlink to it", () => {
+    const root = projectWith(BASE);
+    const key = (projectRoot: string) =>
+      registryKey({ projectRoot, platform: "ios", reactNativeVersion: "0.86.0" });
+    const copy = fs.mkdtempSync(path.join(os.tmpdir(), "vn-registry-key-copy-"));
+    roots.push(copy);
+    fs.cpSync(root, copy, { recursive: true });
+    expect(key(copy)).not.toBe(key(root));
+    if (process.platform === "win32") return;
+    const link = `${copy}-link`;
+    fs.symlinkSync(root, link, "dir");
+    roots.push(link);
+    expect(key(link)).toBe(key(root));
   });
 
   it("changes with the platform", () => {
