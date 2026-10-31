@@ -1132,6 +1132,37 @@
       "bugSignature": "^sloppy\\.test\\.ts: TypeError: Cannot assign to read only property '__constants'"
     },
     {
+      "id": "res-babel-lazy-global",
+      "class": "transform/resolution",
+      "title": "A cache miss after Expo's runtime is installed compiles with a half-loaded Babel",
+      "source": "Expo SDK 57's winter runtime with a warm transform cache (2026-10)",
+      "fixedBy": "open (fix/babel-reentry-winter)",
+      "fixRef": "fix/babel-reentry-winter",
+      "runs": [
+        {
+          "files": [
+            "lazy-global.test.ts"
+          ]
+        },
+        {
+          "files": [
+            "lazy-global.test.ts"
+          ]
+        }
+      ],
+      "bugSignature": "^run 2: lazy-global\\.test\\.ts: AssertionError: Babel compiled a file while it was still loading",
+      "control": {
+        "why": "Without the lazy TextDecoder, Babel's first load in a warm run runs nothing of the tests' while it loads.",
+        "edits": [
+          {
+            "file": "vendor/expo/src/winter/runtime.ts",
+            "find": "install(\"TextDecoder\",",
+            "replace": "install(\"MuseumControlTextDecoder\","
+          }
+        ]
+      }
+    },
+    {
       "id": "env-rntl13-auto-cleanup",
       "class": "harness",
       "title": "RNTL 13 with globals: false: no auto-cleanup between tests",

@@ -1,0 +1,5 @@
+---
+"vitest-native": patch
+---
+
+**A cache miss after a lazy global is installed no longer fails with `Cannot read properties of undefined (reading 'environmentVisitor')` under the native engine.** This affects Expo SDK 57 projects on a warm transform cache. The error named whichever file missed the cache, and came and went with cache state. SDK 57's runtime, which the engine installs at setup, replaces `TextDecoder` with a lazy getter. Babel read that getter while it was still loading, and the getter's file was then compiled by the half-loaded Babel. Any setup file that installs a similar getter could hit the same failure. No action needed: Babel now compiles on a worker thread of its own, where nothing a test or its setup installs on globals can reach it. That thread starts the first time a test worker misses the cache, or reads the project's Babel config for app source loaded through `require`. Starting it takes about 15 ms, once per worker. A run served entirely from the cache starts none. Project Babel configs still see the same `process.env`.

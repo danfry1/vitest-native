@@ -1,6 +1,6 @@
 /**
  * Disk-cache behavior of the native-engine transform: project-local cache
- * location, content-hash keying, and lazy @babel/core loading on warm caches.
+ * location, content-hash keying, and no Babel at all on warm caches.
  */
 import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
@@ -136,9 +136,10 @@ describe("transform disk cache", () => {
     }
   });
 
-  it("does not load @babel/core when every file is served from the disk cache", () => {
-    // Two subprocesses sharing the disk cache: the first (cold) must load
-    // Babel; the second (warm) must serve from disk without ever requiring it.
+  it("does not start Babel when every file is served from the disk cache", () => {
+    // Two subprocesses sharing the disk cache: the first (cold) must start Babel's
+    // thread; the second (warm) must serve from disk without starting it or loading
+    // Babel on its own thread.
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-lazybabel-"));
     try {
       const file = path.join(dir, "mod.js");
@@ -155,6 +156,9 @@ describe("transform disk cache", () => {
           pathToFileURL(path.join(projectRoot, "src", "native", "transform.mjs")).href,
         )};
         import fs from "node:fs";
+        import diagnostics from "node:diagnostics_channel";
+        let threads = 0;
+        diagnostics.subscribe("worker_threads", () => threads++);
         const file = ${JSON.stringify(file)};
         transformRN(file, fs.readFileSync(file, "utf8"), ${JSON.stringify(projectRoot)});
         const { default: Module } = await import("node:module");
@@ -164,7 +168,7 @@ describe("transform disk cache", () => {
           (p) => p.includes(${JSON.stringify(path.join("@babel", "core") + path.sep)}) &&
             !p.endsWith("package.json"),
         );
-        console.log("BABEL_LOADED=" + loadedBabel);
+        console.log("BABEL_LOADED=" + (loadedBabel || threads > 0));
       `;
       const run = () =>
         execFileSync(process.execPath, ["--input-type=module", "-e", script], {
