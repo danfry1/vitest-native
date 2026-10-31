@@ -12,7 +12,6 @@
  * that part of the key:
  *   - the vitest-native version,
  *   - the plugin's resolved options and the environment it hands to workers,
- *   - the project's real path, since the plugin's output names files inside it,
  *   - the project's lockfile(s), so any dependency change invalidates the cache.
  * Without a lockfile the root package.json stands in for it.
  */
@@ -39,7 +38,7 @@ export function dependencyFingerprint(root: string): string {
     );
     if (found.length > 0) {
       const hash = createHash("sha1");
-      for (const file of found) hash.update(realPath(file)).update(fs.readFileSync(file));
+      for (const file of found) hash.update(file).update(fs.readFileSync(file));
       return hash.digest("hex");
     }
     if (path.dirname(dir) === dir) break;
@@ -71,20 +70,8 @@ export function fsModuleCacheKey(
     typeof value === "function" || value instanceof RegExp ? String(value) : value,
   );
   return sha1(
-    `vitest-native@${packageVersionAt(ownPackageDir)}\0${realPath(projectRoot)}\0${dependencyFingerprint(projectRoot)}\0${state}`,
+    `vitest-native@${packageVersionAt(ownPackageDir)}\0${dependencyFingerprint(projectRoot)}\0${state}`,
   );
-}
-
-// Entries are only valid where they were made: what this plugin contributes to a
-// transform includes absolute paths into the project, so a copied checkout must not
-// reuse the original's. The real path, so a symlinked path to the same project keeps
-// its cache.
-function realPath(file: string): string {
-  try {
-    return fs.realpathSync(file);
-  } catch {
-    return path.resolve(file);
-  }
 }
 
 /**

@@ -9,15 +9,33 @@
  * failed with a null React dispatcher and React Native singletons that no longer
  * compared equal. Deleting node_modules/.cache/vitest-native was the only cure.
  */
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
-import { createRequire } from "node:module";
 import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
-// @ts-expect-error — runtime .mjs, no types
-import { registryKey } from "../src/native/registry.mjs";
 
-const moduleCache = createRequire(import.meta.url).cache;
+const REGISTRY = pathToFileURL(
+  path.join(path.dirname(fileURLToPath(import.meta.url)), "../src/native/registry.mjs"),
+).href;
+
+// In a child process: the key resolves `react-native` from the project, and this
+// suite's own engine answers that request for the test process. A fresh process also
+// reads each installed manifest afresh rather than from require()'s cache.
+function registryKey(options: Record<string, unknown>): string {
+  return execFileSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `import { registryKey } from ${JSON.stringify(REGISTRY)};
+       process.stdout.write(registryKey(${JSON.stringify(options)}));`,
+    ],
+    { encoding: "utf8" },
+  );
+}
+
 const roots: string[] = [];
 afterAll(() => {
   for (const dir of roots) fs.rmSync(dir, { recursive: true, force: true });
@@ -25,28 +43,37 @@ afterAll(() => {
 
 /**
  * A project root whose installed dependency versions are exactly as given. The key
- * includes the project's location, so comparisons install into one root: a fresh root
- * per key would differ by location alone and every "changes when" below would pass
- * vacuously.
+ * includes the files React Native resolves to, so comparisons install into one root: a
+ * fresh root per key would differ by location alone and every "changes when" below
+ * would pass vacuously.
  */
 let shared: string | undefined;
 function projectWith(versions: Record<string, string>): string {
   if (!shared) {
-    // The real path: require() caches under it, and the purge below matches by prefix.
-    shared = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-registry-key-")));
+    shared = fs.mkdtempSync(path.join(os.tmpdir(), "vn-registry-key-"));
     roots.push(shared);
   }
   const root = shared;
   fs.rmSync(path.join(root, "node_modules"), { recursive: true, force: true });
-  // registryKey reads versions with require(), which caches each manifest by path.
-  for (const id of Object.keys(moduleCache)) if (id.startsWith(root)) delete moduleCache[id];
   fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "fixture" }));
   for (const [name, version] of Object.entries(versions)) {
     const dir = path.join(root, "node_modules", ...name.split("/"));
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name, version }));
   }
+  if (versions["react-native"]) installReactNative(root, versions["react-native"]);
   return root;
+}
+
+/** A resolvable react-native under `dir` (a key from an unresolvable one hashes "0"). */
+function installReactNative(dir: string, version: string): void {
+  const pkg = path.join(dir, "node_modules", "react-native");
+  fs.mkdirSync(pkg, { recursive: true });
+  fs.writeFileSync(
+    path.join(pkg, "package.json"),
+    JSON.stringify({ name: "react-native", version, main: "index.js" }),
+  );
+  fs.writeFileSync(path.join(pkg, "index.js"), "module.exports = {};\n");
 }
 
 const BASE = {
@@ -60,8 +87,9 @@ const keyFor = (versions: Record<string, string>) =>
   registryKey({
     projectRoot: projectWith(versions),
     platform: "ios",
-    reactNativeVersion: versions["react-native"],
-  }) as string;
+    // Held fixed, so a changed key comes from what is installed.
+    reactNativeVersion: BASE["react-native"],
+  });
 
 describe("registry cache key", () => {
   it("is stable for the same installed versions", () => {
@@ -79,19 +107,10 @@ describe("registry cache key", () => {
     ["@babel/core", "7.29.0"],
     ["@react-native/babel-preset", "0.85.0"],
   ])("changes when %s changes", (name, version) => {
-    const changed = { ...BASE, [name]: version };
-    const key =
-      name === "react-native"
-        ? (registryKey({
-            projectRoot: projectWith(changed),
-            platform: "ios",
-            reactNativeVersion: version,
-          }) as string)
-        : keyFor(changed);
-    expect(key).not.toBe(keyFor(BASE));
+    expect(keyFor({ ...BASE, [name]: version })).not.toBe(keyFor(BASE));
   });
 
-  it("changes with the project's location, and not through a symlink to it", () => {
+  it("changes for a copied project, and not through a symlink to it", () => {
     const root = projectWith(BASE);
     const key = (projectRoot: string) =>
       registryKey({ projectRoot, platform: "ios", reactNativeVersion: "0.86.0" });
@@ -104,6 +123,29 @@ describe("registry cache key", () => {
     fs.symlinkSync(root, link, "dir");
     roots.push(link);
     expect(key(link)).toBe(key(root));
+  });
+
+  it("changes when react-native resolves to a different copy from the same root", () => {
+    // A workspace package resolving the hoisted react-native, then given its own.
+    const root = projectWith(BASE);
+    const app = path.join(root, "apps", "app");
+    fs.mkdirSync(app, { recursive: true });
+    fs.writeFileSync(path.join(app, "package.json"), JSON.stringify({ name: "app" }));
+    const key = () =>
+      registryKey({ projectRoot: app, platform: "ios", reactNativeVersion: "0.86.0" });
+    const hoisted = key();
+    installReactNative(app, BASE["react-native"]);
+    expect(key()).not.toBe(hoisted);
+  });
+
+  it("is shared by projects that resolve the same react-native", () => {
+    const root = projectWith(BASE);
+    const sub = path.join(root, "packages", "lib");
+    fs.mkdirSync(sub, { recursive: true });
+    fs.writeFileSync(path.join(sub, "package.json"), JSON.stringify({ name: "lib" }));
+    const key = (projectRoot: string) =>
+      registryKey({ projectRoot, platform: "ios", reactNativeVersion: "0.86.0" });
+    expect(key(sub)).toBe(key(root));
   });
 
   it("changes with the platform", () => {
