@@ -459,66 +459,133 @@ function isModuleGoal(file) {
  * `__esModule`. Node gives an ES module importing CommonJS the whole `module.exports` as
  * its default ("When importing CommonJS modules, the module.exports object is provided
  * as the default export", Node's ESM docs, "Interoperability with CommonJS"), and
- * packages that ship an ESM wrapper for Node rely on it. tslib's `modules/index.js` —
- * reached through its `exports['.'].import.node` condition (tslib 2.8.1), and imported by
- * styled-components/native among others — is `import tslib from '../tslib.js'` over a
- * CommonJS file that sets `__esModule` and has no `default`, so Babel's interop gave it
- * `undefined`: "Cannot read properties of undefined (reading '__extends')". The same
- * package left uncompiled ran under Node and worked.
+ * packages that ship an ESM wrapper for Node rely on it. tslib's `modules/index.js`,
+ * which its `exports['.'].import.node` condition selects (tslib 2.8.1), is
+ * `import tslib from '../tslib.js'` over a CommonJS file that sets `__esModule` and has
+ * no `default`. A project that imports `tslib` while tslib is in the compile set had
+ * that wrapper compiled, and Babel's interop gave it `undefined`: "Cannot read
+ * properties of undefined (reading '__extends')".
  *
  * Why this rule and not Node's exactly. Node gives `module.exports` even when the target
- * is Babel-compiled CommonJS with `__esModule` and a real `exports.default` — common in
- * the React Native ecosystem, whose libraries are written against Metro's Babel interop
- * and expect that default. Switching to Node's rule would change what those imports
- * have resolved to under this engine so far, and what Metro gives the same code. The
- * rule here keeps every case where Babel's interop finds a `default` and takes Node's
- * answer only where Babel's would be `undefined`, which is never what an import meant.
- * It is the rule Rolldown and esbuild apply to a module outside Node mode (`__toESM`:
- * `default` is `module.exports` when `!mod.__esModule || !__hasOwnProp.call(mod,
- * "default")`, rolldown 1.2 dist/experimental-runtime.mjs:28), and it gives an ES module
- * this engine compiled, or a real one Node's require(esm) returns (which carries
- * `__esModule` when it has a default export), its own `default`.
+ * is Babel-compiled CommonJS with `__esModule` and a real `exports.default`, which is
+ * common in the React Native ecosystem: its libraries are written against Metro's Babel
+ * interop and expect that default. Switching to Node's rule would change what those
+ * imports have resolved to under this engine so far, and what Metro gives the same code.
+ * The rule here keeps every case where Babel's interop finds a `default` and takes
+ * Node's answer only where Babel's would be `undefined`, which is never what an import
+ * meant. It is the rule Rolldown and esbuild apply outside Node mode (`__toESM`), and it
+ * gives an ES module this engine compiled, or a real one Node's require(esm) returns
+ * (which carries `__esModule` when it has a default export), its own `default`.
+ *
+ * The decision is made when the default is READ, not when the module is required, as
+ * Babel's own interop reads `exports.default` at use time:
+ * - in an import cycle, TypeScript's CommonJS output sets `exports.default` after the
+ *   require that cycles back, so "no default yet" at require time is not "no default";
+ * - a module served by a Proxy (preset subpaths, some libraries) answers `default` from
+ *   its `get` trap, which neither `hasOwnProperty` nor `in` sees; reading it does.
+ * A module counts as having a default when reading `default` gives a value or `default`
+ * is a key of it (an explicit `exports.default = undefined` stays undefined, as Babel's).
+ *
+ * Every form Babel compiles to these two helpers gets the rule: a default import and
+ * `export { default } from` (interopRequireDefault), and a default import beside named
+ * ones and `import * as ns` (`ns.default`) (interopRequireWildcard).
+ * When a compiled ES module or __esModule CommonJS already has its default, both
+ * helpers return the module itself, exactly as Babel's do; only a module with no default
+ * yet gets a wrapper whose `default` is read lazily (for the wildcard, a Proxy, so named
+ * members stay live bindings and the module's own keys are unchanged). Plain CommonJS
+ * goes through a copy of Babel's own wildcard helper.
  *
  * Rejected:
  * - Choosing interop per import by RESOLVING the target at compile time
  *   (modules-commonjs' `importInterop` as a function: "node" for a CommonJS target,
  *   "babel" for an ES one). The compiled `require()` resolves under the `require`
- *   condition, not the `import` one the decision would naturally use — for tslib those
- *   are different files — and the output would then depend on other packages' manifests
+ *   condition, not the `import` one the decision would naturally use (for tslib those
+ *   are different files), and the output would then depend on other packages' manifests
  *   and files, which the content-keyed cache does not see: a dependency changing its
  *   `type` would be served stale output. Deciding at run time, on the object the
- *   require() actually returned, needs neither. It also needs a second copy of
- *   modules-commonjs resolved beside the preset and kept in step with its options
- *   (`strict`, `allowTopLevelThis`, `lazy`), where this only replaces one helper.
+ *   require() actually returned, needs neither.
+ * - Deciding once, at require time, on `hasOwnProperty(e, "default")` (this change's
+ *   first version): wrong forever after for a module required mid-cycle, and wrong for
+ *   a Proxy-served module, as above.
  * - Not compiling valid ESM-goal files and letting Node load them as ES modules. That
  *   is the eventual direction (see the NOTE in ecosystem.ts), but it moves those files
  *   out of the CommonJS loader the engine's ownership and preset redirects run through,
- *   and changes named exports and live bindings — a much larger change than this bug.
+ *   and changes named exports and live bindings: a much larger change than this bug.
  *
  * Mechanism: Babel builds every helper through the file's `helperGenerator` when one is
- * set (@babel/core lib/transformation/file/file.js, addHelper), which is how
+ * set (@babel/core lib/transformation/file/file.js, _addHelper), which is how
  * @babel/plugin-transform-runtime points helpers at @babel/runtime. It installs that in
  * its `pre` hook, and every plugin's `pre` runs before traversal starts, so this wraps
- * it at Program entry and answers `interopRequireDefault` alone. modules-commonjs asks
- * for that helper at Program exit for each default import and `export { default } from`,
- * lazy or not. `import * as ns` keeps Babel's interopRequireWildcard: its named members
- * are right either way, and only `ns.default` of a module with no default differs.
+ * it at Program entry and answers the two interop helpers. modules-commonjs asks for
+ * them at Program exit, lazy or not. The helpers are declared once per file, the first
+ * time either is asked for, as Babel declares its own inline helpers.
  */
-function esmImportInterop({ template }) {
+const ESM_INTEROP_HELPERS = ({ def, defaultOf, wild, cache }) => `
+function ${defaultOf}(e) {
+  var d = e.default;
+  return d === undefined && !("default" in e) ? e : d;
+}
+// Created on first use: the helpers sit above the requires that call them, so a
+// declaration's initializer would not have run yet (a function declaration hoists whole).
+var ${cache};
+function ${def}(e) {
+  if (!e || !e.__esModule) return { default: e };
+  if ("default" in e) return e;
+  return { get default() { return ${defaultOf}(e); } };
+}
+function ${wild}(e, t) {
+  var c = t ? null : ${cache} || (${cache} = typeof WeakMap == "function" ? new WeakMap() : null),
+    f;
+  if (c && e && (typeof e == "object" || typeof e == "function") && c.has(e)) return c.get(e);
+  if (!t && e && e.__esModule) {
+    if ("default" in e) return e;
+    f = new Proxy(e, {
+      get: function (o, k, r) { return k === "default" ? ${defaultOf}(o) : Reflect.get(o, k, r); },
+      has: function (o, k) { return k === "default" || Reflect.has(o, k); },
+    });
+  } else {
+    f = { __proto__: null, default: e };
+    if (e === null || (typeof e != "object" && typeof e != "function")) return f;
+    for (var k in e) {
+      if (k === "default" || !Object.prototype.hasOwnProperty.call(e, k)) continue;
+      var i = Object.getOwnPropertyDescriptor(e, k);
+      if (i && (i.get || i.set)) Object.defineProperty(f, k, i);
+      else f[k] = e[k];
+    }
+  }
+  if (c) c.set(e, f);
+  return f;
+}
+`;
+
+function esmImportInterop({ template, types: t }) {
   return {
     name: "vitest-native-esm-import-interop",
     visitor: {
       Program(_, state) {
         const file = state.file;
         const next = file.get("helperGenerator");
+        let ids = null;
+        const declare = () => {
+          if (ids) return ids;
+          const uid = (hint) => file.scope.generateUidIdentifier(hint);
+          ids = {
+            def: uid("esmInteropDefault"),
+            defaultOf: uid("esmDefaultOf"),
+            wild: uid("esmInteropWildcard"),
+            cache: uid("esmInteropCache"),
+          };
+          const names = Object.fromEntries(Object.entries(ids).map(([k, id]) => [k, id.name]));
+          const nodes = template.statements.ast(ESM_INTEROP_HELPERS(names));
+          for (const node of nodes) node._compact = true;
+          for (const added of file.path.unshiftContainer("body", nodes))
+            file.scope.registerDeclaration(added);
+          return ids;
+        };
         file.set("helperGenerator", (name) => {
-          if (name !== "interopRequireDefault") return next?.(name);
-          // A fresh node per call site: an AST node must not appear twice.
-          return template.expression.ast`function (e) {
-            return e && e.__esModule && Object.prototype.hasOwnProperty.call(e, "default")
-              ? e
-              : { default: e };
-          }`;
+          if (name === "interopRequireDefault") return t.cloneNode(declare().def);
+          if (name === "interopRequireWildcard") return t.cloneNode(declare().wild);
+          return next?.(name);
         });
       },
     },
@@ -636,8 +703,9 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   // what this fixes, so TRANSFORM_CACHE_VERSION is not bumped: script-goal entries,
   // React Native's own sources and the precompiled registry (keyed on that version)
   // are byte-for-byte unchanged and stay warm. Output does not depend on any OTHER
-  // package — the interop is decided at run time — so nothing else needs keying.
-  if (esm) hash.update("\0esm-goal");
+  // package — the interop is decided at run time — so nothing else needs keying. The
+  // token names the helpers' revision, so output from an earlier revision is not reused.
+  if (esm) hash.update("\0esm-goal-interop-2");
   const key = hash.digest("hex");
   const cachePath = path.join(ctx.cacheDir, key + ".js");
   try {

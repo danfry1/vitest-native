@@ -2,4 +2,6 @@
 "vitest-native": patch
 ---
 
-Under the native engine, an ES module in a compiled package now gets a CommonJS module's `module.exports` as its default import when that module sets `__esModule` without a `default` export, as Node gives it. Such imports were `undefined` before: tslib's Node ESM wrapper (`import tslib from '../tslib.js'`), which styled-components/native reaches, failed with "Cannot read properties of undefined (reading '__extends')". A target with its own `default` export, whether an ES module or Babel-compiled CommonJS, still gives that default, as Metro does.
+**An ES module the native engine compiles gets `module.exports` as its default import of CommonJS that has no `default`, as Node gives it.** Importing `tslib` from a test or app file no longer fails with "Cannot read properties of undefined (reading '__extends')" when tslib is in the compile set. No action needed.
+
+This applies to files that are ES modules to Node (`.mjs`, or `"type": "module"`) and compiled without a project Babel config. It covers a default import, a default import beside named ones (`import tslib, { __extends } from`), `export { default } from` and `import * as ns` (`ns.default`). A target with its own `default` (an ES module, or Babel-compiled CommonJS) still gives that default, as Metro does, where Node would give `module.exports`. The `default` is read when it is used, so an import cycle and a Proxy-served module see the value they end up serving. Script-goal files keep Babel's interop.
