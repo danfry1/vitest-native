@@ -24,7 +24,11 @@ import {
   installedMajor,
   installedTestsItself,
 } from "./manifest.js";
-import { PEER_REQUIREMENTS } from "../peer-requirements.js";
+import {
+  installedExpoVersion,
+  PEER_REQUIREMENTS,
+  unsupportedExpoSdkMessage,
+} from "../peer-requirements.js";
 import { installedViteVersion, ownVitestPackage, usesVitePlus } from "../host.js";
 import { fsModuleCacheOnByDefault } from "../fs-module-cache.js";
 
@@ -583,8 +587,17 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   else if (!installedAny) lines.push("  (none — no preset-covered packages installed)");
 
   // --- Expo ---
-  const expo = packageVersion(rootFor("expo"), "expo");
-  if (expo) {
+  // Found as the plugin finds it (peer-requirements.ts), from where doctor runs and then
+  // from the config's directory.
+  const expo =
+    installedExpoVersion(root) ?? (configRoot === root ? null : installedExpoVersion(configRoot));
+  // The plugin warns at startup with the same message; a warning here too, never blocking,
+  // and in place of the description below, which an unsupported SDK does not earn.
+  const unsupported = expo && unsupportedExpoSdkMessage(expo);
+  if (unsupported) {
+    lines.push("", "Expo");
+    warn(unsupported);
+  } else if (expo) {
     lines.push("", "Expo");
     // Named from the preset's module list (PRESET_MODULES, checked against the preset
     // itself by tests/presets.test.ts). It said "Expo modules are covered by the
