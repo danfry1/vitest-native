@@ -17,7 +17,7 @@ import { expandAlias } from "./aliases.mjs";
 import { resolvePlatformFile, resolveRelativePlatformFile } from "../native/resolve.mjs";
 import { resetEvaluatedModules, restoreEvaluatedModules } from "../native/module-reset.mjs";
 import { VitestNativeError } from "../errors.mjs";
-import { projectContext } from "../context.mjs";
+import { activeRegistry, projectContext } from "../context.mjs";
 
 const STATE = "__vitest_native_jest_registry";
 /** The manifest id under which the hot runtime clears the registry per file. */
@@ -73,7 +73,7 @@ const worker = () => globalThis.__vitest_worker__;
 function createState() {
   const rootFile = path.join(config.projectRoot, "package.json");
   const rootParent = parentModuleFor(rootFile);
-  const registryFile = context?.registry;
+  const registryFile = activeRegistry(context);
   const realRegistryFile = registryFile ? canonical(registryFile) : null;
   const exts = sourceExts.length > 0 ? sourceExts : undefined;
   const platformFile = (base) => {

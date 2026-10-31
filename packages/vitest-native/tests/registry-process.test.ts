@@ -1,9 +1,14 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 // @ts-expect-error — internal runtime .mjs, intentionally not public API
-import { buildRegistryFor, compileRegistryInChild } from "../src/native/registry-process.mjs";
+import {
+  buildRegistryFor,
+  compileRegistryInChild,
+  settleRegistryBuilds,
+  startRegistryBuild,
+} from "../src/native/registry-process.mjs";
 // @ts-expect-error — internal runtime .mjs, intentionally not public API
 import { registryKey } from "../src/native/registry.mjs";
 
@@ -155,5 +160,75 @@ describe("bounded registry compiler process", () => {
       error: "spawn unavailable",
       attempts: 1,
     });
+  });
+});
+
+describe("background registry build", () => {
+  // A project whose cache misses: no metadata has been published for its key.
+  function coldOptions(name: string) {
+    const root = fs.mkdtempSync(path.join(fixtureRoot, `${name}-`));
+    fs.mkdirSync(path.join(root, "node_modules"));
+    fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name }));
+    return { projectRoot: root, platform: "ios", reactNativeVersion: "0.0.0", diagnostics: false };
+  }
+
+  /** A compiler that runs until it is aborted, or until `finish` is called. */
+  function heldCompiler() {
+    const calls: { signal?: AbortSignal; priority?: number }[] = [];
+    let finish = () => {};
+    const run = (
+      _file: string,
+      _options: unknown,
+      control: { signal?: AbortSignal; priority?: number },
+    ) => {
+      calls.push(control);
+      return new Promise<{ ok: boolean; cancelled?: boolean; error?: string }>((resolve) => {
+        finish = () => resolve({ ok: false, error: "finished without a registry" });
+        control.signal?.addEventListener("abort", () => resolve({ ok: false, cancelled: true }));
+      });
+    };
+    return { compiler: run, calls, finish: () => finish() };
+  }
+
+  it("returns at once on a miss, at the lowest priority, and shares one compiler per entry", async () => {
+    const options = coldOptions("shared");
+    const held = heldCompiler();
+    const first = startRegistryBuild(options, held.compiler);
+    const second = startRegistryBuild(options, held.compiler);
+    expect(first.pending?.file).toMatch(/rn-ios-[0-9a-f]+\.cjs$/);
+    expect(second.pending).toEqual(first.pending);
+    expect(held.calls).toHaveLength(1);
+    expect(held.calls[0].priority).toBe(19);
+    await settleRegistryBuilds(0, { CI: "1" });
+    expect(held.calls[0].signal?.aborted).toBe(true);
+  });
+
+  it("stops a running build at once under CI", async () => {
+    const held = heldCompiler();
+    startRegistryBuild(coldOptions("ci"), held.compiler);
+    const started = Date.now();
+    await settleRegistryBuilds(60_000, { CI: "true" });
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(held.calls[0].signal?.aborted).toBe(true);
+  });
+
+  it("lets a build finish within the close budget, and stops one that outlasts it", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const finishing = heldCompiler();
+      startRegistryBuild(coldOptions("finishing"), finishing.compiler);
+      setTimeout(finishing.finish, 50);
+      await settleRegistryBuilds(60_000, {});
+      expect(finishing.calls[0].signal?.aborted).toBe(false);
+
+      const outlasting = heldCompiler();
+      startRegistryBuild(coldOptions("outlasting"), outlasting.compiler);
+      const started = Date.now();
+      await settleRegistryBuilds(100, {});
+      expect(Date.now() - started).toBeGreaterThanOrEqual(90);
+      expect(outlasting.calls[0].signal?.aborted).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

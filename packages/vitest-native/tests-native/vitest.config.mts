@@ -5,6 +5,10 @@ import { reactNative } from "../dist/index.mjs";
 import { jestMockTransform } from "../dist/jest-compat.mjs";
 import { NATIVE_SUITE_SETUP_FILES } from "./support/setup-files.mjs";
 
+// This suite asserts the precompiled registry itself (registry-identity, stack frames,
+// module semantics), so it waits for a cold build instead of starting without it.
+process.env.VITEST_NATIVE_REGISTRY_WAIT ??= "1";
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({

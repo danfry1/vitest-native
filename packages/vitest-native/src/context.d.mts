@@ -14,6 +14,8 @@ export interface ProjectContextFields {
   hotPreserveGlobals?: string[];
   hotEsmGeneration?: boolean;
   registry?: string;
+  /** A registry compiling in the background on a cache miss (see activeRegistry). */
+  registryPending?: { file: string; since: number };
   ownership?: Record<string, unknown>;
   projectDirs?: string[];
   requireAliases?: [string, string][];
@@ -36,5 +38,8 @@ export declare function writeProjectContext(
 export declare function ensureProjectContext(ref: string, fields: ProjectContextFields): string;
 export declare function projectContext(ref?: string): Readonly<ProjectContextFields> | null;
 export declare function requireProjectContext(ref?: string): Readonly<ProjectContextFields>;
+export declare function activeRegistry(
+  context: Readonly<ProjectContextFields> | null,
+): string | null;
 export declare function markBootContext(ref?: string): void;
 export declare function assertBootContext(ref?: string): void;

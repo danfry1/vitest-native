@@ -29,6 +29,11 @@ export default defineConfig({
     setupFiles: NATIVE_SUITE_SETUP_FILES,
     include: ["tests-native/*.test.tsx", "tests-native/*.test.ts"],
     // See vitest.config.mts: these two require their own dedicated config files.
-    exclude: ["tests-native/android.test.ts", "tests-native/navigation-params.test.tsx"],
+    // registry-background.test.ts spawns its own Vitest runs; the default config runs it.
+    exclude: [
+      "tests-native/android.test.ts",
+      "tests-native/navigation-params.test.tsx",
+      "tests-native/registry-background.test.ts",
+    ],
   },
 });

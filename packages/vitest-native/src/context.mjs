@@ -18,6 +18,8 @@ export const ESCAPE_HATCHES = Object.freeze([
   "VITEST_NATIVE_NO_REGISTRY",
   "VITEST_NATIVE_HOT_ESM_GEN",
   "VITEST_NATIVE_HOT_STATE_MUTATION",
+  // Internal test oracle read by the registry compiler (registry-compiler.mjs).
+  "VITEST_NATIVE_REGISTRY_TEST_DELAY_MS",
 ]);
 
 const strings = (v) => Array.isArray(v) && v.every((x) => typeof x === "string");
@@ -36,6 +38,9 @@ const SCHEMA = {
   hotPreserveGlobals: { valid: strings },
   hotEsmGeneration: { valid: (v) => typeof v === "boolean" },
   registry: { valid: absolute },
+  registryPending: {
+    valid: (v) => object(v) && absolute(v.file) && typeof v.since === "number",
+  },
   ownership: { valid: object },
   projectDirs: { valid: strings },
   requireAliases: {
@@ -215,6 +220,36 @@ export function requireProjectContext(ref = process.env[CONTEXT_ENV]) {
 }
 
 const HANDLE = Symbol.for("vitest-native");
+
+/**
+ * The precompiled React Native registry this realm uses, or null for per-file loading.
+ *
+ * `registry` is a registry the plugin found warm. `registryPending` is one it started
+ * compiling in the background on a cache miss (registry-process.mjs): a realm that
+ * starts after the compiler published it uses it, one that starts before keeps loading
+ * React Native file by file. The metadata file is published last, so a change in its
+ * mtime from `since` means a complete registry is in place; the worker loads it like
+ * any other and falls back to per-file loading if it cannot.
+ *
+ * Decided once per realm and shared by every module instance in it, so the setup file
+ * and the jest-compat registry agree, and a realm that loaded React Native file by file
+ * never switches to the registry's second copy of it partway through.
+ */
+export function activeRegistry(context) {
+  if (!context) return null;
+  if (context.registry) return context.registry;
+  const pending = context.registryPending;
+  if (!pending) return null;
+  const decisions = ((globalThis[HANDLE] ??= {}).registryDecisions ??= new Map());
+  if (decisions.has(pending.file)) return decisions.get(pending.file);
+  let file = null;
+  try {
+    const mtime = fs.statSync(`${pending.file}.json`).mtimeMs;
+    if (mtime !== pending.since && fs.existsSync(pending.file)) file = pending.file;
+  } catch {}
+  decisions.set(pending.file, file);
+  return file;
+}
 
 /** Hot worker boot: record the project this worker serves. */
 export function markBootContext(ref = process.env[CONTEXT_ENV]) {
