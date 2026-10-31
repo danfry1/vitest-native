@@ -181,6 +181,8 @@ Vite 8's `@vitejs/plugin-react` (v6) no longer runs Babel and points to [`@rolld
 
 Mock clearing defaults differ. Jest leaves mock calls in place between tests unless `clearMocks` is set; Vitest 5 clears them before every test by default (Vitest 4 does not). A suite asserting on calls a mocked dependency received while modules loaded fails only after migrating, so set `test.clearMocks: false` unless the Jest config set it. Jest's `resetMocks` is `test.mockReset` in Vitest; a `resetMocks` key in a Vitest config is ignored. `vitest-native migrate` writes all of these.
 
+Typing the config: Vitest 5's `vitest/config` does not export `UserConfig`, so a config or shared helper that imports it from there fails to typecheck on Vitest 5; import `ViteUserConfig` from `vitest/config` instead.
+
 ## 3. Known limits — assertions coupled to Jest's mocks
 
 A minority of tests assert on **Jest's React Native mock internals** rather than on rendered behavior. The native engine runs *real* React Native, so these can't be reproduced without re-mocking RN internally (which would defeat the point). They're worth recognizing up front so you can rewrite or skip them rather than chase them. In our own runs these were concentrated in **component libraries** (which test RN internals directly); ordinary app suites hit few or none.

@@ -321,7 +321,7 @@ reactNative({
 ```
 
 Recycling is applied between Vitest scheduler tasks. Current Vitest batches every file into one
-uninterruptible task at `maxWorkers: 1`, so the default `'auto'` keeps per-file isolation there and
+uninterruptible task at `maxWorkers: 1`, so `'auto'` keeps per-file isolation there and
 `hotRuntime: true` fails that configuration rather than claim an inert memory bound. Use at least
 two workers for hot mode. If an external scheduler
 already provides a hard boundary, you can deliberately accept the risk with
