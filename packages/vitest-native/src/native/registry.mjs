@@ -91,7 +91,8 @@ export function _resetRegistryFailureReports() {
 // stale on-disk registry from an older vitest-native can never be reused.
 // 4: asset files compile to Metro's registering module instead of a file-name string.
 // 5: the registry's internal require consults jest-compat's Node-side mocks.
-const REGISTRY_FORMAT_VERSION = 5;
+// 6: each module keeps its own strictness, and runs with `this` = module.exports.
+const REGISTRY_FORMAT_VERSION = 6;
 
 /**
  * Literal `require('…')` / `require("…")` calls. The leading class excludes
@@ -353,8 +354,14 @@ function emit(files, modules) {
     }
     return JSON.stringify(out);
   });
+  // No file-level "use strict": it would make every factory strict, while Node runs a
+  // CommonJS module sloppy unless the module itself opens with the directive. Most of
+  // React Native's compiled modules do not (its Babel preset sets strictMode: false), so
+  // under Node and Jest a write to a frozen object in them fails silently and `this` in a
+  // plain call is the global object; the registry must give the same behaviour. A
+  // module's own directive opens its factory body, which makes that factory, and only
+  // it, strict, exactly as in Node's wrapper.
   const prologue = [
-    `"use strict";`,
     // __ext is this file's own require: the escape hatch for targets outside the
     // registry (react, invariant, JSON, anything computed). Pre-resolved absolute
     // paths make those lookups exact rather than re-running Node resolution.
@@ -394,7 +401,8 @@ function emit(files, modules) {
     `  const mod = { id: __ids[i], filename: __ids[i], exports: {}, loaded: false, children: [], paths: [] };`,
     `  __m[i] = mod;`,
     `  try {`,
-    `    __f[i](mod, mod.exports, __req(i), __ids[i], __dirs[i]);`,
+    // Node calls its CommonJS wrapper with `this` = module.exports.
+    `    __f[i].call(mod.exports, mod, mod.exports, __req(i), __ids[i], __dirs[i]);`,
     `  } catch (e) {`,
     `    __m[i] = undefined;`,
     `    throw e;`,
