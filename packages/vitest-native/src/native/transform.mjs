@@ -473,9 +473,16 @@ function isModuleGoal(file) {
  * imports have resolved to under this engine so far, and what Metro gives the same code.
  * The rule here keeps every case where Babel's interop finds a `default` and takes
  * Node's answer only where Babel's would be `undefined`, which is never what an import
- * meant. It is the rule Rolldown and esbuild apply outside Node mode (`__toESM`), and it
- * gives an ES module this engine compiled, or a real one Node's require(esm) returns
- * (which carries `__esModule` when it has a default export), its own `default`.
+ * meant. The precedent for keeping the default is Metro and Babel, which apply their
+ * interop whatever the file's module goal; a bundler in Node mode (Rolldown for `.mjs`
+ * or `type: module`) gives `module.exports` here, as Node does.
+ *
+ * An ES module the engine compiled is not CommonJS to the importer. Its output marks
+ * its exports with a non-enumerable `Symbol.for(ESM_EXPORTS_MARK)` (set first, so a
+ * cycle sees it), and a marked module, or a real namespace Node's require(esm) returns,
+ * gets Babel's interop unchanged: no synthetic default for one that has none, as Node
+ * gives `undefined` for it. `__esModule` alone cannot tell the two apart, since
+ * TypeScript's and Babel's CommonJS set it too.
  *
  * The decision is made when the default is READ, not when the module is required, as
  * Babel's own interop reads `exports.default` at use time:
@@ -485,15 +492,19 @@ function isModuleGoal(file) {
  *   its `get` trap, which neither `hasOwnProperty` nor `in` sees; reading it does.
  * A module counts as having a default when reading `default` gives a value or `default`
  * is a key of it (an explicit `exports.default = undefined` stays undefined, as Babel's).
+ * One effect remains in a cycle: a default read at the top level while the target is
+ * still half-initialised gets `module.exports`, where Babel's interop gave `undefined`.
  *
  * Every form Babel compiles to these two helpers gets the rule: a default import and
  * `export { default } from` (interopRequireDefault), and a default import beside named
- * ones and `import * as ns` (`ns.default`) (interopRequireWildcard).
- * When a compiled ES module or __esModule CommonJS already has its default, both
- * helpers return the module itself, exactly as Babel's do; only a module with no default
- * yet gets a wrapper whose `default` is read lazily (for the wildcard, a Proxy, so named
- * members stay live bindings and the module's own keys are unchanged). Plain CommonJS
- * goes through a copy of Babel's own wildcard helper.
+ * ones and `import * as ns` (`ns.default`) (interopRequireWildcard). When the target has
+ * its default, or is a marked ES module, both helpers return the module itself, exactly
+ * as Babel's do. Otherwise the default import gets a wrapper whose `default` is read
+ * lazily, and the namespace is a copy whose members are getters over the module (live
+ * bindings, the module's own enumerable keys) plus a non-enumerable lazy `default`.
+ * Plain CommonJS gets Babel's own wildcard copy. Namespaces are cached per module in one
+ * runtime shared by every compiled file (ESM_INTEROP_RUNTIME on globalThis), so two
+ * files importing one module get one namespace object, as under Node.
  *
  * Rejected:
  * - Choosing interop per import by RESOLVING the target at compile time
@@ -507,6 +518,9 @@ function isModuleGoal(file) {
  * - Deciding once, at require time, on `hasOwnProperty(e, "default")` (this change's
  *   first version): wrong forever after for a module required mid-cycle, and wrong for
  *   a Proxy-served module, as above.
+ * - A Proxy over the module as the namespace: keys added after the import would show,
+ *   but every member access costs a trap (~15 ns against ~4 ns for a getter), and a
+ *   per-file cache gave each importing file its own namespace object.
  * - Not compiling valid ESM-goal files and letting Node load them as ES modules. That
  *   is the eventual direction (see the NOTE in ecosystem.ts), but it moves those files
  *   out of the CommonJS loader the engine's ownership and preset redirects run through,
@@ -518,75 +532,131 @@ function isModuleGoal(file) {
  * its `pre` hook, and every plugin's `pre` runs before traversal starts, so this wraps
  * it at Program entry and answers the two interop helpers. modules-commonjs asks for
  * them at Program exit, lazy or not. The helpers are declared once per file, the first
- * time either is asked for, as Babel declares its own inline helpers.
+ * time either is asked for, as Babel declares its own inline helpers, and forward to the
+ * shared runtime.
  */
-const ESM_INTEROP_HELPERS = ({ def, defaultOf, wild, cache }) => `
-function ${defaultOf}(e) {
-  var d = e.default;
-  return d === undefined && !("default" in e) ? e : d;
-}
-// Created on first use: the helpers sit above the requires that call them, so a
-// declaration's initializer would not have run yet (a function declaration hoists whole).
-var ${cache};
+/** Marks the exports of a file the engine compiled from an ES module (non-enumerable). */
+export const ESM_EXPORTS_MARK = "vitest-native.esm";
+/** Where the shared interop runtime lives on globalThis; the suffix is its revision. */
+export const ESM_INTEROP_RUNTIME = "vitest-native.esmInterop.2";
+
+// One runtime per realm, installed by the first compiled file that needs it, so every
+// file shares one namespace cache (a CommonJS module is one namespace object for every
+// importer, as in Node). It is source text because each compiled file carries the
+// installer: compiled package files cannot rely on resolving vitest-native itself.
+const ESM_INTEROP_RUNTIME_SOURCE = `function () {
+  var key = Symbol.for(${JSON.stringify(ESM_INTEROP_RUNTIME)});
+  var runtime = globalThis[key];
+  if (runtime) return runtime;
+  var mark = Symbol.for(${JSON.stringify(ESM_EXPORTS_MARK)});
+  var hasOwn = Object.prototype.hasOwnProperty;
+  var namespaces = new WeakMap();
+  var nodeNamespaces = new WeakMap();
+  function isEsm(e) {
+    return e[mark] === true || Object.prototype.toString.call(e) === "[object Module]";
+  }
+  function hasDefault(e) {
+    return isEsm(e) || "default" in e;
+  }
+  function defaultOf(e) {
+    var d = e.default;
+    return d === undefined && !("default" in e) ? e : d;
+  }
+  function getter(f, e, k) {
+    Object.defineProperty(f, k, {
+      enumerable: true,
+      configurable: true,
+      get: function () { return e[k]; },
+    });
+  }
+  runtime = {
+    interopDefault: function (e) {
+      if (!e || !e.__esModule) return { default: e };
+      if (hasDefault(e)) return e;
+      return { get default() { return defaultOf(e); } };
+    },
+    interopWildcard: function (e, t) {
+      if (e === null || (typeof e != "object" && typeof e != "function")) {
+        return { __proto__: null, default: e };
+      }
+      var lazy = !t && !!e.__esModule;
+      if (lazy && hasDefault(e)) return e;
+      var cache = t ? nodeNamespaces : namespaces;
+      if (cache.has(e)) return cache.get(e);
+      var f = { __proto__: null };
+      for (var k in e) {
+        if (k === "default" || !hasOwn.call(e, k)) continue;
+        if (lazy) getter(f, e, k);
+        else {
+          var i = Object.getOwnPropertyDescriptor(e, k);
+          if (i && (i.get || i.set)) Object.defineProperty(f, k, i);
+          else f[k] = e[k];
+        }
+      }
+      if (lazy) {
+        Object.defineProperty(f, "default", { get: function () { return defaultOf(e); } });
+      } else f.default = e;
+      cache.set(e, f);
+      return f;
+    },
+  };
+  Object.defineProperty(globalThis, key, { value: runtime, configurable: true });
+  return runtime;
+}`;
+
+const ESM_INTEROP_HELPERS = ({ def, wild, runtime }) => `
 function ${def}(e) {
-  if (!e || !e.__esModule) return { default: e };
-  if ("default" in e) return e;
-  return { get default() { return ${defaultOf}(e); } };
+  return ${runtime}().interopDefault(e);
 }
 function ${wild}(e, t) {
-  var c = t ? null : ${cache} || (${cache} = typeof WeakMap == "function" ? new WeakMap() : null),
-    f;
-  if (c && e && (typeof e == "object" || typeof e == "function") && c.has(e)) return c.get(e);
-  if (!t && e && e.__esModule) {
-    if ("default" in e) return e;
-    f = new Proxy(e, {
-      get: function (o, k, r) { return k === "default" ? ${defaultOf}(o) : Reflect.get(o, k, r); },
-      has: function (o, k) { return k === "default" || Reflect.has(o, k); },
-    });
-  } else {
-    f = { __proto__: null, default: e };
-    if (e === null || (typeof e != "object" && typeof e != "function")) return f;
-    for (var k in e) {
-      if (k === "default" || !Object.prototype.hasOwnProperty.call(e, k)) continue;
-      var i = Object.getOwnPropertyDescriptor(e, k);
-      if (i && (i.get || i.set)) Object.defineProperty(f, k, i);
-      else f[k] = e[k];
-    }
-  }
-  if (c) c.set(e, f);
-  return f;
+  return ${runtime}().interopWildcard(e, t);
+}
+function ${runtime}() {
+  return (${ESM_INTEROP_RUNTIME_SOURCE})();
 }
 `;
 
 function esmImportInterop({ template, types: t }) {
   return {
     name: "vitest-native-esm-import-interop",
+    // The mark goes first in the body, after modules-commonjs has written its requires
+    // (`post` runs once every visitor is done), so a cycle that reaches this file while
+    // its requires run already sees it.
+    post(file) {
+      file.path.unshiftContainer(
+        "body",
+        template.statement.ast(
+          `Object.defineProperty(exports, Symbol.for(${JSON.stringify(ESM_EXPORTS_MARK)}), { value: true });`,
+        ),
+      );
+    },
     visitor: {
-      Program(_, state) {
-        const file = state.file;
-        const next = file.get("helperGenerator");
-        let ids = null;
-        const declare = () => {
-          if (ids) return ids;
-          const uid = (hint) => file.scope.generateUidIdentifier(hint);
-          ids = {
-            def: uid("esmInteropDefault"),
-            defaultOf: uid("esmDefaultOf"),
-            wild: uid("esmInteropWildcard"),
-            cache: uid("esmInteropCache"),
+      Program: {
+        enter(_, state) {
+          const file = state.file;
+          const next = file.get("helperGenerator");
+          let ids = null;
+          const declare = () => {
+            if (ids) return ids;
+            const uid = (hint) => file.scope.generateUidIdentifier(hint);
+            ids = {
+              def: uid("esmInteropDefault"),
+              wild: uid("esmInteropWildcard"),
+              runtime: uid("esmInteropRuntime"),
+            };
+            const names = Object.fromEntries(Object.entries(ids).map(([k, id]) => [k, id.name]));
+            const nodes = template.statements.ast(ESM_INTEROP_HELPERS(names));
+            for (const node of nodes) node._compact = true;
+            for (const added of file.path.unshiftContainer("body", nodes))
+              file.scope.registerDeclaration(added);
+            return ids;
           };
-          const names = Object.fromEntries(Object.entries(ids).map(([k, id]) => [k, id.name]));
-          const nodes = template.statements.ast(ESM_INTEROP_HELPERS(names));
-          for (const node of nodes) node._compact = true;
-          for (const added of file.path.unshiftContainer("body", nodes))
-            file.scope.registerDeclaration(added);
-          return ids;
-        };
-        file.set("helperGenerator", (name) => {
-          if (name === "interopRequireDefault") return t.cloneNode(declare().def);
-          if (name === "interopRequireWildcard") return t.cloneNode(declare().wild);
-          return next?.(name);
-        });
+          file.set("helperGenerator", (name) => {
+            if (name === "interopRequireDefault") return t.cloneNode(declare().def);
+            if (name === "interopRequireWildcard") return t.cloneNode(declare().wild);
+            return next?.(name);
+          });
+        },
       },
     },
   };
@@ -705,7 +775,7 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   // are byte-for-byte unchanged and stay warm. Output does not depend on any OTHER
   // package — the interop is decided at run time — so nothing else needs keying. The
   // token names the helpers' revision, so output from an earlier revision is not reused.
-  if (esm) hash.update("\0esm-goal-interop-2");
+  if (esm) hash.update(`\0esm-goal\0${ESM_INTEROP_RUNTIME}`);
   const key = hash.digest("hex");
   const cachePath = path.join(ctx.cacheDir, key + ".js");
   try {

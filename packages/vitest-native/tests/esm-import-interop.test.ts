@@ -16,8 +16,14 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
+import crypto from "node:crypto";
 // @ts-expect-error — runtime .mjs, no types
-import { transformRN, needsTransform } from "../src/native/transform.mjs";
+import {
+  transformRN,
+  needsTransform,
+  transformCacheDir,
+  ESM_INTEROP_RUNTIME,
+} from "../src/native/transform.mjs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // Compiled output requires @babel/runtime helpers, which resolve beside the preset.
@@ -114,6 +120,23 @@ beforeAll(() => {
       "import d, { named } from '../cjs/babel-default.js';",
       "import * as ns from '../cjs/babel-default.js';",
       "export { d, named, ns };",
+      "",
+    ].join("\n"),
+    // A compiled ES module with no default export, and two files importing one module.
+    "esm/nodef.js": "export const a = 1;\n",
+    "esm/nodef-importer.js": [
+      "import * as en from './nodef.js';",
+      "export const hasDefault = 'default' in en;",
+      "export const theDefault = en.default;",
+      "export { en };",
+      "",
+    ].join("\n"),
+    "esm/ns-a.js": "import * as ns from '../cjs/tslib.js';\nexport { ns };\n",
+    "esm/ns-b.js": "import * as ns from '../cjs/tslib.js';\nexport { ns };\n",
+    "esm/ns-both.js": [
+      "import { ns as a } from './ns-a.js';",
+      "import { ns as b } from './ns-b.js';",
+      "export const same = a === b;",
       "",
     ].join("\n"),
     // A live binding: CommonJS that changes a member after it is imported.
@@ -226,6 +249,48 @@ describe("ESM-goal default imports", () => {
     expect(out.viaNs()).toBe("proxy-default");
   });
 
+  it("gives an ES module the engine compiled no default it does not export", () => {
+    // Babel's CommonJS output sets __esModule as TypeScript's does; the engine's mark on
+    // its own output is what tells them apart.
+    const out = run("esm/nodef-importer.js");
+    expect(out.hasDefault).toBe(false);
+    expect(out.theDefault).toBeUndefined();
+    expect(Object.keys(out.en as object)).toEqual(["a"]);
+  });
+
+  it("gives every file that imports a module one namespace object, as Node does", () => {
+    expect(run("esm/ns-both.js").same).toBe(true);
+  });
+
+  it("never serves an ES module's output cached before this interop", () => {
+    // What an earlier engine cached for the same file: the key without the interop's
+    // revision (any release before it), and this change's first revision.
+    const file = path.join(dir, "esm/cache-probe.js");
+    const src = `import tslib from '../cjs/tslib.js';\nexport const t = tslib; // ${Date.now()}\n`;
+    fs.writeFileSync(file, src);
+    const key = (suffix: string) =>
+      crypto
+        .createHash("sha1")
+        .update("ios")
+        .update("\0")
+        .update(file)
+        .update("\0")
+        .update(src)
+        .update(suffix)
+        .digest("hex");
+    const cacheDir = transformCacheDir(projectRoot);
+    fs.mkdirSync(cacheDir, { recursive: true });
+    const stale = [key(""), key("\0esm-goal-interop-2")].map((k) => path.join(cacheDir, `${k}.js`));
+    for (const entry of stale) fs.writeFileSync(entry, "exports.stale = true;\n");
+    try {
+      const out = transformRN(file, src, projectRoot);
+      expect(out).not.toContain("exports.stale");
+      expect(out).toContain(ESM_INTEROP_RUNTIME);
+    } finally {
+      for (const entry of stale) fs.rmSync(entry, { force: true });
+    }
+  });
+
   it("matches Node's own ES module loader for CommonJS with no default", () => {
     // Node runs the same files uncompiled: what each import form receives from tslib's
     // shape there is what the compiled file must receive here.
@@ -237,12 +302,16 @@ describe("ESM-goal default imports", () => {
         "import * as ns from '../cjs/tslib.js';",
         // Another specifier for the same module: one namespace object, as in Node.
         "import * as again from './../cjs/tslib.js';",
+        // A compiled ES module with no default: Node's namespace has none.
+        "import * as en from './nodef.js';",
         "export const shape = [",
         "  Object.keys(tslib).join(),",
         "  tslib.__extends === __extends,",
         "  ns.default === tslib,",
         "  ns.__extends === __extends,",
         "  ns === again,",
+        "  'default' in en,",
+        "  typeof en.default,",
         "];",
         "",
       ].join("\n"),
