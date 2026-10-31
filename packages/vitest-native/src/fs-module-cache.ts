@@ -76,8 +76,8 @@ export function fsModuleCacheKey(
 
 /**
  * Whether the plugin turns the cache on for this Vitest major when the user has not
- * chosen: from Vitest 5, where `fsModuleCache` is a top-level option. Vitest 4.1 has it
- * only as `experimental.fsModuleCache`, and it is left to the user there.
+ * chosen: from Vitest 5, where `fsModuleCache` is a top-level option. Vitest 4 has it
+ * only as `experimental.fsModuleCache` (from 4.0.11), and it is left to the user there.
  * `vitest-native doctor` reads this too, so its Vitest 4 advisory cannot drift from
  * what the plugin does.
  */

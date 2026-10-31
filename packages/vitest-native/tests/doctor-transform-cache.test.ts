@@ -50,6 +50,8 @@ function section(root: string): string[] {
   return lines.slice(start + 1, end === -1 ? undefined : end);
 }
 
+const TROUBLESHOOTING = "guide/troubleshooting#cannot-find-module-keeps-failing";
+
 describe("doctor: transform cache advisory", () => {
   it("on Vitest 4 without the option, says what it costs and how to turn it on", () => {
     const lines = section(project("4.1.5", PLAIN));
@@ -59,8 +61,19 @@ describe("doctor: transform cache advisory", () => {
     expect(text).toContain("Vitest 4.1.5 re-transforms every imported module on each run");
     expect(text).toContain("about half a second per thousand imported modules");
     expect(text).toContain("Vitest 5 keeps transformed modules on disk");
-    expect(text).toContain("`test.experimental.fsModuleCache: true`");
-    expect(text).toContain("https://github.com/vitest-dev/vitest/issues/11789");
+    expect(text).toContain("set `test.experimental.fsModuleCache: true`");
+    expect(text).toContain(TROUBLESHOOTING);
+    expect(text).toContain("unverified on 4");
+  });
+
+  it("offers the option from Vitest 4.0.11, where it first exists", () => {
+    expect(section(project("4.0.11", PLAIN))[1]).toContain(
+      "set `test.experimental.fsModuleCache: true`",
+    );
+    const before = section(project("4.0.10", PLAIN));
+    expect(before).toHaveLength(2);
+    expect(before[1]).toContain("Vitest 4.0.11 adds `test.experimental.fsModuleCache`");
+    expect(before[1]).not.toContain("set `test.experimental");
   });
 
   it("is advisory: it never makes doctor report a blocking problem", () => {
@@ -69,11 +82,11 @@ describe("doctor: transform cache advisory", () => {
     expect(verdict("4.1.5")).toBe(verdict("5.0.5"));
   });
 
-  it("with the option set, shows the caveat instead", () => {
+  it("with the option set, shows the caveat without claiming the cache is on", () => {
     const lines = section(project("4.1.5", withTest("{ experimental: { fsModuleCache: true } }")));
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain("the config sets `fsModuleCache`");
-    expect(lines[0]).toContain("issues/11789");
+    expect(lines[0]).toContain("the config sets `experimental.fsModuleCache`; while it is on,");
+    expect(lines[0]).toContain(TROUBLESHOOTING);
     expect(lines[0]).not.toContain("re-transforms");
   });
 
@@ -83,14 +96,23 @@ describe("doctor: transform cache advisory", () => {
     ).toEqual([]);
   });
 
+  it("on Vitest 4, names the top-level spelling as Vitest 5's, with no effect", () => {
+    const lines = section(project("4.1.5", withTest("{ fsModuleCache: true }")));
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toContain("re-transforms");
+    expect(lines[1]).toContain("`test.fsModuleCache`, the Vitest 5 spelling");
+    expect(lines[1]).toContain("no effect on Vitest 4");
+    expect(section(project("4.1.5", withTest("{ fsModuleCache: false }")))).toHaveLength(3);
+  });
+
   it("on Vitest 5 says nothing, where the plugin turns the cache on", () => {
     expect(section(project("5.0.5", PLAIN))).toEqual([]);
     expect(section(project("5.0.5"))).toEqual([]);
   });
 
-  it("follows the plugin's default, not a copy of it", () => {
+  it("is empty exactly on the majors fsModuleCacheOnByDefault turns the cache on for", () => {
     for (const major of [4, 5, 6]) {
-      expect(transformCacheAdvice(`${major}.0.0`, PLAIN).length === 0).toBe(
+      expect(transformCacheAdvice(`${major}.0.11`, PLAIN).length === 0).toBe(
         fsModuleCacheOnByDefault(major),
       );
     }
@@ -101,12 +123,15 @@ describe("doctor: transform cache advisory", () => {
 
 describe("fsModuleCacheSetting", () => {
   it.each([
-    [PLAIN, null],
-    [withTest("{ fsModuleCache: false }"), "off"],
-    [withTest("{ experimental: { fsModuleCache: true } }"), "set"],
-    [withTest("{ experimental: { fsModuleCache: !process.env.CI } }"), "set"],
-    [`// test: { experimental: { fsModuleCache: true } }\n${PLAIN}`, null],
-  ] as const)("%#", (source, expected) => {
-    expect(fsModuleCacheSetting(source)).toBe(expected);
+    [PLAIN, null, null],
+    [withTest("{ fsModuleCache: false }"), null, "off"],
+    [withTest("{ fsModuleCache: true }"), null, "set"],
+    [withTest("{ experimental: { fsModuleCache: true } }"), "set", null],
+    [withTest("{ experimental: { fsModuleCache: false } }"), "off", null],
+    [withTest("{ experimental: { other: 1, fsModuleCache: !process.env.CI } }"), "set", null],
+    [withTest("{ fsModuleCache: false, experimental: { fsModuleCache: true } }"), "set", "off"],
+    [`// test: { experimental: { fsModuleCache: true } }\n${PLAIN}`, null, null],
+  ] as const)("%#", (source, experimental, topLevel) => {
+    expect(fsModuleCacheSetting(source)).toEqual({ experimental, topLevel });
   });
 });
