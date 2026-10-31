@@ -1,0 +1,9 @@
+{
+  "name": "museum-res-peer-typescript",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "museum-esm-host": "1.0.0",
+    "museum-ts-peer": "1.0.0"
+  }
+}
