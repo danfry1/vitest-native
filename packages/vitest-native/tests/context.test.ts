@@ -256,7 +256,11 @@ describe("worker code reads no other VITEST_NATIVE_ names", () => {
   const offences = (rel: string, source: string) => [
     ...[...source.matchAll(NAME)].filter((m) => !ALLOWED.has(m[0])).map((m) => `${rel}: ${m[0]}`),
     ...[...source.matchAll(ENV_CONSTANT)]
-      .filter((m) => !["CONTEXT_ENV", "NODE_ENV", "BABEL_ENV", "HOT_WORKER_ENV"].includes(m[0]))
+      // SHARE_ENV is Node's worker_threads constant, not a variable's name.
+      .filter(
+        (m) =>
+          !["CONTEXT_ENV", "NODE_ENV", "BABEL_ENV", "HOT_WORKER_ENV", "SHARE_ENV"].includes(m[0]),
+      )
       .map((m) => `${rel}: ${m[0]}`),
   ];
   const files: string[] = [];

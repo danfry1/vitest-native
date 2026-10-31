@@ -137,6 +137,39 @@ describe("the transform cache, for app source under a project Babel config", () 
   });
 });
 
+describe("the environment a project Babel config reads", () => {
+  // Babel compiles on a thread of its own (transform.mjs, "Where Babel runs"). A config
+  // reads process.env as it is when each file compiles, as it did on the tests' thread:
+  // a test or setup file that sets a variable is seen by the next compile.
+  it("is the tests' process.env as it is now, not a copy from when Babel started", () => {
+    const root = makeRoot(`module.exports = (api) => {
+         const flag = api.cache.using(() => process.env.RB_LIVE);
+         return { plugins: [["./flag-plugin.js", { flag }]] };
+       };`);
+    try {
+      fs.writeFileSync(
+        path.join(root, "flag-plugin.js"),
+        `module.exports = ({ types: t }) => ({
+           visitor: {
+             Identifier(p, state) {
+               if (p.node.name === "__FLAG__") p.replaceWith(t.stringLiteral(state.opts.flag));
+             },
+           },
+         });`,
+      );
+      process.env.RB_LIVE = "before";
+      const first = writeApp(root, "src/first.ts", "module.exports = __FLAG__;\n");
+      expect(transformRN(first, fs.readFileSync(first, "utf8"), root)).toContain('"before"');
+      process.env.RB_LIVE = "after";
+      const second = writeApp(root, "src/second.ts", "module.exports = __FLAG__;\n");
+      expect(transformRN(second, fs.readFileSync(second, "utf8"), root)).toContain('"after"');
+    } finally {
+      delete process.env.RB_LIVE;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("which Babel config applies to app source", () => {
   // Babel decides, so every config it supports is found: package.json#babel was missed
   // by a hand-kept list of file names, as were babel.config.ts and .babelrc.mjs.

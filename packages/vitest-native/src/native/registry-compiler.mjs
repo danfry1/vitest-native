@@ -5,6 +5,12 @@
 // compiler failure is returned structurally for the parent to report once.
 import fs from "node:fs";
 import { buildRegistry } from "./registry.mjs";
+import { compileOnThisThread } from "./transform.mjs";
+
+// No test code runs in this process, so Babel runs on its one thread (transform.mjs,
+// "Where Babel runs"): the process's heap bound covers Babel, and running out of it is
+// the out-of-memory exit bounded-process.mjs retries with more heap.
+compileOnThisThread();
 
 function messageOf(error) {
   return error instanceof Error ? error.message : String(error);
