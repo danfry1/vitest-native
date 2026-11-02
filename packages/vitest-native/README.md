@@ -589,8 +589,9 @@ JavaScript runs for real — `expo` itself, expo-router, React Navigation and Ex
   jest-expo: from the package's own `mocks/<Name>.ts` where it ships one, else from Expo's table
   of the native modules (`Device.modelName` is `'mock'`). An optional native module a package
   probes for, and that no installed package defines, is absent, as on a device.
-- **Expo SDK trails React Native.** Pin your `react-native` to the version your Expo SDK supports
-  (SDK 54 and later are within this plugin's validated range), not the newest RN release.
+- **Expo SDK 57 and 58 are supported.** Earlier SDKs are not: the plugin and `doctor` warn about
+  one, so upgrade to SDK 57 or 58. Pin your `react-native` to the version your Expo SDK
+  supports, not the newest RN release.
 
 Packed Expo SDK 58 and SDK 57 apps are installed from the release tarball and tested in CI: Expo
 module auto-detection and rendering, and expo-router's testing library against file-based `app/`

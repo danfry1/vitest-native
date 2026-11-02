@@ -106,6 +106,7 @@ describe('MyComponent', () => {
   ship with React Native projects; from Expo SDK 56 it uses Expo's own preset instead, as Metro
   does). The opt-in mock engine needs no Babel.
 - **React Native** 0.81–0.88 validated in CI (native engine).
+- **Expo** SDK 57 and 58, if the app uses Expo; earlier SDKs are not supported.
 - Tested against RNTL 12, 13, and 14 in CI.
 
 ## Choosing an engine

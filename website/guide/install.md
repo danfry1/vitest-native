@@ -40,10 +40,11 @@ That's it. The plugin auto-injects its setup file, configures `@testing-library/
 | Requirement | Version |
 |---|---|
 | **Node.js** | 22.13+ on Node 22, or 24.3+ |
-| **Vitest** | 4.x |
+| **Vitest** | 4.x or 5.x |
 | **Vite** | ^6.4.2, ^7.3.2, or ^8.0.5 |
 | **React** | >= 18 |
 | **React Native** | 0.81–0.88 validated in CI (native engine) |
+| **Expo** (if used) | SDK 57 or 58 |
 
 The default **`engine: 'native'`** needs `@react-native/babel-preset` and `@babel/core` — these already ship with React Native projects. From Expo SDK 56 the engine uses Expo's own preset instead, which `expo` brings with `@babel/core`, so an Expo app needs nothing extra. The plugin uses them to Flow-strip real React Native, the same toolchain RN already uses.
 
