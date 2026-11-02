@@ -10,68 +10,45 @@
  * 6. Auto-registers RNTL matchers
  * 7. Registers snapshot serializer
  *
- * Options are received via process.env (set by the plugin's config() hook
- * via test.env). This is necessary because the plugin runs in Vite's main
+ * Options are received through the project context, which the plugin's config() hook
+ * writes and names in test.env. This is necessary because the plugin runs in Vite's main
  * process while this setup file runs in Vitest worker processes — globalThis
  * does NOT survive that boundary.
  */
 
-import { vi, afterAll, expect as vitestExpect } from "vitest";
+import { vi, afterAll, afterEach, expect as vitestExpect } from "vitest";
 import { buildReactNativeMock } from "./mocks/registry.js";
 import { installCjsBridge, uninstallCjsBridge, installPresetCjsBridge } from "./cjs-bridge.js";
 import * as presetFactories from "./presets/index.js";
-import { createRequire } from "node:module";
+import Module, { createRequire } from "node:module";
 import path from "node:path";
 import type { Preset } from "./types.js";
-import { VitestNativeError } from "./errors.mjs";
 import { importPresetModule, presetModulePaths } from "./preset-modules.mjs";
+import { installRendererReportError } from "./report-error.mjs";
 import { AUTO_DETECT_PRESETS, presetForInstalled } from "./preset-map.js";
 import { serializer as rnSerializer } from "./serializer.js";
 import { animatedMatchers } from "./matchers/animated.js";
+import { installRntlAutoCleanup, installRntlLoadTracking } from "./rntl-support.mjs";
+import { projectContext, type ProjectContextFields } from "./context.mjs";
 
-// --- Read options from process.env ---
+// --- Read options from the project context ---
 
-const platform = (process.env.VITEST_NATIVE_PLATFORM as "ios" | "android") || "ios";
-const diagnostics = process.env.VITEST_NATIVE_DIAGNOSTICS === "true";
-const projectRoot = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
+// Without the plugin (the setup file imported on its own), the defaults it always had.
+const context: Partial<ProjectContextFields> = projectContext() ?? {};
+const platform = context.platform ?? "ios";
+const diagnostics = context.diagnostics === true;
+const projectRoot = context.projectRoot ?? process.cwd();
 const projectReq = createRequire(path.join(projectRoot, "package.json"));
 
-let customMocks: Record<string, any> = {};
-if (process.env.VITEST_NATIVE_MOCKS) {
-  try {
-    customMocks = JSON.parse(process.env.VITEST_NATIVE_MOCKS);
-  } catch (e) {
-    if (diagnostics) {
-      console.warn(`[vitest-native] Failed to parse VITEST_NATIVE_MOCKS: ${(e as Error)?.message}`);
-    }
-  }
-}
+// Copied: the context is frozen, and these become the test's own mutable mocks.
+const customMocks: Record<string, any> =
+  context.mocks && typeof context.mocks === "object" ? structuredClone(context.mocks) : {};
 
 // Explicit preset names from plugin config, or null for auto-detect.
-let explicitPresetNames: string[] | null = null;
+const explicitPresetNames: string[] | null = context.presetNames ? [...context.presetNames] : null;
 // Names switched off by `presets: { name: false }`. Auto-detection still runs in the
 // worker; these are removed from what it finds.
-let disabledPresetNames: string[] = [];
-if (process.env.VITEST_NATIVE_PRESET_DISABLED) {
-  try {
-    disabledPresetNames = JSON.parse(process.env.VITEST_NATIVE_PRESET_DISABLED) as string[];
-  } catch {
-    disabledPresetNames = [];
-  }
-}
-
-if (process.env.VITEST_NATIVE_PRESET_NAMES) {
-  try {
-    explicitPresetNames = JSON.parse(process.env.VITEST_NATIVE_PRESET_NAMES);
-  } catch (e) {
-    if (diagnostics) {
-      console.warn(
-        `[vitest-native] Failed to parse VITEST_NATIVE_PRESET_NAMES: ${(e as Error)?.message}`,
-      );
-    }
-    explicitPresetNames = null;
-  }
-}
+const disabledPresetNames: string[] = [...(context.presetDisabled ?? [])];
 
 // --- 1. Globals ---
 
@@ -129,6 +106,8 @@ if (typeof g.expect === "undefined") {
 
 g.IS_REACT_ACT_ENVIRONMENT = true;
 g.IS_REACT_NATIVE_TEST_ENVIRONMENT = true;
+// Before react-test-renderer loads: it picks its error reporter once (report-error.mjs).
+installRendererReportError(Module, g);
 
 // --- 2. Build mock and install CJS bridge ---
 
@@ -211,17 +190,7 @@ g.__vitest_native_preset_mocks = g.__vitest_native_preset_mocks || Object.create
 // Which preset modules to shadow: the plugin read every module's named exports while
 // resolving its config, and a module whose package is not installed (null) is not
 // shadowed. Without the plugin's list, every module is.
-let presetExports: Record<string, string[] | null> = {};
-try {
-  if (process.env.VITEST_NATIVE_PRESET_EXPORTS)
-    presetExports = JSON.parse(process.env.VITEST_NATIVE_PRESET_EXPORTS);
-} catch (cause) {
-  throw new VitestNativeError(
-    "INVALID_OPTION",
-    "VITEST_NATIVE_PRESET_EXPORTS, which the plugin sets for its setup file, is not valid JSON.",
-    { cause },
-  );
-}
+const presetExports = (context.presetExports ?? {}) as Record<string, string[] | null>;
 const preparations: Promise<void>[] = [];
 /** Registers a preset's modules, now or once its preparation settles. */
 function activate(preset: Preset): Promise<void> | void {
@@ -264,8 +233,19 @@ g.__vitest_native_presets_ready = presetsReady;
 
 // --- 5. Configure @testing-library/react-native ---
 
+// RNTL registers its afterEach cleanup only through a global afterEach; without
+// test.globals, register it here (see rntl-support.mjs). With `isolate: false` files
+// share Node's module cache, so the cleanup tracks which entries this file loads.
+const sharedWorker =
+  (globalThis as { __vitest_worker__?: { config?: { isolate?: boolean } } }).__vitest_worker__
+    ?.config?.isolate === false;
+if (sharedWorker) installRntlLoadTracking();
+installRntlAutoCleanup(afterEach, { trackImports: sharedWorker });
+
 try {
-  const rntl = projectReq("@testing-library/react-native");
+  // `/pure`, not the package entry: loading the entry here would register RNTL's
+  // auto-cleanup for every file, including those that import `/pure` to opt out of it.
+  const rntl = projectReq("@testing-library/react-native/pure");
   // RNTL >=14 removed the `hostComponentNames` configure option: it now
   // auto-detects host components by rendering a probe (which works with the
   // mock's host names). Passing the option there is a no-op that logs an

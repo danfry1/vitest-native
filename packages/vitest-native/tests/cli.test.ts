@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { main } from "../src/cli/index.js";
-import { runInit, renderInitConfig } from "../src/cli/init.js";
+import { HOT_RUNTIME_NOTE, runInit, renderInitConfig } from "../src/cli/init.js";
 import { runDoctor } from "../src/cli/doctor.js";
 import { PEER_REQUIREMENTS } from "../src/peer-requirements.js";
 import { PRESET_MODULES } from "../src/preset-map.js";
@@ -83,6 +83,16 @@ describe("init", () => {
     const written = fs.readFileSync(path.join(root, "vitest.config.mts"), "utf8");
     expect(written).toContain("reactNative()");
     expect(written).not.toContain("jestMockTransform");
+  });
+
+  it("says the hot runtime is opt-in and links its known differences", () => {
+    const root = fixture({ "package.json": { name: "x" } });
+    const output = runInit(root).lines.join("\n");
+    expect(output).toContain(HOT_RUNTIME_NOTE.join("\n"));
+    expect(output).toContain("hotRuntime: 'auto'");
+    expect(output).toContain(
+      "guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files",
+    );
   });
 
   it("writes the jest-compat variant matching the migration guide's shape", () => {
@@ -271,6 +281,7 @@ describe("migrate", () => {
     expect(report.ok).toBe(true);
     expect(report.source).toBe("jest.config.json");
     const text = renderMigrationReport(report).join("\n");
+    expect(text).toContain(HOT_RUNTIME_NOTE.join("\n"));
     // transform allowlist: moti extracted, RN handled, reanimated preset-covered.
     expect(report.suggestedConfig).toContain(`transform: ["moti"]`);
     expect(text).toContain(

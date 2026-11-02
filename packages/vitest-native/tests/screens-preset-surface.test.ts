@@ -18,7 +18,9 @@
  * exports — they live in the package's `contexts` module, reached by deep import.
  * They are deliberately not claimed here; see the note at the end of this file.
  */
+import React from "react";
 import { describe, expect, it } from "vitest";
+import { render, screen } from "@testing-library/react-native";
 import { screens } from "../src/presets/screens.js";
 
 /** Every name react-native-screens 4.26.2 exports from its entry point. */
@@ -74,6 +76,58 @@ describe("screens preset surface", () => {
 
   it("provides ScreenStackItem, which native-stack renders through", () => {
     expect(module.factory().ScreenStackItem).toBeTruthy();
+  });
+
+  it("renders headerConfig's children, where native-stack puts headerLeft and headerRight", async () => {
+    // @react-navigation/native-stack 7.x passes the header's elements to
+    // ScreenStackItem as `headerConfig.children`; the real component renders
+    // `<ScreenStackHeaderConfig {...headerConfig} />` after the content.
+    const built = module.factory() as Record<string, React.ComponentType<any>>;
+    const { ScreenStackItem, ScreenStackHeaderRightView } = built;
+    await render(
+      React.createElement(
+        ScreenStackItem,
+        {
+          screenId: "home",
+          testID: "item",
+          headerConfig: {
+            title: "Home",
+            hidden: true,
+            children: React.createElement(
+              ScreenStackHeaderRightView,
+              null,
+              React.createElement("View", { testID: "header-right-button" }),
+            ),
+          },
+        },
+        React.createElement("View", { testID: "content" }),
+      ),
+    );
+
+    expect(screen.getByTestId("header-right-button")).toBeTruthy();
+    expect(screen.getByTestId("content")).toBeTruthy();
+
+    // Read the host tree: RNTL 12 and 13 return composite instances from queries,
+    // whose children are elements, where RNTL 14 returns host nodes.
+    type HostNode = { type: string; props: Record<string, unknown>; children?: unknown[] };
+    const findHost = (node: unknown, testID: string): HostNode | undefined => {
+      if (!node || typeof node !== "object") return undefined;
+      const host = node as HostNode;
+      if (host.props?.testID === testID) return host;
+      for (const child of host.children ?? []) {
+        const found = findHost(child, testID);
+        if (found) return found;
+      }
+      return undefined;
+    };
+    const item = findHost(screen.toJSON(), "item");
+    // The header follows the content, as in the real component, and carries the
+    // config as its own props; the item does not.
+    expect(item?.props.headerConfig).toBeUndefined();
+    expect(item?.props.screenId).toBe("home");
+    const header = item?.children?.[1] as HostNode;
+    expect(header.type).toBe("ScreenStackHeaderConfig");
+    expect(header.props).toMatchObject({ title: "Home", hidden: true });
   });
 
   it("makes ScreenContext a real context, not a component stub", () => {

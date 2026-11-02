@@ -8,6 +8,7 @@ import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 // @ts-expect-error — internal experimental runtime .mjs
 import { loadMetroProfile, validateMetroProfile } from "../src/native/metro-profile.mjs";
+import { contextOf } from "./project-context-helpers.js";
 
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "vn-metro-profile-"));
 afterAll(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }));
@@ -372,11 +373,11 @@ describe("Metro profile plugin integration", () => {
       ".native.js",
       ".js",
     ]);
-    const assets = JSON.parse(config.test.env.VITEST_NATIVE_ASSET_EXTS);
+    const assets = [...(contextOf(config).assetExts ?? [])];
     expect(assets).toContain("png");
     expect(assets).not.toContain("svg");
     expect(assets).toEqual(["png"]);
-    expect(JSON.parse(config.test.env.VITEST_NATIVE_SOURCE_EXTS)).toEqual(["tsx", "js", "svg"]);
+    expect(contextOf(config).sourceExts).toEqual(["tsx", "js", "svg"]);
   });
 
   it("applies the declarative profile beside an imperative resolver and names the gap once", async () => {

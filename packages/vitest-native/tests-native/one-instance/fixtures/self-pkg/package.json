@@ -1,0 +1,7 @@
+{
+  "name": "vn-self-probe",
+  "version": "0.0.0-src",
+  "exports": {
+    "./store": "./store.ts"
+  }
+}

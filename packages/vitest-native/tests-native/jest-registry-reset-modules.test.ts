@@ -11,7 +11,7 @@
  * (jest-runtime 29.7).
  */
 import { AppState as ImportedAppState } from "react-native";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 declare const jest: {
   mock(path: string, factory: () => unknown): void;
@@ -86,5 +86,24 @@ describe("jest.resetModules with require()", () => {
   it("applies to the test file's own import from 'react-native'", () => {
     expect(ImportedAppState.currentState).toBe("background");
     expect(jest.isMockFunction(ImportedAppState.addEventListener)).toBe(true);
+  });
+});
+
+// Vitest 4.1 fetches a module mocked with a factory as a placeholder node that
+// remembers the factory, and its `cachedRequest` replays that factory whenever the
+// module has any mock, so a factoryless `vi.doMock` after it got the old factory. The
+// reset invalidates such nodes (module-reset.mjs), and the module is then looked up
+// under the current mocks, as Vitest 5 does. Without a reset, Vitest 4.1 still
+// replays the factory: that is its own behaviour. Only Vitest 4.1 can fail this.
+describe("jest.resetModules with vi.doMock", () => {
+  it("a factoryless vi.doMock after the reset automocks a module an earlier factory mocked", async () => {
+    vi.doMock("./fixtures/alias-app/registry/counter", () => ({ increment: () => -1 }));
+    expect((await import("./fixtures/alias-app/registry/counter")).increment()).toBe(-1);
+    jest.resetModules();
+    vi.doMock("./fixtures/alias-app/registry/counter");
+    const automocked = await import("./fixtures/alias-app/registry/counter");
+    vi.doUnmock("./fixtures/alias-app/registry/counter");
+    expect(vi.isMockFunction(automocked.increment)).toBe(true);
+    expect(automocked.increment()).toBeUndefined();
   });
 });
