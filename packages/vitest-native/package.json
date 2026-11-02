@@ -135,6 +135,7 @@
     "test:native:hot:file-accounting": "node scripts/test-hot-file-accounting.mjs",
     "test:native:hot:compile-cache": "node scripts/test-hot-compile-cache.mjs",
     "test:native:hot:state-manifest": "node scripts/test-hot-state-manifest.mjs",
+    "test:docs": "node scripts/docs-checks.mjs",
     "test:native:hot:soak": "node scripts/test-hot-soak.mjs",
     "test:consumers": "node scripts/test-consumers.mjs",
     "lint": "oxlint --deny-warnings src/ tests/ tests-native/ crosscheck/ consumer-tests/ scripts/",

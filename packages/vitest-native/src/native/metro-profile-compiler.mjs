@@ -4,38 +4,9 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { VitestNativeError } from "../errors.mjs";
+import { METRO_ASSET_EXTS } from "./assets.mjs";
 
 const BARE_SOURCE_EXTS = ["js", "jsx", "json", "ts", "tsx"];
-const BARE_ASSET_EXTS = [
-  "bmp",
-  "gif",
-  "jpg",
-  "jpeg",
-  "png",
-  "psd",
-  "svg",
-  "webp",
-  "xml",
-  "m4v",
-  "mov",
-  "mp4",
-  "mpeg",
-  "mpg",
-  "webm",
-  "aac",
-  "aiff",
-  "caf",
-  "m4a",
-  "mp3",
-  "wav",
-  "html",
-  "pdf",
-  "yaml",
-  "yml",
-  "otf",
-  "ttf",
-  "zip",
-];
 
 // The message, not the stack: this becomes a user-facing configuration error.
 function messageOf(error) {
@@ -111,7 +82,7 @@ function fallbackDefault(projectRoot) {
     projectRoot,
     resolver: {
       sourceExts: [...BARE_SOURCE_EXTS],
-      assetExts: [...BARE_ASSET_EXTS],
+      assetExts: [...METRO_ASSET_EXTS],
       resolverMainFields: ["react-native", "browser", "main"],
       unstable_conditionNames: ["react-native"],
       unstable_conditionsByPlatform: {},
