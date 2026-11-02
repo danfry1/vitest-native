@@ -201,7 +201,7 @@
     "rn-platform-flow-lib": "file:./tests-native/fixtures/rn-platform-flow-lib",
     "rn-singleton-lib": "file:./tests-native/fixtures/rn-singleton-lib",
     "test-renderer": "^1.3.1",
-    "tsdown": "0.23.1",
+    "tsdown": "0.23.2",
     "typescript": "7.0.2",
     "typescript-6": "npm:typescript@6.0.3",
     "untranspiled-jsx-lib": "file:./tests-native/fixtures/untranspiled-jsx-lib",
