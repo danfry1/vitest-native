@@ -7,7 +7,7 @@
  * wrapper (`import tslib from '../tslib.js'` over CommonJS that sets `__esModule` and
  * has no default) got `undefined`. The compiled output is EXECUTED here, through a
  * minimal CommonJS loader, because what matters is the value the import receives.
- * See esmImportInterop in src/native/transform.mjs for the rule and its evidence.
+ * See esmImportInterop in src/native/esm-interop.mjs for the rule and its evidence.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "node:fs";

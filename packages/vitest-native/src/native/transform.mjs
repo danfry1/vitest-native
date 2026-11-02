@@ -9,18 +9,22 @@
 // of the key too — Babel output embeds the filename — so restores are valid wherever
 // the checkout path is stable (CI runners use a fixed workspace path).
 //
-// @babel/core itself is loaded lazily: on a warm cache the default engine pays this
-// module's init in every isolated worker, and requiring Babel costs ~35ms vs ~0.5ms
-// for resolving versions — pure waste when every file is served from disk. Package
-// files load it only on a cache MISS. App source loads it for its cache key, since
-// only Babel can say which project configuration applies (projectBabelOptions).
-import { createRequire } from "node:module";
+// Babel compiles on a thread of its own, started on a thread's first cache miss (see
+// "Where Babel runs" below): on a warm cache the default engine pays this module's init
+// in every isolated worker, and loading Babel and the preset costs ~130ms vs ~0.5ms for
+// resolving versions — pure waste when every file is served from disk. App source asks
+// it for its cache key, since only Babel can say which project configuration applies
+// (projectBabelOptions).
+import nodeModule, { createRequire } from "node:module";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import crypto from "node:crypto";
 import vm from "node:vm";
+import { MessageChannel, receiveMessageOnPort, SHARE_ENV, Worker } from "node:worker_threads";
 import { decorateTransformError } from "./explain.mjs";
+import { handleToolchainRequest } from "./babel-toolchain.mjs";
+import { ESM_EXPORTS_MARK, ESM_INTEROP_RUNTIME } from "./esm-interop.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import { resolveTransformPreset } from "./babel-preset.mjs";
 
@@ -233,22 +237,18 @@ function babelJestCaller(ctx, platform) {
  */
 function projectBabelOptions(ctx, file, platform) {
   if (!file.startsWith(ctx.root + path.sep) || NODE_MODULES.test(file)) return null;
-  if (!ctx.babel) ctx.babel = ctx.req("@babel/core");
   let partial;
-  transformState.depth++;
   try {
-    partial = ctx.babel.loadPartialConfig({
-      filename: file,
-      cwd: ctx.root,
+    partial = callToolchain({
+      kind: "config",
       root: ctx.root,
+      file,
       caller: babelJestCaller(ctx, platform),
     });
   } catch (err) {
-    throw decorateTransformError(err, file, platform);
-  } finally {
-    transformState.depth--;
+    throw transformFailure(err, file, platform);
   }
-  if (partial === null) {
+  if (partial.kind === "ignored") {
     // babel-jest's assertLoadedBabelConfig (build/index.js:103-113): compiling the file
     // without the configuration that excludes it would run code the project never
     // compiles that way.
@@ -260,15 +260,14 @@ function projectBabelOptions(ctx, file, platform) {
         `Remove it from the config's \`ignore\`, or add it to \`only\`.`,
     );
   }
-  if (!partial.hasFilesystemConfig()) return null;
+  if (partial.kind === "none") return null;
   return {
-    options: partial.options,
     // babel-jest keys its cache on the loaded options (getCacheKeyFromConfig,
     // build/index.js:135-165): a function config's output can depend on the
     // environment or the caller, which no file's bytes show. The config files' own
     // bytes join it, so an edit to an inline plugin is picked up as well.
     key: [
-      JSON.stringify(partial.options),
+      partial.options,
       configFileHash(ctx, partial.config),
       configFileHash(ctx, partial.babelrc),
     ].join("\0"),
@@ -320,9 +319,8 @@ const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
  * a name that is not an export appears. That is plain Node behaviour, reproducible
  * with no plugin involved.
  *
- * Reading it properly is possible here because Babel is already loaded to do the
- * transform, and because the input is the transform's own output rather than
- * arbitrary source. Names are used only to emit a dead `0 && (module.exports = {…})`
+ * Reading it properly is possible here because the input is the transform's own
+ * output rather than arbitrary source. Names are used only to emit a dead `0 && (module.exports = {…})`
  * hint, which is the form the lexer does understand.
  *
  * Returns an empty array when the shape is not statically knowable (`module.exports =
@@ -332,6 +330,12 @@ export function cjsExportNames(code) {
   // Parse-only, so any project's @babel/core serves: the input is this module's
   // own transformed output, and parsing is toolchain-neutral across the versions
   // in play. Callers have no project root of their own to hand over.
+  //
+  // On this thread, unlike compiling (see "Where Babel runs"): it runs on warm runs
+  // too, for every compiled module an import reaches, and a thread started for it
+  // would be paid where no file needs compiling. Parsing loads @babel/core and its
+  // parser, not the modules a transform loads lazily, and anything a test global's
+  // getter needs compiled while they load is compiled on Babel's own thread.
   const ctx = anyContext();
   if (!ctx) return [];
   if (!ctx.babel) ctx.babel = ctx.req("@babel/core");
@@ -448,219 +452,8 @@ function isModuleGoal(file) {
   return moduleGoal(file);
 }
 
-/**
- * The default import an ES module gets from what it imports, once it is compiled to
- * CommonJS: the module's `default` export when it is a compiled ES module that has one,
- * otherwise the whole `module.exports`.
- *
- * Why it is needed. Every ESM-goal file the engine compiles runs as CommonJS (see
- * needsTransform), through the preset's @babel/plugin-transform-modules-commonjs with
- * Babel's default interop, which reads `exports.default` from any module that sets
- * `__esModule`. Node gives an ES module importing CommonJS the whole `module.exports` as
- * its default ("When importing CommonJS modules, the module.exports object is provided
- * as the default export", Node's ESM docs, "Interoperability with CommonJS"), and
- * packages that ship an ESM wrapper for Node rely on it. tslib's `modules/index.js`,
- * which its `exports['.'].import.node` condition selects (tslib 2.8.1), is
- * `import tslib from '../tslib.js'` over a CommonJS file that sets `__esModule` and has
- * no `default`. A project that imports `tslib` while tslib is in the compile set had
- * that wrapper compiled, and Babel's interop gave it `undefined`: "Cannot read
- * properties of undefined (reading '__extends')".
- *
- * Why this rule and not Node's exactly. Node gives `module.exports` even when the target
- * is Babel-compiled CommonJS with `__esModule` and a real `exports.default`, which is
- * common in the React Native ecosystem: its libraries are written against Metro's Babel
- * interop and expect that default. Switching to Node's rule would change what those
- * imports have resolved to under this engine so far, and what Metro gives the same code.
- * The rule here keeps every case where Babel's interop finds a `default` and takes
- * Node's answer only where Babel's would be `undefined`, which is never what an import
- * meant. The precedent for keeping the default is Metro and Babel, which apply their
- * interop whatever the file's module goal; a bundler in Node mode (Rolldown for `.mjs`
- * or `type: module`) gives `module.exports` here, as Node does.
- *
- * An ES module the engine compiled is not CommonJS to the importer. Its output marks
- * its exports with a non-enumerable `Symbol.for(ESM_EXPORTS_MARK)` (set first, so a
- * cycle sees it), and a marked module, or a real namespace Node's require(esm) returns,
- * gets Babel's interop unchanged: no synthetic default for one that has none, as Node
- * gives `undefined` for it. `__esModule` alone cannot tell the two apart, since
- * TypeScript's and Babel's CommonJS set it too.
- *
- * The decision is made when the default is READ, not when the module is required, as
- * Babel's own interop reads `exports.default` at use time:
- * - in an import cycle, TypeScript's CommonJS output sets `exports.default` after the
- *   require that cycles back, so "no default yet" at require time is not "no default";
- * - a module served by a Proxy (preset subpaths, some libraries) answers `default` from
- *   its `get` trap, which neither `hasOwnProperty` nor `in` sees; reading it does.
- * A module counts as having a default when reading `default` gives a value or `default`
- * is a key of it (an explicit `exports.default = undefined` stays undefined, as Babel's).
- * One effect remains in a cycle: a default read at the top level while the target is
- * still half-initialised gets `module.exports`, where Babel's interop gave `undefined`.
- *
- * Every form Babel compiles to these two helpers gets the rule: a default import and
- * `export { default } from` (interopRequireDefault), and a default import beside named
- * ones and `import * as ns` (`ns.default`) (interopRequireWildcard). When the target has
- * its default, or is a marked ES module, both helpers return the module itself, exactly
- * as Babel's do. Otherwise the default import gets a wrapper whose `default` is read
- * lazily, and the namespace is a copy whose members are getters over the module (live
- * bindings, the module's own enumerable keys) plus a non-enumerable lazy `default`.
- * Plain CommonJS gets Babel's own wildcard copy. Namespaces are cached per module in one
- * runtime shared by every compiled file (ESM_INTEROP_RUNTIME on globalThis), so two
- * files importing one module get one namespace object, as under Node.
- *
- * Rejected:
- * - Choosing interop per import by RESOLVING the target at compile time
- *   (modules-commonjs' `importInterop` as a function: "node" for a CommonJS target,
- *   "babel" for an ES one). The compiled `require()` resolves under the `require`
- *   condition, not the `import` one the decision would naturally use (for tslib those
- *   are different files), and the output would then depend on other packages' manifests
- *   and files, which the content-keyed cache does not see: a dependency changing its
- *   `type` would be served stale output. Deciding at run time, on the object the
- *   require() actually returned, needs neither.
- * - Deciding once, at require time, on `hasOwnProperty(e, "default")` (this change's
- *   first version): wrong forever after for a module required mid-cycle, and wrong for
- *   a Proxy-served module, as above.
- * - A Proxy over the module as the namespace: keys added after the import would show,
- *   but every member access costs a trap (~15 ns against ~4 ns for a getter), and a
- *   per-file cache gave each importing file its own namespace object.
- * - Not compiling valid ESM-goal files and letting Node load them as ES modules. That
- *   is the eventual direction (see the NOTE in ecosystem.ts), but it moves those files
- *   out of the CommonJS loader the engine's ownership and preset redirects run through,
- *   and changes named exports and live bindings: a much larger change than this bug.
- *
- * Mechanism: Babel builds every helper through the file's `helperGenerator` when one is
- * set (@babel/core lib/transformation/file/file.js, _addHelper), which is how
- * @babel/plugin-transform-runtime points helpers at @babel/runtime. It installs that in
- * its `pre` hook, and every plugin's `pre` runs before traversal starts, so this wraps
- * it at Program entry and answers the two interop helpers. modules-commonjs asks for
- * them at Program exit, lazy or not. The helpers are declared once per file, the first
- * time either is asked for, as Babel declares its own inline helpers, and forward to the
- * shared runtime.
- */
-/** Marks the exports of a file the engine compiled from an ES module (non-enumerable). */
-export const ESM_EXPORTS_MARK = "vitest-native.esm";
-/** Where the shared interop runtime lives on globalThis; the suffix is its revision. */
-export const ESM_INTEROP_RUNTIME = "vitest-native.esmInterop.2";
-
-// One runtime per realm, installed by the first compiled file that needs it, so every
-// file shares one namespace cache (a CommonJS module is one namespace object for every
-// importer, as in Node). It is source text because each compiled file carries the
-// installer: compiled package files cannot rely on resolving vitest-native itself.
-const ESM_INTEROP_RUNTIME_SOURCE = `function () {
-  var key = Symbol.for(${JSON.stringify(ESM_INTEROP_RUNTIME)});
-  var runtime = globalThis[key];
-  if (runtime) return runtime;
-  var mark = Symbol.for(${JSON.stringify(ESM_EXPORTS_MARK)});
-  var hasOwn = Object.prototype.hasOwnProperty;
-  var namespaces = new WeakMap();
-  var nodeNamespaces = new WeakMap();
-  function isEsm(e) {
-    return e[mark] === true || Object.prototype.toString.call(e) === "[object Module]";
-  }
-  function hasDefault(e) {
-    return isEsm(e) || "default" in e;
-  }
-  function defaultOf(e) {
-    var d = e.default;
-    return d === undefined && !("default" in e) ? e : d;
-  }
-  function getter(f, e, k) {
-    Object.defineProperty(f, k, {
-      enumerable: true,
-      configurable: true,
-      get: function () { return e[k]; },
-    });
-  }
-  runtime = {
-    interopDefault: function (e) {
-      if (!e || !e.__esModule) return { default: e };
-      if (hasDefault(e)) return e;
-      return { get default() { return defaultOf(e); } };
-    },
-    interopWildcard: function (e, t) {
-      if (e === null || (typeof e != "object" && typeof e != "function")) {
-        return { __proto__: null, default: e };
-      }
-      var lazy = !t && !!e.__esModule;
-      if (lazy && hasDefault(e)) return e;
-      var cache = t ? nodeNamespaces : namespaces;
-      if (cache.has(e)) return cache.get(e);
-      var f = { __proto__: null };
-      for (var k in e) {
-        if (k === "default" || !hasOwn.call(e, k)) continue;
-        if (lazy) getter(f, e, k);
-        else {
-          var i = Object.getOwnPropertyDescriptor(e, k);
-          if (i && (i.get || i.set)) Object.defineProperty(f, k, i);
-          else f[k] = e[k];
-        }
-      }
-      if (lazy) {
-        Object.defineProperty(f, "default", { get: function () { return defaultOf(e); } });
-      } else f.default = e;
-      cache.set(e, f);
-      return f;
-    },
-  };
-  Object.defineProperty(globalThis, key, { value: runtime, configurable: true });
-  return runtime;
-}`;
-
-const ESM_INTEROP_HELPERS = ({ def, wild, runtime }) => `
-function ${def}(e) {
-  return ${runtime}().interopDefault(e);
-}
-function ${wild}(e, t) {
-  return ${runtime}().interopWildcard(e, t);
-}
-function ${runtime}() {
-  return (${ESM_INTEROP_RUNTIME_SOURCE})();
-}
-`;
-
-function esmImportInterop({ template, types: t }) {
-  return {
-    name: "vitest-native-esm-import-interop",
-    // The mark goes first in the body, after modules-commonjs has written its requires
-    // (`post` runs once every visitor is done), so a cycle that reaches this file while
-    // its requires run already sees it.
-    post(file) {
-      file.path.unshiftContainer(
-        "body",
-        template.statement.ast(
-          `Object.defineProperty(exports, Symbol.for(${JSON.stringify(ESM_EXPORTS_MARK)}), { value: true });`,
-        ),
-      );
-    },
-    visitor: {
-      Program: {
-        enter(_, state) {
-          const file = state.file;
-          const next = file.get("helperGenerator");
-          let ids = null;
-          const declare = () => {
-            if (ids) return ids;
-            const uid = (hint) => file.scope.generateUidIdentifier(hint);
-            ids = {
-              def: uid("esmInteropDefault"),
-              wild: uid("esmInteropWildcard"),
-              runtime: uid("esmInteropRuntime"),
-            };
-            const names = Object.fromEntries(Object.entries(ids).map(([k, id]) => [k, id.name]));
-            const nodes = template.statements.ast(ESM_INTEROP_HELPERS(names));
-            for (const node of nodes) node._compact = true;
-            for (const added of file.path.unshiftContainer("body", nodes))
-              file.scope.registerDeclaration(added);
-            return ids;
-          };
-          file.set("helperGenerator", (name) => {
-            if (name === "interopRequireDefault") return t.cloneNode(declare().def);
-            if (name === "interopRequireWildcard") return t.cloneNode(declare().wild);
-            return next?.(name);
-          });
-        },
-      },
-    },
-  };
-}
+// The default-import interop for ES modules compiled to CommonJS: esm-interop.mjs.
+export { ESM_EXPORTS_MARK, ESM_INTEROP_RUNTIME };
 
 /** Is this file's nearest package.json `type: module`? Cached per directory. */
 const goalCache = new Map();
@@ -695,29 +488,221 @@ function moduleGoal(file) {
   }
 }
 
-/** Transform an RN source file to runnable CJS. Cached in-memory + on disk. */
-// Babel loads its own presets and plugins with `require` while a transform runs, and
-// those requires pass through the engine's CommonJS hook like any other. Compiling them
-// there is compiling the compiler mid-compile: @react-native/babel-preset's
-// babel-plugin-syntax-hermes-parser and hermes-parser keep an `@flow` header in their
-// published builds and sit under an @react-native package, so the hook sent them back
-// through Babel, which then read the half-loaded plugin's exports and Node warned
-// "Accessing non-existent property 'then' of module exports inside circular
-// dependency" on a project's first run. They load as published, as they do under
-// Jest, whose transformer is never transformed.
+// Where Babel runs.
 //
-// The depth lives on the realm, not in this module: when two copies of this module
-// share a thread (a test importing the source while the engine's hook runs from the
-// build), a module-local counter left each copy blind to the other's transform, and
-// the hook compiled @react-native/babel-preset's inline-platform-plugin while that
-// preset was loading: "Reentrant preset detected" (#296).
-const TRANSFORM_DEPTH = Symbol.for("vitest-native.transformDepth");
-const transformState = (globalThis[TRANSFORM_DEPTH] ??= { depth: 0 });
+// Babel compiles on a worker thread of its own (babel-worker.mjs), never on the thread
+// that runs the tests, for the reason Jest's transformer is safe: under Jest, test code
+// runs in a vm context, so whatever it installs on its globals never reaches Babel.
+// Here test code and the engine share one realm, and Babel loads its own modules
+// lazily, part of them during its first transform: @babel/traverse, @babel/generator
+// and its source-map codec, and the preset's plugins. Those modules read globals as they
+// initialise (@jridgewell/sourcemap-codec reads `TextDecoder`), and by then the realm
+// holds what the tests installed. Any getter there whose first read requires a file the
+// engine compiles is enough. Expo SDK 57's runtime, installed at setup as jest-expo does,
+// is one: it replaces `TextDecoder` with a getter that requires
+// expo/src/winter/TextDecoder.ts (SDK 58 no longer replaces `TextDecoder`). On a warm
+// cache Babel first loads at the first miss, after that runtime, so the getter ran
+// inside Babel's own loading, its require came back to the engine's hook, and the file
+// was compiled by the half-loaded Babel: helper-replace-supers read `visitors`
+// from a @babel/traverse still loading, and the run failed with "Cannot read
+// properties of undefined (reading 'environmentVisitor')", blamed on whichever file
+// had missed the cache. It happens only when the getter is still pending when Babel
+// first loads, so it came and went with the state of the cache.
+//
+// On its own thread Babel sees Node's globals, whatever the test files install, and
+// loads its presets and plugins as published, as under Jest, whose transformer is never
+// transformed. That used to need a guard here: Babel's requires passed through the
+// engine's CommonJS hook, which skipped compiling while a transform was running (#296)
+// and so could not tell Babel's own requires from a test global's.
+//
+// The registry compiler's child process runs no test code, so Babel runs there on its
+// one thread (compileOnThisThread). A thread that dies never leaves its caller waiting:
+// one that exits or throws says so at once, and a deadline catches one V8 stopped for
+// running out of heap (TOOLCHAIN_DEADLINE_MS).
+//
+// Rejected:
+// - Loading Babel and the preset before Expo's runtime (or anything else) is
+//   installed: about 130 ms (require 30 ms, first transform 100 ms, measured on an
+//   Expo app) in every isolated worker, on every run, warm or not. And it only
+//   covers what is installed after the engine's setup.
+// - Refusing a nested transform (a counter, failing with a clear message): the
+//   require inside the getter is synchronous and cannot wait, so the failure only gets
+//   a better name and the run still fails.
+// - Reading `TextDecoder` and the like from Node for the toolchain: it would mean
+//   patching what Babel's dependencies read, one global at a time.
+//
+// The thread costs about 15 ms to start, once per thread and only at the first miss
+// or project-config lookup, and about 0.02 ms per request. A warm run starts none.
+// The thread shares process.env (SHARE_ENV), so a configuration reading the
+// environment sees what it saw before. It is started with no execArgv: nothing of the
+// engine (hooks, conditions, loaders) loads there.
+const BABEL_WORKER = new URL("./babel-worker.mjs", import.meta.url);
 
-/** Whether a transform is running on this thread (a require now is Babel's own). */
-export function isTransforming() {
-  return transformState.depth > 0;
+/**
+ * How long a request may go unanswered before Babel's thread is presumed lost and
+ * stopped. A thread that ends normally, or throws, says so at once (babel-worker.mjs);
+ * one V8 stops for running out of heap runs no handler, and only this ends the wait.
+ *
+ * A transform grows with its input: TypeScript's own 9.1 MB typescript.js took 5-6 s
+ * alone and 86-95 s with 20 compiling at once, which a flat minute failed as if Babel
+ * had run out of memory, where compiling on the test thread had only been slow. So a
+ * transform gets the base plus TOOLCHAIN_DEADLINE_MS_PER_MB for each MB of source (that
+ * file: 197 s); a config lookup, which reads no source, gets the base.
+ */
+const TOOLCHAIN_DEADLINE_MS = 60_000;
+const TOOLCHAIN_DEADLINE_MS_PER_MB = 15_000;
+const MB = 1024 * 1024;
+
+/** The deadline for one request: the base, plus time for each MB of source it carries. */
+export function toolchainDeadlineMs(request, baseMs = TOOLCHAIN_DEADLINE_MS) {
+  const bytes = typeof request.src === "string" ? request.src.length : 0;
+  return baseMs + Math.ceil((bytes / MB) * TOOLCHAIN_DEADLINE_MS_PER_MB);
 }
+
+// Captured as this module loads: the call below runs while test code is on the stack,
+// and a test that stubs one of these (or fakes the clock) must not stop compiling.
+const atomicsLoad = Atomics.load;
+const atomicsStore = Atomics.store;
+const atomicsWait = Atomics.wait;
+const SharedArrayBufferCtor = SharedArrayBuffer;
+const Int32ArrayCtor = Int32Array;
+const now = performance.now.bind(performance);
+
+// signal[0]: 0 while a request is outstanding, 1 answered, 2 the thread ended.
+// signal[1]: 1 once the thread has ended.
+let toolchain = null;
+// Internal: the deadline, the worker file and its resource limits, for tests that end a
+// thread on purpose (_setToolchainOptions).
+let toolchainOptions = {};
+// The registry compiler's child process runs no test code, so Babel runs there on the
+// one thread, as before: that process's heap bound and its out-of-memory retry
+// (bounded-process.mjs) apply to Babel too.
+let onThisThread = false;
+
+/** Run Babel on this thread: for a process that runs no test code (registry-compiler.mjs). */
+export function compileOnThisThread() {
+  onThisThread = true;
+}
+
+/**
+ * Internal test seam: `{ deadlineMs, workerUrl, resourceLimits }` (deadlineMs replaces the
+ * base, and source still adds to it); stops the current thread.
+ */
+export function _setToolchainOptions(options = {}) {
+  toolchain?.worker.terminate();
+  toolchain = null;
+  toolchainOptions = options;
+}
+
+// Sized explicitly. Left to its default, a worker started in a process whose old space
+// is capped small collects its young generation so often that compiling React Native's
+// 412 files takes about twice the CPU: 7.8-9.7 s against 3.6-6.1 s with this setting,
+// at --max-old-space-size=96 and 128. At 256 MB, 1024 MB and uncapped the two measured
+// the same. The engine's own capped process (the registry compiler) no longer starts
+// this thread, but a test process run with a small heap cap still would. The old space
+// keeps the process's cap.
+const YOUNG_GENERATION = { maxYoungGenerationSizeMb: 32 };
+
+function startToolchain() {
+  const { port1, port2 } = new MessageChannel();
+  const signal = new Int32ArrayCtor(new SharedArrayBufferCtor(8));
+  const worker = new Worker(toolchainOptions.workerUrl ?? BABEL_WORKER, {
+    // Node's compile cache as the calling thread has it (compile-cache.mjs decides per
+    // thread, and leaves it off where it would only grow), so Babel loads from it too.
+    workerData: { port: port2, signal, compileCache: nodeModule.getCompileCacheDir?.() },
+    transferList: [port2],
+    execArgv: [],
+    env: SHARE_ENV,
+    // The hot runtime's heap-based recycling (hotRuntime.memoryLimit) reads the test
+    // worker's own heap, which no longer holds Babel: this thread's heap is its own
+    // isolate's and is not counted. Babel's heap is bounded by what it compiles, and the
+    // thread ends with the test worker that started it.
+    resourceLimits: { ...YOUNG_GENERATION, ...toolchainOptions.resourceLimits },
+  });
+  // The caller already failed the transform when it was not answered; this is the
+  // thread's own account (out of memory, a throw while loading), printed beside it
+  // rather than left as an unhandled error event in the test worker.
+  worker.on("error", (err) => {
+    process.stderr.write(`[vitest-native] Babel's thread: ${err?.stack ?? err}\n`);
+  });
+  // Neither keeps the test thread alive: answers are read synchronously.
+  worker.unref();
+  port1.unref();
+  return { port: port1, signal, worker };
+}
+
+const ERROR_TYPES = { SyntaxError, TypeError, RangeError, ReferenceError };
+
+/** Babel's thread is gone: its own failure, not the file's. transformRN names the file. */
+function toolchainLost(detail) {
+  const err = new VitestNativeError("TRANSFORM_FAILED", detail);
+  Object.defineProperty(err, "toolchainLost", { value: detail });
+  return err;
+}
+
+/** One request to Babel, answered synchronously. */
+function callToolchain(request) {
+  if (onThisThread) return handleToolchainRequest(request);
+  if (toolchain === null || atomicsLoad(toolchain.signal, 1) === 1) toolchain = startToolchain();
+  const { port, signal, worker } = toolchain;
+  const deadlineMs = toolchainDeadlineMs(request, toolchainOptions.deadlineMs);
+  atomicsStore(signal, 0, 0);
+  port.postMessage(request);
+  const deadline = now() + deadlineMs;
+  for (;;) {
+    const left = deadline - now();
+    if (left <= 0) break;
+    if (atomicsWait(signal, 0, 0, Math.min(left, 1000)) !== "timed-out") break;
+    if (atomicsLoad(signal, 1) === 1) break;
+  }
+  const reply = receiveMessageOnPort(port)?.message;
+  if (reply === undefined) {
+    const ended = atomicsLoad(signal, 1) === 1;
+    toolchain = null;
+    if (!ended) {
+      worker.terminate();
+      const size =
+        typeof request.src === "string"
+          ? ` compiling ${(request.src.length / MB).toFixed(1)} MB of source`
+          : "";
+      throw toolchainLost(
+        `Babel's thread has not answered in ${Math.round(deadlineMs / 1000)} s${size}, and ` +
+          `was stopped. Either the file is very large for a machine this busy, or Babel ` +
+          `ran out of memory, which V8 ends without running the thread's exit handlers. ` +
+          `For memory, give Node more heap (--max-old-space-size): the thread's heap ` +
+          `follows the process's.`,
+      );
+    }
+    throw toolchainLost(
+      "Babel's thread ended before it answered: something it ran ended it (a " +
+        "`process.exit()` in a Babel config, preset or plugin), or it crashed. Its own " +
+        'error, if it has one, is printed as "Babel\'s thread:".',
+    );
+  }
+  if (reply.error) {
+    const { name, message, code, stack } = reply.error;
+    const err = new (ERROR_TYPES[name] ?? Error)(message);
+    err.name = name;
+    if (code !== undefined) err.code = code;
+    if (stack) err.stack = stack;
+    throw err;
+  }
+  return reply.ok;
+}
+
+/** A transform failure, named for the file: Babel's own, or its thread's. */
+function transformFailure(err, file, platform) {
+  if (err?.toolchainLost) {
+    return new VitestNativeError(
+      "TRANSFORM_FAILED",
+      `Could not transform ${file} for platform '${platform}'. ${err.toolchainLost}`,
+      { cause: err },
+    );
+  }
+  return decorateTransformError(err, file, platform);
+}
+
+/** Transform an RN source file to runnable CJS. Cached in-memory + on disk. */
 
 /**
  * The compiled output transformRN already holds for `file` as it is on disk now
@@ -756,7 +741,8 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   // App source under a project Babel config compiles with it (projectBabelOptions),
   // and the options it loaded key the output.
   const projectConfig = projectBabelOptions(ctx, file, platform);
-  // An ES module to Node gets the default-import interop described at esmImportInterop.
+  // An ES module to Node gets the default-import interop described at esmImportInterop
+  // (esm-interop.mjs).
   // App source under its own Babel config is left to that config, as babel-jest leaves it.
   const esm = projectConfig === null && isModuleGoal(file);
   const hash = crypto
@@ -785,34 +771,41 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   } catch {}
 
   let out;
-  transformState.depth++;
   try {
-    if (!ctx.babel) ctx.babel = ctx.req("@babel/core");
-    out = ctx.babel.transformSync(
-      src,
+    out = callToolchain(
       projectConfig
-        ? projectConfig.options
+        ? {
+            kind: "transform",
+            root: ctx.root,
+            file,
+            src,
+            project: true,
+            caller: babelJestCaller(ctx, platform),
+          }
         : {
-            filename: file,
-            plugins: [ctx.flowEnums, ctx.exportNamespaceFrom, esm && esmImportInterop].filter(
-              Boolean,
-            ),
-            // A fresh options object each call, as before Expo's preset was supported:
-            // Babel caches a preset's result per options object, so sharing one would
-            // change when the preset is instantiated.
-            presets: [[ctx.preset, { ...ctx.presetOptions }]],
-            babelrc: false,
-            configFile: false,
-            caller: { name: "metro", bundler: "metro", platform, supportsStaticESM: false },
+            kind: "transform",
+            root: ctx.root,
+            src,
+            // Added on Babel's side: a plugin is a function, which does not cross threads.
+            esmInterop: esm,
+            options: {
+              filename: file,
+              plugins: [ctx.flowEnums, ctx.exportNamespaceFrom].filter(Boolean),
+              // A fresh options object each call, as before Expo's preset was supported:
+              // Babel caches a preset's result per options object, so sharing one would
+              // change when the preset is instantiated.
+              presets: [[ctx.preset, { ...ctx.presetOptions }]],
+              babelrc: false,
+              configFile: false,
+              caller: { name: "metro", bundler: "metro", platform, supportsStaticESM: false },
+            },
           },
     ).code;
   } catch (err) {
     // Decorate here, at the single choke point, so every caller — the ESM
     // loader, the CJS require hook, requireActual's .ts handlers — surfaces
     // the file, platform, and owning package instead of a bare Babel stack.
-    throw decorateTransformError(err, file, platform);
-  } finally {
-    transformState.depth--;
+    throw transformFailure(err, file, platform);
   }
   // Atomic write: multiple worker threads may transform the same RN file
   // concurrently on a cold cache. Write to a unique temp file then rename
