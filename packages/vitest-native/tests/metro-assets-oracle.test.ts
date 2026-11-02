@@ -282,3 +282,15 @@ describe("asset file names split as Metro splits them", () => {
     expect(checked).toBeGreaterThan(300_000);
   });
 });
+
+// The asset extensions are copied from Metro, so they are checked against the Metro
+// installed here: a Metro release that changes its defaults fails this test.
+describe("Metro's default assetExts", () => {
+  it("are the ones vitest-native ships, and the plugin's defaults include all of them", async () => {
+    const { METRO_ASSET_EXTS } = await import("../src/native/assets.mjs");
+    const { DEFAULT_ASSET_EXTS } = await import("../src/preset-map.js");
+    const metroDefaults: string[] = metroRequire("metro-config/private/defaults/defaults").assetExts;
+    expect([...METRO_ASSET_EXTS]).toEqual(metroDefaults);
+    expect(metroDefaults.filter((ext) => !DEFAULT_ASSET_EXTS.includes(ext))).toEqual([]);
+  });
+});
