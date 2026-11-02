@@ -1233,6 +1233,21 @@ function prependSetupFile(userConfig: UserConfig, contributed: { setupFiles?: un
   contributed.setupFiles = [];
 }
 
+// Whether two spellings name the same directory. Windows has more than one spelling
+// for a path (`C:\Users\RUNNER~1` and `C:\Users\runneradmin`), and the context and
+// the project can each be handed either; the native realpath expands both to one.
+function sameDirectory(a: string, b: string): boolean {
+  if (a === b) return true;
+  const real = (p: string) => {
+    try {
+      return fs.realpathSync.native(p);
+    } catch {
+      return path.resolve(p);
+    }
+  };
+  return real(a) === real(b);
+}
+
 function hasSetupFile(setupFiles: unknown, file: string): boolean {
   const real = (f: string) => {
     try {
@@ -2793,7 +2808,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // server or an inline project that kept another project's context would run
       // with another project's configuration.
       const own = writtenContexts.get(contextRef) ?? projectContext(contextRef);
-      if (own && own.projectRoot !== root) {
+      if (own && !sameDirectory(own.projectRoot, root)) {
         throw new VitestNativeError(
           "CONTEXT_INVALID",
           `the project context is invalid (project): the Vitest project at ${root} ` +

@@ -223,6 +223,20 @@ describe("the Vite side", () => {
     const run = await configure(process.cwd());
     expect(run).not.toThrow();
   });
+
+  // Windows spells one directory both `RUNNER~1` and `runneradmin`; a symlink gives
+  // the same two spellings on every platform.
+  it("accepts its own under another spelling of the same directory", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-ctx-spelling-"));
+    const link = path.join(dir, "link");
+    fs.symlinkSync(process.cwd(), link, "junction");
+    try {
+      const run = await configure(link);
+      expect(run).not.toThrow();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("variables the context replaced", () => {
