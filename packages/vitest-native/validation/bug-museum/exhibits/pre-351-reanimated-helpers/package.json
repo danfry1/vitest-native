@@ -1,0 +1,10 @@
+{
+  "name": "museum-pre-351-reanimated-helpers",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "react-native-gesture-handler": "*",
+    "react-native-reanimated": "*",
+    "react-native-worklets": "*"
+  }
+}

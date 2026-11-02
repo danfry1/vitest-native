@@ -1,0 +1,78 @@
+name: Bug museum
+
+# Runs every bug-museum exhibit (packages/vitest-native/validation/bug-museum) against the
+# packed package and compares each verdict with the one STATUS.md records for main
+# (compare.mjs). The museum is red on main by design: open bugs fail as their bug. A
+# pull request fails this check only when it REGRESSES an exhibit: one that passes on
+# main now fails, or one that fails as its bug now fails some other way. An exhibit that
+# now passes is reported, to be recorded with run-columns.mjs and status.mjs.
+#
+# ADVISORY: not a required check. It becomes one, by the maintainer's decision, once
+#   - it has run green on main for two weeks of merges with no flaky verdict, and
+#   - cfg-group-conflict-fallback no longer depends on the runner's memory (today hot
+#     auto may pick per-file isolation on a hosted runner; compare.mjs reports that
+#     exhibit as inconclusive instead of failing).
+#
+# One job, one Node version (22.13.0, the floor the config-axis matrix also runs).
+# Skipped here (N/A, run.mjs --allow-na): the exhibits that need an install this job does
+# not assemble. They are measured locally by run-columns.mjs and recorded in STATUS.md:
+#   RNTL 12   pre-rntl12-nested-text, pre-rntl12-nested-text-role
+#   RNTL 13   env-recoverable-error, env-rntl13-auto-cleanup, pre-rntl13-nested-text,
+#             pre-rntl13-native-stack-header
+#   Vitest 4  pfs-hot-automock-vitest4
+# The pnpm-layout exhibits run: run.mjs assembles that layout from the frozen install.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/vitest-native/src/**'
+      - 'packages/vitest-native/package.json'
+      - 'packages/vitest-native/tsdown.config.*'
+      - 'packages/vitest-native/validation/**'
+      - 'bun.lock'
+      - '.github/workflows/bug-museum.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  museum:
+    name: Bug museum (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+        with:
+          node-version: 22.13.0
+
+      - name: Build
+        run: bun run build
+
+      # The exhibits install what is published: package.json and its `files`.
+      - name: Pack the package
+        working-directory: packages/vitest-native
+        run: |
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP"
+          mkdir -p "$RUNNER_TEMP/packed"
+          tar -xzf "$RUNNER_TEMP"/vitest-native-*.tgz -C "$RUNNER_TEMP/packed"
+
+      # run.mjs exits 1 whenever an exhibit fails, which on main is every open bug; the
+      # step fails only when it wrote no verdicts at all.
+      - name: Run the exhibits
+        run: |
+          node packages/vitest-native/validation/bug-museum/run.mjs \
+            --build "$RUNNER_TEMP/packed/package" --allow-na --json "$RUNNER_TEMP/museum.json" \
+            || test -s "$RUNNER_TEMP/museum.json"
+
+      - name: Compare with the verdicts recorded for main
+        run: node packages/vitest-native/validation/bug-museum/compare.mjs --verdicts "$RUNNER_TEMP/museum.json"

@@ -1,0 +1,11 @@
+{
+  "name": "museum-flash",
+  "version": "0.4.2",
+  "main": "src/index.js",
+  "dependencies": {
+    "museum-screen-helper": "2.2.1"
+  },
+  "peerDependencies": {
+    "react-native": "*"
+  }
+}

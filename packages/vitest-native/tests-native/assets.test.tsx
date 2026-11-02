@@ -95,6 +95,13 @@ describe("native engine: Metro-shaped asset modules", () => {
     expect(asset).not.toHaveProperty("width");
   });
 
+  // An Android vector drawable, as expo-router's Android toolbar requires one: Metro's
+  // default assetExts include `xml`, so it is an asset, not JavaScript to compile.
+  it("an .xml file in Metro's default assetExts registers as an asset", () => {
+    const asset = registry().getAssetByID(require("./fixtures/assets/arrow_right.xml"));
+    expect(asset).toMatchObject({ __packager_asset: true, name: "arrow_right", type: "xml" });
+  });
+
   it("an ESM import of the asset is the same id as the require", () => {
     expect(logoImport).toBe(require("./fixtures/assets/logo.png"));
     expect(fontImport).toBe(require("./fixtures/assets/Glyphs.ttf"));

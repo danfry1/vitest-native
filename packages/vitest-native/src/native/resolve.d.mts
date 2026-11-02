@@ -37,3 +37,9 @@ export declare function resolveDeepPackageFile(
  * Windows) does not answer by itself.
  */
 export declare function existsExact(file: string): boolean;
+
+/**
+ * The first `prefix + suffix` that exists under exactly that name, in `suffixes` order,
+ * answered from one listing of their shared directory; null when none does.
+ */
+export declare function firstExact(prefix: string, suffixes: readonly string[]): string | null;

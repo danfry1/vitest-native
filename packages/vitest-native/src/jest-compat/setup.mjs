@@ -11,14 +11,15 @@
 // this entry) to rewrite top-level jest.mock/unmock/doMock to the hoisted vi.*
 // form at transform time. `jest.fn`, `jest.spyOn`, `jest.requireActual`,
 // `jest.useFakeTimers` work at runtime via the `jest` global installed here.
-import { vi } from "vitest";
+import { expect, vi } from "vitest";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { jestMockInterop } from "./interop.mjs";
 import { installJestObject } from "./jest-object.mjs";
 import { callerFile } from "./caller.mjs";
+import { errorsWithMethodsEquality } from "./error-equality.mjs";
 import { VitestNativeError } from "../errors.mjs";
-import { NODE_MOCKS_STATE_ID, config, nodeRegistry } from "./node-registry.mjs";
+import { NODE_MOCKS_STATE_ID, actualExports, config, nodeRegistry } from "./node-registry.mjs";
 
 // The global `require` below resolves from the consumer project root.
 const require = createRequire(path.join(config.projectRoot, "package.json"));
@@ -206,6 +207,25 @@ if (typeof vi.retryTimes !== "function") {
 // keeps Vitest's meaning, and Vitest has no isolateModules to extend.
 globalThis.jest = installJestObject(vi, { resetModules, isolateModules, isolateModulesAsync });
 
+// Two identical errors whose class assigns methods as instance fields (zod 3's
+// ZodError) are never equal under Vitest, which compares an error's own properties and
+// so its per-instance closures; Jest compares errors by message. See error-equality.mjs
+// for why the tester ignores only those methods rather than adopting Jest's rule.
+//
+// The testers live in Vitest's expect state, which outlives this file under the hot
+// runtime, and each evaluation of this file brings a new function. Look for a tester
+// carrying the marker in the list itself (`globalThis[Symbol.for('$$jest-matchers-
+// object')]` is where `expect.addEqualityTesters` pushes, in Jest and Vitest alike), so
+// it is registered once however many files the worker runs.
+const ERROR_METHODS_EQUALITY = Symbol.for("vitest-native.jest-compat.error-methods-equality");
+{
+  const registered = globalThis[Symbol.for("$$jest-matchers-object")]?.customEqualityTesters;
+  if (!registered?.some((tester) => tester?.[ERROR_METHODS_EQUALITY])) {
+    errorsWithMethodsEquality[ERROR_METHODS_EQUALITY] = true;
+    expect.addEqualityTesters([errorsWithMethodsEquality]);
+  }
+}
+
 // Jest sets `JEST_WORKER_ID` in every worker (jest-worker: `JEST_WORKER_ID:
 // String(workerId + 1)`; jest-runner sets "1" when running in band), and code written for Jest tests
 // for it to detect a test run — e.g. picking a local or production endpoint with
@@ -227,7 +247,8 @@ if (typeof globalThis.__vnInteropMock !== "function") globalThis.__vnInteropMock
 // the memoized value through the CJS interop; Node's `require` gets the raw value.
 {
   const registry = nodeRegistry();
-  globalThis.__vnJestMock = (from, spec, factory) => void registry.register(from, spec, factory);
+  globalThis.__vnJestMock = (from, spec, factory, asyncFactory) =>
+    void registry.register(from, spec, factory, asyncFactory);
   globalThis.__vnJestMocked = (from, spec) => {
     const entry = registry.byCall.get(`${from}\0${spec}`);
     if (entry === undefined) {
@@ -236,8 +257,11 @@ if (typeof globalThis.__vnInteropMock !== "function") globalThis.__vnInteropMock
         `the jest.mock('${spec}') factory was not registered in this test file.`,
       );
     }
-    return jestMockInterop(registry.valueOf(entry));
+    return jestMockInterop(registry.valueForImport(entry));
   };
+  // A factory's `jest.requireActual` of project source that jestMockTransform moved to
+  // `vi.importActual` (transform.ts) gets its result in the shape requireActual gives.
+  globalThis.__vnActualExports = actualExports;
   globalThis.__vnJestUnmock = (from, spec) => registry.unregister(from, spec);
   // Registrations are per test file, as in Jest. This file evaluates before each test
   // file, so a worker reused without the hot runtime (`isolate: false`, or a watch
@@ -247,6 +271,12 @@ if (typeof globalThis.__vnInteropMock !== "function") globalThis.__vnInteropMock
   // Hot runtime: cleared at the file boundary and verified empty (state-manifest.mjs).
   globalThis.__vitest_native_register_state?.({
     id: NODE_MOCKS_STATE_ID,
+    // Before the value-based React Native restores. They reach their module through
+    // Node's loader (react-native's index getters `require` it), and while the
+    // previous file's `jest.mock` is still registered that load returns the mock:
+    // `jest.mock('react-native/Libraries/Utilities/Appearance', () => null)` made the
+    // Appearance restore read `null.setColorScheme` and fail the NEXT file's reset.
+    restoreOrder: -100,
     capture: () => null,
     restore: () => registry.clear(),
     verify: () => {

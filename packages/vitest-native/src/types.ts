@@ -206,14 +206,10 @@ export interface PresetModule {
   /**
    * Named exports read from the installed package, for a package whose API changes
    * between releases; replaces `exports` when present. Called once at Vite config time
-   * with the project root, platform and engine. `null` means the package is not
-   * installed, so the module is not shadowed at all.
+   * with the project root and platform. `null` means the package is not installed, so
+   * the module is not shadowed at all.
    */
-  exportsFor?: (context: {
-    projectRoot: string;
-    platform: "ios" | "android";
-    engine: "mock" | "native";
-  }) => string[] | null;
+  exportsFor?: (context: { projectRoot: string; platform: "ios" | "android" }) => string[] | null;
 }
 
 export interface Preset {
@@ -383,7 +379,9 @@ export interface VitestNativeOptions {
    *   or exceeds this value, also between scheduler tasks. By default a
    *   constrained-memory-aware plan derives this threshold, caps automatic
    *   concurrency at four, reserves main-process and worker-replacement RSS,
-   *   and stops before crossing 90% of the host/container limit.
+   *   and stops before crossing 90% of the host/container limit. A worker count
+   *   you set (`maxWorkers`, `--maxWorkers` or `VITEST_MAX_WORKERS`) is capped
+   *   only by what that memory envelope admits.
    * - `allowUnboundedMemory`: explicitly permit configurations where Vitest
    *   cannot enforce file-boundary recycling, notably `maxWorkers: 1`. This
    *   also disables the automatic worker cap and process-RSS hard stop. Use
@@ -399,16 +397,19 @@ export interface VitestNativeOptions {
    *   re-execution: a suite whose files import many externalized (non-React
    *   Native) packages measured 55% more wall clock at the extreme — still 9x
    *   stock isolation, against 13.9x with it off. Set false to trade that back,
-   *   accepting that a package holding state across files will keep it.
+   *   accepting that a package holding state across files will keep it. While it
+   *   is on, hot workers leave Node's V8 compile cache off, because every file
+   *   would add an entry per re-evaluated module (unless `NODE_COMPILE_CACHE` is
+   *   set, which turns the cache on before vitest-native runs).
    *
    * `'auto'` selects the bounded hot runtime when the configuration has recyclable
    * task boundaries (enough memory headroom for at least two workers) and no
-   * explicit custom pool; otherwise the run keeps per-file isolation. Set
-   * explicitly, it prints the reason for falling back; as the default it falls
-   * back quietly (`diagnostics: true` shows the reason).
+   * explicit custom pool; otherwise the run keeps per-file isolation and prints the
+   * reason for falling back.
    *
-   * Default: `'auto'`. `false` always runs each file in a fresh worker, with React
-   * Native reloaded per file.
+   * Default: `false`, as in 0.13.0: each file runs in a fresh worker, with React
+   * Native reloaded per file. The hot runtime has known differences from per-file
+   * isolation, listed in the troubleshooting guide.
    */
   hotRuntime?:
     | boolean

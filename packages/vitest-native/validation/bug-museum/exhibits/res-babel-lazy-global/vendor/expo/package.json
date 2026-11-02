@@ -1,0 +1,8 @@
+{
+  "name": "expo",
+  "version": "57.0.0",
+  "main": "src/Expo.ts",
+  "peerDependencies": {
+    "react-native": "*"
+  }
+}

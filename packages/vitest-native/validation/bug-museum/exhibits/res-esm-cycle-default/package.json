@@ -1,0 +1,8 @@
+{
+  "name": "museum-res-esm-cycle-default",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "museum-esm-lib": "1.0.0"
+  }
+}
