@@ -101,6 +101,11 @@ jobs:
           # session. Everything runs here, hot runtime included.
           - os: ubuntu-latest
             node-version: 24.13.0
+          # Node 26 is the active LTS line (26.13.0, October 2026) and engines.node
+          # (>=24.3.0) admits it, so it runs the full gate too: the loader hooks run
+          # in-thread on it, and their behaviour has changed between Node lines before.
+          - os: ubuntu-latest
+            node-version: 26.13.0
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { expandAlias } from "../src/jest-compat/aliases.mjs";
 import { stripJsonc, tsconfigPathAliases } from "../src/native/tsconfig-paths.mjs";
+import { contextOf } from "./project-context-helpers.js";
 
 // tsconfig `paths` resolve imports through Vite; a `require('#/…')` or
 // `jest.requireActual('#/…')` resolves through Node and needs them as aliases.
@@ -148,7 +149,7 @@ describe("the plugin hands tsconfig paths to Node-side resolution", () => {
       root,
       resolve,
     });
-    return JSON.parse(result?.test?.env?.VITEST_NATIVE_REQUIRE_ALIASES ?? "[]");
+    return contextOf(result).requireAliases ?? [];
   };
 
   it("when Vite resolves them for imports", async () => {

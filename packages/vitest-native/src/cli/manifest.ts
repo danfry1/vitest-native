@@ -60,8 +60,7 @@ export function activePresets(
 ): PresetName[] {
   const active = new Set<PresetName>();
   for (const [pkg, preset] of Object.entries(AUTO_DETECT_PRESETS)) {
-    if (disabled.includes(preset) || !autoDetectedPresetApplies(preset, engine, undefined, root))
-      continue;
+    if (disabled.includes(preset) || !autoDetectedPresetApplies(preset, engine)) continue;
     if (installedManifest(root, pkg) && !installedTestsItself(root, pkg)) active.add(preset);
   }
   return [...active];

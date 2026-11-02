@@ -81,7 +81,26 @@ export function screens(): Preset {
           const ScreenFooter = createScreenComponent("ScreenFooter");
           // native-stack renders through ScreenStackItem; without it the stack never
           // reaches onReady and the screen stays empty with nothing thrown.
-          const ScreenStackItem = createScreenComponent("ScreenStackItem");
+          //
+          // It also renders the header. native-stack hands headerLeft, headerRight
+          // and a custom title to ScreenStackItem as `headerConfig.children`
+          // (@react-navigation/native-stack 7.x, useHeaderConfigProps.tsx), and the
+          // real component renders `<ScreenStackHeaderConfig {...headerConfig} />`
+          // after the screen's content, unconditionally, `hidden` included
+          // (react-native-screens 4.25 src/components/ScreenStackItem.tsx). A stub
+          // that rendered only `children` dropped every header element, so a
+          // header button's testID could not be found. `headerConfig` itself is
+          // not a host prop on the real Screen either.
+          const ScreenStackItem = React.forwardRef(
+            ({ headerConfig, children, ...props }: any, ref: any) =>
+              React.createElement(
+                "ScreenStackItem",
+                { ...props, ref },
+                children,
+                React.createElement(ScreenStackHeaderConfig, headerConfig),
+              ),
+          );
+          ScreenStackItem.displayName = "ScreenStackItem";
           const ScreenStackHeaderBackButtonImage = createScreenComponent(
             "ScreenStackHeaderBackButtonImage",
           );

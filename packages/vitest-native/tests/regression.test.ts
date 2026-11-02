@@ -7,6 +7,8 @@ import { describe, it, expect } from "vitest";
 import { NativeModules, Platform } from "react-native";
 import { reactNative } from "../src/index.js";
 import { runPluginConfig } from "./plugin-config.js";
+import { contextOf } from "./project-context-helpers.js";
+import { projectContext } from "../src/context.mjs";
 
 // --- Issue 1: NativeModules methods must be callable ---
 // Previously, the inner proxy returned objects (not functions), so
@@ -131,38 +133,38 @@ describe("react-native subpath imports", () => {
 
 // --- Issue 4: Plugin options must reach the setup file ---
 // Previously, options were passed via globalThis which doesn't survive from
-// Vite's main process into Vitest worker processes. Now uses process.env.
+// Vite's main process into Vitest worker processes. Now uses the project context,
+// named by one environment variable.
 
-describe("options transport via process.env", () => {
-  it("VITEST_NATIVE_PLATFORM env var is set", () => {
-    expect(process.env.VITEST_NATIVE_PLATFORM).toBeDefined();
+describe("options transport via the project context", () => {
+  it("the platform is set", () => {
+    expect(projectContext()?.platform).toBeDefined();
   });
 
   it("platform option reaches the setup file", () => {
     // The default platform is 'ios'. If the env var transport works,
     // Platform.OS should match what the plugin configured.
-    const expectedPlatform = process.env.VITEST_NATIVE_PLATFORM || "ios";
+    const expectedPlatform = projectContext()?.platform ?? "ios";
     expect(Platform.OS).toBe(expectedPlatform);
   });
 
-  it("VITEST_NATIVE_DIAGNOSTICS env var is set", () => {
-    expect(process.env.VITEST_NATIVE_DIAGNOSTICS).toBeDefined();
+  it("diagnostics is set", () => {
+    expect(typeof projectContext()?.diagnostics).toBe("boolean");
   });
 
-  it("VITEST_NATIVE_PROJECT_ROOT env var is set and is a valid path", () => {
-    expect(process.env.VITEST_NATIVE_PROJECT_ROOT).toBeDefined();
+  it("the project root is set and is a valid path", () => {
     // Should be an absolute path, not empty (POSIX "/..." or Windows "C:\\...").
-    expect(path.isAbsolute(process.env.VITEST_NATIVE_PROJECT_ROOT!)).toBe(true);
+    expect(path.isAbsolute(projectContext()!.projectRoot)).toBe(true);
   });
 
-  it("VITEST_NATIVE_PROJECT_ROOT follows test.root, the root Vitest gives Vite", async () => {
+  it("the project root follows test.root, the root Vitest gives Vite", async () => {
     // It was Vite's `root` or the working directory, so a run started from a parent
     // directory with `test.root` (or `--root`) resolved packages from the parent in
     // every worker, while the plugin resolved them from the project.
     const root = path.join(process.cwd(), "tests");
     const plugin = reactNative({ engine: "mock" });
     const result = await runPluginConfig(plugin as never, { test: { root } } as never);
-    expect(result.test.env.VITEST_NATIVE_PROJECT_ROOT).toBe(root);
+    expect(contextOf(result).projectRoot).toBe(root);
   });
 });
 
