@@ -227,6 +227,14 @@ export async function buildRegistryFor(options, compiler = compileRegistryInChil
     const cached = buildRegistry({ ...options, cacheOnly: true, failOnError: true });
     if (cached) return cached;
 
+    // A background build of the same entry is already running in this process (another
+    // project in the run, or a config reload): wait for it instead of compiling twice.
+    const joined = inFlight.get(registryLocation(options).registryFile);
+    if (joined) {
+      const file = await joined.done;
+      if (file) return file;
+    }
+
     const result = await compiler(COMPILER_FILE(), options);
 
     // Validate through the same cache contract every reader uses instead of

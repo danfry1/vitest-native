@@ -231,4 +231,36 @@ describe("background registry build", () => {
       warn.mockRestore();
     }
   });
+
+  it("lets a waiting build join a background build of the same entry", async () => {
+    const options = coldOptions("joined");
+    const held = heldCompiler();
+    startRegistryBuild(options, held.compiler);
+    let compiles = 0;
+    const waiting = buildRegistryFor(options, async () => {
+      compiles++;
+      return { ok: false, error: "compiled twice" };
+    });
+    // The background compiler publishes the entry, as the real one does.
+    const key = registryKey(options) as string;
+    const registryDir = path.join(
+      options.projectRoot,
+      "node_modules",
+      ".cache",
+      "vitest-native",
+      "registry",
+    );
+    fs.mkdirSync(registryDir, { recursive: true });
+    const registryFile = path.join(registryDir, `rn-ios-${key}.cjs`);
+    fs.writeFileSync(registryFile, "module.exports = {};\n");
+    const manifestFile = path.join(options.projectRoot, "package.json");
+    const stat = fs.statSync(manifestFile);
+    fs.writeFileSync(
+      `${registryFile}.json`,
+      JSON.stringify({ key, count: 1, manifest: [[manifestFile, stat.mtimeMs, stat.size]] }),
+    );
+    held.finish();
+    expect(await waiting).toBe(registryFile);
+    expect(compiles).toBe(0);
+  });
 });
