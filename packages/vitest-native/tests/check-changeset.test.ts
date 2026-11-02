@@ -227,6 +227,8 @@ describe("check-changeset.mjs against a repository", () => {
       encoding: "utf8",
     });
     expect(result.status, result.stdout + result.stderr).toBe(0);
+    // An exit of 0 alone is also what a script that never ran returns.
+    expect(result.stdout).toContain("✓ no shipped source");
   });
 
   it("passes a devDependency bump with no changeset", () => {

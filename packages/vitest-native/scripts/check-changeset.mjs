@@ -19,6 +19,8 @@
 // need a changeset. A production `dependencies` change does, Dependabot's included:
 // it changes what every user installs, so it gets a patch changeset naming the bump.
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 
 const PACKAGE = "packages/vitest-native/";
 const SHIPPED = `${PACKAGE}src/`;
@@ -121,7 +123,19 @@ function changedFilesBetween(base, head) {
   return res.stdout.split("\n").filter(Boolean);
 }
 
-if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split("/").pop() ?? "")) {
+// Run as a script, not when imported by tests. Compared as real paths: matching on the
+// last `/`-separated segment of argv[1] never matched on Windows, where argv[1] uses
+// backslashes, so the check was skipped and every run there exited 0.
+function isMain() {
+  if (!process.argv[1]) return false;
+  try {
+    return fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isMain()) {
   const [base, head = "HEAD"] = process.argv.slice(2);
   if (!base) {
     console.error("usage: node scripts/check-changeset.mjs <base-ref> [head-ref]");
