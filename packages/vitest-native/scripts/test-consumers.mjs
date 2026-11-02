@@ -120,33 +120,52 @@ function runExpoPnpmSuite(tarball) {
   for (const dir of [fixtureRoot, app, library]) addPackedDependency(dir, tarball);
   pnpm(["install", "--no-frozen-lockfile"], fixtureRoot);
 
-  const vitest = (cwd, args, env) =>
-    runCaptured(
-      pnpmCommand[0],
-      [...pnpmCommand.slice(1), "exec", "vitest", "run", ...args],
-      cwd,
-      env,
-    );
-  // The first run fills the transform cache; the second is warm, so its fresh module in
-  // warm-cache-miss.test.ts is a worker's first cache miss after setup.
+  // Every leg runs, and the failures are reported together at the end: one run shows
+  // which platform and runtime combinations a change broke, not only the first.
+  const failures = [];
+  const leg = (name, cwd, args, env, check = () => undefined) => {
+    try {
+      const output = runCaptured(
+        pnpmCommand[0],
+        [...pnpmCommand.slice(1), "exec", "vitest", "run", ...args],
+        cwd,
+        env,
+      );
+      const problem = check(output);
+      if (problem) failures.push(`${name}: ${problem}`);
+    } catch (error) {
+      failures.push(`${name}: ${error.message}`);
+    }
+  };
+  // 'auto' is only proven if the selector admitted the suite (no jest-compat, more than
+  // one worker); a decline would quietly re-run the per-file leg.
+  const runtimeIs = (hot) => (output) => {
+    const isHot = output.includes(", hot runtime)");
+    if (hot === "auto" && !isHot) return "hotRuntime 'auto' did not select the hot runtime";
+    if (hot === "false" && isHot) return "hotRuntime false ran the hot runtime";
+    return undefined;
+  };
   for (const hot of ["false", "auto"]) {
     for (const platform of ["ios", "android"]) {
       const env = { VN_HOT: hot, VN_PLATFORM: platform };
-      const output = vitest(app, [], env);
-      // 'auto' is only proven if the selector admitted this suite: no jest-compat, more
-      // than one worker. A decline would quietly re-run the per-file leg.
-      if (hot === "auto" && !output.includes(", hot runtime)")) {
-        throw new Error(
-          `hotRuntime 'auto' did not select the hot runtime for the ${platform} suite`,
-        );
-      }
-      if (hot === "false" && output.includes(", hot runtime)")) {
-        throw new Error(`hotRuntime false ran the hot runtime for the ${platform} suite`);
-      }
-      if (hot === "false" && platform === "ios") vitest(app, [], env);
-      vitest(app, ["--config", "vitest.router.config.mts"], env);
+      const name = `app (${platform}, hotRuntime ${hot})`;
+      leg(name, app, [], env, runtimeIs(hot));
+      // The first run fills the transform cache. The second is warm, so the fresh module
+      // in warm-cache-miss.test.ts is a worker's first cache miss after setup.
+      if (hot === "false" && platform === "ios") leg(`${name}, warm cache`, app, [], env);
+      leg(
+        `router (${platform}, hotRuntime ${hot})`,
+        app,
+        ["--config", "vitest.router.config.mts"],
+        env,
+      );
     }
-    vitest(library, [], { VN_HOT: hot });
+    leg(`library (hotRuntime ${hot})`, library, [], { VN_HOT: hot });
+  }
+  if (failures.length > 0) {
+    throw new Error(
+      `Expo pnpm suite: ${failures.length} leg(s) failed\n- ${failures.join("\n- ")}`,
+    );
   }
 }
 
