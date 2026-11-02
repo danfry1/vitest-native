@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { METRO_ASSET_EXTS } from "./native/assets.mjs";
 import type * as Presets from "./presets/index.js";
 
 /** Valid preset factory names exported from `presets/index.ts`. */
@@ -219,25 +220,13 @@ export function presetShadowing(moduleId: string): PresetName | undefined {
  * mapper's extensions are covered without loading the plugin.
  */
 export const DEFAULT_ASSET_EXTS: readonly string[] = [
-  "png",
-  "jpg",
-  "jpeg",
-  "gif",
-  "bmp",
-  "webp",
-  "svg",
+  // Metro's own defaults (`assetExts` in metro-config), as an app built with no
+  // Metro config of its own resolves them.
+  ...METRO_ASSET_EXTS,
+  // Image and font types React Native apps commonly add to Metro's `assetExts`.
   "tiff",
   "heic",
   "heif",
-  "mp4",
-  "mp3",
-  "wav",
-  "aac",
-  "m4a",
-  "mov",
-  "webm",
-  "ttf",
-  "otf",
   "woff",
   "woff2",
 ];
