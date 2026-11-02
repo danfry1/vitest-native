@@ -484,6 +484,9 @@ export function buildRegistry({
   // ordinary callers keep the warning + correctness-preserving fallback contract.
   cacheOnly = false,
   failOnError = false,
+  // registryLocation's result for these options, when the caller already has it, so a
+  // run computes the key (which hashes the boundary mocks' source) once.
+  location,
 }) {
   // See warnRegistryUnavailable: this is the one path that stays quiet, because
   // the user asked for it.
@@ -504,14 +507,16 @@ export function buildRegistry({
   let registryFile;
   let metaFile;
   try {
-    ({ key, registryFile, metaFile } = registryLocation({
-      projectRoot,
-      platform,
-      reactNativeVersion,
-      assetExts,
-      sourceExts,
-      additionalEntries,
-    }));
+    ({ key, registryFile, metaFile } =
+      location ??
+      registryLocation({
+        projectRoot,
+        platform,
+        reactNativeVersion,
+        assetExts,
+        sourceExts,
+        additionalEntries,
+      }));
     fs.mkdirSync(path.dirname(registryFile), { recursive: true });
   } catch (error) {
     if (failOnError) throw error;

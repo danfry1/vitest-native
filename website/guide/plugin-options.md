@@ -12,6 +12,7 @@ reactNative({
   transform: [],         // Extra node_modules packages to transform (Flow/TS/JSX), native engine
   hotRuntime: false,     // Per-file isolation (default); 'auto' opts in to the hot runtime
   nativeModules: 'device', // 'device' | 'permissive' — how native module lookups answer, native engine
+  registryBuild: 'background', // 'background' | 'wait' — a cold registry build, native engine
   // presets — omitted on purpose: leaving it out auto-detects your installed
   // libraries. Passing an array uses ONLY that array, so `presets: []` means none.
 })
@@ -129,3 +130,16 @@ reactNative({ nativeModules: 'permissive' })
 ```
 
 Next: [Third-Party Presets](/guide/presets).
+
+## `registryBuild`
+
+(Native engine.) What a run does when React Native's precompiled registry is not in the cache yet: on the first run after an install, an upgrade of React Native or vitest-native, a Babel toolchain change, or a cleared `node_modules/.cache/vitest-native`.
+
+- `'background'` *(default)* — the run starts at once while the registry compiles in a low-priority background process. Test files that start before it is ready load React Native file by file, which is slower per file; files that start after it lands use it. When Vitest closes, a build still running gets up to half of `teardownTimeout` to finish, so the next run starts warm; a cancelled run (`--bail`, a watch-mode key) stops it at close instead. The first run can differ from later ones in one visible way: the column numbers in React Native's own stack frames.
+- `'wait'` — compile the registry before the run starts, so every file uses it.
+
+The hot runtime and CI runs (`CI` set, or a CI provider's variables) always wait.
+
+```ts
+reactNative({ registryBuild: 'wait' })
+```

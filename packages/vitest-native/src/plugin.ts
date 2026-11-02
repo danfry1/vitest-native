@@ -452,8 +452,8 @@ async function loadRegistryProcess(): Promise<{
     registry?: string | null;
     pending?: { file: string; since: number };
   };
-  settleRegistryBuilds: (budgetMs: number) => Promise<void>;
-  stopRegistryBuilds: () => Promise<void>;
+  settleRegistryBuilds: (budgetMs: number, state: { cancelled: boolean }) => Promise<void>;
+  isCI: () => boolean;
 }> {
   const dir = path.dirname(fileURLToPath(import.meta.url));
   return import(pathToFileURL(path.resolve(dir, "native/registry-process.mjs")).href);
@@ -2201,10 +2201,18 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // On a cache miss the registry compiles in the background and this run loads
         // React Native file by file, which is the same React Native; a test file that
         // starts after the registry lands uses it (startRegistryBuild records why, and
-        // the options rejected). A hot worker serves many files from one boot, and holds
-        // React Native resident without the registry, so the hot runtime still waits
-        // for it. VITEST_NATIVE_REGISTRY_WAIT=1 restores waiting everywhere.
-        if (hotMemory || process.env.VITEST_NATIVE_REGISTRY_WAIT === "1") {
+        // the options rejected). It waits instead under the hot runtime (a hot worker
+        // keeps React Native resident from its first file), on CI (only total time
+        // counts there, and per-file loading costs more than the build on a large
+        // suite), and with `registryBuild: 'wait'`. VITEST_NATIVE_REGISTRY_WAIT=1 is the
+        // same switch for this package's own suites, whose configs call the plugin
+        // where they cannot pass an option.
+        const waitForRegistry =
+          hotMemory !== undefined ||
+          options?.registryBuild === "wait" ||
+          process.env.VITEST_NATIVE_REGISTRY_WAIT === "1" ||
+          (await loadRegistryProcess()).isCI();
+        if (waitForRegistry) {
           const registryFile = await buildRegistryFor(registryOptions);
           if (registryFile) fields.registry = registryFile;
         } else {
@@ -2851,18 +2859,18 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       registrySettlers.add(vitest);
       const closable = vitest as {
         onClose?: (fn: () => Promise<void>) => void;
-        onCancel?: (fn: () => Promise<void>) => void;
+        // Vitest's own reporters read it to report an interrupted run; marked internal.
+        isCancelling?: boolean;
         config?: { teardownTimeout?: number };
       };
-      // A cancelled run (Ctrl-C in a terminal) exits without waiting for the build.
-      closable.onCancel?.(async () => {
-        await (await loadRegistryProcess()).stopRegistryBuilds();
-      });
-      // Vitest gives its whole close `teardownTimeout` before it reports a hang and
-      // exits; leave it a second of that.
-      const budgetMs = (closable.config?.teardownTimeout ?? 10_000) - 1000;
+      // Vitest's `teardownTimeout` counts from its exit(), before global teardown and
+      // the pool close that come ahead of this hook, so wait at most half of it: a
+      // close never runs into "close timed out".
+      const budgetMs = (closable.config?.teardownTimeout ?? 10_000) / 2;
       closable.onClose?.(async () => {
-        await (await loadRegistryProcess()).settleRegistryBuilds(budgetMs);
+        await (
+          await loadRegistryProcess()
+        ).settleRegistryBuilds(budgetMs, { cancelled: closable.isCancelling === true });
       });
     }
     const cacheKey = cacheKeys.get(root);

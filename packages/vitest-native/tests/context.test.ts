@@ -260,8 +260,15 @@ describe("variables the context replaced", () => {
 });
 
 describe("worker code reads no other VITEST_NATIVE_ names", () => {
-  // Main-process modules, which may name the retired variables (to warn about them).
-  const MAIN_PROCESS = new Set(["plugin.ts", "native/apply.ts", "native/pool.ts"]);
+  // Main-process modules, which may name the retired variables (to warn about them),
+  // and the registry compiler, a child process of the main process that reads its test
+  // oracle (VITEST_NATIVE_REGISTRY_TEST_DELAY_MS) and no worker ever loads.
+  const MAIN_PROCESS = new Set([
+    "plugin.ts",
+    "native/apply.ts",
+    "native/pool.ts",
+    "native/registry-compiler.mjs",
+  ]);
   const ALLOWED = new Set([CONTEXT_ENV, ...ESCAPE_HATCHES]);
   // `*`, not `+`: the bare prefix is how a name gets built (`"VITEST_NATIVE_" + x`,
   // a template literal, a startsWith filter), so it is flagged too.

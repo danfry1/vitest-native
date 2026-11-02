@@ -6,6 +6,7 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 import {
   buildRegistryFor,
   compileRegistryInChild,
+  isCI,
   settleRegistryBuilds,
   startRegistryBuild,
 } from "../src/native/registry-process.mjs";
@@ -199,15 +200,15 @@ describe("background registry build", () => {
     expect(second.pending).toEqual(first.pending);
     expect(held.calls).toHaveLength(1);
     expect(held.calls[0].priority).toBe(19);
-    await settleRegistryBuilds(0, { CI: "1" });
+    await settleRegistryBuilds(0);
     expect(held.calls[0].signal?.aborted).toBe(true);
   });
 
-  it("stops a running build at once under CI", async () => {
+  it("stops a running build at once when the closing run was cancelled", async () => {
     const held = heldCompiler();
     startRegistryBuild(coldOptions("ci"), held.compiler);
     const started = Date.now();
-    await settleRegistryBuilds(60_000, { CI: "true" });
+    await settleRegistryBuilds(60_000, { cancelled: true });
     expect(Date.now() - started).toBeLessThan(1_000);
     expect(held.calls[0].signal?.aborted).toBe(true);
   });
@@ -218,13 +219,13 @@ describe("background registry build", () => {
       const finishing = heldCompiler();
       startRegistryBuild(coldOptions("finishing"), finishing.compiler);
       setTimeout(finishing.finish, 50);
-      await settleRegistryBuilds(60_000, {});
+      await settleRegistryBuilds(60_000);
       expect(finishing.calls[0].signal?.aborted).toBe(false);
 
       const outlasting = heldCompiler();
       startRegistryBuild(coldOptions("outlasting"), outlasting.compiler);
       const started = Date.now();
-      await settleRegistryBuilds(100, {});
+      await settleRegistryBuilds(100);
       expect(Date.now() - started).toBeGreaterThanOrEqual(90);
       expect(outlasting.calls[0].signal?.aborted).toBe(true);
     } finally {
@@ -262,5 +263,15 @@ describe("background registry build", () => {
     held.finish();
     expect(await waiting).toBe(registryFile);
     expect(compiles).toBe(0);
+  });
+
+  it("recognises CI the way Vitest does", () => {
+    expect(isCI({})).toBe(false);
+    expect(isCI({ CI: "true" })).toBe(true);
+    expect(isCI({ CI: "1" })).toBe(true);
+    expect(isCI({ GITHUB_ACTIONS: "true" })).toBe(true);
+    expect(isCI({ BUILDKITE: "true" })).toBe(true);
+    // CI=false turns it off, as in std-env.
+    expect(isCI({ CI: "false", GITHUB_ACTIONS: "true" })).toBe(false);
   });
 });

@@ -18,8 +18,6 @@ export const ESCAPE_HATCHES = Object.freeze([
   "VITEST_NATIVE_NO_REGISTRY",
   "VITEST_NATIVE_HOT_ESM_GEN",
   "VITEST_NATIVE_HOT_STATE_MUTATION",
-  // Internal test oracle read by the registry compiler (registry-compiler.mjs).
-  "VITEST_NATIVE_REGISTRY_TEST_DELAY_MS",
 ]);
 
 const strings = (v) => Array.isArray(v) && v.every((x) => typeof x === "string");

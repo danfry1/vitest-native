@@ -15,10 +15,6 @@ import { reactNative } from "../dist/index.mjs";
 import { jestMockTransform } from "../dist/jest-compat.mjs";
 import { NATIVE_SUITE_SETUP_FILES } from "./support/setup-files.mjs";
 
-// This suite asserts the precompiled registry itself (registry-identity, stack frames,
-// module semantics), so it waits for a cold build instead of starting without it.
-process.env.VITEST_NATIVE_REGISTRY_WAIT ??= "1";
-
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
@@ -28,7 +24,14 @@ export default defineConfig({
   // when asked (NATIVE_ENGINE_RUNS_PACKAGES), is turned on; the packed Expo consumers
   // run the real packages.
   plugins: [
-    reactNative({ engine: "native", hotRuntime: false, presets: { expo: true } }),
+    // This suite asserts the precompiled registry itself (registry-identity, stack
+    // frames, module semantics), so a cold run builds it first.
+    reactNative({
+      engine: "native",
+      hotRuntime: false,
+      presets: { expo: true },
+      registryBuild: "wait",
+    }),
     jestMockTransform(),
   ],
   // The tsconfig-paths-style alias requireactual-alias.test.tsx exercises.

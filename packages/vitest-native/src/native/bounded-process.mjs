@@ -16,7 +16,17 @@ const LOG_TAIL_BYTES = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 120_000;
 const OOM_RE = /heap out of memory|reached heap limit|allocation failed.*heap/i;
 
-function attempt(entryFile, input, heapMb, spawnProcess, timeoutMs, label, signal, priority) {
+function attempt(
+  entryFile,
+  input,
+  heapMb,
+  spawnProcess,
+  timeoutMs,
+  label,
+  signal,
+  priority,
+  unref,
+) {
   return new Promise((resolve) => {
     if (signal?.aborted) {
       resolve({ ok: false, oom: false, cancelled: true, error: `${label} was cancelled`, heapMb });
@@ -36,6 +46,13 @@ function attempt(entryFile, input, heapMb, spawnProcess, timeoutMs, label, signa
         heapMb,
       });
       return;
+    }
+
+    // A background helper must not keep this process alive by itself: if everything
+    // else is done, the process exits and its exit hook stops the helper.
+    if (unref) {
+      child.unref?.();
+      for (const stream of child.stdio ?? []) stream?.unref?.();
     }
 
     // A background helper yields the CPU to the work it runs beside. Best effort: a
@@ -172,10 +189,12 @@ export async function runBoundedProcess(
     signal,
     // os.setPriority value for the child (19 is the lowest priority).
     priority,
+    // Let this process exit while the child runs (the child's timer is unref'd too).
+    unref = false,
   },
 ) {
   const run = (heapMb) =>
-    attempt(entryFile, input, heapMb, spawnProcess, timeoutMs, label, signal, priority);
+    attempt(entryFile, input, heapMb, spawnProcess, timeoutMs, label, signal, priority, unref);
   const first = await run(initialHeapMb);
   if (first.ok || !first.oom || retryHeapMb <= initialHeapMb) {
     return { ...first, attempts: 1 };
