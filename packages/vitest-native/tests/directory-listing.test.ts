@@ -130,7 +130,10 @@ describe("listing freshness", () => {
       expect(firstExact(path.join(dir, "a"), IOS)).toBe(path.join(dir, "a.ts"));
       expect(readsOf(readdir, dir)).toBe(1);
       statOf(dir, (stat) => {
-        (stat as unknown as Record<string, number>)[field] += 1;
+        // Set a different value rather than adding 1: NTFS file ids exceed 2^53, where
+        // `ino + 1` can round back to the same number.
+        const fields = stat as unknown as Record<string, number>;
+        fields[field] = fields[field] === 1 ? 2 : 1;
       });
       expect(firstExact(path.join(dir, "a"), IOS)).toBe(path.join(dir, "a.ts"));
       expect(readsOf(readdir, dir)).toBe(2);
