@@ -11,14 +11,17 @@
  * The existing tests (registry-key.test.ts, transform-cache.test.ts) cover the
  * installed versions and the per-file disk key. This file covers the inputs they did
  * not: the transform version and the boundary sources in the registry key, Expo, the
- * Babel env in both keys, and the optional export-namespace-from plugin.
+ * Babel env in both keys, the optional export-namespace-from plugin, the files the
+ * registry is seeded from (registry-location.test.ts covers copies and symlinks end to
+ * end), and the ES-module goal and interop revision in the per-file key.
  */
+import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 // @ts-expect-error — runtime .mjs, no types
 import { registryKey } from "../src/native/registry.mjs";
@@ -26,6 +29,7 @@ import {
   TRANSFORM_CACHE_VERSION,
   transformCacheDir,
   transformOptionsFor,
+  transformRN,
   // @ts-expect-error — runtime .mjs, no types
 } from "../src/native/transform.mjs";
 
@@ -40,6 +44,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.doUnmock("../src/native/transform.mjs");
   vi.doUnmock("../src/native/boundary.mjs");
+  vi.doUnmock("../src/native/esm-interop.mjs");
   vi.resetModules();
 });
 
@@ -120,6 +125,44 @@ describe("registry cache key ledger", () => {
     expect(expo58).not.toBe(expo57);
   });
 
+  /**
+   * The key as a plain Node process computes it. This suite's own config resolves
+   * `react-native` for every importer, so in-process every fixture would resolve to
+   * the same file (registry-location.test.ts measures the same way).
+   */
+  const keyInNode = (root: string) =>
+    execFileSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `import { registryKey } from ${JSON.stringify(pathToFileURL(path.join(packageRoot, "src/native/registry.mjs")).href)};
+process.stdout.write(registryKey({ projectRoot: ${JSON.stringify(root)}, platform: "ios", reactNativeVersion: "0.86.0" }));`,
+      ],
+      { encoding: "utf8" },
+    );
+  const withReactNative = () => {
+    const root = projectWith(BASE);
+    writePackage(root, "react-native", BASE["react-native"], "module.exports = {};");
+    return root;
+  };
+
+  it("changes with the react-native entry it is seeded from: it bakes in absolute paths", () => {
+    // Two projects with identical versions differ only in where react-native resolves.
+    const a = withReactNative();
+    expect(keyInNode(a)).toBe(keyInNode(a));
+    expect(keyInNode(withReactNative())).not.toBe(keyInNode(a));
+  });
+
+  it("changes with the asset registry it resolves: image assets register through it", () => {
+    const root = withReactNative();
+    const before = keyInNode(root);
+    const image = path.join(root, "node_modules", "react-native", "Libraries", "Image");
+    fs.mkdirSync(image, { recursive: true });
+    fs.writeFileSync(path.join(image, "AssetRegistry.js"), "module.exports = {};");
+    expect(keyInNode(root)).not.toBe(before);
+  });
+
   it("changes with the Babel env (BABEL_ENV, else NODE_ENV)", () => {
     const root = projectWith(BASE);
     vi.stubEnv("BABEL_ENV", "");
@@ -188,6 +231,49 @@ describe("transform cache directory ledger", () => {
 
   it("keys TRANSFORM_CACHE_VERSION", () => {
     expect(dirName(transformRoot())).toContain(`-v${TRANSFORM_CACHE_VERSION}`);
+  });
+
+  /**
+   * One file in a package whose `type` decides its goal. The goal comes from the
+   * package.json, not the file's bytes, so it must key the per-file entry itself.
+   */
+  function goalPackage(root: string, type: "module" | "commonjs"): string {
+    const dir = path.join(root, "node_modules", "goal-lib");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "goal-lib", type }));
+    const file = path.join(dir, "index.js");
+    fs.writeFileSync(file, "export const value = 1;\n");
+    return file;
+  }
+  const entries = (root: string) =>
+    fs.readdirSync(transformCacheDir(root) as string).filter((name) => name.endsWith(".js"));
+
+  it("keys a file's ES-module goal: only ESM-goal output carries the default-import interop", async () => {
+    const root = transformRoot();
+    const file = goalPackage(root, "commonjs");
+    transformRN(file, undefined, root);
+    expect(entries(root)).toHaveLength(1);
+    goalPackage(root, "module");
+    // A fresh module instance: the in-memory layer is keyed on the file's stat alone.
+    vi.resetModules();
+    const fresh = await import("../src/native/transform.mjs");
+    fresh.transformRN(file, undefined, root);
+    expect(entries(root)).toHaveLength(2);
+  });
+
+  it("keys the interop runtime's revision on ESM-goal entries", async () => {
+    const root = transformRoot();
+    const file = goalPackage(root, "module");
+    transformRN(file, undefined, root);
+    expect(entries(root)).toHaveLength(1);
+    vi.resetModules();
+    vi.doMock("../src/native/esm-interop.mjs", async (importOriginal) => ({
+      ...(await importOriginal<Record<string, unknown>>()),
+      ESM_INTEROP_RUNTIME: "vitest-native.esmInterop.ledger",
+    }));
+    const bumped = await import("../src/native/transform.mjs");
+    bumped.transformRN(file, undefined, root);
+    expect(entries(root)).toHaveLength(2);
   });
 });
 
