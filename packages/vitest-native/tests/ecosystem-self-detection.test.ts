@@ -22,6 +22,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { ProjectContextFields } from "../src/context.mjs";
 import { afterEach, describe, expect, it } from "vitest";
 import { detectEcosystemPackages } from "../src/native/ecosystem.js";
 import { nativeEngineConfig } from "../src/native/apply.js";
@@ -235,9 +236,14 @@ describe("test entries are never externalized", () => {
     // nativeEngineConfig. This lower-level gate still matters defensively: merging a
     // pattern list into a boolean yields an array holding `true`, which Vitest calls
     // `.test()` on before the actionable plugin error can survive composition.
+    const fields: ProjectContextFields = {
+      platform: "ios",
+      diagnostics: false,
+      projectRoot: "/repo",
+    };
     const config = nativeEngineConfig(
       "/setup.mjs",
-      {},
+      fields,
       [".js"],
       [],
       undefined,
@@ -248,7 +254,7 @@ describe("test entries are never externalized", () => {
       true,
     );
     expect(config.test.server.deps).not.toHaveProperty("inline");
-    expect(JSON.parse(config.test.env.VITEST_NATIVE_OWNERSHIP)).toMatchObject({
+    expect(fields.ownership).toMatchObject({
       version: 1,
       enforcement: "overridden-by-inline-all",
     });

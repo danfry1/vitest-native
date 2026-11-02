@@ -7,7 +7,7 @@ Run your React Native tests under Vitest, against **real React Native** — the 
 > **Beta.** The release-supported native engine is validated across React Native 0.81–0.88,
 > Vite 6–8, Vitest 4–5, RNTL 12–14, bare apps, Expo SDK 58 and 57 (including expo-router's own testing
 > library), and hoisted monorepos. The hot
-> runtime (on by default where it can be bounded) is marked experimental because it uses Vitest's
+> runtime (opt-in with `hotRuntime: 'auto'`) is marked experimental because it uses Vitest's
 > experimental custom-pool APIs.
 >
 > Maintained successor to [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native) — same core idea (externalize RN, run its real JS under Node), rebuilt for modern Vitest (4+). Coming from it? See [Migrating from `vitest-react-native`](#migrating-from-vitest-react-native).
@@ -121,8 +121,14 @@ test("renders a greeting", async () => {
 
 > Prefer Jest-style globals (`test`/`expect` without imports)? Set
 > `test: { globals: true }` in your Vitest config. vitest-native does not enable the full
-> globals mode; it only exposes `expect` when RNTL needs it to register matchers.
-> Awaiting `render` works with RNTL 12–13 and is required by RNTL 14.
+> globals mode; it only exposes `expect` when RNTL needs it to register matchers, and
+> registers RNTL's automatic cleanup after each test, which RNTL itself does only when
+> `afterEach` is a global. That cleanup runs after the file's own `afterEach` hooks, as
+> RNTL's does under Vitest with `globals: true` (Jest runs it first). Without the
+> [jest-compat layer](https://danfry1.github.io/vitest-native/guide/jest-compat), RNTL cannot
+> see `vi.useFakeTimers()`, so `waitFor` and `findBy*` do not advance the fake clock: use
+> jest-compat, or advance it yourself (`await vi.advanceTimersByTimeAsync(ms)`). Awaiting
+> `render` works with RNTL 12–13 and is required by RNTL 14.
 
 Run it:
 
@@ -150,7 +156,7 @@ export default defineConfig({
       diagnostics: false, // Enable verbose logging
       assetExts: [".lottie"], // Additional asset extensions to stub
       transform: [], // Extra native-engine packages to Flow/TS transform
-      hotRuntime: "auto", // 'auto' (default) | true | false | HotRuntimeOptions
+      hotRuntime: false, // false (default) | 'auto' | true | HotRuntimeOptions
     }),
   ],
 });
@@ -165,7 +171,7 @@ export default defineConfig({
 | `diagnostics` | `boolean`                      | `false`     | Log plugin activity to the console for debugging.                                                                                                                                                                                                                                                          |
 | `assetExts`   | `string[]`                     | `[]`        | Additional file extensions to stub as asset imports (beyond the built-in set).                                                                                                                                                                                                                             |
 | `transform`   | `string[]`                     | `[]`        | **`engine: 'native'` only.** Extra `node_modules` packages whose source the native engine should transform (Flow/TS/JSX stripped) as it loads them — for third-party RN libraries that ship untranspiled source (e.g. `react-native-reanimated`). Analogous to Jest's `transformIgnorePatterns` allowlist. |
-| `hotRuntime`  | `boolean \| 'auto' \| HotRuntimeOptions` | `'auto'`    | `engine: 'native'` only. Reuse workers while keeping app/test modules isolated per file. `'auto'` (the default) uses it when the run can be bounded and recycled, and per-file isolation otherwise; `false` always isolates per worker. See [Hot runtime](#hot-runtime). |
+| `hotRuntime`  | `boolean \| 'auto' \| HotRuntimeOptions` | `false`     | `engine: 'native'` only. Reuse workers while keeping app/test modules isolated per file. `false` (the default) gives each file a fresh worker; `'auto'` opts in where the run can be bounded and recycled, and keeps per-file isolation otherwise. See [Hot runtime](#hot-runtime). |
 
 ### Experimental Metro configuration
 
@@ -242,9 +248,11 @@ the cross-check/fidelity harnesses in the repository's `bench/` directory.
 
 #### Hot runtime
 
-Vitest's default isolation gives each test file a fresh worker, so React Native would reload for
-every file. By default (`hotRuntime: 'auto'`) the native engine instead reuses workers and resets
-modules per file whenever that can be done safely:
+Vitest's default isolation gives each test file a fresh worker, so React Native reloads for every
+file; that is the default (`hotRuntime: false`), as in 0.13.0. With `hotRuntime: 'auto'` the native
+engine instead reuses workers and resets modules per file whenever that can be done safely. It has
+known differences from per-file isolation, listed under "A test passes on its own but fails when
+run with other files" in the troubleshooting guide.
 
 `'auto'` selects persistent workers when the current scheduler provides recyclable task boundaries,
 the host/container memory plan admits at least two workers, no other pool was explicitly
@@ -259,8 +267,8 @@ jest-compat surface — `jest.mock` in its forms, runtime mocks, spies, timers, 
 Library cleanup — has its own cross-file isolation gate under the hot runtime. The decision runs
 after other Vite config hooks, so a pool contributed by a later plugin is included rather than
 producing a mixed runtime. When it falls
-back to per-file isolation it does so quietly; `diagnostics: true`, or setting `hotRuntime: 'auto'`
-explicitly, prints the reason. To always isolate per worker:
+back to per-file isolation it prints the reason. Per-file isolation, the default, can also be set
+explicitly:
 
 ```ts
 reactNative({
@@ -313,7 +321,7 @@ reactNative({
 ```
 
 Recycling is applied between Vitest scheduler tasks. Current Vitest batches every file into one
-uninterruptible task at `maxWorkers: 1`, so the default `'auto'` keeps per-file isolation there and
+uninterruptible task at `maxWorkers: 1`, so `'auto'` keeps per-file isolation there and
 `hotRuntime: true` fails that configuration rather than claim an inert memory bound. Use at least
 two workers for hot mode. If an external scheduler
 already provides a hard boundary, you can deliberately accept the risk with
@@ -540,8 +548,8 @@ export default defineConfig({
 
 | Preset | Library | What's mocked |
 |--------|---------|---------------|
-| `presets.reanimated()` | `react-native-reanimated` | Native engine with Reanimated 4.7+: Reanimated's own test mock (`react-native-reanimated/mock`), its whole API for the installed version, over the real package in its JS implementation, as a Jest suite gets it. Mock engine, or an older Reanimated: `useSharedValue`, `useAnimatedStyle`, `withTiming`, `withSpring`, `withDelay`, `withSequence`, `withRepeat`, layout animations (`FadeIn`, `FadeOut`, `SlideInRight`), `Easing`, `interpolate`, `createAnimatedComponent` |
-| `presets.worklets()` | `react-native-worklets` | Native engine with Worklets 0.9+: none needed, the real package runs in its JS implementation, so `runOnJS`, `runOnUI`, `scheduleOnRN` and `scheduleOnUI` run their worklet on a later tick, as under Jest. Mock engine, or an older Worklets: they run synchronously on the JS thread |
+| `presets.reanimated()` | `react-native-reanimated` | `useSharedValue`, `useAnimatedStyle`, `withTiming`, `withSpring`, `withDelay`, `withSequence`, `withRepeat`, layout animations (`FadeIn`, `FadeOut`, `SlideInRight`), `Easing`, `interpolate`, `createAnimatedComponent` |
+| `presets.worklets()` | `react-native-worklets` | `runOnJS`, `runOnUI`, `scheduleOnRN`, `scheduleOnUI`, `createWorkletRuntime`, … run synchronously on the JS thread |
 | `presets.gestureHandler()` | `react-native-gesture-handler` | `GestureHandlerRootView`, gesture handlers (Pan, Tap, LongPress, Pinch, Rotation, Fling), `Gesture` API (v2), `GestureDetector`, `Swipeable`, touchable wrappers, state constants |
 | `presets.safeAreaContext()` | `react-native-safe-area-context` | `SafeAreaProvider`, `SafeAreaView`, `useSafeAreaInsets`, `useSafeAreaFrame`, `initialWindowMetrics`, `withSafeAreaInsets` |
 | `presets.navigation()` | `@react-navigation/native`, `@react-navigation/native-stack`, `@react-navigation/bottom-tabs`, `@react-navigation/drawer`, `@react-navigation/elements` | `NavigationContainer`, `useNavigation`, `useRoute`, `useFocusEffect`, `useIsFocused`, `CommonActions`, `StackActions`, `TabActions`, `DrawerActions`, navigators |
@@ -560,9 +568,9 @@ export default defineConfig({
 | `presets.unistyles()` | `react-native-unistyles`, `react-native-unistyles/reanimated` | Unistyles 3: `StyleSheet.configure`/`create` with themes, variants and compound variants, `useUnistyles`, `withUnistyles`, `UnistylesRuntime` theme switching, `mq` with `Display`/`Hide`; matches the library's own Jest mock and follows its source where that mock does less |
 | `presets.skia()` | `react-native-skia`, `@shopify/react-native-skia` | Skia's own test mock (`Mock(CanvasKit)`) over CanvasKit, Skia compiled to WebAssembly: the `Skia` API computes with real Skia, `Canvas` and its drawing render as Views; plus Skia's Reanimated helpers (`usePathValue`, `useTexture`, …) and a `matchFont` that returns a font |
 
-Presets apply under **both** engines. Under `engine: 'native'` they shadow each library's native
-runtime as Jest's setup does, while the surrounding tree renders through real React Native; there
-reanimated is Reanimated's own test mock, and Expo modules and worklets run as themselves (see each row).
+Presets apply under **both** engines: the mock engine and `engine: 'native'` (where they shadow each
+library's native runtime — worklets, native modules — exactly as Jest does, while the surrounding tree
+renders through real React Native).
 
 ### Expo
 
@@ -581,8 +589,9 @@ JavaScript runs for real — `expo` itself, expo-router, React Navigation and Ex
   jest-expo: from the package's own `mocks/<Name>.ts` where it ships one, else from Expo's table
   of the native modules (`Device.modelName` is `'mock'`). An optional native module a package
   probes for, and that no installed package defines, is absent, as on a device.
-- **Expo SDK trails React Native.** Pin your `react-native` to the version your Expo SDK supports
-  (SDK 54 and later are within this plugin's validated range), not the newest RN release.
+- **Expo SDK 57 and 58 are supported.** Earlier SDKs are not: the plugin and `doctor` warn about
+  one, so upgrade to SDK 57 or 58. Pin your `react-native` to the version your Expo SDK
+  supports, not the newest RN release.
 
 Packed Expo SDK 58 and SDK 57 apps are installed from the release tarball and tested in CI: Expo
 module auto-detection and rendering, and expo-router's testing library against file-based `app/`
@@ -635,7 +644,7 @@ export default defineConfig({
 ```
 
 This is **not** a turnkey drop-in — a real suite still needs a small per-suite cleanup (convert
-top-level `jest.mock` → `vi.mock`, RNTL ≥ 12, re-record snapshots once with `-u`). The full recipe,
+top-level `jest.mock` → `vi.mock`, RNTL ≥ 12, record snapshots for Vitest in their own directory). The full recipe,
 with a worked real-app example, is in **[docs/migrating-from-jest.md](docs/migrating-from-jest.md)**.
 
 ---
@@ -682,7 +691,10 @@ preset.
 
 **Snapshots differ after switching from Jest or the mock engine**
 Real RN computes host props (e.g. `<Text>`'s `accessible`, `allowFontScaling`) that mocks omit, so
-the tree is richer. Re-record once with `npx vitest -u` after migrating.
+the tree is richer. Vitest also keys snapshots differently from Jest (`a > b 1`, not `a b 1`), so
+it cannot check Jest's `.snap` files, and `vitest -u` rewrites them for Vitest. While both runners
+run, give Vitest its own directory with `test.resolveSnapshotPath`; see
+[docs/migrating-from-jest.md](docs/migrating-from-jest.md#2d-snapshots-keep-jests-and-vitests-apart-then-record-vitests).
 
 **`Worker terminated due to reaching memory limit` / `JS heap out of memory` (large native suites)**
 Every test file that renders real React Native loads a full renderer, so a large suite can grow a
@@ -696,7 +708,7 @@ export default defineConfig({
 });
 ```
 
-The hot runtime (the default where it can be bounded) also helps: it keeps React Native's precompiled
+The hot runtime (`hotRuntime: 'auto'`, opt-in) also helps: it keeps React Native's precompiled
 factory registry warm, resets its module instances from memory per file, and recycles workers on a
 memory/file budget.
 

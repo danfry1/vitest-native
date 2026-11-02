@@ -2,6 +2,7 @@ import type { NavigationPresetOptions, Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
 import { builtInPreset } from "./built-in.js";
+import { projectContext } from "../context.mjs";
 
 /** Builds a minimal navigation prop matching useNavigation()'s shape. */
 function createMockNavigation() {
@@ -104,7 +105,7 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
   const themeFonts = (() => {
     // Mirrors the real module's Platform.select — the mock is served to native
     // platforms only, so the ios / default branches are the reachable ones.
-    const isIOS = process.env.VITEST_NATIVE_PLATFORM !== "android";
+    const isIOS = projectContext()?.platform !== "android";
     return isIOS
       ? {
           regular: { fontFamily: "System", fontWeight: "400" },

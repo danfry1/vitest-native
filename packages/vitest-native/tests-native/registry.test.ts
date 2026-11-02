@@ -148,7 +148,14 @@ describe("precompiled RN registry: build", () => {
 });
 
 describe("precompiled RN registry: emitted graph", () => {
-  const source = () => fs.readFileSync(build(), "utf8");
+  // The registry stores each module's source as a string literal, one per line.
+  const source = () =>
+    fs
+      .readFileSync(build(), "utf8")
+      .split("\n")
+      .filter((line) => line.startsWith("__s["))
+      .map((line) => JSON.parse(line.slice(line.indexOf(" = ") + 3, -1)) as string)
+      .join("\n");
 
   it("inlines the native boundary rather than React Native's real native modules", () => {
     // TurboModuleRegistry is a boundary module: the registry must carry the mock
@@ -192,40 +199,15 @@ describe("precompiled RN registry: emitted graph", () => {
 });
 
 describe("precompiled RN registry: stack traces", () => {
-  // Collapsing React Native into one file costs every RN stack frame its file
-  // identity — `rn-ios-<hash>.cjs:253:7638` instead of the module that threw. The
-  // emitted source map is what buys that back, and it is invisible until something
-  // fails, so assert it directly.
-  it("emits a source map that attributes every emitted line to its RN file", () => {
+  // Collapsing React Native into one file must not cost its stack frames their file
+  // identity (`rn-ios-<hash>.cjs:798:744` instead of the module that threw). Each module
+  // is compiled under its own file name, so no source map is needed, and none is
+  // written: under Vitest a map on a Node-loaded file is never applied.
+  it("stores each module's source and writes no source map", () => {
     const file = build();
     const code = fs.readFileSync(file, "utf8");
-    expect(code.trimEnd().endsWith(`//# sourceMappingURL=${path.basename(file)}.map`)).toBe(true);
-
-    const map = JSON.parse(fs.readFileSync(`${file}.map`, "utf8")) as {
-      version: number;
-      sources: string[];
-      mappings: string;
-    };
-    expect(map.version).toBe(3);
-    expect(map.sources.length).toBeGreaterThan(100);
-    // Every source is a real React Native file — including the asset stubs, which
-    // are modules in the registry like any other.
-    expect(map.sources.every((f) => /[\\/](react-native|@react-native)[\\/]/.test(f))).toBe(true);
-    expect(map.sources.some((f) => endsWithPath(f, "/Utilities/Dimensions.js"))).toBe(true);
-
-    // One mapping per generated line, so a frame inside a multi-line factory can
-    // never fall back onto the previous module's mapping.
-    const lines = map.mappings.split(";");
-    const factoryLines = lines.filter((l) => l !== "").length;
-    expect(factoryLines).toBeGreaterThan(map.sources.length);
-    expect(lines.length).toBeGreaterThanOrEqual(code.split("\n").length - 2);
-  });
-
-  it("does not inline React Native's sources into the map", () => {
-    // sourcesContent for ~440 RN files would add megabytes to a cache artifact for
-    // files that are on disk at exactly these paths already.
-    const map = JSON.parse(fs.readFileSync(`${build()}.map`, "utf8")) as Record<string, unknown>;
-    expect(map.sourcesContent).toBeUndefined();
+    expect(code).not.toMatch(/sourceMappingURL/);
+    expect(fs.existsSync(`${file}.map`)).toBe(false);
   });
 });
 

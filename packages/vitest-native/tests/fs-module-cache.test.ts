@@ -86,18 +86,23 @@ describe("the plugin", () => {
     expect(off.test.fsModuleCache).toBeUndefined();
   });
 
-  it("registers its cache key with Vitest", async () => {
-    const plugin = reactNative({ engine: "mock" }) as never as {
-      configureVitest: (ctx: unknown) => void;
-    };
-    const resolved = await runPluginConfig(plugin as never, { test: {} });
-    const generators: (() => string)[] = [];
-    plugin.configureVitest({
-      vitest: { config: {} },
-      project: { config: { root: process.cwd(), setupFiles: resolved.test.setupFiles } },
-      defineCacheKeyGenerator: (g: () => string) => generators.push(g),
-    });
-    expect(generators).toHaveLength(1);
-    expect(generators[0]()).toMatch(/^[0-9a-f]{40}$/);
-  });
+  // Vitest 5 passes defineCacheKeyGenerator; Vitest 4.0.11 and later 4.x pass only
+  // experimental_defineCacheKeyGenerator, for `experimental.fsModuleCache`.
+  it.each(["defineCacheKeyGenerator", "experimental_defineCacheKeyGenerator"])(
+    "registers its cache key with Vitest through %s",
+    async (hook) => {
+      const plugin = reactNative({ engine: "mock" }) as never as {
+        configureVitest: (ctx: unknown) => void;
+      };
+      const resolved = await runPluginConfig(plugin as never, { test: {} });
+      const generators: (() => string)[] = [];
+      plugin.configureVitest({
+        vitest: { config: {} },
+        project: { config: { root: process.cwd(), setupFiles: resolved.test.setupFiles } },
+        [hook]: (g: () => string) => generators.push(g),
+      });
+      expect(generators).toHaveLength(1);
+      expect(generators[0]()).toMatch(/^[0-9a-f]{40}$/);
+    },
+  );
 });

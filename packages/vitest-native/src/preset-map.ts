@@ -76,59 +76,25 @@ export const SELF_TESTING_FROM_MAJOR: Partial<Record<keyof typeof AUTO_DETECT_PR
  *   the preset off, 4 with it on. The preset was missing API (`hide`, `setOptions`,
  *   `useAssets`, `canOpenURL` …) and answered with values jest-expo never gives
  *   (`Constants.expoConfig.name === 'test-app'`).
- * - worklets: react-native-worklets runs as itself in its JS implementation, through
- *   its own Jest resolver (native/jest-resolvers.mjs), as under Jest. The reanimated
- *   preset's module there is reanimated's own mock, which loads the real reanimated
- *   over the real worklets.
  *
  * The mock engine has no real React Native to run them on, so it keeps these presets.
  * `presets: { expo: true }` applies one under the native engine too.
  */
-export const NATIVE_ENGINE_RUNS_PACKAGES: readonly PresetName[] = ["expo", "worklets"];
-
-/**
- * Whether `pkg`, resolved from `projectRoot`, ships the Jest resolver its JS
- * implementation loads through in a test runner (native/jest-resolvers.mjs): from
- * react-native-worklets 0.9 and react-native-reanimated 4.7. Without it the package's
- * `.native` initializers load and throw ("Native part of Worklets doesn't seem to be
- * initialized"), so its preset keeps applying.
- */
-export function shipsJestResolver(projectRoot: string, pkg: string): boolean {
-  // On disk, up the node_modules directories as Node looks a package up: through
-  // require(), a preset's require() bridge in a mock-engine worker answers for the
-  // package, and its `exports` may not expose the file.
-  for (let dir = path.resolve(projectRoot); ; dir = path.dirname(dir)) {
-    const manifest = path.join(dir, "node_modules", pkg, "package.json");
-    if (fs.existsSync(manifest)) {
-      return fs.existsSync(path.join(path.dirname(manifest), "jest", "resolver.js"));
-    }
-    if (path.dirname(dir) === dir) return false;
-  }
-}
-
-/** Presets that step aside under the native engine only when their package can run there. */
-const RUNS_UNDER_NATIVE_WHEN: Partial<Record<string, (projectRoot: string) => boolean>> = {
-  worklets: (root) => shipsJestResolver(root, "react-native-worklets"),
-};
+export const NATIVE_ENGINE_RUNS_PACKAGES: readonly PresetName[] = ["expo"];
 
 /**
  * Whether an auto-detected preset applies under `engine`, given the `presets` option:
  * every one under the mock engine, and under the native engine all but those in
- * NATIVE_ENGINE_RUNS_PACKAGES, unless the option turns one on (`{ expo: true }`). Under
- * the native engine worklets' preset steps aside only when the installed worklets ships
- * its Jest resolver, which needs `projectRoot`; without one it applies.
+ * NATIVE_ENGINE_RUNS_PACKAGES, unless the option turns one on (`{ expo: true }`).
  */
 export function autoDetectedPresetApplies(
   preset: string,
   engine: "mock" | "native",
   presetsOption?: unknown,
-  projectRoot?: string,
 ): boolean {
   if (engine === "mock" || !(NATIVE_ENGINE_RUNS_PACKAGES as readonly string[]).includes(preset)) {
     return true;
   }
-  const runsWhen = RUNS_UNDER_NATIVE_WHEN[preset];
-  if (runsWhen && (projectRoot === undefined || !runsWhen(projectRoot))) return true;
   return (
     presetsOption !== null &&
     typeof presetsOption === "object" &&

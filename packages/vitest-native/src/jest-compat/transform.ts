@@ -1,4 +1,6 @@
 import type { Plugin } from "vite";
+import fs from "node:fs";
+import path from "node:path";
 import { MagicString } from "magic-string";
 
 // Hoistable jest mock methods (Vitest only hoists these on the vi/vitest object).
@@ -25,10 +27,13 @@ export const SETUP_ACCESSOR =
   `    { name: "VitestNativeError", code: "JEST_COMPAT_SETUP_MISSING" });\n` +
   `});\n`;
 
-/** Visit every node in an ESTree AST (depth-first), calling `fn` on each. */
-function walk(node: any, fn: (n: any) => void): void {
+/**
+ * Visit every node in an ESTree AST (depth-first), calling `fn` on each. Returning
+ * `false` from `fn` skips that node's children.
+ */
+function walk(node: any, fn: (n: any) => boolean | void): void {
   if (!node || typeof node.type !== "string") return;
-  fn(node);
+  if (fn(node) === false) return;
   for (const key in node) {
     if (key === "type" || key === "start" || key === "end" || key === "loc") continue;
     const child = node[key];
@@ -38,6 +43,133 @@ function walk(node: any, fn: (n: any) => void): void {
       walk(child, fn);
     }
   }
+}
+
+// `jest.requireActual` of project source, inside a factory's own body.
+//
+// The canonical Jest partial mock is
+//
+//   jest.mock('./api', () => ({ ...jest.requireActual('./api'), other: jest.fn() }))
+//
+// `requireActual` at run time is synchronous, so it loads through Node. Node reuses
+// Vite's instance of a module only when Vite has already evaluated it in this file
+// (viteInstanceOf in node-registry.mjs); otherwise it compiles a second copy. The real
+// `read` in the mock then reads Node's copy of a store that the app, imported through
+// Vite, writes into its own copy — silently, and only in some import orders.
+//
+// So, where the call can wait, it goes through Vite instead: the factory becomes async
+// and the call `(await vi.importActual(spec))`, and the actual module shares Vite's
+// graph with the rest of the file. The original, synchronous factory is registered
+// beside it for a Node-side load (`require()`, `jest.requireMock`) that comes before
+// any import has run the async one, which keeps today's behaviour there instead of
+// handing Node a promise (node-registry.mjs, `valueOf`).
+//
+// Only what Vite owns is rewritten (isViteOwnedSource): a specifier Vite resolves to a
+// source file that the engine and Vitest leave to Vite. That covers relative and
+// absolute paths and every alias Vite applies (string, regex, tsconfig paths) without
+// restating Vite's alias rules here. A package keeps the Node load: presets shadow
+// packages by name there (native/hooks.mjs). Calls
+// in nested functions run after the factory has returned, where nothing can be
+// awaited, and stay synchronous.
+//
+// Rejected: making the synchronous call itself return Vite's instance. Vite's module
+// runner evaluates asynchronously, so a module it has not reached cannot be produced
+// from inside a synchronous call; the remaining option, handing Node's copy to Vite's
+// later imports, would make Node the owner of project source that Vite transforms and
+// mocks, where every module has one owner (native/ownership.mjs).
+const FUNCTION = new Set(["FunctionExpression", "ArrowFunctionExpression", "FunctionDeclaration"]);
+const NODE_MODULES = /[\\/]node_modules[\\/]/;
+const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
+
+/** The string specifier of a `jest.requireActual('<literal>')` call, or null. */
+function requireActualSpec(node: any): string | null {
+  if (node.type !== "CallExpression" || node.arguments.length !== 1) return null;
+  const callee = node.callee;
+  if (callee?.type !== "MemberExpression" || callee.computed) return null;
+  if (callee.object?.type !== "Identifier" || callee.object.name !== "jest") return null;
+  if (callee.property?.type !== "Identifier" || callee.property.name !== "requireActual") {
+    return null;
+  }
+  const arg = node.arguments[0];
+  if (arg.type === "Literal" && typeof arg.value === "string") return arg.value;
+  if (arg.type === "TemplateLiteral" && arg.expressions.length === 0) {
+    return arg.quasis[0].value.cooked ?? null;
+  }
+  return null;
+}
+
+/**
+ * The `jest.requireActual` calls a factory makes while it runs: those in its own body,
+ * not in a nested function or a class body (where `await` is not allowed either).
+ */
+function ownRequireActualCalls(factory: any): { node: any; spec: string }[] {
+  const calls: { node: any; spec: string }[] = [];
+  walk(factory.body, (node) => {
+    if (FUNCTION.has(node.type) || node.type === "ClassBody") return false;
+    const spec = requireActualSpec(node);
+    if (spec !== null) calls.push({ node, spec });
+  });
+  return calls;
+}
+
+/** The slice of reactNative()'s ownership policy this transform asks (native/ownership.mjs). */
+interface Ownership {
+  decideFile(file: string): { owner: string };
+}
+
+/** What the transform knows of the project it runs in, read in configResolved. */
+interface Project {
+  /** reactNative()'s policy under the native engine, else null. */
+  ownership: () => Ownership | null;
+  /** Vitest's `server.deps.inline` and `server.deps.external`. */
+  inline: unknown[];
+  external: unknown[];
+}
+
+const matchesRegExp = (patterns: unknown[], file: string) =>
+  patterns.some((pattern) => {
+    // `server.deps.inline: true` inlines everything, as Vitest reads it.
+    if (pattern === true) return true;
+    if (!(pattern instanceof RegExp)) return false;
+    pattern.lastIndex = 0;
+    const hit = pattern.test(file);
+    pattern.lastIndex = 0;
+    return hit;
+  });
+
+/**
+ * Whether a resolveId result is a source file Vite evaluates itself, so the real
+ * module `vi.importActual` loads is the one the app imports.
+ *
+ * The owner is the engine's ownership policy, as for every other load: a workspace
+ * package the engine detected as React Native, or one named in `transform`, resolves
+ * outside node_modules but is Node's, and loading its actual module through Vite would
+ * make the second copy this rewrite exists to avoid. `resolved.external` cannot say so:
+ * Vitest externalizes in its module runner, after resolveId, and never sets it (this
+ * change's first version relied on it and refused such a partial mock as a cycle).
+ * Where the policy defers to Vitest, or there is none (the mock engine), Vitest's own
+ * rule applies: a file outside node_modules is inlined unless a `server.deps.external`
+ * regex names it and no `server.deps.inline` regex (or `inline: true`) does. The engine also lists its
+ * Node-owned patterns there (native/apply.ts), so the two agree.
+ */
+function isViteOwnedSource(
+  resolved: { id: string; external?: unknown } | null,
+  project: Project,
+): boolean {
+  if (!resolved || resolved.external) return false;
+  const id = resolved.id.split("?")[0];
+  if (id.startsWith("\0") || !path.isAbsolute(id) || !SOURCE_FILE.test(id)) return false;
+  let file = id;
+  try {
+    file = fs.realpathSync.native(id);
+  } catch {
+    // not on disk (a virtual id that looks like a path): judged as resolved
+  }
+  const owner = project.ownership()?.decideFile(file).owner;
+  if (owner === "vite") return true;
+  if (owner === "node" || NODE_MODULES.test(file)) return false;
+  const normalized = file.replace(/\\/g, "/");
+  return matchesRegExp(project.inline, normalized) || !matchesRegExp(project.external, normalized);
 }
 
 /**
@@ -65,8 +197,26 @@ function walk(node: any, fn: (n: any) => void): void {
  * Opt-in: add after `reactNative()`; pair with `jestCompatSetup` + `globals: true`.
  */
 export function jestMockTransform(): Plugin {
+  let project: Project = { ownership: () => null, inline: [], external: [] };
   return {
     name: "vitest-native:jest-mock-hoist",
+    configResolved(config) {
+      const native = config.plugins.find((plugin) => plugin.name === "vitest-native") as
+        | { api?: { nativeOwnership?: () => Ownership | null } }
+        | undefined;
+      const deps = (
+        config as unknown as {
+          test?: { server?: { deps?: { inline?: unknown; external?: unknown } } };
+        }
+      ).test?.server?.deps;
+      const list = (value: unknown) =>
+        Array.isArray(value) ? value : value == null ? [] : [value];
+      project = {
+        ownership: () => native?.api?.nativeOwnership?.() ?? null,
+        inline: list(deps?.inline),
+        external: list(deps?.external),
+      };
+    },
     // No `enforce` (normal order): this must run AFTER Vite's esbuild strips
     // TS/JSX (so `this.parse`, which is acorn, gets plain JS) but BEFORE Vitest's
     // enforce:post `vitest:mocks` hoister. enforce:'pre' would see raw TSX and fail
@@ -84,80 +234,155 @@ export function jestMockTransform(): Plugin {
         return null; // let the normal pipeline surface the syntax error
       }
 
-      const s = new MagicString(code);
-      let changed = false;
-      // Statements at the top level, where a registration can be hoisted beside them.
-      const topLevel = new Map<any, any>();
-      for (const statement of ast.body) {
-        if (statement.type === "ExpressionStatement") topLevel.set(statement.expression, statement);
-      }
-      // Whether a factory now reaches the setup's globals (SETUP_ACCESSOR).
-      let usesSetup = false;
-      // Factories already replaced, whose source must not be edited again.
-      const replaced: [number, number][] = [];
-
+      // The factories' own `jest.requireActual` calls, which may move to Vite. Resolving
+      // them is asynchronous, so a file without any is transformed synchronously.
+      const candidates = new Map<any, { node: any; spec: string }[]>();
       walk(ast, (node) => {
-        if (node.type !== "CallExpression") return;
-        if (replaced.some(([start, end]) => node.start >= start && node.end <= end)) return;
-        const callee = node.callee;
-        if (!callee || callee.type !== "MemberExpression" || callee.computed) return;
-        const obj = callee.object;
-        const prop = callee.property;
-        if (!obj || obj.type !== "Identifier" || obj.name !== "jest") return;
-        if (!prop || prop.type !== "Identifier" || !HOISTABLE.has(prop.name)) return;
-
-        // jest.<method> → vi.<method>
-        s.overwrite(obj.start, obj.end, "vi");
-        changed = true;
-
-        // The module specifier, when it is a string literal or a variable: it is
-        // repeated in the registration below, and repeating an arbitrary expression
-        // would evaluate it twice.
-        const specNode = node.arguments[0];
-        const spec =
-          specNode &&
-          ((specNode.type === "Literal" && typeof specNode.value === "string") ||
-            (specNode.type === "TemplateLiteral" && specNode.expressions.length === 0) ||
-            specNode.type === "Identifier")
-            ? code.slice(specNode.start, specNode.end)
-            : null;
-
-        if (WITH_FACTORY.has(prop.name) && node.arguments.length >= 2) {
-          const factory = node.arguments[1];
-          if (factory.type === "ArrowFunctionExpression" || factory.type === "FunctionExpression") {
-            usesSetup = true;
-            if (spec !== null) {
-              // Registered where Vitest hoists the call (see node-registry.mjs).
-              const register = `globalThis.__vnJestMock?.(import.meta.url, ${spec}, ${code.slice(factory.start, factory.end)})`;
-              const lookup = `() => ${SETUP}("__vnJestMocked")(import.meta.url, ${spec})`;
-              const statement = topLevel.get(node);
-              if (prop.name === "mock" && statement) {
-                // Vitest 5's prewarmModuleGraph skips a mocked module's graph only
-                // when the second argument is an inline function (@vitest/mocker
-                // hoistMocks: `hasFactory`), so the registration goes in a vi.hoisted
-                // beside it, which Vitest hoists in source order.
-                s.prependLeft(statement.start, `vi.hoisted(() => ${register});\n`);
-                s.overwrite(factory.start, factory.end, lookup);
-              } else {
-                s.overwrite(factory.start, factory.end, `(${register}, ${lookup})`);
-              }
-              replaced.push([factory.start, factory.end]);
-            } else {
-              // Wrap a function factory so its return is run through Jest CJS interop.
-              s.appendLeft(factory.start, `() => ${SETUP}("__vnInteropMock")((`);
-              s.appendRight(factory.end, ")())");
-            }
-          }
-        } else if (UNMOCK.has(prop.name) && spec !== null) {
-          // Unregister at the same position, so a later require() is unmocked too.
-          s.appendLeft(specNode.start, `(globalThis.__vnJestUnmock?.(import.meta.url, ${spec}), `);
-          s.appendRight(specNode.end, ")");
-        }
+        const factory = mockFactoryOf(node);
+        if (!factory || factory.generator) return;
+        const calls = ownRequireActualCalls(factory);
+        if (calls.length > 0) candidates.set(factory, calls);
       });
+      if (candidates.size === 0) return rewrite(code, ast, new Map());
 
-      if (!changed) return null;
-      if (usesSetup) s.prepend(SETUP_ACCESSOR);
-      return { code: s.toString(), map: s.generateMap({ hires: true }) };
+      const specs = new Set([...candidates.values()].flat().map((call) => call.spec));
+      return Promise.all(
+        [...specs].map(async (spec) => {
+          try {
+            return [spec, isViteOwnedSource(await this.resolve(spec, id), project)] as const;
+          } catch {
+            return [spec, false] as const; // unresolvable: leave it to requireActual's error
+          }
+        }),
+      ).then((resolved) => {
+        const owned = new Set(resolved.filter(([, yes]) => yes).map(([spec]) => spec));
+        const toAsync = new Map<any, any[]>();
+        for (const [factory, calls] of candidates) {
+          const moved = calls.filter((call) => owned.has(call.spec)).map((call) => call.node);
+          if (moved.length > 0) toAsync.set(factory, moved);
+        }
+        return rewrite(code, ast, toAsync);
+      });
     },
   };
+}
+
+/** The factory of a `jest.mock`/`jest.doMock` call with an inline function factory. */
+function mockFactoryOf(node: any): any {
+  if (node.type !== "CallExpression" || node.arguments.length < 2) return null;
+  const callee = node.callee;
+  if (callee?.type !== "MemberExpression" || callee.computed) return null;
+  if (callee.object?.type !== "Identifier" || callee.object.name !== "jest") return null;
+  if (callee.property?.type !== "Identifier" || !WITH_FACTORY.has(callee.property.name)) {
+    return null;
+  }
+  const factory = node.arguments[1];
+  return factory.type === "ArrowFunctionExpression" || factory.type === "FunctionExpression"
+    ? factory
+    : null;
+}
+
+/**
+ * The transform itself. `toAsync` maps a factory to the `jest.requireActual` calls that
+ * load through Vite instead (see "`jest.requireActual` of project source" above).
+ */
+function rewrite(code: string, ast: any, toAsync: Map<any, any[]>) {
+  const s = new MagicString(code);
+  let changed = false;
+  // Statements at the top level, where a registration can be hoisted beside them.
+  const topLevel = new Map<any, any>();
+  for (const statement of ast.body) {
+    if (statement.type === "ExpressionStatement") topLevel.set(statement.expression, statement);
+  }
+  // Whether a factory now reaches the setup's globals (SETUP_ACCESSOR).
+  let usesSetup = false;
+  // Factories already replaced, whose source must not be edited again.
+  const replaced: [number, number][] = [];
+
+  /** The factory's source, async, with its own project `requireActual`s via Vite. */
+  const asyncFactory = (factory: any, calls: any[]): string => {
+    let text = "";
+    let at = factory.start;
+    for (const call of [...calls].sort((a, b) => a.start - b.start)) {
+      const arg = call.arguments[0];
+      text += code.slice(at, call.start);
+      text += `(${SETUP}("__vnActualExports")(await vi.importActual(${code.slice(arg.start, arg.end)})))`;
+      at = call.end;
+    }
+    text += code.slice(at, factory.end);
+    return factory.async ? text : `async ${text}`;
+  };
+
+  walk(ast, (node) => {
+    if (node.type !== "CallExpression") return;
+    if (replaced.some(([start, end]) => node.start >= start && node.end <= end)) return;
+    const callee = node.callee;
+    if (!callee || callee.type !== "MemberExpression" || callee.computed) return;
+    const obj = callee.object;
+    const prop = callee.property;
+    if (!obj || obj.type !== "Identifier" || obj.name !== "jest") return;
+    if (!prop || prop.type !== "Identifier" || !HOISTABLE.has(prop.name)) return;
+
+    // jest.<method> → vi.<method>
+    s.overwrite(obj.start, obj.end, "vi");
+    changed = true;
+
+    // The module specifier, when it is a string literal or a variable: it is
+    // repeated in the registration below, and repeating an arbitrary expression
+    // would evaluate it twice.
+    const specNode = node.arguments[0];
+    const spec =
+      specNode &&
+      ((specNode.type === "Literal" && typeof specNode.value === "string") ||
+        (specNode.type === "TemplateLiteral" && specNode.expressions.length === 0) ||
+        specNode.type === "Identifier")
+        ? code.slice(specNode.start, specNode.end)
+        : null;
+
+    if (WITH_FACTORY.has(prop.name) && node.arguments.length >= 2) {
+      const factory = node.arguments[1];
+      if (factory.type === "ArrowFunctionExpression" || factory.type === "FunctionExpression") {
+        usesSetup = true;
+        const moved = toAsync.get(factory);
+        if (spec !== null) {
+          // Registered where Vitest hoists the call (see node-registry.mjs), with
+          // the async variant after the original when there is one.
+          const original = code.slice(factory.start, factory.end);
+          const factories = moved ? `${original}, ${asyncFactory(factory, moved)}` : original;
+          const register = `globalThis.__vnJestMock?.(import.meta.url, ${spec}, ${factories})`;
+          const lookup = `() => ${SETUP}("__vnJestMocked")(import.meta.url, ${spec})`;
+          const statement = topLevel.get(node);
+          if (prop.name === "mock" && statement) {
+            // Vitest 5's prewarmModuleGraph skips a mocked module's graph only
+            // when the second argument is an inline function (@vitest/mocker
+            // hoistMocks: `hasFactory`), so the registration goes in a vi.hoisted
+            // beside it, which Vitest hoists in source order.
+            s.prependLeft(statement.start, `vi.hoisted(() => ${register});\n`);
+            s.overwrite(factory.start, factory.end, lookup);
+          } else {
+            s.overwrite(factory.start, factory.end, `(${register}, ${lookup})`);
+          }
+          replaced.push([factory.start, factory.end]);
+        } else {
+          // Wrap a function factory so its return is run through Jest CJS interop,
+          // which awaits an async one. No Node-side load can reach this mock, so
+          // the async variant replaces the original.
+          if (moved) {
+            s.overwrite(factory.start, factory.end, asyncFactory(factory, moved));
+            replaced.push([factory.start, factory.end]);
+          }
+          s.appendLeft(factory.start, `() => ${SETUP}("__vnInteropMock")((`);
+          s.appendRight(factory.end, ")())");
+        }
+      }
+    } else if (UNMOCK.has(prop.name) && spec !== null) {
+      // Unregister at the same position, so a later require() is unmocked too.
+      s.appendLeft(specNode.start, `(globalThis.__vnJestUnmock?.(import.meta.url, ${spec}), `);
+      s.appendRight(specNode.end, ")");
+    }
+  });
+
+  if (!changed) return null;
+  if (usesSetup) s.prepend(SETUP_ACCESSOR);
+  return { code: s.toString(), map: s.generateMap({ hires: true }) };
 }

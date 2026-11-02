@@ -1,0 +1,8 @@
+{
+  "name": "museum-env-expo-os",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "expo": "*"
+  }
+}
