@@ -1,3 +1,5 @@
+export declare const METRO_ASSET_EXTS: readonly string[];
+
 export interface MetroAssetDescriptor {
   readonly __packager_asset: true;
   readonly httpServerLocation: string;
