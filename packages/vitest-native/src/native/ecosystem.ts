@@ -1,8 +1,7 @@
-import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
-import { containsPath } from "./match.mjs";
+import { containsPath, packageDirOf } from "./match.mjs";
 
 /**
  * Packages that must never be auto-inlined even though they depend on React
@@ -245,9 +244,7 @@ export function detectEcosystemPackages(
   // package is linked only into the package that depends on it, so the run root
   // often cannot resolve what the app can — resolving only from the run root is
   // how a workspace library slips past detection when the run starts above it.
-  const requires = [...new Set(found.map((entry) => entry.dir))].map((dir) =>
-    createRequire(path.join(dir, "package.json")),
-  );
+  const declaringDirs = [...new Set(found.map((entry) => entry.dir))];
   for (const { manifest } of found) {
     for (const field of ["dependencies", "devDependencies", "optionalDependencies"]) {
       const deps = manifest[field];
@@ -259,26 +256,27 @@ export function detectEcosystemPackages(
   if (candidates.size === 0) return [];
 
   /**
-   * A package's manifest, and the directory it is installed in. `require.resolve`
-   * returns the real path, not the link's, unless Node runs with --preserve-symlinks,
-   * where Node resolves the package's own imports from the link too.
+   * A package's manifest, and the real directory it is installed in, as Node finds it
+   * from `fromDir` (packageDirOf). Not `require.resolve("<name>/package.json")` alone:
+   * a package whose `exports` map leaves out `./package.json` refuses that request, and
+   * was silently never detected or compiled (expo-symbols 57, whose ES module build
+   * Node then ran raw).
    */
   type Installed = { manifest: Record<string, unknown>; dir: string };
-  const installedVia = (req: NodeJS.Require, name: string): Installed | null => {
+  const installedFrom = (fromDir: string, name: string): Installed | null => {
+    const dir = packageDirOf(name, fromDir);
+    if (!dir) return null;
     try {
-      const file = req.resolve(`${name}/package.json`);
-      return {
-        manifest: req(file) as Record<string, unknown>,
-        dir: path.dirname(file),
-      };
+      const manifest = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
+      return { manifest: manifest as Record<string, unknown>, dir };
     } catch {
       return null;
     }
   };
   /** Resolve a package's manifest from whichever root can see it. */
   const installedOf = (name: string): Installed | null => {
-    for (const req of requires) {
-      const installed = installedVia(req, name);
+    for (const dir of declaringDirs) {
+      const installed = installedFrom(dir, name);
       if (installed) return installed;
     }
     return null;
@@ -300,15 +298,8 @@ export function detectEcosystemPackages(
   // @react-navigation/elements, whose ESM could not see the names the compiled
   // @react-navigation/native re-exports from core: "does not provide an export named
   // 'useTheme'".
-  const requireByDir = new Map<string, NodeJS.Require>();
-  const dependencyOf = (parent: Installed, name: string): Installed | null => {
-    let req = requireByDir.get(parent.dir);
-    if (!req) {
-      req = createRequire(path.join(parent.dir, "package.json"));
-      requireByDir.set(parent.dir, req);
-    }
-    return installedVia(req, name);
-  };
+  const dependencyOf = (parent: Installed, name: string): Installed | null =>
+    installedFrom(parent.dir, name);
 
   /**
    * The packages the run itself lives in — the project, in other words.
