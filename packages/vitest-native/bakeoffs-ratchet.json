@@ -4,11 +4,11 @@
   "apps": {
     "paper": {
       "stock": {
-        "passed": 662,
+        "passed": 663,
         "total": 715
       },
       "hot": {
-        "passed": 662,
+        "passed": 663,
         "total": 715
       }
     },

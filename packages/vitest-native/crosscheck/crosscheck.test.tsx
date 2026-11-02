@@ -1008,6 +1008,49 @@ probe("hunt-stylesheet-flatten-direct-falsy", () => ({
   empty: StyleSheet.flatten({}) ?? "<<undefined>>",
 }));
 
+// StyleSheet.compose and flatten with nullish and empty operands, observed RAW. The
+// only compose probe, in `stylesheet-helpers`, passes two styles and flattens the
+// result, and flatten absorbs the difference: the mock's compose(null, b) returned
+// [null, b] where React Native returns b itself (src/private/styles/composeStyles.js),
+// and the corpus stayed green. `null` and `undefined` are told apart because callers
+// can (compose(null, null) is null, compose(undefined, undefined) is undefined).
+const nullish = (value: unknown) =>
+  value === undefined ? "<<undefined>>" : value === null ? "<<null>>" : value;
+probe("hunt-stylesheet-compose-nullish", () => {
+  const a = { color: "red" };
+  const b = { fontSize: 12 };
+  return {
+    nullFirst: nullish(StyleSheet.compose(null, b)),
+    undefinedFirst: nullish(StyleSheet.compose(undefined, b)),
+    nullSecond: nullish(StyleSheet.compose(a, null)),
+    undefinedSecond: nullish(StyleSheet.compose(a, undefined)),
+    bothNull: nullish(StyleSheet.compose(null, null)),
+    bothUndefined: nullish(StyleSheet.compose(undefined, undefined)),
+    nullThenUndefined: nullish(StyleSheet.compose(null, undefined)),
+    sameObject: StyleSheet.compose(null, b) === b && StyleSheet.compose(a, null) === a,
+    both: StyleSheet.compose(a, b),
+  };
+});
+
+// flatten of an array always yields an object in React Native, even when nothing in
+// it is a style (flattenStyle.js builds the result before walking the array), and a
+// non-object, non-array style is no style at all. `hunt-stylesheet-flatten-direct-falsy`
+// covers the direct nullish cases; these are the array and primitive ones.
+probe("hunt-stylesheet-flatten-empty", () => ({
+  emptyArray: nullish(StyleSheet.flatten([])),
+  allFalsy: nullish(StyleSheet.flatten([null, undefined, false])),
+  nestedEmpty: nullish(StyleSheet.flatten([[], [null]])),
+  // Real styles nested at depth, merged in order, beside a string element. A string is
+  // no style, so a flatten that tested truthiness instead of `typeof "object"` would
+  // spread it into {0: "a", 1: "b"}.
+  nestedStyles: nullish(
+    StyleSheet.flatten([{ margin: 1 }, [[{ padding: 2 }], [null, { margin: 3 }]], "ab" as never]),
+  ),
+  stringOnly: nullish(StyleSheet.flatten(["ab" as never])),
+  number: nullish(StyleSheet.flatten(1 as never)),
+  string: nullish(StyleSheet.flatten("" as never)),
+}));
+
 // AppState.currentState and Appearance.getColorScheme() are deliberately NOT probed
 // here. Both were found unobserved by mutation (flipping the mock's values left the
 // corpus green), but neither is a cross-engine invariant: they only have a value

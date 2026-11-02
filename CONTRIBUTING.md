@@ -24,8 +24,37 @@ bun run test
 1. Create a branch from `main`
 2. Make your changes in `packages/vitest-native/`
 3. Run `bun run lint` and `bun run format` before committing
-4. Add a changeset: `bunx changeset`
+4. Add a changeset: `bunx changeset` (see [Writing a changeset](#writing-a-changeset))
 5. Open a pull request
+
+## Writing a changeset
+
+A changeset becomes the release notes. Two readers use it: a person deciding whether an upgrade
+affects their project, and an agent applying the upgrade to a codebase. Write for both.
+
+1. **Lead with the effect, in bold.** One sentence on what now behaves differently, and for whom
+   (engine, configuration, versions). Someone who reads only this line should know whether it
+   affects them.
+2. **Say what to do.** "No action needed", or the exact change: the option and its value, the
+   command, the file. Name the way to opt out if there is one.
+3. **Give the precise detail.** Everything needed to act without reading the code, with names in
+   backticks so they can be searched for: options and values, error codes, versions and ranges,
+   the behaviour before and after, and how to tell which applies (the startup banner, `doctor`).
+4. **State the scope honestly.** Say what is not covered yet, and claim no more than the tests
+   show.
+
+Leave out implementation detail a user cannot observe. Keep one change per changeset, usually in
+under ten lines. For example:
+
+```md
+---
+"vitest-native": patch
+---
+
+**Vite+ projects start.** Under Vite+, vitest-native reads the running Vite's version instead of
+the `vite` package's manifest, which reports Vite+'s own version, so the run no longer stops with
+`UNSUPPORTED_PEER`. No action needed.
+```
 
 ## Scripts
 

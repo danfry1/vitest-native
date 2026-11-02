@@ -1,0 +1,5 @@
+{
+  "name": "museum-cfg-explicit-max-workers",
+  "private": true,
+  "type": "module"
+}

@@ -11,6 +11,11 @@ import { reactNative } from "../src/index.js";
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CALL = "jest.mock('./api');\nimport { fetchUser } from './api';\n";
 
+// Only this warning: the plugin warns about other things at startup too (this
+// repository's own Expo install is an unsupported SDK).
+const jestMockWarnings = (warn: { mock: { calls: unknown[][] } }) =>
+  warn.mock.calls.map((call) => String(call[0])).filter((line) => line.includes("jest.mock()"));
+
 async function pluginWithoutTransform() {
   const plugin = reactNative({ engine: "mock" }) as any;
   await plugin.configResolved({
@@ -29,8 +34,8 @@ describe("the missing-jestMockTransform warning", () => {
     const plugin = await pluginWithoutTransform();
     plugin.transform(CALL, "/app/src/user.test.ts");
     plugin.transform(CALL, "/app/src/other.test.ts");
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toMatch(/\/app\/src\/user\.test\.ts calls jest\.mock\(\)/);
+    expect(jestMockWarnings(warn)).toHaveLength(1);
+    expect(jestMockWarnings(warn)[0]).toMatch(/\/app\/src\/user\.test\.ts calls jest\.mock\(\)/);
   });
 
   it("stays silent for dependencies and for vitest-native's own files", async () => {
@@ -40,10 +45,10 @@ describe("the missing-jestMockTransform warning", () => {
     plugin.transform(CALL, "/app/node_modules/vitest-native/dist/jest-compat/setup.mjs");
     plugin.transform(CALL, path.join(PACKAGE_ROOT, "dist", "jest-compat", "setup.mjs"));
     plugin.transform(CALL, path.join(PACKAGE_ROOT, "src", "plugin.ts"));
-    expect(warn).not.toHaveBeenCalled();
+    expect(jestMockWarnings(warn)).toEqual([]);
     // The project's own file still gets it.
     plugin.transform(CALL, "/app/src/user.test.ts");
-    expect(warn).toHaveBeenCalledTimes(1);
+    expect(jestMockWarnings(warn)).toHaveLength(1);
   });
 
   it("stays silent when jestMockTransform() is installed", async () => {
@@ -55,6 +60,6 @@ describe("the missing-jestMockTransform warning", () => {
       test: {},
     });
     plugin.transform(CALL, "/app/src/user.test.ts");
-    expect(warn).not.toHaveBeenCalled();
+    expect(jestMockWarnings(warn)).toEqual([]);
   });
 });

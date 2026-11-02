@@ -234,15 +234,23 @@ export function validatePeerDependency(
   projectRoot: string,
   maximumMajorExclusive?: number,
   minimumByMajor?: Record<number, string>,
+  // The running package's version, when the caller has it from the host (Vite's
+  // `this.meta.viteVersion`, Vitest's `vitest.version`). A lookup by name from the
+  // project root finds a different package under wrappers such as Vite+ (see host.ts).
+  runningVersion?: string | null,
+  // Where runningVersion was read, named in the message ("the running Vite").
+  runningSource?: string,
 ): string | null {
   const req = createRequire(path.join(projectRoot, "package.json"));
   try {
-    const pkgJsonPath = req.resolve(`${pkgName}/package.json`);
-    const { version } = req(pkgJsonPath) as { version: string };
+    const version =
+      runningVersion ??
+      (req(req.resolve(`${pkgName}/package.json`)) as { version: string }).version;
     const major = Number(version.replace(/^[^0-9]*/, "").split(".")[0]);
     const requiredMinimum = minimumByMajor?.[major] ?? minimumVersion;
     if (!satisfiesMinimum(version, requiredMinimum)) {
-      return `vitest-native requires ${pkgName} >= ${requiredMinimum} for ${major}.x, but found ${version}. Please upgrade.`;
+      const where = runningVersion && runningSource ? ` (${runningSource})` : "";
+      return `vitest-native requires ${pkgName} >= ${requiredMinimum} for ${major}.x, but found ${version}${where}. Please upgrade.`;
     }
     if (maximumMajorExclusive !== undefined && major >= maximumMajorExclusive) {
       return `vitest-native supports ${pkgName} >= ${minimumVersion} and < ${maximumMajorExclusive}, but found ${version}.`;

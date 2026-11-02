@@ -1,6 +1,6 @@
 // Native engine as a user gets it out of the box: no hotRuntime option, so the
-// default 'auto' decides — the bounded hot runtime when the run can be bounded and
-// recycled, per-file isolation otherwise. Worker count via BENCH_WORKERS.
+// default (hotRuntime: false) gives every file a fresh worker. Worker count via
+// BENCH_WORKERS.
 import { defineConfig } from "vitest/config";
 import { reactNative } from "vitest-native";
 
