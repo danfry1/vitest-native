@@ -112,12 +112,52 @@ function runPnpmMonorepo(tarball) {
  * transform-cache miss after Expo's runtime is installed, which only a warm second run
  * produces. Each has a test here (consumer-tests/expo-pnpm-suite).
  */
-function runExpoPnpmSuite(tarball) {
-  const fixtureRoot = path.join(tempRoot, "expo-pnpm-suite");
+// The fixture pins Expo SDK 58. SDK 57 is the previous SDK, which most projects on
+// `latest` still run; the same fixture installs it with these pins (the expo-sdk57
+// fixture's), on RNTL 13 and the Vitest 4 floor.
+const EXPO_SDK57 = {
+  "@testing-library/react-native": "13.3.3",
+  expo: "57.0.24",
+  "expo-constants": "57.0.19",
+  "expo-image": "57.0.5",
+  "expo-linking": "57.0.10",
+  "expo-router": "57.0.22",
+  "expo-splash-screen": "57.0.10",
+  "expo-status-bar": "57.0.1",
+  "expo-symbols": "57.0.3",
+  react: "19.2.4",
+  "react-dom": "19.2.4",
+  "react-native": "0.86.3",
+  "react-native-gesture-handler": "2.32.0",
+  "react-native-reanimated": "4.5.1",
+  "react-native-safe-area-context": "5.7.0",
+  "react-native-screens": "4.26.2",
+  "react-native-worklets": "0.10.1",
+  "react-test-renderer": "19.2.4",
+  vite: "7.3.2",
+  vitest: "4.1.11",
+};
+
+function pinVersions(dir, pins) {
+  const packagePath = path.join(dir, "package.json");
+  const manifest = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+  for (const field of ["dependencies", "devDependencies"]) {
+    for (const name of Object.keys(manifest[field] ?? {})) {
+      if (pins[name]) manifest[field][name] = pins[name];
+    }
+  }
+  fs.writeFileSync(packagePath, `${JSON.stringify(manifest, null, 2)}\n`);
+}
+
+function runExpoPnpmSuite(tarball, sdk) {
+  const fixtureRoot = path.join(tempRoot, `expo-pnpm-suite-sdk${sdk}`);
   fs.cpSync(path.join(fixturesRoot, "expo-pnpm-suite"), fixtureRoot, { recursive: true });
   const app = path.join(fixtureRoot, "apps/mobile");
   const library = path.join(fixtureRoot, "packages/ui");
-  for (const dir of [fixtureRoot, app, library]) addPackedDependency(dir, tarball);
+  for (const dir of [fixtureRoot, app, library]) {
+    if (sdk === 57) pinVersions(dir, EXPO_SDK57);
+    addPackedDependency(dir, tarball);
+  }
   pnpm(["install", "--no-frozen-lockfile"], fixtureRoot);
 
   // Every leg runs, and the failures are reported together at the end: one run shows
@@ -134,7 +174,7 @@ function runExpoPnpmSuite(tarball) {
       const problem = check(output);
       if (problem) failures.push(`${name}: ${problem}`);
     } catch (error) {
-      failures.push(`${name}: ${error.message}`);
+      failures.push(`SDK ${sdk} ${name}: ${error.message}`);
     }
   };
   // 'auto' is only proven if the selector admitted the suite (no jest-compat, more than
@@ -162,6 +202,11 @@ function runExpoPnpmSuite(tarball) {
     }
     leg(`library (hotRuntime ${hot})`, library, [], { VN_HOT: hot });
   }
+  return failures;
+}
+
+function runExpoPnpmSuites(tarball) {
+  const failures = [...runExpoPnpmSuite(tarball, 58), ...runExpoPnpmSuite(tarball, 57)];
   if (failures.length > 0) {
     throw new Error(
       `Expo pnpm suite: ${failures.length} leg(s) failed\n- ${failures.join("\n- ")}`,
@@ -319,7 +364,7 @@ try {
     run("npx", ["--no-install", "vitest-native", "migrate", "--write"], migrateFixture);
     run("npm", ["test"], migrateFixture);
   }
-  if (only !== "fixtures") runExpoPnpmSuite(tarball);
+  if (only !== "fixtures") runExpoPnpmSuites(tarball);
 
   console.log("\nThe packed consumer fixtures passed.");
 } finally {
