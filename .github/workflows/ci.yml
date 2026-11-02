@@ -277,6 +277,13 @@ jobs:
         include:
           - gate: consumers
             label: consumer projects
+          # A realistic Expo SDK 58 app in a pnpm workspace (isolated layout), its suite
+          # run per-file and with hotRuntime 'auto', on iOS and Android, plus a
+          # workspace library's own suite. Its own cell, so it runs beside the others
+          # instead of lengthening the consumer cell; the Windows Full gate stays the
+          # longest leg.
+          - gate: consumers-expo-pnpm
+            label: Expo pnpm suite
           - gate: vitest-semantics
             vitest: 5.0.1
             label: Vitest semantics, Vitest 5
@@ -366,8 +373,15 @@ jobs:
 
       - name: Test packed consumer projects
         if: matrix.gate == 'consumers'
+        env:
+          VN_CONSUMERS: fixtures
         run: bun run test:consumers
 
+      - name: Test the packed Expo pnpm suite
+        if: matrix.gate == 'consumers-expo-pnpm'
+        env:
+          VN_CONSUMERS: expo-pnpm-suite
+        run: bun run test:consumers
 
   # The one required check for this workflow. Branch protection used to list every
   # matrix leg by name, plus a docs-only job that echoed the same names, and the two
