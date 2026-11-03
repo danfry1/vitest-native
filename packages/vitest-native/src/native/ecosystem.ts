@@ -206,12 +206,25 @@ function manifestsFrom(projectRoot: string): { dir: string; manifest: Record<str
  * test infrastructure in NEVER_INLINE, and anything the consumer listed explicitly
  * in `transform` — that option keeps its existing meaning and takes precedence.
  */
+export interface ReachedPackages {
+  /**
+   * Absolute paths the run imports outside its own package without declaring them as
+   * dependencies: the targets of `resolve.alias` entries. A workspace member containing
+   * one is reached, and its dependencies are walked (see "Workspace members the run
+   * reaches" below).
+   */
+  reachedPaths?: readonly string[];
+  /** Called once per workspace member reached through `reachedPaths` but not declared. */
+  onReachedUndeclared?: (name: string, dir: string) => void;
+}
+
 export function detectEcosystemPackages(
   projectRoot: string | string[],
   explicit: string[] = [],
   testRoots: string[] = [],
   neverTransform: string[] = [],
   activePresets?: readonly string[],
+  { reachedPaths = [], onReachedUndeclared }: ReachedPackages = {},
 ): string[] {
   // More than one root because `manifestsFrom` only walks UP. In a workspace the
   // run root is often above the package under test — Nx invokes tasks from the
@@ -550,6 +563,61 @@ export function detectEcosystemPackages(
     // A sibling that depends on the package under test would otherwise pull it
     // back in here, past the check above.
     ownsTheRun(dep);
+  // Workspace members the run reaches. A workspace library the project depends on is
+  // not detected itself (its owner is the ownership track's decision, see
+  // dependencyDirOf), but its dependencies run in the project's tests all the same: a
+  // project that depends on `@w/ui`, which declares expo-image, loads expo-image, and
+  // through its peer expo, expo-asset. Seeding the walk only from what the project
+  // itself declares left those uncompiled, and Node ran expo-asset's ES module build as
+  // published ("Cannot find module …/expo-asset/build/Asset.fx"). The same holds for a
+  // member the run reaches through a `resolve.alias` into its source without declaring
+  // it, which is also reported (onReachedUndeclared).
+  // Reached: a member the project declares by name, a member an alias points into, and,
+  // transitively, a member a reached one declares. Their runtime `dependencies` seed the
+  // walk, resolved from the member's own directory as Node resolves them, under the same
+  // exclusions as every other edge. Rejected: seeding from every workspace member (it
+  // walked what only an unrelated sibling uses; see the sibling tests), and detecting
+  // the reached member itself (it would change the member's owner).
+  const members = found.filter(
+    ({ dir, manifest }) =>
+      typeof manifest.name === "string" && !ownerRoots.some((root) => containsPath(dir, root)),
+  );
+  const memberByName = new Map(members.map((m) => [m.manifest.name as string, m]));
+  const reachedMembers = new Map<string, (typeof members)[number]>();
+  const reachMember = (member: (typeof members)[number]) => {
+    if (reachedMembers.has(member.dir)) return;
+    reachedMembers.set(member.dir, member);
+    const deps = member.manifest.dependencies;
+    for (const dep of deps && typeof deps === "object" ? Object.keys(deps as object) : []) {
+      const other = memberByName.get(dep);
+      if (other) reachMember(other);
+    }
+  };
+  for (const name of projectDeclared) {
+    const member = memberByName.get(name);
+    if (member) reachMember(member);
+  }
+  for (const target of reachedPaths) {
+    // The innermost member containing the target: nested workspaces nest their members.
+    const member = members
+      .filter(({ dir }) => containsPath(dir, target))
+      .sort((a, b) => b.dir.length - a.dir.length)[0];
+    if (!member) continue;
+    const name = member.manifest.name as string;
+    if (!projectDeclared.has(name) && !reachedMembers.has(member.dir)) {
+      onReachedUndeclared?.(name, member.dir);
+    }
+    reachMember(member);
+  }
+  for (const member of reachedMembers.values()) {
+    const deps = member.manifest.dependencies;
+    for (const dep of deps && typeof deps === "object" ? Object.keys(deps as object) : []) {
+      if (walked.has(dep) || excluded(dep) || !detectedSet.has(dep)) continue;
+      const installed = installedFrom(member.dir, dep);
+      if (installed) reach(dep, installed);
+    }
+  }
+
   while (queue.length > 0) {
     const pkg = queue.pop() as Installed;
     const deps = pkg.manifest.dependencies;

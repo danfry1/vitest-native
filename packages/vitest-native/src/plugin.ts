@@ -2018,12 +2018,29 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         const userInline = (userConfig as { test?: { server?: { deps?: { inline?: unknown } } } })
           .test?.server?.deps?.inline;
         const userInlinesEverything = userInline === true;
+        // Workspace source the project imports through aliases (resolve.alias, and
+        // tsconfig `paths` where Vite resolves them): a workspace member reached that way
+        // has its dependencies walked like a declared one's.
         const ecosystem = detectEcosystemPackages(
           [resolvedRoot, ...includeRoots],
           transformPkgs,
           includeRoots,
           neverTransform,
           nativePresetNames,
+          {
+            reachedPaths: requireAliases.entries
+              .map(([, target]) => target)
+              .filter((target) => path.isAbsolute(target)),
+            onReachedUndeclared: (name, dir) => {
+              if (diagnostics) {
+                console.warn(
+                  `[vitest-native] ${name} (${dir}) is imported through an alias but is not ` +
+                    `a dependency of this package; its dependencies are compiled as if it ` +
+                    `were. Declare it to make the dependency explicit.`,
+                );
+              }
+            },
+          },
         );
         // The directories Vite owns outright. Handed to the worker so the require
         // hook can say so if Node loads one of their files anyway — which happens

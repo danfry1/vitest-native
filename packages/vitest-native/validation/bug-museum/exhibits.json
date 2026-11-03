@@ -423,7 +423,7 @@
       "title": "Errors with per-instance methods are unequal under jest-compat",
       "source": "migration testing (2026-10)",
       "fixedBy": "#346 (merged)",
-      "bugSignature": "^error-equality\\.test\\.ts: AssertionError: expected Error: bad input \\{ issues: \\[\\], …\\(1\\) \\} to deeply equal Error: bad input",
+      "bugSignature": "^error-equality\\.test\\.ts: AssertionError: expected Error: bad input \\{ issues: \\[\\], \u2026\\(1\\) \\} to deeply equal Error: bad input",
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
@@ -1353,6 +1353,28 @@
             "file": "packages/kit/package.json",
             "find": "\"react-native\": \"*\"",
             "replace": "\"museum-control-no-react-native\": \"*\""
+          }
+        ]
+      }
+    },
+    {
+      "id": "res-workspace-member-closure",
+      "class": "transform/resolution",
+      "title": "A workspace library's dependencies are not compiled for the package that depends on it",
+      "source": "a monorepo feature package depending on a workspace UI library that declares expo-image, with expo declared by an app (\"Cannot find module '\u2026/expo-asset/build/Asset.fx'\")",
+      "fixedBy": "open (fix/closure-seed-reached-packages)",
+      "fixRef": "fix/closure-seed-reached-packages",
+      "links": {
+        "museum-ui": "packages/ui"
+      },
+      "bugSignature": "^closure\\.test\\.ts: (Error: )?Cannot find module '[^']*museum-expo-asset/build/Asset\\.fx'",
+      "control": {
+        "why": "Declaring museum-image in the project itself makes it a seed of the walk, which removes the precondition.",
+        "edits": [
+          {
+            "file": "package.json",
+            "find": "\"museum-ui\": \"workspace:*\"",
+            "replace": "\"museum-ui\": \"workspace:*\",\n    \"museum-image\": \"1.0.0\""
           }
         ]
       }
