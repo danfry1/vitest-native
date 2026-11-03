@@ -1123,7 +1123,7 @@ function hotAutoConfigDeclineReason(userPool: unknown, userIsolate: unknown): st
 
 /**
  * Why the resolved Vitest config overrides a hot runtime chosen at config time, or
- * null. Vitest 4 applies CLI flags after plugins' config hooks, so `--maxWorkers=1`,
+ * null. Vitest applies CLI flags after plugins' config hooks, so `--maxWorkers=1`,
  * `--no-file-parallelism`, `--pool` and `--isolate`/`--no-isolate` arrive only in the
  * resolved config. `--no-isolate` sets the same `isolate: false` the hot runtime uses,
  * so it is read from the CLI options themselves.
@@ -1160,7 +1160,7 @@ export function hotOverrideReason(
 }
 
 /**
- * The root Vitest gives a project: `test.root` over Vite's `root` (Vitest 4 and 5's
+ * The root Vitest gives a project: `test.root` over Vite's `root` (Vitest 5's
  * resolveConfig). `vitest --root` arrives as `test.root`. Per-project state is keyed
  * by it, since that is the root configureVitest sees.
  */
@@ -1179,8 +1179,8 @@ export function vitestRootOf(config: { root?: unknown; test?: unknown }): string
  * ownership, env, the hot pool. Vitest shares a server only when an entry sets no
  * Vite-level option; `root` is one, and pinning it to the inherited value changes
  * nothing else. Unlike `sharedViteServer: false`, which Vitest reads from the
- * top-level config alone, this works in a nested config too. Vitest 4 resolves every
- * inline project through the config file already. Returns how many were pinned.
+ * top-level config alone, this works in a nested config too. Returns how many were
+ * pinned.
  */
 export function pinInlineProjectRoots(test: unknown, declaringRoot: string): number {
   const projects = (test as { projects?: unknown } | undefined)?.projects;
@@ -1262,7 +1262,7 @@ type GroupedProject = {
  * Why this project's worker count cannot coexist with another project's, or null.
  * Vitest schedules projects that share a `sequence.groupOrder` (0 unless set) as one
  * group, and throws when they resolve to different `maxWorkers` ("Projects … have
- * different 'maxWorkers' but same 'sequence.groupOrder'", groupSpecs in Vitest 4 and
+ * different 'maxWorkers' but same 'sequence.groupOrder'", groupSpecs in Vitest
  * 5). The hot runtime's memory plan caps workers (at most four unless the user set the
  * count), while a project beside it gets Vitest's default of one fewer than the CPUs,
  * so a native project next to a mock or non-React-Native project failed on any machine
@@ -1322,7 +1322,7 @@ function hotRuntimeOverridden(reason: string): VitestNativeError {
 /**
  * The worker count Vitest would have used had the hot runtime not capped it: the
  * user's own value (a count or a percentage of the CPUs), else Vitest's default.
- * Mirrors Vitest 4/5's resolveMaxWorkers and getWorkersCountByPercentage.
+ * Mirrors Vitest 5's resolveMaxWorkers and getWorkersCountByPercentage.
  */
 export function vitestMaxWorkers(
   userValue: unknown,
@@ -1384,7 +1384,7 @@ function printHotMemoryPlan(lines: readonly string[]): void {
 /**
  * Rebuild the hot memory plan for the worker count Vitest resolved, when it is not the
  * count config() planned for. Vitest applies `--maxWorkers` and `VITEST_MAX_WORKERS`
- * over the `maxWorkers` every config hook returned (resolveConfig in Vitest 4.1 and 5;
+ * over the `maxWorkers` every config hook returned (resolveConfig in Vitest 5;
  * Vitest 5 also copies `--maxWorkers` into each project), and config() never sees the
  * environment variable: `VITEST_MAX_WORKERS=10` ran ten workers on a heap threshold
  * and plan sized for four. The count is the user's explicit choice, so memory
@@ -1445,7 +1445,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   let jestMockTransformPresent = true;
   // The hot runtime chosen in config(), re-checked against Vitest's resolved config.
   // Keyed by project root: each project decides for itself, and an instance can see
-  // more than one project (a config re-used by several, or Vitest 4 workspaces).
+  // more than one project (a config re-used by several).
   const hotSelections = new Map<
     string,
     {
@@ -2344,12 +2344,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // Optional peers (RNTL): report but never block — absent is a valid setup.
       for (const { name, minimum, maximumMajor, optional } of PEER_REQUIREMENTS) {
         if (!optional) continue;
-        const error = validatePeerDependency(
-          name,
-          minimum,
-          config.root,
-          maximumMajor,
-        );
+        const error = validatePeerDependency(name, minimum, config.root, maximumMajor);
         if (error && !error.includes("not found")) {
           console.warn(`[vitest-native] ${error}`);
         }

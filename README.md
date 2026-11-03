@@ -97,8 +97,8 @@ describe('MyComponent', () => {
 - **Node.js** 22.22.3 or later on Node 22, 24.12 or later on Node 24, or Node 26 and later: the
   releases where Node's in-thread module hooks work (see
   [versioning](packages/vitest-native/docs/versioning.md#support-policy))
-- **Vitest** 4.x or 5.x (both run the full gate in CI)
-- **Vite** ^6.4.2, ^7.3.2, or ^8.0.5
+- **Vitest** 5.x
+- **Vite** 8.x, from 8.0.5
 - **React** >= 18
 - **`@testing-library/react-native`** (optional) — supported across `>=12 <15`. RNTL 14 made
   `render`, `fireEvent`, and `act` async, so `await` them (`await render(<App />)`); this is
@@ -317,13 +317,6 @@ reactNative({
 ```
 
 ## Troubleshooting
-
-### `npm error Cannot read properties of null (reading 'edgesOut')` during install
-
-npm 10 (the version bundled with Node 22) crashes while resolving Vite 8.2+'s optional peer
-chain when the project pins Vitest 4, because that chain resolves to the latest Vitest (5.x).
-This is an npm bug, fixed in npm 11 ([vitest#11245](https://github.com/vitest-dev/vitest/issues/11245)).
-Upgrade npm (`npm install --global npm@11`), or use pnpm, Yarn or Bun.
 
 ### "vitest-native helpers called before setup"
 

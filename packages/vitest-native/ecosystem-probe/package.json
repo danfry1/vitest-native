@@ -37,7 +37,7 @@
     "react-test-renderer": "^19.2.8",
     "test-renderer": "^1.2.0",
     "vite": "^8.2.1",
-    "vitest": "^4.1.10",
+    "vitest": "5.0.5",
     "vitest-native": "^0.10.0"
   }
 }

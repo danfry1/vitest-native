@@ -5,7 +5,7 @@
 Run your React Native tests under Vitest, against **real React Native** — the same JavaScript that ships in your app, with only the native-module boundary mocked. That is the default and the point of the project. A lightweight pure-JS mock engine is available as an opt-in for fast, RN-free unit tests.
 
 > **Beta.** The release-supported native engine is validated across React Native 0.81–0.88,
-> Vite 6–8, Vitest 4–5, RNTL 12–14, bare apps, Expo SDK 58 and 57 (including expo-router's own testing
+> Vite 8, Vitest 5, RNTL 12–14, bare apps, Expo SDK 58 and 57 (including expo-router's own testing
 > library), and hoisted monorepos. The hot
 > runtime (opt-in with `hotRuntime: 'auto'`) is marked experimental because it uses Vitest's
 > experimental custom-pool APIs.
@@ -651,12 +651,6 @@ with a worked real-app example, is in **[docs/migrating-from-jest.md](docs/migra
 
 ## Troubleshooting
 
-**`npm error Cannot read properties of null (reading 'edgesOut')` during install**
-npm 10 (the version bundled with Node 22) crashes while resolving Vite 8.2+'s optional peer
-chain when the project pins Vitest 4, because that chain resolves to the latest Vitest (5.x).
-This is an npm bug, fixed in npm 11 ([vitest#11245](https://github.com/vitest-dev/vitest/issues/11245)).
-Upgrade npm (`npm install --global npm@11`), or use pnpm, Yarn or Bun.
-
 **`@react-native/babel-preset not found — using the mock engine`**
 You asked for the default (`auto`) engine but the native babel deps aren't installed, so it
 fell back to the mock engine. An Expo project from SDK 56 needs nothing extra: the engine uses
@@ -685,8 +679,7 @@ packages. If a dependency ships untranspiled Flow/TS, add it to the
 
 **My `babel.config.js` plugin isn't running**
 Transforms go through Vite's JSX transformer, not your Babel config, so custom Babel plugins don't
-apply. Vite 6–7 use esbuild and Vite 8 uses Oxc; the plugin configures the automatic JSX runtime for
-both. RN/preset Flow-stripping is handled separately; for anything else, prefer a Vite plugin or a
+apply. Vite 8 uses Oxc, and the plugin configures its automatic JSX runtime. RN/preset Flow-stripping is handled separately; for anything else, prefer a Vite plugin or a
 preset.
 
 **Snapshots differ after switching from Jest or the mock engine**
@@ -985,9 +978,8 @@ Every release must pass:
 
 - Linux on Node 22.22.3 (with RNTL 12, 13 and 14), 24 and 26, plus macOS and Windows on Node 22.22.3.
 - The mock, native iOS, native Android, hot-runtime, isolation, and 100-file soak suites.
-- React Native 0.81–0.88 against both locked and newest-supported Vitest, plus the Vitest 4 floor
-  on 0.81 and 0.88.
-- Vitest's own behaviour under the defaults, on Vitest 5 and the Vitest 4 floor: config and CLI
+- React Native 0.81–0.88 against both locked and newest-supported Vitest.
+- Vitest's own behaviour under the defaults: config and CLI
   flags, projects, watch mode, the jsdom and happy-dom environments, `--typecheck`, `vitest bench`,
   and the HTML reporter.
 - Packed consumers: bare RN 0.83/RNTL 12, a Jest-migration project, Expo SDK 58/RNTL 14 (with
@@ -1011,8 +1003,8 @@ see [versioning and stability](docs/versioning.md).
 | Dependency                                   | Supported version                         |
 | -------------------------------------------- | ----------------------------------------- |
 | `react`                                      | >= 18; use RN's matching React version    |
-| `vite`                                       | ^6.4.2, ^7.3.2, or ^8.0.5                |
-| `vitest`                                     | 4.x or 5.x                                |
+| `vite`                                       | ^8.0.5                                    |
+| `vitest`                                     | 5.x                                       |
 | `node`                                       | 22.22.3+ on Node 22, 24.12+ on 24, or 26+ |
 | `react-native` (native engine)               | 0.81–0.88 validated                       |
 | `@react-native/babel-preset` (native engine) | Match the installed React Native minor    |

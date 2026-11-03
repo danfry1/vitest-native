@@ -674,7 +674,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
       }
     }
 
-    // Jest's default is clearMocks: false; Vitest 5 defaults it to true (Vitest 4: false).
+    // Jest's default is clearMocks: false; Vitest 5 defaults it to true.
     // Under true, calls a module makes while it loads are cleared before each test, so
     // a test asserting on them fails only after migrating.
     if (config.clearMocks === undefined) {

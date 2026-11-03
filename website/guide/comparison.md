@@ -40,7 +40,7 @@ That is one generated suite on one machine, and your suite's shape decides your 
 |  | vitest-native | Jest + `@react-native/jest-preset` |
 |---|---|---|
 | Mock boundary | Native boundary only (real component JS), or full mock — your choice | Core components + native boundary mocked |
-| Runner | Vitest 4.x / 5.x | Jest |
+| Runner | Vitest 5.x | Jest |
 | Config | One plugin, zero setup | jest-preset + transformIgnorePatterns |
 | Watch / UI | Vitest watch + UI | Jest watch |
 | ESM | Native | Via transforms |

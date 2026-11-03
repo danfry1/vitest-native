@@ -45,7 +45,7 @@ try {
           react: "19.2.8",
           "react-native": "0.87.0",
           vite: "8.0.16",
-          vitest: "4.1.10",
+          vitest: "5.0.5",
           "vitest-native": `file:${path.join(tempRoot, packed)}`,
         },
       },

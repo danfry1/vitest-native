@@ -8,7 +8,7 @@ import {
   vitestRootOf,
 } from "../src/plugin.js";
 
-// Vitest 4 applies CLI flags after plugins' config hooks, so the hot runtime chosen
+// Vitest applies CLI flags after plugins' config hooks, so the hot runtime chosen
 // there is re-checked against the resolved config. Anything that is not a reason
 // must leave hot in place: an override that misfires reverts every run.
 describe("hotOverrideReason", () => {

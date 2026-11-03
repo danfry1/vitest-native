@@ -169,7 +169,7 @@ let moduleRunner = null;
  * resolved on the next import. `mocker.reset()` clears the registries but not that
  * queue, so a `vi.doMock` issued after a file's last import was resolved during the
  * NEXT file's first import and mocked it there. Per-file isolation never sees this —
- * the worker, and its queue, go away. The queue is internal (Vitest 4 and 5 both keep
+ * the worker, and its queue, go away. The queue is internal (Vitest 5 keeps
  * it as `static pendingIds` on BareModuleMocker); if it moves, this is a no-op and
  * tests-native/hot-jest-compat fails by name on the runtime-mock surface.
  */

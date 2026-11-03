@@ -33,7 +33,7 @@
 // second time in that one file — harmless, as cleanup is idempotent and the act
 // environment pair restores in order.
 //
-// runExternalModule is Vitest's module-evaluator method in Vitest 4 and 5; if it goes
+// runExternalModule is Vitest's module-evaluator method in Vitest 5; if it goes
 // away, nothing is wrapped and tests-native/hot-jest-compat fails on the RNTL surface.
 import fs from "node:fs";
 import Module from "node:module";

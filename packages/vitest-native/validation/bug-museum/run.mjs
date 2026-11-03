@@ -99,7 +99,7 @@ function childEnv(exhibit, accountingFile) {
 }
 
 /** Why the exhibit cannot run here, or null. */
-function notApplicable(exhibit, context) {
+function notApplicable(exhibit) {
   const requires = exhibit.requires ?? {};
   if (exhibit.na) return exhibit.na;
   if (requires.rntl && !findRntl(requires.rntl))
@@ -113,7 +113,7 @@ function runExhibit(original, context) {
     context.control && original.control?.requires
       ? { ...original, requires: original.control.requires }
       : original;
-  const na = notApplicable(exhibit, context);
+  const na = notApplicable(exhibit);
   if (na) return { verdict: "N/A", reason: na };
   if (context.control && !exhibit.control) return { verdict: "N/A", reason: "no control defined" };
   // The control removes the bug's precondition (exhibits.json `control`): a passing

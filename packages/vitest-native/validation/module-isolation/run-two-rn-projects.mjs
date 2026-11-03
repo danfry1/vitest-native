@@ -64,7 +64,7 @@ test("loads project-owned React Native ${index}", () => {
 
 try {
   const vitestDependency = productionHot
-    ? "4.1.10"
+    ? "5.0.5"
     : `file:${pack(
         "pnpm",
         ["pack", "--pack-destination", tempRoot],
