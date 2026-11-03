@@ -146,6 +146,45 @@ export function testIncludeRoots(include: unknown, projectRoot: string): string[
 }
 
 /**
+ * The files `test.setupFiles` names, resolved as Vitest resolves them (from the run
+ * root: a package request first, then a path), in the spelling given and in the real
+ * path's spellings, since Vite reports a module by its real path.
+ *
+ * Vitest evaluates every setup file in Vite whatever `server.deps.external` says, so
+ * the ownership policy treats them as entries (see decideFile in native/ownership.mjs).
+ */
+export function setupEntryFiles(setupFiles: unknown, projectRoot: string): string[] {
+  const list = Array.isArray(setupFiles) ? setupFiles : [setupFiles];
+  const req = createRequire(path.join(projectRoot, "package.json"));
+  const files = new Set<string>();
+  for (const entry of list) {
+    if (typeof entry !== "string" || entry === "") continue;
+    let file: string;
+    if (entry.startsWith("file:")) {
+      file = fileURLToPath(entry);
+    } else if (path.isAbsolute(entry)) {
+      file = entry;
+    } else {
+      try {
+        file = req.resolve(entry);
+      } catch {
+        file = path.resolve(projectRoot, entry);
+      }
+    }
+    files.add(path.resolve(file));
+    // A missing file is left to Vitest, which reports it by name when it runs it.
+    // Both real-path spellings: Node's (`realpathSync`, the one Module._cache and
+    // canonicalDir use) and the OS's (`realpathSync.native`), which differ on Windows
+    // for 8.3 short names (#399).
+    if (fs.existsSync(file)) {
+      files.add(fs.realpathSync(file));
+      files.add(fs.realpathSync.native(file));
+    }
+  }
+  return [...files];
+}
+
+/**
  * Where a glob stops being a literal path.
  *
  * `!`, `+` and `@` only introduce a pattern as part of an extglob — `@(a|b)` — and
@@ -2020,6 +2059,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           runtimeTransformAugmentations:
             nativePresetNames.length > 0 ? ["preset-pass-through-modules"] : [],
           projectDirs,
+          entryFiles: setupEntryFiles(
+            (userConfig as { test?: { setupFiles?: unknown } }).test?.setupFiles,
+            resolvedRoot,
+          ),
           serverDepsInlineAll: userInlinesEverything,
         });
         assertInlineOwnership(userInline);
