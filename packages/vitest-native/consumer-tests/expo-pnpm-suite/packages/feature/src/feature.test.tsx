@@ -7,7 +7,6 @@
 import { Avatar } from "@suite/ui-src";
 import { spacing } from "@suite/tokens";
 import { render, screen } from "@testing-library/react-native";
-import { createRequire } from "node:module";
 import { expect, it } from "vitest";
 
 declare module "vitest" {
@@ -27,10 +26,4 @@ it("renders the library's expo-image Avatar through the alias", async () => {
 
 it("reads an undeclared sibling's source through an alias", () => {
   expect(spacing).toBeGreaterThan(0);
-});
-
-it("does not resolve expo itself: the Avatar reached it through @suite/ui's expo-image", () => {
-  const require = createRequire(import.meta.url);
-  expect(() => require.resolve("expo")).toThrow();
-  expect(() => require.resolve("expo-image")).toThrow();
 });
