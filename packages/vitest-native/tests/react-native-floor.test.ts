@@ -14,8 +14,10 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { reactNative } from "../src/index.js";
 import { runDoctor } from "../src/cli/doctor.js";
+import { validatePeerDependency } from "../src/validate.js";
 import {
   isBelowSupportedReactNative,
+  PEER_REQUIREMENTS,
   SUPPORTED_REACT_NATIVE,
   unsupportedReactNativeMessage,
 } from "../src/peer-requirements.js";
@@ -171,5 +173,33 @@ describe("doctor", () => {
     const { lines } = runDoctor(nativeProject("0.86.0"), "24.13.0");
     expect(lines.join("\n")).not.toContain("react-native 0.86.0 is not supported");
     expect(lines.join("\n")).toContain("resolves to NATIVE");
+  });
+});
+
+describe("the React floor", () => {
+  const reactReq = PEER_REQUIREMENTS.find((r) => r.name === "react")!;
+
+  it("is the published peer range and a blocking requirement", () => {
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(PACKAGE_ROOT, "package.json"), "utf8"),
+    ) as { peerDependencies: Record<string, string> };
+    expect(manifest.peerDependencies.react).toBe(">=19");
+    expect(reactReq).toMatchObject({ minimum: "19.0.0" });
+    expect(reactReq.optional).toBeFalsy();
+  });
+
+  it("refuses React 18, naming the floor", () => {
+    const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-react-floor-"));
+    temps.push(root);
+    fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "app" }));
+    const react = path.join(root, "node_modules", "react");
+    fs.mkdirSync(react, { recursive: true });
+    fs.writeFileSync(
+      path.join(react, "package.json"),
+      JSON.stringify({ name: "react", version: "18.3.1" }),
+    );
+    expect(validatePeerDependency("react", reactReq.minimum, root, reactReq.maximumMajor)).toMatch(
+      /requires react >= 19\.0\.0, but found 18\.3\.1/,
+    );
   });
 });
