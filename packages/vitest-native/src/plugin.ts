@@ -25,7 +25,12 @@ import { knownNativeModulesFor, nativeModuleSpecsFor } from "./native/native-mod
 import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
 import { detectEcosystemPackages } from "./native/ecosystem.js";
-import { containsPath, memoizePackageDirOf, packageDirOf } from "./native/match.mjs";
+import {
+  containsPath,
+  dependencyDirOf,
+  memoizePackageDirOf,
+  packageDirOf,
+} from "./native/match.mjs";
 type AssetModules = typeof import("./native/assets.mjs");
 import type { HotMemoryPlan } from "./native/memory.mjs";
 import type { NativePoolOptions } from "./native/pool.js";
@@ -143,6 +148,45 @@ export function testIncludeRoots(include: unknown, projectRoot: string): string[
     dirs.add(path.resolve(projectRoot, literal.slice(0, slash)));
   }
   return [...dirs];
+}
+
+/**
+ * The files `test.setupFiles` names, resolved as Vitest resolves them (from the run
+ * root: a package request first, then a path), in the spelling given and in the real
+ * path's spellings, since Vite reports a module by its real path.
+ *
+ * Vitest evaluates every setup file in Vite whatever `server.deps.external` says, so
+ * the ownership policy treats them as entries (see decideFile in native/ownership.mjs).
+ */
+export function setupEntryFiles(setupFiles: unknown, projectRoot: string): string[] {
+  const list = Array.isArray(setupFiles) ? setupFiles : [setupFiles];
+  const req = createRequire(path.join(projectRoot, "package.json"));
+  const files = new Set<string>();
+  for (const entry of list) {
+    if (typeof entry !== "string" || entry === "") continue;
+    let file: string;
+    if (entry.startsWith("file:")) {
+      file = fileURLToPath(entry);
+    } else if (path.isAbsolute(entry)) {
+      file = entry;
+    } else {
+      try {
+        file = req.resolve(entry);
+      } catch {
+        file = path.resolve(projectRoot, entry);
+      }
+    }
+    files.add(path.resolve(file));
+    // A missing file is left to Vitest, which reports it by name when it runs it.
+    // Both real-path spellings: Node's (`realpathSync`, the one Module._cache and
+    // canonicalDir use) and the OS's (`realpathSync.native`), which differ on Windows
+    // for 8.3 short names (#399).
+    if (fs.existsSync(file)) {
+      files.add(fs.realpathSync(file));
+      files.add(fs.realpathSync.native(file));
+    }
+  }
+  return [...files];
 }
 
 /**
@@ -1979,10 +2023,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         const userInline = (userConfig as { test?: { server?: { deps?: { inline?: unknown } } } })
           .test?.server?.deps?.inline;
         const userInlinesEverything = userInline === true;
-        // One lookup per package for this config evaluation: detection, the linked-
-        // package check below and the ownership policy all ask for the same
-        // directories. Scoped to this call, so a restart in watch mode (which
-        // evaluates the config again) resolves afresh.
+        // One lookup per package and directory for this config evaluation. The
+        // linked-package check below and the ownership policy share this one;
+        // detection keeps its own, because it asks dependencyDirOf, whose answer for
+        // a workspace member differs from packageDirOf's (match.mjs). Both are scoped
+        // to this call, so a restart in watch mode (which evaluates the config again)
+        // resolves afresh.
         const dirOf = memoizePackageDirOf();
         const ecosystem = detectEcosystemPackages(
           [resolvedRoot, ...includeRoots],
@@ -1990,7 +2036,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           includeRoots,
           neverTransform,
           nativePresetNames,
-          dirOf,
+          memoizePackageDirOf(dependencyDirOf),
         );
         // The directories Vite owns outright. Handed to the worker so the require
         // hook can say so if Node loads one of their files anyway — which happens
@@ -2026,6 +2072,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           runtimeTransformAugmentations:
             nativePresetNames.length > 0 ? ["preset-pass-through-modules"] : [],
           projectDirs,
+          entryFiles: setupEntryFiles(
+            (userConfig as { test?: { setupFiles?: unknown } }).test?.setupFiles,
+            resolvedRoot,
+          ),
           serverDepsInlineAll: userInlinesEverything,
           packageDirOf: dirOf,
         });

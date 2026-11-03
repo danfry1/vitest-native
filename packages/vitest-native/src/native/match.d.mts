@@ -12,13 +12,15 @@ export declare function installedPackageDirOf(name: string, projectRoot: string)
 
 /** The on-disk directory a package resolves to from `projectRoot`, or null. */
 export declare function packageDirOf(name: string, fromDir: string): string | null;
+/** A dependency the engine may detect: installed, or resolvable through `<name>/package.json`. */
+export declare function dependencyDirOf(name: string, fromDir: string): string | null;
 
-/** How a package's directory is found from a directory: `packageDirOf` or a memoized copy. */
+/** How a package's directory is found from a directory: `packageDirOf`, `dependencyDirOf`, or a memoized copy. */
 export type PackageDirOf = (name: string, fromDir: string) => string | null;
 
 /**
- * `packageDirOf` with each answer kept for the life of the returned function, keyed by
- * the resolved `fromDir` and the package name.
+ * `resolve` (default `packageDirOf`) with each answer kept for the life of the returned
+ * function, keyed by the resolved `fromDir` and the package name.
  */
 export declare function memoizePackageDirOf(resolve?: PackageDirOf): PackageDirOf;
 

@@ -12,20 +12,26 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { projectContext } from "../src/context.mjs";
 
-// Every lookup the plugin makes, by directory and package. The mock routes the
+// Every lookup the plugin makes, by lookup function, directory and package. The mock routes the
 // defaults of packagePatterns and buildPkgMatcher through the counter too, so a
 // caller that drops the shared lookup and falls back to the uncached one is seen.
 const lookups = vi.hoisted(() => ({ on: false, keys: [] as string[] }));
 vi.mock("../src/native/match.mjs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/native/match.mjs")>();
   const packageDirOf = (name: string, fromDir: string) => {
-    if (lookups.on) lookups.keys.push(`${path.resolve(fromDir)} ${name}`);
+    if (lookups.on) lookups.keys.push(`packageDirOf ${path.resolve(fromDir)} ${name}`);
     return actual.packageDirOf(name, fromDir);
+  };
+  const dependencyDirOf = (name: string, fromDir: string) => {
+    if (lookups.on) lookups.keys.push(`dependencyDirOf ${path.resolve(fromDir)} ${name}`);
+    return actual.dependencyDirOf(name, fromDir);
   };
   return {
     ...actual,
     packageDirOf,
+    dependencyDirOf,
     memoizePackageDirOf: (resolve = packageDirOf) => actual.memoizePackageDirOf(resolve),
     packagePatterns: (name: string, root?: string, dirOf = packageDirOf) =>
       actual.packagePatterns(name, root, dirOf),
@@ -210,8 +216,96 @@ describe("one lookup per package per config call", () => {
     }
     // The fixture root detects React Native libraries, so the policy has packages to
     // resolve; without them this would pass vacuously.
-    expect(lookups.keys.some((key) => key.endsWith(" rn-ecosystem-lib"))).toBe(true);
+    for (const lookup of ["packageDirOf", "dependencyDirOf"]) {
+      expect(
+        lookups.keys.some((key) => key.startsWith(lookup) && key.endsWith(" rn-ecosystem-lib")),
+        lookup,
+      ).toBe(true);
+    }
     const repeated = [...new Set(lookups.keys.filter((key, i) => lookups.keys.indexOf(key) !== i))];
     expect(repeated).toEqual([]);
   });
+});
+
+/**
+ * A throwaway project whose native toolchain comes from this repository's install.
+ * `links` maps a dependency name to a directory symlinked into the app's node_modules.
+ */
+function app(dependencies: Record<string, string>): string {
+  const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-dircache-app-"));
+  made.push(root);
+  const here = path.resolve(import.meta.dirname, "..");
+  for (const name of ["react-native", "@react-native/babel-preset", "@babel/core"]) {
+    const to = path.join(root, "node_modules", name);
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    fs.symlinkSync(fs.realpathSync(path.join(here, "node_modules", name)), to, "junction");
+  }
+  write(path.join(root, "package.json"), { name: "app", private: true, dependencies });
+  return root;
+}
+const made: string[] = [];
+afterAll(() => {
+  for (const dir of made) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
+});
+
+/** The packages a config call hands Node to transform. */
+async function nodeTransformed(plugin: ReturnType<typeof reactNative>, root: string) {
+  const log = console.log;
+  const warn = console.warn;
+  console.log = console.warn = () => {};
+  try {
+    const config = await runPluginConfig(plugin, { root });
+    const context = projectContext(config.test.env.VITEST_NATIVE_CONTEXT) as {
+      transform?: string[];
+    } | null;
+    return context?.transform ?? [];
+  } finally {
+    console.log = log;
+    console.warn = warn;
+  }
+}
+
+describe("cache lifetime", () => {
+  it("sees a package installed between two config calls on the same plugin", async () => {
+    // Vitest reloads the config on a watch-mode restart. Whether that builds a new
+    // plugin instance depends on where reactNative() is called, so the cache must
+    // not outlive one config call: a package installed in between must be detected.
+    const root = app({ "late-rn-lib": "*" });
+    const plugin = reactNative({ engine: "native" });
+    expect(await nodeTransformed(plugin, root)).not.toContain("late-rn-lib");
+    pkg(path.join(root, "node_modules", "late-rn-lib"), "late-rn-lib", {
+      peerDependencies: { "react-native": "*" },
+    });
+    expect(await nodeTransformed(plugin, root)).toContain("late-rn-lib");
+    expect(await nodeTransformed(reactNative({ engine: "native" }), root)).toContain("late-rn-lib");
+  }, 60_000);
+});
+
+describe("detection keeps its own lookup", () => {
+  it("leaves out a workspace member whose exports omit ./package.json", async () => {
+    // Detection asks dependencyDirOf, not packageDirOf: a linked workspace member is
+    // detected only when `<name>/package.json` resolves. Sharing the policy's
+    // packageDirOf lookup with detection would find this one and hand it to Node.
+    const root = app({ "@m/kit": "*", "@m/kit-exported": "*" });
+    const member = (name: string, exportsManifest: boolean) => {
+      const dir = path.join(path.dirname(root), `${path.basename(root)}-${name.slice(3)}`);
+      made.push(dir);
+      pkg(dir, name, {
+        exports: {
+          ".": "./index.js",
+          ...(exportsManifest ? { "./package.json": "./package.json" } : {}),
+        },
+        peerDependencies: { "react-native": "*" },
+      });
+      const link = path.join(root, "node_modules", name);
+      fs.mkdirSync(path.dirname(link), { recursive: true });
+      fs.symlinkSync(dir, link, "junction");
+    };
+    member("@m/kit", false);
+    member("@m/kit-exported", true);
+    const transformed = await nodeTransformed(reactNative({ engine: "native" }), root);
+    // The control: the same member with ./package.json exported is detected.
+    expect(transformed).toContain("@m/kit-exported");
+    expect(transformed).not.toContain("@m/kit");
+  }, 60_000);
 });
