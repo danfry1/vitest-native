@@ -264,7 +264,12 @@ if (!globalThis.__vitest_native_loader_registered) {
 // serve — a computed require, a package in `transform` — falls through to the
 // hooks below, so this is purely a faster path to the same modules.
 if (runContext.registry) {
-  const installed = installRegistry(runContext.registry, projectRoot, sourceExts);
+  const installed = installRegistry(
+    runContext.registry,
+    projectRoot,
+    sourceExts,
+    runContext.libraryRegistry,
+  );
   if (diagnostics) {
     console.log(
       `[vitest-native] (native) precompiled RN registry ${installed ? "installed" : "unavailable; using per-file module loading"}`,

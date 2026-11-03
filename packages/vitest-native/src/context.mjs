@@ -36,6 +36,7 @@ const SCHEMA = {
   hotPreserveGlobals: { valid: strings },
   hotEsmGeneration: { valid: (v) => typeof v === "boolean" },
   registry: { valid: absolute },
+  libraryRegistry: { valid: absolute },
   ownership: { valid: object },
   projectDirs: { valid: strings },
   requireAliases: {

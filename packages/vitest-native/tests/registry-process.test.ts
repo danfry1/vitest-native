@@ -57,7 +57,7 @@ describe("bounded registry compiler process", () => {
       throw new Error("warm cache launched the compiler");
     });
 
-    expect(result).toBe(registryFile);
+    expect(result).toEqual({ registry: registryFile, libraryRegistry: null });
     expect(compilerCalls).toBe(0);
   });
 

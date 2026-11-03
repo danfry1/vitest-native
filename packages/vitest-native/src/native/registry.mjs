@@ -31,13 +31,20 @@ import path from "node:path";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { projectContext } from "../context.mjs";
-import { transformRN, isFlow, cacheRootFor, TRANSFORM_CACHE_VERSION } from "./transform.mjs";
+import {
+  transformRN,
+  isFlow,
+  needsTransform,
+  cacheRootFor,
+  TRANSFORM_CACHE_VERSION,
+} from "./transform.mjs";
 
 import { boundarySourceFor, BOUNDARY_SOURCES } from "./boundary.mjs";
 import { resolveTransformPreset } from "./babel-preset.mjs";
 import { assetRegistryPathFor, nativeAssetModuleSource } from "./assets.mjs";
 import { resolveRelativePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
 import { createNativeOwnershipPolicy } from "./ownership.mjs";
+import { packageNameOf } from "./match.mjs";
 
 /**
  * Losing the registry is a silent performance cliff, not a correctness problem:
@@ -116,7 +123,10 @@ const PASSTHROUGH_EXT = new Set([".json", ".node", ".wasm"]);
  * Source for one file, applying the same precedence the per-file hooks use:
  * asset module → native-boundary mock → Flow-stripped RN → verbatim.
  */
-function sourceFor(file, { projectRoot, platform, reactNativeVersion, assetExtSet, ownership }) {
+function sourceFor(
+  file,
+  { projectRoot, platform, reactNativeVersion, assetExtSet, ownership, library = false },
+) {
   const norm = file.replace(/\\/g, "/");
   const ext = path.extname(norm).slice(1).toLowerCase();
   if (ext && assetExtSet.has(ext)) {
@@ -135,9 +145,13 @@ function sourceFor(file, { projectRoot, platform, reactNativeVersion, assetExtSe
   );
   if (boundary != null) return { code: boundary, scan: true };
   const src = fs.readFileSync(file, "utf8");
-  if (/\.(?:ts|tsx|jsx)$/.test(norm) || (norm.endsWith(".js") && isFlow(src))) {
-    return { code: transformRN(file, src, projectRoot, platform), scan: true };
-  }
+  // A library file is compiled when Node could not run it as published, the test the
+  // per-file hooks apply to a package selected for compiling (hooks.mjs). React
+  // Native's own files keep the Flow test the registry has always applied to them.
+  const compile = library
+    ? needsTransform(file, src)
+    : /\.(?:ts|tsx|jsx)$/.test(norm) || (norm.endsWith(".js") && isFlow(src));
+  if (compile) return { code: transformRN(file, src, projectRoot, platform), scan: true };
   return { code: src, scan: true };
 }
 
@@ -332,7 +346,7 @@ function manifestValid(manifest) {
  * +6% per file on a 200-file hot suite; reusing `vm.compileFunction` after a first
  * `_compile` load needs a hand-built copy of Node's `require`.
  */
-function emit(files, modules) {
+function emit(files, modules, { library = false } = {}) {
   const idOf = new Map(files.map((f, i) => [f, i]));
   const deps = files.map((f) => {
     const out = {};
@@ -341,6 +355,25 @@ function emit(files, modules) {
     }
     return JSON.stringify(out);
   });
+  // A require that leaves this registry. In React Native's registry that is a Node
+  // require at a pre-resolved path. In a library registry, a path that is one of React
+  // Native's modules is served from React Native's registry instance instead, so a
+  // library and the app share one React Native by construction rather than by
+  // re-entering Node's loader for it.
+  const outside = library
+    ? [
+        `function __out(t) {`,
+        `  const rn = __rnIdOf.get(t);`,
+        `  if (rn === undefined) return __ext(t);`,
+        `  const mock = globalThis.__vitest_native_node_mock_for;`,
+        `  if (mock !== undefined) {`,
+        `    const v = mock(t);`,
+        `    if (v !== mock.NONE) return v;`,
+        `  }`,
+        `  return __rnLoad(rn);`,
+        `}`,
+      ]
+    : [];
   const prologue = [
     // __ext is this file's own require: the escape hatch for targets outside the
     // registry (react, invariant, JSON, anything computed). Pre-resolved absolute
@@ -352,12 +385,13 @@ function emit(files, modules) {
     `const __ids = ${JSON.stringify(files)};`,
     `const __deps = [${deps.join(",")}];`,
     `const __dirs = __ids.map((f) => f.slice(0, Math.max(f.lastIndexOf("/"), f.lastIndexOf("\\\\"))));`,
+    ...outside,
     `function __req(i) {`,
     `  const map = __deps[i];`,
     `  const r = function (q) {`,
     `    const t = map[q];`,
     `    if (t === undefined || t === null) return __ext(q);`,
-    `    if (typeof t !== "number") return __ext(t);`,
+    `    if (typeof t !== "number") return ${library ? "__out" : "__ext"}(t);`,
     // A jest.mock of a React Native module (jest-compat's per-file registry, see
     // jest-compat/node-registry.mjs) applies to RN's own requires of it, as under
     // Jest. The global is undefined unless such a mock is registered.
@@ -415,6 +449,28 @@ function emit(files, modules) {
     `  return mod.exports;`,
     `}`,
   ];
+  const sources = files.map((f, i) => {
+    const code = modules.get(f).code;
+    return USES_IMPORT.test(code)
+      ? `__s[${i}] = null; __l[${i}] = ${JSON.stringify(code)};`
+      : `__s[${i}] = ${JSON.stringify(code)};`;
+  });
+  const reset = `reset: () => { __m.length = 0; }, compiles: () => __compiles`;
+  if (library) {
+    // A library registry is linked to the worker's React Native registry, whose ids
+    // and loader it receives, rather than finding it through a global. Linking runs
+    // once per worker; a reset clears instances and keeps compiled functions, as in
+    // React Native's registry. Nothing runs until a module is required.
+    const packages = [...new Set(files.map(packageOfFile).filter(Boolean))].sort();
+    return [
+      `module.exports = function link(__rnIds, __rnLoad) {`,
+      `const __rnIdOf = new Map(__rnIds.map((f, i) => [f, i]));`,
+      ...prologue,
+      ...sources,
+      `return { ids: __ids, load: __r, ${reset}, packages: ${JSON.stringify(packages)} };`,
+      `};`,
+    ].join("\n");
+  }
   const epilogue = [
     // The entry's exports are the module's value, so `require(registry)` behaves
     // like `require('react-native')`. __registry is the lookup surface the install
@@ -422,18 +478,155 @@ function emit(files, modules) {
     `const __entry = __r(0);`,
     `module.exports = __entry;`,
     `Object.defineProperty(module.exports, "__vitestNativeRegistry", {`,
-    `  value: { ids: __ids, load: __r, entry: __ids[0], reset: () => { __m.length = 0; }, compiles: () => __compiles },`,
+    `  value: { ids: __ids, load: __r, entry: __ids[0], ${reset} },`,
     `  enumerable: false, configurable: true,`,
     `});`,
   ];
-
-  const sources = files.map((f, i) => {
-    const code = modules.get(f).code;
-    return USES_IMPORT.test(code)
-      ? `__s[${i}] = null; __l[${i}] = ${JSON.stringify(code)};`
-      : `__s[${i}] = ${JSON.stringify(code)};`;
-  });
   return [...prologue, ...sources, ...epilogue].join("\n");
+}
+
+/** The package a file under node_modules belongs to, by its last node_modules segment. */
+function packageOfFile(file) {
+  const norm = file.replace(/\\/g, "/");
+  const at = norm.lastIndexOf("/node_modules/");
+  return at === -1 ? null : packageNameOf(norm.slice(at + "/node_modules/".length));
+}
+
+/** The registry cache directory, or null (warned, or thrown under failOnError). */
+function registryDir(projectRoot, failOnError) {
+  try {
+    const dir = path.join(cacheRootFor(projectRoot), "registry");
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+  } catch (error) {
+    if (failOnError) throw error;
+    warnRegistryUnavailable(error?.message ?? "cache directory unavailable");
+    return null;
+  }
+}
+
+/** True when a published registry file and its metadata match `key` and its manifest. */
+function cachedLayer(registryFile, key) {
+  try {
+    const meta = JSON.parse(fs.readFileSync(`${registryFile}.json`, "utf8"));
+    if (meta.key === key && fs.existsSync(registryFile) && manifestValid(meta.manifest)) {
+      return meta;
+    }
+  } catch {
+    // No usable cache entry.
+  }
+  return null;
+}
+
+/**
+ * Walk a module graph from `roots` and publish it as one registry file.
+ *
+ * Shared by React Native's registry and the library registry, so both are built,
+ * keyed, validated and published the same way: `inline(target)` decides which
+ * resolved targets become registry modules; every other resolved target stays a
+ * require at a pre-resolved path and is pinned in the manifest.
+ */
+function publishLayer({ registryFile, key, roots, inline, options, library }) {
+  const modules = new Map();
+  const manifest = [];
+  // Targets the registry does NOT inline but DOES bake in as pre-resolved absolute
+  // paths. They belong in the manifest for the same reason the inlined files do: if
+  // one moves or changes, the paths compiled into the registry are wrong. See the
+  // note above the externals loop below.
+  const externals = new Set();
+  const queue = [...roots].reverse();
+  while (queue.length > 0) {
+    const file = queue.pop();
+    if (modules.has(file)) continue;
+    const { code, scan } = sourceFor(file, { ...options, library });
+    const deps = {};
+    if (scan) {
+      for (const match of code.matchAll(REQUIRE_RE)) {
+        const request = match[2];
+        if (request in deps) continue;
+        const target = resolveTarget(request, file, options.platform, options.sourceExts);
+        deps[request] = target;
+        if (target === null) continue;
+        if (inline(target) && !PASSTHROUGH_EXT.has(path.extname(target).toLowerCase())) {
+          queue.push(target);
+        } else {
+          externals.add(target);
+        }
+      }
+    }
+    modules.set(file, { code, deps });
+    const st = fs.statSync(file);
+    manifest.push([file, st.mtimeMs, st.size]);
+  }
+
+  // Externals are require()d through pre-resolved absolute paths baked into the
+  // emitted registry, so the registry is only valid while those paths still point
+  // at what they pointed at when it was built. Nothing noticed when they did not:
+  // upgrading React served a registry whose baked path was a react directory that
+  // no longer existed, and the fallback produced a second React — a null dispatcher
+  // and React Native singletons that stopped comparing equal.
+  //
+  // Naming the packages in the cache key instead would work only for the ones
+  // somebody remembered to name. Statting the resolved targets covers every
+  // external there is, and covers both node_modules layouts: under bun and pnpm a
+  // version change moves the path, so the stat fails; under a flat npm or yarn tree
+  // the path survives but the file's size and mtime change.
+  for (const target of externals) {
+    try {
+      const st = fs.statSync(target);
+      manifest.push([target, st.mtimeMs, st.size]);
+    } catch {
+      // Not a real file on disk (a native addon resolved elsewhere, a virtual
+      // target). Nothing to pin; the runtime require still decides.
+    }
+  }
+
+  const files = [...modules.keys()];
+  const code = emit(files, modules, { library });
+  publishAtomically(registryFile, `${code}\n`);
+  publishAtomically(`${registryFile}.json`, JSON.stringify({ key, count: files.length, manifest }));
+  return files.length;
+}
+
+// Write via a unique temp file then rename: several workers may race here on a
+// cold cache, and a reader must never observe a partially written registry.
+function publishAtomically(destination, contents) {
+  const temporaryFile = `${destination}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(temporaryFile, contents);
+    try {
+      fs.renameSync(temporaryFile, destination);
+    } catch (error) {
+      // POSIX rename replaces an existing file atomically. Windows rejects that
+      // shape, which two cold compiler processes can hit together. Remove only
+      // the already-published destination and retry; metadata is committed last,
+      // so readers never accept a half-published new registry as valid.
+      if (
+        process.platform !== "win32" ||
+        !["EEXIST", "EPERM", "EACCES"].includes(error?.code) ||
+        !fs.existsSync(destination)
+      ) {
+        throw error;
+      }
+      fs.rmSync(destination, { force: true });
+      fs.renameSync(temporaryFile, destination);
+    }
+  } finally {
+    // A failed write or publication must not leave a growing trail of PID
+    // temp files. A fatal process kill is recovered by the next cache miss.
+    fs.rmSync(temporaryFile, { force: true });
+  }
+}
+
+function layerOptions({ projectRoot, platform, reactNativeVersion, assetExts, sourceExts }) {
+  return {
+    projectRoot,
+    platform,
+    reactNativeVersion,
+    assetExtSet: new Set(assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase())),
+    sourceExts,
+    ownership: createNativeOwnershipPolicy({ projectRoot }),
+  };
 }
 
 /**
@@ -471,7 +664,6 @@ export function buildRegistry({
     }
     return null;
   }
-  let dir;
   let key;
   try {
     key = registryKey({
@@ -482,59 +674,44 @@ export function buildRegistry({
       sourceExts,
       additionalEntries,
     });
-    dir = path.join(cacheRootFor(projectRoot), "registry");
-    fs.mkdirSync(dir, { recursive: true });
   } catch (error) {
     if (failOnError) throw error;
     warnRegistryUnavailable(error?.message ?? "cache directory unavailable");
     return null;
   }
+  const dir = registryDir(projectRoot, failOnError);
+  if (dir === null) return null;
 
   const registryFile = path.join(dir, `rn-${platform}-${key}.cjs`);
-  const metaFile = `${registryFile}.json`;
-  try {
-    const meta = JSON.parse(fs.readFileSync(metaFile, "utf8"));
-    if (meta.key === key && fs.existsSync(registryFile) && manifestValid(meta.manifest)) {
-      if (diagnostics) {
-        console.log(
-          `[vitest-native] (native) reusing precompiled RN registry (${meta.count} modules)`,
-        );
-      }
-      return registryFile;
+  const meta = cachedLayer(registryFile, key);
+  if (meta !== null) {
+    if (diagnostics) {
+      console.log(
+        `[vitest-native] (native) reusing precompiled RN registry (${meta.count} modules)`,
+      );
     }
-  } catch {
-    // No usable cache entry — build one below.
+    return registryFile;
   }
 
   if (cacheOnly) return null;
 
   const started = Date.now();
-  const assetExtSet = new Set(assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
-  const ownership = createNativeOwnershipPolicy({ projectRoot });
-  const options = {
-    projectRoot,
-    platform,
-    reactNativeVersion,
-    assetExtSet,
-    sourceExts,
-    ownership,
-  };
-  const modules = new Map();
-  const manifest = [];
-  // Targets the registry does NOT inline but DOES bake in as pre-resolved absolute
-  // paths. They belong in the manifest for the same reason React Native's own files
-  // do: if one moves or changes, the paths compiled into the registry are wrong.
-  // See the note above the manifest write below.
-  const externals = new Set();
   try {
+    const options = layerOptions({
+      projectRoot,
+      platform,
+      reactNativeVersion,
+      assetExts,
+      sourceExts,
+    });
     const req = createRequire(path.join(projectRoot, "package.json"));
-    const entry = req.resolve("react-native");
     // Keep the public React Native entry first in insertion order: emit() treats
     // module zero as the capsule's default export. Additional ecosystem-owned deep
     // imports are seed roots only; their factories remain lazy like the root graph.
-    const extraRoots = canonicalAdditionalEntries(additionalEntries).map((request) =>
-      req.resolve(request),
-    );
+    const roots = [
+      req.resolve("react-native"),
+      ...canonicalAdditionalEntries(additionalEntries).map((request) => req.resolve(request)),
+    ];
     // Asset modules require Metro's assetRegistryPath by absolute path (assets.mjs),
     // and that entry must be a registry module: loaded outside it, its relative
     // require of the registry module (0.87+) would create a second asset array whose
@@ -542,94 +719,131 @@ export function buildRegistry({
     // already pull the entry in through their asset modules; seeding it keeps that
     // true without depending on which of React Native's assets the walk reaches.
     const assetRegistry = assetRegistryPathFor(projectRoot);
-    if (assetRegistry !== null) extraRoots.push(assetRegistry);
-    const queue = [...extraRoots.reverse(), entry];
-    while (queue.length > 0) {
-      const file = queue.pop();
-      if (modules.has(file)) continue;
-      const { code, scan } = sourceFor(file, options);
-      const deps = {};
-      if (scan) {
-        for (const match of code.matchAll(REQUIRE_RE)) {
-          const request = match[2];
-          if (request in deps) continue;
-          const target = resolveTarget(request, file, platform, sourceExts);
-          // Only React Native's own graph is inlined. Everything else — react,
-          // invariant, JSON manifests, native addons — stays a normal Node require
-          // at a pre-resolved absolute path, so those modules keep their usual
-          // identity and are shared with the rest of the worker.
-          const internal =
-            target !== null &&
-            ownership.isReactNativeFile(target) &&
-            !PASSTHROUGH_EXT.has(path.extname(target).toLowerCase());
-          deps[request] = target;
-          if (internal) queue.push(target);
-          else if (target !== null) externals.add(target);
-        }
-      }
-      modules.set(file, { code, deps });
-      const st = fs.statSync(file);
-      manifest.push([file, st.mtimeMs, st.size]);
-    }
-
-    // Externals are require()d through pre-resolved absolute paths baked into the
-    // emitted registry, so the registry is only valid while those paths still point
-    // at what they pointed at when it was built. Nothing noticed when they did not:
-    // upgrading React served a registry whose baked path was a react directory that
-    // no longer existed, and the fallback produced a second React — a null dispatcher
-    // and React Native singletons that stopped comparing equal.
-    //
-    // Naming the packages in the cache key instead would work only for the ones
-    // somebody remembered to name. Statting the resolved targets covers every
-    // external there is, and covers both node_modules layouts: under bun and pnpm a
-    // version change moves the path, so the stat fails; under a flat npm or yarn tree
-    // the path survives but the file's size and mtime change.
-    for (const target of externals) {
-      try {
-        const st = fs.statSync(target);
-        manifest.push([target, st.mtimeMs, st.size]);
-      } catch {
-        // Not a real file on disk (a native addon resolved elsewhere, a virtual
-        // target). Nothing to pin; the runtime require still decides.
-      }
-    }
-
-    const files = [...modules.keys()];
-    const code = emit(files, modules);
-    // Write via a unique temp file then rename: several workers may race here on a
-    // cold cache, and a reader must never observe a partially written registry.
-    const publishAtomically = (destination, contents) => {
-      const temporaryFile = `${destination}.${process.pid}.tmp`;
-      try {
-        fs.writeFileSync(temporaryFile, contents);
-        try {
-          fs.renameSync(temporaryFile, destination);
-        } catch (error) {
-          // POSIX rename replaces an existing file atomically. Windows rejects that
-          // shape, which two cold compiler processes can hit together. Remove only
-          // the already-published destination and retry; metadata is committed last,
-          // so readers never accept a half-published new registry as valid.
-          if (
-            process.platform !== "win32" ||
-            !["EEXIST", "EPERM", "EACCES"].includes(error?.code) ||
-            !fs.existsSync(destination)
-          ) {
-            throw error;
-          }
-          fs.rmSync(destination, { force: true });
-          fs.renameSync(temporaryFile, destination);
-        }
-      } finally {
-        // A failed write or publication must not leave a growing trail of PID
-        // temp files. A fatal process kill is recovered by the next cache miss.
-        fs.rmSync(temporaryFile, { force: true });
-      }
-    };
-    publishAtomically(registryFile, `${code}\n`);
-    publishAtomically(metaFile, JSON.stringify({ key, count: files.length, manifest }));
+    if (assetRegistry !== null) roots.push(assetRegistry);
+    const count = publishLayer({
+      registryFile,
+      key,
+      roots,
+      // Only React Native's own graph is inlined. Everything else — react,
+      // invariant, JSON manifests, native addons — stays a normal Node require at a
+      // pre-resolved absolute path, so those modules keep their usual identity and
+      // are shared with the rest of the worker.
+      inline: (target) => options.ownership.isReactNativeFile(target),
+      options,
+      library: false,
+    });
     if (diagnostics) {
       console.log(
-        `[vitest-native] (native) precompiled RN registry: ${files.length} modules in ${Date.now() - started}ms`,
+        `[vitest-native] (native) precompiled RN registry: ${count} modules in ${Date.now() - started}ms`,
+      );
+    }
+    return registryFile;
+  } catch (error) {
+    if (failOnError) throw error;
+    warnRegistryUnavailable(error?.message ?? "unknown error");
+    return null;
+  }
+}
+
+/**
+ * Build (or reuse) the library registry layered on a React Native registry: the
+ * module graphs of the packages `libraryEntries` name, compiled the way the per-file
+ * hooks compile a package selected for compiling, in one file of lazy factories.
+ *
+ * Without it, a library that runs as itself in tests — Reanimated as its own mock is
+ * about 300 modules — goes through Node's loader module by module in every test file:
+ * a resolution, a read and a module object each, the cost React Native's registry
+ * removed for React Native. Built here, the walk and its transforms run once per
+ * install, like React Native's.
+ *
+ * Its key extends React Native's key, so anything that rebuilds React Native's
+ * registry rebuilds this one, while React Native's key and file never depend on the
+ * libraries. A require of a React Native module from a library file is linked to
+ * React Native's registry instance when the worker loads it (emit). Only files of
+ * the entries' own packages are inlined; their other dependencies stay requires at
+ * pre-resolved paths, pinned in the manifest, as React Native's are.
+ *
+ * Returns the file, or null when there is nothing to build or it cannot be built, in
+ * which case those packages keep loading through the per-file hooks.
+ */
+export function buildLibraryRegistry({
+  projectRoot,
+  platform = "ios",
+  reactNativeVersion = "0.0.0",
+  assetExts = [],
+  sourceExts = ["js", "jsx", "json", "ts", "tsx"],
+  diagnostics = false,
+  additionalEntries = [],
+  libraryEntries = [],
+  cacheOnly = false,
+  failOnError = false,
+}) {
+  const entries = canonicalAdditionalEntries(libraryEntries);
+  if (entries.length === 0 || process.env.VITEST_NATIVE_NO_REGISTRY === "1") return null;
+  let key;
+  let roots;
+  try {
+    const req = createRequire(path.join(projectRoot, "package.json"));
+    roots = entries.map((request) => req.resolve(request));
+    key = crypto
+      .createHash("sha1")
+      .update(
+        [
+          registryKey({
+            projectRoot,
+            platform,
+            reactNativeVersion,
+            assetExts,
+            sourceExts,
+            additionalEntries,
+          }),
+          ...entries.map((entry, i) => `library:${entry}\0${roots[i]}`),
+        ].join("\0"),
+      )
+      .digest("hex")
+      .slice(0, 16);
+  } catch (error) {
+    if (failOnError) throw error;
+    warnRegistryUnavailable(error?.message ?? "library entries unavailable");
+    return null;
+  }
+  const dir = registryDir(projectRoot, failOnError);
+  if (dir === null) return null;
+
+  const registryFile = path.join(dir, `lib-${platform}-${key}.cjs`);
+  const meta = cachedLayer(registryFile, key);
+  if (meta !== null) {
+    if (diagnostics) {
+      console.log(
+        `[vitest-native] (native) reusing precompiled library registry (${meta.count} modules)`,
+      );
+    }
+    return registryFile;
+  }
+  if (cacheOnly) return null;
+
+  const started = Date.now();
+  try {
+    const options = layerOptions({
+      projectRoot,
+      platform,
+      reactNativeVersion,
+      assetExts,
+      sourceExts,
+    });
+    const packages = new Set(roots.map(packageOfFile));
+    const count = publishLayer({
+      registryFile,
+      key,
+      roots,
+      inline: (target) =>
+        !options.ownership.isReactNativeFile(target) && packages.has(packageOfFile(target)),
+      options,
+      library: true,
+    });
+    if (diagnostics) {
+      console.log(
+        `[vitest-native] (native) precompiled library registry: ${count} modules in ${Date.now() - started}ms`,
       );
     }
     return registryFile;
@@ -651,6 +865,7 @@ export function installRegistry(
   registryFile,
   projectRoot,
   sourceExts = ["js", "jsx", "json", "ts", "tsx"],
+  libraryRegistryFile = undefined,
 ) {
   if (globalThis.__vitest_native_registry_installed) return true;
   const req = createRequire(path.join(projectRoot, "package.json"));
@@ -661,8 +876,14 @@ export function installRegistry(
   } catch {
     return false;
   }
+  const library = linkLibraryRegistry(req, libraryRegistryFile, registry);
   globalThis.__vitest_native_registry_installed = true;
-  globalThis.__vitest_native_registry_reset = () => registry.reset();
+  // One reset for both layers: a library module holds React Native instances, so it
+  // must never outlive the React Native registry instances it was linked to.
+  globalThis.__vitest_native_registry_reset = () => {
+    registry.reset();
+    library?.registry.reset();
+  };
 
   // Node records the loaded file under its real path (`/private/var/…` for macOS's
   // `/var/…` tmpdir), so match the registry file by both spellings.
@@ -682,6 +903,10 @@ export function installRegistry(
     // `react-native/index.js` facade, which requires the real index by path.
     const direct = idOf.get(request);
     if (direct !== undefined) return registry.load(direct);
+    if (library !== null) {
+      const served = library.serve(request, parent);
+      if (served !== NOT_SERVED) return served.value;
+    }
     // Deep imports of RN internals (`react-native/Libraries/…`) and of the
     // @react-native/* packages inlined alongside it must resolve to the SAME
     // instances the entry graph uses, or RN's singletons would exist twice.
@@ -692,7 +917,8 @@ export function installRegistry(
       const fromProject =
         !parent?.filename ||
         parent.filename === registryFile ||
-        parent.filename === registryRealFile;
+        parent.filename === registryRealFile ||
+        (library !== null && library.isRegistryFile(parent.filename));
       const resolver = fromProject ? req : createRequire(parent.filename);
       const platform = projectContext()?.platform === "android" ? "android" : "ios";
       let resolved;
@@ -723,4 +949,55 @@ export function installRegistry(
     return origLoad.call(this, request, parent, ...rest);
   };
   return true;
+}
+
+const NOT_SERVED = Symbol("not served");
+
+/**
+ * Load and link the library registry, or null when there is none or it cannot be
+ * loaded (those packages then keep loading through the per-file hooks).
+ *
+ * `serve` answers a request the library registry owns: an absolute path that is one
+ * of its modules (the ESM loader's facades require by path), or a bare request for
+ * one of its packages, resolved from its parent by Node's resolution as the per-file
+ * hooks see it. Any other request costs one Set lookup.
+ */
+function linkLibraryRegistry(req, file, rnRegistry) {
+  if (!file) return null;
+  let registry;
+  // Node records a loaded file under its real path; match the registry's own
+  // requires (their parent) by both spellings, as for React Native's registry.
+  let spellings;
+  try {
+    registry = req(file)(rnRegistry.ids, rnRegistry.load);
+    spellings = new Set([file, fs.realpathSync(file)]);
+  } catch (error) {
+    warnRegistryUnavailable(`library registry: ${error?.message ?? error}`);
+    return null;
+  }
+  const idOf = new Map(registry.ids.map((f, i) => [f, i]));
+  const packages = new Set(registry.packages);
+  const isRegistryFile = (filename) => spellings.has(filename);
+  return {
+    registry,
+    isRegistryFile,
+    serve(request, parent) {
+      let id = idOf.get(request);
+      if (id === undefined) {
+        // A request the registry's own modules could not resolve at build time
+        // has nothing to resolve against here either: the per-file hooks decide.
+        if (!packages.has(packageNameOf(request))) return NOT_SERVED;
+        if (!parent?.filename || isRegistryFile(parent.filename)) return NOT_SERVED;
+        let resolved;
+        try {
+          resolved = Module._resolveFilename(request, parent);
+        } catch {
+          return NOT_SERVED;
+        }
+        id = idOf.get(resolved);
+        if (id === undefined) return NOT_SERVED;
+      }
+      return { value: registry.load(id) };
+    },
+  };
 }

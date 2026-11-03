@@ -443,14 +443,21 @@ async function loadAssetModules(): Promise<AssetModules> {
   return (await import(pathToFileURL(path.resolve(dir, "native/assets.mjs")).href)) as AssetModules;
 }
 
+interface BuiltRegistries {
+  registry: string;
+  libraryRegistry: string | null;
+}
+
 /**
  * Build (or reuse) the precompiled React Native registry for a project.
  *
  * The builder ships as runtime `.mjs` next to this file (it is also imported by the
  * native setup file, which Node loads directly), so it is reached through a computed
  * dynamic import rather than a static one — a static specifier would bundle a second
- * copy into the plugin entry. Returns the registry path, or null when one could not
- * be produced, in which case the engine keeps loading RN file by file.
+ * copy into the plugin entry. Returns the registry paths (React Native's, and the
+ * library registry layered on it when `libraryEntries` names any), or null when React
+ * Native's could not be produced, in which case the engine keeps loading RN file by
+ * file.
  */
 async function buildRegistryFor(options: {
   projectRoot: string;
@@ -459,13 +466,14 @@ async function buildRegistryFor(options: {
   assetExts: string[];
   sourceExts: string[];
   diagnostics: boolean;
-}): Promise<string | null> {
+  libraryEntries?: string[];
+}): Promise<BuiltRegistries | null> {
   try {
     const dir = path.dirname(fileURLToPath(import.meta.url));
     const module = (await import(
       pathToFileURL(path.resolve(dir, "native/registry-process.mjs")).href
     )) as {
-      buildRegistryFor: (o: typeof options) => Promise<string | null>;
+      buildRegistryFor: (o: typeof options) => Promise<BuiltRegistries | null>;
     };
     return module.buildRegistryFor(options);
   } catch (error) {
@@ -2209,7 +2217,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           }
         }
 
-        const registryFile = await buildRegistryFor({
+        const registries = await buildRegistryFor({
           projectRoot: resolvedRoot,
           platform,
           reactNativeVersion: reactNativeVersion ?? "0.0.0",
@@ -2217,7 +2225,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           sourceExts,
           diagnostics,
         });
-        if (registryFile) fields.registry = registryFile;
+        if (registries) {
+          fields.registry = registries.registry;
+          if (registries.libraryRegistry) fields.libraryRegistry = registries.libraryRegistry;
+        }
 
         // Lazy import: pulls in vitest/node, which only exists when running under
         // Vitest (not plain Vite). Memory admission above deliberately has no

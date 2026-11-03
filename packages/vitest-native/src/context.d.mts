@@ -14,6 +14,8 @@ export interface ProjectContextFields {
   hotPreserveGlobals?: string[];
   hotEsmGeneration?: boolean;
   registry?: string;
+  /** The library registry layered on `registry` (registry.mjs, buildLibraryRegistry). */
+  libraryRegistry?: string;
   ownership?: Record<string, unknown>;
   projectDirs?: string[];
   requireAliases?: [string, string][];
