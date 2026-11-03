@@ -1621,13 +1621,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       const req = createRequire(from);
       result = alignLegacyFieldsWithNode(
         source,
-        (name) => {
-          try {
-            return path.dirname(req.resolve(`${name}/package.json`));
-          } catch {
-            return null;
-          }
-        },
+        // As Node finds the package, including one whose `exports` map leaves out
+        // `./package.json` (packageDirOf).
+        (name) => packageDirOf(name, path.dirname(from)),
         (dir) => {
           try {
             return JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));

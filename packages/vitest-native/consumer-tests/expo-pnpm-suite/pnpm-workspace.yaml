@@ -1,0 +1,5 @@
+# pnpm's default isolated layout: nothing hoisted to the root, each package sees only
+# what it declares (plus auto-installed peers), out of a symlinked content store.
+packages:
+  - "apps/*"
+  - "packages/*"
