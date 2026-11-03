@@ -194,9 +194,11 @@ export function createNativeOwnershipPolicy({
     // As with test files, a setup file under node_modules is left to the rules below.
     //
     // Only Vite's transform hook (plugin.ts) judges a setup file, so only the main
-    // process passes `entryFiles`. Workers rebuild the policy for Node's loads, which
-    // they judge by package matchers, and Node never loads a setup file: Vitest's
-    // runner imports it through Vite. The manifest carries the list for diagnostics.
+    // process passes `entryFiles`. Workers judge Node's loads by package matchers;
+    // their one call to decideFile is the project-source resolution warning
+    // (hooks.mjs checkProjectSourceResolvedByNode), which has no use for entry files,
+    // since Vitest's runner imports a setup file through Vite. The manifest carries the
+    // list for diagnostics.
     if (
       entryKeys.size > 0 &&
       !NODE_MODULES_PATH.test(file) &&
