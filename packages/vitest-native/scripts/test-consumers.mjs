@@ -154,10 +154,16 @@ function runExpoPnpmSuite(tarball, sdk) {
   fs.cpSync(path.join(fixturesRoot, "expo-pnpm-suite"), fixtureRoot, { recursive: true });
   const app = path.join(fixtureRoot, "apps/mobile");
   const library = path.join(fixtureRoot, "packages/ui");
-  for (const dir of [fixtureRoot, app, library]) {
+  // A workspace package shaped like a real monorepo's: it runs @suite/ui's setup file,
+  // aliases into its source and into an undeclared sibling (@suite/tokens), and reaches
+  // `expo` only through @suite/ui's expo-image (consumer-tests/expo-pnpm-suite/README.md).
+  const feature = path.join(fixtureRoot, "packages/feature");
+  const tokens = path.join(fixtureRoot, "packages/tokens");
+  for (const dir of [fixtureRoot, app, library, feature]) {
     if (sdk === 57) pinVersions(dir, EXPO_SDK57);
     addPackedDependency(dir, tarball);
   }
+  if (sdk === 57) pinVersions(tokens, EXPO_SDK57);
   pnpm(["install", "--no-frozen-lockfile"], fixtureRoot);
 
   // Every leg runs, and the failures are reported together at the end: one run shows
@@ -172,7 +178,7 @@ function runExpoPnpmSuite(tarball, sdk) {
         env,
       );
       const problem = check(output);
-      if (problem) failures.push(`${name}: ${problem}`);
+      if (problem) failures.push(`SDK ${sdk} ${name}: ${problem}`);
     } catch (error) {
       failures.push(`SDK ${sdk} ${name}: ${error.message}`);
     }
@@ -201,6 +207,7 @@ function runExpoPnpmSuite(tarball, sdk) {
       );
     }
     leg(`library (hotRuntime ${hot})`, library, [], { VN_HOT: hot });
+    leg(`feature package (hotRuntime ${hot})`, feature, [], { VN_HOT: hot });
   }
   return failures;
 }
