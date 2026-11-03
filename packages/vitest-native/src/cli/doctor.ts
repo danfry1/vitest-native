@@ -26,8 +26,10 @@ import {
 } from "./manifest.js";
 import {
   installedExpoVersion,
+  isBelowSupportedReactNative,
   PEER_REQUIREMENTS,
   unsupportedExpoSdkMessage,
+  unsupportedReactNativeMessage,
 } from "../peer-requirements.js";
 import { SUPPORTED_NODE, satisfiesNodeRange } from "../node-range.js";
 import { installedViteVersion, ownVitestPackage, usesVitePlus } from "../host.js";
@@ -291,6 +293,10 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
     pass(
       `engine 'auto' resolves to NATIVE — real React Native${rnVersion ? ` ${rnVersion}` : ""} with ${presetLabel} + @babel/core present.`,
     );
+    // The plugin stops below the floor (UNSUPPORTED_PEER) and warns above the range.
+    const rnProblem = rnVersion && unsupportedReactNativeMessage(rnVersion);
+    if (rnProblem && isBelowSupportedReactNative(rnVersion!)) fail(rnProblem);
+    else if (rnProblem) warn(rnProblem);
   } else if (rnVersion) {
     warn(
       `engine 'auto' resolves to MOCK: react-native ${rnVersion} is installed but ` +

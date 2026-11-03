@@ -86,7 +86,7 @@ from the build under test (`package.json` + `dist`, as an install would), copies
 exhibit's `vendor/*` packages and links its workspace members. Install axes this
 repository lacks are assembled from local copies (`requires` in exhibits.json):
 
-- `rntl: 12 | 13`: copied from a bun store that has them (default
+- `rntl: 13`: copied from a bun store that has it (default
   `~/dev/vitest-react-native/node_modules/.bun`, override `VN_MUSEUM_RNTL_STORE`);
 - `layout: pnpm`: the `pnpmShaped` packages moved into a pnpm-shaped store directory
   named after their peers (`.pnpm/<name>@<v>_<peer>@<v>/node_modules/<name>`).
@@ -104,7 +104,7 @@ or one that fails as its bug fails some other way. An exhibit that now passes is
 to be recorded with `run-columns.mjs` and `status.mjs`.
 
 The check is advisory, not required; the workflow's header says when it becomes one. It
-skips the exhibits that need RNTL 12 or 13 (N/A there), and reports
+skips the exhibits that need RNTL 13 (N/A there), and reports
 `cfg-group-conflict-fallback` as inconclusive when hot auto picks per-file isolation on
 the runner.
 

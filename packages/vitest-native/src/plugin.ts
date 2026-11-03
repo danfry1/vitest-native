@@ -12,8 +12,10 @@ import flowRemoveTypes from "flow-remove-types";
 import { validateOptions, validatePeerDependency, warnUnknownOptions } from "./validate.js";
 import {
   installedExpoVersion,
+  isBelowSupportedReactNative,
   PEER_REQUIREMENTS,
   unsupportedExpoSdkMessage,
+  unsupportedReactNativeMessage,
 } from "./peer-requirements.js";
 import { VitestNativeError, VitestNativeTypeError } from "./errors.mjs";
 import { assertSupportedNode } from "./node-range.js";
@@ -314,7 +316,7 @@ function mockEnginePresetNames(
 }
 
 /** The major of a version string, or NaN. */
-/** The unsupported-Expo-SDK warnings already printed in this process. */
+/** The unsupported React Native and Expo SDK warnings already printed in this process. */
 const warnedExpoProblems = new Set<string>();
 
 function majorOf(version: string | null | undefined): number {
@@ -2334,6 +2336,14 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         );
         if (error) peerErrors.push(error);
       }
+      // React Native is not a peer of this package, but below its floor the native engine
+      // has no path for it (docs/versioning.md): stop by name, with the peers. Only under
+      // the native engine; the mock engine does not load React Native.
+      const reactNativeVersion =
+        engine === "native" ? resolvePackageVersion("react-native", config.root) : null;
+      if (reactNativeVersion && isBelowSupportedReactNative(reactNativeVersion)) {
+        peerErrors.push(unsupportedReactNativeMessage(reactNativeVersion)!);
+      }
       if (peerErrors.length > 0) {
         throw new VitestNativeError(
           "UNSUPPORTED_PEER",
@@ -2350,14 +2360,19 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         }
       }
 
-      // An Expo SDK outside the supported range: a warning, as for the optional peers.
-      // Failing the run would stop the tests that pass on it too. Once per process: every
-      // project of a run, and the root config, resolve their config here.
+      // A React Native newer than the supported range, and an Expo SDK outside it: a
+      // warning, as for the optional peers. Failing the run would stop the tests that pass
+      // on it too. Once per process: every project of a run, and the root config, resolve
+      // their config here.
       const expoVersion = installedExpoVersion(config.root);
-      const expoProblem = expoVersion && unsupportedExpoSdkMessage(expoVersion);
-      if (expoProblem && !warnedExpoProblems.has(expoProblem)) {
-        warnedExpoProblems.add(expoProblem);
-        console.warn(`[vitest-native] ${expoProblem}`);
+      for (const problem of [
+        reactNativeVersion && unsupportedReactNativeMessage(reactNativeVersion),
+        expoVersion && unsupportedExpoSdkMessage(expoVersion),
+      ]) {
+        if (problem && !warnedExpoProblems.has(problem)) {
+          warnedExpoProblems.add(problem);
+          console.warn(`[vitest-native] ${problem}`);
+        }
       }
 
       // Now we have the real project root — resolve options from consumer context.

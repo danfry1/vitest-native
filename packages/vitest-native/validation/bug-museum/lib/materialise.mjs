@@ -14,7 +14,7 @@
 //     link would leave the real path outside node_modules);
 //   - the exhibit's workspace members, linked by name (`links` in exhibits.json);
 //   - the install axes the exhibit requires (exhibits.json `requires`):
-//       rntl: "12" | "13"   a copy of that RNTL from a local bun store (RNTL_STORE)
+//       rntl: "13"          a copy of that RNTL from a local bun store (RNTL_STORE)
 //       layout: "pnpm"      `pnpmShaped` packages moved into a pnpm-shaped store
 //                           directory named after their peers (#349's class reads it)
 //
@@ -30,7 +30,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 export const museumRoot = path.resolve(here, "..");
 export const packageRoot = path.resolve(museumRoot, "../..");
 
-/** Where a local bun store keeps RNTL 12 and 13 (override with VN_MUSEUM_RNTL_STORE). */
+/** Where a local bun store keeps RNTL 13 (override with VN_MUSEUM_RNTL_STORE). */
 const RNTL_STORE =
   process.env.VN_MUSEUM_RNTL_STORE ??
   path.join(os.homedir(), "dev/vitest-react-native/node_modules/.bun");

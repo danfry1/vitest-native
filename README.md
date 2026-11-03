@@ -11,7 +11,7 @@ translates the preset, and expo-router's own testing library runs as written —
 **📖 Documentation: [danfry1.github.io/vitest-native](https://danfry1.github.io/vitest-native/)**
 
 > **Beta.** The reproducible guarantee is a CI-gated behavioral cross-check that runs the same
-> assertions under the mock engine **and** real React Native across RN 0.81–0.88, failing the build
+> assertions under the mock engine **and** real React Native across RN 0.86–0.88, failing the build
 > on any divergence. Pinned external apps are also run as non-authoritative integration
 > observations; their custom migration setup and Jest-era shims do not define package support.
 > See the [validation model](https://danfry1.github.io/vitest-native/guide/validation-model).
@@ -99,16 +99,16 @@ describe('MyComponent', () => {
   [versioning](packages/vitest-native/docs/versioning.md#support-policy))
 - **Vitest** 5.x
 - **Vite** 8.x, from 8.0.5
-- **React** >= 18
-- **`@testing-library/react-native`** (optional) — supported across `>=12 <15`. RNTL 14 made
+- **React** 19
+- **`@testing-library/react-native`** (optional) — supported across `>=13 <15`. RNTL 14 made
   `render`, `fireEvent`, and `act` async, so `await` them (`await render(<App />)`); this is
-  back-compatible with RNTL 12/13, where the calls are synchronous and `await` is a no-op.
+  back-compatible with RNTL 13, where the calls are synchronous and `await` is a no-op.
 - **`engine: 'native'`** (the default) needs `@react-native/babel-preset` + `@babel/core` (these
   ship with React Native projects; from Expo SDK 56 it uses Expo's own preset instead, as Metro
   does). The opt-in mock engine needs no Babel.
-- **React Native** 0.81–0.88 validated in CI (native engine).
+- **React Native** 0.86–0.88 (native engine); an older release stops with `UNSUPPORTED_PEER`.
 - **Expo** SDK 57 and 58, if the app uses Expo; earlier SDKs are not supported.
-- Tested against RNTL 12, 13, and 14 in CI.
+- Tested against RNTL 13 and 14 in CI.
 
 ## Choosing an engine
 

@@ -4,8 +4,8 @@
 
 Run your React Native tests under Vitest, against **real React Native** — the same JavaScript that ships in your app, with only the native-module boundary mocked. That is the default and the point of the project. A lightweight pure-JS mock engine is available as an opt-in for fast, RN-free unit tests.
 
-> **Beta.** The release-supported native engine is validated across React Native 0.81–0.88,
-> Vite 8, Vitest 5, RNTL 12–14, bare apps, Expo SDK 58 and 57 (including expo-router's own testing
+> **Beta.** The release-supported native engine is validated across React Native 0.86–0.88,
+> Vite 8, Vitest 5, RNTL 13–14, bare apps, Expo SDK 58 and 57 (including expo-router's own testing
 > library), and hoisted monorepos. The hot
 > runtime (opt-in with `hotRuntime: 'auto'`) is marked experimental because it uses Vitest's
 > experimental custom-pool APIs.
@@ -128,7 +128,7 @@ test("renders a greeting", async () => {
 > [jest-compat layer](https://danfry1.github.io/vitest-native/guide/jest-compat), RNTL cannot
 > see `vi.useFakeTimers()`, so `waitFor` and `findBy*` do not advance the fake clock: use
 > jest-compat, or advance it yourself (`await vi.advanceTimersByTimeAsync(ms)`). Awaiting
-> `render` works with RNTL 12–13 and is required by RNTL 14.
+> `render` works with RNTL 13 and is required by RNTL 14.
 
 Run it:
 
@@ -976,13 +976,13 @@ that API.
 
 Every release must pass:
 
-- Linux on Node 22.22.3 (with RNTL 12, 13 and 14), 24 and 26, plus macOS and Windows on Node 22.22.3.
+- Linux on Node 22.22.3 (with RNTL 13 and 14), 24 and 26, plus macOS and Windows on Node 22.22.3.
 - The mock, native iOS, native Android, hot-runtime, isolation, and 100-file soak suites.
-- React Native 0.81–0.88 against both locked and newest-supported Vitest.
+- React Native 0.86–0.88 against both locked and newest-supported Vitest.
 - Vitest's own behaviour under the defaults: config and CLI
   flags, projects, watch mode, the jsdom and happy-dom environments, `--typecheck`, `vitest bench`,
   and the HTML reporter.
-- Packed consumers: bare RN 0.83/RNTL 12, a Jest-migration project, Expo SDK 58/RNTL 14 (with
+- Packed consumers: bare RN 0.86/RNTL 13, a Jest-migration project, Expo SDK 58/RNTL 14 (with
   expo-router and a `migrate`-generated jest-expo config), Expo SDK 57/RNTL 13 (with expo-router), a mock-engine RNTL 14 project, npm- and
   pnpm-workspace monorepos on Vite 8, and an RN 0.86 Android project.
 - Packed V8 and Istanbul coverage maps/counts matching default isolation exactly under hot workers.
@@ -1002,13 +1002,13 @@ see [versioning and stability](docs/versioning.md).
 
 | Dependency                                   | Supported version                         |
 | -------------------------------------------- | ----------------------------------------- |
-| `react`                                      | >= 18; use RN's matching React version    |
+| `react`                                      | 19; use RN's matching React version       |
 | `vite`                                       | ^8.0.5                                    |
 | `vitest`                                     | 5.x                                       |
 | `node`                                       | 22.22.3+ on Node 22, 24.12+ on 24, or 26+ |
-| `react-native` (native engine)               | 0.81–0.88 validated                       |
+| `react-native` (native engine)               | 0.86–0.88                                 |
 | `@react-native/babel-preset` (native engine) | Match the installed React Native minor    |
-| `@testing-library/react-native` (optional)   | 12.x, 13.x, or 14.x                       |
+| `@testing-library/react-native` (optional)   | 13.x or 14.x                              |
 
 Each Node line starts at the release where Node's in-thread module hooks (`module.registerHooks`)
 carry the engine: earlier releases fail it (expo-router's navigation elements do not load, and the

@@ -94,8 +94,8 @@ jobs:
         run: node packages/vitest-native/scripts/check-changeset.mjs "$BASE_SHA" "$HEAD_SHA"
 
   check:
-    # Unique per leg: the two back-compat legs differ only by RNTL, and GitHub resolves
-    # a check name shared by two jobs ambiguously.
+    # Unique per leg: the back-compat leg differs from another only by RNTL, and GitHub
+    # resolves a check name shared by two jobs ambiguously.
     name: Full gate (${{ matrix.os }}, Node ${{ matrix.node-version }}${{ matrix.rntl && format(', RNTL {0}', matrix.rntl) || '' }})
     needs: classify
     if: needs.classify.outputs.docs-only != 'true'
@@ -106,14 +106,11 @@ jobs:
       fail-fast: false
       matrix:
         # Node 22.22.3 is the Node 22 floor (engines.node; src/node-range.ts), the first
-        # Node 22 whose in-thread loader hooks carry the engine. The back-compat legs pin RNTL 12
-        # and 13 to prove the full supported peer range (>=12 <15) on every push. The
-        # hot runtime and cross-check are calibrated on the current RNTL and run only on
-        # the RNTL 14 legs (step `if`s).
+        # Node 22 whose in-thread loader hooks carry the engine. The back-compat leg pins RNTL
+        # 13 to prove the full supported peer range (>=13 <15) on every push. The hot
+        # runtime and cross-check are calibrated on the current RNTL and run only on the
+        # RNTL 14 legs (step `if`s).
         include:
-          - os: ubuntu-latest
-            node-version: 22.22.3
-            rntl: '12'
           - os: ubuntu-latest
             node-version: 22.22.3
             rntl: '13'
@@ -214,7 +211,7 @@ jobs:
         # RNTL 14 legs", which was wrong: the resident-module keep-list has entries
         # that only matter on older RNTL, and removing them fails this suite under
         # RNTL 13 while RNTL 14 stays green (see native/module-reset.mjs). The hot
-        # runtime was in fact fine on RNTL 12/13 — nothing was checking.
+        # runtime was in fact fine on RNTL 13 — nothing was checking.
         run: bun run test:native:hot
 
       - name: Native engine hot-runtime isolation

@@ -16,7 +16,6 @@ name: Bug museum
 # One job, one Node version (22.22.3, the floor the config-axis matrix also runs).
 # Skipped here (N/A, run.mjs --allow-na): the exhibits that need an install this job does
 # not assemble. They are measured locally by run-columns.mjs and recorded in STATUS.md:
-#   RNTL 12   pre-rntl12-nested-text, pre-rntl12-nested-text-role
 #   RNTL 13   env-recoverable-error, env-rntl13-auto-cleanup, pre-rntl13-nested-text,
 #             pre-rntl13-native-stack-header
 # The pnpm-layout exhibits run: run.mjs assembles that layout from the frozen install.
