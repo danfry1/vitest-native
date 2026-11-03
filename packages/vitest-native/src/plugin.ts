@@ -1949,7 +1949,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             .map((n) => LIBRARY_SETUP_FILES[n as PresetName])
             .filter((file): file is string => typeof file === "string");
           if (librarySetupFiles.length > 0) {
-            env.VITEST_NATIVE_LIBRARY_SETUP_FILES = JSON.stringify(librarySetupFiles);
+            fields.librarySetupFiles = librarySetupFiles;
           }
         }
         if (selection.modulePaths.length > 0) {

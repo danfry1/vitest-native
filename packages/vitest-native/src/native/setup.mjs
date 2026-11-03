@@ -296,13 +296,7 @@ beginTestFile();
 // The setup files of libraries that run as themselves (LIBRARY_SETUP_FILES in
 // preset-map.ts), ahead of the project's, as a Jest suite lists them. Run afresh for
 // every test file, so each file's mocks are new ones, as under Jest.
-let librarySetupFiles = [];
-try {
-  librarySetupFiles = JSON.parse(process.env.VITEST_NATIVE_LIBRARY_SETUP_FILES || "[]");
-} catch {
-  librarySetupFiles = [];
-}
-for (const request of librarySetupFiles) {
+for (const request of runContext.librarySetupFiles ?? []) {
   const load = createRequire(path.join(projectRoot, "package.json"));
   let file;
   try {

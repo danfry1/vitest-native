@@ -23,6 +23,7 @@ export interface ProjectContextFields {
   presetExports?: Record<string, string[] | null>;
   presetModules?: string[];
   presetDisabled?: string[];
+  librarySetupFiles?: string[];
   mocks?: unknown;
   knownNativeModules?: string[];
   nativeModuleSpecs?: Record<string, string[]>;

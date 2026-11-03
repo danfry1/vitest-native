@@ -48,6 +48,7 @@ const SCHEMA = {
   presetExports: { valid: object },
   presetModules: { valid: strings },
   presetDisabled: { valid: strings },
+  librarySetupFiles: { valid: strings },
   mocks: { valid: (v) => v !== undefined },
   knownNativeModules: { valid: strings },
   nativeModuleSpecs: { valid: object },
