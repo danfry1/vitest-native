@@ -265,13 +265,15 @@ describe("background registry build", () => {
     expect(compiles).toBe(0);
   });
 
-  it("recognises CI the way Vitest does", () => {
+  it("recognises CI from CI or a provider's variable, unless CI=false", () => {
     expect(isCI({})).toBe(false);
     expect(isCI({ CI: "true" })).toBe(true);
     expect(isCI({ CI: "1" })).toBe(true);
     expect(isCI({ GITHUB_ACTIONS: "true" })).toBe(true);
     expect(isCI({ BUILDKITE: "true" })).toBe(true);
-    // CI=false turns it off, as in std-env.
+    // Generic build counters are not taken as CI.
+    expect(isCI({ BUILD_NUMBER: "7", RUN_ID: "1" })).toBe(false);
+    // CI=false turns it off, whatever else is set.
     expect(isCI({ CI: "false", GITHUB_ACTIONS: "true" })).toBe(false);
   });
 });

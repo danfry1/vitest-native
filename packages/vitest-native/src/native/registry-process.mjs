@@ -102,34 +102,19 @@ function removeSignalHandlers() {
 }
 
 /**
- * Resolve a warm registry, or start compiling a cache miss WITHOUT waiting for it.
+ * Resolve a warm registry, or start compiling a cache miss without waiting for it.
  *
- * Why: a cold registry build takes seconds (about 2.5 s on an M-series Mac for React
- * Native 0.81), and waiting for it in config() put all of that ahead of the first test
- * file. Loading React Native file by file is the same React Native (the registry and the
- * per-file hooks run each module with Node's semantics and report the same frames, to
- * the column of the module as compiled), so a cold run can start at once and use the
- * registry as soon as it lands. The plugin still waits under the hot runtime, whose
- * worker keeps React Native resident from its first file, and on CI, where only total
- * time counts and per-file loading costs more than the build on a large suite.
+ * Loading React Native file by file runs the same modules with the same semantics, so
+ * a cold run can start at once and use the registry when it lands; the plugin still
+ * waits under the hot runtime, on CI and with registryBuild: 'wait'. Rejected: a
+ * detached child (it outlives the run), building in teardown (slower than building
+ * first), and building only for the next run (a large cold suite would load React
+ * Native file by file throughout, which costs more than the build past roughly thirty
+ * files per worker). So workers pick it up mid-run (activeRegistry in context.mjs).
  *
- * Rejected:
- *   - a detached child that outlives the run: it competes with the workers, and it
- *     breaks the rule that nothing vitest-native starts outlives Vitest;
- *   - building in teardown: the whole build lands at the end of the cold run, slower
- *     than building first;
- *   - building in parallel but only for the next run: a large cold suite would load
- *     React Native file by file for every file, which costs more than the build once a
- *     suite passes roughly thirty files per worker.
- * So workers pick the registry up mid-run (activeRegistry in context.mjs).
- *
- * A warm hit returns `{ registry }`, exactly as buildRegistryFor does. A miss returns
- * `{ pending }`: the registry file and the mtime its metadata had before the lookup (0
- * when absent), which is how a worker that starts later recognises a registry published
- * since (activeRegistry in context.mjs). The compiler is the same bounded child
- * buildRegistryFor uses, at the lowest CPU priority. settleRegistryBuilds ends it at
- * close; this process exiting, or a stop signal, ends it too. Returns `{}` when no
- * registry can be had at all.
+ * Returns `{ registry }` on a hit; on a miss `{ pending: { file, since } }`, `since`
+ * being the metadata's mtime before the lookup (0 when absent); `{}` when no registry
+ * can be had. settleRegistryBuilds, a stop signal or this process exiting ends it.
  */
 export function startRegistryBuild(options, compiler = compileRegistryInChild) {
   try {
@@ -158,8 +143,16 @@ export function startRegistryBuild(options, compiler = compileRegistryInChild) {
           // explicitly, and the exit hook stops it.
           unref: true,
         });
-        // A concurrent run's compiler may have published it instead.
-        const file = validatedRegistry({ ...options, location });
+        // A concurrent run's compiler may have published it instead, visible a moment
+        // later where rename cannot replace a file (Windows), as in buildRegistryFor.
+        let file = validatedRegistry({ ...options, location });
+        if (!file && !result.ok && !result.cancelled) {
+          for (const delayMs of [10, 20, 40, 80]) {
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+            file = validatedRegistry({ ...options, location });
+            if (file) break;
+          }
+        }
         if (file) {
           if (options.diagnostics) {
             console.log(
@@ -215,9 +208,8 @@ export function startRegistryBuild(options, compiler = compileRegistryInChild) {
 /**
  * Called when Vitest closes. A registry still compiling gets up to `budgetMs` to
  * finish, so the next run starts warm, and is stopped after that. It is stopped at once
- * when the run closing was cancelled (`--bail`, Ctrl-C in a terminal): a cancel ends the
- * run early on purpose, and must not then wait. A cancel that does not close (a
- * watch-mode key such as `c` or a filter) leaves the build running for the reruns.
+ * when the last run ended cancelled (`--bail`, Ctrl-C in a terminal); a watch-mode
+ * cancel does not close, so the build keeps running for the reruns.
  * Resolves once every compiler has exited.
  */
 export async function settleRegistryBuilds(budgetMs, { cancelled = false } = {}) {
@@ -244,19 +236,12 @@ export async function settleRegistryBuilds(budgetMs, { cancelled = false } = {})
 }
 
 /**
- * Whether this looks like a CI run, as std-env (Vitest's own detection) decides it: a
- * `CI` variable that is not "false", or one of the variables CI providers set.
+ * A CI run: `CI` set to anything but "false", or, unless `CI=false`, one of these
+ * providers' own variables set. Only decides whether a cold run waits for the registry.
  */
 export const CI_VARIABLES = Object.freeze([
   "CI",
   "CONTINUOUS_INTEGRATION",
-  "BUILD_ID",
-  "BUILD_NUMBER",
-  "RUN_ID",
-  "CI_APP_ID",
-  "CI_BUILD_ID",
-  "CI_BUILD_NUMBER",
-  "CI_NAME",
   "GITHUB_ACTIONS",
   "GITLAB_CI",
   "BUILDKITE",

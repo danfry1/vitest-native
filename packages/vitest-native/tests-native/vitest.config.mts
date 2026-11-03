@@ -41,7 +41,13 @@ export default defineConfig({
     ],
     // android.test.ts needs platform:'android'; navigation-params needs the explicit
     // navigation preset config — both have their own dedicated config files.
-    exclude: ["tests-native/android.test.ts", "tests-native/navigation-params.test.tsx"],
+    // registry-background.test.ts spawns its own Vitest runs, for minutes; it runs in
+    // its own step (vitest.background.config.mts).
+    exclude: [
+      "tests-native/android.test.ts",
+      "tests-native/navigation-params.test.tsx",
+      "tests-native/registry-background.test.ts",
+    ],
     // Force the fixture lib to be externalized (loaded through Node, like a real
     // node_modules dep) instead of inlined — so its `import { Appearance } from
     // 'react-native'` exercises the loader's ESM facade. See

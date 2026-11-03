@@ -187,6 +187,12 @@ jobs:
       - name: Native engine tests
         run: bun run test:native
 
+      - name: Native engine tests (cold-cache background registry build)
+        # Starts real Vitest runs against scratch projects (signals, cancel, CI, a
+        # concurrent cold build), so it takes minutes: one leg per OS, not every leg.
+        if: (runner.os == 'Linux' && matrix.node-version == '24.13.0') || runner.os == 'macOS' || runner.os == 'Windows'
+        run: bun run test:native:background
+
       - name: Native engine tests (forks pool)
         # When a project configures a VM pool the plugin throws and points at 'threads'
         # or 'forks'. Nothing ran the forks pool, so that advice was untested — and the

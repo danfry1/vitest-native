@@ -417,13 +417,7 @@ async function buildRegistryFor(options: {
   diagnostics: boolean;
 }): Promise<string | null> {
   try {
-    const dir = path.dirname(fileURLToPath(import.meta.url));
-    const module = (await import(
-      pathToFileURL(path.resolve(dir, "native/registry-process.mjs")).href
-    )) as {
-      buildRegistryFor: (o: typeof options) => Promise<string | null>;
-    };
-    return module.buildRegistryFor(options);
+    return (await loadRegistryProcess()).buildRegistryFor(options);
   } catch (error) {
     try {
       const dir = path.dirname(fileURLToPath(import.meta.url));
@@ -448,6 +442,7 @@ async function buildRegistryFor(options: {
 
 /** The registry-process module, reached as buildRegistryFor explains. */
 async function loadRegistryProcess(): Promise<{
+  buildRegistryFor: (o: object) => Promise<string | null>;
   startRegistryBuild: (o: object) => {
     registry?: string | null;
     pending?: { file: string; since: number };
@@ -2859,10 +2854,17 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       registrySettlers.add(vitest);
       const closable = vitest as {
         onClose?: (fn: () => Promise<void>) => void;
-        // Vitest's own reporters read it to report an interrupted run; marked internal.
-        isCancelling?: boolean;
-        config?: { teardownTimeout?: number };
+        config?: { teardownTimeout?: number; reporters?: unknown[] };
       };
+      // How the last run ended, from the reporter API: "interrupted" when it was
+      // cancelled (--bail, Ctrl-C in a terminal, a watch-mode key). configureVitest
+      // runs before Vitest creates its reporters, so an inline one joins them.
+      let lastRunReason: string | undefined;
+      closable.config?.reporters?.push({
+        onTestRunEnd(_modules: unknown, _errors: unknown, reason: string) {
+          lastRunReason = reason;
+        },
+      });
       // Vitest's `teardownTimeout` counts from its exit(), before global teardown and
       // the pool close that come ahead of this hook, so wait at most half of it: a
       // close never runs into "close timed out".
@@ -2870,7 +2872,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       closable.onClose?.(async () => {
         await (
           await loadRegistryProcess()
-        ).settleRegistryBuilds(budgetMs, { cancelled: closable.isCancelling === true });
+        ).settleRegistryBuilds(budgetMs, { cancelled: lastRunReason === "interrupted" });
       });
     }
     const cacheKey = cacheKeys.get(root);

@@ -32,6 +32,7 @@
     "test:native:navigation": "bun run --filter vitest-native test:native:navigation",
     "test:native:android": "bun run --filter vitest-native test:native:android",
     "test:native:advice": "bun run --filter vitest-native test:native:advice",
+    "test:native:background": "bun run --filter vitest-native test:native:background",
     "test:native:hot": "bun run --filter vitest-native test:native:hot",
     "test:native:hot:isolation": "bun run --filter vitest-native test:native:hot:isolation",
     "test:native:hot:soak": "bun run --filter vitest-native test:native:hot:soak",

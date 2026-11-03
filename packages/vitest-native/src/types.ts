@@ -447,7 +447,7 @@ export interface VitestNativeOptions {
    *   load React Native file by file; files that start after use it. When Vitest
    *   closes, a build still running gets up to half of `teardownTimeout` to finish,
    *   so the next run starts warm.
-   * - `'wait'`: compile the registry before the run starts, as before 0.14.1.
+   * - `'wait'`: compile the registry before the run starts, as in earlier versions.
    *
    * The hot runtime and CI runs always wait.
    */
