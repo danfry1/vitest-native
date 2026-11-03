@@ -68,6 +68,15 @@ describe("Expo's runtime follows Node ownership of expo", () => {
     expect(g[MARKER]).toBe(1);
   });
 
+  it("throws when it is not given the compile rule, rather than skipping the runtime", () => {
+    const root = project();
+    roots.push(root);
+    expect(() => installExpoRuntime(root, undefined)).toThrow(
+      /installExpoRuntime needs the require hooks' compile rule/,
+    );
+    expect(g[MARKER]).toBe(undefined);
+  });
+
   it("asks about the runtime file it would load", () => {
     const root = project();
     roots.push(root);
@@ -151,6 +160,23 @@ describe("Expo's runtime in workspace and install shapes", () => {
     expect(installsRuntime(root)).toBe(true);
   });
 
+  it("a project that declares a package depending on expo gets the runtime", () => {
+    const root = tmp();
+    write(path.join(root, "package.json"), {
+      name: "app",
+      dependencies: { "museum-router": "*", "react-native": "*" },
+    });
+    expoAt(path.join(root, "node_modules", "expo"));
+    write(path.join(root, "node_modules", "museum-router", "package.json"), {
+      name: "museum-router",
+      version: "1.0.0",
+      dependencies: { expo: "*" },
+      peerDependencies: { "react-native": "*" },
+    });
+    expect(detected(root)).toContain("expo");
+    expect(installsRuntime(root)).toBe(true);
+  });
+
   it("a library whose expo-* devDependency pulls expo in as a peer does not get the runtime", () => {
     const root = tmp();
     write(path.join(root, "package.json"), {
@@ -187,7 +213,9 @@ const other = root + "/node_modules/other/index.js";
 const first = installRequireHooks(root, ["expo"]);
 const before = [first(expo), first(other)];
 const later = installRequireHooks(root, ["other"]);
-process.stdout.write(JSON.stringify([...before, later(expo), later(other), first(expo)]));
+// The same list again: the updater keeps the matcher and still answers with the rule.
+const unchanged = installRequireHooks(root, ["other"]);
+process.stdout.write(JSON.stringify([...before, later(expo), later(other), first(expo), typeof unchanged, unchanged(other)]));
 `;
     const env = { ...process.env };
     for (const key of Object.keys(env)) {
@@ -202,6 +230,6 @@ process.stdout.write(JSON.stringify([...before, later(expo), later(other), first
     });
     expect(child.stderr).toBe("");
     // One matcher, rebuilt by the later call: `first` then answers for the current list too.
-    expect(JSON.parse(child.stdout)).toEqual([true, false, false, true, false]);
+    expect(JSON.parse(child.stdout)).toEqual([true, false, false, true, false, "function", true]);
   });
 });
