@@ -104,7 +104,6 @@ function withoutComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
 }
 
-
 /**
  * Whether a config is built on one imported from elsewhere — a shared preset in a
  * workspace, typically. Such a file legitimately never mentions vitest-native, and
@@ -272,13 +271,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
         : name === "vitest"
           ? runningVitestVersion(from)
           : null;
-    const error = validatePeerDependency(
-      name,
-      minimum,
-      from,
-      maximumMajor,
-      running,
-    );
+    const error = validatePeerDependency(name, minimum, from, maximumMajor, running);
     if (error) fail(error);
     else {
       pass(`${name} ${running ?? packageVersion(from, name)}`);
@@ -382,13 +375,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
     // plugin's startup check, and the published peerDependencies entry.
     const rntlReq = PEER_REQUIREMENTS.find((r) => r.name === "@testing-library/react-native");
     const rntlError =
-      rntlReq &&
-      validatePeerDependency(
-        rntlReq.name,
-        rntlReq.minimum,
-        root,
-        rntlReq.maximumMajor,
-      );
+      rntlReq && validatePeerDependency(rntlReq.name, rntlReq.minimum, root, rntlReq.maximumMajor);
     if (rntlError) {
       warn(rntlError);
     } else if (rntlMajor >= 14 && !packageVersion(rootFor("test-renderer"), "test-renderer")) {
