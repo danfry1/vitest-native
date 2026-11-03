@@ -382,8 +382,17 @@ export function installErrorUtils(projectRoot) {
  *
  * Resolved from the project, so this is the module `expo`'s entry later finds in
  * the require cache rather than a second copy. Silent when `expo` is not installed.
+ *
+ * Installed only when Node compiles `expo` for the project (`nodeCompiles`, the require
+ * hooks' own rule: a declared or detected package, or one named in `transform`).
+ * jest-expo installs it only for projects that use its preset. SDK 58 publishes the
+ * runtime as ES module syntax with Metro `require` calls in a package without
+ * `"type": "module"`, so Node runs it only compiled; where `expo` merely
+ * resolves (a hoisted workspace with an Expo app beside this package, or a library whose
+ * expo-* devDependencies pull it in as a peer) it is not this project's, and loading it
+ * raw failed every test file.
  */
-export function installExpoRuntime(projectRoot) {
+export function installExpoRuntime(projectRoot, nodeCompiles) {
   let winter;
   try {
     const req = createRequire(path.join(projectRoot, "package.json"));
@@ -397,7 +406,7 @@ export function installExpoRuntime(projectRoot) {
     winter = ["index.js", "index.ts"]
       .map((file) => path.join(entryDir, "winter", file))
       .find((file) => fs.existsSync(file));
-    if (!winter) return;
+    if (!winter || !nodeCompiles(winter)) return;
   } catch {
     return;
   }
