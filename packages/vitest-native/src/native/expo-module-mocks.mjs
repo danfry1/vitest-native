@@ -311,7 +311,7 @@ export function expoModuleMock(projectRoot, name, mockFn) {
   if (!file) return null;
   let exports;
   try {
-    exports = createRequire(file)(file);
+    exports = loadWithJest(file, mockFn, () => createRequire(file)(file));
   } catch {
     return null;
   }
@@ -323,6 +323,31 @@ export function expoModuleMock(projectRoot, name, mockFn) {
     members[key] = typeof value === "function" && !isClass ? mockFn(value) : value;
   }
   return members;
+}
+
+/**
+ * Expo writes these mocks for Jest: `jest.fn(impl)` around each function, and
+ * `jest.requireActual('../src/X.web')` for the members the web build supplies
+ * (expo-font's ExpoFontLoader does both). Without the jest-compat layer there is no
+ * `jest` global, so the mock threw as it loaded and the module fell back to the generic
+ * stub, where `getLoadedFonts()` is a function resolving `undefined` instead of `[]`.
+ * The two calls are supplied for the duration of the load: `fn` is the resolver's mock
+ * function, and `requireActual` resolves relative to the mock file, as Jest resolves it.
+ * A `jest` that exists (jest-compat's) is left alone.
+ */
+function loadWithJest(file, mockFn, load) {
+  const g = globalThis;
+  if (g.jest !== undefined) return load();
+  const require = createRequire(file);
+  g.jest = {
+    fn: (implementation = () => undefined) => mockFn(implementation),
+    requireActual: (spec) => require(spec),
+  };
+  try {
+    return load();
+  } finally {
+    delete g.jest;
+  }
 }
 
 /**
