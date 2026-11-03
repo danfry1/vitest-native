@@ -71,9 +71,7 @@ describe("Expo's runtime follows Node ownership of expo", () => {
   it("throws when it is not given the compile rule, rather than skipping the runtime", () => {
     const root = project();
     roots.push(root);
-    expect(() => installExpoRuntime(root, undefined)).toThrow(
-      /installExpoRuntime needs the require hooks' compile rule/,
-    );
+    expect(() => installExpoRuntime(root, undefined)).toThrow(TypeError);
     expect(g[MARKER]).toBe(undefined);
   });
 

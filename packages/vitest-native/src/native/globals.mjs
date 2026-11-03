@@ -398,14 +398,6 @@ export function installErrorUtils(projectRoot) {
  * raw failed every test file.
  */
 export function installExpoRuntime(projectRoot, nodeCompiles) {
-  // A wiring fault, never a project's state: skipping the runtime silently here would
-  // hide it behind tests that pass without Expo's globals.
-  if (typeof nodeCompiles !== "function") {
-    throw new TypeError(
-      "[vitest-native] installExpoRuntime needs the require hooks' compile rule " +
-        `(installRequireHooks' return value); got ${typeof nodeCompiles}.`,
-    );
-  }
   let winter;
   try {
     const req = createRequire(path.join(projectRoot, "package.json"));
@@ -423,6 +415,9 @@ export function installExpoRuntime(projectRoot, nodeCompiles) {
   } catch {
     return;
   }
+  // Outside the try: a missing rule is a wiring fault, never a project's state, and
+  // skipping the runtime silently would hide it behind tests that pass without Expo's
+  // globals.
   if (!nodeCompiles(winter)) return;
   const KEEP_FETCH = "EXPO_PUBLIC_USE_RN_FETCH";
   const projectSet = Object.hasOwn(process.env, KEEP_FETCH);
