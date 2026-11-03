@@ -1317,7 +1317,7 @@
       "id": "own-workspace-setup-file",
       "class": "ownership",
       "title": "A setup file inside a Node-owned workspace library is refused",
-      "source": "0.14.0-rc.11 regression",
+      "source": "0.14.0-rc.11 regression testing",
       "fixedBy": "open (fix/workspace-package-ownership)",
       "fixRef": "origin/fix/workspace-package-ownership",
       "links": {
@@ -1326,6 +1326,28 @@
       "bugSignature": "^setup-file\\.test\\.ts: \\[vitest-native\\] Vite attempted to transform '[^']*vitest\\.setup\\.ts', but the native ownership policy assigns that file to Node",
       "control": {
         "why": "The library no longer peers on react-native, so the engine does not detect it and nothing assigns its files to Node: the bug's precondition is gone.",
+        "edits": [
+          {
+            "file": "packages/kit/package.json",
+            "find": "\"react-native\": \"*\"",
+            "replace": "\"museum-control-no-react-native\": \"*\""
+          }
+        ]
+      }
+    },
+    {
+      "id": "own-workspace-unexported-manifest",
+      "class": "ownership",
+      "title": "A workspace library whose exports omit ./package.json leaves Vite",
+      "source": "0.14.0-rc.11 regression testing",
+      "fixedBy": "open (fix/workspace-package-ownership)",
+      "fixRef": "origin/fix/workspace-package-ownership",
+      "links": {
+        "@m/kit": "packages/kit"
+      },
+      "bugSignature": "^library\\.test\\.ts: (\\[vitest-native\\] Vite attempted to transform '[^']*vitest\\.setup\\.ts', but the native ownership policy assigns that file to Node|Vitest cannot be imported in a CommonJS module using require\\(\\)|AssertionError: kit (store written by the setup file|vitest helper|internal import mocked):)",
+      "control": {
+        "why": "The library no longer peers on react-native, so no rule can detect it: it runs in Vite, which is the expected behaviour on every build.",
         "edits": [
           {
             "file": "packages/kit/package.json",

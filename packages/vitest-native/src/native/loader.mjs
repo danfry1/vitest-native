@@ -143,7 +143,6 @@ export function initialize(data) {
   ownership = createNativeOwnershipPolicy({
     projectRoot: PROJECT_ROOT,
     projectDirs: configuredOwnership?.projectDirs ?? [],
-    entryFiles: configuredOwnership?.entryFiles ?? [],
     reactNativeRoots: configuredOwnership?.reactNativeRoots ?? [],
     runtimeTransforms: data?.transformPkgs ?? [],
   });

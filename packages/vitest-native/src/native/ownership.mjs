@@ -184,13 +184,19 @@ export function createNativeOwnershipPolicy({
     // library's source stays with Node and the test and the setup file share its one
     // instance. Two broader answers were rejected:
     //   - Leaving every workspace package (real path outside node_modules) to Vite.
-    //     Workspace members that declare react-native are Node-owned on purpose: Vite's
+    //     Detected workspace members are Node-owned on purpose (which members are
+    //     detected is dependencyDirOf's rule, in match.mjs): Vite's
     //     compile changes class fields, EXPO_OS and the worklet plugin, and a member that
     //     an installed package also requires loads twice when Vite owns it.
     //   - Not detecting a package that holds a setup file. A setup file says nothing
     //     about how the package's source must be compiled, and it would give one library
     //     two owners depending on which app's config runs it.
     // As with test files, a setup file under node_modules is left to the rules below.
+    //
+    // Only Vite's transform hook (plugin.ts) judges a setup file, so only the main
+    // process passes `entryFiles`. Workers rebuild the policy for Node's loads, which
+    // they judge by package matchers, and Node never loads a setup file: Vitest's
+    // runner imports it through Vite. The manifest carries the list for diagnostics.
     if (
       entryKeys.size > 0 &&
       !NODE_MODULES_PATH.test(file) &&

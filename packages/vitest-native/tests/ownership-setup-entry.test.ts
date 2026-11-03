@@ -28,12 +28,12 @@ function write(file: string, content: string): void {
 }
 
 /**
- * A workspace: packages/kit (declares react-native, exports map without
- * ./package.json, a vitest.setup.ts beside its source) and packages/app, which depends
- * on it. `hoisted` links kit at the workspace root (npm, yarn); otherwise into the
- * app's own node_modules only (pnpm's isolated layout).
+ * A workspace: packages/kit (declares react-native, a vitest.setup.ts beside its
+ * source) and packages/app, which depends on it. `hoisted` links kit at the workspace
+ * root (npm, yarn); otherwise into the app's own node_modules only (pnpm's isolated
+ * layout). `exportsManifest` adds `./package.json` to kit's exports map.
  */
-function workspace(hoisted: boolean) {
+function workspace(hoisted: boolean, exportsManifest = true) {
   const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-setup-entry-"));
   made.push(root);
   write(
@@ -46,7 +46,10 @@ function workspace(hoisted: boolean) {
     JSON.stringify({
       name: "@m/kit",
       version: "1.0.0",
-      exports: { ".": "./src/index.ts" },
+      exports: {
+        ".": "./src/index.ts",
+        ...(exportsManifest ? { "./package.json": "./package.json" } : {}),
+      },
       peerDependencies: { "react-native": "*" },
     }),
   );
@@ -108,29 +111,50 @@ describe.each([
     );
   }, 30_000);
 
-  it("decides the same in a worker rebuilt from the manifest", () => {
+  it("lists the setup file in the manifest workers and diagnostics read", () => {
     const manifest = parseNativeOwnershipManifest(JSON.stringify(policy.manifest()));
     expect(manifest?.entryFiles).toContain(setup);
-    const worker = createNativeOwnershipPolicy({
-      projectRoot: app,
-      runtimeTransforms: ecosystem,
-      projectDirs: manifest?.projectDirs as string[],
-      entryFiles: manifest?.entryFiles as string[],
-    });
-    expect(worker.decideFile(setup).owner).toBe("vite");
-    expect(worker.decideFile(path.join(kit, "src/index.ts")).owner).toBe("node");
   });
+});
+
+// Before 0.14.0-rc.11 a workspace member was detected only when `<name>/package.json`
+// resolved; #406's wider lookup is for installed packages (dependencyDirOf). A member
+// whose exports omit ./package.json therefore stays Vite-owned, as on rc.10.
+describe.each([
+  ["isolated (pnpm)", false],
+  ["hoisted (npm, yarn)", true],
+])("a workspace library whose exports omit ./package.json, %s", (_layout, hoisted) => {
+  const { kit, app, setup } = workspace(hoisted, false);
+
+  it("is not detected, so Vite owns its source and its setup file", async () => {
+    expect(detectEcosystemPackages(app)).toEqual([]);
+    const plugin = reactNative({ engine: "native" });
+    await runPluginConfig(plugin, {
+      root: app,
+      test: { setupFiles: ["../kit/vitest.setup.ts"] },
+    });
+    const transform = (file: string) => plugin.transform?.call({} as never, "export {};", file);
+    expect(() => transform(setup)).not.toThrow();
+    expect(() => transform(path.join(kit, "src/index.ts"))).not.toThrow();
+  }, 30_000);
 });
 
 describe("setupEntryFiles", () => {
   it("resolves from the run root, by the spelling given and by the real path", () => {
     const { kit, app } = workspace(false);
     const linkedSetup = path.join(app, "node_modules/@m/kit/vitest.setup.ts");
-    expect(setupEntryFiles([linkedSetup, "./missing.ts", 3], app)).toEqual([
+    const real = path.join(kit, "vitest.setup.ts");
+    const files = setupEntryFiles([linkedSetup, "./missing.ts", 3], app);
+    // Node's real-path spelling and the OS's differ on Windows (8.3 short names, #399);
+    // both are listed, so check each form rather than one spelling.
+    for (const expected of [
       linkedSetup,
-      path.join(kit, "vitest.setup.ts"),
+      fs.realpathSync(real),
+      fs.realpathSync.native(real),
       path.join(app, "missing.ts"),
-    ]);
+    ]) {
+      expect(files).toContain(expected);
+    }
     expect(setupEntryFiles(undefined, app)).toEqual([]);
   });
 

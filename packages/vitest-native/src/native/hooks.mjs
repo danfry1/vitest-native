@@ -232,7 +232,6 @@ export function installRequireHooks(
   const ownershipBase = {
     projectRoot,
     projectDirs: configuredOwnership?.projectDirs ?? [],
-    entryFiles: configuredOwnership?.entryFiles ?? [],
     reactNativeRoots: configuredOwnership?.reactNativeRoots ?? [],
     serverDepsInlineAll: configuredOwnership?.enforcement === "overridden-by-inline-all",
   };

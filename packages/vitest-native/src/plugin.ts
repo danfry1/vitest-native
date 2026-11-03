@@ -147,8 +147,8 @@ export function testIncludeRoots(include: unknown, projectRoot: string): string[
 
 /**
  * The files `test.setupFiles` names, resolved as Vitest resolves them (from the run
- * root: a package request first, then a path), in both the spelling given and the real
- * path, since Vite reports a module by its real path.
+ * root: a package request first, then a path), in the spelling given and in the real
+ * path's spellings, since Vite reports a module by its real path.
  *
  * Vitest evaluates every setup file in Vite whatever `server.deps.external` says, so
  * the ownership policy treats them as entries (see decideFile in native/ownership.mjs).
@@ -173,7 +173,13 @@ export function setupEntryFiles(setupFiles: unknown, projectRoot: string): strin
     }
     files.add(path.resolve(file));
     // A missing file is left to Vitest, which reports it by name when it runs it.
-    if (fs.existsSync(file)) files.add(fs.realpathSync.native(file));
+    // Both real-path spellings: Node's (`realpathSync`, the one Module._cache and
+    // canonicalDir use) and the OS's (`realpathSync.native`), which differ on Windows
+    // for 8.3 short names (#399).
+    if (fs.existsSync(file)) {
+      files.add(fs.realpathSync(file));
+      files.add(fs.realpathSync.native(file));
+    }
   }
   return [...files];
 }

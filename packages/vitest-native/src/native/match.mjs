@@ -114,10 +114,21 @@ export function containsPath(dir, target) {
  * point — see buildPkgMatcher.
  */
 export function packageDirOf(name, fromDir) {
+  return findPackageDir(name, fromDir, false);
+}
+
+/** packageDirOf, or with `installedOnly` dependencyDirOf. */
+function findPackageDir(name, fromDir, installedOnly) {
   const req = createRequire(path.join(fromDir, "package.json"));
   try {
     return canonicalDir(path.dirname(req.resolve(`${name}/package.json`)));
   } catch {}
+  const found = findUnexportedPackageDir(name, req);
+  return installedOnly && found !== null && !NODE_MODULES_PATH.test(found) ? null : found;
+}
+
+/** The steps after `<name>/package.json` fails: the lookup paths, then the entry. */
+function findUnexportedPackageDir(name, req) {
   for (const lookup of req.resolve.paths(name) ?? []) {
     const candidate = path.join(lookup, ...name.split("/"));
     if (fs.existsSync(path.join(candidate, "package.json"))) return canonicalDir(candidate);
@@ -138,6 +149,29 @@ export function packageDirOf(name, fromDir) {
     if (parent === dir) return null;
     dir = parent;
   }
+}
+
+/**
+ * The directory of a dependency the engine may DETECT (ecosystem detection), or null.
+ *
+ * A package whose `exports` map leaves out `./package.json` is found the way
+ * packageDirOf finds it only when it is installed: its real path lies inside a node_modules directory, as
+ * expo-symbols 57's does (#406). A workspace member, whose real path lies outside every
+ * node_modules, is found only when `<name>/package.json` resolves, which is the rule
+ * 0.14.0-rc.10 and earlier applied to every package.
+ *
+ * Why the two differ: detecting a workspace member makes it Node-owned, so `vi.mock`
+ * from a test no longer reaches its internal imports and any of its files that imports
+ * `vitest` fails. Widening detection to every workspace member whose exports omit
+ * `./package.json` changed that silently for libraries that ran in Vite before. Which
+ * owner a workspace member should have is the ownership track's decision (A3, the
+ * ownership predicate; A6, the fix for `vi.mock` reaching a Node-owned package's own
+ * imports, #322), not a side effect of how its manifest is found. Rejected: applying
+ * #406 to workspace members as well (the silent change above), and reverting #406
+ * (expo-symbols then runs uncompiled again).
+ */
+export function dependencyDirOf(name, fromDir) {
+  return findPackageDir(name, fromDir, true);
 }
 
 /**
