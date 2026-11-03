@@ -129,7 +129,12 @@ function installExpoGlobal(g) {
   }
   // NativeModule / SharedObject / SharedRef extend EventEmitter in expo's runtime.
   class NativeModule extends EventEmitter {}
-  class SharedObject extends EventEmitter {}
+  // A shared object is released when its owner is done with it; expo-modules-core's
+  // `useReleasingSharedObject` hooks (expo-video, expo-audio, expo-image) call it from
+  // the effect cleanup, so without it every unmount threw.
+  class SharedObject extends EventEmitter {
+    release() {}
+  }
   class SharedRef extends SharedObject {}
 
   // `globalThis.expo.modules` is the native-module registry expo libs read via
