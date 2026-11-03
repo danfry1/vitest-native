@@ -111,9 +111,8 @@ describe("the running Vite", () => {
     await expect(runningViteVersion({ meta: { viteVersion: "8.3.4" } })).resolves.toBe("8.3.4");
   });
 
-  it("falls back to the vite module's own version export", async () => {
-    const vite = (await import("vite")) as { version: string };
-    await expect(runningViteVersion(undefined)).resolves.toBe(vite.version);
+  it("is null without a hook context", async () => {
+    await expect(runningViteVersion(undefined)).resolves.toBeNull();
   });
 
   it("is read from the module, not the manifest, for diagnostics", () => {
