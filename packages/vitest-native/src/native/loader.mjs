@@ -87,8 +87,10 @@ let assetExtSet = new Set();
  * generation. A true-ESM package retains its whole instance — which is why this is
  * measured before it is trusted.
  */
-let genView = null;
-const generationOf = () => (genView ? Atomics.load(genView, 0) : 0);
+// The hot worker bumps `value` before each test file (worker.mjs). The hooks run on the
+// worker's own thread (module.registerHooks), so a plain shared object is enough.
+let generation = null;
+const generationOf = () => generation?.value ?? 0;
 // The test stack itself: Vitest's runtime, the chai it asserts through, and this
 // engine. The worker's runtime holds instances of these from boot — the runner's
 // SnapshotClient, chai's extended Assertion, the engine's registry and hooks — and a
@@ -106,7 +108,7 @@ const generationOf = () => (genView ? Atomics.load(genView, 0) : 0);
 // actual resident package rules live once in ownership.mjs.
 /** Should this resolved file carry a generation stamp? */
 function versionable(url) {
-  if (!genView || !url.startsWith("file:")) return false;
+  if (!generation || !url.startsWith("file:")) return false;
   const norm = fileURLToPath(url).replace(/\\/g, "/");
   if (!NODE_MODULES_PATH.test(norm)) return false;
   // React Native itself is preloaded once per worker and shared deliberately —
@@ -135,7 +137,7 @@ export function initialize(data) {
   if (data && data.presetExports) presetExports = data.presetExports;
   if (data && data.assetExts)
     assetExtSet = new Set(data.assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
-  if (data && data.hotGenerationBuffer) genView = new Int32Array(data.hotGenerationBuffer);
+  if (data && data.hotGeneration) generation = data.hotGeneration;
 }
 
 function resolveBefore(specifier, context) {

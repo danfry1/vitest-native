@@ -29,7 +29,7 @@ import {
   PEER_REQUIREMENTS,
   unsupportedExpoSdkMessage,
 } from "../peer-requirements.js";
-import { SUPPORTED_NODE, satisfiesNodeRange } from "../node-range.js";
+import { SUPPORTED_NODE, satisfiesNodeRange, unsupportedNodeMessage } from "../node-range.js";
 import { installedViteVersion, ownVitestPackage, usesVitePlus } from "../host.js";
 
 /**
@@ -246,13 +246,14 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   lines.push("", "Runtime");
   // The range is the one the plugin enforces at startup (node-range.ts), held equal to
   // `engines.node` by a test: a range a user reads off a diagnostic has to be the one a
-  // package manager enforces. (The floor was once hardcoded as 20 and compared on the
-  // MAJOR only, so when the real floor moved to 20.19 doctor kept passing Node 20.0.)
+  // package manager enforces. A per-line floor (22.22.3, 24.12) is compared on the full
+  // version, not the major: a major-only check would pass Node 22.13.
   const range = nodeRange();
   if (satisfiesNodeRange(nodeVersion, range)) {
     pass(`Node ${nodeVersion} (supported: ${range})`);
   } else {
-    fail(`Node ${nodeVersion} — vitest-native supports Node ${range}.`);
+    // The plugin's own startup message, so both say which release to install.
+    fail(unsupportedNodeMessage(nodeVersion));
   }
 
   // --- Required peers ---

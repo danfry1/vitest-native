@@ -235,8 +235,7 @@ if (!globalThis.__vitest_native_loader_registered) {
     runContext.hotEsmGeneration !== false &&
     process.env.VITEST_NATIVE_HOT_ESM_GEN !== "0"
   ) {
-    globalThis.__vitest_native_hot_generation = new Int32Array(new SharedArrayBuffer(4));
-    globalThis.__vitest_native_hot_generation[0] = 1;
+    globalThis.__vitest_native_hot_generation = { value: 1 };
   }
   installLoaderHooks({
     projectRoot,
@@ -247,7 +246,7 @@ if (!globalThis.__vitest_native_loader_registered) {
     assetExts,
     sourceExts: runContext.sourceExts,
     context: process.env[CONTEXT_ENV],
-    hotGenerationBuffer: globalThis.__vitest_native_hot_generation?.buffer,
+    hotGeneration: globalThis.__vitest_native_hot_generation,
   });
 }
 // Serve React Native from the precompiled registry when the plugin produced one
