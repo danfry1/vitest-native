@@ -2,6 +2,35 @@ import { defineConfig, type UserConfig } from "tsdown";
 import fs from "node:fs";
 import path from "node:path";
 
+// Runtime modules ship verbatim: Node loads them as files (the native engine's hooks,
+// jest-compat's setup files and alias targets), so they are copied into dist rather
+// than bundled. The memory planner is the exception: it is a config/doctor module,
+// emitted as a code-split chunk and never loaded as a file, so it is not copied.
+const VERBATIM_DIRS = ["", "native", "jest-compat"];
+const NOT_COPIED = new Set(["native/memory.mjs", "native/memory.d.mts"]);
+const SRC = path.resolve("src");
+
+/** `rel` is a path under src/, with forward slashes. */
+function shipsVerbatim(rel: string): boolean {
+  if (!rel.endsWith(".mjs") && !rel.endsWith(".d.mts")) return false;
+  if (NOT_COPIED.has(rel)) return false;
+  return VERBATIM_DIRS.includes(path.posix.dirname(rel).replace(/^\.$/, ""));
+}
+
+// A TypeScript entry that imports a verbatim runtime module imports the shipped file
+// instead of inlining a second copy of it into a chunk: one module instance per realm,
+// and the package carries each runtime module once. The emitted specifier is relative
+// to the chunk, which sits at the root of dist like the copies' own tree. tsdown takes
+// patterns here, so this is the resolved path of exactly the .mjs files shipsVerbatim
+// copies, on either separator.
+const SEP = "[\\\\/]";
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const VERBATIM_RUNTIME_MODULE = new RegExp(
+  `^${SRC.split(/[\\/]/).map(escapeRegExp).join(SEP)}${SEP}` +
+    `(?!${[...NOT_COPIED].map((rel) => rel.split("/").map(escapeRegExp).join(SEP)).join("|")}$)` +
+    `(?:(?:${VERBATIM_DIRS.filter(Boolean).map(escapeRegExp).join("|")})${SEP})?[^\\\\/]+\\.mjs$`,
+);
+
 const shared = {
   dts: true,
   clean: true,
@@ -17,9 +46,7 @@ const shared = {
       "@testing-library/react-native/build/matchers/extend-expect",
       "@testing-library/react-native/build/matchers",
       "react-test-renderer",
-      // The project context ships verbatim (copied below) and every bundle imports
-      // that one file: one module instance per realm, and no inlined copies.
-      /[\\/]src[\\/]context\.mjs$/,
+      VERBATIM_RUNTIME_MODULE,
     ],
   },
 } satisfies UserConfig;
@@ -56,26 +83,13 @@ export default defineConfig([
       // targets resolved by Vite), so they must ship verbatim rather than bundled.
       "build:done": () => {
         referenceVitest("matchers.d.mts");
-        // Top-level runtime .mjs (errors.mjs) ships verbatim too: the shipped runtimes
-        // below import it by relative path, and the tests load those same files from src,
-        // so it must resolve in both trees as one module rather than a bundled copy.
-        for (const f of fs.readdirSync(path.resolve("src"))) {
-          if (f.endsWith(".mjs") || f.endsWith(".d.mts")) {
-            fs.copyFileSync(path.resolve("src", f), path.resolve("dist", f));
-          }
-        }
-        for (const sub of ["native", "jest-compat"]) {
-          const srcDir = path.resolve("src", sub);
+        // Ship runtime .mjs verbatim, plus hand-written .d.mts type stubs for them.
+        for (const sub of VERBATIM_DIRS) {
           const outDir = path.resolve("dist", sub);
           fs.mkdirSync(outDir, { recursive: true });
-          for (const f of fs.readdirSync(srcDir)) {
-            // The memory planner is a config/doctor build-time module and is already
-            // emitted as an internal code-split chunk. It is not loaded verbatim by
-            // Node's hooks, so copying it again would publish two unreachable files.
-            if (sub === "native" && (f === "memory.mjs" || f === "memory.d.mts")) continue;
-            // Ship runtime .mjs verbatim, plus hand-written .d.mts type stubs for them.
-            if (f.endsWith(".mjs") || f.endsWith(".d.mts")) {
-              fs.copyFileSync(path.join(srcDir, f), path.join(outDir, f));
+          for (const f of fs.readdirSync(path.join(SRC, sub))) {
+            if (shipsVerbatim(path.posix.join(sub, f))) {
+              fs.copyFileSync(path.join(SRC, sub, f), path.join(outDir, f));
             }
           }
         }
