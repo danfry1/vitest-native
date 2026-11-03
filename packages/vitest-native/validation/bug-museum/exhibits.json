@@ -403,6 +403,25 @@
       "preFixRef": "a5592d2^"
     },
     {
+      "id": "own-expo-runtime-undeclared",
+      "class": "ownership",
+      "title": "Expo's runtime loads uncompiled where expo resolves but is not compiled",
+      "source": "the bug museum itself, once the repository's install had expo 58 for another package's tests (46 exhibits failed with \"Cannot find module '…/expo/build/winter/runtime'\")",
+      "fixedBy": "open (fix/expo-runtime-follows-ownership)",
+      "fixRef": "fix/expo-runtime-follows-ownership",
+      "bugSignature": "^runtime\\.test\\.ts: (\\[vitest-native\\] 'expo' shipped source Node can't run directly \\(require is not defined in ES module scope|Cannot find module '[^']*/expo/build/winter/runtime' imported from )",
+      "control": {
+        "why": "Declaring expo makes the engine compile it, which removes the precondition: the runtime loads compiled.",
+        "edits": [
+          {
+            "file": "package.json",
+            "find": "\"react-native\": \"*\"",
+            "replace": "\"react-native\": \"*\",\n    \"expo\": \"58.0.0\""
+          }
+        ]
+      }
+    },
+    {
       "id": "env-expo-os",
       "class": "env-contract",
       "title": "EXPO_OS is unset under the native engine",
