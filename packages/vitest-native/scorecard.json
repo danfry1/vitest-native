@@ -1,0 +1,7 @@
+{
+  "_about": "Structural ratchet for src/ (scripts/structural-scorecard.mjs): counts that may only fall. A rise fails CI; a fall fails until this file is lowered with `node scripts/structural-scorecard.mjs --update`. Baseline 2026-10-28, origin/main 0f2400e. swallowedCatches 57 -> 64 when the rule widened to no-op bodies, bare return/continue/break and promise .catch(() => {}); the code did not change. Re-baselined 2026-11-02 on origin/main b5e9eda, counting code merged since 0f2400e: envVars 27 -> 6 (#367 moved worker configuration into one validated VITEST_NATIVE_CONTEXT); swallowedCatches 64 -> 61; globals 27 -> 32 (worker hooks added by merged fixes: __vitest_native_lost_file_error and __vitest_native_file_collected for hot file accounting #350, __vitest_native_v8_compile_cache, __vitest_native_rntl_jest, __vitest_native_permissive_modules); nodePatchSites 17 -> 20 (one each in rntl-hooks.mjs, report-error.mjs, rntl-support.mjs). The rises predate this ratchet and are recorded, not introduced.",
+  "nodePatchSites": 20,
+  "envVars": 6,
+  "globals": 32,
+  "swallowedCatches": 61
+}
