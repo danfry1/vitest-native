@@ -1,0 +1,8 @@
+{
+  "name": "museum-env-rntl-cleanup-reexport-hot",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "museum-test-utils": "1.0.0"
+  }
+}

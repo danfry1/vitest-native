@@ -7,7 +7,7 @@ Run your React Native tests under Vitest, against **real React Native** — the 
 > **Beta.** The release-supported native engine is validated across React Native 0.81–0.88,
 > Vite 6–8, Vitest 4–5, RNTL 12–14, bare apps, Expo SDK 58 and 57 (including expo-router's own testing
 > library), and hoisted monorepos. The hot
-> runtime (on by default where it can be bounded) is marked experimental because it uses Vitest's
+> runtime (opt-in with `hotRuntime: 'auto'`) is marked experimental because it uses Vitest's
 > experimental custom-pool APIs.
 >
 > Maintained successor to [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native) — same core idea (externalize RN, run its real JS under Node), rebuilt for modern Vitest (4+). Coming from it? See [Migrating from `vitest-react-native`](#migrating-from-vitest-react-native).
@@ -121,8 +121,14 @@ test("renders a greeting", async () => {
 
 > Prefer Jest-style globals (`test`/`expect` without imports)? Set
 > `test: { globals: true }` in your Vitest config. vitest-native does not enable the full
-> globals mode; it only exposes `expect` when RNTL needs it to register matchers.
-> Awaiting `render` works with RNTL 12–13 and is required by RNTL 14.
+> globals mode; it only exposes `expect` when RNTL needs it to register matchers, and
+> registers RNTL's automatic cleanup after each test, which RNTL itself does only when
+> `afterEach` is a global. That cleanup runs after the file's own `afterEach` hooks, as
+> RNTL's does under Vitest with `globals: true` (Jest runs it first). Without the
+> [jest-compat layer](https://danfry1.github.io/vitest-native/guide/jest-compat), RNTL cannot
+> see `vi.useFakeTimers()`, so `waitFor` and `findBy*` do not advance the fake clock: use
+> jest-compat, or advance it yourself (`await vi.advanceTimersByTimeAsync(ms)`). Awaiting
+> `render` works with RNTL 12–13 and is required by RNTL 14.
 
 Run it:
 
@@ -315,7 +321,7 @@ reactNative({
 ```
 
 Recycling is applied between Vitest scheduler tasks. Current Vitest batches every file into one
-uninterruptible task at `maxWorkers: 1`, so the default `'auto'` keeps per-file isolation there and
+uninterruptible task at `maxWorkers: 1`, so `'auto'` keeps per-file isolation there and
 `hotRuntime: true` fails that configuration rather than claim an inert memory bound. Use at least
 two workers for hot mode. If an external scheduler
 already provides a hard boundary, you can deliberately accept the risk with
@@ -583,8 +589,9 @@ JavaScript runs for real — `expo` itself, expo-router, React Navigation and Ex
   jest-expo: from the package's own `mocks/<Name>.ts` where it ships one, else from Expo's table
   of the native modules (`Device.modelName` is `'mock'`). An optional native module a package
   probes for, and that no installed package defines, is absent, as on a device.
-- **Expo SDK trails React Native.** Pin your `react-native` to the version your Expo SDK supports
-  (SDK 54 and later are within this plugin's validated range), not the newest RN release.
+- **Expo SDK 57 and 58 are supported.** Earlier SDKs are not: the plugin and `doctor` warn about
+  one, so upgrade to SDK 57 or 58. Pin your `react-native` to the version your Expo SDK
+  supports, not the newest RN release.
 
 Packed Expo SDK 58 and SDK 57 apps are installed from the release tarball and tested in CI: Expo
 module auto-detection and rendering, and expo-router's testing library against file-based `app/`
@@ -701,7 +708,7 @@ export default defineConfig({
 });
 ```
 
-The hot runtime (the default where it can be bounded) also helps: it keeps React Native's precompiled
+The hot runtime (`hotRuntime: 'auto'`, opt-in) also helps: it keeps React Native's precompiled
 factory registry warm, resets its module instances from memory per file, and recycles workers on a
 memory/file budget.
 

@@ -38,6 +38,39 @@ describe("detectEcosystemPackages", () => {
     expect(detectEcosystemPackages(dir)).toEqual(["@gorhom/some-sheet"]);
   });
 
+  // expo-symbols 57 publishes `exports: { ".": "./build/index.js", ... }` with no
+  // "./package.json", so `require.resolve("expo-symbols/package.json")` throws. It went
+  // undetected, its ES module build was never compiled, and Node (22.13) ran it raw:
+  // "Cannot find module '…/build/materialImageSource'" on Android, where expo-router
+  // requires it.
+  it("detects a package whose exports map leaves out ./package.json", () => {
+    const dir = project(
+      { dependencies: { "symbols-like": "1" } },
+      { "symbols-like": { ...rnDep, exports: { ".": "./index.js" } } },
+    );
+    expect(detectEcosystemPackages(dir)).toEqual(["symbols-like"]);
+  });
+
+  it("detects one whose exports offer only an import condition", () => {
+    // Neither `pkg/package.json` nor the entry resolves through require here.
+    const dir = project(
+      { dependencies: { "import-only": "1" } },
+      { "import-only": { ...rnDep, exports: { ".": { import: "./index.js" } } } },
+    );
+    expect(detectEcosystemPackages(dir)).toEqual(["import-only"]);
+  });
+
+  it("walks into a dependency whose exports map leaves out ./package.json", () => {
+    const dir = project(
+      { dependencies: { "rn-lib": "1" } },
+      {
+        "rn-lib": { ...rnDep, dependencies: { "hidden-manifest": "1" } },
+        "hidden-manifest": { exports: { ".": "./index.js" } },
+      },
+    );
+    expect(detectEcosystemPackages(dir).sort()).toEqual(["hidden-manifest", "rn-lib"]);
+  });
+
   it("accepts a runtime dependency on react-native, not only a peer one", () => {
     const dir = project(
       { dependencies: { "some-lib": "1" } },

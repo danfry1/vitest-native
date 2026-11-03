@@ -223,6 +223,20 @@ describe("the Vite side", () => {
     const run = await configure(process.cwd());
     expect(run).not.toThrow();
   });
+
+  // Windows spells one directory both `RUNNER~1` and `runneradmin`; a symlink gives
+  // the same two spellings on every platform.
+  it("accepts its own under another spelling of the same directory", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-ctx-spelling-"));
+    const link = path.join(dir, "link");
+    fs.symlinkSync(process.cwd(), link, "junction");
+    try {
+      const run = await configure(link);
+      expect(run).not.toThrow();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("variables the context replaced", () => {
@@ -256,7 +270,11 @@ describe("worker code reads no other VITEST_NATIVE_ names", () => {
   const offences = (rel: string, source: string) => [
     ...[...source.matchAll(NAME)].filter((m) => !ALLOWED.has(m[0])).map((m) => `${rel}: ${m[0]}`),
     ...[...source.matchAll(ENV_CONSTANT)]
-      .filter((m) => !["CONTEXT_ENV", "NODE_ENV", "BABEL_ENV", "HOT_WORKER_ENV"].includes(m[0]))
+      // SHARE_ENV is Node's worker_threads constant, not a variable's name.
+      .filter(
+        (m) =>
+          !["CONTEXT_ENV", "NODE_ENV", "BABEL_ENV", "HOT_WORKER_ENV", "SHARE_ENV"].includes(m[0]),
+      )
       .map((m) => `${rel}: ${m[0]}`),
   ];
   const files: string[] = [];

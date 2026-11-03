@@ -1,0 +1,8 @@
+{
+  "name": "museum-res-transform-named-closure",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "museum-flash": "0.4.2"
+  }
+}

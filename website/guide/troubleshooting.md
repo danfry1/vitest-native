@@ -57,6 +57,10 @@ Vitest keys snapshots differently from Jest (`a > b 1` against Jest's `a b 1`; `
 
 RNTL advances fake timers only through a `jest` it can see. Under `engine: 'native'`, RNTL's own files get one backed by `vi`, so `findBy*`, `waitFor` and `userEvent` delays advance Vitest's fake clock, with or without jest-compat. The mock engine does not give RNTL one yet. Without the [jest-compat layer](/guide/jest-compat), these helpers wait in real time while the fake clock stands still, and time out. Add jest-compat, or advance the clock before querying: `await vi.advanceTimersByTimeAsync(ms)`.
 
+## `findBy*` or `waitFor` times out under `vi.useFakeTimers()`
+
+RNTL advances fake timers only when it finds a global `jest`, which the [jest-compat layer](/guide/jest-compat) provides. Without it, `waitFor` and `findBy*` wait in real time while the fake clock stands still. Add jest-compat, or advance the clock before querying: `await vi.advanceTimersByTimeAsync(ms)`. See [How it works](/guide/how-it-works).
+
 ## A test passes on its own but fails when run with other files
 
 If the engine banner says `hot runtime`, the native engine is reusing workers across files because `hotRuntime` is set to `'auto'` or `true`. The default, `hotRuntime: false`, gives every file a fresh worker. The hot runtime resets app/test modules, mocks, timers and a verified list of process-wide state between files, but some state is known to carry over. To confirm, run with per-file isolation:
@@ -74,6 +78,21 @@ Known differences from per-file isolation under the hot runtime:
 - **RNTL reinstalls fake timers only in the first file that loads it.** When RNTL loads while fake timers are on, it switches to real timers and back to capture the real ones. That reinstalls Vitest's fake timers with the project's `fakeTimers` config, and drops per-call options, the system time and pending fake timers. Under per-file isolation this happens in every file, as under Jest. Under the hot runtime RNTL stays loaded, so it happens only in the first file, and a setup file's `vi.setSystemTime()` or per-call options survive in later files.
 
 If the failure goes away with `hotRuntime: false`, keep that setting for the project. If it is not one of the cases above, please [open an issue](https://github.com/danfry1/vitest-native/issues) with the library involved. Setting `test.isolate` explicitly in your Vitest config also keeps Vitest's own isolation.
+
+## "Cannot find module" keeps failing after the missing file exists
+
+On Vitest 5 the plugin turns on Vitest's persistent transform cache, `fsModuleCache` (see [how it works](/guide/how-it-works#_4-transform-cache)); on Vitest 4 it is on only if the config sets `test.experimental.fsModuleCache: true`. Vitest 5.0.5 can keep a test file's transform from a run where one of its imports did not resolve, and reuse it after the import target exists. The error names a root-relative path, such as `'/lib/components'` for `import '../../lib/components'`, and it persists across runs.
+
+It happens when all of these hold:
+
+- the import is relative and points outside the Vitest project's root, for example to another workspace package's build output;
+- the import is dynamic: an `import()` in the file, or a static import that Vitest turns into one because the file calls `vi.mock` (any `vi.mock`, not only one of that module);
+- the importing file is in a subdirectory of the root, such as `src/`;
+- one run happened while the target was missing, for example before the other package was built.
+
+This is a Vitest bug, tracked in [vitest-dev/vitest#11789](https://github.com/vitest-dev/vitest/issues/11789). It is reproduced on Vitest 5.0.5; Vitest 4's experimental cache is likely affected too, but that is unverified. To recover, clear Vitest's cache with `vitest --clearCache`, or delete `node_modules/.vitest-cache` at the workspace root (or the directory set in `test.fsModuleCachePath`). To avoid it, build the other package before the first test run, or set `test.fsModuleCache: false` for that project.
+
+On Vitest 4 the same steps apply with the experimental names: the cache directory is `node_modules/.experimental-vitest-cache` (or `test.experimental.fsModuleCachePath`), and `test.experimental.fsModuleCache: false` turns the cache off.
 
 ## `CONTEXT_INVALID` at startup
 

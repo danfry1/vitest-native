@@ -19,7 +19,7 @@ import { installJestObject } from "./jest-object.mjs";
 import { callerFile } from "./caller.mjs";
 import { errorsWithMethodsEquality } from "./error-equality.mjs";
 import { VitestNativeError } from "../errors.mjs";
-import { NODE_MOCKS_STATE_ID, config, nodeRegistry } from "./node-registry.mjs";
+import { NODE_MOCKS_STATE_ID, actualExports, config, nodeRegistry } from "./node-registry.mjs";
 
 // The global `require` below resolves from the consumer project root.
 const require = createRequire(path.join(config.projectRoot, "package.json"));
@@ -247,7 +247,8 @@ if (typeof globalThis.__vnInteropMock !== "function") globalThis.__vnInteropMock
 // the memoized value through the CJS interop; Node's `require` gets the raw value.
 {
   const registry = nodeRegistry();
-  globalThis.__vnJestMock = (from, spec, factory) => void registry.register(from, spec, factory);
+  globalThis.__vnJestMock = (from, spec, factory, asyncFactory) =>
+    void registry.register(from, spec, factory, asyncFactory);
   globalThis.__vnJestMocked = (from, spec) => {
     const entry = registry.byCall.get(`${from}\0${spec}`);
     if (entry === undefined) {
@@ -256,8 +257,11 @@ if (typeof globalThis.__vnInteropMock !== "function") globalThis.__vnInteropMock
         `the jest.mock('${spec}') factory was not registered in this test file.`,
       );
     }
-    return jestMockInterop(registry.valueOf(entry));
+    return jestMockInterop(registry.valueForImport(entry));
   };
+  // A factory's `jest.requireActual` of project source that jestMockTransform moved to
+  // `vi.importActual` (transform.ts) gets its result in the shape requireActual gives.
+  globalThis.__vnActualExports = actualExports;
   globalThis.__vnJestUnmock = (from, spec) => registry.unregister(from, spec);
   // Registrations are per test file, as in Jest. This file evaluates before each test
   // file, so a worker reused without the hot runtime (`isolate: false`, or a watch

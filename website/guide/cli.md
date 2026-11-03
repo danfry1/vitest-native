@@ -43,6 +43,8 @@ Read-only environment diagnosis:
   loads `babel.config.js` / `.babelrc.js` the way Babel would (with
   `NODE_ENV=test`); ESM and TypeScript configs are only scanned as text.
 - Whether a vitest config exists and uses vitest-native.
+- On Vitest 4, a note that the persistent transform cache is off (see
+  [how it works](/guide/how-it-works#_4-transform-cache)). Advisory only.
 
 Exits non-zero when it finds a blocking problem, so it can gate CI setup jobs.
 

@@ -2,7 +2,7 @@ import type { Plugin, UserConfig } from "vite";
 import type { PoolRunnerInitializer } from "vitest/node";
 import type { VitestNativeOptions, ResolvedOptions, Preset } from "./types.js";
 import { getConfiguredPlatformExtensions, getPlatformExtensions } from "./resolve.js";
-import { existsExact } from "./native/resolve.mjs";
+import { firstExact } from "./native/resolve.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
@@ -10,7 +10,11 @@ import os from "node:os";
 import { createRequire } from "node:module";
 import flowRemoveTypes from "flow-remove-types";
 import { validateOptions, validatePeerDependency, warnUnknownOptions } from "./validate.js";
-import { PEER_REQUIREMENTS } from "./peer-requirements.js";
+import {
+  installedExpoVersion,
+  PEER_REQUIREMENTS,
+  unsupportedExpoSdkMessage,
+} from "./peer-requirements.js";
 import { VitestNativeError, VitestNativeTypeError } from "./errors.mjs";
 import { assertSupportedNode } from "./node-range.js";
 import { presetFromModule } from "./preset-modules.mjs";
@@ -317,6 +321,9 @@ function mockEnginePresetNames(
 }
 
 /** The major of a version string, or NaN. */
+/** The unsupported-Expo-SDK warnings already printed in this process. */
+const warnedExpoProblems = new Set<string>();
+
 function majorOf(version: string | null | undefined): number {
   return Number(version?.replace(/^[^0-9]*/, "").split(".")[0]);
 }
@@ -1227,6 +1234,21 @@ function prependSetupFile(userConfig: UserConfig, contributed: { setupFiles?: un
   contributed.setupFiles = [];
 }
 
+// Whether two spellings name the same directory. Windows has more than one spelling
+// for a path (`C:\Users\RUNNER~1` and `C:\Users\runneradmin`), and the context and
+// the project can each be handed either; the native realpath expands both to one.
+function sameDirectory(a: string, b: string): boolean {
+  if (a === b) return true;
+  const real = (p: string) => {
+    try {
+      return fs.realpathSync.native(p);
+    } catch {
+      return path.resolve(p);
+    }
+  };
+  return real(a) === real(b);
+}
+
 function hasSetupFile(setupFiles: unknown, file: string): boolean {
   const real = (f: string) => {
     try {
@@ -1570,22 +1592,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       const importerDir = path.dirname(importer);
       const absolute = path.resolve(importerDir, source);
 
-      // Try as a file with extensions
-      for (const ext of extensions) {
-        const candidate = absolute + ext;
-        if (existsExact(candidate)) {
-          resolveCache.set(cacheKey, candidate);
-          return candidate;
-        }
-      }
-
-      // Try as a directory with index file
-      for (const ext of extensions) {
-        const candidate = path.join(absolute, `index${ext}`);
-        if (existsExact(candidate)) {
-          resolveCache.set(cacheKey, candidate);
-          return candidate;
-        }
+      // As a file with each extension, then as a directory with an index file.
+      const candidate =
+        firstExact(absolute, extensions) ?? firstExact(path.join(absolute, "index"), extensions);
+      if (candidate !== null) {
+        resolveCache.set(cacheKey, candidate);
+        return candidate;
       }
 
       // Cache misses too to avoid re-scanning the filesystem.
@@ -1613,13 +1625,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       const req = createRequire(from);
       result = alignLegacyFieldsWithNode(
         source,
-        (name) => {
-          try {
-            return path.dirname(req.resolve(`${name}/package.json`));
-          } catch {
-            return null;
-          }
-        },
+        // As Node finds the package, including one whose `exports` map leaves out
+        // `./package.json` (packageDirOf).
+        (name) => packageDirOf(name, path.dirname(from)),
         (dir) => {
           try {
             return JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
@@ -1734,6 +1742,13 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   const pluginDefinition = {
     name: "vitest-native",
     enforce: "pre",
+
+    // For sibling plugins: jestMockTransform() asks who owns a module before it moves a
+    // factory's `jest.requireActual` to Vite (jest-compat/transform.ts). Null until
+    // config() has built the policy, and under the mock engine.
+    api: {
+      nativeOwnership: (): NativeOwnershipPolicy | null => nativeOwnership,
+    },
 
     // This plugin is `enforce:"pre"` for resolution/transform semantics, but its
     // config decision is wrapped as an order:"post" hook below. Automatic hot
@@ -2362,6 +2377,16 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         }
       }
 
+      // An Expo SDK outside the supported range: a warning, as for the optional peers.
+      // Failing the run would stop the tests that pass on it too. Once per process: every
+      // project of a run, and the root config, resolve their config here.
+      const expoVersion = installedExpoVersion(config.root);
+      const expoProblem = expoVersion && unsupportedExpoSdkMessage(expoVersion);
+      if (expoProblem && !warnedExpoProblems.has(expoProblem)) {
+        warnedExpoProblems.add(expoProblem);
+        console.warn(`[vitest-native] ${expoProblem}`);
+      }
+
       // Now we have the real project root — resolve options from consumer context.
       // With the engine decided in config(): `auto` reaching resolveOptions read as the
       // mock engine, so presets the native engine does not apply were redirected anyway.
@@ -2704,7 +2729,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     defineCacheKeyGenerator,
     experimental_defineCacheKeyGenerator,
   }: {
-    // Vitest 5; Vitest 4.1 spells it experimental_defineCacheKeyGenerator.
+    // Vitest 5; Vitest 4.0.11 and later 4.x spell it experimental_defineCacheKeyGenerator.
     defineCacheKeyGenerator?: (generator: () => string) => void;
     experimental_defineCacheKeyGenerator?: (generator: () => string) => void;
     vitest: {
@@ -2783,7 +2808,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // server or an inline project that kept another project's context would run
       // with another project's configuration.
       const own = writtenContexts.get(contextRef) ?? projectContext(contextRef);
-      if (own && own.projectRoot !== root) {
+      if (own && !sameDirectory(own.projectRoot, root)) {
         throw new VitestNativeError(
           "CONTEXT_INVALID",
           `the project context is invalid (project): the Vitest project at ${root} ` +

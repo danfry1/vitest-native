@@ -107,6 +107,7 @@ describe('MyComponent', () => {
   ship with React Native projects; from Expo SDK 56 it uses Expo's own preset instead, as Metro
   does). The opt-in mock engine needs no Babel.
 - **React Native** 0.81–0.88 validated in CI (native engine).
+- **Expo** SDK 57 and 58, if the app uses Expo; earlier SDKs are not supported.
 - Tested against RNTL 12, 13, and 14 in CI.
 
 ## Choosing an engine
@@ -504,7 +505,10 @@ This is one generated suite on one machine, so treat the ratios as indicative; y
 shape decides yours. Where the hot runtime cannot be bounded (a single worker, an explicit
 pool, the worker and the project resolving different Vitest versions) `'auto'` keeps per-file
 isolation, and the default row is the one that applies. To reproduce, from `bench/`:
-`BENCH_FILES=50,200 BENCH_WORKERS_SWEEP=4,8 BENCH_ENGINES=jest,native-default,native-stock,mock node scale/run.mjs`.
+`BENCH_FILES=50,200 BENCH_WORKERS_SWEEP=4,8 BENCH_ENGINES=jest,native-hot,native-default,mock node scale/run.mjs`.
+When this was measured, the hot runtime capped every worker count at four, so its 200-file
+row ran four workers against the others' eight; an explicit worker count is now honoured up to
+the memory budget.
 
 ## Contributing
 

@@ -1,0 +1,9 @@
+{
+  "name": "museum-esm-host",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": "./index.js",
+  "peerDependencies": {
+    "museum-ts-peer": "*"
+  }
+}

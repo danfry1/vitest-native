@@ -1,0 +1,8 @@
+{
+  "name": "museum-res-registry-sloppy-modules",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "react-native": "*"
+  }
+}

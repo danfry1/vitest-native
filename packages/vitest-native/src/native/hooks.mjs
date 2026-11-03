@@ -4,13 +4,7 @@ import Module from "node:module";
 import { projectContext } from "../context.mjs";
 import path from "node:path";
 import fs from "node:fs";
-import {
-  heldTransform,
-  transformRN,
-  isFlow,
-  needsTransform,
-  isTransforming,
-} from "./transform.mjs";
+import { heldTransform, transformRN, isFlow, needsTransform } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import {
   resolvePlatformFile,
@@ -26,6 +20,7 @@ import {
 import { explainUntransformedSyntaxError } from "./explain.mjs";
 import { nativeAssetModuleSource } from "./assets.mjs";
 import { expandAlias } from "../jest-compat/aliases.mjs";
+import { noteIfRntlEntryLoaded } from "../rntl-support.mjs";
 
 // Guarded via globalThis, not module scope: under the hot runtime this module
 // can be evaluated twice in one worker (once by the worker entry through Node's
@@ -345,7 +340,14 @@ export function installRequireHooks(
   Module._load = function (request, parent, ...rest) {
     const shadowed = presetExportsFor(request);
     if (shadowed !== NO_PRESET) return shadowed;
-    return origLoad.call(this, request, parent, ...rest);
+    const exports = origLoad.call(this, request, parent, ...rest);
+    // Every require of RNTL's main entry, cached or not, tells the setup file's
+    // auto-cleanup that this test file loaded it (see noteIfRntlEntryLoaded). Vite's
+    // evaluator reports the file's own imports (rntl-hooks.mjs); this sees the entry
+    // reached through a package Node loads, such as a shared test-utils that
+    // re-exports RNTL.
+    noteIfRntlEntryLoaded(exports);
+    return exports;
   };
 
   let requireAliases;
@@ -545,9 +547,6 @@ export function installRequireHooks(
 
   const origJs = Module._extensions[".js"];
   Module._extensions[".js"] = function (mod, filename) {
-    // Babel loading its own toolchain mid-transform: never compile it (see
-    // isTransforming in transform.mjs).
-    if (isTransforming()) return origJs(mod, filename);
     const norm = filename.replace(/\\/g, "/");
     const rnPath = ownership.reactNativePathFor(filename);
     const boundary = boundarySourceFor(rnPath ?? norm, platform, reactNativeVersion);

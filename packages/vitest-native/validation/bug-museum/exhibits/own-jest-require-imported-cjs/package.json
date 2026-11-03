@@ -1,0 +1,5 @@
+{
+  "name": "museum-own-jest-require-imported-cjs",
+  "private": true,
+  "type": "module"
+}

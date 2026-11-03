@@ -100,18 +100,28 @@ export function containsPath(dir, target) {
 }
 
 /**
- * The on-disk directory a package resolves to, or null.
+ * The on-disk directory a package resolves to from `fromDir`, or null.
  *
- * `pkg/package.json` is tried first because it names the package root exactly; some
- * packages do not export it, so fall back to resolving the entry and walking up to
- * the manifest that names them. Symlinked and workspace packages resolve to their
- * real location, which is the whole point — see buildPkgMatcher.
+ * `pkg/package.json` is tried first because it names the package root exactly. A
+ * package whose `exports` map does not list `./package.json` (expo-symbols 57) refuses
+ * that request, and resolving its entry instead fails too when `exports` offers only
+ * an `import` condition. Node finds a package's DIRECTORY before it applies `exports`,
+ * by looking in each of the request's lookup paths (`require.resolve.paths`, the
+ * node_modules chain plus NODE_PATH), so the directory is looked up there next. Last,
+ * the entry is resolved and the manifest that names the package found above it: the
+ * package's own name resolving from inside it (a self-reference) is in no lookup path.
+ * Symlinked and workspace packages resolve to their real location, which is the whole
+ * point — see buildPkgMatcher.
  */
-export function packageDirOf(name, projectRoot) {
-  const req = createRequire(path.join(projectRoot, "package.json"));
+export function packageDirOf(name, fromDir) {
+  const req = createRequire(path.join(fromDir, "package.json"));
   try {
     return canonicalDir(path.dirname(req.resolve(`${name}/package.json`)));
   } catch {}
+  for (const lookup of req.resolve.paths(name) ?? []) {
+    const candidate = path.join(lookup, ...name.split("/"));
+    if (fs.existsSync(path.join(candidate, "package.json"))) return canonicalDir(candidate);
+  }
   let dir;
   try {
     dir = path.dirname(req.resolve(name));

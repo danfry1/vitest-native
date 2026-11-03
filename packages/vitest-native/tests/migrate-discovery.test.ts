@@ -811,10 +811,11 @@ describe("the generated config, executed", () => {
         env: { ...process.env, CI: "1" },
       });
       expect(listed.status, listed.stderr).toBe(0);
+      // The native realpath: Windows spells the temp directory both `RUNNER~1` and
+      // `runneradmin`, and Vitest may report either.
+      const real = fs.realpathSync.native;
       const files = (JSON.parse(listed.stdout) as { file: string }[])
-        .map((f) =>
-          path.relative(fs.realpathSync(root), fs.realpathSync(f.file)).split(path.sep).join("/"),
-        )
+        .map((f) => path.relative(real(root), real(f.file)).split(path.sep).join("/"))
         .sort();
       expect(files).toEqual([
         "src/components/Button.test.tsx",

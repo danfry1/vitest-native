@@ -1,8 +1,7 @@
-import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
-import { containsPath } from "./match.mjs";
+import { containsPath, packageDirOf } from "./match.mjs";
 
 /**
  * Packages that must never be auto-inlined even though they depend on React
@@ -245,9 +244,7 @@ export function detectEcosystemPackages(
   // package is linked only into the package that depends on it, so the run root
   // often cannot resolve what the app can — resolving only from the run root is
   // how a workspace library slips past detection when the run starts above it.
-  const requires = [...new Set(found.map((entry) => entry.dir))].map((dir) =>
-    createRequire(path.join(dir, "package.json")),
-  );
+  const declaringDirs = [...new Set(found.map((entry) => entry.dir))];
   for (const { manifest } of found) {
     for (const field of ["dependencies", "devDependencies", "optionalDependencies"]) {
       const deps = manifest[field];
@@ -259,26 +256,27 @@ export function detectEcosystemPackages(
   if (candidates.size === 0) return [];
 
   /**
-   * A package's manifest, and the directory it is installed in. `require.resolve`
-   * returns the real path, not the link's, unless Node runs with --preserve-symlinks,
-   * where Node resolves the package's own imports from the link too.
+   * A package's manifest, and the real directory it is installed in, as Node finds it
+   * from `fromDir` (packageDirOf). Not `require.resolve("<name>/package.json")` alone:
+   * a package whose `exports` map leaves out `./package.json` refuses that request, and
+   * was silently never detected or compiled (expo-symbols 57, whose ES module build
+   * Node then ran raw).
    */
   type Installed = { manifest: Record<string, unknown>; dir: string };
-  const installedVia = (req: NodeJS.Require, name: string): Installed | null => {
+  const installedFrom = (fromDir: string, name: string): Installed | null => {
+    const dir = packageDirOf(name, fromDir);
+    if (!dir) return null;
     try {
-      const file = req.resolve(`${name}/package.json`);
-      return {
-        manifest: req(file) as Record<string, unknown>,
-        dir: path.dirname(file),
-      };
+      const manifest = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
+      return { manifest: manifest as Record<string, unknown>, dir };
     } catch {
       return null;
     }
   };
   /** Resolve a package's manifest from whichever root can see it. */
   const installedOf = (name: string): Installed | null => {
-    for (const req of requires) {
-      const installed = installedVia(req, name);
+    for (const dir of declaringDirs) {
+      const installed = installedFrom(dir, name);
       if (installed) return installed;
     }
     return null;
@@ -300,15 +298,8 @@ export function detectEcosystemPackages(
   // @react-navigation/elements, whose ESM could not see the names the compiled
   // @react-navigation/native re-exports from core: "does not provide an export named
   // 'useTheme'".
-  const requireByDir = new Map<string, NodeJS.Require>();
-  const dependencyOf = (parent: Installed, name: string): Installed | null => {
-    let req = requireByDir.get(parent.dir);
-    if (!req) {
-      req = createRequire(path.join(parent.dir, "package.json"));
-      requireByDir.set(parent.dir, req);
-    }
-    return installedVia(req, name);
-  };
+  const dependencyOf = (parent: Installed, name: string): Installed | null =>
+    installedFrom(parent.dir, name);
 
   /**
    * The packages the run itself lives in — the project, in other words.
@@ -367,9 +358,9 @@ export function detectEcosystemPackages(
   // naming react-native-animatable does, and nothing tells a user that.
   //
   // Membership of a detected package's dependency closure is the signal that its
-  // own manifest does not carry. Runtime `dependencies` only: devDependencies are
-  // not shipped, and peerDependencies are supplied by the project and reached
-  // through the normal candidate set.
+  // own manifest does not carry. Runtime `dependencies`, and devDependencies never:
+  // they are not shipped. A peer dependency is followed only into a package already
+  // detected (see the walk below).
   //
   // React Native's OWN dependencies are excluded. The precompiled registry compiles
   // React Native's graph and reaches everything outside it — invariant, nullthrows,
@@ -500,27 +491,81 @@ export function detectEcosystemPackages(
     }
   }
 
+  // Being in the set and having been walked are kept apart. A package detected on its
+  // own manifest is in the set from the start, but a sibling's declaration is what put
+  // it there, so its dependencies are walked only once the run reaches it. Checking the
+  // set alone stopped the walk at it instead. That is how `expo`, which an app in the
+  // workspace declares and the package under test reaches only through expo-image, was
+  // compiled while its own dependencies were not: under an isolated install expo-asset
+  // and expo-constants are expo's dependencies and nobody's declaration, so their
+  // `build/` ES modules loaded raw and their extensionless imports failed ("Cannot find
+  // module 'expo-asset/build/Asset.fx'").
+  //
+  // A peer dependency is an edge too, but only into a package already detected: expo-image
+  // reaches `expo` as a peer, resolved beside it under an isolated install. Following
+  // every React Native peer instead added peers nothing declares, with their closures: on
+  // one Expo app that declares `expo`, expo-router and its web dependencies (157 packages
+  // to 206), which the app never imports.
+  const detectedSet = new Set(detected);
   const inClosure = new Set(detected);
-  const queue = detected
-    .filter((name) => projectDeclared.has(name))
-    .map(installedOf)
-    .filter((installed): installed is Installed => installed !== null);
+  const walked = new Set<string>();
+  const queue: Installed[] = [];
+  const reach = (name: string, installed: Installed) => {
+    inClosure.add(name);
+    if (walked.has(name)) return;
+    walked.add(name);
+    queue.push(installed);
+  };
+  for (const name of detected) {
+    if (!projectDeclared.has(name)) continue;
+    const installed = installedOf(name);
+    if (installed) reach(name, installed);
+  }
+  // A package named in `transform: [...]` is loaded by the run as surely as one the
+  // project declares, so its dependencies are walked too; it is compiled because it is
+  // named, so it is not added itself. Naming a detected package there used to take it
+  // out of the walk instead: react-native-flash-message, listed by a project that
+  // predates detection, left its dependency react-native-iphone-screen-helper's ES
+  // module uncompiled, and Node's ES module loader bound `Platform` to nothing.
+  //
+  // Not one an active preset shadows, or one `transform.exclude` names: neither loads its
+  // real source, so its dependencies are no business of the run's. @gorhom/bottom-sheet,
+  // listed by a project and shadowed by its preset, would otherwise hand @gorhom/portal
+  // to Node.
+  const neverSeeded = new Set<string>([...shadowed, ...neverTransform]);
+  for (const name of explicit) {
+    if (neverSeeded.has(name)) continue;
+    const installed = installedOf(name);
+    if (!installed || walked.has(name)) continue;
+    walked.add(name);
+    queue.push(installed);
+  }
+  /** A dependency or peer the walk may not take, whatever its manifest says. */
+  const excluded = (dep: string): boolean =>
+    skip.has(dep) ||
+    dep.startsWith("@react-native/") ||
+    rnOwned.has(dep) ||
+    toolchain.has(dep) ||
+    // A sibling that depends on the package under test would otherwise pull it
+    // back in here, past the check above.
+    ownsTheRun(dep);
   while (queue.length > 0) {
     const pkg = queue.pop() as Installed;
     const deps = pkg.manifest.dependencies;
-    if (!deps || typeof deps !== "object") continue;
-    for (const dep of Object.keys(deps as object)) {
-      if (inClosure.has(dep) || skip.has(dep) || dep.startsWith("@react-native/")) continue;
-      if (rnOwned.has(dep)) continue;
-      if (toolchain.has(dep)) continue;
-      // A sibling that depends on the package under test would otherwise pull it
-      // back in here, past the check above.
-      if (ownsTheRun(dep)) continue;
+    for (const dep of deps && typeof deps === "object" ? Object.keys(deps as object) : []) {
+      if (walked.has(dep) || excluded(dep)) continue;
       const installed = dependencyOf(pkg, dep);
       if (!installed) continue; // declared but not installed
-      if (publishesOnlyEsm(installed.manifest)) continue;
-      inClosure.add(dep);
-      queue.push(installed);
+      // A detected package stays in the set whatever it publishes; this test is for
+      // members the closure alone brings in.
+      if (!inClosure.has(dep) && publishesOnlyEsm(installed.manifest)) continue;
+      reach(dep, installed);
+    }
+    const peers = pkg.manifest.peerDependencies;
+    for (const peer of peers && typeof peers === "object" ? Object.keys(peers as object) : []) {
+      if (walked.has(peer) || excluded(peer) || !detectedSet.has(peer)) continue;
+      const installed = dependencyOf(pkg, peer);
+      if (installed) reach(peer, installed);
     }
   }
 

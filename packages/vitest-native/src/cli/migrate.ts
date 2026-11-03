@@ -17,6 +17,7 @@ import path from "node:path";
 import { DEFAULT_ASSET_EXTS, presetShadowing, type PresetName } from "../preset-map.js";
 import { detectEcosystemPackages } from "../native/ecosystem.js";
 import { allows, extractAllowlistPackages, type AllowlistEntry } from "./allowlist.js";
+import { HOT_RUNTIME_NOTE } from "./init.js";
 import {
   booleanFlag,
   jestMajor,
@@ -952,6 +953,8 @@ export function renderMigrationReport(report: MigrationReport): string[] {
     report.vitePlus
       ? "Re-run with --write to save this config, then: npx vitest-native doctor && vp test"
       : "Re-run with --write to save this config, then: npx vitest-native doctor && npx vitest",
+    "",
+    ...HOT_RUNTIME_NOTE,
   );
   return lines;
 }

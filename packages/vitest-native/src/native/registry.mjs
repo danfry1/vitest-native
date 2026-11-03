@@ -91,7 +91,9 @@ export function _resetRegistryFailureReports() {
 // stale on-disk registry from an older vitest-native can never be reused.
 // 4: asset files compile to Metro's registering module instead of a file-name string.
 // 5: the registry's internal require consults jest-compat's Node-side mocks.
-const REGISTRY_FORMAT_VERSION = 5;
+// 6: each module keeps its own strictness, and runs with `this` = module.exports.
+// 7: modules are stored as source and compiled per module under their own file name.
+const REGISTRY_FORMAT_VERSION = 7;
 
 /**
  * Literal `require('…')` / `require("…")` calls. The leading class excludes
@@ -103,6 +105,9 @@ const REGISTRY_FORMAT_VERSION = 5;
  * the hooks must stay installed alongside the registry.
  */
 const REQUIRE_RE = /(?:^|[^.\w$])require\(\s*(['"])([^'"]+)\1\s*\)/g;
+
+/** Source that may call `import()`; a false match only costs the loader path (see emit). */
+const USES_IMPORT = /\bimport\s*\(/;
 
 /** Extensions Node handles natively and that must not be inlined as JS. */
 const PASSTHROUGH_EXT = new Set([".json", ".node", ".wasm"]);
@@ -157,6 +162,14 @@ function resolveTarget(request, fromFile, platform, sourceExts) {
 function ownVersion() {
   try {
     return createRequire(import.meta.url)("../../package.json").version ?? "0";
+  } catch {
+    return "0";
+  }
+}
+
+function resolvedOrZero(req, request) {
+  try {
+    return req.resolve(request);
   } catch {
     return "0";
   }
@@ -228,6 +241,21 @@ export function registryKey({
         // transform was fixed and a warm registry kept serving modules built without it.
         `t${TRANSFORM_CACHE_VERSION}`,
         ownVersion(),
+        // Where the graph is seeded from. The registry bakes in absolute paths to every
+        // package it resolved, so it is only valid for the files those seeds resolve to.
+        // Without this, a checkout copied together with its cache reused the original's
+        // registry: the manifest check passed because the original's files still
+        // existed, and the copy loaded React Native from the original against its own
+        // React, failing every test with "more than one copy of React". The same holds
+        // when `react-native` starts resolving to a different copy from the same root.
+        // Keyed on the resolved files rather than the project root: require.resolve
+        // returns the spelling Node loads modules under (real paths, unless
+        // --preserve-symlinks), and projects that resolve the same graph — sibling
+        // workspaces, a Vitest project in a subdirectory — share one registry.
+        ...["react-native", ...canonicalAdditionalEntries(additionalEntries)].map((request) =>
+          resolvedOrZero(req, request),
+        ),
+        assetRegistryPathFor(projectRoot) ?? "0",
         platform,
         reactNativeVersion,
         version("react-native"),
@@ -279,47 +307,30 @@ function manifestValid(manifest) {
   return true;
 }
 
-/** Base64-VLQ encode one signed integer (source-map segment field). */
-function vlq(value) {
-  const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  let v = value < 0 ? (-value << 1) | 1 : value << 1;
-  let out = "";
-  do {
-    let digit = v & 31;
-    v >>>= 5;
-    if (v > 0) digit |= 32;
-    out += B64[digit];
-  } while (v > 0);
-  return out;
-}
-
 /**
- * A source map attributing each emitted line to the React Native file it came from.
+ * Emit the registry source for the walked module set.
  *
- * Without it, every stack frame from inside React Native reports the registry's
- * cache path — `rn-ios-<hash>.cjs:253:7638` instead of
- * `Libraries/Animated/nodes/AnimatedInterpolation.js`. The file is the useful part
- * of such a frame, and losing it makes an RN-internal failure far harder to read.
+ * Each module is stored as its source text and compiled on first require under its own
+ * file name, with the parameters of Node's CommonJS wrapper, and run with `this` =
+ * module.exports. Stack frames inside React Native therefore name the real file at the
+ * line and column of the module as compiled, the same as the per-file loader, with no
+ * source map: Vitest replaces `Error.prepareStackTrace` in its workers and maps only the
+ * files it evaluates, so a map on a Node-loaded file never applied there. Each module
+ * also keeps its own strictness, as under Node.
  *
- * Line granularity is enough here, and deliberately so: the Babel output for an RN
- * module is a single line, so the original line is always 1 and only the FILE is in
- * question. One segment per generated line keeps the map small (no `sourcesContent`
- * — the real files are on disk at these very paths) and costs nothing at runtime.
- */
-function sourceMapFor(lineOwners, files) {
-  let previousSource = 0;
-  const mappings = lineOwners.map((owner) => {
-    if (owner === null) return "";
-    const segment = vlq(0) + vlq(owner - previousSource) + vlq(0) + vlq(0);
-    previousSource = owner;
-    return segment;
-  });
-  return { version: 3, sources: files, names: [], mappings: mappings.join(";") };
-}
-
-/**
- * Emit the registry source for the walked module set, plus the source map that
- * keeps React Native's own files identifiable in stack traces.
+ * A module is compiled with `vm.compileFunction`, once per worker: a reset (the hot
+ * runtime, once per file) reruns the compiled function without compiling again. The one
+ * thing that path cannot do without an experimental Node API is `import()`: it needs
+ * `vm.constants.USE_MAIN_CONTEXT_DEFAULT_LOADER`, which prints an ExperimentalWarning, or
+ * a callback that requires `--experimental-vm-modules`. So a module whose source contains
+ * `import(` is compiled by Node's own CommonJS loader instead (`Module.prototype._compile`,
+ * as the per-file hooks compile it), which resolves `import()` from the module's file.
+ * The check is plain text: a match inside a string or a comment only sends that module
+ * down the loader path, which is correct for any module.
+ *
+ * Rejected: `_compile` for every module recompiles each module after every reset, about
+ * +6% per file on a 200-file hot suite; reusing `vm.compileFunction` after a first
+ * `_compile` load needs a hand-built copy of Node's `require`.
  */
 function emit(files, modules) {
   const idOf = new Map(files.map((f, i) => [f, i]));
@@ -331,11 +342,13 @@ function emit(files, modules) {
     return JSON.stringify(out);
   });
   const prologue = [
-    `"use strict";`,
     // __ext is this file's own require: the escape hatch for targets outside the
     // registry (react, invariant, JSON, anything computed). Pre-resolved absolute
     // paths make those lookups exact rather than re-running Node resolution.
-    `const __ext = require, __f = [], __m = [];`,
+    `const __ext = require, __f = [], __m = [], __s = [], __l = [];`,
+    `const Module = __ext("node:module"), { compileFunction } = __ext("node:vm");`,
+    `const __params = ["exports", "require", "module", "__filename", "__dirname"];`,
+    `let __compiles = 0;`,
     `const __ids = ${JSON.stringify(files)};`,
     `const __deps = [${deps.join(",")}];`,
     `const __dirs = __ids.map((f) => f.slice(0, Math.max(f.lastIndexOf("/"), f.lastIndexOf("\\\\"))));`,
@@ -368,10 +381,32 @@ function emit(files, modules) {
     `function __r(i) {`,
     `  const hit = __m[i];`,
     `  if (hit !== undefined) return hit.exports;`,
+    `  if (__s[i] === null) return __loaderModule(i);`,
     `  const mod = { id: __ids[i], filename: __ids[i], exports: {}, loaded: false, children: [], paths: [] };`,
     `  __m[i] = mod;`,
     `  try {`,
-    `    __f[i](mod, mod.exports, __req(i), __ids[i], __dirs[i]);`,
+    `    const factory = __f[i] ?? (__compiles++, (__f[i] = compileFunction(__s[i], __params, { filename: __ids[i] })));`,
+    // Node calls its CommonJS wrapper with `this` = module.exports.
+    `    factory.call(mod.exports, mod.exports, __req(i), mod, __ids[i], __dirs[i]);`,
+    `  } catch (e) {`,
+    `    __m[i] = undefined;`,
+    `    throw e;`,
+    `  }`,
+    `  mod.loaded = true;`,
+    `  return mod.exports;`,
+    `}`,
+    // A module that uses import(): a real Module compiled by Node's CommonJS loader,
+    // whose source is kept in __l. No parent, so a reset leaves nothing holding the
+    // previous instance. Its require is the registry's, with pre-resolved targets.
+    `function __loaderModule(i) {`,
+    `  const mod = new Module(__ids[i]);`,
+    `  mod.filename = __ids[i];`,
+    `  mod.paths = Module._nodeModulePaths(__dirs[i]);`,
+    `  mod.require = __req(i);`,
+    `  __m[i] = mod;`,
+    `  try {`,
+    `    __compiles++;`,
+    `    mod._compile(__l[i], __ids[i]);`,
     `  } catch (e) {`,
     `    __m[i] = undefined;`,
     `    throw e;`,
@@ -387,29 +422,18 @@ function emit(files, modules) {
     `const __entry = __r(0);`,
     `module.exports = __entry;`,
     `Object.defineProperty(module.exports, "__vitestNativeRegistry", {`,
-    `  value: { ids: __ids, load: __r, entry: __ids[0], reset: () => { __m.length = 0; } },`,
+    `  value: { ids: __ids, load: __r, entry: __ids[0], reset: () => { __m.length = 0; }, compiles: () => __compiles },`,
     `  enumerable: false, configurable: true,`,
     `});`,
   ];
 
-  // Track which module each emitted line belongs to, so the source map can point
-  // stack frames back at the real React Native file. A factory body may span
-  // several lines (the boundary mocks do), and every one of those lines is
-  // attributed, so a frame can never bleed onto the previous module's mapping.
-  const lines = [...prologue];
-  const lineOwners = prologue.map(() => null);
-  files.forEach((f, i) => {
-    const factory = `__f[${i}] = function (module, exports, require, __filename, __dirname) {${modules.get(f).code}\n};`;
-    for (const line of factory.split("\n")) {
-      lines.push(line);
-      lineOwners.push(i);
-    }
+  const sources = files.map((f, i) => {
+    const code = modules.get(f).code;
+    return USES_IMPORT.test(code)
+      ? `__s[${i}] = null; __l[${i}] = ${JSON.stringify(code)};`
+      : `__s[${i}] = ${JSON.stringify(code)};`;
   });
-  for (const line of epilogue) {
-    lines.push(line);
-    lineOwners.push(null);
-  }
-  return { code: lines.join("\n"), map: sourceMapFor(lineOwners, files) };
+  return [...prologue, ...sources, ...epilogue].join("\n");
 }
 
 /**
@@ -571,11 +595,9 @@ export function buildRegistry({
     }
 
     const files = [...modules.keys()];
-    const { code, map } = emit(files, modules);
+    const code = emit(files, modules);
     // Write via a unique temp file then rename: several workers may race here on a
     // cold cache, and a reader must never observe a partially written registry.
-    // The map lands before the registry that points at it, so a reader can never
-    // find the reference without the file.
     const publishAtomically = (destination, contents) => {
       const temporaryFile = `${destination}.${process.pid}.tmp`;
       try {
@@ -603,9 +625,7 @@ export function buildRegistry({
         fs.rmSync(temporaryFile, { force: true });
       }
     };
-    const mapFile = `${registryFile}.map`;
-    publishAtomically(mapFile, JSON.stringify(map));
-    publishAtomically(registryFile, `${code}\n//# sourceMappingURL=${path.basename(mapFile)}\n`);
+    publishAtomically(registryFile, `${code}\n`);
     publishAtomically(metaFile, JSON.stringify({ key, count: files.length, manifest }));
     if (diagnostics) {
       console.log(
@@ -634,15 +654,6 @@ export function installRegistry(
 ) {
   if (globalThis.__vitest_native_registry_installed) return true;
   const req = createRequire(path.join(projectRoot, "package.json"));
-  // Must precede the require below: Node reads `//# sourceMappingURL` when a script
-  // is COMPILED, so enabling support afterwards leaves this registry unmapped and
-  // every React Native stack frame pointing at the cache file instead of the RN
-  // source it came from.
-  try {
-    process.setSourceMapsEnabled?.(true);
-  } catch {
-    // Older Node, or a host that has locked this down — frames stay unmapped.
-  }
   let registry;
   try {
     registry = req(registryFile).__vitestNativeRegistry;
