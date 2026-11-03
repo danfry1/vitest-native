@@ -1,0 +1,11 @@
+{
+  "name": "museum-own-workspace-unexported-manifest",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "dependencies": {
+    "@m/kit": "*"
+  }
+}

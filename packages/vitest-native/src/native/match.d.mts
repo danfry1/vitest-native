@@ -12,6 +12,8 @@ export declare function installedPackageDirOf(name: string, projectRoot: string)
 
 /** The on-disk directory a package resolves to from `projectRoot`, or null. */
 export declare function packageDirOf(name: string, fromDir: string): string | null;
+/** A dependency the engine may detect: installed, or resolvable through `<name>/package.json`. */
+export declare function dependencyDirOf(name: string, fromDir: string): string | null;
 
 /**
  * The patterns identifying one package's files: under `node_modules/<name>/`, and
