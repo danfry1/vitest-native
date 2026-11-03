@@ -59,6 +59,8 @@ export interface NativeOwnershipPolicy {
   readonly reactNativePathFor: (file: string) => string | null;
   readonly decideFile: (file: string) => NativeOwnershipDecision;
   readonly manifest: () => NativeOwnershipManifest;
+  /** The directory a package resolves to from the project root, as the patterns used it. */
+  readonly packageDirOf: (name: string) => string | null;
 }
 
 export interface NativeOwnershipConflict {
@@ -80,6 +82,8 @@ export interface NativeOwnershipOptions {
   /** Files Vitest runs as entries without a test-file name: the project's `test.setupFiles`. */
   entryFiles?: string[];
   serverDepsInlineAll?: boolean;
+  /** How each package's directory is found; defaults to `packageDirOf` (match.mjs). */
+  packageDirOf?: (name: string, fromDir: string) => string | null;
 }
 
 export declare const TEST_ENTRY_PATTERNS: readonly RegExp[];
