@@ -24,6 +24,7 @@ import { resetEvaluatedModules, restoreEvaluatedModules } from "../native/module
 import { VitestNativeError } from "../errors.mjs";
 import { projectContext } from "../context.mjs";
 import { nodeDispatch } from "../node-dispatch.mjs";
+import { owningPackageOfFile, packageNameOf } from "../native/match.mjs";
 
 const STATE = "__vitest_native_jest_registry";
 /** The manifest id under which the hot runtime clears the registry per file. */
@@ -76,6 +77,41 @@ function parentModuleFor(file) {
 /** Vitest's worker state: the evaluated module graph and the running test file. */
 const worker = () => globalThis.__vitest_worker__;
 
+/**
+ * The directory of the package `file` is in, by the same rule as `owningPackageOfFile`
+ * (the one after its last `node_modules/`), with forward slashes. Null outside
+ * node_modules.
+ */
+function packageDirOf(file) {
+  const norm = file.replace(/\\/g, "/");
+  const pkg = owningPackageOfFile(norm);
+  if (pkg === null) return null;
+  const at = norm.lastIndexOf("/node_modules/") + "/node_modules/".length;
+  return norm.slice(0, at + pkg.length);
+}
+
+/** A Map that reports each change, so what is derived from its contents can be rebuilt. */
+class WatchedMap extends Map {
+  constructor(onChange) {
+    super();
+    this.onChange = onChange;
+  }
+  set(key, value) {
+    super.set(key, value);
+    this.onChange();
+    return this;
+  }
+  delete(key) {
+    const had = super.delete(key);
+    if (had) this.onChange();
+    return had;
+  }
+  clear() {
+    super.clear();
+    this.onChange();
+  }
+}
+
 function createState() {
   const rootFile = path.join(config.projectRoot, "package.json");
   const rootParent = parentModuleFor(rootFile);
@@ -91,11 +127,16 @@ function createState() {
     return hit && canonical(hit);
   };
 
+  let reach = null;
+  const changed = () => {
+    reach = null;
+  };
+
   const state = {
     /** Resolved file -> entry. */
-    entries: new Map(),
+    entries: new WatchedMap(changed),
     /** Specifiers no resolver could place (Jest's virtual mocks) -> entry. */
-    unresolved: new Map(),
+    unresolved: new WatchedMap(changed),
     /** `parentFile\0request` -> resolved file or null. Valid for the worker's life. */
     resolutions: new Map(),
     /** What `requireActual` is loading: its next load skips the mock. */
@@ -430,6 +471,70 @@ function createState() {
 
   state.isEmpty = () => state.entries.size === 0 && state.unresolved.size === 0;
 
+  /**
+   * What the registered mocks can be reached by, rebuilt after a registration changes:
+   * the package names a bare request can name them by, and the package directories
+   * their files are in. `wide` when an entry is outside node_modules (a project file)
+   * or a virtual mock of a path, which any request may reach through an alias or a
+   * relative path, so every request is resolved, as when this index did not exist.
+   */
+  function reachIndex() {
+    if (reach !== null) return reach;
+    const names = new Set();
+    const dirs = new Set();
+    let wide = false;
+    for (const [file, entry] of state.entries) {
+      const dir = packageDirOf(file);
+      if (dir === null) {
+        wide = true;
+        break;
+      }
+      dirs.add(dir);
+      names.add(owningPackageOfFile(file));
+      // An npm alias installs a package under a name its manifest does not carry.
+      if (typeof entry.spec === "string" && isBare(entry.spec)) {
+        names.add(packageNameOf(entry.spec));
+      }
+    }
+    for (const spec of state.unresolved.keys()) {
+      if (isBare(spec)) names.add(packageNameOf(spec));
+      else wide = true;
+    }
+    reach = { names, dirs, wide, aliased: new Map() };
+    return reach;
+  }
+
+  /**
+   * Whether a load of `request` from `parent` can be served a registered mock, without
+   * resolving it: the mocks a library's Jest setup registers stay in every file, and
+   * resolving every require of every file to look for them costs more than the file.
+   * A bare request reaches a mock by its package name, or by an alias the require hooks
+   * apply when Node cannot resolve it; a path reaches one in the package directory it
+   * points into. Any request a mocked package makes may reach its own mocks, since its
+   * `react-native` or `browser` field can send even a bare name to its own files, and a
+   * subpath import (`#internal`) maps through its importer's manifest.
+   */
+  state.mayIntercept = (request, parent) => {
+    if (state.isEmpty()) return false;
+    const index = reachIndex();
+    if (index.wide) return true;
+    const from = typeof parent?.filename === "string" ? parent.filename : null;
+    if (from !== null && index.dirs.has(packageDirOf(from))) return true;
+    if (request.startsWith("#") || request.startsWith("file:")) return true;
+    if (isBare(request)) {
+      if (index.names.has(packageNameOf(request))) return true;
+      let aliased = index.aliased.get(request);
+      if (aliased === undefined) {
+        aliased = expandAlias(request, config.aliases) !== request;
+        index.aliased.set(request, aliased);
+      }
+      return aliased;
+    }
+    if (from === null && !path.isAbsolute(request)) return true;
+    const target = from === null ? request : path.resolve(path.dirname(from), request);
+    return index.dirs.has(packageDirOf(target));
+  };
+
   return state;
 }
 
@@ -615,14 +720,14 @@ function installLoadHook(state) {
           typeof parent?.filename === "string" &&
           !NODE_MODULES.test(parent.filename) &&
           state.isResettable(parent.filename);
-        if ((!fromProject && state.isEmpty()) || Module.isBuiltin(request)) {
-          return next(request, parent, ...rest);
-        }
-        // With no mocks, only a project file can be served from Vite. For a bare specifier,
+        if (Module.isBuiltin(request)) return next(request, parent, ...rest);
+        const mockable = state.mayIntercept(request, parent);
+        if (!fromProject && !mockable) return next(request, parent, ...rest);
+        // With no mock it can reach, only a project file can be served from Vite. For a bare specifier,
         // Node's own answer decides: a file under node_modules goes to Node's loader as is;
         // anything else (a workspace link to source, a package's self-reference, an alias the
         // hooks apply) is resolved as below, reusing that answer.
-        if (state.isEmpty() && isBare(request)) {
+        if (!mockable && isBare(request)) {
           const resolved = nodeResolution(request, parent);
           if (resolved !== null && NODE_MODULES.test(resolved)) {
             state.stats.toNode++;

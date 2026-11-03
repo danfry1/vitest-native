@@ -4,6 +4,7 @@
  * suite lists it in `setupFiles`. Each replaces only the library's native layer.
  */
 import React from "react";
+import { createRequire } from "node:module";
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
 import { Text } from "react-native";
 import * as GH from "react-native-gesture-handler";
@@ -14,6 +15,14 @@ describe("react-native-gesture-handler, with its jestSetup", () => {
   it("is the real package: gesture-handler 3's hook API and builder methods", () => {
     expect(typeof (GH as Record<string, unknown>).usePanGesture).toBe("function");
     expect(typeof GH.Gesture.Pan().onBegin).toBe("function");
+  });
+
+  // jestSetup's first mock: the package's native module is its own no-op stand-in, whose
+  // getModuleId() answers -1. The real module is React Native's TurboModule lookup.
+  it("serves the package the native module its jestSetup mocks", () => {
+    const load = createRequire(import.meta.url);
+    const module = load("react-native-gesture-handler/src/RNGestureHandlerModule");
+    expect(module.default.getModuleId()).toBe(-1);
   });
 
   it("presses a Pressable through its own mocks", async () => {

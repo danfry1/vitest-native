@@ -294,12 +294,9 @@ beginTestFile();
 // every test file, so each file's mocks are new ones, as under Jest.
 for (const request of runContext.librarySetupFiles ?? []) {
   const load = createRequire(path.join(projectRoot, "package.json"));
-  let file;
-  try {
-    file = load.resolve(request);
-  } catch {
-    continue; // not installed in this project
-  }
+  // Not installed in this project: nothing to run.
+  const file = resolvedOrNull(load, request);
+  if (file === null) continue;
   delete load.cache[file];
   load(request);
 }
@@ -527,3 +524,12 @@ shareProjectModules();
 // AppContainer mounts) to render null, so LogBoxStateSubscription never mounts
 // and never schedules its out-of-act setState. See boundary.mjs + the regression
 // test tests-native/logbox-act.test.tsx.
+
+/** Where `load` resolves `request`, or null when it is not installed. */
+function resolvedOrNull(load, request) {
+  try {
+    return load.resolve(request);
+  } catch {
+    return null;
+  }
+}
