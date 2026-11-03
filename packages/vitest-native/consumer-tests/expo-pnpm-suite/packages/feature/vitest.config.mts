@@ -6,7 +6,8 @@ import { reactNative } from "vitest-native";
 //   - it runs a sibling library's setup file (@suite/ui's vitest.setup.ts), by path;
 //   - it imports that library's source through an alias, not the package entry;
 //   - it aliases into another sibling (@suite/tokens) it does not declare;
-//   - it does not declare `expo`: Expo is reached only through @suite/ui's expo-image.
+//   - it declares neither `expo` nor `expo-image`: the Avatar it renders loads them
+//     through @suite/ui. (pnpm may still make `expo` resolvable from here, as a peer.)
 const ui = path.resolve(import.meta.dirname, "../ui");
 export default defineConfig({
   plugins: [
