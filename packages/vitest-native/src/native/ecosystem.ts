@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
-import { containsPath, packageDirOf } from "./match.mjs";
+import { containsPath, dependencyDirOf, type PackageDirOf } from "./match.mjs";
 
 /**
  * Packages that must never be auto-inlined even though they depend on React
@@ -205,6 +205,10 @@ function manifestsFrom(projectRoot: string): { dir: string; manifest: Record<str
  * Excluded: packages a preset already shadows (their real source never loads), the
  * test infrastructure in NEVER_INLINE, and anything the consumer listed explicitly
  * in `transform` — that option keeps its existing meaning and takes precedence.
+ *
+ * `dirOf` finds a dependency's directory from a directory: `dependencyDirOf`, or a
+ * memoized copy of it (memoizePackageDirOf). Not `packageDirOf`, whose answer for a
+ * workspace member differs (see dependencyDirOf).
  */
 export function detectEcosystemPackages(
   projectRoot: string | string[],
@@ -212,6 +216,7 @@ export function detectEcosystemPackages(
   testRoots: string[] = [],
   neverTransform: string[] = [],
   activePresets?: readonly string[],
+  dirOf: PackageDirOf = dependencyDirOf,
 ): string[] {
   // More than one root because `manifestsFrom` only walks UP. In a workspace the
   // run root is often above the package under test — Nx invokes tasks from the
@@ -257,14 +262,15 @@ export function detectEcosystemPackages(
 
   /**
    * A package's manifest, and the real directory it is installed in, as Node finds it
-   * from `fromDir` (packageDirOf). Not `require.resolve("<name>/package.json")` alone:
-   * a package whose `exports` map leaves out `./package.json` refuses that request, and
-   * was silently never detected or compiled (expo-symbols 57, whose ES module build
-   * Node then ran raw).
+   * from `fromDir` (dependencyDirOf). Not `require.resolve("<name>/package.json")`
+   * alone: an installed package whose `exports` map leaves out `./package.json` refuses
+   * that request, and was silently never detected or compiled (expo-symbols 57, whose
+   * ES module build Node then ran raw). A workspace member is still found only through
+   * that request; dependencyDirOf says why.
    */
   type Installed = { manifest: Record<string, unknown>; dir: string };
   const installedFrom = (fromDir: string, name: string): Installed | null => {
-    const dir = packageDirOf(name, fromDir);
+    const dir = dirOf(name, fromDir);
     if (!dir) return null;
     try {
       const manifest = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
