@@ -40,6 +40,7 @@ import vm from "node:vm";
 import { createJestObject } from "../jest-compat/jest-object.mjs";
 import { nodeRegistry } from "../jest-compat/node-registry.mjs";
 import { packageNameOf, subpathLeafOf } from "./match.mjs";
+import { projectContext } from "../context.mjs";
 
 const SUPPORT_LEAVES = new Set(["jestSetup", "mock"]);
 const MENTIONS_JEST = /\bjest\b/;
@@ -54,7 +55,7 @@ const owners = [];
 const jestByFile = new Map();
 /** Each directory's package, by its nearest named package.json (workspace links too). */
 const packageByFile = new Map();
-const projectRoot = path.resolve(process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd());
+const projectRoot = path.resolve(projectContext()?.projectRoot ?? process.cwd());
 
 /**
  * The package `request` loads test support of, or null: a request whose last segment
