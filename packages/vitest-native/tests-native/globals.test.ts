@@ -56,6 +56,14 @@ describe("native engine: fabricated expo native-module stubs", () => {
     await expect(modules[PRESENT].getRegistrationInfoAsync()).resolves.toBeUndefined();
   });
 
+  it("releases a shared object, as expo-modules-core's hooks do on unmount", () => {
+    const { SharedObject, SharedRef } = (globalThis as Record<string, any>).expo;
+    expect(new SharedObject().release()).toBeUndefined();
+    expect(new SharedRef().release()).toBeUndefined();
+    class Player extends modules[PRESENT].VideoPlayer {}
+    expect(new Player().release()).toBeUndefined();
+  });
+
   it("serves fabricated PascalCase properties as classes on SharedObject", () => {
     const NativeClass = modules[PRESENT].FileSystemFile;
     class Sub extends NativeClass {}
