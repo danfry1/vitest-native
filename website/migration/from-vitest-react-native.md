@@ -75,6 +75,6 @@ Your existing tests render against real React Native exactly as before.
 These are inherent to running RN externalized to Node — they applied to the original plugin too:
 
 - **`vi.mock` of an externalized RN-side library may not intercept.** Libraries that load through Node (not your Vite source graph) bypass Vitest's mocker. Prefer a [preset](/guide/presets) (if one exists) or mock at the boundary. Your *own* modules mock normally.
-- **Custom Babel plugins don't run.** Transforms go through Vite/esbuild, not your `babel.config.js`. Flow/TS stripping for RN and allow-listed packages is handled by the require hook; use the [`transform`](/guide/plugin-options#transform) allowlist for extra pure-JS packages that ship untranspiled source.
+- **Custom Babel plugins don't run.** Transforms go through Vite (Oxc), not your `babel.config.js`. Flow/TS stripping for RN and allow-listed packages is handled by the require hook; use the [`transform`](/guide/plugin-options#transform) allowlist for extra pure-JS packages that ship untranspiled source.
 
 If something that worked under the old plugin doesn't here, [open an issue](https://github.com/danfry1/vitest-native/issues) — parity with `vitest-react-native` is a goal, and the cross-check corpus is how we prove it.

@@ -1047,10 +1047,7 @@ async function loadPresetModules(files: string[], root: string): Promise<Preset[
         logLevel: "error",
         plugins: [presetModuleReactNative],
         // A bare import is otherwise handed to Node before any plugin resolves it.
-        // `resolve.noExternal` is Vite 8's spelling for every environment;
-        // `ssr.noExternal` is Vite 6 and 7's.
         resolve: { noExternal: [REACT_NATIVE_IMPORT] },
-        ssr: { noExternal: [REACT_NATIVE_IMPORT] },
       } as Parameters<typeof runnerImport>[1]));
     } catch (cause) {
       throw new VitestNativeError(

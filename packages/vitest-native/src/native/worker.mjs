@@ -125,7 +125,7 @@ globalThis.__vitest_native_hot_reset = () => {
   // Advance the ESM generation so externalized packages a test file `import`s are
   // re-evaluated instead of served from Node's uninvalidatable ESM registry.
   if (globalThis.__vitest_native_hot_generation) {
-    Atomics.add(globalThis.__vitest_native_hot_generation, 0, 1);
+    globalThis.__vitest_native_hot_generation.value++;
   }
   const dropped = resetModules();
   hotReset();
