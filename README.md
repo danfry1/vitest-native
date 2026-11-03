@@ -152,7 +152,7 @@ The plugin does three things automatically:
 
 1. **Module resolution** — Redirects `react-native` imports to virtual modules and resolves platform-specific files (`.ios.ts`, `.android.ts`, `.native.ts`)
 2. **Asset modules** — Image/font/media imports evaluate to a registered asset id, as Metro's do, so `Image.resolveAssetSource` and `<Image source={require(...)}>` work as on device
-3. **Setup injection** — Auto-injects a setup file that registers all mocks, sets React Native globals (`__DEV__`, `requestAnimationFrame`, etc.), and wires up `@testing-library/react-native` if installed (registering its matchers, and setting host component names for older RNTL; RNTL ≥ 12 auto-detects them against real RN host names)
+3. **Setup injection** — Auto-injects a setup file that registers all mocks, sets React Native globals (`__DEV__`, `requestAnimationFrame`, etc.), and wires up `@testing-library/react-native` if installed (registering its matchers, and under the mock engine setting RNTL 13's host component names; RNTL 14 detects them itself)
 
 ## Plugin Options
 
@@ -324,7 +324,7 @@ This means the plugin isn't configured. Ensure `reactNative()` is in your `vites
 
 ### RNTL queries not finding components
 
-Host component names are handled for you — the plugin sets them for older RNTL, and RNTL ≥ 12 auto-detects them against real RN host names. If you're having issues:
+Host component names are handled for you — under the mock engine the plugin sets them for RNTL 13, and RNTL 14 detects them itself. If you're having issues:
 1. Make sure `@testing-library/react-native` is installed
 2. Don't manually configure `hostComponentNames` — leave it to the plugin / RNTL's auto-detection
 

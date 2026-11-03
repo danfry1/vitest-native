@@ -11,7 +11,8 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { reactNative } from "../src/index.js";
 import { runDoctor } from "../src/cli/doctor.js";
 import {
   isBelowSupportedReactNative,
@@ -24,7 +25,78 @@ const fromPackage = createRequire(path.join(PACKAGE_ROOT, "package.json"));
 const temps: string[] = [];
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const dir of temps.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+});
+
+const realDir = (name: string) => path.dirname(fromPackage.resolve(`${name}/package.json`));
+
+/**
+ * A project whose `react-native` reports `version`: the real package's files, linked one
+ * by one, under a package.json of its own, beside the real Babel toolchain, React and
+ * Vite, so the native engine can start against it.
+ */
+function projectWithReactNative(version: string): string {
+  const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-rn-start-"));
+  temps.push(root);
+  fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "app" }));
+  const rn = path.join(root, "node_modules", "react-native");
+  fs.mkdirSync(rn, { recursive: true });
+  const real = realDir("react-native");
+  for (const entry of fs.readdirSync(real)) {
+    if (entry === "package.json") continue;
+    fs.symlinkSync(path.join(real, entry), path.join(rn, entry));
+  }
+  const manifest = JSON.parse(fs.readFileSync(path.join(real, "package.json"), "utf8"));
+  fs.writeFileSync(path.join(rn, "package.json"), JSON.stringify({ ...manifest, version }));
+  for (const name of ["@babel/core", "@react-native/babel-preset", "react", "vite"]) {
+    const target = path.join(root, "node_modules", ...name.split("/"));
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.symlinkSync(realDir(name), target, "dir");
+  }
+  return root;
+}
+
+async function start(engine: "native" | "mock", root: string): Promise<unknown> {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  const plugin = reactNative({ engine, hotRuntime: false }) as any;
+  const vite = (await import("vite")) as { version: string };
+  await plugin.config.handler.call(
+    { meta: { viteVersion: vite.version } },
+    { root },
+    { command: "serve", mode: "test" },
+  );
+  try {
+    await plugin.configResolved({ root, plugins: [], test: {} });
+    return null;
+  } catch (error) {
+    return error;
+  }
+}
+
+// Each starts the native engine against a real React Native install: seconds, more under a
+// full parallel suite.
+describe("starting the plugin", { timeout: 30_000 }, () => {
+  it("stops the native engine on a React Native below the floor, naming it", async () => {
+    const error = (await start("native", projectWithReactNative("0.85.3"))) as {
+      code?: string;
+      message?: string;
+    } | null;
+    expect(error?.code).toBe("UNSUPPORTED_PEER");
+    expect(error?.message).toContain(
+      "react-native 0.85.3 is not supported: the native engine supports react-native " +
+        "0.86–0.88. Upgrade react-native to 0.86 or later (Expo SDK 57 or later).",
+    );
+  });
+
+  it("starts the native engine on a supported one", async () => {
+    expect(await start("native", projectWithReactNative("0.86.0"))).toBeNull();
+  });
+
+  it("leaves the mock engine alone, which does not load React Native", async () => {
+    expect(await start("mock", projectWithReactNative("0.85.3"))).toBeNull();
+  });
 });
 
 describe("the supported React Native releases", () => {

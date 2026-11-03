@@ -30,15 +30,16 @@ That error is itself worth a clearer message (see Open questions).
 
 | Cell            | Where                                                                                   | Notes                                                                      |
 | --------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| RNTL 12 / 13    | `ci.yml` back-compat legs (ubuntu, Node 22.22.3)                                        | native + hot suites, but every native config there sets `globals: true`    |
-| Hot on          | `ci.yml` every leg; RN matrix every cell                                                | `globals: true`, RNTL 14 (12/13 in `ci.yml`)                               |
+| RNTL 13         | `ci.yml` back-compat leg (ubuntu, Node 22.22.3)                                         | native + hot suites, but every native config there sets `globals: true`    |
+| Hot on          | `ci.yml` every leg; RN matrix every cell                                                | `globals: true`, RNTL 14 (13 in `ci.yml`)                                  |
 | Isolated layout | `consumer-tests/monorepo-pnpm` (packed, pnpm)                                           | native, RNTL 14, `globals` off — but no RNTL cleanup, timer or alias probe |
 | Mock engine     | `bun run test` (globals off), `consumer-tests/mock-rntl14`                              | RNTL 14 only on the packed side                                            |
-| jest-compat     | `consumer-tests/bare`, `tests-native/vitest.hot-jest-compat.config.mts`                 | `globals: true`; RNTL 12 (bare)                                            |
+| jest-compat     | `consumer-tests/bare`, `tests-native/vitest.hot-jest-compat.config.mts`                 | `globals: true`; RNTL 13 (bare)                                            |
 
 So each axis was covered somewhere, but almost never two at a time. Those defects mostly need
 two: globals off × any RNTL test that renders twice, RNTL 12/13 × native,
-isolated × a preset switched off. (Vitest 4 × hot was another, until Vitest 4 was dropped.)
+isolated × a preset switched off. (Vitest 4 × hot was another; Vitest 4 and RNTL 12 are no
+longer supported.)
 
 ## Design
 

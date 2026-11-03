@@ -57,7 +57,7 @@ test('navigates between file-based routes', async () => {
 ```
 
 From SDK 58 the library is written for RNTL 14, where `renderRouter` and `testRouter`'s navigation
-return promises, so they are awaited as above. On SDK 57 and earlier (RNTL 13) they are synchronous.
+return promises, so they are awaited as above. On SDK 57 (RNTL 13) they are synchronous.
 
 The library is written for Jest — it calls `jest.useFakeTimers` and `jest.mock` itself — so it needs
 the [jest-compat layer](/guide/jest-compat), which a migrated configuration already includes:
@@ -77,9 +77,8 @@ export default defineConfig({
 })
 ```
 
-From SDK 57, expo-router bundles its own React Navigation, which runs for real. Before SDK 57 it
-used the installed `@react-navigation/*` packages; there, add `presets: { navigation: false }` so the
-router's navigators are real rather than the navigation preset's mocks.
+expo-router (SDK 57 and 58) bundles its own React Navigation, which runs for real; the navigation
+preset, keyed on the `@react-navigation/*` packages, does not apply to it.
 
 ## Expo's runtime globals, `fetch` and MSW
 
