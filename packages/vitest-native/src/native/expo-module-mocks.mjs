@@ -310,8 +310,9 @@ export function expoModuleMock(projectRoot, name, mockFn) {
   const file = expoModuleMockIndex(projectRoot).get(name);
   if (!file) return null;
   let exports;
+  const require = createRequire(file);
   try {
-    exports = loadWithJest(file, mockFn, () => createRequire(file)(file));
+    exports = loadWithJest(require, mockFn, () => require(file));
   } catch {
     return null;
   }
@@ -335,12 +336,11 @@ export function expoModuleMock(projectRoot, name, mockFn) {
  * function, and `requireActual` resolves relative to the mock file, as Jest resolves it.
  * A `jest` that exists (jest-compat's) is left alone.
  */
-function loadWithJest(file, mockFn, load) {
+function loadWithJest(require, mockFn, load) {
   const g = globalThis;
   if (g.jest !== undefined) return load();
-  const require = createRequire(file);
   g.jest = {
-    fn: (implementation = () => undefined) => mockFn(implementation),
+    fn: (implementation) => mockFn(implementation),
     requireActual: (spec) => require(spec),
   };
   try {

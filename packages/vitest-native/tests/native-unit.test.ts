@@ -2195,17 +2195,24 @@ describe("Expo module mocks", () => {
         path.join(pkg, "mocks/ExpoFontLoader.js"),
         [
           "exports.getLoadedFonts = jest.fn(function mockGetLoadedFonts() { return []; });",
-          "const web = jest.requireActual('../src/ExpoFontLoader.web.js');",
+          "const web = jest.requireActual('../src/ExpoFontLoader.web');",
           "exports.isLoaded = jest.fn(web.isLoaded);",
           "exports.loadAsync = jest.fn();",
         ].join("\n"),
       );
-      const members = expoModuleMock(root, "ExpoFontLoader", (fn: () => unknown) => vi.fn(fn));
+      let wrapped = 0;
+      const members = expoModuleMock(root, "ExpoFontLoader", (fn: () => unknown) => {
+        wrapped++;
+        return vi.fn(fn);
+      });
       expect(members.getLoadedFonts()).toEqual([]);
       expect(members.isLoaded("loaded")).toBe(true);
       expect(members.isLoaded("other")).toBe(false);
       expect(members.loadAsync()).toBeUndefined();
       expect(vi.isMockFunction(members.getLoadedFonts)).toBe(true);
+      // Three members through the stand-in's jest.fn, then the same three
+      // through the members loop.
+      expect(wrapped).toBe(6);
       // The stand-in lasts for the load only.
       expect(Object.hasOwn(g, "jest")).toBe(false);
     } finally {
@@ -2220,7 +2227,8 @@ describe("Expo module mocks", () => {
     const hadJest = Object.hasOwn(g, "jest");
     const previous = g.jest;
     const calls: string[] = [];
-    g.jest = { fn: (impl: () => unknown) => (calls.push("fn"), impl) };
+    const own = { fn: (impl: () => unknown) => (calls.push("fn"), impl) };
+    g.jest = own;
     try {
       fs.writeFileSync(path.join(root, "package.json"), "{}");
       const pkg = path.join(root, "node_modules/expo-crypto");
@@ -2234,7 +2242,7 @@ describe("Expo module mocks", () => {
       const members = expoModuleMock(root, "ExpoCrypto", (fn: () => unknown) => fn);
       expect(members.digest()).toBe("d");
       expect(calls).toEqual(["fn"]);
-      expect(g.jest).toBe(g.jest);
+      expect(g.jest).toBe(own);
     } finally {
       if (hadJest) g.jest = previous;
       else delete g.jest;
