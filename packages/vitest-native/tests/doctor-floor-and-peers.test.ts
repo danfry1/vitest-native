@@ -67,20 +67,24 @@ describe("doctor: the supported Node range is the one the plugin enforces", () =
     expect(line("24.11.1")).toContain("✗");
     expect(line("25.0.0")).toContain("✗");
     expect(line("26.0.0")).toContain("✓");
-    expect(line("24.11.1")).toContain(`supports Node ${nodeRange()}`);
+    // The plugin's startup message: within a supported line, update within the major.
+    expect(line("24.11.1")).toContain("needs Node 24.12.0 or later on Node 24");
+    expect(line("25.0.0")).toContain(`engines.node: ${nodeRange()}`);
   });
 });
 
 describe("satisfiesNodeRange", () => {
-  const range = ">=22.13.0 <23 || >=24.3.0";
+  // The range the package enforces (SUPPORTED_NODE, held equal to engines.node above).
+  const range = nodeRange();
   it.each([
     ["20.19.4", false],
-    ["22.12.0", false],
-    ["22.13.0", true],
+    ["22.13.0", false],
+    ["22.22.2", false],
     ["22.22.3", true],
     ["23.5.0", false],
-    ["24.2.9", false],
-    ["24.3.0", true],
+    ["24.11.1", false],
+    ["24.12.0", true],
+    ["25.0.0", false],
     ["26.0.0", true],
     ["v24.13.0", true],
   ])("%s → %s", (version, expected) => {
