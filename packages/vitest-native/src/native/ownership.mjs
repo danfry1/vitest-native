@@ -13,7 +13,7 @@ import {
   buildPkgMatcher,
   containsPath,
   installedPackageDirOf,
-  packageDirOf,
+  memoizePackageDirOf,
   packagePatterns,
 } from "./match.mjs";
 
@@ -90,6 +90,11 @@ function decision(owner, format, transform, reset, reasons, evidence) {
  * `ecosystemPackages` is the detected RN dependency closure.
  * `runtimeTransforms` is for workers reconstructing the already-combined list from
  * serialized setup data; config-time callers normally leave it empty.
+ *
+ * `packageDirOf` finds each package's directory. Each package is looked up once per
+ * policy whatever is passed (the patterns and every matcher share the answers); a
+ * caller that has already resolved the same packages from the same root passes its
+ * own memoized lookup (memoizePackageDirOf) so they are not resolved again.
  */
 export function createNativeOwnershipPolicy({
   projectRoot = process.cwd(),
@@ -100,7 +105,9 @@ export function createNativeOwnershipPolicy({
   projectDirs = [],
   reactNativeRoots = [],
   serverDepsInlineAll = false,
+  packageDirOf,
 } = {}) {
+  const dirOf = memoizePackageDirOf(packageDirOf);
   const enforcement = serverDepsInlineAll ? "overridden-by-inline-all" : "enforced";
   const root = path.resolve(projectRoot);
   const explicit = unique(explicitTransforms);
@@ -148,12 +155,12 @@ export function createNativeOwnershipPolicy({
   const externalPatterns = [
     REACT_NATIVE_PATH,
     ...reactNativeRootPatterns,
-    ...nodeTransformPackages.flatMap((name) => packagePatterns(name, root)),
+    ...nodeTransformPackages.flatMap((name) => packagePatterns(name, root, dirOf)),
   ];
-  const matchesNodeTransformedFile = buildPkgMatcher(nodeTransformPackages, root);
-  const explicitMatcher = buildPkgMatcher(explicit, root);
-  const ecosystemMatcher = buildPkgMatcher(ecosystem, root);
-  const runtimeMatcher = buildPkgMatcher(runtime, root);
+  const matchesNodeTransformedFile = buildPkgMatcher(nodeTransformPackages, root, dirOf);
+  const explicitMatcher = buildPkgMatcher(explicit, root, dirOf);
+  const ecosystemMatcher = buildPkgMatcher(ecosystem, root, dirOf);
+  const runtimeMatcher = buildPkgMatcher(runtime, root, dirOf);
   const normalizedProjectDirs = Object.freeze(unique(projectDirs).map((dir) => path.resolve(dir)));
 
   const decideFile = (rawFile) => {
@@ -347,6 +354,7 @@ export function createNativeOwnershipPolicy({
     reactNativePathFor,
     decideFile,
     manifest,
+    packageDirOf: (name) => dirOf(name, root),
   });
 }
 
@@ -387,7 +395,7 @@ export function findNativeInlineConflicts(policy, inline) {
       `/project/node_modules/${concrete}/index.js`,
       `C:\\project\\node_modules\\${concrete.replaceAll("/", "\\")}\\index.js`,
     ];
-    const dir = name.includes("*") ? null : packageDirOf(name, policy.projectRoot);
+    const dir = name.includes("*") ? null : policy.packageDirOf(name);
     if (dir) probes.push(`${normalizeFile(dir).replace(/\/$/, "")}/index.js`);
     const hit = patterns.some((pattern) => {
       if (typeof pattern === "string") {

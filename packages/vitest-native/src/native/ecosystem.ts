@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
-import { containsPath, packageDirOf } from "./match.mjs";
+import { containsPath, packageDirOf, type PackageDirOf } from "./match.mjs";
 
 /**
  * Packages that must never be auto-inlined even though they depend on React
@@ -205,6 +205,10 @@ function manifestsFrom(projectRoot: string): { dir: string; manifest: Record<str
  * Excluded: packages a preset already shadows (their real source never loads), the
  * test infrastructure in NEVER_INLINE, and anything the consumer listed explicitly
  * in `transform` — that option keeps its existing meaning and takes precedence.
+ *
+ * `dirOf` finds a package's directory from a directory. The plugin passes a memoized
+ * copy of `packageDirOf` it shares with the ownership policy, so a package looked up
+ * here is not looked up again there (memoizePackageDirOf).
  */
 export function detectEcosystemPackages(
   projectRoot: string | string[],
@@ -212,6 +216,7 @@ export function detectEcosystemPackages(
   testRoots: string[] = [],
   neverTransform: string[] = [],
   activePresets?: readonly string[],
+  dirOf: PackageDirOf = packageDirOf,
 ): string[] {
   // More than one root because `manifestsFrom` only walks UP. In a workspace the
   // run root is often above the package under test — Nx invokes tasks from the
@@ -264,7 +269,7 @@ export function detectEcosystemPackages(
    */
   type Installed = { manifest: Record<string, unknown>; dir: string };
   const installedFrom = (fromDir: string, name: string): Installed | null => {
-    const dir = packageDirOf(name, fromDir);
+    const dir = dirOf(name, fromDir);
     if (!dir) return null;
     try {
       const manifest = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
