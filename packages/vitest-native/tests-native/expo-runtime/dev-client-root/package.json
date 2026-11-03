@@ -1,0 +1,5 @@
+{
+  "name": "vn-expo-runtime-dev-client-root",
+  "private": true,
+  "description": "A project root where expo-dev-launcher is installed. vitest.expo-runtime.config.mts writes node_modules/expo-dev-launcher/package.json here, since node_modules is not committed."
+}

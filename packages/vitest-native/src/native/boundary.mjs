@@ -125,22 +125,28 @@ function turboStubSource(platform, version) {
     __boundaryState[name] || (__boundaryState[name] = Object.create(null));
   const getModuleMock = (name) =>
     Object.prototype.hasOwnProperty.call(__moduleMocks(), name) ? __moduleMocks()[name] : null;
-  // Whether a native module is registered, as a device would answer it: one React
-  // Native's own JS requests (read from the installed copy, see
-  // native/native-modules.mjs), one this boundary serves constants for, or one the
-  // test registered with mockNativeModule(). Anything else is absent, so
-  // TurboModuleRegistry.get() returns null and NativeModules[name] is undefined:
-  // React Native's own semantics (Libraries/TurboModule/TurboModuleRegistry.js) and
-  // the Jest preset's (jest/mocks/NativeModules.js). Read at lookup time, because
-  // the setup file installs the set and module mocks change during a test.
-  // The plugin's \`nativeModules: 'permissive'\`: every name present, every member a
-  // method, for suites written against that behaviour.
-  const __permissive = () => globalThis.__vitest_native_permissive_modules === true;
+  // Whether a native module is registered, as a device would answer it: one the test
+  // registered with mockNativeModule(), one the Expo runtime option names, one this
+  // boundary serves constants for, or one React Native's own JS requests (read from the
+  // installed copy). Anything else is absent, so TurboModuleRegistry.get() returns null
+  // and NativeModules[name] is undefined: React Native's own semantics
+  // (Libraries/TurboModule/TurboModuleRegistry.js) and the Jest preset's
+  // (jest/mocks/NativeModules.js). The plugin's \`nativeModules: 'permissive'\` makes
+  // every remaining name present, every member a method. The order is the one check
+  // expo.modules shares (native/native-modules.mjs, modulePresent), read at lookup time,
+  // because the setup file installs its inputs and module mocks change during a test.
+  const __presence = () => globalThis.__vitest_native_module_presence;
+  const __permissive = () => __presence().permissive === true;
+  const isCoreModule = (name) => Object.prototype.hasOwnProperty.call(__C, name);
   const isKnownModule = (name) =>
-    __permissive() ||
-    getModuleMock(name) != null ||
-    Object.prototype.hasOwnProperty.call(__C, name) ||
-    (globalThis.__vitest_native_known_modules?.has(name) ?? false);
+    __presence().present(name, {
+      mocked: getModuleMock(name) != null,
+      core: isCoreModule(name),
+      seeded: isCoreModule(name),
+      scanned: (globalThis.__vitest_native_known_modules?.has(name) ?? false) || undefined,
+    });
+  // A module the Expo runtime makes absent: getEnforcing() throws for it, as on a device.
+  const isRuntimeAbsent = (name) => __presence().runtime(name, isCoreModule(name))?.present === false;
   // Native methods that return a Promise on the device (no callback arg). Without
   // this, real RN code doing \`NativeModule.canOpenURL(url).then(...)\` would crash
   // on \`undefined\`. Values are the no-native defaults.
@@ -178,6 +184,9 @@ function turboStubSource(platform, version) {
   // React Native's own modules' specs are read from the installed copy (see
   // native/native-modules.mjs); a module with no known spec answers every name.
   const hasMember = (name, p) => {
+    // A module the Expo runtime seeds has exactly the members it lists, permissive or not.
+    const fixed = __presence().runtime(name)?.members;
+    if (fixed) return typeof p === "string" && fixed.includes(p);
     const spec = globalThis.__vitest_native_module_specs?.get(name);
     if (!spec || __permissive()) return true;
     if (typeof p !== "string") return false;
@@ -266,8 +275,19 @@ export const BOUNDARY_SOURCES = {
     exports.get = (n) => getModuleMock(n) || (isKnownModule(n) ? turboStub(n) : null);
     // getEnforcing(): React Native throws for an absent module. Its callers cannot
     // run without one, so a stub stands in instead, and code that requires a native
-    // module still runs without per-module setup.
-    exports.getEnforcing = (n) => getModuleMock(n) || turboStub(n);
+    // module still runs without per-module setup. A module the Expo runtime option
+    // makes absent throws React Native's own error, as on a device.
+    exports.getEnforcing = (n) => {
+      const mock = getModuleMock(n);
+      if (mock) return mock;
+      if (isRuntimeAbsent(n)) {
+        const missing =
+          "TurboModuleRegistry.getEnforcing(...): '" + n + "' could not be found. " +
+          "Verify that a module by this name is registered in the native binary.";
+        throw Object.assign(new Error(missing), { name: "Invariant Violation" });
+      }
+      return turboStub(n);
+    };
   `,
   "Libraries/BatchedBridge/NativeModules.js": (platform, version) => `
     ${turboStubSource(platform, version)}

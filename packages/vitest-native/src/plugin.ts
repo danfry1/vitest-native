@@ -21,7 +21,11 @@ import { BUILT_IN_PRESET } from "./presets/built-in.js";
 import { serializableAliases } from "./jest-compat/aliases.mjs";
 import { tsconfigPathAliases } from "./native/tsconfig-paths.mjs";
 import { fsModuleCacheKey, shouldDefaultFsModuleCache } from "./fs-module-cache.js";
-import { knownNativeModulesFor, nativeModuleSpecsFor } from "./native/native-modules.mjs";
+import {
+  devLauncherInstalled,
+  knownNativeModulesFor,
+  nativeModuleSpecsFor,
+} from "./native/native-modules.mjs";
 import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
 import { detectEcosystemPackages } from "./native/ecosystem.js";
@@ -1852,6 +1856,18 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // React Native while running the mock is the exact failure mode the engine
       // split exists to prevent.
       if (decision.notice) console.warn(decision.notice);
+      // The Expo runtime is a set of native-module facts the native engine's boundary
+      // serves (native/native-modules.mjs, expoRuntimeFacts). The mock engine has no such boundary, so
+      // accepting the option there would leave every test reading Expo Go regardless.
+      if (engine === "mock" && options?.expo?.runtime !== undefined) {
+        throw new VitestNativeError(
+          "EXPO_RUNTIME_REQUIRES_NATIVE_ENGINE",
+          `The "expo.runtime" option is only supported by engine:'native', which serves ` +
+            `the native modules Expo reads to tell its runtimes apart. This project runs ` +
+            `engine:'mock'${requestedEngine === "mock" ? "" : " (selected automatically)"}. ` +
+            `Set engine:'native', or remove "expo.runtime".`,
+        );
+      }
       // Each engine's branch below prints the banner once it knows the presets (and,
       // for the native engine, the runtime).
       warnRetiredVariables(
@@ -1890,6 +1906,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         fields.knownNativeModules = knownNativeModulesFor(resolvedRoot);
         fields.nativeModuleSpecs = nativeModuleSpecsFor(resolvedRoot);
         if (options?.nativeModules === "permissive") fields.nativeModules = "permissive";
+        // Read by the boundary at lookup time, like nativeModules (expoRuntimeFacts). The
+        // default, 'expo-go', writes nothing, so its context is the one without the option.
+        if (options?.expo?.runtime === "development-build") {
+          fields.expoRuntime = "development-build";
+          fields.expoDevLauncher = devLauncherInstalled(resolvedRoot);
+        }
       }
       // Asset extensions for the Node require hook (matches the Vite graph): a CJS
       // `require('./logo.png')` reaching Node's loader must become a Metro-shaped

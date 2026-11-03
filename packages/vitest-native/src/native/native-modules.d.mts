@@ -13,3 +13,23 @@ export declare function reactNativeRootFor(projectRoot: string): string | null;
 export declare function knownNativeModulesFor(projectRoot: string): string[];
 export declare function nativeModuleSpecsFor(projectRoot: string): Record<string, string[]>;
 export declare function installKnownNativeModules(projectRoot: string): void;
+export declare function runtimeModule(
+  name: string,
+  core?: boolean,
+): { present: boolean; members?: string[] } | undefined;
+export declare function modulePresent(
+  name: string,
+  layers?: { mocked?: boolean; core?: boolean; seeded?: boolean; scanned?: boolean },
+): boolean;
+export declare const EXPO_RUNTIMES: readonly ["expo-go", "development-build"];
+export declare const DEV_LAUNCHER_PACKAGE: "expo-dev-launcher";
+export declare const DEV_CLIENT_PACKAGE: "expo-dev-client";
+export interface ExpoRuntimeFacts {
+  modules: Record<string, { present: boolean; members?: string[] }>;
+  constants: Record<string, Record<string, unknown>>;
+}
+export declare function expoRuntimeFacts(
+  runtime: string | undefined,
+  installed: { devLauncher: boolean },
+): ExpoRuntimeFacts | null;
+export declare function devLauncherInstalled(projectRoot: string): boolean;
