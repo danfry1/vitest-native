@@ -1,24 +1,25 @@
 /**
- * P0a proof: a third-party native-runtime library (Reanimated) works under the
- * native engine. Reanimated 4 cannot run in Node — it pulls in
- * react-native-worklets (native). So `engine: 'native'` must SHADOW it with the
- * vitest-native preset mock (same way Jest mocks it), while still rendering the
- * wrapped component through REAL React Native.
- *
- * react-native-reanimated is installed as a devDependency so this proves the real
- * package is present and correctly shadowed by the auto-detected preset — never
- * loaded (loading it would crash on the worklets native boundary).
+ * Reanimated under the native engine. The preset's module is reanimated's own test
+ * mock (`react-native-reanimated/mock`), as a Jest suite gets it with
+ * `jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'))`,
+ * over the real package and the real react-native-worklets in their JS
+ * implementations, which load through the libraries' own Jest resolvers
+ * (native/jest-resolvers.mjs). Wrapped components render through real React Native.
  */
 import { describe, it, expect } from "vitest";
 import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react-native";
 import { Text, Pressable } from "react-native";
 import Animated, {
+  Easing,
+  interpolateColor,
   useSharedValue,
   useAnimatedStyle,
+  withSpring,
   withTiming,
   runOnJS,
 } from "react-native-reanimated";
+import * as Reanimated from "react-native-reanimated";
 
 function Box() {
   const width = useSharedValue(100);
@@ -72,5 +73,20 @@ describe("react-native-reanimated under native engine", () => {
     const AnimatedCustom = Animated.createAnimatedComponent(Custom);
     await render(<AnimatedCustom testID="custom" />);
     expect(screen.getByText("wrapped")).toBeTruthy();
+  });
+
+  it("is reanimated's own mock: its whole API, and its callbacks' arguments", () => {
+    // Names the hand-written preset lacked, which reanimated's mock provides.
+    for (const name of ["interpolateColor", "clamp", "Keyframe", "getAnimatedStyle"]) {
+      expect(typeof (Reanimated as Record<string, unknown>)[name], name).toBe("function");
+    }
+    expect(typeof interpolateColor).toBe("function");
+    expect(typeof Easing.out(Easing.exp)).toBe("function");
+    // The mock calls an animation's callback with `true` (finished), as the real
+    // AnimationCallback type declares; the hand-written preset passed an object.
+    const finished: unknown[] = [];
+    withTiming(1, {}, (done?: boolean) => finished.push(done));
+    withSpring(1, {}, (done?: boolean) => finished.push(done));
+    expect(finished).toEqual([true, true]);
   });
 });
