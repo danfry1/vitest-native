@@ -13,6 +13,8 @@
 //   - the exhibit's `vendor/*` packages, copied (a registry install copies; a `file:`
 //     link would leave the real path outside node_modules);
 //   - the exhibit's workspace members, linked by name (`links` in exhibits.json);
+//   - `installedCopies`: a real copy of an installed package at a path in the exhibit
+//     (a second copy of React, as a monorepo app that has its own has);
 //   - the install axes the exhibit requires (exhibits.json `requires`):
 //       rntl: "12" | "13"   a copy of that RNTL from a local bun store (RNTL_STORE)
 //       vitest: "4"         Vitest 4.1.11 assembled from bun's cache (vitest4.mjs)
@@ -149,12 +151,52 @@ function placeInPnpmShape(modules, name) {
   fs.symlinkSync(path.join(storeModules, name), at);
 }
 
+/** Where the ownership wrapper records each reactNative() call it saw, in the exhibit root. */
+export const OWNERSHIP_MARKER = ".museum-ownership-calls";
+
+/**
+ * `run.mjs --ownership <model>`: every reactNative() call in the exhibit gets
+ * `experimental.ownershipModel: model`, as if each config spelled it, without editing
+ * any exhibit. The installed copy's main entry becomes a module that re-exports the
+ * build's own and wraps reactNative; the build's files are untouched. Each call appends
+ * a line to OWNERSHIP_MARKER, so run.mjs can tell an exhibit the flag never reached.
+ */
+export function wrapForOwnership(installed, root, model) {
+  const manifestFile = path.join(installed, "package.json");
+  const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
+  const main = manifest.exports?.["."];
+  if (typeof main?.default !== "string")
+    throw new Error(`--ownership: ${manifestFile} has no exports["."].default to wrap`);
+  const wrapper = "museum-ownership.mjs";
+  fs.writeFileSync(
+    path.join(installed, wrapper),
+    [
+      "// Written by the bug museum (run.mjs --ownership): every reactNative() call",
+      "// gets experimental.ownershipModel. A local export shadows the star re-export.",
+      'import fs from "node:fs";',
+      `import { reactNative as buildReactNative } from ${JSON.stringify(main.default)};`,
+      `export * from ${JSON.stringify(main.default)};`,
+      "export function reactNative(options) {",
+      `  fs.appendFileSync(${JSON.stringify(path.join(root, OWNERSHIP_MARKER))}, ${JSON.stringify(`${model}\n`)});`,
+      "  return buildReactNative({",
+      "    ...options,",
+      `    experimental: { ...options?.experimental, ownershipModel: ${JSON.stringify(model)} },`,
+      "  });",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  manifest.exports["."] = { ...main, default: `./${wrapper}` };
+  fs.writeFileSync(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+}
+
 /**
  * Materialise `exhibit` (an exhibits.json entry) under `work`. Returns the app root.
  * `build` is the vitest-native package directory under test; `vitest4` the directory
- * vitest4.mjs prepared (required when the exhibit needs Vitest 4).
+ * vitest4.mjs prepared (required when the exhibit needs Vitest 4); `ownershipModel`
+ * other than "off" wraps the installed copy (wrapForOwnership).
  */
-export function materialise(exhibit, { work, build, vitest4, edits = [] }) {
+export function materialise(exhibit, { work, build, vitest4, edits = [], ownershipModel = "off" }) {
   const root = path.join(work, exhibit.id);
   fs.rmSync(root, { recursive: true, force: true });
   fs.cpSync(path.join(museumRoot, "exhibits", exhibit.id), root, { recursive: true });
@@ -183,7 +225,17 @@ export function materialise(exhibit, { work, build, vitest4, edits = [] }) {
     }
   }
   copyPackage(build, path.join(modules, "vitest-native"));
+  if (ownershipModel !== "off")
+    wrapForOwnership(path.join(modules, "vitest-native"), root, ownershipModel);
   linkAll(modules, path.join(packageRoot, "node_modules"));
+
+  // A second, real copy of an installed package at a path inside the exhibit
+  // (`installedCopies`: { "<path>": "<name>" }): a monorepo whose app has its own copy
+  // beside the root's. A link would share the real path, and so be one module.
+  for (const [to, name] of Object.entries(exhibit.installedCopies ?? {})) {
+    const from = fs.realpathSync(path.join(packageRoot, "node_modules", name));
+    fs.cpSync(from, path.join(root, to), { recursive: true, dereference: true });
+  }
 
   // Packages this package does not depend on directly but the repository's bun store has
   // (`storeLinks`: { name: version }).

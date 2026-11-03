@@ -16,6 +16,11 @@
 //
 //   --keep          keep the materialised workspace and print its path
 //   --only a,b      run only these probes (investigation; the verdict still applies)
+//   --ownership off|resolver
+//                   the ownershipModel axis (axes.json `flags`, ownership.mjs): every
+//                   native-engine run sets experimental.ownershipModel and is judged with
+//                   it. Default "off", as every CI cell runs. A build that does not read
+//                   the flag records "flag not supported by this build" and exits 0.
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -25,7 +30,8 @@ import { activeProbes, observes, PROBES } from "./probes.mjs";
 import { account } from "./accounting.mjs";
 import { INSTALL_TIMEOUT_MS, must, PNPM, sh } from "./sh.mjs";
 import { judge, readKnownFailing, validateEntries } from "./verdict.mjs";
-import { cellName, readAxes } from "./cells.mjs";
+import { allowed, cellName, readAxes } from "./cells.mjs";
+import { ownershipModelArgument, ownershipSupport } from "./ownership.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(here, "../..");
@@ -297,6 +303,7 @@ function vitestRun(app, run, files, outputFile, accountingFile) {
   env.AXIS_GLOBALS = settings.globals;
   env.AXIS_HOT = settings.hot;
   env.AXIS_JEST_COMPAT = settings.jestCompat;
+  env.AXIS_OWNERSHIP_MODEL = run.ownershipModel ?? "off";
   if (settings.workers) env.AXIS_WORKERS = settings.workers;
   env.AXIS_ACCOUNTING_FILE = accountingFile;
   // pnpm links Vitest into the app; npm hoists it to the workspace root.
@@ -363,6 +370,16 @@ function resolvedAxes(output) {
   return engine ? { engine, hot } : null;
 }
 
+const requestedOwnership = ownershipModelArgument(argument("ownership"));
+
+/** The ownershipModel a run of `cell` uses: the requested one, where it is allowed. */
+function ownershipModel(cell, run) {
+  if (requestedOwnership === "off") return "off";
+  const { runs: _runs, ...install } = cell;
+  const row = { ...install, ...run, ownershipModel: requestedOwnership };
+  return allowed(row, readAxes().constraints) ? requestedOwnership : "off";
+}
+
 function runCell(cell, root, entries) {
   const app = path.join(root, "apps/app");
   const only = argument("only")?.split(",");
@@ -391,7 +408,11 @@ function runCell(cell, root, entries) {
       run = { ...planned };
       for (const axis of planned.resolve) run[axis] = resolved[axis];
     }
-    const full = { ...cell, ...run };
+    // --ownership: the flag where its constraints allow it (the native engine). A run
+    // left at "off" carries no ownershipModel key, so its label reads as it always has.
+    const model = ownershipModel(cell, run);
+    if (model !== "off") run = { ...run, ownershipModel: model };
+    const full = { ...cell, ...run, ownershipModel: model };
     for (const key of ["runs", ...RUN_KEYS]) delete full[key];
     const axesLabel = Object.entries(run)
       .filter(([key]) => !RUN_KEYS.includes(key))
@@ -496,6 +517,13 @@ if (!cellArg) {
 }
 const cell = JSON.parse(cellArg);
 const root = materialise(cell, axes);
+// A build without the flag would ignore it: record that instead of measuring "off" twice.
+const support = ownershipSupport(path.join(root, "apps/app"), requestedOwnership);
+if (!support.supported) {
+  console.log(`\n${cellName(cell)}: experimental.ownershipModel: ${support.reason}`);
+  if (!flag("keep")) fs.rmSync(root, { recursive: true, force: true });
+  process.exit(0);
+}
 let verdicts;
 try {
   verdicts = runCell(cell, root, entries);

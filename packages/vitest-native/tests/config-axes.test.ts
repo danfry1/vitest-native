@@ -6,7 +6,9 @@
  * how their results are judged, cannot quietly cover less than it says.
  */
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — runtime .mjs, no types
 import {
@@ -27,6 +29,15 @@ import {
 import { must, sh } from "../validation/config-axes/sh.mjs";
 // @ts-expect-error — runtime .mjs, no types
 import { fileResults, runProblems } from "../validation/config-axes/accounting.mjs";
+import {
+  judgeSupport,
+  ownershipModelArgument,
+  ownershipSupport,
+  UNSUPPORTED,
+  // @ts-expect-error — runtime .mjs, no types
+} from "../validation/config-axes/ownership.mjs";
+// @ts-expect-error — runtime .mjs, no types
+import { OWNERSHIP_MARKER, wrapForOwnership } from "../validation/bug-museum/lib/materialise.mjs";
 import {
   judge,
   matchingEntries,
@@ -537,5 +548,112 @@ describe("probe catalog", () => {
     const ids = PROBES.map((probe: { id: string }) => probe.id);
     expect(new Set(ids).size).toBe(ids.length);
     for (const probe of PROBES) expect(probe.bug, probe.id).toMatch(/^\S.{10,}$/);
+  });
+});
+
+describe("the ownershipModel axis", () => {
+  // A stand-in vitest-native whose reactNative() is `body`, in a fresh directory.
+  const fakeBuild = (body: string) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-ownership-axis-"));
+    fs.mkdirSync(path.join(dir, "dist"));
+    fs.writeFileSync(
+      path.join(dir, "package.json"),
+      JSON.stringify({
+        name: "vitest-native",
+        type: "module",
+        exports: { ".": { default: "./dist/index.mjs" } },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(dir, "dist/index.mjs"),
+      `export const other = "kept";\nexport function reactNative(options) {\n${body}\n}\n`,
+    );
+    return dir;
+  };
+
+  it("is opt-in: a flag, not a runtime axis, so no CI cell changes", () => {
+    expect(axes.flags.ownershipModel).toEqual(["off", "resolver"]);
+    expect(axes.runtime).not.toHaveProperty("ownershipModel");
+    expect(ownershipModelArgument(undefined)).toBe("off");
+    expect(() => ownershipModelArgument("resolution")).toThrow(/off, resolver/);
+  });
+
+  it("applies to the native engine only", () => {
+    expect(allowed({ engine: "native", ownershipModel: "resolver" }, axes.constraints)).toBe(true);
+    expect(allowed({ engine: "mock", ownershipModel: "resolver" }, axes.constraints)).toBe(false);
+  });
+
+  it("known-failing entries may name its values, and only those", () => {
+    const entry = (ownershipModel: string) => ({
+      probe: "aliased-sibling-regex",
+      when: { ownershipModel },
+      failure: "^aliased-sibling-regex\\.test\\.ts: Cannot find module '@axis/rvalidator/store'",
+      fixedBy: "#370",
+      why: "a reason",
+    });
+    expect(validateEntries([entry("off")], axes, PROBES)).toEqual([]);
+    expect(validateEntries([entry("resolution")], axes, PROBES)).toEqual([
+      'known-failing.json entry 0 (aliased-sibling-regex): ownershipModel has no value "resolution"',
+    ]);
+  });
+
+  it("a build supports the flag only when it accepts the value and rejects a wrong one by name", () => {
+    expect(
+      judgeSupport({ accepted: null, rejected: 'bad "experimental.ownershipModel"', warnings: [] }),
+    ).toEqual({ supported: true });
+    // main before #370: an unknown option, warned about and ignored
+    expect(
+      judgeSupport({
+        accepted: null,
+        rejected: null,
+        warnings: ["[vitest-native] Unknown option 'experimental'."],
+      }),
+    ).toMatchObject({ supported: false, reason: expect.stringContaining(UNSUPPORTED) });
+    // a build that drops the flag: it accepts any value, so it does not read it
+    expect(judgeSupport({ accepted: null, rejected: null, warnings: [] })).toMatchObject({
+      supported: false,
+      reason: expect.stringContaining("does not read it"),
+    });
+    expect(judgeSupport({ accepted: "no", rejected: "no", warnings: [] }).supported).toBe(false);
+  });
+
+  it("asks the build itself, and calls a build that ignores the flag unsupported", () => {
+    const warns = fakeBuild(
+      `if (options?.experimental) console.warn("[vitest-native] Unknown option 'experimental'.");`,
+    );
+    const ignores = fakeBuild("return {};");
+    const reads = fakeBuild(
+      `if (options?.experimental?.ownershipModel !== "resolver") throw new Error('"experimental.ownershipModel" must be "resolver".');`,
+    );
+    try {
+      expect(ownershipSupport(warns, "resolver").supported).toBe(false);
+      expect(ownershipSupport(ignores, "resolver").supported).toBe(false);
+      expect(ownershipSupport(reads, "resolver")).toEqual({ supported: true });
+      expect(ownershipSupport(warns, "off")).toEqual({ supported: true });
+    } finally {
+      for (const dir of [warns, ignores, reads]) fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("the museum's wrapper gives every reactNative() call the flag, keeps the rest, and records the call", async () => {
+    const installed = fakeBuild("return options;");
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-ownership-root-"));
+    try {
+      wrapForOwnership(installed, root, "resolver");
+      const manifest = JSON.parse(fs.readFileSync(path.join(installed, "package.json"), "utf8"));
+      const entry = path.join(installed, manifest.exports["."].default);
+      const wrapped = await import(pathToFileURL(entry).href);
+      expect(wrapped.reactNative({ hotRuntime: false, experimental: { other: 1 } })).toEqual({
+        hotRuntime: false,
+        experimental: { other: 1, ownershipModel: "resolver" },
+      });
+      expect(wrapped.reactNative()).toEqual({ experimental: { ownershipModel: "resolver" } });
+      expect(wrapped.other).toBe("kept");
+      expect(fs.readFileSync(path.join(root, OWNERSHIP_MARKER), "utf8")).toBe(
+        "resolver\nresolver\n",
+      );
+    } finally {
+      for (const dir of [installed, root]) fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

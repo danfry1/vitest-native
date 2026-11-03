@@ -41,6 +41,7 @@ node validation/bug-museum/run.mjs --only pfs-hot-use-id,env-expo-os
 node validation/bug-museum/run.mjs --class ownership
 node validation/bug-museum/run.mjs --build ../other-checkout/packages/vitest-native
 node validation/bug-museum/run.mjs --control    # each exhibit with its bug's precondition removed
+node validation/bug-museum/run.mjs --ownership resolver   # with experimental.ownershipModel: 'resolver'
 MUSEUM_DEBUG=1 node validation/bug-museum/run.mjs --only <id>   # Vitest's own output too
 ```
 
@@ -48,6 +49,19 @@ Each exhibit prints `PASS`, `FAIL (the bug)`, `FAIL (unexpected)` or `N/A` with 
 reason. The process exits 1 when any exhibit fails, and also when any is N/A (an exhibit
 that could not run is not evidence) unless `--allow-na` is given. On today's main the suite
 is red by design: STATUS.md lists what is expected to fail until each fix lands.
+
+### The `ownershipModel` axis
+
+`--ownership resolver` runs every exhibit with `experimental.ownershipModel: 'resolver'`
+(ownership track A, ADR-0004/0005), so a build can be judged in both flag states. The
+installed copy of vitest-native gets a main entry that re-exports the build's and adds the
+option to every `reactNative()` call; no exhibit is edited, and the build is not touched.
+An exhibit whose `reactNative()` never saw the option fails, so a run cannot pass with the
+flag silently off. Before running anything, `../config-axes/ownership.mjs` asks the build
+whether it reads the flag: it must accept the value and reject an invalid one by name. A
+build that does not (main before #370) records every exhibit N/A, "flag not supported by
+this build", and exits 0. Verdicts carry `ownershipModel`, and `status.mjs` refuses them:
+STATUS.md records the flag off. The default (`off`) leaves the option unset, as before.
 
 A run passes only when three witnesses agree (the config-axis matrix's
 `../config-axes/accounting.mjs` and its accounting reporter): Vitest exited 0, the JSON
@@ -92,6 +106,9 @@ repository lacks are assembled from local copies (`requires` in exhibits.json):
 - `vitest: 4`: Vitest 4.1.11 and its `@vitest/*` packages from bun's global cache;
 - `layout: pnpm`: the `pnpmShaped` packages moved into a pnpm-shaped store directory
   named after their peers (`.pnpm/<name>@<v>_<peer>@<v>/node_modules/<name>`).
+
+`installedCopies` (`{ "<path in the exhibit>": "<package>" }`) puts a real copy of an
+installed package inside the exhibit, as a monorepo app with its own copy of React has.
 
 When a local copy is missing the exhibit is `N/A: requires-CI`, and the run exits 1
 unless `--allow-na` is given.

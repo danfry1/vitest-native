@@ -27,6 +27,14 @@ jest-compat is documented as `jestCompatSetup` + `globals: true`: `jestMockTrans
 `jest.mock` to a global `vi`, so without globals a partial mock fails with `vi is not defined`.
 That error is itself worth a clearer message (see Open questions).
 
+**The `ownershipModel` flag axis (opt-in).** `axes.json` lists `ownershipModel: off, resolver`
+under `flags`, not `runtime`, so no CI cell runs it yet and every scheduled run keeps the flag
+off. `run.mjs --ownership resolver` sets `experimental.ownershipModel` on every native-engine
+run of a cell and judges each run with the value it used, so a known-failing entry can name
+it in `when`. A build that does not read the flag (main before #370) prints "flag not
+supported by this build" and exits 0 instead of measuring the flag off twice
+(`validation/config-axes/ownership.mjs`). Ownership track A1 moves the axis into `runtime`.
+
 ## What existing CI already covered
 
 | Cell            | Where                                                                                   | Notes                                                                      |

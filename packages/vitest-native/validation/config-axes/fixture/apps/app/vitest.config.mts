@@ -13,6 +13,7 @@ const ws = path.resolve(here, "../..");
 const axis = (name: string) => process.env[`AXIS_${name}`];
 const hot = axis("HOT") === "on";
 const jestCompat = axis("JEST_COMPAT") === "on";
+const ownershipModel = axis("OWNERSHIP_MODEL");
 
 export default defineConfig({
   plugins: [
@@ -28,6 +29,8 @@ export default defineConfig({
       ...(axis("HOT") === "default"
         ? {}
         : { hotRuntime: hot ? { allowUnboundedMemory: true } : false }),
+      // run.mjs --ownership: "off" (every CI cell) leaves the option unset.
+      ...(ownershipModel && ownershipModel !== "off" ? { experimental: { ownershipModel } } : {}),
     }),
   ],
   resolve: {
