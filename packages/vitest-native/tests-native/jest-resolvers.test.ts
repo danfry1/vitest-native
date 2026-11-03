@@ -66,6 +66,37 @@ describe("library Jest resolvers", () => {
       expect(libraryExtensionsFor(root, "./initializers", from, ios)).toEqual(withoutNative);
     });
 
+    // Reanimated's resolver still matches `basedir.includes('react-native-reanimated')`
+    // for its web-only module names, so these hold on every installed version.
+    it("leave a package that has reanimated as a peer alone", () => {
+      const from = inStore(
+        "some-animation-lib@1.0.0_react-native-reanimated@4.7.1",
+        "some-animation-lib",
+        "lib/index.js",
+      );
+      expect(libraryExtensionsFor(root, "./util", from, ios)).toBeNull();
+    });
+
+    it("leave a package whose name contains reanimated's alone", () => {
+      const from = inStore(
+        "react-native-reanimated-carousel@4.0.2",
+        "react-native-reanimated-carousel",
+        "src/index.tsx",
+      );
+      expect(libraryExtensionsFor(root, "./util", from, ios)).toBeNull();
+    });
+
+    it("show the resolvers a file's path from its package on, not the store directory", () => {
+      // A worklets file outside src/ and lib/, which worklets' own resolver leaves alone,
+      // in a store directory named after reanimated: only the store path mentions it.
+      const from = inStore(
+        "react-native-worklets@0.13.1_react-native-reanimated@4.7.1",
+        "react-native-worklets",
+        "plugin/index.js",
+      );
+      expect(libraryExtensionsFor(root, "./util", from, ios)).toBeNull();
+    });
+
     it("leave a package whose name only starts with worklets' alone", () => {
       const from = inStore(
         "react-native-worklets-core@1.6.2",
