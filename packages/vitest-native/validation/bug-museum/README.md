@@ -29,7 +29,6 @@ lib/lines.mjs          a run's failure lines (file: message, no titles)
 lib/build-info.mjs     the SHA a build directory was built from, checked by content hash
 lib/hash.mjs           content hashes of a build (package.json + dist/) and of an exhibit
 lib/materialise.mjs    builds an exhibit's workspace from this repository's install
-lib/vitest4.mjs        assembles Vitest 4.1.11 from bun's cache for the exhibits that need it
 ```
 
 ## Running
@@ -89,7 +88,6 @@ repository lacks are assembled from local copies (`requires` in exhibits.json):
 
 - `rntl: 12 | 13`: copied from a bun store that has them (default
   `~/dev/vitest-react-native/node_modules/.bun`, override `VN_MUSEUM_RNTL_STORE`);
-- `vitest: 4`: Vitest 4.1.11 and its `@vitest/*` packages from bun's global cache;
 - `layout: pnpm`: the `pnpmShaped` packages moved into a pnpm-shaped store directory
   named after their peers (`.pnpm/<name>@<v>_<peer>@<v>/node_modules/<name>`).
 
@@ -106,7 +104,7 @@ or one that fails as its bug fails some other way. An exhibit that now passes is
 to be recorded with `run-columns.mjs` and `status.mjs`.
 
 The check is advisory, not required; the workflow's header says when it becomes one. It
-skips the exhibits that need RNTL 12 or 13 or Vitest 4 (N/A there), and reports
+skips the exhibits that need RNTL 12 or 13 (N/A there), and reports
 `cfg-group-conflict-fallback` as inconclusive when hot auto picks per-file isolation on
 the runner.
 

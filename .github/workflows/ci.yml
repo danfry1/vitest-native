@@ -276,10 +276,7 @@ jobs:
             label: Expo pnpm suite
           - gate: vitest-semantics
             vitest: 5.0.1
-            label: Vitest semantics, Vitest 5
-          - gate: vitest-semantics
-            vitest: 4.1.11
-            label: Vitest semantics, Vitest 4 floor
+            label: Vitest semantics
           - gate: hot-runtime
             label: hot runtime and registry
 
@@ -355,7 +352,6 @@ jobs:
         # mode.
         # Each scenario asserts which runtime ran, Vitest's own outcome, and
         # cross-file isolation. An explicit Vitest setting must never be overridden.
-        # One cell per Vitest major, so each runs in parallel with the other.
         if: matrix.gate == 'vitest-semantics'
         env:
           VN_SEMANTICS_VITEST: ${{ matrix.vitest }}

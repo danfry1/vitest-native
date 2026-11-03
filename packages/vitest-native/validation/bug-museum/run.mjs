@@ -33,7 +33,6 @@ import { exhibitHash } from "./lib/hash.mjs";
 import { runLines } from "./lib/lines.mjs";
 import { findRntl, materialise, museumRoot, packageRoot } from "./lib/materialise.mjs";
 import { classify, validateSignature } from "./lib/verdict.mjs";
-import { prepareVitest4 } from "./lib/vitest4.mjs";
 
 const argument = (name) => {
   const index = process.argv.indexOf(`--${name}`);
@@ -105,8 +104,6 @@ function notApplicable(exhibit, context) {
   if (exhibit.na) return exhibit.na;
   if (requires.rntl && !findRntl(requires.rntl))
     return `requires-CI: no local RNTL ${requires.rntl} store (set VN_MUSEUM_RNTL_STORE)`;
-  if (requires.vitest === "4" && !context.vitest4)
-    return `requires-CI: Vitest 4 unavailable (${context.vitest4Reason})`;
   return null;
 }
 
@@ -223,11 +220,6 @@ function main() {
     keep: flag("keep"),
     control: flag("control"),
   };
-  if (selected.some((e) => e.requires?.vitest === "4")) {
-    const prepared = prepareVitest4(path.join(context.work, ".vitest4"));
-    context.vitest4 = prepared.dir;
-    context.vitest4Reason = prepared.reason;
-  }
 
   const verdicts = {};
   for (const exhibit of selected) {

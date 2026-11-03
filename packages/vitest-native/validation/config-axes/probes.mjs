@@ -90,13 +90,6 @@ export const PROBES = [
     bug: "errors with per-instance methods are unequal under jest-compat",
   },
   {
-    id: "hot-automock",
-    files: ["hot-automock-a.test.ts", "hot-automock-b.test.ts"],
-    requires: { hot: "on" },
-    observes: { vitest: "4" },
-    bug: "under hot on Vitest 4.1, an automock replays another file's factory",
-  },
-  {
     id: "hot-rn-module-mock",
     files: ["hot-rn-module-mock-a.test.ts", "hot-rn-module-mock-b.test.ts"],
     requires: { hot: "on", jestCompat: "on" },

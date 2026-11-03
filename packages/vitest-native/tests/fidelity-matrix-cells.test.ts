@@ -67,8 +67,6 @@ const ALL_CELLS = (() => {
     { rn, flavor: "locked", vitest: "5.0.1" },
     { rn, flavor: "latest-supported", vitest: "5.0.1" },
   ]);
-  cells.push({ rn: "0.81", flavor: "v4", vitest: "4.1.11" });
-  cells.push({ rn: "0.88", flavor: "v4", vitest: "4.1.11" });
   return cells;
 })();
 
@@ -81,15 +79,6 @@ describe("fidelity matrix cells", () => {
     const rows = tableRows(render(ALL_CELLS));
     expect(rows.length).toBe(ALL_CELLS.length);
     expect(new Set(rows).size).toBe(rows.length);
-  });
-
-  it("does not label a v4 floor cell as locked", () => {
-    const page = render([
-      { rn: "0.86", flavor: "locked", vitest: "5.0.1" },
-      { rn: "0.87", flavor: "v4", vitest: "4.1.11" },
-    ]);
-    expect(page).toContain("| v4 |");
-    expect(tableRows(page).filter((r) => r.includes("| locked |")).length).toBe(1);
   });
 
   it("claims the full matrix only when every gated cell reported", () => {
@@ -107,9 +96,9 @@ describe("fidelity matrix cells", () => {
   });
 
   it("counts a wholly absent flavor as missing rather than passing silently", () => {
-    const page = render(ALL_CELLS.filter((c) => c.flavor !== "v4"));
+    const page = render(ALL_CELLS.filter((c) => c.flavor !== "latest-supported"));
     expect(page).toContain("Incomplete matrix data");
-    expect(page).toContain("0.81-v4");
-    expect(page).toContain("0.88-v4");
+    expect(page).toContain("0.81-latest-supported");
+    expect(page).toContain("0.88-latest-supported");
   });
 });
