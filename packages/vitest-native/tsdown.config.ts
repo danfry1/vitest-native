@@ -24,18 +24,6 @@ const shared = {
   },
 } satisfies UserConfig;
 
-// The matcher declarations augment the "vitest" module. Under Vitest 4 that
-// augmentation only merges when the declaration file itself references vitest, and
-// declaration bundling drops both an unused type import and a `reference types`
-// directive from the source — so add the directive to the emitted file.
-function referenceVitest(file: string): void {
-  const target = path.resolve("dist", file);
-  if (!fs.existsSync(target)) return;
-  const text = fs.readFileSync(target, "utf8");
-  const directive = '/// <reference types="vitest" />';
-  if (!text.startsWith(directive)) fs.writeFileSync(target, `${directive}\n${text}`);
-}
-
 export default defineConfig([
   {
     ...shared,
@@ -55,7 +43,6 @@ export default defineConfig([
       // runtime (native: via module.register; jest-compat: as setup file / alias
       // targets resolved by Vite), so they must ship verbatim rather than bundled.
       "build:done": () => {
-        referenceVitest("matchers.d.mts");
         // Top-level runtime .mjs (errors.mjs) ships verbatim too: the shipped runtimes
         // below import it by relative path, and the tests load those same files from src,
         // so it must resolve in both trees as one module rather than a bundled copy.
@@ -97,8 +84,5 @@ export default defineConfig([
       "jest-compat": "src/jest-compat/index.ts",
     },
     format: "cjs",
-    hooks: {
-      "build:done": () => referenceVitest("matchers.d.cts"),
-    },
   },
 ]);

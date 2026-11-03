@@ -8,11 +8,10 @@
  * 'babel-plugin-macros'`), an error that names nothing about Babel.
  */
 import { createRequire } from "node:module";
-import { installedViteVersion } from "../host.js";
 import fs from "node:fs";
 import path from "node:path";
 import { AUTO_DETECT_PRESETS, presetShadowing, type PresetName } from "../preset-map.js";
-import { installedManifest, installedMajor } from "./manifest.js";
+import { installedManifest } from "./manifest.js";
 
 // https://babeljs.io/docs/config-files: one project-wide config, plus one
 // file-relative config (.babelrc* or package.json#babel). Babel merges the two.
@@ -265,17 +264,6 @@ export function classifyBabelPlugins(
   });
 }
 
-/** The installed major version of `vite`, or null. */
-export function viteMajor(root: string): number | null {
-  // From the module, not the manifest: see installedViteVersion.
-  const major = Number(
-    installedViteVersion(root)
-      ?.replace(/^[^0-9]*/, "")
-      .split(".")[0],
-  );
-  return Number.isFinite(major) ? major : installedMajor(root, "vite");
-}
-
 /** Whether `name` is installed where the project resolves it. */
 export function installed(root: string, name: string): boolean {
   return installedManifest(root, name) !== null;
@@ -293,21 +281,13 @@ export function pluginListSource(plugins: BabelPluginEntry[]): string {
 }
 
 /**
- * How to run Babel plugins per Vite major. @vitejs/plugin-react 6 (Vite 8) dropped
- * Babel and points at @rolldown/plugin-babel; on Vite 7 and earlier its `babel`
- * option adds plugins.
+ * How to run Babel plugins: @vitejs/plugin-react 6 (Vite 8) dropped Babel and points at
+ * @rolldown/plugin-babel.
  */
-export function babelRecipe(major: number | null, plugins: BabelPluginEntry[]): string {
-  const list = pluginListSource(plugins);
-  if (major !== null && major < 8) {
-    return (
-      `install @vitejs/plugin-react and @babel/core, then add ` +
-      `\`react({ babel: { plugins: ${list} } })\` (import react from '@vitejs/plugin-react') to plugins`
-    );
-  }
+export function babelRecipe(plugins: BabelPluginEntry[]): string {
   return (
     `install @rolldown/plugin-babel and @babel/core, then add ` +
-    `\`babel({ plugins: ${list} })\` (import babel from '@rolldown/plugin-babel') to plugins`
+    `\`babel({ plugins: ${pluginListSource(plugins)} })\` (import babel from '@rolldown/plugin-babel') to plugins`
   );
 }
 
