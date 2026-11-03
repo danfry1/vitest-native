@@ -190,7 +190,7 @@ export function reanimated(): Preset {
             : this.exports;
         },
         factory: () => {
-          const root = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
+          const root = projectContext()?.projectRoot ?? process.cwd();
           if (underNativeEngine() && libraryMockUsable(root)) {
             return createRequire(path.join(root, "package.json"))("react-native-reanimated/mock");
           }
