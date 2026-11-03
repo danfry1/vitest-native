@@ -19,7 +19,12 @@ import {
 
 const OUTSIDE_NODE_MODULES = String.raw`^(?!.*[\\/]node_modules[\\/])`;
 
-/** Files Vitest may execute as entries. They always belong to Vite. */
+/**
+ * Files Vitest may execute as entries. They always belong to Vite.
+ *
+ * Test files are recognised by name. A setup file has no naming convention, so the
+ * project's `test.setupFiles` are passed in as `entryFiles` instead (see decideFile).
+ */
 export const TEST_ENTRY_PATTERNS = Object.freeze([
   new RegExp(String.raw`${OUTSIDE_NODE_MODULES}.*\.(?:test|spec)\.[cm]?[jt]sx?$`),
   new RegExp(String.raw`${OUTSIDE_NODE_MODULES}.*[\\/]__tests__[\\/].*\.[cm]?[jt]sx?$`),
@@ -99,6 +104,7 @@ export function createNativeOwnershipPolicy({
   runtimeTransformAugmentations = [],
   projectDirs = [],
   reactNativeRoots = [],
+  entryFiles = [],
   serverDepsInlineAll = false,
 } = {}) {
   const enforcement = serverDepsInlineAll ? "overridden-by-inline-all" : "enforced";
@@ -155,11 +161,57 @@ export function createNativeOwnershipPolicy({
   const ecosystemMatcher = buildPkgMatcher(ecosystem, root);
   const runtimeMatcher = buildPkgMatcher(runtime, root);
   const normalizedProjectDirs = Object.freeze(unique(projectDirs).map((dir) => path.resolve(dir)));
+  const normalizedEntryFiles = Object.freeze(unique(entryFiles).map((file) => path.resolve(file)));
+  const entryKey = (file) => {
+    const resolved = path.resolve(file);
+    return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  };
+  const entryKeys = new Set(normalizedEntryFiles.map(entryKey));
 
   const decideFile = (rawFile) => {
     const file = cleanFileId(rawFile);
     if (TEST_ENTRY_PATTERNS.some((pattern) => pattern.test(file))) {
       return decision("vite", "source", "vite", "per-file", ["test-entry"], [file]);
+    }
+    // A setup file is an entry too: Vitest inlines `test.setupFiles` ahead of every
+    // `server.deps.external` pattern (its `inlineFiles`), so Vite evaluates one wherever
+    // it lives. The policy has to say the same, or a setup file inside a Node-owned
+    // package is refused as MODULE_OWNER_CONFLICT before it runs. The case that showed
+    // it: an app listing a sibling workspace library's own `vitest.setup.ts`, where the
+    // library declares react-native and is therefore Node-owned (ADR-0004 rule 7).
+    //
+    // Only the entry changes owner. What it imports is decided file by file, so the
+    // library's source stays with Node and the test and the setup file share its one
+    // instance. Two broader answers were rejected:
+    //   - Leaving every workspace package (real path outside node_modules) to Vite.
+    //     Detected workspace members are Node-owned on purpose (which members are
+    //     detected is dependencyDirOf's rule, in match.mjs): Vite's
+    //     compile changes class fields, EXPO_OS and the worklet plugin, and a member that
+    //     an installed package also requires loads twice when Vite owns it.
+    //   - Not detecting a package that holds a setup file. A setup file says nothing
+    //     about how the package's source must be compiled, and it would give one library
+    //     two owners depending on which app's config runs it.
+    // As with test files, a setup file under node_modules is left to the rules below.
+    //
+    // Only Vite's transform hook (plugin.ts) judges a setup file, so only the main
+    // process passes `entryFiles`. Workers judge Node's loads by package matchers;
+    // their one call to decideFile is the project-source resolution warning
+    // (hooks.mjs checkProjectSourceResolvedByNode), which has no use for entry files,
+    // since Vitest's runner imports a setup file through Vite. The manifest carries the
+    // list for diagnostics.
+    if (
+      entryKeys.size > 0 &&
+      !NODE_MODULES_PATH.test(file) &&
+      entryKeys.has(entryKey(cleanRawFileId(rawFile)))
+    ) {
+      return decision(
+        "vite",
+        "source",
+        "vite",
+        "per-file",
+        ["test-entry"],
+        ["test.setupFiles", file],
+      );
     }
     const runtimeResident = isRuntimeResidentFile(file);
     const testRuntimeResident = isTestRuntimeResidentFile(file);
@@ -269,6 +321,7 @@ export function createNativeOwnershipPolicy({
       enforcement,
       projectRoot: root,
       projectDirs: normalizedProjectDirs,
+      entryFiles: normalizedEntryFiles,
       reactNativeRoots: normalizedReactNativeRoots,
       nodeTransformPackages,
       runtimeTransformAugmentations: runtimeAugmentations,
@@ -320,6 +373,7 @@ export function createNativeOwnershipPolicy({
           reset: "per-file",
           reason: "test-entry",
           patterns: Object.freeze(TEST_ENTRY_PATTERNS.map(String)),
+          files: normalizedEntryFiles,
         }),
         Object.freeze({
           effect: "reset-if-external",
@@ -422,6 +476,15 @@ export function parseNativeOwnershipManifest(raw) {
       return null;
     }
     if (typeof value.projectRoot !== "string") return null;
+    if (
+      value.entryFiles !== undefined &&
+      !(
+        Array.isArray(value.entryFiles) &&
+        value.entryFiles.every((entry) => typeof entry === "string")
+      )
+    ) {
+      return null;
+    }
     for (const key of [
       "projectDirs",
       "reactNativeRoots",
@@ -458,7 +521,9 @@ export function formatNativeOwnershipManifest(input) {
   const list = (values) => (values.length > 0 ? values.join(", ") : "(none)");
   const lines = [
     `project: ${manifest.projectRoot}`,
-    `Vite / reset per file: ${list(manifest.projectDirs)} plus test entries`,
+    `Vite / reset per file: ${list(manifest.projectDirs)} plus test entries${
+      manifest.entryFiles?.length ? ` and setup files (${manifest.entryFiles.join(", ")})` : ""
+    }`,
     `Node / worker resident: react-native, @react-native/* (${list(manifest.reactNativeRoots)})`,
     `Node / native transform / reset per file: ${list(manifest.nodeTransformPackages)}`,
     `worker-time transform augmentations: ${list(manifest.runtimeTransformAugmentations)}`,

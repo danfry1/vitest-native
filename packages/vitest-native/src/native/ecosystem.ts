@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
-import { containsPath, packageDirOf } from "./match.mjs";
+import { containsPath, dependencyDirOf } from "./match.mjs";
 
 /**
  * Packages that must never be auto-inlined even though they depend on React
@@ -257,14 +257,15 @@ export function detectEcosystemPackages(
 
   /**
    * A package's manifest, and the real directory it is installed in, as Node finds it
-   * from `fromDir` (packageDirOf). Not `require.resolve("<name>/package.json")` alone:
-   * a package whose `exports` map leaves out `./package.json` refuses that request, and
-   * was silently never detected or compiled (expo-symbols 57, whose ES module build
-   * Node then ran raw).
+   * from `fromDir` (dependencyDirOf). Not `require.resolve("<name>/package.json")`
+   * alone: an installed package whose `exports` map leaves out `./package.json` refuses
+   * that request, and was silently never detected or compiled (expo-symbols 57, whose
+   * ES module build Node then ran raw). A workspace member is still found only through
+   * that request; dependencyDirOf says why.
    */
   type Installed = { manifest: Record<string, unknown>; dir: string };
   const installedFrom = (fromDir: string, name: string): Installed | null => {
-    const dir = packageDirOf(name, fromDir);
+    const dir = dependencyDirOf(name, fromDir);
     if (!dir) return null;
     try {
       const manifest = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
