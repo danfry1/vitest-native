@@ -799,7 +799,8 @@ describe("ecosystem detection: workspace members the run reaches", () => {
     dir: string,
     reachedPaths: string[] = [],
     onReachedUndeclared?: (n: string) => void,
-  ) => detectEcosystemPackages(dir, [], [], [], [], { reachedPaths, onReachedUndeclared });
+  ) =>
+    detectEcosystemPackages(dir, [], [], [], [], undefined, { reachedPaths, onReachedUndeclared });
 
   it("walks what a declared workspace member depends on", () => {
     // feature declares @w/ui; @w/ui reaches expo-image, whose peer expo reaches expo-asset.
@@ -874,7 +875,7 @@ describe("ecosystem detection: what a reached workspace member may add", () => {
     return dirs;
   }
   const detect = (dir: string, reachedPaths: string[] = [], named: string[] = []) =>
-    detectEcosystemPackages(dir, [], [], [], [], {
+    detectEcosystemPackages(dir, [], [], [], [], undefined, {
       reachedPaths,
       onReachedUndeclared: (name) => named.push(name),
     });
@@ -887,7 +888,7 @@ describe("ecosystem detection: what a reached workspace member may add", () => {
     exports: { ".": "./index.js", "./package.json": "./package.json" },
     dependencies: deps,
   });
-  const probe = (appDeclaresC: boolean) =>
+  const probe = (appDeclaresC: boolean, direct = false) =>
     workspace({
       installed: { "react-native": {} },
       members: {
@@ -900,7 +901,10 @@ describe("ecosystem detection: what a reached workspace member may add", () => {
             },
           },
         },
-        c: { name: "@w/c", manifest: lib({ "@w/e": "workspace:*" }) },
+        c: {
+          name: "@w/c",
+          manifest: lib(direct ? { "@w/d": "workspace:*" } : { "@w/e": "workspace:*" }),
+        },
         e: { name: "@w/e", manifest: lib({ "@w/d": "workspace:*" }) },
         d: { name: "@w/d", manifest: { main: "index.js" } },
       },
@@ -908,6 +912,11 @@ describe("ecosystem detection: what a reached workspace member may add", () => {
 
   it("adds no workspace member through an alias: each keeps the owner it has on main", () => {
     const dirs = probe(false);
+    expect(detect(dirs["@w/app"], [path.join(dirs["@w/c"], "src")])).not.toContain("@w/d");
+  });
+
+  it("adds no plain member an aliased RN workspace library depends on directly", () => {
+    const dirs = probe(false, true);
     expect(detect(dirs["@w/app"], [path.join(dirs["@w/c"], "src")])).not.toContain("@w/d");
   });
 

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
-import { containsPath, dependencyDirOf } from "./match.mjs";
+import { containsPath, dependencyDirOf, type PackageDirOf } from "./match.mjs";
 
 /** A path inside a node_modules directory: an installed package's, not a workspace member's. */
 const NODE_MODULES_DIR = /[\\/]node_modules[\\/]/;
@@ -186,6 +186,18 @@ function manifestsFrom(projectRoot: string): { dir: string; manifest: Record<str
   }
 }
 
+export interface ReachedPackages {
+  /**
+   * Absolute paths the run imports outside its own package without declaring them as
+   * dependencies: the targets of `resolve.alias` entries. A workspace member containing
+   * one is reached, and its dependencies are walked (see "Workspace members the run
+   * reaches" below).
+   */
+  reachedPaths?: readonly string[];
+  /** Called once per workspace member reached through `reachedPaths` but not declared. */
+  onReachedUndeclared?: (name: string, dir: string) => void;
+}
+
 /**
  * Packages in the project that declare React Native in their own manifest.
  *
@@ -208,25 +220,20 @@ function manifestsFrom(projectRoot: string): { dir: string; manifest: Record<str
  * Excluded: packages a preset already shadows (their real source never loads), the
  * test infrastructure in NEVER_INLINE, and anything the consumer listed explicitly
  * in `transform` — that option keeps its existing meaning and takes precedence.
+ *
+ * `dirOf` finds a dependency's directory from a directory: `dependencyDirOf`, or a
+ * memoized copy of it (memoizePackageDirOf). Not `packageDirOf`, whose answer for a
+ * workspace member differs (see dependencyDirOf).
+ *
+ * `reachedPaths` adds the workspace members an alias reaches; see ReachedPackages.
  */
-export interface ReachedPackages {
-  /**
-   * Absolute paths the run imports outside its own package without declaring them as
-   * dependencies: the targets of `resolve.alias` entries. A workspace member containing
-   * one is reached, and its dependencies are walked (see "Workspace members the run
-   * reaches" below).
-   */
-  reachedPaths?: readonly string[];
-  /** Called once per workspace member reached through `reachedPaths` but not declared. */
-  onReachedUndeclared?: (name: string, dir: string) => void;
-}
-
 export function detectEcosystemPackages(
   projectRoot: string | string[],
   explicit: string[] = [],
   testRoots: string[] = [],
   neverTransform: string[] = [],
   activePresets?: readonly string[],
+  dirOf: PackageDirOf = dependencyDirOf,
   { reachedPaths = [], onReachedUndeclared }: ReachedPackages = {},
 ): string[] {
   // More than one root because `manifestsFrom` only walks UP. In a workspace the
@@ -281,7 +288,7 @@ export function detectEcosystemPackages(
    */
   type Installed = { manifest: Record<string, unknown>; dir: string };
   const installedFrom = (fromDir: string, name: string): Installed | null => {
-    const dir = dependencyDirOf(name, fromDir);
+    const dir = dirOf(name, fromDir);
     if (!dir) return null;
     try {
       const manifest = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));

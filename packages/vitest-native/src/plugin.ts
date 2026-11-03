@@ -25,7 +25,12 @@ import { knownNativeModulesFor, nativeModuleSpecsFor } from "./native/native-mod
 import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
 import { detectEcosystemPackages } from "./native/ecosystem.js";
-import { containsPath, packageDirOf } from "./native/match.mjs";
+import {
+  containsPath,
+  dependencyDirOf,
+  memoizePackageDirOf,
+  packageDirOf,
+} from "./native/match.mjs";
 type AssetModules = typeof import("./native/assets.mjs");
 import type { HotMemoryPlan } from "./native/memory.mjs";
 import type { NativePoolOptions } from "./native/pool.js";
@@ -2018,6 +2023,13 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         const userInline = (userConfig as { test?: { server?: { deps?: { inline?: unknown } } } })
           .test?.server?.deps?.inline;
         const userInlinesEverything = userInline === true;
+        // One lookup per package and directory for this config evaluation. The
+        // linked-package check below and the ownership policy share this one;
+        // detection keeps its own, because it asks dependencyDirOf, whose answer for
+        // a workspace member differs from packageDirOf's (match.mjs). Both are scoped
+        // to this call, so a restart in watch mode (which evaluates the config again)
+        // resolves afresh.
+        const dirOf = memoizePackageDirOf();
         // Workspace source the project imports through aliases (resolve.alias, and
         // tsconfig `paths` where Vite resolves them): a workspace member reached that way
         // has its dependencies walked like a declared one's.
@@ -2027,6 +2039,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           includeRoots,
           neverTransform,
           nativePresetNames,
+          memoizePackageDirOf(dependencyDirOf),
           {
             reachedPaths: requireAliases.entries
               .map(([, target]) => target)
@@ -2058,7 +2071,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // excluded by the hook itself, and treating them as disqualifying would
         // silence the warning in the case it exists for.
         const linkedDetectedDirs = ecosystem
-          .map((name) => packageDirOf(name, resolvedRoot))
+          .map((name) => dirOf(name, resolvedRoot))
           .filter((dir): dir is string => dir !== null && !/[\\/]node_modules[\\/]/.test(dir));
         const projectDirs = [
           ...new Set(
@@ -2082,6 +2095,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             resolvedRoot,
           ),
           serverDepsInlineAll: userInlinesEverything,
+          packageDirOf: dirOf,
         });
         assertInlineOwnership(userInline);
 
