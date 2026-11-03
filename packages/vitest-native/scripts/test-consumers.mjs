@@ -56,10 +56,12 @@ function runCaptured(command, args, cwd, env = {}) {
 }
 
 // pnpm for the pnpm-layout fixtures. VN_PNPM names a pnpm already on the machine
-// (space-separated command); otherwise npx fetches pnpm 10, as in CI.
+// (space-separated command); otherwise npx fetches the pinned pnpm, as in CI.
 const pnpmCommand = process.env.VN_PNPM
   ? process.env.VN_PNPM.split(" ")
-  : ["npx", "--yes", "pnpm@10"];
+  : // An exact release, as for every other dependency these gates install: a floating
+    // `pnpm@10` would run whatever pnpm published last, inside a required check.
+    ["npx", "--yes", "pnpm@10.34.9"];
 function pnpm(args, cwd) {
   run(pnpmCommand[0], [...pnpmCommand.slice(1), ...args], cwd);
 }

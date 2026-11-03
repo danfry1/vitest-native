@@ -1,8 +1,10 @@
 /**
  * A workspace package that runs a sibling library's setup file and reaches its source
  * through an alias. The library declares a react-native peer and publishes an exports
- * map without "./package.json", so it is detected as a React Native package; its setup
- * file and source must still load as this project's own files.
+ * map without "./package.json", so it stays the project's own source (Vite-owned); its
+ * setup file and source must load as such. The library declares expo-image, so this
+ * package's tests load expo-image, expo and expo-asset through it: those installed
+ * packages must be compiled although this package declares none of them.
  */
 import { Avatar } from "@suite/ui-src";
 import { spacing } from "@suite/tokens";
