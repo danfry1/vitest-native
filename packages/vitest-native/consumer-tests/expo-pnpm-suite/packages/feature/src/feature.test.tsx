@@ -5,6 +5,11 @@
  * setup file and source must load as such. The library declares expo-image, so this
  * package's tests load expo-image, expo and expo-asset through it: those installed
  * packages must be compiled although this package declares none of them.
+ *
+ * Each half has failed in a release candidate. The setup file given to Node failed
+ * with MODULE_OWNER_CONFLICT (fixed by #427). Those installed packages left uncompiled
+ * failed at setup with `Cannot find module '…/expo-asset/build/Asset.fx'` (fixed by #433):
+ * without #433, every leg of this package fails that way.
  */
 import { Avatar } from "@suite/ui-src";
 import { spacing } from "@suite/tokens";
