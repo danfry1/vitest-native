@@ -16,6 +16,11 @@
 # pull request queued in it. Anything else (a push to main, a schedule, a manual run)
 # is never docs-only.
 #
+# Docs-only does not mean unchecked: ci.yml's `Docs checks` job runs every unit test
+# that reads a repository Markdown file (scripts/docs-checks.mjs) when the gate is
+# skipped, because docs/versioning.md, the preset tables and plugin-options.md are the
+# source of truth for tests of their own.
+#
 # Usage: classify-change.sh <event> <base-sha> <head-sha>   (needs full history)
 # Writes `docs-only=true|false` to $GITHUB_OUTPUT when set, and always to stdout.
 set -euo pipefail

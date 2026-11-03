@@ -11,7 +11,7 @@ export declare function containsPath(dir: string, target: string): boolean;
 export declare function installedPackageDirOf(name: string, projectRoot: string): string | null;
 
 /** The on-disk directory a package resolves to from `projectRoot`, or null. */
-export declare function packageDirOf(name: string, projectRoot: string): string | null;
+export declare function packageDirOf(name: string, fromDir: string): string | null;
 
 /**
  * The patterns identifying one package's files: under `node_modules/<name>/`, and
