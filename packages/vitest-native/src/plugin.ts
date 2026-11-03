@@ -2033,10 +2033,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
               .filter((target) => path.isAbsolute(target)),
             onReachedUndeclared: (name, dir) => {
               if (diagnostics) {
-                console.warn(
-                  `[vitest-native] ${name} (${dir}) is imported through an alias but is not ` +
-                    `a dependency of this package; its dependencies are compiled as if it ` +
-                    `were. Declare it to make the dependency explicit.`,
+                console.log(
+                  `[vitest-native] ${name} (${dir}) is reached through an alias ` +
+                    `(resolve.alias or tsconfig paths) but is not a dependency of this ` +
+                    `package. Its installed React Native dependencies are compiled as if it ` +
+                    `were declared; declaring it makes the dependency explicit.`,
                 );
               }
             },

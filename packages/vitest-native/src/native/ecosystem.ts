@@ -3,6 +3,9 @@ import path from "node:path";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
 import { containsPath, dependencyDirOf } from "./match.mjs";
 
+/** A path inside a node_modules directory: an installed package's, not a workspace member's. */
+const NODE_MODULES_DIR = /[\\/]node_modules[\\/]/;
+
 /**
  * Packages that must never be auto-inlined even though they depend on React
  * Native. The test library and the renderers underneath it are infrastructure the
@@ -563,6 +566,34 @@ export function detectEcosystemPackages(
     // A sibling that depends on the package under test would otherwise pull it
     // back in here, past the check above.
     ownsTheRun(dep);
+  /**
+   * Walk the queue. With `installedOnly`, only installed packages (a real path inside a
+   * node_modules directory) are added: see "Workspace members the run reaches" below.
+   */
+  const walk = (installedOnly: boolean) => {
+    const admits = (installed: Installed) => !installedOnly || NODE_MODULES_DIR.test(installed.dir);
+    while (queue.length > 0) {
+      const pkg = queue.pop() as Installed;
+      const deps = pkg.manifest.dependencies;
+      for (const dep of deps && typeof deps === "object" ? Object.keys(deps as object) : []) {
+        if (walked.has(dep) || excluded(dep)) continue;
+        const installed = dependencyOf(pkg, dep);
+        if (!installed) continue; // declared but not installed
+        // A detected package stays in the set whatever it publishes; this test is for
+        // members the closure alone brings in.
+        if (!inClosure.has(dep) && publishesOnlyEsm(installed.manifest)) continue;
+        if (admits(installed)) reach(dep, installed);
+      }
+      const peers = pkg.manifest.peerDependencies;
+      for (const peer of peers && typeof peers === "object" ? Object.keys(peers as object) : []) {
+        if (walked.has(peer) || excluded(peer) || !detectedSet.has(peer)) continue;
+        const installed = dependencyOf(pkg, peer);
+        if (installed && admits(installed)) reach(peer, installed);
+      }
+    }
+  };
+  walk(false);
+
   // Workspace members the run reaches. A workspace library the project depends on is
   // not detected itself (its owner is the ownership track's decision, see
   // dependencyDirOf), but its dependencies run in the project's tests all the same: a
@@ -573,11 +604,18 @@ export function detectEcosystemPackages(
   // member the run reaches through a `resolve.alias` into its source without declaring
   // it, which is also reported (onReachedUndeclared).
   // Reached: a member the project declares by name, a member an alias points into, and,
-  // transitively, a member a reached one declares. Their runtime `dependencies` seed the
-  // walk, resolved from the member's own directory as Node resolves them, under the same
-  // exclusions as every other edge. Rejected: seeding from every workspace member (it
-  // walked what only an unrelated sibling uses; see the sibling tests), and detecting
-  // the reached member itself (it would change the member's owner).
+  // transitively, a member a reached one declares. Their detected runtime `dependencies`
+  // seed a second walk, resolved from the member's own directory as Node resolves them,
+  // under the same exclusions as every other edge. A seed that is itself a workspace
+  // member is a detected one, already Node-owned. The walk then adds INSTALLED packages
+  // only (a real path inside node_modules), never a workspace member: which owner a workspace
+  // member has stays what it is without this (#427; the ownership track decides it), so a
+  // member an RN workspace library depends on keeps running in Vite, where `vi.mock`
+  // reaches its imports. It runs after the first walk has finished, so nothing the first
+  // walk would add is cut short by the restriction.
+  // Rejected: seeding from every workspace member (it walked what only an unrelated
+  // sibling uses; see the sibling tests), detecting the reached member itself, and letting
+  // the second walk add workspace members (both change a member's owner).
   const members = found.filter(
     ({ dir, manifest }) =>
       typeof manifest.name === "string" && !ownerRoots.some((root) => containsPath(dir, root)),
@@ -603,9 +641,9 @@ export function detectEcosystemPackages(
       .filter(({ dir }) => containsPath(dir, target))
       .sort((a, b) => b.dir.length - a.dir.length)[0];
     if (!member) continue;
-    const name = member.manifest.name as string;
-    if (!projectDeclared.has(name) && !reachedMembers.has(member.dir)) {
-      onReachedUndeclared?.(name, member.dir);
+    // Members the project declares, and members those declare, were reached above.
+    if (!reachedMembers.has(member.dir)) {
+      onReachedUndeclared?.(member.manifest.name as string, member.dir);
     }
     reachMember(member);
   }
@@ -618,25 +656,7 @@ export function detectEcosystemPackages(
     }
   }
 
-  while (queue.length > 0) {
-    const pkg = queue.pop() as Installed;
-    const deps = pkg.manifest.dependencies;
-    for (const dep of deps && typeof deps === "object" ? Object.keys(deps as object) : []) {
-      if (walked.has(dep) || excluded(dep)) continue;
-      const installed = dependencyOf(pkg, dep);
-      if (!installed) continue; // declared but not installed
-      // A detected package stays in the set whatever it publishes; this test is for
-      // members the closure alone brings in.
-      if (!inClosure.has(dep) && publishesOnlyEsm(installed.manifest)) continue;
-      reach(dep, installed);
-    }
-    const peers = pkg.manifest.peerDependencies;
-    for (const peer of peers && typeof peers === "object" ? Object.keys(peers as object) : []) {
-      if (walked.has(peer) || excluded(peer) || !detectedSet.has(peer)) continue;
-      const installed = dependencyOf(pkg, peer);
-      if (installed) reach(peer, installed);
-    }
-  }
+  walk(true);
 
   return [...inClosure].sort();
 }
