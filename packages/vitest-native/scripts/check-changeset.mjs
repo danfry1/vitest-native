@@ -12,7 +12,8 @@
 // than leaving it to be inferred from an absence.
 //
 // Shipped means more than src/. The build files decide what dist/ contains
-// (tsdown.config.ts and the static-types copy), and the manifest's consumer-facing
+// (tsdown.config.ts, the verbatim runtime list it copies from and the static-types
+// copy), and the manifest's consumer-facing
 // fields decide how it installs and resolves: an `engines` change (#328), an
 // `exports` edit or a new peer range reaches every user as surely as a source edit.
 // The manifest is judged by field, so a devDependency bump or a new script does not
@@ -33,6 +34,7 @@ const SHIPPED = `${PACKAGE}src/`;
 const SHIPPED_BUILD_FILES = [
   `${PACKAGE}tsdown.config.ts`,
   `${PACKAGE}scripts/copy-static-types.mjs`,
+  `${PACKAGE}scripts/verbatim-runtime.mjs`,
 ];
 export const MANIFEST = `${PACKAGE}package.json`;
 

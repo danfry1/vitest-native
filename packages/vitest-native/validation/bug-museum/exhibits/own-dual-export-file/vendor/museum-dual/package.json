@@ -1,0 +1,12 @@
+{
+  "name": "museum-dual",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./esm.mjs",
+      "require": "./cjs.cjs"
+    },
+    "./reader": "./reader.cjs"
+  }
+}

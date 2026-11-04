@@ -76,6 +76,20 @@ export function isTestRuntimeResidentFile(file) {
   return TEST_RUNTIME_RESIDENT_PATH.test(normalizeFile(file));
 }
 
+/**
+ * A package the resident rules above keep at one instance per worker, by name: React
+ * Native, the identity-sensitive runtime and the test stack. The same patterns, tested
+ * against the name, so a vendored copy outside node_modules is held to the same rule.
+ */
+export function isResidentPackageName(name) {
+  const file = `/node_modules/${name}/`;
+  return (
+    REACT_NATIVE_PATH.test(file) ||
+    RUNTIME_RESIDENT_PATH.test(file) ||
+    TEST_RUNTIME_RESIDENT_PATH.test(file)
+  );
+}
+
 function decision(owner, format, transform, reset, reasons, evidence) {
   return Object.freeze({
     owner,
