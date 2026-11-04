@@ -165,3 +165,19 @@ describe("nodeDispatch().onNodeEvaluation", () => {
     expect(out).toEqual({ events: [], restored: true, sameEntry: true });
   });
 });
+
+describe("nodeDispatch().channel", () => {
+  it("is one object per name in a worker, whichever copy of the module asks", () => {
+    const out = run(`
+      const again = await import(${JSON.stringify(dispatch)} + "?another-instance");
+      const ownership = nodeDispatch().channel("ownership");
+      ownership.record = "set by one copy";
+      return {
+        same: again.nodeDispatch().channel("ownership") === ownership,
+        read: globalThis[Symbol.for("vitest-native.node-dispatch")].channel("ownership").record,
+        separate: nodeDispatch().channel("other") !== ownership,
+      };
+    `);
+    expect(out).toEqual({ same: true, read: "set by one copy", separate: true });
+  });
+});

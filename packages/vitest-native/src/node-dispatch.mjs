@@ -221,9 +221,21 @@ function createDispatch() {
       observing();
     };
   };
+  const channels = new Map();
   return {
     load,
     resolve,
+    /**
+     * The object named `name`, one per worker, created empty on first use: a channel the
+     * engine's code reaches from wherever it runs (Vite's module runner, Node's loaders,
+     * the in-thread loader hooks) through this dispatcher, rather than through a global
+     * of its own. The ownership ledger's is "ownership".
+     */
+    channel(name) {
+      let channel = channels.get(name);
+      if (channel === undefined) channels.set(name, (channel = {}));
+      return channel;
+    },
     /**
      * Call `listener({ filename, module, parent, via })` for each module Node's CommonJS
      * loader evaluates through `Module._load`: `filename` is the key Node caches it by
