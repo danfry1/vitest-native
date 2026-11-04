@@ -435,7 +435,8 @@
       "class": "ownership",
       "title": "Under the hot runtime, a Node-owned workspace library keeps the first file's ES module instance",
       "source": "ownership track A3 mechanism spike and its review (2026-11-04)",
-      "fixedBy": "open (fix/hot-rule7-esm-residency)",
+      "fixedBy": "#447 (draft)",
+      "fixRef": "origin/fix/hot-rule7-esm-residency",
       "links": {
         "@m/feature": "packages/feature",
         "@m/validator": "packages/validator"
@@ -454,9 +455,10 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
+        "fix": "PASS",
         "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "mainSignature": "b.test.ts: AssertionError: the library's Box is this file's Box: expected false to be true // Object.is equality",
-        "proof": "open (control passes)"
+        "proof": "fix proven"
       }
     },
     {
