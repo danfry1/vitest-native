@@ -13,3 +13,5 @@ export declare function reactNativeRootFor(projectRoot: string): string | null;
 export declare function knownNativeModulesFor(projectRoot: string): string[];
 export declare function nativeModuleSpecsFor(projectRoot: string): Record<string, string[]>;
 export declare function installKnownNativeModules(projectRoot: string): void;
+export declare const DEV_LAUNCHER_MODULE: "EXDevLauncher";
+export declare const EXPO_GO_ABSENT_MODULES: readonly string[];
