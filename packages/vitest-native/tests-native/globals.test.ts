@@ -64,6 +64,24 @@ describe("native engine: fabricated expo native-module stubs", () => {
     expect(new Player().release()).toBeUndefined();
   });
 
+  it("lets LegacyEventEmitter take a module as itself, as on a device", () => {
+    // The native runtime names each module it registers; LegacyEventEmitter returns a named
+    // module as itself. Wrapped in React Native's NativeEventEmitter instead, a listener added
+    // through it never reached the module's own emit.
+    // expo-modules-core as Expo's packages reach it (it is not a dependency of this package).
+    const fromExpo = createRequire(require.resolve("expo/package.json"));
+    const { LegacyEventEmitter } = fromExpo("expo-modules-core");
+    const module = modules[PRESENT];
+    expect(module.__expo_module_name__).toBe(PRESENT);
+    const emitter = new LegacyEventEmitter(module);
+    expect(emitter).toBe(module);
+    const received: unknown[] = [];
+    const subscription = emitter.addListener("change", (value: unknown) => received.push(value));
+    module.emit("change", 1);
+    subscription.remove();
+    expect(received).toEqual([1]);
+  });
+
   it("serves fabricated PascalCase properties as classes on SharedObject", () => {
     const NativeClass = modules[PRESENT].FileSystemFile;
     class Sub extends NativeClass {}

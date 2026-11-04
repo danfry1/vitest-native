@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import Module, { createRequire } from "node:module";
 import path from "node:path";
@@ -135,7 +136,11 @@ function installExpoGlobal(g) {
   class SharedObject extends EventEmitter {
     release() {}
   }
-  class SharedRef extends SharedObject {}
+  // A shared reference names the native type it wraps; the base class answers "unknown",
+  // as expo-modules-core's own runtime does.
+  class SharedRef extends SharedObject {
+    nativeRefType = "unknown";
+  }
 
   // `globalThis.expo.modules` is the native-module registry expo libs read via
   // requireNativeModule(). Import-time side effects (e.g. expo-modules-core's
@@ -164,6 +169,15 @@ function installExpoGlobal(g) {
     const fabricatedRecords = new Map();
     const directMutations = new Map();
     const target = new NativeModule();
+    // The native runtime names every module it registers, and LegacyEventEmitter returns a
+    // named module as itself rather than wrapping it in React Native's NativeEventEmitter.
+    // Set on the target, not through the proxy, so it is the module's own and no reset undoes it.
+    Object.defineProperty(target, "__expo_module_name__", {
+      configurable: true,
+      enumerable: false,
+      value: name,
+      writable: true,
+    });
     const seed = g.__vitest_native_expo_modules?.seed(name) ?? null;
     const seeded = seed?.members ?? null;
     // A package's own mock is the whole module; a seed from Expo's table lists only
@@ -293,6 +307,7 @@ function installExpoGlobal(g) {
   );
 
   let __uuid = 0;
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const expoRuntime = {
     EventEmitter,
     NativeModule,
@@ -303,12 +318,40 @@ function installExpoGlobal(g) {
       __uuid += 1;
       return `00000000-0000-4000-8000-${String(__uuid).padStart(12, "0")}`;
     },
+    // Name-based (RFC 4122 version 5), so it is deterministic as on a device.
+    uuidv5: (name, namespace) => {
+      // The native runtime rejects a namespace that is not a UUID string, with this message
+      // (expo-modules-core ios/Uuidv5/Exceptions.swift, android uuidv5/Exceptions.kt).
+      // A plain Error with the device's message, so a test asserting on it reads as on the
+      // device (exempted in tests/errors.test.ts).
+      if (typeof namespace !== "string" || !UUID.test(namespace)) {
+        const invalidNamespace = `Namespace: \`${namespace}\` is not a valid namespace. Namespace should be a valid UUID string`;
+        throw new Error(invalidNamespace);
+      }
+      const bytes = createHash("sha1")
+        .update(Buffer.from(namespace.replace(/-/g, ""), "hex"))
+        .update(String(name))
+        .digest();
+      bytes[6] = (bytes[6] & 0x0f) | 0x50;
+      bytes[8] = (bytes[8] & 0x3f) | 0x80;
+      const hex = bytes.subarray(0, 16).toString("hex");
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    },
     uuid: {
       v4: () => g.expo.uuidv4(),
-      v5: () => g.expo.uuidv4(),
+      v5: (name, namespace) => g.expo.uuidv5(name, namespace),
     },
     getViewConfig: () => null,
     reloadAppAsync: () => Promise.resolve(),
+    // The rest of the runtime's keys (expo-modules-core's ts-declarations/global.ts). The
+    // version and the app's directories are left unset, as expo-modules-core's own JS runtime
+    // leaves them; Platform.isQuest reads isRunningOnQuest. installOnUIRuntime installs Expo's
+    // modules on the worklets UI runtime, which under Node is the JS thread they already run on.
+    expoModulesCoreVersion: undefined,
+    cacheDir: undefined,
+    documentsDir: undefined,
+    isRunningOnQuest: false,
+    installOnUIRuntime: () => {},
   };
   const resetRuntime = () => {
     while (listenerRecords.size > 0) {

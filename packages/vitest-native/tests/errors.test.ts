@@ -139,6 +139,9 @@ describe("every message this package throws is attributable", () => {
   //   TurboModuleRegistry.getEnforcing for a module the default runtime (Expo Go) lacks —
   //     React Native's own invariant, name and message, as a device throws it, so code
   //     that catches it (or a test asserting on it) reads as on the device.
+  //   Expo's uuidv5 for a namespace that is not a UUID string — mirrors the device's
+  //     InvalidNamespaceException message (expo-modules-core's Uuidv5/Exceptions), so tests
+  //     can assert it.
   //   jestMockTransform's setup accessor — generated code inside a user's test file,
   //     which cannot import errors.mjs; it builds the VitestNativeError shape (name and
   //     code) that isVitestNativeError recognises.
@@ -147,6 +150,7 @@ describe("every message this package throws is attributable", () => {
     "throw new Error(`${name} cannot be nested inside another ${name} or ${other}.`);",
     'throw Object.assign(new Error("[vitest-native] jest.mock() factories need',
     'throw Object.assign(new Error(missing), { name: "Invariant Violation" });',
+    "throw new Error(invalidNamespace);",
   ];
 
   it("throws a vitest-native error class, or is an exemption with a stated reason", () => {
