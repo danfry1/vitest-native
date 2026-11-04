@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { METRO_ASSET_EXTS } from "./native/assets.mjs";
 import type * as Presets from "./presets/index.js";
@@ -105,6 +106,64 @@ export function shipsJestResolver(projectRoot: string, pkg: string): boolean {
     }
     if (path.dirname(dir) === dir) return false;
   }
+}
+
+/** The installed reanimated's directory, from `root`, or null. */
+export function reanimatedDir(root: string): string | null {
+  try {
+    return path.dirname(
+      createRequire(path.join(root, "package.json")).resolve(
+        "react-native-reanimated/package.json",
+      ),
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether reanimated's own mock can run for `projectRoot`: it loads the real package,
+ * whose JS implementation loads only through reanimated's and worklets' Jest resolvers
+ * (reanimated 4.7, worklets 0.9). Before those, the real package's `.native` initializers
+ * throw, and the module below serves instead, as under the mock engine.
+ */
+export function libraryMockUsable(projectRoot: string): boolean {
+  let usable = mockUsable.get(projectRoot);
+  if (usable === undefined) {
+    const dir = reanimatedDir(projectRoot);
+    usable =
+      dir !== null &&
+      shipsJestResolver(projectRoot, "react-native-reanimated") &&
+      shipsJestResolver(dir, "react-native-worklets");
+    mockUsable.set(projectRoot, usable);
+  }
+  return usable;
+}
+// Asked by the preset's module on every test file; the installed packages do not
+// change during a run.
+const mockUsable = new Map<string, boolean>();
+
+/**
+ * The entries of the library module graphs the native engine precompiles into the
+ * library registry (native/registry.mjs, buildLibraryRegistry), for the presets active
+ * under it: reanimated's own mock when the reanimated preset serves it, and worklets
+ * when it runs as itself. Without them those packages load file by file, as before.
+ */
+export function libraryRegistryEntries(
+  projectRoot: string,
+  activePresets: readonly string[],
+): string[] {
+  const entries: string[] = [];
+  if (activePresets.includes("reanimated") && libraryMockUsable(projectRoot)) {
+    entries.push("react-native-reanimated/mock");
+  }
+  if (
+    !activePresets.includes("worklets") &&
+    shipsJestResolver(projectRoot, "react-native-worklets")
+  ) {
+    entries.push("react-native-worklets");
+  }
+  return entries;
 }
 
 /** Presets that step aside under the native engine only when their package can run there. */

@@ -93,6 +93,7 @@ import {
   PRESET_MODULES,
   presetForInstalled,
   autoDetectedPresetApplies,
+  libraryRegistryEntries,
 } from "./preset-map.js";
 
 async function autoDetectPresets(diagnostics: boolean, projectRoot: string): Promise<Preset[]> {
@@ -2226,6 +2227,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           assetExts: assetExtList,
           sourceExts,
           diagnostics,
+          libraryEntries: libraryRegistryEntries(resolvedRoot, fields.presetNames ?? []),
         });
         if (registries) {
           fields.registry = registries.registry;

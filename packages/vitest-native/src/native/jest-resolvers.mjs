@@ -26,20 +26,37 @@ const OWNERS = new Set(["react-native-reanimated", "react-native-worklets"]);
 const loaded = new Map();
 const CAPTURED = Symbol("captured");
 
+/** Where `id` resolves from `req`, or null when it is not installed in this layout. */
+function installedFile(req, id) {
+  try {
+    return req.resolve(id);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The installed library resolver files, from `projectRoot`: what decides which files a
+ * library graph is built from, so the precompiled library registry is pinned to them.
+ */
+export function libraryResolverFiles(projectRoot) {
+  const req = createRequire(path.join(projectRoot, "package.json"));
+  return RESOLVERS.map((id) => installedFile(req, id)).filter((file) => file !== null);
+}
+
 /** The first installed library resolver, from `projectRoot`, or null. */
 function resolverFor(projectRoot) {
   if (loaded.has(projectRoot)) return loaded.get(projectRoot);
   let found = null;
   const req = createRequire(path.join(projectRoot, "package.json"));
   for (const id of RESOLVERS) {
-    try {
-      // By resolved path: by name, a preset shadowing the package would answer it.
-      found = req(req.resolve(id));
-      if (typeof found === "function") break;
-      found = null;
-    } catch {
-      // Not installed, or not this version's layout.
-    }
+    // By resolved path: by name, a preset shadowing the package would answer it. A
+    // resolver that is installed but fails to load is an error, not a fallback.
+    const file = installedFile(req, id);
+    if (file === null) continue;
+    found = req(file);
+    if (typeof found === "function") break;
+    found = null;
   }
   loaded.set(projectRoot, found);
   return found;

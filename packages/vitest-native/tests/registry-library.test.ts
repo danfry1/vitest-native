@@ -37,7 +37,14 @@ write(
 );
 write(
   path.join(nm, "lib-a", "package.json"),
-  JSON.stringify({ name: "lib-a", version: "1.0.0", main: "index.js" }),
+  JSON.stringify({
+    name: "lib-a",
+    version: "1.0.0",
+    main: "index.js",
+    // dep-p is its own; dep-b it shares with the app, as a peer.
+    dependencies: { "dep-p": "1.0.0", "dep-b": "1.0.0" },
+    peerDependencies: { "dep-b": "1.0.0" },
+  }),
 );
 write(
   path.join(nm, "lib-a", "index.js"),
@@ -45,10 +52,39 @@ write(
     `globalThis.__libRuns = (globalThis.__libRuns ?? 0) + 1;`,
     `const singleton = require("react-native/Libraries/Singleton");`,
     `const { helper } = require("./helper");`,
-    `module.exports = { singleton, helper, dep: require("dep-b"), later: () => require("./later") };`,
+    `module.exports = { singleton, helper, dep: require("dep-b"), later: () => require("./later"),`,
+    `  own: require("dep-p"), data: require("./data.json"), other: require("lib-c") };`,
   ].join("\n"),
 );
 write(path.join(nm, "lib-a", "helper.js"), `exports.helper = "helper";\n`);
+write(path.join(nm, "lib-a", "data.json"), JSON.stringify({ data: true }));
+write(
+  path.join(nm, "dep-p", "package.json"),
+  JSON.stringify({ name: "dep-p", version: "1.0.0", main: "index.js" }),
+);
+write(path.join(nm, "dep-p", "index.js"), `module.exports = { own: "dep-p" };\n`);
+// A second library entry, which lib-a requires by name.
+write(
+  path.join(nm, "lib-c", "package.json"),
+  JSON.stringify({ name: "lib-c", version: "1.0.0", main: "index.js" }),
+);
+write(path.join(nm, "lib-c", "index.js"), `module.exports = { other: "lib-c" };\n`);
+// A library whose own Jest resolver narrows its files' extensions, as worklets' does
+// (native/jest-resolvers.mjs): without it, \`./impl\` is impl.native.js.
+write(
+  path.join(nm, "react-native-worklets", "package.json"),
+  JSON.stringify({ name: "react-native-worklets", version: "1.0.0", main: "index.js" }),
+);
+write(path.join(nm, "react-native-worklets", "index.js"), `module.exports = require("./impl");\n`);
+write(path.join(nm, "react-native-worklets", "impl.js"), `module.exports = "js";\n`);
+write(path.join(nm, "react-native-worklets", "impl.native.js"), `module.exports = "native";\n`);
+const RESOLVER = [
+  `module.exports = (request, options) => options.defaultResolver(request, {`,
+  `  ...options,`,
+  `  extensions: options.extensions.filter((ext) => !ext.includes("native")),`,
+  `});`,
+].join("\n");
+write(path.join(nm, "react-native-worklets", "jest", "resolver.js"), RESOLVER);
 write(
   path.join(nm, "lib-a", "later.js"),
   `globalThis.__laterRuns = (globalThis.__laterRuns ?? 0) + 1;\nmodule.exports = "later";\n`,
@@ -69,7 +105,8 @@ function run(body: string, { install = true } = {}): any {
     const root = ${JSON.stringify(fixture)};
     const options = { projectRoot: root, platform: "ios", failOnError: true };
     const rnFile = buildRegistry(options);
-    const libFile = buildLibraryRegistry({ ...options, libraryEntries: ["lib-a"] });
+    const entries = ["lib-a", "lib-c", "react-native-worklets"];
+    const libFile = buildLibraryRegistry({ ...options, libraryEntries: entries });
     if (${install}) installRegistry(rnFile, root, undefined, libFile);
     const req = createRequire(root + "/app.js");
     const before = new Set(Object.keys(req.cache));
@@ -109,7 +146,14 @@ describe("library registry", () => {
       };
     `);
     expect(out).toEqual({
-      loads: ["lib-a", "node_modules/dep-b/index.js"],
+      // A require of another package (dep-p, lib-c) is linked by path, so a preset
+      // shadowing that package applies to it; the registry serves it from there.
+      loads: [
+        "lib-a",
+        "node_modules/dep-b/index.js",
+        "node_modules/dep-p/index.js",
+        "node_modules/lib-c/index.js",
+      ],
       sameSingleton: true,
       singletons: 1,
       helper: "helper",
@@ -188,7 +232,7 @@ describe("library registry", () => {
         fs.writeFileSync(file, source + "// changed\\n");
         return {
           rn: buildRegistry({ ...options, cacheOnly: true }) === rnFile,
-          library: buildLibraryRegistry({ ...options, libraryEntries: ["lib-a"], cacheOnly: true }),
+          library: buildLibraryRegistry({ ...options, libraryEntries: entries, cacheOnly: true }),
         };
       } finally {
         fs.writeFileSync(file, source);
@@ -197,5 +241,58 @@ describe("library registry", () => {
       { install: false },
     );
     expect(out).toEqual({ rn: true, library: null });
+  });
+
+  it("holds a library's own dependencies and JSON, served by name as one instance", () => {
+    const out = run(`
+      const lib = req("lib-a");
+      return {
+        own: lib.own,
+        data: lib.data,
+        sameOwn: req("dep-p") === lib.own,
+        sameOther: req("lib-c") === lib.other,
+        nodeLoaded: added(),
+      };
+    `);
+    expect(out).toEqual({
+      own: { own: "dep-p" },
+      data: { data: true },
+      sameOwn: true,
+      sameOther: true,
+      // Only the peer, which the app's copy must be, goes through Node.
+      nodeLoaded: ["node_modules/dep-b/index.js"],
+    });
+  });
+
+  it("applies a preset shadowing another package to a library's require of it", () => {
+    const out = run(`
+      const shadow = { other: "preset" };
+      globalThis.__vitest_native_preset_require = (request, file) =>
+        request === "lib-c" ? shadow : Module._load(file, null, false);
+      return req("lib-a").other;
+    `);
+    expect(out).toEqual({ other: "preset" });
+  });
+
+  it("resolves a library's files with its own Jest resolver", () => {
+    expect(run(`return req("react-native-worklets");`)).toBe("js");
+  });
+
+  it("is invalidated by a change to a library's Jest resolver", () => {
+    const out = run(
+      `
+      const fs = await import("node:fs");
+      const file = req.resolve("react-native-worklets/jest/resolver.js");
+      const source = fs.readFileSync(file, "utf8");
+      try {
+        fs.writeFileSync(file, source + "// changed\\n");
+        return buildLibraryRegistry({ ...options, libraryEntries: entries, cacheOnly: true });
+      } finally {
+        fs.writeFileSync(file, source);
+      }
+    `,
+      { install: false },
+    );
+    expect(out).toBeNull();
   });
 });

@@ -42,9 +42,15 @@ import {
 import { boundarySourceFor, BOUNDARY_SOURCES } from "./boundary.mjs";
 import { resolveTransformPreset } from "./babel-preset.mjs";
 import { assetRegistryPathFor, nativeAssetModuleSource } from "./assets.mjs";
-import { resolveRelativePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
+import {
+  extensionsFor,
+  resolveRelativePlatformFile,
+  resolveRelativeWithExtensions,
+  resolveDeepPackageFile,
+} from "./resolve.mjs";
 import { createNativeOwnershipPolicy } from "./ownership.mjs";
-import { packageNameOf } from "./match.mjs";
+import { owningPackageOfFile, packageNameOf } from "./match.mjs";
+import { libraryExtensionsFor, libraryResolverFiles } from "./jest-resolvers.mjs";
 
 /**
  * Losing the registry is a silent performance cliff, not a correctness problem:
@@ -138,6 +144,12 @@ function sourceFor(
       scan: true,
     };
   }
+  if (library && ext === "json") {
+    // A library's JSON (its package.json, a data file) is a module of its graph, with
+    // the value Node's JSON loader gives it.
+    const value = JSON.parse(fs.readFileSync(file, "utf8").replace(/^\uFEFF/, ""));
+    return { code: `module.exports = ${JSON.stringify(value)};`, scan: false };
+  }
   const boundary = boundarySourceFor(
     ownership.reactNativePathFor(file) ?? norm,
     platform,
@@ -157,12 +169,22 @@ function sourceFor(
 
 /**
  * Resolve one require target from a file, applying the platform-extension
- * resolution the hooks apply inside node_modules (`./Foo` → `Foo.ios.js`).
- * Returns an absolute path, or null when the target cannot be resolved.
+ * resolution the hooks apply inside node_modules (`./Foo` → `Foo.ios.js`), narrowed
+ * by a library's own Jest resolver for that library's files, as the hooks narrow it
+ * (jest-resolvers.mjs). Returns an absolute path, or null when the target cannot be
+ * resolved.
  */
-function resolveTarget(request, fromFile, platform, sourceExts) {
+function resolveTarget(request, fromFile, { projectRoot, platform, sourceExts }) {
   if (request.startsWith(".") && !path.extname(request)) {
-    const hit = resolveRelativePlatformFile(request, fromFile, platform, sourceExts);
+    const narrowed = libraryExtensionsFor(
+      projectRoot,
+      request,
+      fromFile,
+      extensionsFor(platform, sourceExts),
+    );
+    const hit = narrowed
+      ? resolveRelativeWithExtensions(request, fromFile, narrowed)
+      : resolveRelativePlatformFile(request, fromFile, platform, sourceExts);
     if (hit) return hit;
   }
   try {
@@ -350,8 +372,17 @@ function emit(files, modules, { library = false } = {}) {
   const idOf = new Map(files.map((f, i) => [f, i]));
   const deps = files.map((f) => {
     const out = {};
+    const own = library ? owningPackageOfFile(f) : null;
     for (const [request, target] of Object.entries(modules.get(f).deps)) {
-      out[request] = target === null ? null : (idOf.get(target) ?? target);
+      // In a library registry an edge into another package is linked by path, through
+      // __out, so a preset shadowing that package applies to it as to any require.
+      const id = target === null ? undefined : idOf.get(target);
+      out[request] =
+        target === null
+          ? null
+          : id !== undefined && (!library || owningPackageOfFile(target) === own)
+            ? id
+            : target;
     }
     return JSON.stringify(out);
   });
@@ -359,12 +390,19 @@ function emit(files, modules, { library = false } = {}) {
   // require at a pre-resolved path. In a library registry, a path that is one of React
   // Native's modules is served from React Native's registry instance instead, so a
   // library and the app share one React Native by construction rather than by
-  // re-entering Node's loader for it.
+  // re-entering Node's loader for it. Any other target, another package of this
+  // registry included, is required by path with the request it was written as, which
+  // the per-file hooks check against the active presets first
+  // (__vitest_native_preset_require, hooks.mjs) as they check every require; a target
+  // in this registry then comes back to it by path (installRegistry's interceptor).
   const outside = library
     ? [
-        `function __out(t) {`,
+        `function __out(t, q) {`,
         `  const rn = __rnIdOf.get(t);`,
-        `  if (rn === undefined) return __ext(t);`,
+        `  if (rn === undefined) {`,
+        `    const preset = globalThis.__vitest_native_preset_require;`,
+        `    return preset === undefined ? __ext(t) : preset(q, t);`,
+        `  }`,
         `  const mock = globalThis.__vitest_native_node_mock_for;`,
         `  if (mock !== undefined) {`,
         `    const v = mock(t);`,
@@ -391,7 +429,7 @@ function emit(files, modules, { library = false } = {}) {
     `  const r = function (q) {`,
     `    const t = map[q];`,
     `    if (t === undefined || t === null) return __ext(q);`,
-    `    if (typeof t !== "number") return ${library ? "__out" : "__ext"}(t);`,
+    `    if (typeof t !== "number") return ${library ? "__out(t, q)" : "__ext(t)"};`,
     // A jest.mock of a React Native module (jest-compat's per-file registry, see
     // jest-compat/node-registry.mjs) applies to RN's own requires of it, as under
     // Jest. The global is undefined unless such a mock is registered.
@@ -456,18 +494,21 @@ function emit(files, modules, { library = false } = {}) {
       : `__s[${i}] = ${JSON.stringify(code)};`;
   });
   const reset = `reset: () => { __m.length = 0; }, compiles: () => __compiles`;
+  // How many of its modules have run since the last reset: the library registry's
+  // per-file cost, which the native suite holds to the modules a file touches.
+  const instances = `instances: () => __m.reduce((n, m) => (m === undefined ? n : n + 1), 0)`;
   if (library) {
     // A library registry is linked to the worker's React Native registry, whose ids
     // and loader it receives, rather than finding it through a global. Linking runs
     // once per worker; a reset clears instances and keeps compiled functions, as in
     // React Native's registry. Nothing runs until a module is required.
-    const packages = [...new Set(files.map(packageOfFile).filter(Boolean))].sort();
+    const packages = [...new Set(files.map(owningPackageOfFile).filter(Boolean))].sort();
     return [
       `module.exports = function link(__rnIds, __rnLoad) {`,
       `const __rnIdOf = new Map(__rnIds.map((f, i) => [f, i]));`,
       ...prologue,
       ...sources,
-      `return { ids: __ids, load: __r, ${reset}, packages: ${JSON.stringify(packages)} };`,
+      `return { ids: __ids, load: __r, ${reset}, ${instances}, packages: ${JSON.stringify(packages)} };`,
       `};`,
     ].join("\n");
   }
@@ -485,12 +526,38 @@ function emit(files, modules, { library = false } = {}) {
   return [...prologue, ...sources, ...epilogue].join("\n");
 }
 
-/** The package a file under node_modules belongs to, by its last node_modules segment. */
-function packageOfFile(file) {
-  const norm = file.replace(/\\/g, "/");
-  const at = norm.lastIndexOf("/node_modules/");
-  return at === -1 ? null : packageNameOf(norm.slice(at + "/node_modules/".length));
+/**
+ * A memoised lookup of the packages a file's package depends on as its own: those in
+ * its manifest's `dependencies` and `optionalDependencies` that it does not also name
+ * as peers. A peer is shared with the app, so it stays outside the library's graph.
+ */
+function privateDependenciesOf() {
+  const byManifest = new Map();
+  return (file) => {
+    const norm = file.replace(/\\/g, "/");
+    const at = norm.lastIndexOf("/node_modules/");
+    const pkg = owningPackageOfFile(file);
+    if (at === -1 || pkg === null) return EMPTY;
+    const manifest = path.join(
+      file.slice(0, at + "/node_modules/".length + pkg.length),
+      "package.json",
+    );
+    let names = byManifest.get(manifest);
+    if (names === undefined) {
+      const json = JSON.parse(fs.readFileSync(manifest, "utf8"));
+      const peers = new Set(Object.keys(json.peerDependencies ?? {}));
+      names = new Set(
+        [
+          ...Object.keys(json.dependencies ?? {}),
+          ...Object.keys(json.optionalDependencies ?? {}),
+        ].filter((name) => !peers.has(name)),
+      );
+      byManifest.set(manifest, names);
+    }
+    return names;
+  };
 }
+const EMPTY = new Set();
 
 /** The registry cache directory, or null (warned, or thrown under failOnError). */
 function registryDir(projectRoot, failOnError) {
@@ -522,11 +589,11 @@ function cachedLayer(registryFile, key) {
  * Walk a module graph from `roots` and publish it as one registry file.
  *
  * Shared by React Native's registry and the library registry, so both are built,
- * keyed, validated and published the same way: `inline(target)` decides which
+ * keyed, validated and published the same way: `inline(target, from)` decides which
  * resolved targets become registry modules; every other resolved target stays a
  * require at a pre-resolved path and is pinned in the manifest.
  */
-function publishLayer({ registryFile, key, roots, inline, options, library }) {
+function publishLayer({ registryFile, key, roots, inline, options, library, pinned = [] }) {
   const modules = new Map();
   const manifest = [];
   // Targets the registry does NOT inline but DOES bake in as pre-resolved absolute
@@ -544,10 +611,11 @@ function publishLayer({ registryFile, key, roots, inline, options, library }) {
       for (const match of code.matchAll(REQUIRE_RE)) {
         const request = match[2];
         if (request in deps) continue;
-        const target = resolveTarget(request, file, options.platform, options.sourceExts);
+        const target = resolveTarget(request, file, options);
         deps[request] = target;
         if (target === null) continue;
-        if (inline(target) && !PASSTHROUGH_EXT.has(path.extname(target).toLowerCase())) {
+        const ext = path.extname(target).toLowerCase();
+        if (inline(target, file) && (!PASSTHROUGH_EXT.has(ext) || (library && ext === ".json"))) {
           queue.push(target);
         } else {
           externals.add(target);
@@ -571,7 +639,7 @@ function publishLayer({ registryFile, key, roots, inline, options, library }) {
   // external there is, and covers both node_modules layouts: under bun and pnpm a
   // version change moves the path, so the stat fails; under a flat npm or yarn tree
   // the path survives but the file's size and mtime change.
-  for (const target of externals) {
+  for (const target of [...externals, ...pinned]) {
     try {
       const st = fs.statSync(target);
       manifest.push([target, st.mtimeMs, st.size]);
@@ -831,15 +899,29 @@ export function buildLibraryRegistry({
       assetExts,
       sourceExts,
     });
-    const packages = new Set(roots.map(packageOfFile));
+    const packages = new Set(roots.map(owningPackageOfFile));
+    const privateDependencies = privateDependenciesOf();
     const count = publishLayer({
       registryFile,
       key,
       roots,
-      inline: (target) =>
-        !options.ownership.isReactNativeFile(target) && packages.has(packageOfFile(target)),
+      // The entries' packages, and the packages each inlined package depends on as its
+      // own (`dependencies`, not peers, which it shares with the app). React Native's
+      // files belong to React Native's registry.
+      inline: (target, from) => {
+        if (options.ownership.isReactNativeFile(target)) return false;
+        const pkg = owningPackageOfFile(target);
+        return (
+          pkg !== null &&
+          (packages.has(pkg) ||
+            pkg === owningPackageOfFile(from) ||
+            privateDependencies(from).has(pkg))
+        );
+      },
       options,
       library: true,
+      // The libraries' own Jest resolvers chose the files this graph holds.
+      pinned: libraryResolverFiles(projectRoot),
     });
     if (diagnostics) {
       console.log(
@@ -877,6 +959,9 @@ export function installRegistry(
     return false;
   }
   const library = linkLibraryRegistry(req, libraryRegistryFile, registry);
+  // The linked library registry, beside React Native's on the registry's own surface,
+  // for the per-file accounting the native suite holds it to.
+  registry.library = library?.registry ?? null;
   globalThis.__vitest_native_registry_installed = true;
   // One reset for both layers: a library module holds React Native instances, so it
   // must never outlive the React Native registry instances it was linked to.
@@ -978,6 +1063,10 @@ function linkLibraryRegistry(req, file, rnRegistry) {
   const idOf = new Map(registry.ids.map((f, i) => [f, i]));
   const packages = new Set(registry.packages);
   const isRegistryFile = (filename) => spellings.has(filename);
+  // A request by name, from one directory, is one of the registry's modules for the
+  // worker's lifetime: the registry was built from those files and serves them as
+  // built, so it is resolved once rather than on every file the worker runs.
+  const byName = new Map();
   return {
     registry,
     isRegistryFile,
@@ -988,14 +1077,19 @@ function linkLibraryRegistry(req, file, rnRegistry) {
         // has nothing to resolve against here either: the per-file hooks decide.
         if (!packages.has(packageNameOf(request))) return NOT_SERVED;
         if (!parent?.filename || isRegistryFile(parent.filename)) return NOT_SERVED;
-        let resolved;
-        try {
-          resolved = Module._resolveFilename(request, parent);
-        } catch {
-          return NOT_SERVED;
+        const key = `${path.dirname(parent.filename)}\0${request}`;
+        id = byName.get(key);
+        if (id === undefined) {
+          let resolved;
+          try {
+            resolved = Module._resolveFilename(request, parent);
+          } catch {
+            return NOT_SERVED;
+          }
+          id = idOf.get(resolved);
+          if (id === undefined) return NOT_SERVED;
+          byName.set(key, id);
         }
-        id = idOf.get(resolved);
-        if (id === undefined) return NOT_SERVED;
       }
       return { value: registry.load(id) };
     },

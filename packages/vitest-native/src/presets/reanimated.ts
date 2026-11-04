@@ -7,7 +7,7 @@ import { VitestNativeError } from "../errors.mjs";
 import { builtInPreset } from "./built-in.js";
 import { projectContext } from "../context.mjs";
 import { mockModuleExportNames } from "./esm-export-names.js";
-import { shipsJestResolver } from "../preset-map.js";
+import { libraryMockUsable, reanimatedDir } from "../preset-map.js";
 
 // Under the native engine the module is reanimated's own test mock
 // (`react-native-reanimated/mock`), as a Jest suite gets it with
@@ -23,34 +23,6 @@ function underNativeEngine(): boolean {
   return (
     (globalThis as { __vitest_native_control?: { engine?: string } }).__vitest_native_control
       ?.engine === "native"
-  );
-}
-
-/** The installed reanimated's directory, from `root`, or null. */
-function reanimatedDir(root: string): string | null {
-  try {
-    return path.dirname(
-      createRequire(path.join(root, "package.json")).resolve(
-        "react-native-reanimated/package.json",
-      ),
-    );
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Whether reanimated's own mock can run for `projectRoot`: it loads the real package,
- * whose JS implementation loads only through reanimated's and worklets' Jest resolvers
- * (reanimated 4.7, worklets 0.9). Before those, the real package's `.native` initializers
- * throw, and the module below serves instead, as under the mock engine.
- */
-function libraryMockUsable(projectRoot: string): boolean {
-  const dir = reanimatedDir(projectRoot);
-  return (
-    dir !== null &&
-    shipsJestResolver(projectRoot, "react-native-reanimated") &&
-    shipsJestResolver(dir, "react-native-worklets")
   );
 }
 

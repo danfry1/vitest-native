@@ -300,9 +300,7 @@ export function resolveDeepPackageFile(request, fromDir, platform, sourceExts = 
   const pkgDir = findPackageDir(fromDir, pkg);
   if (!pkgDir) return null;
   const base = path.join(pkgDir, rest);
-  try {
-    if (fs.statSync(base).isFile()) return base;
-  } catch {}
+  if (fs.statSync(base, { throwIfNoEntry: false })?.isFile()) return base;
   // `Foo.js` may exist only as a platform variant, and extensionless specifiers
   // need the full Metro candidate list either way.
   const stem = /\.[a-z0-9]+$/i.test(base) ? base.replace(/\.js$/, "") : base;
