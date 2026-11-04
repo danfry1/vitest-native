@@ -15,7 +15,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { reactNative } from "../src/index.js";
-import { _resetExpoSdkChecks, checkLoadedExpoSdk } from "../src/native/hooks.mjs";
+import {
+  _resetExpoSdkChecks,
+  checkLoadedExpoSdk,
+  resetExpoSdkWarnings,
+} from "../src/native/hooks.mjs";
 import { SUPPORTED_EXPO_SDKS } from "../src/peer-requirements.js";
 import { contextOf } from "./project-context-helpers.js";
 import { runPluginConfig } from "./plugin-config.js";
@@ -128,6 +132,21 @@ describe("loading expo-modules-core or expo", () => {
     const warned = warnings();
     checkLoadedExpoSdk(fileOf(root, "expo-modules-core"), undefined);
     expect(warned()).toEqual([]);
+  });
+});
+
+describe("a later test file in the same worker", () => {
+  it("is warned again, from the version already read", () => {
+    const root = installed("expo-modules-core@3.0.29");
+    const warned = warnings();
+    const read = vi.spyOn(fs, "readFileSync");
+    checkLoadedExpoSdk(fileOf(root, "expo-modules-core"), SDKS);
+    resetExpoSdkWarnings(); // the hot runtime's per-file reset
+    checkLoadedExpoSdk(fileOf(root, "expo-modules-core"), SDKS);
+    expect(warned()).toHaveLength(2);
+    expect(read.mock.calls.filter(([file]) => String(file).endsWith("package.json"))).toHaveLength(
+      1,
+    );
   });
 });
 

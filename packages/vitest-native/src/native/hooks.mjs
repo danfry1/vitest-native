@@ -120,10 +120,19 @@ export function checkProjectSourceResolvedByNode(resolved, parent, dirs = projec
       "  package that does not sit underneath the dependency.",
   );
 }
+// Versions read, per worker; directories checked in this test file, cleared per file
+// under the hot runtime (resetExpoSdkWarnings), so each file names the copy it loads.
+const expoVersions = new Map();
 const checkedExpoDirs = new Set();
+
+/** Forget which copies this file was warned about; their versions stay read. */
+export function resetExpoSdkWarnings() {
+  checkedExpoDirs.clear();
+}
 
 /** Test seam. */
 export function _resetExpoSdkChecks() {
+  expoVersions.clear();
   checkedExpoDirs.clear();
 }
 
@@ -137,11 +146,11 @@ function manifestVersion(dir) {
 }
 
 /**
- * Warn, once per package directory per worker, when a file of `expo` or
+ * Warn, once per package directory per test file, when a file of `expo` or
  * `expo-modules-core` loads from an Expo SDK outside `sdks` ([min, max], from the
  * plugin). This sees the copy a test loads, where the plugin sees only the project's
  * `expo`. expo-modules-core's major is its SDK's from SDK 55. Any other file costs a
- * substring test. Per worker: workers have no channel to share it on.
+ * substring test, and each package.json is read once per worker.
  */
 export function checkLoadedExpoSdk(norm, sdks) {
   if (!sdks || !norm.includes("/node_modules/expo")) return;
@@ -151,7 +160,8 @@ export function checkLoadedExpoSdk(norm, sdks) {
   const dir = norm.slice(0, at + name.length);
   if (checkedExpoDirs.has(dir)) return;
   checkedExpoDirs.add(dir);
-  const version = manifestVersion(dir);
+  if (!expoVersions.has(dir)) expoVersions.set(dir, manifestVersion(dir));
+  const version = expoVersions.get(dir);
   const major = Number(/^(\d+)\.\d+\.\d+(?:[-+].*)?$/.exec(version ?? "")?.[1] ?? NaN);
   const [minimum, maximum] = sdks;
   if (!(major < minimum || major > maximum)) return;
