@@ -118,11 +118,30 @@ const generationOf = () => (genView ? Atomics.load(genView, 0) : 0);
 // reach it. That is how this list was earned: react-native-paper under the hot
 // runtime, 603/678 -> 473/648, every extra failure a twin-runtime symptom. The
 // actual resident package rules live once in ownership.mjs.
+//
+// A file outside node_modules is stamped when the ownership policy gives it to Node
+// and resets it per file: a workspace member the engine compiles (a detected React
+// Native library, or one named in `transform`). Node loads it, so the reset drops its
+// CommonJS entry, and Node's ESM registry would otherwise keep the previous file's
+// copy behind every `import` of it. Any other file outside node_modules is the
+// project's own source, which Vite owns, or this engine and the test stack in-repo,
+// which must stay resident, so nothing else there is stamped. The policy's answer
+// depends only on the path, so it is kept per file.
+const workspaceStamp = new Map();
+function nodeOwnedPerFile(file) {
+  let stamp = workspaceStamp.get(file);
+  if (stamp === undefined) {
+    const decision = ownership.decideFile(file);
+    stamp = decision.owner === "node" && decision.reset === "per-file";
+    workspaceStamp.set(file, stamp);
+  }
+  return stamp;
+}
 /** Should this resolved file carry a generation stamp? */
 function versionable(url) {
   if (!genView || !url.startsWith("file:")) return false;
   const norm = fileURLToPath(url).replace(/\\/g, "/");
-  if (!NODE_MODULES_PATH.test(norm)) return false;
+  if (!NODE_MODULES_PATH.test(norm)) return nodeOwnedPerFile(norm);
   // React Native itself is preloaded once per worker and shared deliberately —
   // re-instantiating it per file would undo the reason the worker stays warm.
   if (ownership.isReactNativeFile(norm) || isRuntimeResidentFile(norm)) return false;
@@ -147,6 +166,7 @@ export function initialize(data) {
     runtimeTransforms: data?.transformPkgs ?? [],
   });
   isExtra = ownership.matchesNodeTransformedFile;
+  workspaceStamp.clear();
   if (data && data.presetExports) presetExports = data.presetExports;
   if (data && data.assetExts)
     assetExtSet = new Set(data.assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
