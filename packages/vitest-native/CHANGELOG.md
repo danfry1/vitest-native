@@ -13,6 +13,7 @@
   across files and is faster on most suites, is available with `hotRuntime: 'auto'`. Five known
   differences from per-file isolation are listed in
   [troubleshooting](https://danfry1.github.io/vitest-native/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files).
+  Early 0.14.0 release candidates defaulted to `'auto'`; set `hotRuntime: 'auto'` to keep the hot runtime.
 - **How to tell.** When the hot runtime is active, the startup banner names it, as in
   `(platform ios, hot runtime)`. With `'auto'`, it keeps Vitest's per-file isolation whenever the run
   cannot be bounded, or when you set a pool or `test.isolate` yourself, and prints the reason.
@@ -104,19 +105,19 @@
 
   - `--maxWorkers` and `VITEST_MAX_WORKERS` now reach the plan before any worker starts.
   - A count you set is bounded only by host or container memory: `maxWorkers: 16` on a 16 GB laptop runs 16 workers, each recycling at a 512 MiB heap. When memory lowers it, `hotRuntime capped maxWorkers from N to M` is printed.
-  - On Vitest 5, a native project beside a plain one no longer fails with `Projects … have different 'maxWorkers' but same 'sequence.groupOrder'`. `hotRuntime: { allowUnboundedMemory: true }` still leaves the count to Vitest.
+  - On Vitest 5, a native project beside a plain project with no worker count set no longer fails with `Projects … have different 'maxWorkers' but same 'sequence.groupOrder'`. `hotRuntime: { allowUnboundedMemory: true }` still leaves the count to Vitest.
 
-- 7cee4a7: **Breaking: vitest-native needs Node 22.13 or later on Node 22, or Node 24.3 or later (`engines.node` is `>=22.13.0 <23 || >=24.3.0`; it was `>=20.19.0`).** Upgrade Node from 20, 23 or 24.0–24.2.
+- 7cee4a7: **Breaking: vitest-native needs Node 22.13 or later on Node 22, or Node 24.3 or later (`engines.node` is `>=22.13.0 <23 || >=24.3.0`; it was `>=20.19.0`).** Upgrade Node if it is 20, 22.0–22.12, 23 or 24.0–24.2.
 
   - Node 20 reached end of life in April 2026, and Node 23 is past it. Node 22.13 is the first Node 22 that both RNTL 14 and the engine's CommonJS entry points (`require(esm)`) support.
   - On Node 24.0–24.2, `jest.mock`, `jest.isolateModules` and `jest.resetModules` do not reach modules Node loads, with either loader.
   - `doctor` checks the whole range. RNTL 12, 13 and 14 stay supported.
 
-- 191c286: **Native engine: `expo-constants`, `expo-status-bar`, `expo-font`, `expo-asset`, `expo-splash-screen` and `expo-linking` run as their installed packages, answering as under jest-expo.** To keep the `expo` preset while a suite moves off it, set `presets: { expo: true }`.
+- 191c286: **Native engine: `expo-constants`, `expo-status-bar`, `expo-font`, `expo-asset`, `expo-splash-screen` and `expo-linking` run as their installed packages, as under jest-expo.** To keep the `expo` preset meanwhile, set `presets: { expo: true }`.
 
-  - Their whole API is the installed SDK's: `hide()` from `expo-splash-screen` was `undefined` (#319). Native modules answer from a package's own `mocks/`, else from jest-expo's table for SDK 57 or 58. See [How Expo modules run](https://danfry1.github.io/vitest-native/guide/expo).
-  - `Constants.expoConfig` is `{}`, `appOwnership` `null`, `executionEnvironment` `'mock'`; `Font.isLoaded()` is `false` until a font loads; `preventAutoHideAsync()` and `hideAsync()` resolve `undefined`.
-  - `Linking.createURL()` and `Linking.parse()` throw without a scheme: `jest.mock` `expo-constants` with one, or mock `expo-linking`. A `vi.mock` of `expo-constants` does not reach it yet (#322).
+  - Their full API is present: `hide()` from `expo-splash-screen` was `undefined` (#319). Native modules come from the package's `mocks/` or jest-expo's SDK 57/58 table. See [How Expo modules run](https://danfry1.github.io/vitest-native/guide/expo#how-expo-modules-run).
+  - `Constants.expoConfig` is `{}`, `appOwnership` `null`, `executionEnvironment` `'mock'`; `Font.isLoaded()` is `false` until a font loads, and `Asset.fromModule()` of a number that is not a bundled asset throws (it returned a made-up asset); `preventAutoHideAsync()` and `hideAsync()` resolve `undefined`.
+  - `Linking.createURL()` and `Linking.parse()` throw without a scheme: `jest.mock` `expo-constants` with one, or mock `expo-linking`. `vi.mock` does not reach it yet (#322).
 
 - 7b9b795: **React Native 0.88 and Expo SDK 58 join the supported matrix; the verified React Native range is now 0.81–0.88.** No action needed.
 
@@ -151,7 +152,7 @@
   - `TurboModuleRegistry.getEnforcing(name)` still returns a stub for any name.
   - A `mockNativeModule()` registration answers all three lookups; under the hot runtime it is removed before the next file.
 
-- 3d20592: **jest-compat: a `jest.mock` factory applies to `require()`, to the modules `jest.requireActual` loads, and to React Native's own requires of a mocked internal, as in Jest.** No action needed; without `jestCompatSetup`, a factory now fails with `JEST_COMPAT_SETUP_MISSING`.
+- 3d20592: **jest-compat: a `jest.mock` factory applies to `require()`, to the modules `jest.requireActual` loads, and to React Native's own requires of a mocked internal, as in Jest.** Add `jestCompatSetup` to `test.setupFiles`, before any setup file that calls `jest.mock`, if a `jest.mock` factory fails with `JEST_COMPAT_SETUP_MISSING`.
 
   - `jest.requireActual` unmocks only the module requested, `jest.requireMock` returns the mock, `jest.resetModules()` gives `require()` fresh project modules, and `jest.isolateModules` and `jest.isolateModulesAsync` work. Registrations last one test file; factory-less mocks still apply to imports only.
   - TypeScript project files Node loads compile as babel-jest compiles them; a file the Babel config ignores fails with `Babel ignores …`.
@@ -161,7 +162,7 @@
 
   - The descriptor is Metro's (`name`, `type`, `scales`, `hash`, `httpServerLocation`, and `width`/`height` read from PNG, JPEG, GIF, BMP and WebP). `@2x`/`@3x` and `.ios`/`.android` variants resolve as in Metro; Expo projects add Expo's `fileHashes`.
   - Native engine: assets register with the module Metro's `assetRegistryPath` names. Mock engine: with the mock `AssetRegistry`, which now keeps entries across `resetAllMocks()`.
-  - Ids follow registration order within a file. Compare `Image.resolveAssetSource(asset).uri` instead of a file name. See [Assets](https://danfry1.github.io/vitest-native/guide/how-it-works).
+  - Ids follow registration order within a file. Compare `Image.resolveAssetSource(asset).uri` instead of a file name. See [Assets](https://danfry1.github.io/vitest-native/guide/how-it-works#_2-assets).
 
 - 52e80aa: **Vitest 5: the plugin turns on Vitest's persistent transform cache (`fsModuleCache`) unless your config sets it.** Set `test.fsModuleCache: false` to opt out.
 
@@ -362,7 +363,7 @@
   - A different physical copy of Vitest stops the run with `VITEST_TWIN_INSTANCE`, naming both paths. Install one Vitest both resolve. The hot runtime refuses such a project; `hotRuntime: false` also works.
   - Vitest 2 and 3 still fail with `UNSUPPORTED_PEER`.
 
-- 432b86c: **Workers read their configuration from one validated project context file, and fail with `CONTEXT_INVALID` when it is missing, stale or malformed.** Remove any undocumented `VITEST_NATIVE_*` variable from the shell or `test.env`; the plugin warns once naming each one still set.
+- 432b86c: **Workers read their configuration from one validated project context file, and fail with `CONTEXT_INVALID` when it is missing, stale or malformed.** Set the matching `reactNative()` option (such as `platform`) and remove the variable if the plugin warns that a `VITEST_NATIVE_*` variable is no longer read.
 
   - About twenty `VITEST_NATIVE_*` environment variables carried it before, and a bad value silently became a default. They no longer reach workers.
   - The file is rewritten if the cache is cleared during a watch session, and falls back to the system temp directory when the cache cannot be written. Test results are unchanged.
@@ -384,7 +385,8 @@
 
 - 0c45e87: **Native engine on Node 22.15–22.18 and early Node 24 (24.3 and 24.4 measured): `require()` is no longer read as an `import`.** Every test failed with `Reentrant preset detected`. No action needed.
 
-  - On those versions, which 0.14.0's supported range now leaves out, a `require()` reports its conditions to the in-thread hooks as an empty object, so Babel's own files were compiled as Babel loaded them. Node 22.19 and 24.6 onwards, and Node 22.13 with the threaded loader, were unaffected.
+  - On those versions a `require()` reports its conditions to in-thread hooks as an empty object, so Babel's own files were compiled as Babel loaded them. The bug occurred only with in-thread hooks, and those versions now use the threaded loader.
+  - Node 22.19 and 24.6 onwards were unaffected.
 
 - ce3be7a: **Native engine: a test that imports `expo` or `expo-router` from Expo SDK 58 (React Native 0.88) no longer hangs.** No action needed.
 
@@ -413,7 +415,7 @@
 
 - df06716: **Native engine: an imported BMP image's `width` and `height` are read as Metro 0.87.1 reads them.** An OS/2 bitmap (12-byte header) gets its real dimensions instead of a misread width, and a file whose header size is not a bitmap's registers without dimensions. No action needed.
 
-- dc2543b: **`migrate` writes Jest's mock-clearing behaviour correctly.** Rename `test.resetMocks` to `test.mockReset` in a config an earlier `migrate` wrote.
+- dc2543b: **`migrate` writes Jest's mock-clearing behaviour correctly.** Rename `test.resetMocks` to `test.mockReset` in a config an earlier `migrate` wrote, and add `clearMocks: false` if the Jest config did not set `clearMocks`.
 
   - Jest's `resetMocks` becomes `test.mockReset`, Vitest's name for it. It was written as `test.resetMocks`, which Vitest ignores.
   - When the Jest config does not set `clearMocks`, the generated config sets `clearMocks: false`, Jest's default. Vitest 5 defaults it to `true`, which clears calls mocks received while modules loaded.
@@ -436,11 +438,11 @@
 
 - 52e80aa: **Under the hot runtime, externalized imports are no longer re-resolved from scratch for every test file.** No action needed. The loader keeps successful resolutions per parent module, so Node stops re-reading `package.json` scopes to decide module formats on every file.
 
-- 6100732: **`migrate` reproduces Jest's effective test set and settings, and reports Babel plugins.** Run `vitest-native migrate` again for the corrected config.
+- 6100732: **`migrate` reproduces Jest's test set and settings, and sorts Babel plugins.** Run `vitest-native migrate` again if it wrote your config, and compare its `include`/`exclude` with yours.
 
-  - Patterns come from `testMatch`, else the installed preset's, else Jest's defaults; a jest-expo app had collected twice Jest's files. Ignore patterns become `test.exclude` globs; the `test` script's `--testTimeout`, `--maxWorkers`, `--runInBand` and `--config` apply.
-  - Anchored `moduleNameMapper` keys become exact aliases. A package goes into `transform` only when it ships JSX or Flow the engine does not already compile.
-  - Babel plugins are sorted into required, mapped, not needed and unknown; required ones go in through `@rolldown/plugin-babel` on Vite 8, and `doctor` warns about them. See [the CLI guide](https://danfry1.github.io/vitest-native/guide/cli).
+  - Patterns follow `testMatch`, the installed preset, or Jest's defaults; a jest-expo app had collected twice Jest's files. Ignore patterns become `test.exclude` globs; the script's `--testTimeout`, `--maxWorkers`, `--runInBand` and `--config` apply.
+  - Anchored `moduleNameMapper` keys become exact aliases. `transform` gets only packages shipping JSX or Flow the engine does not compile.
+  - Plugins are required, mapped, not needed or unknown; required ones are added through `@rolldown/plugin-babel` when Vite 8 and that package are installed, otherwise printed as a snippet. `doctor` warns about them. See [`migrate`](https://danfry1.github.io/vitest-native/guide/cli#migrate).
 
 - 2233866: **An Expo project's first run no longer prints a circular-dependency warning.** Node printed `Accessing non-existent property 'then' of module exports inside circular dependency` on a cold cache, for example on a fresh `create-expo-app` project. No action needed. Code Babel loads during a transform, such as `hermes-parser` and `babel-plugin-syntax-hermes-parser`, now runs as published, as under Jest, instead of going back through Babel.
 
@@ -457,7 +459,7 @@
 
 - d93d80d: **Native engine: Expo packages whose TypeScript source has no type syntax load.** A test rendering the Expo SDK 57 template's `Collapsible` failed with `Stripping types is currently unsupported for files under node_modules`. No action needed. TypeScript files are now always compiled; `expo-modules-core/src/polyfill/index.ts`, a bare `// noop`, was handed to Node unchanged.
 
-- 7f70965: **A multi-project config with a native project under the hot runtime no longer fails with `Projects … have different 'maxWorkers' but same 'sequence.groupOrder'`.** No action needed with `'auto'`; with `hotRuntime: true`, set a distinct `test.sequence.groupOrder` per project.
+- 7f70965: **A multi-project config with a native project under the hot runtime no longer fails with `Projects … have different 'maxWorkers' but same 'sequence.groupOrder'`.** No action needed with `'auto'`; with `hotRuntime: true`, give the projects the same `maxWorkers`, or a distinct `test.sequence.groupOrder` each (which runs them one after another).
 
   - The hot memory plan caps workers at four while another project gets one fewer than the CPUs, so any machine with more than five cores failed.
   - `'auto'` now keeps Vitest's isolation and worker count for that project and says why. `hotRuntime: true` fails with `HOT_RUNTIME_OVERRIDDEN`.
@@ -486,7 +488,7 @@
 - 9ab8270: **The hot runtime is bounded by host or container memory, and fails with `HOT_MEMORY_BUDGET_EXCEEDED` instead of being killed for running out of memory.** To accept the risk on an externally bounded run, set `hotRuntime: { allowUnboundedMemory: true }`.
 
   - One plan for all workers comes from `os.totalmem()` and `process.constrainedMemory()`, reserves room for the main process and a replacement worker, caps automatic concurrency at four, and recycles one worker at a time on heap or RSS.
-  - A run that batches every file into one task at one worker cannot be bounded and is refused with `HOT_MEMORY_UNBOUNDED`.
+  - With `hotRuntime: true`, a run that batches every file into one task at one worker cannot be bounded and fails with `HOT_MEMORY_UNBOUNDED`; `'auto'` keeps per-file isolation.
 
 - 9ab8270: **Native engine: on a cold cache, React Native's precompiled modules compile in a short-lived child process, so the long-lived Vite process stays small.** No action needed.
 
