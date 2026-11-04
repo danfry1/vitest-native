@@ -7,6 +7,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import { expect, test } from "vitest";
 import { ownershipShadowFile, resolverCounters } from "../../src/native/shared-resolver.mjs";
+import { projectContext } from "../../src/context.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -18,7 +19,10 @@ test("a require the shared resolver answers differently is written to the shadow
     next: expect.stringMatching(/generic-mainfield-lib[\\/]index\.native\.cjs$/),
   };
   expect(resolverCounters()?.cjs?.deltaSample).toContainEqual(expect.objectContaining(delta));
-  const file = ownershipShadowFile(process.env.VITEST_NATIVE_CONTEXT!);
+  const file = ownershipShadowFile(
+    process.env.VITEST_NATIVE_CONTEXT!,
+    projectContext()!.resolverInputsHash!,
+  );
   const lines = fs
     .readFileSync(file, "utf8")
     .split("\n")

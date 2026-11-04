@@ -491,7 +491,7 @@ export function installRequireHooks(
   // second time, the old way, to record where the answers differ.
   const shadowFile =
     sharedInputs !== null && ownershipContext.diagnostics === true
-      ? ownershipShadowFile(process.env[CONTEXT_ENV])
+      ? ownershipShadowFile(process.env[CONTEXT_ENV], ownershipContext.resolverInputsHash)
       : null;
   const sharedResolver =
     sharedInputs === null

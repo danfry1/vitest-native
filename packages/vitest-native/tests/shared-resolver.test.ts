@@ -18,8 +18,6 @@ import {
   resolverInputsHash,
   serializeResolutionAliases,
 } from "../src/native/shared-resolver.mjs";
-// @ts-expect-error — runtime .mjs, no types
-import { registryKey } from "../src/native/registry.mjs";
 import { reactNative } from "../src/index.js";
 import { runPluginConfig } from "./plugin-config.js";
 
@@ -237,7 +235,10 @@ describe("the Vite side under the flag", () => {
     const vitestProject = {
       config: { root: configRoot, setupFiles: config.test.setupFiles, env: { ...config.test.env } },
     };
-    plugin.configureVitest({ vitest: { config: { cliOptions: {} } }, project: vitestProject });
+    await plugin.configureVitest({
+      vitest: { config: { cliOptions: {} } },
+      project: vitestProject,
+    });
     return (root: string) =>
       plugin.resolveId.call({ environment: { config: { root } } }, "dual-nope-not-installed");
   };
@@ -315,21 +316,5 @@ describe("aliases", () => {
         "/root",
       ).skipped,
     ).toEqual(["x"]);
-  });
-});
-
-describe("the registry under the flag", () => {
-  const root = project({
-    "package.json": "{}",
-    "node_modules/react-native/package.json": JSON.stringify({ version: "0.86.0" }),
-  });
-  const base = { projectRoot: root, platform: "ios", reactNativeVersion: "0.86.0" };
-
-  it("is a different cache entry with the flag on", () => {
-    expect(registryKey({ ...base, ownershipModel: "resolver" })).not.toBe(registryKey(base));
-  });
-
-  it("keeps the same key as before with the flag off", () => {
-    expect(registryKey({ ...base, ownershipModel: undefined })).toBe(registryKey(base));
   });
 });

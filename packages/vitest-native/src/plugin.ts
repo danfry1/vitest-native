@@ -425,15 +425,17 @@ async function loadAssetModules(): Promise<AssetModules> {
  * copy into the plugin entry. Returns the registry path, or null when one could not
  * be produced, in which case the engine keeps loading RN file by file.
  */
-async function buildRegistryFor(options: {
+interface RegistryOptions {
   projectRoot: string;
   platform: string;
   reactNativeVersion: string;
   assetExts: string[];
   sourceExts: string[];
   diagnostics: boolean;
-  ownershipModel?: string;
-}): Promise<string | null> {
+  resolverInputs?: ResolverInputs;
+}
+
+async function buildRegistryFor(options: RegistryOptions): Promise<string | null> {
   try {
     const dir = path.dirname(fileURLToPath(import.meta.url));
     const module = (await import(
@@ -1647,6 +1649,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     options?.experimental?.ownershipModel === "resolver" ? "resolver" : undefined;
   const pendingResolverInputs = new Map<string, Omit<ResolverInputs, "conditions">>();
   const viteResolvers = new Map<string, SharedResolver>();
+  // experimental.ownershipModel: the registry options config() knows, built in
+  // configureVitest once the resolver inputs are final (by directoryKey).
+  const pendingRegistries = new Map<string, RegistryOptions>();
+  // Set by configureProject when it publishes the context asynchronously (above).
+  let ownershipReady: Promise<void> | undefined;
   // A root as Vite spells it → its directoryKey: resolveId runs for every import.
   const resolverKeys = new Map<string, string>();
 
@@ -2307,16 +2314,23 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           }
         }
 
-        const registryFile = await buildRegistryFor({
+        const registryOptions: RegistryOptions = {
           projectRoot: resolvedRoot,
           platform,
           reactNativeVersion: reactNativeVersion ?? "0.0.0",
           assetExts: assetExtList,
           sourceExts,
           diagnostics,
-          ...(fields.ownershipModel ? { ownershipModel: fields.ownershipModel } : {}),
-        });
-        if (registryFile) fields.registry = registryFile;
+        };
+        // experimental.ownershipModel: the registry's walk resolves with the shared
+        // resolver, whose inputs are final only in configureVitest (the conditions come
+        // from Vitest's worker arguments). It is built there, before any worker starts.
+        if (fields.ownershipModel) {
+          pendingRegistries.set(directoryKey(resolvedRoot), registryOptions);
+        } else {
+          const registryFile = await buildRegistryFor(registryOptions);
+          if (registryFile) fields.registry = registryFile;
+        }
 
         // Lazy import: pulls in vitest/node, which only exists when running under
         // Vitest (not plain Vite). Memory admission above deliberately has no
@@ -3031,16 +3045,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         changes.resolverInputsHash = resolverInputsHash(resolverInputs);
         checkResolverInputs(resolverInputs, changes.resolverInputsHash, "Vite");
       }
-      const ref =
-        Object.keys(changes).length > 0
-          ? amendProjectContext(contextRef, changes, root)
-          : contextRef;
       if (resolverInputs) {
         // Under diagnostics, the resolution shadow of this run, from every realm: emptied
         // here, before any worker starts, and named once.
         let shadowFile: string | null = null;
         if (diagnostics) {
-          shadowFile = ownershipShadowFile(ref);
+          shadowFile = ownershipShadowFile(contextRef, changes.resolverInputsHash!);
           fs.mkdirSync(path.dirname(shadowFile), { recursive: true });
           fs.writeFileSync(shadowFile, "");
           console.error(`[vitest-native] experimental.ownershipModel shadow: ${shadowFile}`);
@@ -3050,16 +3060,34 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           createSharedResolver(resolverInputs, { realm: "vite", shadowFile }),
         );
       }
-      projectConfig.env![CONTEXT_ENV] = ref;
-      // A cache cleared during a watch session: rewrite the file before each rerun.
-      const fields = writtenContexts.get(ref);
-      if (fields) {
-        (vitest as { onTestsRerun?: (fn: () => void) => void }).onTestsRerun?.(() => {
-          projectConfig.env![CONTEXT_ENV] = ensureProjectContext(
-            projectConfig.env![CONTEXT_ENV] ?? ref,
-            fields,
-          );
-        });
+      const publish = (amended: Partial<ProjectContextFields>) => {
+        const ref =
+          Object.keys(amended).length > 0
+            ? amendProjectContext(contextRef, amended, root)
+            : contextRef;
+        projectConfig.env![CONTEXT_ENV] = ref;
+        // A cache cleared during a watch session: rewrite the file before each rerun.
+        const fields = writtenContexts.get(ref);
+        if (fields) {
+          (vitest as { onTestsRerun?: (fn: () => void) => void }).onTestsRerun?.(() => {
+            projectConfig.env![CONTEXT_ENV] = ensureProjectContext(
+              projectConfig.env![CONTEXT_ENV] ?? ref,
+              fields,
+            );
+          });
+        }
+      };
+      // experimental.ownershipModel: the registry config() left for now, built with the
+      // final resolver inputs (its walk resolves with them) before any worker starts.
+      const registryOptions = resolverInputs
+        ? pendingRegistries.get(directoryKey(root))
+        : undefined;
+      if (registryOptions) {
+        ownershipReady = buildRegistryFor({ ...registryOptions, resolverInputs }).then((registry) =>
+          publish(registry ? { ...changes, registry } : changes),
+        );
+      } else {
+        publish(changes);
       }
     }
     const cli = vitest._cliOptions ?? vitest.config?.cliOptions ?? {};
@@ -3242,8 +3270,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     // awaits it, which the check of the running Vitest needs (the host's resolver is
     // asynchronous).
     configureVitest(context: Parameters<typeof configureProject>[0]) {
+      ownershipReady = undefined;
       configureProject(context);
-      return verifyRunningVitest(context);
+      // Under experimental.ownershipModel, the context is published once the registry
+      // is built (configureProject); Vitest awaits this before starting any worker.
+      const ready = ownershipReady as Promise<void> | undefined;
+      return ready ? ready.then(() => verifyRunningVitest(context)) : verifyRunningVitest(context);
     },
   } as Plugin;
 }

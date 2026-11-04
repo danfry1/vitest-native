@@ -38,6 +38,7 @@ import { resolveTransformPreset } from "./babel-preset.mjs";
 import { assetRegistryPathFor, nativeAssetModuleSource } from "./assets.mjs";
 import { resolveRelativePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
 import { createNativeOwnershipPolicy } from "./ownership.mjs";
+import { createSharedResolver, resolverInputsHash } from "./shared-resolver.mjs";
 
 /**
  * Losing the registry is a silent performance cliff, not a correctness problem:
@@ -146,10 +147,19 @@ function sourceFor(file, { projectRoot, platform, reactNativeVersion, assetExtSe
  * resolution the hooks apply inside node_modules (`./Foo` → `Foo.ios.js`).
  * Returns an absolute path, or null when the target cannot be resolved.
  */
-function resolveTarget(request, fromFile, platform, sourceExts) {
+function resolveTarget(request, fromFile, platform, sourceExts, sharedResolver = null) {
   if (request.startsWith(".") && !path.extname(request)) {
     const hit = resolveRelativePlatformFile(request, fromFile, platform, sourceExts);
     if (hit) return hit;
+  }
+  // experimental.ownershipModel: a bare request is answered by the resolver every realm
+  // uses, here, once, at build time, so the registry bakes in the file Node's require
+  // hook would answer and costs no resolution when a worker runs it.
+  if (sharedResolver !== null && !request.startsWith(".") && !path.isAbsolute(request)) {
+    const shared = sharedResolver.resolve(request, fromFile, (id) =>
+      createRequire(fromFile).resolve(id),
+    );
+    if (shared) return shared;
   }
   try {
     return createRequire(fromFile).resolve(request);
@@ -209,7 +219,7 @@ export function registryKey({
   assetExts = [],
   sourceExts = ["js", "jsx", "json", "ts", "tsx"],
   additionalEntries = [],
-  ownershipModel,
+  resolverInputs,
 }) {
   const req = createRequire(path.join(projectRoot, "package.json"));
   const version = (name) => {
@@ -281,10 +291,11 @@ export function registryKey({
         ...sourceExts.map((extension) => `source:${extension}`),
         ...canonicalAssetExtensions(assetExts).map((extension) => `asset:${extension}`),
         ...canonicalAdditionalEntries(additionalEntries).map((entry) => `entry:${entry}`),
-        // experimental.ownershipModel emits externals resolved at run time (see emit),
-        // a different registry from the one with paths baked in. Absent with the flag
-        // off, so the key, and the cache, are unchanged for every other project.
-        ...(ownershipModel ? [`ownership:${ownershipModel}:2`] : []),
+        // experimental.ownershipModel: the walk resolves bare requests with the shared
+        // resolver (resolveTarget), so the baked paths depend on every input it resolves
+        // from. Absent with the flag off, so the key, and the cache, are unchanged for
+        // every other project.
+        ...(resolverInputs ? [`resolver:${resolverInputsHash(resolverInputs)}`] : []),
         boundaries.digest("hex"),
       ].join("\0"),
     )
@@ -337,24 +348,12 @@ function manifestValid(manifest) {
  * +6% per file on a 200-file hot suite; reusing `vm.compileFunction` after a first
  * `_compile` load needs a hand-built copy of Node's `require`.
  */
-function emit(files, modules, resolveExternalsAtRunTime = false) {
+function emit(files, modules) {
   const idOf = new Map(files.map((f, i) => [f, i]));
-  // A target outside the registry is a pre-resolved absolute path, or, under
-  // experimental.ownershipModel, `false`: required by its request from the React Native
-  // file that asked, so the require hook's shared resolver answers it as it answers
-  // every other realm (an absolute path would go around it).
   const deps = files.map((f) => {
     const out = {};
     for (const [request, target] of Object.entries(modules.get(f).deps)) {
-      const id = target === null ? undefined : idOf.get(target);
-      out[request] =
-        target === null
-          ? null
-          : id !== undefined
-            ? id
-            : resolveExternalsAtRunTime && !path.isAbsolute(request) && !request.startsWith(".")
-              ? false
-              : target;
+      out[request] = target === null ? null : (idOf.get(target) ?? target);
     }
     return JSON.stringify(out);
   });
@@ -369,23 +368,11 @@ function emit(files, modules, resolveExternalsAtRunTime = false) {
     `const __ids = ${JSON.stringify(files)};`,
     `const __deps = [${deps.join(",")}];`,
     `const __dirs = __ids.map((f) => f.slice(0, Math.max(f.lastIndexOf("/"), f.lastIndexOf("\\\\"))));`,
-    ...(resolveExternalsAtRunTime
-      ? [
-          `const __from = [];`,
-          `function __reqFrom(i) {`,
-          `  return (__from[i] ??= __ext("node:module").createRequire(__ids[i]));`,
-          `}`,
-        ]
-      : []),
     `function __req(i) {`,
     `  const map = __deps[i];`,
     `  const r = function (q) {`,
     `    const t = map[q];`,
     `    if (t === undefined || t === null) return __ext(q);`,
-    // Resolved once, through the require hook, then required by path as with the flag off.
-    ...(resolveExternalsAtRunTime
-      ? [`    if (t === false) return __ext((map[q] = __reqFrom(i).resolve(q)));`]
-      : []),
     `    if (typeof t !== "number") return __ext(t);`,
     // A jest.mock of a React Native module (jest-compat's per-file registry, see
     // jest-compat/node-registry.mjs) applies to RN's own requires of it, as under
@@ -400,9 +387,6 @@ function emit(files, modules, resolveExternalsAtRunTime = false) {
     `  r.resolve = function (q) {`,
     `    const t = map[q];`,
     `    if (t === undefined || t === null) return __ext.resolve(q);`,
-    ...(resolveExternalsAtRunTime
-      ? [`    if (t === false) return (map[q] = __reqFrom(i).resolve(q));`]
-      : []),
     `    return typeof t === "number" ? __ids[t] : t;`,
     `  };`,
     `  r.cache = __ext.cache;`,
@@ -481,7 +465,8 @@ export function buildRegistry({
   sourceExts = ["js", "jsx", "json", "ts", "tsx"],
   diagnostics = false,
   additionalEntries = [],
-  ownershipModel,
+  // experimental.ownershipModel: the project context's resolver inputs, or undefined.
+  resolverInputs,
   // Internal orchestration controls. `cacheOnly` lets the long-lived Vite process
   // perform the cheap key/manifest check without ever loading Babel or compiling
   // RN. `failOnError` lets the bounded compiler child return a structured failure;
@@ -514,7 +499,7 @@ export function buildRegistry({
       assetExts,
       sourceExts,
       additionalEntries,
-      ownershipModel,
+      resolverInputs,
     });
     dir = path.join(cacheRootFor(projectRoot), "registry");
     fs.mkdirSync(dir, { recursive: true });
@@ -553,6 +538,9 @@ export function buildRegistry({
     sourceExts,
     ownership,
   };
+  const sharedResolver = resolverInputs
+    ? createSharedResolver(resolverInputs, { realm: "registry" })
+    : null;
   const modules = new Map();
   const manifest = [];
   // Targets the registry does NOT inline but DOES bake in as pre-resolved absolute
@@ -587,7 +575,7 @@ export function buildRegistry({
         for (const match of code.matchAll(REQUIRE_RE)) {
           const request = match[2];
           if (request in deps) continue;
-          const target = resolveTarget(request, file, platform, sourceExts);
+          const target = resolveTarget(request, file, platform, sourceExts, sharedResolver);
           // Only React Native's own graph is inlined. Everything else — react,
           // invariant, JSON manifests, native addons — stays a normal Node require
           // at a pre-resolved absolute path, so those modules keep their usual
@@ -629,7 +617,7 @@ export function buildRegistry({
     }
 
     const files = [...modules.keys()];
-    const code = emit(files, modules, ownershipModel === "resolver");
+    const code = emit(files, modules);
     // Write via a unique temp file then rename: several workers may race here on a
     // cold cache, and a reader must never observe a partially written registry.
     const publishAtomically = (destination, contents) => {

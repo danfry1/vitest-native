@@ -482,17 +482,13 @@ export function checkResolverInputs(inputs, hash, realm, view = {}) {
 
 /**
  * Under `diagnostics`, where every realm writes the resolution shadow: a JSON-lines file
- * beside the project context, named by its key, so each project and configuration has
- * its own. `contextRef` is the CONTEXT_ENV value ("<file>#<key>").
+ * in the cache directory that holds the project context, named by the resolver inputs'
+ * hash, so each project and configuration has its own and the main process can name it
+ * before the context is final. `contextRef` is the CONTEXT_ENV value ("<file>#<key>").
  */
-export function ownershipShadowFile(contextRef) {
-  const hash = contextRef.lastIndexOf("#");
-  const contextsDir = path.dirname(contextRef.slice(0, hash));
-  return path.join(
-    path.dirname(contextsDir),
-    "ownership-shadow",
-    `${contextRef.slice(hash + 1)}.jsonl`,
-  );
+export function ownershipShadowFile(contextRef, inputsHash) {
+  const contextsDir = path.dirname(contextRef.slice(0, contextRef.lastIndexOf("#")));
+  return path.join(path.dirname(contextsDir), "ownership-shadow", `${inputsHash}.jsonl`);
 }
 
 /**
