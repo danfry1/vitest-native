@@ -92,6 +92,7 @@ export declare function createSharedResolver(
     memo?: boolean;
     shadowFile?: string | null;
     viteAliasesApplied?: boolean;
+    globalFolders?: boolean;
   },
 ): SharedResolver;
 
@@ -99,7 +100,7 @@ export declare function createSharedResolver(
 export declare function workerSharedResolver(
   inputs: ResolverInputs,
   realm: string,
-  options?: { shadowFile?: string | null },
+  options?: { shadowFile?: string | null; globalFolders?: boolean },
 ): SharedResolver;
 
 export declare function serializeResolutionAliases(

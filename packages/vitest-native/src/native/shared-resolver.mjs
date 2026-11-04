@@ -177,6 +177,9 @@ export function exportTarget(exportsField, subpath, conditions) {
  * @param {object} [options]
  * @param {string} [options.realm]  name used in the counters
  * @param {boolean} [options.memo]  hold answers (default true)
+ * @param {boolean} [options.globalFolders]  also look in NODE_PATH and the global
+ *   folders, as Node's CommonJS resolution does (the require hooks, the registry walk);
+ *   Node's ESM resolver and Vite do not
  * @param {boolean} [options.viteAliasesApplied]  the requests arrive with the project's
  *   string and RegExp aliases already applied: Vite's own alias plugin runs before any
  *   plugin's resolveId, so applying them again would expand `pkg` → `pkg/mock` twice.
@@ -185,9 +188,19 @@ export function exportTarget(exportsField, subpath, conditions) {
  */
 export function createSharedResolver(
   inputs,
-  { realm = "unknown", memo = true, shadowFile = null, viteAliasesApplied = false } = {},
+  {
+    realm = "unknown",
+    memo = true,
+    shadowFile = null,
+    viteAliasesApplied = false,
+    globalFolders = false,
+  } = {},
 ) {
-  return createResolverCore(inputs, { viteAliasesApplied }).view(realm, { memo, shadowFile });
+  return createResolverCore(inputs, { viteAliasesApplied }).view(realm, {
+    memo,
+    shadowFile,
+    globalFolders,
+  });
 }
 
 const WORKER_CORES = Symbol.for("vitest-native.sharedResolverCores");
@@ -198,12 +211,16 @@ const WORKER_CORES = Symbol.for("vitest-native.sharedResolverCores");
  * package directory or a manifest one realm found is the other's too. Kept on globalThis,
  * by the inputs' hash, because the hot runtime can evaluate this module twice in a worker.
  */
-export function workerSharedResolver(inputs, realm, { shadowFile = null } = {}) {
+export function workerSharedResolver(
+  inputs,
+  realm,
+  { shadowFile = null, globalFolders = false } = {},
+) {
   const cores = (globalThis[WORKER_CORES] ??= new Map());
   const key = resolverInputsHash(inputs);
   let core = cores.get(key);
   if (core === undefined) cores.set(key, (core = createResolverCore(inputs)));
-  return core.view(realm, { memo: true, shadowFile });
+  return core.view(realm, { memo: true, shadowFile, globalFolders });
 }
 
 function createResolverCore(inputs, { viteAliasesApplied = false } = {}) {
@@ -261,12 +278,15 @@ function createResolverCore(inputs, { viteAliasesApplied = false } = {}) {
 
   /**
    * A package's directory as Node looks for it: the node_modules directories from the
-   * requester up, then NODE_PATH and the global folders (Module._nodeModulePaths and
-   * Module.globalPaths, the order of require.resolve.paths and of packageDirOf). A
-   * package resolving its own name (self-reference) is left to the caller.
+   * requester up (Module._nodeModulePaths), then, for a CommonJS realm only, NODE_PATH and
+   * the global folders (Module.globalPaths): the order of require.resolve.paths and of
+   * packageDirOf. Node's ESM resolver and Vite never read NODE_PATH. A package resolving
+   * its own name (self-reference) is left to the caller.
    */
-  function packageDirFor(name, fromDir) {
-    const lookups = [...Module._nodeModulePaths(fromDir), ...Module.globalPaths];
+  function packageDirFor(name, fromDir, globalFolders) {
+    const lookups = globalFolders
+      ? [...Module._nodeModulePaths(fromDir), ...Module.globalPaths]
+      : Module._nodeModulePaths(fromDir);
     for (const lookup of lookups) {
       const candidate = path.join(lookup, ...name.split("/"));
       if (fs.existsSync(path.join(candidate, "package.json"))) {
@@ -277,11 +297,11 @@ function createResolverCore(inputs, { viteAliasesApplied = false } = {}) {
     return null;
   }
 
-  function packageAt(name, fromDir) {
-    const dirKey = `${fromDir}\0${name}`;
+  function packageAt(name, fromDir, globalFolders) {
+    const dirKey = `${globalFolders ? "g" : "-"}\0${fromDir}\0${name}`;
     let dir = dirs.get(dirKey);
     if (dir === undefined) {
-      dir = packageDirFor(name, fromDir);
+      dir = packageDirFor(name, fromDir, globalFolders);
       dirs.set(dirKey, dir);
     }
     if (dir === null) return null;
@@ -312,7 +332,7 @@ function createResolverCore(inputs, { viteAliasesApplied = false } = {}) {
    * @param {(id: string) => string} [nodeResolve]  the caller's resolution, for a
    *   package without an `exports` target (Node's own `main`)
    */
-  function resolveWith(useMemo, request, parentFile, nodeResolve) {
+  function resolveWith({ useMemo, globalFolders }, request, parentFile, nodeResolve) {
     if (
       typeof request !== "string" ||
       request.length === 0 ||
@@ -328,13 +348,17 @@ function createResolverCore(inputs, { viteAliasesApplied = false } = {}) {
     counters.calls++;
     const fromDir =
       parentFile && path.isAbsolute(parentFile) ? path.dirname(parentFile) : projectRoot;
-    const key = `${fromDir}\0${request}`;
+    const key = `${globalFolders ? "g" : "-"}\0${fromDir}\0${request}`;
     if (useMemo) {
       const held = memo.get(key);
-      if (held !== undefined) {
+      // Another realm, or another key of the require hook's (its conditions), may have
+      // put it there: a file gone since (a nested copy uninstalled, a fixture a test
+      // deleted) is resolved again, at the cost of one stat per hit, as the hook's memo.
+      if (held !== undefined && fs.statSync(held, { throwIfNoEntry: false })?.isFile()) {
         counters.hits++;
         return held;
       }
+      if (held !== undefined) memo.delete(key);
     }
     counters.misses++;
     let result = null;
@@ -349,7 +373,7 @@ function createResolverCore(inputs, { viteAliasesApplied = false } = {}) {
         return null;
       } else {
         const name = packageNameOf(expanded);
-        const pkg = name ? packageAt(name, fromDir) : null;
+        const pkg = name ? packageAt(name, fromDir, globalFolders) : null;
         if (pkg) {
           const subpath = expanded === name ? "." : `.${expanded.slice(name.length)}`;
           const target =
@@ -387,7 +411,7 @@ function createResolverCore(inputs, { viteAliasesApplied = false } = {}) {
       // let the caller's resolution answer, as it would have without the flag.
       if (error?.code === "ENOENT") {
         for (const dirKey of dirs.keys())
-          if (dirKey.startsWith(`${fromDir}\0`)) dirs.delete(dirKey);
+          if (dirKey.slice(2).startsWith(`${fromDir}\0`)) dirs.delete(dirKey);
         manifests.clear();
         realDirs.clear();
       }
@@ -416,7 +440,8 @@ function createResolverCore(inputs, { viteAliasesApplied = false } = {}) {
    * A realm's view: `resolve` and `shadow` count into that realm's counters, and share
    * this core's memo and caches with every other view.
    */
-  function view(realm, { memo: useMemo = true, shadowFile = null } = {}) {
+  function view(realm, { memo: useMemo = true, shadowFile = null, globalFolders = false } = {}) {
+    const mode = { useMemo, globalFolders };
     const own = (realms[realm] ??= {
       calls: 0,
       hits: 0,
@@ -473,7 +498,7 @@ function createResolverCore(inputs, { viteAliasesApplied = false } = {}) {
     function forget(request, parentFile) {
       const fromDir =
         parentFile && path.isAbsolute(parentFile) ? path.dirname(parentFile) : projectRoot;
-      memo.delete(`${fromDir}\0${request}`);
+      memo.delete(`${globalFolders ? "g" : "-"}\0${fromDir}\0${request}`);
       dirs.clear();
       manifests.clear();
       realDirs.clear();
@@ -481,7 +506,7 @@ function createResolverCore(inputs, { viteAliasesApplied = false } = {}) {
 
     return {
       resolve: inRealm((request, parentFile, nodeResolve) =>
-        resolveWith(useMemo, request, parentFile, nodeResolve),
+        resolveWith(mode, request, parentFile, nodeResolve),
       ),
       shadow,
       forget,

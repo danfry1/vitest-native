@@ -27,7 +27,13 @@ function write(file: string, body = ""): void {
 write("package.json", JSON.stringify({ name: "cost-app" }));
 const shapes: Record<string, object> = {
   "exp-lib": {
-    exports: { ".": { require: "./cjs.js", import: "./esm.mjs" }, "./sub": "./sub.js" },
+    exports: {
+      ".": { require: "./cjs.js", import: "./esm.mjs" },
+      "./sub": "./sub.js",
+      "./a": "./a.js",
+      "./b": "./b.js",
+      "./c": "./c.js",
+    },
   },
   "main-lib": { main: "./lib/main.js" },
   "rn-lib": { main: "./main.js", "react-native": "./native.js" },
@@ -43,6 +49,9 @@ for (const [name, manifest] of Object.entries(shapes)) {
     "main.js",
     "native.js",
     "index.js",
+    "a.js",
+    "b.js",
+    "c.js",
   ])
     write(`node_modules/${name}/${file}`);
 }
@@ -56,7 +65,18 @@ fs.symlinkSync(
   path.join(root, "node_modules/linked-lib"),
   "junction",
 );
-const requests = ["exp-lib", "exp-lib/sub", "main-lib", "rn-lib", "@scope/scoped", "linked-lib"];
+// Several subpaths of one package: each is its own answer, and one package directory.
+const requests = [
+  "exp-lib",
+  "exp-lib/sub",
+  "exp-lib/a",
+  "exp-lib/b",
+  "exp-lib/c",
+  "main-lib",
+  "rn-lib",
+  "@scope/scoped",
+  "linked-lib",
+];
 // Requesting files at several depths, as an app's source tree has them.
 const parents = ["src/a.js", "src/screens/b.js", "src/screens/home/widgets/c.js"].map((f) => {
   write(f);
@@ -83,7 +103,10 @@ function measure(which: "node" | "resolver") {
       (new Error().stack.split("\\n")[3] ?? "").includes("shared-resolver.mjs")
         ? String(p).split(/[\\\\/]/).filter(Boolean).length
         : 1;
-    fs.realpathSync = Object.assign(function (...a) { counts.realpath += cost(a[0]); return realpath.apply(this, a); }, { native: realpath.native });
+    const native = realpath.native;
+    fs.realpathSync = Object.assign(function (...a) { counts.realpath += cost(a[0]); return realpath.apply(this, a); }, {
+      native: function (...a) { counts.realpath++; return native.apply(this, a); },
+    });
     Module._stat = (file) => {
       counts.moduleStat++;
       const s = fs.statSync.call(fs, file, { throwIfNoEntry: false });
@@ -98,17 +121,16 @@ function measure(which: "node" | "resolver") {
       conditions: [...nodeDefaultConditions(process.features)].sort(),
     });
     for (const k of Object.keys(counts)) counts[k] = 0;
-    let answered = 0;
+    const answers = [];
     for (const parent of parents) {
       for (const request of requests) {
         const req = createRequire(parent);
-        const file = ${JSON.stringify(which)} === "node"
+        answers.push(${JSON.stringify(which)} === "node"
           ? req.resolve(request)
-          : resolver.resolve(request, parent, (id) => req.resolve(id));
-        if (file) answered++;
+          : resolver.resolve(request, parent, (id) => req.resolve(id)));
       }
     }
-    console.log(JSON.stringify({ answered, ...counts }));
+    console.log(JSON.stringify({ answers, ...counts }));
   `;
   const proc = spawnSync(
     process.execPath,
@@ -130,8 +152,18 @@ describe("a cold resolution through the shared resolver", () => {
   it("costs no more stat calls than Node's own", () => {
     const node = measure("node");
     const resolver = measure("resolver");
-    expect(resolver.answered).toBe(node.answered);
-    console.log("node", node, "resolver", resolver);
-    expect(stats(resolver)).toBeLessThanOrEqual(stats(node));
+    // The same files, in Node's spelling, except where the field policy differs by design:
+    // a package without `exports` loads its `react-native` field, not `main`.
+    expect(resolver.answers).toEqual(
+      node.answers.map((file: string) =>
+        file.includes(`${path.sep}rn-lib${path.sep}`)
+          ? file.replace(/main\.js$/, "native.js")
+          : file,
+      ),
+    );
+    const { answers: _node, ...nodeCounts } = node;
+    const { answers: _resolver, ...resolverCounts } = resolver;
+    console.log("node", nodeCounts, "resolver", resolverCounts);
+    expect(stats(resolverCounts)).toBeLessThanOrEqual(stats(nodeCounts));
   });
 });

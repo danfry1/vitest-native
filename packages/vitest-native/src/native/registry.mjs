@@ -545,7 +545,8 @@ export function buildRegistry({
     ownership,
   };
   const sharedResolver = resolverInputs
-    ? createSharedResolver(resolverInputs, { realm: "registry" })
+    ? // Node's CommonJS resolution, NODE_PATH included: the registry answers require.
+      createSharedResolver(resolverInputs, { realm: "registry", globalFolders: true })
     : null;
   // The counters are per realm and process; this build's errors are those counted after.
   const errorsBeforeWalk = sharedResolver?.counters.fallbacks.error ?? 0;

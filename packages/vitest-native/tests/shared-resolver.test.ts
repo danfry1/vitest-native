@@ -4,9 +4,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createRequire } from "node:module";
+import Module, { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import {
   checkResolverInputs,
   conditionsIn,
@@ -254,6 +254,103 @@ describe("one resolver per worker", () => {
     expect(cjs.counters.hits - held.hits).toBe(0);
     expect(cjs.counters.misses - held.misses).toBe(1);
   });
+
+  it("does not hand one realm a file another realm held that is gone since", () => {
+    const tree = project({
+      "node_modules/l/package.json": JSON.stringify({ name: "l", exports: "./n.js" }),
+      "node_modules/l/n.js": "",
+      "node_modules/c/node_modules/l/package.json": JSON.stringify({
+        name: "l",
+        exports: "./n.js",
+      }),
+      "node_modules/c/node_modules/l/n.js": "",
+      "node_modules/c/index.js": "",
+    });
+    const own = inputsFor(tree);
+    const consumer = path.join(tree, "node_modules/c/index.js");
+    const esm = workerSharedResolver(own, "test-stale-esm");
+    const cjs = workerSharedResolver(own, "test-stale-cjs");
+    expect(esm.resolve("l", consumer)).toBe(path.join(tree, "node_modules/c/node_modules/l/n.js"));
+    fs.rmSync(path.join(tree, "node_modules/c/node_modules"), { recursive: true });
+    cjs.forget("unrelated", consumer); // a stale check elsewhere clears the directory caches
+    expect(cjs.resolve("l", consumer)).toBe(path.join(tree, "node_modules/l/n.js"));
+  });
+
+  it("looks in NODE_PATH for the CommonJS realms only, as Node does", () => {
+    const tree = project({
+      "np/glob-lib/package.json": JSON.stringify({ name: "glob-lib", exports: "./i.js" }),
+      "np/glob-lib/i.js": "",
+      "app/a.js": "",
+    });
+    const before = process.env.NODE_PATH;
+    process.env.NODE_PATH = path.join(tree, "np");
+    (Module as unknown as { _initPaths(): void })._initPaths();
+    try {
+      const from = path.join(tree, "app/a.js");
+      const own = inputsFor(tree);
+      expect(createSharedResolver(own, { globalFolders: true }).resolve("glob-lib", from)).toBe(
+        path.join(tree, "np/glob-lib/i.js"),
+      );
+      expect(createSharedResolver(own).resolve("glob-lib", from)).toBe(null);
+    } finally {
+      if (before === undefined) delete process.env.NODE_PATH;
+      else process.env.NODE_PATH = before;
+      (Module as unknown as { _initPaths(): void })._initPaths();
+    }
+  });
+
+  it("looks a package directory up once per requesting directory, whatever the subpath", () => {
+    const tree = project({
+      "node_modules/many/package.json": JSON.stringify({
+        name: "many",
+        exports: { "./a": "./a.js", "./b": "./b.js", "./c": "./c.js" },
+      }),
+      "node_modules/many/a.js": "",
+      "node_modules/many/b.js": "",
+      "node_modules/many/c.js": "",
+      "src/deep/x.js": "",
+    });
+    const resolver = createSharedResolver(inputsFor(tree));
+    const from = path.join(tree, "src/deep/x.js");
+    resolver.resolve("many/a", from);
+    const probes = vi.spyOn(fs, "existsSync");
+    try {
+      resolver.resolve("many/b", from);
+      resolver.resolve("many/c", from);
+      expect(probes).not.toHaveBeenCalled();
+    } finally {
+      probes.mockRestore();
+    }
+  });
+
+  // On a case-insensitive disk a directory can be reached under another case. Node's
+  // module cache keys by fs.realpathSync, which keeps the case it was given; the native
+  // real path (identityKey, Vite's spelling) gives the on-disk case. Answers must be
+  // Node's spelling, or Node loads the file twice.
+  const caseInsensitive = (() => {
+    const probe = fs.mkdtempSync(path.join(os.tmpdir(), "vn-case-"));
+    try {
+      return fs.existsSync(probe.toUpperCase()) && probe !== probe.toUpperCase();
+    } finally {
+      fs.rmSync(probe, { recursive: true, force: true });
+    }
+  })();
+  it.runIf(caseInsensitive)(
+    "answers in Node's spelling for a requester spelled in another case",
+    () => {
+      const tree = project({
+        "Lib/node_modules/cased/package.json": JSON.stringify({ name: "cased", exports: "./i.js" }),
+        "Lib/node_modules/cased/i.js": "",
+        "Lib/x.js": "",
+      });
+      const answer = createSharedResolver(inputsFor(tree)).resolve(
+        "cased",
+        path.join(tree, "LIB/x.js"),
+      )!;
+      expect(answer).toBe(fs.realpathSync(path.join(tree, "LIB/node_modules/cased/i.js")));
+      expect(answer).not.toBe(identityKey(answer));
+    },
+  );
 
   it("keeps separate cores for separate inputs", () => {
     const a = workerSharedResolver(inputs, "test-core-a");

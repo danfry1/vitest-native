@@ -499,7 +499,9 @@ export function installRequireHooks(
       ? ownershipShadowFile(process.env[CONTEXT_ENV], ownershipContext.resolverInputsHash)
       : null;
   const sharedResolver =
-    sharedInputs === null ? null : workerSharedResolver(sharedInputs, "cjs", { shadowFile });
+    sharedInputs === null
+      ? null
+      : workerSharedResolver(sharedInputs, "cjs", { shadowFile, globalFolders: true });
   // A caller passing other conditions than this realm's (none does but a direct
   // `Module._resolveFilename` call) gets Node's own answer for them.
   const recordConditions = new Set(ownershipContext?.resolverInputs?.conditions ?? []);
