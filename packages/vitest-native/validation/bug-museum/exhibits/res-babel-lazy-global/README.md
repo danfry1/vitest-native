@@ -2,7 +2,7 @@
 
 - **Class:** transform/resolution
 - **Source:** Expo SDK 57's winter runtime with a warm transform cache (2026-10)
-- **Fixed by:** fix/babel-reentry-winter
+- **Fixed by:** #390 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

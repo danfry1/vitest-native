@@ -2,7 +2,7 @@
 
 - **Class:** transform/resolution
 - **Source:** migration testing (2026-10)
-- **Fixed by:** #339 (draft) (`origin/fix/esm-goal-import-interop`)
+- **Fixed by:** #339 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

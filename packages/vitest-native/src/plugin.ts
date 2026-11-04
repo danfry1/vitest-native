@@ -40,7 +40,12 @@ import { knownNativeModulesFor, nativeModuleSpecsFor } from "./native/native-mod
 import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
 import { detectEcosystemPackages } from "./native/ecosystem.js";
-import { containsPath, packageDirOf } from "./native/match.mjs";
+import {
+  containsPath,
+  dependencyDirOf,
+  memoizePackageDirOf,
+  packageDirOf,
+} from "./native/match.mjs";
 type AssetModules = typeof import("./native/assets.mjs");
 import type { HotMemoryPlan } from "./native/memory.mjs";
 import type { NativePoolOptions } from "./native/pool.js";
@@ -158,6 +163,45 @@ export function testIncludeRoots(include: unknown, projectRoot: string): string[
     dirs.add(path.resolve(projectRoot, literal.slice(0, slash)));
   }
   return [...dirs];
+}
+
+/**
+ * The files `test.setupFiles` names, resolved as Vitest resolves them (from the run
+ * root: a package request first, then a path), in the spelling given and in the real
+ * path's spellings, since Vite reports a module by its real path.
+ *
+ * Vitest evaluates every setup file in Vite whatever `server.deps.external` says, so
+ * the ownership policy treats them as entries (see decideFile in native/ownership.mjs).
+ */
+export function setupEntryFiles(setupFiles: unknown, projectRoot: string): string[] {
+  const list = Array.isArray(setupFiles) ? setupFiles : [setupFiles];
+  const req = createRequire(path.join(projectRoot, "package.json"));
+  const files = new Set<string>();
+  for (const entry of list) {
+    if (typeof entry !== "string" || entry === "") continue;
+    let file: string;
+    if (entry.startsWith("file:")) {
+      file = fileURLToPath(entry);
+    } else if (path.isAbsolute(entry)) {
+      file = entry;
+    } else {
+      try {
+        file = req.resolve(entry);
+      } catch {
+        file = path.resolve(projectRoot, entry);
+      }
+    }
+    files.add(path.resolve(file));
+    // A missing file is left to Vitest, which reports it by name when it runs it.
+    // Both real-path spellings: Node's (`realpathSync`, the one Module._cache and
+    // canonicalDir use) and the OS's (`realpathSync.native`), which differ on Windows
+    // for 8.3 short names (#399).
+    if (fs.existsSync(file)) {
+      files.add(fs.realpathSync(file));
+      files.add(fs.realpathSync.native(file));
+    }
+  }
+  return [...files];
 }
 
 /**
@@ -2163,12 +2207,38 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         const userInline = (userConfig as { test?: { server?: { deps?: { inline?: unknown } } } })
           .test?.server?.deps?.inline;
         const userInlinesEverything = userInline === true;
+        // One lookup per package and directory for this config evaluation. The
+        // linked-package check below and the ownership policy share this one;
+        // detection keeps its own, because it asks dependencyDirOf, whose answer for
+        // a workspace member differs from packageDirOf's (match.mjs). Both are scoped
+        // to this call, so a restart in watch mode (which evaluates the config again)
+        // resolves afresh.
+        const dirOf = memoizePackageDirOf();
+        // Workspace source the project imports through aliases (resolve.alias, and
+        // tsconfig `paths` where Vite resolves them): a workspace member reached that way
+        // has its dependencies walked like a declared one's.
         const ecosystem = detectEcosystemPackages(
           [resolvedRoot, ...includeRoots],
           transformPkgs,
           includeRoots,
           neverTransform,
           nativePresetNames,
+          memoizePackageDirOf(dependencyDirOf),
+          {
+            reachedPaths: requireAliases.entries
+              .map(([, target]) => target)
+              .filter((target) => path.isAbsolute(target)),
+            onReachedUndeclared: (name, dir) => {
+              if (diagnostics) {
+                console.log(
+                  `[vitest-native] ${name} (${dir}) is reached through an alias ` +
+                    `(resolve.alias or tsconfig paths) but is not a dependency of this ` +
+                    `package. Its installed React Native dependencies are compiled as if it ` +
+                    `were declared; declaring it makes the dependency explicit.`,
+                );
+              }
+            },
+          },
         );
         // The directories Vite owns outright. Handed to the worker so the require
         // hook can say so if Node loads one of their files anyway — which happens
@@ -2185,7 +2255,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // excluded by the hook itself, and treating them as disqualifying would
         // silence the warning in the case it exists for.
         const linkedDetectedDirs = ecosystem
-          .map((name) => packageDirOf(name, resolvedRoot))
+          .map((name) => dirOf(name, resolvedRoot))
           .filter((dir): dir is string => dir !== null && !/[\\/]node_modules[\\/]/.test(dir));
         const projectDirs = [
           ...new Set(
@@ -2204,7 +2274,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           runtimeTransformAugmentations:
             nativePresetNames.length > 0 ? ["preset-pass-through-modules"] : [],
           projectDirs,
+          entryFiles: setupEntryFiles(
+            (userConfig as { test?: { setupFiles?: unknown } }).test?.setupFiles,
+            resolvedRoot,
+          ),
           serverDepsInlineAll: userInlinesEverything,
+          packageDirOf: dirOf,
         });
         assertInlineOwnership(userInline);
 

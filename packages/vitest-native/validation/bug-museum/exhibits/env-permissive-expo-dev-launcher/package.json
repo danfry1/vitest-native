@@ -1,0 +1,9 @@
+{
+  "name": "museum-env-permissive-expo-dev-launcher",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "expo": "*",
+    "react-native": "*"
+  }
+}
