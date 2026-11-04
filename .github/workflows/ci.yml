@@ -96,7 +96,7 @@ jobs:
   check:
     # Unique per leg: the two back-compat legs differ only by RNTL, and GitHub resolves
     # a check name shared by two jobs ambiguously.
-    name: Full gate (${{ matrix.os }}, Node ${{ matrix.node-version }}${{ matrix.rntl && format(', RNTL {0}', matrix.rntl) || '' }})
+    name: Full gate (${{ matrix.os }}, Node ${{ matrix.node-version }}${{ matrix.rntl && format(', RNTL {0}', matrix.rntl) || '' }}${{ matrix.part && format(', {0}', matrix.part) || '' }})
     needs: classify
     if: needs.classify.outputs.docs-only != 'true'
     runs-on: ${{ matrix.os }}
@@ -120,10 +120,27 @@ jobs:
             rntl: '13'
           - os: ubuntu-latest
             node-version: 22.13.0
+          # macOS and Windows run the same steps as every other leg, split across two
+          # parallel jobs by `part`: `suite` (static checks, the unit suite, hot-runtime
+          # isolation, the cross-check, the example app, Windows loader contracts) and
+          # `native` (the native engine suites and the hot-runtime soak). Run whole,
+          # the Windows leg took about 11 minutes against about 6 for the Linux legs
+          # and set the time of every run, macOS next at about 8. Each half pays one
+          # more setup (about a minute) and finishes in about 6. The native suites
+          # start from the restored transform cache rather than after the unit suite,
+          # as they already do in every native-rn-matrix.yml cell.
           - os: macos-latest
             node-version: 22.13.0
+            part: suite
+          - os: macos-latest
+            node-version: 22.13.0
+            part: native
           - os: windows-latest
             node-version: 22.13.0
+            part: suite
+          - os: windows-latest
+            node-version: 22.13.0
+            part: native
           # Node 24 is the current release line and the matrix stopped at 22, which is
           # how a workspace-level Vitest mismatch went unnoticed locally for a whole
           # session. Everything runs here, hot runtime included.
@@ -145,21 +162,26 @@ jobs:
           node-version: ${{ matrix.node-version }}
 
       - name: Verify dependencies are pinned
+        if: matrix.part != 'native'
         run: bun run lint:deps
 
       - name: Lint
+        if: matrix.part != 'native'
         run: bun run lint
 
       - name: Check formatting
+        if: matrix.part != 'native'
         run: bun run format:check
 
       - name: Structural scorecard (patch sites, env switches, globals, swallowed catches may only fall)
+        if: matrix.part != 'native'
         # A ratchet for the in-place rebuild: scripts/structural-scorecard.mjs counts
         # them in src/ and fails when any rises above scorecard.json, or falls without
         # the baseline being lowered with it.
         run: bun run --filter vitest-native check:structure
 
       - name: Typecheck
+        if: matrix.part != 'native'
         run: bun run typecheck
 
       # Lint/format/typecheck above run against the locked RNTL (14); pin the
@@ -188,12 +210,15 @@ jobs:
         run: bun run --filter vitest-native check-compat
 
       - name: Test
+        if: matrix.part != 'native'
         run: bun run test
 
       - name: Native engine tests
+        if: matrix.part != 'suite'
         run: bun run test:native
 
       - name: Native engine tests (forks pool)
+        if: matrix.part != 'suite'
         # When a project configures a VM pool the plugin throws and points at 'threads'
         # or 'forks'. Nothing ran the forks pool, so that advice was untested — and the
         # engine's module hooks have to install in a child process just as they do in a
@@ -202,18 +227,22 @@ jobs:
         run: bun run test:native:forks
 
       - name: Native engine tests (navigation preset)
+        if: matrix.part != 'suite'
         run: bun run test:native:navigation
 
       - name: Native engine tests (Android)
+        if: matrix.part != 'suite'
         run: bun run test:native:android
 
       - name: Native engine remediation advice
+        if: matrix.part != 'suite'
         # The explainer tells users to add a package to `transform: [...]` when Node
         # cannot parse its source — the most common migration blocker. That advice was
         # only ever asserted as a substring of the error message; this applies it.
         run: bun run test:native:advice
 
       - name: Native engine tests (hot runtime)
+        if: matrix.part != 'suite'
         # The hot runtime rides @experimental Vitest internals (vitest/worker,
         # ThreadsPoolWorker, poolRunner) — the most churn-prone surface we depend
         # on, so gate it on every PR, not just the weekly matrix.
@@ -226,11 +255,11 @@ jobs:
         run: bun run test:native:hot
 
       - name: Native engine hot-runtime isolation
-        if: ${{ !matrix.rntl }}
+        if: ${{ !matrix.rntl && matrix.part != 'native' }}
         run: bun run test:native:hot:isolation
 
       - name: Native engine hot-runtime soak and recycling
-        if: ${{ !matrix.rntl }}
+        if: ${{ !matrix.rntl && matrix.part != 'suite' }}
         run: bun run test:native:hot:soak
 
       - name: Cross-check (mock ≡ real RN) + fidelity report freshness
@@ -238,10 +267,11 @@ jobs:
         # RNTL-version-specific real-RN behavior, so it runs only on the RNTL 14 legs.
         # fidelity:check runs the cross-check AND fails if the published fidelity
         # page/badge no longer match the live corpus (run `bun run fidelity:report`).
-        if: ${{ !matrix.rntl }}
+        if: ${{ !matrix.rntl && matrix.part != 'native' }}
         run: bun run fidelity:check
 
       - name: Test example app
+        if: matrix.part != 'native'
         run: bun run test:example
 
       - name: Check package exports
@@ -251,13 +281,13 @@ jobs:
       # The Windows floor (22.13) predates registerHooks. Reuse the existing job
       # for a dependency-free modern-Node contract run, after all floor checks.
       - name: Modern Node for Windows loader-hook contracts
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && matrix.part != 'native'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.16.0
 
       - name: Windows synchronous loader-hook contracts
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && matrix.part != 'native'
         env:
           VN_CJS_DRAIN_RESEARCH: '1'
         run: node --test packages/vitest-native/validation/module-isolation/test-node-cjs-reset.mjs packages/vitest-native/validation/module-isolation/test-node-cjs-drain-contract.mjs
