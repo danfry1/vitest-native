@@ -16,7 +16,7 @@ import { isMainThread, parentPort, threadId } from "node:worker_threads";
 import { init, runBaseTests, setupEnvironment } from "vitest/worker";
 import { installGlobals, installErrorUtils } from "./globals.mjs";
 import { installKnownNativeModules } from "./native-modules.mjs";
-import { installRequireHooks } from "./hooks.mjs";
+import { installRequireHooks, resetExpoSdkWarnings } from "./hooks.mjs";
 import { installHotReset } from "./reset.mjs";
 import { installRegistry } from "./registry.mjs";
 import { captureModuleBaseline, resetEvaluatedModules } from "./module-reset.mjs";
@@ -119,6 +119,8 @@ const { hotReset, bless, registerState, stateEntries } = installHotReset({
   preserveGlobals,
 });
 globalThis.__vitest_native_register_state = registerState;
+// A later file loading an unsupported Expo copy is warned again (hooks.mjs).
+registerState({ id: "expo.sdk-warnings", capture: () => null, restore: resetExpoSdkWarnings });
 globalThis.__vitest_native_state_entries = stateEntries;
 globalThis.__vitest_native_hot_reset = () => {
   globalThis.__vitest_native_registry_reset?.();
