@@ -306,9 +306,16 @@ describe("known-failing.json", () => {
   });
 
   it("every entry matches some allowed run where its probe applies — otherwise it could never go stale", () => {
+    // run.mjs judges every run with its ownershipModel (a flag: "off" unless --ownership
+    // asks for another value where the constraints allow it), so an entry may name it.
+    const judgedRows = allowedRows.flatMap((row) =>
+      (axes.flags.ownershipModel as string[])
+        .map((ownershipModel) => ({ ...row, ownershipModel }))
+        .filter((judged) => allowed(judged, axes.constraints)),
+    );
     const unreachable = known.filter((entry: { probe: string }) => {
       const probe = PROBES.find((p: { id: string }) => p.id === entry.probe);
-      return !allowedRows.some(
+      return !judgedRows.some(
         (row) => applies(probe, row) && matchingEntries([entry], entry.probe, row).length > 0,
       );
     });
@@ -615,6 +622,27 @@ describe("the ownershipModel axis", () => {
       reason: expect.stringContaining("does not read it"),
     });
     expect(judgeSupport({ accepted: "no", rejected: "no", warnings: [] }).supported).toBe(false);
+  });
+
+  it("a flag-on run that drops the flag fails aliased-sibling-regex instead of matching its entry", () => {
+    // The regex-alias failure is known for the flag off only. A 'resolver' run whose
+    // workspace never passed the flag on (the fixture ignoring AXIS_OWNERSHIP_MODEL)
+    // shows the flag-off failure, and that must be a regression, not a known failure.
+    const known = readKnownFailing();
+    const native = { vitest: "5", rntl: "14", layout: "hoisted", engine: "native" };
+    const failed = {
+      status: "fail",
+      failures: [
+        "aliased-sibling-regex.test.ts: Cannot find module '@axis/rvalidator/store' imported from x",
+      ],
+    };
+    const off = { ...native, ownershipModel: "off" };
+    const on = { ...native, ownershipModel: "resolver" };
+    expect(judge(known, "aliased-sibling-regex", off, failed)).toMatchObject({ ok: true });
+    expect(judge(known, "aliased-sibling-regex", on, failed)).toMatchObject({ ok: false });
+    expect(judge(known, "aliased-sibling-regex", on, { status: "pass" })).toMatchObject({
+      ok: true,
+    });
   });
 
   it("asks the build itself, and calls a build that ignores the flag unsupported", () => {
