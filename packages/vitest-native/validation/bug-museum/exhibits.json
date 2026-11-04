@@ -709,12 +709,31 @@
       }
     },
     {
+      "id": "pfs-hot-act-scope-timeout",
+      "class": "per-file-state",
+      "title": "Under hot, a test that times out inside act() fails every later file on its worker",
+      "source": "#449",
+      "fixedBy": "#449's fix (draft)",
+      "fixRef": "origin/fix/hot-act-scope-retire",
+      "bugSignature": "^b0\\d\\.test\\.tsx: Error: Unable to find an element with text: hello",
+      "control": {
+        "why": "The stock runtime (hotRuntime: false) gives every file a fresh React, as Jest does: the leak's precondition is gone.",
+        "edits": [
+          {
+            "file": "vitest.config.mts",
+            "find": "hotRuntime: { allowUnboundedMemory: true }",
+            "replace": "hotRuntime: false"
+          }
+        ]
+      }
+    },
+    {
       "id": "pfs-hot-unawaited-act",
       "class": "per-file-state",
       "title": "Under hot, an un-awaited act in one file poisons the next file",
       "source": "v1 hot-runtime cross-file leaks (2026-10-28 M0 gates)",
       "fixedBy": "open (the v2 per-file world)",
-      "bugSignature": "^b\\.test\\.tsx: AssertionError: this file's render committed a tree: expected null not to be null",
+      "bugSignature": "^b\\.test\\.tsx: (AssertionError: this file's render committed a tree: expected null not to be null|\\[vitest-native\\] hotRuntime: this worker cannot run more files: React's act\\(\\) scope is still open)",
       "control": {
         "why": "The stock runtime (hotRuntime: false) gives every file a fresh module graph, as Jest does: the leak's precondition is gone.",
         "edits": [
