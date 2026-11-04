@@ -30,10 +30,13 @@ const MAX_LINE = 64 * 1024;
  * @param {object} options
  * @param {(url: string, importer: string | undefined, environment: string) => Promise<object>} options.fetch
  *   Vitest's own fetch of a module for a worker (externalization rules included)
- * @param {(file: string) => boolean} options.isViteOwned  the ownership policy's answer
+ * @param {(file: string) => boolean} options.isViteOwned  whether the main process lets a
+ *   worker evaluate `file` through the bridge: inside Vite's served directories, allowed by
+ *   Vite's own file rules (server.fs.deny included), and not Node's by the ownership policy
+ * @param {string} options.root  Vite's root, for a request spelled as a root-relative URL
  * @returns {Promise<{ endpoint: string, token: string, close(): Promise<void> }>}
  */
-export async function startBridgeServer({ fetch, isViteOwned }) {
+export async function startBridgeServer({ fetch, isViteOwned, root = process.cwd() }) {
   const token = crypto.randomBytes(24).toString("hex");
   let dir = null;
   let endpoint;
@@ -43,9 +46,18 @@ export async function startBridgeServer({ fetch, isViteOwned }) {
     // A Unix socket path is limited (104 bytes on macOS, 108 on Linux): a long TMPDIR
     // falls back to /tmp, which every Unix has.
     const base = os.tmpdir().length > 60 ? "/tmp" : os.tmpdir();
-    dir = fs.mkdtempSync(path.join(base, "vn-bridge-"));
+    try {
+      dir = fs.mkdtempSync(path.join(base, "vn-bridge-"));
+    } catch (error) {
+      throw unavailable(base, error);
+    }
     endpoint = path.join(dir, "b.sock");
   }
+  // A process that ends without close() (a crash, a signal) still removes its directory.
+  const removeDir = () => {
+    if (dir !== null) fs.rmSync(dir, { recursive: true, force: true });
+  };
+  process.once("exit", removeDir);
   const sockets = new Set();
   const server = net.createServer((socket) => {
     sockets.add(socket);
@@ -64,12 +76,18 @@ export async function startBridgeServer({ fetch, isViteOwned }) {
         const line = buffered.slice(0, newline);
         buffered = buffered.slice(newline + 1);
         const request = parseRequest(line, token);
-        if (request !== null) answer(request).then((reply) => socket.write(`${reply}\n`));
+        if (request === null) continue;
+        answer(request).then((reply) => {
+          if (!socket.destroyed) socket.write(`${reply}\n`);
+        });
       }
     });
   });
 
   async function answer({ seq, url, importer, environment }) {
+    // A request naming a file is checked before anything reads or transforms it.
+    const named = fileOfUrl(url, root);
+    if (named !== null && !isViteOwned(named)) return notViteOwned(seq, url);
     try {
       const result = await fetch(url, importer, environment);
       // Code is served only for a file Vite owns, whether it comes inline or through
@@ -79,10 +97,7 @@ export async function startBridgeServer({ fetch, isViteOwned }) {
         !("externalize" in result) &&
         !(typeof result.file === "string" && isViteOwned(result.file))
       ) {
-        return JSON.stringify({
-          seq,
-          error: { code: "BRIDGE_NOT_VITE_OWNED", message: `${url} is not a file Vite owns` },
-        });
+        return notViteOwned(seq, url);
       }
       return JSON.stringify({ seq, ok: result });
     } catch (error) {
@@ -102,12 +117,9 @@ export async function startBridgeServer({ fetch, isViteOwned }) {
       });
     });
   } catch (error) {
-    if (dir !== null) fs.rmSync(dir, { recursive: true, force: true });
-    throw new VitestNativeError(
-      "BRIDGE_UNAVAILABLE",
-      `experimental.ownershipModel 'resolution': the require bridge could not listen on ` +
-        `${endpoint} (${error?.code ?? error?.message ?? error}).`,
-    );
+    removeDir();
+    process.off("exit", removeDir);
+    throw unavailable(endpoint, error);
   }
   server.unref();
 
@@ -117,9 +129,44 @@ export async function startBridgeServer({ fetch, isViteOwned }) {
     async close() {
       for (const socket of sockets) socket.destroy();
       await new Promise((resolve) => server.close(() => resolve()));
-      if (dir !== null) fs.rmSync(dir, { recursive: true, force: true });
+      removeDir();
+      process.off("exit", removeDir);
     },
   };
+}
+
+function unavailable(where, error) {
+  return new VitestNativeError(
+    "BRIDGE_UNAVAILABLE",
+    `experimental.ownershipModel 'resolution': the require bridge could not listen at ` +
+      `${where} (${error?.code ?? error?.message ?? error}).`,
+  );
+}
+
+function notViteOwned(seq, url) {
+  return JSON.stringify({
+    seq,
+    error: { code: "BRIDGE_NOT_VITE_OWNED", message: `${url} is not a file Vite owns` },
+  });
+}
+
+/**
+ * The file a request URL names, or null for one that does not (a bare specifier, which
+ * Vitest resolves; its answer is checked after). `/@fs/` and absolute paths name a file;
+ * a root-relative URL names one under Vite's root. A query (`?raw`) does not change which.
+ */
+export function fileOfUrl(url, root) {
+  const bare = url.replace(/[?#].*$/, "");
+  if (bare.startsWith("/@fs/")) {
+    const rest = bare.slice(4);
+    return /^\/[A-Za-z]:\//.test(rest) ? path.resolve(rest.slice(1)) : path.resolve(rest);
+  }
+  if (path.isAbsolute(bare) && !bare.startsWith("/")) return path.resolve(bare);
+  if (bare.startsWith("/")) {
+    // An absolute POSIX path, or a root-relative URL: a path that exists as given is a file.
+    return fs.existsSync(bare) ? path.resolve(bare) : path.join(root, bare);
+  }
+  return null;
 }
 
 /** A request line, or null when it is not one of ours (wrong token, malformed). */
@@ -151,6 +198,9 @@ export function parseRequest(line, token) {
 }
 
 function safeEqual(given, token) {
-  if (typeof given !== "string" || given.length !== token.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(given), Buffer.from(token));
+  if (typeof given !== "string") return false;
+  // Compared as bytes: a string of the token's length in characters can be longer in bytes.
+  const a = Buffer.from(given);
+  const b = Buffer.from(token);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }

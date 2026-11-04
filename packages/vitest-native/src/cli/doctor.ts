@@ -602,9 +602,12 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
       pass(`${configFile} uses vitest-native.`);
       // A static read: a flag set through a variable is not seen here, so the run's
       // banner, which names it, stays the authority.
-      if (/\bownershipModel\s*:\s*["']resolver["']/.test(withoutComments(content))) {
+      const model = /\bownershipModel\s*:\s*["'](resolver|resolution)["']/.exec(
+        withoutComments(content),
+      )?.[1];
+      if (model) {
         lines.push(
-          "  · experimental.ownershipModel: 'resolver' is on: Vite and Node's loaders " +
+          `  · experimental.ownershipModel: '${model}' is on: Vite and Node's loaders ` +
             "resolve bare imports through one shared resolver (docs/ownership-model.md).",
         );
       }

@@ -31,6 +31,11 @@ export const bridgeStats = (globalThis[Symbol.for("vitest-native.bridge")] ??= {
   fetchMs: 0,
 });
 
+/** Internal test seam: the helper thread now running, or null. */
+export function _bridgeThread() {
+  return bridge?.worker ?? null;
+}
+
 /** Internal test seam: `{ deadlineMs, endpoint, token }`; stops the current thread. */
 export function _setBridgeOptions(next = {}) {
   bridge?.worker.terminate();

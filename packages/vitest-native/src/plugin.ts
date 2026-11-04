@@ -461,20 +461,11 @@ async function loadAssetModules(): Promise<AssetModules> {
   return (await import(pathToFileURL(path.resolve(dir, "native/assets.mjs")).href)) as AssetModules;
 }
 
-/**
- * Build (or reuse) the precompiled React Native registry for a project.
- *
- * The builder ships as runtime `.mjs` next to this file (it is also imported by the
- * native setup file, which Node loads directly), so it is reached through a computed
- * dynamic import rather than a static one — a static specifier would bundle a second
- * copy into the plugin entry. Returns the registry path, or null when one could not
- * be produced, in which case the engine keeps loading RN file by file.
- */
 interface BridgeProject {
   provide(key: string, value: unknown): void;
   vite: {
     environments: Record<string, unknown>;
-    config: { root: string; server?: { fs?: { allow?: readonly string[] } } };
+    config: { root: string; server?: { fs?: { allow?: readonly string[] } } } & object;
   };
   _transformService?: {
     fetch(
@@ -506,6 +497,7 @@ async function startRequireBridge(
     startBridgeServer: (options: {
       fetch: (url: string, importer: string | undefined, environment: string) => Promise<object>;
       isViteOwned: (file: string) => boolean;
+      root: string;
     }) => Promise<{ endpoint: string; token: string; close(): Promise<void> }>;
     BRIDGE_PROVIDE_KEY: string;
   };
@@ -519,7 +511,19 @@ async function startRequireBridge(
       const relative = path.relative(root, file);
       return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
     });
+  // Vite's own rule for which files may be loaded (server.fs.allow and server.fs.deny, so
+  // `.env` and keys are refused), from the Vite that runs the project.
+  const { isFileLoadingAllowed } = (await import("vite")) as unknown as {
+    isFileLoadingAllowed?: (config: object, file: string) => boolean;
+  };
+  if (typeof isFileLoadingAllowed !== "function") {
+    throw new VitestNativeError(
+      "BRIDGE_CONTRACT_CHANGED",
+      `experimental.ownershipModel 'resolution' needs Vite's isFileLoadingAllowed, which this Vite does not export.`,
+    );
+  }
   const server = await startBridgeServer({
+    root: project.vite.config.root,
     fetch: async (url, importer, environmentName) => {
       const transform = project._transformService;
       const environment = project.vite.environments[environmentName];
@@ -535,6 +539,7 @@ async function startRequireBridge(
     // not Node's by the policy; Vitest's own fetch then inlines or externalizes it.
     isViteOwned: (file) =>
       inRoots(file) &&
+      isFileLoadingAllowed(project.vite.config, file) &&
       !/[\\/]node_modules[\\/]/.test(file) &&
       policy.decideFile(file).owner !== "node",
   });
@@ -542,6 +547,15 @@ async function startRequireBridge(
   (vitest as { onClose?: (fn: () => unknown) => void }).onClose?.(() => server.close());
 }
 
+/**
+ * Build (or reuse) the precompiled React Native registry for a project.
+ *
+ * The builder ships as runtime `.mjs` next to this file (it is also imported by the
+ * native setup file, which Node loads directly), so it is reached through a computed
+ * dynamic import rather than a static one — a static specifier would bundle a second
+ * copy into the plugin entry. Returns the registry path, or null when one could not
+ * be produced, in which case the engine keeps loading RN file by file.
+ */
 interface RegistryOptions {
   projectRoot: string;
   platform: string;
