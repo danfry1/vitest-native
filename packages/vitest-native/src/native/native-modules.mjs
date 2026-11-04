@@ -40,6 +40,24 @@ export const BOUNDARY_NATIVE_MODULES = Object.freeze([
   "NitroModules",
 ]);
 
+// The default runtime models Expo Go, as jest-expo does, and Expo Go registers no dev
+// launcher: `EXDevLauncher` is registered only by expo-dev-launcher, in a development
+// build. Expo reads the module as its development-client signal: expo sets
+// `IS_RUNNING_IN_DEV_CLIENT = !!NativeModules.EXDevLauncher` (expo/src/Expo.fx.tsx), and
+// expo-constants parses `NativeModules.EXDevLauncher.manifestString` whenever the module
+// is present (expo-constants/src/Constants.ts). tests/expo-dev-launcher-fact.test.ts
+// reads that source again, so an Expo release that changes either read fails by name.
+/** The native module only expo-dev-launcher registers, in a development build. */
+export const DEV_LAUNCHER_MODULE = "EXDevLauncher";
+
+/**
+ * Modules the default runtime (Expo Go) does not have. Each is absent from every lookup
+ * (`NativeModules`, `TurboModuleRegistry`, `globalThis.expo.modules`) in every mode,
+ * `nativeModules: 'permissive'` included, unless a test registers it with
+ * mockNativeModule().
+ */
+export const EXPO_GO_ABSENT_MODULES = Object.freeze([DEV_LAUNCHER_MODULE]);
+
 const CALL_RE = /TurboModuleRegistry\s*\.\s*(get|getEnforcing)\b/g;
 // `TurboModuleRegistry.get<Spec>('Name')`, including the multi-line form the
 // formatter produces for long names. The type argument never contains a paren.
