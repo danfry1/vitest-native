@@ -31,6 +31,7 @@ import path from "node:path";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { projectContext } from "../context.mjs";
+import { VitestNativeError } from "../errors.mjs";
 import {
   transformRN,
   isFlow,
@@ -914,9 +915,8 @@ export function buildLibraryRegistry({
   // the compiler on every run to fail the same way would cost each run its build.
   const failed = recordedFailure(failureFile, key);
   if (failed !== null) {
-    const error = new Error(`library registry: ${failed}`);
-    if (failOnError) throw error;
-    warnRegistryUnavailable(error.message);
+    if (failOnError) throw new VitestNativeError("LIBRARY_REGISTRY_FAILED", failed);
+    warnRegistryUnavailable(`library registry: ${failed}`);
     return null;
   }
   if (cacheOnly) return null;

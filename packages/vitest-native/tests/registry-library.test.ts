@@ -348,7 +348,7 @@ describe("library registry", () => {
       try {
         buildLibraryRegistry({ ...broken, cacheOnly: true, failOnError: true });
       } catch (error) {
-        recorded = error.message.startsWith("library registry: ");
+        recorded = error.code === "LIBRARY_REGISTRY_FAILED";
       }
       const file = req.resolve("lib-broken/bad.js");
       const source = fs.readFileSync(file, "utf8");

@@ -69,14 +69,12 @@ function cachedRegistries(options) {
   } catch (error) {
     // Entries that do not resolve, or a build of these inputs that failed before: a
     // build would fail the same way. React Native's registry stays in use.
-    const reason = String(error?.message ?? error);
+    const reason = String(error?.message ?? error).replace(/^\[vitest-native\] /, "");
     return {
       registry,
       libraryRegistry: null,
       complete: true,
-      libraryError: reason.startsWith("library registry: ")
-        ? reason
-        : `library registry: ${reason}`,
+      libraryError: `library registry: ${reason}`,
     };
   }
 }
