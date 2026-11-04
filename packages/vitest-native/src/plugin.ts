@@ -1372,8 +1372,9 @@ function hotRuntimeOverridden(reason: string): VitestNativeError {
   return new VitestNativeError(
     "HOT_RUNTIME_OVERRIDDEN",
     `hotRuntime was requested, but ${reason}, which the hot runtime cannot honour. ` +
-      `Remove that setting, or use hotRuntime:'auto' to fall back to it automatically ` +
-      `or hotRuntime:false.`,
+      `Remove that setting, or use hotRuntime:'auto' (or add mode:'auto' to the options ` +
+      `object, keeping its recycling options) to fall back to it automatically, or ` +
+      `hotRuntime:false.`,
   );
 }
 
@@ -2158,7 +2159,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           if (autoDeclineReason !== null) {
             if (hotRuntimeExplicit || diagnostics) {
               console.warn(
-                `[vitest-native] hotRuntime:'auto' kept default isolation: ${autoDeclineReason}.`,
+                `[vitest-native] hotRuntime${hotRuntimeOpt === "auto" ? ":'auto'" : " mode:'auto'"} ` +
+                  `kept default isolation: ${autoDeclineReason}.`,
               );
             }
           } else if (!allowUnboundedMemory && plan.maxWorkers < 2) {
@@ -2171,8 +2173,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
                 (plan.admittedWorkers < 2
                   ? `The effective ${plan.source} memory ceiling admits only one worker. `
                   : `This config selects one worker (maxWorkers or fileParallelism). `) +
-                `Use hotRuntime:false, provide enough ` +
-                `memory for at least two workers, or explicitly accept unbounded growth with ` +
+                `Use hotRuntime:'auto' (or mode:'auto' in the options object) to fall back to ` +
+                `per-file isolation here, hotRuntime:false, provide enough memory for at ` +
+                `least two workers, or explicitly accept unbounded growth with ` +
                 `hotRuntime:{ allowUnboundedMemory:true }.`,
             );
           }

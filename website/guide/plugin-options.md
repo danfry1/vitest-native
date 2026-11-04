@@ -123,7 +123,7 @@ The object form tunes worker recycling: `recycleAfterFiles`, `memoryLimit` (work
 reactNative({ hotRuntime: { mode: 'auto', memoryLimit: 2 * 1024 ** 3 } })
 ```
 
-`mode: 'auto'` cannot be combined with `allowUnboundedMemory`.
+`mode: 'auto'` cannot be combined with `allowUnboundedMemory: true`. The worker count and the process-RSS limits still come from the memory plan, and `memoryLimit: 0` turns the heap threshold off.
 
 ## `nativeModules`
 

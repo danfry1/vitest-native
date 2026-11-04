@@ -19,10 +19,13 @@ const LIMIT = 2 * GIB;
 
 describe("hotRuntime option types", () => {
   it("accepts mode: 'auto' with the recycling options and rejects other modes", () => {
-    const tsc = path.join(packageRoot, "node_modules", ".bin", "tsc");
-    const result = spawnSync(tsc, ["-p", path.join(HERE, "types", "tsconfig.json")], {
-      encoding: "utf8",
-    });
+    // Through node, not node_modules/.bin, whose entry is a shell shim on Windows.
+    const tsc = path.join(packageRoot, "node_modules", "typescript", "bin", "tsc");
+    const result = spawnSync(
+      process.execPath,
+      [tsc, "-p", path.join(HERE, "types", "tsconfig.json")],
+      { encoding: "utf8" },
+    );
     expect(`${result.stdout}${result.stderr}`).toBe("");
     expect(result.status).toBe(0);
   });
@@ -122,6 +125,8 @@ describe("hotRuntime: { mode: 'auto', memoryLimit }", () => {
     );
     const config = { root: hotRoot, ...cfg.test, pool: "vitest-native", maxWorkers: 3 };
     plugin.configureVitest({ vitest: { _cliOptions: {} }, project: { config } });
+    // The plan was rebuilt for three workers, and the threshold survived it.
+    expect(JSON.parse(config.env.VITEST_NATIVE_MEMORY_PLAN).requestedWorkers).toBe(3);
     expect(config.isolate).toBe(false);
     expect(poolWorker(cfg.test.pool).memoryLimit).toBe(LIMIT);
   });
@@ -164,7 +169,7 @@ describe("hotRuntime: { mode: 'auto', memoryLimit }", () => {
   });
 
   it("falls back where host memory admits only one worker", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(os, "totalmem").mockReturnValue(GIB);
     vi.spyOn(process, "constrainedMemory").mockReturnValue(0);
     const config = await runPluginConfig(
@@ -174,6 +179,9 @@ describe("hotRuntime: { mode: 'auto', memoryLimit }", () => {
     );
     expect(config.test.isolate).toBeUndefined();
     expect(config.test.pool).toBe("threads");
+    expect(String(warn.mock.calls.at(-1)?.[0])).toMatch(
+      /mode:'auto' kept default isolation: .*one unrecyclable worker/,
+    );
   });
 
   it("falls back, without throwing, on --pool, --isolate and --maxWorkers=1", async () => {

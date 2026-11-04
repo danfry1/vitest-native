@@ -1,4 +1,4 @@
-// Type-level checks for the hotRuntime option, compiled by tests/hot-runtime-types.test.ts.
+// Type-level checks for the hotRuntime option, compiled by tests/hot-runtime-auto-options.test.ts.
 // Every `@ts-expect-error` line must fail to compile; every other line must compile.
 import type { VitestNativeOptions } from "../../src/types.js";
 
@@ -18,3 +18,6 @@ export const accepted: HotRuntime[] = [
 export const unknownMode: HotRuntime = { mode: "on" };
 // @ts-expect-error mode is not a boolean
 export const booleanMode: HotRuntime = { mode: true };
+// @ts-expect-error mode "auto" falls back where unbounded memory would be needed
+export const autoUnbounded: HotRuntime = { mode: "auto", allowUnboundedMemory: true };
+export const required: HotRuntime = { allowUnboundedMemory: true, memoryLimit: 1 };
