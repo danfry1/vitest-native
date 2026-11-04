@@ -50,7 +50,8 @@ if (
  * 72 files and 360 KB packed, above floors that had drifted to ~45% under the
  * artifact. A count cannot say WHICH file is missing, so the expectation is a list:
  *
- * - every path `exports` and `bin` declare (what a consumer resolves);
+ * - every path `exports`, `bin`, `main`/`module`/`types` and the literal `sideEffects`
+ *   entries declare (what a consumer or bundler resolves);
  * - every runtime .mjs and hand-written .d.mts that the build copies verbatim
  *   (scripts/verbatim-runtime.mjs, shared with tsdown.config.ts), which Node loads by
  *   relative path at runtime, so no export map names most of them;
@@ -73,6 +74,18 @@ const mustShip = new Set();
 const problems = [];
 declaredPaths(packageJson.exports, mustShip);
 declaredPaths(packageJson.bin, mustShip);
+declaredPaths(
+  { main: packageJson.main, module: packageJson.module, types: packageJson.types },
+  mustShip,
+);
+// sideEffects names the files a bundler must not tree-shake away; a literal one is a
+// runtime file the package promises exists. Globs (./dist/native/*.mjs) name none.
+declaredPaths(
+  (Array.isArray(packageJson.sideEffects) ? packageJson.sideEffects : []).filter(
+    (entry) => !entry.includes("*"),
+  ),
+  mustShip,
+);
 for (const sub of VERBATIM_DIRS) {
   for (const file of fs.readdirSync(path.join(root, "src", sub))) {
     if (isVerbatimRuntimeFile(sub, file)) mustShip.add(path.posix.join("dist", sub, file));
