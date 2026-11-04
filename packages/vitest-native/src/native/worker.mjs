@@ -16,7 +16,7 @@ import { isMainThread, parentPort, threadId } from "node:worker_threads";
 import { init, runBaseTests, setupEnvironment } from "vitest/worker";
 import { installGlobals, installErrorUtils } from "./globals.mjs";
 import { installKnownNativeModules } from "./native-modules.mjs";
-import { installRequireHooks } from "./hooks.mjs";
+import { installRequireHooks, resetExpoSdkWarnings } from "./hooks.mjs";
 import { installHotReset } from "./reset.mjs";
 import { installRegistry } from "./registry.mjs";
 import { captureModuleBaseline, resetEvaluatedModules } from "./module-reset.mjs";
@@ -119,17 +119,27 @@ const { hotReset, bless, registerState, stateEntries } = installHotReset({
   preserveGlobals,
 });
 globalThis.__vitest_native_register_state = registerState;
+// A later file loading an unsupported Expo copy is warned again (hooks.mjs).
+registerState({ id: "expo.sdk-warnings", capture: () => null, restore: resetExpoSdkWarnings });
 globalThis.__vitest_native_state_entries = stateEntries;
 globalThis.__vitest_native_hot_reset = () => {
   globalThis.__vitest_native_registry_reset?.();
   // Advance the ESM generation so externalized packages a test file `import`s are
-  // re-evaluated instead of served from Node's uninvalidatable ESM registry.
-  if (globalThis.__vitest_native_hot_generation) {
-    Atomics.add(globalThis.__vitest_native_hot_generation, 0, 1);
+  // re-evaluated instead of served from Node's uninvalidatable ESM registry, and let go
+  // of the generations no file uses any more (releaseGenerations in loader.mjs).
+  const hot = globalThis.__vitest_native_hot_generation;
+  let released = 0;
+  if (hot) {
+    const generation = Atomics.add(hot.counter, 0, 1) + 1;
+    released = hot.release?.(generation) ?? 0;
   }
   const dropped = resetModules();
   hotReset();
-  if (diagnostics) console.log(`[vitest-native] hot reset: dropped ${dropped} modules`);
+  if (diagnostics) {
+    console.log(
+      `[vitest-native] hot reset: dropped ${dropped} modules, released ${released} module generations`,
+    );
+  }
 };
 globalThis.__vitest_native_hot_bless = bless;
 

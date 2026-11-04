@@ -83,6 +83,7 @@ describe("shipped build files and package.json fields", () => {
     for (const file of [
       "packages/vitest-native/tsdown.config.ts",
       "packages/vitest-native/scripts/copy-static-types.mjs",
+      "packages/vitest-native/scripts/verbatim-runtime.mjs",
     ]) {
       expect(assessChangeset([file]).ok, file).toBe(false);
       expect(assessChangeset([file, ".changeset/x.md"]).ok, file).toBe(true);

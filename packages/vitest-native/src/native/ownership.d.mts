@@ -94,6 +94,7 @@ export declare const TEST_RUNTIME_RESIDENT_PATH: RegExp;
 
 export declare function isRuntimeResidentFile(file: string): boolean;
 export declare function isTestRuntimeResidentFile(file: string): boolean;
+export declare function isResidentPackageName(name: string): boolean;
 export declare function createNativeOwnershipPolicy(
   options?: NativeOwnershipOptions,
 ): NativeOwnershipPolicy;
