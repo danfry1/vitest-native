@@ -1750,8 +1750,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   const hotRuntimeExplicit = options?.hotRuntime !== undefined;
   const hotRuntimeOpt = options?.hotRuntime ?? false;
   const hotRuntimeRequested = hotRuntimeOpt !== false;
-  const hotRuntimeAuto = hotRuntimeOpt === "auto";
   const hotRecycle = typeof hotRuntimeOpt === "object" ? hotRuntimeOpt : {};
+  // `{ mode: 'auto', … }` selects as 'auto' does and applies the object's recycling
+  // options when hot runs.
+  const hotRuntimeAuto = hotRuntimeOpt === "auto" || hotRecycle.mode === "auto";
   // Resolved at config() time, once the consumer project root is known. Seeded to a
   // safe default so the hooks (resolveId/load/transform), which run after config(),
   // never read undefined.

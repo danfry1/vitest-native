@@ -117,6 +117,14 @@ It can dramatically cut the per-file cost on large suites. The RN registry is re
 
 Hot mode installs a cgroup-aware memory plan by default and requires at least two workers so it can recycle at file boundaries. A deliberate externally bounded single-worker run can use `hotRuntime: { allowUnboundedMemory: true }`; this disables the automatic worker cap and process-RSS enforcement and is intentionally noisy.
 
+The object form tunes worker recycling: `recycleAfterFiles`, `memoryLimit` (worker heap in bytes), `allowUnboundedMemory`, `preserveGlobals` and `esmGeneration` ([Worker recycling](/guide/engines#worker-recycling)). On its own it requires the hot runtime, as `true` does. Add `mode: 'auto'` to select the way `'auto'` does: the hot runtime with your options where the run can be bounded, per-file isolation with the printed reason where it cannot.
+
+```ts
+reactNative({ hotRuntime: { mode: 'auto', memoryLimit: 2 * 1024 ** 3 } })
+```
+
+`mode: 'auto'` cannot be combined with `allowUnboundedMemory`.
+
 ## `nativeModules`
 
 (Native engine.) How native module lookups answer.

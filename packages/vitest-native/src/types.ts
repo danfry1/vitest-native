@@ -407,6 +407,12 @@ export interface VitestNativeOptions {
    * explicit custom pool; otherwise the run keeps per-file isolation and prints the
    * reason for falling back.
    *
+   * - `mode: 'auto'` in the object form selects the same way, with the object's
+   *   recycling options applied when the hot runtime runs:
+   *   `{ mode: 'auto', memoryLimit: 2 * 1024 ** 3 }`. Without `mode`, the object
+   *   form requires the hot runtime, as `true` does. Cannot be combined with
+   *   `allowUnboundedMemory`.
+   *
    * Default: `false`, as in 0.13.0: each file runs in a fresh worker, with React
    * Native reloaded per file. The hot runtime has known differences from per-file
    * isolation, listed in the troubleshooting guide.
@@ -415,6 +421,7 @@ export interface VitestNativeOptions {
     | boolean
     | "auto"
     | {
+        mode?: "auto";
         recycleAfterFiles?: number;
         memoryLimit?: number;
         allowUnboundedMemory?: boolean;
