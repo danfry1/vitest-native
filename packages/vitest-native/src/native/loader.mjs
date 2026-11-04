@@ -118,11 +118,6 @@ function versionable(url) {
   return true;
 }
 
-// experimental.nodeMocks: a module the test mocks is served to Node's ESM imports through
-// Node's CommonJS loader, whose per-file mock step answers it (node-registry.mjs), so a
-// Node-loaded ES module's import gets the mock its require would.
-let NODE_MOCKS = false;
-
 export function initialize(data) {
   if (data && data.projectRoot) PROJECT_ROOT = data.projectRoot;
   PLATFORM = data?.platform === "android" ? "android" : "ios";
@@ -131,7 +126,6 @@ export function initialize(data) {
   SOURCE_EXTS = HAS_SOURCE_PROFILE ? data.sourceExts : ["js", "jsx", "json", "ts", "tsx"];
   const context = data?.context ? projectContext(data.context) : null;
   DIAGNOSTICS = context?.diagnostics === true;
-  NODE_MOCKS = context?.nodeMocks === true;
   const configuredOwnership = parseNativeOwnershipManifest(context?.ownership);
   ownership = createNativeOwnershipPolicy({
     projectRoot: PROJECT_ROOT,
@@ -279,13 +273,6 @@ export function isRequireContext(context) {
 }
 
 export function resolveSync(specifier, context, nextResolve) {
-  // A package the test mocks with vi.mock resolves to the file its mock is keyed by,
-  // which load then serves the mock for (mockFacade), ahead of a preset as in the
-  // CommonJS dispatcher.
-  if (NODE_MOCKS) {
-    const mocked = globalThis.__vitest_native_node_mock_for?.fileFor?.(specifier);
-    if (mocked !== undefined) return { url: pathToFileURL(mocked).href, shortCircuit: true };
-  }
   const before = resolveBefore(specifier, context);
   if (before.done) return before.done;
   let resolved = before.resolved;
@@ -344,25 +331,6 @@ export function requireFacade(url, file, compiled) {
   };
 }
 
-/**
- * A mocked module, for an ES module Node loads: a facade that requires it, so the mock
- * step answers (as for requireFacade), naming the mock's exports where cjs-module-lexer
- * reads them.
- */
-function mockFacade(url, file, value) {
-  const names = Object.keys(value).filter(
-    (name) => name !== "default" && name !== "__esModule" && /^[A-Za-z_$][\w$]*$/.test(name),
-  );
-  return {
-    format: "commonjs",
-    source: [
-      `module.exports = require("node:module").createRequire(${JSON.stringify(url)})(${JSON.stringify(file)});`,
-      ...(names.length > 0 ? [`0 && (module.exports = { ${names.join(", ")} });`] : []),
-    ].join("\n"),
-    shortCircuit: true,
-  };
-}
-
 /** `load` never awaits: every path returns a result or `nextLoad(...)` directly. */
 export function loadSync(url, context, nextLoad) {
   // Serve the synthetic preset module. The generated source reads the mock built
@@ -403,12 +371,6 @@ export function loadSync(url, context, nextLoad) {
   if (!url.startsWith("file:")) return nextLoad(url, context);
   const file = fileURLToPath(url);
   const norm = file.replace(/\\/g, "/");
-
-  if (NODE_MOCKS) {
-    const mockFor = globalThis.__vitest_native_node_mock_for;
-    const value = mockFor === undefined ? undefined : mockFor(file);
-    if (value !== undefined && value !== mockFor.NONE) return mockFacade(url, file, value);
-  }
 
   // Asset imports (`import logo from './logo.png'`, `import font from './Icon.ttf'`)
   // from ANY package: Node's ESM loader can't parse a binary asset as a module and

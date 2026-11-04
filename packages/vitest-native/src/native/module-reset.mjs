@@ -61,9 +61,10 @@ export function trackCjsResolutions() {
       },
   );
   if (!added) throw cleanupError("a resolution tracker is already installed in this worker.");
-  // What resolution was entered through when tracking began: a resolver installed
-  // before then is part of what the tracker sees; one installed after it could answer
-  // a request without reaching the tracker.
+  // What resolution was entered through when tracking began. A resolver installed
+  // after it could answer a request without reaching the tracker, so a drain refuses
+  // to run under one. One installed before it keeps working, as with the stacked
+  // wrappers, but sits above the dispatcher: it is trusted to pass requests on.
   const tracked = Module._resolveFilename;
   return {
     drain() {

@@ -19,8 +19,6 @@ export interface ProjectContextFields {
   requireAliases?: [string, string][];
   requireAliasesSkipped?: string[];
   presetNames?: string[];
-  /** experimental.nodeMocks: a `vi.mock` applies to the modules Node loads. */
-  nodeMocks?: true;
   presetConfig?: Record<string, Record<string, unknown>>;
   presetExports?: Record<string, string[] | null>;
   presetModules?: string[];

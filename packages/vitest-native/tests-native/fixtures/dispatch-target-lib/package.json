@@ -1,7 +1,0 @@
-{
-  "name": "dispatch-target-lib",
-  "version": "1.0.0",
-  "private": true,
-  "main": "./index.js",
-  "react-native": "./index.native.js"
-}
