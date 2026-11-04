@@ -63,9 +63,12 @@ on:
 permissions:
   contents: read
 
-# Superseded pull request runs are cancelled; main keeps a verdict for every commit.
+# Superseded pull request runs are cancelled. On main each commit has its own group:
+# a group holds one running and one pending run, and a newer pending run cancels the
+# older one, so a shared main group would drop the verdict of a commit merged between
+# two others.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
