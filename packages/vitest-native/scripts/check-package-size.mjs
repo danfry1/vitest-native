@@ -61,9 +61,14 @@ if (
  *   chunks (dist/ecosystem-*.mjs and the like) have hashed names no source states,
  *   so the only way to require them is to follow the imports that load them.
  */
+// A glob, subpath pattern or negation names no single file, so it is not required.
+const PATTERN = /[*?[{!]/;
+const normalised = (entry) => path.posix.normalize(entry.replace(/^\.\//, "")).replace(/\/$/, "");
+
 function declaredPaths(value, into) {
-  if (typeof value === "string") into.add(path.posix.normalize(value.replace(/^\.\//, "")));
-  else if (value && typeof value === "object") {
+  if (typeof value === "string") {
+    if (!PATTERN.test(value)) into.add(normalised(value));
+  } else if (value && typeof value === "object") {
     for (const nested of Object.values(value)) declaredPaths(nested, into);
   }
   return into;
@@ -80,18 +85,15 @@ declaredPaths(
 );
 // sideEffects names the files a bundler must not tree-shake away; a literal one is a
 // runtime file the package promises exists. Globs (./dist/native/*.mjs) name none.
-declaredPaths(
-  (Array.isArray(packageJson.sideEffects) ? packageJson.sideEffects : []).filter(
-    (entry) => !entry.includes("*"),
-  ),
-  mustShip,
-);
+declaredPaths(Array.isArray(packageJson.sideEffects) ? packageJson.sideEffects : [], mustShip);
 for (const sub of VERBATIM_DIRS) {
   for (const file of fs.readdirSync(path.join(root, "src", sub))) {
     if (isVerbatimRuntimeFile(sub, file)) mustShip.add(path.posix.join("dist", sub, file));
   }
 }
-for (const entry of packageJson.files ?? []) {
+for (const entry of (packageJson.files ?? [])
+  .filter((file) => !PATTERN.test(file))
+  .map(normalised)) {
   const stat = fs.statSync(path.join(root, entry), { throwIfNoEntry: false });
   if (!stat) problems.push(`${entry} (listed in package.json "files", does not exist)`);
   else if (stat.isFile()) mustShip.add(entry);
@@ -108,13 +110,35 @@ for (const entry of packageJson.files ?? []) {
  * not taken for a comment. A small scanner rather than a parser: the package has no
  * JavaScript parser of its own to depend on, and the build's output is plain ES.
  */
+const REGEX_KEYWORDS = new Set([
+  "return",
+  "typeof",
+  "instanceof",
+  "in",
+  "of",
+  "new",
+  "delete",
+  "void",
+  "throw",
+  "case",
+  "do",
+  "else",
+  "yield",
+  "await",
+]);
+
 function stripComments(source) {
   let out = "";
   let i = 0;
   let lastSignificant = "";
+  let lastWord = "";
   const templateDepths = [];
+  // After an operator or punctuator, or after a keyword such as `return` or `typeof`,
+  // a `/` starts a regular expression; after an identifier or `)` it is division.
   const regexMayStart = () =>
-    lastSignificant === "" || /[(,=:[!&|?{};+\-*%<>~^]/.test(lastSignificant);
+    lastSignificant === "" ||
+    /[(,=:[!&|?{};+\-*%<>~^]/.test(lastSignificant) ||
+    REGEX_KEYWORDS.has(lastWord);
   while (i < source.length) {
     const ch = source[i];
     const next = source[i + 1];
@@ -169,6 +193,8 @@ function stripComments(source) {
       else if (ch === "}") templateDepths[templateDepths.length - 1]--;
     }
     out += ch;
+    if (/[\w$]/.test(ch)) lastWord = /[\w$]/.test(lastSignificant) ? lastWord + ch : ch;
+    else if (!/\s/.test(ch)) lastWord = "";
     if (!/\s/.test(ch)) lastSignificant = ch;
     i++;
   }
@@ -187,7 +213,10 @@ while (queue.length > 0) {
   const source = stripComments(fs.readFileSync(path.join(root, from), "utf8"));
   const declaration = /\.d\.[cm]?ts$/.test(from);
   for (const [, specifier] of source.matchAll(RELATIVE_IMPORT)) {
-    let target = path.posix.normalize(path.posix.join(path.posix.dirname(from), specifier));
+    // A query or hash (`./x.mjs?worker`) is not part of the file name.
+    let target = path.posix.normalize(
+      path.posix.join(path.posix.dirname(from), specifier.replace(/[?#].*$/, "")),
+    );
     // A declaration file names the JavaScript module; its types are the matching
     // declaration file beside it.
     if (declaration) target = target.replace(/\.(m|c)?js$/, (_, kind) => `.d.${kind ?? ""}ts`);
@@ -196,6 +225,19 @@ while (queue.length > 0) {
     mustShip.add(target);
     if (!shipped.has(target)) problems.push(`${target} (imported by ${from})`);
     else if (CODE.test(target)) queue.push(target);
+  }
+}
+
+// The walk follows import and require only; a runtime file loaded by path (new URL,
+// module.register, path.resolve) is required because it ships verbatim. A shipped
+// module that neither a declaration, the verbatim list nor an import reaches means
+// one of those has a gap (a path-loaded file outside VERBATIM_DIRS, or an import the
+// scanner missed), so it fails here rather than passing silently.
+for (const file of shipped) {
+  if (/^dist\/.*\.(?:mjs|cjs|js)$/.test(file) && !mustShip.has(file)) {
+    problems.push(
+      `${file} (shipped, but no declared entry, verbatim runtime rule or import reaches it)`,
+    );
   }
 }
 
@@ -209,9 +251,10 @@ console.log(
 );
 if (problems.length > 0) {
   console.error(
-    `\nThe published artifact is missing ${problems.length} file(s) the package declares or loads at runtime:\n` +
+    `\nThe published artifact does not match what the package declares or loads at runtime (${problems.length}):\n` +
       `${problems.map((file) => `  ${file}`).join("\n")}\n` +
-      "Check that the build ran to completion (tsdown.config.ts build:done copies the runtime .mjs files).",
+      "A missing file: check that the build ran to completion (tsdown.config.ts build:done copies the runtime .mjs files).\n" +
+      "An unreached one: add the directory it is loaded from to scripts/verbatim-runtime.mjs, or stop shipping it.",
   );
 }
 
