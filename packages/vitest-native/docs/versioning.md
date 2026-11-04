@@ -39,11 +39,12 @@ every subpath is loaded by specifier under both `require` and `import` in
 ### Plugin options
 
 The keys accepted by the plugin function are `engine`, `platform`, `presets`, `mocks`,
-`diagnostics`, `assetExts`, `metroConfig`, `transform`, `hotRuntime`, `nativeModules`. Their accepted types and their
+`diagnostics`, `assetExts`, `metroConfig`, `transform`, `hotRuntime`, `nativeModules`, `experimental`. Their accepted types and their
 defaults are covered. An unknown key is rejected at configuration time, so adding a key is a minor
 and removing or renaming one is a major.
 
-`hotRuntime` and `metroConfig` are exceptions — see [Experimental](#experimental).
+`hotRuntime`, `metroConfig` and everything under `experimental` are exceptions — see
+[Experimental](#experimental).
 
 ### Preset authoring
 
@@ -98,6 +99,7 @@ are documented, tested, and gated in CI — they are simply not stable, and they
 | --- | --- |
 | `hotRuntime` and its options | Built on Vitest's experimental custom-pool API, which can change between Vitest minors. The default is `false` (per-file isolation); `'auto'` opts in, and falls back to per-file isolation whenever the run cannot be bounded. |
 | `metroConfig` and its options | Opt-in declarative Metro profile ingestion. Framework loading, custom resolvers and the version matrix remain under investigation. Off by default. |
+| `experimental.ownershipModel` | Opt-in shared resolution across Vite and Node's loaders (see [ownership model](ownership-model.md)). Each entry under `experimental` has a decision date in `src/flags.ts`, by which it becomes the default or is removed. Off by default. |
 
 A surface leaves this list by being promoted in a minor, and can change or be removed in a minor
 while it is on it.
