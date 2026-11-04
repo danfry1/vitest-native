@@ -4,6 +4,7 @@ import React from "react";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { builtInPreset } from "./built-in.js";
+import { projectContext } from "../context.mjs";
 
 // react-native-unistyles 3 resolves styles in C++ through Nitro hybrid objects, so
 // its JS cannot run without the native runtime. Its Babel plugin turns itself off
@@ -49,7 +50,7 @@ let rnCache: Record<string, any> | null = null;
 function getRN(): Record<string, any> {
   if (rnCache) return rnCache;
   try {
-    const base = path.join(process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd(), "package.json");
+    const base = path.join(projectContext()?.projectRoot ?? process.cwd(), "package.json");
     rnCache = createRequire(base)("react-native");
   } catch {
     rnCache = {};

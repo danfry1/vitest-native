@@ -2,8 +2,7 @@
 // code, replaced with mocks. Everything ELSE in RN runs for real. Modules are
 // expressed as CJS source strings so both transform hooks (loader + require) can
 // serve them identically. Mirrors react-native/jest/setup.js's mock set.
-
-import { PERMISSIVE_NATIVE_MODULES_ENV } from "./native-modules.mjs";
+import { EXPO_GO_ABSENT_MODULES } from "./native-modules.mjs";
 
 function parseVersion(version) {
   const [major = 0, minor = 0, patch = 0] = String(version || "0.0.0")
@@ -137,12 +136,17 @@ function turboStubSource(platform, version) {
   // the setup file installs the set and module mocks change during a test.
   // The plugin's \`nativeModules: 'permissive'\`: every name present, every member a
   // method, for suites written against that behaviour.
-  const __permissive = () => process.env[${JSON.stringify(PERMISSIVE_NATIVE_MODULES_ENV)}] === "permissive";
+  // A module the default runtime (Expo Go) lacks (EXPO_GO_ABSENT_MODULES,
+  // native/native-modules.mjs) is absent in every mode, unless the test mocks it.
+  const __permissive = () => globalThis.__vitest_native_permissive_modules === true;
+  const __ABSENT = new Set(${JSON.stringify(EXPO_GO_ABSENT_MODULES)});
+  const isAbsent = (name) => getModuleMock(name) == null && __ABSENT.has(name);
   const isKnownModule = (name) =>
-    __permissive() ||
     getModuleMock(name) != null ||
-    Object.prototype.hasOwnProperty.call(__C, name) ||
-    (globalThis.__vitest_native_known_modules?.has(name) ?? false);
+    (!__ABSENT.has(name) &&
+      (__permissive() ||
+        Object.prototype.hasOwnProperty.call(__C, name) ||
+        (globalThis.__vitest_native_known_modules?.has(name) ?? false)));
   // Native methods that return a Promise on the device (no callback arg). Without
   // this, real RN code doing \`NativeModule.canOpenURL(url).then(...)\` would crash
   // on \`undefined\`. Values are the no-native defaults.
@@ -268,8 +272,19 @@ export const BOUNDARY_SOURCES = {
     exports.get = (n) => getModuleMock(n) || (isKnownModule(n) ? turboStub(n) : null);
     // getEnforcing(): React Native throws for an absent module. Its callers cannot
     // run without one, so a stub stands in instead, and code that requires a native
-    // module still runs without per-module setup.
-    exports.getEnforcing = (n) => getModuleMock(n) || turboStub(n);
+    // module still runs without per-module setup. A module the default runtime lacks
+    // throws React Native's own error, as on a device.
+    exports.getEnforcing = (n) => {
+      const mock = getModuleMock(n);
+      if (mock) return mock;
+      if (isAbsent(n)) {
+        const missing =
+          "TurboModuleRegistry.getEnforcing(...): '" + n + "' could not be found. " +
+          "Verify that a module by this name is registered in the native binary.";
+        throw Object.assign(new Error(missing), { name: "Invariant Violation" });
+      }
+      return turboStub(n);
+    };
   `,
   "Libraries/BatchedBridge/NativeModules.js": (platform, version) => `
     ${turboStubSource(platform, version)}

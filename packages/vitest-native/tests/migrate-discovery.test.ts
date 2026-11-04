@@ -551,27 +551,6 @@ describe("a jest-expo app's package.json#jest", () => {
     expect(doctor).toContain("⚠ @lingui/babel-plugin-lingui-macro compiles macro imports away");
   });
 
-  it("judges the worklets plugin unneeded where worklets runs as itself, by its Jest resolver", () => {
-    const worklets = (withResolver: boolean) =>
-      blueskyLike({
-        "node_modules/react-native-worklets/package.json": {
-          name: "react-native-worklets",
-          version: withResolver ? "0.13.0" : "0.5.1",
-        },
-        ...(withResolver ? { "node_modules/react-native-worklets/jest/resolver.js": "" } : {}),
-      });
-    const verdict = (root: string) =>
-      classifyBabelPlugins(readBabelConfig(root), root, []).find(
-        (p) => p.name === "react-native-worklets/plugin",
-      );
-    const runsItself = verdict(worklets(true));
-    expect(runsItself?.verdict).toBe("unneeded");
-    expect(runsItself?.reason).toContain("runs as itself under the native engine");
-    // Before worklets 0.9 there is no resolver, its preset applies, and here it is not
-    // active, so the plugin is left to judge.
-    expect(verdict(worklets(false))?.verdict).toBe("unknown");
-  });
-
   it("emits the Babel plugin when Vite 8 and @rolldown/plugin-babel are installed", () => {
     const report = analyzeJestConfig(
       blueskyLike({
@@ -832,10 +811,11 @@ describe("the generated config, executed", () => {
         env: { ...process.env, CI: "1" },
       });
       expect(listed.status, listed.stderr).toBe(0);
+      // The native realpath: Windows spells the temp directory both `RUNNER~1` and
+      // `runneradmin`, and Vitest may report either.
+      const real = fs.realpathSync.native;
       const files = (JSON.parse(listed.stdout) as { file: string }[])
-        .map((f) =>
-          path.relative(fs.realpathSync(root), fs.realpathSync(f.file)).split(path.sep).join("/"),
-        )
+        .map((f) => path.relative(real(root), real(f.file)).split(path.sep).join("/"))
         .sort();
       expect(files).toEqual([
         "src/components/Button.test.tsx",

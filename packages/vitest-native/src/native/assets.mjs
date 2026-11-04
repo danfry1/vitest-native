@@ -27,6 +27,40 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { VitestNativeError } from "../errors.mjs";
 
+// metro-config/src/defaults/defaults.js `assetExts` (0.87): the extensions Metro
+// resolves as assets when a project's Metro config adds none. One list for the plugin
+// and the Metro profile compiler, so the two cannot disagree on what is an asset.
+export const METRO_ASSET_EXTS = Object.freeze([
+  "bmp",
+  "gif",
+  "jpg",
+  "jpeg",
+  "png",
+  "psd",
+  "svg",
+  "webp",
+  "xml",
+  "m4v",
+  "mov",
+  "mp4",
+  "mpeg",
+  "mpg",
+  "webm",
+  "aac",
+  "aiff",
+  "caf",
+  "m4a",
+  "mp3",
+  "wav",
+  "html",
+  "pdf",
+  "yaml",
+  "yml",
+  "otf",
+  "ttf",
+  "zip",
+]);
+
 // metro-config/src/defaults/index.js: `publicPath: "/assets"`. The default every
 // React Native template uses; it only feeds `httpServerLocation`.
 const PUBLIC_PATH = "/assets";

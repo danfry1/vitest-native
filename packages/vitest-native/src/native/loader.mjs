@@ -1,14 +1,22 @@
 // Node ESM loader hook (registered via module.register). Intercepts import() of RN —
 // which Module._extensions cannot — Flow-stripping and serving boundary mock source.
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { projectContext } from "../context.mjs";
 import path from "node:path";
 import fs from "node:fs";
-import { transformRN, isFlow, cjsExportNames, needsTransform } from "./transform.mjs";
+import {
+  heldTransform,
+  transformRN,
+  isFlow,
+  cjsExportNames,
+  needsTransform,
+} from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import { nativeAssetModuleSource } from "./assets.mjs";
 import { extensionsFor, resolveRelativePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
 import {
   NODE_MODULES_PATH,
+  containsPath,
   isUtilitySubpath,
   packageNameOf,
   presetPackageOfFile,
@@ -17,6 +25,7 @@ import {
 } from "./match.mjs";
 import {
   createNativeOwnershipPolicy,
+  isResidentPackageName,
   isRuntimeResidentFile,
   isTestRuntimeResidentFile,
   parseNativeOwnershipManifest,
@@ -67,6 +76,7 @@ let PLATFORM = "ios";
 let REACT_NATIVE_VERSION = "0.0.0";
 let SOURCE_EXTS = ["js", "jsx", "json", "ts", "tsx"];
 let HAS_SOURCE_PROFILE = false;
+let DIAGNOSTICS = false;
 let isExtra = () => false;
 let ownership = createNativeOwnershipPolicy({ projectRoot: PROJECT_ROOT });
 // Preset package name → its mock's named-export list (from the preset definition).
@@ -75,7 +85,8 @@ let presetExports = {};
 let assetExtSet = new Set();
 
 /**
- * Hot-runtime ESM generation (experimental, `VITEST_NATIVE_HOT_ESM_GEN=1`).
+ * Hot-runtime ESM generation (on under the hot runtime; `VITEST_NATIVE_HOT_ESM_GEN=0`
+ * opts out, see setup.mjs).
  *
  * Node's ESM registry has no invalidation API, so a package a TEST FILE reaches
  * through `import` keeps its module state for the whole run — the per-file reset
@@ -109,11 +120,40 @@ const generationOf = () => (genView ? Atomics.load(genView, 0) : 0);
 // reach it. That is how this list was earned: react-native-paper under the hot
 // runtime, 603/678 -> 473/648, every extra failure a twin-runtime symptom. The
 // actual resident package rules live once in ownership.mjs.
+//
+// A file outside node_modules is stamped when the ownership policy gives it to Node
+// and resets it per file: a workspace member the engine compiles (a detected React
+// Native library, or one named in `transform`). Node loads it, so the reset drops its
+// CommonJS entry, and Node's ESM registry would otherwise keep the previous file's
+// copy behind every `import` of it. Any other file outside node_modules is the
+// project's own source, which Vite owns, or this engine and the test stack in-repo,
+// which must stay resident, so nothing else there is stamped. A workspace package
+// named like a resident one (a vendored fork of React, React Native, the testing
+// library or the test stack) stays resident, as it would under node_modules; its name
+// is the Node-loaded package whose directory, already looked up by the policy, holds
+// the file. The answer depends only on the path, so it is kept per file.
+const workspaceStamp = new Map();
+function nodeOwnedPerFile(file) {
+  let stamp = workspaceStamp.get(file);
+  if (stamp === undefined) {
+    const decision = ownership.decideFile(file);
+    stamp = decision.owner === "node" && decision.reset === "per-file";
+    if (stamp) {
+      const name = ownership.nodeTransformPackages.find((pkg) => {
+        const dir = ownership.packageDirOf(pkg);
+        return Boolean(dir) && containsPath(dir, file);
+      });
+      if (name !== undefined && isResidentPackageName(name)) stamp = false;
+    }
+    workspaceStamp.set(file, stamp);
+  }
+  return stamp;
+}
 /** Should this resolved file carry a generation stamp? */
 function versionable(url) {
   if (!genView || !url.startsWith("file:")) return false;
   const norm = fileURLToPath(url).replace(/\\/g, "/");
-  if (!NODE_MODULES_PATH.test(norm)) return false;
+  if (!NODE_MODULES_PATH.test(norm)) return nodeOwnedPerFile(norm);
   // React Native itself is preloaded once per worker and shared deliberately —
   // re-instantiating it per file would undo the reason the worker stays warm.
   if (ownership.isReactNativeFile(norm) || isRuntimeResidentFile(norm)) return false;
@@ -127,7 +167,10 @@ export function initialize(data) {
   if (data && data.reactNativeVersion) REACT_NATIVE_VERSION = data.reactNativeVersion;
   HAS_SOURCE_PROFILE = Array.isArray(data?.sourceExts);
   SOURCE_EXTS = HAS_SOURCE_PROFILE ? data.sourceExts : ["js", "jsx", "json", "ts", "tsx"];
-  const configuredOwnership = parseNativeOwnershipManifest(process.env.VITEST_NATIVE_OWNERSHIP);
+  // The project context arrives by reference in `data`: this may be its own thread.
+  const context = data?.context ? projectContext(data.context) : null;
+  DIAGNOSTICS = context?.diagnostics === true;
+  const configuredOwnership = parseNativeOwnershipManifest(context?.ownership);
   ownership = createNativeOwnershipPolicy({
     projectRoot: PROJECT_ROOT,
     projectDirs: configuredOwnership?.projectDirs ?? [],
@@ -135,6 +178,7 @@ export function initialize(data) {
     runtimeTransforms: data?.transformPkgs ?? [],
   });
   isExtra = ownership.matchesNodeTransformedFile;
+  workspaceStamp.clear();
   if (data && data.presetExports) presetExports = data.presetExports;
   if (data && data.assetExts)
     assetExtSet = new Set(data.assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
@@ -474,7 +518,7 @@ export function loadSync(url, context, nextLoad) {
       ...(leaf
         ? [
             `const _hit = ${JSON.stringify(leaf)} in _m;`,
-            `if (!_hit && process.env.VITEST_NATIVE_DIAGNOSTICS === "true") console.warn(${JSON.stringify(
+            `if (!_hit && ${DIAGNOSTICS}) console.warn(${JSON.stringify(
               `[vitest-native] '${specifier}' has no matching export on the '${pkg}' preset mock; serving the root mock namespace.`,
             )});`,
             `export default (_hit ? _m[${JSON.stringify(leaf)}] : ${fallback});`,
@@ -517,11 +561,8 @@ export function loadSync(url, context, nextLoad) {
   // Expo module without `expo` (whose dependencies are what detection follows) reached
   // it undetected. The CommonJS `.ts` hook compiles any such file (hooks.mjs).
   if (!isRN && !isExtra(norm) && NODE_MODULES_TS.test(norm)) {
-    return requireFacade(
-      url,
-      file,
-      transformRN(file, fs.readFileSync(file, "utf8"), PROJECT_ROOT, PLATFORM),
-    );
+    // No source: transformRN reads the file only when it holds no output for it.
+    return requireFacade(url, file, transformRN(file, undefined, PROJECT_ROOT, PLATFORM));
   }
   if (!isRN && !isExtra(norm)) return nextLoad(url, context);
 
@@ -586,6 +627,10 @@ export function loadSync(url, context, nextLoad) {
   if (stub != null) return requireFacade(url, file, stub);
 
   if (TRANSFORMABLE.test(norm)) {
+    // Compiled before and unchanged since (the hot runtime re-loads it per test file):
+    // answered without reading it to decide again, as the require hook does.
+    const held = heldTransform(file, PROJECT_ROOT, PLATFORM);
+    if (held !== undefined) return requireFacade(url, file, held);
     const src = fs.readFileSync(file, "utf8");
     // Only compile what Node cannot run as published — see needsTransform. A file V8
     // accepts is handed straight back to Node, which is how the toolchain packages a

@@ -24,8 +24,58 @@ bun run test
 1. Create a branch from `main`
 2. Make your changes in `packages/vitest-native/`
 3. Run `bun run lint` and `bun run format` before committing
-4. Add a changeset: `bunx changeset`
+4. Add a changeset: `bunx changeset` (see [Writing a changeset](#writing-a-changeset)). CI
+   requires one when the change ships: anything under `packages/vitest-native/src/`, the build
+   files, or a consumer-facing `package.json` field (`exports`, `engines`, `bin`, `files`,
+   `dependencies`, peers and the like). A production dependency bump, a Dependabot one included,
+   takes a patch changeset naming the bump. An internal refactor takes `bunx changeset --empty`.
 5. Open a pull request
+
+## Writing a changeset
+
+A changeset becomes the release notes. People skim it to decide whether an upgrade affects them;
+agents read it for exact names. Keep it short and write for both.
+
+1. **A bold lead of at most ~25 words.** The effect a user sees, and who it affects (engine,
+   option, versions). Someone who reads only this line should know whether it applies to them.
+2. **The exact error, in backticks,** when the change fixes one, so a search for it finds the entry.
+3. **One action line.** "No action needed.", or the exact option, value or command, and the way
+   to opt out if there is one.
+4. **At most three detail bullets,** including an honest "Not covered: …" when something is left
+   out. Aim for ~80 words in total. Longer explanations belong in the docs, with a link.
+5. **Write against the last stable release, never a release candidate.** A fix to something only
+   a release candidate broke says so in one short clause ("a regression in an earlier 0.14
+   prerelease"), or is folded into the entry for the feature it fixes.
+6. **Use the user's vocabulary.** Neutral third person; never mention a person, team, report or
+   conversation.
+
+| Instead of | Say |
+|---|---|
+| Node-owned | loaded by Node (a `vi.mock` from a test does not reach its imports) |
+| owner, ownership | whether Vite or Node loads the file |
+| closure, closure walk | the packages vitest-native compiles |
+| registry | React Native's precompiled modules, or just the effect ("React Native loads faster") |
+
+For example, a 176-word entry with four bullets about compiling a workspace library's
+dependencies becomes:
+
+```md
+---
+"vitest-native": patch
+---
+
+**Native engine: a package that depends on a workspace library now compiles that library's React Native dependencies, such as `expo-asset`.** Tests that failed with `Cannot find module '…/expo-asset/build/Asset.fx'` now run. No action needed.
+
+- Also applies to a library reached through a string `resolve.alias` or tsconfig `paths` without being declared.
+- More installed packages are now loaded by Node, so a `vi.mock` from a test does not reach their imports.
+- Not covered: regular-expression aliases and aliases other plugins add. Declare the library as a dependency instead.
+```
+
+CI checks each vitest-native changeset a pull request adds or edits
+(`packages/vitest-native/scripts/check-changeset.mjs`): a bold lead of at most 30 words, at most
+110 words in all (a `code span` counts as one), an action line, no `rc.N`, and none of the terms
+above outside backticks. Empty changesets are exempt. Run it locally with
+`node packages/vitest-native/scripts/check-changeset.mjs --lint .changeset/*.md`.
 
 ## Scripts
 
