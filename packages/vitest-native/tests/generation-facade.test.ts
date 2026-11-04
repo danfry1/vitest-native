@@ -10,10 +10,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { afterAll, expect, it } from "vitest";
-// @ts-expect-error — runtime .mjs
-import { releasableFacade } from "../src/native/loader.mjs";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-generation-facade-"));
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -37,11 +34,31 @@ if (false) exports.missing = 1;`,
   "primitive.cjs": `module.exports = 42;`,
 };
 
+const loader = new URL("../src/native/loader.mjs", import.meta.url).href;
+
+// A child process that serves `?vnhot=N` imports the way the hot runtime's in-thread
+// loader does once a module's names are recorded: releasableFacade over bindFacade.
+function facadeRunner(body: string) {
+  return [
+    `import { registerHooks } from "node:module";`,
+    `import { bindFacade, facadeModule, releasableFacade, releaseGenerations } from ${JSON.stringify(loader)};`,
+    `import { fileURLToPath } from "node:url";`,
+    `globalThis.__vitest_native_hot_bind = bindFacade;`,
+    `const names = new Map();`,
+    `registerHooks({ load(url, context, next) {`,
+    `  const stamp = /\\?vnhot=(\\d+)$/.exec(url);`,
+    `  if (!stamp) return next(url, context);`,
+    `  const id = facadeModule(url, fileURLToPath(url), names.get(url.slice(0, stamp.index)));`,
+    `  return { format: "module", source: releasableFacade(id, Number(stamp[1])), shortCircuit: true };`,
+    `} });`,
+    body,
+  ].join("\n");
+}
+
 it("gives an importer the namespace Node gives the same CommonJS module", () => {
   for (const [name, source] of Object.entries(modules)) {
     fs.writeFileSync(path.join(dir, name), source);
   }
-  // Node's own namespace for each module, imported as CommonJS.
   const describe = `
 const show = (ns) => Object.fromEntries(Object.keys(ns).map((k) => {
   let v; try { v = ns[k]; } catch (e) { v = "threw"; }
@@ -49,6 +66,7 @@ const show = (ns) => Object.fromEntries(Object.keys(ns).map((k) => {
     : v !== null && typeof v === "object" ? "obj:" + Object.keys(v).sort().join(",") : v;
   return [k, shape];
 }));`;
+  // Node's own namespace for each module, imported as CommonJS.
   fs.writeFileSync(
     path.join(dir, "node.mjs"),
     [
@@ -63,26 +81,22 @@ const show = (ns) => Object.fromEntries(Object.keys(ns).map((k) => {
   const node = JSON.parse(
     execFileSync(process.execPath, [path.join(dir, "node.mjs")], { encoding: "utf8" }),
   );
-
-  // The facade for each, written with the names Node's namespace had, in a fresh process.
-  for (const name of Object.keys(modules)) {
-    const file = path.join(dir, name);
-    const url = `${pathToFileURL(file).href}?vnhot=2`;
-    fs.writeFileSync(
-      path.join(dir, `${name}.facade.mjs`),
-      releasableFacade(url, file, 2, Object.keys(node[name])),
-    );
-  }
+  // The facade for each, given the names Node's namespace had, in a fresh process.
   fs.writeFileSync(
     path.join(dir, "facade.mjs"),
-    [
-      describe,
-      "const out = {};",
-      ...Object.keys(modules).map(
-        (name) => `out[${JSON.stringify(name)}] = show(await import("./${name}.facade.mjs"));`,
-      ),
-      "console.log(JSON.stringify(out));",
-    ].join("\n"),
+    facadeRunner(
+      [
+        describe,
+        `const recorded = ${JSON.stringify(Object.fromEntries(Object.entries(node).map(([name, ns]) => [name, Object.keys(ns as object)])))};`,
+        `const out = {};`,
+        `for (const [name, keys] of Object.entries(recorded)) {`,
+        `  const url = new URL("./" + name, import.meta.url).href;`,
+        `  names.set(url, keys);`,
+        `  out[name] = show(await import(url + "?vnhot=2"));`,
+        `}`,
+        "console.log(JSON.stringify(out));",
+      ].join("\n"),
+    ),
   );
   const facade = JSON.parse(
     execFileSync(process.execPath, [path.join(dir, "facade.mjs")], { encoding: "utf8" }),
@@ -92,34 +106,33 @@ const show = (ns) => Object.fromEntries(Object.keys(ns).map((k) => {
 });
 
 it("is the module CommonJS loads, once, and lets go of it when released", () => {
-  const file = path.join(dir, "counted.cjs");
   fs.writeFileSync(
-    file,
+    path.join(dir, "counted.cjs"),
     `globalThis.loads = (globalThis.loads ?? 0) + 1; exports.value = { payload: "x".repeat(10) };`,
-  );
-  const url = `${pathToFileURL(file).href}?vnhot=3`;
-  fs.writeFileSync(
-    path.join(dir, "counted.facade.mjs"),
-    releasableFacade(url, file, 3, ["default", "module.exports", "value"]),
   );
   fs.writeFileSync(
     path.join(dir, "release.mjs"),
-    [
-      `import { createRequire } from "node:module";`,
-      `const released = [];`,
-      `globalThis.__vitest_native_hot_facade = (generation, url, release) => released.push([generation, url, release]);`,
-      `const ns = await import("./counted.facade.mjs");`,
-      `const required = createRequire(import.meta.url)("./counted.cjs");`,
-      `const before = { same: ns.default === required, value: ns.value === required.value, loads: globalThis.loads };`,
-      `for (const [, , release] of released) release();`,
-      `console.log(JSON.stringify({ before, tracked: released.map(([g, u]) => [g, u]),`,
-      `  after: [ns.default, ns.value, ns["module.exports"]].map((v) => v === undefined) }));`,
-    ].join("\n"),
+    facadeRunner(
+      [
+        `import { createRequire } from "node:module";`,
+        `const url = new URL("./counted.cjs", import.meta.url).href;`,
+        `names.set(url, ["default", "module.exports", "value"]);`,
+        `const ns = await import(url + "?vnhot=3");`,
+        `const required = createRequire(import.meta.url)("./counted.cjs");`,
+        `const before = { same: ns.default === required, value: ns.value === required.value, loads: globalThis.loads };`,
+        // Generation 3 is kept while 4 is current, and released once 5 is.
+        `const kept = [releaseGenerations(4), ns.default === required];`,
+        `const released = releaseGenerations(5);`,
+        `console.log(JSON.stringify({ before, kept, released,`,
+        `  after: [ns.default, ns.value, ns["module.exports"]].map((v) => v === undefined) }));`,
+      ].join("\n"),
+    ),
   );
   const out = JSON.parse(
     execFileSync(process.execPath, [path.join(dir, "release.mjs")], { encoding: "utf8" }),
   );
   expect(out.before).toEqual({ same: true, value: true, loads: 1 });
-  expect(out.tracked).toEqual([[3, url]]);
+  expect(out.kept).toEqual([0, true]);
+  expect(out.released).toBe(1);
   expect(out.after).toEqual([true, true, true]);
 });
