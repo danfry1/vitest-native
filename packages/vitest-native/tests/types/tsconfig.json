@@ -1,0 +1,5 @@
+{
+  "extends": "../../../../tsconfig.base.json",
+  "compilerOptions": { "noEmit": true, "rootDir": "../..", "types": ["node", "react"] },
+  "include": ["hot-runtime-options.ts"]
+}
