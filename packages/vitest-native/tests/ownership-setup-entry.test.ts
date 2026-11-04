@@ -6,7 +6,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { detectEcosystemPackages } from "../src/native/ecosystem.js";
 import {
   createNativeOwnershipPolicy,
@@ -20,6 +20,17 @@ const here = path.resolve(import.meta.dirname, "..");
 const made: string[] = [];
 afterAll(() => {
   for (const dir of made) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
+});
+
+// Each workspace below has a node_modules of its own, so its registry cache is empty
+// and a config call would compile React Native's registry in a child process (about
+// 2 s each, and many times that on a loaded machine). Ownership does not depend on the
+// registry, so it is left out, as VITEST_NATIVE_NO_REGISTRY=1 does for a user.
+beforeAll(() => {
+  vi.stubEnv("VITEST_NATIVE_NO_REGISTRY", "1");
+});
+afterAll(() => {
+  vi.unstubAllEnvs();
 });
 
 function write(file: string, content: string): void {
@@ -109,7 +120,7 @@ describe.each([
     expect(() => transform(path.join(kit, "src/index.ts"))).toThrow(
       /MODULE_OWNER_CONFLICT|assigns/,
     );
-  }, 30_000);
+  });
 
   it("lists the setup file in the manifest workers and diagnostics read", () => {
     const manifest = parseNativeOwnershipManifest(JSON.stringify(policy.manifest()));
@@ -136,7 +147,7 @@ describe.each([
     const transform = (file: string) => plugin.transform?.call({} as never, "export {};", file);
     expect(() => transform(setup)).not.toThrow();
     expect(() => transform(path.join(kit, "src/index.ts"))).not.toThrow();
-  }, 30_000);
+  });
 });
 
 describe("setupEntryFiles", () => {

@@ -22,19 +22,24 @@ const REGISTRY = pathToFileURL(
 
 // In a child process: the key resolves `react-native` from the project, and this
 // suite's own engine answers that request for the test process. A fresh process also
-// reads each installed manifest afresh rather than from require()'s cache.
-function registryKey(options: Record<string, unknown>): string {
-  return execFileSync(
-    process.execPath,
-    [
-      "--input-type=module",
-      "-e",
-      `import { registryKey } from ${JSON.stringify(REGISTRY)};
-       process.stdout.write(registryKey(${JSON.stringify(options)}));`,
-    ],
-    { encoding: "utf8" },
+// reads each installed manifest afresh rather than from require()'s cache, so one child
+// computes only keys taken with nothing installed or removed in between: a spawn per
+// key made a test of five keys slow enough to time out on a loaded machine.
+function registryKeys(...options: Record<string, unknown>[]): string[] {
+  return JSON.parse(
+    execFileSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `import { registryKey } from ${JSON.stringify(REGISTRY)};
+         process.stdout.write(JSON.stringify(${JSON.stringify(options)}.map(registryKey)));`,
+      ],
+      { encoding: "utf8" },
+    ),
   );
 }
+const registryKey = (options: Record<string, unknown>): string => registryKeys(options)[0];
 
 const roots: string[] = [];
 afterAll(() => {
@@ -117,12 +122,22 @@ describe("registry cache key", () => {
     const copy = fs.mkdtempSync(path.join(os.tmpdir(), "vn-registry-key-copy-"));
     roots.push(copy);
     fs.cpSync(root, copy, { recursive: true });
-    expect(key(copy)).not.toBe(key(root));
-    if (process.platform === "win32") return;
+    if (process.platform === "win32") {
+      expect(key(copy)).not.toBe(key(root));
+      return;
+    }
     const link = `${copy}-link`;
     fs.symlinkSync(root, link, "dir");
     roots.push(link);
-    expect(key(link)).toBe(key(root));
+    const [ofRoot, ofCopy, ofLink] = registryKeys(
+      ...[root, copy, link].map((projectRoot) => ({
+        projectRoot,
+        platform: "ios",
+        reactNativeVersion: "0.86.0",
+      })),
+    );
+    expect(ofCopy).not.toBe(ofRoot);
+    expect(ofLink).toBe(ofRoot);
   });
 
   it("changes when react-native resolves to a different copy from the same root", () => {
@@ -143,29 +158,34 @@ describe("registry cache key", () => {
     const sub = path.join(root, "packages", "lib");
     fs.mkdirSync(sub, { recursive: true });
     fs.writeFileSync(path.join(sub, "package.json"), JSON.stringify({ name: "lib" }));
-    const key = (projectRoot: string) =>
-      registryKey({ projectRoot, platform: "ios", reactNativeVersion: "0.86.0" });
-    expect(key(sub)).toBe(key(root));
+    const [ofSub, ofRoot] = registryKeys(
+      ...[sub, root].map((projectRoot) => ({
+        projectRoot,
+        platform: "ios",
+        reactNativeVersion: "0.86.0",
+      })),
+    );
+    expect(ofSub).toBe(ofRoot);
   });
 
   it("changes with the platform", () => {
     const root = projectWith(BASE);
-    const ios = registryKey({ projectRoot: root, platform: "ios", reactNativeVersion: "0.86.0" });
-    const android = registryKey({
-      projectRoot: root,
-      platform: "android",
-      reactNativeVersion: "0.86.0",
-    });
+    const [ios, android] = registryKeys(
+      { projectRoot: root, platform: "ios", reactNativeVersion: "0.86.0" },
+      { projectRoot: root, platform: "android", reactNativeVersion: "0.86.0" },
+    );
     expect(ios).not.toBe(android);
   });
 
   it("keys asset extensions independent of spelling and declaration order", () => {
     const root = projectWith(BASE);
     const base = { projectRoot: root, platform: "ios", reactNativeVersion: "0.86.0" };
-    const without = registryKey(base);
-    const png = registryKey({ ...base, assetExts: ["png"] });
-    const both = registryKey({ ...base, assetExts: ["png", "svg"] });
-    const reordered = registryKey({ ...base, assetExts: [".SVG", ".png", "png"] });
+    const [without, png, both, reordered] = registryKeys(
+      base,
+      { ...base, assetExts: ["png"] },
+      { ...base, assetExts: ["png", "svg"] },
+      { ...base, assetExts: [".SVG", ".png", "png"] },
+    );
 
     expect(png).not.toBe(without);
     expect(both).not.toBe(png);
@@ -175,8 +195,10 @@ describe("registry cache key", () => {
   it("keys source extension precedence in declaration order", () => {
     const root = projectWith(BASE);
     const base = { projectRoot: root, platform: "ios", reactNativeVersion: "0.86.0" };
-    const jsFirst = registryKey({ ...base, sourceExts: ["js", "tsx"] });
-    const tsxFirst = registryKey({ ...base, sourceExts: ["tsx", "js"] });
+    const [jsFirst, tsxFirst] = registryKeys(
+      { ...base, sourceExts: ["js", "tsx"] },
+      { ...base, sourceExts: ["tsx", "js"] },
+    );
 
     expect(jsFirst).not.toBe(tsxFirst);
   });
@@ -184,25 +206,17 @@ describe("registry cache key", () => {
   it("keys additional deep entrypoints independent of declaration order", () => {
     const root = projectWith(BASE);
     const base = { projectRoot: root, platform: "ios", reactNativeVersion: "0.86.0" };
-    const without = registryKey(base);
-    const first = registryKey({ ...base, additionalEntries: ["react-native/deep-a"] });
-    const both = registryKey({
-      ...base,
-      additionalEntries: ["react-native/deep-a", "react-native/deep-b"],
-    });
-    const reversed = registryKey({
-      ...base,
-      additionalEntries: ["react-native/deep-b", "react-native/deep-a"],
-    });
+    const [without, first, both, reversed, repeated] = registryKeys(
+      base,
+      { ...base, additionalEntries: ["react-native/deep-a"] },
+      { ...base, additionalEntries: ["react-native/deep-a", "react-native/deep-b"] },
+      { ...base, additionalEntries: ["react-native/deep-b", "react-native/deep-a"] },
+      { ...base, additionalEntries: ["react-native/deep-a", "react-native/deep-a"] },
+    );
 
     expect(first).not.toBe(without);
     expect(both).not.toBe(first);
     expect(reversed).toBe(both);
-    expect(
-      registryKey({
-        ...base,
-        additionalEntries: ["react-native/deep-a", "react-native/deep-a"],
-      }),
-    ).toBe(first);
+    expect(repeated).toBe(first);
   });
 });
