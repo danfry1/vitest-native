@@ -285,29 +285,30 @@ export function installRequireHooks(
   // keying by the container would serve file 1's mocks to every later file in
   // the worker.
   const subpathMemo = new WeakMap();
+  function mockExportsLeaf(mock, request) {
+    const leaf = subpathLeafOf(request);
+    return (
+      leaf !== null &&
+      mock !== null &&
+      (typeof mock === "object" || typeof mock === "function") &&
+      Object.prototype.hasOwnProperty.call(mock, leaf)
+    );
+  }
   function presetSubpathExports(mocks, pkg, request) {
     const mock = mocks[pkg];
     if (mock === null || (typeof mock !== "object" && typeof mock !== "function")) return mock;
     let memo = subpathMemo.get(mock);
     if (!memo) subpathMemo.set(mock, (memo = new Map()));
     if (memo.has(request)) return memo.get(request);
-    const leaf = subpathLeafOf(request);
-    let exportsValue = mock;
-    if (leaf && Object.prototype.hasOwnProperty.call(mock, leaf)) {
-      const value = mock[leaf];
-      exportsValue =
-        value !== null && (typeof value === "object" || typeof value === "function")
-          ? new Proxy(value, {
-              get: (t, p, r) =>
-                p === "default" ? t : p === "__esModule" ? true : Reflect.get(t, p, r),
-              has: (t, p) => p === "default" || p === "__esModule" || Reflect.has(t, p),
-            })
-          : { __esModule: true, default: value };
-    } else if (projectContext()?.diagnostics === true) {
-      console.warn(
-        `[vitest-native] '${request}' has no matching export on the '${pkg}' preset mock; serving the root mock namespace.`,
-      );
-    }
+    const value = mock[subpathLeafOf(request)];
+    const exportsValue =
+      value !== null && (typeof value === "object" || typeof value === "function")
+        ? new Proxy(value, {
+            get: (t, p, r) =>
+              p === "default" ? t : p === "__esModule" ? true : Reflect.get(t, p, r),
+            has: (t, p) => p === "default" || p === "__esModule" || Reflect.has(t, p),
+          })
+        : { __esModule: true, default: value };
     memo.set(request, exportsValue);
     return exportsValue;
   }
@@ -330,7 +331,13 @@ export function installRequireHooks(
     const reqExt = reqExtMatch ? reqExtMatch[1].toLowerCase() : "";
     if (reqExt !== "json" && !assetExtSet.has(reqExt) && !isUtilitySubpath(request)) {
       const pkg = packageNameOf(request);
-      if (pkg !== request && Object.prototype.hasOwnProperty.call(mocks, pkg)) {
+      // Only a subpath whose leaf the mock exports is the mock's (loader.mjs,
+      // shadowsSubpath); any other is the real file, as under Jest's jest.mock(pkg).
+      if (
+        pkg !== request &&
+        Object.prototype.hasOwnProperty.call(mocks, pkg) &&
+        mockExportsLeaf(mocks[pkg], request)
+      ) {
         return presetSubpathExports(mocks, pkg, request);
       }
     }

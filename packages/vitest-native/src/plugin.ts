@@ -1775,8 +1775,16 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       return undefined;
     }
     const pkg = packageNameOf(source);
-    if (pkg !== source && presetModules.has(pkg)) return `\0virtual:preset:${source}`;
-    return undefined;
+    if (pkg === source || !presetModules.has(pkg)) return undefined;
+    // Under the native engine a subpath is the mock's only when the mock exports its
+    // leaf (pkg/Swipeable); any other loads its real file, as `jest.mock(pkg)` leaves
+    // subpaths alone under Jest (native/loader.mjs, shadowsSubpath). The mock engine
+    // has no real package to load, so it keeps serving the mock.
+    if (engine === "native") {
+      const leaf = subpathLeafOf(source);
+      if (leaf === null || !(presetExportNames.get(pkg) ?? []).includes(leaf)) return undefined;
+    }
+    return `\0virtual:preset:${source}`;
   };
 
   const pluginDefinition = {
