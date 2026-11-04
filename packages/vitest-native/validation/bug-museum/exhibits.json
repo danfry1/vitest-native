@@ -406,7 +406,7 @@
       "id": "own-expo-runtime-undeclared",
       "class": "ownership",
       "title": "Expo's runtime loads uncompiled where expo resolves but is not compiled",
-      "source": "the bug museum itself, once the repository's install had expo 58 for another package's tests (46 exhibits failed with \"Cannot find module '…/expo/build/winter/runtime'\")",
+      "source": "the bug museum itself, once the repository's install had expo 58 for another package's tests (46 exhibits failed with \"Cannot find module '\u2026/expo/build/winter/runtime'\")",
       "fixedBy": "open (fix/expo-runtime-follows-ownership)",
       "fixRef": "fix/expo-runtime-follows-ownership",
       "bugSignature": "^runtime\\.test\\.ts: (\\[vitest-native\\] 'expo' shipped source Node can't run directly \\(require is not defined in ES module scope|Cannot find module '[^']*/expo/build/winter/runtime' imported from )",
@@ -461,7 +461,7 @@
       "title": "Errors with per-instance methods are unequal under jest-compat",
       "source": "migration testing (2026-10)",
       "fixedBy": "#346 (merged)",
-      "bugSignature": "^error-equality\\.test\\.ts: AssertionError: expected Error: bad input \\{ issues: \\[\\], …\\(1\\) \\} to deeply equal Error: bad input",
+      "bugSignature": "^error-equality\\.test\\.ts: AssertionError: expected Error: bad input \\{ issues: \\[\\], \u2026\\(1\\) \\} to deeply equal Error: bad input",
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
@@ -1391,6 +1391,47 @@
             "file": "packages/kit/package.json",
             "find": "\"react-native\": \"*\"",
             "replace": "\"museum-control-no-react-native\": \"*\""
+          }
+        ]
+      }
+    },
+    {
+      "id": "res-workspace-member-closure",
+      "class": "transform/resolution",
+      "title": "A workspace library's dependencies are not compiled for the package that depends on it",
+      "source": "a monorepo feature package depending on a workspace UI library that declares expo-image, with expo declared by an app (\"Cannot find module '\u2026/expo-asset/build/Asset.fx'\")",
+      "fixedBy": "open (fix/closure-seed-reached-packages)",
+      "fixRef": "fix/closure-seed-reached-packages",
+      "links": {
+        "museum-ui": "packages/ui"
+      },
+      "bugSignature": "^closure\\.test\\.ts: (Error: )?Cannot find module '[^']*museum-expo-asset/build/Asset\\.fx'",
+      "control": {
+        "why": "Declaring museum-image in the project itself makes it a seed of the walk, which removes the precondition.",
+        "edits": [
+          {
+            "file": "package.json",
+            "find": "\"museum-ui\": \"workspace:*\"",
+            "replace": "\"museum-ui\": \"workspace:*\",\n    \"museum-image\": \"1.0.0\""
+          }
+        ]
+      }
+    },
+    {
+      "id": "res-alias-member-closure",
+      "class": "transform/resolution",
+      "title": "A workspace library's dependencies are not compiled for a package that imports it through an alias",
+      "source": "a monorepo package importing a sibling workspace library's source through resolve.alias without declaring it (\"Cannot find module '\u2026/expo-asset/build/Asset.fx'\")",
+      "fixedBy": "open (fix/closure-seed-reached-packages)",
+      "fixRef": "fix/closure-seed-reached-packages",
+      "bugSignature": "^closure\\.test\\.ts: (Error: )?Cannot find module '[^']*museum-expo-asset/build/Asset\\.fx'",
+      "control": {
+        "why": "Declaring museum-image in the project itself makes it a seed of the walk, which removes the precondition.",
+        "edits": [
+          {
+            "file": "package.json",
+            "find": "\"dependencies\": {}",
+            "replace": "\"dependencies\": {\n    \"museum-image\": \"1.0.0\"\n  }"
           }
         ]
       }
