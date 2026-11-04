@@ -87,7 +87,10 @@ export default defineConfig({
     reactNative({
       engine: "native",
       hotRuntime: false,
-      ownership: { allow: [{ path: "src/never-dual", reason: "probe: matches nothing" }] },
+      ownership: {
+        mode: process.env.PROBE_OWNERSHIP_MODE as "warn" | "error",
+        allow: [{ path: "src/never-dual", reason: "probe: matches nothing" }],
+      },
     }),
     jestMockTransform(),
   ],
@@ -250,7 +253,13 @@ class ByName extends BaseSequencer {
   }
 }
 export default defineConfig({
-  plugins: [reactNative({ engine: "native", ${options} })],
+  plugins: [
+    reactNative({
+      engine: "native",
+      ${options},
+      ownership: process.env.PROBE_OWNERSHIP_MODE as "warn" | "error",
+    }),
+  ],
   test: {
     environment: "node",
     include: ["src/cross/*.test.ts"],
@@ -311,7 +320,7 @@ function run(mode: "warn" | "error", extraEnv: Record<string, string> = {}, args
   }
   const outFile = path.join(base, `probe-${mode}-${Object.keys(extraEnv).join("-")}.out`);
   fs.rmSync(outFile, { force: true });
-  Object.assign(env, { VITEST_NATIVE_OWNERSHIP_MODE: mode, PROBE_OUT: outFile }, extraEnv);
+  Object.assign(env, { PROBE_OWNERSHIP_MODE: mode, PROBE_OUT: outFile }, extraEnv);
   const child = spawnSync(process.execPath, [vitestBin, "run", ...args], {
     cwd: app,
     encoding: "utf8",

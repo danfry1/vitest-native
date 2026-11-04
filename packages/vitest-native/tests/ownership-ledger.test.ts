@@ -234,21 +234,20 @@ describe("the Vite marker", () => {
 });
 
 describe("configuration", () => {
-  const saved = process.env.VITEST_NATIVE_OWNERSHIP_MODE;
-  afterEach(() => {
-    if (saved === undefined) delete process.env.VITEST_NATIVE_OWNERSHIP_MODE;
-    else process.env.VITEST_NATIVE_OWNERSHIP_MODE = saved;
-  });
-
-  it("defaults to warn, and the run-wide override wins over the option", () => {
-    delete process.env.VITEST_NATIVE_OWNERSHIP_MODE;
+  it("defaults to warn, and the option is the one switch", () => {
     expect(ownershipGuardConfig(undefined, "/repo").mode).toBe("warn");
     expect(ownershipGuardConfig({ ownership: "error" }, "/repo").mode).toBe("error");
-    process.env.VITEST_NATIVE_OWNERSHIP_MODE = "error";
-    expect(ownershipGuardConfig({ ownership: "warn" }, "/repo").mode).toBe("error");
+    expect(ownershipGuardConfig({ ownership: "warn" }, "/repo").mode).toBe("warn");
     expect(
-      ownershipGuardConfig({ ownership: { allow: [{ path: "src/x", reason: "r" }] } }, "/repo"),
+      ownershipGuardConfig(
+        { ownership: { mode: "error", allow: [{ path: "src/x", reason: "r" }] } },
+        "/repo",
+      ),
     ).toEqual({ mode: "error", allow: [{ path: path.resolve("/repo", "src/x"), reason: "r" }] });
+    expect(
+      ownershipGuardConfig({ ownership: { allow: [{ path: "src/x", reason: "r" }] } }, "/repo")
+        .mode,
+    ).toBe("warn");
   });
 
   it("validates the option: modes, and exemptions that carry a reason", () => {
@@ -430,22 +429,11 @@ describe("the installed ledger", () => {
 
 describe("the plugin's side of the guard", () => {
   const SERVE = { command: "serve", mode: "test" };
-  const saved = process.env.VITEST_NATIVE_OWNERSHIP_MODE;
   afterEach(() => {
-    if (saved === undefined) delete process.env.VITEST_NATIVE_OWNERSHIP_MODE;
-    else process.env.VITEST_NATIVE_OWNERSHIP_MODE = saved;
     vi.restoreAllMocks();
   });
 
-  it("rejects a mistyped run-wide override instead of quietly warning", () => {
-    process.env.VITEST_NATIVE_OWNERSHIP_MODE = "erorr";
-    expect(() => ownershipGuardConfig(undefined, "/repo")).toThrow(
-      /VITEST_NATIVE_OWNERSHIP_MODE must be "error" or "warn", not "erorr"/,
-    );
-  });
-
   it("refuses an exemption covering the whole project: that is turning the guard off", () => {
-    delete process.env.VITEST_NATIVE_OWNERSHIP_MODE;
     for (const where of [".", "..", "/"]) {
       expect(() =>
         ownershipGuardConfig(

@@ -1,8 +1,8 @@
 /**
  * The ownership guard, live in this suite (docs/ownership-guard.md).
  *
- * Every native suite runs with the guard, and CI runs them with
- * VITEST_NATIVE_OWNERSHIP_MODE=error to show there are no dual evaluations in them. That
+ * Every native suite runs with the guard in `ownership: 'error'`, to show there are no
+ * dual evaluations in them. That
  * claim is only worth something if the guard is actually watching, so this file makes
  * one on purpose and checks it is caught, in whichever mode the run uses.
  *

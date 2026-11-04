@@ -450,7 +450,7 @@ export interface VitestNativeOptions {
    *
    * The object form adds `allow`, the only exemption: a file or directory (resolved
    * against the Vitest root) and the reason it is deliberate. Detection cannot be turned
-   * off. An environment variable overrides the mode for a whole run, as in CI.
+   * off.
    *
    * Default: `'warn'`.
    * See docs/ownership-guard.md.

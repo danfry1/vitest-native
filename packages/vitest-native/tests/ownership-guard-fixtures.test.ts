@@ -142,7 +142,7 @@ export const readStore = (): string | null => store.value;
 import { reactNative } from "vitest-native";
 const ws = ${JSON.stringify(linked)};
 export default defineConfig({
-  plugins: [reactNative({ engine: "native", hotRuntime: false })],
+  plugins: [reactNative({ engine: "native", hotRuntime: false, ownership: process.env.FIXTURE_OWNERSHIP_MODE as "warn" | "error" })],
   resolve: {
     alias: {
       "@og/feature": ws + "/packages/feature/src",
@@ -182,7 +182,7 @@ it("one instance", () => {
 import { reactNative } from "vitest-native";
 const ws = ${JSON.stringify(linked)};
 export default defineConfig({
-  plugins: [reactNative({ engine: "native", hotRuntime: false })],
+  plugins: [reactNative({ engine: "native", hotRuntime: false, ownership: process.env.FIXTURE_OWNERSHIP_MODE as "warn" | "error" })],
   resolve: ${resolve},
   test: { include: ["src/**/*.test.ts"] },
 });
@@ -233,7 +233,7 @@ export default defineConfig({
 import { reactNative } from "vitest-native";
 const ws = ${JSON.stringify(linked)};
 export default defineConfig({
-  plugins: [reactNative({ engine: "native", hotRuntime: false })],
+  plugins: [reactNative({ engine: "native", hotRuntime: false, ownership: process.env.FIXTURE_OWNERSHIP_MODE as "warn" | "error" })],
   resolve: {
     alias: {
       "@og/feature": ws + "/packages/feature/src",
@@ -293,7 +293,7 @@ it("one og-dual", () => {
 import { reactNative } from "vitest-native";
 import { jestMockTransform } from "vitest-native/jest-compat";
 export default defineConfig({
-  plugins: [reactNative({ engine: "native", hotRuntime: false }), jestMockTransform()],
+  plugins: [reactNative({ engine: "native", hotRuntime: false, ownership: process.env.FIXTURE_OWNERSHIP_MODE as "warn" | "error" }), jestMockTransform()],
   test: {
     globals: true,
     include: ["src/**/*.test.ts"],
@@ -346,7 +346,8 @@ function run(variant: string, mode: "warn" | "error") {
   for (const key of Object.keys(env)) {
     if (key.startsWith("VITEST") || key === "NODE_OPTIONS" || key === "NODE_PATH") delete env[key];
   }
-  env.VITEST_NATIVE_OWNERSHIP_MODE = mode;
+  // The generated configs read it: `ownership` is the guard's one switch.
+  env.FIXTURE_OWNERSHIP_MODE = mode;
   // `verbose`: the default reporter, writing to a pipe, drops console output.
   const child = spawnSync(process.execPath, [vitestBin, "run", "--reporter=verbose"], {
     cwd: path.join(linked, "packages/app", variant),

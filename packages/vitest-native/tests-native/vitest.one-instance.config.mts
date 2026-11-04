@@ -20,8 +20,9 @@ export default defineConfig(({ mode }) => ({
         : {}),
       // Each of these is two live instances on purpose: the tests pin today's behaviour
       // where one module is not shared, so the change that shares it flips them. The
-      // ownership guard names every one; CI runs it in `error` mode.
+      // ownership guard names every one, and fails on anything else.
       ownership: {
+        mode: "error",
         allow: [
           {
             path: path.join(here, "one-instance/fixtures/order-store.ts"),

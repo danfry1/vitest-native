@@ -1,13 +1,13 @@
 // The ownership guard's exemptions for the shared native suite (docs/ownership-guard.md).
 // Every entry is a real dual evaluation the suite makes on purpose, with the reason it
-// is deliberate. Anything else the guard reports fails the suite under CI's
-// VITEST_NATIVE_OWNERSHIP_MODE=error.
+// is deliberate. The mode is `error`: anything else the guard reports fails the suite.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 export const NATIVE_SUITE_OWNERSHIP = {
+  mode: "error" as const,
   allow: [
     {
       path: path.resolve(here, "../fixtures/alias-app/registry/counter.ts"),

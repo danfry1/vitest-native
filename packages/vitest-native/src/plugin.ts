@@ -1493,14 +1493,10 @@ function applyHotMemoryPlan(
   }
 }
 
-/** A run-wide override of the ownership guard's mode, read here in the main process. */
-export const OWNERSHIP_MODE_ENV = "VITEST_NATIVE_OWNERSHIP_MODE";
-
 /**
  * The ownership guard's worker config (native/ownership-ledger.mjs). The mode comes from
- * `ownership`, then the run-wide VITEST_NATIVE_OWNERSHIP_MODE override, which is how CI
- * runs every native suite in `error` without editing each config. Exemptions are real
- * paths, as both sides of the ledger key files by real path.
+ * the `ownership` option alone, the guard's one switch. Exemptions are real paths, as both
+ * sides of the ledger key files by real path.
  *
  * An exemption covering the project root (`path: '.'`) is refused: it would exempt
  * every file the guard watches, which is turning the guard off, and the guard has no
@@ -1512,14 +1508,7 @@ export function ownershipGuardConfig(
 ): { mode: "warn" | "error"; allow: { path: string; reason: string }[] } {
   const option = options?.ownership;
   const configured = typeof option === "string" ? option : option?.mode;
-  const override = process.env[OWNERSHIP_MODE_ENV];
-  if (override !== undefined && override !== "" && override !== "error" && override !== "warn") {
-    throw new VitestNativeTypeError(
-      "INVALID_OPTION",
-      `${OWNERSHIP_MODE_ENV} must be "error" or "warn", not ${JSON.stringify(override)}.`,
-    );
-  }
-  const mode = override === "error" || override === "warn" ? override : (configured ?? "warn");
+  const mode = configured ?? "warn";
   // The root exists for any real run; a test seam may pass one that does not. An entry
   // not on disk yet is kept as written, and matches nothing until it is.
   const realpathOr = (file: string): string => {
@@ -3277,8 +3266,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
               path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."),
               viteRoot,
               // The ownership guard's mode and exemptions are read by the worker at run
-              // time and never change a transform: kept out of the key, so switching
-              // VITEST_NATIVE_OWNERSHIP_MODE or `allow` re-transforms nothing.
+              // time and never change a transform: kept out of the key, so switching the
+              // mode or `allow` re-transforms nothing.
               withoutOwnershipGuard(options, (test as { env?: Record<string, string> }).env),
             ),
           );

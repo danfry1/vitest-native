@@ -25,6 +25,7 @@ export default defineConfig({
       engine: "native",
       hotRuntime: false,
       ownership: {
+        mode: "error",
         allow: [
           {
             path: path.resolve(here, "jest-registry-no-isolate/dep.ts"),

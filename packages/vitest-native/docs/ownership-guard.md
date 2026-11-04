@@ -335,8 +335,8 @@ A stack is captured only when a conflict is reported. The first version captured
 per project-file compile, which cost about 9 µs each.
 
 The mode and the `allow` list reach the worker in the project context
-(`ownershipGuard`) and are kept out of the plugin's transform cache key. Switching
-`VITEST_NATIVE_OWNERSHIP_MODE`, or the option, re-transforms nothing. A test checks that the cache's entry count does not change. The
+(`ownershipGuard`) and are kept out of the plugin's transform cache key. Switching the
+mode or the exemptions re-transforms nothing. A test checks that the cache's entry count does not change. The
 marker itself does not depend on the mode.
 
 The end-of-run reporter starts each run empty, so in watch mode a fixed dual evaluation
@@ -371,13 +371,11 @@ stops being reported on the next run.
     directories.
   - Entries that exempted nothing in a run are listed in the summary, so a stale
     exemption cannot hide a new dual evaluation.
-- `VITEST_NATIVE_OWNERSHIP_MODE=error|warn` overrides the mode for a whole run. Any
-  other value is rejected with `INVALID_OPTION`, so a typo does not quietly mean
-  `warn`.
+- The option is the guard's one switch; there is no environment override.
 - `ownership` under `engine: 'mock'` is ignored with a warning: there is one module
   system.
-- CI in this repository sets `error` on every `test:native*` step. That includes the
-  Node 22.13 legs, where Node's ESM records arrive through the loader port and fail at
+- This repository's native suites set `ownership: 'error'` in their configs, so CI runs
+  them in `error`. That includes the Node 22.13 legs, where Node's ESM records arrive through the loader port and fail at
   file end.
 
 ### Who `error` affects most: `isolate: false`

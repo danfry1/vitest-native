@@ -15,7 +15,7 @@ import { presets, reactNative } from "../dist/index.mjs";
 // to Node, which then loads its untranspiled ESM build.
 export default defineConfig({
   plugins: [
-    reactNative({
+    reactNative({ ownership: "error",
       engine: "native",
       hotRuntime: false,
       presets: [presets.screens(), presets.safeAreaContext()],
