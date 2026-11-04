@@ -95,4 +95,47 @@ describe("the precompiled registry under experimental.ownershipModel", () => {
     );
     expect(registryKey({ ...base, resolverInputs: undefined })).toBe(registryKey(base));
   });
+
+  it("is shared by projects whose inputs differ only in their root", () => {
+    const base = { projectRoot: fixture, platform: "ios", reactNativeVersion: "0.0.0" };
+    expect(
+      registryKey({
+        ...base,
+        resolverInputs: { ...inputs, projectRoot: path.join(fixture, "sub") },
+      }),
+    ).toBe(registryKey({ ...base, resolverInputs: inputs }));
+  });
+
+  it("fails by name when the shared resolver errs during the walk", () => {
+    // ./loop.js is a symlink to itself: resolving it is ELOOP, an error, not "not installed".
+    const loopDir = path.join(modules, "loop-lib");
+    write(
+      path.join(loopDir, "package.json"),
+      JSON.stringify({ name: "loop-lib", exports: "./loop.js" }),
+    );
+    fs.symlinkSync("loop.js", path.join(loopDir, "loop.js"));
+    const index = path.join(modules, "react-native", "index.js");
+    const original = fs.readFileSync(index, "utf8");
+    fs.writeFileSync(index, `${original}require("loop-lib");\n`);
+    try {
+      const proc = spawnSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "--eval",
+          `import { buildRegistry } from ${JSON.stringify(registry.href)};
+           try {
+             buildRegistry({ projectRoot: ${JSON.stringify(fixture)}, platform: "ios", failOnError: true,
+               resolverInputs: ${JSON.stringify({ ...inputs, platform: "android" })} });
+             console.log("built");
+           } catch (error) { console.log(error.message); }`,
+        ],
+        { cwd: fixture, encoding: "utf8", timeout: 60_000 },
+      );
+      expect(proc.stdout).toMatch(/shared resolver failed while the registry was built: loop-lib/);
+    } finally {
+      fs.writeFileSync(index, original);
+      fs.rmSync(loopDir, { recursive: true, force: true });
+    }
+  });
 });

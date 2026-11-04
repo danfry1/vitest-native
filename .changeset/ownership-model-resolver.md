@@ -11,4 +11,4 @@
 - A realm that would resolve from different conditions fails with `RESOLVER_INPUT_MISMATCH`.
 - A realm or project left without the resolver's inputs fails with `RESOLVER_INPUTS_MISSING`.
 
-With `diagnostics: true`, each request the resolver answers differently from before is written to a file the run names. The flag is off by default, and nothing changes without it. See `docs/ownership-model.md`.
+With `diagnostics: true`, each request that Node's `require`, or Vite, answers differently from before is written to a file the run names. The flag is off by default, and nothing changes without it. See `docs/ownership-model.md`.

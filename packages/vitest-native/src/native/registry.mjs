@@ -295,7 +295,12 @@ export function registryKey({
         // resolver (resolveTarget), so the baked paths depend on every input it resolves
         // from. Absent with the flag off, so the key, and the cache, are unchanged for
         // every other project.
-        ...(resolverInputs ? [`resolver:${resolverInputsHash(resolverInputs)}`] : []),
+        // The project root is left out: the walk resolves every request from the React
+        // Native file that asks, never from the root, so projects that share the other
+        // inputs share one registry, as they do with the flag off.
+        ...(resolverInputs
+          ? [`resolver:${resolverInputsHash({ ...resolverInputs, projectRoot: "" })}`]
+          : []),
         boundaries.digest("hex"),
       ].join("\0"),
     )
@@ -541,6 +546,8 @@ export function buildRegistry({
   const sharedResolver = resolverInputs
     ? createSharedResolver(resolverInputs, { realm: "registry" })
     : null;
+  // The counters are per realm and process; this build's errors are those counted after.
+  const errorsBeforeWalk = sharedResolver?.counters.fallbacks.error ?? 0;
   const modules = new Map();
   const manifest = [];
   // Targets the registry does NOT inline but DOES bake in as pre-resolved absolute
@@ -616,6 +623,16 @@ export function buildRegistry({
       }
     }
 
+    // A resolver error during the walk would bake Node's answer in silently, where the
+    // workers' resolver would answer otherwise: fail the build by name instead (the
+    // caller reports it and falls back to per-file loading).
+    const walkErrors = sharedResolver?.counters.fallbacks.error ?? 0;
+    if (walkErrors > errorsBeforeWalk) {
+      throw new Error(
+        `experimental.ownershipModel: the shared resolver failed while the registry was ` +
+          `built: ${sharedResolver.counters.errors.join("; ")}`,
+      );
+    }
     const files = [...modules.keys()];
     const code = emit(files, modules);
     // Write via a unique temp file then rename: several workers may race here on a

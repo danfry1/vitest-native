@@ -198,6 +198,52 @@ describe("each realm checks the inputs it resolves from", () => {
   });
 });
 
+describe("on Vite's side", () => {
+  // Vite's alias plugin runs before any plugin's resolveId, so the request arrives with
+  // the project's string and RegExp aliases applied: `lib` → `lib/mock` must not become
+  // `lib/mock/mock`. tsconfig `paths`, which Vite applies only after, still apply.
+  const root = project({
+    "node_modules/lib/package.json": JSON.stringify({
+      name: "lib",
+      exports: { ".": "./index.js", "./mock": "./mock.js", "./mock/mock": "./mock-mock.js" },
+    }),
+    "node_modules/lib/index.js": "",
+    "node_modules/lib/mock.js": "",
+    "node_modules/lib/mock-mock.js": "",
+    "src/util.ts": "",
+  });
+  const inputs = inputsFor(root, {
+    aliases: [
+      ["lib", "lib/mock"],
+      [{ prefix: "@/" }, `${root}/src`],
+    ],
+  });
+  const from = path.join(root, "app.ts");
+
+  it("applies Vite's aliases once: the request arrives expanded", () => {
+    const vite = createSharedResolver(inputs, { viteAliasesApplied: true });
+    expect(vite.resolve("lib/mock", from)).toBe(path.join(root, "node_modules/lib/mock.js"));
+    // Node's realms get the request as written and expand it, to the same file.
+    expect(createSharedResolver(inputs).resolve("lib", from)).toBe(
+      path.join(root, "node_modules/lib/mock.js"),
+    );
+  });
+
+  it("still applies tsconfig paths, which Vite applies after the plugins", () => {
+    const vite = createSharedResolver(inputs, { viteAliasesApplied: true });
+    expect(vite.resolve("@/util", from)).toBe(path.join(root, "src/util.ts"));
+  });
+});
+
+describe("the shadow file", () => {
+  it("is recreated when the cache directory was cleared", () => {
+    const root = project({ "node_modules/x/package.json": "{}" });
+    const shadowFile = path.join(root, "cleared", "ownership-shadow", "h.jsonl");
+    createSharedResolver(inputsFor(root), { shadowFile }).shadow("x", undefined, "/a", "/b");
+    expect(JSON.parse(fs.readFileSync(shadowFile, "utf8"))).toMatchObject({ request: "x" });
+  });
+});
+
 describe("a realm with the flag on and no inputs", () => {
   const inputs = inputsFor("/p");
   const hash = resolverInputsHash(inputs);
@@ -255,6 +301,81 @@ describe("the Vite side under the flag", () => {
     expect(() => resolve(link)).not.toThrow();
     // The project's own resolver answered both, not "no resolver, flag off in Vite".
     expect(calls()).toBe(before + 2);
+  });
+
+  it("forgets what Vite held when a watched file is added or removed", async () => {
+    const plugin = reactNative({
+      engine: "native",
+      experimental: { ownershipModel: "resolver" },
+    }) as any;
+    const config = await runPluginConfig(plugin, { root: process.cwd() });
+    // Vite creates the server, and calls configureServer, before Vitest calls
+    // configureVitest, where the resolver is created.
+    const handlers = new Map<string, () => void>();
+    plugin.configureServer({
+      watcher: { on: (event: string, fn: () => void) => handlers.set(event, fn) },
+    });
+    await plugin.configureVitest({
+      vitest: { config: { cliOptions: {} } },
+      project: {
+        config: {
+          root: process.cwd(),
+          setupFiles: config.test.setupFiles,
+          env: { ...config.test.env },
+        },
+      },
+    });
+    expect([...handlers.keys()].sort()).toEqual(["add", "addDir", "unlink", "unlinkDir"]);
+    // An installed package the resolver answers and holds.
+    const from = path.join(process.cwd(), "app.ts");
+    const resolve = () =>
+      plugin.resolveId.call(
+        { environment: { config: { root: process.cwd() } } },
+        "magic-string",
+        from,
+      );
+    const counts = () => ({ ...resolverCounters()!.vite });
+    resolve();
+    const first = counts();
+    resolve();
+    const repeat = counts();
+    expect(repeat.hits - first.hits).toBe(1);
+    handlers.get("add")!();
+    resolve();
+    const afterAdd = counts();
+    expect(afterAdd.misses - repeat.misses).toBe(1);
+  });
+
+  it("does not apply an alias again to the request Vite's alias plugin expanded", async () => {
+    const plugin = reactNative({
+      engine: "native",
+      experimental: { ownershipModel: "resolver" },
+    }) as any;
+    const config = await runPluginConfig(plugin, {
+      root: process.cwd(),
+      resolve: { alias: { "magic-string": "magic-string/package.json" } },
+    });
+    await plugin.configureVitest({
+      vitest: { config: { cliOptions: {} } },
+      project: {
+        config: {
+          root: process.cwd(),
+          setupFiles: config.test.setupFiles,
+          env: { ...config.test.env },
+        },
+      },
+    });
+    const unresolved = () => resolverCounters()?.vite?.fallbacks.unresolved ?? 0;
+    const before = unresolved();
+    // What reaches resolveId after Vite's alias plugin ran: the replacement.
+    const id = plugin.resolveId.call(
+      { environment: { config: { root: process.cwd() } } },
+      "magic-string/package.json",
+      path.join(process.cwd(), "app.ts"),
+    );
+    expect(id).toMatch(/magic-string[\\/]package\.json$/);
+    // Applied again it would be magic-string/package.json/package.json: not installed.
+    expect(unresolved()).toBe(before);
   });
 
   it("never answers with another project's resolver", async () => {

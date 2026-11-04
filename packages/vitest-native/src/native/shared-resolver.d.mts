@@ -77,7 +77,12 @@ export interface SharedResolver {
 
 export declare function createSharedResolver(
   inputs: ResolverInputs,
-  options?: { realm?: string; memo?: boolean; shadowFile?: string | null },
+  options?: {
+    realm?: string;
+    memo?: boolean;
+    shadowFile?: string | null;
+    viteAliasesApplied?: boolean;
+  },
 ): SharedResolver;
 
 export declare function serializeResolutionAliases(

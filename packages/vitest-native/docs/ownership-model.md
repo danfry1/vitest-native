@@ -60,11 +60,16 @@ already shared, or another owner answers it.
 
 ## The resolution shadow
 
-With `diagnostics: true`, every realm also asks the resolution the flag replaces, once
-per distinct request, and writes each request answered differently as one JSON line to
-`<cache>/ownership-shadow/<inputs hash>.jsonl`, which the run names at startup (Node
-failing where the resolver answers, as for a RegExp alias, is written too). Without
-`diagnostics` the second resolution is not made.
+With `diagnostics: true`, two realms also ask the resolution the flag replaces, once per
+distinct request, and write each request answered differently as one JSON line to
+`<cache>/ownership-shadow/<inputs hash>.jsonl`, which the run names at startup:
+
+- Node's CommonJS hooks, against Node's own `require` (Node failing where the resolver
+  answers, as for a RegExp alias, is written too);
+- Vite, against the resolution it used before the flag where that answers (where it
+  declines, Vite's own resolution would have answered, which is not computed).
+
+The ESM loader writes none. Without `diagnostics` the second resolution is not made.
 
 ## Precedence
 

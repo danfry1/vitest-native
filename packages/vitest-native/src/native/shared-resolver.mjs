@@ -156,14 +156,21 @@ export function exportTarget(exportsField, subpath, conditions) {
  * @param {object} [options]
  * @param {string} [options.realm]  name used in the counters
  * @param {boolean} [options.memo]  hold answers (default true)
+ * @param {boolean} [options.viteAliasesApplied]  the requests arrive with the project's
+ *   string and RegExp aliases already applied: Vite's own alias plugin runs before any
+ *   plugin's resolveId, so applying them again would expand `pkg` → `pkg/mock` twice.
+ *   tsconfig `paths` (the prefix entries) Vite applies only after, so they still apply.
  */
 export function createSharedResolver(
   inputs,
-  { realm = "unknown", memo: useMemo = true, shadowFile = null } = {},
+  { realm = "unknown", memo: useMemo = true, shadowFile = null, viteAliasesApplied = false } = {},
 ) {
   const { projectRoot, platform } = inputs;
   const sourceExts = inputs.sourceExts ?? ["js", "jsx", "json", "ts", "tsx"];
-  const aliases = inputs.aliases ?? [];
+  const aliases = (inputs.aliases ?? []).filter(
+    ([find]) =>
+      !viteAliasesApplied || (typeof find === "object" && find !== null && "prefix" in find),
+  );
   const preserveSymlinks = inputs.preserveSymlinks === true;
   // `react-native` first, as Metro and Jest's preset match it, then the realm-wide set.
   const conditions = [
@@ -333,8 +340,18 @@ export function createSharedResolver(
     if (counters.deltaSample.length < 50) counters.deltaSample.push(delta);
     // One JSON line per delta, every realm and worker into the one file the main
     // process names (ownershipShadowFile).
-    if (shadowFile !== null)
-      fs.appendFileSync(shadowFile, `${JSON.stringify({ realm, ...delta })}\n`);
+    if (shadowFile !== null) {
+      const line = `${JSON.stringify({ realm, ...delta })}\n`;
+      try {
+        fs.appendFileSync(shadowFile, line);
+      } catch (error) {
+        // The cache was cleared during a watch session: the main process recreates the
+        // context, not this directory.
+        if (error?.code !== "ENOENT") throw error;
+        fs.mkdirSync(path.dirname(shadowFile), { recursive: true });
+        fs.appendFileSync(shadowFile, line);
+      }
+    }
   }
 
   /** Forget held answers: the Vite side does this when a watched file is added or removed. */

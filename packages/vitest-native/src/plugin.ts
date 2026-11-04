@@ -1720,8 +1720,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     }
     const from =
       importer && path.isAbsolute(importer) && !importer.startsWith("\0") ? importer : undefined;
-    const req = createRequire(from ?? path.join(alignRoot || process.cwd(), "package.json"));
-    const next = resolver.resolve(source, from, (id) => req.resolve(id));
+    // Node's resolution only where the resolver defers to it: a memo hit needs none.
+    const next = resolver.resolve(source, from, (id) =>
+      createRequire(from ?? path.join(alignRoot || process.cwd(), "package.json")).resolve(id),
+    );
     if (next === null) return undefined;
     const key = `${from ?? ""}\0${source}`;
     if (diagnostics && !shadowed.has(key)) {
@@ -2652,7 +2654,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     // a bare request resolves to (a package installed, a fixture written), so the Vite
     // realm forgets its held answers, as each worker does at its own start.
     configureServer(server) {
-      if (viteResolvers.size === 0) return;
+      if (!ownershipModel) return;
+      // Attached unconditionally: Vitest calls configureVitest, where the resolvers are
+      // created, after the server exists, so the map is still empty here.
       const forget = () => {
         for (const resolver of viteResolvers.values()) resolver.clear();
       };
@@ -3057,7 +3061,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         }
         viteResolvers.set(
           directoryKey(root),
-          createSharedResolver(resolverInputs, { realm: "vite", shadowFile }),
+          createSharedResolver(resolverInputs, {
+            realm: "vite",
+            shadowFile,
+            viteAliasesApplied: true,
+          }),
         );
       }
       const publish = (amended: Partial<ProjectContextFields>) => {
