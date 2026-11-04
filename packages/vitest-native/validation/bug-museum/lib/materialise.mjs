@@ -29,6 +29,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isExpoPackage } from "../../config-axes/local-install.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const museumRoot = path.resolve(here, "..");
@@ -50,13 +51,9 @@ export function findRntl(major) {
   return entry ? path.join(RNTL_STORE, entry, "node_modules/@testing-library/react-native") : null;
 }
 
-// Expo's packages, which this package installs for its own Expo tests (#426). An exhibit
-// is a bare React Native project unless its package.json declares expo: with Expo in
-// node_modules the engine detects it, and every build before #432 then fails the exhibit
-// on Expo's runtime instead of its own bug (own-expo-runtime-undeclared is that bug, with
-// a vendored expo of its own). Vendored copies are already in place and are not touched.
-const isExpoPackage = (name) => name === "expo" || /^(expo-|@expo\/)/.test(name);
-
+// An exhibit is a bare React Native project unless its package.json declares expo
+// (isExpoPackage). Vendored copies (own-expo-runtime-undeclared's expo) are already in
+// place and are not touched.
 function declaresExpo(root) {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
   return ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"].some(

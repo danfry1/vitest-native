@@ -38,6 +38,8 @@ import {
 } from "../validation/config-axes/ownership.mjs";
 // @ts-expect-error — runtime .mjs, no types
 import { OWNERSHIP_MARKER, wrapForOwnership } from "../validation/bug-museum/lib/materialise.mjs";
+// @ts-expect-error — runtime .mjs, no types
+import { isExpoPackage } from "../validation/config-axes/local-install.mjs";
 import {
   judge,
   matchingEntries,
@@ -288,6 +290,20 @@ describe("verdict", () => {
 
   it("an entry without `when` matches every run", () => {
     expect(matchingEntries([{ probe: "p", fixedBy: "#1" }], "p", run({}))).toHaveLength(1);
+  });
+});
+
+describe("workspaces linked from this package's install", () => {
+  it("leave out Expo's packages, which a workspace that does not declare expo would not have", () => {
+    for (const name of ["expo", "expo-constants", "expo-status-bar", "@expo/config"])
+      expect(isExpoPackage(name), name).toBe(true);
+    for (const name of [
+      "react-native",
+      "expostore",
+      "@testing-library/react-native",
+      "museum-expo",
+    ])
+      expect(isExpoPackage(name), name).toBe(false);
   });
 });
 

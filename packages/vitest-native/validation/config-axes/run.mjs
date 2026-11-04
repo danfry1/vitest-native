@@ -32,6 +32,7 @@ import { INSTALL_TIMEOUT_MS, must, PNPM, sh } from "./sh.mjs";
 import { judge, readKnownFailing, validateEntries } from "./verdict.mjs";
 import { allowed, cellName, readAxes } from "./cells.mjs";
 import { ownershipModelArgument, ownershipSupport } from "./ownership.mjs";
+import { isExpoPackage } from "./local-install.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(here, "../..");
@@ -263,7 +264,8 @@ function linkLocal(root, app, source, isolated) {
       ? fs.readdirSync(path.join(source, entry)).map((n) => `${entry}/${n}`)
       : [entry]) {
       const to = path.join(modules, name);
-      if (fs.existsSync(to)) continue;
+      // The fixture declares no expo, so a registry install (CI) has none.
+      if (fs.existsSync(to) || isExpoPackage(name)) continue;
       fs.mkdirSync(path.dirname(to), { recursive: true });
       fs.symlinkSync(fs.realpathSync(path.join(source, name)), to);
     }
