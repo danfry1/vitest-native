@@ -248,6 +248,22 @@ afterAll(() => {
   for (const dir of made) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
 });
 
+/**
+ * Config calls on a throwaway app. Each app has a node_modules of its own, so its
+ * registry cache is empty and a config call would compile React Native's registry in a
+ * child process (about 2 s each, and many times that on a loaded machine). What a call
+ * hands Node does not depend on the registry, so it is left out, as
+ * VITEST_NATIVE_NO_REGISTRY=1 does for a user.
+ */
+function withoutRegistry(): void {
+  beforeAll(() => {
+    vi.stubEnv("VITEST_NATIVE_NO_REGISTRY", "1");
+  });
+  afterAll(() => {
+    vi.unstubAllEnvs();
+  });
+}
+
 /** The packages a config call hands Node to transform. */
 async function nodeTransformed(plugin: ReturnType<typeof reactNative>, root: string) {
   const log = console.log;
@@ -266,6 +282,8 @@ async function nodeTransformed(plugin: ReturnType<typeof reactNative>, root: str
 }
 
 describe("cache lifetime", () => {
+  withoutRegistry();
+
   it("sees a package installed between two config calls on the same plugin", async () => {
     // Vitest reloads the config on a watch-mode restart. Whether that builds a new
     // plugin instance depends on where reactNative() is called, so the cache must
@@ -278,10 +296,12 @@ describe("cache lifetime", () => {
     });
     expect(await nodeTransformed(plugin, root)).toContain("late-rn-lib");
     expect(await nodeTransformed(reactNative({ engine: "native" }), root)).toContain("late-rn-lib");
-  }, 60_000);
+  });
 });
 
 describe("detection keeps its own lookup", () => {
+  withoutRegistry();
+
   it("leaves out a workspace member whose exports omit ./package.json", async () => {
     // Detection asks dependencyDirOf, not packageDirOf: a linked workspace member is
     // detected only when `<name>/package.json` resolves. Sharing the policy's
@@ -307,5 +327,5 @@ describe("detection keeps its own lookup", () => {
     // The control: the same member with ./package.json exported is detected.
     expect(transformed).toContain("@m/kit-exported");
     expect(transformed).not.toContain("@m/kit");
-  }, 60_000);
+  });
 });

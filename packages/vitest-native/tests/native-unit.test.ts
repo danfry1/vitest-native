@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach } from "vitest";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
@@ -761,6 +761,32 @@ import { reactNative } from "../src/index.js";
 const SERVE_ENV = { command: "serve", mode: "test" } as const;
 
 describe("plugin engine routing", () => {
+  // The hot runtime's routing reads the config, not the project's packages. On this
+  // package's root a config call detects its whole dependency closure (about 60 ms a
+  // call locally, ten times that on a loaded machine), and the hot tests below make
+  // dozens of calls, which timed out on CI runners. They use an app that has React
+  // Native (and this package's Vitest, so the run sees the same Vitest as under the
+  // package root): about 3 ms a call. Its node_modules is its own, so its
+  // registry cache starts empty and a call would compile React Native's registry in a
+  // child process; routing does not read the registry, so it is left out, as
+  // VITEST_NATIVE_NO_REGISTRY=1 does for a user.
+  let hotRoot: string;
+  beforeAll(() => {
+    hotRoot = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-hot-routing-"));
+    for (const name of ["react-native", "@react-native/babel-preset", "@babel/core", "vitest"]) {
+      const to = path.join(hotRoot, "node_modules", name);
+      fs.mkdirSync(path.dirname(to), { recursive: true });
+      fs.symlinkSync(fs.realpathSync(path.join(projectRoot, "node_modules", name)), to, "junction");
+    }
+    fs.writeFileSync(path.join(hotRoot, "package.json"), JSON.stringify({ name: "app" }));
+    fs.mkdirSync(path.join(hotRoot, "tests"));
+    vi.stubEnv("VITEST_NATIVE_NO_REGISTRY", "1");
+  });
+  afterAll(() => {
+    vi.unstubAllEnvs();
+    fs.rmSync(hotRoot, { recursive: true, force: true, maxRetries: 5 });
+  });
+
   it("auto (default) resolves to native when the project is native-capable", async () => {
     const plugin = reactNative({}) as any;
     const cfg = await runPluginConfig(plugin, { root: projectRoot }, SERVE_ENV);
@@ -857,7 +883,7 @@ describe("plugin engine routing", () => {
 
   it("native + hotRuntime wires the custom pool and isolate:false scheduling", async () => {
     const plugin = reactNative({ engine: "native", hotRuntime: true }) as any;
-    const cfg = await runPluginConfig(plugin, { root: projectRoot }, SERVE_ENV);
+    const cfg = await runPluginConfig(plugin, { root: hotRoot }, SERVE_ENV);
     // Scheduling: isolate:false keeps workers alive; the worker entry flips
     // isolate back on inside the worker (see src/native/worker.mjs).
     expect(cfg.test.isolate).toBe(false);
@@ -892,7 +918,7 @@ describe("plugin engine routing", () => {
   it("hotRuntime:'auto' selects bounded hot only for a safe stock-pool config", async () => {
     const enabled = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
     expect(enabled.config).toMatchObject({ order: "post" });
-    const hotConfig = await runPluginConfig(enabled, { root: projectRoot }, SERVE_ENV);
+    const hotConfig = await runPluginConfig(enabled, { root: hotRoot }, SERVE_ENV);
     expect(hotConfig.test.isolate).toBe(false);
     expect(hotConfig.test.pool).toMatchObject({ name: "vitest-native" });
     expect(JSON.parse(hotConfig.test.env.VITEST_NATIVE_MEMORY_PLAN)).toMatchObject({
@@ -903,25 +929,25 @@ describe("plugin engine routing", () => {
     const declineCases = [
       {
         label: "one unrecyclable worker",
-        config: { root: projectRoot, test: { fileParallelism: false, maxWorkers: 1 } },
+        config: { root: hotRoot, test: { fileParallelism: false, maxWorkers: 1 } },
         reason: /one unrecyclable worker/,
         pool: "threads",
       },
       {
         label: "explicit isolate: true",
-        config: { root: projectRoot, test: { maxWorkers: 2, isolate: true } },
+        config: { root: hotRoot, test: { maxWorkers: 2, isolate: true } },
         reason: /test\.isolate is explicitly true/,
         pool: "threads",
       },
       {
         label: "explicit isolate: false",
-        config: { root: projectRoot, test: { maxWorkers: 2, isolate: false } },
+        config: { root: hotRoot, test: { maxWorkers: 2, isolate: false } },
         reason: /test\.isolate is explicitly false/,
         pool: "threads",
       },
       {
         label: "explicit forks pool",
-        config: { root: projectRoot, test: { maxWorkers: 2, pool: "forks" } },
+        config: { root: hotRoot, test: { maxWorkers: 2, pool: "forks" } },
         reason: /'forks' is explicitly configured/,
         pool: "forks",
       },
@@ -944,7 +970,7 @@ describe("plugin engine routing", () => {
       [
         "Jest mock transform",
         {
-          root: projectRoot,
+          root: hotRoot,
           plugins: [{ name: "vitest-native:jest-mock-hoist" }],
           test: { maxWorkers: 2 },
         },
@@ -952,7 +978,7 @@ describe("plugin engine routing", () => {
       [
         "Jest compatibility setup",
         {
-          root: projectRoot,
+          root: hotRoot,
           test: { maxWorkers: 2, setupFiles: ["vitest-native/jest-compat/setup"] },
         },
       ],
@@ -968,13 +994,13 @@ describe("plugin engine routing", () => {
     // Unset keeps 0.13.0's default: no hot pool, and nothing to warn about.
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const byDefault = reactNative({ engine: "native" }) as any;
-    const stockByDefault = await runPluginConfig(byDefault, { root: projectRoot }, SERVE_ENV);
+    const stockByDefault = await runPluginConfig(byDefault, { root: hotRoot }, SERVE_ENV);
     expect(stockByDefault.test.isolate).toBeUndefined();
     expect(stockByDefault.test.pool).not.toMatchObject({ name: "vitest-native" });
     const withPool = reactNative({ engine: "native" }) as any;
     const stock = await runPluginConfig(
       withPool,
-      { root: projectRoot, test: { maxWorkers: 2, pool: "forks" } },
+      { root: hotRoot, test: { maxWorkers: 2, pool: "forks" } },
       SERVE_ENV,
     );
     expect(stock.test.isolate).toBeUndefined();
@@ -984,13 +1010,13 @@ describe("plugin engine routing", () => {
 
     // Opting in with 'auto' selects it where the run can be bounded.
     const optIn = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
-    const hot = await runPluginConfig(optIn, { root: projectRoot }, SERVE_ENV);
+    const hot = await runPluginConfig(optIn, { root: hotRoot }, SERVE_ENV);
     expect(hot.test.isolate).toBe(false);
     expect(hot.test.pool).toMatchObject({ name: "vitest-native" });
 
     // Explicitly off stays off.
     const off = reactNative({ engine: "native", hotRuntime: false }) as any;
-    const plain = await runPluginConfig(off, { root: projectRoot }, SERVE_ENV);
+    const plain = await runPluginConfig(off, { root: hotRoot }, SERVE_ENV);
     expect(plain.test.isolate).toBeUndefined();
   });
 
@@ -999,7 +1025,7 @@ describe("plugin engine routing", () => {
     await expect(
       runPluginConfig(
         bounded,
-        { root: projectRoot, test: { fileParallelism: false, maxWorkers: 1 } },
+        { root: hotRoot, test: { fileParallelism: false, maxWorkers: 1 } },
         SERVE_ENV,
       ),
     ).rejects.toThrow(/one worker.*allowUnboundedMemory:true/s);
@@ -1007,7 +1033,7 @@ describe("plugin engine routing", () => {
     // uncapped admission figure.
     const error = await runPluginConfig(
       reactNative({ engine: "native", hotRuntime: true }) as any,
-      { root: projectRoot, test: { maxWorkers: 1 } },
+      { root: hotRoot, test: { maxWorkers: 1 } },
       SERVE_ENV,
     ).catch((e: Error) => e);
     expect(String(error)).toMatch(/This config selects one worker/);
@@ -1017,7 +1043,7 @@ describe("plugin engine routing", () => {
     vi.spyOn(process, "constrainedMemory").mockReturnValue(0);
     const tight = await runPluginConfig(
       reactNative({ engine: "native", hotRuntime: true }) as any,
-      { root: projectRoot, test: { maxWorkers: 4 } },
+      { root: hotRoot, test: { maxWorkers: 4 } },
       SERVE_ENV,
     ).catch((e: Error) => e);
     vi.restoreAllMocks();
@@ -1029,7 +1055,7 @@ describe("plugin engine routing", () => {
     }) as any;
     const cfg = await runPluginConfig(
       explicit,
-      { root: projectRoot, test: { fileParallelism: false, maxWorkers: 1 } },
+      { root: hotRoot, test: { fileParallelism: false, maxWorkers: 1 } },
       SERVE_ENV,
     );
     expect(cfg.test.maxWorkers).toBeUndefined();
@@ -1043,7 +1069,7 @@ describe("plugin engine routing", () => {
       const plugin = reactNative({ engine, hotRuntime: false }) as any;
       const result = await plugin.config.handler.call(
         {},
-        { root: projectRoot, test: { execArgv: ["--user-flag"] } },
+        { root: hotRoot, test: { execArgv: ["--user-flag"] } },
         SERVE_ENV,
       );
       const argv: string[] = result.test.execArgv;
@@ -1055,9 +1081,9 @@ describe("plugin engine routing", () => {
 
   it("gives inline projects their own server so the plugin reaches them", async () => {
     const plugin = reactNative({ engine: "native" }) as any;
-    const config = { root: projectRoot, test: { projects: [{ extends: true }] } };
+    const config = { root: hotRoot, test: { projects: [{ extends: true }] } };
     const result = await plugin.config.handler.call({}, config, SERVE_ENV);
-    expect(config.test.projects).toEqual([{ extends: true, root: projectRoot }]);
+    expect(config.test.projects).toEqual([{ extends: true, root: hotRoot }]);
     expect(result.test.setupFiles.length).toBeGreaterThan(0);
   });
 
@@ -1067,14 +1093,14 @@ describe("plugin engine routing", () => {
     for (const test of [{ pool: "forks" }, { isolate: true }, { isolate: false }]) {
       const plugin = reactNative({ engine: "native", hotRuntime: true }) as any;
       await expect(
-        runPluginConfig(plugin, { root: projectRoot, test: { maxWorkers: 2, ...test } }, SERVE_ENV),
+        runPluginConfig(plugin, { root: hotRoot, test: { maxWorkers: 2, ...test } }, SERVE_ENV),
         JSON.stringify(test),
       ).rejects.toThrow(/HOT_RUNTIME_OVERRIDDEN|cannot honour/);
     }
   });
 
   describe("configureVitest: reconciling CLI flags Vitest applied after config()", () => {
-    async function hotProject(hotRuntime: unknown, root = projectRoot, test = {}) {
+    async function hotProject(hotRuntime: unknown, root = hotRoot, test = {}) {
       const plugin = reactNative({ engine: "native", hotRuntime } as any) as any;
       const cfg = await runPluginConfig(
         plugin,
@@ -1149,7 +1175,7 @@ describe("plugin engine routing", () => {
       }
       // The mock engine needs no module hooks and runs on a VM pool.
       const mock = reactNative({ engine: "mock" }) as any;
-      const config = { root: projectRoot, pool: "vmThreads" };
+      const config = { root: hotRoot, pool: "vmThreads" };
       expect(() =>
         mock.configureVitest({
           vitest: { _cliOptions: { pool: "vmThreads" } },
@@ -1170,10 +1196,10 @@ describe("plugin engine routing", () => {
     it("keys projects by Vitest's root, which test.root overrides", async () => {
       const err = quiet();
       const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
-      const testRoot = path.join(projectRoot, "tests");
+      const testRoot = path.join(hotRoot, "tests");
       const cfg = await runPluginConfig(
         plugin,
-        { root: projectRoot, test: { root: testRoot, maxWorkers: 2 } },
+        { root: hotRoot, test: { root: testRoot, maxWorkers: 2 } },
         SERVE_ENV,
       );
       const config = { ...cfg.test, root: testRoot, pool: "vitest-native" };
@@ -1188,14 +1214,14 @@ describe("plugin engine routing", () => {
       // run ("have different 'maxWorkers' but same 'sequence.groupOrder'").
       const err = quiet();
       const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
-      const cfg = await runPluginConfig(plugin, { root: projectRoot }, SERVE_ENV);
-      const config = { root: projectRoot, ...cfg.test, pool: "vitest-native" };
+      const cfg = await runPluginConfig(plugin, { root: hotRoot }, SERVE_ENV);
+      const config = { root: hotRoot, ...cfg.test, pool: "vitest-native" };
       Object.assign(config, { pool: "forks" });
       plugin.configureVitest({
         // A root this plugin did not plan: another directory than the project's.
         vitest: {
           _cliOptions: { pool: "forks" },
-          config: { root: path.join(projectRoot, ".."), maxWorkers: 7 },
+          config: { root: path.join(hotRoot, ".."), maxWorkers: 7 },
         },
         project: { config },
       });
@@ -1210,13 +1236,13 @@ describe("plugin engine routing", () => {
       const cpus = vi.spyOn(os, "availableParallelism").mockReturnValue(8);
       const err = quiet();
       const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
-      const cfg = await runPluginConfig(plugin, { root: projectRoot }, SERVE_ENV);
-      const config = { root: projectRoot, ...cfg.test, pool: "vitest-native" };
+      const cfg = await runPluginConfig(plugin, { root: hotRoot }, SERVE_ENV);
+      const config = { root: hotRoot, ...cfg.test, pool: "vitest-native" };
       Object.assign(config, { pool: "forks" });
       plugin.configureVitest({
         vitest: {
           _cliOptions: { pool: "forks" },
-          config: { root: projectRoot, maxWorkers: cfg.test.maxWorkers },
+          config: { root: hotRoot, maxWorkers: cfg.test.maxWorkers },
         },
         project: { config },
       });
@@ -1249,10 +1275,10 @@ describe("plugin engine routing", () => {
         const plugin = reactNative({ engine: "native", hotRuntime } as any) as any;
         const cfg = await runPluginConfig(
           plugin,
-          { root: projectRoot, test: { maxWorkers: 3 } },
+          { root: hotRoot, test: { maxWorkers: 3 } },
           SERVE_ENV,
         );
-        return { plugin, pool: cfg.test.pool, config: { root: projectRoot, ...cfg.test } };
+        return { plugin, pool: cfg.test.pool, config: { root: hotRoot, ...cfg.test } };
       }
       const envPlan = (config: any) => JSON.parse(config.env.VITEST_NATIVE_MEMORY_PLAN);
       afterEach(() => vi.restoreAllMocks());
@@ -1304,7 +1330,7 @@ describe("plugin engine routing", () => {
           const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
           const cfg = await runPluginConfig(
             plugin,
-            { root: projectRoot, test: { maxWorkers } },
+            { root: hotRoot, test: { maxWorkers } },
             SERVE_ENV,
           );
           return { maxWorkers: cfg.test.maxWorkers, plan: envPlan(cfg.test), cfg, plugin };
@@ -1316,7 +1342,7 @@ describe("plugin engine routing", () => {
         const capped = await plan(2 * GIB, 8);
         expect(capped).toMatchObject({ maxWorkers: 4 });
         expect(warn).not.toHaveBeenCalledWith(expect.stringMatching(/capped maxWorkers/));
-        const config = { root: projectRoot, ...capped.cfg.test };
+        const config = { root: hotRoot, ...capped.cfg.test };
         capped.plugin.configureVitest({ vitest: { _cliOptions: {} }, project: { config } });
         expect(config.isolate).toBe(false);
         expect(warn).toHaveBeenCalledWith(
@@ -1331,10 +1357,10 @@ describe("plugin engine routing", () => {
         const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
         const cfg = await runPluginConfig(
           plugin,
-          { root: projectRoot, test: { maxWorkers: 8 } },
+          { root: hotRoot, test: { maxWorkers: 8 } },
           SERVE_ENV,
         );
-        const config = { root: projectRoot, ...cfg.test };
+        const config = { root: hotRoot, ...cfg.test };
         expect(config.maxWorkers).toBe(4);
         const self = { name: "native", config };
         const other = { name: "plain", config: { maxWorkers: 8 } };
@@ -1356,10 +1382,10 @@ describe("plugin engine routing", () => {
         const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
         const cfg = await runPluginConfig(
           plugin,
-          { root: projectRoot, test: { maxWorkers: 8 } },
+          { root: hotRoot, test: { maxWorkers: 8 } },
           SERVE_ENV,
         );
-        const config = { root: projectRoot, ...cfg.test };
+        const config = { root: hotRoot, ...cfg.test };
         const before = config.env.VITEST_NATIVE_MEMORY_PLAN;
         expect(config.maxWorkers).toBe(4);
         run(plugin, config, { maxWorkers: 8, pool: "vitest-native" });
@@ -1373,10 +1399,10 @@ describe("plugin engine routing", () => {
         const plugin = reactNative({ engine: "native", hotRuntime: "auto", diagnostics: true });
         const cfg = await runPluginConfig(
           plugin as any,
-          { root: projectRoot, test: { maxWorkers: 2 } },
+          { root: hotRoot, test: { maxWorkers: 2 } },
           SERVE_ENV,
         );
-        const config = { root: projectRoot, ...cfg.test };
+        const config = { root: hotRoot, ...cfg.test };
         log.mockClear();
         host(4 * GIB);
         run(plugin, config, { maxWorkers: 6, pool: "vitest-native" });
@@ -1479,7 +1505,7 @@ describe("plugin engine routing", () => {
       // configureVitest call must not decide for the others.
       const err = quiet();
       const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
-      const roots = [projectRoot, path.join(projectRoot, "tests")];
+      const roots = [hotRoot, path.join(hotRoot, "tests")];
       const configs = [];
       for (const root of roots) {
         const cfg = await runPluginConfig(plugin, { root, test: { maxWorkers: 2 } }, SERVE_ENV);
@@ -1498,7 +1524,7 @@ describe("plugin engine routing", () => {
       engine: "native",
       hotRuntime: { recycleAfterFiles: 2, memoryLimit: 1024 },
     }) as any;
-    const cfg = await runPluginConfig(plugin, { root: projectRoot }, SERVE_ENV);
+    const cfg = await runPluginConfig(plugin, { root: hotRoot }, SERVE_ENV);
     expect(cfg.test.runner).toMatch(/native[\\/]runner\.mjs$/);
     const worker = cfg.test.pool.createPoolWorker({
       distPath: "/tmp/unused",
