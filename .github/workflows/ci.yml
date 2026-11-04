@@ -122,11 +122,11 @@ jobs:
             node-version: 22.13.0
           # macOS and Windows run the same steps as every other leg, split across two
           # parallel jobs by `part`: `suite` (static checks, the unit suite, hot-runtime
-          # isolation and soak, the cross-check, the example app, Windows loader
-          # contracts) and `native` (the native engine suites). Run whole, the Windows
-          # leg took about 11 minutes against about 6 for the Linux legs and set the
-          # time of every run, macOS next at about 8. Each half pays one more setup
-          # (about a minute) and finishes in about half the time. The native suites
+          # isolation, the cross-check, the example app, Windows loader contracts) and
+          # `native` (the native engine suites and the hot-runtime soak). Run whole,
+          # the Windows leg took about 11 minutes against about 6 for the Linux legs
+          # and set the time of every run, macOS next at about 8. Each half pays one
+          # more setup (about a minute) and finishes in about 6. The native suites
           # start from the restored transform cache rather than after the unit suite,
           # as they already do in every native-rn-matrix.yml cell.
           - os: macos-latest
@@ -259,7 +259,7 @@ jobs:
         run: bun run test:native:hot:isolation
 
       - name: Native engine hot-runtime soak and recycling
-        if: ${{ !matrix.rntl && matrix.part != 'native' }}
+        if: ${{ !matrix.rntl && matrix.part != 'suite' }}
         run: bun run test:native:hot:soak
 
       - name: Cross-check (mock ≡ real RN) + fidelity report freshness
