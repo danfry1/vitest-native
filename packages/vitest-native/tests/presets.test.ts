@@ -813,6 +813,21 @@ describe("preset: safeAreaContext", () => {
     expect(insets.bottom).toBe(34);
   });
 
+  it("cornerAdaptation reads a SafeAreaCornerAdaptedInsetsContext.Provider", async () => {
+    const vertical = { top: 9, right: 0, bottom: 9, left: 0 };
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(
+        mock.SafeAreaCornerAdaptedInsetsContext.Provider,
+        { value: { vertical } },
+        children,
+      );
+    const { result } = await renderHook(
+      () => mock.useSafeAreaInsets({ cornerAdaptation: "vertical" }),
+      { wrapper },
+    );
+    expect(result.current).toBe(vertical);
+  });
+
   it("useSafeAreaInsets reads a SafeAreaInsetsContext.Provider, as the library's does", async () => {
     const value = { top: 1, right: 2, bottom: 3, left: 4 };
     const wrapper = ({ children }: { children: React.ReactNode }) =>
