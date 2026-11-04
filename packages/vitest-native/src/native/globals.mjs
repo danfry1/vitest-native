@@ -322,10 +322,11 @@ function installExpoGlobal(g) {
     uuidv5: (name, namespace) => {
       // The native runtime rejects a namespace that is not a UUID string, with this message
       // (expo-modules-core ios/Uuidv5/Exceptions.swift, android uuidv5/Exceptions.kt).
+      // A plain Error with the device's message, so a test asserting on it reads as on the
+      // device (exempted in tests/errors.test.ts).
       if (typeof namespace !== "string" || !UUID.test(namespace)) {
-        throw new Error(
-          `Namespace: \`${namespace}\` is not a valid namespace. Namespace should be a valid UUID string`,
-        );
+        const invalidNamespace = `Namespace: \`${namespace}\` is not a valid namespace. Namespace should be a valid UUID string`;
+        throw new Error(invalidNamespace);
       }
       const bytes = createHash("sha1")
         .update(Buffer.from(namespace.replace(/-/g, ""), "hex"))
