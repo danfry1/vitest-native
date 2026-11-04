@@ -10,6 +10,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { registerHooks } from "node:module";
 import { afterAll, expect, it } from "vitest";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-generation-facade-"));
@@ -34,6 +35,10 @@ if (false) exports.missing = 1;`,
   "primitive.cjs": `module.exports = 42;`,
 };
 
+// The child processes serve facades through module.registerHooks, which the hot runtime
+// needs too: before Node 22.15 there is neither.
+const itWithHooks = it.skipIf(typeof registerHooks !== "function");
+
 const loader = new URL("../src/native/loader.mjs", import.meta.url).href;
 
 // A child process that serves `?vnhot=N` imports the way the hot runtime's in-thread
@@ -55,7 +60,7 @@ function facadeRunner(body: string) {
   ].join("\n");
 }
 
-it("gives an importer the namespace Node gives the same CommonJS module", () => {
+itWithHooks("gives an importer the namespace Node gives the same CommonJS module", () => {
   for (const [name, source] of Object.entries(modules)) {
     fs.writeFileSync(path.join(dir, name), source);
   }
@@ -105,7 +110,7 @@ const show = (ns) => Object.fromEntries(Object.keys(ns).map((k) => {
   expect(Object.keys(node["getters.cjs"])).toContain("missing");
 });
 
-it("is the module CommonJS loads, once, and lets go of it when released", () => {
+itWithHooks("is the module CommonJS loads, once, and lets go of it when released", () => {
   fs.writeFileSync(
     path.join(dir, "counted.cjs"),
     `globalThis.loads = (globalThis.loads ?? 0) + 1; exports.value = { payload: "x".repeat(10) };`,
