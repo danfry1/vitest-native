@@ -63,6 +63,7 @@
         "@vitest/coverage-v8": "5.0.5",
         "dispatch-consumer-lib": "file:./tests-native/fixtures/dispatch-consumer-lib",
         "dispatch-nested-lib": "file:./tests-native/fixtures/dispatch-nested-lib",
+        "dispatch-redirect-lib": "file:./tests-native/fixtures/dispatch-redirect-lib",
         "dispatch-split-lib": "file:./tests-native/fixtures/dispatch-split-lib",
         "dispatch-target-lib": "file:./tests-native/fixtures/dispatch-target-lib",
         "expo-constants": "58.0.13",
@@ -1954,9 +1955,11 @@
 
     "vite/postcss": ["postcss@8.5.31", "", { "dependencies": { "nanoid": "^3.3.20", "picocolors": "^1.1.1", "source-map-js": "^1.2.2" } }, "sha512-YUbWYCgErwnMAVkjUnYa+KlMBzGpHwiIt/DE7f0G33AuX2LH9UcTk6KgWxd3zRU+pN3u/C+Xl3EnMLM4Hea7Sg=="],
 
-    "vitest-native/dispatch-consumer-lib": ["dispatch-consumer-lib@file:packages/vitest-native/tests-native/fixtures/dispatch-consumer-lib", { "dependencies": { "dispatch-split-lib": "file:../dispatch-split-lib", "dispatch-target-lib": "file:../dispatch-target-lib" } }],
+    "vitest-native/dispatch-consumer-lib": ["dispatch-consumer-lib@file:packages/vitest-native/tests-native/fixtures/dispatch-consumer-lib", { "dependencies": { "dispatch-redirect-lib": "file:../dispatch-redirect-lib", "dispatch-split-lib": "file:../dispatch-split-lib", "dispatch-target-lib": "file:../dispatch-target-lib" } }],
 
     "vitest-native/dispatch-nested-lib": ["dispatch-nested-lib@file:packages/vitest-native/tests-native/fixtures/dispatch-nested-lib", { "dependencies": { "dispatch-target-lib": "file:../dispatch-target-lib-v2" } }],
+
+    "vitest-native/dispatch-redirect-lib": ["dispatch-redirect-lib@file:packages/vitest-native/tests-native/fixtures/dispatch-redirect-lib", {}],
 
     "vitest-native/dispatch-split-lib": ["dispatch-split-lib@file:packages/vitest-native/tests-native/fixtures/dispatch-split-lib", {}],
 
@@ -2167,6 +2170,8 @@
     "vite/postcss/nanoid": ["nanoid@3.3.20", "", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-uKdg2G3GNCKQn9byYOpxbGqrT2fGO5KRt5J/8b3pok8rT6qxGWF6hxMyJiEYtAf+FVyYuD9hRaDqX5uPFYJ4ZQ=="],
 
     "vite/postcss/source-map-js": ["source-map-js@1.2.2", "", {}, "sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw=="],
+
+    "vitest-native/dispatch-consumer-lib/dispatch-redirect-lib": ["dispatch-redirect-lib@file:packages/vitest-native/tests-native/fixtures/dispatch-redirect-lib", {}],
 
     "vitest-native/dispatch-consumer-lib/dispatch-split-lib": ["dispatch-split-lib@file:packages/vitest-native/tests-native/fixtures/dispatch-split-lib", {}],
 

@@ -180,6 +180,7 @@
     "@vitest/coverage-v8": "5.0.5",
     "dispatch-consumer-lib": "file:./tests-native/fixtures/dispatch-consumer-lib",
     "dispatch-nested-lib": "file:./tests-native/fixtures/dispatch-nested-lib",
+    "dispatch-redirect-lib": "file:./tests-native/fixtures/dispatch-redirect-lib",
     "dispatch-split-lib": "file:./tests-native/fixtures/dispatch-split-lib",
     "dispatch-target-lib": "file:./tests-native/fixtures/dispatch-target-lib",
     "expo-constants": "58.0.13",

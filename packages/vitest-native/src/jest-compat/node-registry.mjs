@@ -687,8 +687,8 @@ function vitestMockFor(index, request, parent, filename) {
 
 /**
  * R3: the module a Vitest mock is, the instance the test's own import gets: a factory's
- * result, which Vitest caches on the entry. R9: one that cannot be had synchronously
- * fails by name, as an automock and a `__mocks__` redirect do for now.
+ * result (Vitest caches it on the entry), an automock's mocked exports, or the module
+ * a `__mocks__` redirect evaluated. R9: one that cannot be had synchronously fails by name.
  */
 const FACTORY_NOT_SETTLED =
   "its factory is async and has not settled; import the module in the test first";
@@ -714,10 +714,27 @@ function vitestMockValue(entry, request, parent) {
     );
     throw mockNotSeenByNode(request, parent, FACTORY_NOT_SETTLED);
   }
+  const modules = worker()?.evaluatedModules;
+  if (entry.type === "automock" || entry.type === "autospy") {
+    const node = modules?.getModuleById?.(`mock:${entry.id}`);
+    // Vitest sets `mockedExports` before it loads the original into the same node, and
+    // fills it after. While that load is in flight (a promise, not yet evaluated) the
+    // object is half-built, and a require of the file is the original's own load: the
+    // real module. A node `jest.resetModules()` reset (no promise) keeps its object.
+    if (node?.mockedExports != null && node.evaluated !== true && node.promise !== undefined) {
+      return NONE;
+    }
+    if (node?.mockedExports != null) return requireFacade(node.mockedExports);
+  } else if (entry.type === "redirect" && typeof entry.redirect === "string") {
+    const node =
+      modules?.getModuleByUrl?.(entry.redirect) ?? modules?.getModuleById?.(entry.redirect);
+    // Evaluated in this file: the hot runtime resets an earlier file's node in place.
+    if (node?.evaluated === true) return requireFacade(node.exports);
+  }
   throw mockNotSeenByNode(
     request,
     parent,
-    `Vitest builds this ${entry.type} module on its own side, which is not served to Node yet`,
+    `Vitest builds this ${entry.type} module when the test imports it, which it has not yet`,
   );
 }
 

@@ -1,15 +1,13 @@
-/**
- * An automock is not served to Node in this release, and says so by name rather than
- * handing Node the real module (R9).
- */
+/** An automock is served to Node as the test's automocked module, never the real one (R3). */
 import { expect, it, vi } from "vitest";
-import "dispatch-target-lib";
+import * as target from "dispatch-target-lib";
 import { requireFrom } from "dispatch-consumer-lib";
 
 vi.mock("dispatch-target-lib");
 
-it("names an automock Node is not served", () => {
-  expect(() => requireFrom("dispatch-target-lib")).toThrow(
-    expect.objectContaining({ code: "MOCK_NOT_SEEN_BY_NODE" }),
-  );
+it("serves the automocked module", () => {
+  expect(vi.isMockFunction(target.fn)).toBe(true);
+  const required = requireFrom("dispatch-target-lib");
+  expect(vi.isMockFunction(required.fn)).toBe(true);
+  expect(required.fn).toBe(target.fn);
 });
