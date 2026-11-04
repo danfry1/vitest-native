@@ -2,6 +2,7 @@
 // (../../../run.mjs) sets the runtime axes through AXIS_* variables and the probe files
 // to run on the command line; the install axes (Vitest, RNTL, layout) are what is in
 // node_modules.
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
@@ -13,6 +14,15 @@ const ws = path.resolve(here, "../..");
 const axis = (name: string) => process.env[`AXIS_${name}`];
 const hot = axis("HOT") === "on";
 const jestCompat = axis("JEST_COMPAT") === "on";
+const ownershipModel = axis("OWNERSHIP_MODEL");
+// The option for run.mjs --ownership, and the marker run.mjs checks: written only where
+// the option is built, so a flag-on run whose flag never reaches reactNative() fails.
+const ownershipOptions = () => {
+  if (!ownershipModel || ownershipModel === "off") return {};
+  const marker = axis("OWNERSHIP_MARKER");
+  if (marker) fs.writeFileSync(marker, `${ownershipModel}\n`);
+  return { experimental: { ownershipModel } };
+};
 
 export default defineConfig({
   plugins: [
@@ -28,6 +38,8 @@ export default defineConfig({
       ...(axis("HOT") === "default"
         ? {}
         : { hotRuntime: hot ? { allowUnboundedMemory: true } : false }),
+      // run.mjs --ownership: "off" (every CI cell) leaves the option unset.
+      ...ownershipOptions(),
     }),
   ],
   resolve: {
