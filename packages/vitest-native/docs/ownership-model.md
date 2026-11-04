@@ -53,10 +53,16 @@ module cache.
 What cannot be served this way fails by name:
 
 - **`REQUIRE_OF_ASYNC_VITE_MODULE`**: the file, or one it imports, has top-level `await`
-  (or `for await`). Checked before the module runs.
-- **`BRIDGED_EVALUATION_FAILED`**: the module threw; its error is the `cause`, and a later
-  import evaluates it afresh.
-- **`REQUIRE_OF_EVALUATING_VITE_MODULE`**: Vite is part-way through evaluating the file.
+  (or `for await`). Each module is checked before it runs, so that module runs nothing;
+  modules it imports that were evaluated before the check reached it have run.
+- **`BRIDGED_EVALUATION_FAILED`**: the module threw, now or when Vite evaluated it earlier.
+  Its error is the `cause`, attached once the evaluation settles (a test sees it after an
+  `await`, and a reporter always does). A module that threw here is evaluated afresh by a
+  later import.
+- **`REQUIRE_OF_EVALUATING_VITE_MODULE`**: Vite is part-way through evaluating the file,
+  and not from inside an evaluation the bridge is running. An ES import cycle among the
+  modules the bridge evaluates gets the exports evaluated so far, as Vite's own runner gives
+  a cycle.
 - **`REQUIRE_REACHED_MOCK`**: a module the bridge evaluates imports a mocked file. A file
   that is itself mocked, or a `vi.doMock` not yet applied, leaves the `require` to Node,
   as without the bridge.
@@ -112,11 +118,11 @@ answer; jest-compat's `jest.mock` acts in `Module._load`, before resolution.
 Shared resolution cannot close crossings between a project module and the compilers.
 Each has a bug-museum exhibit, and is unchanged by the flag:
 
-| Exhibit | What happens | Why resolution cannot fix it |
-| --- | --- | --- |
-| `own-alias-import-meta` | Project source that uses `import.meta`, reached through Node's `require`, fails to compile | Node's CommonJS compile has no `import.meta` |
-| `own-jest-require-imported-cjs` | Project CommonJS loaded through jest-compat's `require` is a second instance of the one the test imported | Node's registry and Vite's module graph each evaluate it |
-| `own-partial-mock-store` | A partial mock's real implementation and the app hold separate stores | The mock's `importOriginal` and Node's load are separate evaluations |
+| Exhibit                         | What happens                                                                                              | Why resolution cannot fix it                                         |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `own-alias-import-meta`         | Project source that uses `import.meta`, reached through Node's `require`, fails to compile                | Node's CommonJS compile has no `import.meta`                         |
+| `own-jest-require-imported-cjs` | Project CommonJS loaded through jest-compat's `require` is a second instance of the one the test imported | Node's registry and Vite's module graph each evaluate it             |
+| `own-partial-mock-store`        | A partial mock's real implementation and the app hold separate stores                                     | The mock's `importOriginal` and Node's load are separate evaluations |
 
 These are the ownership predicate's to decide (`'resolution'`): one owner per file, and
 a named error where the bridge cannot be crossed.
@@ -125,8 +131,8 @@ a named error where the bridge cannot be crossed.
 
 ADR-0001 allows two behaviour-change flags at a time.
 
-| Flag | Since | Decide by |
-| --- | --- | --- |
+| Flag                          | Since  | Decide by  |
+| ----------------------------- | ------ | ---------- |
 | `experimental.ownershipModel` | 0.15.0 | 2026-12-15 |
 
 Library-mock re-lands ship as ordinary releases on `next`, one library at a time, not

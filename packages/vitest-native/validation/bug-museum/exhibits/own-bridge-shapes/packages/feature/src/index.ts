@@ -8,3 +8,6 @@ export const requireSlow = () => require("@m/validator/slow");
 export const requireTlaParent = () => require("@m/validator/tlaparent");
 export const requireForAwait = () => require("@m/validator/for-await");
 export const requireLiteral = () => require("@m/validator/literal");
+export const requireCycle = () => require("@m/validator/cyc-a");
+export const requireCycleB = () => require("@m/validator/cyc-b");
+export const requireBoom = () => require("@m/validator/boom");

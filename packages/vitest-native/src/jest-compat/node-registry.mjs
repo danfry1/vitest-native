@@ -631,15 +631,17 @@ function installLoadHook(state) {
       !NODE_MODULES.test(filename) &&
       Module._cache[filename] === undefined
     ) {
-      const shared = viteInstanceOf(filename);
-      if (shared !== NONE) return shared;
       // experimental.ownershipModel 'resolution': a file Vite owns is Vite's instance in
       // either load order, evaluated now if Vite has not (native/bridge.mjs). Nothing is
-      // put in Module._cache: the next require asks Vite's map again, as this one did.
+      // put in Module._cache: the next require asks Vite's map again, as this one did. It
+      // answers first: it also refuses a module Vite holds that it must not serve (one
+      // whose evaluation threw, or one still being evaluated).
       if (bridging) {
         const bridged = bridgedInstanceOf(filename, parent, actual);
         if (bridged !== NONE) return bridged;
       }
+      const shared = viteInstanceOf(filename);
+      if (shared !== NONE) return shared;
     }
     return origLoad.call(this, request, parent, ...rest);
   };

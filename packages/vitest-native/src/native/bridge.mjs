@@ -15,18 +15,23 @@
 //
 // What cannot be served fails by name, never as a second copy:
 //   REQUIRE_OF_ASYNC_VITE_MODULE      the module has top-level await (checked before it
-//                                     runs, so it leaves no partial side effects)
-//   BRIDGED_EVALUATION_FAILED         the module threw while evaluating (its error is the
-//                                     `cause`); the nodes this evaluation created are
-//                                     invalidated, so a later import evaluates afresh
+//                                     runs; dependencies evaluated before it have run)
+//   BRIDGED_EVALUATION_FAILED         the module threw while evaluating, here or in Vite
+//                                     earlier (its error is the `cause`, attached when the
+//                                     evaluation settles); the nodes a failed evaluation
+//                                     here created are invalidated, so a later import
+//                                     evaluates afresh
 //   REQUIRE_OF_EVALUATING_VITE_MODULE the module is part-way through Vite's own (async)
-//                                     evaluation, so its exports are not finished
+//                                     evaluation, so its exports are not finished. (An ES
+//                                     import cycle within the bridge's own evaluation gets
+//                                     the exports so far, as Vite's runner gives it.)
 //   REQUIRE_REACHED_MOCK              a dependency of a bridged module is mocked (served
 //                                     once the engine's mock dispatcher is wired in: see
 //                                     bridgedMockFor); a mocked or pending file itself is
 //                                     left to Node, as without the bridge (leftToNode)
 import Module, { createRequire } from "node:module";
 import path from "node:path";
+import { inspect } from "node:util";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import { VitestNativeError } from "../errors.mjs";
@@ -47,6 +52,7 @@ export const bridgedStats = (globalThis[Symbol.for("vitest-native.bridged")] ??=
   externals: 0,
   failedEvaluations: 0,
   evaluatorRejections: 0,
+  cycles: 0,
 });
 
 // Vite's SSR transform writes every static import as a statement of its own:
@@ -155,15 +161,14 @@ export function requireViteOwned(file, parent, actual = false) {
   const map = evaluatedModules();
   if (typeof map?.getModulesByFile !== "function") throw contractChanged("worker.evaluatedModules");
   for (const node of map.getModulesByFile(file.replace(/\\/g, "/")) ?? []) {
-    if (node.id?.startsWith("mock:") || !node.promise || node.exports == null) continue;
-    if (node.evaluated) {
-      bridgedStats.servedFromVite++;
-      return forRequire(node.exports);
-    }
-    // Part-way through Vite's own evaluation: its exports are not finished, so a require
-    // now fails by name. (A cycle back into that evaluation is the one case where they
-    // are the right answer, as in Node and Jest; that is decided separately.)
-    throw evaluatingElsewhere(file);
+    if (node.id?.startsWith("mock:") || !node.promise) continue;
+    // Part-way through Vite's own evaluation, its exports are not finished, so a require
+    // now fails by name. (A require back into that evaluation, from a Node-owned module it
+    // imports, is the one case where they are the right answer, as in Node and Jest; that
+    // cross-runtime cycle is decided separately.)
+    const exports = knownExports(node, null, []);
+    bridgedStats.servedFromVite++;
+    return forRequire(exports);
   }
   const result = fetchSync(file, parent?.filename, environmentName());
   if ("externalize" in result) return undefined;
@@ -178,6 +183,62 @@ function evaluatingElsewhere(id) {
       `on something else). Returning its unfinished exports would be wrong. Await the ` +
       `import that evaluates it before the code that requires it runs.`,
   );
+}
+
+/**
+ * The exports of a module Vite's map already has (it has a promise: evaluated, or being
+ * evaluated), for an import of it from `importer` (null for Node's require), with
+ * Vite's runner's own rules:
+ *   - evaluated: its exports, unless its evaluation threw (Vite marks a failed module
+ *     evaluated too, and rejects its promise): then the import fails, as Vite's does;
+ *   - on this synchronous evaluation's own import chain (`callstack`, then `importer`):
+ *     an ES import cycle, so its exports as they are now, as ModuleRunner.cachedRequest
+ *     returns them (`callstack.includes(moduleId)`);
+ *   - otherwise part-way through an evaluation elsewhere (Vite's own, which is waiting on
+ *     something): fails by name. So does a node with a promise and no exports object yet
+ *     (Vite's runner awaits createImportMeta between the two; Vitest's sets exports first,
+ *     so no code of the test's runs there today).
+ */
+function knownExports(known, importer, callstack) {
+  if (importer) {
+    known.importers.add(importer.id);
+    importer.imports.add(known.id);
+  }
+  if (known.evaluated) {
+    if (isRejected(known.promise)) throw evaluationFailedEarlier(known);
+    return known.exports;
+  }
+  if (known.exports != null && importer && [...callstack, importer.id].includes(known.id)) {
+    bridgedStats.cycles++;
+    return known.exports;
+  }
+  throw evaluatingElsewhere(known.id);
+}
+
+/**
+ * Whether a promise has rejected, read synchronously. Node has no public API for a
+ * promise's state; util.inspect prints it first (`Promise { <rejected> … }`, on a line of
+ * its own when the reason is long).
+ */
+function isRejected(promise) {
+  return (
+    promise instanceof Promise && /^Promise \{\s*<rejected>/.test(inspect(promise, { depth: 0 }))
+  );
+}
+
+function evaluationFailedEarlier(known) {
+  const error = new VitestNativeError(
+    "BRIDGED_EVALUATION_FAILED",
+    `experimental.ownershipModel 'resolution': ${known.id} threw when it was evaluated ` +
+      `earlier, so Node's require() of it fails too, as another import of it does; its ` +
+      `error is the cause.`,
+  );
+  // Already rejected: the cause is attached in the next microtask, before anything
+  // reports this error.
+  known.promise.then(undefined, (cause) =>
+    Object.defineProperty(error, "cause", { value: cause, configurable: true }),
+  );
+  return error;
 }
 
 /** Node's answer for an external, in the shape Vitest's own external interop gives. */
@@ -234,12 +295,7 @@ function loadDependency(dep, importer, callstack) {
   if (mocked !== undefined) return mocked;
   const map = evaluatedModules();
   const known = map.getModuleByUrl(dep) ?? map.getModuleById(dep);
-  if (known?.promise && known.exports != null) {
-    known.importers.add(importer.id);
-    importer.imports.add(known.id);
-    if (known.evaluated) return known.exports;
-    throw evaluatingElsewhere(known.id);
-  }
+  if (known?.promise) return knownExports(known, importer, callstack);
   const result = fetchSync(dep, importer.id, environmentName());
   if ("externalize" in result) {
     const target = result.externalize.startsWith("file:")
@@ -262,15 +318,8 @@ function evaluate(result, callstack, importer) {
   }
   const map = evaluatedModules();
   const known = map.getModuleById(result.id);
-  if (known?.promise && known.exports != null) {
-    if (importer) {
-      known.importers.add(importer.id);
-      importer.imports.add(known.id);
-    }
-    if (known.evaluated) return known.exports;
-    // Reached under another URL than the one loadDependency looked up: the same rule.
-    throw evaluatingElsewhere(known.id);
-  }
+  // Reached under another URL than the one loadDependency looked up: the same rule.
+  if (known?.promise) return knownExports(known, importer, callstack);
   // Everything that can refuse the module is checked before it is put in Vite's map, so
   // a refusal leaves nothing behind (no node waiting on a promise that never settles).
   const file = result.file ?? result.id.replace(/[?#].*$/, "");
