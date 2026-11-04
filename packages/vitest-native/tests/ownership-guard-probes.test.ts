@@ -329,6 +329,8 @@ function run(mode: "warn" | "error", extraEnv: Record<string, string> = {}, args
   return { status: child.status, output: `${child.stdout}\n${child.stderr}`, probe };
 }
 
+const CASE_INSENSITIVE = process.platform === "darwin" || process.platform === "win32";
+
 const SPLIT_SHAPES = [
   ["iso", "node>vite:require-from-vite:cjs"],
   ["case", "node>vite:require-from-vite:cjs"],
@@ -387,6 +389,8 @@ describe.runIf(distExists)("the ownership guard on the review's shapes", () => {
     // depend on it.
     const { status, output, probe } = run("warn", {}, ["--silent"]);
     for (const [name, route] of SPLIT_SHAPES) {
+      // Two spellings of one file exist only where the file system ignores case.
+      if (name === "case" && !CASE_INSENSITIVE) continue;
       expect(probe(name), `${name}\n${output}`).toContain("split=true reported=true");
       expect(probe(name), name).toContain(route);
     }

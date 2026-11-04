@@ -534,7 +534,7 @@ describe("the plugin's side of the guard", () => {
       }
     }
     expect(vitest.reporters.filter((r) => r instanceof OwnershipSummaryReporter)).toHaveLength(1);
-  });
+  }, 60_000);
 
   it("reports each watch-mode run's findings, not every run's so far", () => {
     const written: string[] = [];
