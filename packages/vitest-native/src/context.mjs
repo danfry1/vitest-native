@@ -52,6 +52,9 @@ const SCHEMA = {
   knownNativeModules: { valid: strings },
   nativeModuleSpecs: { valid: object },
   nativeModules: { valid: (v) => v === "permissive" },
+  expoSdks: {
+    valid: (v) => Array.isArray(v) && v.length === 2 && v.every((n) => Number.isInteger(n)),
+  },
 };
 
 function invalid(reason, field, detail, dir) {
