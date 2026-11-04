@@ -119,7 +119,11 @@
   "scripts": {
     "build": "bunx --bun tsdown && node scripts/copy-static-types.mjs",
     "test": "vitest run",
-    "test:native": "vitest run --config tests-native/vitest.config.mts && vitest run --config tests-native/vitest.regex-alias.config.mts && vitest run --config tests-native/vitest.partial-mock-external.config.mts && vitest run --config tests-native/tsconfig-paths/vitest.config.mts && bun run test:native:preset-modules && bun run test:native:shared-root && bun run test:native:context && bun run test:native:one-instance && bun run test:native:rntl-timers && bun run test:native:no-globals && bun run test:native:permissive",
+    "test:native": "node scripts/run-scripts.mjs test:native:no-globals test:native:main test:native:rntl-timers test:native:one-instance test:native:context test:native:shared-root test:native:preset-modules test:native:permissive test:native:partial-mock-external test:native:tsconfig-paths test:native:regex-alias",
+    "test:native:main": "vitest run --config tests-native/vitest.config.mts",
+    "test:native:regex-alias": "vitest run --config tests-native/vitest.regex-alias.config.mts",
+    "test:native:partial-mock-external": "vitest run --config tests-native/vitest.partial-mock-external.config.mts",
+    "test:native:tsconfig-paths": "vitest run --config tests-native/tsconfig-paths/vitest.config.mts",
     "test:native:one-instance": "vitest run --config tests-native/vitest.one-instance.config.mts --mode stock && vitest run --config tests-native/vitest.one-instance.config.mts --mode hot && vitest run --config tests-native/vitest.one-instance.config.mts --mode early && vitest run --config tests-native/vitest.one-instance.config.mts --mode jest-compat",
     "test:native:rntl-timers": "vitest run --config tests-native/vitest.rntl-timers.config.mts --mode stock && vitest run --config tests-native/vitest.rntl-timers.config.mts --mode hot && vitest run --config tests-native/vitest.rntl-timers.config.mts --mode setup-stock && vitest run --config tests-native/vitest.rntl-timers.config.mts --mode setup-hot",
     "test:native:context": "vitest run --config tests-native/vitest.context.config.mts && node --conditions=vn-probe node_modules/vitest/vitest.mjs run --config tests-native/vitest.context.config.mts --project threads",
