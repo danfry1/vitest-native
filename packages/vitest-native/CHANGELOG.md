@@ -20,6 +20,16 @@
 - **Hot workers leave Node's compile cache off when they re-evaluate ES modules**, so the cache no
   longer grows with every test file. It costs about 15–20 ms per worker boot;
   `hotRuntime: { esmGeneration: false }` keeps the cache on.
+- **Hot workers no longer keep a copy of every CommonJS package each file imports**, on Node
+  22.22.3+, 24.12+ and 26, so a suite importing large packages no longer recycles workers every few
+  files.
+- **`hotRuntime: { mode: 'auto', memoryLimit }`** runs hot with your recycling options where the run
+  can be bounded and keeps per-file isolation where it cannot. Without `mode`, the object form still
+  requires the hot runtime.
+- **A test that times out inside `act()` retires its hot worker**, so later files on that worker no
+  longer fail with `Unable to find an element with text: …`.
+- **Coverage works under the native engine.** With `provider: 'v8'`, files Node compiles, such as a
+  React Native workspace package, are reported against their source lines.
 - **A project file imported and required in one test is one module.** Under the native engine, with
   or without jest-compat, `vi.spyOn`, export assignments and `instanceof` reach both sides, as under
   Jest.
@@ -28,7 +38,8 @@
   with `VITEST_TWIN_INSTANCE`, naming both.
 - **Expo SDK 57 and 58 are the supported SDKs.** On an older or newer SDK the plugin prints one
   warning per run naming them, and `vitest-native doctor` reports it; tests that load Expo modules
-  can fail there. Upgrade to Expo SDK 57 or 58.
+  can fail there. A test that loads `expo` or `expo-modules-core` from another SDK, for example through
+  a library, also warns, naming the version and path. Upgrade to Expo SDK 57 or 58.
 - **The package is about 30% smaller** and no longer ships `CHANGELOG.md`; the changelog is
   [on GitHub](https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/CHANGELOG.md).
 - **RNTL works without jest-compat or globals.** `findBy*`, `waitFor` and `userEvent` advance
@@ -67,6 +78,11 @@
 - **Presets of your own are listed by path.** A preset object of a project's own passed to `presets`
   used to shadow its packages with undefined exports; it is now refused at startup. List the module that
   exports it instead: `presets: { './test/presets/my-lib.ts': true }`.
+- **A deep import of a preset package loads its real file.** Under the native engine,
+  `react-native-reanimated/src/…` and similar subpaths are the package's own files, as under Jest,
+  not the root mock; import from the package root if a test relied on the mock. The
+  `safeAreaContext` preset's hooks read their contexts, so call them inside a component or
+  `renderHook`.
 - **Expo SDK 57 and 58 projects run real React Native with nothing extra installed.** When
   `@react-native/babel-preset` does not resolve (`babel-preset-expo` no longer depends on it), the
   native engine compiles with Expo's preset, as Metro does. `reactNative()` used the mock engine there
@@ -104,6 +120,13 @@
 Thank you to [@AntSplash360](https://github.com/AntSplash360), [@arvidtorbjoernsen](https://github.com/arvidtorbjoernsen), [@believer](https://github.com/believer), [@doutatsu](https://github.com/doutatsu), [@eshvatskyi](https://github.com/eshvatskyi), [@Joozty](https://github.com/Joozty), [@OpenDeernet](https://github.com/OpenDeernet), [@sincraianul](https://github.com/sincraianul) and [@swey](https://github.com/swey) for the issues and pull requests in this release.
 
 ### Minor Changes
+
+- 271c149: **`hotRuntime: 'auto'` can take recycling options: `{ mode: 'auto', memoryLimit }`.** It runs hot with your options where the run can be bounded, and falls back to per-file isolation, printing why, where it cannot (one worker, `--pool`, `--isolate`). To use it, add `mode: 'auto'` to the object form.
+
+  - Without `mode`, the object form still requires the hot runtime, as `true` does.
+  - Not covered: `mode: 'auto'` with `allowUnboundedMemory`, which is rejected.
+
+  Thanks @sincraianul for reporting this (#450).
 
 - c9de648: **With `hotRuntime` on, the memory plan is sized for the workers that actually run, and a worker count you set is limited only by memory.** To keep the old ceiling of four, set `maxWorkers: 4`.
 
@@ -195,6 +218,48 @@ Thank you to [@AntSplash360](https://github.com/AntSplash360), [@arvidtorbjoerns
   - Main fields and conditions are reported under `diagnostics`. A custom `resolver.resolveRequest` does not run under Vitest; one warning names the gap.
 
 ### Patch Changes
+
+- 1bddfde: **Native engine: `@vitest/coverage-v8` now reports the files Node compiles, such as a React Native workspace package, mapped to their source lines.** Before, it printed "Failed to parse … Excluding it from coverage" for each one and left it out of the report. No action needed.
+
+  - With `provider: 'v8'`, the plugin sets Vitest up to use `@vitest/coverage-v8` with one change: it reads those files from the engine's transform cache. While coverage is on, that cache keeps an inline source map for each file outside `node_modules`. The report still says "v8".
+  - Files outside the project root still need `coverage.allowExternal`. See the new Coverage guide page.
+
+- 6ace1b5: **Native engine: a deep import of a preset package, such as `react-native-reanimated/src/common/style/propsBuilder`, now loads that real file.** It used to get the package's whole root mock, so its named exports were `undefined`. Change a deep import that relied on getting the root mock to import from the package root.
+
+  - As under Jest, where `jest.mock(pkg)` leaves a package's subpaths alone. The mock engine is unchanged.
+  - Still the mock: a subpath whose last segment the mock exports (`react-native-gesture-handler/Swipeable`), and one that resolves to the package's own entry (`react-native-safe-area-context/src`).
+  - Not covered: objects a real deep file creates, such as a context, are not the hand-written mock's.
+
+- 6ace1b5: **The `safeAreaContext` preset's own mock reads its contexts in `useSafeAreaInsets` and `useSafeAreaFrame`, as the library's Jest mock does.** A test's `SafeAreaInsetsContext.Provider` value and `SafeAreaProvider`'s `initialMetrics` now reach components, and `setInsets()` still sets the default. Change a test that calls these hooks directly to call them inside a component or `renderHook`.
+
+- f6d7a75: **`hotRuntime`: a test that times out inside `act()` no longer fails every later file on its worker.** Those files failed with `Unable to find an element with text: …`. The worker is now replaced after that file, and the timed-out test names the open `act()` scope. No action needed.
+
+  - With one worker the worker cannot be replaced: the next file waits up to `testTimeout` for the scope to close, then the remaining files fail naming the cause.
+
+  Thanks @sincraianul for reporting this (#449).
+
+- abe8983: **Native engine, `hotRuntime`: a hot worker's memory no longer grows by a copy of every CommonJS package a test file imports.** Each file's copy stayed alive for the rest of the run, so a suite whose files import large packages hit `memoryLimit` and recycled workers every few files. No action needed.
+
+  - From its second file on, a package is collected once no file uses it. What stays per file is a few kilobytes per imported package.
+  - Packages that ship as ES modules and run in Node unchanged still keep one copy per file.
+  - Requires Node 22.22.3+, 24.12+ or 26. Older Node versions behave as before.
+
+  Thanks @sincraianul for reporting this (#448).
+
+- 6defadb: **Native engine: a file loaded by Node, such as a React Native workspace library reached through an alias, can now use `import.meta.url`, `import.meta.filename` and `import.meta.dirname`.** Tests that failed with `Cannot use 'import.meta' outside a module` now run. No action needed.
+
+  - The three properties get the values Node gives the file, as `babel-plugin-transform-import-meta` gives them under Jest. Expo projects keep `babel-preset-expo`'s own `import.meta` handling, as under `jest-expo`.
+  - Any other property, such as `import.meta.env`, fails with an error naming it and the file. Add the package to `transform: { exclude: [...] }` so Vite loads it.
+
+- ad7fb3e: **Under the native engine, compiling a file no longer fails at random with "Babel's thread has not answered in 60 s" on a busy machine.** Babel's thread wakes the caller after it stores each answer. If that wake-up was delayed past the caller's next request, it ended the wait for that request before Babel had answered. The file then failed at once, however small it was and well short of the deadline. The caller now waits until the answer itself is there. No action needed.
+
+- 2b3a577: **Under the native engine, a test that loads `expo-modules-core` or `expo` from an unsupported Expo SDK now gets a warning naming the version and path.** A library using an older SDK's Expo modules without `expo` of its own failed inside `expo-modules-core` with no hint why.
+
+  Upgrade to Expo SDK 57 or 58 if the warning names a package your tests use. It appears with the first test in each file that loads the copy. The project-root check no longer counts an optional `expo` peer. See [Expo SDK support](https://danfry1.github.io/vitest-native/guide/expo#sdk-and-react-native-versions).
+
+- d42f62a: **Under the native engine, `uuid.v5()` from expo-modules-core returns a name-based UUID and `installOnUIRuntime()` no longer throws.** `uuid.v5()` matches a device's result for a valid namespace and rejects an invalid one with the device's error. `LegacyEventEmitter` given an Expo module returns the module itself, as on a device. The runtime's remaining keys now exist, with jest-expo's values. No action needed.
+
+- b9c9c5d: **Native engine, `hotRuntime`: a workspace library loaded by Node, whether a detected React Native library or one named in `transform`, is now evaluated again for each test file.** It kept the first file's instances, so later files read stale state and `instanceof` failed. No action needed.
 
 - 3510819: **The `safeAreaContext` preset serves react-native-safe-area-context 5.11's `SafeAreaCornerAdaptedInsetsContext`.** Importing it from a test using the preset gave `undefined`. `useSafeAreaInsets({ cornerAdaptation })` now answers the preset's regular insets, as the library's own Jest mock does when no provider sets corner-adapted insets. No action needed.
 
