@@ -7,10 +7,12 @@
 // One hot worker runs FILES generated test files. Each imports two packages, one Node
 // runs as published (@babel/core, CommonJS) and one this engine compiles (a generated
 // package named in `transform`, with a large payload), checks that it got a new instance
-// of each, and, after its last test, collects garbage twice and logs the heap. The gate
+// of each, and, after its last test, collects garbage twice and logs the heap. Each also
+// keeps a function from an ES module that imports a CommonJS one, and calls every earlier
+// file's: a generation an ES module imports must never be released. The gate
 // fits a line through the heap after each file past the warm-up and fails when it grows
-// more than LIMIT_MIB per file. Measured on Node 24 for 30 files: about 0.1 MiB per file
-// with generations released, about 5 MiB per file with every generation kept. A single
+// more than LIMIT_MIB per file. Measured on Node 24 for 30 files: about 0.05 MiB per file
+// with generations released, about 6 MiB per file with every generation kept. A single
 // noisy file moves a least-squares slope over 20 files little; the limit sits well
 // between the two.
 //
@@ -61,6 +63,27 @@ exports.evaluation = counts.__vnHotMemoryEvaluations;
 exports.payload = Array.from({ length: ${PAYLOAD_DOUBLES} }, (_, index) => index + 0.5);
 `,
   );
+  // An ES module Node runs as published, importing a CommonJS one. Node's load cache keeps
+  // each generation of the ES module evaluated for the run, so its import of the CommonJS
+  // module must stay bound when a later file calls it (a serializer, a timer, a resident).
+  write(
+    "node_modules/vn-hot-memory-leaf/package.json",
+    JSON.stringify({ name: "vn-hot-memory-leaf", version: "1.0.0", main: "index.js" }),
+  );
+  write("node_modules/vn-hot-memory-leaf/index.js", `exports.leaf = () => "leaf";\n`);
+  write(
+    "node_modules/vn-hot-memory-esm/package.json",
+    JSON.stringify({
+      name: "vn-hot-memory-esm",
+      version: "1.0.0",
+      type: "module",
+      main: "index.js",
+    }),
+  );
+  write(
+    "node_modules/vn-hot-memory-esm/index.js",
+    `import { leaf } from "vn-hot-memory-leaf";\nexport const later = () => leaf();\n`,
+  );
   write(
     "heap.setup.ts",
     `import { appendFileSync } from "node:fs";
@@ -86,10 +109,15 @@ afterAll(() => {
       `tests/${number}.test.ts`,
       `import * as babel from "@babel/core";
 import compiled from "vn-hot-memory-compiled";
+import { later } from "vn-hot-memory-esm";
 import { expect, it } from "vitest";
 
 // Held weakly, so this check keeps no earlier file's instance alive.
-const seen = process as unknown as { __vnHotMemoryBabel?: WeakRef<object>; __vnHotMemoryLast?: number };
+const seen = process as unknown as {
+  __vnHotMemoryBabel?: WeakRef<object>;
+  __vnHotMemoryLast?: number;
+  __vnHotMemoryLater?: (() => string)[];
+};
 
 it("gets this file's own instance of each package (${number})", () => {
   // The compiled package is evaluated once per file: one more time than for the last.
@@ -100,6 +128,10 @@ it("gets this file's own instance of each package (${number})", () => {
   expect(typeof babel.transformSync).toBe("function");
   expect(seen.__vnHotMemoryBabel?.deref()).not.toBe(babel.transformSync);
   seen.__vnHotMemoryBabel = new WeakRef(babel.transformSync);
+  // Every earlier file's ES module still reaches its CommonJS import.
+  const held = (seen.__vnHotMemoryLater ??= []);
+  expect(held.map((call) => call())).toEqual(held.map(() => "leaf"));
+  held.push(later);
 });
 `,
     );

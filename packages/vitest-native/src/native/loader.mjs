@@ -539,10 +539,8 @@ const GENERATION = /[?&]vnhot=(\d+)/;
 const NODE_SERVED = "&vnnode";
 // Unstamped URL -> { fingerprint, id } from the generation that recorded its names.
 const exportNames = new Map();
-// The modules served through facades (see facadeModule), by id, and the id of each by
-// unstamped URL.
+// The modules served through facades (see facadeModule), by id.
 const facadeModules = [];
-const facadeIds = new Map();
 // Unstamped URL -> the fingerprint of the generation now recording it.
 const recording = new Map();
 // Facades not yet released: [generation, url, release].
@@ -612,12 +610,9 @@ export function releasableFacade(id, generation) {
  * namespace had when Node served it as CommonJS. Exported as a test seam.
  */
 export function facadeModule(url, file, namespaceNames) {
+  // A new entry each time: a facade already served keeps the names it was written with.
   const key = url.replace(STAMP, "");
-  let id = facadeIds.get(key);
-  if (id === undefined) {
-    id = facadeModules.length;
-    facadeIds.set(key, id);
-  }
+  const id = facadeModules.length;
   facadeModules[id] = {
     url: key,
     file,
@@ -679,15 +674,21 @@ export function releaseGenerations(current) {
 }
 
 /**
- * A file outside the per-file reset (the test stack, a resident package) that imports
- * a generation URL by name holds that generation for the run: never release it. The
- * test file's own imports reach Node through the module runner, which imports a
- * resolved absolute path; a stamped module's imports are released with it.
+ * Only a test file's own import of a generation may be released: Vitest's module runner
+ * imports a resolved absolute path from its own, unstamped module, and the file's
+ * modules are reset with it. Any other importer can outlive the file and read the
+ * bindings later, so the generation it imports is never released: a module outside the
+ * per-file reset (the test stack, a resident package), and a stamped ES module, which
+ * Node's load cache keeps evaluated for the run (a snapshot serializer, a timer or a
+ * resident's import of it can call it files later).
  */
 function pinFacade(url, specifier, parentURL) {
-  if (!generationFacades || typeof parentURL !== "string" || STAMP.test(parentURL)) return;
-  if (specifier.startsWith("file:") || path.isAbsolute(specifier)) return;
-  pinnedFacades.add(url);
+  if (!generationFacades) return;
+  const fromRunner =
+    typeof parentURL === "string" &&
+    !STAMP.test(parentURL) &&
+    (specifier.startsWith("file:") || path.isAbsolute(specifier));
+  if (!fromRunner) pinnedFacades.add(url);
 }
 
 /** `load` never awaits: every path returns a result or `nextLoad(...)` directly. */
@@ -700,7 +701,11 @@ export function loadSync(url, context, nextLoad) {
     fromNode = true;
     return nextLoad(nextUrl, nextContext);
   });
-  if (!fromNode || result.format !== "commonjs") return result;
+  // Only what Node would load through its CommonJS loader anyway: Node's default load
+  // marks that, or leaves the source to it. Source another hook supplied is served as it
+  // is, since the facade would require the file from disk.
+  const nodeLoads = result.source == null || result.shouldBeReloadedByCJSLoader === true;
+  if (!fromNode || result.format !== "commonjs" || !nodeLoads) return result;
   const file = fileURLToPath(url);
   return generationFacade(url, file, fingerprintOf(file)) ?? result;
 }
