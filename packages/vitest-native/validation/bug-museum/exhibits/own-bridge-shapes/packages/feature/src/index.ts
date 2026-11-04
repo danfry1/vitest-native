@@ -1,0 +1,10 @@
+// A React Native workspace library (it peers on react-native, so Node loads it), which
+// requires project source from a second workspace library at the moment it is asked to.
+export const requireStore = () => require("@m/validator/store");
+export const requireLegacy = () => require("@m/validator/legacy");
+export const requireReexp = () => require("@m/validator/reexp");
+export const requireDyn = () => require("@m/validator/dyn");
+export const requireSlow = () => require("@m/validator/slow");
+export const requireTlaParent = () => require("@m/validator/tlaparent");
+export const requireForAwait = () => require("@m/validator/for-await");
+export const requireLiteral = () => require("@m/validator/literal");

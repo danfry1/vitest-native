@@ -472,6 +472,33 @@ function viteInstanceOf(filename) {
   return NONE;
 }
 
+const bridging = context?.ownershipModel === "resolution";
+let bridge = null;
+let loadingBridge = false;
+/**
+ * The require bridge's answer for `filename` (native/bridge.mjs), loaded on first use so
+ * a worker that never needs it loads nothing: an ES namespace through the same facade as
+ * viteInstanceOf, CommonJS as its module.exports, or NONE for a file Vite does not own or
+ * loads through Node (externalized).
+ */
+function bridgedInstanceOf(filename, parent, actual) {
+  if (!SOURCE_FILE.test(filename)) return NONE;
+  if (bridge === null) {
+    // Loading the bridge is itself a require through this interceptor: it is never bridged.
+    if (loadingBridge) return NONE;
+    loadingBridge = true;
+    try {
+      bridge = createRequire(import.meta.url)("../native/bridge.mjs");
+    } finally {
+      loadingBridge = false;
+    }
+  }
+  if (!bridge.isViteOwned(filename)) return NONE;
+  const value = bridge.requireViteOwned(filename, parent, actual);
+  if (value === undefined) return NONE;
+  return Object.prototype.toString.call(value) === "[object Module]" ? requireFacade(value) : value;
+}
+
 /**
  * A bare specifier (a package name). Aliases need no check here: the require hooks
  * apply them only after Node fails, so Node's answer for an aliased name is already the
@@ -591,6 +618,8 @@ function installLoadHook(state) {
       if (resolved !== null) state.resolutions.set(`${parent.filename}\0${request}`, resolved);
     }
     const filename = state.resolve(request, parent);
+    // A jest.requireActual load (lookup clears the flag): the real module, mock or not.
+    const actual = filename !== null && state.bypass === filename;
     const entry = state.lookup(filename, request);
     if (entry !== undefined) return state.valueOf(entry);
     // A module Node already holds stays the one `require` returns: switching a later
@@ -604,6 +633,13 @@ function installLoadHook(state) {
     ) {
       const shared = viteInstanceOf(filename);
       if (shared !== NONE) return shared;
+      // experimental.ownershipModel 'resolution': a file Vite owns is Vite's instance in
+      // either load order, evaluated now if Vite has not (native/bridge.mjs). Nothing is
+      // put in Module._cache: the next require asks Vite's map again, as this one did.
+      if (bridging) {
+        const bridged = bridgedInstanceOf(filename, parent, actual);
+        if (bridged !== NONE) return bridged;
+      }
     }
     return origLoad.call(this, request, parent, ...rest);
   };

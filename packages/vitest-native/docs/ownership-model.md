@@ -41,14 +41,31 @@ Relative and absolute requests, Node's built-ins, React Native itself and the te
 runtime (Vitest, Vite, chai) are not answered by the resolver: their resolution is
 already shared, or another owner answers it.
 
-## `'resolution'` (in progress)
+## `'resolution'`: one instance whichever side loads a file first
 
-`'resolution'` resolves exactly as `'resolver'` does. It also starts the require bridge's
-private channel, which the next step uses to give Node's `require` of a project file Vite's
-own instance, in either load order. The channel is a Unix socket in a directory only the
-user can enter (a named pipe on Windows); each request carries a token the workers get
-through Vitest's `provide`; anything else is ignored, and only files Vite evaluates are
-served. It is started only under `'resolution'`, and closed with Vitest.
+With `'resolution'`, Node's `require` of a project file Vite evaluates returns Vite's own
+instance, in either load order. If Vite already evaluated the file, that instance. If not,
+the bridge fetches Vite's transform of it from the main process and evaluates it then,
+synchronously, with Vitest's own evaluator, into Vite's module map; a later `import` finds it
+evaluated. A CommonJS file is served as its `module.exports`. Nothing is put in Node's
+module cache.
+
+What cannot be served this way fails by name:
+
+- **`REQUIRE_OF_ASYNC_VITE_MODULE`**: the file, or one it imports, has top-level `await`
+  (or `for await`). Checked before the module runs.
+- **`BRIDGED_EVALUATION_FAILED`**: the module threw; its error is the `cause`, and a later
+  import evaluates it afresh.
+- **`REQUIRE_OF_EVALUATING_VITE_MODULE`**: Vite is part-way through evaluating the file.
+- **`REQUIRE_REACHED_MOCK`**: a module the bridge evaluates imports a mocked file. A file
+  that is itself mocked, or a `vi.doMock` not yet applied, leaves the `require` to Node,
+  as without the bridge.
+
+The channel to the main process is a Unix socket in a directory only the user can enter
+(a named pipe on Windows); each request carries a token the workers get through Vitest's
+`provide`; anything else is ignored, and only files Vite evaluates, inside the directories
+Vite serves and allowed by Vite's own file rules, are served. It is started only under
+`'resolution'`, and closed with Vitest.
 
 ## How it fails
 

@@ -7,7 +7,8 @@
 // `--mode off` runs only the identity probes with the flag off: the control that
 // shows they fail without the shared resolver (scripts/test-ownership-control.mjs).
 // `--mode shadow` runs only the shadow probe, with `diagnostics` on: the shadow is
-// written under diagnostics only.
+// written under diagnostics only. `--mode resolution` and `resolution-hot` run the
+// stock and hot sets with 'resolution' (the require bridge).
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
@@ -20,15 +21,20 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig(({ mode }) => {
   const off = mode === "off";
   const shadow = mode === "shadow";
+  // `--mode resolution` / `resolution-hot`: the same files with 'resolution', the require
+  // bridge on: nothing here requires a file Vite owns first, so nothing may change.
+  const resolution = mode === "resolution" || mode === "resolution-hot";
   if (off) process.env.VN_OWNERSHIP_FLAG = "off";
   return {
     plugins: [
       reactNative({
         engine: "native",
-        hotRuntime: mode === "hot",
+        hotRuntime: mode === "hot" || mode === "resolution-hot",
         presets: { expo: true },
         ...(shadow ? { diagnostics: true } : {}),
-        ...(off ? {} : { experimental: { ownershipModel: "resolver" } }),
+        ...(off
+          ? {}
+          : { experimental: { ownershipModel: resolution ? "resolution" : "resolver" } }),
       }),
       jestMockTransform(),
     ],
