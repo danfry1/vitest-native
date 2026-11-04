@@ -14,6 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expandAlias } from "./aliases.mjs";
+import { expandResolutionAlias } from "../native/shared-resolver.mjs";
 import { resolvePlatformFile, resolveRelativePlatformFile } from "../native/resolve.mjs";
 import { resetEvaluatedModules, restoreEvaluatedModules } from "../native/module-reset.mjs";
 import { VitestNativeError } from "../errors.mjs";
@@ -34,12 +35,24 @@ const NONE = Symbol("vitest-native.jest-registry.none");
 const context = projectContext();
 
 /** Configuration the plugin hands the worker, shared with the compat setup. */
+// Under experimental.ownershipModel the project's aliases have one record, the shared
+// resolver's (every string and RegExp alias, and tsconfig `paths`, in Vite's order), and
+// the plugin writes no second one.
+const resolverAliases =
+  context?.ownershipModel === "resolver" ? (context.resolverInputs?.aliases ?? []) : null;
+const requireAliases = context?.requireAliases ?? [];
+
 export const config = {
   projectRoot: context?.projectRoot ?? process.cwd(),
   platform: context?.platform === "android" ? "android" : "ios",
-  // The project's string-to-string `resolve.alias` entries (and tsconfig `paths` when
-  // Vite resolves them), which Node knows nothing of.
-  aliases: context?.requireAliases ?? [],
+  /** `specifier` with the project's alias applied, which Node knows nothing of. */
+  expandAlias:
+    resolverAliases === null
+      ? // The string-to-string `resolve.alias` entries (and tsconfig `paths` when Vite
+        // resolves them).
+        (specifier) => expandAlias(specifier, requireAliases)
+      : (specifier) => expandResolutionAlias(specifier, resolverAliases),
+  // Under the flag none: an alias Node cannot apply is refused when the plugin loads.
   skippedAliases: context?.requireAliasesSkipped ?? [],
 };
 const sourceExts = context?.sourceExts ?? [];
@@ -122,7 +135,7 @@ function createState() {
     } catch {
       // fall through
     }
-    const expanded = isPath ? request : expandAlias(request, config.aliases);
+    const expanded = isPath ? request : config.expandAlias(request);
     if (expanded === request) return null;
     if (path.isAbsolute(expanded) && !path.extname(expanded)) {
       const hit = platformFile(expanded);
@@ -288,7 +301,7 @@ function createState() {
     if (actual) state.bypass = filename ?? `\0${spec}`;
     try {
       const load = createRequire(anchor);
-      if (filename !== null && (isPath || expandAlias(spec, config.aliases) !== spec)) {
+      if (filename !== null && (isPath || config.expandAlias(spec) !== spec)) {
         return load(filename);
       }
       return load(spec);

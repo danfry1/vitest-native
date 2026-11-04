@@ -2005,8 +2005,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       ) {
         requireAliases.entries.push(...tsconfigPathAliases(resolvedRoot).entries);
       }
-      if (requireAliases.entries.length > 0) fields.requireAliases = requireAliases.entries;
-      if (requireAliases.skipped.length > 0) fields.requireAliasesSkipped = requireAliases.skipped;
+      // Under experimental.ownershipModel the resolver's record below is the only one.
+      if (!(ownershipModel && engine === "native")) {
+        if (requireAliases.entries.length > 0) fields.requireAliases = requireAliases.entries;
+        if (requireAliases.skipped.length > 0)
+          fields.requireAliasesSkipped = requireAliases.skipped;
+      }
       if (ownershipModel && engine === "native") {
         fields.ownershipModel = ownershipModel;
         // Every alias the project's imports see, in Vite's order: `test.alias` first,
