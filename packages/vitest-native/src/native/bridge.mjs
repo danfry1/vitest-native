@@ -25,10 +25,11 @@
 //                                     evaluation, so its exports are not finished. (An ES
 //                                     import cycle within the bridge's own evaluation gets
 //                                     the exports so far, as Vite's runner gives it.)
-//   REQUIRE_REACHED_MOCK              a dependency of a bridged module is mocked (served
-//                                     once the engine's mock dispatcher is wired in: see
-//                                     bridgedMockFor); a mocked or pending file itself is
-//                                     left to Node, as without the bridge (leftToNode)
+//
+// Mocks are the engine's mock dispatcher's (jest-compat/node-registry.mjs): it serves Node's
+// require of a mocked file before the bridge is asked (experimental.nodeMocks, implied by
+// 'resolution'), and each import of a module the bridge evaluates asks it (mockFor), so a
+// mocked dependency is the test's own instance, or fails there by name.
 import Module, { createRequire } from "node:module";
 import path from "node:path";
 import { inspect } from "node:util";
@@ -36,6 +37,7 @@ import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import { VitestNativeError } from "../errors.mjs";
 import { projectContext } from "../context.mjs";
+import { nodeDispatch } from "../node-dispatch.mjs";
 import { fetchSync } from "./bridge-client.mjs";
 import { BRIDGE_PROVIDE_KEY } from "./bridge-server.mjs";
 import { createNativeOwnershipPolicy, parseNativeOwnershipManifest } from "./ownership.mjs";
@@ -109,37 +111,18 @@ function contractChanged(what) {
 }
 
 /**
- * Where a mocked dependency of a bridged module would be served. The engine's mock
- * dispatcher (ADR-0007, the next step for this flag) serves it from the same place as
- * Node's `require` of it; until then, a mocked dependency fails by name rather than
- * loading the real module beside the mock.
+ * The mock for an import of `id` (Vite's id for it) made by `importer`, from the engine's
+ * mock dispatcher (jest-compat/node-registry.mjs, `channel("mocks").forImport`): the
+ * instance the test's own import of it gets, or undefined when no mock applies. One that
+ * applies but cannot be had synchronously fails there, by name (MOCK_NOT_SEEN_BY_NODE).
+ * Node's require of the file itself never reaches the bridge mocked: under 'resolution'
+ * the dispatcher serves Vitest's mocks to Node first (experimental.nodeMocks is implied).
  */
-function bridgedMockFor(dep) {
-  const mock = globalThis.__vitest_mocker__?.getDependencyMockByUrl?.(dep);
-  if (!mock) return undefined;
-  throw new VitestNativeError(
-    "REQUIRE_REACHED_MOCK",
-    `experimental.ownershipModel 'resolution': ${dep} is mocked, and Node's require() ` +
-      `reached it first, before any import ran the mock. Import the module in the test ` +
-      `before the code that requires it, or use 'resolver'.`,
-  );
-}
-
-/**
- * Whether the bridge must step aside for `file` and let Node load it as it does without
- * the flag: the file itself is mocked (the import gets the mock; evaluating the real module
- * into Vite's map would put it under the mocked id), or a `vi.mock`/`vi.doMock` is
- * registered but not resolved yet (which module it names is not known until Vitest's next
- * fetch). Serving these belongs to the engine's mock dispatcher (decision condition 1);
- * until then the require behaves as it does with 'resolver', and a mocked dependency of a
- * bridged module fails by name (bridgedMockFor).
- */
-function leftToNode(file, actual) {
-  const mocker = globalThis.__vitest_mocker__;
-  const pending = mocker?.constructor?.pendingIds;
-  if (Array.isArray(pending) && pending.length > 0) return true;
-  // jest.requireActual asks for the real module on purpose: Vite's real instance serves it.
-  return !actual && Boolean(mocker?.getDependencyMock?.(file.replace(/\\/g, "/")));
+function mockFor(id, importer) {
+  const mocks = nodeDispatch().channel("mocks");
+  if (typeof mocks.forImport !== "function") return undefined;
+  const served = mocks.forImport(id, importer.file ?? importer.id);
+  return served === mocks.NONE ? undefined : served;
 }
 
 /** A CommonJS module Vite evaluated: its namespace keeps module.exports as `default`. */
@@ -156,8 +139,7 @@ export function forRequire(ns) {
  * has not: the namespace (or module.exports for CommonJS). `undefined` when Vitest loads
  * the file through Node itself (it is externalized), so Node's own load applies.
  */
-export function requireViteOwned(file, parent, actual = false) {
-  if (leftToNode(file, actual)) return undefined;
+export function requireViteOwned(file, parent) {
   const map = evaluatedModules();
   if (typeof map?.getModulesByFile !== "function") throw contractChanged("worker.evaluatedModules");
   for (const node of map.getModulesByFile(file.replace(/\\/g, "/")) ?? []) {
@@ -291,12 +273,19 @@ function externalNamespace(file, importerFile) {
 /** A static import of a bridged module: Vite's instance, an external, or bridged in turn. */
 function loadDependency(dep, importer, callstack) {
   if (Module.isBuiltin(dep)) return externalNamespace(dep, importer.file);
-  const mocked = bridgedMockFor(dep);
-  if (mocked !== undefined) return mocked;
+  // A mock applies by Vite's id, which is known from a node Vite's map holds, or else
+  // from the fetch (the module's id, or the target of an external), as Vite's runner
+  // applies one once it has the module's id.
   const map = evaluatedModules();
   const known = map.getModuleByUrl(dep) ?? map.getModuleById(dep);
-  if (known?.promise) return knownExports(known, importer, callstack);
+  if (known?.promise) {
+    const mocked = mockFor(known.id, importer);
+    if (mocked !== undefined) return mocked;
+    return knownExports(known, importer, callstack);
+  }
   const result = fetchSync(dep, importer.id, environmentName());
+  const mocked = mockFor("externalize" in result ? result.externalize : result.id, importer);
+  if (mocked !== undefined) return mocked;
   if ("externalize" in result) {
     const target = result.externalize.startsWith("file:")
       ? fileURLToPath(result.externalize)

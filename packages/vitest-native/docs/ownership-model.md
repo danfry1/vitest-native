@@ -63,9 +63,12 @@ What cannot be served this way fails by name:
   and not from inside an evaluation the bridge is running. An ES import cycle among the
   modules the bridge evaluates gets the exports evaluated so far, as Vite's own runner gives
   a cycle.
-- **`REQUIRE_REACHED_MOCK`**: a module the bridge evaluates imports a mocked file. A file
-  that is itself mocked, or a `vi.doMock` not yet applied, leaves the `require` to Node,
-  as without the bridge.
+
+Mocks apply as they do to the test's own imports. `'resolution'` turns on
+`experimental.nodeMocks`, so Node's `require` of a mocked file gets the test's mock, and a
+module the bridge evaluates gets the test's mock for each mocked import. A mock that cannot
+be had synchronously (an async factory that has not settled, an automock Vitest has not
+built, a `vi.doMock` not applied yet) fails by name, as `MOCK_NOT_SEEN_BY_NODE`.
 
 The channel to the main process is a Unix socket in a directory only the user can enter
 (a named pipe on Windows); each request carries a token the workers get through Vitest's

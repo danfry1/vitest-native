@@ -485,7 +485,7 @@ let loadingBridge = false;
  * viteInstanceOf, CommonJS as its module.exports, or NONE for a file Vite does not own or
  * loads through Node (externalized).
  */
-function bridgedInstanceOf(filename, parent, actual) {
+function bridgedInstanceOf(filename, parent) {
   if (!SOURCE_FILE.test(filename)) return NONE;
   if (bridge === null) {
     // Loading the bridge is itself a require through this interceptor: it is never bridged.
@@ -498,7 +498,7 @@ function bridgedInstanceOf(filename, parent, actual) {
     }
   }
   if (!bridge.isViteOwned(filename)) return NONE;
-  const value = bridge.requireViteOwned(filename, parent, actual);
+  const value = bridge.requireViteOwned(filename, parent);
   if (value === undefined) return NONE;
   return Object.prototype.toString.call(value) === "[object Module]" ? requireFacade(value) : value;
 }
@@ -964,7 +964,7 @@ function installLoadHook(state) {
           // answers first: it also refuses a module Vite holds that it must not serve (one
           // whose evaluation threw, or one still being evaluated).
           if (bridging) {
-            const bridged = bridgedInstanceOf(filename, parent, bypassed);
+            const bridged = bridgedInstanceOf(filename, parent);
             if (bridged !== NONE) return bridged;
           }
           const shared = viteInstanceOf(filename);

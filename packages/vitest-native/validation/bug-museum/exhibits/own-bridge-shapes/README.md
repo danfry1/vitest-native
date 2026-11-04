@@ -28,11 +28,11 @@ synchronously. One test file per shape:
 | `top-level-await` | a required module whose dependency has top-level await | `REQUIRE_OF_ASYNC_VITE_MODULE`; a later import works |
 | `for-await` | top-level `for await` | `REQUIRE_OF_ASYNC_VITE_MODULE` before the module runs; a later import runs it once |
 | `literal` | a string that looks like the transform's own import | left as written |
-| `mock-pending` | a `vi.doMock` not yet resolved at the require | the bridge steps aside; the import still gets the mock |
-| `mock-direct` | the required file is mocked by the test | the bridge steps aside; the mock stays the mock |
+| `mock-pending` | a `vi.doMock` not yet applied at the require | `MOCK_NOT_SEEN_BY_NODE` naming the importer; the import still gets the mock |
+| `mock-direct` | the required file is mocked by the test | the require gets the test's mock; the mock stays the mock |
 | `cycle` | an ES import cycle among required modules | evaluated once each; the import back gets the exports so far, as in Vite's runner |
 | `failed` | a required module throws; or Vite's import of it threw earlier | `BRIDGED_EVALUATION_FAILED` with the module's error as `cause`; never served half-built |
-| `dep-mock` | a required module imports a file the test mocks | `REQUIRE_REACHED_MOCK` (until the mock dispatcher serves it) |
+| `dep-mock` | a required module imports a file the test mocks | the module gets the test's own mock (the mock dispatcher serves it) |
 
 ## Control
 
