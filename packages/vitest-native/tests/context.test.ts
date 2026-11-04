@@ -8,6 +8,7 @@ import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CONTEXT_ENV,
+  activeRegistry,
   ESCAPE_HATCHES,
   assertBootContext,
   ensureProjectContext,
@@ -260,15 +261,8 @@ describe("variables the context replaced", () => {
 });
 
 describe("worker code reads no other VITEST_NATIVE_ names", () => {
-  // Main-process modules, which may name the retired variables (to warn about them),
-  // and the registry compiler, a child process of the main process that reads its test
-  // oracle (VITEST_NATIVE_REGISTRY_TEST_DELAY_MS) and no worker ever loads.
-  const MAIN_PROCESS = new Set([
-    "plugin.ts",
-    "native/apply.ts",
-    "native/pool.ts",
-    "native/registry-compiler.mjs",
-  ]);
+  // Main-process modules, which may name the retired variables (to warn about them).
+  const MAIN_PROCESS = new Set(["plugin.ts", "native/apply.ts", "native/pool.ts"]);
   const ALLOWED = new Set([CONTEXT_ENV, ...ESCAPE_HATCHES]);
   // `*`, not `+`: the bare prefix is how a name gets built (`"VITEST_NATIVE_" + x`,
   // a template literal, a startsWith filter), so it is flagged too.
@@ -345,4 +339,44 @@ describe("the ESM loader takes diagnostics from the context", () => {
     expect(source(true)).toContain("if (!_hit && true)");
     expect(source(false)).toContain("if (!_hit && false)");
   });
+});
+
+describe("a registry compiling in the background", () => {
+  const scratch = () =>
+    fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-active-registry-"));
+
+  it("is not active while its metadata is missing, and is once it is published", () => {
+    const dir = scratch();
+    try {
+      const file = path.join(dir, "rn-ios-missing.cjs");
+      expect(activeRegistry({ registryPending: { file, since: 0 } })).toBeNull();
+      const later = path.join(dir, "rn-ios-landed.cjs");
+      fs.writeFileSync(later, "");
+      fs.writeFileSync(`${later}.json`, "{}");
+      expect(activeRegistry({ registryPending: { file: later, since: 0 } })).toBe(later);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // A directory this process cannot search: EACCES, not absence. Windows has no such
+  // mode, and root ignores it.
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "reports an error reading the metadata other than its absence",
+    () => {
+      const dir = scratch();
+      const locked = path.join(dir, "locked");
+      fs.mkdirSync(locked);
+      fs.chmodSync(locked, 0o000);
+      try {
+        const file = path.join(locked, "rn-ios-x.cjs");
+        expect(() => activeRegistry({ registryPending: { file, since: 0 } })).toThrow(
+          expect.objectContaining({ code: "EACCES" }),
+        );
+      } finally {
+        fs.chmodSync(locked, 0o700);
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
 });

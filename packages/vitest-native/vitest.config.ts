@@ -1,13 +1,6 @@
 import { defineConfig, configDefaults } from "vitest/config";
 import { reactNative } from "./src/index.js";
 
-// These tests run the plugin's config hook in workers, where this suite's mock engine
-// gives react-native a virtual id, so they compute a different registry key from the
-// warm-up below and compile their own on a cold cache. Waiting for it, as config()
-// did before the background build, keeps that compile in the first test that needs it
-// (registry-process.test.ts and tests-native cover the background build itself).
-process.env.VITEST_NATIVE_REGISTRY_WAIT ??= "1";
-
 export default defineConfig({
   // Pinned to mock: this suite asserts mock-engine behavior. Diagnostics are
   // covered separately; keeping them off avoids repeating setup logs per worker.
@@ -18,7 +11,10 @@ export default defineConfig({
     globalSetup: ["./tests/support/temp-root.global.ts", "./tests/support/registry-warm.global.ts"],
     // Records whether presets finished preparing before user setup files run
     // (skia-preset.test.tsx).
-    setupFiles: ["./tests/support/preset-readiness.setup.ts"],
+    setupFiles: [
+      "./tests/support/registry-wait.setup.ts",
+      "./tests/support/preset-readiness.setup.ts",
+    ],
     // The native-engine suite (tests-native/) runs under its own config via
     // `test:native`; never run it under the default mock engine. `.tmp-spike*`
     // are scratch spikes that ship with their own setup. `crosscheck/**` runs only

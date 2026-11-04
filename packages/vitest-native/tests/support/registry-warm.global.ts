@@ -16,7 +16,7 @@ import { reactNative } from "../../src/index.js";
  */
 export default async function setup(): Promise<void> {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-  const plugin = reactNative({ engine: "native" }) as unknown as {
+  const plugin = reactNative({ engine: "native", registryBuild: "wait" }) as unknown as {
     config: { handler: (config: object, env: object) => Promise<unknown> };
   };
   await plugin.config.handler.call({}, { root }, { command: "serve", mode: "test" });

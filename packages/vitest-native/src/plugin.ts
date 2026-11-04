@@ -493,6 +493,7 @@ async function loadRegistryProcess(): Promise<{
   };
   settleRegistryBuilds: (budgetMs: number, state: { cancelled: boolean }) => Promise<void>;
   isCI: () => boolean;
+  registryWaitForced: () => boolean;
 }> {
   const dir = path.dirname(fileURLToPath(import.meta.url));
   return import(pathToFileURL(path.resolve(dir, "native/registry-process.mjs")).href);
@@ -2274,14 +2275,13 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // the options rejected). It waits instead under the hot runtime (a hot worker
         // keeps React Native resident from its first file), on CI (only total time
         // counts there, and per-file loading costs more than the build on a large
-        // suite), and with `registryBuild: 'wait'`. VITEST_NATIVE_REGISTRY_WAIT=1 is the
-        // same switch for this package's own suites, whose configs call the plugin
-        // where they cannot pass an option.
+        // suite), and with `registryBuild: 'wait'`. registryWaitForced is the same switch
+        // for this package's own suites, which call the plugin where they cannot pass an
+        // option (an internal test seam, registry-process.mjs).
         const waitForRegistry =
           hotMemory !== undefined ||
           options?.registryBuild === "wait" ||
-          process.env.VITEST_NATIVE_REGISTRY_WAIT === "1" ||
-          (await loadRegistryProcess()).isCI();
+          (await loadRegistryProcess().then((rp) => rp.registryWaitForced() || rp.isCI()));
         if (waitForRegistry) {
           const registryFile = await buildRegistryFor(registryOptions);
           if (registryFile) fields.registry = registryFile;

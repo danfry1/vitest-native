@@ -52,6 +52,28 @@ export const registryCompilerDefaults = Object.freeze({
 
 const COMPILER_FILE = () => fileURLToPath(new URL("./registry-compiler.mjs", import.meta.url));
 
+// Internal test seams (_setRegistryBuildOptions), not options: `wait` makes a cold run
+// wait for the build as `registryBuild: 'wait'` does, for this package's own suites,
+// which call the plugin where they cannot pass the option; `compilerDelayMs` holds the
+// compiler before it starts, so the background-build tests can tell a stopped compiler
+// from a finished one on a machine of any speed.
+let seams = {};
+
+/** Internal test seam: `{ wait, compilerDelayMs }` (see above); `{}` restores the defaults. */
+export function _setRegistryBuildOptions(options = {}) {
+  seams = options;
+}
+
+/** Whether a test seam makes every cold run wait for the build (_setRegistryBuildOptions). */
+export function registryWaitForced() {
+  return seams.wait === true;
+}
+
+/** What the compiler child receives: the build's options, and the test hold if set. */
+function compilerInput(options) {
+  return seams.compilerDelayMs > 0 ? { ...options, testDelayMs: seams.compilerDelayMs } : options;
+}
+
 /** Validate through the cache contract every reader uses, never the child's word. */
 function validatedRegistry(options) {
   return buildRegistry({ ...options, cacheOnly: true, failOnError: true, diagnostics: false });
@@ -125,10 +147,7 @@ export function startRegistryBuild(options, compiler = compileRegistryInChild) {
     if (joined) return { pending: joined.pending };
     // Read before the lookup: a registry published between the two then still
     // differs from `since`, so it is found rather than missed.
-    let since = 0;
-    try {
-      since = fs.statSync(metaFile).mtimeMs;
-    } catch {}
+    const since = fs.statSync(metaFile, { throwIfNoEntry: false })?.mtimeMs ?? 0;
     const cached = buildRegistry({ ...options, location, cacheOnly: true, failOnError: true });
     if (cached) return { registry: cached };
 
@@ -136,7 +155,7 @@ export function startRegistryBuild(options, compiler = compileRegistryInChild) {
     const started = performance.now();
     const done = (async () => {
       try {
-        const result = await compiler(COMPILER_FILE(), options, {
+        const result = await compiler(COMPILER_FILE(), compilerInput(options), {
           signal: controller.signal,
           priority: BACKGROUND_PRIORITY,
           // Never what keeps a finished run alive; settleRegistryBuilds waits for it
@@ -287,7 +306,7 @@ export async function buildRegistryFor(options, compiler = compileRegistryInChil
       if (file) return file;
     }
 
-    const result = await compiler(COMPILER_FILE(), options);
+    const result = await compiler(COMPILER_FILE(), compilerInput(options));
 
     // Validate through the same cache contract every reader uses instead of
     // trusting a path returned over the child protocol. This also turns a losing

@@ -50,8 +50,15 @@ test("probe", async () => {
 const registryDir = (root: string) =>
   path.join(root, "node_modules", ".cache", "vitest-native", "registry");
 
-/** Holds the compiler before it starts (registry-compiler.mjs). */
-const DELAY = "VITEST_NATIVE_REGISTRY_TEST_DELAY_MS";
+/**
+ * Holds the compiler before it starts: each scratch config passes it to the plugin's
+ * internal test seam (registry-process.mjs, _setRegistryBuildOptions), which hands it
+ * to the compiler child (registry-compiler.mjs).
+ */
+const DELAY = "PROBE_COMPILER_DELAY_MS";
+const registryProcessUrl = pathToFileURL(
+  path.join(packageRoot, "dist/native/registry-process.mjs"),
+).href;
 
 let count = 0;
 function project(files = ["a.test.mjs"], test: Record<string, unknown> = {}) {
@@ -72,6 +79,8 @@ function project(files = ["a.test.mjs"], test: Record<string, unknown> = {}) {
   fs.writeFileSync(
     path.join(root, "vitest.config.mjs"),
     `import { reactNative } from ${JSON.stringify(pathToFileURL(path.join(packageRoot, "dist/index.mjs")).href)};\n` +
+      `import { _setRegistryBuildOptions } from ${JSON.stringify(registryProcessUrl)};\n` +
+      `_setRegistryBuildOptions({ compilerDelayMs: Number(process.env.${DELAY}) || 0 });\n` +
       `export default { plugins: [reactNative({ engine: "native" })], test: ${JSON.stringify({
         globals: true,
         include: ["*.test.mjs"],
@@ -132,6 +141,10 @@ function start(
       p.root,
       "--config",
       path.join(p.root, "vitest.config.mjs"),
+      // Imported as it is, not bundled: the config then sets the test seam on the same
+      // registry-process.mjs instance the plugin loads (DELAY).
+      "--configLoader",
+      "native",
       ...args,
     ],
     {
@@ -271,6 +284,7 @@ import { createVitest } from ${JSON.stringify(node)};
 const vitest = await createVitest("test", {
   root: ${JSON.stringify(p.root)},
   config: ${JSON.stringify(path.join(p.root, "vitest.config.mjs"))},
+  configLoader: "native",
   watch: true,
 });
 const run = vitest.start();

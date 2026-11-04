@@ -16,6 +16,25 @@ const LOG_TAIL_BYTES = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 120_000;
 const OOM_RE = /heap out of memory|reached heap limit|allocation failed.*heap/i;
 
+// What os.setPriority reports (SystemError `info.code`) when the platform or a sandbox
+// refuses the change, or the child has already exited. The child then keeps the default
+// priority, which costs the run some CPU and nothing else.
+const PRIORITY_REFUSED = new Set(["EACCES", "EPERM", "ESRCH", "ENOSYS"]);
+
+/**
+ * Lower a helper's scheduling priority. Returns whether it took; throws any error other
+ * than a refusal (PRIORITY_REFUSED). `setPriority` is a test seam.
+ */
+export function lowerPriority(pid, priority, setPriority = os.setPriority) {
+  try {
+    setPriority(pid, priority);
+    return true;
+  } catch (error) {
+    if (!PRIORITY_REFUSED.has(error?.info?.code)) throw error;
+    return false;
+  }
+}
+
 function attempt(
   entryFile,
   input,
@@ -55,12 +74,20 @@ function attempt(
       for (const stream of child.stdio ?? []) stream?.unref?.();
     }
 
-    // A background helper yields the CPU to the work it runs beside. Best effort: a
-    // platform or sandbox that refuses the change leaves the default priority.
+    // A background helper yields the CPU to the work it runs beside (lowerPriority).
     if (priority !== undefined && child.pid !== undefined) {
       try {
-        os.setPriority(child.pid, priority);
-      } catch {}
+        lowerPriority(child.pid, priority);
+      } catch (error) {
+        child.kill("SIGKILL");
+        resolve({
+          ok: false,
+          oom: false,
+          error: `could not set the ${label}'s priority: ${error instanceof Error ? error.message : String(error)}`,
+          heapMb,
+        });
+        return;
+      }
     }
 
     let stdout = "";
