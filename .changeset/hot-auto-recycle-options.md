@@ -6,3 +6,5 @@
 
 - Without `mode`, the object form still requires the hot runtime, as `true` does.
 - Not covered: `mode: 'auto'` with `allowUnboundedMemory`, which is rejected.
+
+Thanks @sincraianul for reporting this (#450).

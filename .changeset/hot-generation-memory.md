@@ -7,3 +7,5 @@
 - From its second file on, a package is collected once no file uses it. What stays per file is a few kilobytes per imported package.
 - Packages that ship as ES modules and run in Node unchanged still keep one copy per file.
 - Requires Node 22.22.3+, 24.12+ or 26. Older Node versions behave as before.
+
+Thanks @sincraianul for reporting this (#448).
