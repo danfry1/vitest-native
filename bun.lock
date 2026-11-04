@@ -38,7 +38,7 @@
     },
     "packages/vitest-native": {
       "name": "vitest-native",
-      "version": "0.14.0-rc.10",
+      "version": "0.14.0-rc.11",
       "bin": {
         "vitest-native": "./dist/cli.mjs",
       },
@@ -61,6 +61,7 @@
         "@types/node": "25.9.9",
         "@types/react": "19.3.0",
         "@vitest/coverage-v8": "5.0.5",
+        "dispatch-consumer-lib": "file:./tests-native/fixtures/dispatch-consumer-lib",
         "expo-constants": "58.0.13",
         "expo-status-bar": "58.0.4",
         "ext-platform-lib": "file:./tests-native/fixtures/ext-platform-lib",
@@ -1949,6 +1950,8 @@
     "tsdown/cac": ["cac@7.1.0", "", {}, "sha512-LMDU/U2yA4IPIY8KT0NsNPWEYZvAMkbgyspxJ6btJaYV+WMDOHAZCmB0lsTObiHaRS1V/ztKAl7+TSkTqXyeoA=="],
 
     "vite/postcss": ["postcss@8.5.31", "", { "dependencies": { "nanoid": "^3.3.20", "picocolors": "^1.1.1", "source-map-js": "^1.2.2" } }, "sha512-YUbWYCgErwnMAVkjUnYa+KlMBzGpHwiIt/DE7f0G33AuX2LH9UcTk6KgWxd3zRU+pN3u/C+Xl3EnMLM4Hea7Sg=="],
+
+    "vitest-native/dispatch-consumer-lib": ["dispatch-consumer-lib@file:packages/vitest-native/tests-native/fixtures/dispatch-consumer-lib", {}],
 
     "vitest-native/ext-platform-lib": ["ext-platform-lib@file:packages/vitest-native/tests-native/fixtures/ext-platform-lib", {}],
 
