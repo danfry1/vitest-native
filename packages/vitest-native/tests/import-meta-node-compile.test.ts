@@ -204,7 +204,9 @@ describe("any other property fails by name", () => {
     expect(err.message).toMatch(/^\[vitest-native\] /);
     // The property, the file and where in it, and the fix: the owning package, named
     // for `transform.exclude`, which hands the package to Vite.
-    expect(err.message).toContain(`${what} in ${file}:${at} has no value here`);
+    // Shown with forward slashes on every platform.
+    const shown = file.split(path.sep).join("/");
+    expect(err.message).toContain(`${what} in ${shown}:${at} has no value here`);
     expect(err.message).toContain(`let Vite load '@m/fails-${name}'`);
     expect(err.message).toContain("`transform: { exclude: [...] }`");
     // Babel's own prefix and the generic "could not parse" hint are not repeated.
