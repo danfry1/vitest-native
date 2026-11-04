@@ -49,22 +49,31 @@ export function trackCjsResolutions() {
   let count = 0;
   // The outermost resolve step (node-dispatch.mjs, RESOLVE_STEPS): it records the file
   // every other step settled on.
+  const record = (request, parent, filename) => {
+    if (parent && typeof parent.path === "string" && !Module.isBuiltin(filename)) {
+      edges.set(`${parent.path}\0${request}`, { request, parentPath: parent.path, filename });
+    }
+  };
   const added = dispatch.resolve.add(
     "tracker",
     (next) =>
       function (request, parent, ...rest) {
         const filename = next(request, parent, ...rest);
-        if (parent && typeof parent.path === "string" && !Module.isBuiltin(filename)) {
-          edges.set(`${parent.path}\0${request}`, { request, parentPath: parent.path, filename });
-        }
+        record(request, parent, filename);
         return filename;
       },
   );
   if (!added) throw cleanupError("a resolution tracker is already installed in this worker.");
-  // What resolution was entered through when tracking began. A resolver installed
-  // after it could answer a request without reaching the tracker, so a drain refuses
-  // to run under one. One installed before it keeps working, as with the stacked
-  // wrappers, but sits above the dispatcher: it is trusted to pass requests on.
+  // Node's relative-resolve cache keys a load by the request `Module._load` received. A
+  // resolver installed above the dispatcher (between its entry and this tracker) can
+  // hand the resolve steps another request, so each of Node's own loads is recorded
+  // under the request it was made with too.
+  const stopLoads = dispatch.onNodeLoad(({ request, parent, filename }) =>
+    record(request, parent, filename),
+  );
+  // What resolution was entered through when tracking began. A resolver installed after
+  // it could answer a request without reaching the tracker, so a drain refuses to run
+  // under one.
   const tracked = Module._resolveFilename;
   return {
     drain() {
@@ -126,6 +135,7 @@ export function trackCjsResolutions() {
         throw cleanupError("another resolver wrapped the tracking hook.");
       }
       dispatch.resolve.remove("tracker");
+      stopLoads();
       edges.clear();
     },
   };

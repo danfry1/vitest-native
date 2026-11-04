@@ -17,6 +17,19 @@ write("data.json", `{ "data": true }\n`);
 write("esm.mjs", `export const esm = true;\n`);
 write("throws.cjs", `throw new Error("evaluation fails");\n`);
 write("shadowed.cjs", `module.exports = "real";\n`);
+// CommonJS an `import` reaches: Node's ESM loader caches it, and the file it re-exports,
+// unloaded, and evaluates them through Module._load.
+write("mixed.cjs", `require("./plain.cjs");\nmodule.exports = require("./impl.cjs");\n`);
+write("plain.cjs", `module.exports = "plain";\n`);
+write("impl.cjs", `exports.impl = true;\n`);
+// A module only a resolve hook's short-circuit reaches (no Module._resolveFilename).
+write("virtual.cjs", `module.exports = require("./b.cjs");\n`);
+// Resolves a file from its requirer while it evaluates.
+write(
+  "peeks.cjs",
+  // Module through module.constructor: a require of node:module would be a load of its own.
+  `module.constructor._resolveFilename("./shadowed.cjs", module.parent);\nmodule.exports = "peeks";\n`,
+);
 // Resolves another file while it evaluates, as a package reading its own assets does.
 write("resolves.cjs", `require.resolve("./shadowed.cjs");\nmodule.exports = "resolves";\n`);
 const dispatch = pathToFileURL(path.resolve(import.meta.dirname, "../src/node-dispatch.mjs")).href;
@@ -45,6 +58,7 @@ describe("nodeDispatch().onNodeEvaluation", () => {
       req("./a.cjs");
       req("./esm.mjs");
       req("./resolves.cjs");
+      req("./peeks.cjs");
       return events;
     `);
     expect(events).toEqual([
@@ -53,7 +67,41 @@ describe("nodeDispatch().onNodeEvaluation", () => {
       { file: "a.cjs", parent: "entry.cjs", via: "cjs", cached: true },
       { file: "esm.mjs", parent: "entry.cjs", via: "require-esm", cached: true },
       { file: "resolves.cjs", parent: "entry.cjs", via: "cjs", cached: true },
+      { file: "peeks.cjs", parent: "entry.cjs", via: "cjs", cached: true },
     ]);
+  });
+
+  it("reports CommonJS an import reached, which Node's ESM loader cached unloaded", () => {
+    const events = run(`
+      nodeDispatch().onNodeEvaluation(record);
+      await import(${JSON.stringify(pathToFileURL(path.join(dir, "mixed.cjs")).href)});
+      return events.map((e) => e.file).sort();
+    `);
+    expect(events).toEqual(["impl.cjs", "mixed.cjs", "plain.cjs"]);
+  });
+
+  it("keeps a load's capture to that load when a resolve hook answers it", () => {
+    const events = run(`
+      const { registerHooks } = await import("node:module");
+      const { pathToFileURL } = await import("node:url");
+      registerHooks({
+        resolve: (s, c, n) =>
+          s === "virtual-a"
+            ? { url: pathToFileURL(dir + "/virtual.cjs").href, format: "commonjs", shortCircuit: true }
+            : n(s, c),
+      });
+      // A step that resolves the request itself, as jest-compat's does.
+      nodeDispatch().load.add("mocks", (next) => function (request, parent, ...rest) {
+        try { Module._resolveFilename(request, parent); } catch {}
+        return next(request, parent, ...rest);
+      });
+      nodeDispatch().onNodeEvaluation(record);
+      req("virtual-a");
+      return events;
+    `);
+    // b.cjs once, from virtual.cjs. Node resolved virtual-a without the dispatcher, so it
+    // is not reported; its capture must not be taken by a resolution of another load.
+    expect(events).toEqual([{ file: "b.cjs", parent: "virtual.cjs", via: "cjs", cached: true }]);
   });
 
   it("reports nothing for a cached module, a builtin, or a module that fails", () => {
@@ -88,19 +136,32 @@ describe("nodeDispatch().onNodeEvaluation", () => {
     });
   });
 
+  it("lets every listener hear a module, then throws the first listener's error", () => {
+    const out = run(`
+      const heard = [];
+      nodeDispatch().onNodeEvaluation(() => { throw new Error("first listener"); });
+      nodeDispatch().onNodeEvaluation((e) => heard.push(rel(e.filename)));
+      let error = null;
+      try { req("./b.cjs"); } catch (e) { error = e.message; }
+      return { error, heard, cached: Module._cache[dir + "/b.cjs"] !== undefined };
+    `);
+    expect(out).toEqual({ error: "first listener", heard: ["b.cjs"], cached: true });
+  });
+
   it("stops when the last listener stops, and costs nothing then", () => {
     const out = run(`
       const plain = () => nodeDispatch().load.run;
       const stop = nodeDispatch().onNodeEvaluation(record);
+      const entry = Module._load;
       const observed = plain();
       stop();
       req("./b.cjs");
       return {
         events,
         restored: plain() !== observed && nodeDispatch().load.wrapTail === null,
-        entry: Module._load !== observed,
+        sameEntry: Module._load === entry,
       };
     `);
-    expect(out).toEqual({ events: [], restored: true, entry: true });
+    expect(out).toEqual({ events: [], restored: true, sameEntry: true });
   });
 });

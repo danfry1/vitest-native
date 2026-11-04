@@ -1,8 +1,10 @@
 /**
  * An alias keyed on a preset package's name, as Node's require sees it (ADR-0007): the
- * preset beats the alias, because the preset step answers the request before
- * resolution, where the alias applies. Under Jest the moduleNameMapper wins: a
- * documented divergence, which only a jestCompat entry may change.
+ * preset's module, not the alias target. Two things make it so, whatever the step
+ * order: the preset step answers a package name before resolution, and Node applies a
+ * project alias only to a request it cannot resolve, which an installed package's name
+ * never is. Under Jest the moduleNameMapper wins: a documented divergence, which only a
+ * jestCompat entry may change.
  */
 import { createRequire } from "node:module";
 import { expect, it } from "vitest";

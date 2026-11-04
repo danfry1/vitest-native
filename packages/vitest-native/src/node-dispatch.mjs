@@ -63,8 +63,8 @@ function createChain(key, ranks, install) {
      */
     wrapTail: null,
     /**
-     * When set, the next request this hook answers records its result here, and clears
-     * it (the resolve chain, for the observed load whose Node resolution this is).
+     * When set, the next request from `capture.parent` this hook answers records its
+     * file here, once (the resolve chain, for an observed load's own resolution).
      */
     capture: null,
     /** The function beneath every step: Node's own, as found when the entry was installed. */
@@ -98,12 +98,17 @@ function createChain(key, ranks, install) {
       const entry = function (request, parent, isMain, options) {
         const run = chain.override ?? chain.run;
         const capture = chain.capture;
-        if (capture !== null) chain.capture = null;
+        const captured = capture !== null && !capture.done && capture.parent === parent;
+        if (captured) capture.done = true;
         const result =
           arguments.length > 4
             ? run.apply(this, arguments)
             : run.call(this, request, parent, isMain, options);
-        if (capture !== null) capture(result);
+        if (captured) {
+          capture.filename = result;
+          const held = typeof result === "string" ? Module._cache[result] : undefined;
+          capture.loadedBefore = held !== undefined && held.loaded === true;
+        }
         return result;
       };
       compose();
@@ -144,30 +149,35 @@ function createDispatch() {
   const resolve = createChain("_resolveFilename", RESOLVE_STEPS, (entry) => {
     Module._resolveFilename = entry;
   });
-  const observers = new Set();
-  // Beneath every load step, while something observes: the module Node's own load
-  // created, which is a module Node evaluated. Node resolves the request first (through
-  // the resolve chain, which reports the file here) unless its relative-resolve cache
-  // already holds it, in which case the module is cached and nothing is new.
+  const evaluations = new Set();
+  const loads = new Set();
+  // Beneath every load step, while something observes: Node's own load of a request.
+  // Node resolves it first, through the resolve chain, which reports the file to this
+  // load's capture (from the same parent, once) unless Node's relative-resolve cache
+  // already answers it. A module that was not loaded before and is after is one Node
+  // evaluated: new, or a placeholder Node's ESM loader cached for a file an `import`
+  // reached. One still loading (a circular require) is not reported.
   const observe = (node) =>
     function (request, parent, isMain, options) {
-      let filename = null;
-      let existed = true;
-      const capture = (resolved) => {
-        filename = resolved;
-        existed = typeof resolved !== "string" || Module._cache[resolved] !== undefined;
-      };
+      const capture = { parent, done: false, filename: null, loadedBefore: true };
       resolve.capture = capture;
       let exports;
       try {
         exports = node(request, parent, isMain, options);
       } finally {
-        if (resolve.capture === capture) resolve.capture = null;
+        // Node resolves a load before it evaluates it, so a capture a nested load
+        // replaced is either taken or never will be: nothing is restored.
+        resolve.capture = null;
       }
-      if (!existed) {
+      const { filename } = capture;
+      if (typeof filename !== "string") return exports;
+      if (loads.size > 0) {
+        report(loads, { request, parent: parent ?? null, filename });
+      }
+      if (!capture.loadedBefore && evaluations.size > 0) {
         const module = Module._cache[filename];
-        if (module !== undefined) {
-          const event = {
+        if (module !== undefined && module.loaded === true) {
+          report(evaluations, {
             filename,
             module,
             parent: typeof parent?.filename === "string" ? parent.filename : null,
@@ -176,12 +186,41 @@ function createDispatch() {
               : Object.prototype.toString.call(module.exports) === "[object Module]"
                 ? "require-esm"
                 : "cjs",
-          };
-          for (const listener of observers) listener(event);
+          });
         }
       }
       return exports;
     };
+  // Every listener hears it; the first to throw makes the require throw, after them all.
+  const report = (listeners, event) => {
+    let failure;
+    for (const listener of listeners) {
+      try {
+        listener(event);
+      } catch (error) {
+        failure ??= { error };
+      }
+    }
+    if (failure !== undefined) throw failure.error;
+  };
+  const observing = () => {
+    const on = evaluations.size > 0 || loads.size > 0;
+    if (on === (load.wrapTail !== null)) return;
+    load.wrapTail = on ? observe : null;
+    if (on) {
+      load.install();
+      resolve.install();
+    }
+    load.recompose();
+  };
+  const subscribe = (set, listener) => {
+    set.add(listener);
+    observing();
+    return () => {
+      set.delete(listener);
+      observing();
+    };
+  };
   return {
     load,
     resolve,
@@ -189,28 +228,27 @@ function createDispatch() {
      * Call `listener({ filename, module, parent, via })` for each module Node's CommonJS
      * loader evaluates through `Module._load`: `filename` is the key Node caches it by
      * (its real path, unless --preserve-symlinks), `parent` the requiring module's
-     * filename or null, `via` "cjs", "require-esm" or "json". Not for what a step answers
-     * instead of Node (a mock, a preset, the registry), nor for a module already cached.
-     * Nor for CommonJS that Node's ESM loader evaluates: a file an `import` reaches, and,
-     * on Node 26, the `require`s inside it, which Node resolves without
-     * `Module._resolveFilename`. A loader `load` hook sees those (loader.mjs). Returns a
-     * function that stops it. Nothing is added to a require while nothing observes.
+     * filename or null, `via` "cjs", "require-esm" or "json". This includes a file an
+     * `import` reached, which Node's ESM loader caches unloaded and evaluates through
+     * `Module._load`. Not for what a step answers instead of Node (a mock, a preset, the
+     * registry), nor for a module already loaded, nor for a load Node resolves without
+     * `Module._resolveFilename` (a resolve hook that short-circuits it). A listener that throws makes
+     * the require throw, after every listener has heard it. Returns a function that stops
+     * it. Nothing is added to a require while nothing observes.
      */
     onNodeEvaluation(listener) {
-      observers.add(listener);
-      if (load.wrapTail === null) {
-        load.wrapTail = observe;
-        load.install();
-        resolve.install();
-        load.recompose();
-      }
-      return () => {
-        observers.delete(listener);
-        if (observers.size === 0 && load.wrapTail !== null) {
-          load.wrapTail = null;
-          load.recompose();
-        }
-      };
+      return subscribe(evaluations, listener);
+    },
+    /**
+     * Call `listener({ request, parent, filename })` for each request Node's own load
+     * resolves: `request` as `Module._load` received it and `parent` the requiring
+     * module, which is how Node's relative-resolve cache keys it (whatever a resolver
+     * wrapped around this dispatcher made of the request), and `filename` the file it
+     * resolved. For the hot runtime's cache drain (module-reset.mjs). Returns a function
+     * that stops it.
+     */
+    onNodeLoad(listener) {
+      return subscribe(loads, listener);
     },
     /** Node's `Module._load` beneath every step. */
     get nodeLoad() {

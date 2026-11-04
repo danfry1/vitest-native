@@ -7,6 +7,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { pathToFileURL } from "node:url";
 import { installCacheDrainResearch } from "./probe-node-cjs-cache-drain.mjs";
+import { nodeDispatch } from "../../src/node-dispatch.mjs";
 const { registerHooks } = Module;
 
 function setup(t) {
@@ -100,7 +101,7 @@ test("a resolver installed before tracking remains supported and is restored", (
     return original.apply(this, args);
   };
   Module._resolveFilename = wrapper;
-  // Restore after setup's own cleanup, which restores the preinstalled wrapper.
+  // Restored after setup's own cleanup, which removes the tracker's step only.
   const f = setup(t);
   t.after(() => {
     Module._resolveFilename = original;
@@ -110,6 +111,48 @@ test("a resolver installed before tracking remains supported and is restored", (
   delete f.req.cache[fs.realpathSync(f.leaf)];
   assert.ok(f.tracker.drain() > 0);
   assert.equal(f.req(f.leaf).value, "leaf");
+});
+
+test("a resolver that rewrites a request, installed above the dispatcher before tracking, is drained by Node's key", (t) => {
+  // The dispatcher's resolve entry is installed at worker start (the recovery preload);
+  // a resolver installed after it and before tracking sits above every resolve step.
+  nodeDispatch().resolve.install();
+  const original = Module._resolveFilename;
+  let aliasResolutions = 0;
+  Module._resolveFilename = function (request, ...args) {
+    if (request === "./alias") {
+      aliasResolutions++;
+      request = "./leaf.cjs";
+    }
+    return original.call(this, request, ...args);
+  };
+  const f = setup(t);
+  t.after(() => {
+    Module._resolveFilename = original;
+  });
+  fs.writeFileSync(f.entry, "module.exports = require('./alias');");
+  const leafId = fs.realpathSync(f.leaf);
+  const entryId = fs.realpathSync(f.entry);
+  f.req(f.entry);
+  delete f.req.cache[entryId];
+  delete f.req.cache[leafId];
+  assert.ok(f.tracker.drain() > 0);
+  // An unloaded placeholder under the leaf's key, as Node's ESM loader leaves one: a
+  // stale `./alias` lookup would return it as a half-loaded module.
+  Module._cache[leafId] = {
+    id: leafId,
+    filename: leafId,
+    loaded: false,
+    exports: {},
+    children: [],
+  };
+  try {
+    aliasResolutions = 0;
+    f.req(f.entry);
+    assert.equal(aliasResolutions, 1, "the drain cleared the lookup Node keyed by './alias'");
+  } finally {
+    delete Module._cache[leafId];
+  }
 });
 
 test("a reserved cache-key collision is refused without overwriting its owner", (t) => {

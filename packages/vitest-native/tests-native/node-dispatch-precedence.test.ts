@@ -37,10 +37,11 @@ describe("Node dispatch precedence, from an installed package", () => {
   it("runs the steps in one order: per-file mocks, preset, registry", async () => {
     const { nodeDispatch } = (await import("../src/node-dispatch.mjs")) as any;
     expect(nodeDispatch().load.names).toEqual(["mocks", "preset", "registry"]);
-    expect(nodeDispatch().resolve.names.filter((n: string) => n !== "tracker")).toEqual([
-      "hooks",
-      "recovery",
-    ]);
+    // The hot runtime's tracker, when installed, records what every other step settled on.
+    const resolveNames: string[] = nodeDispatch().resolve.names;
+    expect(resolveNames).toEqual(
+      resolveNames.includes("tracker") ? ["tracker", "hooks", "recovery"] : ["hooks", "recovery"],
+    );
   });
 
   it("a per-file jest.mock beats a preset", () => {
