@@ -65,9 +65,14 @@ fs.writeFileSync(
         fs.writeFileSync(marker("out-of-memory"), String(n));
       }
     }
-    // Or stops answering, still running (a count shows whether it was stopped).
+    // Or stops answering, still running (a count shows whether it was stopped). Each
+    // count is written beside the marker and renamed over it, so a read never sees a
+    // file the preset is halfway through writing.
     if (platform === "busy") {
-      for (let n = 1; ; n++) fs.writeFileSync(marker("busy"), String(n));
+      for (let n = 1; ; n++) {
+        fs.writeFileSync(marker("busy") + ".next", String(n));
+        fs.renameSync(marker("busy") + ".next", marker("busy"));
+      }
     }
     // Or takes its time, as a very large file on a busy machine does: it answers once
     // the caller lets it go (see slowClock).
@@ -277,12 +282,12 @@ it("stops a Babel thread that has not answered by the deadline", () => {
     // The deadline passes once the preset is running.
     _setToolchainOptions({ deadlineMs: 3_000, now: after(() => fs.existsSync(marker("busy"))) });
     const lost = attempt("busy.js", "busy");
-    // Stopped: the preset's count holds across three reads. A thread left running
-    // never gets there, and the child hangs.
+    // Stopped: the preset's count holds across five reads, two seconds in all. A
+    // thread left running never gets there, and the child hangs.
     const count = () => fs.readFileSync(marker("busy"), "utf8");
     let last = count(), still = 0;
-    while (still < 3) {
-      await settle(200);
+    while (still < 5) {
+      await settle(400);
       const now = count();
       still = now === last ? still + 1 : 0;
       last = now;
