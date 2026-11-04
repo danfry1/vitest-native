@@ -39,6 +39,7 @@ import { assetRegistryPathFor, nativeAssetModuleSource } from "./assets.mjs";
 import { resolveRelativePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
 import { createNativeOwnershipPolicy } from "./ownership.mjs";
 import { createSharedResolver, resolverInputsHash } from "./shared-resolver.mjs";
+import { VitestNativeError } from "../errors.mjs";
 
 /**
  * Losing the registry is a silent performance cliff, not a correctness problem:
@@ -628,7 +629,8 @@ export function buildRegistry({
     // caller reports it and falls back to per-file loading).
     const walkErrors = sharedResolver?.counters.fallbacks.error ?? 0;
     if (walkErrors > errorsBeforeWalk) {
-      throw new Error(
+      throw new VitestNativeError(
+        "RESOLVER_ERROR",
         `experimental.ownershipModel: the shared resolver failed while the registry was ` +
           `built: ${sharedResolver.counters.errors.join("; ")}`,
       );

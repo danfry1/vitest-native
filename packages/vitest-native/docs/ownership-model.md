@@ -51,6 +51,9 @@ already shared, or another owner answers it.
   resolver from (a worker started without the plugin's `configureVitest` step), or Vite
   resolves for a project the plugin recorded no inputs for. No realm resolves as if the
   flag were off, and no project uses another project's resolver.
+- **`RESOLVER_ERROR`**: the resolver failed (not "nothing installed") on a request React
+  Native makes while the precompiled registry is built. The build stops by name instead
+  of baking Node's answer in; the run reports it and loads React Native per file.
 - **Fallbacks are counted, never silent.** A request the resolver cannot answer because
   nothing is installed (`MODULE_NOT_FOUND`, a subpath the package does not export) is an
   allowed `unresolved` fallback, answered by Node as before. Any other error is counted
