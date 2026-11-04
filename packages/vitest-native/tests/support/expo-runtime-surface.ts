@@ -18,8 +18,10 @@
  * because only the names of what it installs are read; an import of a form this reader does
  * not know fails the evaluation loudly.
  *
- * Lives in the SDK 57 consumer fixture because that packed install is the only place SDK 57's
- * expo-modules-core is installed; the package's unit test imports it for the workspace's SDK.
+ * The unit test (tests/expo-runtime-surface.test.ts) reads the workspace's SDK with it.
+ * scripts/test-consumers.mjs copies it into the SDK 57 fixture's src/lib/ as it copies the
+ * fixture, because that packed install is the only place SDK 57's expo-modules-core is
+ * installed; the fixture's test imports the copy. Node builtins only, so the copy runs there.
  */
 import fs from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
@@ -35,15 +37,16 @@ export const DELIBERATELY_OMITTED: Readonly<Record<string, string>> = {
   // outside the class reads it; the stand-in keeps its own `_listeners`, plus a record of each
   // listener, so the per-file reset can remove what a test file added.
   "EventEmitter#listeners": "private storage of the polyfill; the stand-in keeps its own",
-  // Filled per module by the native runtime with each view's native methods, and read only by
-  // requireNativeViewManager, inside a try/catch. The stand-in's module stubs answer it through
-  // the `globalThis.expo.modules` proxy; a field on the base class would shadow that answer.
-  "NativeModule#ViewPrototypes": "set per module by the native runtime; module stubs answer it",
-  // Set by the native runtime to each registered module's name; LegacyEventEmitter reads it to
-  // tell a module from a legacy one. The stand-in's module stubs answer it through the
-  // `globalThis.expo.modules` proxy; a field on the base class would shadow that answer.
+  // Filled per module by the native runtime with each view's native methods. No view
+  // prototypes are assigned under the stand-in; requireNativeViewManager reads them inside a
+  // try/catch, which catches the miss.
+  "NativeModule#ViewPrototypes":
+    "no view prototypes are assigned under the stand-in; requireNativeViewManager catches the miss",
+  // Set by the native runtime to each registered module's name. The stand-in sets it on each
+  // module stub (makeModuleStub, globals.mjs) rather than on the base class, where the
+  // polyfill leaves it undefined.
   "NativeModule#__expo_module_name__":
-    "set per module by the native runtime; module stubs answer it",
+    "set per module, on each module stub, rather than on the base class",
 };
 
 export type RuntimeSurface = {
@@ -61,6 +64,9 @@ function polyfillSource(packageDir: string, name: string): string {
   if (!fs.existsSync(source)) {
     throw new Error(`expo-modules-core at ${packageDir} has no polyfill/${name} (.js or .ts)`);
   }
+  // Node prints an ExperimentalWarning for stripTypeScriptTypes, once per process, and only
+  // for an SDK that publishes the polyfill as TypeScript (SDK 57 here). Accepted: hiding it
+  // would mean replacing process.emitWarning, which this repository does not patch.
   return stripTypeScriptTypes(fs.readFileSync(source, "utf8"));
 }
 

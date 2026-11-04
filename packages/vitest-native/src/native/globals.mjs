@@ -169,6 +169,15 @@ function installExpoGlobal(g) {
     const fabricatedRecords = new Map();
     const directMutations = new Map();
     const target = new NativeModule();
+    // The native runtime names every module it registers, and LegacyEventEmitter returns a
+    // named module as itself rather than wrapping it in React Native's NativeEventEmitter.
+    // Set on the target, not through the proxy, so it is the module's own and no reset undoes it.
+    Object.defineProperty(target, "__expo_module_name__", {
+      configurable: true,
+      enumerable: false,
+      value: name,
+      writable: true,
+    });
     const seed = g.__vitest_native_expo_modules?.seed(name) ?? null;
     const seeded = seed?.members ?? null;
     // A package's own mock is the whole module; a seed from Expo's table lists only
@@ -298,6 +307,7 @@ function installExpoGlobal(g) {
   );
 
   let __uuid = 0;
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const expoRuntime = {
     EventEmitter,
     NativeModule,
@@ -310,8 +320,15 @@ function installExpoGlobal(g) {
     },
     // Name-based (RFC 4122 version 5), so it is deterministic as on a device.
     uuidv5: (name, namespace) => {
+      // The native runtime rejects a namespace that is not a UUID string, with this message
+      // (expo-modules-core ios/Uuidv5/Exceptions.swift, android uuidv5/Exceptions.kt).
+      if (typeof namespace !== "string" || !UUID.test(namespace)) {
+        throw new Error(
+          `Namespace: \`${namespace}\` is not a valid namespace. Namespace should be a valid UUID string`,
+        );
+      }
       const bytes = createHash("sha1")
-        .update(Buffer.from(String(namespace).replace(/-/g, ""), "hex"))
+        .update(Buffer.from(namespace.replace(/-/g, ""), "hex"))
         .update(String(name))
         .digest();
       bytes[6] = (bytes[6] & 0x0f) | 0x50;

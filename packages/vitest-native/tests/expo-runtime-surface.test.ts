@@ -10,7 +10,7 @@
  *
  * This covers the SDK the workspace installs (58). The SDK 57 consumer fixture runs the same
  * check on its packed install (consumer-tests/expo-sdk57/src/expo-runtime-surface.test.tsx),
- * which is where the reader lives: that fixture is copied and installed on its own.
+ * with a copy of the reader scripts/test-consumers.mjs puts beside it.
  */
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -22,7 +22,7 @@ import {
   DELIBERATELY_OMITTED,
   missingMembers,
   readRuntimeSurface,
-} from "../consumer-tests/expo-sdk57/src/lib/expo-runtime-surface";
+} from "./support/expo-runtime-surface";
 // @ts-expect-error — runtime .mjs
 import { installGlobals } from "../src/native/globals.mjs";
 import { SUPPORTED_EXPO_SDKS } from "../src/peer-requirements.js";
@@ -93,6 +93,28 @@ describe("the globalThis.expo stand-in", () => {
     expect(standin.uuidv5("www.example.com", "6ba7b810-9dad-11d1-80b4-00c04fd430c8")).toBe(
       "2ed6657d-e927-568b-95e1-2665a8aea6a2",
     );
+  });
+
+  it("rejects a uuidv5 namespace that is not a UUID string, as the native runtime does", () => {
+    for (const namespace of [
+      "not-a-uuid",
+      "6ba7b810-9dad-11d1-80b4",
+      "6ba7b8109dad11d180b400c04fd430c8",
+    ]) {
+      expect(() => standin.uuidv5("www.example.com", namespace)).toThrow(
+        `Namespace: \`${namespace}\` is not a valid namespace. Namespace should be a valid UUID string`,
+      );
+    }
+  });
+
+  it("names each module stub as the native runtime names a registered module", () => {
+    const module = standin.modules.VNNamedModule;
+    expect(module.__expo_module_name__).toBe("VNNamedModule");
+    // The module's own, not a test file's change: not enumerated, and kept through a reset.
+    expect(Object.keys(module)).not.toContain("__expo_module_name__");
+    standin[Symbol.for("vitest-native.expo.reset")]();
+    expect(module.__expo_module_name__).toBe("VNNamedModule");
+    expect(standin[Symbol.for("vitest-native.expo.reset")].verify()).toBe(true);
   });
 
   it("reads the runtime from the installed files, so a member they add fails the check", () => {
