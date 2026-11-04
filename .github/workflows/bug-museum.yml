@@ -30,6 +30,9 @@ name: Bug museum
 on:
   pull_request:
     branches: [main]
+    # ready_for_review starts a run when a draft leaves draft; the job's `if` skips
+    # drafts, so the 8-minute museum runs only on pull requests that are up for merge.
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'packages/vitest-native/src/**'
       - 'packages/vitest-native/package.json'
@@ -50,6 +53,7 @@ concurrency:
 jobs:
   museum:
     name: Bug museum (advisory)
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
