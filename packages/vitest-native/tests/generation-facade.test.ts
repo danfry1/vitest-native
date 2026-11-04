@@ -43,7 +43,7 @@ function facadeRunner(body: string) {
     `import { registerHooks } from "node:module";`,
     `import { bindFacade, facadeModule, releasableFacade, releaseGenerations } from ${JSON.stringify(loader)};`,
     `import { fileURLToPath } from "node:url";`,
-    `globalThis.__vitest_native_hot_bind = bindFacade;`,
+    `globalThis.__vitest_native_hot_generation = { bind: bindFacade };`,
     `const names = new Map();`,
     `registerHooks({ load(url, context, next) {`,
     `  const stamp = /\\?vnhot=(\\d+)$/.exec(url);`,

@@ -184,11 +184,15 @@ export function initialize(data) {
   if (data && data.assetExts)
     assetExtSet = new Set(data.assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
   if (data && data.hotGenerationBuffer) genView = new Int32Array(data.hotGenerationBuffer);
-  generationFacades = Boolean(genView) && data?.inThread === true;
+  // In-thread, `data.hotGeneration` is the worker's hot-generation channel itself
+  // (setup.mjs): the facades and the per-file reset reach this module through it.
+  generationFacades = Boolean(genView) && data?.inThread === true && Boolean(data.hotGeneration);
   if (generationFacades) {
-    globalThis.__vitest_native_hot_export_names = recordExportNames;
-    globalThis.__vitest_native_hot_bind = bindFacade;
-    globalThis.__vitest_native_hot_release = releaseGenerations;
+    Object.assign(data.hotGeneration, {
+      bind: bindFacade,
+      recordNames: recordExportNames,
+      release: releaseGenerations,
+    });
   }
 }
 
@@ -526,9 +530,9 @@ export function requireFacade(url, file, compiled) {
  * names are kept with what they were read from (the compiled code, or the file's size
  * and time), so an edited module records them again.
  *
- * Only with the in-thread hooks (setup.mjs): the facade reports to the worker through
- * `globalThis`, which a loader thread does not share. On the loader thread every
- * generation is served as before.
+ * Only with the in-thread hooks (setup.mjs): a facade reaches this module through the
+ * worker's hot-generation channel on `globalThis`, which a loader thread does not
+ * share. On the loader thread every generation is served as before.
  */
 let generationFacades = false;
 const GENERATION = /[?&]vnhot=(\d+)/;
@@ -574,7 +578,7 @@ function generationFacade(url, file, fingerprint) {
     format: "module",
     source: [
       `import * as ns from ${inner};`,
-      `globalThis.__vitest_native_hot_export_names?.(${JSON.stringify(key)}, ${JSON.stringify(file)}, Object.keys(ns));`,
+      `globalThis.__vitest_native_hot_generation.recordNames(${JSON.stringify(key)}, ${JSON.stringify(file)}, Object.keys(ns));`,
       `export * from ${inner};`,
       `export { default } from ${inner};`,
     ].join("\n"),
@@ -594,7 +598,7 @@ export function releasableFacade(id, generation) {
   const { names, moduleExports } = facadeModules[id];
   const locals = names.map((_, index) => `v${index}`);
   return [
-    `let [e, ${locals.join(", ")}] = globalThis.__vitest_native_hot_bind(${id}, ${generation}, () => {`,
+    `let [e, ${locals.join(", ")}] = globalThis.__vitest_native_hot_generation.bind(${id}, ${generation}, () => {`,
     `  ${["e", ...locals].join(" = ")} = undefined;`,
     `});`,
     `export { e as default${moduleExports ? ', e as "module.exports"' : ""}${names
@@ -634,19 +638,17 @@ export function bindFacade(id, generation, release) {
   const { url, file, names } = facadeModules[id];
   const exports = createRequire(url)(file);
   liveFacades.push([generation, `${url}?vnhot=${generation}`, release]);
-  const values = [exports];
-  for (const name of names) {
-    let value;
-    if (exports != null && Object.prototype.hasOwnProperty.call(exports, name)) {
-      try {
-        value = exports[name];
-      } catch {
-        // Node binds undefined for a getter that throws.
-      }
-    }
-    values.push(value);
+  return [exports, ...names.map((name) => namedExportValue(exports, name))];
+}
+
+/** A named export's value as Node binds it: undefined when not own, or when its getter throws. */
+function namedExportValue(exports, name) {
+  if (exports == null || !Object.prototype.hasOwnProperty.call(exports, name)) return undefined;
+  try {
+    return exports[name];
+  } catch {
+    return undefined;
   }
-  return values;
 }
 
 function recordExportNames(key, file, names) {
