@@ -286,12 +286,12 @@ describe("one resolver per worker", () => {
     process.env.NODE_PATH = path.join(tree, "np");
     (Module as unknown as { _initPaths(): void })._initPaths();
     try {
-      const from = path.join(tree, "app/a.js");
+      const requester = path.join(tree, "app/a.js");
       const own = inputsFor(tree);
-      expect(createSharedResolver(own, { globalFolders: true }).resolve("glob-lib", from)).toBe(
-        path.join(tree, "np/glob-lib/i.js"),
-      );
-      expect(createSharedResolver(own).resolve("glob-lib", from)).toBe(null);
+      expect(
+        createSharedResolver(own, { globalFolders: true }).resolve("glob-lib", requester),
+      ).toBe(path.join(tree, "np/glob-lib/i.js"));
+      expect(createSharedResolver(own).resolve("glob-lib", requester)).toBe(null);
     } finally {
       if (before === undefined) delete process.env.NODE_PATH;
       else process.env.NODE_PATH = before;
@@ -311,12 +311,12 @@ describe("one resolver per worker", () => {
       "src/deep/x.js": "",
     });
     const resolver = createSharedResolver(inputsFor(tree));
-    const from = path.join(tree, "src/deep/x.js");
-    resolver.resolve("many/a", from);
+    const requester = path.join(tree, "src/deep/x.js");
+    resolver.resolve("many/a", requester);
     const probes = vi.spyOn(fs, "existsSync");
     try {
-      resolver.resolve("many/b", from);
-      resolver.resolve("many/c", from);
+      resolver.resolve("many/b", requester);
+      resolver.resolve("many/c", requester);
       expect(probes).not.toHaveBeenCalled();
     } finally {
       probes.mockRestore();
