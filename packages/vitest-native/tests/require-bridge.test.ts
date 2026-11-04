@@ -229,6 +229,7 @@ describe("fileOfUrl", () => {
     expect(fileOfUrl("/@fs/etc/hosts?raw", "/proj")).toBe(path.resolve("/etc/hosts"));
     expect(fileOfUrl("/src/a.ts", "/proj")).toBe(path.join("/proj", "/src/a.ts"));
     expect(fileOfUrl("react", "/proj")).toBe(null);
+    expect(fileOfUrl("/@id/__x00__virtual:rn-facade", "/proj")).toBe(null);
   });
 });
 

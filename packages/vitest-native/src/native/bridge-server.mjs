@@ -162,6 +162,9 @@ function refused(seq, url) {
  */
 export function fileOfUrl(url, root) {
   const bare = url.replace(/[?#].*$/, "");
+  // Vite's ids for modules that are not files: a virtual module (`/@id/__x00__…`) or a
+  // bare id Vite could not resolve to one (`/@id/…`), and its client (`/@vite/…`).
+  if (bare.startsWith("/@id/") || bare.startsWith("/@vite/")) return null;
   if (bare.startsWith("/@fs/")) {
     const rest = bare.slice(4);
     return /^\/[A-Za-z]:\//.test(rest) ? path.resolve(rest.slice(1)) : path.resolve(rest);
