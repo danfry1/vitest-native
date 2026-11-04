@@ -13,7 +13,10 @@ import { nativePool } from "../src/native/pool.js";
 type Internals = { actQueue: unknown[] | null };
 
 // A project with its own `react`, whose client internals the test controls.
-function projectWithReact(): { root: string; load: () => { internals: Internals } } {
+function projectWithReact(): {
+  root: string;
+  load: () => { internals: Internals; react: { depth: number } };
+} {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-resident-health-"));
   const react = path.join(root, "node_modules", "react");
   fs.mkdirSync(react, { recursive: true });
@@ -21,14 +24,24 @@ function projectWithReact(): { root: string; load: () => { internals: Internals 
   fs.writeFileSync(path.join(react, "package.json"), '{"name":"react","main":"index.js"}');
   fs.writeFileSync(
     path.join(react, "index.js"),
-    "exports.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE = { actQueue: null };",
+    [
+      "const internals = { actQueue: null };",
+      "exports.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE = internals;",
+      // React's act() at depth 0 flushes and clears the queue; inside an open scope
+      // (exports.depth > 0) it leaves it.
+      "exports.depth = 0;",
+      "exports.act = (fn) => { fn(); if (exports.depth === 0) internals.actQueue = null; };",
+    ].join("\n"),
   );
   const req = createRequire(path.join(root, "package.json"));
   return {
     root,
     load: () => {
       const exports = req("react");
-      return { internals: exports.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE };
+      return {
+        internals: exports.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE,
+        react: exports,
+      };
     },
   };
 }
@@ -45,14 +58,28 @@ describe("residentProblems", () => {
 
   it("reports an open act() scope on the loaded React, and nothing once it closes", () => {
     const project = projectWithReact();
-    const { internals } = project.load();
+    const { internals, react } = project.load();
     expect(residentProblems(project.root)).toEqual([]);
+    react.depth = 1;
     internals.actQueue = [];
     expect(residentProblems(project.root)).toEqual([
       { id: "react.act-scope", message: "React's act() scope is still open", clearsOnItsOwn: true },
     ]);
+    react.depth = 0;
     internals.actQueue = null;
     expect(residentProblems(project.root)).toEqual([]);
+  });
+
+  it("does not take a queue an act() left behind with no scope open for an open scope", () => {
+    // An act() whose callback rejects closes its scope but leaves the queue non-null.
+    const project = projectWithReact();
+    const { internals } = project.load();
+    const flag = Object.getOwnPropertyDescriptor(globalThis, "IS_REACT_ACT_ENVIRONMENT");
+    internals.actQueue = [];
+    expect(residentProblems(project.root)).toEqual([]);
+    expect(internals.actQueue).toBe(null);
+    // The act environment flag the check sets around its act() is put back as it was.
+    expect(Object.getOwnPropertyDescriptor(globalThis, "IS_REACT_ACT_ENVIRONMENT")).toEqual(flag);
   });
 
   it("reads React 18's act queue too", () => {

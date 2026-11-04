@@ -733,7 +733,7 @@
       "title": "Under hot, an un-awaited act in one file poisons the next file",
       "source": "v1 hot-runtime cross-file leaks (2026-10-28 M0 gates)",
       "fixedBy": "open (the v2 per-file world)",
-      "bugSignature": "^b\\.test\\.tsx: (AssertionError: this file's render committed a tree: expected null not to be null|\\[vitest-native\\] hotRuntime: this worker cannot run more files: React's act\\(\\) scope is still open)",
+      "bugSignature": "^b\\.test\\.tsx: (AssertionError: this file's render committed a tree: expected null not to be null|\\[vitest-native\\] hotRuntime: this worker cannot run this file: React's act\\(\\) scope is still open)",
       "control": {
         "why": "The stock runtime (hotRuntime: false) gives every file a fresh module graph, as Jest does: the leak's precondition is gone.",
         "edits": [

@@ -14,6 +14,10 @@
 //                    after, the next file waits for it, and all 16 renders pass.
 //   timeout-batch    one worker and a scope that stays open: each later file fails
 //                    naming the cause, not on its own render.
+//   rejects-*        a passing test whose act() rejects leaves React's queue non-null
+//                    with no scope open: no worker is retired, every file passes.
+//   fake-timers-batch  the same as timeout-batch with fake timers (Date too) left on:
+//                    the wait still ends.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -43,7 +47,13 @@ function run(mode) {
       "--reporter=json",
       `--outputFile.json=${report}`,
     ],
-    { cwd: packageRoot, encoding: "utf8", env: { ...process.env, FORCE_COLOR: "0" } },
+    // A bound, so a wait that never ends fails this gate instead of hanging it.
+    {
+      cwd: packageRoot,
+      encoding: "utf8",
+      timeout: 180_000,
+      env: { ...process.env, FORCE_COLOR: "0" },
+    },
   );
   if (result.error) throw result.error;
   const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
@@ -68,6 +78,7 @@ function fail(result, why) {
 }
 
 const NAMES_CAUSE = /act\(\) scope is still open \(react\.act-scope\)/;
+const NAMES_UNUSABLE = /cannot run this file: React's act\(\) scope is still open/;
 const RETIRED = /retiring a hot worker: React's act\(\) scope is still open/;
 
 try {
@@ -94,13 +105,33 @@ try {
 
   const stuck = run("timeout-batch");
   const unnamed = stuck.renders.filter(
-    (file) =>
-      file.status !== "failed" || !/HOT_RESIDENT_UNUSABLE|cannot run more files/.test(file.text),
+    (file) => file.status !== "failed" || !NAMES_UNUSABLE.test(file.text),
   );
   if (unnamed.length > 0) {
     fail(stuck, `files did not fail naming the cause: ${unnamed.map((f) => f.name).join(", ")}`);
   }
   console.log("[vitest-native] act scope: with one worker, later files fail naming the cause");
+
+  // A rejected act() leaves React's queue non-null with no scope open: nothing to retire.
+  for (const mode of ["rejects-pool", "rejects-batch"]) {
+    const rejects = run(mode);
+    if (rejects.status !== 0) fail(rejects, "every file must pass");
+    if (RETIRED.test(rejects.output)) fail(rejects, "a worker was retired with no scope open");
+  }
+  console.log("[vitest-native] act scope: a rejected act() is not an open scope");
+
+  // The wait must end even when the last file froze Date with fake timers.
+  const frozen = run("fake-timers-batch");
+  const frozenUnnamed = frozen.renders.filter(
+    (file) => file.status !== "failed" || !NAMES_UNUSABLE.test(file.text),
+  );
+  if (frozenUnnamed.length > 0) {
+    fail(
+      frozen,
+      `files did not fail naming the cause: ${frozenUnnamed.map((f) => f.name).join(", ")}`,
+    );
+  }
+  console.log("[vitest-native] act scope: the one-worker wait ends under frozen fake timers");
 } finally {
   fs.rmSync(outDir, { recursive: true, force: true });
 }

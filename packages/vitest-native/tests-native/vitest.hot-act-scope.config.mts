@@ -5,6 +5,8 @@
 //            late       the same, but the act() callback finishes ~0.5 s later
 //            unawaited  a passing test starts an async act() it never awaits, which
 //                       React never closes
+//            rejects    a passing test whose act() callback rejects: no scope is open
+//            fake-timers  a timeout inside act() with fake timers (Date too) left on
 //   shape    pool       two workers: every file is its own task, so a worker can retire
 //            batch      one worker: Vitest runs every file as one task, so it cannot
 // Files run in name order, so the leaking file `a-*` starts first.
@@ -20,11 +22,12 @@ class ByName extends BaseSequencer {
   }
 }
 
-const FIXTURES = ["timeout", "late", "unawaited"];
+const FIXTURES = ["timeout", "late", "unawaited", "rejects", "fake-timers"];
 const SHAPES = ["pool", "batch"];
 
 export default defineConfig(({ mode }) => {
-  const [fixture, shape] = mode.split("-");
+  const shape = mode.slice(mode.lastIndexOf("-") + 1);
+  const fixture = mode.slice(0, mode.lastIndexOf("-"));
   if (!FIXTURES.includes(fixture) || !SHAPES.includes(shape)) {
     throw new Error(
       `run with --mode <${FIXTURES.join("|")}>-<${SHAPES.join("|")}> (got '${mode}')`,

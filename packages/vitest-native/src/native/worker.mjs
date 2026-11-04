@@ -280,7 +280,14 @@ const RESIDENT_PROBLEMS_KEY = "vitestNativeResidentProblems";
 
 function withResidentHealth(msg) {
   if (msg?.type !== "testfileFinished" || msg.__vitest_worker_response__ !== true) return msg;
-  const problems = residentProblems(projectRoot);
+  let problems;
+  try {
+    problems = residentProblems(projectRoot);
+  } catch (error) {
+    // The response must still go out, or the task never finishes. A check that cannot
+    // read the resident state is a reason not to reuse the worker.
+    problems = [{ id: "resident-health", message: `the resident health check threw: ${error}` }];
+  }
   if (problems.length === 0) return msg;
   return { ...msg, [RESIDENT_PROBLEMS_KEY]: problems };
 }

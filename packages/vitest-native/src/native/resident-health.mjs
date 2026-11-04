@@ -63,14 +63,40 @@ function reactEntriesFor(projectRoot) {
   return entries;
 }
 
-// Whether a loaded React entry has an act() scope open. React 19 keeps the queue on
-// its client internals (`actQueue`); React 18 on `ReactCurrentActQueue.current`. Both
-// are null exactly while no scope is open.
-function actScopeOpen(react) {
+// React's act queue: on the client internals in React 19 (`actQueue`), on
+// `ReactCurrentActQueue.current` in React 18. Null while no act() scope is open.
+function actQueueOf(react) {
   const internals = react?.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
-  if (internals && "actQueue" in internals) return internals.actQueue != null;
-  const legacy = react?.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED?.ReactCurrentActQueue;
-  return legacy != null && legacy.current != null;
+  if (internals && "actQueue" in internals) return internals.actQueue;
+  return react?.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED?.ReactCurrentActQueue?.current;
+}
+
+// Whether a loaded React has an act() scope open. A non-null queue alone does not say
+// so: an act() whose callback throws or rejects closes its scope but leaves the queue
+// non-null, and the next outermost act() flushes and clears it. So a non-null queue is
+// settled with an empty synchronous act() first, which does exactly that when no scope
+// is open (the work it flushes is what the next file's first render would flush) and
+// leaves the queue alone inside an open scope. The act environment flag is set around
+// it so React does not warn about the call.
+function actScopeOpen(react) {
+  if (actQueueOf(react) == null) return false;
+  if (typeof react.act === "function") settleActQueue(react);
+  return actQueueOf(react) != null;
+}
+
+function settleActQueue(react) {
+  const flag = Object.getOwnPropertyDescriptor(globalThis, "IS_REACT_ACT_ENVIRONMENT");
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  try {
+    react.act(() => {});
+    return true;
+  } catch {
+    // A production React has no act(); the queue is then read as it stands.
+    return false;
+  } finally {
+    if (flag) Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", flag);
+    else delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+  }
 }
 
 const CHECKS = [

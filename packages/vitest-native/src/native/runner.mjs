@@ -75,59 +75,60 @@ export default class NativeHotRunner extends TestRunner {
   // Normally a worker that ended a file with a problem has already been retired by the
   // pool, so this finds none. It does when Vitest ran several files as one task, as it
   // does with one worker: the pool is consulted only between tasks. A problem that can
-  // clear by itself (an act() scope still awaiting its callback) is given up to the
-  // test timeout once; after that, every remaining file of the task fails naming the
-  // cause instead of failing on renders that never commit.
+  // clear by itself (an act() scope still awaiting its callback) is waited for once per
+  // task, up to the test timeout (5 s when it is off, 30 s at most). After that each
+  // file checks again without waiting, and fails naming the cause while it persists,
+  // instead of failing on renders that never commit.
   async residentUnusable(previousFile) {
-    if (this.vitestNativeUnusable) return this.vitestNativeUnusable;
     const projectRoot = requireProjectContext().projectRoot;
     let problems = residentProblems(projectRoot);
     if (problems.length === 0) return null;
-    const waitMs = this.config.testTimeout;
-    const deadline = Date.now() + waitMs;
-    while (
-      problems.length > 0 &&
-      problems.every((p) => p.clearsOnItsOwn) &&
-      Date.now() < deadline
-    ) {
-      // node:timers/promises, which fake timers left installed by the last file do not replace.
-      await delay(10);
-      problems = residentProblems(projectRoot);
+    this.vitestNativeLeftBy ??= previousFile;
+    const timeout = this.config.testTimeout;
+    const waitMs = Math.min(timeout > 0 ? timeout : 5_000, 30_000);
+    if (!this.vitestNativeWaited) {
+      this.vitestNativeWaited = true;
+      // Counted in steps rather than read from Date, which fake timers the last file left
+      // installed may have frozen; node:timers/promises is not replaced by them either.
+      for (let step = 0; step < waitMs / 10; step++) {
+        if (problems.length === 0 || !problems.every((p) => p.clearsOnItsOwn)) break;
+        if (this.cancelRun) break;
+        await delay(10);
+        problems = residentProblems(projectRoot);
+      }
+      if (problems.length === 0) return null;
     }
-    if (problems.length === 0) return null;
-    this.vitestNativeUnusable = new VitestNativeError(
+    return new VitestNativeError(
       "HOT_RESIDENT_UNUSABLE",
-      `hotRuntime: this worker cannot run more files: ${describeProblems(problems)} since ` +
-        `${previousFile ?? "an earlier file"} ended, and it did not close within ${waitMs} ms. ` +
-        `Renders would queue inside it and never commit. Vitest runs every file of a ` +
-        `one-worker run as one task, so the worker cannot be replaced between files. Fix the ` +
-        `test that left it open (often one that timed out while awaiting act()), or run with ` +
-        `maxWorkers >= 2 so the hot runtime can retire the worker.`,
+      `hotRuntime: this worker cannot run this file: ${describeProblems(problems)} since ` +
+        `${this.vitestNativeLeftBy ?? "an earlier file"} ended, and it did not close within ` +
+        `${waitMs} ms. Renders would queue inside it and never commit. Vitest runs every ` +
+        `file of a one-worker run as one task, so the worker cannot be replaced between ` +
+        `files. Fix the test that left it open (often one that timed out while awaiting ` +
+        `act()), or run with maxWorkers >= 2 so the hot runtime can retire the worker.`,
     );
-    return this.vitestNativeUnusable;
   }
 
   // A failed test that leaves resident state unusable gets the cause beside its own
   // error, once per file: the timeout alone does not say why later files would have
   // failed, nor that the worker is retired. A passing test that leaves it is not failed
   // here, as it would pass under per-file isolation; the pool still retires the worker.
+  // The entry carries no stack: it would point into this file, not the test.
   async onAfterRunTask(test) {
     if (test.result?.state === "fail" && !this.vitestNativeCauseReported) {
       const problems = residentProblems(requireProjectContext().projectRoot);
       if (problems.length > 0) {
         this.vitestNativeCauseReported = true;
-        const error = new VitestNativeError(
-          "HOT_RESIDENT_LEFT_UNUSABLE",
-          `hotRuntime: ${describeProblems(problems)} after this test failed, usually because ` +
-            `it timed out while awaiting act(). React stays loaded across files, so later ` +
-            `renders on this worker would queue inside that scope and never commit. The hot ` +
-            `runtime retires the worker after this file (with one worker, where it cannot, ` +
-            `the later files fail naming this cause).`,
-        );
+        const message =
+          `[vitest-native] hotRuntime: ${describeProblems(problems)} after this test failed, ` +
+          `often because a test timed out while awaiting act(). React stays loaded across ` +
+          `files, so later renders on this worker would queue inside that scope and never ` +
+          `commit. The hot runtime retires the worker after this file (with one worker, ` +
+          `where it cannot, the later files fail naming this cause).`;
         (test.result.errors ??= []).push({
-          name: error.name,
-          message: error.message,
-          stack: error.stack,
+          name: "VitestNativeError",
+          message,
+          stack: `VitestNativeError: ${message}`,
         });
       }
     }
