@@ -188,6 +188,8 @@ describe("native boundary", () => {
 
 import {
   BOUNDARY_NATIVE_MODULES,
+  DEV_LAUNCHER_MODULE,
+  EXPO_GO_ABSENT_MODULES,
   installKnownNativeModules,
   knownNativeModulesFor,
   nativeModuleSpecsFor,
@@ -252,13 +254,60 @@ describe("native boundary: which native modules exist", () => {
     installKnownNativeModules(projectRoot);
     try {
       const { tm, nm } = load();
-      expect(typeof nm.EXDevLauncher.anything).toBe("function");
-      expect("EXDevLauncher" in nm).toBe(true);
-      expect(tm.get("EXDevLauncher")).toBe(nm.EXDevLauncher);
+      expect(typeof nm.VitestNativeUnregistered.anything).toBe("function");
+      expect("VitestNativeUnregistered" in nm).toBe(true);
+      expect(tm.get("VitestNativeUnregistered")).toBe(nm.VitestNativeUnregistered);
       expect(typeof tm.get("SpecKeyboardObserver").captureRejections).toBe("function");
     } finally {
       vi.unstubAllEnvs();
       installKnownNativeModules(projectRoot);
+    }
+  });
+
+  // Expo Go has no dev launcher, and expo-constants parses EXDevLauncher.manifestString
+  // whenever the module is present (tests/expo-dev-launcher-fact.test.ts).
+  it.each(EXPO_GO_ABSENT_MODULES)(
+    "%s is absent from every lookup in every mode, as in Expo Go",
+    (name) => {
+      for (const nativeModules of ["device", "permissive"]) {
+        // The plugin writes no field for the default, "device".
+        stubProjectContext(nativeModules === "permissive" ? { nativeModules } : {});
+        installKnownNativeModules(projectRoot);
+        g.__vitest_native_known_modules.add(name);
+        try {
+          const { tm, nm } = load();
+          expect(nm[name], nativeModules).toBeUndefined();
+          expect(name in nm, nativeModules).toBe(false);
+          expect(tm.get(name), nativeModules).toBeNull();
+          expect(() => tm.getEnforcing(name), nativeModules).toThrow(
+            `TurboModuleRegistry.getEnforcing(...): '${name}' could not be found.`,
+          );
+        } finally {
+          vi.unstubAllEnvs();
+          installKnownNativeModules(projectRoot);
+        }
+      }
+    },
+  );
+
+  it("a test's mock of a module Expo Go lacks still wins, permissive or not", () => {
+    for (const nativeModules of ["device", "permissive"]) {
+      stubProjectContext(nativeModules === "permissive" ? { nativeModules } : {});
+      installKnownNativeModules(projectRoot);
+      try {
+        const { tm, nm } = load();
+        const impl = { manifestString: "{}" };
+        g.__vitest_native_module_mocks[DEV_LAUNCHER_MODULE] = impl;
+        expect(nm[DEV_LAUNCHER_MODULE]).toBe(impl);
+        expect(DEV_LAUNCHER_MODULE in nm).toBe(true);
+        expect(tm.get(DEV_LAUNCHER_MODULE)).toBe(impl);
+        expect(tm.getEnforcing(DEV_LAUNCHER_MODULE)).toBe(impl);
+        delete g.__vitest_native_module_mocks[DEV_LAUNCHER_MODULE];
+        expect(nm[DEV_LAUNCHER_MODULE]).toBeUndefined();
+      } finally {
+        vi.unstubAllEnvs();
+        installKnownNativeModules(projectRoot);
+      }
     }
   });
 
@@ -269,17 +318,17 @@ describe("native boundary: which native modules exist", () => {
 
   it("an unregistered module is null from get() and undefined from NativeModules", () => {
     const { tm, nm } = load();
-    expect(tm.get("EXDevLauncher")).toBeNull();
-    expect(nm.EXDevLauncher).toBeUndefined();
-    expect("EXDevLauncher" in nm).toBe(false);
+    expect(tm.get("VitestNativeUnregistered")).toBeNull();
+    expect(nm.VitestNativeUnregistered).toBeUndefined();
+    expect("VitestNativeUnregistered" in nm).toBe(false);
   });
 
   it("getEnforcing() still returns a stub for an unregistered module", () => {
     const { tm, nm } = load();
-    const required = tm.getEnforcing("EXDevLauncher");
+    const required = tm.getEnforcing("VitestNativeUnregistered");
     expect(typeof required.anything).toBe("function");
     // Requiring a module does not make it visible to optional lookups.
-    expect(nm.EXDevLauncher).toBeUndefined();
+    expect(nm.VitestNativeUnregistered).toBeUndefined();
   });
 
   it("a known module is present for every lookup kind", () => {
@@ -299,13 +348,13 @@ describe("native boundary: which native modules exist", () => {
 
   it("a mocked module is present on both paths", () => {
     const { tm, nm } = load();
-    const impl = { manifestString: "{}" };
-    g.__vitest_native_module_mocks.EXDevLauncher = impl;
-    expect(nm.EXDevLauncher).toBe(impl);
-    expect("EXDevLauncher" in nm).toBe(true);
-    expect(tm.get("EXDevLauncher")).toBe(impl);
-    delete g.__vitest_native_module_mocks.EXDevLauncher;
-    expect(nm.EXDevLauncher).toBeUndefined();
+    const impl = { value: "{}" };
+    g.__vitest_native_module_mocks.VitestNativeUnregistered = impl;
+    expect(nm.VitestNativeUnregistered).toBe(impl);
+    expect("VitestNativeUnregistered" in nm).toBe(true);
+    expect(tm.get("VitestNativeUnregistered")).toBe(impl);
+    delete g.__vitest_native_module_mocks.VitestNativeUnregistered;
+    expect(nm.VitestNativeUnregistered).toBeUndefined();
   });
 
   it("installKnownNativeModules reads the plugin's list, or computes it", () => {
@@ -2532,6 +2581,9 @@ describe("the Expo native module resolver", () => {
       expect(resolver.present("ExpoObserve")).toBe(false);
       expect(resolver.present("MockedOnly")).toBe(true);
       expect(resolver.present("AnythingElse")).toBe(true);
+      // Layer 0: a module Expo Go lacks is absent, even with a package mock for it.
+      pkg("node_modules/expo-dev-launcher-mock", { "mocks/EXDevLauncher.js": "exports.x = 1;" });
+      expect(resolver.present("EXDevLauncher")).toBe(false);
       // Layer 2: the package mock is the whole module.
       const own = resolver.seed("ExpoCrypto");
       expect(own.complete).toBe(true);

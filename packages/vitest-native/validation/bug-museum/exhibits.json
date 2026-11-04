@@ -422,6 +422,25 @@
       }
     },
     {
+      "id": "env-permissive-expo-dev-launcher",
+      "class": "env-contract",
+      "title": "Importing expo throws under nativeModules: 'permissive'",
+      "source": "the 0.14.0 release candidates (rc.10 and rc.11)",
+      "fixedBy": "open (fix/permissive-expo-dev-launcher)",
+      "fixRef": "fix/permissive-expo-dev-launcher",
+      "bugSignature": "^dev-launcher\\.test\\.ts: SyntaxError: Unexpected token '\\(', \"\\(\\.\\.\\.args\\) \"\\.\\.\\. is not valid JSON",
+      "control": {
+        "why": "Without permissive mode EXDevLauncher is absent, as React Native's own JavaScript never requests it, so expo-constants never parses a manifest.",
+        "edits": [
+          {
+            "file": "vitest.config.mts",
+            "find": "hotRuntime: false, nativeModules: \"permissive\"",
+            "replace": "hotRuntime: false"
+          }
+        ]
+      }
+    },
+    {
       "id": "env-expo-os",
       "class": "env-contract",
       "title": "EXPO_OS is unset under the native engine",
