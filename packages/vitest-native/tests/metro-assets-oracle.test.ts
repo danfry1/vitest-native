@@ -22,13 +22,13 @@ import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
 import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
 import {
   assetIdKey,
   imageDimensions,
   metroAssetDescriptor,
   parseAssetPath,
 } from "../src/native/assets.mjs";
+import { bareReactNativeRoot } from "./support/bare-rn-root";
 
 const req = createRequire(import.meta.url);
 const metroRequire = createRequire(req.resolve("metro/package.json"));
@@ -41,9 +41,13 @@ const { tryParse }: any = req("metro/private/node-haste/lib/AssetPaths");
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const generate: any = metroRequire("@babel/generator").default;
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURES = path.resolve(HERE, "../tests-native/fixtures/assets");
-const projectRoot = path.resolve(HERE, "..");
+// Metro's own descriptor is the one a bare React Native project registers. This
+// package declares `expo`, which makes its root an Expo project, so the descriptor
+// cases run in a bare root holding a copy of the fixtures at the same relative path.
+const bare = bareReactNativeRoot();
+afterAll(bare.remove);
+const FIXTURES = bare.assets;
+const projectRoot = bare.root;
 
 /** The object Metro's generated asset module passes to registerAsset. */
 async function metroRegistered(
@@ -243,6 +247,7 @@ describe("assets in a project Expo bundles", () => {
       httpServerLocation: `${location}?unstable_path=${encodeURIComponent(value)}`,
       fileHashes: [md5("logo.png"), md5("logo@2x.png"), md5("logo@3x.png")],
     });
+    // The same asset in a project Expo does not bundle has none.
     expect(ours(file, "ios")).not.toHaveProperty("fileHashes");
   });
 });
