@@ -1373,8 +1373,9 @@ function hotRuntimeOverridden(reason: string): VitestNativeError {
   return new VitestNativeError(
     "HOT_RUNTIME_OVERRIDDEN",
     `hotRuntime was requested, but ${reason}, which the hot runtime cannot honour. ` +
-      `Remove that setting, or use hotRuntime:'auto' to fall back to it automatically ` +
-      `or hotRuntime:false.`,
+      `Remove that setting, or use hotRuntime:'auto' (or add mode:'auto' to the options ` +
+      `object, keeping its recycling options) to fall back to it automatically, or ` +
+      `hotRuntime:false.`,
   );
 }
 
@@ -1751,8 +1752,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   const hotRuntimeExplicit = options?.hotRuntime !== undefined;
   const hotRuntimeOpt = options?.hotRuntime ?? false;
   const hotRuntimeRequested = hotRuntimeOpt !== false;
-  const hotRuntimeAuto = hotRuntimeOpt === "auto";
   const hotRecycle = typeof hotRuntimeOpt === "object" ? hotRuntimeOpt : {};
+  // `{ mode: 'auto', … }` selects as 'auto' does and applies the object's recycling
+  // options when hot runs.
+  const hotRuntimeAuto = hotRuntimeOpt === "auto" || hotRecycle.mode === "auto";
   // Resolved at config() time, once the consumer project root is known. Seeded to a
   // safe default so the hooks (resolveId/load/transform), which run after config(),
   // never read undefined.
@@ -1950,6 +1953,15 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // Only the opt-out is recorded: the setup file defaults this on under hot.
       if (hotRuntimeRequested && hotRecycle.esmGeneration === false) {
         fields.hotEsmGeneration = false;
+      }
+      // A released module generation is safe to read only through Vitest's interop proxy,
+      // which falls back to the module's default export (loader.mjs, releaseGenerations).
+      // Without it a test file's late callback would read a cleared binding, so nothing is
+      // released.
+      const userDeps = (userConfig as { test?: { deps?: { interopDefault?: unknown } } }).test
+        ?.deps;
+      if (hotRuntimeRequested && userDeps?.interopDefault === false) {
+        fields.hotReleaseGenerations = false;
       }
 
       // Native engine: externalize RN so it loads through Node's single CJS graph,
@@ -2158,7 +2170,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           if (autoDeclineReason !== null) {
             if (hotRuntimeExplicit || diagnostics) {
               console.warn(
-                `[vitest-native] hotRuntime:'auto' kept default isolation: ${autoDeclineReason}.`,
+                `[vitest-native] hotRuntime${hotRuntimeOpt === "auto" ? ":'auto'" : " mode:'auto'"} ` +
+                  `kept default isolation: ${autoDeclineReason}.`,
               );
             }
           } else if (!allowUnboundedMemory && plan.maxWorkers < 2) {
@@ -2171,8 +2184,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
                 (plan.admittedWorkers < 2
                   ? `The effective ${plan.source} memory ceiling admits only one worker. `
                   : `This config selects one worker (maxWorkers or fileParallelism). `) +
-                `Use hotRuntime:false, provide enough ` +
-                `memory for at least two workers, or explicitly accept unbounded growth with ` +
+                `Use hotRuntime:'auto' (or mode:'auto' in the options object) to fall back to ` +
+                `per-file isolation here, hotRuntime:false, provide enough memory for at ` +
+                `least two workers, or explicitly accept unbounded growth with ` +
                 `hotRuntime:{ allowUnboundedMemory:true }.`,
             );
           }

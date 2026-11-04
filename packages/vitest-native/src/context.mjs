@@ -35,6 +35,7 @@ const SCHEMA = {
   assetExts: { valid: strings },
   hotPreserveGlobals: { valid: strings },
   hotEsmGeneration: { valid: (v) => typeof v === "boolean" },
+  hotReleaseGenerations: { valid: (v) => typeof v === "boolean" },
   registry: { valid: absolute },
   ownership: { valid: object },
   projectDirs: { valid: strings },

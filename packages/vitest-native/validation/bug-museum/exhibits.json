@@ -66,8 +66,8 @@
       "class": "ownership",
       "title": "Aliased workspace source using import.meta is a SyntaxError",
       "source": "migration testing (2026-10)",
-      "fixedBy": "#344 (draft)",
-      "fixRef": "origin/fix/source-aliased-workspace-ownership",
+      "fixedBy": "#453 (draft)",
+      "fixRef": "origin/feat/import-meta-node-compile",
       "links": {
         "@m/feature": "packages/feature"
       },
@@ -291,6 +291,80 @@
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
+    },
+    {
+      "id": "own-alias-renamed",
+      "class": "ownership",
+      "title": "A workspace library aliased to source under another name loads twice",
+      "source": "#344 (monorepo-source-ownership.test.ts, the renamed case)",
+      "fixedBy": "#371 (merged; guard for #344's renamed-alias case)",
+      "links": {
+        "@m/feature": "packages/feature",
+        "@m/validator": "packages/validator"
+      },
+      "bugSignature": "^split\\.test\\.ts: AssertionError: expected null to be 'written by the test'",
+      "control": {
+        "why": "The library no longer peers on react-native, so the engine does not detect it and Vite owns it: the bug's precondition is gone.",
+        "edits": [
+          {
+            "file": "packages/feature/package.json",
+            "find": "\"react-native\": \"*\"",
+            "replace": "\"museum-control-no-react-native\": \"*\""
+          }
+        ]
+      },
+      "preFixRef": "a5592d2^",
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "proof": "landed proven"
+      }
+    },
+    {
+      "id": "own-alias-node-require",
+      "class": "ownership",
+      "title": "An installed package requiring a source-aliased workspace library by name gets its built copy",
+      "source": "#344 (monorepo-source-ownership.test.ts, the required case)",
+      "fixedBy": "#454 (ownershipModel resolver; open)",
+      "links": {
+        "@m/feature": "packages/feature",
+        "@m/validator": "packages/validator"
+      },
+      "bugSignature": "^node-require\\.test\\.ts: AssertionError: museum-requires-feature reads the store the test wrote: expected 'built copy' to be 'written by the test'",
+      "control": {
+        "why": "museum-requires-feature no longer peers on react-native, imports the library instead of requiring it, and is inlined (server.deps.inline), so Vite owns it and its import of @m/feature goes through Vite's alias to the source: the bug's precondition, a Node-owned consumer, is gone. (Vite does not process the require() of an inlined CommonJS file, so the import is part of the control.)",
+        "edits": [
+          {
+            "file": "vendor/museum-requires-feature/package.json",
+            "find": "\"peerDependencies\": {\n    \"react-native\": \"*\"\n  }",
+            "replace": "\"peerDependencies\": {\n    \"museum-control-no-react-native\": \"*\"\n  }"
+          },
+          {
+            "file": "vendor/museum-requires-feature/package.json",
+            "find": "\"main\": \"index.js\",",
+            "replace": "\"type\": \"module\",\n  \"main\": \"index.js\","
+          },
+          {
+            "file": "vendor/museum-requires-feature/index.js",
+            "find": "exports.viaNode = () => require(\"@m/feature\").readStore();",
+            "replace": "import { readStore } from \"@m/feature\";\nexport const viaNode = () => readStore();"
+          },
+          {
+            "file": "vitest.config.mts",
+            "find": "    include: [\"*.test.{ts,tsx}\"],",
+            "replace": "    include: [\"*.test.{ts,tsx}\"],\n    server: { deps: { inline: [\"museum-requires-feature\"] } },"
+          }
+        ]
+      },
+      "status": {
+        "main": "FAIL (bug)",
+        "control": "PASS",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "mainSignature": "node-require.test.ts: AssertionError: museum-requires-feature reads the store the test wrote: expected 'built copy' to be 'written by the test' // Object.is equality",
+        "proof": "open (control passes)"
+      }
     },
     {
       "id": "own-jest-require-imported-cjs",

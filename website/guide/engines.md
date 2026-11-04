@@ -110,4 +110,6 @@ The cap of four applies only to the worker count vitest-native picks itself; in 
 
 Recycling only fires with **two or more workers** under current Vitest. In single-worker mode Vitest batches every file into one task and never exposes a recycle boundary, so `'auto'` keeps per-file isolation there and `hotRuntime: true` fails that configuration instead of silently trusting an inert limit. Use `maxWorkers >= 2` for hot mode. If an external scheduler already enforces the process boundary, `hotRuntime: { allowUnboundedMemory: true }` explicitly accepts the risk and disables the automatic worker cap and process-RSS enforcement.
 
+The plan picks each worker's heap threshold. To set your own and keep `'auto'`'s fallback to per-file isolation, use `hotRuntime: { mode: 'auto', memoryLimit }` (bytes); without `mode`, an object requires the hot runtime and fails where it cannot run. The heap a worker reports is read when its file finishes, before any garbage collection, so it can sit above what the worker actually retains; leave headroom when you choose a threshold.
+
 Next: [How It Works](/guide/how-it-works) explains what the plugin does under the hood.

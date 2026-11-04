@@ -23,7 +23,11 @@ import crypto from "node:crypto";
 import vm from "node:vm";
 import { MessageChannel, receiveMessageOnPort, SHARE_ENV, Worker } from "node:worker_threads";
 import { decorateTransformError } from "./explain.mjs";
-import { handleToolchainRequest } from "./babel-toolchain.mjs";
+import {
+  handleToolchainRequest,
+  IMPORT_META_LOWERING,
+  mentionsImportMeta,
+} from "./babel-toolchain.mjs";
 import { ESM_EXPORTS_MARK, ESM_INTEROP_RUNTIME } from "./esm-interop.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import { resolveTransformPreset } from "./babel-preset.mjs";
@@ -680,11 +684,18 @@ function callToolchain(request) {
   atomicsStore(signal, 0, 0);
   port.postMessage(request);
   const deadline = clock() + deadlineMs;
-  for (;;) {
+  // Only the signal says the request was answered (signal[0]) or the thread ended
+  // (signal[1], also read here: the thread can end between the check above and the
+  // store of 0, which overwrites its signal[0] = 2). A wake-up alone says neither. The
+  // thread stores, then wakes; a caller not yet waiting when the store lands (it was
+  // descheduled after posting, or a wait slice had just timed out) sees the store and
+  // returns. If the thread was descheduled between its store and its wake-up, that
+  // wake-up lands on the caller's wait for its NEXT request, before anything answered
+  // it. Ending the wait on it failed a 0.0 MB file at once as "has not answered in 60 s".
+  while (atomicsLoad(signal, 0) === 0 && atomicsLoad(signal, 1) !== 1) {
     const left = deadline - clock();
     if (left <= 0) break;
-    if (atomicsWait(signal, 0, 0, Math.min(left, 1000)) !== "timed-out") break;
-    if (atomicsLoad(signal, 1) === 1) break;
+    atomicsWait(signal, 0, 0, Math.min(left, 1000));
   }
   const reply = receiveMessageOnPort(port)?.message;
   if (reply === undefined) {
@@ -723,6 +734,14 @@ function callToolchain(request) {
 
 /** A transform failure, named for the file: Babel's own, or its thread's. */
 function transformFailure(err, file, platform) {
+  // Already names the file and the fix; Babel prefixed its own copy of the path.
+  if (err?.code === "IMPORT_META_IN_NODE_OWNED") {
+    const message = String(err.message);
+    return new VitestNativeError(
+      err.code,
+      message.slice(Math.max(0, message.indexOf("[vitest-native]"))),
+    );
+  }
   if (err?.toolchainLost) {
     return new VitestNativeError(
       "TRANSFORM_FAILED",
@@ -798,6 +817,13 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   // package — the interop is decided at run time — so nothing else needs keying. The
   // token names the helpers' revision, so output from an earlier revision is not reused.
   if (esm) hash.update(`\0esm-goal\0${ESM_INTEROP_RUNTIME}`);
+  // `import.meta` gets its CommonJS value, or fails by name (importMetaToCommonJS in
+  // babel-toolchain.mjs). Decided on the source text first, so a file without it costs
+  // one regular-expression scan and no Babel work. Only these files' output changes, so
+  // only their key does, as for the ESM goal above: TRANSFORM_CACHE_VERSION, and with it
+  // every other entry and the precompiled registry, stays as it was.
+  const importMeta = mentionsImportMeta(src);
+  if (importMeta) hash.update(`\0${IMPORT_META_LOWERING}`);
   const key = hash.digest("hex");
   const cachePath = path.join(ctx.cacheDir, key + ".js");
   try {
@@ -816,6 +842,7 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
             file,
             src,
             project: true,
+            importMeta,
             caller: babelJestCaller(ctx, platform),
           }
         : {
@@ -824,6 +851,7 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
             src,
             // Added on Babel's side: a plugin is a function, which does not cross threads.
             esmInterop: esm,
+            importMeta,
             options: packageTransformOptions(ctx, file, platform),
           },
     ).code;
