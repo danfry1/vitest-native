@@ -298,6 +298,18 @@ it("stops a Babel thread that has not answered by the deadline", () => {
   expect(result.message).toMatch(/busy\.js[\s\S]*has not answered in 3 s compiling 0\.0 MB/);
 }, 180_000);
 
+it("ends the wait on the real clock when no clock is injected", () => {
+  // The tests above drive the deadline with a clock of their own; this one keeps the
+  // production clock, so a deadline that never reads elapsed time is caught. No upper
+  // bound on the time it takes: a wait that never ends is the child guard's failure.
+  const { result } = inChild(`
+    _setToolchainOptions({ deadlineMs: 1_000 });
+    const lost = attempt("busyRealClock.js", "busy");
+    console.log("RESULT=" + JSON.stringify(lost));
+  `);
+  expect(result.code).toBe("TRANSFORM_FAILED");
+}, 180_000);
+
 it("compiles while a test has stubbed what the call to Babel's thread uses", () => {
   // The call runs with test code on the stack: what it uses was captured as it loaded.
   vi.stubGlobal("Atomics", {});

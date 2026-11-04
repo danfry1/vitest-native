@@ -716,14 +716,15 @@ describe("plugin engine routing", () => {
   // package's root a config call detects its whole dependency closure (about 60 ms a
   // call locally, ten times that on a loaded machine), and the hot tests below make
   // dozens of calls, which timed out on CI runners. They use an app that has React
-  // Native and nothing else: about 3 ms a call. Its node_modules is its own, so its
+  // Native (and this package's Vitest, so the run sees the same Vitest as under the
+  // package root): about 3 ms a call. Its node_modules is its own, so its
   // registry cache starts empty and a call would compile React Native's registry in a
   // child process; routing does not read the registry, so it is left out, as
   // VITEST_NATIVE_NO_REGISTRY=1 does for a user.
   let hotRoot: string;
   beforeAll(() => {
     hotRoot = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-hot-routing-"));
-    for (const name of ["react-native", "@react-native/babel-preset", "@babel/core"]) {
+    for (const name of ["react-native", "@react-native/babel-preset", "@babel/core", "vitest"]) {
       const to = path.join(hotRoot, "node_modules", name);
       fs.mkdirSync(path.dirname(to), { recursive: true });
       fs.symlinkSync(fs.realpathSync(path.join(projectRoot, "node_modules", name)), to, "junction");
