@@ -96,6 +96,11 @@ for (const exhibit of manifest.exhibits) {
       continue;
     }
     const sha = expectedSha(exhibit, column);
+    // STATUS.md records the flag off: a run.mjs --ownership verdict is another column.
+    if (verdict.ownershipModel)
+      problems.push(
+        `${exhibit.id}: the ${column} verdict ran with experimental.ownershipModel: ${verdict.ownershipModel}; STATUS.md records the flag off`,
+      );
     if (!verdict.build?.verified)
       problems.push(
         `${exhibit.id}: the ${column} verdict ran on an unverified build (${verdict.build?.sha ?? "no SHA"}); build it with build-ref.mjs`,

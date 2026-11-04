@@ -27,6 +27,11 @@
 - **Vite+ projects start.** The Vite and Vitest versions are read from the running instances, so
   Vite+ no longer fails with `UNSUPPORTED_PEER`. Two physical copies of Vitest stop the run at startup
   with `VITEST_TWIN_INSTANCE`, naming both.
+- **Expo SDK 57 and 58 are the supported SDKs.** On an older or newer SDK the plugin prints one
+  warning per run naming them, and `vitest-native doctor` reports it; tests that load Expo modules
+  can fail there. Upgrade to Expo SDK 57 or 58.
+- **The package is about 30% smaller** and no longer ships `CHANGELOG.md`; the changelog is
+  [on GitHub](https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/CHANGELOG.md).
 - **RNTL works without jest-compat or globals.** `findBy*`, `waitFor` and `userEvent` advance
   `vi.useFakeTimers()`, and RNTL's auto-cleanup runs without `test.globals: true`. A suite that relied
   on trees staying mounted between tests imports `@testing-library/react-native/pure`.
@@ -249,6 +254,85 @@
   extensions still apply and one warning names the gap. Default: `false`.
 
 ### Patch Changes
+
+- 74f1bf0: **Workspace libraries that declare `react-native` are owned as in 0.14.0-rc.10, and their setup files run under the native engine.** No action needed.
+
+  - **Workspace libraries are detected as in 0.14.0-rc.10.** 0.14.0-rc.11 also detected a workspace library whose `exports` map leaves out `./package.json`. That made the library Node-owned: `vi.mock` from tests no longer reached its internal imports, and any of its files importing `vitest` failed. Such a library now runs in Vite again. Installed packages with that exports shape, such as `expo-symbols`, are still detected and compiled. A `transform.exclude` entry added for such a library is no longer needed.
+  - **A setup file in a detected workspace library runs.** A detected library is one that exports `./package.json` or has no `exports` map. Listing its own file in `test.setupFiles` stopped the run with `MODULE_OWNER_CONFLICT` ("Vite attempted to transform '…/vitest.setup.ts', but the native ownership policy assigns that file to Node"). The setup file now runs in Vite, as test files do. Only the setup file moves: library files it imports still run under Node. A library file that imports `vitest` still needs `transform.exclude` for that library. A `vi.mock` in the setup file does not reach the library's own internal imports. Setup files inside `node_modules` are unchanged.
+
+- dff0230: **Under the native engine, `globalThis.expo.SharedObject` has `release()`.** expo-modules-core's `useReleasingSharedObject` hooks, which expo-video, expo-audio and expo-image build on, call it from their effect cleanup, so every unmount of such a component threw `TypeError: object?.release is not a function`. React reports an error in a cleanup through `console.error` instead of rethrowing, and Vitest 5 hides the console output of passing tests, so this showed only with `silent: false`. The stand-in now has the no-op `release()` the native class has; `SharedRef` and the fabricated native classes inherit it. No action needed.
+
+- 858e0c7: **Under the native engine, a project that does not use `expo` runs even when `expo` is installed beside it.** The setup file installs Expo's winter runtime only when vitest-native compiles `expo` for the project: the project, or a manifest above it, declares `expo` or a package that depends on it, or `transform` names it. Before, it installed the runtime whenever `expo` resolved, and SDK 58 publishes that runtime as ES module syntax Node cannot run uncompiled. So a package beside an Expo app in a hoisted workspace, or a library whose `expo-*` devDependencies pull `expo` in as a peer, failed every test file in the setup, with `'expo' shipped source Node can't run directly` (Node 22.22.3 and later, Node 24) or `Cannot find module '…/expo/build/winter/runtime'` (Node 22.13). No action needed for a project that declares `expo`: it gets the runtime as before.
+
+  On every SDK, including 57 and earlier, a project where `expo` resolves without being declared no longer gets Expo's globals (`structuredClone`, `URL` and the others the runtime installs), as under jest-expo, which installs them only for projects using its preset. `presets: { expo: true }` alone does not count as declaring `expo`. A project that relies on those globals without declaring `expo` should declare it or add it to `transform`.
+
+- 53bc6fb: **Native-engine config loads are faster on projects with many React Native packages.** Under `engine: 'native'`, each config load now resolves a package's directory once per lookup: auto-detection keeps its own memoized lookup, and the module ownership policy shares one with the linked-package check. On a large Expo app this cuts config-time module resolutions from about 2,100 to about 1,100, roughly 14 ms per config load; each project in a multi-project config gets the same saving. No action needed. The detected packages, the externalization patterns passed to Vitest and every ownership decision are unchanged, and a package installed during a watch session is still picked up when Vitest reloads the config.
+
+- 64ac383: **Under the native engine, a package that depends on a workspace library now compiles the installed React Native packages that library depends on.** A feature package depending on a workspace UI library that declares `expo-image` failed with `Cannot find module '…/expo-asset/build/Asset.fx'`: `expo-asset`, reached through `expo-image` and `expo`, was never compiled, because only the feature package's own declarations were followed. No action needed.
+
+  - The same applies to a workspace library imported through a string `resolve.alias` entry or, where Vite resolves them, tsconfig `paths`, without being declared. With `diagnostics: true` the plugin names such a library.
+  - What changes: more installed packages are compiled and loaded by Node in these projects. As for every Node-loaded package, a `vi.mock` from a test does not reach their internal imports.
+  - Unchanged: which owner a workspace library has. This change adds only installed packages (in `node_modules`), never a workspace member.
+  - Not covered: aliases with a regular-expression `find`, aliases other plugins add (vite-tsconfig-paths, Nx's `nxViteTsPaths`), and a `setupFiles` entry pointing into an undeclared workspace library; none of these is followed. Declaring the library as a dependency covers them.
+
+- 1ce2f5d: **Under the native engine with `nativeModules: 'permissive'`, importing `expo` or `expo-constants` works again.** In 0.14.0-rc.10 and rc.11 it threw `Unexpected token '(', "(...args) "... is not valid JSON`. No action needed.
+
+  `NativeModules.EXDevLauncher` is now absent by default, as in Expo Go, which the default runtime models (as jest-expo does). Only expo-dev-launcher registers that module, in a development build, and expo-constants parses its `manifestString` whenever it is present. It is absent from `NativeModules`, from `'EXDevLauncher' in NativeModules`, from `TurboModuleRegistry.get` and from `globalThis.expo.modules` in every mode, and `TurboModuleRegistry.getEnforcing('EXDevLauncher')` throws React Native's own "could not be found" error. A test that needs the module still gets it with `mockNativeModule('EXDevLauncher', …)`. Every other module answers as before, in both modes.
+
+- c4f31b0: **A cache miss after a lazy global is installed no longer fails with `Cannot read properties of undefined (reading 'environmentVisitor')` under the native engine.** This hit Expo SDK 57 projects on a warm transform cache, and the error named whichever file missed the cache. SDK 57's runtime, which the engine installs at setup, replaces `TextDecoder` with a lazy getter, and Babel read it while still loading. No action needed: Babel now runs apart from the tests, as it does under Jest. A project Babel config or plugin sees these differences:
+
+  - `process.argv` is the Babel worker's.
+  - `require("node:worker_threads").isMainThread` is `false`.
+  - The tests' `require.cache` and globals are not visible.
+
+  `process.env` is shared. If Babel's thread is lost, the file fails with `TRANSFORM_FAILED`. That happens at once when something exits the thread, such as a `process.exit()` in a config. When the thread runs out of heap, it happens after a deadline: 60 s plus 15 s per MB of the file's source. A transform slower than that deadline now fails the same way.
+
+- 43139a6: **The native engine compiles the dependencies of every package a test run reaches, including one only another workspace member declares and one named in `transform: [...]`.** In a workspace where the app declares `expo` and a library declares only `expo-image`, the library's tests compiled `expo` but not `expo-asset` or `expo-constants`, and failed with `Cannot find module 'expo-asset/build/Asset.fx'`. A package listed in `transform` also lost its dependencies: `react-native-flash-message` left `react-native-iphone-screen-helper` uncompiled, so its `Platform` was `undefined`. Entries added to `transform` only to work around this can be removed.
+
+  One case needs action: if a newly compiled dependency is also in your `test.server.deps.inline`, startup now stops with `INLINE_BREAKS_OWNERSHIP`, because Vite and Node would both load it. Remove that package from `server.deps.inline`. Peer dependencies are followed only into packages already detected, and a package that an active preset shadows, or that `transform.exclude` names, is not walked.
+
+- 1d3fd76: **A project whose root reaches Vitest under another spelling of the same directory no longer fails with "the project context is invalid".** No action needed. On Windows one directory has more than one spelling (`C:\Users\RUNNER~1` and `C:\Users\runneradmin`), and a symlinked root is another; the check that each project runs with its own context compared the two as strings. It now compares the directories they name.
+
+- 5da25bf: **`vitest-native doctor` notes that Vitest 4 runs without the transform cache.** On Vitest 4 the
+plugin leaves Vitest's persistent transform cache off, so every run transforms every imported
+module again (about half a second per thousand modules on one benchmark). doctor now says so in a
+"Transform cache" section that never fails the check. To get the cache, upgrade to Vitest 5, or
+from Vitest 4.0.11 set `test.experimental.fsModuleCache: true` after reading the troubleshooting
+entry on [vitest-dev/vitest#11789](https://github.com/vitest-dev/vitest/issues/11789) (reproduced
+on 5.0.5, unverified on 4). doctor also flags a top-level `test.fsModuleCache`, which does nothing on 4.
+
+- 4bda491: **Under the native engine, importing tslib, or any CommonJS that sets `__esModule` without a `default`, from a compiled ES module now works.** The default import is `module.exports`, as Node gives it, where it was `undefined` ("Cannot read properties of undefined (reading '__extends')"). No action needed.
+
+  This applies to files that are ES modules to Node (`.mjs`, or `"type": "module"`) and compiled without a project Babel config: a default import, a default import beside named ones (`import tslib, { __extends } from`), `export { default } from` and `import * as ns` (`ns.default`). A target with its own `default` still gives that default, as Metro does, where Node would give `module.exports`. Script-goal files keep Babel's interop. What else changes for such a target: `import * as ns` of it is now a separate object whose members read the module (one per module, shared by every importing file), so `typeof ns` is `"object"` even when the module is a function, and `vi.spyOn(ns, name)` no longer replaces the module's own member. In an import cycle, a default read at the top level while the target is still loading gets `module.exports`, a truthy object, where it was `undefined`.
+
+- 5bd3352: **Every extension Metro resolves as an asset by default is an asset in tests too, so expo-router's Android toolbar loads.** No action needed. The default asset extensions now include all of Metro's (`xml`, `pdf`, `html`, `yaml`, `yml`, `zip`, `psd`, `m4v`, `mpeg`, `mpg`, `aiff`, `caf` were missing), plus the image and font types vitest-native already added. A `require('./icon.xml')`, which expo-router's Android toolbar makes for its vector drawables, failed with `SyntaxError: Unexpected token '<'` because the file was compiled as JavaScript; it now registers as an asset, as in an app built with Metro.
+
+- c50112c: The mock engine's `StyleSheet.compose` and `StyleSheet.flatten` now match React Native for missing and empty styles. `compose(null, b)` returns `b` and `compose(a, undefined)` returns `a`, where the mock returned a two-element array. `flatten([])` and `flatten([null, false])` return `{}`, and `flatten` of a number or string returns `undefined`. Snapshots of styles built with StyleSheet.compose or flatten may change; update them with `vitest -u`.
+
+- 30cdad9: **The native engine now detects and compiles an installed React Native package whose `exports` map leaves out `./package.json`.** Before, such a package was silently skipped. On Node versions that run the loader hooks off-thread (22.13–22.22.2, 24.0–24.11), Node then ran its ES module build as published and failed on its extensionless imports. Expo SDK 57's `expo-symbols` is one: on Android, expo-router requires it, and the run failed with `Cannot find module '…/expo-symbols/build/materialImageSource'`. No action needed. If you listed such a package in `transform: [...]` to work around this, the entry can go. The same lookup now serves the `react-native`-field alignment between Vite and Node.
+
+- 5f819d6: **A Jest partial mock of your own source shares module state with the rest of the test file, through a relative path or any alias.** With `jestMockTransform()`, `jest.mock(p, () => ({ ...jest.requireActual(p), x: jest.fn() }))` now loads the real module through Vite, so its real members read the same store or cache the app code writes, as under Jest. No action needed.
+
+  Before, `jest.requireActual` in the factory loaded a second copy through Node whenever Vite had not evaluated the module yet, so the real members silently read state the app never wrote. A regex `resolve.alias` failed with `REQUIRE_ACTUAL_ALIAS_UNSUPPORTED`; it now works there, as do string aliases and `resolve.tsconfigPaths`. Under the native engine, source in the project's own directories loads through Vite even when `server.deps.external` names it; a module the engine runs in Node (a detected workspace React Native package, a `transform` entry) keeps the Node load, as does a `server.deps.external` match under the mock engine or outside the project's directories. The actual module of an ES module is an object with `__esModule` whose members read the module; a factory may assign to it. This covers the import path: a `require()` or `jest.requireMock` of the module that runs before any import still loads a separate copy, and so does a `jest.requireActual` inside a function the factory returns. A CommonJS module still comes back as its `module.exports`.
+
+- 97615f3: **React Native's own modules run with the same strict-mode semantics as under Node and Jest on the native engine.** The precompiled React Native registry made every module it inlines strict, but React Native's Babel preset leaves most of its modules without `"use strict"`, so Node and Jest run them sloppy. In those modules a write to a frozen object threw a `TypeError` under vitest-native and failed silently under Jest, and `this` in a plain function call was `undefined` instead of the global object. No action needed: each module now keeps its own directive and runs with `this` set to `module.exports`, as in Node's CommonJS wrapper, and the registry rebuilds once on the first run.
+
+  `VITEST_NATIVE_NO_REGISTRY=1` already gave these semantics. The hot runtime uses the same registry and is covered too.
+
+- 88bf375: **Stack frames inside React Native name the real file under the native engine.** With the precompiled React Native registry, an error thrown through React Native code showed frames such as `rn-ios-<hash>.cjs:798:744`, because the registry's source map was never applied inside Vitest's workers. Each React Native module is now compiled separately under its own file name, so frames read, for example, `react-native/Libraries/vendor/emitter/EventEmitter.js:1:735`. The line and column refer to the module as compiled, the same as without the registry. No action needed; the registry rebuilds once on the first run.
+
+  A dynamic `import()` inside a module in the registry now resolves from that module's file instead of failing with `ERR_MODULE_NOT_FOUND`; no module in React Native 0.86–0.88 does this today. The registry no longer turns on Node's source-map support in workers, and no longer writes a `.map` file next to the registry.
+
+- be69e50: **Extensionless imports into large directories resolve faster, under both engines.** No action
+needed. Resolving `./Foo` across Metro's candidates (`.ios.js`, `.native.js`, `.js`, …) and its
+exact-case check now reads each directory once. A test importing 2000 modules from one flat
+directory went from about 4.2 s to 2.1 s; nested layouts gain a few percent. Resolution results
+are unchanged, except in a directory that is readable but not searchable, where loading the file
+fails with `EACCES` either way.
+
+- cfbe247: **A smaller install: the package is about 30% smaller (385 KB packed, down from 551 KB).** No action needed. The package no longer ships CommonJS builds that no entry point can reach: the CLI's (`bin` runs `cli.mjs`) and the chunks used only by the root, `setup` and `presets` entries, which already resolve `require()` to their `.mjs` builds. Every entry in `exports` resolves as before, and the `.mjs` files are unchanged. `CHANGELOG.md` and an internal design note are no longer in the package. The changelog is [on GitHub](https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/CHANGELOG.md), and the migration, versioning and release-readiness guides still ship under `docs/`.
+
+- 31d42fb: **An Expo SDK outside 57–58 gets a warning that names the supported SDKs.** vitest-native supports Expo SDK 57 and 58. On an earlier SDK, Expo code could fail with nothing naming the cause: on SDK 54, every Expo view threw `Cannot read properties of undefined (reading 'viewManagersMetadata')`. The plugin now warns once at startup, and `vitest-native doctor` warns in its Expo section, with the installed `expo` version and the supported SDKs to upgrade to. A warning, not an error: the run still starts. The `expo` checked is the one the project resolves, directly or as the peer of a package it declares, so a workspace package that uses no Expo package is not warned about another app's. The Expo guide no longer says SDK 54 and later are covered.
 
 - 0ffc361: **A copied checkout no longer fails with "more than one copy of React" under the native engine.** A project copied together with `node_modules/.cache/vitest-native` reused the original's precompiled React Native registry, which loads React Native from the original checkout. Every test failed until the cache was deleted. No action needed: the copy now builds its own registry on its first run.
 

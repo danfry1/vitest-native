@@ -13,6 +13,7 @@ export function safeAreaContext(): Preset {
           "SafeAreaView",
           "SafeAreaInsetsContext",
           "SafeAreaFrameContext",
+          "SafeAreaCornerAdaptedInsetsContext",
           "useSafeAreaInsets",
           "useSafeAreaFrame",
           "withSafeAreaInsets",
@@ -49,8 +50,14 @@ export function safeAreaContext(): Preset {
 
           const SafeAreaInsetsContext = React.createContext(state.insets);
           const SafeAreaFrameContext = React.createContext(state.frame);
+          // 5.11+: insets enlarged where the display's rounded corners reach past
+          // the safe area, keyed by axis. Nothing provides it here, so
+          // useSafeAreaInsets({ cornerAdaptation }) answers the regular insets,
+          // as the library's own Jest mock does without a provider. The hook
+          // stays context-free so tests can call it outside a render.
+          const SafeAreaCornerAdaptedInsetsContext = React.createContext(null);
 
-          function useSafeAreaInsets() {
+          function useSafeAreaInsets(_options?: { cornerAdaptation?: "vertical" | "horizontal" }) {
             return state.insets;
           }
 
@@ -76,6 +83,7 @@ export function safeAreaContext(): Preset {
             SafeAreaView,
             SafeAreaInsetsContext,
             SafeAreaFrameContext,
+            SafeAreaCornerAdaptedInsetsContext,
             useSafeAreaInsets,
             useSafeAreaFrame,
             withSafeAreaInsets,

@@ -1,0 +1,11 @@
+{
+  "name": "museum-res-workspace-member-closure",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "dependencies": {
+    "museum-ui": "workspace:*"
+  }
+}

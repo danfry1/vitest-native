@@ -4,6 +4,10 @@
 // The package's JavaScript is the package; only the native module it reaches with
 // requireNativeModule is substituted, in this order:
 //
+//   0. Absent, when the default runtime (Expo Go) lacks it (EXPO_GO_ABSENT_MODULES,
+//      native-modules.mjs), as the React Native boundary answers it. A test's
+//      mockNativeModule() reaches expo-modules-core through TurboModuleRegistry, where it
+//      looks next.
 //   1. Absent, when an installed package only probes for it and nothing installed
 //      defines it (expoAbsentModules): requireOptionalNativeModule returns null, as on a
 //      device. Unless a package mock stands in for it.
@@ -24,6 +28,7 @@ import {
   expoModuleTableDescribesInstalledSdk,
   expoModuleTableMembers,
 } from "./expo-module-mocks.mjs";
+import { EXPO_GO_ABSENT_MODULES } from "./native-modules.mjs";
 
 /**
  * @typedef {{ members: Record<string, unknown>, complete: boolean, listsConstants?: boolean }} ExpoNativeModuleSeed
@@ -42,8 +47,9 @@ export function createExpoNativeModuleResolver({ projectRoot, cacheDir, mockFn }
   // Expo module pays nothing.
   let absent;
   return {
-    /** Whether the module exists (layer 1). */
+    /** Whether the module exists (layers 0 and 1). */
     present(name) {
+      if (EXPO_GO_ABSENT_MODULES.includes(name)) return false;
       absent ??= expoAbsentModules(projectRoot, cacheDir());
       return !absent.has(name) || expoModuleMockIndex(projectRoot).has(name);
     },
