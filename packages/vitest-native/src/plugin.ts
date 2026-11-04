@@ -1910,6 +1910,13 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         fields.hotEsmGeneration = false;
       }
 
+      if (engine !== "native" && options?.experimental?.nodeMocks === true) {
+        console.warn(
+          `[vitest-native] experimental.nodeMocks applies to engine:'native' only; the mock ` +
+            `engine has no Node-loaded packages for a vi.mock to reach, so it is ignored.`,
+        );
+      }
+
       // Native engine: externalize RN so it loads through Node's single CJS graph,
       // where the native setup file's hooks Flow-strip it and mock the boundary.
       if (engine === "native") {

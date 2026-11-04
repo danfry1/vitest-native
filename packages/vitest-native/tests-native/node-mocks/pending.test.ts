@@ -18,6 +18,18 @@ it("leaves another file with the same specifier alone", () => {
   expect(() => requireFrom("./index.js")).not.toThrow();
 });
 
+it("names a pending vi.doUnmock of the required file", async () => {
+  vi.doMock("dispatch-target-lib", () => ({ source: "mocked" }));
+  await import("dispatch-target-lib");
+  expect(requireFrom("dispatch-target-lib").source).toBe("mocked");
+  vi.doUnmock("dispatch-target-lib");
+  expect(() => requireFrom("dispatch-target-lib")).toThrow(
+    expect.objectContaining({ code: "MOCK_NOT_SEEN_BY_NODE" }),
+  );
+  await import("dispatch-target-lib");
+  expect(requireFrom("dispatch-target-lib").source).toBe("real");
+});
+
 it("serves it once the next import has registered it", async () => {
   vi.doMock("dispatch-target-lib", () => ({ source: "registered" }));
   await import("dispatch-target-lib");

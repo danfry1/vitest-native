@@ -2,7 +2,7 @@
 // Node loads. Modes: stock (per-file workers); hot (the hot runtime, one worker, files in
 // order, so a mock that outlived its file would reach the next); jest-compat (with
 // jest-compat's setup and transform, whose jest.mock is matched before a vi.mock).
-// Rooted at node-mocks/, whose __mocks__ directory is Vitest's root mocks.
+// Rooted at node-mocks/, so the suite's own files are its project.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
@@ -24,8 +24,7 @@ export default defineConfig(({ mode }) => ({
   test: {
     environment: "node",
     globals: true,
-    setupFiles:
-      mode === "jest-compat" ? [path.resolve(here, "../dist/jest-compat/setup.mjs")] : [],
+    setupFiles: mode === "jest-compat" ? [path.resolve(here, "../dist/jest-compat/setup.mjs")] : [],
     include: mode === "jest-compat" ? ["*.test.ts", "jest/*.test.ts"] : ["*.test.ts"],
     ...(mode === "hot"
       ? { maxWorkers: 1, fileParallelism: false, sequence: { shuffle: false } }

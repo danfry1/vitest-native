@@ -368,12 +368,14 @@ export interface VitestNativeOptions {
    */
   experimental?: {
     /**
-     * `engine: 'native'` only. A `vi.mock` applies to the modules Node loads too, as a
-     * `jest.mock` factory does under Jest: an installed package's own `require` or
-     * `import` of the mocked module gets the mock (#322). A mock Node cannot be served
-     * synchronously (an async factory that has not run, or an automock the test has not
-     * imported yet) fails by name, `MOCK_NOT_SEEN_BY_NODE`, instead of loading the real
-     * module. Default: `false`.
+     * `engine: 'native'` only. A `vi.mock` factory applies to the modules Node loads too,
+     * as a `jest.mock` factory does under Jest: an installed package's own `require` of
+     * the mocked module gets the factory's module (#322). What Node cannot be served
+     * fails by name, `MOCK_NOT_SEEN_BY_NODE`, instead of loading the real module: an
+     * async factory that has not run, a `vi.doMock` or `vi.doUnmock` not applied yet,
+     * a package Vite and Node resolve to different files, and for now an automock or a
+     * `__mocks__` file. A module Node already loaded keeps what it required, as under
+     * Jest without `jest.resetModules()`. Default: `false`.
      */
     nodeMocks?: boolean;
   };
