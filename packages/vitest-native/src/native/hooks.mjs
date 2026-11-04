@@ -192,12 +192,11 @@ export function installRequireHooks(
     // pin the boot-time env list forever, and the divergence is hot-only because
     // under stock the setup file IS the first caller. Rebuild the matcher when
     // a later caller brings a different list; hook layers are never stacked.
-    globalThis.__vitest_native_require_hooks_update?.({
+    return globalThis.__vitest_native_require_hooks_update?.({
       transformPkgs,
       assetExts,
       sourceExts,
     });
-    return;
   }
   globalThis.__vitest_native_require_hooks_installed = true;
 
@@ -241,6 +240,11 @@ export function installRequireHooks(
   });
   let isExtra = ownership.matchesNodeTransformedFile;
   let isExtraKey = JSON.stringify(transformPkgs);
+  // Whether these hooks compile a package file for the project, read at call time so a
+  // rebuilt matcher (below) answers. Returned by every call, the first and the later ones
+  // the updater serves: Expo's runtime is installed only for files this says yes to
+  // (globals.mjs installExpoRuntime), one rule for what Node compiles.
+  const compiles = (file) => isExtra(String(file).replace(/\\/g, "/"));
   // A field left out keeps its current value (tests-native/resolution-memo.test.ts
   // changes the source extensions alone, and puts them back).
   let activeAssetExts = assetExts;
@@ -255,10 +259,11 @@ export function installRequireHooks(
     assetExtSet = new Set(activeAssetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
     installAssetExtensions(activeAssetExts);
     const key = JSON.stringify(pkgs);
-    if (key === isExtraKey) return;
+    if (key === isExtraKey) return compiles;
     isExtraKey = key;
     ownership = createNativeOwnershipPolicy({ ...ownershipBase, runtimeTransforms: pkgs });
     isExtra = ownership.matchesNodeTransformedFile;
+    return compiles;
   };
 
   // Preset redirect (CJS): when an externalized third-party module require()s a
@@ -610,4 +615,5 @@ export function installRequireHooks(
       return mod._compile(transformRN(filename, undefined, projectRoot, platform), filename);
     };
   }
+  return compiles;
 }
