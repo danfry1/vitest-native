@@ -49,13 +49,17 @@ export function trackCjsResolutions() {
   let count = 0;
   // The outermost resolve step (node-dispatch.mjs, RESOLVE_STEPS): it records the file
   // every other step settled on.
-  const added = dispatch.resolve.add("tracker", function (request, parent, rest, next) {
-    const filename = next(request, parent, ...rest);
-    if (parent && typeof parent.path === "string" && !Module.isBuiltin(filename)) {
-      edges.set(`${parent.path}\0${request}`, { request, parentPath: parent.path, filename });
-    }
-    return filename;
-  });
+  const added = dispatch.resolve.add(
+    "tracker",
+    (next) =>
+      function (request, parent, ...rest) {
+        const filename = next(request, parent, ...rest);
+        if (parent && typeof parent.path === "string" && !Module.isBuiltin(filename)) {
+          edges.set(`${parent.path}\0${request}`, { request, parentPath: parent.path, filename });
+        }
+        return filename;
+      },
+  );
   if (!added) throw cleanupError("a resolution tracker is already installed in this worker.");
   // What resolution was entered through when tracking began: a resolver installed
   // before then is part of what the tracker sees; one installed after it could answer

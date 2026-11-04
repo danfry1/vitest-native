@@ -656,60 +656,64 @@ function mockNotSeenByNode(request, parent, reason) {
 
 function installLoadHook(state) {
   // The outermost load step (LOAD_STEPS): a per-file mock beats a preset and the registry.
-  nodeDispatch().load.add("mocks", function (request, parent, rest, next) {
-    // A project file is what a test or a Node-loaded project module requires. Only
-    // those requests can share Vite's instances; any request can hit a mock, but
-    // only when there is one.
-    const fromProject =
-      typeof parent?.filename === "string" &&
-      !NODE_MODULES.test(parent.filename) &&
-      state.isResettable(parent.filename);
-    if (Module.isBuiltin(request)) return next(request, parent, ...rest);
-    // A jest.mock (this registry) is matched first, then a vi.mock (Vitest's registry).
-    if (nodeMocks) assertNoPendingVitestMock(request, parent);
-    const viMocks = nodeMocks ? vitestMocks() : null;
-    if (viMocks !== null && state.isEmpty()) {
-      const mocked = vitestMockEntry(viMocks, request, parent, () =>
-        state.resolve(request, parent),
-      );
-      if (mocked !== undefined) return vitestMockValue(mocked, request, parent);
-    }
-    if (!fromProject && state.isEmpty()) {
-      return next(request, parent, ...rest);
-    }
-    // With no mocks, only a project file can be served from Vite. For a bare specifier,
-    // Node's own answer decides: a file under node_modules goes to Node's loader as is;
-    // anything else (a workspace link to source, a package's self-reference, an alias the
-    // hooks apply) is resolved as below, reusing that answer.
-    if (state.isEmpty() && isBare(request)) {
-      const resolved = nodeResolution(request, parent);
-      if (resolved !== null && NODE_MODULES.test(resolved)) {
-        state.stats.toNode++;
+  nodeDispatch().load.add(
+    "mocks",
+    (next) =>
+      function (request, parent, ...rest) {
+        // A project file is what a test or a Node-loaded project module requires. Only
+        // those requests can share Vite's instances; any request can hit a mock, but
+        // only when there is one.
+        const fromProject =
+          typeof parent?.filename === "string" &&
+          !NODE_MODULES.test(parent.filename) &&
+          state.isResettable(parent.filename);
+        if (Module.isBuiltin(request)) return next(request, parent, ...rest);
+        // A jest.mock (this registry) is matched first, then a vi.mock (Vitest's registry).
+        if (nodeMocks) assertNoPendingVitestMock(request, parent);
+        const viMocks = nodeMocks ? vitestMocks() : null;
+        if (viMocks !== null && state.isEmpty()) {
+          const mocked = vitestMockEntry(viMocks, request, parent, () =>
+            state.resolve(request, parent),
+          );
+          if (mocked !== undefined) return vitestMockValue(mocked, request, parent);
+        }
+        if (!fromProject && state.isEmpty()) {
+          return next(request, parent, ...rest);
+        }
+        // With no mocks, only a project file can be served from Vite. For a bare specifier,
+        // Node's own answer decides: a file under node_modules goes to Node's loader as is;
+        // anything else (a workspace link to source, a package's self-reference, an alias the
+        // hooks apply) is resolved as below, reusing that answer.
+        if (state.isEmpty() && isBare(request)) {
+          const resolved = nodeResolution(request, parent);
+          if (resolved !== null && NODE_MODULES.test(resolved)) {
+            state.stats.toNode++;
+            return next(request, parent, ...rest);
+          }
+          if (resolved !== null) state.resolutions.set(`${parent.filename}\0${request}`, resolved);
+        }
+        const filename = state.resolve(request, parent);
+        const entry = state.lookup(filename, request);
+        if (entry !== undefined) return state.valueOf(entry);
+        if (viMocks !== null && !state.isEmpty()) {
+          const mocked = vitestMockEntry(viMocks, request, parent, () => filename);
+          if (mocked !== undefined) return vitestMockValue(mocked, request, parent);
+        }
+        // A module Node already holds stays the one `require` returns: switching a later
+        // require to Vite's copy would change its identity mid-file.
+        if (
+          fromProject &&
+          filename !== null &&
+          !state.isolation &&
+          !NODE_MODULES.test(filename) &&
+          Module._cache[filename] === undefined
+        ) {
+          const shared = viteInstanceOf(filename);
+          if (shared !== NONE) return shared;
+        }
         return next(request, parent, ...rest);
-      }
-      if (resolved !== null) state.resolutions.set(`${parent.filename}\0${request}`, resolved);
-    }
-    const filename = state.resolve(request, parent);
-    const entry = state.lookup(filename, request);
-    if (entry !== undefined) return state.valueOf(entry);
-    if (viMocks !== null && !state.isEmpty()) {
-      const mocked = vitestMockEntry(viMocks, request, parent, () => filename);
-      if (mocked !== undefined) return vitestMockValue(mocked, request, parent);
-    }
-    // A module Node already holds stays the one `require` returns: switching a later
-    // require to Vite's copy would change its identity mid-file.
-    if (
-      fromProject &&
-      filename !== null &&
-      !state.isolation &&
-      !NODE_MODULES.test(filename) &&
-      Module._cache[filename] === undefined
-    ) {
-      const shared = viteInstanceOf(filename);
-      if (shared !== NONE) return shared;
-    }
-    return next(request, parent, ...rest);
-  });
+      },
+  );
 
   // The precompiled React Native registry requires its own modules by id, past
   // Module._load (see registry.mjs). Jest serves `jest.mock('react-native/Libraries/

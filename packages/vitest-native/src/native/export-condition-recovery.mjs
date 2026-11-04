@@ -176,13 +176,17 @@ export function installExportConditionRecovery() {
   // The innermost resolve step (node-dispatch.mjs), right above Node: it acts only on
   // Node's own failure.
   const conditions = cjsConditionsWithout(RN);
-  nodeDispatch().resolve.add("recovery", function (request, parent, rest, next) {
-    try {
-      return next(request, parent, ...rest);
-    } catch (error) {
-      const file = recoverMissingReactNativeTarget(request, error, conditions);
-      if (file === null) throw error;
-      return file;
-    }
-  });
+  nodeDispatch().resolve.add(
+    "recovery",
+    (next) =>
+      function (request, parent, ...rest) {
+        try {
+          return next(request, parent, ...rest);
+        } catch (error) {
+          const file = recoverMissingReactNativeTarget(request, error, conditions);
+          if (file === null) throw error;
+          return file;
+        }
+      },
+  );
 }

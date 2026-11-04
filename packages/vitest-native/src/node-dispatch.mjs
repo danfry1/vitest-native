@@ -11,7 +11,8 @@
 // step is added, and never replaced, and every interceptor is a named step with a fixed rank. A step receives
 // `next`, the rest of the chain below it, where it used to call the function it had
 // replaced. A request reaches the steps in rank order, outermost first, which is the
-// precedence the stacked wrappers had (LOAD_STEPS, RESOLVE_STEPS).
+// precedence the stacked wrappers had (LOAD_STEPS, RESOLVE_STEPS). A step is built
+// from its `next`, so a request costs one call per step, as a wrapper did.
 //
 // A loader patched after ours (module-alias, pirates, proxyquire) wraps the entry as
 // it would any `Module._load`; the entry keeps working beneath it.
@@ -49,17 +50,22 @@ const DISPATCH = Symbol.for("vitest-native.node-dispatch");
  * unless something wrapped it earlier), so a hook no step uses is left untouched.
  * `run` is rebuilt when the steps change, so a request costs one call per step.
  */
-function createChain(key, ranks, install, around = (run) => run) {
+function createChain(key, ranks, install) {
   const steps = [];
   let tail = null;
   const chain = {
     run: null,
+    /** When set, answers every request in place of the steps (withResolver). */
+    override: null,
     /** The function beneath every step: Node's own, as found when the entry was installed. */
     get tail() {
       return tail ?? Module[key];
     },
-    /** Add `fn(request, parent, rest, next)` as the step named `name`, once. */
-    add(name, fn) {
+    /**
+     * Add the step named `name`, once: `make(next)` returns the function a request
+     * reaches, which calls `next(request, parent, ...rest)` to go on.
+     */
+    add(name, make) {
       if (!Object.hasOwn(ranks, name)) {
         throw new VitestNativeTypeError(
           "UNKNOWN_DISPATCH_STEP",
@@ -69,12 +75,17 @@ function createChain(key, ranks, install, around = (run) => run) {
       if (steps.some((step) => step.name === name)) return false;
       if (tail === null) {
         tail = Module[key];
-        const entry = around(function (request, parent, ...rest) {
-          return chain.run.call(this, request, parent, ...rest);
-        });
+        // Node calls these with three arguments (`_load`) or four (`_resolveFilename`);
+        // named parameters keep that call free of a rest array.
+        const entry = function (request, parent, isMain, options) {
+          const run = chain.override ?? chain.run;
+          return arguments.length > 4
+            ? run.apply(this, arguments)
+            : run.call(this, request, parent, isMain, options);
+        };
         install(entry);
       }
-      steps.push({ name, rank: ranks[name], fn });
+      steps.push({ name, rank: ranks[name], make });
       steps.sort((a, b) => a.rank - b.rank);
       compose();
       return true;
@@ -93,38 +104,22 @@ function createChain(key, ranks, install, around = (run) => run) {
     },
   };
   function compose() {
-    let run = tail;
-    for (let i = steps.length - 1; i >= 0; i--) {
-      const { fn: step } = steps[i];
-      const next = run;
-      const nextCall = (request, parent, ...rest) => next.call(Module, request, parent, ...rest);
-      run = function (request, parent, ...rest) {
-        return step.call(this, request, parent, rest, nextCall);
-      };
-    }
+    // Node's own function is called as Node calls it, on Module.
+    let run = tail.bind(Module);
+    for (let i = steps.length - 1; i >= 0; i--) run = steps[i].make(run);
     chain.run = run;
   }
   return chain;
 }
 
 function createDispatch() {
-  let resolveOverride = null;
   // The two writes to Module this file makes, one per hook.
   const load = createChain("_load", LOAD_STEPS, (entry) => {
     Module._load = entry;
   });
-  const resolve = createChain(
-    "_resolveFilename",
-    RESOLVE_STEPS,
-    (entry) => {
-      Module._resolveFilename = entry;
-    },
-    (run) =>
-      function (request, parent, ...rest) {
-        if (resolveOverride !== null) return resolveOverride(request, parent, ...rest);
-        return run.call(this, request, parent, ...rest);
-      },
-  );
+  const resolve = createChain("_resolveFilename", RESOLVE_STEPS, (entry) => {
+    Module._resolveFilename = entry;
+  });
   return {
     load,
     resolve,
@@ -138,12 +133,12 @@ function createDispatch() {
      * without executing or resolving anything (module-reset.mjs). Needs a resolve step.
      */
     withResolver(override, body) {
-      const saved = resolveOverride;
-      resolveOverride = override;
+      const saved = resolve.override;
+      resolve.override = override;
       try {
         return body();
       } finally {
-        resolveOverride = saved;
+        resolve.override = saved;
       }
     },
   };
