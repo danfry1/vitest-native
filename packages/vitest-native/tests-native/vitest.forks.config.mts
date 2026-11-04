@@ -18,11 +18,9 @@ import { NATIVE_SUITE_SETUP_FILES } from "./support/setup-files.mjs";
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
-  // The workspace installs expo-constants and expo-status-bar without expo itself, so
-  // their real JavaScript cannot run here (expo-modules-core resolves to another
-  // SDK's TypeScript source). The expo preset, which the native engine applies only
-  // when asked (NATIVE_ENGINE_RUNS_PACKAGES), is turned on; the packed Expo consumers
-  // run the real packages.
+  // The expo preset, which the native engine applies only when asked
+  // (NATIVE_ENGINE_RUNS_PACKAGES), is turned on, so this suite runs Expo's packages
+  // as the preset serves them; the packed Expo consumers run the real packages.
   plugins: [
     // This suite asserts the precompiled registry itself (registry-identity, stack
     // frames, module semantics), so a cold run builds it first.

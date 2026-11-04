@@ -174,8 +174,12 @@ describe("precompiled RN registry: emitted graph", () => {
   it("compiles asset files to Metro's registering module", () => {
     // React Native ships PNGs (LogBox UI icons) that Node cannot compile as JS. They
     // become what Metro generates for them: a registerAsset call on the asset
-    // registry, carrying the image's descriptor.
-    expect(source()).toMatch(/\.registerAsset\(\{"__packager_asset":true,[^)]*"type":"png"\}\)/);
+    // registry, carrying the image's descriptor. This package declares `expo`, so the
+    // descriptor is Expo's: Metro's under Expo CLI's publicPath, plus one md5 per scale
+    // variant (tests/metro-assets-oracle.test.ts checks both shapes against Metro).
+    expect(source()).toMatch(
+      /\.registerAsset\(\{"__packager_asset":true,"httpServerLocation":"\/assets\/\?unstable_path=[^"]+",[^)]*"type":"png","fileHashes":\["[0-9a-f]{32}"(,"[0-9a-f]{32}")*\]\}\)/,
+    );
   });
 
   it("inlines the asset registry, so asset modules and resolveAssetSource share it", () => {

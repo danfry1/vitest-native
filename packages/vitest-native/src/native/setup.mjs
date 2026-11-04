@@ -280,7 +280,7 @@ if (registryFile) {
 }
 // The NitroModules boundary's install() calls this (see nitro.mjs).
 globalThis.__vitest_native_install_nitro = () => installNitroProxy(projectRoot);
-installRequireHooks(
+const nodeCompiles = installRequireHooks(
   projectRoot,
   nodeTransformPkgs,
   platform,
@@ -363,7 +363,7 @@ g.__vitest_native_expo_modules = createExpoNativeModuleResolver({
   mockFn: (implementation) => vi.fn(implementation),
 });
 // Before the project's setup files run, as jest-expo does (see globals.mjs).
-installExpoRuntime(projectRoot);
+installExpoRuntime(projectRoot, nodeCompiles);
 const initialDimensions = {
   window: { ...RN.Dimensions.get("window") },
   screen: { ...RN.Dimensions.get("screen") },
