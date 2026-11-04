@@ -345,6 +345,10 @@ stops being reported on the next run.
 ### Known limits
 
 - The threaded loader's ESM records arrive after the fact, as described above.
+- **Windows directory junctions.** A file imported through a junctioned directory and
+  required by its real path is two copies, but on Windows CI the ledger does not match
+  the two keys (`tests/ownership-guard-probes.test.ts`, the `symlink` probe). The same
+  shape is matched on macOS and Linux. Not yet root-caused.
 - A Vite copy evaluated second runs before it is seen (see the Vite side above).
 - **Unicode normalisation is untested.** APFS keeps a file name in the form it was
   created in, and macOS can hand a path back in NFD where an import spells it in NFC.
