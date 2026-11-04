@@ -125,13 +125,21 @@ globalThis.__vitest_native_state_entries = stateEntries;
 globalThis.__vitest_native_hot_reset = () => {
   globalThis.__vitest_native_registry_reset?.();
   // Advance the ESM generation so externalized packages a test file `import`s are
-  // re-evaluated instead of served from Node's uninvalidatable ESM registry.
-  if (globalThis.__vitest_native_hot_generation) {
-    Atomics.add(globalThis.__vitest_native_hot_generation, 0, 1);
+  // re-evaluated instead of served from Node's uninvalidatable ESM registry, and let go
+  // of the generations no file uses any more (releaseGenerations in loader.mjs).
+  const hot = globalThis.__vitest_native_hot_generation;
+  let released = 0;
+  if (hot) {
+    const generation = Atomics.add(hot.counter, 0, 1) + 1;
+    released = hot.release?.(generation) ?? 0;
   }
   const dropped = resetModules();
   hotReset();
-  if (diagnostics) console.log(`[vitest-native] hot reset: dropped ${dropped} modules`);
+  if (diagnostics) {
+    console.log(
+      `[vitest-native] hot reset: dropped ${dropped} modules, released ${released} module generations`,
+    );
+  }
 };
 globalThis.__vitest_native_hot_bless = bless;
 
