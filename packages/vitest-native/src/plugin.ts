@@ -11,7 +11,7 @@ import { createRequire } from "node:module";
 import flowRemoveTypes from "flow-remove-types";
 import { validateOptions, validatePeerDependency, warnUnknownOptions } from "./validate.js";
 import {
-  installedExpoVersion,
+  installedExpoSdk,
   PEER_REQUIREMENTS,
   unsupportedExpoSdkMessage,
 } from "./peer-requirements.js";
@@ -2451,8 +2451,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // An Expo SDK outside the supported range: a warning, as for the optional peers.
       // Failing the run would stop the tests that pass on it too. Once per process: every
       // project of a run, and the root config, resolve their config here.
-      const expoVersion = installedExpoVersion(config.root);
-      const expoProblem = expoVersion && unsupportedExpoSdkMessage(expoVersion);
+      const expoInstall = installedExpoSdk(config.root);
+      const expoProblem = expoInstall && unsupportedExpoSdkMessage(expoInstall);
       if (expoProblem && !warnedExpoProblems.has(expoProblem)) {
         warnedExpoProblems.add(expoProblem);
         console.warn(`[vitest-native] ${expoProblem}`);

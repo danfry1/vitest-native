@@ -25,7 +25,8 @@ import {
   installedTestsItself,
 } from "./manifest.js";
 import {
-  installedExpoVersion,
+  describeExpoInstall,
+  installedExpoSdk,
   PEER_REQUIREMENTS,
   unsupportedExpoSdkMessage,
 } from "../peer-requirements.js";
@@ -589,11 +590,12 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   // --- Expo ---
   // Found as the plugin finds it (peer-requirements.ts), from where doctor runs and then
   // from the config's directory.
-  const expo =
-    installedExpoVersion(root) ?? (configRoot === root ? null : installedExpoVersion(configRoot));
+  const expoInstall =
+    installedExpoSdk(root) ?? (configRoot === root ? null : installedExpoSdk(configRoot));
+  const expo = expoInstall && describeExpoInstall(expoInstall);
   // The plugin warns at startup with the same message; a warning here too, never blocking,
   // and in place of the description below, which an unsupported SDK does not earn.
-  const unsupported = expo && unsupportedExpoSdkMessage(expo);
+  const unsupported = expoInstall && unsupportedExpoSdkMessage(expoInstall);
   if (unsupported) {
     lines.push("", "Expo");
     warn(unsupported);
@@ -605,10 +607,10 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
     // shadows a handful of packages.
     pass(
       (decision.engine === "native"
-        ? `expo ${expo} detected. Under the native engine Expo modules run their real JavaScript on ` +
+        ? `${expo} detected. Under the native engine Expo modules run their real JavaScript on ` +
           `native-module mocks, as under jest-expo (unless the config sets \`engine: 'mock'\` or ` +
           `\`presets: { expo: true }\`, where the expo preset shadows ${PRESET_MODULES.expo.join(", ")}). `
-        : `expo ${expo} detected. Under the mock engine the expo preset shadows ${PRESET_MODULES.expo.join(", ")}; ` +
+        : `${expo} detected. Under the mock engine the expo preset shadows ${PRESET_MODULES.expo.join(", ")}; ` +
           `other Expo modules load their real JavaScript. `) +
         `Coming from jest-expo, run \`vitest-native migrate\`. See https://danfry1.github.io/vitest-native/guide/expo`,
     );
