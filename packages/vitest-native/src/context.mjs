@@ -240,7 +240,6 @@ export function activeRegistry(context) {
   if (!pending) return null;
   const decisions = ((globalThis[HANDLE] ??= {}).registryDecisions ??= new Map());
   if (decisions.has(pending.file)) return decisions.get(pending.file);
-  // No metadata yet is the build still running; any other error reading it is real.
   const meta = fs.statSync(`${pending.file}.json`, { throwIfNoEntry: false });
   const file =
     meta && meta.mtimeMs !== pending.since && fs.existsSync(pending.file) ? pending.file : null;

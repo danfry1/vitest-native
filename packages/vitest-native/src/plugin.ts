@@ -2275,9 +2275,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // the options rejected). It waits instead under the hot runtime (a hot worker
         // keeps React Native resident from its first file), on CI (only total time
         // counts there, and per-file loading costs more than the build on a large
-        // suite), and with `registryBuild: 'wait'`. registryWaitForced is the same switch
-        // for this package's own suites, which call the plugin where they cannot pass an
-        // option (an internal test seam, registry-process.mjs).
+        // suite), and with `registryBuild: 'wait'` (or its test seam, registryWaitForced).
         const waitForRegistry =
           hotMemory !== undefined ||
           options?.registryBuild === "wait" ||

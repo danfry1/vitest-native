@@ -1,8 +1,7 @@
 // Short-lived entrypoint for a cold React Native registry build.
 //
-// The parent sends one JSON options object over stdin and receives one JSON result
-// on stdout. No diagnostic logging is allowed here: stdout is a protocol, while a
-// compiler failure is returned structurally for the parent to report once.
+// One JSON options object in on stdin, one JSON result out. No logging: the output is a
+// protocol, and a failure is returned for the parent to report once.
 import fs from "node:fs";
 import { Worker } from "node:worker_threads";
 import { buildRegistry } from "./registry.mjs";
@@ -38,8 +37,6 @@ function respond(value) {
 }
 
 try {
-  // `testDelayMs`: the parent's internal test hold (registry-process.mjs,
-  // _setRegistryBuildOptions), applied before the compiler starts.
   const { testDelayMs, ...options } = JSON.parse(fs.readFileSync(0, "utf8"));
   if (testDelayMs > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, testDelayMs);
   const started = performance.now();
