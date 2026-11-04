@@ -10,10 +10,14 @@
  *
  * The existing tests (registry-key.test.ts, transform-cache.test.ts) cover the
  * installed versions and the per-file disk key. This file covers the inputs they did
- * not: the transform version and the boundary sources in the registry key, Expo, the
- * Babel env in both keys, the optional export-namespace-from plugin, the files the
- * registry is seeded from (registry-location.test.ts covers copies and symlinks end to
- * end), and the ES-module goal and interop revision in the per-file key.
+ * not: the format, package and transform versions and the boundary sources in the
+ * registry key, the React Native version it is built for, Expo, the preset's name and
+ * the Babel env in both keys, the optional export-namespace-from plugin, the files the
+ * registry is seeded from, additional entries included (registry-location.test.ts
+ * covers copies and symlinks end to end), the platform in the transform's memory and
+ * disk keys, a project Babel config file's bytes, and the ES-module goal and interop
+ * revision in the per-file key. transform-project-babel-config.test.ts covers the
+ * options a project Babel config loads.
  */
 import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
@@ -23,8 +27,12 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
-// @ts-expect-error — runtime .mjs, no types
-import { registryKey } from "../src/native/registry.mjs";
+import {
+  REGISTRY_FORMAT_VERSION,
+  registryKey,
+  registryKeyInputs,
+  // @ts-expect-error — runtime .mjs, no types
+} from "../src/native/registry.mjs";
 import {
   TRANSFORM_CACHE_VERSION,
   transformCacheDir,
@@ -130,14 +138,14 @@ describe("registry cache key ledger", () => {
    * `react-native` for every importer, so in-process every fixture would resolve to
    * the same file (registry-location.test.ts measures the same way).
    */
-  const keyInNode = (root: string) =>
+  const keyInNode = (root: string, additionalEntries: string[] = []) =>
     execFileSync(
       process.execPath,
       [
         "--input-type=module",
         "-e",
         `import { registryKey } from ${JSON.stringify(pathToFileURL(path.join(packageRoot, "src/native/registry.mjs")).href)};
-process.stdout.write(registryKey({ projectRoot: ${JSON.stringify(root)}, platform: "ios", reactNativeVersion: "0.86.0" }));`,
+process.stdout.write(registryKey({ projectRoot: ${JSON.stringify(root)}, platform: "ios", reactNativeVersion: "0.86.0", additionalEntries: ${JSON.stringify(additionalEntries)} }));`,
       ],
       { encoding: "utf8" },
     );
@@ -175,18 +183,78 @@ process.stdout.write(registryKey({ projectRoot: ${JSON.stringify(root)}, platfor
     expect(development).not.toBe(test);
     expect(babelEnv).not.toBe(development);
   });
+
+  it("hashes its inputs, which carry the format version and this package's version", () => {
+    // Neither can be varied from a fixture: both are this package's own constants.
+    const options = {
+      projectRoot: projectWith(BASE),
+      platform: "ios",
+      reactNativeVersion: "0.86.0",
+    };
+    const inputs = registryKeyInputs(options) as string[];
+    const ownVersion = JSON.parse(
+      fs.readFileSync(path.join(packageRoot, "package.json"), "utf8"),
+    ).version;
+    expect(inputs).toContain(`f${REGISTRY_FORMAT_VERSION}`);
+    expect(inputs).toContain(ownVersion);
+    const hashed = crypto.createHash("sha1").update(inputs.join("\0")).digest("hex").slice(0, 16);
+    expect(registryKey(options)).toBe(hashed);
+  });
+
+  it("changes with the React Native version it is built for: boundary mocks report it", () => {
+    const root = projectWith(BASE);
+    const key = (reactNativeVersion: string) =>
+      registryKey({ projectRoot: root, platform: "ios", reactNativeVersion }) as string;
+    expect(key("0.86.1")).not.toBe(key("0.86.0"));
+    // Directly, not only through the boundary mocks that happen to report it today:
+    // the installed react-native here is 0.86.0, so only the parameter says 0.86.1.
+    const inputs = registryKeyInputs({
+      projectRoot: root,
+      platform: "ios",
+      reactNativeVersion: "0.86.1",
+    }) as string[];
+    expect(inputs).toContain("0.86.1");
+  });
+
+  it("changes with the preset's name, not only its version: the two presets' versions overlap", () => {
+    // Both projects install expo, so only the preset differs: React Native's preset
+    // wins when present, Expo's (expo/internal/babel-preset) applies otherwise.
+    const { "@react-native/babel-preset": _preset, ...rest } = BASE;
+    const withExpo = { ...rest, expo: "57.0.0" };
+    const expoPreset = projectWith({ ...withExpo, "babel-preset-expo": "0.86.0" });
+    const internal = path.join(expoPreset, "node_modules", "expo", "internal");
+    fs.mkdirSync(internal, { recursive: true });
+    fs.writeFileSync(
+      path.join(internal, "babel-preset.js"),
+      'module.exports = require("babel-preset-expo");',
+    );
+    fs.writeFileSync(
+      path.join(expoPreset, "node_modules", "babel-preset-expo", "index.js"),
+      "module.exports = () => ({});",
+    );
+    const reactNativePreset = projectWith({ ...withExpo, "@react-native/babel-preset": "0.86.0" });
+    expect(keyWith(registryKey, expoPreset)).not.toBe(keyWith(registryKey, reactNativePreset));
+  });
+
+  it("changes with the file an additional entry resolves to, not only its name", () => {
+    const root = withReactNative();
+    const entry = "react-native/Libraries/Ledger/Deep";
+    const before = keyInNode(root, [entry]);
+    const dir = path.join(root, "node_modules", "react-native", "Libraries", "Ledger");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "Deep.js"), "module.exports = {};");
+    expect(keyInNode(root, [entry])).not.toBe(before);
+  });
 });
 
 describe("transform cache directory ledger", () => {
   /** A project whose stub preset resolves without loading Babel. */
-  function transformRoot({ exportNamespaceFrom = false } = {}): string {
+  function transformRoot({
+    exportNamespaceFrom = false,
+    preset = "module.exports = () => ({});",
+  } = {}): string {
     const root = tempRoot("vn-transform-ledger-");
-    writePackage(
-      root,
-      "@react-native/babel-preset",
-      "0.0.1-ledger",
-      "module.exports = () => ({});",
-    );
+    writePackage(root, "@react-native/babel-preset", "0.0.1-ledger", preset);
     const babelScope = path.join(root, "node_modules", "@babel");
     fs.mkdirSync(babelScope, { recursive: true });
     fs.symlinkSync(
@@ -275,6 +343,50 @@ describe("transform cache directory ledger", () => {
     bumped.transformRN(file, undefined, root);
     expect(entries(root)).toHaveLength(2);
   });
+
+  it("keys the preset's name, not only its version: the two presets' versions overlap", () => {
+    const expo = expoOnlyRoot("0.0.1-ledger");
+    expect(dirName(expo)).not.toBe(dirName(transformRoot()));
+  });
+
+  it("keys the platform, in memory and on disk: the preset sees it through Babel's caller", () => {
+    // A preset that writes the caller's platform into the output.
+    const root = transformRoot({
+      preset: `module.exports = (api) => {
+        const platform = api.caller((caller) => caller && caller.platform);
+        return { plugins: [() => ({ visitor: { Program: { exit(p) {
+          p.pushContainer("body", api.types.expressionStatement(api.types.stringLiteral(String(platform))));
+        } } } })] };
+      };`,
+    });
+    const file = path.join(root, "node_modules", "plat-lib", "index.js");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, "module.exports = 1;\n");
+    expect(transformRN(file, undefined, root, "ios")).toContain('"ios"');
+    expect(transformRN(file, undefined, root, "android")).toContain('"android"');
+  });
+
+  it("keys a project Babel config file's bytes: an inline plugin is not in the loaded options", async () => {
+    const root = transformRoot();
+    const config = (marker: string) =>
+      fs.writeFileSync(
+        path.join(root, "babel.config.js"),
+        `module.exports = { plugins: [() => ({ visitor: { Program: { exit(p) {
+          p.pushContainer("body", require("@babel/core").types.expressionStatement(
+            require("@babel/core").types.stringLiteral(${JSON.stringify(marker)})));
+        } } } })] };`,
+      );
+    const app = path.join(root, "src", "app.js");
+    fs.mkdirSync(path.dirname(app), { recursive: true });
+    fs.writeFileSync(app, "module.exports = 1;\n");
+    config("first");
+    expect(transformRN(app, undefined, root)).toContain('"first"');
+    config("second-edit");
+    // A fresh module instance: the in-memory layer is keyed on the app file's stat.
+    vi.resetModules();
+    const fresh = await import("../src/native/transform.mjs");
+    expect(fresh.transformRN(app, undefined, root)).toContain('"second-edit"');
+  });
 });
 
 /**
@@ -305,7 +417,7 @@ function packageName(file: string): string {
  * by default (babel-preset.mjs resolves expo/internal/babel-preset). Stubs only, so
  * nothing but option resolution runs.
  */
-function expoOnlyRoot(): string {
+function expoOnlyRoot(presetVersion = "57.0.0"): string {
   const root = tempRoot("vn-transform-ledger-expo-");
   writePackage(root, "expo", "57.0.0");
   fs.mkdirSync(path.join(root, "node_modules", "expo", "internal"), { recursive: true });
@@ -313,7 +425,7 @@ function expoOnlyRoot(): string {
     path.join(root, "node_modules", "expo", "internal", "babel-preset.js"),
     'module.exports = require("babel-preset-expo");',
   );
-  writePackage(root, "babel-preset-expo", "57.0.0", "module.exports = () => ({});");
+  writePackage(root, "babel-preset-expo", presetVersion, "module.exports = () => ({});");
   const babelScope = path.join(root, "node_modules", "@babel");
   fs.mkdirSync(babelScope, { recursive: true });
   fs.symlinkSync(
