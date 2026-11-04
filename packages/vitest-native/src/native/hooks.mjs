@@ -1,6 +1,7 @@
 // Patches Node's CJS loader so RN's internal require() chains are Flow-stripped and
 // native-boundary modules are mocked. The companion loader.mjs handles the import() path.
 import Module from "node:module";
+import { nodeDispatch } from "../node-dispatch.mjs";
 import { projectContext } from "../context.mjs";
 import path from "node:path";
 import fs from "node:fs";
@@ -336,11 +337,11 @@ export function installRequireHooks(
     return shadowed === NO_PRESET ? Module._load(file, null, false) : shadowed;
   };
 
-  const origLoad = Module._load;
-  Module._load = function (request, parent, ...rest) {
+  // A preset beats the registry and Node, and yields to a per-file mock (LOAD_STEPS).
+  nodeDispatch().load.add("preset", function (request, parent, rest, next) {
     const shadowed = presetExportsFor(request);
     if (shadowed !== NO_PRESET) return shadowed;
-    const exports = origLoad.call(this, request, parent, ...rest);
+    const exports = next(request, parent, ...rest);
     // Every require of RNTL's main entry, cached or not, tells the setup file's
     // auto-cleanup that this test file loaded it (see noteIfRntlEntryLoaded). Vite's
     // evaluator reports the file's own imports (rntl-hooks.mjs); this sees the entry
@@ -348,7 +349,7 @@ export function installRequireHooks(
     // re-exports RNTL.
     noteIfRntlEntryLoaded(exports);
     return exports;
-  };
+  });
 
   let requireAliases;
   const resolveAliasedRequest = (request, parent, resolveTarget) => {
@@ -471,8 +472,7 @@ export function installRequireHooks(
     }
     return `${parent.path}\0${request}\0${conditions}`;
   };
-  const origResolve = Module._resolveFilename;
-  Module._resolveFilename = function (request, parent, ...rest) {
+  nodeDispatch().resolve.add("hooks", function (request, parent, rest, next) {
     let resolved;
     const key = resolutionKey(request, parent, rest);
     if (key !== null) {
@@ -503,7 +503,7 @@ export function installRequireHooks(
     }
     if (!resolved) {
       try {
-        resolved = origResolve.call(this, request, parent, ...rest);
+        resolved = next(request, parent, ...rest);
       } catch (err) {
         // The project's aliases (resolve.alias string entries, and tsconfig `paths` when
         // Vite resolves them for imports): a `require('#/lib/x')` in a test reaches here,
@@ -511,7 +511,7 @@ export function installRequireHooks(
         // project's aliases, under Vite or Metro — and only once Node has failed, so no
         // resolution that worked before can change.
         const aliased = resolveAliasedRequest(request, parent, (target) =>
-          origResolve.call(this, target, parent, ...rest),
+          next(target, parent, ...rest),
         );
         // RN 0.87's exports map rejects the deep self-references its own Babel
         // preset emits (`react-native/src/private/…`); Metro resolves them via the
@@ -543,7 +543,7 @@ export function installRequireHooks(
     // Every successful resolution (including platform hits) crosses this boundary.
     checkProjectSourceResolvedByNode(resolved, parent, projectDirs(), ownership);
     return resolved;
-  };
+  });
 
   const origJs = Module._extensions[".js"];
   Module._extensions[".js"] = function (mod, filename) {

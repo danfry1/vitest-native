@@ -9,11 +9,11 @@
 // Anything the worker loaded to bootstrap ITSELF stays; anything a TEST FILE caused
 // to load is dropped and runs again on the next file.
 import Module from "node:module";
+import { nodeDispatch } from "../node-dispatch.mjs";
 import { isRuntimeResidentFile } from "./ownership.mjs";
 import { VitestNativeError } from "../errors.mjs";
 
 // Capture before the worker installs registry/preset _load interceptors.
-const nodeLoad = Module._load;
 const CLEANUP_ID = "\0vitest-native:cjs-cache-drain";
 
 function cleanupError(detail, cause) {
@@ -43,23 +43,29 @@ function cleanupError(detail, cause) {
  * must run immediately after cache deletion, before the next file starts loading.
  */
 export function trackCjsResolutions() {
-  const originalResolve = Module._resolveFilename;
+  const dispatch = nodeDispatch();
   const edges = new Map();
   const sentinel = {};
   let count = 0;
-  const resolver = function (request, parent, ...rest) {
-    const filename = originalResolve.call(this, request, parent, ...rest);
+  // The outermost resolve step (node-dispatch.mjs, RESOLVE_STEPS): it records the file
+  // every other step settled on.
+  const added = dispatch.resolve.add("tracker", function (request, parent, rest, next) {
+    const filename = next(request, parent, ...rest);
     if (parent && typeof parent.path === "string" && !Module.isBuiltin(filename)) {
       edges.set(`${parent.path}\0${request}`, { request, parentPath: parent.path, filename });
     }
     return filename;
-  };
-  Module._resolveFilename = resolver;
+  });
+  if (!added) throw cleanupError("a resolution tracker is already installed in this worker.");
+  // What resolution was entered through when tracking began: a resolver installed
+  // before then is part of what the tracker sees; one installed after it could answer
+  // a request without reaching the tracker.
+  const tracked = Module._resolveFilename;
   return {
     drain() {
       // A later wrapper can short-circuit our tracker, leaving *zero* recorded
       // edges despite stale Node lookups. Check before the empty-map fast path.
-      if (Module._resolveFilename !== resolver) {
+      if (Module._resolveFilename !== tracked) {
         throw cleanupError("the tracking resolver was replaced after installation.");
       }
       const stale = [];
@@ -73,26 +79,30 @@ export function trackCjsResolutions() {
       if (Object.hasOwn(Module._cache, CLEANUP_ID)) {
         throw cleanupError("the reserved cleanup cache entry is already in use.");
       }
-      const savedResolve = Module._resolveFilename;
       const savedLoad = Module.prototype.load;
       Module._cache[CLEANUP_ID] = { loaded: true, exports: sentinel };
-      Module._resolveFilename = () => CLEANUP_ID;
       Module.prototype.load = () => {
         throw cleanupError("cache-drain attempted module execution.");
       };
       try {
-        for (const { request, parentPath } of stale) {
-          const parent = { path: parentPath, children: [] };
-          if (nodeLoad(request, parent, false) !== sentinel) {
-            throw cleanupError("a loader bypassed the cleanup resolver.");
-          }
-          count++;
-        }
+        // Node's own loader, with every resolution answering the cleanup entry, so
+        // each stale request reaches Node's relative-resolve cache and nothing else.
+        dispatch.withResolver(
+          () => CLEANUP_ID,
+          () => {
+            for (const { request, parentPath } of stale) {
+              const parent = { path: parentPath, children: [] };
+              if (dispatch.nodeLoad.call(Module, request, parent, false) !== sentinel) {
+                throw cleanupError("a loader bypassed the cleanup resolver.");
+              }
+              count++;
+            }
+          },
+        );
       } catch (error) {
         if (error?.code === "HOT_CJS_CACHE_RESET") throw error;
         throw cleanupError("the cleanup lookup failed.", error);
       } finally {
-        Module._resolveFilename = savedResolve;
         Module.prototype.load = savedLoad;
         delete Module._cache[CLEANUP_ID];
       }
@@ -107,10 +117,10 @@ export function trackCjsResolutions() {
     // Used by standalone contract tests; the production tracker lives as long
     // as its worker. Never remove a subsequently installed third-party wrapper.
     dispose() {
-      if (Module._resolveFilename !== resolver) {
+      if (Module._resolveFilename !== tracked) {
         throw cleanupError("another resolver wrapped the tracking hook.");
       }
-      Module._resolveFilename = originalResolve;
+      dispatch.resolve.remove("tracker");
       edges.clear();
     },
   };

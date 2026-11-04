@@ -25,7 +25,6 @@
 // The registry is an optimization, never a semantic: anything it cannot serve falls
 // through to the per-file hooks in hooks.mjs / loader.mjs, and a failed build leaves
 // the engine running exactly as it did before.
-import Module from "node:module";
 import { createRequire } from "node:module";
 import path from "node:path";
 import fs from "node:fs";
@@ -38,6 +37,7 @@ import { resolveTransformPreset } from "./babel-preset.mjs";
 import { assetRegistryPathFor, nativeAssetModuleSource } from "./assets.mjs";
 import { resolveRelativePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
 import { createNativeOwnershipPolicy } from "./ownership.mjs";
+import { nodeDispatch } from "../node-dispatch.mjs";
 
 /**
  * Losing the registry is a silent performance cliff, not a correctness problem:
@@ -674,8 +674,8 @@ export function installRegistry(
   }
   const idOf = new Map(registry.ids.map((f, i) => [f, i]));
   const entryId = idOf.get(registry.entry);
-  const origLoad = Module._load;
-  Module._load = function (request, parent, ...rest) {
+  // Beneath a per-file mock and a preset, above Node (LOAD_STEPS).
+  nodeDispatch().load.add("registry", function (request, parent, rest, next) {
     if (request === "react-native") return registry.load(entryId);
     // An absolute path lands here when something re-enters through Node's loader
     // with an already-resolved file — most importantly the ESM loader's
@@ -717,10 +717,10 @@ export function installRegistry(
       // Resolved by path but not in the registry: forward the PATH — reloading
       // the bare specifier would just hit the exports map again.
       if (resolved !== null && path.isAbsolute(resolved)) {
-        return origLoad.call(this, resolved, parent, ...rest);
+        return next(resolved, parent, ...rest);
       }
     }
-    return origLoad.call(this, request, parent, ...rest);
-  };
+    return next(request, parent, ...rest);
+  });
   return true;
 }

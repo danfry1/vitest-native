@@ -18,6 +18,7 @@ import { resolvePlatformFile, resolveRelativePlatformFile } from "../native/reso
 import { resetEvaluatedModules, restoreEvaluatedModules } from "../native/module-reset.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import { projectContext } from "../context.mjs";
+import { nodeDispatch } from "../node-dispatch.mjs";
 
 const STATE = "__vitest_native_jest_registry";
 /** The manifest id under which the hot runtime clears the registry per file. */
@@ -551,8 +552,8 @@ function requireFacade(ns) {
 }
 
 function installLoadHook(state) {
-  const origLoad = Module._load;
-  Module._load = function (request, parent, ...rest) {
+  // The outermost load step (LOAD_STEPS): a per-file mock beats a preset and the registry.
+  nodeDispatch().load.add("mocks", function (request, parent, rest, next) {
     // A project file is what a test or a Node-loaded project module requires. Only
     // those requests can share Vite's instances; any request can hit a mock, but
     // only when there is one.
@@ -561,7 +562,7 @@ function installLoadHook(state) {
       !NODE_MODULES.test(parent.filename) &&
       state.isResettable(parent.filename);
     if ((!fromProject && state.isEmpty()) || Module.isBuiltin(request)) {
-      return origLoad.call(this, request, parent, ...rest);
+      return next(request, parent, ...rest);
     }
     // With no mocks, only a project file can be served from Vite. For a bare specifier,
     // Node's own answer decides: a file under node_modules goes to Node's loader as is;
@@ -571,7 +572,7 @@ function installLoadHook(state) {
       const resolved = nodeResolution(request, parent);
       if (resolved !== null && NODE_MODULES.test(resolved)) {
         state.stats.toNode++;
-        return origLoad.call(this, request, parent, ...rest);
+        return next(request, parent, ...rest);
       }
       if (resolved !== null) state.resolutions.set(`${parent.filename}\0${request}`, resolved);
     }
@@ -590,8 +591,8 @@ function installLoadHook(state) {
       const shared = viteInstanceOf(filename);
       if (shared !== NONE) return shared;
     }
-    return origLoad.call(this, request, parent, ...rest);
-  };
+    return next(request, parent, ...rest);
+  });
 
   // The precompiled React Native registry requires its own modules by id, past
   // Module._load (see registry.mjs). Jest serves `jest.mock('react-native/Libraries/

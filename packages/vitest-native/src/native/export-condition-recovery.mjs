@@ -25,8 +25,8 @@
 // CommonJS `require` only, which is how Vitest loads jsdom. An ESM `import` under the
 // same condition is resolved by Node's ESM loader and is not recovered here.
 import fs from "node:fs";
-import Module from "node:module";
 import path from "node:path";
+import { nodeDispatch } from "../node-dispatch.mjs";
 
 const RN = "react-native";
 
@@ -172,22 +172,17 @@ export function recoverMissingReactNativeTarget(
   return fileExists(file) ? file : null;
 }
 
-const INSTALLED = Symbol.for("vitest-native.export-condition-recovery");
-
 export function installExportConditionRecovery() {
-  // Marked on the process, not the function: later patches of _resolveFilename
-  // (native/hooks.mjs, module-reset.mjs) wrap this one.
-  if (globalThis[INSTALLED]) return;
-  globalThis[INSTALLED] = true;
+  // The innermost resolve step (node-dispatch.mjs), right above Node: it acts only on
+  // Node's own failure.
   const conditions = cjsConditionsWithout(RN);
-  const original = Module._resolveFilename;
-  Module._resolveFilename = function (request, parent, ...rest) {
+  nodeDispatch().resolve.add("recovery", function (request, parent, rest, next) {
     try {
-      return original.call(this, request, parent, ...rest);
+      return next(request, parent, ...rest);
     } catch (error) {
       const file = recoverMissingReactNativeTarget(request, error, conditions);
       if (file === null) throw error;
       return file;
     }
-  };
+  });
 }
