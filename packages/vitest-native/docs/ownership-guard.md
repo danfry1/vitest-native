@@ -1,8 +1,22 @@
 # Ownership guard: one evaluation per file
 
-Status: detection on by default since this release, reporting as a warning. `error` is
-opt-in and is what this repository's CI runs. The default becomes `error` in the next
-minor (see [Rollout](#rollout)).
+Status: on by default under `engine: 'native'`, reporting as a warning
+(`SOURCE_EVALUATED_TWICE`). `error` is opt-in and is what this repository's CI runs (see
+[Rollout](#rollout)).
+
+## Role: a backstop for one owner per file
+
+The engine's job is one instance of every module. Where it already keeps one (Vite
+evaluated a project file first, and Node's `require` is handed Vite's instance), the guard
+has nothing to say and must say nothing. It reports what is left: a file that both module
+systems evaluated while both copies are live, named with the route each side took and the
+fix. A later change that gives one instance whichever side loads first leaves this guard
+as a backstop that should never fire; until then, it is how such a split is found by
+name instead of by a wrong value.
+
+It compares **one file** across the two module systems. Two different files of one
+package (a package whose `import` and `require` conditions name different builds) and
+two Node copies of one file are other splits, outside this check.
 
 ## The invariant
 
@@ -125,27 +139,21 @@ mocks) found the same root cause in both: each subsystem decides "owner" its own
    prefixes are honoured. Text matching cannot see any of these. The ledger sees all of
    them, because it watches evaluations rather than configuration.
 
-Measured on main with this guard, using the reviewer's probe workspace (`warn` mode):
+Measured in October 2026, with this guard, on the reviewer's probe workspace: the
+string, file, parent, root, plugin, project and array aliases, `resolve.tsconfigPaths`
+and a package whose `main` is its source each gave two live copies of the sibling's
+store, and the guard reported each one (`node-owned-source`). The shapes that failed
+loudly instead (`Cannot find module`, a Vite parse error) evaluated nothing twice.
 
-| shape | split on main | guard |
-| --- | --- | --- |
-| string alias per package | yes | reported, `node-owned-source` |
-| alias to a file | yes | reported |
-| parent alias `@pk` → `packages/` | yes | reported |
-| root alias `~` → workspace | yes | reported |
-| `resolve.tsconfigPaths: true` | yes | reported |
-| alias added by a later plugin | yes | reported |
-| alias on an inline project | yes | reported |
-| array-form string alias | yes | reported |
-| package with `main: src/index.ts` | yes | reported (the dependency's store) |
-| one regex alias for all packages | no: `Cannot find module` | nothing evaluated twice |
-| tsconfig paths without `tsconfigPaths` | no: `Cannot find package` | nothing evaluated twice |
-| RN dependency only the aliased package has | no: missing `@babel/runtime` | nothing evaluated twice |
-| JSX in a sibling's `.js` | no: Vite parse error | nothing evaluated twice |
-| #345 regressions (detected ESM package, external file) | no | no report (no false positive) |
+Since then the engine hands Node's `require` the instance Vite already evaluated, so
+every one of those shapes gives one instance when the test imports the store first, and
+the guard is silent on them. The same shapes with the library loaded first (Node before
+Vite) still give two copies, and the guard names them.
 
-`tests/ownership-guard-fixtures.test.ts` runs the string alias, tsconfig paths, parent
-alias, root alias and source-`main` shapes, plus the partial mock.
+`tests/ownership-guard-fixtures.test.ts` runs both: the alias, tsconfig paths, parent
+alias, root alias, source-`main` and partial-mock shapes must pass with nothing
+reported in `error` mode, and the Node-first shape must be reported in `warn` and fail
+by name in `error`.
 
 ### Option: workspace siblings are Vite's by default
 
@@ -193,7 +201,7 @@ differ only in case, each evaluated by a different side. They would be reported 
     These records arrive after the module ran. In `error` mode they fail the file at
     its end rather than at the import.
 - **Vite side.** The plugin appends one call, on lines of its own, to each module it
-  hands the runner: `globalThis.__vitest_native_ownership_vite?.(key, file)`.
+  hands the runner: `globalThis.__vitest_native_ownership?.vite(key, file)`.
   - It runs as the module finishes evaluating, in every pool and on Vitest 4 and 5.
   - Under the native engine the transform is `order: 'post'`, after esbuild/oxc, and
     returns `map: null`: no code moves, so the previous map stands and there is no map
@@ -289,7 +297,32 @@ Routes:
   missed. The summary also names `ownership.allow` entries that exempted nothing during
   the run.
 
-### Cost, measured on Node 24.13 / macOS
+### Cost, in counts
+
+The measure is calls, not milliseconds: `validation/ownership-cost/run.mjs` counts
+CommonJS resolutions, realpaths, stats, reads, readdirs and existence checks in the
+Vitest process and in every worker, on the idiomatic scale suite with one worker
+(67 files; second of two runs, so Vite's transform cache is warm). Main at f80e468
+against main plus the guard, both built into the same directory:
+
+| run | where | change in counts |
+| --- | --- | --- |
+| stock | workers | none, except reads +67 (one per file) |
+| stock | Vitest process | realpath +1 (the marker's per-directory cache), existence checks +1, for the whole run |
+| hot | workers | realpath +5 and reads +2 for the whole run (the ledger's own modules at boot); none per file |
+| hot | Vitest process | realpath +1, existence checks +1, for the whole run |
+
+The stock run's one read per file is Vite's transform cache serving the ledger module:
+in this repository the engine is not under `node_modules`, so Vite evaluates its
+setup file and what it imports, per file. Installed, Node loads the ledger once per
+worker. Resolutions are unchanged in every row. With a cold transform cache the marker
+adds one realpath per directory of transformed modules, never one per module.
+
+`tests/ownership-ledger.test.ts` gates the per-evaluation cost: 200 requires and 200
+Vite records make exactly the same resolution and file-system calls with the ledger
+installed as without it, and 200 marker ids in 4 directories cost 4 realpaths.
+
+Timings, measured on Node 24.13 / macOS, for orientation:
 
 | operation | cost |
 | --- | --- |
@@ -302,9 +335,9 @@ Routes:
 A stack is captured only when a conflict is reported. The first version captured one
 per project-file compile, which cost about 9 µs each.
 
-The mode and the `allow` list reach the worker at run time and are kept out of the
-plugin's transform cache key. Switching `VITEST_NATIVE_OWNERSHIP_MODE`, or the option,
-re-transforms nothing. A test checks that the cache's entry count does not change. The
+The mode and the `allow` list reach the worker in the project context
+(`ownershipGuard`) and are kept out of the plugin's transform cache key. Switching
+`VITEST_NATIVE_OWNERSHIP_MODE`, or the option, re-transforms nothing. A test checks that the cache's entry count does not change. The
 marker itself does not depend on the mode.
 
 The end-of-run reporter starts each run empty, so in watch mode a fixed dual evaluation
@@ -324,7 +357,7 @@ stops being reported on the next run.
 
 - `reactNative({ ownership: 'warn' })` is the default. Each dual-evaluated file is
   reported once per worker, and summarised at the end of the run.
-- `ownership: 'error'` throws `MODULE_DUAL_EVALUATION` at the second evaluation, and
+- `ownership: 'error'` throws `SOURCE_EVALUATED_TWICE` at the second evaluation, and
   fails the test file at its end.
 - `ownership: { mode, allow: [{ path, reason }] }` lists exemptions. `path` is a file or
   directory, resolved against the Vitest root. `reason` is required.
@@ -343,10 +376,8 @@ stops being reported on the next run.
 - CI in this repository sets `error` on every `test:native*` step. That includes the
   Node 22.13 legs, where Node's ESM records arrive through the loader port and fail at
   file end.
-- **Next minor: the default flips to `error`.** The changeset for that release has to
-  say so, and the warning text says so now.
 
-### Who the flip affects most: `isolate: false`
+### Who `error` affects most: `isolate: false`
 
 Plain `isolate: false` without the hot runtime keeps Node's CommonJS cache for the
 whole worker. A `require('./x')` in one file and an `import './x'` in a later file are

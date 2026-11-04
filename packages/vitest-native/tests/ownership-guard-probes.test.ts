@@ -10,6 +10,12 @@
  * loader modes); a jest.requireActual factory then vi.importActual; a server.deps.inline
  * package that an installed package also requires; and a library that swallows the
  * error in `try { require(x) } catch {}`.
+ *
+ * Added with the guard's role as a backstop (2026-11): CommonJS project files and
+ * `export *` barrels in both orders, `jest.resetModules` and `vi.resetModules` between
+ * the two loads, and the hot runtime's per-file reset between two files. Where the
+ * engine keeps one instance (Vite first, or a reset that drops Node's copy) the guard
+ * must stay quiet; where two copies are live it must name them.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -103,7 +109,15 @@ export default defineConfig({
 });
 `,
   );
-  for (const name of ["iso", "spy", "q", "rq", "casestore"]) write(`src/fx/${name}.ts`, STORE);
+  for (const name of ["iso", "spy", "q", "rq", "casestore", "jr", "vr", "bstore", "vbstore"]) {
+    write(`src/fx/${name}.ts`, STORE);
+  }
+  for (const name of ["legacy", "vlegacy"]) {
+    write(`src/fx/${name}.cjs`, "exports.store = { value: null };\n");
+  }
+  write("src/fx/barrel.ts", 'export * from "./bstore";\n');
+  write("src/fx/vbarrel.ts", 'export * from "./vbstore";\n');
+  write("src/fx/hot.ts", STORE);
   // Six lines; coverage of it must report no seventh.
   write(
     "src/fx/cov.ts",
@@ -161,6 +175,26 @@ export function out(name: string, split: boolean, file: RegExp, extra = "") {
     nodeesm: `const viaNode: any = await import("esm-dep");
   const viaVite: any = await import("./fx/e2.mjs");
   out("nodeesm", viaVite.store !== viaNode.store, /e2\\.mjs/, "mode=" + (globalThis as any).__vitest_native_loader_mode);`,
+    cjs: `const viaNode = require("./fx/legacy.cjs");
+  const viaVite: any = await import("./fx/legacy.cjs");
+  out("cjs", (viaVite.default ?? viaVite).store !== viaNode.store, /fx[\\\\/]legacy\\.cjs/);`,
+    cjsvite: `const viaVite: any = await import("./fx/vlegacy.cjs");
+  const viaNode = require("./fx/vlegacy.cjs");
+  out("cjsvite", (viaVite.default ?? viaVite).store !== viaNode.store, /vlegacy\\.cjs/);`,
+    barrel: `const viaNode = require("./fx/barrel.ts");
+  const viaVite = await import("./fx/barrel");
+  out("barrel", viaVite.store !== viaNode.store, /fx[\\\\/](barrel|bstore)\\.ts/);`,
+    barrelvite: `const viaVite = await import("./fx/vbarrel");
+  const viaNode = require("./fx/vbarrel.ts");
+  out("barrelvite", viaVite.store !== viaNode.store, /fx[\\\\/]vb(arrel|store)\\.ts/);`,
+    jestreset: `const viaNode = require("./fx/jr.ts");
+  jest.resetModules();
+  const viaVite = await import("./fx/jr");
+  out("jestreset", viaVite.store !== viaNode.store, /fx[\\\\/]jr\\.ts/);`,
+    vireset: `const viaNode = require("./fx/vr.ts");
+  vi.resetModules();
+  const viaVite = await import("./fx/vr");
+  out("vireset", viaVite.store !== viaNode.store, /fx[\\\\/]vr\\.ts/);`,
     inline: `const pure = await import("pure-lib");
   const ext = require("ext-dep");
   out("inline", ext.pure.store !== (pure as any).store, /pure-lib/);`,
@@ -168,9 +202,10 @@ export function out(name: string, split: boolean, file: RegExp, extra = "") {
   for (const [name, body] of Object.entries(probes)) {
     write(
       `src/${name}.test.ts`,
-      `import { it } from "vitest";
+      `import { it, vi } from "vitest";
 import { out } from "./h";
 declare const jest: any;
+void vi;
 it("${name}", async () => {
   ${body}
 });
@@ -199,6 +234,53 @@ jest.mock("./fx/rq", () => ({ ...jest.requireActual("./fx/rq"), extra: 1 }));
 it("reqactual", async () => {
   const actual: any = await vi.importActual("./fx/rq");
   out("reqactual", actual.store !== store, /fx[\\\\/]rq\\.ts/);
+});
+`,
+  );
+  // Two files that share one worker: the first requires a store, the second imports it.
+  // Under the hot runtime the per-file reset drops Node's copy in between; under plain
+  // `isolate: false` it stays live (docs/ownership-guard.md, "isolate: false").
+  const sharedWorker = (name: string, options: string, test: string) =>
+    write(
+      `vitest.${name}.config.mts`,
+      `import { defineConfig } from "vitest/config";
+import { BaseSequencer } from "vitest/node";
+import { reactNative } from "vitest-native";
+class ByName extends BaseSequencer {
+  async sort(files: any[]) {
+    return [...files].sort((a, b) => (a.moduleId < b.moduleId ? -1 : 1));
+  }
+}
+export default defineConfig({
+  plugins: [reactNative({ engine: "native", ${options} })],
+  test: {
+    environment: "node",
+    include: ["src/cross/*.test.ts"],
+    maxWorkers: 1,
+    fileParallelism: false,
+    sequence: { sequencer: ByName },
+    ${test}
+  },
+});
+`,
+    );
+  sharedWorker("hot", "hotRuntime: { allowUnboundedMemory: true }", "");
+  sharedWorker("noiso", "hotRuntime: false", "isolate: false,");
+  write(
+    "src/cross/a.test.ts",
+    `import { it } from "vitest";
+it("a", () => {
+  require("../fx/hot.ts").store.value = "written by a";
+});
+`,
+  );
+  write(
+    "src/cross/b.test.ts",
+    `import { it } from "vitest";
+import { out } from "../h";
+it("b", async () => {
+  const viaVite = await import("../fx/hot");
+  out("cross", viaVite.store.value === "written by a", /fx[\\\\/]hot\\.ts/);
 });
 `,
   );
@@ -251,10 +333,16 @@ const SPLIT_SHAPES = [
   ["query", "node>vite:require-from-vite:cjs"],
   ["symlink", "node>vite:require-from-vite:cjs"],
   ["spy", "vite>node:require-from-vite:cjs"],
-  ["reqactual", "node>vite:jest-compat:cjs"],
   ["inline", "vite>node:vite-inline:cjs"],
   ["nodeesm", "node>vite:node-esm:esm"],
+  ["cjs", "node>vite:require-from-vite:cjs"],
+  ["barrel", "node>vite:require-from-vite:cjs"],
+  ["vireset", "node>vite:require-from-vite:cjs"],
 ] as const;
+
+// Vite evaluated the file first, so Node's require is handed Vite's instance (#345, and
+// `module.exports` for CommonJS): one copy, nothing to report.
+const ONE_INSTANCE_SHAPES = ["reqactual", "cjsvite", "barrelvite"] as const;
 
 describe.runIf(distExists)("the ownership guard on the review's shapes", () => {
   it("coverage reports only the file's own lines, the marker none", () => {
@@ -294,6 +382,18 @@ describe.runIf(distExists)("the ownership guard on the review's shapes", () => {
       expect(probe(name), `${name}\n${output}`).toContain("split=true reported=true");
       expect(probe(name), name).toContain(route);
     }
+    for (const name of ONE_INSTANCE_SHAPES) {
+      expect(probe(name), `${name}\n${output}`).toContain("split=false reported=false");
+    }
+    // A barrel's re-exported store is a second file evaluated twice, named on its own:
+    // the barrel by the test's require, the store by the barrel Node evaluated.
+    expect(probe("barrel"), probe("barrel")).toContain(
+      "node>vite:node-owned-source:cjs,node>vite:require-from-vite:cjs",
+    );
+    // jest.resetModules drops Node's project modules, as Jest's reset empties its one
+    // registry: the import that follows is a fresh copy in Jest too, and the old one is
+    // no longer live in either system, so there is nothing to report.
+    expect(probe("jestreset"), output).toContain("split=true reported=false");
     expect(output).toMatch(/\[vitest-native\] ownership: \d+ file\(s\) were evaluated by both/);
     expect(output).toContain("pure-lib");
     expect(output).toMatch(
@@ -328,9 +428,25 @@ describe.runIf(distExists)("the ownership guard on the review's shapes", () => {
     // Vite's second copy is seen after its body ran: count 2. Node's second copy is
     // still refused before it runs (the alias and swallow shapes).
     const { probe, output } = run("error", {}, ["src/side.test.ts"]);
-    expect(probe("side"), output).toContain("count=2 code=MODULE_DUAL_EVALUATION");
+    expect(probe("side"), output).toContain("count=2 code=SOURCE_EVALUATED_TWICE");
     expect(output).toContain("Vite's copy ran; this file fails.");
     expect(output).toMatch(/evaluated by both Node and Vite during this test file/);
+  }, 200_000);
+
+  it("hot runtime: a require in one file and an import in the next are not reported", () => {
+    // The per-file reset drops Node's copy, so the second file's import is the only live
+    // one: a report here would be a false positive across files (the liveness check).
+    const { status, output, probe } = run("error", {}, ["--config", "vitest.hot.config.mts"]);
+    expect(output).toContain("hot runtime");
+    expect(probe("cross"), output).toContain("split=false reported=false");
+    expect(status, output).toBe(0);
+  }, 200_000);
+
+  it("isolate: false without the hot runtime: the same two files are a live twin, reported", () => {
+    const { output, probe } = run("warn", {}, ["--config", "vitest.noiso.config.mts"]);
+    expect(probe("cross"), output).toContain(
+      "split=false reported=true node>vite:require-from-vite:cjs",
+    );
   }, 200_000);
 
   it("error: a dual evaluation a library swallowed still fails its file", () => {

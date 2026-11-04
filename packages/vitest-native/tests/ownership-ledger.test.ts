@@ -116,7 +116,7 @@ describe("the ledger", () => {
     const { ledger, warnings } = ledgerWith({ mode: "error" });
     ledger.recordVite(nodeKey(FILE), FILE);
     expect(() => ledger.recordNode(FILE, { via: "cjs" })).toThrow(
-      expect.objectContaining({ code: "MODULE_DUAL_EVALUATION" }),
+      expect.objectContaining({ code: "SOURCE_EVALUATED_TWICE" }),
     );
     expect(warnings).toEqual([]);
     // Every attempt throws, not only the first: the second copy never gets used.
@@ -171,7 +171,7 @@ describe("the Vite marker", () => {
     const id = "/Repo/src/A.ts";
     const marker = viteMarkerFor(id);
     expect(marker).toBe(
-      `globalThis.__vitest_native_ownership_vite?.(${JSON.stringify(nodeKey(id))}, ${JSON.stringify(id)});`,
+      `globalThis.__vitest_native_ownership?.vite(${JSON.stringify(nodeKey(id))}, ${JSON.stringify(id)});`,
     );
     // The same file's code under a query is recorded under the file.
     expect(viteMarkerFor(`${id}?x=1`)).toBe(marker);
@@ -230,6 +230,11 @@ describe("configuration", () => {
 
   it("reads a malformed worker config as the default rather than failing the run", () => {
     expect(parseOwnershipGuardConfig("not-json")).toEqual({ mode: "warn", allow: [] });
+    expect(parseOwnershipGuardConfig(undefined)).toEqual({ mode: "warn", allow: [] });
+    // The project context hands the worker the object itself.
+    expect(
+      parseOwnershipGuardConfig({ mode: "error", allow: [{ path: "/b", reason: "ok" }] }),
+    ).toEqual({ mode: "error", allow: [{ path: "/b", reason: "ok" }] });
     expect(
       parseOwnershipGuardConfig(
         JSON.stringify({
@@ -276,7 +281,7 @@ describe("the installed ledger", () => {
     const require = createRequire(process.cwd() + "/x.js");
     const viteEvaluates = (file) => {
       const real = fs.realpathSync(file);
-      globalThis[L.VITE_MARKER](L.realKey(real), real);
+      globalThis[L.LEDGER_GLOBAL].vite(L.realKey(real), real);
     };
     console.warn = () => {};
   `;
@@ -312,6 +317,46 @@ describe("the installed ledger", () => {
     `;
     expect(node(script)).toBe("1");
     expect(node(script, ["--preserve-symlinks"])).toBe("1");
+  });
+
+  /**
+   * The cost gate, in counts (validation/ownership-cost has the suite-level measure).
+   * The ledger may add no resolution, realpath, stat, read, readdir or existence check
+   * to a Node evaluation or a Vite record: the same 200 requires and 200 Vite records
+   * make the same calls with the ledger installed as without it. The marker's realpath
+   * is per directory, never per module.
+   */
+  it("adds no file-system call or resolution per evaluation, and one realpath per directory", () => {
+    dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-ledger-cost-")));
+    for (let d = 0; d < 4; d++) {
+      fs.mkdirSync(path.join(dir, `d${d}`));
+      for (let i = 0; i < 50; i++) {
+        fs.writeFileSync(path.join(dir, `d${d}`, `m${i}.js`), `exports.v = ${i};\n`);
+      }
+    }
+    const counter = path.resolve(import.meta.dirname, "../validation/ownership-cost/counter.cjs");
+    const workload = (install: boolean) => `
+      import { createRequire } from "node:module";
+      const L = await import(process.env.LEDGER);
+      const counts = globalThis[Symbol.for("vn-cost-counts")];
+      const files = [];
+      for (let d = 0; d < 4; d++) for (let i = 0; i < 50; i++) files.push(process.cwd() + "/d" + d + "/m" + i + ".js");
+      ${install ? "L.installOwnershipLedger({ projectRoot: process.cwd() });" : ""}
+      const before = { ...counts };
+      const require = createRequire(process.cwd() + "/x.js");
+      for (const file of files) require(file);
+      for (const file of files) globalThis.__vitest_native_ownership?.vite(file + ".vite", file + ".vite");
+      const evaluation = Object.fromEntries(Object.keys(counts).map((k) => [k, counts[k] - before[k]]));
+      const marker = { ...counts };
+      for (const file of files) L.viteMarkerFor(file);
+      console.log(JSON.stringify({ evaluation, markerRealpaths: counts.realpath - marker.realpath }));
+    `;
+    const run = (install: boolean) => JSON.parse(node(workload(install), ["--require", counter]));
+    const without = run(false);
+    const withLedger = run(true);
+    expect(withLedger.evaluation.compile).toBe(200);
+    expect(withLedger.evaluation).toEqual(without.evaluation);
+    expect(withLedger.markerRealpaths).toBe(4);
   });
 
   it("does not keep a module alive once Node's cache has let it go", () => {
@@ -396,7 +441,7 @@ describe("the plugin's side of the guard", () => {
       const result = withOwnershipMarker(code, file)!;
       // Every original byte where it was; the marker after a newline, so a trailing
       // line comment cannot swallow it.
-      expect(result.code.startsWith(`${code}\n;globalThis.__vitest_native_ownership_vite?.(`)).toBe(
+      expect(result.code.startsWith(`${code}\n;globalThis.__vitest_native_ownership?.vite(`)).toBe(
         true,
       );
       expect(result.map).toBeNull();

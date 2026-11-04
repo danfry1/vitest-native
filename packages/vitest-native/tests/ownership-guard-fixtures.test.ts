@@ -1,26 +1,27 @@
 /**
- * The ownership guard against the dual evaluations found in October 2026, run as
- * real projects in child processes (docs/ownership-guard.md).
+ * The ownership guard against real projects in child processes (docs/ownership-guard.md).
  *
- * Every shape gives two live copies of one store, and on the commit this guard landed on
- * none printed anything: the user's assertion failed with `null` and no pointer to
- * the cause. The report has to name the file, both module
- * systems, the policy owner and the route:
+ * Its role is a backstop: when the engine keeps one instance of a file, the guard must say
+ * nothing; when a file still gets two live copies, it must name the file, both module
+ * systems, the policy owner, the route and the fix.
  *
- * - `alias`: a workspace package Node owns (detected: it declares React Native) is
- *   aliased to its source, and that source imports a sibling the test also imports.
- *   Vite evaluates the sibling's store for the test; Node evaluates it again for the
- *   aliased package, through the require hook's alias fallback.
- * - `partial-mock`: the canonical Jest partial mock of project source with the mocked
- *   module imported first. The factory's synchronous `jest.requireActual` loads the
- *   module and its store through Node before Vite reaches the store.
- * - the alias shape again without a per-package alias: tsconfig paths, an alias above
- *   every package, a root alias, and a package whose `main` is its source.
+ * - One instance, no report. Shapes that split in October 2026 and give one instance on
+ *   main since the engine hands Node Vite's instance of a file Vite evaluated first:
+ *   - `alias`: a workspace package Node owns (it declares React Native) is aliased to its
+ *     source, and that source imports a sibling the test imported first;
+ *   - the same without a per-package alias: tsconfig paths, an alias above every
+ *     package, a root alias, and a package whose `main` is its source;
+ *   - `partial-mock`: a Jest partial mock of project source, mocked module imported first.
+ * - Two instances, reported. `require-first` (the bug museum's own-require-first): the
+ *   alias shape with the test's imports swapped, so Node evaluates the store before Vite.
+ *   `warn` keeps the run going and reports once; `error` fails the file by name with
+ *   SOURCE_EVALUATED_TWICE.
+ * - Not this guard's to see. `dual-export` (the museum's own-dual-export-file): a package
+ *   whose `import` and `require` conditions name different files. Both copies are Node's
+ *   and they are different files, so no file is evaluated by both systems.
  *
- * `warn` keeps the run going and reports once; `error` throws MODULE_DUAL_EVALUATION at
- * the second evaluation. The workspace is reached through a symlink, as a real path
- * mismatch is exactly how a ledger keyed by spelling would miss these (path-spelling
- * keys).
+ * The workspace is reached through a symlink, as a real path mismatch is exactly how a
+ * ledger keyed by spelling would miss these (path-spelling keys).
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -228,6 +229,66 @@ export default defineConfig({
   write(real, "packages/app/jit/vitest.config.mts", plainConfig("{}"));
   write(real, "packages/app/jit/src/store.test.ts", STORE_VIA("@og/state", "@og/jit"));
 
+  // The alias shape with the imports swapped: Node-owned code loads the store first.
+  write(
+    real,
+    "packages/app/require-first/vitest.config.mts",
+    `import { defineConfig } from "vitest/config";
+import { reactNative } from "vitest-native";
+const ws = ${JSON.stringify(linked)};
+export default defineConfig({
+  plugins: [reactNative({ engine: "native", hotRuntime: false })],
+  resolve: {
+    alias: {
+      "@og/feature": ws + "/packages/feature/src",
+      "@og/validator": ws + "/packages/validator/src",
+    },
+  },
+  test: { include: ["src/**/*.test.ts"] },
+});
+`,
+  );
+  write(
+    real,
+    "packages/app/require-first/src/store.test.ts",
+    `import { expect, it } from "vitest";
+import { readStore } from "@og/feature";
+import { store } from "@og/validator/store";
+it("a store a Node-owned library loaded first is the store the test imports", () => {
+  store.value = "written by the test";
+  expect(readStore()).toBe("written by the test");
+});
+`,
+  );
+
+  // A package with separate import and require builds, required by its own CommonJS.
+  write(real, "node_modules/og-dual/package.json", {
+    name: "og-dual",
+    version: "1.0.0",
+    type: "module",
+    exports: { ".": { import: "./esm.mjs", require: "./cjs.cjs" }, "./reader": "./reader.cjs" },
+  });
+  write(real, "node_modules/og-dual/esm.mjs", "export const store = { value: null };\n");
+  write(real, "node_modules/og-dual/cjs.cjs", "exports.store = { value: null };\n");
+  write(
+    real,
+    "node_modules/og-dual/reader.cjs",
+    'module.exports = () => require("og-dual").store;\n',
+  );
+  write(real, "packages/app/dual-export/vitest.config.mts", plainConfig("{}"));
+  write(
+    real,
+    "packages/app/dual-export/src/store.test.ts",
+    `import { expect, it } from "vitest";
+import { store } from "og-dual";
+import reader from "og-dual/reader";
+it("one og-dual", () => {
+  store.value = "configured";
+  expect(reader().value).toBe("configured");
+});
+`,
+  );
+
   // Shape 2: a Jest partial mock of project source, mocked module imported first.
   write(
     real,
@@ -312,24 +373,45 @@ describe("the ownership guard reports a real dual evaluation", () => {
   });
 
   const store = () => path.join(real, "packages/validator/src/store.ts");
-  const partialStore = () => path.join(real, "packages/app/partial-mock/src/store.ts");
+  const REPORTED = /was evaluated by both Node and Vite/;
+
+  it.runIf(distExists).each(["alias", "tsconfig-paths", "parent-alias", "root-alias", "jit"])(
+    "%s, error: one instance, so the guard reports nothing and the test passes",
+    (variant) => {
+      const { status, output } = run(variant, "error");
+      expect(output).not.toMatch(REPORTED);
+      expect(output).not.toContain("SOURCE_EVALUATED_TWICE");
+      expect(status, output).toBe(0);
+    },
+    200_000,
+  );
 
   it.runIf(distExists)(
-    "alias shape, warn: reported once, naming both sides, while the split still fails the test",
+    "partial-mock, error: one instance through jest.requireActual, nothing reported",
     () => {
-      const { status, output } = run("alias", "warn");
+      const { status, output } = run("partial-mock", "error");
+      expect(output).not.toMatch(REPORTED);
+      expect(status, output).toBe(0);
+    },
+    200_000,
+  );
+
+  it.runIf(distExists)(
+    "require-first, warn: reported once, naming both sides, while the split still fails the test",
+    () => {
+      const { status, output } = run("require-first", "warn");
       const report = reportFor(output, store());
       expect(report, output).not.toBe("");
       expect(output.split(`${store()} was evaluated by both`)).toHaveLength(2);
       // The sibling is neither the package under test nor detected: the policy leaves
       // it to Vitest, and the report says so rather than inventing an owner.
       expect(report).toContain("policy owner -> none declared (delegated)");
-      expect(report).toMatch(/first\s+-> Vite, imported by .*store\.test\.ts/);
       expect(report).toContain(
-        `second       -> Node (CommonJS), required by ${path.join(real, "packages/feature/src/index.ts")}`,
+        `first        -> Node (CommonJS), required by ${path.join(real, "packages/feature/src/index.ts")}`,
       );
+      expect(report).toMatch(/second\s+-> Vite, imported by .*store\.test\.ts/);
       expect(report).toContain("route        -> an import from source Node evaluated");
-      // The state really is split; the guard names it rather than hiding it.
+      expect(report).toContain("fix          -> Node-owned code reached a file Vite owns");
       expect(output).toContain("expected null to be 'written by the test'");
       expect(status).not.toBe(0);
     },
@@ -337,69 +419,29 @@ describe("the ownership guard reports a real dual evaluation", () => {
   );
 
   it.runIf(distExists)(
-    "alias shape, error: MODULE_DUAL_EVALUATION before Node's copy runs",
+    "require-first, error: the file fails by name with SOURCE_EVALUATED_TWICE",
     () => {
-      const { status, output } = run("alias", "error");
+      const { status, output } = run("require-first", "error");
       const report = reportFor(output, store());
       expect(report, output).not.toBe("");
-      expect(report).toContain(
-        "Node's copy was never evaluated: the require threw (ownership: 'error')",
-      );
+      expect(output).toContain("SOURCE_EVALUATED_TWICE");
+      // The import of the second copy throws, so the file fails while collecting.
+      expect(report).toContain("Vite's copy ran; this file fails.");
       expect(output).not.toContain("expected null to be 'written by the test'");
       expect(status).not.toBe(0);
     },
     200_000,
   );
 
-  it.runIf(distExists).each([
-    ["tsconfig-paths", "packages/validator/src/store.ts", "packages/feature/src/index.ts"],
-    ["parent-alias", "packages/validator/src/store.ts", "packages/feature/src/rel.ts"],
-    ["root-alias", "packages/validator/src/store.ts", "packages/feature/src/rel.ts"],
-    ["jit", "packages/state/src/store.ts", "packages/jit/src/index.ts"],
-  ])(
-    "%s, warn: the same split without a per-package alias is reported",
-    (variant, file, requirer) => {
-      const { status, output } = run(variant, "warn");
-      const report = reportFor(output, path.join(real, file));
-      expect(report, output).not.toBe("");
-      expect(report).toMatch(/first\s+-> Vite, imported by .*store\.test\.ts/);
-      expect(report).toContain(
-        `second       -> Node (CommonJS), required by ${path.join(real, requirer)}`,
-      );
-      expect(report).toContain("route        -> an import from source Node evaluated");
-      expect(output).toContain("expected null to be 'written by the test'");
-      expect(status).not.toBe(0);
-    },
-    200_000,
-  );
-
   it.runIf(distExists)(
-    "partial-mock shape, warn: Node first through jest.requireActual, then Vite",
+    "dual-export: two different files, both Node's, so the split is outside the guard",
     () => {
-      const { status, output } = run("partial-mock", "warn");
-      const report = reportFor(output, partialStore());
-      expect(report, output).not.toBe("");
-      expect(report).toContain("policy owner -> Vite (project-source)");
-      expect(report).toMatch(
-        /first\s+-> Node \(CommonJS\), required by .*partial-mock[\\/]src[\\/]api\.ts/,
-      );
-      expect(report).toMatch(/second\s+-> Vite, imported by .*partial\.test\.ts/);
-      expect(report).toContain(
-        "route        -> a synchronous jest.requireActual/requireMock through jest-compat",
-      );
-      expect(output).toContain("expected null to be 'set-by-the-test'");
-      expect(status).not.toBe(0);
-    },
-    200_000,
-  );
-
-  it.runIf(distExists)(
-    "partial-mock shape, error: the import of the second copy fails by name",
-    () => {
-      const { status, output } = run("partial-mock", "error");
-      const report = reportFor(output, partialStore());
-      expect(report, output).not.toBe("");
-      expect(report).toContain("Vite's copy ran; this file fails.");
+      const { status, output } = run("dual-export", "error");
+      // The split is real...
+      expect(output).toContain("expected null to be 'configured'");
+      // ...and the guard, which compares one file across the two module systems, has
+      // nothing to report. A change that makes it report here is a new check, not this one.
+      expect(output).not.toMatch(REPORTED);
       expect(status).not.toBe(0);
     },
     200_000,
