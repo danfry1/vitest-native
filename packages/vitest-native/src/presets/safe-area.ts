@@ -51,18 +51,26 @@ export function safeAreaContext(): Preset {
           const SafeAreaInsetsContext = React.createContext(state.insets);
           const SafeAreaFrameContext = React.createContext(state.frame);
           // 5.11+: insets enlarged where the display's rounded corners reach past
-          // the safe area, keyed by axis. Nothing provides it here, so
+          // the safe area, keyed by axis. Without a test's own provider,
           // useSafeAreaInsets({ cornerAdaptation }) answers the regular insets,
-          // as the library's own Jest mock does without a provider. The hook
-          // stays context-free so tests can call it outside a render.
+          // as the library's own Jest mock does.
           const SafeAreaCornerAdaptedInsetsContext = React.createContext(null);
 
-          function useSafeAreaInsets(_options?: { cornerAdaptation?: "vertical" | "horizontal" }) {
-            return state.insets;
+          // Read from context, as the library's own Jest mock's hooks are: a test's
+          // own SafeAreaInsetsContext.Provider value wins, and the default is the
+          // state setInsets() updates.
+          function useSafeAreaInsets(options?: { cornerAdaptation?: "vertical" | "horizontal" }) {
+            const insets = React.useContext(SafeAreaInsetsContext);
+            const corner = React.useContext(SafeAreaCornerAdaptedInsetsContext) as Record<
+              string,
+              typeof insets
+            > | null;
+            const axis = options?.cornerAdaptation;
+            return (axis != null ? corner?.[axis] : undefined) ?? insets;
           }
 
           function useSafeAreaFrame() {
-            return state.frame;
+            return React.useContext(SafeAreaFrameContext);
           }
 
           function withSafeAreaInsets(WrappedComponent: any) {
@@ -70,7 +78,7 @@ export function safeAreaContext(): Preset {
               React.createElement(WrappedComponent, {
                 ...props,
                 ref,
-                insets: state.insets,
+                insets: useSafeAreaInsets(),
               }),
             );
             WithSafeAreaInsets.displayName = `withSafeAreaInsets(${WrappedComponent.displayName || WrappedComponent.name || "Component"})`;

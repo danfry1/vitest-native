@@ -750,8 +750,12 @@ describe("preset: safeAreaContext", () => {
   const preset = safeAreaContext();
   const mock = preset.modules["react-native-safe-area-context"].factory();
 
-  it("useSafeAreaInsets returns realistic insets", () => {
-    const insets = mock.useSafeAreaInsets();
+  // The hooks read context, so they run inside a render.
+  const insetsNow = async (wrapper?: React.ComponentType<{ children: React.ReactNode }>) =>
+    (await renderHook(() => mock.useSafeAreaInsets(), { wrapper })).result.current;
+
+  it("useSafeAreaInsets returns realistic insets", async () => {
+    const insets = await insetsNow();
     expect(insets).toHaveProperty("top");
     expect(insets).toHaveProperty("bottom");
     expect(insets).toHaveProperty("left");
@@ -760,8 +764,8 @@ describe("preset: safeAreaContext", () => {
     expect(insets.bottom).toBeGreaterThan(0); // Home indicator
   });
 
-  it("useSafeAreaFrame returns realistic frame", () => {
-    const frame = mock.useSafeAreaFrame();
+  it("useSafeAreaFrame returns realistic frame", async () => {
+    const frame = (await renderHook(() => mock.useSafeAreaFrame())).result.current;
     expect(frame.width).toBe(390);
     expect(frame.height).toBe(844);
   });
@@ -786,26 +790,34 @@ describe("preset: safeAreaContext", () => {
     expect(Wrapped.displayName).toBe("withSafeAreaInsets(MyComp)");
   });
 
-  it("serves 5.11's corner-adapted context, and cornerAdaptation answers the regular insets", () => {
+  it("serves 5.11's corner-adapted context, and cornerAdaptation answers the regular insets", async () => {
     expect(mock.SafeAreaCornerAdaptedInsetsContext).toHaveProperty("Provider");
-    expect(mock.useSafeAreaInsets({ cornerAdaptation: "vertical" })).toEqual(
-      mock.useSafeAreaInsets(),
-    );
+    const adapted = (
+      await renderHook(() => mock.useSafeAreaInsets({ cornerAdaptation: "vertical" }))
+    ).result.current;
+    expect(adapted).toEqual(await insetsNow());
   });
 
-  it("_setInsets updates insets returned by useSafeAreaInsets", () => {
+  it("_setInsets updates insets returned by useSafeAreaInsets", async () => {
     mock._setInsets({ top: 0, bottom: 0 });
-    const insets = mock.useSafeAreaInsets();
+    const insets = await insetsNow();
     expect(insets.top).toBe(0);
     expect(insets.bottom).toBe(0);
   });
 
-  it("_reset restores default insets", () => {
+  it("_reset restores default insets", async () => {
     mock._setInsets({ top: 0, bottom: 0 });
     mock._reset();
-    const insets = mock.useSafeAreaInsets();
+    const insets = await insetsNow();
     expect(insets.top).toBe(47);
     expect(insets.bottom).toBe(34);
+  });
+
+  it("useSafeAreaInsets reads a SafeAreaInsetsContext.Provider, as the library's does", async () => {
+    const value = { top: 1, right: 2, bottom: 3, left: 4 };
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(mock.SafeAreaInsetsContext.Provider, { value }, children);
+    expect(await insetsNow(wrapper)).toBe(value);
   });
 });
 
