@@ -20,7 +20,7 @@ export const EXPERIMENTAL_FLAGS: readonly ExperimentalFlag[] = [
     name: "experimental.ownershipModel",
     adr: "0004/0005",
     since: "0.15.0",
-    decideBy: "2026-11-25",
+    decideBy: "2026-12-15",
   },
 ];
 

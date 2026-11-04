@@ -26,6 +26,13 @@ export interface ResolverCounters {
   deltaSample: { request: string; from: string; previous: string; next: string }[];
 }
 
+/** The relative target a package's `exports` gives `subpath` under `conditions`, or null. */
+export declare function exportTarget(
+  exportsField: unknown,
+  subpath: string,
+  conditions: readonly string[],
+): string | null;
+
 export declare const FALLBACK_ALLOWED: readonly string[];
 export declare const OWNERSHIP_MODEL_VALUES: readonly string[];
 

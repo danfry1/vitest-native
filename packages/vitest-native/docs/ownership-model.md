@@ -76,7 +76,7 @@ ADR-0001 allows two behaviour-change flags at a time.
 
 | Flag | Since | Decide by |
 | --- | --- | --- |
-| `experimental.ownershipModel` | 0.15.0 | 2026-11-25 |
+| `experimental.ownershipModel` | 0.15.0 | 2026-12-15 |
 
 Library-mock re-lands ship as ordinary releases on `next`, one library at a time, not
 as flags. The table in `src/flags.ts` is the source of truth; `tests/flags.test.ts`
