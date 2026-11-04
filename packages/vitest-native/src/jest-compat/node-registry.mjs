@@ -757,6 +757,16 @@ function vitestMockBuilding(entry) {
 }
 
 function vitestMockValue(entry, request, parent) {
+  const value = vitestMockModule(entry, request, parent);
+  return value === NONE ? NONE : requireFacade(value);
+}
+
+/**
+ * The module a Vitest mock is, as the test's own import gets it (the factory's result, an
+ * automock's mocked exports, the module a redirect evaluated), or NONE while Vitest is
+ * building it. R9: one that cannot be had synchronously fails by name.
+ */
+function vitestMockModule(entry, request, parent) {
   if (vitestMockBuilding(entry)) return NONE;
   if (entry.type === "manual") {
     // Vitest caches a factory's settled result only, and wraps every factory in a
@@ -768,7 +778,7 @@ function vitestMockValue(entry, request, parent) {
       throw mockNotSeenByNode(request, parent, FACTORY_NOT_SETTLED);
     }
     const value = entry.resolve();
-    if (typeof value?.then !== "function") return requireFacade(value);
+    if (typeof value?.then !== "function") return value;
     settlingFactories.add(entry);
     value.then(
       () => settlingFactories.delete(entry),
@@ -779,12 +789,12 @@ function vitestMockValue(entry, request, parent) {
   const modules = worker()?.evaluatedModules;
   if (entry.type === "automock" || entry.type === "autospy") {
     const node = modules?.getModuleById?.(`mock:${entry.id}`);
-    if (node?.mockedExports != null) return requireFacade(node.mockedExports);
+    if (node?.mockedExports != null) return node.mockedExports;
   } else if (entry.type === "redirect" && typeof entry.redirect === "string") {
     const node =
       modules?.getModuleByUrl?.(entry.redirect) ?? modules?.getModuleById?.(entry.redirect);
     // Evaluated in this file: the hot runtime resets an earlier file's node in place.
-    if (node?.evaluated === true) return requireFacade(node.exports);
+    if (node?.evaluated === true) return node.exports;
   }
   throw mockNotSeenByNode(
     request,
@@ -934,6 +944,60 @@ function installLoadHook(state) {
     return mocked === undefined ? NONE : vitestMockValue(mocked, filename, null);
   }
   nodeMockForRegistry.NONE = NONE;
+
+  // The mock seam of the require bridge (experimental.ownershipModel 'resolution',
+  // native/bridge.mjs), which evaluates a Vite-owned module synchronously in Vite's place:
+  // each import it makes asks here first, so a mocked dependency is the instance Vitest's
+  // own import of it gets (ADR-0007 decision 4; the A3 readiness condition 1).
+  const mocks = nodeDispatch().channel("mocks");
+  mocks.NONE = NONE;
+  /**
+   * The id Vitest's registry keys a module by, from the forms the bridge holds it in: an
+   * absolute path (a fetch result's id, an external's target), a `file:` URL (an external's
+   * target on Windows), or Vite's `/@fs/` URL for a file outside the root.
+   */
+  const viteIdOf = (id) => {
+    if (typeof id !== "string") return id;
+    if (id.startsWith("file:")) return fileOfUrl(id).replace(/\\/g, "/");
+    if (id.startsWith("/@fs/")) {
+      const rest = id.slice("/@fs".length);
+      return /^\/[A-Za-z]:\//.test(rest) ? rest.slice(1) : rest;
+    }
+    return path.isAbsolute(id) ? id.replace(/\\/g, "/") : id;
+  };
+  /** Whether Node's own `require` and `import` are served Vitest's mocks (nodeMocks). */
+  mocks.servesNode = nodeMocks;
+  /**
+   * The mock for an import of `id` (Vite's id for it: its file, or a virtual id) made by
+   * the module at `importerFile`, as the test's own import of it gets it; NONE when none
+   * applies; or a `MOCK_NOT_SEEN_BY_NODE` failure naming the importer when one applies
+   * but cannot be had synchronously (an async factory that has not settled, an automock
+   * or `__mocks__` module Vitest has not built, a `vi.doMock`/`vi.doUnmock` of the file
+   * not applied yet). A Vite module's imports are Vite's, so this holds with nodeMocks
+   * off too. A jest.mock is matched first, and jest.requireActual's module stays actual,
+   * as for Node's require.
+   */
+  mocks.forImport = (rawId, importerFile) => {
+    const parent = { filename: importerFile };
+    const id = viteIdOf(rawId);
+    const bare = typeof id === "string" ? id.replace(/[?#].*$/, "") : null;
+    const file = bare !== null && path.isAbsolute(bare) ? bare : null;
+    if (file !== null) {
+      const entry = state.lookup(canonical(file), file);
+      if (entry === BYPASSED) return NONE;
+      if (entry !== undefined) return state.valueOf(entry);
+      if (pendingCount() > 0) assertNoPendingMockOf(state, file, id, parent);
+    }
+    const byId = globalThis.__vitest_mocker__?.getMockerRegistry?.()?.registryById;
+    // Keyed by Vite's id, as Vitest's registry is: the bridge has the id Vite resolved.
+    const entry = byId instanceof Map ? byId.get(id) : undefined;
+    if (entry === undefined) return NONE;
+    // Vitest's import of a factory mock gets the module it keeps at `mock:<id>` (a proxy
+    // that names a missing export); once the test has imported it, that one.
+    const imported = worker()?.evaluatedModules?.getModuleById?.(`mock:${entry.id}`)?.exports;
+    if (entry.type === "manual" && imported != null && !vitestMockBuilding(entry)) return imported;
+    return vitestMockModule(entry, id, parent);
+  };
 
   // experimental.nodeMocks, for Node's ESM loader (loader.mjs), which decides at resolve,
   // where the importer is known (R1), and gives a mocked import its own URL (R2).
