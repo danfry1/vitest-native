@@ -12,7 +12,8 @@
 //
 // Only a build that does both reads the flag. A build that warns about an unknown option
 // (main today), or accepts any value (one that drops the flag), is reported as
-// UNSUPPORTED and the run records that instead of verdicts.
+// UNSUPPORTED and the run records that instead of verdicts. A build that cannot be loaded,
+// or throws for the requested value, is broken: ownershipSupport() throws and the run fails.
 import { spawnSync } from "node:child_process";
 
 export const OWNERSHIP_MODELS = ["off", "resolver"];
@@ -65,19 +66,29 @@ export function ownershipSupport(fromDir, model) {
   try {
     result = JSON.parse(line);
   } catch {
-    return {
-      supported: false,
-      reason: `${UNSUPPORTED}: the probe could not construct the plugin: ${(proc.stderr ?? "").trim().slice(-500)}`,
-    };
+    // Not "unsupported": a build that cannot be loaded must fail the run, not skip it.
+    throw new Error(
+      `experimental.ownershipModel: the probe could not load the build: ${(proc.stderr ?? "").trim().slice(-500)}`,
+    );
   }
   return judgeSupport(result);
 }
 
-/** The probe's observations → { supported, reason }. Exported for the unit tests. */
+/**
+ * The probe's observations → { supported, reason }. Exported for the unit tests.
+ * Unsupported, recorded and skipped: a build that warns that `experimental` is an unknown
+ * option (main before #370), or one that accepts any value (it does not read the flag).
+ * Anything else that is not support throws, so the run fails: a build that throws for
+ * the value it is asked for is broken, not "without the flag".
+ */
 export function judgeSupport({ accepted, rejected, warnings }) {
   const unknown = warnings.find((line) => /\bexperimental\b/.test(line));
-  if (accepted !== null)
-    return { supported: false, reason: `${UNSUPPORTED}: it rejects the option: ${accepted}` };
+  if (accepted !== null) {
+    if (unknown) return { supported: false, reason: `${UNSUPPORTED}: ${unknown}` };
+    throw new Error(
+      `experimental.ownershipModel: the build throws for the requested value: ${accepted}`,
+    );
+  }
   if (unknown) return { supported: false, reason: `${UNSUPPORTED}: ${unknown}` };
   if (rejected === null || !rejected.includes("ownershipModel"))
     return {

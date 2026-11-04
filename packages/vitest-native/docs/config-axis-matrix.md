@@ -33,9 +33,11 @@ off. `run.mjs --ownership resolver` sets `experimental.ownershipModel` on every 
 run of a cell and judges each run with the value it used, so a known-failing entry can name
 it in `when`. A build that does not read the flag (main before #370) prints "flag not
 supported by this build" and exits 0 instead of measuring the flag off twice
-(`validation/config-axes/ownership.mjs`). The `aliased-sibling-regex` entry names
-`ownershipModel: off`, so a `resolver` run that never passed the flag on fails that probe
-instead of matching the entry. Ownership track A1 moves the axis into `runtime`.
+(`validation/config-axes/ownership.mjs`). A flag-on run whose flag never reaches
+`reactNative()` fails: the fixture's config writes a marker where it builds the option, and
+run.mjs reports a run without it. The `aliased-sibling-regex` entry names `ownershipModel:
+off` for the same reason. A build that cannot be loaded, or throws for the requested value,
+fails the run instead of reading as unsupported. Ownership track A1 moves the axis into `runtime`.
 
 ## What existing CI already covered
 

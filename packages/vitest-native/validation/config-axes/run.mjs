@@ -291,7 +291,7 @@ function linkLocal(root, app, source, isolated) {
 
 // --- run ----------------------------------------------------------------------------
 
-function vitestRun(app, run, files, outputFile, accountingFile) {
+function vitestRun(app, run, files, outputFile, accountingFile, ownershipMarker) {
   const env = { ...process.env, CI: "1" };
   // The harness may itself run under Vitest or with loader flags; none of it may reach
   // the child.
@@ -306,6 +306,7 @@ function vitestRun(app, run, files, outputFile, accountingFile) {
   env.AXIS_HOT = settings.hot;
   env.AXIS_JEST_COMPAT = settings.jestCompat;
   env.AXIS_OWNERSHIP_MODEL = run.ownershipModel ?? "off";
+  env.AXIS_OWNERSHIP_MARKER = ownershipMarker;
   if (settings.workers) env.AXIS_WORKERS = settings.workers;
   env.AXIS_ACCOUNTING_FILE = accountingFile;
   // pnpm links Vitest into the app; npm hoists it to the workspace root.
@@ -340,8 +341,16 @@ function vitestRun(app, run, files, outputFile, accountingFile) {
 function runFiles(app, run, files, base) {
   const report = `${base}.json`;
   const accounting = `${base}.accounting.json`;
-  const proc = vitestRun(app, run, files, report, accounting);
-  return { proc, ...account(proc, files, report, accounting) };
+  const marker = `${base}.ownership`;
+  const proc = vitestRun(app, run, files, report, accounting, marker);
+  const accounted = account(proc, files, report, accounting);
+  // The axis is evidence only where the flag reached the plugin: the fixture's config
+  // writes the marker when it passes experimental.ownershipModel to reactNative().
+  if (run.ownershipModel && run.ownershipModel !== "off" && !fs.existsSync(marker))
+    accounted.problems.push(
+      `experimental.ownershipModel: ${run.ownershipModel} never reached reactNative()`,
+    );
+  return { proc, ...accounted };
 }
 
 /** A probe's result from its files' results: every failure line, not just the first. */

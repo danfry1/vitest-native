@@ -637,7 +637,10 @@ describe("the ownershipModel axis", () => {
       supported: false,
       reason: expect.stringContaining("does not read it"),
     });
-    expect(judgeSupport({ accepted: "no", rejected: "no", warnings: [] }).supported).toBe(false);
+    // a build that throws for the value it is asked for is broken: the run fails
+    expect(() => judgeSupport({ accepted: "no", rejected: "no", warnings: [] })).toThrow(
+      /throws for the requested value: no/,
+    );
   });
 
   it("a flag-on run that drops the flag fails aliased-sibling-regex instead of matching its entry", () => {
@@ -666,6 +669,9 @@ describe("the ownershipModel axis", () => {
       `if (options?.experimental) console.warn("[vitest-native] Unknown option 'experimental'.");`,
     );
     const ignores = fakeBuild("return {};");
+    const throws = fakeBuild(`throw new Error("broken build");`);
+    const unloadable = fakeBuild("");
+    fs.writeFileSync(path.join(unloadable, "dist/index.mjs"), 'throw new Error("cannot load");\n');
     const reads = fakeBuild(
       `if (options?.experimental?.ownershipModel !== "resolver") throw new Error('"experimental.ownershipModel" must be "resolver".');`,
     );
@@ -674,8 +680,12 @@ describe("the ownershipModel axis", () => {
       expect(ownershipSupport(ignores, "resolver").supported).toBe(false);
       expect(ownershipSupport(reads, "resolver")).toEqual({ supported: true });
       expect(ownershipSupport(warns, "off")).toEqual({ supported: true });
+      // broken builds fail the run instead of reading as "without the flag"
+      expect(() => ownershipSupport(throws, "resolver")).toThrow(/throws for the requested value/);
+      expect(() => ownershipSupport(unloadable, "resolver")).toThrow(/could not load the build/);
     } finally {
-      for (const dir of [warns, ignores, reads]) fs.rmSync(dir, { recursive: true, force: true });
+      for (const dir of [warns, ignores, reads, throws, unloadable])
+        fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 

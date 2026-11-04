@@ -431,18 +431,18 @@
       }
     },
     {
-      "id": "own-hot-rule7-stale-instance",
+      "id": "own-hot-rule7-esm-residency",
       "class": "ownership",
-      "title": "Under the hot runtime, a Node-owned workspace library keeps the previous file's store",
-      "source": "ownership track A3 mechanism spike (2026-11-04, Risks: hot runtime); on main without the spike",
-      "fixedBy": "open (ownership track A3: Node-owned importers of Vite-owned modules reset per file under hot)",
+      "title": "Under the hot runtime, a Node-owned workspace library keeps the first file's ES module instance",
+      "source": "ownership track A3 mechanism spike and its review (2026-11-04)",
+      "fixedBy": "open (fix/hot-rule7-esm-residency)",
       "links": {
         "@m/feature": "packages/feature",
         "@m/validator": "packages/validator"
       },
-      "bugSignature": "^b\\.test\\.ts: AssertionError: the Node-owned library reads this file's store: expected .* to be 'written by the test'",
+      "bugSignature": "^b\\.test\\.ts: AssertionError: the library's Box is this file's Box: expected false to be true",
       "control": {
-        "why": "Without the hot runtime every file starts in a fresh module world, so the library is evaluated again for b and reads b's store: the bug's precondition, a worker that carries the library from a to b, is gone.",
+        "why": "Without the hot runtime every file starts in a fresh module world, so Node evaluates the library again for b: the bug's precondition, a module registry that carries the library from a to b, is gone.",
         "edits": [
           {
             "file": "vitest.config.mts",
@@ -450,13 +450,6 @@
             "replace": "reactNative({ hotRuntime: false })"
           }
         ]
-      },
-      "status": {
-        "main": "FAIL (bug)",
-        "control": "PASS",
-        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
-        "mainSignature": "b.test.ts: AssertionError: the Node-owned library reads this file's store: expected null to be 'written by the test' // Object.is equality",
-        "proof": "open (control passes)"
       }
     },
     {
@@ -576,7 +569,7 @@
       "id": "own-expo-runtime-undeclared",
       "class": "ownership",
       "title": "Expo's runtime loads uncompiled where expo resolves but is not compiled",
-      "source": "the bug museum itself, once the repository's install had expo 58 for another package's tests (46 exhibits failed with \"Cannot find module '…/expo/build/winter/runtime'\")",
+      "source": "the bug museum itself, once the repository's install had expo 58 for another package's tests (46 exhibits failed with \"Cannot find module '\u2026/expo/build/winter/runtime'\")",
       "fixedBy": "#432 (merged)",
       "preFixRef": "858e0c76^",
       "bugSignature": "^runtime\\.test\\.ts: (\\[vitest-native\\] 'expo' shipped source Node can't run directly \\(require is not defined in ES module scope|Cannot find module '[^']*/expo/build/winter/runtime' imported from )",
@@ -645,7 +638,7 @@
       "title": "Errors with per-instance methods are unequal under jest-compat",
       "source": "migration testing (2026-10)",
       "fixedBy": "#346 (merged)",
-      "bugSignature": "^error-equality\\.test\\.ts: AssertionError: expected Error: bad input \\{ issues: \\[\\], …\\(1\\) \\} to deeply equal Error: bad input",
+      "bugSignature": "^error-equality\\.test\\.ts: AssertionError: expected Error: bad input \\{ issues: \\[\\], \u2026\\(1\\) \\} to deeply equal Error: bad input",
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
@@ -1645,7 +1638,7 @@
       "id": "res-workspace-member-closure",
       "class": "transform/resolution",
       "title": "A workspace library's dependencies are not compiled for the package that depends on it",
-      "source": "a monorepo feature package depending on a workspace UI library that declares expo-image, with expo declared by an app (\"Cannot find module '…/expo-asset/build/Asset.fx'\")",
+      "source": "a monorepo feature package depending on a workspace UI library that declares expo-image, with expo declared by an app (\"Cannot find module '\u2026/expo-asset/build/Asset.fx'\")",
       "fixedBy": "#433 (merged)",
       "preFixRef": "64ac3833^",
       "links": {
@@ -1674,7 +1667,7 @@
       "id": "res-alias-member-closure",
       "class": "transform/resolution",
       "title": "A workspace library's dependencies are not compiled for a package that imports it through an alias",
-      "source": "a monorepo package importing a sibling workspace library's source through resolve.alias without declaring it (\"Cannot find module '…/expo-asset/build/Asset.fx'\")",
+      "source": "a monorepo package importing a sibling workspace library's source through resolve.alias without declaring it (\"Cannot find module '\u2026/expo-asset/build/Asset.fx'\")",
       "fixedBy": "#433 (merged)",
       "preFixRef": "64ac3833^",
       "bugSignature": "^closure\\.test\\.ts: (Error: )?Cannot find module '[^']*museum-expo-asset/build/Asset\\.fx'",

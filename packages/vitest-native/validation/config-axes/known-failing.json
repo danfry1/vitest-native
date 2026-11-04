@@ -17,8 +17,8 @@
         "engine": "native"
       },
       "failure": "^aliased-source-import-meta\\.test\\.ts: Cannot use 'import\\.meta' outside a module",
-      "fixedBy": "#370",
-      "why": "Node compiles the aliased source to CommonJS: Cannot use 'import.meta' outside a module. Ownership track A4 fixes it by lowering import.meta in Node-owned compiles, after the predicate (A3) that builds on #370; no pull request for A4 exists yet, so this entry names A1's."
+      "fixedBy": "#344",
+      "why": "Node compiles the aliased source to CommonJS: Cannot use 'import.meta' outside a module. #344 fixes it by leaving aliased workspace source to Vite, a decision by alias text; the ownership track plans to fix it instead by lowering import.meta in Node-owned compiles (A4, after the predicate A3). #370 does not fix it."
     },
     {
       "probe": "rntl-findby-fake-timers",
