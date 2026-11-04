@@ -305,6 +305,34 @@ function configFileHash(ctx, file) {
   return hash;
 }
 
+/**
+ * The Babel options a file compiles with when no project Babel config applies.
+ *
+ * Nothing in them reaches the disk-cache key except through the directory name
+ * (preset and Babel versions, the Babel env, the optional plugin's presence) and
+ * TRANSFORM_CACHE_VERSION. So any edit here that changes what Babel emits has to bump
+ * that version: tests/cache-key-ledger.test.ts records a fingerprint of these options
+ * per version and fails when they change under the same one.
+ */
+function packageTransformOptions(ctx, file, platform) {
+  return {
+    filename: file,
+    plugins: [ctx.flowEnums, ctx.exportNamespaceFrom].filter(Boolean),
+    // A fresh options object each call, as before Expo's preset was supported:
+    // Babel caches a preset's result per options object, so sharing one would
+    // change when the preset is instantiated.
+    presets: [[ctx.preset, { ...ctx.presetOptions }]],
+    babelrc: false,
+    configFile: false,
+    caller: { name: "metro", bundler: "metro", platform, supportsStaticESM: false },
+  };
+}
+
+/** packageTransformOptions for a project, resolving its toolchain. Test hook. */
+export function transformOptionsFor(projectRoot, file, platform = "ios") {
+  return packageTransformOptions(ctxFor(projectRoot), file, platform);
+}
+
 /** A project's transform disk-cache directory, once resolved. Test hook. */
 export function transformCacheDir(projectRoot) {
   return contexts.get(canonicalRoot(projectRoot))?.cacheDir ?? null;
@@ -771,7 +799,12 @@ export function heldTransform(file, projectRoot, platform = "ios") {
   } catch {
     return undefined;
   }
-  return ctxFor(projectRoot).mem.get(`${platform}\0${file}\0${st.mtimeMs}\0${st.size}`);
+  return ctxFor(projectRoot).mem.get(memoryKey(platform, file, st));
+}
+
+/** transformRN's in-memory key, shared with heldTransform so the two cannot differ. */
+function memoryKey(platform, file, st) {
+  return `${platform}\0${file}\0${st.mtimeMs}\0${st.size}`;
 }
 
 export function transformRN(file, src, projectRoot, platform = "ios") {
@@ -784,7 +817,7 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   // preset embeds the absolute path (_jsxFileName) in transformed JSX, so two
   // identical sources at different paths must not share an entry.
   const st = fs.statSync(file);
-  const memKey = `${platform}\0${file}\0${st.mtimeMs}\0${st.size}`;
+  const memKey = memoryKey(platform, file, st);
   const memHit = ctx.mem.get(memKey);
   if (memHit !== undefined) return memHit;
   // A caller that has not read the file yet passes no source, and pays for the read
@@ -857,18 +890,12 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
             // Added on Babel's side: a plugin is a function, which does not cross threads.
             esmInterop: esm,
             importMeta,
-            options: {
-              filename: file,
-              ...(sourceMap ? { sourceMaps: "inline" } : {}),
-              plugins: [ctx.flowEnums, ctx.exportNamespaceFrom].filter(Boolean),
-              // A fresh options object each call, as before Expo's preset was supported:
-              // Babel caches a preset's result per options object, so sharing one would
-              // change when the preset is instantiated.
-              presets: [[ctx.preset, { ...ctx.presetOptions }]],
-              babelrc: false,
-              configFile: false,
-              caller: { name: "metro", bundler: "metro", platform, supportsStaticESM: false },
-            },
+            // The inline source map is keyed by its own token (SOURCE_MAP_TOKEN), not by
+            // TRANSFORM_CACHE_VERSION, so it is added here rather than to the options the
+            // cache-key ledger fingerprints.
+            options: sourceMap
+              ? { ...packageTransformOptions(ctx, file, platform), sourceMaps: "inline" }
+              : packageTransformOptions(ctx, file, platform),
           },
     ).code;
   } catch (err) {

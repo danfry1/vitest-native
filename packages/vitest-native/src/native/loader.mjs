@@ -20,6 +20,7 @@ import {
   containsPath,
   isUtilitySubpath,
   packageNameOf,
+  isPackageEntryFile,
   presetPackageOfFile,
   requestForPackageFile,
   subpathLeafOf,
@@ -237,7 +238,21 @@ function presetRequestForFile(specifier, parent) {
   const norm = file.replace(/\\/g, "/");
   const pkgDir = norm.slice(0, norm.length - hit.subpath.length - 1);
   const request = requestForPackageFile(hit.pkg, hit.subpath, packageManifest(pkgDir));
-  return isUtilitySubpath(request) ? null : request;
+  if (isUtilitySubpath(request)) return null;
+  const shadowed =
+    request === hit.pkg ||
+    Object.prototype.hasOwnProperty.call(presetExports, request) ||
+    shadowsSubpath(hit.pkg, request);
+  return shadowed ? request : null;
+}
+
+// A subpath of a preset package is the mock's only when the mock exports its leaf
+// (react-native-gesture-handler/Swipeable → mock.Swipeable). Any other subpath is the
+// real file, as `jest.mock(pkg)` leaves a package's subpaths to their own files under
+// Jest; serving the root mock for it gave the importer the wrong module's exports.
+function shadowsSubpath(pkg, specifier) {
+  const leaf = subpathLeafOf(specifier);
+  return leaf !== null && (presetExports[pkg] || []).includes(leaf);
 }
 
 function resolveBefore(specifier, context) {
@@ -245,8 +260,9 @@ function resolveBefore(specifier, context) {
   // test graph or, crucially, nested inside an externalized third-party lib — is
   // redirected to a synthetic module that re-exports the runtime preset mock. This
   // mirrors the Vite plugin's virtual:preset modules for the Node ESM path.
-  // Subpath imports (e.g. react-native-gesture-handler/Swipeable) are redirected
-  // too — the real deep entry would pull in the package's native runtime.
+  // A subpath import is redirected when the mock exports its leaf
+  // (react-native-gesture-handler/Swipeable); any other loads its real file
+  // (shadowsSubpath).
   // Exempt: JSON subpaths (package.json version gates), asset subpaths, and
   // Node-safe utility entries (jest-utils, mock, plugin) — those pass through
   // to the real file.
@@ -257,7 +273,11 @@ function resolveBefore(specifier, context) {
     const specExt = /\.([a-z0-9]+)$/i.exec(specifier);
     if (!specExt || !assetExtSet.has(specExt[1].toLowerCase())) {
       const pkg = packageNameOf(specifier);
-      if (pkg !== specifier && Object.prototype.hasOwnProperty.call(presetExports, pkg)) {
+      if (
+        pkg !== specifier &&
+        Object.prototype.hasOwnProperty.call(presetExports, pkg) &&
+        shadowsSubpath(pkg, specifier)
+      ) {
         return { done: { url: PRESET_SCHEME + specifier, shortCircuit: true } };
       }
     }
@@ -318,6 +338,20 @@ function resolveRecover(err, specifier, parent) {
 }
 
 function resolveAfter(resolved, context) {
+  // A subpath that resolved to a preset package's own entry (`pkg/src`) is the package,
+  // and gets the root mock, as by name (isPackageEntryFile).
+  // Only a file inside node_modules can be a preset package's: checked on the URL first,
+  // so every other resolution pays no path conversion.
+  if (resolved.url.startsWith("file:") && resolved.url.includes("/node_modules/")) {
+    const file = fileURLToPath(resolved.url);
+    const parent = context.parentURL?.startsWith("file:") ? fileURLToPath(context.parentURL) : null;
+    const hit = presetPackageOfFile(file, parent, (pkg) =>
+      Object.prototype.hasOwnProperty.call(presetExports, pkg),
+    );
+    if (hit && isPackageEntryFile(hit.pkg, file, parent)) {
+      return { url: PRESET_SCHEME + hit.pkg, shortCircuit: true };
+    }
+  }
   // JSON imports without an explicit `with { type: 'json' }` attribute throw
   // ERR_IMPORT_ATTRIBUTE_MISSING on Node 22+. RN ecosystem packages do
   // `import pkg from './package.json'` unconditionally (e.g. @react-navigation).
