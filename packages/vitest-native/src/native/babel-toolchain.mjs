@@ -49,9 +49,17 @@ function config(request) {
 // preset or project plugin that lowers `import.meta` its own way (babel-preset-expo's
 // registry, the project's own plugin) keeps that answer, as under Jest.
 
-/** A superset of the sources holding `import.meta`, comments allowed around the dot. */
-export const IMPORT_META =
-  /\bimport\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)\s*)*\.\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)\s*)*meta\b/;
+/**
+ * Whether `src` may hold `import.meta`: a superset, decided in linear time. A comment
+ * between the tokens counts when `import` is followed by one and
+ * the source has the word `meta` at all.
+ */
+export function mentionsImportMeta(src) {
+  return (
+    /\bimport\s*\.\s*meta\b/.test(src) ||
+    (/\bimport\s*(?:\.\s*)?\/[/*]/.test(src) && /\bmeta\b/.test(src))
+  );
+}
 
 /** The lowering's revision, which keys compiled output of files that hold `import.meta`. */
 export const IMPORT_META_LOWERING = "import-meta-cjs-1";
@@ -103,8 +111,10 @@ export function importMetaToCommonJS(root) {
 
 function importMetaUnsupported(file, root, name, at) {
   const what = name === null ? "`import.meta`" : `\`import.meta.${name}\``;
-  const rel = file.startsWith(root + path.sep) ? path.relative(root, file) : file;
-  const shown = rel.split(path.sep).join("/");
+  const rel = path.relative(root, file);
+  const inside = rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+  const shownPath = inside ? rel : file;
+  const shown = shownPath.split(path.sep).join("/");
   const where = at ? `${shown}:${at.line}:${at.column + 1}` : shown;
   const pkg = owningPackage(file, root);
   const fix = pkg
@@ -120,18 +130,34 @@ function importMetaUnsupported(file, root, name, at) {
   );
 }
 
-/** The package holding `file`, or null for the project's own source. */
+/**
+ * The package holding `file`: the nearest package.json with a name (a nameless one only
+ * sets a module type), or null for the project's own source. Compared by real path, as
+ * `root` is spelled.
+ */
 function owningPackage(file, root) {
-  for (let dir = path.dirname(file); dir !== root && path.dirname(dir) !== dir;) {
-    try {
-      const name = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")).name;
-      if (typeof name === "string") return name;
-    } catch {
-      // No manifest here, or no name: look further up.
-    }
-    dir = path.dirname(dir);
+  for (let dir = path.dirname(file); path.dirname(dir) !== dir; dir = path.dirname(dir)) {
+    const name = readManifest(dir)?.name;
+    if (typeof name === "string") return realPath(dir) === realPath(root) ? null : name;
   }
   return null;
+}
+
+/** `dir`'s package.json, or null when it has none it can read. */
+function readManifest(dir) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function realPath(dir) {
+  try {
+    return fs.realpathSync.native(dir);
+  } catch {
+    return path.resolve(dir);
+  }
 }
 
 function transform(request) {

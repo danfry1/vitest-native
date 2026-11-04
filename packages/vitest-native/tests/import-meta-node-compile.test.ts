@@ -24,7 +24,7 @@ import { transformRN, transformCacheDir } from "../src/native/transform.mjs";
 // @ts-expect-error — runtime .mjs, no types
 import {
   handleToolchainRequest,
-  IMPORT_META,
+  mentionsImportMeta,
   importMetaToCommonJS,
 } from "../src/native/babel-toolchain.mjs";
 
@@ -138,6 +138,56 @@ describe("the properties CommonJS has a value for", () => {
   });
 });
 
+describe("the ES module idioms that rebuild CommonJS's names", () => {
+  it("`const require = createRequire(import.meta.url)` and `__dirname` from the URL", () => {
+    write("idioms/package.json", '{ "type": "module" }');
+    write("idioms/dep.cjs", "module.exports = 'dep';\n");
+    const file = write(
+      "idioms/meta.js",
+      [
+        "import { createRequire } from 'node:module';",
+        "import { fileURLToPath } from 'node:url';",
+        "import path from 'node:path';",
+        "const require = createRequire(import.meta.url);",
+        "const __filename = fileURLToPath(import.meta.url);",
+        "const __dirname = path.dirname(__filename);",
+        "export const dep = require('./dep.cjs');",
+        "export { __filename as file, __dirname as dir };",
+        "",
+      ].join("\n"),
+    );
+    expect(load(file)).toMatchObject({ dep: "dep", file, dir: path.dirname(file) });
+  });
+});
+
+describe("the pre-check", () => {
+  it("is linear in the source, whatever the comments", () => {
+    // Shapes that made a comment-aware pattern rescan the rest of the file per `import`.
+    const shapes = [
+      "import /* c */ x from 'y'; /* doc */\n".repeat(20_000),
+      "import/*".repeat(50_000),
+      "import //\n".repeat(50_000),
+    ];
+    for (const src of shapes) {
+      const start = performance.now();
+      mentionsImportMeta(src);
+      expect(performance.now() - start).toBeLessThan(100);
+    }
+  });
+
+  it("sees `import.meta` with whitespace or comments between its tokens", () => {
+    for (const src of [
+      "import.meta",
+      "import . meta",
+      "import /* a */ . /* b */ meta",
+      "import //\n.meta",
+    ]) {
+      expect(mentionsImportMeta(src), src).toBe(true);
+    }
+    expect(mentionsImportMeta("import x from 'metadata';")).toBe(false);
+  });
+});
+
 describe("any other property fails by name", () => {
   it.each([
     ["env", "export const mode = import.meta.env.MODE;\n", "`import.meta.env`", "1:21"],
@@ -162,12 +212,15 @@ describe("any other property fails by name", () => {
   });
 
   it("names the project's own source, which a require reached, with its own fix", () => {
-    // A file of the project root's own package: transform.exclude does not apply.
-    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-import-meta-app-")));
+    // A file of the project root's own package: transform.exclude does not apply. The
+    // root is spelled as given (on macOS the temporary directory is a symlink), the file
+    // by its real path, as Node reports it.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-import-meta-app-"));
     try {
       fs.writeFileSync(path.join(root, "package.json"), '{ "name": "app" }');
       fs.mkdirSync(path.join(root, "src"));
-      const file = path.join(root, "src", "env.ts");
+      fs.writeFileSync(path.join(root, "src", "package.json"), '{ "type": "module" }');
+      const file = path.join(fs.realpathSync(root), "src", "env.ts");
       fs.writeFileSync(file, "export const mode = import.meta.env.MODE;\n");
       let message = "did not throw";
       try {
@@ -178,7 +231,9 @@ describe("any other property fails by name", () => {
       } catch (err) {
         message = (err as Error).message;
       }
-      expect(message).toContain("`import.meta.env` in src/env.ts:1:21 has no value here");
+      expect(message).toMatch(
+        /`import\.meta\.env` in (?:\S*\/)?src\/env\.ts:1:21 has no value here/,
+      );
       expect(message).toContain("import the file from the test so Vite loads it");
       expect(message).not.toContain("transform: { exclude");
     } finally {
@@ -229,7 +284,7 @@ describe("what is left alone", () => {
         "",
       ].join("\n"),
     );
-    expect(IMPORT_META.test(fs.readFileSync(file, "utf8"))).toBe(true);
+    expect(mentionsImportMeta(fs.readFileSync(file, "utf8"))).toBe(true);
     expect(load(file).text).toBe("import.meta.hot");
   });
 

@@ -23,7 +23,11 @@ import crypto from "node:crypto";
 import vm from "node:vm";
 import { MessageChannel, receiveMessageOnPort, SHARE_ENV, Worker } from "node:worker_threads";
 import { decorateTransformError } from "./explain.mjs";
-import { handleToolchainRequest, IMPORT_META, IMPORT_META_LOWERING } from "./babel-toolchain.mjs";
+import {
+  handleToolchainRequest,
+  IMPORT_META_LOWERING,
+  mentionsImportMeta,
+} from "./babel-toolchain.mjs";
 import { ESM_EXPORTS_MARK, ESM_INTEROP_RUNTIME } from "./esm-interop.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import { resolveTransformPreset } from "./babel-preset.mjs";
@@ -778,7 +782,7 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   // one regular-expression scan and no Babel work. Only these files' output changes, so
   // only their key does, as for the ESM goal above: TRANSFORM_CACHE_VERSION, and with it
   // every other entry and the precompiled registry, stays as it was.
-  const importMeta = IMPORT_META.test(src);
+  const importMeta = mentionsImportMeta(src);
   if (importMeta) hash.update(`\0${IMPORT_META_LOWERING}`);
   const key = hash.digest("hex");
   const cachePath = path.join(ctx.cacheDir, key + ".js");
