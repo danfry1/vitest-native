@@ -72,7 +72,7 @@ describe("the require bridge, from the plugin", () => {
     // Outside the directories Vite serves: refused, and never fetched.
     expect(await ask(bridge.endpoint, { ...base, seq: 1, url: "/@fs/etc/hosts?raw" })).toEqual({
       seq: 1,
-      error: expect.objectContaining({ code: "BRIDGE_NOT_VITE_OWNED" }),
+      error: expect.objectContaining({ code: "BRIDGE_FILE_REFUSED" }),
     });
     // Vite's own deny list (server.fs.deny): a `.env` inside the project is refused too.
     // Written for the test (git ignores `.env` files, so it cannot be a fixture).
@@ -82,7 +82,7 @@ describe("the require bridge, from the plugin", () => {
     onTestFinished(() => fs.rmSync(envDir, { recursive: true, force: true }));
     expect(
       await ask(bridge.endpoint, { ...base, seq: 2, url: `/@fs${env.replace(/\\/g, "/")}?raw` }),
-    ).toEqual({ seq: 2, error: expect.objectContaining({ code: "BRIDGE_NOT_VITE_OWNED" }) });
+    ).toEqual({ seq: 2, error: expect.objectContaining({ code: "BRIDGE_FILE_REFUSED" }) });
     expect(fetched).toEqual([]);
     // A project file: Vitest's fetch, through the project.
     expect(await ask(bridge.endpoint, { ...base, seq: 3, url: "/src/index.ts" })).toMatchObject({
@@ -90,6 +90,14 @@ describe("the require bridge, from the plugin", () => {
       ok: { code: "export {}" },
     });
     expect(fetched).toEqual(["/src/index.ts"]);
+    // An installed package's file inside the project: Vitest's fetch answers it (it
+    // externalizes it, for a module the bridge evaluates that imports it).
+    const installed = path.join(root, "node_modules/vite/package.json").replace(/\\/g, "/");
+    expect(await ask(bridge.endpoint, { ...base, seq: 4, url: `/@fs${installed}` })).toMatchObject({
+      seq: 4,
+      ok: expect.any(Object),
+    });
+    expect(fetched).toContain(`/@fs${installed}`);
     expect(closers).toHaveLength(1);
     await closers[0]();
     expect(fs.existsSync(bridge.endpoint)).toBe(false);

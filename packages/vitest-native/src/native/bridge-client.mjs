@@ -121,7 +121,7 @@ export function fetchSync(url, importer, environment) {
   bridgeStats.fetches++;
   if (reply.error) {
     throw new VitestNativeError(
-      reply.error.code === "BRIDGE_NOT_VITE_OWNED" ? "BRIDGE_NOT_VITE_OWNED" : "VITE_FETCH_FAILED",
+      reply.error.code === "BRIDGE_FILE_REFUSED" ? "BRIDGE_FILE_REFUSED" : "VITE_FETCH_FAILED",
       `experimental.ownershipModel 'resolution': ${reply.error.message}`,
     );
   }

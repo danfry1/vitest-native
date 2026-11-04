@@ -484,11 +484,7 @@ interface BridgeProject {
  * module runner makes, externalization included), for files the project's ownership
  * policy gives to Vite only.
  */
-async function startRequireBridge(
-  project: BridgeProject,
-  vitest: unknown,
-  policy: NativeOwnershipPolicy,
-): Promise<void> {
+async function startRequireBridge(project: BridgeProject, vitest: unknown): Promise<void> {
   const { startBridgeServer, BRIDGE_PROVIDE_KEY } = (await import(
     pathToFileURL(
       path.resolve(path.dirname(fileURLToPath(import.meta.url)), "native/bridge-server.mjs"),
@@ -496,7 +492,7 @@ async function startRequireBridge(
   )) as {
     startBridgeServer: (options: {
       fetch: (url: string, importer: string | undefined, environment: string) => Promise<object>;
-      isViteOwned: (file: string) => boolean;
+      mayServe: (file: string) => boolean;
       root: string;
     }) => Promise<{ endpoint: string; token: string; close(): Promise<void> }>;
     BRIDGE_PROVIDE_KEY: string;
@@ -535,13 +531,12 @@ async function startRequireBridge(
       }
       return transform.fetch(url, importer, environment, false);
     },
-    // As the worker decides it (native/bridge.mjs isViteOwned): outside node_modules and
-    // not Node's by the policy; Vitest's own fetch then inlines or externalizes it.
-    isViteOwned: (file) =>
-      inRoots(file) &&
-      isFileLoadingAllowed(project.vite.config, file) &&
-      !/[\\/]node_modules[\\/]/.test(file) &&
-      policy.decideFile(file).owner !== "node",
+    // What the server may answer: a file inside the directories Vite serves and allowed by
+    // Vite's own rules. Which of Node's requires the bridge takes over is the worker's
+    // decision (the ownership policy); for the imports of a module it evaluates, Vitest's
+    // own fetch decides, as for any import: an inlined dependency is code, an installed
+    // package is externalized (decided before anything is transformed).
+    mayServe: (file) => inRoots(file) && isFileLoadingAllowed(project.vite.config, file),
   });
   project.provide(BRIDGE_PROVIDE_KEY, { endpoint: server.endpoint, token: server.token, roots });
   (vitest as { onClose?: (fn: () => unknown) => void }).onClose?.(() => server.close());
@@ -3260,19 +3255,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // experimental.ownershipModel 'resolution': the require bridge's server, started
       // before any worker, and named to the workers through Vitest's provide.
       if (ownershipModel === "resolution" && resolverInputs) {
-        if (nativeOwnership === null) {
-          throw new VitestNativeError(
-            "BRIDGE_UNAVAILABLE",
-            `experimental.ownershipModel 'resolution': the project at ${root} has no ownership ` +
-              `policy to decide which files Vite owns. Report this, with the Vitest config, as ` +
-              `a vitest-native bug.`,
-          );
-        }
-        const bridge = startRequireBridge(
-          project as unknown as BridgeProject,
-          vitest,
-          nativeOwnership,
-        );
+        const bridge = startRequireBridge(project as unknown as BridgeProject, vitest);
         ownershipReady = Promise.all([ownershipReady, bridge]).then(() => undefined);
       }
     }

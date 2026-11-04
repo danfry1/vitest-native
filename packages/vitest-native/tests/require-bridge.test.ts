@@ -34,7 +34,7 @@ const SERVER = `
       if (url.includes("cached-outside")) return { cached: true, tmp: "/tmp/x", file: "/etc/hosts", id: "/etc/hosts", url };
       return { code: "export const v = 1", file: "/proj/src/" + url, id: "/proj/src/" + url, url: "/src/" + url, importer, environment };
     },
-    isViteOwned: (file) => file.startsWith("/proj/src/") && !file.includes("node-owned"),
+    mayServe: (file) => file.startsWith("/proj/src/") && !file.includes("node-owned"),
     root: "/proj",
   });
   // As Vitest closes on a signal: the server's exit handler removes its directory.
@@ -88,19 +88,19 @@ describe("the require bridge", () => {
 
   it("refuses code for a file Vite does not own", () => {
     expect(() => fetchSync("node-owned.ts", undefined, "ssr")).toThrow(
-      expect.objectContaining({ code: "BRIDGE_NOT_VITE_OWNED" }),
+      expect.objectContaining({ code: "BRIDGE_FILE_REFUSED" }),
     );
   });
 
   it("refuses a file outside the project before fetching it", () => {
     expect(() => fetchSync("/@fs/etc/hosts?raw", undefined, "ssr")).toThrow(
-      expect.objectContaining({ code: "BRIDGE_NOT_VITE_OWNED" }),
+      expect.objectContaining({ code: "BRIDGE_FILE_REFUSED" }),
     );
   });
 
   it("refuses a file Vite does not own when Vitest answers it from its module cache", () => {
     expect(() => fetchSync("cached-outside", undefined, "ssr")).toThrow(
-      expect.objectContaining({ code: "BRIDGE_NOT_VITE_OWNED" }),
+      expect.objectContaining({ code: "BRIDGE_FILE_REFUSED" }),
     );
   });
 
@@ -258,7 +258,7 @@ describe("the bridge server's socket", () => {
       try {
         const server = await startBridgeServer({
           fetch: async () => ({}),
-          isViteOwned: () => true,
+          mayServe: () => true,
         });
         expect(server.endpoint.length).toBeLessThan(104);
         await server.close();

@@ -8,8 +8,11 @@
 //     Windows a named pipe with a random name; never a TCP port;
 //   - every request carries a random token the workers receive through Vitest's
 //     `provide`; a line without it, or not well-formed, is ignored (no reply);
-//   - it serves only files the ownership policy gives to Vite: never a file Node owns, and
-//     never anything outside the project.
+//   - it answers only for files inside the directories Vite serves and allowed by Vite's
+//     own file rules (server.fs.allow and server.fs.deny), checked before anything is read
+//     when the request names a file, and again on the answer. What it answers is Vitest's
+//     own fetch: code for a module Vite evaluates, `externalize` for one Node loads. Which
+//     of Node's requires are bridged at all is the worker's decision (the ownership policy).
 // Replies echo the request's `seq`, so a client matches each reply to its request.
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -30,13 +33,13 @@ const MAX_LINE = 64 * 1024;
  * @param {object} options
  * @param {(url: string, importer: string | undefined, environment: string) => Promise<object>} options.fetch
  *   Vitest's own fetch of a module for a worker (externalization rules included)
- * @param {(file: string) => boolean} options.isViteOwned  whether the main process lets a
- *   worker evaluate `file` through the bridge: inside Vite's served directories, allowed by
- *   Vite's own file rules (server.fs.deny included), and not Node's by the ownership policy
+ * @param {(file: string) => boolean} options.mayServe  whether the server may answer for
+ *   `file`: inside the directories Vite serves and allowed by Vite's own file rules
+ *   (server.fs.deny included). Which requires the bridge takes over is the worker's call.
  * @param {string} options.root  Vite's root, for a request spelled as a root-relative URL
  * @returns {Promise<{ endpoint: string, token: string, close(): Promise<void> }>}
  */
-export async function startBridgeServer({ fetch, isViteOwned, root = process.cwd() }) {
+export async function startBridgeServer({ fetch, mayServe, root = process.cwd() }) {
   const token = crypto.randomBytes(24).toString("hex");
   let dir = null;
   let endpoint;
@@ -87,7 +90,7 @@ export async function startBridgeServer({ fetch, isViteOwned, root = process.cwd
   async function answer({ seq, url, importer, environment }) {
     // A request naming a file is checked before anything reads or transforms it.
     const named = fileOfUrl(url, root);
-    if (named !== null && !isViteOwned(named)) return notViteOwned(seq, url);
+    if (named !== null && !mayServe(named)) return refused(seq, url);
     try {
       const result = await fetch(url, importer, environment);
       // Code is served only for a file Vite owns, whether it comes inline or through
@@ -95,9 +98,9 @@ export async function startBridgeServer({ fetch, isViteOwned, root = process.cwd
       // the worker loads it through Node, as Vitest would.
       if (
         !("externalize" in result) &&
-        !(typeof result.file === "string" && isViteOwned(result.file))
+        !(typeof result.file === "string" && mayServe(result.file))
       ) {
-        return notViteOwned(seq, url);
+        return refused(seq, url);
       }
       return JSON.stringify({ seq, ok: result });
     } catch (error) {
@@ -143,10 +146,13 @@ function unavailable(where, error) {
   );
 }
 
-function notViteOwned(seq, url) {
+function refused(seq, url) {
   return JSON.stringify({
     seq,
-    error: { code: "BRIDGE_NOT_VITE_OWNED", message: `${url} is not a file Vite owns` },
+    error: {
+      code: "BRIDGE_FILE_REFUSED",
+      message: `${url} is outside the files Vite serves for this project`,
+    },
   });
 }
 
