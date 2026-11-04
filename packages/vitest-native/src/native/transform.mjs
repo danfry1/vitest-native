@@ -23,10 +23,15 @@ import crypto from "node:crypto";
 import vm from "node:vm";
 import { MessageChannel, receiveMessageOnPort, SHARE_ENV, Worker } from "node:worker_threads";
 import { decorateTransformError } from "./explain.mjs";
-import { handleToolchainRequest } from "./babel-toolchain.mjs";
+import {
+  handleToolchainRequest,
+  IMPORT_META_LOWERING,
+  mentionsImportMeta,
+} from "./babel-toolchain.mjs";
 import { ESM_EXPORTS_MARK, ESM_INTEROP_RUNTIME } from "./esm-interop.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import { resolveTransformPreset } from "./babel-preset.mjs";
+import { projectContext } from "../context.mjs";
 
 // Toolchain state is scoped PER PROJECT ROOT, not per process. It used to be a
 // set of module globals initialized by the first caller — but registries for
@@ -298,6 +303,34 @@ function configFileHash(ctx, file) {
     ctx.configHashes.set(memo, hash);
   }
   return hash;
+}
+
+/**
+ * The Babel options a file compiles with when no project Babel config applies.
+ *
+ * Nothing in them reaches the disk-cache key except through the directory name
+ * (preset and Babel versions, the Babel env, the optional plugin's presence) and
+ * TRANSFORM_CACHE_VERSION. So any edit here that changes what Babel emits has to bump
+ * that version: tests/cache-key-ledger.test.ts records a fingerprint of these options
+ * per version and fails when they change under the same one.
+ */
+function packageTransformOptions(ctx, file, platform) {
+  return {
+    filename: file,
+    plugins: [ctx.flowEnums, ctx.exportNamespaceFrom].filter(Boolean),
+    // A fresh options object each call, as before Expo's preset was supported:
+    // Babel caches a preset's result per options object, so sharing one would
+    // change when the preset is instantiated.
+    presets: [[ctx.preset, { ...ctx.presetOptions }]],
+    babelrc: false,
+    configFile: false,
+    caller: { name: "metro", bundler: "metro", platform, supportsStaticESM: false },
+  };
+}
+
+/** packageTransformOptions for a project, resolving its toolchain. Test hook. */
+export function transformOptionsFor(projectRoot, file, platform = "ios") {
+  return packageTransformOptions(ctxFor(projectRoot), file, platform);
 }
 
 /** A project's transform disk-cache directory, once resolved. Test hook. */
@@ -652,11 +685,18 @@ function callToolchain(request) {
   atomicsStore(signal, 0, 0);
   port.postMessage(request);
   const deadline = clock() + deadlineMs;
-  for (;;) {
+  // Only the signal says the request was answered (signal[0]) or the thread ended
+  // (signal[1], also read here: the thread can end between the check above and the
+  // store of 0, which overwrites its signal[0] = 2). A wake-up alone says neither. The
+  // thread stores, then wakes; a caller not yet waiting when the store lands (it was
+  // descheduled after posting, or a wait slice had just timed out) sees the store and
+  // returns. If the thread was descheduled between its store and its wake-up, that
+  // wake-up lands on the caller's wait for its NEXT request, before anything answered
+  // it. Ending the wait on it failed a 0.0 MB file at once as "has not answered in 60 s".
+  while (atomicsLoad(signal, 0) === 0 && atomicsLoad(signal, 1) !== 1) {
     const left = deadline - clock();
     if (left <= 0) break;
-    if (atomicsWait(signal, 0, 0, Math.min(left, 1000)) !== "timed-out") break;
-    if (atomicsLoad(signal, 1) === 1) break;
+    atomicsWait(signal, 0, 0, Math.min(left, 1000));
   }
   const reply = receiveMessageOnPort(port)?.message;
   if (reply === undefined) {
@@ -695,6 +735,14 @@ function callToolchain(request) {
 
 /** A transform failure, named for the file: Babel's own, or its thread's. */
 function transformFailure(err, file, platform) {
+  // Already names the file and the fix; Babel prefixed its own copy of the path.
+  if (err?.code === "IMPORT_META_IN_NODE_OWNED") {
+    const message = String(err.message);
+    return new VitestNativeError(
+      err.code,
+      message.slice(Math.max(0, message.indexOf("[vitest-native]"))),
+    );
+  }
   if (err?.toolchainLost) {
     return new VitestNativeError(
       "TRANSFORM_FAILED",
@@ -706,6 +754,37 @@ function transformFailure(err, file, platform) {
 }
 
 /** Transform an RN source file to runnable CJS. Cached in-memory + on disk. */
+
+// Source maps for the source a project owns, while coverage is on.
+//
+// Code Node compiles runs as Babel's output, not as the file on disk, so a coverage
+// report needs a map from one to the other: V8 counts executions at offsets in the
+// code it ran. Without one, @vitest/coverage-v8 could only re-read the original
+// TypeScript and failed to parse it ("Failed to parse … Excluding it from coverage").
+// The provider this engine installs for coverage (coverage-v8.mjs) reads the map back
+// from this output, which is what the test worker ran.
+//
+// Inline, at the end of the output: the code above the comment is byte-for-byte what it
+// was, so no offset V8 counts moves. Only for files outside node_modules:
+// @vitest/coverage-v8 drops every script under node_modules before it reads a map (as
+// Jest's coveragePathIgnorePatterns does by default). A workspace package is reached
+// through its real path (Node resolves symlinks), so it is mapped too. And only while
+// coverage is on: the plugin says so in the project context (`sourceMaps`) for the test
+// workers, and the provider calls enableSourceMaps() in the main process. A map costs
+// about half again Babel's time and several times the output's size, which a run
+// without coverage would pay for nothing.
+const SOURCE_MAP_TOKEN = "inline-source-map-1";
+let sourceMapsEnabled = false;
+
+/** The main process's coverage provider compiles for the report as the workers did. */
+export function enableSourceMaps() {
+  sourceMapsEnabled = true;
+}
+
+/** Does `file`'s compiled output carry an inline source map? */
+export function carriesSourceMap(file) {
+  return (sourceMapsEnabled || projectContext()?.sourceMaps === true) && !NODE_MODULES.test(file);
+}
 
 /**
  * The compiled output transformRN already holds for `file` as it is on disk now
@@ -720,7 +799,12 @@ export function heldTransform(file, projectRoot, platform = "ios") {
   } catch {
     return undefined;
   }
-  return ctxFor(projectRoot).mem.get(`${platform}\0${file}\0${st.mtimeMs}\0${st.size}`);
+  return ctxFor(projectRoot).mem.get(memoryKey(platform, file, st));
+}
+
+/** transformRN's in-memory key, shared with heldTransform so the two cannot differ. */
+function memoryKey(platform, file, st) {
+  return `${platform}\0${file}\0${st.mtimeMs}\0${st.size}`;
 }
 
 export function transformRN(file, src, projectRoot, platform = "ios") {
@@ -733,7 +817,7 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   // preset embeds the absolute path (_jsxFileName) in transformed JSX, so two
   // identical sources at different paths must not share an entry.
   const st = fs.statSync(file);
-  const memKey = `${platform}\0${file}\0${st.mtimeMs}\0${st.size}`;
+  const memKey = memoryKey(platform, file, st);
   const memHit = ctx.mem.get(memKey);
   if (memHit !== undefined) return memHit;
   // A caller that has not read the file yet passes no source, and pays for the read
@@ -765,6 +849,18 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   // package — the interop is decided at run time — so nothing else needs keying. The
   // token names the helpers' revision, so output from an earlier revision is not reused.
   if (esm) hash.update(`\0esm-goal\0${ESM_INTEROP_RUNTIME}`);
+  // Source outside node_modules carries an inline source map (see SOURCE_MAP_TOKEN), so its
+  // entries are keyed apart from the map-less output an earlier version cached for it.
+  // React Native's sources and every other package keep their keys and stay warm.
+  const sourceMap = carriesSourceMap(file);
+  if (sourceMap) hash.update(`\0${SOURCE_MAP_TOKEN}`);
+  // `import.meta` gets its CommonJS value, or fails by name (importMetaToCommonJS in
+  // babel-toolchain.mjs). Decided on the source text first, so a file without it costs
+  // one regular-expression scan and no Babel work. Only these files' output changes, so
+  // only their key does, as for the ESM goal above: TRANSFORM_CACHE_VERSION, and with it
+  // every other entry and the precompiled registry, stays as it was.
+  const importMeta = mentionsImportMeta(src);
+  if (importMeta) hash.update(`\0${IMPORT_META_LOWERING}`);
   const key = hash.digest("hex");
   const cachePath = path.join(ctx.cacheDir, key + ".js");
   try {
@@ -783,6 +879,8 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
             file,
             src,
             project: true,
+            sourceMap,
+            importMeta,
             caller: babelJestCaller(ctx, platform),
           }
         : {
@@ -791,17 +889,13 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
             src,
             // Added on Babel's side: a plugin is a function, which does not cross threads.
             esmInterop: esm,
-            options: {
-              filename: file,
-              plugins: [ctx.flowEnums, ctx.exportNamespaceFrom].filter(Boolean),
-              // A fresh options object each call, as before Expo's preset was supported:
-              // Babel caches a preset's result per options object, so sharing one would
-              // change when the preset is instantiated.
-              presets: [[ctx.preset, { ...ctx.presetOptions }]],
-              babelrc: false,
-              configFile: false,
-              caller: { name: "metro", bundler: "metro", platform, supportsStaticESM: false },
-            },
+            importMeta,
+            // The inline source map is keyed by its own token (SOURCE_MAP_TOKEN), not by
+            // TRANSFORM_CACHE_VERSION, so it is added here rather than to the options the
+            // cache-key ledger fingerprints.
+            options: sourceMap
+              ? { ...packageTransformOptions(ctx, file, platform), sourceMaps: "inline" }
+              : packageTransformOptions(ctx, file, platform),
           },
     ).code;
   } catch (err) {

@@ -12,7 +12,8 @@
 // than leaving it to be inferred from an absence.
 //
 // Shipped means more than src/. The build files decide what dist/ contains
-// (tsdown.config.ts and the static-types copy), and the manifest's consumer-facing
+// (tsdown.config.ts, the verbatim runtime list it copies from and the static-types
+// copy), and the manifest's consumer-facing
 // fields decide how it installs and resolves: an `engines` change (#328), an
 // `exports` edit or a new peer range reaches every user as surely as a source edit.
 // The manifest is judged by field, so a devDependency bump or a new script does not
@@ -33,6 +34,7 @@ const SHIPPED = `${PACKAGE}src/`;
 const SHIPPED_BUILD_FILES = [
   `${PACKAGE}tsdown.config.ts`,
   `${PACKAGE}scripts/copy-static-types.mjs`,
+  `${PACKAGE}scripts/verbatim-runtime.mjs`,
 ];
 export const MANIFEST = `${PACKAGE}package.json`;
 
@@ -187,6 +189,26 @@ const ACTION_PATTERN = new RegExp(
 
 const RC_REFERENCE = /\brc\.\d+/i;
 
+// A GitHub handle: letters, digits and single hyphens, neither first nor last, at most 39
+// characters in all.
+const HANDLE = String.raw`@[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}(?![A-Za-z0-9-])`;
+const HANDLES = String.raw`${HANDLE}(?:(?:,| and|, and) ${HANDLE})*`;
+/**
+ * The credit line that ends an entry from someone outside the maintainer:
+ * `Thanks @handle for reporting this (#12).`, `… for the fix (#12).`,
+ * `… for the pull request (#12).`, with more handles (`@a, @b and @c`) or references
+ * (`(#12, #14)`) where there are several. It is not part of the entry's length.
+ */
+export const CREDIT_LINE = new RegExp(
+  String.raw`^Thanks ${HANDLES} for (?<reason>[^()\n]*[^\s()]) \(#\d+(?:, #\d+)*\)\.$`,
+);
+/** What a credit line says the people did: "reporting this", "the fix", a few words. */
+export const CREDIT_REASON_WORD_LIMIT = 6;
+// A line that sets out to credit someone, well-formed or not: it thanks a handle or cites
+// a reference. Prose such as "Thanks to the new resolver, …" does neither and is held to
+// the style.
+const CREDIT_ATTEMPT = /^(?:thanks|thank you)\b.*(?:@|\(#\d)/i;
+
 /** Words, counting each `code span` as one so quoting an exact error costs nothing extra. */
 function countWords(text) {
   return text
@@ -225,6 +247,54 @@ export function lintChangeset(text) {
   if (!packages.includes("vitest-native")) return [];
 
   const problems = [];
+  // Credit lines close the entry and are not part of it: the rest is held to the style.
+  const lines = body.split(/\r?\n/);
+  // Lines inside a code fence are code, never a credit.
+  let fenced = false;
+  const isCredit = lines.map((line) => {
+    if (/^\s*```/.test(line)) {
+      fenced = !fenced;
+      return false;
+    }
+    return !fenced && CREDIT_ATTEMPT.test(line.trim());
+  });
+  const credits = lines
+    .map((line, index) => ({ line: line.trim(), index }))
+    .filter(({ index }) => isCredit[index]);
+  const creditProblems = [];
+  for (const { line } of credits) {
+    const credit = CREDIT_LINE.exec(line);
+    if (!credit) {
+      creditProblems.push(
+        `malformed credit line "${line}": write "Thanks @handle for reporting this (#12)." ` +
+          '("… for the fix", "… for the pull request"; several as "@a and @b", "(#12, #14)")',
+      );
+      continue;
+    }
+    // The reason is prose like the rest: short, and in the user's vocabulary.
+    const reason = credit.groups.reason;
+    if (countWords(reason) > CREDIT_REASON_WORD_LIMIT) {
+      creditProblems.push(
+        `the credit line "${line}" says more than ${CREDIT_REASON_WORD_LIMIT} words of why: ` +
+          'keep it to "reporting this", "the fix" or "the pull request"; details go in the entry',
+      );
+    }
+    const rcInReason = RC_REFERENCE.exec(reason);
+    if (rcInReason)
+      creditProblems.push(`"${rcInReason[0]}" in a credit line refers to a release candidate`);
+    for (const { pattern, term, instead } of BANNED_TERMS) {
+      const hit = pattern.exec(reason);
+      if (hit)
+        creditProblems.push(`internal term "${hit[0]}" (${term}) in a credit line: say ${instead}`);
+    }
+  }
+  const lastContent = lines.findLastIndex((line, index) => line.trim() !== "" && !isCredit[index]);
+  if (credits.some(({ index }) => index < lastContent)) {
+    creditProblems.push("a credit line goes at the end of the entry, after the details");
+  }
+  const creditIndexes = new Set(credits.map(({ index }) => index));
+  const content = lines.filter((_, index) => !creditIndexes.has(index)).join("\n");
+
   const lead = /^\*\*([\s\S]+?)\*\*/.exec(body);
   if (!lead) {
     problems.push(
@@ -239,7 +309,7 @@ export function lintChangeset(text) {
     }
   }
 
-  const bodyWords = countWords(body);
+  const bodyWords = countWords(content);
   if (bodyWords > BODY_WORD_LIMIT) {
     problems.push(
       `the entry is ${bodyWords} words; the limit is ${BODY_WORD_LIMIT} (aim for ~80). ` +
@@ -247,14 +317,14 @@ export function lintChangeset(text) {
     );
   }
 
-  if (!ACTION_PATTERN.test(body)) {
+  if (!ACTION_PATTERN.test(content)) {
     problems.push(
       'no action line: say "No action needed." or the exact change, starting with a verb ' +
         `(${ACTION_VERBS.slice(0, 6).join(", ")}, …) or "To opt out, …"`,
     );
   }
 
-  const rc = RC_REFERENCE.exec(body);
+  const rc = RC_REFERENCE.exec(content);
   if (rc) {
     problems.push(
       `"${rc[0]}" refers to a release candidate: write against the last stable release. ` +
@@ -262,12 +332,12 @@ export function lintChangeset(text) {
     );
   }
 
-  const prose = body.replace(/```[\s\S]*?```/g, " ").replace(/`[^`]*`/g, " ");
+  const prose = content.replace(/```[\s\S]*?```/g, " ").replace(/`[^`]*`/g, " ");
   for (const { pattern, term, instead } of BANNED_TERMS) {
     const hit = pattern.exec(prose);
     if (hit) problems.push(`internal term "${hit[0]}" (${term}): say ${instead}`);
   }
-  return problems;
+  return [...problems, ...creditProblems];
 }
 
 function fileAt(ref, file) {

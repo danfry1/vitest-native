@@ -381,3 +381,30 @@ export function requestForPackageFile(pkg, subpath, manifest) {
   const withoutIndex = sub.replace(/\/index\.[cm]?[jt]sx?$/, "");
   return `${pkg}/${withoutIndex === sub ? stripExt(sub) : withoutIndex}`;
 }
+
+/**
+ * Whether the resolved `file` is preset package `pkg`'s own entry: the file a bare
+ * `pkg` answers (requestForPackageFile), reached through a subpath such as
+ * `pkg/lib/commonjs/index` or `pkg/src`. That subpath is the package itself, so it gets
+ * the root mock on every route (the CommonJS hook, the ESM loader, the plugin).
+ */
+export function isPackageEntryFile(pkg, file, parentFile) {
+  const hit = presetPackageOfFile(file, parentFile, (name) => name === pkg);
+  if (!hit) return false;
+  const pkgDir = toPosix(file).slice(0, -(hit.subpath.length + 1));
+  return requestForPackageFile(pkg, hit.subpath, entryManifest(pkgDir)) === pkg;
+}
+
+const entryManifests = new Map();
+function entryManifest(pkgDir) {
+  if (!entryManifests.has(pkgDir)) {
+    let manifest = null;
+    try {
+      manifest = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf8"));
+    } catch {
+      manifest = null;
+    }
+    entryManifests.set(pkgDir, manifest);
+  }
+  return entryManifests.get(pkgDir);
+}

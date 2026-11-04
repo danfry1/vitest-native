@@ -135,4 +135,5 @@ export const HOT_STATE_MANIFEST_ENTRIES = Object.freeze([
   "react-native.error-utils",
   "expo.runtime",
   "jest-compat.node-mocks",
+  "expo.sdk-warnings",
 ]);
