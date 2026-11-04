@@ -11,15 +11,6 @@
       "why": "Node's alias fallback cannot represent a regex alias: Cannot find module."
     },
     {
-      "probe": "aliased-source-import-meta",
-      "when": {
-        "engine": "native"
-      },
-      "failure": "^aliased-source-import-meta\\.test\\.ts: Cannot use 'import\\.meta' outside a module",
-      "fixedBy": "#344",
-      "why": "Node compiles the aliased source to CommonJS: Cannot use 'import.meta' outside a module."
-    },
-    {
       "probe": "rntl-findby-fake-timers",
       "when": {
         "engine": "mock",
