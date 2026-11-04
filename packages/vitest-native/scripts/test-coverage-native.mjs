@@ -106,6 +106,15 @@ function run(mode) {
 
 function matchesReference(mode, reference) {
   const { lines, fail } = run(mode);
+  // Proof that Node compiled the library, not Vite: only Babel's CommonJS output counts
+  // its import and export lines. Without it, every check below would pass on a run where
+  // Vite loaded everything.
+  const nodeOnly = SOURCES.filter((file) => file.startsWith("packages/rnlib/")).flatMap((file) =>
+    Object.keys(lines[file] ?? {}).filter((line) => !(line in reference[file])),
+  );
+  if (nodeOnly.length === 0) {
+    fail("no library line is counted only under Node: Node did not compile the library");
+  }
   for (const file of SOURCES) {
     const expected = reference[file];
     const got = lines[file];
@@ -163,6 +172,8 @@ function projects() {
       file.split(path.sep).join("/").endsWith("packages/lib/src/index.ts"),
     )?.[1];
     if (!entry) fail(`lib/src/index.ts is not in the report: ${Object.keys(report)}`);
+    if (!/2 passed/.test(output))
+      fail("the fixture's tests, including its ownership check, did not both pass");
     // add() ran, sub() did not.
     const calls = Object.fromEntries(
       Object.entries(entry.fnMap).map(([id, fn]) => [fn.decl.start.line, entry.f[id]]),

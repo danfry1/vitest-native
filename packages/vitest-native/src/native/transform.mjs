@@ -816,7 +816,7 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   // package — the interop is decided at run time — so nothing else needs keying. The
   // token names the helpers' revision, so output from an earlier revision is not reused.
   if (esm) hash.update(`\0esm-goal\0${ESM_INTEROP_RUNTIME}`);
-  // Source outside node_modules carries an inline source map (see SOURCE_MAPPED), so its
+  // Source outside node_modules carries an inline source map (see SOURCE_MAP_TOKEN), so its
   // entries are keyed apart from the map-less output an earlier version cached for it.
   // React Native's sources and every other package keep their keys and stay warm.
   const sourceMap = carriesSourceMap(file);

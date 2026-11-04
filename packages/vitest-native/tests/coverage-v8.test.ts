@@ -92,6 +92,20 @@ describe("nodeScripts", () => {
     expect(out).toEqual([{ ...script, url }]);
   });
 
+  it("drops the hot runtime's generation facade at a published CommonJS file's stamped URL", () => {
+    // From the second generation on, a CommonJS file's stamped URL is a small ES module
+    // of the loader's own (loader.mjs). Its top-level function is not the file's: read
+    // against the file, its count would mark the file's first functions as run.
+    const facade = { scriptId: "2", url: `${url}?vnhot=3`, functions: [root(120)] };
+    const module = { scriptId: "1", url, functions: [root(400), fn("never", 10, 60, 0)] };
+    const { out } = convert([module, facade], {
+      compiled: false,
+      code: "y".repeat(400),
+      map: null,
+    });
+    expect(out).toEqual([module]);
+  });
+
   it("leaves out, with a warning, a file whose compiled code is not what ran", () => {
     const { out, warnings } = convert(
       [{ scriptId: "1", url, functions: [root(499), fn("grade", 10, 20, 1)] }],

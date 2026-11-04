@@ -462,7 +462,11 @@ function useNativeCoverageProvider(coverage: CoverageProviderConfig | undefined)
   if (!coverage) return false;
   const dir = path.dirname(fileURLToPath(import.meta.url));
   const module = path.resolve(dir, "native/coverage-v8.mjs");
-  if (coverage.provider === "v8") {
+  // Only for a run with coverage on (`--coverage` is resolved by now): with it off, the
+  // options stay as configured for anything that reads them. Coverage switched on later
+  // from watch mode or the UI keeps the stock provider, whose workers were not started
+  // with source maps (carriesSourceMap) and so could not be mapped anyway.
+  if (coverage.provider === "v8" && coverage.enabled === true) {
     coverage.provider = "custom";
     coverage.customProviderModule = module;
   }

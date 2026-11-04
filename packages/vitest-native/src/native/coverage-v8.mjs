@@ -31,7 +31,9 @@
 //   it is left out with a warning rather than mapped onto the wrong code. A URL the hot
 //   runtime stamped (`?vnhot=N`, loader.mjs) is read as the file's own: Node runs
 //   compiled code only under the file's path, so a stamped script of a compiled file
-//   can only be a facade, and is dropped.
+//   can only be a facade, and is dropped. A stamped script of a file Node runs as
+//   published is kept only when it is that file evaluated as an ES module; for
+//   CommonJS it is a generation facade, and is dropped too.
 //
 // @vitest/coverage-v8 is resolved beside the `vitest` this package resolves (its peer,
 // which a package manager links to the project's own), as Vitest imports its built-in
@@ -168,11 +170,20 @@ export function nodeScripts(scripts, sourceOf, warn) {
       continue;
     }
     const stamped = /[?#]/.test(script.url);
-    const url = stamped ? pathToFileURL(file).href : script.url;
+    // The script whose top-level function spans exactly this code is the module itself.
+    const length = source.code.length - (source.code.charCodeAt(0) === 0xfeff ? 1 : 0);
+    const spansCode = (fn) => fn.ranges[0]?.startOffset === 0 && fn.ranges[0].endOffset === length;
     // A file Node ran as published, or an `.mjs` the loader serves compiled at its own
-    // URL: the script is the module.
+    // URL: the script at the file's own URL is the module. A stamped one is the module
+    // only when Node evaluates the file as an ES module under that URL. For a CommonJS
+    // file the hot runtime serves a generation facade there (loader.mjs), a small module
+    // of its own whose counts, read against the file, would mark code that never ran as
+    // covered. So a stamped script is kept only when it spans the file's code.
     if (!source.compiled || file.endsWith(".mjs")) {
-      out.push(stamped ? { ...script, url } : script);
+      if (!stamped) out.push(script);
+      else if (script.functions.some(spansCode)) {
+        out.push({ ...script, url: pathToFileURL(file).href });
+      }
       continue;
     }
     // Compiled code runs only under the file's plain path (Node's CommonJS loader); a
@@ -181,12 +192,9 @@ export function nodeScripts(scripts, sourceOf, warn) {
     // The facade is the compiled code plus its own lines around it, so its top-level
     // function always reaches past the code's end. A function of the module that starts
     // at offset 0 (compiled output can begin with a declaration) never does.
-    const length = source.code.length;
     const isFacade = (fn) => fn.ranges[0]?.startOffset === 0 && fn.ranges[0].endOffset > length;
     const functions = script.functions.filter((fn) => !isFacade(fn));
-    if (
-      !functions.some((fn) => fn.ranges[0]?.startOffset === 0 && fn.ranges[0].endOffset === length)
-    ) {
+    if (!functions.some(spansCode)) {
       warn(
         unmappableMessage(
           file,
