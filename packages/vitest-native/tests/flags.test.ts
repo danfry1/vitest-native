@@ -14,7 +14,8 @@ describe("the flag table", () => {
     for (const flag of EXPERIMENTAL_FLAGS) {
       const [, key] = flag.name.split(".");
       expect(flag.name.startsWith("experimental.")).toBe(true);
-      expect(() => validateOptions({ experimental: { [key]: "resolver" } })).not.toThrow();
+      const value = key === "ownershipModel" ? "resolver" : true;
+      expect(() => validateOptions({ experimental: { [key]: value } })).not.toThrow();
     }
   });
 
@@ -29,7 +30,7 @@ describe("the flag table", () => {
 });
 
 describe("experimental options", () => {
-  it("refuses an unknown key, and a value other than 'resolver' or 'resolution'", () => {
+  it("refuses an unknown key, and a value of the wrong type", () => {
     expect(() => validateOptions({ experimental: { other: true } })).toThrow(
       /Unknown experimental/,
     );
@@ -37,6 +38,9 @@ describe("experimental options", () => {
       /must be "resolver" or "resolution"/,
     );
     expect(() => validateOptions({ experimental: { ownershipModel: "resolution" } })).not.toThrow();
+    expect(() => validateOptions({ experimental: { nodeMocks: "yes" } })).toThrow(
+      /must be a boolean/,
+    );
     expect(() => validateOptions({ experimental: [] })).toThrow(/must be an object/);
   });
 });

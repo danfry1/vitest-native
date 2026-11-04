@@ -24,7 +24,7 @@ and deep paths are not supported even when they happen to resolve.
 | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `vitest-native`                                                           | `reactNative`, `presets`, `disabledPresetNames`                                                                        |
 | `vitest-native/helpers`                                                   | `setPlatform`, `setDimensions`, `setColorScheme`, `setInsets`, `mockNativeModule`, `extendPresetMock`, `resetAllMocks` |
-| `vitest-native/presets`                                                   | the 19 preset factories, by name                                                                                        |
+| `vitest-native/presets`                                                   | the 19 preset factories, by name                                                                                       |
 | `vitest-native/matchers`                                                  | `toHaveAnimatedStyle`, `toHaveAnimatedProps`, `animatedMatchers`                                                       |
 | `vitest-native/serializer`                                                | `serializer`                                                                                                           |
 | `vitest-native/jest-compat`                                               | `jestMockTransform`, `jestCompatAliases`, `jestCompatSetup`                                                            |
@@ -95,10 +95,11 @@ Changing any of these is a patch or minor, and never requires a major.
 Experimental surfaces are excluded from the contract at every version, including after 1.0. They
 are documented, tested, and gated in CI — they are simply not stable, and they say so.
 
-| Surface | Why |
-| --- | --- |
-| `hotRuntime` and its options | Built on Vitest's experimental custom-pool API, which can change between Vitest minors. The default is `false` (per-file isolation); `'auto'` opts in, and falls back to per-file isolation whenever the run cannot be bounded. |
-| `metroConfig` and its options | Opt-in declarative Metro profile ingestion. Framework loading, custom resolvers and the version matrix remain under investigation. Off by default. |
+| Surface                       | Why                                                                                                                                                                                                                                        |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `hotRuntime` and its options  | Built on Vitest's experimental custom-pool API, which can change between Vitest minors. The default is `false` (per-file isolation); `'auto'` opts in, and falls back to per-file isolation whenever the run cannot be bounded.            |
+| `metroConfig` and its options | Opt-in declarative Metro profile ingestion. Framework loading, custom resolvers and the version matrix remain under investigation. Off by default.                                                                                         |
+| `experimental.nodeMocks`      | Opt-in: a `vi.mock` applies to the modules Node loads too, as a `jest.mock` factory does under Jest. Each entry under `experimental` has a decision date in `src/flags.ts`, by which it becomes the default or is removed. Off by default. |
 | `experimental.ownershipModel` | Opt-in shared resolution across Vite and Node's loaders (see [ownership model](ownership-model.md)). Each entry under `experimental` has a decision date in `src/flags.ts`, by which it becomes the default or is removed. Off by default. |
 
 A surface leaves this list by being promoted in a minor, and can change or be removed in a minor
@@ -126,12 +127,12 @@ What the package supports, and the rule for moving each range. The aim is a smal
 that the engine can support without version-specific workarounds; a project on an older release
 is asked to update rather than the engine carrying a second code path for it.
 
-| Upstream | Supported | Rule |
-| --- | --- | --- |
-| Node | 22.22.3+ on Node 22, 24.12+ on Node 24, 26+ | Each line from the release where Node's in-thread module hooks (`module.registerHooks`) carry the engine. End-of-life lines (20, 23, 25) are not supported. Lines from 26 on are admitted, and are added to CI as they ship. |
-| Vitest | 4.x and 5.x | The current and previous major. A new major is added; the oldest is then dropped in a minor. |
-| React Native Testing Library | 12.x, 13.x and 14.x, moving to 13.x and 14.x | The current and previous major. |
-| React | 18 and 19, moving to 19 | The version React Native's current releases use. |
+| Upstream                     | Supported                                    | Rule                                                                                                                                                                                                                         |
+| ---------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Node                         | 22.22.3+ on Node 22, 24.12+ on Node 24, 26+  | Each line from the release where Node's in-thread module hooks (`module.registerHooks`) carry the engine. End-of-life lines (20, 23, 25) are not supported. Lines from 26 on are admitted, and are added to CI as they ship. |
+| Vitest                       | 4.x and 5.x                                  | The current and previous major. A new major is added; the oldest is then dropped in a minor.                                                                                                                                 |
+| React Native Testing Library | 12.x, 13.x and 14.x, moving to 13.x and 14.x | The current and previous major.                                                                                                                                                                                              |
+| React                        | 18 and 19, moving to 19                      | The version React Native's current releases use.                                                                                                                                                                             |
 
 On an unsupported Node the plugin stops at startup with `UNSUPPORTED_NODE`, for both engines, and
 `vitest-native doctor` reports the same. Below a supported line's floor (22.x before 22.22.3, 24.x

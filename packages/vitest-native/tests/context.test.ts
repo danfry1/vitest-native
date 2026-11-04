@@ -339,3 +339,21 @@ describe("the ESM loader takes diagnostics from the context", () => {
     expect(source(false)).toContain("if (!_hit && false)");
   });
 });
+
+describe("experimental.nodeMocks", () => {
+  const warnings = async (engine: "mock" | "native") => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await runPluginConfig(reactNative({ engine, experimental: { nodeMocks: true } }) as any, {
+      root: process.cwd(),
+    });
+    return warn.mock.calls.map(([m]) => String(m)).filter((m) => m.includes("nodeMocks"));
+  };
+
+  it("says it is ignored under the mock engine", async () => {
+    expect(await warnings("mock")).toEqual([expect.stringMatching(/engine:'native' only/)]);
+  });
+
+  it("is quiet under the native engine", async () => {
+    expect(await warnings("native")).toEqual([]);
+  });
+});

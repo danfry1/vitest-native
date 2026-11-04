@@ -15,7 +15,7 @@ const KNOWN_OPTIONS = [
   "nativeModules",
   "experimental",
 ];
-const KNOWN_EXPERIMENTAL_OPTIONS = ["ownershipModel"];
+const KNOWN_EXPERIMENTAL_OPTIONS = ["ownershipModel", "nodeMocks"];
 const KNOWN_HOT_RUNTIME_OPTIONS = [
   "recycleAfterFiles",
   "memoryLimit",
@@ -97,6 +97,12 @@ export function validateOptions(options: Record<string, unknown>): void {
       throw new VitestNativeTypeError(
         "INVALID_OPTION",
         `"experimental.ownershipModel" must be "resolver" or "resolution".`,
+      );
+    }
+    if (entries.nodeMocks !== undefined && typeof entries.nodeMocks !== "boolean") {
+      throw new VitestNativeTypeError(
+        "INVALID_OPTION",
+        `"experimental.nodeMocks" must be a boolean.`,
       );
     }
   }

@@ -22,6 +22,12 @@ export const EXPERIMENTAL_FLAGS: readonly ExperimentalFlag[] = [
     since: "0.15.0",
     decideBy: "2026-12-15",
   },
+  {
+    name: "experimental.nodeMocks",
+    adr: "0007",
+    since: "0.15.0",
+    decideBy: "2026-12-16",
+  },
 ];
 
 /** The most flags live at once (ADR-0001). */
