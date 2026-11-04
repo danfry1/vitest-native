@@ -304,9 +304,11 @@ jobs:
   # the run that motivated this split). As parallel cells, each starting from the
   # same build, the slowest cell sets the time instead of their sum. Cells are
   # balanced on measured step times: packed consumers about 3 min, the semantics
-  # gate about 70 s per Vitest major, the hot-runtime and registry gates about 2 min
-  # together. Minutes are not the constraint — standard runners are free for public
-  # repositories (GitHub Actions billing docs) and no job waited in a queue.
+  # gate about 130 s per Vitest major (both in one cell), the hot-runtime and
+  # registry gates about 4 min together. Minutes are free for public repositories
+  # (GitHub Actions billing docs), but jobs are not: every pull request's jobs wait
+  # for slots under the account's concurrent-job cap, so a cell well under the
+  # critical path is better merged than split.
   packed:
     name: Packed gate (${{ matrix.label }})
     needs: classify
@@ -326,12 +328,11 @@ jobs:
           # longest leg.
           - gate: consumers-expo-pnpm
             label: Expo pnpm suite
+          # Both supported Vitest majors in one job, one after the other: about 130 s
+          # each after a 35 s setup, so the job still ends before the full gate legs,
+          # and a pull request starts one job fewer under the concurrent-job cap.
           - gate: vitest-semantics
-            vitest: 5.0.1
-            label: Vitest semantics, Vitest 5
-          - gate: vitest-semantics
-            vitest: 4.1.11
-            label: Vitest semantics, Vitest 4 floor
+            label: Vitest semantics, Vitest 5 and the Vitest 4 floor
           - gate: hot-runtime
             label: hot runtime and registry
 
@@ -399,7 +400,7 @@ jobs:
         if: matrix.gate == 'hot-runtime'
         run: node packages/vitest-native/validation/module-isolation/run-packed-cjs-reset.mjs
 
-      - name: Vitest semantics under the defaults (Vitest ${{ matrix.vitest }})
+      - name: Vitest semantics under the defaults (Vitest 5)
         # A packed project run the way Vitest users run it: config and CLI flags
         # (isolate, pool, workers, shard, retry, bail, related, coverage, projects, a
         # project root below the install, a read-only node_modules, the jsdom and
@@ -407,10 +408,17 @@ jobs:
         # mode.
         # Each scenario asserts which runtime ran, Vitest's own outcome, and
         # cross-file isolation. An explicit Vitest setting must never be overridden.
-        # One cell per Vitest major, so each runs in parallel with the other.
         if: matrix.gate == 'vitest-semantics'
         env:
-          VN_SEMANTICS_VITEST: ${{ matrix.vitest }}
+          VN_SEMANTICS_VITEST: 5.0.1
+        run: bun run --filter vitest-native validate:vitest-semantics
+
+      - name: Vitest semantics under the defaults (Vitest 4 floor)
+        # The same scenarios on the oldest supported Vitest. Runs even when the Vitest 5
+        # step failed, so one pull request reports both majors.
+        if: ${{ !cancelled() && matrix.gate == 'vitest-semantics' }}
+        env:
+          VN_SEMANTICS_VITEST: 4.1.11
         run: bun run --filter vitest-native validate:vitest-semantics
 
       - name: Test packed consumer projects
