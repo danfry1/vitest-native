@@ -379,6 +379,7 @@ export interface VitestNativeOptions {
      * already loaded keeps what it required, as under Jest without
      * `jest.resetModules()`, and an ES module reads each export of the mock once, when
      * it loads (a getter on a factory's result is not a live binding there). Default:
+     * `false`, and on with `ownershipModel: 'resolution'`, which refuses it set to
      * `false`.
      */
     nodeMocks?: boolean;
@@ -389,7 +390,8 @@ export interface VitestNativeOptions {
      * `import` and `require` builds, both sides load the `require` one. Native engine
      * only. `'resolution'` adds the bridge: Node's \`require\` of a file Vite owns gets
      * Vite's own instance, evaluated then if Vite has not yet, so the order a test loads
-     * files in cannot split a module. See docs/ownership-model.md.
+     * files in cannot split a module. `'resolution'` turns `nodeMocks` on: a mocked module
+     * the bridge or Node reaches is the test's mock. See docs/ownership-model.md.
      */
     ownershipModel?: "resolver" | "resolution";
   };

@@ -43,4 +43,18 @@ describe("experimental options", () => {
     );
     expect(() => validateOptions({ experimental: [] })).toThrow(/must be an object/);
   });
+
+  it("refuses 'resolution' with nodeMocks set to false, which it turns on", () => {
+    expect(() =>
+      validateOptions({ experimental: { ownershipModel: "resolution", nodeMocks: false } }),
+    ).toThrow(/"resolution" turns "experimental.nodeMocks" on/);
+    for (const nodeMocks of [true, undefined]) {
+      expect(() =>
+        validateOptions({ experimental: { ownershipModel: "resolution", nodeMocks } }),
+      ).not.toThrow();
+    }
+    expect(() =>
+      validateOptions({ experimental: { ownershipModel: "resolver", nodeMocks: false } }),
+    ).not.toThrow();
+  });
 });
