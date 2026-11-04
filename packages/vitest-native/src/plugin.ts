@@ -24,6 +24,7 @@ import { tsconfigPathAliases } from "./native/tsconfig-paths.mjs";
 import {
   aliasList,
   checkResolverInputs,
+  identityKey,
   ownershipShadowFile,
   conditionsIn,
   createSharedResolver,
@@ -1355,14 +1356,9 @@ function sameDirectory(a: string, b: string): boolean {
 }
 
 // The one spelling a directory-keyed map uses, so that a lookup with the other
-// spelling of the same directory finds it (sameDirectory compares by it).
-function directoryKey(dir: string): string {
-  try {
-    return fs.realpathSync.native(dir);
-  } catch {
-    return path.resolve(dir);
-  }
-}
+// spelling of the same directory finds it (sameDirectory compares by it): the shared
+// resolver's identityKey, the spelling Vite gives ids.
+const directoryKey = identityKey;
 
 function hasSetupFile(setupFiles: unknown, file: string): boolean {
   const real = (f: string) => {

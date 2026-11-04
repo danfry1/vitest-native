@@ -23,9 +23,9 @@ import { expandAlias } from "../jest-compat/aliases.mjs";
 import { noteIfRntlEntryLoaded } from "../rntl-support.mjs";
 import { cjsConditionsWithout } from "./export-condition-recovery.mjs";
 import {
-  createSharedResolver,
   ownershipResolverInputs,
   ownershipShadowFile,
+  workerSharedResolver,
 } from "./shared-resolver.mjs";
 
 // Guarded via globalThis, not module scope: under the hot runtime this module
@@ -499,9 +499,7 @@ export function installRequireHooks(
       ? ownershipShadowFile(process.env[CONTEXT_ENV], ownershipContext.resolverInputsHash)
       : null;
   const sharedResolver =
-    sharedInputs === null
-      ? null
-      : createSharedResolver(sharedInputs, { realm: "cjs", memo: false, shadowFile });
+    sharedInputs === null ? null : workerSharedResolver(sharedInputs, "cjs", { shadowFile });
   // A caller passing other conditions than this realm's (none does but a direct
   // `Module._resolveFilename` call) gets Node's own answer for them.
   const recordConditions = new Set(ownershipContext?.resolverInputs?.conditions ?? []);
@@ -529,6 +527,29 @@ export function installRequireHooks(
   Module._resolveFilename = function (request, parent, ...rest) {
     let resolved;
     const key = resolutionKey(request, parent, rest);
+    if (key !== null) {
+      const held = resolutions.get(key);
+      // A bare request's hit costs one stat: a file removed since (a nested copy
+      // uninstalled, a fixture a test deleted) is resolved again, as Node would, instead
+      // of failing to load. A relative one is answered as the platform resolution's own
+      // cache would answer it (resolve.mjs), which does not look at the disk again.
+      if (
+        held !== undefined &&
+        (request.startsWith(".") || fs.statSync(held, { throwIfNoEntry: false })?.isFile())
+      ) {
+        resolutionStats.hits++;
+        resolved = held;
+      } else {
+        if (held !== undefined) {
+          resolutionStats.stale++;
+          resolutions.delete(key);
+          // The shared resolver held the same answer: resolve it afresh there too.
+          sharedResolver?.forget(request, parent?.filename);
+        }
+        resolutionStats.misses++;
+      }
+    }
+    // After the memo, so a held answer whose file is gone is resolved afresh here too.
     // `require.resolve(x, { paths })` and the main module are Node's to answer. Not
     // tied to the memo's key: Node 26's module hooks pass a plain require an options
     // object with `paths: undefined` beside its conditions, which is no
@@ -540,7 +561,6 @@ export function installRequireHooks(
       !request.startsWith(".") &&
       rest[0] !== true &&
       onlyDefaultOptions(rest[1], parent) &&
-      (key === null || resolutions.get(key) === undefined) &&
       conditionsMatchRecord(rest[1]?.conditions)
     ) {
       resolved =
@@ -558,26 +578,6 @@ export function installRequireHooks(
           previous = `unresolved (${error?.code ?? error})`;
         }
         sharedResolver.shadow(request, parent?.filename, resolved, previous);
-      }
-    }
-    if (key !== null) {
-      const held = resolutions.get(key);
-      // A bare request's hit costs one stat: a file removed since (a nested copy
-      // uninstalled, a fixture a test deleted) is resolved again, as Node would, instead
-      // of failing to load. A relative one is answered as the platform resolution's own
-      // cache would answer it (resolve.mjs), which does not look at the disk again.
-      if (
-        held !== undefined &&
-        (request.startsWith(".") || fs.statSync(held, { throwIfNoEntry: false })?.isFile())
-      ) {
-        resolutionStats.hits++;
-        resolved = held;
-      } else {
-        if (held !== undefined) {
-          resolutionStats.stale++;
-          resolutions.delete(key);
-        }
-        resolutionStats.misses++;
       }
     }
     // Relative, extensionless: Metro's platform order for every parent, app source

@@ -5,13 +5,14 @@
 // Bare requests only; others return null and the caller's own resolution runs. An
 // `exports` target follows the context's conditions (`require` wins on both sides), a
 // package without one takes its `react-native` field or the caller's `main`. Errors are
-// counted as named fallbacks, never silent. Each realm holds its own resolver; the
-// CommonJS one keeps no memo, since the require hook's memo (hooks.mjs) holds answers.
+// counted as named fallbacks, never silent. A worker holds ONE resolver core for its
+// CommonJS and ESM realms (workerSharedResolver): one answer memo, one package-directory
+// and manifest cache; each realm gets a view that counts its own calls.
 import crypto from "node:crypto";
-import { isBuiltin } from "node:module";
+import Module, { isBuiltin } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
-import { installedPackageDirOf, packageNameOf } from "./match.mjs";
+import { packageNameOf } from "./match.mjs";
 import { resolvePlatformFile } from "./resolve.mjs";
 import { VitestNativeError } from "../errors.mjs";
 
@@ -46,6 +47,22 @@ export function unexpectedFallbacks(realms = resolverCounters() ?? {}) {
 
 /** The option's values today; `'resolution'` arrives with the ownership predicate. */
 export const OWNERSHIP_MODEL_VALUES = Object.freeze(["resolver"]);
+
+/**
+ * The one key for comparing paths across realms: the native real path, the spelling Vite
+ * gives module ids (on-disk case, no Windows 8.3 short names, symlinks followed), or the
+ * resolved path when it does not exist. Answers keep Node's spelling (fs.realpathSync, its
+ * Module._cache key), so Node loads one module per file; anything that must decide
+ * whether a Vite id and a Node path are the same file, or two spellings of one directory
+ * are the same project, compares identityKey of each.
+ */
+export function identityKey(file) {
+  try {
+    return fs.realpathSync.native(file);
+  } catch {
+    return path.resolve(file);
+  }
+}
 
 /** Per-realm counters, readable by tests and diagnostics. */
 const COUNTERS = Symbol.for("vitest-native.sharedResolver");
@@ -152,6 +169,10 @@ export function exportTarget(exportsField, subpath, conditions) {
 }
 
 /**
+ * A resolver for one realm: a view on a resolver core (createResolverCore) that counts
+ * this realm's calls. Each call builds its own core; a worker's realms share one through
+ * workerSharedResolver.
+ *
  * @param {object} inputs  the context's `resolverInputs`
  * @param {object} [options]
  * @param {string} [options.realm]  name used in the counters
@@ -164,8 +185,28 @@ export function exportTarget(exportsField, subpath, conditions) {
  */
 export function createSharedResolver(
   inputs,
-  { realm = "unknown", memo: useMemo = true, shadowFile = null, viteAliasesApplied = false } = {},
+  { realm = "unknown", memo = true, shadowFile = null, viteAliasesApplied = false } = {},
 ) {
+  return createResolverCore(inputs, { viteAliasesApplied }).view(realm, { memo, shadowFile });
+}
+
+const WORKER_CORES = Symbol.for("vitest-native.sharedResolverCores");
+
+/**
+ * This worker's resolver for `realm`: every realm in a worker (the CommonJS hooks and the
+ * ESM loader, which run in-thread on the Node floor) shares one core, so an answer, a
+ * package directory or a manifest one realm found is the other's too. Kept on globalThis,
+ * by the inputs' hash, because the hot runtime can evaluate this module twice in a worker.
+ */
+export function workerSharedResolver(inputs, realm, { shadowFile = null } = {}) {
+  const cores = (globalThis[WORKER_CORES] ??= new Map());
+  const key = resolverInputsHash(inputs);
+  let core = cores.get(key);
+  if (core === undefined) cores.set(key, (core = createResolverCore(inputs)));
+  return core.view(realm, { memo: true, shadowFile });
+}
+
+function createResolverCore(inputs, { viteAliasesApplied = false } = {}) {
   const { projectRoot, platform } = inputs;
   const sourceExts = inputs.sourceExts ?? ["js", "jsx", "json", "ts", "tsx"];
   const aliases = (inputs.aliases ?? []).filter(
@@ -185,31 +226,62 @@ export function createSharedResolver(
   // directory: a manifest is read once however many directories ask for it.
   const dirs = new Map();
   const manifests = new Map();
+  // Real paths, as Node's loader caches them (its realpath cache): see realPath.
+  const realDirs = new Map();
   const realms = (globalThis[COUNTERS] ??= {});
-  const counters = (realms[realm] ??= {
-    calls: 0,
-    hits: 0,
-    misses: 0,
-    manifestReads: 0,
-    fallbacks: {},
-    errors: [],
-    // The resolution shadow: requests where the old resolution answers differently.
-    deltas: 0,
-    deltaSample: [],
-  });
+  let counters;
 
   const fallback = (reason) => {
     counters.fallbacks[reason] = (counters.fallbacks[reason] ?? 0) + 1;
     return null;
   };
 
+  // A path's real path, as fs.realpathSync spells it (Node's Module._cache key), built the
+  // way Node's realpath cache makes it cheap: one lstat per path segment not seen before,
+  // the parent's real path held. A symbolic link costs one readlink, its target resolved
+  // from the link's real directory; anything else is its parent's real path plus its name.
+  function realPath(file, hops = 0) {
+    let real = realDirs.get(file);
+    if (real !== undefined) return real;
+    const parent = path.dirname(file);
+    if (parent === file) return file;
+    const realParent = realPath(parent, hops);
+    if (fs.lstatSync(file).isSymbolicLink()) {
+      if (hops > 40) return fs.realpathSync(file); // a loop: let fs report ELOOP
+      real = realPath(path.resolve(realParent, fs.readlinkSync(file)), hops + 1);
+    } else {
+      real = path.join(realParent, path.basename(file));
+    }
+    realDirs.set(file, real);
+    return real;
+  }
+  const realDir = realPath;
+  // A file is one more segment; it is held too, as Node's cache holds every path it saw.
+  const realFile = realPath;
+
+  /**
+   * A package's directory as Node looks for it: the node_modules directories from the
+   * requester up, then NODE_PATH and the global folders (Module._nodeModulePaths and
+   * Module.globalPaths, the order of require.resolve.paths and of packageDirOf). A
+   * package resolving its own name (self-reference) is left to the caller.
+   */
+  function packageDirFor(name, fromDir) {
+    const lookups = [...Module._nodeModulePaths(fromDir), ...Module.globalPaths];
+    for (const lookup of lookups) {
+      const candidate = path.join(lookup, ...name.split("/"));
+      if (fs.existsSync(path.join(candidate, "package.json"))) {
+        // Under --preserve-symlinks Node keys modules by the link.
+        return preserveSymlinks ? candidate : realDir(candidate);
+      }
+    }
+    return null;
+  }
+
   function packageAt(name, fromDir) {
     const dirKey = `${fromDir}\0${name}`;
     let dir = dirs.get(dirKey);
     if (dir === undefined) {
-      dir = preserveSymlinks
-        ? linkedPackageDirOf(name, fromDir)
-        : installedPackageDirOf(name, fromDir);
+      dir = packageDirFor(name, fromDir);
       dirs.set(dirKey, dir);
     }
     if (dir === null) return null;
@@ -240,7 +312,7 @@ export function createSharedResolver(
    * @param {(id: string) => string} [nodeResolve]  the caller's resolution, for a
    *   package without an `exports` target (Node's own `main`)
    */
-  function resolve(request, parentFile, nodeResolve) {
+  function resolveWith(useMemo, request, parentFile, nodeResolve) {
     if (
       typeof request !== "string" ||
       request.length === 0 ||
@@ -308,7 +380,7 @@ export function createSharedResolver(
       }
       // Identity is the real file, whichever spelling reached it, unless the project
       // runs with --preserve-symlinks, where Node keys modules by the link.
-      if (result && !preserveSymlinks) result = fs.realpathSync(result);
+      if (result && !preserveSymlinks) result = realFile(result);
     } catch (error) {
       // A package removed since its directory or manifest was held (a test deleting a
       // fixture, an uninstall in watch mode): forget what was held for this request and
@@ -317,6 +389,7 @@ export function createSharedResolver(
         for (const dirKey of dirs.keys())
           if (dirKey.startsWith(`${fromDir}\0`)) dirs.delete(dirKey);
         manifests.clear();
+        realDirs.clear();
       }
       // Node's own "no such module" answers, which the caller's resolution then gives.
       const reason = UNRESOLVED_CODES.has(error?.code) ? "unresolved" : "error";
@@ -331,52 +404,94 @@ export function createSharedResolver(
     return result;
   }
 
-  /**
-   * Record a request where the resolution the flag replaces answers differently: the
-   * shadow ADR-0004 asks for, so every behaviour change on a real suite can be listed
-   * and explained. Each realm calls it once per distinct request it answered.
-   */
-  function shadow(request, fromFile, next, previous) {
-    if (previous === next || previous == null) return;
-    counters.deltas++;
-    const delta = { request, from: fromFile ?? projectRoot, previous, next };
-    if (counters.deltaSample.length < 50) counters.deltaSample.push(delta);
-    // One JSON line per delta, every realm and worker into the one file the main
-    // process names (ownershipShadowFile).
-    if (shadowFile !== null) {
-      const line = `${JSON.stringify({ realm, ...delta })}\n`;
-      try {
-        fs.appendFileSync(shadowFile, line);
-      } catch (error) {
-        // The cache was cleared during a watch session: the main process recreates the
-        // context, not this directory.
-        if (error?.code !== "ENOENT") throw error;
-        fs.mkdirSync(path.dirname(shadowFile), { recursive: true });
-        fs.appendFileSync(shadowFile, line);
-      }
-    }
-  }
-
   /** Forget held answers: the Vite side does this when a watched file is added or removed. */
   function clear() {
     memo.clear();
     dirs.clear();
     manifests.clear();
+    realDirs.clear();
   }
 
-  return { resolve, shadow, clear, counters, conditions };
-}
+  /**
+   * A realm's view: `resolve` and `shadow` count into that realm's counters, and share
+   * this core's memo and caches with every other view.
+   */
+  function view(realm, { memo: useMemo = true, shadowFile = null } = {}) {
+    const own = (realms[realm] ??= {
+      calls: 0,
+      hits: 0,
+      misses: 0,
+      manifestReads: 0,
+      fallbacks: {},
+      errors: [],
+      // The resolution shadow: requests where the old resolution answers differently.
+      deltas: 0,
+      deltaSample: [],
+    });
+    const inRealm =
+      (fn) =>
+      (...args) => {
+        const outer = counters;
+        counters = own;
+        try {
+          return fn(...args);
+        } finally {
+          counters = outer;
+        }
+      };
 
-/** The package directory Node finds from `fromDir`, as spelled (--preserve-symlinks). */
-function linkedPackageDirOf(name, fromDir) {
-  let dir = path.resolve(fromDir);
-  for (;;) {
-    const candidate = path.join(dir, "node_modules", ...name.split("/"));
-    if (fs.existsSync(path.join(candidate, "package.json"))) return candidate;
-    const parent = path.dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
+    /**
+     * Record a request where the resolution the flag replaces answers differently: the
+     * shadow ADR-0004 asks for, so every behaviour change on a real suite can be listed
+     * and explained. Each realm calls it once per distinct request it answered.
+     */
+    function shadow(request, fromFile, next, previous) {
+      if (previous === next || previous == null) return;
+      own.deltas++;
+      const delta = { request, from: fromFile ?? projectRoot, previous, next };
+      if (own.deltaSample.length < 50) own.deltaSample.push(delta);
+      // One JSON line per delta, every realm and worker into the one file the main
+      // process names (ownershipShadowFile).
+      if (shadowFile !== null) {
+        const line = `${JSON.stringify({ realm, ...delta })}\n`;
+        try {
+          fs.appendFileSync(shadowFile, line);
+        } catch (error) {
+          // The cache was cleared during a watch session: the main process recreates the
+          // context, not this directory.
+          if (error?.code !== "ENOENT") throw error;
+          fs.mkdirSync(path.dirname(shadowFile), { recursive: true });
+          fs.appendFileSync(shadowFile, line);
+        }
+      }
+    }
+
+    /**
+     * Forget the answer held for `request` from `parentFile`: the caller found the file
+     * gone (the require hook's stale check), so the next call resolves it afresh.
+     */
+    function forget(request, parentFile) {
+      const fromDir =
+        parentFile && path.isAbsolute(parentFile) ? path.dirname(parentFile) : projectRoot;
+      memo.delete(`${fromDir}\0${request}`);
+      dirs.clear();
+      manifests.clear();
+      realDirs.clear();
+    }
+
+    return {
+      resolve: inRealm((request, parentFile, nodeResolve) =>
+        resolveWith(useMemo, request, parentFile, nodeResolve),
+      ),
+      shadow,
+      forget,
+      clear,
+      counters: own,
+      conditions,
+    };
   }
+
+  return { view };
 }
 
 /**

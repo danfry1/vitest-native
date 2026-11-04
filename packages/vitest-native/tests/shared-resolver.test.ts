@@ -14,7 +14,9 @@ import {
   expandResolutionAlias,
   nodeOptionsList,
   ownershipResolverInputs,
+  identityKey,
   resolverCounters,
+  workerSharedResolver,
   resolverInputsHash,
   serializeResolutionAliases,
 } from "../src/native/shared-resolver.mjs";
@@ -195,6 +197,70 @@ describe("each realm checks the inputs it resolves from", () => {
     expect(conditionsIn(nodeOptionsList(" --conditions=src  --max-old-space-size=1 "))).toEqual([
       "src",
     ]);
+  });
+});
+
+describe("identityKey, the one key for comparing paths across realms", () => {
+  it("gives two spellings of one file one key (a symlinked directory)", () => {
+    const root = project({ "real/file.js": "" });
+    fs.symlinkSync(path.join(root, "real"), path.join(root, "link"), "junction");
+    expect(identityKey(path.join(root, "link/file.js"))).toBe(
+      identityKey(path.join(root, "real/file.js")),
+    );
+  });
+
+  it("is Vite's spelling, while the resolver's answers keep Node's", () => {
+    const root = project(dual);
+    const answer = createSharedResolver(inputsFor(root)).resolve("dual", path.join(root, "a.js"))!;
+    expect(answer).toBe(fs.realpathSync(answer));
+    expect(identityKey(answer)).toBe(fs.realpathSync.native(answer));
+  });
+
+  // Windows spells a directory both `C:\Users\RUNNER~1\…` (the 8.3 short name the TEMP
+  // variable often uses on CI) and `C:\Users\runneradmin\…`.
+  it.runIf(process.platform === "win32")("gives a Windows 8.3 short name its long key", () => {
+    const short = process.env.TEMP ?? os.tmpdir();
+    expect(identityKey(short)).toBe(fs.realpathSync.native(short));
+    expect(identityKey(short)).not.toMatch(/~\d/);
+  });
+
+  it("falls back to the resolved path for a file that does not exist", () => {
+    expect(identityKey("no/such/file")).toBe(path.resolve("no/such/file"));
+  });
+});
+
+describe("one resolver per worker", () => {
+  const root = project(dual);
+  const inputs = inputsFor(root);
+  const from = path.join(root, "app.js");
+
+  it("shares one core between the CommonJS and ESM realms: one realm's answer is the other's hit", () => {
+    const cjs = workerSharedResolver(inputs, "test-cjs");
+    const esm = workerSharedResolver(inputs, "test-esm");
+    const target = path.join(root, "node_modules/dual/cjs.cjs");
+    expect(cjs.resolve("dual", from)).toBe(target);
+    expect(cjs.counters.misses).toBe(1);
+    expect(esm.resolve("dual", from)).toBe(target);
+    expect(esm.counters).toMatchObject({ calls: 1, hits: 1, misses: 0, manifestReads: 0 });
+  });
+
+  it("resolves afresh what a realm forgot (its file was found gone)", () => {
+    const cjs = workerSharedResolver(inputs, "test-cjs-forget");
+    cjs.resolve("dual", from);
+    cjs.resolve("dual", from);
+    const held = { ...cjs.counters };
+    cjs.forget("dual", from);
+    cjs.resolve("dual", from);
+    expect(cjs.counters.hits - held.hits).toBe(0);
+    expect(cjs.counters.misses - held.misses).toBe(1);
+  });
+
+  it("keeps separate cores for separate inputs", () => {
+    const a = workerSharedResolver(inputs, "test-core-a");
+    const b = workerSharedResolver({ ...inputs, platform: "android" }, "test-core-b");
+    a.resolve("dual", from);
+    b.resolve("dual", from);
+    expect(b.counters.misses).toBe(1);
   });
 });
 

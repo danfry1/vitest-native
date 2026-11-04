@@ -56,6 +56,9 @@ export declare function unexpectedFallbacks(
   realms?: Record<string, ResolverCounters>,
 ): Record<string, Record<string, number | string[]>>;
 
+/** The native real path (Vite's id spelling): the key for comparing paths across realms. */
+export declare function identityKey(file: string): string;
+
 export declare const FALLBACK_ALLOWED: readonly string[];
 export declare const OWNERSHIP_MODEL_VALUES: readonly string[];
 
@@ -75,6 +78,8 @@ export interface SharedResolver {
     next: string,
     previous: string | null | undefined,
   ): void;
+  /** Forget the answer held for `request` from `parentFile` (its file is gone). */
+  forget(request: string, parentFile: string | null | undefined): void;
   clear(): void;
   counters: ResolverCounters;
   conditions: string[];
@@ -88,6 +93,13 @@ export declare function createSharedResolver(
     shadowFile?: string | null;
     viteAliasesApplied?: boolean;
   },
+): SharedResolver;
+
+/** This worker's resolver for `realm`: every realm in a worker shares one core. */
+export declare function workerSharedResolver(
+  inputs: ResolverInputs,
+  realm: string,
+  options?: { shadowFile?: string | null },
 ): SharedResolver;
 
 export declare function serializeResolutionAliases(

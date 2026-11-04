@@ -4,7 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { projectContext } from "../context.mjs";
 import { createRequire } from "node:module";
 import { cjsConditionsWithout } from "./export-condition-recovery.mjs";
-import { createSharedResolver, ownershipResolverInputs } from "./shared-resolver.mjs";
+import { ownershipResolverInputs, workerSharedResolver } from "./shared-resolver.mjs";
 import path from "node:path";
 import fs from "node:fs";
 import {
@@ -139,8 +139,8 @@ export function initialize(data) {
     "ESM loader",
     cjsConditionsWithout("react-native"),
   );
-  SHARED_RESOLVER =
-    sharedInputs === null ? null : createSharedResolver(sharedInputs, { realm: "esm" });
+  // The same core as the require hooks: on the Node floor this loader runs in-thread.
+  SHARED_RESOLVER = sharedInputs === null ? null : workerSharedResolver(sharedInputs, "esm");
   const configuredOwnership = parseNativeOwnershipManifest(context?.ownership);
   ownership = createNativeOwnershipPolicy({
     projectRoot: PROJECT_ROOT,
