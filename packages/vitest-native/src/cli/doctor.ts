@@ -9,7 +9,7 @@ import path from "node:path";
 import { validatePeerDependency } from "../validate.js";
 import { detectEngine } from "../native/detect.js";
 import { resolveTransformPreset } from "../native/babel-preset.mjs";
-import { detectEcosystemPackages, type ReachedCopy } from "../native/ecosystem.js";
+import { detectEcosystemPackages } from "../native/ecosystem.js";
 import {
   createNativeOwnershipPolicy,
   formatNativeOwnershipManifest,
@@ -25,9 +25,6 @@ import {
   installedTestsItself,
 } from "./manifest.js";
 import {
-  describeExpoInstall,
-  EXPO_SDK_PACKAGES,
-  installedExpoSdk,
   installedExpoVersion,
   PEER_REQUIREMENTS,
   unsupportedExpoSdkMessage,
@@ -463,12 +460,6 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   // thing this cannot know. A real run with `diagnostics: true` prints the resolved
   // manifest after transform include/exclude, test.include roots and inline
   // overrides have all been applied.
-  // The Expo section below reads the `expo` that resolves from where doctor runs, then
-  // from the config's directory, as the plugin does; only where neither resolves one,
-  // the copies of `expo` and `expo-modules-core` detection reaches under the native engine.
-  const expoAtRoot =
-    installedExpoVersion(root) ?? (configRoot === root ? null : installedExpoVersion(configRoot));
-  const reachedExpoCopies: ReachedCopy[] = [];
   if (decision.engine === "native") {
     const inferredRoot = configRoot;
     // With the presets the plugin would enable: without that set, detection treats
@@ -479,8 +470,6 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
       root === configRoot ? [] : [root],
       [],
       activePresets(root, [], decision.engine),
-      undefined,
-      expoAtRoot ? {} : { reachedCopies: { of: EXPO_SDK_PACKAGES, found: reachedExpoCopies } },
     );
     const inferredOwnership = createNativeOwnershipPolicy({
       projectRoot: inferredRoot,
@@ -598,12 +587,13 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   else if (!installedAny) lines.push("  (none — no preset-covered packages installed)");
 
   // --- Expo ---
-  // Found as the plugin finds it (peer-requirements.ts); see where expoAtRoot is read.
-  const expoInstall = installedExpoSdk(expoAtRoot, reachedExpoCopies);
-  const expo = expoInstall && describeExpoInstall(expoInstall);
+  // Found as the plugin finds it (peer-requirements.ts), from where doctor runs and then
+  // from the config's directory.
+  const expo =
+    installedExpoVersion(root) ?? (configRoot === root ? null : installedExpoVersion(configRoot));
   // The plugin warns at startup with the same message; a warning here too, never blocking,
   // and in place of the description below, which an unsupported SDK does not earn.
-  const unsupported = expoInstall && unsupportedExpoSdkMessage(expoInstall);
+  const unsupported = expo && unsupportedExpoSdkMessage(expo);
   if (unsupported) {
     lines.push("", "Expo");
     warn(unsupported);
@@ -615,10 +605,10 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
     // shadows a handful of packages.
     pass(
       (decision.engine === "native"
-        ? `${expo} detected. Under the native engine Expo modules run their real JavaScript on ` +
+        ? `expo ${expo} detected. Under the native engine Expo modules run their real JavaScript on ` +
           `native-module mocks, as under jest-expo (unless the config sets \`engine: 'mock'\` or ` +
           `\`presets: { expo: true }\`, where the expo preset shadows ${PRESET_MODULES.expo.join(", ")}). `
-        : `${expo} detected. Under the mock engine the expo preset shadows ${PRESET_MODULES.expo.join(", ")}; ` +
+        : `expo ${expo} detected. Under the mock engine the expo preset shadows ${PRESET_MODULES.expo.join(", ")}; ` +
           `other Expo modules load their real JavaScript. `) +
         `Coming from jest-expo, run \`vitest-native migrate\`. See https://danfry1.github.io/vitest-native/guide/expo`,
     );

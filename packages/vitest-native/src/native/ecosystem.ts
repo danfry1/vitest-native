@@ -196,25 +196,6 @@ export interface ReachedPackages {
   reachedPaths?: readonly string[];
   /** Called once per workspace member reached through `reachedPaths` but not declared. */
   onReachedUndeclared?: (name: string, dir: string) => void;
-  /**
-   * Every installed copy of the packages named in `of` that the run reaches, one entry per
-   * directory, pushed to `found` (the Expo SDK check, installedExpoSdk). The walk visits
-   * each name once, so a copy met again through another parent, or as a peer nothing in
-   * the workspace declares, costs one lookup from that parent; nothing else is looked up,
-   * and nothing is when `of` is not met that way. Not recorded: a package only a sibling
-   * declares; one an active preset shadows or `transform.exclude` names (never walked); and
-   * one `transform` names, where it is named (it is walked into, not reached).
-   */
-  reachedCopies?: { of: readonly string[]; found: ReachedCopy[] };
-}
-
-/** One installed copy of a package the run reaches, and what reached it. */
-export interface ReachedCopy {
-  name: string;
-  version: string;
-  dir: string;
-  /** The package whose dependency or peer it is, or null where the project declares it. */
-  via: string | null;
 }
 
 /**
@@ -253,7 +234,7 @@ export function detectEcosystemPackages(
   neverTransform: string[] = [],
   activePresets?: readonly string[],
   dirOf: PackageDirOf = dependencyDirOf,
-  { reachedPaths = [], onReachedUndeclared, reachedCopies }: ReachedPackages = {},
+  { reachedPaths = [], onReachedUndeclared }: ReachedPackages = {},
 ): string[] {
   // More than one root because `manifestsFrom` only walks UP. In a workspace the
   // run root is often above the package under test — Nx invokes tasks from the
@@ -553,37 +534,16 @@ export function detectEcosystemPackages(
   const inClosure = new Set(detected);
   const walked = new Set<string>();
   const queue: Installed[] = [];
-  const copied = new Set(reachedCopies?.of);
-  const copyDirs = new Set<string>();
-  const recordCopy = (name: string, installed: Installed, via: string | null) => {
-    const { version } = installed.manifest;
-    if (!copied.has(name) || copyDirs.has(installed.dir) || typeof version !== "string") return;
-    copyDirs.add(installed.dir);
-    reachedCopies?.found.push({ name, version, dir: installed.dir, via });
-  };
-  /** The name of the package `installed` is, for `via`. */
-  const nameOf = (installed: Installed): string | null =>
-    typeof installed.manifest.name === "string" ? installed.manifest.name : null;
-  const reach = (name: string, installed: Installed, via: string | null) => {
+  const reach = (name: string, installed: Installed) => {
     inClosure.add(name);
-    recordCopy(name, installed, via);
     if (walked.has(name)) return;
     walked.add(name);
     queue.push(installed);
   };
-  /**
-   * An edge the walk does not follow (to a name already walked, or an undetected peer):
-   * a copy of a package in `reachedCopies.of` may sit at its end, so that one is looked up.
-   */
-  const revisit = (name: string, resolve: () => Installed | null, via: string | null) => {
-    if (!copied.has(name)) return;
-    const installed = resolve();
-    if (installed) recordCopy(name, installed, via);
-  };
   for (const name of detected) {
     if (!projectDeclared.has(name)) continue;
     const installed = installedOf(name);
-    if (installed) reach(name, installed, null);
+    if (installed) reach(name, installed);
   }
   // A package named in `transform: [...]` is loaded by the run as surely as one the
   // project declares, so its dependencies are walked too; it is compiled because it is
@@ -623,29 +583,19 @@ export function detectEcosystemPackages(
       const pkg = queue.pop() as Installed;
       const deps = pkg.manifest.dependencies;
       for (const dep of deps && typeof deps === "object" ? Object.keys(deps as object) : []) {
-        if (excluded(dep)) continue;
-        if (walked.has(dep)) {
-          revisit(dep, () => dependencyOf(pkg, dep), nameOf(pkg));
-          continue;
-        }
+        if (walked.has(dep) || excluded(dep)) continue;
         const installed = dependencyOf(pkg, dep);
         if (!installed) continue; // declared but not installed
         // A detected package stays in the set whatever it publishes; this test is for
         // members the closure alone brings in.
         if (!inClosure.has(dep) && publishesOnlyEsm(installed.manifest)) continue;
-        if (admits(installed)) reach(dep, installed, nameOf(pkg));
+        if (admits(installed)) reach(dep, installed);
       }
       const peers = pkg.manifest.peerDependencies;
       for (const peer of peers && typeof peers === "object" ? Object.keys(peers as object) : []) {
-        if (excluded(peer)) continue;
-        // A peer nothing in the workspace declares is not walked, but a copy of a package
-        // in `reachedCopies.of` beside it is loaded all the same.
-        if (walked.has(peer) || !detectedSet.has(peer)) {
-          revisit(peer, () => dependencyOf(pkg, peer), nameOf(pkg));
-          continue;
-        }
+        if (walked.has(peer) || excluded(peer) || !detectedSet.has(peer)) continue;
         const installed = dependencyOf(pkg, peer);
-        if (installed && admits(installed)) reach(peer, installed, nameOf(pkg));
+        if (installed && admits(installed)) reach(peer, installed);
       }
     }
   };
@@ -707,14 +657,9 @@ export function detectEcosystemPackages(
   for (const member of reachedMembers.values()) {
     const deps = member.manifest.dependencies;
     for (const dep of deps && typeof deps === "object" ? Object.keys(deps as object) : []) {
-      if (excluded(dep) || !detectedSet.has(dep)) continue;
-      const via = member.manifest.name as string;
-      if (walked.has(dep)) {
-        revisit(dep, () => installedFrom(member.dir, dep), via);
-        continue;
-      }
+      if (walked.has(dep) || excluded(dep) || !detectedSet.has(dep)) continue;
       const installed = installedFrom(member.dir, dep);
-      if (installed) reach(dep, installed, via);
+      if (installed) reach(dep, installed);
     }
   }
 
