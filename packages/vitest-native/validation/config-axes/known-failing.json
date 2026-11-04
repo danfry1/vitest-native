@@ -4,11 +4,12 @@
     {
       "probe": "aliased-sibling-regex",
       "when": {
-        "engine": "native"
+        "engine": "native",
+        "ownershipModel": "off"
       },
       "failure": "^aliased-sibling-regex\\.test\\.ts: Cannot find module '@axis/rvalidator/store'",
-      "fixedBy": "#344",
-      "why": "Node's alias fallback cannot represent a regex alias: Cannot find module."
+      "fixedBy": "#370",
+      "why": "Node's alias fallback cannot represent a regex alias: Cannot find module. Ownership track A1 (#370, the shared resolver behind experimental.ownershipModel) applies regex aliases on Node's side, deciding by resolution rather than by alias text as #344 does. The entry covers the flag off only: with 'resolver' the probe must pass, so a run that drops the flag fails here instead of matching this entry."
     },
     {
       "probe": "rntl-findby-fake-timers",
