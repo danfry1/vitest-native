@@ -13,8 +13,6 @@
   across files and is faster on most suites, is available with `hotRuntime: 'auto'`. Five known
   differences from per-file isolation are listed in
   [troubleshooting](https://danfry1.github.io/vitest-native/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files).
-  Release candidates 0.14.0-rc.1 to rc.8 defaulted to `'auto'`, so a project that relied on that
-  sets `hotRuntime: 'auto'` to keep it.
 - **How to tell.** When the hot runtime is active, the startup banner names it, as in
   `(platform ios, hot runtime)`. With `'auto'`, it keeps Vitest's per-file isolation whenever the run
   cannot be bounded, or when you set a pool or `test.isolate` yourself, and prints the reason.
@@ -68,14 +66,24 @@
 - **Presets of your own are listed by path.** A preset object of a project's own passed to `presets`
   used to shadow its packages with undefined exports; it is now refused at startup. List the module that
   exports it instead: `presets: { './test/presets/my-lib.ts': true }`.
-- **Expo SDK 56–58 projects run real React Native with nothing extra installed.** When
-  `@react-native/babel-preset` does not resolve (from SDK 56, `babel-preset-expo` no longer depends on
-  it), the native engine compiles with Expo's preset, as Metro does. `reactNative()` used the mock
-  engine there before.
+- **Expo SDK 57 and 58 projects run real React Native with nothing extra installed.** When
+  `@react-native/babel-preset` does not resolve (`babel-preset-expo` no longer depends on it), the
+  native engine compiles with Expo's preset, as Metro does. `reactNative()` used the mock engine there
+  before.
 - **Expo's globals are installed before your setup files, and `fetch` stays Node's.** A `fetch` mocked
   in a setup file, an MSW server, nock and undici's `MockAgent` keep working whether or not a test
   imports `expo`. Every test file in an Expo project now sees Expo's `URL`, `structuredClone` and
   `DOMException` polyfills, as under jest-expo.
+- **Expo's globals need `expo` declared.** The native engine installs Expo's runtime (`URL`,
+  `structuredClone` and the other globals jest-expo installs) only when the project, or a manifest
+  above it, declares `expo` or a package that depends on it, or `transform` names it. A project where
+  `expo` merely resolves, for example beside an Expo app in a hoisted workspace, no longer gets them;
+  declare `expo` or add it to `transform` if it relies on them.
+- **Your Babel config runs on its own thread.** Under the native engine, Babel runs apart from the
+  tests, as under Jest. A Babel config or plugin sees the Babel worker's `process.argv`,
+  `isMainThread` is `false`, and the tests' `require.cache` and globals are not visible.
+  `process.env` is shared. A transform slower than 60 s plus 15 s per MB of source fails with
+  `TRANSFORM_FAILED`.
 - **Expo modules' own native-module mocks are served.** Values that were `undefined` are the mock's
   (`digestStringAsync` resolves `""`), and a member a mock leaves out is `undefined` where the generic
   stub gave a function.
@@ -219,7 +227,7 @@
 
 - 87d8dd0: Use the hot runtime for suites migrated from Jest under `hotRuntime: 'auto'`
 
-  `'auto'`, the default, no longer keeps per-file isolation for suites set up with
+  `'auto'` no longer keeps per-file isolation for suites set up with
   `jestMockTransform()` or the jest-compat setup. The jest-compat surface — `jest.mock` in
   its hoisted, partial, factory-less and runtime forms, spies on React Native APIs, `console`
   and package exports, fake timers and `jest.setSystemTime`, `jest.setTimeout`, globals,
@@ -228,21 +236,11 @@
   under the hot runtime. `hotRuntime: false` keeps
   per-file isolation for a suite that needs it.
 
-- d0d968a: Use the hot runtime by default where it can be bounded
+- d0d968a: **Native engine: `hotRuntime: 'auto'` reuses workers across test files wherever the run can be bounded. The default stays `false`, as in 0.13.**
 
-  `hotRuntime` now defaults to `'auto'` under the native engine. A run reuses workers and resets
-  React Native's registry, the app/test module graph and the verified process state per file
-  whenever the scheduler provides recyclable boundaries (at least two workers within the memory
-  plan), no other pool is configured, and the worker and the project resolve the same Vitest
-  version; otherwise it keeps Vitest's per-file isolation, as before. Suites set up for Jest
-  migration are included (see the separate entry on admitting them).
-
-  When hot is selected, concurrency follows the hot memory plan, which caps automatic workers at
-  four. Set implicitly, `'auto'` is quiet about both its fallbacks and that cap;
-  `diagnostics: true`, or setting `hotRuntime: 'auto'` explicitly, reports them.
-  `hotRuntime: false` restores per-file isolation unconditionally, and `hotRuntime: true` still
-  requires hot mode and fails closed when it cannot be bounded — including on a Vitest version
-  mismatch, which `'auto'` treats as a reason to fall back.
+  - `'auto'` needs at least two workers within the memory plan, no other pool, and one Vitest version in workers and project; otherwise it keeps per-file isolation and prints why. The memory plan caps automatic workers at four.
+  - `hotRuntime: true` requires the hot runtime and fails at startup when it cannot be bounded, including on a Vitest version mismatch.
+  - Set `hotRuntime: 'auto'` to opt in. Known differences from per-file isolation are listed in the troubleshooting guide.
 
 - 2581950: Add an experimental `metroConfig` option that reads the project's Metro resolution profile
 
@@ -255,29 +253,32 @@
 
 ### Patch Changes
 
-- 74f1bf0: **Workspace libraries that declare `react-native` are owned as in 0.14.0-rc.10, and their setup files run under the native engine.** No action needed.
+- 3510819: **The `safeAreaContext` preset serves react-native-safe-area-context 5.11's `SafeAreaCornerAdaptedInsetsContext`.** Importing it from a test using the preset gave `undefined`. `useSafeAreaInsets({ cornerAdaptation })` now answers the preset's regular insets, as the library's own Jest mock does when no provider sets corner-adapted insets. No action needed.
 
-  - **Workspace libraries are detected as in 0.14.0-rc.10.** 0.14.0-rc.11 also detected a workspace library whose `exports` map leaves out `./package.json`. That made the library Node-owned: `vi.mock` from tests no longer reached its internal imports, and any of its files importing `vitest` failed. Such a library now runs in Vite again. Installed packages with that exports shape, such as `expo-symbols`, are still detected and compiled. A `transform.exclude` entry added for such a library is no longer needed.
-  - **A setup file in a detected workspace library runs.** A detected library is one that exports `./package.json` or has no `exports` map. Listing its own file in `test.setupFiles` stopped the run with `MODULE_OWNER_CONFLICT` ("Vite attempted to transform '…/vitest.setup.ts', but the native ownership policy assigns that file to Node"). The setup file now runs in Vite, as test files do. Only the setup file moves: library files it imports still run under Node. A library file that imports `vitest` still needs `transform.exclude` for that library. A `vi.mock` in the setup file does not reach the library's own internal imports. Setup files inside `node_modules` are unchanged.
+- 74f1bf0: **Native engine: a setup file inside a workspace library that declares `react-native` runs.** Listing it in `test.setupFiles` stopped the run with `MODULE_OWNER_CONFLICT` (`Vite attempted to transform '…/vitest.setup.ts', but the native ownership policy assigns that file to Node`). No action needed.
+
+  - The setup file runs in Vite, as test files do. The library files it imports are still loaded by Node, so a `vi.mock` in the setup file does not reach their imports.
+  - Not covered: a library file that imports `vitest`. Add the library to `transform.exclude`.
 
 - dff0230: **Under the native engine, `globalThis.expo.SharedObject` has `release()`.** expo-modules-core's `useReleasingSharedObject` hooks, which expo-video, expo-audio and expo-image build on, call it from their effect cleanup, so every unmount of such a component threw `TypeError: object?.release is not a function`. React reports an error in a cleanup through `console.error` instead of rethrowing, and Vitest 5 hides the console output of passing tests, so this showed only with `silent: false`. The stand-in now has the no-op `release()` the native class has; `SharedRef` and the fabricated native classes inherit it. No action needed.
 
-- 858e0c7: **Under the native engine, a project that does not use `expo` runs even when `expo` is installed beside it.** The setup file installs Expo's winter runtime only when vitest-native compiles `expo` for the project: the project, or a manifest above it, declares `expo` or a package that depends on it, or `transform` names it. Before, it installed the runtime whenever `expo` resolved, and SDK 58 publishes that runtime as ES module syntax Node cannot run uncompiled. So a package beside an Expo app in a hoisted workspace, or a library whose `expo-*` devDependencies pull `expo` in as a peer, failed every test file in the setup, with `'expo' shipped source Node can't run directly` (Node 22.22.3 and later, Node 24) or `Cannot find module '…/expo/build/winter/runtime'` (Node 22.13). No action needed for a project that declares `expo`: it gets the runtime as before.
+- 858e0c7: **Native engine: Expo's runtime globals are installed only when the project declares `expo` or a package that depends on it.** Before, a package where `expo` merely resolved, such as one in a hoisted workspace, failed every test file in setup with `'expo' shipped source Node can't run directly` or `Cannot find module '…/expo/build/winter/runtime'` on SDK 58.
 
-  On every SDK, including 57 and earlier, a project where `expo` resolves without being declared no longer gets Expo's globals (`structuredClone`, `URL` and the others the runtime installs), as under jest-expo, which installs them only for projects using its preset. `presets: { expo: true }` alone does not count as declaring `expo`. A project that relies on those globals without declaring `expo` should declare it or add it to `transform`.
+  - A manifest above the project, or a `transform` entry naming `expo`, also counts; `presets: { expo: true }` alone does not.
+  - Such a project no longer gets Expo's globals (`structuredClone`, `URL`, …), as under jest-expo. Declare `expo` or add it to `transform` if the project relies on them.
 
 - 53bc6fb: **Native-engine config loads are faster on projects with many React Native packages.** Under `engine: 'native'`, each config load now resolves a package's directory once per lookup: auto-detection keeps its own memoized lookup, and the module ownership policy shares one with the linked-package check. On a large Expo app this cuts config-time module resolutions from about 2,100 to about 1,100, roughly 14 ms per config load; each project in a multi-project config gets the same saving. No action needed. The detected packages, the externalization patterns passed to Vitest and every ownership decision are unchanged, and a package installed during a watch session is still picked up when Vitest reloads the config.
 
-- 64ac383: **Under the native engine, a package that depends on a workspace library now compiles the installed React Native packages that library depends on.** A feature package depending on a workspace UI library that declares `expo-image` failed with `Cannot find module '…/expo-asset/build/Asset.fx'`: `expo-asset`, reached through `expo-image` and `expo`, was never compiled, because only the feature package's own declarations were followed. No action needed.
+- 64ac383: **Native engine: a package that depends on a workspace library now compiles that library's React Native dependencies, such as `expo-asset`.** Tests that failed with `Cannot find module '…/expo-asset/build/Asset.fx'` now run. No action needed.
 
-  - The same applies to a workspace library imported through a string `resolve.alias` entry or, where Vite resolves them, tsconfig `paths`, without being declared. With `diagnostics: true` the plugin names such a library.
-  - What changes: more installed packages are compiled and loaded by Node in these projects. As for every Node-loaded package, a `vi.mock` from a test does not reach their internal imports.
-  - Unchanged: which owner a workspace library has. This change adds only installed packages (in `node_modules`), never a workspace member.
-  - Not covered: aliases with a regular-expression `find`, aliases other plugins add (vite-tsconfig-paths, Nx's `nxViteTsPaths`), and a `setupFiles` entry pointing into an undeclared workspace library; none of these is followed. Declaring the library as a dependency covers them.
+  - Also applies to a library reached through a string `resolve.alias` or tsconfig `paths` without being declared.
+  - More installed packages are now loaded by Node, so a `vi.mock` from a test does not reach their imports.
+  - Not covered: regular-expression aliases, aliases other plugins add, and a `setupFiles` entry inside an undeclared library. Declare the library as a dependency instead.
 
-- 1ce2f5d: **Under the native engine with `nativeModules: 'permissive'`, importing `expo` or `expo-constants` works again.** In 0.14.0-rc.10 and rc.11 it threw `Unexpected token '(', "(...args) "... is not valid JSON`. No action needed.
+- 1ce2f5d: **Native engine: `NativeModules.EXDevLauncher` is absent in every mode, as in Expo Go, so `expo` and `expo-constants` import with `nativeModules: 'permissive'`.** There they threw `Unexpected token '(', "(...args) "... is not valid JSON`. No action needed.
 
-  `NativeModules.EXDevLauncher` is now absent by default, as in Expo Go, which the default runtime models (as jest-expo does). Only expo-dev-launcher registers that module, in a development build, and expo-constants parses its `manifestString` whenever it is present. It is absent from `NativeModules`, from `'EXDevLauncher' in NativeModules`, from `TurboModuleRegistry.get` and from `globalThis.expo.modules` in every mode, and `TurboModuleRegistry.getEnforcing('EXDevLauncher')` throws React Native's own "could not be found" error. A test that needs the module still gets it with `mockNativeModule('EXDevLauncher', …)`. Every other module answers as before, in both modes.
+  - Only expo-dev-launcher registers the module, in a development build. It is also absent from `TurboModuleRegistry.get` and `globalThis.expo.modules`, and `TurboModuleRegistry.getEnforcing('EXDevLauncher')` throws React Native's "could not be found" error.
+  - To model a development build, register it with `mockNativeModule('EXDevLauncher', …)`.
 
 - c4f31b0: **A cache miss after a lazy global is installed no longer fails with `Cannot read properties of undefined (reading 'environmentVisitor')` under the native engine.** This hit Expo SDK 57 projects on a warm transform cache, and the error named whichever file missed the cache. SDK 57's runtime, which the engine installs at setup, replaces `TextDecoder` with a lazy getter, and Babel read it while still loading. No action needed: Babel now runs apart from the tests, as it does under Jest. A project Babel config or plugin sees these differences:
 
@@ -439,8 +440,6 @@ fails with `EACCES` either way.
 - 432b86c: Workers now read their configuration from one validated project context file instead of about twenty `VITEST_NATIVE_*` environment variables, and fail by name (`CONTEXT_INVALID`) when it is missing, stale or malformed, where a bad value used to become a default silently. The file is rewritten if the cache is cleared during a watch session, and falls back to the system temp directory when the cache cannot be written. Those variables were never documented: one given in the shell or in `test.env` no longer reaches the workers, and the plugin warns once, naming each one still set. Test results are unchanged.
 
 - 1e7ae98: A library graph that a worker loads again in each test file, such as a library run as itself or a library's own Jest mock, no longer has its imports re-resolved and its sources re-read every time. Node does not cache a resolution that goes through a package's `exports` map, so each bare import ran Node's full resolution again, and each compiled source was read again just to find its cached output. Resolutions of bare and extensionless relative requests are now kept per requiring directory for the life of the worker. A kept resolution of a bare request whose file has since been removed is resolved again, so removing a nested copy falls back to the outer one, as with Node. A copy installed nearer than the kept one during a run is not seen until the worker restarts. Node behaves the same way for packages resolved through `main`, and watch mode does not watch `node_modules`. A source whose compiled output is already held for its current size and modification time is no longer read, so a file edited between test files is still recompiled.
-
-- 1785957: `hotRuntime` stays `false` by default, as in 0.13.0: under the native engine each test file runs in a fresh worker. The hot runtime, which reuses workers across files and is faster on most suites, is available with `hotRuntime: 'auto'`; four known differences from per-file isolation are listed in the troubleshooting guide. Release candidates 0.14.0-rc.1 to rc.8 defaulted to `'auto'`, so a project that relied on that sets `hotRuntime: 'auto'` to keep it.
 
 - ff23fde: The hot runtime no longer drops test files from a run. When a test file `jest.mock`ed a module that the per-file reset restores through Node, such as `jest.mock('react-native/Libraries/Utilities/Appearance', () => null)`, the reset for the next file threw before that file was collected. The file then had no result in any reporter, and the JSON report did not show it at all. With one worker, every later file of the run was lost the same way. On react-native-paper this dropped one file per run with four workers and 19 of 52 files with one. The `jest.mock` registrations are now cleared before the React Native state is restored. A reset that fails now fails the file it was for, with the error. A file that never runs because its worker's task broke is now reported as failed by name, and the run fails.
 
@@ -810,9 +809,8 @@ fails with `EACCES` either way.
   least two workers, and no explicitly selected pool; otherwise it preserves stock
   per-file isolation. Selection runs after other Vite config hooks, so
   later-contributed pools and setup files cannot create a mixed runtime. (In this
-  release `'auto'` also becomes the default, falls back quietly unless set explicitly
-  or `diagnostics` is on, and includes suites migrated from Jest — see the minor
-  changes above.)
+  release `'auto'` also includes suites migrated from Jest — see the minor changes
+  above.)
 
   A packed consumer gate proves safe enablement and the one-worker and explicit-pool
   fallbacks. Explicit `hotRuntime: true` keeps its existing fail-closed semantics.
