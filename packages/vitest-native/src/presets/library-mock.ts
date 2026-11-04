@@ -3,7 +3,7 @@ import path from "node:path";
 import type { PresetModule } from "../types.js";
 import { mockModuleExportNames } from "./esm-export-names.js";
 import { projectContext } from "../context.mjs";
-import { libraryMockDir, type LibraryMock } from "../preset-map.js";
+import { BUILT_AT_SETUP, libraryMockDir, type LibraryMock } from "../preset-map.js";
 
 // A preset module that is the library's own test mock under the native engine.
 //
@@ -29,6 +29,7 @@ function underNativeEngine(): boolean {
  */
 export function libraryMockModule(mock: LibraryMock, fallback: PresetModule): PresetModule {
   return {
+    ...(mock.setsGlobals ? { [BUILT_AT_SETUP]: true } : {}),
     exports: fallback.exports,
     exportsFor(context) {
       if (context.engine === "native") {

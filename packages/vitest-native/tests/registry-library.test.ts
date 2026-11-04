@@ -125,7 +125,9 @@ function run(body: string, { install = true } = {}): any {
     if (${install}) installRegistry(rnFile, root, undefined, libFile);
     const req = createRequire(root + "/app.js");
     const before = new Set(Object.keys(req.cache));
-    const added = () => Object.keys(req.cache).filter((k) => !before.has(k)).map((k) => k.slice(root.length + 1));
+    // Paths are reported relative to the root, with forward slashes on every platform.
+    const rel = (file) => file.slice(root.length + 1).split("\\\\").join("/");
+    const added = () => Object.keys(req.cache).filter((k) => !before.has(k)).map(rel);
     const out = await (async () => { ${body} })();
     process.stdout.write(JSON.stringify(out));
   `;
@@ -143,7 +145,7 @@ describe("library registry", () => {
       const loads = [];
       const load = Module._load;
       Module._load = function (request, ...rest) {
-        loads.push(request.startsWith(root) ? request.slice(root.length + 1) : request);
+        loads.push(request.startsWith(root) ? rel(request) : request);
         return load.call(this, request, ...rest);
       };
       const lib = req("lib-a");

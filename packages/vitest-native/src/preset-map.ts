@@ -123,12 +123,23 @@ export interface LibraryMock {
   pkg: string;
   /** The mock's built file inside the package, as `require` takes it. */
   file: string;
+  /**
+   * Whether the mock's module body sets up globals of the test environment
+   * (worklets' sets `requestAnimationFrame`). Such a mock is built as each file is set
+   * up, as a Jest suite installs it in its setup, before a test can install fake timers
+   * the global would then replace.
+   */
+  setsGlobals?: boolean;
 }
+
+/** Marks a preset module that native/setup.mjs builds as each file is set up. */
+export const BUILT_AT_SETUP = Symbol.for("vitest-native.preset-built-at-setup");
 
 /** react-native-worklets' own mock, which reanimated's own mock runs over. */
 export const WORKLETS_MOCK: LibraryMock = {
   pkg: "react-native-worklets",
   file: "lib/module/mock.js",
+  setsGlobals: true,
 };
 
 /** The installed package's directory, from `root`, when it ships `mock`; else null. */

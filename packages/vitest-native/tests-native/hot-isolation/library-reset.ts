@@ -10,6 +10,7 @@ import { projectContext } from "../../src/context.mjs";
 // which serves Reanimated's own mock and worklets, is reset with React Native's before
 // every file. A file after one that ran Reanimated starts with none of its modules run,
 // so no file sees a library instance linked to a previous file's React Native.
+// (Worklets' mock is built as each file is set up, so only Reanimated's are counted.)
 const projectRoot = projectContext()?.projectRoot ?? process.cwd();
 const req = createRequire(path.join(projectRoot, "package.json"));
 
@@ -30,17 +31,19 @@ function claimFirst(): string | null {
 export function runReanimatedFromAResetRegistry() {
   const previous = claimFirst();
   const library = req(projectContext()!.registry as string).__vitestNativeRegistry.library as {
-    instances(): number;
+    ran(): string[];
   };
   expect(library, "the library registry is installed").toBeTruthy();
-  const atStart = library.instances();
+  const reanimatedRan = () =>
+    library.ran().filter((file) => /[\\/]react-native-reanimated[\\/]/.test(file)).length;
+  const atStart = reanimatedRan();
   const reanimated = req("react-native-reanimated");
   expect(typeof reanimated.useSharedValue).toBe("function");
-  expect(library.instances(), "Reanimated is served from the registry").toBeGreaterThan(0);
+  expect(reanimatedRan(), "Reanimated is served from the registry").toBeGreaterThan(0);
 
   if (previous === null) return;
   fs.rmSync(marker, { force: true });
   expect(previous, "both files of the pair ran in one worker").toBe(String(threadId));
   // The previous file ran Reanimated in this worker; the reset cleared it.
-  expect(atStart, "the file starts with none of the library's modules run").toBe(0);
+  expect(atStart, "the file starts with none of Reanimated's modules run").toBe(0);
 }

@@ -22,7 +22,7 @@ import { projectContext } from "../src/context.mjs";
 interface LibraryRegistry {
   ids: string[];
   packages: string[];
-  instances(): number;
+  ran(): string[];
 }
 
 const projectRoot = projectContext()?.projectRoot ?? process.cwd();
@@ -40,10 +40,11 @@ const resolutionsSoFar = (): number => memo().hits + memo().misses + memo().stal
 const atStart = {
   modules: new Set(Object.keys(req.cache)),
   resolutions: resolutionsSoFar(),
-  instances: library()?.instances() ?? null,
+  ran: library()?.ran() ?? null,
 };
 
 // The packages the library registry holds, by directory.
+const REANIMATED_FILE = /[\\/]node_modules[\\/]react-native-reanimated[\\/]/;
 const LIBRARY_FILE =
   /[\\/]node_modules[\\/](react-native-reanimated|react-native-worklets|semver|react-native-is-edge-to-edge)[\\/]/;
 
@@ -64,8 +65,13 @@ describe("library registry: per-file cost of Reanimated's own mock", () => {
     expect(registry!.packages).not.toContain("react");
   });
 
-  it("starts the file with none of its modules run", () => {
-    expect(atStart.instances).toBe(0);
+  it("starts the file with only worklets' mock run, which its setup builds", () => {
+    // Worklets' mock sets requestAnimationFrame as it loads, so it is built as the
+    // file is set up (native/setup.mjs); nothing of Reanimated runs until the file
+    // imports it.
+    expect(atStart.ran).not.toBeNull();
+    expect(atStart.ran!.filter((file) => REANIMATED_FILE.test(file))).toEqual([]);
+    expect(atStart.ran!.every((file) => /react-native-worklets/.test(file))).toBe(true);
   });
 
   it("runs Reanimated without loading or resolving its modules through Node", async () => {
@@ -91,8 +97,8 @@ describe("library registry: per-file cost of Reanimated's own mock", () => {
     expect(resolutionsSoFar() - atStart.resolutions).toBeLessThanOrEqual(8);
     // Served from the registry: the modules this file reached ran, and no more than
     // the registry holds.
-    const ran = library()!.instances();
-    expect(ran).toBeGreaterThan(0);
-    expect(ran).toBeLessThanOrEqual(library()!.ids.length);
+    const ran = library()!.ran();
+    expect(ran.filter((file) => REANIMATED_FILE.test(file)).length).toBeGreaterThan(0);
+    expect(ran.length).toBeLessThanOrEqual(library()!.ids.length);
   });
 });

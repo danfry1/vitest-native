@@ -411,6 +411,17 @@ g.__vitest_native_control = {
   },
 };
 
+// A library's own mock whose module body sets up globals of the test environment
+// (worklets' sets requestAnimationFrame) is built now, as a Jest suite installs it in
+// its setup, and after the control above, which tells it this is the native engine.
+// Built later, inside a test that installed fake timers, it would replace the faked
+// requestAnimationFrame while the faked cancelAnimationFrame stays.
+for (const { pkg, mod } of presetDefs) {
+  if (mod[Symbol.for("vitest-native.preset-built-at-setup")] === true) {
+    void g.__vitest_native_preset_mocks[pkg];
+  }
+}
+
 // --- RNTL built-in matchers (toBeOnTheScreen, toBeDisabled, toHaveStyle, …) ---
 // The mock engine's setup registers these; the native engine must too, or
 // `engine:'native'` users have no jest-native/RNTL matchers (and a jest-compat

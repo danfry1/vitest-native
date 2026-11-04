@@ -504,9 +504,9 @@ function emit(files, modules, { library = false } = {}) {
       : `__s[${i}] = ${JSON.stringify(code)};`;
   });
   const reset = `reset: () => { __m.length = 0; }, compiles: () => __compiles`;
-  // How many of its modules have run since the last reset: the library registry's
-  // per-file cost, which the native suite holds to the modules a file touches.
-  const instances = `instances: () => __m.reduce((n, m) => (m === undefined ? n : n + 1), 0)`;
+  // The modules that have run since the last reset: the library registry's per-file
+  // cost, which the native suite holds to the modules a file touches.
+  const ran = `ran: () => __ids.filter((_, i) => __m[i] !== undefined)`;
   if (library) {
     // A library registry is linked to the worker's React Native registry, whose ids
     // and loader it receives, rather than finding it through a global. Linking runs
@@ -518,7 +518,7 @@ function emit(files, modules, { library = false } = {}) {
       `const __rnIdOf = new Map(__rnIds.map((f, i) => [f, i]));`,
       ...prologue,
       ...sources,
-      `return { ids: __ids, load: __r, ${reset}, ${instances}, packages: ${JSON.stringify(packages)} };`,
+      `return { ids: __ids, load: __r, ${reset}, ${ran}, packages: ${JSON.stringify(packages)} };`,
       `};`,
     ].join("\n");
   }
