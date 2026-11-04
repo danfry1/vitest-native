@@ -12,6 +12,7 @@ reactNative({
   transform: [],         // Extra node_modules packages to transform (Flow/TS/JSX), native engine
   hotRuntime: false,     // Per-file isolation (default); 'auto' opts in to the hot runtime
   nativeModules: 'device', // 'device' | 'permissive' — how native module lookups answer, native engine
+  expo: { runtime: 'expo-go' }, // 'expo-go' | 'development-build' — the Expo app tests run as, native engine
   // presets — omitted on purpose: leaving it out auto-detects your installed
   // libraries. Passing an array uses ONLY that array, so `presets: []` means none.
 })
@@ -127,5 +128,18 @@ Hot mode installs a cgroup-aware memory plan by default and requires at least tw
 ```ts
 reactNative({ nativeModules: 'permissive' })
 ```
+
+## `expo`
+
+(Native engine.) The Expo app the tests stand in for.
+
+- `runtime: 'expo-go'` *(default)* — as under jest-expo: `isRunningInExpoGo()` from `expo` is `true`.
+- `runtime: 'development-build'` — a [development build](https://docs.expo.dev/develop/development-builds/introduction/). See [Expo Go or a development build](/guide/expo#expo-go-or-a-development-build) for what changes.
+
+```ts
+reactNative({ expo: { runtime: 'development-build' } })
+```
+
+Setting `expo.runtime` under the mock engine fails with `EXPO_RUNTIME_REQUIRES_NATIVE_ENGINE`, and `'development-build'` with the expo preset turned on fails with `EXPO_RUNTIME_CONFLICTS_WITH_EXPO_PRESET`.
 
 Next: [Third-Party Presets](/guide/presets).

@@ -136,7 +136,7 @@ describe("every message this package throws is attributable", () => {
   //   The unistyles preset's errors — the device runtime's own messages (Unistyles'
   //     C++ throws them as plain Errors), so a test asserting on one, or a suite that
   //     fails, reads as the app would. Same reason as mocks/apis.
-  //   TurboModuleRegistry.getEnforcing for a module the default runtime (Expo Go) lacks —
+  //   TurboModuleRegistry.getEnforcing for a module the Expo runtime makes absent —
   //     React Native's own invariant, name and message, as a device throws it, so code
   //     that catches it (or a test asserting on it) reads as on the device.
   //   jestMockTransform's setup accessor — generated code inside a user's test file,

@@ -275,8 +275,13 @@ function installExpoGlobal(g) {
   // A module the resolver reads as absent is undefined, as on a device, so
   // requireOptionalNativeModule returns null: answering every name let a probing package
   // call into a stub instead (expo-image found expo-observe's ExpoObserve and failed as
-  // it loaded). Without a resolver every name is present.
-  const present = (name) => g.__vitest_native_expo_modules?.present(name) ?? true;
+  // it loaded). Before the resolver exists (a hot worker preloading at boot), the shared
+  // presence check answers with no scan, so every name is present unless the Expo runtime
+  // option says otherwise (native-modules.mjs, modulePresent).
+  const present = (name) =>
+    g.__vitest_native_expo_modules?.present(name) ??
+    g.__vitest_native_module_presence?.present(name, { scanned: true }) ??
+    true;
   const modules = new Proxy(
     {},
     {

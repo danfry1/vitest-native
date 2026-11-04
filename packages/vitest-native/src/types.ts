@@ -436,6 +436,25 @@ export interface VitestNativeOptions {
    * Default: `'device'`.
    */
   nativeModules?: "device" | "permissive";
+
+  /**
+   * `engine: 'native'` only. The Expo app the tests stand in for.
+   *
+   * - `runtime`: `'expo-go'` (the default) or `'development-build'`. In a development
+   *   build the `ExpoGo` native module is absent from every lookup, so `expo`'s
+   *   `isRunningInExpoGo()` is false; `NativeModules.EXDevLauncher` is present exactly
+   *   when expo-dev-launcher is installed (it comes with expo-dev-client); and
+   *   expo-constants reports `executionEnvironment: 'bare'` and `appOwnership: null`.
+   *   A module a test registers with `mockNativeModule()` still wins. The default keeps
+   *   jest-expo's behaviour. `'development-build'` cannot be combined with the expo
+   *   preset, whose expo-constants stand-in models Expo Go.
+   *
+   * Expo reads the runtime when its modules load, so it is one value per Vitest
+   * project; a suite that needs both runtimes runs them as two projects.
+   */
+  expo?: {
+    runtime?: "expo-go" | "development-build";
+  };
 }
 
 export interface ResolvedOptions {

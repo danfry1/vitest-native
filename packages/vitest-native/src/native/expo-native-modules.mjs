@@ -4,13 +4,14 @@
 // The package's JavaScript is the package; only the native module it reaches with
 // requireNativeModule is substituted, in this order:
 //
-//   0. Absent, when the default runtime (Expo Go) lacks it (EXPO_GO_ABSENT_MODULES,
-//      native-modules.mjs), as the React Native boundary answers it. A test's
-//      mockNativeModule() reaches expo-modules-core through TurboModuleRegistry, where it
-//      looks next.
+//   0. The Expo runtime (Expo Go by default, or `expo: { runtime }`, native-modules.mjs)
+//      decides whether the modules it names exist, and the constants it names come before
+//      any layer below. Expo Go has no EXDevLauncher. A test's mockNativeModule() reaches
+//      expo-modules-core through TurboModuleRegistry, where it looks next.
 //   1. Absent, when an installed package only probes for it and nothing installed
 //      defines it (expoAbsentModules): requireOptionalNativeModule returns null, as on a
-//      device. Unless a package mock stands in for it.
+//      device. Unless a package mock stands in for it. Presence is the check the React
+//      Native boundary shares (native-modules.mjs, modulePresent).
 //   2. The package's own mock of its native module (mocks/<Name>.ts, which Expo
 //      generates), as jest-expo serves it. It is the whole module: a member it leaves
 //      out is undefined.
@@ -28,7 +29,7 @@ import {
   expoModuleTableDescribesInstalledSdk,
   expoModuleTableMembers,
 } from "./expo-module-mocks.mjs";
-import { EXPO_GO_ABSENT_MODULES } from "./native-modules.mjs";
+import { modulePresent } from "./native-modules.mjs";
 
 /**
  * @typedef {{ members: Record<string, unknown>, complete: boolean, listsConstants?: boolean }} ExpoNativeModuleSeed
@@ -46,27 +47,38 @@ export function createExpoNativeModuleResolver({ projectRoot, cacheDir, mockFn }
   // Read on the first lookup, cache directory included, so a test file that touches no
   // Expo module pays nothing.
   let absent;
+  const baseSeed = (name) => {
+    const own = expoModuleMock(projectRoot, name, mockFn);
+    if (own) return { members: own, complete: true };
+    const listed = expoModuleTableMembers(projectRoot, name, mockFn);
+    if (!listed) return null;
+    return {
+      members: listed,
+      complete: false,
+      listsConstants: expoModuleTableDescribesInstalledSdk(projectRoot),
+    };
+  };
   return {
     /** Whether the module exists (layers 0 and 1). */
     present(name) {
-      if (EXPO_GO_ABSENT_MODULES.includes(name)) return false;
       absent ??= expoAbsentModules(projectRoot, cacheDir());
-      return !absent.has(name) || expoModuleMockIndex(projectRoot).has(name);
+      return modulePresent(name, {
+        seeded: expoModuleMockIndex(projectRoot).has(name),
+        scanned: !absent.has(name),
+      });
     },
     /**
-     * What a present module starts with (layers 2 and 3), or null for the stub alone.
+     * What a present module starts with (layers 0, 2 and 3), or null for the stub alone.
      * @returns {ExpoNativeModuleSeed | null}
      */
     seed(name) {
-      const own = expoModuleMock(projectRoot, name, mockFn);
-      if (own) return { members: own, complete: true };
-      const listed = expoModuleTableMembers(projectRoot, name, mockFn);
-      if (!listed) return null;
-      return {
-        members: listed,
-        complete: false,
-        listsConstants: expoModuleTableDescribesInstalledSdk(projectRoot),
-      };
+      const constants = globalThis.__vitest_native_module_presence?.expo?.constants;
+      const runtime = constants && Object.hasOwn(constants, name) ? constants[name] : null;
+      const base = baseSeed(name);
+      if (!runtime) return base;
+      return base
+        ? { ...base, members: { ...base.members, ...runtime } }
+        : { members: { ...runtime }, complete: false };
     },
   };
 }

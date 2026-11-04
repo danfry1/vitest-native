@@ -24,6 +24,7 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import { projectContext } from "../context.mjs";
+import { packageDirOf } from "./match.mjs";
 
 /** Where React Native's JavaScript lives, relative to the package root. */
 export const REACT_NATIVE_SOURCE_DIRS = ["Libraries", "src"];
@@ -219,6 +220,163 @@ export function nativeModuleSpecsFor(projectRoot) {
   return scanFor(projectRoot)?.specs ?? {};
 }
 
+// --- The Expo runtime ---
+//
+// The Expo runtime an app runs in, as its native modules show it: Expo Go, or a
+// development build (`reactNative({ expo: { runtime: 'development-build' } })`).
+//
+// Expo's JavaScript tells the two apart only by asking the native side, so the runtime
+// is a handful of native-module facts. Each one below is read from Expo's own source,
+// and tests/expo-runtime-facts.test.ts reads that source again, so an Expo release that
+// changes one fails by name:
+//
+//   - `ExpoGo` is registered only by the Expo Go app. expo's isRunningInExpoGo() is
+//     `requireNativeModule('ExpoGo') != null` (expo/src/environment/ExpoGo.ts), and
+//     expo-asset and @expo/log-box ask the same way. A development build has no such
+//     module, so every lookup finds nothing.
+//   - `EXDevLauncher` is registered by expo-dev-launcher in a debug build (iOS
+//     ios/EXDevLauncher.m `RCT_EXPORT_MODULE()`; Android DevLauncherModule.kt in the
+//     debug source set, `getName() = "EXDevLauncher"`), a legacy bridge module expo reads
+//     as `NativeModules.EXDevLauncher` (expo/src/Expo.fx.tsx). Its only members are the
+//     constants `manifestString` and `manifestURL`, set once an app is loaded from a
+//     manifest. It is seeded without them, so expo-constants keeps its own manifest
+//     (expo-constants/src/Constants.ts reads `manifestString` only when it is set).
+//   - expo-constants' native module reports `executionEnvironment: 'bare'` and no
+//     `appOwnership` outside Expo Go (ios/EXConstantsObjC/EXConstantsService.m and
+//     android/.../ConstantsService.kt), which Constants.ts turns into
+//     `appOwnership: null`. Expo Go replaces that service with its own.
+//
+// Nothing in expo-modules-core differs between the two: it reads no runtime-specific
+// module. The default (no option, or `'expo-go'`) follows jest-expo, and models only
+// what Expo Go lacks (EXPO_GO_ABSENT_MODULES): no `EXDevLauncher`. `ExpoGo` itself is
+// left to the layers below, as before the option.
+/** The native module only the Expo Go app registers. */
+const EXPO_GO_MODULE = "ExpoGo";
+
+// The modules the runtime decides outright: Expo's own, which no React Native JavaScript
+// requests, so the runtime's answer stands even when a scan lists one (runtimeModule).
+const EXPO_RUNTIME_MODULES = new Set([EXPO_GO_MODULE, DEV_LAUNCHER_MODULE]);
+
+/** The values `expo.runtime` accepts. `'expo-go'` is the default, spelled out. */
+export const EXPO_RUNTIMES = Object.freeze(["expo-go", "development-build"]);
+
+/** The package that registers `EXDevLauncher`, and the one apps install to get it. */
+export const DEV_LAUNCHER_PACKAGE = "expo-dev-launcher";
+export const DEV_CLIENT_PACKAGE = "expo-dev-client";
+
+/**
+ * The native-module facts of `runtime`. Expo Go, the default, names only the modules it
+ * lacks (EXPO_GO_ABSENT_MODULES).
+ *
+ * `modules`: whether each named module exists, and for a present one with `members`,
+ * exactly which members it has. `constants`: members an Expo module's seed takes
+ * instead of its default (a member set to undefined is one the module lacks).
+ *
+ * @param {string | undefined} runtime
+ * @param {{ devLauncher: boolean }} installed
+ */
+export function expoRuntimeFacts(runtime, { devLauncher }) {
+  if (runtime !== "development-build") {
+    return {
+      modules: Object.fromEntries(EXPO_GO_ABSENT_MODULES.map((name) => [name, { present: false }])),
+      constants: {},
+    };
+  }
+  return {
+    modules: {
+      [EXPO_GO_MODULE]: { present: false },
+      [DEV_LAUNCHER_MODULE]: devLauncher ? { present: true, members: [] } : { present: false },
+    },
+    constants: {
+      ExponentConstants: { executionEnvironment: "bare", appOwnership: undefined },
+    },
+  };
+}
+
+/**
+ * Whether the project installs expo-dev-launcher: directly, or as expo-dev-client's
+ * dependency, which a strict layout (pnpm) leaves beside expo-dev-client rather than at
+ * the project root. Found as Node finds a package directory (match.mjs, packageDirOf),
+ * so a package whose `exports` leaves out ./package.json is still found.
+ */
+export function devLauncherInstalled(projectRoot) {
+  if (packageDirOf(DEV_LAUNCHER_PACKAGE, projectRoot) !== null) return true;
+  const devClient = packageDirOf(DEV_CLIENT_PACKAGE, projectRoot);
+  return devClient !== null && packageDirOf(DEV_LAUNCHER_PACKAGE, devClient) !== null;
+}
+
+// The boundary's module sources run inside React Native's module scope, where only
+// globals reach them, so the shared check and its settings are published on one global:
+// `present` and `runtime` below, `permissive` (`nativeModules: 'permissive'`) and `expo`
+// (the facts of `expo: { runtime }`, expoRuntimeFacts), which installKnownNativeModules
+// sets from the project context. Created as this module loads: every path that loads the
+// boundary (setup file, hot worker) imports it.
+const presence = (globalThis.__vitest_native_module_presence ??= {
+  permissive: false,
+  // The default runtime until the setup file installs the project's, so a hot worker
+  // preloading at boot already has no EXDevLauncher.
+  expo: expoRuntimeFacts(undefined, { devLauncher: false }),
+});
+
+/**
+ * The Expo runtime's answer for a module (expoRuntimeFacts): `{ present, members? }`, or
+ * undefined when the runtime says nothing about it. A React Native core module (`core`:
+ * one React Native's own JavaScript requests, or one the boundary serves constants for)
+ * is never made absent: React Native's JavaScript cannot run without it. Expo's own
+ * runtime modules (EXPO_RUNTIME_MODULES) are none of those, so the runtime decides them
+ * even when a scan lists one.
+ */
+export function runtimeModule(name, core = false) {
+  const modules = presence.expo?.modules;
+  if (!modules || !Object.hasOwn(modules, name)) return undefined;
+  const answer = modules[name];
+  if (
+    !answer.present &&
+    !EXPO_RUNTIME_MODULES.has(name) &&
+    (core || (globalThis.__vitest_native_known_modules?.has(name) ?? false))
+  ) {
+    return undefined;
+  }
+  return answer;
+}
+
+/**
+ * Whether a native module exists: the one answer both registries give, the React Native
+ * boundary's (`NativeModules`, `TurboModuleRegistry`) and `globalThis.expo.modules`.
+ * Each passes the layers it has; the first that answers decides, most specific first:
+ *
+ *   1. `mocked`: a test registered it with mockNativeModule(). Present.
+ *   2. The Expo runtime (Expo Go by default, or `expo: { runtime }`), for the modules it
+ *      names. Never absent for a React Native core module (`core`). This is why
+ *      `nativeModules: 'permissive'` does not bring back a module Expo Go lacks.
+ *   3. `seeded`: the registry serves the module itself (the boundary's device constants;
+ *      an Expo package's own mock of its native module). Present.
+ *   4. `scanned`: what the scans of installed packages say (React Native's own lookups;
+ *      names Expo packages probe for that nothing installed defines), when they say.
+ *   5. `nativeModules: 'permissive'`: present. Otherwise absent.
+ *
+ * Read at lookup time: the setup file installs the inputs, and mocks change during a test.
+ * expo.modules never passes `mocked`: it does not serve a test's mock, so a mocked Expo
+ * name reaches the mock through TurboModuleRegistry, where expo-modules-core looks next.
+ *
+ * @param {string} name
+ * @param {{ mocked?: boolean, core?: boolean, seeded?: boolean, scanned?: boolean }} layers
+ */
+export function modulePresent(
+  name,
+  { mocked = false, core = false, seeded = false, scanned } = {},
+) {
+  if (mocked) return true;
+  const runtime = runtimeModule(name, core);
+  if (runtime !== undefined) return runtime.present;
+  if (seeded) return true;
+  if (scanned !== undefined) return scanned;
+  return presence.permissive === true;
+}
+
+presence.present = modulePresent;
+presence.runtime = runtimeModule;
+
 /**
  * Publish the known set (globalThis.__vitest_native_known_modules) and each known
  * module's spec members (globalThis.__vitest_native_module_specs) to the boundary.
@@ -228,7 +386,16 @@ export function nativeModuleSpecsFor(projectRoot) {
 export function installKnownNativeModules(projectRoot) {
   const context = projectContext();
   // The plugin's `nativeModules: 'permissive'`, read by the boundary at lookup time.
-  globalThis.__vitest_native_permissive_modules = context?.nativeModules === "permissive";
+  presence.permissive = context?.nativeModules === "permissive";
+  // The plugin's `expo: { runtime }`, read the same way; no field is the default, Expo
+  // Go. The plugin records whether expo-dev-launcher is installed; a setup file run
+  // outside it reads that here.
+  const runtime = context?.expoRuntime;
+  presence.expo = expoRuntimeFacts(runtime, {
+    devLauncher:
+      runtime === "development-build" &&
+      (context.expoDevLauncher ?? devLauncherInstalled(projectRoot)),
+  });
   if (!(globalThis.__vitest_native_known_modules instanceof Set)) {
     const names = context?.knownNativeModules;
     globalThis.__vitest_native_known_modules = new Set(

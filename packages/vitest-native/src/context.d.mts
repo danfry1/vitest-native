@@ -27,6 +27,8 @@ export interface ProjectContextFields {
   knownNativeModules?: string[];
   nativeModuleSpecs?: Record<string, string[]>;
   nativeModules?: "permissive";
+  expoRuntime?: "development-build";
+  expoDevLauncher?: boolean;
 }
 
 export declare function writeProjectContext(

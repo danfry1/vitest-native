@@ -1,4 +1,5 @@
 import { VitestNativeTypeError } from "./errors.mjs";
+import { EXPO_RUNTIMES } from "./native/native-modules.mjs";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -13,7 +14,10 @@ const KNOWN_OPTIONS = [
   "transform",
   "hotRuntime",
   "nativeModules",
+  "expo",
 ];
+const KNOWN_EXPO_OPTIONS = ["runtime"];
+const EXPO_RUNTIME_VALUES: readonly string[] = EXPO_RUNTIMES;
 const KNOWN_HOT_RUNTIME_OPTIONS = [
   "recycleAfterFiles",
   "memoryLimit",
@@ -72,6 +76,25 @@ export function validateOptions(options: Record<string, unknown>): void {
       "INVALID_OPTION",
       `"nativeModules" must be "device" or "permissive".`,
     );
+  }
+  if (options.expo !== undefined) {
+    if (options.expo === null || Array.isArray(options.expo) || typeof options.expo !== "object") {
+      throw new VitestNativeTypeError("INVALID_OPTION", `"expo" must be an options object.`);
+    }
+    const expo = options.expo as Record<string, unknown>;
+    const unknown = Object.keys(expo).filter((key) => !KNOWN_EXPO_OPTIONS.includes(key));
+    if (unknown.length > 0) {
+      throw new VitestNativeTypeError(
+        "UNKNOWN_OPTION",
+        `Unknown expo option "${unknown[0]}". Valid options: ${KNOWN_EXPO_OPTIONS.join(", ")}.`,
+      );
+    }
+    if (expo.runtime !== undefined && !EXPO_RUNTIME_VALUES.includes(expo.runtime as string)) {
+      throw new VitestNativeTypeError(
+        "INVALID_OPTION",
+        `"expo.runtime" must be ${EXPO_RUNTIMES.map((v) => `"${v}"`).join(" or ")}.`,
+      );
+    }
   }
   if (options.diagnostics !== undefined && typeof options.diagnostics !== "boolean") {
     throw new VitestNativeTypeError("INVALID_OPTION", `"diagnostics" must be a boolean.`);

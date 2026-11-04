@@ -52,6 +52,9 @@ const SCHEMA = {
   knownNativeModules: { valid: strings },
   nativeModuleSpecs: { valid: object },
   nativeModules: { valid: (v) => v === "permissive" },
+  // Only a runtime that models something is written; the default ('expo-go') is absent.
+  expoRuntime: { valid: (v) => v === "development-build" },
+  expoDevLauncher: { valid: (v) => typeof v === "boolean" },
 };
 
 function invalid(reason, field, detail, dir) {

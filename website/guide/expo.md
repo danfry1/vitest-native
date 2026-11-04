@@ -139,6 +139,55 @@ The `expo` preset, which replaces `expo-constants`, `expo-status-bar`, `expo-fon
 which has no real React Native to run them on. Under the native engine it applies only when asked
 for with `presets: { expo: true }`, for a suite that relies on its values while it moves off them.
 
+## Expo Go or a development build
+
+By default the native engine runs your tests as Expo Go, as jest-expo does: `isRunningInExpoGo()`
+from `expo` is `true`, and `EXDevLauncher`, which only a development build registers, is absent
+from every lookup, `nativeModules: 'permissive'` included. Code that branches on the runtime, such as a module that is only linked into
+a development build, can run as a development build instead:
+
+```ts
+reactNative({ expo: { runtime: 'development-build' } })
+```
+
+Expo's packages tell the two apart by asking the native side, so the option changes what the
+native modules answer, each as Expo's own source has it in a development build:
+
+- The `ExpoGo` native module is absent wherever a module can be looked up: `expo.modules`,
+  `NativeModules` and `TurboModuleRegistry`. `isRunningInExpoGo()` is `false`,
+  `requireOptionalNativeModule('ExpoGo')` is `null`, and `TurboModuleRegistry.getEnforcing('ExpoGo')`
+  throws React Native's own "could not be found" error.
+- `NativeModules.EXDevLauncher` is present when `expo-dev-launcher` is installed (it comes with
+  `expo-dev-client`), and absent otherwise. It has no manifest loaded, so `manifestString` is
+  `undefined`.
+- `expo-constants` reports `executionEnvironment: 'bare'` and `appOwnership: null`.
+
+A module a test registers with [`mockNativeModule`](/guide/helpers#mocknativemodule-name-impl)
+still comes first: `mockNativeModule('ExpoGo', {...})` makes it present again. React Native's own
+modules are never affected. The `expo` preset (`presets: { expo: true }`) replaces
+`expo-constants` with a stand-in that models Expo Go, so it cannot be combined with
+`'development-build'`: the run fails with `EXPO_RUNTIME_CONFLICTS_WITH_EXPO_PRESET`.
+
+Expo reads the runtime when its modules load, and a worker keeps loaded modules, so the runtime is
+set per Vitest project, not per test. A suite that needs both runs them as two projects:
+
+```ts
+const project = (name: string, runtime: 'expo-go' | 'development-build', include: string[]) => ({
+  root: import.meta.dirname,
+  plugins: [reactNative({ expo: { runtime } })],
+  test: { name, include },
+})
+
+export default defineConfig({
+  test: {
+    projects: [
+      project('expo-go', 'expo-go', ['src/**/*.test.tsx']),
+      project('dev-build', 'development-build', ['dev-build/**/*.test.tsx']),
+    ],
+  },
+})
+```
+
 ## SDK and React Native versions
 
 vitest-native supports Expo SDK 57 and 58, the SDKs CI installs as packed apps. Earlier SDKs are
