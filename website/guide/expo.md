@@ -153,8 +153,9 @@ module that depends on `expo-modules-core` alone. Under the native engine, the t
 the `expo-modules-core` or `expo` a test actually loads and names an unsupported one with its
 version and path. From SDK 55, `expo-modules-core` carries its SDK's number (55.0.x); an older one
 is reported as SDK 54 or older. Each worker reads each copy once and warns once about it, so a run
-with several workers can print the warning once per worker. A copy that is installed but never
-loaded is not reported.
+with several workers can print the warning once per worker. Vitest shows it with the output of
+the test (or file) that loaded the copy, so it appears when that test fails. A copy that is
+installed but never loaded is not reported, nor is an `expo` a package peers only optionally.
 
 Expo SDKs trail React Native. Pin `react-native` to the version your SDK supports rather than the
 newest release.
