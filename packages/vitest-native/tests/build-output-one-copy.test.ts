@@ -178,7 +178,7 @@ describe("the build ships each runtime module once", () => {
   });
 
   it.runIf(distExists)(
-    "compiles through Babel's thread in a plain Node process that loaded the plugin",
+    "compiles through the shipped Babel thread in a plain Node process that loaded the plugin",
     () => {
       // The plugin's process: the root entry, then the shipped transform, as the registry
       // build does in-process. A unique source, so the disk cache cannot answer it.
@@ -208,9 +208,39 @@ describe("the build ships each runtime module once", () => {
         ["--input-type=module", "-e", script, dist, packageRoot],
         { encoding: "utf8", timeout: 30_000 },
       );
-      expect(result.stderr).toBe("");
-      expect(result.stdout.trim()).toBe("compiled");
-      expect(result.status).toBe(0);
+      expect(result.stdout.trim(), result.stderr).toBe("compiled");
+      expect(result.status, result.stderr).toBe(0);
+    },
+    60_000,
+  );
+
+  it.runIf(distExists)(
+    "the built CLI reads the Node range from the installed manifest",
+    () => {
+      // A fixed path relative to the source file points outside the package once bundled,
+      // and the hard-coded fallback equals the real range, so compare against a manifest
+      // whose range only the manifest can supply: a copy of the package beside its own
+      // node_modules, so the bundle's bare imports still resolve.
+      const copy = fs.mkdtempSync(path.join(packageRoot, ".tmp-doctor-range-"));
+      try {
+        fs.cpSync(dist, path.join(copy, "dist"), { recursive: true });
+        const manifest = JSON.parse(
+          fs.readFileSync(path.join(packageRoot, "package.json"), "utf8"),
+        );
+        const range = `${manifest.engines.node} || >=98.7.6`;
+        fs.writeFileSync(
+          path.join(copy, "package.json"),
+          JSON.stringify({ ...manifest, engines: { ...manifest.engines, node: range } }),
+        );
+        const result = spawnSync(process.execPath, [path.join(copy, "dist", "cli.mjs"), "doctor"], {
+          cwd: packageRoot,
+          encoding: "utf8",
+          timeout: 30_000,
+        });
+        expect(`${result.stdout}${result.stderr}`).toContain(range);
+      } finally {
+        fs.rmSync(copy, { recursive: true, force: true });
+      }
     },
     60_000,
   );

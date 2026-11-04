@@ -43,7 +43,8 @@ function referenceVitest(file: string): void {
 // holds one instance of each module, with one set of caches. native/memory.mjs is the
 // exception: it ships only as a chunk. The CommonJS build keeps its copy, because a
 // require() of these ESM files would need require(esm) from every consumer.
-const VERBATIM_RUNTIME = /[\\/]src[\\/](?:native[\\/](?!memory\.mjs$)|jest-compat[\\/])?[^\\/]+\.mjs$/;
+const VERBATIM_RUNTIME =
+  /[\\/]src[\\/](?:native[\\/](?!memory\.mjs$)|jest-compat[\\/])?[^\\/]+\.mjs$/;
 
 export default defineConfig([
   {
