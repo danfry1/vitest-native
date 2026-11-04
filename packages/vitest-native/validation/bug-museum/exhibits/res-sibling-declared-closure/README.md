@@ -2,7 +2,7 @@
 
 - **Class:** transform/resolution
 - **Source:** an Expo workspace whose library declares expo-image and whose app declares expo: "Cannot find module 'expo-asset/build/Asset.fx'" (SDK 58's expo, expo-asset and expo-constants have this shape)
-- **Fixed by:** open (`fix/closure-walk-reached-packages`)
+- **Fixed by:** #388 (merged)
 - **Needs:** nothing beyond this repository's install (`vendor/` holds expo-image's, expo's and expo-asset's shapes)
 
 ## The bug

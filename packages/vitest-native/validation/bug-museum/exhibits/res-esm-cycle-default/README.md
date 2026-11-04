@@ -2,7 +2,7 @@
 
 - **Class:** transform/resolution
 - **Source:** #339 adversarial review (a regression of #339's eager interop)
-- **Fixed by:** open (regression guard for #339)
+- **Fixed by:** #339 (merged; regression guard for its first version)
 - **Needs:** nothing beyond this repository's install
 - **Bug build:** `origin/fix/esm-goal-import-interop` (has the bug; see STATUS.md)
 
