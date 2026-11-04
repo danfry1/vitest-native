@@ -38,9 +38,21 @@ export function safeAreaContext(): Preset {
             insets: state.insets,
           };
 
-          const SafeAreaProvider = React.forwardRef((props: any, ref: any) =>
-            React.createElement("SafeAreaProvider", { ...props, ref }, props.children),
-          );
+          // `initialMetrics` reaches the hooks through context, as in the library's mock.
+          const SafeAreaProvider = React.forwardRef((props: any, ref: any) => {
+            const host = React.createElement("SafeAreaProvider", { ...props, ref }, props.children);
+            const metrics = props.initialMetrics;
+            if (!metrics) return host;
+            return React.createElement(
+              SafeAreaFrameContext.Provider,
+              { value: metrics.frame ?? state.frame },
+              React.createElement(
+                SafeAreaInsetsContext.Provider,
+                { value: metrics.insets ?? state.insets },
+                host,
+              ),
+            );
+          });
           SafeAreaProvider.displayName = "SafeAreaProvider";
 
           const SafeAreaView = React.forwardRef((props: any, ref: any) =>
@@ -60,7 +72,8 @@ export function safeAreaContext(): Preset {
           // own SafeAreaInsetsContext.Provider value wins, and the default is the
           // state setInsets() updates.
           function useSafeAreaInsets(options?: { cornerAdaptation?: "vertical" | "horizontal" }) {
-            const insets = React.useContext(SafeAreaInsetsContext);
+            // A provider given `null` falls back, as the library's mock does.
+            const insets = React.useContext(SafeAreaInsetsContext) ?? state.insets;
             const corner = React.useContext(SafeAreaCornerAdaptedInsetsContext) as Record<
               string,
               typeof insets
@@ -70,7 +83,7 @@ export function safeAreaContext(): Preset {
           }
 
           function useSafeAreaFrame() {
-            return React.useContext(SafeAreaFrameContext);
+            return React.useContext(SafeAreaFrameContext) ?? state.frame;
           }
 
           function withSafeAreaInsets(WrappedComponent: any) {

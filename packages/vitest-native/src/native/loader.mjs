@@ -18,6 +18,7 @@ import {
   NODE_MODULES_PATH,
   isUtilitySubpath,
   packageNameOf,
+  isPackageEntryFile,
   presetPackageOfFile,
   requestForPackageFile,
   subpathLeafOf,
@@ -289,6 +290,18 @@ function resolveRecover(err, specifier, parent) {
 }
 
 function resolveAfter(resolved, context) {
+  // A subpath that resolved to a preset package's own entry (`pkg/src`) is the package,
+  // and gets the root mock, as by name (isPackageEntryFile).
+  if (resolved.url.startsWith("file:")) {
+    const file = fileURLToPath(resolved.url);
+    const parent = context.parentURL?.startsWith("file:") ? fileURLToPath(context.parentURL) : null;
+    const hit = presetPackageOfFile(file, parent, (pkg) =>
+      Object.prototype.hasOwnProperty.call(presetExports, pkg),
+    );
+    if (hit && isPackageEntryFile(hit.pkg, file, parent)) {
+      return { url: PRESET_SCHEME + hit.pkg, shortCircuit: true };
+    }
+  }
   // JSON imports without an explicit `with { type: 'json' }` attribute throw
   // ERR_IMPORT_ATTRIBUTE_MISSING on Node 22+. RN ecosystem packages do
   // `import pkg from './package.json'` unconditionally (e.g. @react-navigation).

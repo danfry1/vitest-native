@@ -28,6 +28,7 @@ import { detectEcosystemPackages } from "./native/ecosystem.js";
 import {
   containsPath,
   dependencyDirOf,
+  isPackageEntryFile,
   memoizePackageDirOf,
   packageDirOf,
 } from "./native/match.mjs";
@@ -1780,11 +1781,20 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     // leaf (pkg/Swipeable); any other loads its real file, as `jest.mock(pkg)` leaves
     // subpaths alone under Jest (native/loader.mjs, shadowsSubpath). The mock engine
     // has no real package to load, so it keeps serving the mock.
-    if (engine === "native") {
-      const leaf = subpathLeafOf(source);
-      if (leaf === null || !(presetExportNames.get(pkg) ?? []).includes(leaf)) return undefined;
-    }
+    if (engine === "native" && unexportedPresetSubpath(source) !== null) return undefined;
     return `\0virtual:preset:${source}`;
+  };
+  // Native engine: the preset package of a subpath whose leaf its mock does not export,
+  // or null. Such a subpath is the package itself only when it resolves to the package's
+  // entry (pkg/src); resolveId decides that once Vite has resolved it.
+  const unexportedPresetSubpath = (source: string): string | null => {
+    const pkg = packageNameOf(source);
+    if (pkg === source || !presetModules.has(pkg) || presetModules.has(source)) return null;
+    if (source.endsWith(".json") || assetPattern?.test(source) || isUtilitySubpath(source)) {
+      return null;
+    }
+    const leaf = subpathLeafOf(source);
+    return leaf !== null && (presetExportNames.get(pkg) ?? []).includes(leaf) ? null : pkg;
   };
 
   const pluginDefinition = {
@@ -2554,7 +2564,18 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         }
         const presetHit = resolvePresetId(source);
         if (presetHit) return presetHit;
-        return resolveExtensionless(source, importer) ?? alignedResolution(source, importer);
+        const resolveReal = () =>
+          resolveExtensionless(source, importer) ?? alignedResolution(source, importer);
+        const entryOf = assetPattern ? unexportedPresetSubpath(source) : null;
+        if (entryOf === null) return resolveReal();
+        // A subpath that resolves to the package's own entry (pkg/src) is the package,
+        // and gets the root mock on every route (isPackageEntryFile).
+        return this.resolve(source, importer, { skipSelf: true }).then((hit) =>
+          hit &&
+          isPackageEntryFile(entryOf, stripFsPrefix(hit.id.split("?")[0]), importer?.split("?")[0])
+            ? `\0virtual:preset:${entryOf}`
+            : resolveReal(),
+        );
       }
 
       // Redirect react-native root import to a virtual module.

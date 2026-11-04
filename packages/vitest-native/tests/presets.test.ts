@@ -828,6 +828,20 @@ describe("preset: safeAreaContext", () => {
     expect(result.current).toBe(vertical);
   });
 
+  it("SafeAreaProvider's initialMetrics reach the hooks; a null provider value falls back", async () => {
+    const insets = { top: 5, right: 6, bottom: 7, left: 8 };
+    const frame = { x: 0, y: 0, width: 100, height: 200 };
+    const withMetrics = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(mock.SafeAreaProvider, { initialMetrics: { insets, frame } }, children);
+    expect(await insetsNow(withMetrics)).toEqual(insets);
+    expect(
+      (await renderHook(() => mock.useSafeAreaFrame(), { wrapper: withMetrics })).result.current,
+    ).toEqual(frame);
+    const nullValue = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(mock.SafeAreaInsetsContext.Provider, { value: null }, children);
+    expect((await insetsNow(nullValue)).top).toBe(47);
+  });
+
   it("useSafeAreaInsets reads a SafeAreaInsetsContext.Provider, as the library's does", async () => {
     const value = { top: 1, right: 2, bottom: 3, left: 4 };
     const wrapper = ({ children }: { children: React.ReactNode }) =>

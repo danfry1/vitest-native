@@ -80,6 +80,15 @@ describe("preset subpath imports under the native engine", () => {
     expect((mod as Record<string, unknown>).useSharedValue).toBeUndefined();
   });
 
+  it("a subpath that resolves to the package's entry is the root mock, by require or import", async () => {
+    const root = require("react-native-safe-area-context");
+    const required = require("react-native-safe-area-context/src");
+    expect(required.SafeAreaView).toBe(root.SafeAreaView);
+    expect(typeof required._setInsets).toBe("function");
+    const imported = await import("react-native-safe-area-context/src");
+    expect(imported.SafeAreaView).toBe(root.SafeAreaView);
+  });
+
   it("package.json subpath reads the real manifest", () => {
     const pkg = require("react-native-gesture-handler/package.json");
     expect(pkg.name).toBe("react-native-gesture-handler");

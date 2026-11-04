@@ -11,7 +11,13 @@ import {
   resolveRelativePlatformFile,
   resolveDeepPackageFile,
 } from "./resolve.mjs";
-import { NODE_MODULES_PATH, isUtilitySubpath, packageNameOf, subpathLeafOf } from "./match.mjs";
+import {
+  NODE_MODULES_PATH,
+  isUtilitySubpath,
+  packageNameOf,
+  isPackageEntryFile,
+  subpathLeafOf,
+} from "./match.mjs";
 import {
   createNativeOwnershipPolicy,
   findNativeOwnershipConflict,
@@ -285,14 +291,25 @@ export function installRequireHooks(
   // keying by the container would serve file 1's mocks to every later file in
   // the worker.
   const subpathMemo = new WeakMap();
-  function mockExportsLeaf(mock, request) {
+  // Whether the preset's declared names include `request`'s leaf: the list the ESM
+  // loader and the plugin decide on (shadowsSubpath in loader.mjs), so every route
+  // agrees whatever else the mock object carries.
+  function presetExportsLeaf(pkg, request) {
     const leaf = subpathLeafOf(request);
-    return (
-      leaf !== null &&
-      mock !== null &&
-      (typeof mock === "object" || typeof mock === "function") &&
-      Object.prototype.hasOwnProperty.call(mock, leaf)
-    );
+    const names = projectContext()?.presetExports?.[pkg];
+    return leaf !== null && Array.isArray(names) && names.includes(leaf);
+  }
+  // Whether `request` resolves to the package's own entry (pkg/lib/commonjs/index,
+  // pkg/src): that is the package itself, and gets the root mock, as the ESM loader's
+  // route by resolved file decides (presetRequestForFile in loader.mjs).
+  function isPackageEntry(pkg, request, parent) {
+    let file;
+    try {
+      file = Module._resolveFilename(request, parent, false);
+    } catch {
+      return false;
+    }
+    return isPackageEntryFile(pkg, file, parent?.filename);
   }
   function presetSubpathExports(mocks, pkg, request) {
     const mock = mocks[pkg];
@@ -318,7 +335,7 @@ export function installRequireHooks(
   // file from CommonJS that the ESM loader compiled (loader.mjs serves those through
   // globalThis.__vitest_native_preset_require), so the two cannot disagree.
   const NO_PRESET = Symbol("no preset");
-  function presetExportsFor(request) {
+  function presetExportsFor(request, parent) {
     const mocks = globalThis.__vitest_native_preset_mocks;
     if (!mocks) return NO_PRESET;
     if (Object.prototype.hasOwnProperty.call(mocks, request)) return mocks[request];
@@ -333,12 +350,9 @@ export function installRequireHooks(
       const pkg = packageNameOf(request);
       // Only a subpath whose leaf the mock exports is the mock's (loader.mjs,
       // shadowsSubpath); any other is the real file, as under Jest's jest.mock(pkg).
-      if (
-        pkg !== request &&
-        Object.prototype.hasOwnProperty.call(mocks, pkg) &&
-        mockExportsLeaf(mocks[pkg], request)
-      ) {
-        return presetSubpathExports(mocks, pkg, request);
+      if (pkg !== request && Object.prototype.hasOwnProperty.call(mocks, pkg)) {
+        if (presetExportsLeaf(pkg, request)) return presetSubpathExports(mocks, pkg, request);
+        if (parent !== undefined && isPackageEntry(pkg, request, parent)) return mocks[pkg];
       }
     }
     return NO_PRESET;
@@ -350,7 +364,7 @@ export function installRequireHooks(
 
   const origLoad = Module._load;
   Module._load = function (request, parent, ...rest) {
-    const shadowed = presetExportsFor(request);
+    const shadowed = presetExportsFor(request, parent ?? null);
     if (shadowed !== NO_PRESET) return shadowed;
     const exports = origLoad.call(this, request, parent, ...rest);
     // Every require of RNTL's main entry, cached or not, tells the setup file's
