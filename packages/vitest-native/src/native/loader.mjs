@@ -292,7 +292,9 @@ function resolveRecover(err, specifier, parent) {
 function resolveAfter(resolved, context) {
   // A subpath that resolved to a preset package's own entry (`pkg/src`) is the package,
   // and gets the root mock, as by name (isPackageEntryFile).
-  if (resolved.url.startsWith("file:")) {
+  // Only a file inside node_modules can be a preset package's: checked on the URL first,
+  // so every other resolution pays no path conversion.
+  if (resolved.url.startsWith("file:") && resolved.url.includes("/node_modules/")) {
     const file = fileURLToPath(resolved.url);
     const parent = context.parentURL?.startsWith("file:") ? fileURLToPath(context.parentURL) : null;
     const hit = presetPackageOfFile(file, parent, (pkg) =>
