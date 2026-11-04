@@ -161,7 +161,7 @@ export function checkLoadedExpoSdk(norm, sdks) {
   const sdk =
     name === "expo-modules-core" && major < 55 ? "Expo SDK 54 or older" : `Expo SDK ${major}`;
   console.warn(
-    `[vitest-native] ${name} ${version} (${dir}) is from ${sdk}; vitest-native supports ` +
+    `[vitest-native] ${name} ${version} (${path.normalize(dir)}) is from ${sdk}; vitest-native supports ` +
       `Expo SDK ${list}. ` +
       (major > maximum
         ? "Check for a newer vitest-native."

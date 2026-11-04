@@ -64,7 +64,7 @@ describe("loading expo-modules-core or expo", () => {
     checkLoadedExpoSdk(fileOf(root, "expo-modules-core"), SDKS);
     checkLoadedExpoSdk(fileOf(root, "expo-modules-core", "build/Platform.js"), SDKS);
     expect(warned()).toEqual([
-      `[vitest-native] expo-modules-core 3.0.29 (${root}/node_modules/expo-modules-core) is ` +
+      `[vitest-native] expo-modules-core 3.0.29 (${path.join(root, "node_modules", "expo-modules-core")}) is ` +
         "from Expo SDK 54 or older; vitest-native supports Expo SDK 57 and 58. Tests that load " +
         "it can fail: upgrade to a supported Expo SDK.",
     ]);
