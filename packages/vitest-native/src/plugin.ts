@@ -11,7 +11,9 @@ import { createRequire } from "node:module";
 import flowRemoveTypes from "flow-remove-types";
 import { validateOptions, validatePeerDependency, warnUnknownOptions } from "./validate.js";
 import {
+  EXPO_SDK_PACKAGES,
   installedExpoSdk,
+  installedExpoVersion,
   PEER_REQUIREMENTS,
   unsupportedExpoSdkMessage,
 } from "./peer-requirements.js";
@@ -24,7 +26,7 @@ import { fsModuleCacheKey, shouldDefaultFsModuleCache } from "./fs-module-cache.
 import { knownNativeModulesFor, nativeModuleSpecsFor } from "./native/native-modules.mjs";
 import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
-import { detectEcosystemPackages } from "./native/ecosystem.js";
+import { detectEcosystemPackages, type ReachedCopy } from "./native/ecosystem.js";
 import {
   containsPath,
   dependencyDirOf,
@@ -1592,10 +1594,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // One project-scoped owner/transform/reset policy. Config, the Vite fallback
   // transform, runtime serialization and diagnostics all consume this same object.
   let nativeOwnership: NativeOwnershipPolicy | null = null;
-  // The installed version of each package the native engine's detection reached, set in
-  // config(). The Expo SDK check in configResolved reads `expo` and `expo-modules-core`
-  // from it rather than resolving them again (installedExpoSdk).
-  let reachedVersions: Map<string, string> | undefined;
+  // The Expo SDK check's inputs, gathered in config() under the native engine: the `expo`
+  // that resolves from the root, and, only where none does, the copies of `expo` and
+  // `expo-modules-core` detection reaches. configResolved reads them rather than resolving
+  // anything again (installedExpoSdk).
+  let expoAtRoot: { root: string; version: string | null } | undefined;
+  let reachedExpoCopies: ReachedCopy[] | undefined;
   const assertInlineOwnership = (inline: unknown) => {
     if (engine !== "native" || !nativeOwnership) return;
     const conflicts = findNativeInlineConflicts(nativeOwnership, inline);
@@ -2037,6 +2041,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // Workspace source the project imports through aliases (resolve.alias, and
         // tsconfig `paths` where Vite resolves them): a workspace member reached that way
         // has its dependencies walked like a declared one's.
+        expoAtRoot = { root: resolvedRoot, version: installedExpoVersion(resolvedRoot) };
+        reachedExpoCopies = expoAtRoot.version ? undefined : [];
         const ecosystem = detectEcosystemPackages(
           [resolvedRoot, ...includeRoots],
           transformPkgs,
@@ -2045,7 +2051,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           nativePresetNames,
           memoizePackageDirOf(dependencyDirOf),
           {
-            reachedVersions: (reachedVersions = new Map()),
+            reachedCopies: reachedExpoCopies && {
+              of: EXPO_SDK_PACKAGES,
+              found: reachedExpoCopies,
+            },
             reachedPaths: requireAliases.entries
               .map(([, target]) => target)
               .filter((target) => path.isAbsolute(target)),
@@ -2455,11 +2464,14 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
 
       // An Expo SDK outside the supported range: a warning, as for the optional peers.
       // Failing the run would stop the tests that pass on it too. Once per process: every
-      // project of a run, and the root config, resolve their config here. Where `expo` does
-      // not resolve from the root, the packages the native engine's detection reached say
-      // which SDK the run loads; under the mock engine nothing is detected, so only the
-      // root is read.
-      const expoInstall = installedExpoSdk(config.root, reachedVersions);
+      // project of a run, and the root config, resolve their config here. Under the native
+      // engine, where `expo` does not resolve from the root, the copies detection reached
+      // say which SDK the run loads; under the mock engine only the root is read.
+      const expoRoot = path.resolve(config.root);
+      const expoInstall = installedExpoSdk(
+        expoAtRoot?.root === expoRoot ? expoAtRoot.version : installedExpoVersion(expoRoot),
+        reachedExpoCopies,
+      );
       const expoProblem = expoInstall && unsupportedExpoSdkMessage(expoInstall);
       if (expoProblem && !warnedExpoProblems.has(expoProblem)) {
         warnedExpoProblems.add(expoProblem);

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import type { ReachedCopy } from "./native/ecosystem.js";
 
 /**
  * The supported peer-dependency ranges — single source consumed by the plugin's
@@ -131,42 +132,52 @@ export function installedExpoVersion(root: string): string | null {
   return null;
 }
 
+/** The packages that say which Expo SDK is loaded: `expo`, and `expo-modules-core`, which every Expo module loads. */
+export const EXPO_SDK_PACKAGES = ["expo", "expo-modules-core"] as const;
+
 /**
- * Which package says what Expo SDK a project is on: `expo`, or where none resolves,
- * `expo-modules-core`, which every Expo module loads. Its major is the SDK's for the
- * supported SDKs (tests/expo-sdk-support.test.ts reads that from the installed expo's
- * `bundledNativeModules.json`); earlier SDKs numbered it on a scale of its own, so a lower
- * major reads only as an older SDK.
+ * The first Expo SDK whose expo-modules-core carries the SDK's number as its major
+ * (expo-modules-core 55.0.x). Before it the package had a numbering of its own (SDK 54
+ * shipped 3.0.x, SDK 51 1.12.x), so a lower major says only that the SDK is older than
+ * this one. tests/expo-sdk-support.test.ts checks the rule against every expo installed.
  */
+export const FIRST_SDK_NUMBERED_MODULES_CORE = 55;
+
+/** Which package says what Expo SDK a project is on, and what reached it. */
 export interface ExpoInstall {
-  package: "expo" | "expo-modules-core";
+  package: (typeof EXPO_SDK_PACKAGES)[number];
   version: string;
+  /** The package it was reached through, or null where the project resolves it. */
+  via: string | null;
 }
 
 /**
- * The Expo the project uses, or null: `installedExpoVersion` of the first of `roots` with
- * one, else `expo`, then `expo-modules-core`, from `reached`: the versions the native
- * engine's detection recorded (detectEcosystemPackages' `reachedVersions`), so the
- * fallback costs no resolution or file read.
+ * The Expo the project uses, or null. `rootVersion` is `installedExpoVersion` of the
+ * project; where it is null, `reached` are the copies of EXPO_SDK_PACKAGES the native
+ * engine's detection reached (detectEcosystemPackages' `reachedCopies`), read without a
+ * lookup of their own. Of those, the `expo` copies, or failing any, the expo-modules-core
+ * copies: an unsupported copy is returned if there is one, since it is loaded and at risk,
+ * and a supported copy otherwise, which is never warned about.
  */
 export function installedExpoSdk(
-  roots: string | readonly string[],
-  reached?: ReadonlyMap<string, string>,
+  rootVersion: string | null,
+  reached: readonly ReachedCopy[] = [],
 ): ExpoInstall | null {
-  for (const root of typeof roots === "string" ? [roots] : roots) {
-    const version = installedExpoVersion(root);
-    if (version) return { package: "expo", version };
-  }
-  for (const name of ["expo", "expo-modules-core"] as const) {
-    const version = reached?.get(name);
-    if (version) return { package: name, version };
+  if (rootVersion) return { package: "expo", version: rootVersion, via: null };
+  for (const name of EXPO_SDK_PACKAGES) {
+    const copies = reached
+      .filter((copy) => copy.name === name)
+      .map(({ version, via }): ExpoInstall => ({ package: name, version, via }));
+    if (copies.length > 0) {
+      return copies.find((copy) => unsupportedExpoSdkMessage(copy) !== null) ?? copies[0];
+    }
   }
   return null;
 }
 
 /** What `installedExpoSdk` found, as the plugin's and doctor's messages name it. */
-export function describeExpoInstall({ package: name, version }: ExpoInstall): string {
-  return `${name} ${version}`;
+export function describeExpoInstall({ package: name, version, via }: ExpoInstall): string {
+  return `${name} ${version}${via ? `, reached through ${via}` : ""}`;
 }
 
 /**
@@ -184,16 +195,15 @@ export function unsupportedExpoSdkMessage(install: ExpoInstall): string | null {
   const upgrade =
     `Upgrade to Expo SDK ${expoSdkList("or")}; on an older SDK, tests that load Expo ` +
     `modules can fail.`;
-  if (major > maximum) {
+  const found = describeExpoInstall(install);
+  if (install.package === "expo-modules-core" && major < FIRST_SDK_NUMBERED_MODULES_CORE) {
     return (
-      `Expo SDK ${major} (${describeExpoInstall(install)}) is newer than this release supports: ` +
-      `${supported}. Check for a newer vitest-native.`
+      `${found}${install.via ? "," : ""} is from an Expo SDK older than ${FIRST_SDK_NUMBERED_MODULES_CORE}, which is ` +
+      `not supported: ${supported}. ${upgrade}`
     );
   }
-  // An expo-modules-core major below the supported range does not name its SDK (see
-  // ExpoInstall); it is older than the supported ones either way.
-  return install.package === "expo"
-    ? `Expo SDK ${major} (${describeExpoInstall(install)}) is not supported: ${supported}. ${upgrade}`
-    : `${describeExpoInstall(install)} is from an Expo SDK older than ${minimum}, which is not ` +
-        `supported: ${supported}. ${upgrade}`;
+  return major > maximum
+    ? `Expo SDK ${major} (${found}) is newer than this release supports: ${supported}. ` +
+        `Check for a newer vitest-native.`
+    : `Expo SDK ${major} (${found}) is not supported: ${supported}. ${upgrade}`;
 }

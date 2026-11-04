@@ -9,7 +9,7 @@ import path from "node:path";
 import { validatePeerDependency } from "../validate.js";
 import { detectEngine } from "../native/detect.js";
 import { resolveTransformPreset } from "../native/babel-preset.mjs";
-import { detectEcosystemPackages } from "../native/ecosystem.js";
+import { detectEcosystemPackages, type ReachedCopy } from "../native/ecosystem.js";
 import {
   createNativeOwnershipPolicy,
   formatNativeOwnershipManifest,
@@ -26,7 +26,9 @@ import {
 } from "./manifest.js";
 import {
   describeExpoInstall,
+  EXPO_SDK_PACKAGES,
   installedExpoSdk,
+  installedExpoVersion,
   PEER_REQUIREMENTS,
   unsupportedExpoSdkMessage,
 } from "../peer-requirements.js";
@@ -461,8 +463,12 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   // thing this cannot know. A real run with `diagnostics: true` prints the resolved
   // manifest after transform include/exclude, test.include roots and inline
   // overrides have all been applied.
-  // Filled by detection under the native engine; the Expo section below reads it.
-  const reachedVersions = new Map<string, string>();
+  // The Expo section below reads the `expo` that resolves from where doctor runs, then
+  // from the config's directory, as the plugin does; only where neither resolves one,
+  // the copies of `expo` and `expo-modules-core` detection reaches under the native engine.
+  const expoAtRoot =
+    installedExpoVersion(root) ?? (configRoot === root ? null : installedExpoVersion(configRoot));
+  const reachedExpoCopies: ReachedCopy[] = [];
   if (decision.engine === "native") {
     const inferredRoot = configRoot;
     // With the presets the plugin would enable: without that set, detection treats
@@ -474,7 +480,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
       [],
       activePresets(root, [], decision.engine),
       undefined,
-      { reachedVersions },
+      expoAtRoot ? {} : { reachedCopies: { of: EXPO_SDK_PACKAGES, found: reachedExpoCopies } },
     );
     const inferredOwnership = createNativeOwnershipPolicy({
       projectRoot: inferredRoot,
@@ -592,10 +598,8 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   else if (!installedAny) lines.push("  (none — no preset-covered packages installed)");
 
   // --- Expo ---
-  // Found as the plugin finds it (peer-requirements.ts), from where doctor runs, then from
-  // the config's directory, then, under the native engine, among the packages detection
-  // reached above.
-  const expoInstall = installedExpoSdk([...new Set([root, configRoot])], reachedVersions);
+  // Found as the plugin finds it (peer-requirements.ts); see where expoAtRoot is read.
+  const expoInstall = installedExpoSdk(expoAtRoot, reachedExpoCopies);
   const expo = expoInstall && describeExpoInstall(expoInstall);
   // The plugin warns at startup with the same message; a warning here too, never blocking,
   // and in place of the description below, which an unsupported SDK does not earn.
