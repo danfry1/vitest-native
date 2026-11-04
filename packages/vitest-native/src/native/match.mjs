@@ -203,6 +203,20 @@ export function packageNameOf(specifier) {
   return specifier.split("/")[0];
 }
 
+/**
+ * The package `file` belongs to: the one after its last `node_modules/`, so a package
+ * nested inside another's node_modules is its own. Null outside node_modules.
+ */
+export function owningPackageOfFile(file) {
+  const norm = toPosix(file);
+  const marker = "/node_modules/";
+  const at = norm.lastIndexOf(marker);
+  if (at === -1) return null;
+  const rest = norm.slice(at + marker.length);
+  const pkg = packageNameOf(rest);
+  return pkg === rest ? null : pkg;
+}
+
 // The leaf module name a subpath import points at ("pkg/lib/Swipeable" or
 // "pkg/Swipeable.ios.js" → "Swipeable"), used to pick the matching export off a
 // preset/RN mock. Returns null when there is no usable leaf (trailing slash).

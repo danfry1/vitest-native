@@ -363,6 +363,22 @@ export interface VitestNativeOptions {
   transform?: string[] | { include?: string[]; exclude?: string[] };
 
   /**
+   * Behaviour changes that are not the default yet. Each is decided (made the default,
+   * or removed) by the date in `src/flags.ts`.
+   */
+  experimental?: {
+    /**
+     * `engine: 'native'` only. A `vi.mock` applies to the modules Node loads too, as a
+     * `jest.mock` factory does under Jest: an installed package's own `require` or
+     * `import` of the mocked module gets the mock (#322). A mock Node cannot be served
+     * synchronously (an async factory that has not run, or an automock the test has not
+     * imported yet) fails by name, `MOCK_NOT_SEEN_BY_NODE`, instead of loading the real
+     * module. Default: `false`.
+     */
+    nodeMocks?: boolean;
+  };
+
+  /**
    * `engine: 'native'` only. Built on Vitest's experimental custom-pool API.
    * Run tests in persistent
    * RN-hot workers: React Native's module graph loads once per worker and

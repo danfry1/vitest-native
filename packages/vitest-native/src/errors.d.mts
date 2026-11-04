@@ -44,6 +44,7 @@ export type VitestNativeErrorCode =
   | "JEST_COMPAT_SETUP_MISSING"
   | "BABEL_IGNORES_FILE"
   | "UNKNOWN_DISPATCH_STEP"
+  | "MOCK_NOT_SEEN_BY_NODE"
   | "MATCHER_BAD_RECEIVER";
 
 export interface VitestNativeErrorOptions {
