@@ -3,5 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "main": "lib/index.js",
-  "react-native": "src/index.js"
+  "react-native": "src/index.js",
+  "peerDependencies": {
+    "react-native": "*"
+  }
 }

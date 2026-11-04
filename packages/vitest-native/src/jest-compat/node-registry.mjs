@@ -14,11 +14,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expandAlias } from "./aliases.mjs";
-import { resolvePlatformFile, resolveRelativePlatformFile } from "../native/resolve.mjs";
+import {
+  isWholePackageRequest,
+  resolvePackageMainField,
+  resolvePlatformFile,
+  resolveRelativePlatformFile,
+} from "../native/resolve.mjs";
 import { resetEvaluatedModules, restoreEvaluatedModules } from "../native/module-reset.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import { projectContext } from "../context.mjs";
-import { owningPackageOfFile, packageNameOf } from "../native/match.mjs";
 
 const STATE = "__vitest_native_jest_registry";
 /** The manifest id under which the hot runtime clears the registry per file. */
@@ -552,18 +556,25 @@ function requireFacade(ns) {
 }
 
 /**
- * Whether a mock registered for a whole package (`jest.mock('react-native-reanimated',
- * …)`) is being reached by the package's own relative import of its entry. The engine
- * resolves a package as Metro does, through its `react-native` field, so the package's
- * entry and the file its own mock imports (`./index`) are one file. Under Jest they are
- * not: it resolves the package through `main` (lib/module/index.js), so the factory
- * `() => require('react-native-reanimated/mock')` loads the real `src/index` unmocked.
- * Serving the mock there would be the factory requiring itself.
+ * Whether a relative require that landed on `filename`, mocked for a whole package
+ * (`jest.mock('react-native-reanimated', …)`), is the package reaching its own entry as
+ * Metro resolves it: its `react-native` field. The engine registers the mock for that
+ * file; Jest registers it for `main`, so under Jest such a require gets the real module
+ * (`react-native-reanimated/mock` imports `./index`, which the factory would otherwise
+ * require itself through). A package whose mocked file is its `main` gets the mock, as
+ * under Jest.
  */
-function isPackageOwnRelativeLoad(entry, request, parent) {
-  if (!request.startsWith(".") || typeof parent?.filename !== "string") return false;
-  if (typeof entry.spec !== "string" || packageNameOf(entry.spec) !== entry.spec) return false;
-  return owningPackageOfFile(parent.filename) === entry.spec;
+function isPackageOwnRelativeLoad(entry, request, filename, parentFile) {
+  if (typeof request !== "string" || !request.startsWith(".")) return false;
+  if (typeof entry.spec !== "string" || !isWholePackageRequest(entry.spec)) return false;
+  if (typeof parentFile !== "string" || typeof filename !== "string") return false;
+  const rnEntry = resolvePackageMainField(
+    entry.spec,
+    path.dirname(parentFile),
+    config.platform,
+    sourceExts.length > 0 ? sourceExts : undefined,
+  );
+  return rnEntry !== null && canonical(rnEntry) === canonical(filename);
 }
 
 function installLoadHook(state) {
@@ -593,7 +604,10 @@ function installLoadHook(state) {
     }
     const filename = state.resolve(request, parent);
     const entry = state.lookup(filename, request);
-    if (entry !== undefined && !isPackageOwnRelativeLoad(entry, request, parent)) {
+    if (
+      entry !== undefined &&
+      !isPackageOwnRelativeLoad(entry, request, filename, parent?.filename)
+    ) {
       return state.valueOf(entry);
     }
     // A module Node already holds stays the one `require` returns: switching a later
@@ -621,16 +635,11 @@ function installLoadHook(state) {
   });
   /**
    * `request` and `parentFile`, when the registry has them, are the require as written
-   * and the file it is in: a package's own relative import of its entry is not served the
-   * package's mock (isPackageOwnRelativeLoad), as through Node's loader.
+   * and the file it is in, for isPackageOwnRelativeLoad, as through Node's loader.
    */
   function nodeMockForRegistry(filename, request, parentFile) {
     const entry = state.lookup(canonical(filename), filename);
-    if (entry === undefined) return NONE;
-    if (
-      typeof request === "string" &&
-      isPackageOwnRelativeLoad(entry, request, { filename: parentFile })
-    ) {
+    if (entry === undefined || isPackageOwnRelativeLoad(entry, request, filename, parentFile)) {
       return NONE;
     }
     return state.valueOf(entry);

@@ -211,6 +211,8 @@
     "vite": "^8.3.5",
     "vitest": "5.0.5",
     "vn-lib-own-mock": "file:./tests-native/fixtures/vn-lib-own-mock",
+    "vn-lib-plain-mock": "file:./tests-native/fixtures/vn-lib-plain-mock",
+    "vn-lib-plain-two-entries": "file:./tests-native/fixtures/vn-lib-plain-two-entries",
     "vn-lib-two-entries": "file:./tests-native/fixtures/vn-lib-two-entries"
   },
   "peerDependencies": {

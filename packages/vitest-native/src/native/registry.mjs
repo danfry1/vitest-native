@@ -48,6 +48,8 @@ import {
   resolveRelativePlatformFile,
   resolveRelativeWithExtensions,
   resolveDeepPackageFile,
+  resolvePackageMainField,
+  isWholePackageRequest,
 } from "./resolve.mjs";
 import { createNativeOwnershipPolicy } from "./ownership.mjs";
 import { owningPackageOfFile, packageNameOf } from "./match.mjs";
@@ -116,7 +118,7 @@ export function _resetRegistryFailureReports() {
 // 5: the registry's internal require consults jest-compat's Node-side mocks.
 // 6: each module keeps its own strictness, and runs with `this` = module.exports.
 // 7: modules are stored as source and compiled per module under their own file name.
-const REGISTRY_FORMAT_VERSION = 8;
+const REGISTRY_FORMAT_VERSION = 9;
 
 /**
  * Literal `require('…')` / `require("…")` calls. The leading class excludes
@@ -196,6 +198,12 @@ function resolveTarget(request, fromFile, { projectRoot, platform, sourceExts })
       ? resolveRelativeWithExtensions(request, fromFile, narrowed)
       : resolveRelativePlatformFile(request, fromFile, platform, sourceExts);
     if (hit) return hit;
+  }
+  // A whole package through its `react-native` field, as the require hooks resolve it at
+  // run time (hooks.mjs), so the registry's module and Node's are one file.
+  if (isWholePackageRequest(request)) {
+    const entry = resolvePackageMainField(request, path.dirname(fromFile), platform, sourceExts);
+    if (entry) return entry;
   }
   try {
     return createRequire(fromFile).resolve(request);
@@ -419,12 +427,12 @@ function emit(files, modules, { library = false } = {}) {
         `  }`,
         `  return n;`,
         `}`,
-        `function __out(t, q) {`,
+        `function __out(t, q, from) {`,
         // A jest.mock of the target wins, then a preset shadowing it, as for a require
         // that goes through Node's loader (jest-compat's hook runs first there).
         `  const mock = globalThis.__vitest_native_node_mock_for;`,
         `  if (mock !== undefined) {`,
-        `    const v = mock(t);`,
+        `    const v = mock(t, q, from);`,
         `    if (v !== mock.NONE) return v;`,
         `  }`,
         `  const rn = __rnIdOf.get(t);`,
@@ -457,7 +465,7 @@ function emit(files, modules, { library = false } = {}) {
     `  const r = function (q) {`,
     `    const t = map[q];`,
     `    if (t === undefined || t === null) return __ext(q);`,
-    `    if (typeof t !== "number") return ${library ? "__out(t, q)" : "__ext(t)"};`,
+    `    if (typeof t !== "number") return ${library ? "__out(t, q, __ids[i])" : "__ext(t)"};`,
     // A jest.mock of a React Native module (jest-compat's per-file registry, see
     // jest-compat/node-registry.mjs) applies to RN's own requires of it, as under
     // Jest. The global is undefined unless such a mock is registered.
@@ -892,7 +900,12 @@ export function buildLibraryRegistry({
   let roots;
   try {
     const req = createRequire(path.join(projectRoot, "package.json"));
-    roots = entries.map((request) => req.resolve(request));
+    roots = entries.map(
+      (request) =>
+        (isWholePackageRequest(request) &&
+          resolvePackageMainField(request, projectRoot, platform, sourceExts)) ||
+        req.resolve(request),
+    );
     key = crypto
       .createHash("sha1")
       .update(

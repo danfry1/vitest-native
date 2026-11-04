@@ -42,7 +42,7 @@ write(
     version: "1.0.0",
     main: "index.js",
     // dep-p is its own; dep-b it shares with the app, as a peer.
-    dependencies: { "dep-p": "1.0.0", "dep-q": "1.0.0", "dep-b": "1.0.0" },
+    dependencies: { "dep-p": "1.0.0", "dep-q": "1.0.0", "dep-b": "1.0.0", "dep-r": "1.0.0" },
     peerDependencies: { "dep-b": "1.0.0" },
   }),
 );
@@ -54,7 +54,7 @@ write(
     `const { helper } = require("./helper");`,
     `module.exports = { singleton, helper, dep: require("dep-b"), later: () => require("./later"),`,
     `  own: require("dep-p"), data: require("./data.json"), other: require("lib-c"),`,
-    `  part: require("dep-q/part") };`,
+    `  part: require("dep-q/part"), rnBuild: require("dep-r") };`,
   ].join("\n"),
 );
 write(path.join(nm, "lib-a", "helper.js"), `exports.helper = "helper";\n`);
@@ -64,6 +64,19 @@ write(
   JSON.stringify({ name: "dep-p", version: "1.0.0", main: "index.js" }),
 );
 write(path.join(nm, "dep-p", "index.js"), `module.exports = { own: "dep-p" };\n`);
+// A dependency whose react-native field and main differ: the registry holds the file the
+// require hooks resolve it to at run time, its react-native build.
+write(
+  path.join(nm, "dep-r", "package.json"),
+  JSON.stringify({
+    name: "dep-r",
+    version: "1.0.0",
+    main: "index.js",
+    "react-native": "src/index.js",
+  }),
+);
+write(path.join(nm, "dep-r", "index.js"), `module.exports = { build: "main" };\n`);
+write(path.join(nm, "dep-r", "src", "index.js"), `module.exports = { build: "react-native" };\n`);
 // A dependency lib-a reaches only part of: its entry is never in the registry.
 write(
   path.join(nm, "dep-q", "package.json"),
@@ -171,6 +184,7 @@ describe("library registry", () => {
         "node_modules/dep-p/index.js",
         "node_modules/lib-c/index.js",
         "node_modules/dep-q/part.js",
+        "node_modules/dep-r/src/index.js",
       ],
       sameSingleton: true,
       singletons: 1,
@@ -307,6 +321,10 @@ describe("library registry", () => {
     });
   });
 
+  it("holds a dependency's react-native build, as the require hooks resolve it", () => {
+    expect(run(`return req("lib-a").rnBuild;`)).toEqual({ build: "react-native" });
+  });
+
   it("applies a preset shadowing another package to a library's require of it", () => {
     const out = run(`
       const shadow = { other: "preset" };
@@ -330,6 +348,28 @@ describe("library registry", () => {
       return req("lib-a").other;
     `);
     expect(out).toEqual({ other: "jest.mock" });
+  });
+
+  it("tells the per-file mocks which request and which module asked, for any target", () => {
+    const out = run(`
+      const asked = [];
+      const mock = (file, request, from) => {
+        asked.push([rel(file), request, from && rel(from)]);
+        return mock.NONE;
+      };
+      mock.NONE = Symbol("none");
+      globalThis.__vitest_native_node_mock_for = mock;
+      req("lib-a");
+      return asked.filter(([file]) => file.includes("dep-b") || file.includes("helper"));
+    `);
+    expect(out).toEqual(
+      expect.arrayContaining([
+        // In the registry: a module of the library.
+        ["node_modules/lib-a/helper.js", "./helper", "node_modules/lib-a/index.js"],
+        // Outside it: another package, linked by path.
+        ["node_modules/dep-b/index.js", "dep-b", "node_modules/lib-a/index.js"],
+      ]),
+    );
   });
 
   it("resolves a library's files with its own Jest resolver", () => {

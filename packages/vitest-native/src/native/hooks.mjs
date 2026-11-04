@@ -13,6 +13,7 @@ import {
   resolveRelativeWithExtensions,
   resolveDeepPackageFile,
   resolvePackageMainField,
+  isWholePackageRequest,
 } from "./resolve.mjs";
 import {
   NODE_MODULES_PATH,
@@ -471,6 +472,12 @@ export function installRequireHooks(
     misses: 0,
     stale: 0,
   });
+  // Node's in-thread module hooks resolve a require with `{ conditions }` (Node 26 adds
+  // `paths: undefined` to it); any other option that is set (`require.resolve`'s
+  // `paths`) is Node's to answer.
+  const onlyConditions = (options) =>
+    options == null ||
+    !Object.keys(options).some((name) => name !== "conditions" && options[name] !== undefined);
   const resolutionKey = (request, parent, [isMain, options]) => {
     if (typeof request !== "string" || typeof parent?.path !== "string" || isMain) return null;
     // A relative request with an extension, and an absolute one, Node answers from
@@ -479,15 +486,8 @@ export function installRequireHooks(
       return null;
     }
     if (Module.isBuiltin(request)) return null;
-    // Node's in-thread module hooks resolve a require with `{ conditions }` (Node 26
-    // adds `paths: undefined` to it); any other option that is set (`require.resolve`'s
-    // `paths`) is left to Node.
-    let conditions = "";
-    if (options != null) {
-      const set = (name) => options[name] !== undefined;
-      if (Object.keys(options).some((name) => name !== "conditions" && set(name))) return null;
-      if (options.conditions != null) conditions = [...options.conditions].join(",");
-    }
+    if (!onlyConditions(options)) return null;
+    const conditions = options?.conditions != null ? [...options.conditions].join(",") : "";
     return `${parent.path}\0${request}\0${conditions}`;
   };
   const origResolve = Module._resolveFilename;
@@ -531,14 +531,14 @@ export function installRequireHooks(
       if (resolved) resolved = asNodeResolves(resolved);
     }
     // A whole package with a `react-native` field: the file Metro and Vite's import
-    // resolve it to, so an import and a require are one module (resolve.mjs).
+    // resolve it to, so an import and a require are one module (resolve.mjs). Only a file
+    // these hooks can load: TypeScript, or a file they compile; a package they do not
+    // compile keeps its `main`, which Node loads as it is.
     if (
       !resolved &&
       parent?.filename &&
-      packageNameOf(request) === request &&
-      request !== "react-native" &&
-      !request.startsWith("@react-native/") &&
-      !Module.isBuiltin(request)
+      onlyConditions(rest[1]) &&
+      isWholePackageRequest(request)
     ) {
       const entry = resolvePackageMainField(
         request,
@@ -546,7 +546,9 @@ export function installRequireHooks(
         platform,
         activeSourceExts,
       );
-      if (entry) resolved = asNodeResolves(entry);
+      if (entry && (/\.[cm]?tsx?$/.test(entry) || compiles(entry))) {
+        resolved = asNodeResolves(entry);
+      }
     }
     if (!resolved) {
       try {

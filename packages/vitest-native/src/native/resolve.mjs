@@ -2,7 +2,9 @@
 // then .native, then generic TS/JS variants, and fall back to a directory index.
 // Shared by the require hook and the loader.
 import fs from "node:fs";
+import Module from "node:module";
 import path from "node:path";
+import { packageNameOf } from "./match.mjs";
 
 /**
  * Metro's default `sourceExts`, in its order. Kept as data rather than spelled out
@@ -305,6 +307,23 @@ export function resolveDeepPackageFile(request, fromDir, platform, sourceExts = 
   // need the full Metro candidate list either way.
   const stem = /\.[a-z0-9]+$/i.test(base) ? base.replace(/\.js$/, "") : base;
   return resolvePlatformFile(stem, platform, sourceExts);
+}
+
+/**
+ * Whether `request` names a whole installed package whose `react-native` field the
+ * engine follows (resolvePackageMainField): not a path, a subpath, a builtin, a subpath
+ * import (`#x`), or React Native itself, which its own registry serves.
+ */
+export function isWholePackageRequest(request) {
+  return (
+    !request.startsWith(".") &&
+    !request.startsWith("#") &&
+    !path.isAbsolute(request) &&
+    packageNameOf(request) === request &&
+    request !== "react-native" &&
+    !request.startsWith("@react-native/") &&
+    !Module.isBuiltin(request)
+  );
 }
 
 /**

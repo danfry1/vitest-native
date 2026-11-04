@@ -28,3 +28,14 @@ it("gives a library's require of it that instance too", () => {
 it("holds for react-native-worklets, which runs as itself", () => {
   expect(require("react-native-worklets").runOnUI).toBe(worklets.runOnUI);
 });
+
+it("leaves a package the hooks do not compile on its main, which Node loads as it is", () => {
+  // Its react-native field is JSX: following it would turn a working require into a
+  // SyntaxError.
+  expect(require("vn-lib-plain-two-entries").entry).toBe("main");
+});
+
+it("leaves require.resolve with paths to Node", () => {
+  const resolved = require.resolve("vn-lib-two-entries", { paths: [process.cwd()] });
+  expect(resolved.replace(/\\/g, "/")).toMatch(/\/lib\/index\.js$/);
+});

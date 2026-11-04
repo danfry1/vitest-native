@@ -14,3 +14,9 @@ it("loads, and is the mock built on the real module", () => {
   expect((lib as unknown as { mocked: boolean }).mocked).toBe(true);
   expect(lib.fn()).toBe("real fn");
 });
+
+it("gives the package's other relative requires of that entry the real module, as Jest", () => {
+  // Jest mocks `main` (lib/index.js); `./index` from src/ is src/index.js, the real one.
+  const viaFeature = require("vn-lib-own-mock/src/feature")() as { mocked?: boolean };
+  expect(viaFeature.mocked).toBeUndefined();
+});

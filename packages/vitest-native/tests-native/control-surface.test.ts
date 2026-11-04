@@ -60,6 +60,6 @@ describe("native engine: mock registries resist prototype-polluting names", () =
     expect(registry.SomeUnrelatedModule).toBeUndefined();
     // The key landed as a plain own property (null-prototype registry).
     expect(Object.keys(registry)).toContain("__proto__");
-    expect(({}as Record<string, any>).marker).toBeUndefined();
+    expect(({} as Record<string, any>).marker).toBeUndefined();
   });
 });
