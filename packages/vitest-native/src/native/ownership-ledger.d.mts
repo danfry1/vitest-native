@@ -1,6 +1,4 @@
-export declare const OWNERSHIP_GUARD_ENV: "VITEST_NATIVE_OWNERSHIP_GUARD";
-export declare const OWNERSHIP_MODE_ENV: "VITEST_NATIVE_OWNERSHIP_MODE";
-export declare const VITE_MARKER: "__vitest_native_ownership_vite";
+export declare const LEDGER_GLOBAL: "__vitest_native_ownership";
 export declare const OWNERSHIP_META_KEY: "vitestNativeOwnership";
 export declare const JEST_REQUIRE_DEPTH: unique symbol;
 export declare const ENGINE_RUNTIME_DIR: string;
@@ -21,7 +19,7 @@ export type DualEvaluationRoute =
   | "vite-inline";
 
 export interface DualEvaluation {
-  readonly code: "MODULE_DUAL_EVALUATION";
+  readonly code: "SOURCE_EVALUATED_TWICE";
   readonly file: string;
   readonly first: "node" | "vite";
   readonly second: "node" | "vite";
@@ -70,7 +68,9 @@ export interface InstalledOwnershipLedger extends OwnershipLedger {
 export declare function ledgerKey(file: string): string;
 export declare function realKey(file: string): string;
 export declare function viteMarkerFor(id: string): string | null;
-export declare function parseOwnershipGuardConfig(raw: string | undefined): OwnershipGuardConfig;
+export declare function parseOwnershipGuardConfig(
+  raw: string | Partial<OwnershipGuardConfig> | undefined,
+): OwnershipGuardConfig;
 export declare function createOwnershipLedger(options?: {
   mode?: OwnershipGuardMode;
   allow?: { path: string; reason: string }[];

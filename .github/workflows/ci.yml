@@ -44,6 +44,34 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         run: .github/scripts/classify-change.sh "$EVENT" "$BASE_SHA" "$HEAD_SHA"
 
+  # A docs-only pull request skips the gate, but some unit tests take a Markdown page as
+  # their source of truth (the versioning contract, the preset tables, the documented
+  # configuration block). Those still run here, so a page that drifts from the code
+  # fails its pull request instead of main's next push. The full gate runs them in
+  # `bun run test`, so this job only runs when the gate does not.
+  docs:
+    name: Docs checks
+    needs: classify
+    if: needs.classify.outputs.docs-only == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+        with:
+          node-version: 22.13.0
+
+      # The versioning contract checks the documented exports against the build.
+      - name: Build
+        run: bun run build
+
+      - name: Tests that read repository Markdown
+        working-directory: packages/vitest-native
+        run: bun run test:docs
+
   changeset:
     name: Changeset for shipped changes
     # Pull requests only: the check compares against the base branch, and a push to
@@ -59,7 +87,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Require a changeset when shipped source changes
+      - name: Require a changeset when shipped source changes, written in the changeset style
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
@@ -101,6 +129,11 @@ jobs:
           # session. Everything runs here, hot runtime included.
           - os: ubuntu-latest
             node-version: 24.13.0
+          # Node 26 is the active LTS line (26.13.0, October 2026) and engines.node
+          # (>=24.3.0) admits it, so it runs the full gate too: the loader hooks run
+          # in-thread on it, and their behaviour has changed between Node lines before.
+          - os: ubuntu-latest
+            node-version: 26.13.0
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -119,6 +152,12 @@ jobs:
 
       - name: Check formatting
         run: bun run format:check
+
+      - name: Structural scorecard (patch sites, env switches, globals, swallowed catches may only fall)
+        # A ratchet for the in-place rebuild: scripts/structural-scorecard.mjs counts
+        # them in src/ and fails when any rises above scorecard.json, or falls without
+        # the baseline being lowered with it.
+        run: bun run --filter vitest-native check:structure
 
       - name: Typecheck
         run: bun run typecheck
@@ -156,7 +195,7 @@ jobs:
       # there are none outside the exemptions their configs list with reasons. On the
       # Node 22.13 legs the ESM loader runs on its own thread; its records reach the
       # guard through a port and fail the test file at its end rather than at the
-      # import. The default for users stays `warn` until the next minor.
+      # import. The default for users is `warn`.
       - name: Native engine tests
         env:
           VITEST_NATIVE_OWNERSHIP_MODE: error
@@ -266,6 +305,13 @@ jobs:
         include:
           - gate: consumers
             label: consumer projects
+          # A realistic Expo SDK 58 app in a pnpm workspace (isolated layout), its suite
+          # run per-file and with hotRuntime 'auto', on iOS and Android, plus a
+          # workspace library's own suite. Its own cell, so it runs beside the others
+          # instead of lengthening the consumer cell; the Windows Full gate stays the
+          # longest leg.
+          - gate: consumers-expo-pnpm
+            label: Expo pnpm suite
           - gate: vitest-semantics
             vitest: 5.0.1
             label: Vitest semantics, Vitest 5
@@ -355,8 +401,15 @@ jobs:
 
       - name: Test packed consumer projects
         if: matrix.gate == 'consumers'
+        env:
+          VN_CONSUMERS: fixtures
         run: bun run test:consumers
 
+      - name: Test the packed Expo pnpm suite
+        if: matrix.gate == 'consumers-expo-pnpm'
+        env:
+          VN_CONSUMERS: expo-pnpm-suite
+        run: bun run test:consumers
 
   # The one required check for this workflow. Branch protection used to list every
   # matrix leg by name, plus a docs-only job that echoed the same names, and the two
@@ -368,7 +421,7 @@ jobs:
   # contexts reference).
   verdict:
     name: CI verdict
-    needs: [classify, changeset, check, packed]
+    needs: [classify, docs, changeset, check, packed]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2

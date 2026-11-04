@@ -4,21 +4,26 @@
 import { createRequire, register, registerHooks } from "node:module";
 import * as nativeLoader from "./loader.mjs";
 import path from "node:path";
-import { afterAll, expect, vi } from "vitest";
+import { afterAll, afterEach, expect, vi } from "vitest";
 import { installGlobals, installErrorUtils, installExpoRuntime } from "./globals.mjs";
 import { installRequireHooks } from "./hooks.mjs";
+import { installRntlJest } from "./rntl-hooks.mjs";
 import { installRegistry } from "./registry.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
 import * as presetFactories from "../presets.mjs";
 import { animatedMatchers } from "../matchers.mjs";
 import { serializer as rnSerializer } from "../serializer.mjs";
 import { VitestNativeError } from "../errors.mjs";
+import { CONTEXT_ENV, assertBootContext, requireProjectContext } from "../context.mjs";
 import { importPresetModule, presetModulePaths } from "../preset-modules.mjs";
 import { installNitroProxy } from "./nitro.mjs";
 import { createExpoNativeModuleResolver } from "./expo-native-modules.mjs";
 import { cacheRootFor } from "./transform.mjs";
 import { installKnownNativeModules } from "./native-modules.mjs";
 import { OWNERSHIP_META_KEY, installOwnershipLedger } from "./ownership-ledger.mjs";
+import { installRntlAutoCleanup } from "../rntl-support.mjs";
+import { registerVirtualTextHost } from "./rntl-text-host.mjs";
+import { shareProjectModules } from "../jest-compat/node-registry.mjs";
 
 // Non-enumerable key on the preset container: the mocks built so far in this file.
 const PRESETS_BUILT = Symbol.for("vitest-native.presets-built");
@@ -55,27 +60,18 @@ if (globalThis.__vitest_native_hot_reset) {
   // creates the evaluation-order hazard that corrupted rendering (Rocket.Chat).
 }
 
-const projectRoot = process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
-const diagnostics = process.env.VITEST_NATIVE_DIAGNOSTICS === "true";
-const platform = process.env.VITEST_NATIVE_PLATFORM === "android" ? "android" : "ios";
-const reactNativeVersion = process.env.VITEST_NATIVE_RN_VERSION || "0.0.0";
+const runContext = requireProjectContext();
+// Under the hot runtime a worker serves many files, all from the project it booted for.
+assertBootContext();
+const projectRoot = runContext.projectRoot;
+const diagnostics = runContext.diagnostics;
+const platform = runContext.platform;
+const reactNativeVersion = runContext.reactNativeVersion || "0.0.0";
 // Extra node_modules packages to transform (from the plugin's `transform` option).
-let transformPkgs = [];
-try {
-  if (process.env.VITEST_NATIVE_TRANSFORM)
-    transformPkgs = JSON.parse(process.env.VITEST_NATIVE_TRANSFORM);
-} catch {}
+const transformPkgs = runContext.transform ?? [];
 // Asset extensions the Node require hook loads as Metro asset modules (matches the Vite graph).
-let assetExts = [];
-let sourceExts = ["js", "jsx", "json", "ts", "tsx"];
-try {
-  if (process.env.VITEST_NATIVE_ASSET_EXTS)
-    assetExts = JSON.parse(process.env.VITEST_NATIVE_ASSET_EXTS);
-} catch {}
-try {
-  if (process.env.VITEST_NATIVE_SOURCE_EXTS)
-    sourceExts = JSON.parse(process.env.VITEST_NATIVE_SOURCE_EXTS);
-} catch {}
+const assetExts = runContext.assetExts ?? [];
+const sourceExts = runContext.sourceExts ?? ["js", "jsx", "json", "ts", "tsx"];
 
 // --- Third-party preset mocks ---
 //
@@ -92,18 +88,11 @@ try {
 // All three read the mock object from globalThis.__vitest_native_preset_mocks
 // (populated below). (2) and (3) close the gap where a third-party library pulls
 // in a preset package itself — those requests never reach Vite.
-let presetNames = [];
-try {
-  if (process.env.VITEST_NATIVE_PRESET_NAMES)
-    presetNames = JSON.parse(process.env.VITEST_NATIVE_PRESET_NAMES);
-} catch {}
+const presetNames = runContext.presetNames ?? [];
 // Per-preset config (preset name → JSON config), e.g. navigation route params.
-// Presets are rebuilt here from their name, so any factory options come via env.
-let presetConfig = {};
-try {
-  if (process.env.VITEST_NATIVE_PRESET_CONFIG)
-    presetConfig = JSON.parse(process.env.VITEST_NATIVE_PRESET_CONFIG);
-} catch {}
+// Presets are rebuilt here from their name, so any factory options come via the context.
+// Copied: the context is frozen, and a preset factory owns what it is given.
+const presetConfig = structuredClone(runContext.presetConfig ?? {});
 
 // Discover preset module (package) names + their export lists WITHOUT building the
 // mocks yet — building can lazily touch react-native, so the require hooks must be
@@ -112,17 +101,7 @@ try {
 // shadowed). A module with exportsFor (skia) reads its own by parsing the installed
 // package with Vite, which this worker must not repeat: it would load Vite into
 // every test file's worker.
-let providedPresetExports = {};
-try {
-  if (process.env.VITEST_NATIVE_PRESET_EXPORTS)
-    providedPresetExports = JSON.parse(process.env.VITEST_NATIVE_PRESET_EXPORTS);
-} catch (cause) {
-  throw new VitestNativeError(
-    "INVALID_OPTION",
-    "VITEST_NATIVE_PRESET_EXPORTS, which the plugin sets for its setup file, is not valid JSON.",
-    { cause },
-  );
-}
+const providedPresetExports = runContext.presetExports ?? {};
 const presetDefs = []; // [{ pkg, mod, presetName }]
 const presetExports = {}; // pkg -> string[] (named exports, for the ESM loader)
 const presetPreparations = [];
@@ -137,7 +116,7 @@ function adopt(preset) {
         "PRESET_UNAVAILABLE",
         `the ${preset.name} preset reads the named exports of '${pkg}' from the ` +
           `installed package, and the plugin passed none for this project. The plugin ` +
-          `sets them (VITEST_NATIVE_PRESET_EXPORTS) for each project it configures.`,
+          `sets them (the context's presetExports) for each project it configures.`,
       );
     }
     shadows = true;
@@ -217,14 +196,14 @@ afterAll(function () {
   }
   if (ownershipLedger.mode === "error" && found.length > 0) {
     throw new VitestNativeError(
-      "MODULE_DUAL_EVALUATION",
+      "SOURCE_EVALUATED_TWICE",
       `${found.length} file(s) were evaluated by both Node and Vite during this test file ` +
         `(ownership: 'error'), including any whose error a try/catch swallowed:\n` +
         found.map((c) => c.message).join("\n\n"),
     );
   }
 });
-installGlobals();
+installGlobals({ projectRoot, platform });
 // Before React Native loads: its lookups ask the boundary which modules exist.
 installKnownNativeModules(projectRoot);
 // RNTL 13+ auto-registers matchers through the global expect when imported.
@@ -237,6 +216,16 @@ if (typeof globalThis.expect === "undefined") {
     writable: true,
   });
 }
+// RNTL registers its afterEach cleanup only through a global afterEach; without
+// test.globals, register it here (see rntl-support.mjs). When files share a worker
+// (the hot runtime, or `isolate: false`) RNTL stays in Node's module cache across
+// files, so the cache cannot say whether this file loaded it: rntl-hooks.mjs and the
+// require hook (hooks.mjs) report each load instead.
+installRntlAutoCleanup(afterEach, {
+  trackImports:
+    Boolean(globalThis.__vitest_native_hot_reset) ||
+    globalThis.__vitest_worker__?.config?.isolate === false,
+});
 // register() once per WORKER, not per file: under the hot runtime this setup
 // file re-evaluates per test file in a persistent worker, and re-registering
 // would stack a new loader-hook layer on every file. (installGlobals and
@@ -295,7 +284,11 @@ if (!globalThis.__vitest_native_loader_registered) {
   // otherwise. Shared rather than passed by value because loader hooks run on their
   // own thread. Set VITEST_NATIVE_HOT_ESM_GEN=0 to opt out (and to mutation-test the
   // isolation gate that covers this).
-  if (globalThis.__vitest_native_hot_reset && process.env.VITEST_NATIVE_HOT_ESM_GEN !== "0") {
+  if (
+    globalThis.__vitest_native_hot_reset &&
+    runContext.hotEsmGeneration !== false &&
+    process.env.VITEST_NATIVE_HOT_ESM_GEN !== "0"
+  ) {
     globalThis.__vitest_native_hot_generation = new Int32Array(new SharedArrayBuffer(4));
     globalThis.__vitest_native_hot_generation[0] = 1;
   }
@@ -306,7 +299,8 @@ if (!globalThis.__vitest_native_loader_registered) {
     transformPkgs: nodeTransformPkgs,
     presetExports,
     assetExts,
-    sourceExts: process.env.VITEST_NATIVE_SOURCE_EXTS ? sourceExts : undefined,
+    sourceExts: runContext.sourceExts,
+    context: process.env[CONTEXT_ENV],
     hotGenerationBuffer: globalThis.__vitest_native_hot_generation?.buffer,
   });
 }
@@ -315,8 +309,8 @@ if (!globalThis.__vitest_native_loader_registered) {
 // redirect wraps this one and keeps precedence. Any module the registry cannot
 // serve — a computed require, a package in `transform` — falls through to the
 // hooks below, so this is purely a faster path to the same modules.
-if (process.env.VITEST_NATIVE_RN_REGISTRY) {
-  const installed = installRegistry(process.env.VITEST_NATIVE_RN_REGISTRY, projectRoot, sourceExts);
+if (runContext.registry) {
+  const installed = installRegistry(runContext.registry, projectRoot, sourceExts);
   if (diagnostics) {
     console.log(
       `[vitest-native] (native) precompiled RN registry ${installed ? "installed" : "unavailable; using per-file module loading"}`,
@@ -325,7 +319,7 @@ if (process.env.VITEST_NATIVE_RN_REGISTRY) {
 }
 // The NitroModules boundary's install() calls this (see nitro.mjs).
 globalThis.__vitest_native_install_nitro = () => installNitroProxy(projectRoot);
-installRequireHooks(
+const nodeCompiles = installRequireHooks(
   projectRoot,
   nodeTransformPkgs,
   platform,
@@ -335,6 +329,9 @@ installRequireHooks(
 );
 // After the hooks: the polyfill is Flow-typed and compiled by them (see globals.mjs).
 installErrorUtils(projectRoot);
+// Before any test or user setup file imports RNTL: its fake-timer support reads a
+// `jest` of its own (see rntl-hooks.mjs).
+installRntlJest(vi);
 // Through Vitest, so a TypeScript preset module loads. Its export lists already
 // reached the ESM loader from the plugin; a module the plugin did not read would be
 // served by the real package there.
@@ -345,7 +342,7 @@ for (const file of presetModuleFiles) {
     throw new VitestNativeError(
       "PRESET_UNAVAILABLE",
       `the preset module ${file} shadows ${unread.join(", ")}, which the plugin did not ` +
-        `read while resolving its config (VITEST_NATIVE_PRESET_EXPORTS). The plugin reads ` +
+        `read while resolving its config (the context's presetExports). The plugin reads ` +
         `preset modules once, when the run starts: restart it after changing one.`,
     );
   }
@@ -405,7 +402,7 @@ g.__vitest_native_expo_modules = createExpoNativeModuleResolver({
   mockFn: (implementation) => vi.fn(implementation),
 });
 // Before the project's setup files run, as jest-expo does (see globals.mjs).
-installExpoRuntime(projectRoot);
+installExpoRuntime(projectRoot, nodeCompiles);
 const initialDimensions = {
   window: { ...RN.Dimensions.get("window") },
   screen: { ...RN.Dimensions.get("screen") },
@@ -492,22 +489,39 @@ try {
   }
 }
 
-// --- RNTL 14: register RCTVirtualText as a text host ---
-// RNTL 14 reconciles with `test-renderer`, which enforces that string children
-// live under a "text" host component (the names in RNTL's HOST_TEXT_NAMES) and
-// otherwise throws "Text strings must be rendered within a <Text> component".
-// Real RN renders a NESTED <Text> as the host "RCTVirtualText", which RNTL's list
-// (['Text', 'RCTText']) omits — so any composite/nested <Text> crashes under the
-// native engine. (Jest's preset never hits this: it mocks Text to a single flat
-// "Text" host, hiding the real RCTText/RCTVirtualText split.) Add RCTVirtualText so
-// nested text reconciles and getByText matches across nested <Text>, matching how
-// RN actually renders. The helper is a leaf module (no RNTL main-module init), so
-// requiring it here is free of the evaluation-order hazards noted in the hot-reset
-// block. Gated on the list existing: a no-op for RNTL <=13 and the mock engine.
+// --- RNTL: register RCTVirtualText as a text host ---
+// Real RN renders a NESTED <Text> as the host "RCTVirtualText", which RNTL's text
+// hosts omit. On RNTL 14 that makes a nested <Text> throw "Text strings must be
+// rendered within a <Text> component"; on RNTL 12 and 13 the inner text is not a
+// text element, so getByText cannot find it. rntl-text-host.mjs explains both and
+// patches whichever shape the installed RNTL has (dist/ is 14, build/ is 12 and 13).
+//
+// Requiring the module here adds no evaluation-order hazard (see the hot-reset
+// block): on 13 and 14 it is a leaf, and on 12, where it requires react-native,
+// RNTL's config and render-act, the RNTL matchers loaded just above already
+// required it and react-native is loaded by now, so this is a cache hit. `req` is
+// the project-root require the matchers use, so both patch the same RNTL copy.
 try {
-  const hcn = req("@testing-library/react-native/dist/helpers/host-component-names");
-  if (Array.isArray(hcn?.HOST_TEXT_NAMES) && !hcn.HOST_TEXT_NAMES.includes("RCTVirtualText")) {
-    hcn.HOST_TEXT_NAMES.push("RCTVirtualText");
+  let registered = null;
+  let lastError;
+  for (const moduleId of [
+    "@testing-library/react-native/dist/helpers/host-component-names",
+    "@testing-library/react-native/build/helpers/host-component-names",
+  ]) {
+    let hostComponentNames;
+    try {
+      hostComponentNames = req(moduleId);
+    } catch (error) {
+      lastError = error;
+      continue;
+    }
+    registered = registerVirtualTextHost(hostComponentNames);
+    if (registered) break;
+  }
+  if (!registered && diagnostics) {
+    const reason =
+      lastError?.message ?? "host-component-names has neither HOST_TEXT_NAMES nor isHostText";
+    console.log(`[vitest-native] (native) could not register RCTVirtualText text host: ${reason}`);
   }
 } catch (e) {
   if (diagnostics) {
@@ -519,6 +533,11 @@ try {
 
 expect.extend(animatedMatchers);
 expect.addSnapshotSerializer(rnSerializer);
+
+// One instance of a project module per test file: Node's `require` of a project file the
+// test already imported gets Vite's instance. Last, after React Native and the setup's
+// own loads, so those stay outside what the registry treats as the test's modules.
+shareProjectModules();
 
 // NOTE: the cosmetic React "update to LogBoxStateSubscription not wrapped in
 // act()" warning (which used to appear on every interaction) is fixed at the

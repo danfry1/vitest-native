@@ -1,0 +1,1 @@
+exports.platform = require("./platform");

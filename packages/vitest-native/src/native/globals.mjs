@@ -1,8 +1,11 @@
 import fs from "node:fs";
-import { createRequire } from "node:module";
+import Module, { createRequire } from "node:module";
 import path from "node:path";
+import { installRendererReportError } from "../report-error.mjs";
 // Globals React Native core expects at runtime, ported from react-native/jest/setup.js.
-export function installGlobals() {
+// With the project root and platform, also the environment Expo's packages read
+// (installExpoOs); the unit tests call it without them.
+export function installGlobals({ projectRoot, platform } = {}) {
   const g = globalThis;
   Object.defineProperties(g, {
     __DEV__: { configurable: true, writable: true, value: true },
@@ -25,8 +28,42 @@ export function installGlobals() {
   g.IS_REACT_NATIVE_TEST_ENVIRONMENT = true;
   g.__fbBatchedBridgeConfig = { remoteModuleConfig: [], localModulesConfig: [] };
   g.__vitest_native_module_mocks = g.__vitest_native_module_mocks || Object.create(null);
+  // Before react-test-renderer loads: it picks its error reporter once (report-error.mjs).
+  installRendererReportError(Module, g);
 
   installExpoGlobal(g);
+  if (projectRoot) installExpoOs(projectRoot, platform);
+}
+
+/**
+ * `process.env.EXPO_OS`, the platform Expo's packages branch on.
+ *
+ * babel-preset-expo inlines it as each file compiles, from the bundler caller's platform
+ * (babel-preset-expo 54, build/index.js:114), so nothing sets it at runtime on a device.
+ * The engine compiles node_modules with @react-native/babel-preset whenever that resolves
+ * (babel-preset.mjs), so Expo's packages read the real variable, which is unset:
+ * expo-modules-core warns that it "should be inlined by babel-preset-expo"
+ * (expo-modules-core 3.0, src/Platform.ts:14-16), its Platform.select answers undefined
+ * (26), and expo-router's `process.env.EXPO_OS === 'ios'` branches take the wrong side.
+ * Under Jest, jest-expo compiles the same packages with babel-preset-expo and a caller
+ * carrying the platform (jest-expo 57, config/getPlatformPreset.js:48-66), so each read
+ * is the platform.
+ *
+ * Defaulted to the engine's platform only in a project that resolves `expo`, the same
+ * test that selects jest-expo's Babel caller for app source (transform.mjs, hasExpo). A
+ * value already set when the engine starts (the environment, `test.env`) is left alone,
+ * and `vi.stubEnv` overrides it as any variable. The hot runtime's worker installs it
+ * before taking its process.env baseline (reset.mjs), so restoring that baseline between
+ * files keeps it.
+ */
+function installExpoOs(projectRoot, platform) {
+  if (Object.hasOwn(process.env, "EXPO_OS")) return;
+  try {
+    createRequire(path.join(projectRoot, "package.json")).resolve("expo/package.json");
+  } catch {
+    return;
+  }
+  process.env.EXPO_OS = platform === "android" ? "android" : "ios";
 }
 
 // expo-modules-core's JS reads its native runtime off `globalThis.expo`
@@ -92,7 +129,12 @@ function installExpoGlobal(g) {
   }
   // NativeModule / SharedObject / SharedRef extend EventEmitter in expo's runtime.
   class NativeModule extends EventEmitter {}
-  class SharedObject extends EventEmitter {}
+  // A shared object is released when its owner is done with it; expo-modules-core's
+  // `useReleasingSharedObject` hooks (expo-video, expo-audio, expo-image) call it from
+  // the effect cleanup, so without it every unmount threw.
+  class SharedObject extends EventEmitter {
+    release() {}
+  }
   class SharedRef extends SharedObject {}
 
   // `globalThis.expo.modules` is the native-module registry expo libs read via
@@ -345,8 +387,17 @@ export function installErrorUtils(projectRoot) {
  *
  * Resolved from the project, so this is the module `expo`'s entry later finds in
  * the require cache rather than a second copy. Silent when `expo` is not installed.
+ *
+ * Installed only when Node compiles `expo` for the project (`nodeCompiles`, the require
+ * hooks' own rule: a declared or detected package, or one named in `transform`).
+ * jest-expo installs it only for projects that use its preset. SDK 58 publishes the
+ * runtime as ES module syntax with Metro `require` calls in a package without
+ * `"type": "module"`, so Node runs it only compiled; where `expo` merely
+ * resolves (a hoisted workspace with an Expo app beside this package, or a library whose
+ * expo-* devDependencies pull it in as a peer) it is not this project's, and loading it
+ * raw failed every test file.
  */
-export function installExpoRuntime(projectRoot) {
+export function installExpoRuntime(projectRoot, nodeCompiles) {
   let winter;
   try {
     const req = createRequire(path.join(projectRoot, "package.json"));
@@ -364,6 +415,10 @@ export function installExpoRuntime(projectRoot) {
   } catch {
     return;
   }
+  // Outside the try: a missing rule is a wiring fault, never a project's state, and
+  // skipping the runtime silently would hide it behind tests that pass without Expo's
+  // globals.
+  if (!nodeCompiles(winter)) return;
   const KEEP_FETCH = "EXPO_PUBLIC_USE_RN_FETCH";
   const projectSet = Object.hasOwn(process.env, KEEP_FETCH);
   if (!projectSet) process.env[KEEP_FETCH] = "1";

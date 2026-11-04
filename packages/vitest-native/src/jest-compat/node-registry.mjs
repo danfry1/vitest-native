@@ -17,6 +17,7 @@ import { expandAlias } from "./aliases.mjs";
 import { resolvePlatformFile, resolveRelativePlatformFile } from "../native/resolve.mjs";
 import { resetEvaluatedModules, restoreEvaluatedModules } from "../native/module-reset.mjs";
 import { VitestNativeError } from "../errors.mjs";
+import { projectContext } from "../context.mjs";
 
 const STATE = "__vitest_native_jest_registry";
 // Shared by name with native/ownership-ledger.mjs, which jest-compat does not import:
@@ -33,25 +34,18 @@ const UNRESETTABLE = /\.node$/;
 const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
 const NONE = Symbol("vitest-native.jest-registry.none");
 
-function envList(name) {
-  try {
-    const value = JSON.parse(process.env[name] || "[]");
-    return Array.isArray(value) ? value : [];
-  } catch {
-    return [];
-  }
-}
+const context = projectContext();
 
 /** Configuration the plugin hands the worker, shared with the compat setup. */
 export const config = {
-  projectRoot: process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd(),
-  platform: process.env.VITEST_NATIVE_PLATFORM === "android" ? "android" : "ios",
+  projectRoot: context?.projectRoot ?? process.cwd(),
+  platform: context?.platform === "android" ? "android" : "ios",
   // The project's string-to-string `resolve.alias` entries (and tsconfig `paths` when
   // Vite resolves them), which Node knows nothing of.
-  aliases: envList("VITEST_NATIVE_REQUIRE_ALIASES"),
-  skippedAliases: envList("VITEST_NATIVE_REQUIRE_ALIASES_SKIPPED"),
+  aliases: context?.requireAliases ?? [],
+  skippedAliases: context?.requireAliasesSkipped ?? [],
 };
-const sourceExts = envList("VITEST_NATIVE_SOURCE_EXTS");
+const sourceExts = context?.sourceExts ?? [];
 
 const realpathCache = new Map();
 /** Node keys its cache by real path; a platform-variant scan does not resolve links. */
@@ -82,7 +76,7 @@ const worker = () => globalThis.__vitest_worker__;
 function createState() {
   const rootFile = path.join(config.projectRoot, "package.json");
   const rootParent = parentModuleFor(rootFile);
-  const registryFile = process.env.VITEST_NATIVE_RN_REGISTRY;
+  const registryFile = context?.registry;
   const realRegistryFile = registryFile ? canonical(registryFile) : null;
   const exts = sourceExts.length > 0 ? sourceExts : undefined;
   const platformFile = (base) => {
@@ -105,8 +99,13 @@ function createState() {
     bypass: null,
     /** The open isolateModules block, if any. */
     isolation: null,
-    /** Module._cache keys present when the registry was installed: never reset. */
+    /**
+     * Module._cache keys a reset never drops. Taken when the registry is created, then
+     * once more where the native setup installs the sharing (`shareProjectModules`), so a
+     * library's Jest setup or a preset that creates the registry earlier cannot shrink it.
+     */
     baseline: new Set(Object.keys(Module._cache)),
+    baselineFixed: false,
   };
 
   // Resolve as the require hooks will, so registration and lookup share one key:
@@ -139,13 +138,21 @@ function createState() {
     }
   }
 
+  /**
+   * How often the load hook asked `state.resolve`, how often that resolved afresh rather
+   * than from its cache, and how often a request went to Node without either.
+   */
+  state.stats = { resolves: 0, uncached: 0, toNode: 0 };
+
   /** Cached: resolution does not change within a worker, whatever is mocked. */
   state.resolve = (request, parent) => {
     if (typeof request !== "string" || Module.isBuiltin(request)) return null;
+    state.stats.resolves++;
     parent ??= rootParent;
     const key = `${parent.filename}\0${request}`;
     let filename = state.resolutions.get(key);
     if (filename === undefined) {
+      state.stats.uncached++;
       filename = resolveUncached(request, parent);
       state.resolutions.set(key, filename);
     }
@@ -159,24 +166,81 @@ function createState() {
   };
 
   // The memoized mock: `requireMock` caches the factory's result in `_mockRegistry`.
-  state.valueOf = (entry) => {
-    if (entry.has) return entry.value;
-    if (entry.evaluating) {
-      // Jest would re-enter the factory here until the stack overflowed.
-      throw new VitestNativeError(
-        "JEST_MOCK_FACTORY_CYCLE",
-        `the jest.mock factory for '${entry.spec}' requires the module it mocks. ` +
-          "Use jest.requireActual() inside the factory for the real module.",
-      );
-    }
+  //
+  // A factory jestMockTransform made async (its `jest.requireActual` of project source
+  // now loads through Vite: see transform.ts) yields a promise, as does one the author
+  // wrote async. What is memoized is the SETTLED value, so every load gets the same
+  // object, never the promise: Vite's import awaits it (`valueForImport`), and Vite
+  // runs the factory while it evaluates the test file's imports, so a `require()` or
+  // `jest.requireMock` in the test body finds it settled. A Node-side load that comes
+  // first runs the synchronous original instead, which is what it did before the
+  // rewrite, and Vite's import then gets that value. One that comes while the promise
+  // is pending — Node requiring the module from inside its own factory's import graph,
+  // a cycle — cannot wait, so it throws, as the synchronous cycle does.
+  const settle = (entry, factory) => {
     entry.evaluating = true;
+    let result;
     try {
-      entry.value = entry.factory();
-      entry.has = true;
+      result = factory();
     } finally {
       entry.evaluating = false;
     }
-    return entry.value;
+    // By tag, not by a `then` method: see jestMockInterop in interop.mjs.
+    if (Object.prototype.toString.call(result) !== "[object Promise]") {
+      entry.value = result;
+      entry.has = true;
+      return result;
+    }
+    const pending = result.then(
+      (value) => {
+        if (entry.pending === pending) {
+          entry.pending = null;
+          entry.value = value;
+          entry.has = true;
+        }
+        return value;
+      },
+      (error) => {
+        if (entry.pending === pending) entry.pending = null;
+        throw error;
+      },
+    );
+    entry.pending = pending;
+    return pending;
+  };
+  const cycle = (entry) =>
+    // Jest would re-enter the factory here until the stack overflowed.
+    new VitestNativeError(
+      "JEST_MOCK_FACTORY_CYCLE",
+      `the jest.mock factory for '${entry.spec}' requires the module it mocks. ` +
+        "Use jest.requireActual() inside the factory for the real module.",
+    );
+
+  /** The mock for a Node-side load, which cannot wait for a promise. */
+  state.valueOf = (entry) => {
+    if (entry.has) return entry.value;
+    if (entry.evaluating) throw cycle(entry);
+    if (entry.pending) {
+      // An author's own async factory has always handed Node its promise.
+      if (!entry.asyncFactory) return entry.pending;
+      throw new VitestNativeError(
+        "JEST_MOCK_FACTORY_CYCLE",
+        `'${entry.spec}' was required while its jest.mock factory was still loading the ` +
+          "real module, which require() cannot wait for. Something that factory loads " +
+          "requires the mocked module back; break the cycle, or import the module instead.",
+      );
+    }
+    // An async factory the author wrote has no synchronous original, so this load gets
+    // its promise, as it always has; later loads get the settled value.
+    return settle(entry, entry.factory);
+  };
+
+  /** The mock for Vite's import: the settled value, or a promise of it. */
+  state.valueForImport = (entry) => {
+    if (entry.has) return entry.value;
+    if (entry.pending) return entry.pending;
+    if (entry.evaluating) throw cycle(entry);
+    return settle(entry, entry.asyncFactory ?? entry.factory);
   };
 
   /** The entry a load of `request` (resolved to `filename`) is served, if any. */
@@ -191,9 +255,18 @@ function createState() {
     return filename !== null ? state.entries.get(filename) : state.unresolved.get(request);
   };
 
-  state.register = (from, spec, factory) => {
+  // `asyncFactory` is jestMockTransform's async variant of `factory`, when it made one.
+  state.register = (from, spec, factory, asyncFactory) => {
     const filename = state.resolveFrom(spec, from);
-    const entry = { spec, factory, has: false, value: undefined, evaluating: false };
+    const entry = {
+      spec,
+      factory,
+      asyncFactory,
+      has: false,
+      value: undefined,
+      pending: null,
+      evaluating: false,
+    };
     if (filename !== null) state.entries.set(filename, entry);
     else state.unresolved.set(spec, entry);
     // The hoisted `vi.mock` factory looks its entry up by where it was written.
@@ -266,6 +339,7 @@ function createState() {
   const forget = (entry) => {
     entry.has = false;
     entry.value = undefined;
+    entry.pending = null;
   };
 
   /**
@@ -279,12 +353,12 @@ function createState() {
    * reachable, for the caller to fall back to `vi.resetModules()`.
    */
   state.resetModules = () => {
-    const map = worker()?.evaluatedModules?.idToModuleMap;
-    if (map) resetEvaluatedModules(map);
+    const modules = worker()?.evaluatedModules;
+    if (modules) resetEvaluatedModules(modules);
     state.isolation = null;
     state.dropProjectModules();
     allEntries().forEach(forget);
-    return Boolean(map);
+    return Boolean(modules);
   };
 
   /**
@@ -302,13 +376,13 @@ function createState() {
       // name and own properties included, so only this matches a suite written for Jest.
       throw new Error(`${name} cannot be nested inside another ${name} or ${other}.`);
     }
-    const map = worker()?.evaluatedModules?.idToModuleMap;
+    const modules = worker()?.evaluatedModules;
     const isolation = {
       modules: state.dropProjectModules(),
       had: new Set(allEntries().filter((entry) => entry.has)),
-      vite: map ? new Map() : null,
+      vite: modules ? new Map() : null,
     };
-    if (map) resetEvaluatedModules(map, isolation.vite);
+    if (modules) resetEvaluatedModules(modules, isolation.vite);
     state.isolation = isolation;
     return () => {
       // `resetModules` inside the block ended it, as in Jest, where it nulls the
@@ -320,7 +394,7 @@ function createState() {
       allEntries()
         .filter((entry) => !isolation.had.has(entry))
         .forEach(forget);
-      if (map) restoreEvaluatedModules(map, isolation.vite);
+      if (modules) restoreEvaluatedModules(modules, isolation.vite);
     };
   };
 
@@ -346,12 +420,26 @@ export function nodeRegistry() {
   installLoadHook(state);
   if (typeof worker()?.evaluatedModules?.getModulesByFile !== "function") {
     console.warn(
-      "[vitest-native] jest-compat cannot reach Vitest's module graph in this worker, so " +
-        "require() may load a second copy of a module the test imported, and " +
+      "[vitest-native] cannot reach Vitest's module graph in this worker, so require() " +
+        "may load a second copy of a project module the test imported, and " +
         "jest.isolateModulesAsync() does not isolate import().",
     );
   }
   return state;
+}
+
+/**
+ * Installed by the native engine's setup in every worker, so a project file that a test
+ * imports and that Node later `require`s is one module (`viteInstanceOf`). It is the same
+ * registry jest-compat uses; before this, only jest-compat or a library's Jest setup
+ * created it, so whether a project file loaded once or twice depended on those. Its call
+ * is also the fixed point the registry's baseline is taken at, once per worker.
+ */
+export function shareProjectModules() {
+  const state = nodeRegistry();
+  if (state.baselineFixed) return;
+  state.baseline = new Set(Object.keys(Module._cache));
+  state.baselineFixed = true;
 }
 
 /**
@@ -376,29 +464,103 @@ function viteInstanceOf(filename) {
   for (const node of nodes ?? []) {
     if (node.id?.startsWith("mock:") || !node.evaluated || node.exports == null) continue;
     const ns = node.exports;
-    const cjs = Object.getOwnPropertyDescriptor(ns, "default");
-    if (cjs && "value" in cjs) return cjs.value;
-    let facade = viteFacades.get(ns);
-    if (!facade) {
-      facade = new Proxy(ns, {
-        get: (target, key, receiver) =>
-          key === "__esModule" && !Reflect.has(target, key)
-            ? true
-            : Reflect.get(target, key, receiver),
-        has: (target, key) => key === "__esModule" || Reflect.has(target, key),
-        set: (target, key, value) =>
-          Reflect.defineProperty(target, key, {
-            value,
-            writable: true,
-            enumerable: true,
-            configurable: true,
-          }),
-      });
-      viteFacades.set(ns, facade);
-    }
-    return facade;
+    if (isCommonJsNamespace(ns)) return ns.default;
+    return requireFacade(ns);
   }
   return NONE;
+}
+
+/**
+ * A bare specifier (a package name). Aliases need no check here: the require hooks
+ * apply them only after Node fails, so Node's answer for an aliased name is already the
+ * one `state.resolve` would reach.
+ */
+function isBare(request) {
+  return !(request.startsWith(".") || path.isAbsolute(request) || request.startsWith("file:"));
+}
+
+/**
+ * Node's real path for `request` from `parent` (the require hooks' resolver included), the
+ * same call `state.resolve` makes, or null when Node cannot resolve it.
+ */
+function nodeResolution(request, parent) {
+  try {
+    const resolved = Module._resolveFilename(request, parent, false);
+    return Module.isBuiltin(resolved) ? null : canonical(resolved);
+  } catch {
+    return null;
+  }
+}
+
+/** Vite's namespace for CommonJS: `module.exports` as a plain `default` data property. */
+const isCommonJsNamespace = (ns) =>
+  "value" in (Object.getOwnPropertyDescriptor(ns, "default") ?? {});
+
+/**
+ * What `jest.requireActual` returns for a module `vi.importActual` loaded, for a factory
+ * jestMockTransform made async (transform.ts): `module.exports` for CommonJS, so
+ * `jest.requireActual('./legacy')()` still calls the function a CommonJS file exports.
+ *
+ * For an ES module, an object as babel-jest's `require()` gives one: `__esModule`, and
+ * a member per export that reads the module live. Vite seals a module's namespace, so
+ * the namespace itself (or a Proxy over it) cannot take the writes a Jest factory makes
+ * to the actual module (`actual.other = jest.fn(); return actual`); here a write
+ * replaces that member, and a new key is added, on this object only. One object per
+ * module, so every `requireActual` of it in a file is the same object, as under Jest.
+ */
+const actualObjects = new WeakMap();
+export function actualExports(ns) {
+  if (ns == null || typeof ns !== "object") return ns;
+  if (isCommonJsNamespace(ns)) return ns.default;
+  let actual = actualObjects.get(ns);
+  if (actual) return actual;
+  actual = {};
+  for (const key of Object.keys(ns)) {
+    Object.defineProperty(actual, key, {
+      enumerable: true,
+      configurable: true,
+      get: () => ns[key],
+      set: (value) => {
+        Object.defineProperty(actual, key, {
+          value,
+          writable: true,
+          enumerable: true,
+          configurable: true,
+        });
+      },
+    });
+  }
+  if (!("__esModule" in actual)) {
+    Object.defineProperty(actual, "__esModule", {
+      value: true,
+      configurable: true,
+      writable: true,
+    });
+  }
+  actualObjects.set(ns, actual);
+  return actual;
+}
+
+function requireFacade(ns) {
+  let facade = viteFacades.get(ns);
+  if (!facade) {
+    facade = new Proxy(ns, {
+      get: (target, key, receiver) =>
+        key === "__esModule" && !Reflect.has(target, key)
+          ? true
+          : Reflect.get(target, key, receiver),
+      has: (target, key) => key === "__esModule" || Reflect.has(target, key),
+      set: (target, key, value) =>
+        Reflect.defineProperty(target, key, {
+          value,
+          writable: true,
+          enumerable: true,
+          configurable: true,
+        }),
+    });
+    viteFacades.set(ns, facade);
+  }
+  return facade;
 }
 
 function installLoadHook(state) {
@@ -413,6 +575,18 @@ function installLoadHook(state) {
       state.isResettable(parent.filename);
     if ((!fromProject && state.isEmpty()) || Module.isBuiltin(request)) {
       return origLoad.call(this, request, parent, ...rest);
+    }
+    // With no mocks, only a project file can be served from Vite. For a bare specifier,
+    // Node's own answer decides: a file under node_modules goes to Node's loader as is;
+    // anything else (a workspace link to source, a package's self-reference, an alias the
+    // hooks apply) is resolved as below, reusing that answer.
+    if (state.isEmpty() && isBare(request)) {
+      const resolved = nodeResolution(request, parent);
+      if (resolved !== null && NODE_MODULES.test(resolved)) {
+        state.stats.toNode++;
+        return origLoad.call(this, request, parent, ...rest);
+      }
+      if (resolved !== null) state.resolutions.set(`${parent.filename}\0${request}`, resolved);
     }
     const filename = state.resolve(request, parent);
     const entry = state.lookup(filename, request);

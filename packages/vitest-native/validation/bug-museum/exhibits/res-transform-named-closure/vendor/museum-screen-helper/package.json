@@ -1,0 +1,8 @@
+{
+  "name": "museum-screen-helper",
+  "version": "2.2.1",
+  "main": "index.js",
+  "peerDependencies": {
+    "react-native": ">=0.42.0"
+  }
+}

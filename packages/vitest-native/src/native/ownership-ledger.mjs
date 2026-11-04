@@ -13,14 +13,15 @@ import {
   parseNativeOwnershipManifest,
 } from "./ownership.mjs";
 import { VitestNativeError } from "../errors.mjs";
+import { projectContext } from "../context.mjs";
 
-export const OWNERSHIP_GUARD_ENV = "VITEST_NATIVE_OWNERSHIP_GUARD";
-export const OWNERSHIP_MODE_ENV = "VITEST_NATIVE_OWNERSHIP_MODE";
-export const VITE_MARKER = "__vitest_native_ownership_vite";
+// One global for both records the ledger receives from outside the worker's own code:
+// `.vite(key, file)` from the call appended to each Vite module, `.nodeEsm(url)` from the
+// in-thread loader hook (loader.mjs).
+export const LEDGER_GLOBAL = "__vitest_native_ownership";
 export const OWNERSHIP_META_KEY = "vitestNativeOwnership";
 // jest-compat raises it around its synchronous requireActual/requireMock loads.
 export const JEST_REQUIRE_DEPTH = Symbol.for("vitest-native.jest-require-depth");
-const NODE_ESM_MARKER = "__vitest_native_ownership_node_esm";
 const INSTALLED = Symbol.for("vitest-native.ownership-ledger");
 
 // The engine's own runtime (src/ or dist/): exempt, as the hot worker loads it through
@@ -56,14 +57,17 @@ const NOT_THE_MODULE = /[?&](?:raw|url|inline|worker|sharedworker)\b/;
 // per-directory cache: Vite can keep a symlinked directory in an id, and one realpath
 // per directory instead of a stat or two per module kept transform time at main's.
 const realDirs = new Map();
+function realpathOr(file, fallback) {
+  try {
+    return fs.realpathSync.native(file);
+  } catch {
+    return fallback;
+  }
+}
 function realDir(dir) {
   let real = realDirs.get(dir);
   if (real === undefined) {
-    try {
-      real = fs.realpathSync.native(dir);
-    } catch {
-      real = dir;
-    }
+    real = realpathOr(dir, dir);
     realDirs.set(dir, real);
   }
   return real;
@@ -73,15 +77,16 @@ export function viteMarkerFor(id) {
   const file = id.replace(/[?#].*$/, "");
   if (!path.isAbsolute(file) || !/\.(?:[cm]?[jt]sx?|json)$/.test(file)) return null;
   const key = nodeKey(path.join(realDir(path.dirname(file)), path.basename(file)));
-  return `globalThis.${VITE_MARKER}?.(${JSON.stringify(key)}, ${JSON.stringify(file)});`;
+  return `globalThis.${LEDGER_GLOBAL}?.vite(${JSON.stringify(key)}, ${JSON.stringify(file)});`;
 }
 
-// Untrusted (users can set test.env): a malformed value falls back to the default.
+// The project context's `ownershipGuard` (or its JSON). A malformed value falls back to
+// the default rather than stopping the run.
 export function parseOwnershipGuardConfig(raw) {
   const fallback = { mode: "warn", allow: [] };
   if (!raw) return fallback;
   try {
-    const value = JSON.parse(raw);
+    const value = typeof raw === "string" ? JSON.parse(raw) : raw;
     const mode = value?.mode === "error" ? "error" : "warn";
     const allow = Array.isArray(value?.allow)
       ? value.allow.filter(
@@ -222,9 +227,7 @@ export function createOwnershipLedger({
     const stack = second === "node" && !deferred ? frames(new Error().stack) : [];
     let outcome;
     if (mode !== "error") {
-      outcome =
-        `  This is a warning today and an error from the next minor; set ` +
-        `reactNative({ ownership: 'error' }) to fail now. `;
+      outcome = `  This is a warning; set reactNative({ ownership: 'error' }) to fail on it. `;
     } else if (deferred) {
       outcome =
         `  Node's ESM loader runs on its own thread here, so this was seen after both ` +
@@ -253,7 +256,7 @@ export function createOwnershipLedger({
       `(docs/ownership-guard.md).`;
     conflicts.push(
       Object.freeze({
-        code: "MODULE_DUAL_EVALUATION",
+        code: "SOURCE_EVALUATED_TWICE",
         file: nodeEntry.filename,
         first: second === "vite" ? "node" : "vite",
         second,
@@ -264,7 +267,7 @@ export function createOwnershipLedger({
       }),
     );
     if (mode === "error" && !deferred) {
-      throw new VitestNativeError("MODULE_DUAL_EVALUATION", message);
+      throw new VitestNativeError("SOURCE_EVALUATED_TWICE", message);
     }
     if (reported.has(key)) return;
     reported.add(key);
@@ -311,11 +314,12 @@ function preserveSymlinks() {
 // Once per worker: from the setup file, or the hot worker at boot.
 export function installOwnershipLedger({ projectRoot = process.cwd() } = {}) {
   if (globalThis[INSTALLED]) return globalThis[INSTALLED];
-  const config = parseOwnershipGuardConfig(process.env[OWNERSHIP_GUARD_ENV]);
+  const context = projectContext();
+  const config = parseOwnershipGuardConfig(context?.ownershipGuard);
   let policy;
   const ownerOf = (file) => {
     if (policy === undefined) {
-      const manifest = parseNativeOwnershipManifest(process.env.VITEST_NATIVE_OWNERSHIP);
+      const manifest = parseNativeOwnershipManifest(context?.ownership);
       policy = manifest
         ? createNativeOwnershipPolicy({
             projectRoot: manifest.projectRoot,
@@ -413,31 +417,33 @@ export function installOwnershipLedger({ projectRoot = process.cwd() } = {}) {
     return originalJson.call(this, module, filename, ...rest);
   };
 
-  Object.defineProperty(globalThis, VITE_MARKER, {
-    configurable: true,
-    value: (key, file) => {
-      drain();
-      ledger.recordVite(key, file);
-    },
-  });
-  const recordEsm = (url, deferred) => {
-    if (typeof url !== "string" || !url.startsWith("file:")) return;
-    const stamp = /[?&]vnhot=(\d+)/.exec(url);
-    let file;
+  const fileOf = (url) => {
+    if (typeof url !== "string" || !url.startsWith("file:")) return null;
     try {
-      file = fileURLToPath(url);
+      return fileURLToPath(url);
     } catch {
-      return;
+      return null;
     }
+  };
+  const recordEsm = (url, deferred) => {
+    const file = fileOf(url);
+    if (file === null) return;
+    const stamp = /[?&]vnhot=(\d+)/.exec(url);
     ledger.recordNode(
       file,
       { via: "esm", generation: stamp ? Number(stamp[1]) : null },
       { key: keyOf(file), deferred },
     );
   };
-  Object.defineProperty(globalThis, NODE_ESM_MARKER, {
+  Object.defineProperty(globalThis, LEDGER_GLOBAL, {
     configurable: true,
-    value: (url) => recordEsm(url, false),
+    value: Object.freeze({
+      vite: (key, file) => {
+        drain();
+        ledger.recordVite(key, file);
+      },
+      nodeEsm: (url) => recordEsm(url, false),
+    }),
   });
   // The off-thread loader posts its ESM loads here. Drained (never listened to) at each
   // Vite evaluation and each file end: nothing keeps the worker alive or throws late.

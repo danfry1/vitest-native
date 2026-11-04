@@ -5,6 +5,7 @@ import path from "node:path";
 import { VitestNativeError } from "../errors.mjs";
 import { esmExportNames } from "./esm-export-names.js";
 import { builtInPreset } from "./built-in.js";
+import { projectContext } from "../context.mjs";
 
 // Skia draws through a JSI binding to its C++, which throws at import in Node
 // ("Native Skia Module failed to correctly install JSI Bindings"). Skia supports tests
@@ -71,7 +72,7 @@ function packageDir(name: string, root: string): string | null {
 
 /** The project root in a test worker, where the plugin sets it. */
 function workerRoot(): string {
-  return process.env.VITEST_NATIVE_PROJECT_ROOT || process.cwd();
+  return projectContext()?.projectRoot ?? process.cwd();
 }
 
 function messageOf(error: unknown): string {
