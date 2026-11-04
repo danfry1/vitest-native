@@ -298,6 +298,44 @@ it("stops a Babel thread that has not answered by the deadline", () => {
   expect(result.message).toMatch(/busy\.js[\s\S]*has not answered in 3 s compiling 0\.0 MB/);
 }, 180_000);
 
+it("waits for the answer when the last answer's wake-up arrives late", () => {
+  // Babel's thread answers by storing to the signal, then waking the caller. The caller
+  // can see the store and go on before that wake-up arrives, when the thread is
+  // descheduled between the two on a busy machine, and the wake-up then lands on its
+  // wait for the next request. This worker answers the first request that way, every
+  // time: it holds that wake-up until the caller is waiting on the next request. The
+  // clock stands still, so only an answer can end that wait.
+  const stale = path.join(root, "stale-wake-worker.mjs");
+  const toolchainUrl = pathToFileURL(
+    path.join(import.meta.dirname, "../src/native/babel-toolchain.mjs"),
+  );
+  fs.writeFileSync(
+    stale,
+    `import { workerData } from "node:worker_threads";\n` +
+      `const { port, signal } = workerData;\n` +
+      `const { handleToolchainRequest } = await import(${JSON.stringify(toolchainUrl.href)});\n` +
+      `const pause = () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1);\n` +
+      `let first = true;\n` +
+      `port.on("message", (request) => {\n` +
+      `  port.postMessage({ ok: handleToolchainRequest(request) });\n` +
+      `  Atomics.store(signal, 0, 1);\n` +
+      `  if (!first) return void Atomics.notify(signal, 0);\n` +
+      `  first = false;\n` +
+      // The caller stores 0 as it sends its next request; Atomics.notify counts the
+      // waiters it woke, so this wakes the caller only once it is waiting on that request.
+      `  while (Atomics.load(signal, 0) !== 0) pause();\n` +
+      `  while (Atomics.notify(signal, 0) === 0) pause();\n` +
+      `});\n`,
+  );
+  const { result } = inChild(`
+    _setToolchainOptions({ deadlineMs: 5_000, now: never(), workerUrl: new URL(${JSON.stringify(pathToFileURL(stale).href)}) });
+    const first = attempt("node_modules/stale/first.js");
+    const second = attempt("node_modules/stale/second.js");
+    console.log("RESULT=" + JSON.stringify({ first, second }));
+  `);
+  expect(result).toEqual({ first: { ok: true }, second: { ok: true } });
+}, 180_000);
+
 it("ends the wait on the real clock when no clock is injected", () => {
   // The tests above drive the deadline with a clock of their own; this one keeps the
   // production clock, so a deadline that never reads elapsed time is caught. No upper

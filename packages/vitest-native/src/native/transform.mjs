@@ -652,11 +652,18 @@ function callToolchain(request) {
   atomicsStore(signal, 0, 0);
   port.postMessage(request);
   const deadline = clock() + deadlineMs;
-  for (;;) {
+  // Only the signal says the request was answered (signal[0]) or the thread ended
+  // (signal[1], also read here: the thread can end between the check above and the
+  // store of 0, which overwrites its signal[0] = 2). A wake-up alone says neither. The
+  // thread stores, then wakes; a caller not yet waiting when the store lands (it was
+  // descheduled after posting, or a wait slice had just timed out) sees the store and
+  // returns. If the thread was descheduled between its store and its wake-up, that
+  // wake-up lands on the caller's wait for its NEXT request, before anything answered
+  // it. Ending the wait on it failed a 0.0 MB file at once as "has not answered in 60 s".
+  while (atomicsLoad(signal, 0) === 0 && atomicsLoad(signal, 1) !== 1) {
     const left = deadline - clock();
     if (left <= 0) break;
-    if (atomicsWait(signal, 0, 0, Math.min(left, 1000)) !== "timed-out") break;
-    if (atomicsLoad(signal, 1) === 1) break;
+    atomicsWait(signal, 0, 0, Math.min(left, 1000));
   }
   const reply = receiveMessageOnPort(port)?.message;
   if (reply === undefined) {
