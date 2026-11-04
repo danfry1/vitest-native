@@ -168,13 +168,22 @@ jobs:
             echo "::error::npm-11.15.0.tgz does not match its published integrity ($actual)."
             exit 1
           fi
-          npm install -g "$RUNNER_TEMP/npm.tgz" --ignore-scripts
+          npm install -g "$RUNNER_TEMP/npm.tgz" --ignore-scripts --no-audit --no-fund
           npm --version
 
       # The lockfile pins every package and its integrity; --ignore-scripts runs no
       # package's lifecycle scripts (the build does not need any).
       - name: Install dependencies (lockfile only, no scripts)
         run: bun install --frozen-lockfile --ignore-scripts
+
+      # The build script runs `bunx --bun tsdown`, and bunx downloads a package it cannot
+      # find installed. Require the lockfile's tsdown, so the build never fetches one.
+      - name: The build's tsdown comes from the lockfile
+        run: |
+          if [ ! -x packages/vitest-native/node_modules/.bin/tsdown ]; then
+            echo "::error::tsdown is not installed from the lockfile; bunx would download it."
+            exit 1
+          fi
 
       - name: Build
         run: bun run build
