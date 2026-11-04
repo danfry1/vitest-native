@@ -98,7 +98,8 @@ export async function startBridgeServer({ fetch, mayServe, root = process.cwd() 
       // the worker loads it through Node, as Vitest would.
       // A virtual module (a plugin's `\0…` id, React Native's facade) has no file: it is
       // generated, not read, and is answered as Vitest answers it.
-      if (!("externalize" in result) && typeof result.file === "string" && !mayServe(result.file)) {
+      const fromFile = typeof result.file === "string" && path.isAbsolute(result.file);
+      if (!("externalize" in result) && fromFile && !mayServe(result.file)) {
         return refused(seq, url);
       }
       return JSON.stringify({ seq, ok: result });
