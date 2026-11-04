@@ -1,6 +1,6 @@
 // Node ESM loader hook (registered via module.register). Intercepts import() of RN —
 // which Module._extensions cannot — Flow-stripping and serving boundary mock source.
-import { createRequire } from "node:module";
+import Module, { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { projectContext } from "../context.mjs";
 import path from "node:path";
@@ -187,6 +187,11 @@ export function initialize(data) {
   // In-thread, `data.hotGeneration` is the worker's hot-generation channel itself
   // (setup.mjs): the facades and the per-file reset reach this module through it.
   generationFacades = Boolean(genView) && data?.inThread === true && Boolean(data.hotGeneration);
+  // Released only through Vitest's interop proxy (see pinFacade), so not at all without it.
+  runnerImportSite =
+    generationFacades && context?.hotReleaseGenerations !== false
+      ? vitestModuleEvaluatorURL(PROJECT_ROOT)
+      : null;
   if (generationFacades) {
     Object.assign(data.hotGeneration, {
       bind: bindFacade,
@@ -312,7 +317,7 @@ function resolveRecover(err, specifier, parent) {
   return resolved;
 }
 
-function resolveAfter(resolved, specifier, context) {
+function resolveAfter(resolved, context) {
   // JSON imports without an explicit `with { type: 'json' }` attribute throw
   // ERR_IMPORT_ATTRIBUTE_MISSING on Node 22+. RN ecosystem packages do
   // `import pkg from './package.json'` unconditionally (e.g. @react-navigation).
@@ -336,7 +341,7 @@ function resolveAfter(resolved, specifier, context) {
     const gen = generationOf();
     if (gen > 0 && !resolved.url.includes("vnhot=")) {
       const url = `${resolved.url}?vnhot=${gen}`;
-      pinFacade(url, specifier, context.parentURL);
+      pinFacade(url, context.parentURL);
       return { ...resolved, url, shortCircuit: true };
     }
   }
@@ -386,7 +391,7 @@ export async function resolve(specifier, context, nextResolve) {
       }
     }
   }
-  return resolveAfter(resolved, specifier, context);
+  return resolveAfter(resolved, context);
 }
 
 /**
@@ -438,7 +443,7 @@ export function resolveSync(specifier, context, nextResolve) {
       }
     }
   }
-  return resolveAfter(resolved, specifier, context);
+  return resolveAfter(resolved, context);
 }
 
 export async function load(url, context, nextLoad) {
@@ -547,6 +552,41 @@ const recording = new Map();
 let liveFacades = [];
 // Generation URLs a file outside the per-file reset imported, so never released.
 const pinnedFacades = new Set();
+// The URL of the module from which Vitest's module runner imports a test file's
+// externalized modules (pinFacade), or null to release nothing.
+let runnerImportSite = null;
+
+/**
+ * Vitest's module evaluator, the module whose `import(file)` loads a test file's
+ * externalized modules (`runExternalModule`): resolved from the installed Vitest's own
+ * `#module-evaluator` import map entry, as Vitest resolves it, in Node's real-path
+ * spelling, which is how Node reports an importer. Null when it cannot be found.
+ */
+function vitestModuleEvaluatorURL(projectRoot) {
+  try {
+    const manifestPath = createRequire(path.join(projectRoot, "package.json")).resolve(
+      "vitest/package.json",
+    );
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    const target = manifest.imports?.["#module-evaluator"]?.default;
+    if (typeof target !== "string") return null;
+    return pathToFileURL(fs.realpathSync(path.resolve(path.dirname(manifestPath), target))).href;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether `source` (a string or bytes) is the file's content on disk. */
+function isFileSource(file, source) {
+  try {
+    const disk = fs.readFileSync(file);
+    return typeof source === "string"
+      ? disk.toString("utf8") === source
+      : Buffer.from(source.buffer, source.byteOffset, source.byteLength).equals(disk);
+  } catch {
+    return false;
+  }
+}
 
 function fingerprintOf(file) {
   try {
@@ -561,7 +601,7 @@ function fingerprintOf(file) {
  * The generation facade for `url`, or undefined to serve it as before. `fingerprint`
  * identifies the module's current source: the compiled code, or the file's stat.
  */
-function generationFacade(url, file, fingerprint) {
+function generationFacade(url, file, fingerprint, loadResult = "returned") {
   if (!generationFacades || url.includes(NODE_SERVED) || file.endsWith(".mjs")) return undefined;
   const stamp = GENERATION.exec(url);
   if (!stamp || fingerprint === undefined) return undefined;
@@ -570,7 +610,7 @@ function generationFacade(url, file, fingerprint) {
   if (known && known.fingerprint === fingerprint) {
     return { format: "module", source: releasableFacade(known.id, stamp[1]), shortCircuit: true };
   }
-  recording.set(key, fingerprint);
+  recording.set(key, { fingerprint, loadResult });
   const inner = JSON.stringify(url + NODE_SERVED);
   return {
     format: "module",
@@ -609,7 +649,7 @@ export function releasableFacade(id, generation) {
  * The facadeModules entry for a module: its unstamped URL, its file and the names its
  * namespace had when Node served it as CommonJS. Exported as a test seam.
  */
-export function facadeModule(url, file, namespaceNames) {
+export function facadeModule(url, file, namespaceNames, loadResult = "returned") {
   // A new entry each time: a facade already served keeps the names it was written with.
   const key = url.replace(STAMP, "");
   const id = facadeModules.length;
@@ -618,6 +658,7 @@ export function facadeModule(url, file, namespaceNames) {
     file,
     names: namespaceNames.filter((name) => name !== "default" && name !== "module.exports"),
     moduleExports: namespaceNames.includes("module.exports"),
+    loadResult,
   };
   return id;
 }
@@ -630,9 +671,15 @@ export function facadeModule(url, file, namespaceNames) {
  * when the generation is retired (releaseGenerations). Exported as a test seam.
  */
 export function bindFacade(id, generation, release) {
-  const { url, file, names } = facadeModules[id];
-  const exports = createRequire(url)(file);
-  liveFacades.push([generation, `${url}?vnhot=${generation}`, release]);
+  const { file, names, loadResult } = facadeModules[id];
+  // As Node's CommonJS translator loads it: through Module._load with no parent, so a
+  // `Module._load` override (a jest.mock) applies as it does in the first generation and
+  // without the hot runtime, and `module.parent` is undefined. A Node release whose
+  // default load asks for that reload (`shouldBeReloadedByCJSLoader`, before 24.18) reads
+  // the module Node cached and ignores what an override returned; later releases use it.
+  const returned = Module._load(file, undefined, false);
+  const exports = loadResult === "cached" ? (Module._cache[file]?.exports ?? {}) : returned;
+  liveFacades.push([generation, `${facadeModules[id].url}?vnhot=${generation}`, release]);
   return [exports, ...names.map((name) => namedExportValue(exports, name))];
 }
 
@@ -647,10 +694,13 @@ function namedExportValue(exports, name) {
 }
 
 function recordExportNames(key, file, names) {
-  const fingerprint = recording.get(key);
+  const pending = recording.get(key);
   recording.delete(key);
-  if (fingerprint !== undefined) {
-    exportNames.set(key, { fingerprint, id: facadeModule(key, file, names) });
+  if (pending !== undefined) {
+    exportNames.set(key, {
+      fingerprint: pending.fingerprint,
+      id: facadeModule(key, file, names, pending.loadResult),
+    });
   }
 }
 
@@ -674,21 +724,20 @@ export function releaseGenerations(current) {
 }
 
 /**
- * Only a test file's own import of a generation may be released: Vitest's module runner
- * imports a resolved absolute path from its own, unstamped module, and the file's
- * modules are reset with it. Any other importer can outlive the file and read the
+ * Only a test file's own import of a generation may be released: the one Vitest's
+ * module runner makes from its module evaluator (runnerImportSite). The file's modules
+ * are reset with it, and what the file left running reads the module through Vitest's
+ * interop proxy, which falls back to the default export it captured when a released
+ * named binding reads undefined. Any other importer can outlive the file and read the
  * bindings later, so the generation it imports is never released: a module outside the
- * per-file reset (the test stack, a resident package), and a stamped ES module, which
- * Node's load cache keeps evaluated for the run (a snapshot serializer, a timer or a
- * resident's import of it can call it files later).
+ * per-file reset (the test stack, a resident package, a resident's absolute-path
+ * import), and a stamped ES module, which Node's load cache keeps evaluated for the run
+ * (a snapshot serializer, a timer or a resident's import of it can call it files later).
  */
-function pinFacade(url, specifier, parentURL) {
-  if (!generationFacades) return;
-  const fromRunner =
-    typeof parentURL === "string" &&
-    !STAMP.test(parentURL) &&
-    (specifier.startsWith("file:") || path.isAbsolute(specifier));
-  if (!fromRunner) pinnedFacades.add(url);
+function pinFacade(url, parentURL) {
+  if (generationFacades && (runnerImportSite === null || parentURL !== runnerImportSite)) {
+    pinnedFacades.add(url);
+  }
 }
 
 /** `load` never awaits: every path returns a result or `nextLoad(...)` directly. */
@@ -701,13 +750,15 @@ export function loadSync(url, context, nextLoad) {
     fromNode = true;
     return nextLoad(nextUrl, nextContext);
   });
-  // Only what Node would load through its CommonJS loader anyway: Node's default load
-  // marks that, or leaves the source to it. Source another hook supplied is served as it
-  // is, since the facade would require the file from disk.
-  const nodeLoads = result.source == null || result.shouldBeReloadedByCJSLoader === true;
-  if (!fromNode || result.format !== "commonjs" || !nodeLoads) return result;
+  if (!fromNode || result.format !== "commonjs") return result;
   const file = fileURLToPath(url);
-  return generationFacade(url, file, fingerprintOf(file)) ?? result;
+  // Only the file as it is on disk, which Node's CommonJS loader would load anyway: a
+  // facade requires the file, so source another hook supplied is served as it is. Node's
+  // default load leaves the source out, or reads the file (marked as one to reload
+  // through Module._load before Node 24.18, not marked since), so it is compared.
+  const reload = result.shouldBeReloadedByCJSLoader === true;
+  if (result.source != null && !reload && !isFileSource(file, result.source)) return result;
+  return generationFacade(url, file, fingerprintOf(file), reload ? "cached" : "returned") ?? result;
 }
 
 function loadModule(url, context, nextLoad) {

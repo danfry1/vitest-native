@@ -13,6 +13,7 @@ export interface ProjectContextFields {
   assetExts?: string[];
   hotPreserveGlobals?: string[];
   hotEsmGeneration?: boolean;
+  hotReleaseGenerations?: boolean;
   registry?: string;
   ownership?: Record<string, unknown>;
   projectDirs?: string[];

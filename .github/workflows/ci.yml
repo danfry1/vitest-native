@@ -129,6 +129,12 @@ jobs:
           # session. Everything runs here, hot runtime included.
           - os: ubuntu-latest
             node-version: 24.13.0
+          # The newest Node 24, unpinned: Node's ESM loader changes within a release line
+          # (24.18 stopped marking a default CommonJS load for reload through
+          # Module._load), and a pinned leg never sees it. The hot runtime's generation
+          # facades depend on that load result (generationFacade in native/loader.mjs).
+          - os: ubuntu-latest
+            node-version: '24'
           # Node 26 is the active LTS line (26.13.0, October 2026) and engines.node
           # (>=24.3.0) admits it, so it runs the full gate too: the loader hooks run
           # in-thread on it, and their behaviour has changed between Node lines before.
