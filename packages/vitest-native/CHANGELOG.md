@@ -99,6 +99,10 @@
   until a font loads. The Minor Changes entry lists each value; `presets: { expo: true }` keeps the
   preset while a suite moves off it.
 
+### Thank you
+
+Thank you to [@AntSplash360](https://github.com/AntSplash360), [@arvidtorbjoernsen](https://github.com/arvidtorbjoernsen), [@believer](https://github.com/believer), [@doutatsu](https://github.com/doutatsu), [@eshvatskyi](https://github.com/eshvatskyi), [@Joozty](https://github.com/Joozty), [@OpenDeernet](https://github.com/OpenDeernet), [@sincraianul](https://github.com/sincraianul) and [@swey](https://github.com/swey) for the issues and pull requests in this release.
+
 ### Minor Changes
 
 - c9de648: **With `hotRuntime` on, the memory plan is sized for the workers that actually run, and a worker count you set is limited only by memory.** To keep the old ceiling of four, set `maxWorkers: 4`.
@@ -119,6 +123,8 @@
   - `Constants.expoConfig` is `{}`, `appOwnership` `null`, `executionEnvironment` `'mock'`; `Font.isLoaded()` is `false` until a font loads, and `Asset.fromModule()` of a number that is not a bundled asset throws (it returned a made-up asset); `preventAutoHideAsync()` and `hideAsync()` resolve `undefined`.
   - `Linking.createURL()` and `Linking.parse()` throw without a scheme: `jest.mock` `expo-constants` with one, or mock `expo-linking`. `vi.mock` does not reach it yet (#322).
 
+  Thanks @arvidtorbjoernsen for reporting this (#319).
+
 - 7b9b795: **React Native 0.88 and Expo SDK 58 join the supported matrix; the verified React Native range is now 0.81–0.88.** No action needed.
 
   - All 85 cross-check probes match on 0.88, and `check-compat` covers every stable export.
@@ -135,11 +141,15 @@
   - `resetAllMocks()` returns the theme to what `StyleSheet.configure()` set.
   - `migrate` deletes a library's own test setup file when a detected preset replaces that library, since its `jest.mock()` calls would replace the preset.
 
+  Thanks @believer for asking for this preset (#286).
+
 - 12a6dc5: **A `skia` preset for Skia, which threw `Native Skia Module failed to correctly install JSI Bindings` at import in tests.** It covers `react-native-skia` (2.15.0 and 3.x) and `@shopify/react-native-skia` (up to 2.14.0) under both engines. Remove a hand-written Skia mock.
 
   - It serves Skia's own test mock over CanvasKit (Skia in WebAssembly), so the `Skia` API computes for real and `Canvas` renders as Views. It adds Skia's Reanimated helpers (`usePathValue`, `useTexture`, …) and a `matchFont` that returns a font.
   - `Preset` gains an optional async `prepare()`, run before any setup or test file; `PresetModule` an optional `exportsFor()`, which reads named exports from the installed package.
   - Workers take the project root from `test.root` (or `--root`), as Vitest does.
+
+  Thanks @believer for asking for this preset (#286).
 
 - 51c351d: **Presets of a project's own work when listed by the path of a module that default-exports them.** Use `presets: { './test/presets/my-lib.ts': true }` beside auto-detection, or `presets: ['./test/presets/my-lib.ts']` in a full list.
 
@@ -194,6 +204,8 @@
   - Not covered: a library file that imports `vitest`. Add the library to `transform.exclude`.
 
 - dff0230: **Under the native engine, `globalThis.expo.SharedObject` has `release()`.** expo-modules-core's `useReleasingSharedObject` hooks, which expo-video, expo-audio and expo-image build on, call it from their effect cleanup, so every unmount of such a component threw `TypeError: object?.release is not a function`. React reports an error in a cleanup through `console.error` instead of rethrowing, and Vitest 5 hides the console output of passing tests, so this showed only with `silent: false`. The stand-in now has the no-op `release()` the native class has; `SharedRef` and the fabricated native classes inherit it. No action needed.
+
+  Thanks @swey for the fix (#417).
 
 - 858e0c7: **Native engine: Expo's runtime globals are installed only when the project declares `expo` or a package that depends on it.** Before, a package where `expo` merely resolved, such as one in a hoisted workspace, failed every test file in setup with `'expo' shipped source Node can't run directly` or `Cannot find module '…/expo/build/winter/runtime'` on SDK 58.
 
@@ -363,6 +375,8 @@
   - A different physical copy of Vitest stops the run with `VITEST_TWIN_INSTANCE`, naming both paths. Install one Vitest both resolve. The hot runtime refuses such a project; `hotRuntime: false` also works.
   - Vitest 2 and 3 still fail with `UNSUPPORTED_PEER`.
 
+  Thanks @eshvatskyi for reporting this (#354).
+
 - 432b86c: **Workers read their configuration from one validated project context file, and fail with `CONTEXT_INVALID` when it is missing, stale or malformed.** Set the matching `reactNative()` option (such as `platform`) and remove the variable if the plugin warns that a `VITEST_NATIVE_*` variable is no longer read.
 
   - About twenty `VITEST_NATIVE_*` environment variables carried it before, and a bad value silently became a default. They no longer reach workers.
@@ -393,6 +407,8 @@
   - Expo's runtime requires `react-native/setup-env`, which replaced Node's timers with React Native's native-driven ones, so the first awaited timer never fired. That entry is now skipped, as `InitializeCore` already was.
   - The `expo-linking` preset adds `getLinkingURL`, `openURL` and `unwrapDevLaunchURL`, which expo-router 58 calls while rendering a route tree.
 
+  Thanks @AntSplash360 for reporting this (#296).
+
 - 2ede5df: **Native engine: in an Expo project, Expo's runtime globals (`URL`, `structuredClone`, `DOMException` …) are installed before your setup files, in every test file, as jest-expo does.** No action needed.
 
   - A `fetch` mocked in a setup file is no longer replaced when a test imports Expo. Global `fetch` stays Node's, so MSW, nock and undici's `MockAgent` keep intercepting where Expo's `fetch` failed with `request.start is not a function`.
@@ -412,6 +428,8 @@
   - A gesture-handler gesture built before a reset, such as `Gesture.Pan()` at module scope, keeps chaining, and so do reanimated's builders: `LinearTransition.springify().damping(20)` and `SharedTransition.duration(300).custom(...)` no longer throw.
   - Mock engine: `Platform.select()` follows `Platform.OS` after a reset, so a setup file's `setPlatform('android')` holds.
   - `Platform.select()` picks by key presence, as React Native does, so an explicit `ios: undefined` selects `undefined`.
+
+  Thanks @Joozty for reporting this and the first fix (#278, #279).
 
 - df06716: **Native engine: an imported BMP image's `width` and `height` are read as Metro 0.87.1 reads them.** An OS/2 bitmap (12-byte header) gets its real dimensions instead of a misread width, and a file whose header size is not a bitmap's registers without dimensions. No action needed.
 
@@ -516,6 +534,8 @@
 
 - 01a9afc: **Native engine: importing `react-native` no longer prints every deprecation notice.** Importing only `Pressable` printed the notices for `SafeAreaView`, `Clipboard`, `PushNotificationIOS` and others. No action needed. Deprecated members are now getters read only when used, so a notice appears only in tests that use the member. The export-name parser no longer picks up keys from code after the exports object.
 
+  Thanks @doutatsu for reporting this (#202).
+
 - 8300ec6: **Native engine: preset mocks are built on first use in each test file, so long hot-runtime runs no longer run out of memory.** No action needed.
 
   - Every auto-detected preset mock was rebuilt for every file (about 900 `vi.fn()`s with twenty presets), and Vitest keeps every mock, so heap grew about 4 MB per file and a 1,000-file single-worker run ran out of memory.
@@ -540,7 +560,11 @@
   - Aliases match the whole specifier or at a `/` boundary, the longest wins, and an extensionless result follows the platform's extension order (`@/Button` → `Button.ios.tsx`).
   - Regex aliases and custom resolvers cannot reach the worker; an unresolved specifier then says so.
 
+  Thanks @swey for reporting this (#174).
+
 - d4ae5bf: **The resolver-agreement warning (`'x' resolves to two different files`) prints only under `diagnostics`.** It fired on every test file for packages only Node requires, such as `test-renderer`, `nanoid` and Babel's source-map packages. No action needed. The warning now says it is a risk, not a proven duplicate, and that it compares against Vite's default main fields.
+
+  Thanks @doutatsu for reporting this (#201).
 
 - 963b35e: **`vitest-native/rntl-matchers` types RNTL's matchers on RNTL 12 and 13.** `toHaveTextContent`, `toBeVisible`, `toBeDisabled` and the others were untyped there, silently under `skipLibCheck: true`. No action needed.
 
