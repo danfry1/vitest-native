@@ -551,27 +551,6 @@ describe("a jest-expo app's package.json#jest", () => {
     expect(doctor).toContain("⚠ @lingui/babel-plugin-lingui-macro compiles macro imports away");
   });
 
-  it("judges the worklets plugin unneeded where worklets runs as itself, by its Jest resolver", () => {
-    const worklets = (withResolver: boolean) =>
-      blueskyLike({
-        "node_modules/react-native-worklets/package.json": {
-          name: "react-native-worklets",
-          version: withResolver ? "0.13.0" : "0.5.1",
-        },
-        ...(withResolver ? { "node_modules/react-native-worklets/jest/resolver.js": "" } : {}),
-      });
-    const verdict = (root: string) =>
-      classifyBabelPlugins(readBabelConfig(root), root, []).find(
-        (p) => p.name === "react-native-worklets/plugin",
-      );
-    const runsItself = verdict(worklets(true));
-    expect(runsItself?.verdict).toBe("unneeded");
-    expect(runsItself?.reason).toContain("runs as itself under the native engine");
-    // Before worklets 0.9 there is no resolver, its preset applies, and here it is not
-    // active, so the plugin is left to judge.
-    expect(verdict(worklets(false))?.verdict).toBe("unknown");
-  });
-
   it("emits the Babel plugin when Vite 8 and @rolldown/plugin-babel are installed", () => {
     const report = analyzeJestConfig(
       blueskyLike({

@@ -42,7 +42,7 @@ write(
     version: "1.0.0",
     main: "index.js",
     // dep-p is its own; dep-b it shares with the app, as a peer.
-    dependencies: { "dep-p": "1.0.0", "dep-b": "1.0.0" },
+    dependencies: { "dep-p": "1.0.0", "dep-q": "1.0.0", "dep-b": "1.0.0" },
     peerDependencies: { "dep-b": "1.0.0" },
   }),
 );
@@ -53,7 +53,8 @@ write(
     `const singleton = require("react-native/Libraries/Singleton");`,
     `const { helper } = require("./helper");`,
     `module.exports = { singleton, helper, dep: require("dep-b"), later: () => require("./later"),`,
-    `  own: require("dep-p"), data: require("./data.json"), other: require("lib-c") };`,
+    `  own: require("dep-p"), data: require("./data.json"), other: require("lib-c"),`,
+    `  part: require("dep-q/part") };`,
   ].join("\n"),
 );
 write(path.join(nm, "lib-a", "helper.js"), `exports.helper = "helper";\n`);
@@ -63,6 +64,20 @@ write(
   JSON.stringify({ name: "dep-p", version: "1.0.0", main: "index.js" }),
 );
 write(path.join(nm, "dep-p", "index.js"), `module.exports = { own: "dep-p" };\n`);
+// A dependency lib-a reaches only part of: its entry is never in the registry.
+write(
+  path.join(nm, "dep-q", "package.json"),
+  JSON.stringify({ name: "dep-q", version: "1.0.0", main: "index.js" }),
+);
+write(path.join(nm, "dep-q", "index.js"), `exports.part = require("./part");\n`);
+write(path.join(nm, "dep-q", "part.js"), `module.exports = { part: "dep-q" };\n`);
+// A library whose graph cannot be compiled.
+write(
+  path.join(nm, "lib-broken", "package.json"),
+  JSON.stringify({ name: "lib-broken", version: "1.0.0", main: "index.js" }),
+);
+write(path.join(nm, "lib-broken", "index.js"), `module.exports = require("./bad");\n`);
+write(path.join(nm, "lib-broken", "bad.js"), `module.exports = {;\n`);
 // A second library entry, which lib-a requires by name.
 write(
   path.join(nm, "lib-c", "package.json"),
@@ -153,6 +168,7 @@ describe("library registry", () => {
         "node_modules/dep-b/index.js",
         "node_modules/dep-p/index.js",
         "node_modules/lib-c/index.js",
+        "node_modules/dep-q/part.js",
       ],
       sameSingleton: true,
       singletons: 1,
@@ -274,6 +290,19 @@ describe("library registry", () => {
     expect(out).toEqual({ other: "preset" });
   });
 
+  it("applies a jest.mock of another package before a preset shadowing it", () => {
+    const out = run(`
+      globalThis.__vitest_native_preset_require = (request, file) =>
+        request === "lib-c" ? { other: "preset" } : Module._load(file, null, false);
+      const target = req.resolve("lib-c");
+      const mock = (file) => (file === target ? { other: "jest.mock" } : mock.NONE);
+      mock.NONE = Symbol("none");
+      globalThis.__vitest_native_node_mock_for = mock;
+      return req("lib-a").other;
+    `);
+    expect(out).toEqual({ other: "jest.mock" });
+  });
+
   it("resolves a library's files with its own Jest resolver", () => {
     expect(run(`return req("react-native-worklets");`)).toBe("js");
   });
@@ -294,5 +323,49 @@ describe("library registry", () => {
       { install: false },
     );
     expect(out).toBeNull();
+  });
+
+  it("serves its modules to a file of their package that Node loaded, as one instance", () => {
+    const out = run(`
+      const lib = req("lib-a");
+      // dep-q's entry is not in the registry, so Node loads it; its relative require
+      // of a file the registry holds gets the registry's instance.
+      return { same: req("dep-q").part === lib.part, nodeLoaded: added() };
+    `);
+    expect(out).toEqual({
+      same: true,
+      nodeLoaded: ["node_modules/dep-b/index.js", "node_modules/dep-q/index.js"],
+    });
+  });
+
+  it("records a failed build, and does not attempt it again until a file it read changes", () => {
+    const out = run(
+      `
+      const fs = await import("node:fs");
+      const broken = { ...options, libraryEntries: ["lib-broken"], failOnError: false };
+      const first = buildLibraryRegistry(broken);
+      let recorded;
+      try {
+        buildLibraryRegistry({ ...broken, cacheOnly: true, failOnError: true });
+      } catch (error) {
+        recorded = error.message.startsWith("library registry: ");
+      }
+      const file = req.resolve("lib-broken/bad.js");
+      const source = fs.readFileSync(file, "utf8");
+      try {
+        fs.writeFileSync(file, "module.exports = {};\\n");
+        return {
+          first,
+          recorded,
+          afterFix: buildLibraryRegistry({ ...broken, cacheOnly: true, failOnError: true }),
+          rebuilt: typeof buildLibraryRegistry(broken) === "string",
+        };
+      } finally {
+        fs.writeFileSync(file, source);
+      }
+    `,
+      { install: false },
+    );
+    expect(out).toEqual({ first: null, recorded: true, afterFix: null, rebuilt: true });
   });
 });

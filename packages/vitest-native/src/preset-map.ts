@@ -78,15 +78,11 @@ export const SELF_TESTING_FROM_MAJOR: Partial<Record<keyof typeof AUTO_DETECT_PR
  *   the preset off, 4 with it on. The preset was missing API (`hide`, `setOptions`,
  *   `useAssets`, `canOpenURL` …) and answered with values jest-expo never gives
  *   (`Constants.expoConfig.name === 'test-app'`).
- * - worklets: react-native-worklets runs as itself in its JS implementation, through
- *   its own Jest resolver (native/jest-resolvers.mjs), as under Jest. The reanimated
- *   preset's module there is reanimated's own mock, which loads the real reanimated
- *   over the real worklets.
  *
  * The mock engine has no real React Native to run them on, so it keeps these presets.
  * `presets: { expo: true }` applies one under the native engine too.
  */
-export const NATIVE_ENGINE_RUNS_PACKAGES: readonly PresetName[] = ["expo", "worklets"];
+export const NATIVE_ENGINE_RUNS_PACKAGES: readonly PresetName[] = ["expo"];
 
 /**
  * Whether `pkg`, resolved from `projectRoot`, ships the Jest resolver its JS
@@ -121,11 +117,50 @@ export function reanimatedDir(root: string): string | null {
   }
 }
 
+/** A library's own Jest mock, which a preset's module is under the native engine. */
+export interface LibraryMock {
+  /** The package the preset shadows. */
+  pkg: string;
+  /** The mock's built file inside the package, as `require` takes it. */
+  file: string;
+}
+
+/** react-native-worklets' own mock, which reanimated's own mock runs over. */
+export const WORKLETS_MOCK: LibraryMock = {
+  pkg: "react-native-worklets",
+  file: "lib/module/mock.js",
+};
+
+/** The installed package's directory, from `root`, when it ships `mock`; else null. */
+export function libraryMockDir(mock: LibraryMock, root: string): string | null {
+  const key = `${root}\0${mock.pkg}`;
+  let dir = mockDirs.get(key);
+  if (dir === undefined) {
+    dir = null;
+    // On disk, up the node_modules directories: through require(), a preset's
+    // require() bridge in a mock-engine worker answers for the package.
+    for (let at = path.resolve(root); ; at = path.dirname(at)) {
+      const candidate = path.join(at, "node_modules", mock.pkg);
+      if (fs.existsSync(path.join(candidate, "package.json"))) {
+        if (fs.existsSync(path.join(candidate, mock.file))) dir = fs.realpathSync(candidate);
+        break;
+      }
+      if (path.dirname(at) === at) break;
+    }
+    mockDirs.set(key, dir);
+  }
+  return dir;
+}
+// Asked by a preset's module on every test file; the installed packages do not change
+// during a run.
+const mockDirs = new Map<string, string | null>();
+
 /**
  * Whether reanimated's own mock can run for `projectRoot`: it loads the real package,
  * whose JS implementation loads only through reanimated's and worklets' Jest resolvers
- * (reanimated 4.7, worklets 0.9). Before those, the real package's `.native` initializers
- * throw, and the module below serves instead, as under the mock engine.
+ * (reanimated 4.7, worklets 0.9), over worklets' own mock. Before those, the real
+ * package's `.native` initializers throw, and the module below serves instead, as under
+ * the mock engine.
  */
 export function libraryMockUsable(projectRoot: string): boolean {
   let usable = mockUsable.get(projectRoot);
@@ -134,20 +169,20 @@ export function libraryMockUsable(projectRoot: string): boolean {
     usable =
       dir !== null &&
       shipsJestResolver(projectRoot, "react-native-reanimated") &&
-      shipsJestResolver(dir, "react-native-worklets");
+      shipsJestResolver(dir, "react-native-worklets") &&
+      libraryMockDir(WORKLETS_MOCK, dir) !== null;
     mockUsable.set(projectRoot, usable);
   }
   return usable;
 }
-// Asked by the preset's module on every test file; the installed packages do not
-// change during a run.
+// Asked by the preset's module on every test file.
 const mockUsable = new Map<string, boolean>();
 
 /**
  * The entries of the library module graphs the native engine precompiles into the
  * library registry (native/registry.mjs, buildLibraryRegistry), for the presets active
- * under it: reanimated's own mock when the reanimated preset serves it, and worklets
- * when it runs as itself. Without them those packages load file by file, as before.
+ * under it: each library's own mock that a preset's module is. Without them those
+ * packages load file by file.
  */
 export function libraryRegistryEntries(
   projectRoot: string,
@@ -157,38 +192,25 @@ export function libraryRegistryEntries(
   if (activePresets.includes("reanimated") && libraryMockUsable(projectRoot)) {
     entries.push("react-native-reanimated/mock");
   }
-  if (
-    !activePresets.includes("worklets") &&
-    shipsJestResolver(projectRoot, "react-native-worklets")
-  ) {
-    entries.push("react-native-worklets");
+  if (activePresets.includes("worklets") && libraryMockDir(WORKLETS_MOCK, projectRoot)) {
+    entries.push(`${WORKLETS_MOCK.pkg}/${WORKLETS_MOCK.file}`);
   }
   return entries;
 }
 
-/** Presets that step aside under the native engine only when their package can run there. */
-const RUNS_UNDER_NATIVE_WHEN: Partial<Record<string, (projectRoot: string) => boolean>> = {
-  worklets: (root) => shipsJestResolver(root, "react-native-worklets"),
-};
-
 /**
  * Whether an auto-detected preset applies under `engine`, given the `presets` option:
  * every one under the mock engine, and under the native engine all but those in
- * NATIVE_ENGINE_RUNS_PACKAGES, unless the option turns one on (`{ expo: true }`). Under
- * the native engine worklets' preset steps aside only when the installed worklets ships
- * its Jest resolver, which needs `projectRoot`; without one it applies.
+ * NATIVE_ENGINE_RUNS_PACKAGES, unless the option turns one on (`{ expo: true }`).
  */
 export function autoDetectedPresetApplies(
   preset: string,
   engine: "mock" | "native",
   presetsOption?: unknown,
-  projectRoot?: string,
 ): boolean {
   if (engine === "mock" || !(NATIVE_ENGINE_RUNS_PACKAGES as readonly string[]).includes(preset)) {
     return true;
   }
-  const runsWhen = RUNS_UNDER_NATIVE_WHEN[preset];
-  if (runsWhen && (projectRoot === undefined || !runsWhen(projectRoot))) return true;
   return (
     presetsOption !== null &&
     typeof presetsOption === "object" &&

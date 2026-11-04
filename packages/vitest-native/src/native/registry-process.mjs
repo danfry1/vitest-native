@@ -57,10 +57,28 @@ function cachedRegistries(options) {
   });
   if (!registry) return { registry: null, libraryRegistry: null, complete: false };
   const wantsLibrary = (options.libraryEntries?.length ?? 0) > 0;
-  const libraryRegistry = wantsLibrary
-    ? buildLibraryRegistry({ ...options, cacheOnly: true, failOnError: true, diagnostics: false })
-    : null;
-  return { registry, libraryRegistry, complete: !wantsLibrary || libraryRegistry !== null };
+  if (!wantsLibrary) return { registry, libraryRegistry: null, complete: true };
+  try {
+    const libraryRegistry = buildLibraryRegistry({
+      ...options,
+      cacheOnly: true,
+      failOnError: true,
+      diagnostics: false,
+    });
+    return { registry, libraryRegistry, complete: libraryRegistry !== null };
+  } catch (error) {
+    // Entries that do not resolve, or a build of these inputs that failed before: a
+    // build would fail the same way. React Native's registry stays in use.
+    const reason = String(error?.message ?? error);
+    return {
+      registry,
+      libraryRegistry: null,
+      complete: true,
+      libraryError: reason.startsWith("library registry: ")
+        ? reason
+        : `library registry: ${reason}`,
+    };
+  }
 }
 
 /**
@@ -85,7 +103,10 @@ export async function buildRegistryFor(options, compiler = compileRegistryInChil
     // A warm run is just the cache keys + manifest stats in this process. In
     // particular, it never initializes Babel and never launches a child.
     const warm = cachedRegistries(options);
-    if (warm.complete) return { registry: warm.registry, libraryRegistry: warm.libraryRegistry };
+    if (warm.complete) {
+      if (warm.libraryError) _warnRegistryUnavailable(warm.libraryError);
+      return { registry: warm.registry, libraryRegistry: warm.libraryRegistry };
+    }
 
     const result = await compiler(
       fileURLToPath(new URL("./registry-compiler.mjs", import.meta.url)),
@@ -126,7 +147,8 @@ export async function buildRegistryFor(options, compiler = compileRegistryInChil
           );
         }
       }
-      if (!built.complete) {
+      if (built.libraryError) _warnRegistryUnavailable(built.libraryError);
+      else if (!built.complete) {
         _warnRegistryUnavailable(
           `library registry: ${result.libraryError ?? result.error ?? "bounded compiler completed without a usable cache entry"}`,
         );

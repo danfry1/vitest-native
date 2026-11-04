@@ -293,17 +293,6 @@ export function isUtilitySubpath(specifier) {
   return leaf !== null && UTILITY_SUBPATH_LEAVES.has(leaf);
 }
 
-// The preset package a RESOLVED file belongs to, when the import that reached it came
-// from outside that package: `{ pkg, subpath }` ("…/node_modules/expo-asset/build/
-// index.js" → { pkg: "expo-asset", subpath: "build/index.js" }), else null.
-//
-// Node's ESM loader only sees bare names for `import`. A CommonJS module that the
-// loader compiled and returned with its source (every `.ts` package, such as `expo`)
-// runs with the loader's own `require`, which resolves the request through
-// `Module._resolveFilename` first and passes the hooks a file URL — so a bare-name
-// redirect never matches and the real native package loads. Files a preset package
-// loads from itself are its own internals and stay as they are (only reachable once
-// the real entry already loaded).
 /**
  * The package `file` belongs to: the one after its last `node_modules/`, so a package
  * nested inside another's node_modules is its own. Null outside node_modules.
@@ -318,6 +307,17 @@ export function owningPackageOfFile(file) {
   return pkg === rest ? null : pkg;
 }
 
+// The preset package a RESOLVED file belongs to, when the import that reached it came
+// from outside that package: `{ pkg, subpath }` ("…/node_modules/expo-asset/build/
+// index.js" → { pkg: "expo-asset", subpath: "build/index.js" }), else null.
+//
+// Node's ESM loader only sees bare names for `import`. A CommonJS module that the
+// loader compiled and returned with its source (every `.ts` package, such as `expo`)
+// runs with the loader's own `require`, which resolves the request through
+// `Module._resolveFilename` first and passes the hooks a file URL — so a bare-name
+// redirect never matches and the real native package loads. Files a preset package
+// loads from itself are its own internals and stay as they are (only reachable once
+// the real entry already loaded).
 export function presetPackageOfFile(file, parentFile, isPresetPackage) {
   const norm = toPosix(file);
   const marker = "/node_modules/";

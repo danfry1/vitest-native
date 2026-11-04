@@ -82,12 +82,21 @@ export function _warnRegistryUnavailable(rawReason) {
   warnRegistryUnavailable(rawReason);
 }
 
+const LIBRARY_PREFIX = "library registry: ";
 function warnRegistryUnavailable(rawReason) {
   // Node appends a "Require stack:" block to resolution failures; one line is
   // enough to identify the cause without turning a warning into a wall of text.
   const reason = String(rawReason).split("\n")[0].trim();
   if (reportedRegistryFailures.has(reason)) return;
   reportedRegistryFailures.add(reason);
+  if (reason.startsWith(LIBRARY_PREFIX)) {
+    console.warn(
+      `[vitest-native] (native) could not precompile the library registry ` +
+        `(${reason.slice(LIBRARY_PREFIX.length)}); those libraries load file by file, which ` +
+        "is slower. React Native's registry is unaffected, and results are unaffected.",
+    );
+    return;
+  }
   console.warn(
     `[vitest-native] (native) could not precompile the React Native registry (${reason}); ` +
       "falling back to per-file module loading, which is slower. Tests still run and " +
@@ -398,17 +407,17 @@ function emit(files, modules, { library = false } = {}) {
   const outside = library
     ? [
         `function __out(t, q) {`,
-        `  const rn = __rnIdOf.get(t);`,
-        `  if (rn === undefined) {`,
-        `    const preset = globalThis.__vitest_native_preset_require;`,
-        `    return preset === undefined ? __ext(t) : preset(q, t);`,
-        `  }`,
+        // A jest.mock of the target wins, then a preset shadowing it, as for a require
+        // that goes through Node's loader (jest-compat's hook runs first there).
         `  const mock = globalThis.__vitest_native_node_mock_for;`,
         `  if (mock !== undefined) {`,
         `    const v = mock(t);`,
         `    if (v !== mock.NONE) return v;`,
         `  }`,
-        `  return __rnLoad(rn);`,
+        `  const rn = __rnIdOf.get(t);`,
+        `  if (rn !== undefined) return __rnLoad(rn);`,
+        `  const preset = globalThis.__vitest_native_preset_require;`,
+        `  return preset === undefined ? __ext(t) : preset(q, t);`,
         `}`,
       ]
     : [];
@@ -602,29 +611,40 @@ function publishLayer({ registryFile, key, roots, inline, options, library, pinn
   // note above the externals loop below.
   const externals = new Set();
   const queue = [...roots].reverse();
-  while (queue.length > 0) {
-    const file = queue.pop();
-    if (modules.has(file)) continue;
-    const { code, scan } = sourceFor(file, { ...options, library });
-    const deps = {};
-    if (scan) {
-      for (const match of code.matchAll(REQUIRE_RE)) {
-        const request = match[2];
-        if (request in deps) continue;
-        const target = resolveTarget(request, file, options);
-        deps[request] = target;
-        if (target === null) continue;
-        const ext = path.extname(target).toLowerCase();
-        if (inline(target, file) && (!PASSTHROUGH_EXT.has(ext) || (library && ext === ".json"))) {
-          queue.push(target);
-        } else {
-          externals.add(target);
+  let file;
+  try {
+    walk();
+  } catch (error) {
+    // What the walk had read when it failed, the failing file included: a recorded
+    // failure stands until one of them changes (buildLibraryRegistry).
+    error.filesRead = [...manifest.map(([read]) => read), file];
+    throw error;
+  }
+  function walk() {
+    while (queue.length > 0) {
+      file = queue.pop();
+      if (modules.has(file)) continue;
+      const { code, scan } = sourceFor(file, { ...options, library });
+      const deps = {};
+      if (scan) {
+        for (const match of code.matchAll(REQUIRE_RE)) {
+          const request = match[2];
+          if (request in deps) continue;
+          const target = resolveTarget(request, file, options);
+          deps[request] = target;
+          if (target === null) continue;
+          const ext = path.extname(target).toLowerCase();
+          if (inline(target, file) && (!PASSTHROUGH_EXT.has(ext) || (library && ext === ".json"))) {
+            queue.push(target);
+          } else {
+            externals.add(target);
+          }
         }
       }
+      modules.set(file, { code, deps });
+      const st = fs.statSync(file);
+      manifest.push([file, st.mtimeMs, st.size]);
     }
-    modules.set(file, { code, deps });
-    const st = fs.statSync(file);
-    manifest.push([file, st.mtimeMs, st.size]);
   }
 
   // Externals are require()d through pre-resolved absolute paths baked into the
@@ -879,6 +899,7 @@ export function buildLibraryRegistry({
   if (dir === null) return null;
 
   const registryFile = path.join(dir, `lib-${platform}-${key}.cjs`);
+  const failureFile = `${registryFile}.failed.json`;
   const meta = cachedLayer(registryFile, key);
   if (meta !== null) {
     if (diagnostics) {
@@ -887,6 +908,16 @@ export function buildLibraryRegistry({
       );
     }
     return registryFile;
+  }
+  // A build of these inputs that failed is not attempted again until one of the
+  // files it read changes: a library registry is an optimisation, and relaunching
+  // the compiler on every run to fail the same way would cost each run its build.
+  const failed = recordedFailure(failureFile, key);
+  if (failed !== null) {
+    const error = new Error(`library registry: ${failed}`);
+    if (failOnError) throw error;
+    warnRegistryUnavailable(error.message);
+    return null;
   }
   if (cacheOnly) return null;
 
@@ -930,10 +961,29 @@ export function buildLibraryRegistry({
     }
     return registryFile;
   } catch (error) {
+    recordFailure(failureFile, key, error, [...roots, ...libraryResolverFiles(projectRoot)]);
     if (failOnError) throw error;
-    warnRegistryUnavailable(error?.message ?? "unknown error");
+    warnRegistryUnavailable(`library registry: ${error?.message ?? "unknown error"}`);
     return null;
   }
+}
+
+/** The reason a library registry build of `key` failed, while its inputs are unchanged. */
+function recordedFailure(failureFile, key) {
+  if (!fs.existsSync(failureFile)) return null;
+  const record = JSON.parse(fs.readFileSync(failureFile, "utf8"));
+  return record.key === key && manifestValid(record.manifest) ? String(record.reason) : null;
+}
+
+/** Record a failed library registry build, against the files it read. */
+function recordFailure(failureFile, key, error, alwaysRead) {
+  const manifest = [];
+  for (const file of new Set([...(error?.filesRead ?? []), ...alwaysRead])) {
+    const st = typeof file === "string" ? fs.statSync(file, { throwIfNoEntry: false }) : undefined;
+    if (st) manifest.push([file, st.mtimeMs, st.size]);
+  }
+  const reason = String(error?.message ?? error).split("\n")[0];
+  publishAtomically(failureFile, JSON.stringify({ key, reason, manifest }));
 }
 
 /**
@@ -1043,9 +1093,10 @@ const NOT_SERVED = Symbol("not served");
  * loaded (those packages then keep loading through the per-file hooks).
  *
  * `serve` answers a request the library registry owns: an absolute path that is one
- * of its modules (the ESM loader's facades require by path), or a bare request for
- * one of its packages, resolved from its parent by Node's resolution as the per-file
- * hooks see it. Any other request costs one Set lookup.
+ * of its modules (the ESM loader's facades require by path), a bare request for one of
+ * its packages, or a relative request from a file of those packages that Node loaded,
+ * resolved from its parent by Node's resolution as the per-file hooks see it. Any
+ * other request costs a Set lookup.
  */
 function linkLibraryRegistry(req, file, rnRegistry) {
   if (!file) return null;
@@ -1075,8 +1126,17 @@ function linkLibraryRegistry(req, file, rnRegistry) {
       if (id === undefined) {
         // A request the registry's own modules could not resolve at build time
         // has nothing to resolve against here either: the per-file hooks decide.
-        if (!packages.has(packageNameOf(request))) return NOT_SERVED;
         if (!parent?.filename || isRegistryFile(parent.filename)) return NOT_SERVED;
+        // A request for one of its packages by name, or a relative one from a file of
+        // those packages that Node loaded (an entry the library never reached, such as
+        // semver's index.js): either way the target, when it is one of the registry's
+        // modules, is that module, so a package is one set of instances whichever way
+        // it is reached.
+        const owner =
+          request.charCodeAt(0) === 46 /* . */
+            ? owningPackageOfFile(parent.filename)
+            : packageNameOf(request);
+        if (!packages.has(owner)) return NOT_SERVED;
         const key = `${path.dirname(parent.filename)}\0${request}`;
         id = byName.get(key);
         if (id === undefined) {
