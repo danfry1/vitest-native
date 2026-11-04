@@ -721,3 +721,289 @@ describe("ecosystem detection: a package named in transform", () => {
     expect(detected).not.toContain("helper-dep");
   });
 });
+
+describe("ecosystem detection: workspace members the run reaches", () => {
+  /**
+   * A pnpm-shaped workspace: `feature` depends on the workspace library `@w/ui` (which
+   * declares expo-image and publishes an exports map without "./package.json"), and can
+   * alias into `@w/tokens`, which it does not declare. `app` declares expo, so expo is
+   * detected; expo reaches expo-asset only through its own dependencies.
+   */
+  function monorepo(): { root: string; feature: string; tokens: string } {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-members-")));
+    roots.push(root);
+    const write = (file: string, value: unknown) => {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify(value));
+    };
+    const link = (target: string, at: string) => {
+      fs.mkdirSync(path.dirname(at), { recursive: true });
+      fs.symlinkSync(target, at, "junction");
+    };
+    write(path.join(root, "package.json"), {
+      name: "w",
+      private: true,
+      workspaces: ["packages/*"],
+    });
+    const store = (name: string) =>
+      path.join(root, "node_modules", ".pnpm", name, "node_modules", name);
+    const pkg = (name: string, fields: Record<string, unknown>) =>
+      write(path.join(store(name), "package.json"), { name, version: "1.0.0", ...fields });
+    pkg("react-native", {});
+    pkg("expo", { peerDependencies: { "react-native": "*" }, dependencies: { "expo-asset": "*" } });
+    pkg("expo-asset", { peerDependencies: { expo: "*", "react-native": "*" } });
+    pkg("expo-image", { peerDependencies: { expo: "*", "react-native": "*" } });
+    pkg("rn-widget", {
+      peerDependencies: { "react-native": "*" },
+      dependencies: { "widget-internals": "*" },
+    });
+    pkg("widget-internals", {});
+    link(store("expo-asset"), path.join(path.dirname(store("expo")), "expo-asset"));
+    link(store("expo"), path.join(path.dirname(store("expo-image")), "expo"));
+    link(
+      store("widget-internals"),
+      path.join(path.dirname(store("rn-widget")), "widget-internals"),
+    );
+    const member = (dir: string, manifest: Record<string, unknown>, links: string[]) => {
+      const at = path.join(root, "packages", dir);
+      write(path.join(at, "package.json"), manifest);
+      for (const name of links) link(store(name), path.join(at, "node_modules", name));
+      return at;
+    };
+    member("app", { name: "@w/app", dependencies: { expo: "*", "react-native": "*" } }, [
+      "expo",
+      "react-native",
+    ]);
+    const ui = member(
+      "ui",
+      {
+        name: "@w/ui",
+        exports: { ".": "./src/index.tsx" },
+        dependencies: { "expo-image": "*" },
+        peerDependencies: { "react-native": "*" },
+      },
+      ["expo-image", "react-native"],
+    );
+    const tokens = member("tokens", { name: "@w/tokens", dependencies: { "rn-widget": "*" } }, [
+      "rn-widget",
+    ]);
+    const feature = member(
+      "feature",
+      { name: "@w/feature", dependencies: { "@w/ui": "workspace:*", "react-native": "*" } },
+      ["react-native"],
+    );
+    link(ui, path.join(feature, "node_modules", "@w", "ui"));
+    return { root, feature, tokens };
+  }
+  const detect = (
+    dir: string,
+    reachedPaths: string[] = [],
+    onReachedUndeclared?: (n: string) => void,
+  ) =>
+    detectEcosystemPackages(dir, [], [], [], [], undefined, { reachedPaths, onReachedUndeclared });
+
+  it("walks what a declared workspace member depends on", () => {
+    // feature declares @w/ui; @w/ui reaches expo-image, whose peer expo reaches expo-asset.
+    const { feature } = monorepo();
+    expect(detect(feature)).toEqual(expect.arrayContaining(["expo-image", "expo", "expo-asset"]));
+  });
+
+  it("does not detect the workspace member itself", () => {
+    // Which owner a workspace library has is the ownership track's decision (#427).
+    expect(detect(monorepo().feature)).not.toContain("@w/ui");
+  });
+
+  it("walks what an aliased, undeclared workspace member depends on, and names it", () => {
+    const { feature, tokens } = monorepo();
+    const named: string[] = [];
+    const detected = detect(feature, [path.join(tokens, "src")], (name) => named.push(name));
+    expect(detected).toEqual(expect.arrayContaining(["rn-widget", "widget-internals"]));
+    expect(named).toEqual(["@w/tokens"]);
+  });
+
+  it("does not walk a member the run neither declares nor aliases into", () => {
+    expect(detect(monorepo().feature)).not.toContain("widget-internals");
+  });
+});
+
+describe("ecosystem detection: what a reached workspace member may add", () => {
+  type Spec = {
+    workspaces?: string[];
+    installed?: Record<string, Record<string, unknown>>;
+    members: Record<string, { name: string; manifest?: Record<string, unknown>; links?: string[] }>;
+  };
+  /**
+   * A pnpm-shaped workspace: installed packages in a store, each linked where a member
+   * declares it; a member that declares another member gets a link to that member's
+   * directory, as `workspace:*` does.
+   */
+  function workspace({ workspaces = ["packages/*"], installed = {}, members }: Spec) {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-reach-")));
+    roots.push(root);
+    const write = (file: string, value: unknown) => {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify(value));
+    };
+    const link = (target: string, at: string) => {
+      fs.mkdirSync(path.dirname(at), { recursive: true });
+      fs.symlinkSync(target, at, "junction");
+    };
+    write(path.join(root, "package.json"), { name: "w", private: true, workspaces });
+    const store = (name: string) =>
+      path.join(root, "node_modules", ".pnpm", name.replace("/", "+"), "node_modules", name);
+    for (const [name, fields] of Object.entries(installed)) {
+      write(path.join(store(name), "package.json"), { name, version: "1.0.0", ...fields });
+    }
+    for (const [name, fields] of Object.entries(installed)) {
+      const deps = { ...(fields.dependencies as object), ...(fields.peerDependencies as object) };
+      for (const dep of Object.keys(deps)) {
+        if (dep in installed) link(store(dep), path.join(path.dirname(store(name)), dep));
+      }
+    }
+    const dirs: Record<string, string> = {};
+    for (const [dir, { name, manifest = {} }] of Object.entries(members)) {
+      dirs[name] = path.join(root, "packages", dir);
+      write(path.join(dirs[name], "package.json"), { name, version: "1.0.0", ...manifest });
+    }
+    for (const { name, manifest = {}, links = [] } of Object.values(members)) {
+      const deps = Object.keys({ ...(manifest.dependencies as object) });
+      for (const dep of [...links, ...deps]) {
+        const target = dirs[dep] ?? (dep in installed ? store(dep) : null);
+        if (target) link(target, path.join(dirs[name], "node_modules", ...dep.split("/")));
+      }
+    }
+    return dirs;
+  }
+  const detect = (dir: string, reachedPaths: string[] = [], named: string[] = []) =>
+    detectEcosystemPackages(dir, [], [], [], [], undefined, {
+      reachedPaths,
+      onReachedUndeclared: (name) => named.push(name),
+    });
+  const rn = { peerDependencies: { "react-native": "*" } };
+
+  // RN workspace libraries @w/c and @w/e (detected: their exports list ./package.json);
+  // @w/c depends on @w/e, which depends on the plain workspace member @w/d.
+  const lib = (deps: Record<string, string>) => ({
+    ...rn,
+    exports: { ".": "./index.js", "./package.json": "./package.json" },
+    dependencies: deps,
+  });
+  const probe = (appDeclaresC: boolean, direct = false) =>
+    workspace({
+      installed: { "react-native": {} },
+      members: {
+        app: {
+          name: "@w/app",
+          manifest: {
+            dependencies: {
+              "react-native": "*",
+              ...(appDeclaresC ? { "@w/c": "workspace:*" } : {}),
+            },
+          },
+        },
+        c: {
+          name: "@w/c",
+          manifest: lib(direct ? { "@w/d": "workspace:*" } : { "@w/e": "workspace:*" }),
+        },
+        e: { name: "@w/e", manifest: lib({ "@w/d": "workspace:*" }) },
+        d: { name: "@w/d", manifest: { main: "index.js" } },
+      },
+    });
+
+  it("adds no workspace member through an alias: each keeps the owner it has on main", () => {
+    const dirs = probe(false);
+    expect(detect(dirs["@w/app"], [path.join(dirs["@w/c"], "src")])).not.toContain("@w/d");
+  });
+
+  it("adds no plain member an aliased RN workspace library depends on directly", () => {
+    const dirs = probe(false, true);
+    expect(detect(dirs["@w/app"], [path.join(dirs["@w/c"], "src")])).not.toContain("@w/d");
+  });
+
+  it("leaves a declared RN workspace library's closure as it was", () => {
+    const dirs = probe(true);
+    expect(detect(dirs["@w/app"])).toEqual(expect.arrayContaining(["@w/c", "@w/e", "@w/d"]));
+  });
+
+  // feature → @w/ui → @w/ui2 → rn-image (installed, RN) → image-internals (installed).
+  const chain = () =>
+    workspace({
+      installed: {
+        // React Native depends on rn-owned-lib, so the precompiled registry owns it: it
+        // is detected (it declares react-native) but excluded from every walk.
+        "react-native": { dependencies: { "rn-owned-lib": "*" } },
+        "rn-owned-lib": { ...rn, dependencies: { "owned-internals": "*" } },
+        "owned-internals": {},
+        "rn-image": { ...rn, dependencies: { "image-internals": "*" } },
+        "image-internals": {},
+        "plain-lib": {},
+      },
+      members: {
+        feature: {
+          name: "@w/feature",
+          manifest: { dependencies: { "@w/ui": "workspace:*" } },
+          links: ["react-native"],
+        },
+        ui: {
+          name: "@w/ui",
+          manifest: {
+            ...rn,
+            exports: { ".": "./index.js" },
+            dependencies: {
+              "@w/ui2": "workspace:*",
+              "plain-lib": "*",
+              "rn-owned-lib": "*",
+            },
+          },
+        },
+        // Not detected (its exports omit ./package.json), so only member → member reach finds it.
+        ui2: {
+          name: "@w/ui2",
+          manifest: { ...rn, exports: { ".": "./index.js" }, dependencies: { "rn-image": "*" } },
+        },
+      },
+    });
+
+  it("follows a member a reached member declares (member → member)", () => {
+    expect(detect(chain()["@w/feature"])).toEqual(
+      expect.arrayContaining(["rn-image", "image-internals"]),
+    );
+  });
+
+  it("does not add a reached member's dependency that is not React Native", () => {
+    expect(detect(chain()["@w/feature"])).not.toContain("plain-lib");
+  });
+
+  it("does not walk a reached member's dependency that React Native owns", () => {
+    expect(detect(chain()["@w/feature"])).not.toContain("owned-internals");
+  });
+
+  it("does not name a member the project declares, reached through an alias too", () => {
+    const dirs = chain();
+    const named: string[] = [];
+    detect(dirs["@w/feature"], [path.join(dirs["@w/ui"], "src")], named);
+    expect(named).toEqual([]);
+  });
+
+  it("does not treat the project's own source as a reached member", () => {
+    const dirs = chain();
+    const named: string[] = [];
+    detect(dirs["@w/feature"], [path.join(dirs["@w/feature"], "src")], named);
+    expect(named).toEqual([]);
+  });
+
+  it("names the innermost of nested members an alias points into", () => {
+    const dirs = workspace({
+      workspaces: ["packages/*", "packages/kit/*"],
+      installed: { "react-native": {} },
+      members: {
+        app: { name: "@w/app", manifest: { dependencies: { "react-native": "*" } } },
+        kit: { name: "@w/kit" },
+        "kit/icons": { name: "@w/icons" },
+      },
+    });
+    const named: string[] = [];
+    const detected = detect(dirs["@w/app"], [path.join(dirs["@w/icons"], "src")], named);
+    expect(named, JSON.stringify(detected)).toEqual(["@w/icons"]);
+  });
+});
