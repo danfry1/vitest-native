@@ -4,9 +4,10 @@
 // The package's JavaScript is the package; only the native module it reaches with
 // requireNativeModule is substituted, in this order:
 //
-//   0. The Expo runtime option (`expo: { runtime }`, native-modules.mjs) decides whether
-//      the modules it names exist, and the constants it names come before any layer
-//      below.
+//   0. The Expo runtime (Expo Go by default, or `expo: { runtime }`, native-modules.mjs)
+//      decides whether the modules it names exist, and the constants it names come before
+//      any layer below. Expo Go has no EXDevLauncher. A test's mockNativeModule() reaches
+//      expo-modules-core through TurboModuleRegistry, where it looks next.
 //   1. Absent, when an installed package only probes for it and nothing installed
 //      defines it (expoAbsentModules): requireOptionalNativeModule returns null, as on a
 //      device. Unless a package mock stands in for it. Presence is the check the React

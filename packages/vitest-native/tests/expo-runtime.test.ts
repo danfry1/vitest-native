@@ -29,6 +29,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(HERE, "..");
 const SERVE_ENV = { command: "serve", mode: "test" } as const;
 const g = globalThis as Record<string, any>;
+// The default runtime's facts: Expo Go, which has no EXDevLauncher.
+const expoGo = expoRuntimeFacts(undefined, { devLauncher: false });
 
 function evalCjs(source: string): any {
   const filename = path.join(projectRoot, "expo-runtime-boundary-test.js");
@@ -170,7 +172,7 @@ describe("expo.runtime: the project context", () => {
       );
       stubProjectContext({});
       installKnownNativeModules(projectRoot);
-      expect(g.__vitest_native_module_presence.expo).toBeNull();
+      expect(g.__vitest_native_module_presence.expo).toEqual(expoGo);
     } finally {
       vi.unstubAllEnvs();
       installKnownNativeModules(projectRoot);
@@ -218,7 +220,7 @@ describe("the shared presence check", () => {
     g.__vitest_native_module_mocks = Object.create(null);
     g.__vitest_native_module_specs = new Map();
     g.__vitest_native_module_presence.permissive = false;
-    g.__vitest_native_module_presence.expo = null;
+    g.__vitest_native_module_presence.expo = expoGo;
   });
   afterEach(() => {
     for (const k of keys) g[k] = saved[k];
@@ -343,7 +345,7 @@ describe("the shared presence check", () => {
 
 describe("the Expo resolver under a runtime", () => {
   afterEach(() => {
-    g.__vitest_native_module_presence.expo = null;
+    g.__vitest_native_module_presence.expo = expoGo;
   });
 
   const resolverIn = (root: string) =>
@@ -404,8 +406,9 @@ describe("expo.modules before the Expo resolver exists", () => {
       expect("ExpoGo" in g.expo.modules).toBe(false);
       // Every name the runtime does not name is present, as without a resolver before.
       expect(g.expo.modules.VNAnyModule).toBeDefined();
-      presence.expo = null;
+      presence.expo = expoGo;
       expect("ExpoGo" in g.expo.modules).toBe(true);
+      expect("EXDevLauncher" in g.expo.modules).toBe(false);
     } finally {
       presence.expo = savedExpo;
       g.__vitest_native_expo_modules = savedResolver;

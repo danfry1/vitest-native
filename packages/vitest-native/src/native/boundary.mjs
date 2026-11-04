@@ -126,15 +126,17 @@ function turboStubSource(platform, version) {
   const getModuleMock = (name) =>
     Object.prototype.hasOwnProperty.call(__moduleMocks(), name) ? __moduleMocks()[name] : null;
   // Whether a native module is registered, as a device would answer it: one the test
-  // registered with mockNativeModule(), one the Expo runtime option names, one this
-  // boundary serves constants for, or one React Native's own JS requests (read from the
-  // installed copy). Anything else is absent, so TurboModuleRegistry.get() returns null
-  // and NativeModules[name] is undefined: React Native's own semantics
+  // registered with mockNativeModule(), one the Expo runtime names (Expo Go by default,
+  // which has no EXDevLauncher, or the expo.runtime option), one this boundary serves
+  // constants for, or one React Native's own JS requests (read from the installed copy).
+  // Anything else is absent, so TurboModuleRegistry.get() returns null and
+  // NativeModules[name] is undefined: React Native's own semantics
   // (Libraries/TurboModule/TurboModuleRegistry.js) and the Jest preset's
   // (jest/mocks/NativeModules.js). The plugin's \`nativeModules: 'permissive'\` makes
-  // every remaining name present, every member a method. The order is the one check
-  // expo.modules shares (native/native-modules.mjs, modulePresent), read at lookup time,
-  // because the setup file installs its inputs and module mocks change during a test.
+  // every remaining name present, every member a method; a module the Expo runtime makes
+  // absent stays absent. The order is the one check expo.modules shares
+  // (native/native-modules.mjs, modulePresent), read at lookup time, because the setup
+  // file installs its inputs and module mocks change during a test.
   const __presence = () => globalThis.__vitest_native_module_presence;
   const __permissive = () => __presence().permissive === true;
   const isCoreModule = (name) => Object.prototype.hasOwnProperty.call(__C, name);
@@ -275,8 +277,9 @@ export const BOUNDARY_SOURCES = {
     exports.get = (n) => getModuleMock(n) || (isKnownModule(n) ? turboStub(n) : null);
     // getEnforcing(): React Native throws for an absent module. Its callers cannot
     // run without one, so a stub stands in instead, and code that requires a native
-    // module still runs without per-module setup. A module the Expo runtime option
-    // makes absent throws React Native's own error, as on a device.
+    // module still runs without per-module setup. A module the Expo runtime makes absent
+    // (EXDevLauncher by default, as in Expo Go) throws React Native's own error, as on a
+    // device.
     exports.getEnforcing = (n) => {
       const mock = getModuleMock(n);
       if (mock) return mock;

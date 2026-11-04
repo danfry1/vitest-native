@@ -142,7 +142,8 @@ for with `presets: { expo: true }`, for a suite that relies on its values while 
 ## Expo Go or a development build
 
 By default the native engine runs your tests as Expo Go, as jest-expo does: `isRunningInExpoGo()`
-from `expo` is `true`. Code that branches on the runtime, such as a module that is only linked into
+from `expo` is `true`, and `EXDevLauncher`, which only a development build registers, is absent
+from every lookup, `nativeModules: 'permissive'` included. Code that branches on the runtime, such as a module that is only linked into
 a development build, can run as a development build instead:
 
 ```ts

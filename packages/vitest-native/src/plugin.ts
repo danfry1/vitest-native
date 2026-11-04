@@ -2066,6 +2066,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // to this call, so a restart in watch mode (which evaluates the config again)
         // resolves afresh.
         const dirOf = memoizePackageDirOf();
+        // Workspace source the project imports through aliases (resolve.alias, and
+        // tsconfig `paths` where Vite resolves them): a workspace member reached that way
+        // has its dependencies walked like a declared one's.
         const ecosystem = detectEcosystemPackages(
           [resolvedRoot, ...includeRoots],
           transformPkgs,
@@ -2073,6 +2076,21 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           neverTransform,
           nativePresetNames,
           memoizePackageDirOf(dependencyDirOf),
+          {
+            reachedPaths: requireAliases.entries
+              .map(([, target]) => target)
+              .filter((target) => path.isAbsolute(target)),
+            onReachedUndeclared: (name, dir) => {
+              if (diagnostics) {
+                console.log(
+                  `[vitest-native] ${name} (${dir}) is reached through an alias ` +
+                    `(resolve.alias or tsconfig paths) but is not a dependency of this ` +
+                    `package. Its installed React Native dependencies are compiled as if it ` +
+                    `were declared; declaring it makes the dependency explicit.`,
+                );
+              }
+            },
+          },
         );
         // The directories Vite owns outright. Handed to the worker so the require
         // hook can say so if Node loads one of their files anyway — which happens

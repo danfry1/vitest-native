@@ -31,5 +31,7 @@ export interface ExpoRuntimeFacts {
 export declare function expoRuntimeFacts(
   runtime: string | undefined,
   installed: { devLauncher: boolean },
-): ExpoRuntimeFacts | null;
+): ExpoRuntimeFacts;
 export declare function devLauncherInstalled(projectRoot: string): boolean;
+export declare const DEV_LAUNCHER_MODULE: "EXDevLauncher";
+export declare const EXPO_GO_ABSENT_MODULES: readonly string[];
