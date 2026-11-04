@@ -1,5 +1,10 @@
 /** An alias entry: a Vite string `find`, a serialized RegExp, or a tsconfig wildcard prefix. */
-export type ResolutionAliasFind = string | { source: string; flags: string } | { prefix: string };
+/** A Vite alias (a string or a RegExp), or a tsconfig `paths` entry (exact, or a wildcard prefix). */
+export type ResolutionAliasFind =
+  | string
+  | { source: string; flags: string }
+  | { prefix: string }
+  | { exact: string };
 export type ResolutionAlias = [ResolutionAliasFind, string];
 
 /** What every realm builds its resolver from (the project context's `resolverInputs`). */

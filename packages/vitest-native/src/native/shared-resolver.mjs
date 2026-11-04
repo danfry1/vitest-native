@@ -159,7 +159,8 @@ export function exportTarget(exportsField, subpath, conditions) {
  * @param {boolean} [options.viteAliasesApplied]  the requests arrive with the project's
  *   string and RegExp aliases already applied: Vite's own alias plugin runs before any
  *   plugin's resolveId, so applying them again would expand `pkg` → `pkg/mock` twice.
- *   tsconfig `paths` (the prefix entries) Vite applies only after, so they still apply.
+ *   tsconfig `paths` (the `exact` and `prefix` entries) Vite applies only after, so they
+ *   still apply.
  */
 export function createSharedResolver(
   inputs,
@@ -169,7 +170,9 @@ export function createSharedResolver(
   const sourceExts = inputs.sourceExts ?? ["js", "jsx", "json", "ts", "tsx"];
   const aliases = (inputs.aliases ?? []).filter(
     ([find]) =>
-      !viteAliasesApplied || (typeof find === "object" && find !== null && "prefix" in find),
+      !viteAliasesApplied ||
+      // tsconfig `paths` (the `exact` and `prefix` kinds) are not Vite aliases.
+      (typeof find === "object" && find !== null && ("prefix" in find || "exact" in find)),
   );
   const preserveSymlinks = inputs.preserveSymlinks === true;
   // `react-native` first, as Metro and Jest's preset match it, then the realm-wide set.
@@ -418,13 +421,16 @@ export function aliasList(value) {
 }
 
 /**
- * Apply the first matching alias, as Vite's alias plugin does. `{ prefix }` entries
+ * Apply the first matching alias, as Vite's alias plugin does. `{ exact }` entries are
+ * tsconfig `paths` without a wildcard, matched whole. `{ prefix }` entries
  * are tsconfig `paths` wildcards (`#/*` → `src/*`), whose prefix match differs from a
  * Vite string alias.
  */
 export function expandResolutionAlias(specifier, entries) {
   for (const [find, replacement] of entries) {
-    if (typeof find === "object" && find !== null && "prefix" in find) {
+    if (typeof find === "object" && find !== null && "exact" in find) {
+      if (specifier === find.exact) return replacement;
+    } else if (typeof find === "object" && find !== null && "prefix" in find) {
       if (specifier.startsWith(find.prefix)) {
         return `${replacement.replace(/\/$/, "")}/${specifier.slice(find.prefix.length)}`;
       }

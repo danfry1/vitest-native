@@ -211,11 +211,13 @@ describe("on Vite's side", () => {
     "node_modules/lib/mock.js": "",
     "node_modules/lib/mock-mock.js": "",
     "src/util.ts": "",
+    "src/feature.ts": "",
   });
   const inputs = inputsFor(root, {
     aliases: [
       ["lib", "lib/mock"],
       [{ prefix: "@/" }, `${root}/src`],
+      [{ exact: "@feature" }, `${root}/src/feature.ts`],
     ],
   });
   const from = path.join(root, "app.ts");
@@ -232,6 +234,9 @@ describe("on Vite's side", () => {
   it("still applies tsconfig paths, which Vite applies after the plugins", () => {
     const vite = createSharedResolver(inputs, { viteAliasesApplied: true });
     expect(vite.resolve("@/util", from)).toBe(path.join(root, "src/util.ts"));
+    // A tsconfig path without a wildcard matches the whole request only.
+    expect(vite.resolve("@feature", from)).toBe(path.join(root, "src/feature.ts"));
+    expect(vite.resolve("@feature/x", from)).toBe(null);
   });
 });
 

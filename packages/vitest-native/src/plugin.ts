@@ -2050,8 +2050,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           shared.entries.push(
             ...tsconfigPathAliases(resolvedRoot)
               .entries.sort((a, b) => b[0].length - a[0].length)
+              // Marked as tsconfig's own kinds, not Vite string aliases: Vite applies
+              // tsconfig paths after the plugins, so its realm must still apply them.
               .map(([find, replacement]): ResolutionAlias => [
-                find.endsWith("/") ? { prefix: find } : find,
+                find.endsWith("/") ? { prefix: find } : { exact: find },
                 replacement,
               ]),
           );
