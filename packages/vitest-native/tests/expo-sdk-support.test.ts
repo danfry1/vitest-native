@@ -16,16 +16,19 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { reactNative } from "../src/index.js";
 import { runDoctor } from "../src/cli/doctor.js";
+import { detectEcosystemPackages } from "../src/native/ecosystem.js";
+import { dependencyDirOf } from "../src/native/match.mjs";
 import {
   expoSdkList,
   installedExpoSdk,
+  installedExpoVersion as rootExpoVersion,
   SUPPORTED_EXPO_SDKS,
   unsupportedExpoSdkMessage as unsupportedMessage,
   type ExpoInstall,
 } from "../src/peer-requirements.js";
 
 const unsupportedExpoSdkMessage = (version: string) =>
-  unsupportedMessage({ package: "expo", version, via: null });
+  unsupportedMessage({ package: "expo", version });
 const installedExpoVersion = (root: string) => {
   const install = installedExpoSdk(root);
   return install?.package === "expo" ? install.version : null;
@@ -39,6 +42,7 @@ const temps: string[] = [];
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   for (const dir of temps.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -198,47 +202,90 @@ describe("installedExpoSdk, for expo", () => {
   });
 });
 
-/** Links `target` (relative to `root`) as `<root>/<from>/node_modules/<name>`. */
+// The native engine's toolchain and the plugin's required peers, from this repository's
+// install, so a fixture workspace resolves the engine as native.
+const TOOLCHAIN = ["react-native", "@react-native/babel-preset", "@babel/core", "react", "vite"];
+
+/** Links `target` as `<from>/node_modules/<name>`; both relative to `root`. */
 function link(root: string, from: string, name: string, target: string) {
   const at = path.join(root, from, "node_modules", name);
   fs.mkdirSync(path.dirname(at), { recursive: true });
-  fs.symlinkSync(path.join(root, target), at, "dir");
+  fs.symlinkSync(path.isAbsolute(target) ? target : path.join(root, target), at, "dir");
 }
 
+const STORE = "node_modules/.pnpm";
+const inStore = (id: string, name: string) => `${STORE}/${id}/node_modules/${name}`;
+
 /**
- * A pnpm workspace library that declares only ui-kit, another workspace member, whose
- * Expo module depends on expo-modules-core: no `expo` resolves from the library or from
- * anything it reaches.
+ * A pnpm workspace whose packages/lib is the project. `lib` is what lib declares:
+ * - "ui-kit": a workspace UI library declaring expo-image, whose peer expo 54 is linked
+ *   beside it in the store; packages/app declares that expo, so the engine detects it.
+ * - "expo-thing": an installed Expo module that depends on expo-modules-core 3.0.29.
+ * - "nothing": no Expo package; packages/app still declares expo 54.
+ * In none of them does `expo` resolve from packages/lib.
  */
-function libraryReachingModulesCore(version: string, uiKit: object = {}): string {
-  const store = "node_modules/.pnpm";
+function workspace(lib: "ui-kit" | "expo-thing" | "nothing"): string {
   const root = project({
-    "packages/lib/package.json": { name: "lib", dependencies: { "ui-kit": "*" } },
+    "package.json": { name: "ws", private: true, workspaces: ["packages/*"] },
+    "packages/app/package.json": { name: "app", dependencies: { expo: "*" } },
     "packages/ui-kit/package.json": {
       name: "ui-kit",
-      dependencies: { "expo-thing": "*" },
+      dependencies: { "expo-image": "*" },
       peerDependencies: { "react-native": "*" },
-      ...uiKit,
     },
-    [`${store}/expo-thing@1.0.0/node_modules/expo-thing/package.json`]: {
+    "packages/lib/package.json": {
+      name: "lib",
+      dependencies: lib === "nothing" ? {} : { [lib]: "*" },
+    },
+    [`${inStore("expo@54.0.33", "expo")}/package.json`]: {
+      name: "expo",
+      version: "54.0.33",
+      peerDependencies: { "react-native": "*" },
+    },
+    [`${inStore("expo-image@3.0.11", "expo-image")}/package.json`]: {
+      name: "expo-image",
+      version: "3.0.11",
+      peerDependencies: { expo: "*", "react-native": "*" },
+    },
+    [`${inStore("expo-thing@1.0.0", "expo-thing")}/package.json`]: {
       name: "expo-thing",
+      version: "1.0.0",
       dependencies: { "expo-modules-core": "*" },
       peerDependencies: { "react-native": "*" },
     },
-    [`${store}/expo-modules-core@${version}/node_modules/expo-modules-core/package.json`]: {
+    [`${inStore("expo-modules-core@3.0.29", "expo-modules-core")}/package.json`]: {
       name: "expo-modules-core",
-      version,
+      version: "3.0.29",
     },
   });
-  link(root, "packages/lib", "ui-kit", "packages/ui-kit");
-  link(root, "packages/ui-kit", "expo-thing", `${store}/expo-thing@1.0.0/node_modules/expo-thing`);
+  for (const name of TOOLCHAIN) {
+    link(root, ".", name, fs.realpathSync(path.join(PACKAGE_ROOT, "node_modules", name)));
+  }
+  link(root, "packages/app", "expo", inStore("expo@54.0.33", "expo"));
+  link(root, "packages/ui-kit", "expo-image", inStore("expo-image@3.0.11", "expo-image"));
+  link(root, `${STORE}/expo-image@3.0.11`, "expo", inStore("expo@54.0.33", "expo"));
   link(
     root,
-    `${store}/expo-thing@1.0.0`,
+    `${STORE}/expo-thing@1.0.0`,
     "expo-modules-core",
-    `${store}/expo-modules-core@${version}/node_modules/expo-modules-core`,
+    inStore("expo-modules-core@3.0.29", "expo-modules-core"),
   );
+  if (lib === "ui-kit") link(root, "packages/lib", "ui-kit", "packages/ui-kit");
+  if (lib === "expo-thing") {
+    link(root, "packages/lib", "expo-thing", inStore("expo-thing@1.0.0", "expo-thing"));
+  }
   return path.join(root, "packages", "lib");
+}
+
+/** The native engine's detection of `lib`, as the plugin runs it, with what it reached. */
+function detect(lib: string, reachedVersions?: Map<string, string>) {
+  const calls: string[] = [];
+  const dirOf = (name: string, from: string) => {
+    calls.push(`${name}\0${from}`);
+    return dependencyDirOf(name, from);
+  };
+  detectEcosystemPackages([lib], [], [], [], [], dirOf, { reachedVersions });
+  return calls;
 }
 
 describe("expo-modules-core's major is its Expo SDK", () => {
@@ -267,87 +314,63 @@ describe("expo-modules-core's major is its Expo SDK", () => {
     );
     const { version } = JSON.parse(fs.readFileSync(manifest, "utf8")) as { version: string };
     expect(Number(version.split(".")[0])).toBe(sdk);
-    const install: ExpoInstall = { package: "expo-modules-core", version, via: null };
-    expect(unsupportedMessage(install)).toBeNull();
+    expect(unsupportedMessage({ package: "expo-modules-core", version })).toBeNull();
   });
 });
 
-describe("installedExpoSdk, where expo does not resolve", () => {
-  it("is the expo-modules-core Node resolves from the project", () => {
-    const root = project({
-      "node_modules/expo-modules-core/package.json": {
-        name: "expo-modules-core",
-        version: "3.0.29",
-      },
-    });
-    expect(installedExpoSdk(root)).toEqual({
-      package: "expo-modules-core",
-      version: "3.0.29",
-      via: null,
-    });
-  });
+describe("installedExpoSdk, from what the native engine reached", () => {
+  const reached = (entries: Record<string, string>) => new Map(Object.entries(entries));
 
-  it("is the expo-modules-core a package the project reaches depends on, under an isolated install", () => {
-    expect(installedExpoSdk(libraryReachingModulesCore("3.0.29"))).toEqual({
-      package: "expo-modules-core",
-      version: "3.0.29",
-      via: "expo-thing",
-    });
-  });
-
-  it("is the expo a package the project reaches resolves, before any expo-modules-core", () => {
-    const root = libraryReachingModulesCore("3.0.29");
-    const thing = path.join(
-      root,
-      "../../node_modules/.pnpm/expo-thing@1.0.0/node_modules/expo-thing/package.json",
-    );
-    fs.writeFileSync(
-      thing,
-      JSON.stringify({
-        name: "expo-thing",
-        dependencies: { "expo-modules-core": "*" },
-        peerDependencies: { expo: "*" },
-      }),
-    );
-    const expoDir = path.join(root, "../../node_modules/.pnpm/expo-thing@1.0.0/node_modules/expo");
-    fs.mkdirSync(expoDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(expoDir, "package.json"),
-      JSON.stringify({ name: "expo", version: "54.0.33" }),
-    );
-    expect(installedExpoSdk(root)).toEqual({
+  it("prefers the expo that resolves from the project", () => {
+    const root = project(expo("58.0.16"));
+    expect(installedExpoSdk(root, reached({ expo: "54.0.33" }))).toEqual({
       package: "expo",
-      version: "54.0.33",
-      via: "expo-thing",
+      version: "58.0.16",
     });
   });
 
-  it("is not looked for through a package that is not React Native's or Expo's", () => {
-    // ui-kit declares no React Native: what it depends on cannot load an Expo module
-    // on React Native's behalf.
-    const lib = libraryReachingModulesCore("3.0.29", { peerDependencies: {} });
-    expect(installedExpoSdk(lib)).toBeNull();
+  it("reads a reached expo, then a reached expo-modules-core", () => {
+    const root = project({});
+    expect(
+      installedExpoSdk(root, reached({ expo: "54.0.33", "expo-modules-core": "3.0.29" })),
+    ).toEqual({ package: "expo", version: "54.0.33" });
+    expect(installedExpoSdk(root, reached({ "expo-modules-core": "3.0.29" }))).toEqual({
+      package: "expo-modules-core",
+      version: "3.0.29",
+    });
+    expect(installedExpoSdk(root, reached({ "expo-image": "3.0.11" }))).toBeNull();
+    expect(installedExpoSdk(root)).toBeNull();
+  });
+
+  it("is the expo reached as an Expo module's peer, through a workspace library", () => {
+    const versions = new Map<string, string>();
+    detect(workspace("ui-kit"), versions);
+    expect(versions.get("expo")).toBe("54.0.33");
+  });
+
+  it("is the expo-modules-core an Expo module the project declares depends on", () => {
+    const versions = new Map<string, string>();
+    detect(workspace("expo-thing"), versions);
+    expect(versions.get("expo-modules-core")).toBe("3.0.29");
+    expect(versions.has("expo")).toBe(false);
+  });
+
+  it("is nothing for a library that reaches no Expo package, whatever a sibling declares", () => {
+    const versions = new Map<string, string>();
+    detect(workspace("nothing"), versions);
+    expect([...versions.keys()]).toEqual([]);
   });
 
   it("says an expo-modules-core below the supported SDKs is from an older one", () => {
-    const message = unsupportedMessage({
-      package: "expo-modules-core",
-      version: "3.0.29",
-      via: "expo-thing",
-    });
-    expect(message).toBe(
-      "expo-modules-core 3.0.29 via expo-thing is from an Expo SDK older than 57, which is not " +
-        "supported: vitest-native supports Expo SDK 57 and 58. Upgrade to Expo SDK 57 or 58; " +
-        "on an older SDK, tests that load Expo modules can fail.",
+    expect(unsupportedMessage({ package: "expo-modules-core", version: "3.0.29" })).toBe(
+      "expo-modules-core 3.0.29 is from an Expo SDK older than 57, which is not supported: " +
+        "vitest-native supports Expo SDK 57 and 58. Upgrade to Expo SDK 57 or 58; on an older " +
+        "SDK, tests that load Expo modules can fail.",
     );
   });
 
   it("reads a supported or newer SDK from expo-modules-core's major", () => {
-    const install = (version: string): ExpoInstall => ({
-      package: "expo-modules-core",
-      version,
-      via: null,
-    });
+    const install = (version: string): ExpoInstall => ({ package: "expo-modules-core", version });
     expect(unsupportedMessage(install("56.0.4"))).toMatch(
       /^expo-modules-core 56\.0\.4 is from an Expo SDK older than 57/,
     );
@@ -356,6 +379,37 @@ describe("installedExpoSdk, where expo does not resolve", () => {
     expect(unsupportedMessage(install("59.0.1"))).toMatch(
       /^Expo SDK 59 \(expo-modules-core 59\.0\.1\) is newer than this release supports/,
     );
+  });
+});
+
+describe("the SDK check's cost", () => {
+  // The fallback reads what detection already found, so it may add no module resolution,
+  // in detection or after it. Counted on projects without expo, where it runs.
+  it("adds no package lookup to detection", () => {
+    for (const lib of [workspace("expo-thing"), workspace("ui-kit"), workspace("nothing")]) {
+      expect(detect(lib, new Map())).toEqual(detect(lib));
+    }
+  });
+
+  it("adds no module resolution or file read to the root check", () => {
+    const Module = createRequire(import.meta.url)("node:module") as {
+      _resolveFilename: (...args: unknown[]) => unknown;
+    };
+    const lib = workspace("expo-thing");
+    const reached = new Map<string, string>();
+    detect(lib, reached);
+    const count = (run: () => unknown) => {
+      const resolve = vi.spyOn(Module, "_resolveFilename");
+      const read = vi.spyOn(fs, "readFileSync");
+      run();
+      const counts = [resolve.mock.calls.length, read.mock.calls.length];
+      resolve.mockRestore();
+      read.mockRestore();
+      return counts;
+    };
+    const rootOnly = count(() => rootExpoVersion(lib));
+    expect(rootOnly[0]).toBeGreaterThan(0);
+    expect(count(() => installedExpoSdk(lib, reached))).toEqual(rootOnly);
   });
 });
 
@@ -378,11 +432,14 @@ describe("doctor", () => {
     expect(section).toContain("✓ expo 58.0.16 detected");
   });
 
-  it("warns about the SDK expo-modules-core names where expo does not resolve", () => {
-    const lib = libraryReachingModulesCore("3.0.29");
-    expect(expoSection(lib)).toContain(
-      "⚠ expo-modules-core 3.0.29 via expo-thing is from an Expo SDK older than 57",
+  it("warns, under the native engine, about the SDK the packages it reaches name", () => {
+    expect(expoSection(workspace("expo-thing"))).toContain(
+      "⚠ expo-modules-core 3.0.29 is from an Expo SDK older than 57",
     );
+    expect(expoSection(workspace("ui-kit"))).toContain(
+      "⚠ Expo SDK 54 (expo 54.0.33) is not supported",
+    );
+    expect(expoSection(workspace("nothing"))).toBe("");
   });
 
   it("finds expo as the plugin does", () => {
@@ -405,8 +462,8 @@ describe("starting the plugin", () => {
     return root;
   }
 
-  async function start(root: string) {
-    const plugin = reactNative({ engine: "mock" }) as any;
+  async function start(root: string, engine: "mock" | "native" = "mock") {
+    const plugin = reactNative({ engine }) as any;
     const vite = (await import("vite")) as { version: string };
     await plugin.config.handler.call(
       { meta: { viteVersion: vite.version } },
@@ -437,22 +494,21 @@ describe("starting the plugin", () => {
     expect(expoWarnings(warn)).toHaveLength(1);
   });
 
-  it("warns about the SDK expo-modules-core names where expo does not resolve", async () => {
+  it("warns, under the native engine, about the SDK the packages it reaches name", async () => {
+    vi.stubEnv("VITEST_NATIVE_NO_REGISTRY", "1");
     const warn = quietWarnings();
-    await start(
-      startable({
-        "node_modules/expo-modules-core/package.json": {
-          name: "expo-modules-core",
-          version: "3.0.28",
-        },
-        ...reactNativeAt("0.81.5"),
-      }),
-    );
+    await start(workspace("expo-thing"), "native");
     expect(expoWarnings(warn)).toEqual([
-      "[vitest-native] expo-modules-core 3.0.28 is from an Expo SDK older than 57, which is " +
+      "[vitest-native] expo-modules-core 3.0.29 is from an Expo SDK older than 57, which is " +
         "not supported: vitest-native supports Expo SDK 57 and 58. Upgrade to Expo SDK 57 or " +
         "58; on an older SDK, tests that load Expo modules can fail.",
     ]);
+  });
+
+  it("checks only the project root under the mock engine", async () => {
+    const warn = quietWarnings();
+    await start(workspace("expo-thing"), "mock");
+    expect(expoWarnings(warn)).toEqual([]);
   });
 
   it("is silent about a supported one", async () => {

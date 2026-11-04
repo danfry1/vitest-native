@@ -1592,6 +1592,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // One project-scoped owner/transform/reset policy. Config, the Vite fallback
   // transform, runtime serialization and diagnostics all consume this same object.
   let nativeOwnership: NativeOwnershipPolicy | null = null;
+  // The installed version of each package the native engine's detection reached, set in
+  // config(). The Expo SDK check in configResolved reads `expo` and `expo-modules-core`
+  // from it rather than resolving them again (installedExpoSdk).
+  let reachedVersions: Map<string, string> | undefined;
   const assertInlineOwnership = (inline: unknown) => {
     if (engine !== "native" || !nativeOwnership) return;
     const conflicts = findNativeInlineConflicts(nativeOwnership, inline);
@@ -2041,6 +2045,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           nativePresetNames,
           memoizePackageDirOf(dependencyDirOf),
           {
+            reachedVersions: (reachedVersions = new Map()),
             reachedPaths: requireAliases.entries
               .map(([, target]) => target)
               .filter((target) => path.isAbsolute(target)),
@@ -2450,8 +2455,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
 
       // An Expo SDK outside the supported range: a warning, as for the optional peers.
       // Failing the run would stop the tests that pass on it too. Once per process: every
-      // project of a run, and the root config, resolve their config here.
-      const expoInstall = installedExpoSdk(config.root);
+      // project of a run, and the root config, resolve their config here. Where `expo` does
+      // not resolve from the root, the packages the native engine's detection reached say
+      // which SDK the run loads; under the mock engine nothing is detected, so only the
+      // root is read.
+      const expoInstall = installedExpoSdk(config.root, reachedVersions);
       const expoProblem = expoInstall && unsupportedExpoSdkMessage(expoInstall);
       if (expoProblem && !warnedExpoProblems.has(expoProblem)) {
         warnedExpoProblems.add(expoProblem);

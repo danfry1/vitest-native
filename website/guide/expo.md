@@ -143,9 +143,9 @@ for with `presets: { expo: true }`, for a suite that relies on its values while 
 
 vitest-native supports Expo SDK 57 and 58, the SDKs CI installs as packed apps. Earlier SDKs are
 not supported: the plugin and `vitest-native doctor` warn about one, and tests that load Expo
-modules can fail on it, so upgrade to SDK 57 or 58. The SDK is read from `expo`, or, in a package
-that reaches Expo modules without `expo` resolving (a workspace library under pnpm), from the
-`expo-modules-core` they load. This is about the Expo SDK only. An older
+modules can fail on it, so upgrade to SDK 57 or 58. The SDK is read from the `expo` that resolves
+from the project. Under the native engine, where none does (a workspace library under pnpm), it is
+read from the `expo` or `expo-modules-core` among the packages the engine compiles. This is about the Expo SDK only. An older
 SDK's React Native can still be inside the supported React Native range (SDK 54 pairs with 0.81),
 and a bare React Native app on that version is supported.
 

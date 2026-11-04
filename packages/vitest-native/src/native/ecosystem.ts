@@ -196,6 +196,14 @@ export interface ReachedPackages {
   reachedPaths?: readonly string[];
   /** Called once per workspace member reached through `reachedPaths` but not declared. */
   onReachedUndeclared?: (name: string, dir: string) => void;
+  /**
+   * Filled with the installed version of each package the run reaches (seeded from the
+   * project's declarations or walked to), from the manifest the walk already read. A
+   * package only a sibling declares is not reached and not recorded. The Expo SDK check
+   * reads `expo` and `expo-modules-core` from here (installedExpoSdk), so it adds no
+   * resolution of its own.
+   */
+  reachedVersions?: Map<string, string>;
 }
 
 /**
@@ -234,7 +242,7 @@ export function detectEcosystemPackages(
   neverTransform: string[] = [],
   activePresets?: readonly string[],
   dirOf: PackageDirOf = dependencyDirOf,
-  { reachedPaths = [], onReachedUndeclared }: ReachedPackages = {},
+  { reachedPaths = [], onReachedUndeclared, reachedVersions }: ReachedPackages = {},
 ): string[] {
   // More than one root because `manifestsFrom` only walks UP. In a workspace the
   // run root is often above the package under test — Nx invokes tasks from the
@@ -539,6 +547,8 @@ export function detectEcosystemPackages(
     if (walked.has(name)) return;
     walked.add(name);
     queue.push(installed);
+    const { version } = installed.manifest;
+    if (reachedVersions && typeof version === "string") reachedVersions.set(name, version);
   };
   for (const name of detected) {
     if (!projectDeclared.has(name)) continue;

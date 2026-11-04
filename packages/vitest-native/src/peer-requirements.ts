@@ -68,146 +68,105 @@ export function expoSdkList(
     : `${sdks.slice(0, -1).join(", ")} ${conjunction} ${sdks.at(-1)}`;
 }
 
-type Manifest = Record<string, unknown>;
-
-function readManifest(file: string): Manifest | null {
+/**
+ * The version in the `expo/package.json` Node resolves from `dir`, or null. Where expo's
+ * `exports` leaves its manifest out, the package directory Node would load `expo` from,
+ * found along Node's own lookup paths.
+ */
+function expoVersionFrom(dir: string): string | null {
+  const req = createRequire(path.join(dir, "package.json"));
+  let manifest: string | undefined;
   try {
-    const manifest = JSON.parse(fs.readFileSync(file, "utf8")) as unknown;
-    return manifest && typeof manifest === "object" ? (manifest as Manifest) : null;
+    manifest = req.resolve("expo/package.json");
+  } catch (error) {
+    if ((error as { code?: string }).code !== "ERR_PACKAGE_PATH_NOT_EXPORTED") return null;
+    manifest = (req.resolve.paths("expo") ?? [])
+      .map((modules) => path.join(modules, "expo", "package.json"))
+      .find((file) => fs.existsSync(file));
+  }
+  if (!manifest) return null;
+  try {
+    const { version } = JSON.parse(fs.readFileSync(manifest, "utf8")) as { version?: unknown };
+    return typeof version === "string" ? version : null;
   } catch {
     return null;
   }
 }
 
 /**
- * The `<name>/package.json` Node resolves from `dir`, or null. Where the package's
- * `exports` leaves its manifest out, the one in the package directory Node would load
- * `name` from, found along Node's own lookup paths. Real paths, as Node resolves them, so
- * a package in an isolated store is looked in beside its own dependencies.
+ * The version of the `expo` the project at `root` uses, or null: the one Node resolves from
+ * `root`, else the one a dependency the project declares resolves as its peer. A workspace
+ * library that declares only expo-image reaches `expo` that way under an isolated install
+ * (pnpm links the peer beside expo-image, not into the library), and a library that uses
+ * no Expo package resolves none, whatever another workspace member installs. The plugin
+ * and doctor both read it from here.
  */
-function manifestFileFrom(dir: string, name: string): string | null {
-  const req = createRequire(path.join(dir, "package.json"));
+export function installedExpoVersion(root: string): string | null {
+  const own = expoVersionFrom(root);
+  if (own) return own;
+  let manifest: Record<string, unknown>;
   try {
-    return req.resolve(`${name}/package.json`);
-  } catch (error) {
-    if ((error as { code?: string }).code !== "ERR_PACKAGE_PATH_NOT_EXPORTED") return null;
-    const file = (req.resolve.paths(name) ?? [])
-      .map((modules) => path.join(modules, name, "package.json"))
-      .find((candidate) => fs.existsSync(candidate));
-    return file ? fs.realpathSync(file) : null;
+    manifest = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+  } catch {
+    return null;
   }
-}
-
-function versionFrom(dir: string, name: string): string | null {
-  const file = manifestFileFrom(dir, name);
-  const version = file ? readManifest(file)?.version : undefined;
-  return typeof version === "string" ? version : null;
-}
-
-/** The names a manifest lists in one of its dependency fields. */
-function declared(manifest: Manifest, field: string): string[] {
-  const deps = manifest[field];
-  return deps && typeof deps === "object" ? Object.keys(deps) : [];
+  const req = createRequire(path.join(root, "package.json"));
+  for (const field of ["dependencies", "devDependencies"]) {
+    const deps = manifest[field];
+    if (!deps || typeof deps !== "object") continue;
+    for (const name of Object.keys(deps)) {
+      try {
+        // Node resolves to the real path, so the peer is looked for beside the package.
+        const file = req.resolve(`${name}/package.json`);
+        const dep = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+        const peers = dep.peerDependencies;
+        if (!peers || typeof peers !== "object" || !("expo" in peers)) continue;
+        const version = expoVersionFrom(path.dirname(file));
+        if (version) return version;
+      } catch {
+        // Not installed, or its manifest is not exported: it says nothing about expo.
+      }
+    }
+  }
+  return null;
 }
 
 /**
- * Which package says what Expo SDK a project is on, and where it was found.
- *
- * `expo` is the authority. Where it does not resolve, `expo-modules-core` stands in: every
- * Expo module loads it, and a package can reach it without `expo` resolving from anywhere
- * the project looks (a library depending on an Expo module whose own `expo` is linked
- * only beside that module in an isolated store). Its major version is its SDK's for the
- * SDKs this release supports: expo 58 bundles expo-modules-core ~58, and
- * tests/expo-sdk-support.test.ts reads that from the installed expo's
- * `bundledNativeModules.json`. Earlier SDKs numbered expo-modules-core on a scale of its
- * own, so a major below the supported range is read as an older SDK, not as a particular
- * one.
+ * Which package says what Expo SDK a project is on: `expo`, or where none resolves,
+ * `expo-modules-core`, which every Expo module loads. Its major is the SDK's for the
+ * supported SDKs (tests/expo-sdk-support.test.ts reads that from the installed expo's
+ * `bundledNativeModules.json`); earlier SDKs numbered it on a scale of its own, so a lower
+ * major reads only as an older SDK.
  */
 export interface ExpoInstall {
   package: "expo" | "expo-modules-core";
   version: string;
-  /**
-   * The dependency it was reached through, or null where Node resolves it from the
-   * project itself.
-   */
-  via: string | null;
-}
-
-/** A package whose dependencies can lead to Expo: one of React Native's or Expo's. */
-function reactNativeEcosystem(manifest: Manifest): boolean {
-  return ["dependencies", "peerDependencies"].some((field) =>
-    declared(manifest, field).some(
-      (name) => name === "react-native" || name === "expo" || name === "expo-modules-core",
-    ),
-  );
 }
 
 /**
- * The Expo the project at `root` uses, or null: the `expo` Node resolves from `root`,
- * else one a package the project depends on resolves as its peer or dependency, else the
- * `expo-modules-core` found the same two ways. The packages are walked from the project's
- * declared dependencies, each resolved from the package that declares it as Node resolves
- * it when that code runs, and through React Native and Expo packages only, whose
- * dependencies are the ones that can load Expo. A workspace library that declares only
- * expo-image reaches `expo` that way under an isolated install (pnpm links the peer
- * beside expo-image, not into the library), and a library that uses no Expo package
- * resolves none, whatever another workspace member installs. The plugin and doctor both
- * read it from here.
+ * The Expo the project uses, or null: `installedExpoVersion` of the first of `roots` with
+ * one, else `expo`, then `expo-modules-core`, from `reached`: the versions the native
+ * engine's detection recorded (detectEcosystemPackages' `reachedVersions`), so the
+ * fallback costs no resolution or file read.
  */
-export function installedExpoSdk(root: string): ExpoInstall | null {
-  const ownExpo = versionFrom(root, "expo");
-  if (ownExpo) return { package: "expo", version: ownExpo, via: null };
-
-  const rootManifest = readManifest(path.join(root, "package.json"));
-  let modulesCore: ExpoInstall | null = null;
-  const ownModulesCore = versionFrom(root, "expo-modules-core");
-  if (ownModulesCore) {
-    modulesCore = { package: "expo-modules-core", version: ownModulesCore, via: null };
+export function installedExpoSdk(
+  roots: string | readonly string[],
+  reached?: ReadonlyMap<string, string>,
+): ExpoInstall | null {
+  for (const root of typeof roots === "string" ? [roots] : roots) {
+    const version = installedExpoVersion(root);
+    if (version) return { package: "expo", version };
   }
-  if (!rootManifest) return modulesCore;
-
-  const seen = new Set<string>();
-  let queue = [
-    ...declared(rootManifest, "dependencies"),
-    ...declared(rootManifest, "devDependencies"),
-  ].map((name) => ({ name, from: root, parent: null as string | null }));
-  while (queue.length > 0) {
-    const next: typeof queue = [];
-    for (const { name, from, parent } of queue) {
-      const file = manifestFileFrom(from, name);
-      if (!file || seen.has(file)) continue;
-      seen.add(file);
-      const manifest = readManifest(file);
-      if (!manifest) continue;
-      const dir = path.dirname(file);
-      if (name === "expo-modules-core" && !modulesCore) {
-        const version = manifest.version;
-        if (typeof version === "string") {
-          modulesCore = { package: "expo-modules-core", version, via: parent };
-        }
-      }
-      const usesExpo = ["dependencies", "peerDependencies"].some((field) =>
-        declared(manifest, field).includes("expo"),
-      );
-      const expo = usesExpo ? versionFrom(dir, "expo") : null;
-      if (expo) return { package: "expo", version: expo, via: name };
-      if (!reactNativeEcosystem(manifest)) continue;
-      for (const dependency of declared(manifest, "dependencies")) {
-        next.push({ name: dependency, from: dir, parent: name });
-      }
-      if (!modulesCore && declared(manifest, "peerDependencies").includes("expo-modules-core")) {
-        const version = versionFrom(dir, "expo-modules-core");
-        if (version) modulesCore = { package: "expo-modules-core", version, via: name };
-      }
-    }
-    queue = next;
+  for (const name of ["expo", "expo-modules-core"] as const) {
+    const version = reached?.get(name);
+    if (version) return { package: name, version };
   }
-  return modulesCore;
+  return null;
 }
 
 /** What `installedExpoSdk` found, as the plugin's and doctor's messages name it. */
-export function describeExpoInstall({ package: name, version, via }: ExpoInstall): string {
-  return `${name} ${version}${via ? ` via ${via}` : ""}`;
+export function describeExpoInstall({ package: name, version }: ExpoInstall): string {
+  return `${name} ${version}`;
 }
 
 /**
