@@ -748,7 +748,12 @@ export function heldTransform(file, projectRoot, platform = "ios") {
   } catch {
     return undefined;
   }
-  return ctxFor(projectRoot).mem.get(`${platform}\0${file}\0${st.mtimeMs}\0${st.size}`);
+  return ctxFor(projectRoot).mem.get(memoryKey(platform, file, st));
+}
+
+/** transformRN's in-memory key, shared with heldTransform so the two cannot differ. */
+function memoryKey(platform, file, st) {
+  return `${platform}\0${file}\0${st.mtimeMs}\0${st.size}`;
 }
 
 export function transformRN(file, src, projectRoot, platform = "ios") {
@@ -761,7 +766,7 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   // preset embeds the absolute path (_jsxFileName) in transformed JSX, so two
   // identical sources at different paths must not share an entry.
   const st = fs.statSync(file);
-  const memKey = `${platform}\0${file}\0${st.mtimeMs}\0${st.size}`;
+  const memKey = memoryKey(platform, file, st);
   const memHit = ctx.mem.get(memKey);
   if (memHit !== undefined) return memHit;
   // A caller that has not read the file yet passes no source, and pays for the read

@@ -14,9 +14,11 @@
  * registry key, the React Native version it is built for, Expo, the preset's name and
  * the Babel env in both keys, the optional export-namespace-from plugin, the files the
  * registry is seeded from, additional entries included (registry-location.test.ts
- * covers copies and symlinks end to end), the platform in the transform's memory and
- * disk keys, a project Babel config file's bytes, and the ES-module goal and interop
- * revision in the per-file key. transform-project-babel-config.test.ts covers the
+ * covers copies and symlinks end to end), the preset and @babel/core versions in the
+ * transform's directory, the file, mtime, size and platform in its memory key, the
+ * platform and a project Babel config file's bytes (babel.config.js and .babelrc.js) in
+ * its disk key, the ES-module goal and interop revision in the per-file key, and the
+ * interop plugin's code under that revision. transform-project-babel-config.test.ts covers the
  * options a project Babel config loads.
  */
 import { execFileSync } from "node:child_process";
@@ -36,6 +38,7 @@ import {
 import {
   TRANSFORM_CACHE_VERSION,
   transformCacheDir,
+  heldTransform,
   transformOptionsFor,
   transformRN,
   // @ts-expect-error — runtime .mjs, no types
@@ -57,7 +60,9 @@ afterEach(() => {
 });
 
 function tempRoot(prefix: string): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  // Real path: transform.mjs compares a file against the project root's real spelling,
+  // and on macOS os.tmpdir() is a symlink (/var -> /private/var).
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
   roots.push(root);
   fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "fixture" }));
   return root;
@@ -197,6 +202,12 @@ process.stdout.write(registryKey({ projectRoot: ${JSON.stringify(root)}, platfor
     ).version;
     expect(inputs).toContain(`f${REGISTRY_FORMAT_VERSION}`);
     expect(inputs).toContain(ownVersion);
+    // Also keyed through the boundary mocks and the registry's file name, and the
+    // resolved seed files key each additional entry, but held directly as well.
+    expect(inputs).toContain("ios");
+    expect(registryKeyInputs({ ...options, additionalEntries: ["react-native/deep-a"] })).toContain(
+      "entry:react-native/deep-a",
+    );
     const hashed = crypto.createHash("sha1").update(inputs.join("\0")).digest("hex").slice(0, 16);
     expect(registryKey(options)).toBe(hashed);
   });
@@ -252,16 +263,22 @@ describe("transform cache directory ledger", () => {
   function transformRoot({
     exportNamespaceFrom = false,
     preset = "module.exports = () => ({});",
+    presetVersion = "0.0.1-ledger",
+    // A stand-in @babel/core with this version, for keys that only read its manifest.
+    babelVersion = undefined as string | undefined,
   } = {}): string {
     const root = tempRoot("vn-transform-ledger-");
-    writePackage(root, "@react-native/babel-preset", "0.0.1-ledger", preset);
+    writePackage(root, "@react-native/babel-preset", presetVersion, preset);
     const babelScope = path.join(root, "node_modules", "@babel");
     fs.mkdirSync(babelScope, { recursive: true });
-    fs.symlinkSync(
-      path.dirname(fs.realpathSync(req.resolve("@babel/core/package.json"))),
-      path.join(babelScope, "core"),
-      "dir",
-    );
+    if (babelVersion) writePackage(root, "@babel/core", babelVersion, "module.exports = {};");
+    else {
+      fs.symlinkSync(
+        path.dirname(fs.realpathSync(req.resolve("@babel/core/package.json"))),
+        path.join(babelScope, "core"),
+        "junction",
+      );
+    }
     if (exportNamespaceFrom) {
       writePackage(
         root,
@@ -344,6 +361,46 @@ describe("transform cache directory ledger", () => {
     expect(entries(root)).toHaveLength(2);
   });
 
+  it("keys the preset's and @babel/core's versions", () => {
+    expect(dirName(transformRoot({ presetVersion: "0.0.2-ledger" }))).not.toBe(
+      dirName(transformRoot()),
+    );
+    expect(dirName(transformRoot({ babelVersion: "7.0.1" }))).not.toBe(
+      dirName(transformRoot({ babelVersion: "7.0.0" })),
+    );
+  });
+
+  it("keys the in-memory layer on the file, its mtime and its size", () => {
+    // One module instance throughout: this is the layer the other cases reset past.
+    const root = transformRoot({
+      preset: `module.exports = (api) => ({ plugins: [() => ({ visitor: { Program: { exit(p, state) {
+        p.pushContainer("body", api.types.expressionStatement(
+          api.types.stringLiteral("compiled:" + state.file.code.trim())));
+      } } } })] });`,
+    });
+    const dir = path.join(root, "node_modules", "mem-lib");
+    fs.mkdirSync(dir, { recursive: true });
+    const a = path.join(dir, "a.js");
+    const b = path.join(dir, "b.js");
+    const write = (file: string, source: string, at: string) => {
+      fs.writeFileSync(file, source);
+      fs.utimesSync(file, new Date(at), new Date(at));
+    };
+    write(a, "var x = 1;", "2026-01-01T00:00:00Z");
+    write(b, "var y = 2;", "2026-01-01T00:00:00Z");
+    // Same mtime and size, different files.
+    expect(transformRN(a, undefined, root)).toContain("compiled:var x = 1;");
+    expect(transformRN(b, undefined, root)).toContain("compiled:var y = 2;");
+    expect(heldTransform(a, root)).toContain("compiled:var x = 1;");
+    // Same size, later mtime.
+    write(a, "var x = 3;", "2026-01-02T00:00:00Z");
+    expect(heldTransform(a, root)).toBeUndefined();
+    expect(transformRN(a, undefined, root)).toContain("compiled:var x = 3;");
+    // Same mtime, different size.
+    write(a, "var x = 45;", "2026-01-02T00:00:00Z");
+    expect(transformRN(a, undefined, root)).toContain("compiled:var x = 45;");
+  });
+
   it("keys the preset's name, not only its version: the two presets' versions overlap", () => {
     const expo = expoOnlyRoot("0.0.1-ledger");
     expect(dirName(expo)).not.toBe(dirName(transformRoot()));
@@ -366,27 +423,30 @@ describe("transform cache directory ledger", () => {
     expect(transformRN(file, undefined, root, "android")).toContain('"android"');
   });
 
-  it("keys a project Babel config file's bytes: an inline plugin is not in the loaded options", async () => {
-    const root = transformRoot();
-    const config = (marker: string) =>
-      fs.writeFileSync(
-        path.join(root, "babel.config.js"),
-        `module.exports = { plugins: [() => ({ visitor: { Program: { exit(p) {
+  it.each(["babel.config.js", ".babelrc.js"])(
+    "keys the bytes of a project's %s: an inline plugin is not in the loaded options",
+    async (configName) => {
+      const root = transformRoot();
+      const config = (marker: string) =>
+        fs.writeFileSync(
+          path.join(root, configName),
+          `module.exports = { plugins: [() => ({ visitor: { Program: { exit(p) {
           p.pushContainer("body", require("@babel/core").types.expressionStatement(
             require("@babel/core").types.stringLiteral(${JSON.stringify(marker)})));
         } } } })] };`,
-      );
-    const app = path.join(root, "src", "app.js");
-    fs.mkdirSync(path.dirname(app), { recursive: true });
-    fs.writeFileSync(app, "module.exports = 1;\n");
-    config("first");
-    expect(transformRN(app, undefined, root)).toContain('"first"');
-    config("second-edit");
-    // A fresh module instance: the in-memory layer is keyed on the app file's stat.
-    vi.resetModules();
-    const fresh = await import("../src/native/transform.mjs");
-    expect(fresh.transformRN(app, undefined, root)).toContain('"second-edit"');
-  });
+        );
+      const app = path.join(root, "src", "app.js");
+      fs.mkdirSync(path.dirname(app), { recursive: true });
+      fs.writeFileSync(app, "module.exports = 1;\n");
+      config("first");
+      expect(transformRN(app, undefined, root)).toContain('"first"');
+      config("second-edit");
+      // A fresh module instance: the in-memory layer is keyed on the app file's stat.
+      vi.resetModules();
+      const fresh = await import("../src/native/transform.mjs");
+      expect(fresh.transformRN(app, undefined, root)).toContain('"second-edit"');
+    },
+  );
 });
 
 /**
@@ -431,7 +491,7 @@ function expoOnlyRoot(presetVersion = "57.0.0"): string {
   fs.symlinkSync(
     path.dirname(fs.realpathSync(req.resolve("@babel/core/package.json"))),
     path.join(babelScope, "core"),
-    "dir",
+    "junction",
   );
   return root;
 }
@@ -497,4 +557,36 @@ describe("transform output guard", () => {
       ).toBe(recorded);
     },
   );
+});
+
+/**
+ * The ES-module interop plugin and its runtime helpers, fingerprinted per
+ * ESM_INTEROP_RUNTIME. Babel appends the plugin to ESM-goal files on its own thread
+ * (babel-toolchain.mjs), outside the options fingerprinted above, and its code is keyed
+ * only by that token. Comment lines are left out so a comment edit needs no bump. When
+ * this fails, rename ESM_INTEROP_RUNTIME in src/native/esm-interop.mjs and ADD a row.
+ */
+const INTEROP_FINGERPRINTS: Record<string, string> = {
+  "vitest-native.esmInterop.2": "7dfaf9e53b94b8cc",
+};
+
+describe("ES-module interop guard", () => {
+  it("records a fingerprint of the interop plugin's code for this ESM_INTEROP_RUNTIME", async () => {
+    const { ESM_INTEROP_RUNTIME } = await import("../src/native/esm-interop.mjs");
+    const code = fs
+      .readFileSync(path.join(packageRoot, "src/native/esm-interop.mjs"), "utf8")
+      // Line endings as checked out (Windows may convert them) do not count.
+      .split(/\r?\n/)
+      .filter((line) => !/^\s*(?:\/\/|\/\*\*|\*)/.test(line))
+      .join("\n");
+    const fingerprint = crypto.createHash("sha1").update(code).digest("hex").slice(0, 16);
+    const reused = Object.entries(INTEROP_FINGERPRINTS).find(
+      ([token, value]) => value === fingerprint && token !== ESM_INTEROP_RUNTIME,
+    );
+    expect(reused, "this interop code was already recorded under another token").toBeUndefined();
+    expect(
+      fingerprint,
+      `the ES-module interop plugin changed under ${ESM_INTEROP_RUNTIME}, so warm caches would keep its old output. Rename ESM_INTEROP_RUNTIME in src/native/esm-interop.mjs and add a row for it with "${fingerprint}".`,
+    ).toBe(INTEROP_FINGERPRINTS[ESM_INTEROP_RUNTIME]);
+  });
 });
