@@ -164,7 +164,8 @@ native modules answer, each as Expo's own source has it in a development build:
 A module a test registers with [`mockNativeModule`](/guide/helpers#mocknativemodule-name-impl)
 still comes first: `mockNativeModule('ExpoGo', {...})` makes it present again. React Native's own
 modules are never affected. The `expo` preset (`presets: { expo: true }`) replaces
-`expo-constants` with its own values, which the option does not change.
+`expo-constants` with a stand-in that models Expo Go, so it cannot be combined with
+`'development-build'`: the run fails with `EXPO_RUNTIME_CONFLICTS_WITH_EXPO_PRESET`.
 
 Expo reads the runtime when its modules load, and a worker keeps loaded modules, so the runtime is
 set per Vitest project, not per test. A suite that needs both runs them as two projects:

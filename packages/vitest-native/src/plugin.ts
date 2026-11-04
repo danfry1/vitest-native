@@ -1998,6 +1998,20 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
               (n) =>
                 !disabledNative.has(n) && autoDetectedPresetApplies(n, "native", options?.presets),
             );
+        // The expo preset replaces expo-constants with a stand-in that models Expo Go
+        // (executionEnvironment 'storeClient'), so beside a development build the run
+        // would report two runtimes at once.
+        if (fields.expoRuntime === "development-build" && nativePresetNames.includes("expo")) {
+          throw new VitestNativeError(
+            "EXPO_RUNTIME_CONFLICTS_WITH_EXPO_PRESET",
+            `"expo.runtime: 'development-build'" cannot be combined with the expo preset. ` +
+              `The preset replaces expo-constants with a stand-in that models Expo Go ` +
+              `(executionEnvironment 'storeClient'), while the runtime option makes the ` +
+              `native modules answer as a development build. Remove the expo preset ` +
+              `(presets: { expo: true }, or expo() in a presets array) to run the real ` +
+              `expo-constants, or remove "expo.runtime".`,
+          );
+        }
         if (nativePresetNames.length > 0) {
           fields.presetNames = nativePresetNames;
         }

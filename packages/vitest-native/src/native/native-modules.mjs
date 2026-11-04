@@ -24,6 +24,7 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import { projectContext } from "../context.mjs";
+import { packageDirOf } from "./match.mjs";
 
 /** Where React Native's JavaScript lives, relative to the package root. */
 export const REACT_NATIVE_SOURCE_DIRS = ["Libraries", "src"];
@@ -261,30 +262,16 @@ export function expoRuntimeFacts(runtime, { devLauncher }) {
   };
 }
 
-/** The directory of `name` as Node finds it from `fromDir`, walking up node_modules. */
-function packageDirFrom(fromDir, name) {
-  for (let dir = path.resolve(fromDir); ; dir = path.dirname(dir)) {
-    const candidate = path.join(dir, "node_modules", name);
-    if (fs.existsSync(path.join(candidate, "package.json"))) {
-      try {
-        return fs.realpathSync(candidate);
-      } catch {
-        return candidate;
-      }
-    }
-    if (path.dirname(dir) === dir) return null;
-  }
-}
-
 /**
  * Whether the project installs expo-dev-launcher: directly, or as expo-dev-client's
  * dependency, which a strict layout (pnpm) leaves beside expo-dev-client rather than at
- * the project root. Read from disk, not through `exports`.
+ * the project root. Found as Node finds a package directory (match.mjs, packageDirOf),
+ * so a package whose `exports` leaves out ./package.json is still found.
  */
 export function devLauncherInstalled(projectRoot) {
-  if (packageDirFrom(projectRoot, DEV_LAUNCHER_PACKAGE)) return true;
-  const devClient = packageDirFrom(projectRoot, DEV_CLIENT_PACKAGE);
-  return devClient !== null && packageDirFrom(devClient, DEV_LAUNCHER_PACKAGE) !== null;
+  if (packageDirOf(DEV_LAUNCHER_PACKAGE, projectRoot) !== null) return true;
+  const devClient = packageDirOf(DEV_CLIENT_PACKAGE, projectRoot);
+  return devClient !== null && packageDirOf(DEV_LAUNCHER_PACKAGE, devClient) !== null;
 }
 
 // The boundary's module sources run inside React Native's module scope, where only

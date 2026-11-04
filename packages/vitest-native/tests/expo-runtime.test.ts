@@ -11,6 +11,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { reactNative } from "../src/plugin.js";
 import { boundarySourceFor } from "../src/native/boundary.mjs";
+import { installGlobals } from "../src/native/globals.mjs";
 import {
   devLauncherInstalled,
   EXPO_RUNTIMES,
@@ -97,6 +98,39 @@ describe("expo.runtime: validation", () => {
     // No runtime, no error.
     const plain = reactNative({ engine: "mock", expo: {} }) as any;
     await expect(runPluginConfig(plain, { root: projectRoot }, SERVE_ENV)).resolves.toBeTruthy();
+  });
+});
+
+describe("expo.runtime beside the expo preset", () => {
+  const conflict = expect.objectContaining({
+    code: "EXPO_RUNTIME_CONFLICTS_WITH_EXPO_PRESET",
+    message: expect.stringContaining("stand-in that models Expo Go"),
+  });
+
+  it("rejects a development build with the expo preset turned on, either way", async () => {
+    const { expo } = await import("../src/presets/expo.js");
+    for (const presets of [{ expo: true }, [expo()]]) {
+      const plugin = reactNative({
+        engine: "native",
+        expo: { runtime: "development-build" },
+        presets,
+      } as any) as any;
+      await expect(runPluginConfig(plugin, { root: projectRoot }, SERVE_ENV)).rejects.toThrow(
+        conflict,
+      );
+    }
+  });
+
+  it("accepts the preset with Expo Go, and a development build without it", async () => {
+    for (const options of [
+      { presets: { expo: true } },
+      { presets: { expo: true }, expo: { runtime: "expo-go" as const } },
+      { expo: { runtime: "development-build" as const } },
+      { presets: { expo: false }, expo: { runtime: "development-build" as const } },
+    ]) {
+      const plugin = reactNative({ engine: "native", ...options } as any) as any;
+      await expect(runPluginConfig(plugin, { root: projectRoot }, SERVE_ENV)).resolves.toBeTruthy();
+    }
   });
 });
 
@@ -354,5 +388,27 @@ describe("the Expo resolver under a runtime", () => {
       devLauncher: false,
     });
     expect(resolver.present("ExpoGo")).toBe(false);
+  });
+});
+
+describe("expo.modules before the Expo resolver exists", () => {
+  it("asks the shared presence check, so the runtime applies from the start", () => {
+    installGlobals();
+    const presence = g.__vitest_native_module_presence;
+    const savedResolver = g.__vitest_native_expo_modules;
+    const savedExpo = presence.expo;
+    delete g.__vitest_native_expo_modules;
+    try {
+      presence.expo = expoRuntimeFacts("development-build", { devLauncher: false });
+      expect(g.expo.modules.ExpoGo).toBeUndefined();
+      expect("ExpoGo" in g.expo.modules).toBe(false);
+      // Every name the runtime does not name is present, as without a resolver before.
+      expect(g.expo.modules.VNAnyModule).toBeDefined();
+      presence.expo = null;
+      expect("ExpoGo" in g.expo.modules).toBe(true);
+    } finally {
+      presence.expo = savedExpo;
+      g.__vitest_native_expo_modules = savedResolver;
+    }
   });
 });

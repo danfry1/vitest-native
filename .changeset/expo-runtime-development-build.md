@@ -11,4 +11,6 @@ when `expo-dev-launcher` is installed (it comes with `expo-dev-client`), with no
 `expo-constants` reports `executionEnvironment: 'bare'` and `appOwnership: null`. A module a test
 registers with `mockNativeModule()` still wins. The runtime is set per Vitest project, so a suite
 that needs both runs two projects. Under the mock engine, setting `expo.runtime` fails with
-`EXPO_RUNTIME_REQUIRES_NATIVE_ENGINE`.
+`EXPO_RUNTIME_REQUIRES_NATIVE_ENGINE`. `'development-build'` together with the expo preset
+(`presets: { expo: true }`) fails with `EXPO_RUNTIME_CONFLICTS_WITH_EXPO_PRESET`: the preset's
+`expo-constants` stand-in models Expo Go.

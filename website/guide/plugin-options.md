@@ -140,6 +140,6 @@ reactNative({ nativeModules: 'permissive' })
 reactNative({ expo: { runtime: 'development-build' } })
 ```
 
-Setting `expo.runtime` under the mock engine fails with `EXPO_RUNTIME_REQUIRES_NATIVE_ENGINE`.
+Setting `expo.runtime` under the mock engine fails with `EXPO_RUNTIME_REQUIRES_NATIVE_ENGINE`, and `'development-build'` with the expo preset turned on fails with `EXPO_RUNTIME_CONFLICTS_WITH_EXPO_PRESET`.
 
 Next: [Third-Party Presets](/guide/presets).

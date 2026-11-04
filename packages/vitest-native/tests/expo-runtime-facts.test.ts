@@ -9,27 +9,26 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { packageDirOf } from "../src/native/match.mjs";
 import { expoRuntimeFacts } from "../src/native/native-modules.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const projectRoot = process.env.VN_EXPO_FACTS_ROOT ?? path.resolve(HERE, "..");
-
-/** `name`'s real directory as Node finds it from `from`, or null. Read from disk. */
-function packageDir(name: string, from: string): string | null {
-  for (let dir = from; ; dir = path.dirname(dir)) {
-    const candidate = path.join(dir, "node_modules", name);
-    if (fs.existsSync(path.join(candidate, "package.json"))) return fs.realpathSync(candidate);
-    if (path.dirname(dir) === dir) return null;
-  }
-}
+const projectRoot = process.env.VN_EXPO_FACTS_ROOT || path.resolve(HERE, "..");
 
 function requirePackage(name: string, from: string): string {
-  const dir = packageDir(name, from);
+  const dir = packageDirOf(name, from);
   if (!dir) throw new Error(`${name} is not installed from ${from}`);
   return dir;
 }
 
 const read = (dir: string, file: string) => fs.readFileSync(path.join(dir, file), "utf8");
+
+/** The first of `files` the package has (a file Expo moved between SDKs), read. */
+function readFirst(dir: string, files: string[]): string {
+  const file = files.find((f) => fs.existsSync(path.join(dir, f)));
+  if (!file) throw new Error(`none of ${files.join(", ")} in ${dir}`);
+  return read(dir, file);
+}
 
 const expo = requirePackage("expo", projectRoot);
 // As expo's own imports find them.
@@ -41,7 +40,12 @@ const devBuildWithoutLauncher = expoRuntimeFacts("development-build", { devLaunc
 
 describe("Expo's runtimes, as its source tells them apart", () => {
   it("expo decides Expo Go by whether the ExpoGo native module exists", () => {
-    for (const file of ["src/environment/ExpoGo.ts", "build/environment/ExpoGo.js"]) {
+    // The source, and the build Metro runs where the package ships one (SDK 58; SDK 57
+    // ships only the source).
+    const files = ["src/environment/ExpoGo.ts", "build/environment/ExpoGo.js"].filter(
+      (file) => file.startsWith("src/") || fs.existsSync(path.join(expo, file)),
+    );
+    for (const file of files) {
       const source = read(expo, file);
       expect(source, file).toMatch(/requireNativeModule\(\s*['"]ExpoGo['"]\s*\)/);
       expect(source, file).toMatch(
@@ -103,7 +107,10 @@ describe("Expo's runtimes, as its source tells them apart", () => {
     const encoded = devBuild.constants.ExponentConstants;
     expect(Object.keys(encoded).sort()).toEqual(["appOwnership", "executionEnvironment"]);
 
-    const ios = read(constants, "ios/EXConstantsObjC/EXConstantsService.m");
+    const ios = readFirst(constants, [
+      "ios/EXConstantsObjC/EXConstantsService.m", // SDK 58
+      "ios/EXConstantsService.m", // SDK 57
+    ]);
     const iosBare = /NSString \* const EXConstantsExecutionEnvironmentBare = @"([^"]+)";/.exec(ios);
     expect(ios).toMatch(/@"executionEnvironment": EXConstantsExecutionEnvironmentBare,/);
     expect(iosBare?.[1]).toBe(encoded.executionEnvironment);
@@ -130,7 +137,9 @@ describe("Expo's runtimes, as its source tells them apart", () => {
 
   // expo-dev-launcher is not a dependency of this workspace; a project that installs it
   // (as expo-dev-client's dependency) checks its registration here too.
-  const devLauncher = packageDir("expo-dev-launcher", projectRoot);
+  // TODO: once CI installs expo-dev-launcher, fail here instead of skipping when
+  // process.env.CI is set and it is missing, so the check cannot go quiet.
+  const devLauncher = packageDirOf("expo-dev-launcher", projectRoot);
   it.skipIf(devLauncher === null)(
     "expo-dev-launcher registers EXDevLauncher, with only manifest constants, in debug builds",
     () => {

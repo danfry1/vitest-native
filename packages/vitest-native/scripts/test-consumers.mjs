@@ -10,12 +10,13 @@ const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "vitest-native-consumers-
 const packRoot = path.join(tempRoot, "package");
 fs.mkdirSync(packRoot);
 
-function run(command, args, cwd) {
+function run(command, args, cwd, env = {}) {
   console.log(`\n> ${command} ${args.join(" ")}`);
   const result = spawnSync(command, args, {
     cwd,
     env: {
       ...process.env,
+      ...env,
       npm_config_audit: "false",
       npm_config_fund: "false",
       npm_config_ignore_scripts: "true",
@@ -240,6 +241,16 @@ try {
       fs.cpSync(path.join(fixturesRoot, fixture), fixtureRoot, { recursive: true });
       addPackedDependency(fixtureRoot, tarball);
       run("npm", ["install"], fixtureRoot);
+      // The facts the Expo runtime option encodes (tests/expo-runtime-facts.test.ts),
+      // read from the previous SDK's real install as well as the workspace's current one.
+      if (fixture === "expo-sdk57") {
+        run(
+          process.execPath,
+          ["node_modules/vitest/vitest.mjs", "run", "tests/expo-runtime-facts.test.ts"],
+          packageRoot,
+          { VN_EXPO_FACTS_ROOT: fixtureRoot },
+        );
+      }
       run("npm", ["test"], fixtureRoot);
       // The hot runtime from the packed install. In-repo, the engine and the
       // validation suites live OUTSIDE node_modules, so the hot loader's

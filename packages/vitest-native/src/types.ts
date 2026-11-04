@@ -446,7 +446,8 @@ export interface VitestNativeOptions {
    *   when expo-dev-launcher is installed (it comes with expo-dev-client); and
    *   expo-constants reports `executionEnvironment: 'bare'` and `appOwnership: null`.
    *   A module a test registers with `mockNativeModule()` still wins. The default keeps
-   *   jest-expo's behaviour.
+   *   jest-expo's behaviour. `'development-build'` cannot be combined with the expo
+   *   preset, whose expo-constants stand-in models Expo Go.
    *
    * Expo reads the runtime when its modules load, so it is one value per Vitest
    * project; a suite that needs both runtimes runs them as two projects.
