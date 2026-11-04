@@ -260,6 +260,13 @@ jobs:
         # runtime was in fact fine on RNTL 12/13 — nothing was checking.
         run: bun run test:native:hot
 
+      - name: Native engine coverage
+        # @vitest/coverage-v8 over source Node compiles (a React Native workspace
+        # package) must match coverage of the same source loaded by Vite, default and
+        # hot, with nothing failing to parse.
+        if: ${{ !matrix.rntl }}
+        run: bun run test:native:coverage
+
       - name: Native engine hot-runtime isolation
         if: ${{ !matrix.rntl && matrix.part != 'native' }}
         run: bun run test:native:hot:isolation

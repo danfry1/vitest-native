@@ -173,6 +173,8 @@ function transform(request) {
       throw new VitestNativeError("BABEL_IGNORES_FILE", `Babel ignores ${request.file}.`);
     }
     options = partial.options;
+    // The source map transform.mjs asks for, appended as the output's last line.
+    if (request.sourceMap) options = { ...options, sourceMaps: "inline" };
   }
   // Added on this side: a plugin is a function, which does not cross threads.
   const added = [];
