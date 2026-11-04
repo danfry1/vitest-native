@@ -345,9 +345,7 @@ export function resolvePackageMainField(
   if (!manifest) return null;
   if (manifest.exports !== undefined || typeof manifest["react-native"] !== "string") return null;
   const target = path.join(pkgDir, manifest["react-native"]);
-  try {
-    if (fs.statSync(target).isFile()) return target;
-  } catch {}
+  if (fs.statSync(target, { throwIfNoEntry: false })?.isFile()) return target;
   return resolvePlatformFile(target.replace(/\.[cm]?[jt]sx?$/, ""), platform, sourceExts);
 }
 

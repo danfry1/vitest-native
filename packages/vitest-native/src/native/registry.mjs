@@ -116,7 +116,7 @@ export function _resetRegistryFailureReports() {
 // 5: the registry's internal require consults jest-compat's Node-side mocks.
 // 6: each module keeps its own strictness, and runs with `this` = module.exports.
 // 7: modules are stored as source and compiled per module under their own file name.
-const REGISTRY_FORMAT_VERSION = 7;
+const REGISTRY_FORMAT_VERSION = 8;
 
 /**
  * Literal `require('…')` / `require("…")` calls. The leading class excludes
@@ -463,7 +463,8 @@ function emit(files, modules, { library = false } = {}) {
     // Jest. The global is undefined unless such a mock is registered.
     `    const mock = globalThis.__vitest_native_node_mock_for;`,
     `    if (mock !== undefined) {`,
-    `      const v = mock(__ids[t]);`,
+    // With the request and the requiring module, as Node's loader has them.
+    `      const v = mock(__ids[t], q, __ids[i]);`,
     `      if (v !== mock.NONE) return v;`,
     `    }`,
     `    return __r(t);`,

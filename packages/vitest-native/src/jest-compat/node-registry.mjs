@@ -619,9 +619,21 @@ function installLoadHook(state) {
     configurable: true,
     get: () => (state.entries.size === 0 ? undefined : nodeMockForRegistry),
   });
-  function nodeMockForRegistry(filename) {
+  /**
+   * `request` and `parentFile`, when the registry has them, are the require as written
+   * and the file it is in: a package's own relative import of its entry is not served the
+   * package's mock (isPackageOwnRelativeLoad), as through Node's loader.
+   */
+  function nodeMockForRegistry(filename, request, parentFile) {
     const entry = state.lookup(canonical(filename), filename);
-    return entry === undefined ? NONE : state.valueOf(entry);
+    if (entry === undefined) return NONE;
+    if (
+      typeof request === "string" &&
+      isPackageOwnRelativeLoad(entry, request, { filename: parentFile })
+    ) {
+      return NONE;
+    }
+    return state.valueOf(entry);
   }
   nodeMockForRegistry.NONE = NONE;
 }

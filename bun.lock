@@ -93,6 +93,7 @@
         "untranspiled-jsx-lib": "file:./tests-native/fixtures/untranspiled-jsx-lib",
         "vite": "^8.3.5",
         "vitest": "5.0.5",
+        "vn-lib-own-mock": "file:./tests-native/fixtures/vn-lib-own-mock",
         "vn-lib-two-entries": "file:./tests-native/fixtures/vn-lib-two-entries",
       },
       "peerDependencies": {
@@ -1963,6 +1964,8 @@
     "vitest-native/rn-singleton-lib": ["rn-singleton-lib@file:packages/vitest-native/tests-native/fixtures/rn-singleton-lib", { "dependencies": { "react-native": "*" } }],
 
     "vitest-native/untranspiled-jsx-lib": ["untranspiled-jsx-lib@file:packages/vitest-native/tests-native/fixtures/untranspiled-jsx-lib", {}],
+
+    "vitest-native/vn-lib-own-mock": ["vn-lib-own-mock@file:packages/vitest-native/tests-native/fixtures/vn-lib-own-mock", {}],
 
     "vitest-native/vn-lib-two-entries": ["vn-lib-two-entries@file:packages/vitest-native/tests-native/fixtures/vn-lib-two-entries", {}],
 
