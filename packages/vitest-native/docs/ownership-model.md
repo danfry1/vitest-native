@@ -29,9 +29,13 @@ and ADR-0005; `'resolution'`, with the ownership predicate, comes later.
   loads it too, instead of `main`.
 - **An alias a worker cannot apply is refused** at startup, by name (a custom resolver,
   a function replacement), instead of applying in Vite only.
+- **RegExp aliases and tsconfig `paths` apply on Node's side too**, including in
+  `jest.requireActual`: the resolver's record is the only alias record the workers get.
 - **React Native's own requires of installed packages** (`react`, `invariant`, ...) are
-  resolved through the same resolver at run time, from the React Native file that asks;
-  the precompiled registry is a separate cache entry with the flag on.
+  resolved by the same resolver when the precompiled registry is built, from the React
+  Native file that asks, and baked in: a worker resolves none of them at run time. The
+  registry is built once the resolver's inputs are final (in `configureVitest`), and is
+  keyed by their hash.
 
 Relative and absolute requests, Node's built-ins, React Native itself and the test
 runtime (Vitest, Vite, chai) are not answered by the resolver: their resolution is
@@ -51,7 +55,16 @@ already shared, or another owner answers it.
   nothing is installed (`MODULE_NOT_FOUND`, a subpath the package does not export) is an
   allowed `unresolved` fallback, answered by Node as before. Any other error is counted
   as `error` with the request named; the native suite runs with the flag on and fails a
-  file on any.
+  file on any, and fails the run when Vite's realm, which resolves in the main process,
+  counted any.
+
+## The resolution shadow
+
+With `diagnostics: true`, every realm also asks the resolution the flag replaces, once
+per distinct request, and writes each request answered differently as one JSON line to
+`<cache>/ownership-shadow/<inputs hash>.jsonl`, which the run names at startup (Node
+failing where the resolver answers, as for a RegExp alias, is written too). Without
+`diagnostics` the second resolution is not made.
 
 ## Precedence
 
