@@ -26,7 +26,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -56,7 +56,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -75,7 +75,7 @@
       "status": {
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "mainSignature": "meta.test.ts: Cannot use 'import.meta' outside a module",
         "proof": "fix proven"
       }
@@ -105,7 +105,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -135,7 +135,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -165,7 +165,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -196,7 +196,7 @@
         "main": "FAIL (bug)",
         "control": "PASS",
         "fix": "PASS",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "mainSignature": "split.test.ts: Cannot find module '@m/validator/store'",
         "proof": "fix proven"
       }
@@ -227,7 +227,7 @@
         "main": "FAIL (bug)",
         "control": "PASS",
         "fix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "mainSignature": "split.test.ts: Cannot find module '@m/validator/store'",
         "proof": "open (control passes)"
       }
@@ -257,7 +257,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -287,7 +287,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -303,7 +303,7 @@
       "status": {
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "mainSignature": "require.test.ts: AssertionError: expected [Function legacy] to be [Function legacy] // Object.is equality",
         "proof": "fix proven"
       }
@@ -318,7 +318,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "5f819d6^"
@@ -337,7 +337,7 @@
       "status": {
         "main": "PASS",
         "buggy": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "guard proven"
       }
     },
@@ -366,7 +366,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -396,7 +396,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -425,8 +425,37 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "mainSignature": "require-first.test.ts: AssertionError: one store instance, whichever side loaded it first: expected null to be 'written by the test' // Object.is equality",
+        "proof": "open (control passes)"
+      }
+    },
+    {
+      "id": "own-hot-rule7-stale-instance",
+      "class": "ownership",
+      "title": "Under the hot runtime, a Node-owned workspace library keeps the previous file's store",
+      "source": "ownership track A3 mechanism spike (2026-11-04, Risks: hot runtime); on main without the spike",
+      "fixedBy": "open (ownership track A3: Node-owned importers of Vite-owned modules reset per file under hot)",
+      "links": {
+        "@m/feature": "packages/feature",
+        "@m/validator": "packages/validator"
+      },
+      "bugSignature": "^b\\.test\\.ts: AssertionError: the Node-owned library reads this file's store: expected .* to be 'written by the test'",
+      "control": {
+        "why": "Without the hot runtime every file starts in a fresh module world, so the library is evaluated again for b and reads b's store: the bug's precondition, a worker that carries the library from a to b, is gone.",
+        "edits": [
+          {
+            "file": "vitest.config.mts",
+            "find": "reactNative({ hotRuntime: { allowUnboundedMemory: true } })",
+            "replace": "reactNative({ hotRuntime: false })"
+          }
+        ]
+      },
+      "status": {
+        "main": "FAIL (bug)",
+        "control": "PASS",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
+        "mainSignature": "b.test.ts: AssertionError: the Node-owned library reads this file's store: expected null to be 'written by the test' // Object.is equality",
         "proof": "open (control passes)"
       }
     },
@@ -455,7 +484,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "mainSignature": "vi-mock.test.ts: AssertionError: museum-linking reads the mocked museum-constants: expected 'real://home' to be 'mocked://home' // Object.is equality",
         "proof": "open (control passes)"
       }
@@ -480,7 +509,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "mainSignature": "dual-export.test.ts: AssertionError: one museum-dual, whichever condition loaded it: expected null to be 'configured' // Object.is equality",
         "proof": "open (control passes)"
       }
@@ -508,7 +537,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "mainSignature": "react-alias.test.tsx: TypeError: Cannot read properties of null (reading 'useState')",
         "proof": "open (control passes)"
       }
@@ -539,7 +568,7 @@
       "status": {
         "main": "PASS",
         "control": "PASS",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "NOT PROVEN"
       }
     },
@@ -547,9 +576,9 @@
       "id": "own-expo-runtime-undeclared",
       "class": "ownership",
       "title": "Expo's runtime loads uncompiled where expo resolves but is not compiled",
-      "source": "the bug museum itself, once the repository's install had expo 58 for another package's tests (46 exhibits failed with \"Cannot find module '\u2026/expo/build/winter/runtime'\")",
-      "fixedBy": "open (fix/expo-runtime-follows-ownership)",
-      "fixRef": "fix/expo-runtime-follows-ownership",
+      "source": "the bug museum itself, once the repository's install had expo 58 for another package's tests (46 exhibits failed with \"Cannot find module '…/expo/build/winter/runtime'\")",
+      "fixedBy": "#432 (merged)",
+      "preFixRef": "858e0c76^",
       "bugSignature": "^runtime\\.test\\.ts: (\\[vitest-native\\] 'expo' shipped source Node can't run directly \\(require is not defined in ES module scope|Cannot find module '[^']*/expo/build/winter/runtime' imported from )",
       "control": {
         "why": "Declaring expo makes the engine compile it, which removes the precondition: the runtime loads compiled.",
@@ -560,6 +589,13 @@
             "replace": "\"react-native\": \"*\",\n    \"expo\": \"58.0.0\""
           }
         ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
+        "proof": "landed proven"
       }
     },
     {
@@ -567,8 +603,8 @@
       "class": "env-contract",
       "title": "Importing expo throws under nativeModules: 'permissive'",
       "source": "the 0.14.0 release candidates (rc.10 and rc.11)",
-      "fixedBy": "open (fix/permissive-expo-dev-launcher)",
-      "fixRef": "fix/permissive-expo-dev-launcher",
+      "fixedBy": "#439 (merged)",
+      "preFixRef": "1ce2f5de^",
       "bugSignature": "^dev-launcher\\.test\\.ts: SyntaxError: Unexpected token '\\(', \"\\(\\.\\.\\.args\\) \"\\.\\.\\. is not valid JSON",
       "control": {
         "why": "Without permissive mode EXDevLauncher is absent, as React Native's own JavaScript never requests it, so expo-constants never parses a manifest.",
@@ -579,6 +615,13 @@
             "replace": "hotRuntime: false"
           }
         ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
+        "proof": "landed proven"
       }
     },
     {
@@ -591,7 +634,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -602,11 +645,11 @@
       "title": "Errors with per-instance methods are unequal under jest-compat",
       "source": "migration testing (2026-10)",
       "fixedBy": "#346 (merged)",
-      "bugSignature": "^error-equality\\.test\\.ts: AssertionError: expected Error: bad input \\{ issues: \\[\\], \u2026\\(1\\) \\} to deeply equal Error: bad input",
+      "bugSignature": "^error-equality\\.test\\.ts: AssertionError: expected Error: bad input \\{ issues: \\[\\], …\\(1\\) \\} to deeply equal Error: bad input",
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -621,7 +664,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -636,7 +679,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -655,7 +698,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -672,7 +715,7 @@
       "status": {
         "main": "PASS",
         "buggy": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "guard proven"
       }
     },
@@ -686,7 +729,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -701,7 +744,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -727,7 +770,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -756,7 +799,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -783,7 +826,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -819,7 +862,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -844,7 +887,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "mainSignature": "b.test.tsx: AssertionError: the timer-driven update rendered within 300 ms: expected 'waiting' to be 'done' // Object.is equality",
         "proof": "open (control passes)"
       }
@@ -869,7 +912,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "mainSignature": "b.test.tsx: AssertionError: this file's render committed a tree: expected null not to be null",
         "proof": "open (control passes)"
       }
@@ -894,7 +937,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "mainSignature": "b.test.tsx: AssertionError: this file's first useId is the earlier file's first useId: expected '_r_1_' to be '_r_0_' // Object.is equality",
         "proof": "open (control passes)"
       }
@@ -919,7 +962,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "mainSignature": "b.test.tsx: AssertionError: React warned about the missing key in this file: expected false to be true // Object.is equality",
         "proof": "open (control passes)"
       }
@@ -935,7 +978,7 @@
       "status": {
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "mainSignature": "issue351.test.tsx: AssertionError: Gesture Handler 3 exports Touchable: expected 'undefined' not to be 'undefined' // Object.is equality",
         "proof": "fix proven"
       }
@@ -954,7 +997,7 @@
         "main": "FAIL (other)",
         "fix": "PASS",
         "buggy": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "mainSignature": "issue351.test.tsx: TypeError: gh.useTapGesture is not a function",
         "proof": "fix proven (bug on buggyRef)"
       }
@@ -970,7 +1013,7 @@
       "status": {
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "mainSignature": "issue351.test.tsx: AssertionError: interpolate computes: expected +0 to be 50 // Object.is equality",
         "proof": "fix proven"
       }
@@ -986,7 +1029,7 @@
       "status": {
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "mainSignature": "issue351.test.tsx: AssertionError: the scroll handler received the scroll event: expected [] to deeply equal [ 7 ]",
         "proof": "fix proven"
       }
@@ -1001,7 +1044,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1016,7 +1059,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "c50112c^"
@@ -1045,7 +1088,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1063,7 +1106,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1085,7 +1128,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "mainSignature": "role.test.tsx: Error: Unable to find an element with role: link, name: docs",
         "proof": "open (control passes)"
       }
@@ -1103,7 +1146,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1121,7 +1164,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1137,7 +1180,7 @@
       "status": {
         "main": "PASS",
         "buggy": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "guard proven"
       }
     },
@@ -1162,7 +1205,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "4bda491^"
@@ -1177,7 +1220,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "4bda491^"
@@ -1203,7 +1246,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "4bda491^"
@@ -1219,7 +1262,7 @@
       "status": {
         "main": "PASS",
         "buggy": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "guard proven"
       }
     },
@@ -1234,7 +1277,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       }
     },
@@ -1267,7 +1310,7 @@
         "control": "PASS",
         "fix": "PASS",
         "preFix": "PASS",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "NOT PROVEN"
       },
       "preFixRef": "0f2400e"
@@ -1292,7 +1335,7 @@
         "main": "PASS",
         "fix": "FAIL (other)",
         "preFix": "FAIL (other)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "NOT PROVEN"
       },
       "preFixRef": "0f2400e"
@@ -1307,7 +1350,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "97615f3^"
@@ -1333,7 +1376,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "43139a6^"
@@ -1359,7 +1402,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "43139a6^"
@@ -1397,7 +1440,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "c4f31b0^"
@@ -1422,7 +1465,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "mainSignature": "rn-field.test.ts: AssertionError: a library's require takes the react-native implementation: expected 'web' to be 'native' // Object.is equality",
         "proof": "open (control passes)"
       }
@@ -1440,7 +1483,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1461,7 +1504,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1476,7 +1519,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1510,7 +1553,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1535,7 +1578,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "019cb5d986579df79eb222d862a1bdc8d4c4cef4",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
         "mainSignature": "outer.test.ts: AssertionError: jest.mock under globals: false works or names the setting: expected 'fails: vi is not defined' to match /^(works|names the setting)$/",
         "proof": "open (control passes)"
       }
@@ -1545,8 +1588,8 @@
       "class": "ownership",
       "title": "A setup file inside a Node-owned workspace library is refused",
       "source": "0.14.0-rc.11 regression testing",
-      "fixedBy": "open (fix/workspace-package-ownership)",
-      "fixRef": "origin/fix/workspace-package-ownership",
+      "fixedBy": "#427 (merged)",
+      "preFixRef": "74f1bf01^",
       "links": {
         "@m/kit": "packages/kit"
       },
@@ -1560,6 +1603,13 @@
             "replace": "\"museum-control-no-react-native\": \"*\""
           }
         ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
+        "proof": "landed proven"
       }
     },
     {
@@ -1567,8 +1617,8 @@
       "class": "ownership",
       "title": "A workspace library whose exports omit ./package.json leaves Vite",
       "source": "0.14.0-rc.11 regression testing",
-      "fixedBy": "open (fix/workspace-package-ownership)",
-      "fixRef": "origin/fix/workspace-package-ownership",
+      "fixedBy": "#427 (merged)",
+      "preFixRef": "74f1bf01^",
       "links": {
         "@m/kit": "packages/kit"
       },
@@ -1582,15 +1632,22 @@
             "replace": "\"museum-control-no-react-native\": \"*\""
           }
         ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
+        "proof": "landed proven"
       }
     },
     {
       "id": "res-workspace-member-closure",
       "class": "transform/resolution",
       "title": "A workspace library's dependencies are not compiled for the package that depends on it",
-      "source": "a monorepo feature package depending on a workspace UI library that declares expo-image, with expo declared by an app (\"Cannot find module '\u2026/expo-asset/build/Asset.fx'\")",
-      "fixedBy": "open (fix/closure-seed-reached-packages)",
-      "fixRef": "fix/closure-seed-reached-packages",
+      "source": "a monorepo feature package depending on a workspace UI library that declares expo-image, with expo declared by an app (\"Cannot find module '…/expo-asset/build/Asset.fx'\")",
+      "fixedBy": "#433 (merged)",
+      "preFixRef": "64ac3833^",
       "links": {
         "museum-ui": "packages/ui"
       },
@@ -1604,15 +1661,22 @@
             "replace": "\"museum-ui\": \"workspace:*\",\n    \"museum-image\": \"1.0.0\""
           }
         ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
+        "proof": "landed proven"
       }
     },
     {
       "id": "res-alias-member-closure",
       "class": "transform/resolution",
       "title": "A workspace library's dependencies are not compiled for a package that imports it through an alias",
-      "source": "a monorepo package importing a sibling workspace library's source through resolve.alias without declaring it (\"Cannot find module '\u2026/expo-asset/build/Asset.fx'\")",
-      "fixedBy": "open (fix/closure-seed-reached-packages)",
-      "fixRef": "fix/closure-seed-reached-packages",
+      "source": "a monorepo package importing a sibling workspace library's source through resolve.alias without declaring it (\"Cannot find module '…/expo-asset/build/Asset.fx'\")",
+      "fixedBy": "#433 (merged)",
+      "preFixRef": "64ac3833^",
       "bugSignature": "^closure\\.test\\.ts: (Error: )?Cannot find module '[^']*museum-expo-asset/build/Asset\\.fx'",
       "control": {
         "why": "Declaring museum-image in the project itself makes it a seed of the walk, which removes the precondition.",
@@ -1623,6 +1687,13 @@
             "replace": "\"dependencies\": {\n    \"museum-image\": \"1.0.0\"\n  }"
           }
         ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "91f01bb8399ae7c5ce138508244f82686674920f",
+        "proof": "landed proven"
       }
     }
   ]

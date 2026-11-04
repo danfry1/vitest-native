@@ -2,7 +2,7 @@
 
 - **Class:** transform/resolution
 - **Source:** a monorepo package that imports a sibling workspace library's source through `resolve.alias` without declaring it; the library declares expo-image, an app package declares expo
-- **Fixed by:** fix/closure-seed-reached-packages
+- **Fixed by:** #433 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

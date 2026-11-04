@@ -98,7 +98,10 @@ read `FAIL (unexpected)`, including the regression guards that pass on main.
 Nothing is installed. Each exhibit is copied to a fresh directory whose `node_modules`
 links this package's installed dependencies (bun's isolated store), copies vitest-native
 from the build under test (`package.json` + `dist`, as an install would), copies the
-exhibit's `vendor/*` packages and links its workspace members. Install axes this
+exhibit's `vendor/*` packages and links its workspace members. Expo's packages, which
+this package installs for its own Expo tests, are linked only into an exhibit whose
+`package.json` declares `expo`: every other exhibit is a bare React Native project, so a
+build from before #432 fails it as its own bug and not on Expo's runtime. Install axes this
 repository lacks are assembled from local copies (`requires` in exhibits.json):
 
 - `rntl: 12 | 13`: copied from a bun store that has them (default

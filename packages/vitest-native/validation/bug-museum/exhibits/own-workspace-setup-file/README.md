@@ -2,7 +2,7 @@
 
 - **Class:** ownership
 - **Source:** 0.14.0-rc.11 regression testing
-- **Fixed by:** open (`fix/workspace-package-ownership`)
+- **Fixed by:** #427 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

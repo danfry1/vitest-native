@@ -6,7 +6,8 @@
 // node_modules is assembled from what this repository already has installed:
 //
 //   - every package in packages/vitest-native/node_modules, as a symlink into bun's store
-//     (so every package is reached through a store path, as in an isolated install);
+//     (so every package is reached through a store path, as in an isolated install),
+//     except Expo's packages for an exhibit that does not declare expo (isExpoPackage);
 //   - vitest-native itself, COPIED from the build under test (package.json + dist), so
 //     that its own imports (vitest, vite, @babel/core) resolve from this node_modules, as
 //     they do in a consumer's install, and a different build can be swapped in;
@@ -49,7 +50,21 @@ export function findRntl(major) {
   return entry ? path.join(RNTL_STORE, entry, "node_modules/@testing-library/react-native") : null;
 }
 
-function linkAll(modules, source) {
+// Expo's packages, which this package installs for its own Expo tests (#426). An exhibit
+// is a bare React Native project unless its package.json declares expo: with Expo in
+// node_modules the engine detects it, and every build before #432 then fails the exhibit
+// on Expo's runtime instead of its own bug (own-expo-runtime-undeclared is that bug, with
+// a vendored expo of its own). Vendored copies are already in place and are not touched.
+const isExpoPackage = (name) => name === "expo" || /^(expo-|@expo\/)/.test(name);
+
+function declaresExpo(root) {
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+  return ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"].some(
+    (field) => manifest[field]?.expo !== undefined,
+  );
+}
+
+function linkAll(modules, source, skip = () => false) {
   for (const entry of fs.readdirSync(source)) {
     if (entry.startsWith(".")) continue;
     const names = entry.startsWith("@")
@@ -57,7 +72,7 @@ function linkAll(modules, source) {
       : [entry];
     for (const name of names) {
       const to = path.join(modules, name);
-      if (fs.existsSync(to)) continue;
+      if (fs.existsSync(to) || skip(name)) continue;
       let target;
       try {
         target = fs.realpathSync(path.join(source, name));
@@ -227,7 +242,8 @@ export function materialise(exhibit, { work, build, vitest4, edits = [], ownersh
   copyPackage(build, path.join(modules, "vitest-native"));
   if (ownershipModel !== "off")
     wrapForOwnership(path.join(modules, "vitest-native"), root, ownershipModel);
-  linkAll(modules, path.join(packageRoot, "node_modules"));
+  const expo = declaresExpo(root);
+  linkAll(modules, path.join(packageRoot, "node_modules"), (name) => !expo && isExpoPackage(name));
 
   // A second, real copy of an installed package at a path inside the exhibit
   // (`installedCopies`: { "<path>": "<name>" }): a monorepo whose app has its own copy
