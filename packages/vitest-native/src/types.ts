@@ -446,9 +446,11 @@ export interface VitestNativeOptions {
      * request through one shared resolver, from one set of inputs, so a package loaded
      * by both module systems is one module. Where a package's `exports` map has both
      * `import` and `require` builds, both sides load the `require` one. Native engine
-     * only. See docs/ownership-model.md.
+     * only. `'resolution'` adds the bridge: Node's \`require\` of a file Vite owns gets
+     * Vite's own instance, evaluated then if Vite has not yet, so the order a test loads
+     * files in cannot split a module. See docs/ownership-model.md.
      */
-    ownershipModel?: "resolver";
+    ownershipModel?: "resolver" | "resolution";
   };
 }
 

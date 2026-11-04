@@ -29,13 +29,14 @@ describe("the flag table", () => {
 });
 
 describe("experimental options", () => {
-  it("refuses an unknown key, and a value other than 'resolver'", () => {
+  it("refuses an unknown key, and a value other than 'resolver' or 'resolution'", () => {
     expect(() => validateOptions({ experimental: { other: true } })).toThrow(
       /Unknown experimental/,
     );
     expect(() => validateOptions({ experimental: { ownershipModel: true } })).toThrow(
-      /must be "resolver"/,
+      /must be "resolver" or "resolution"/,
     );
+    expect(() => validateOptions({ experimental: { ownershipModel: "resolution" } })).not.toThrow();
     expect(() => validateOptions({ experimental: [] })).toThrow(/must be an object/);
   });
 });

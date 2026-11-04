@@ -89,10 +89,14 @@ export function validateOptions(options: Record<string, unknown>): void {
           `${KNOWN_EXPERIMENTAL_OPTIONS.join(", ")}.`,
       );
     }
-    if (entries.ownershipModel !== undefined && entries.ownershipModel !== "resolver") {
+    if (
+      entries.ownershipModel !== undefined &&
+      entries.ownershipModel !== "resolver" &&
+      entries.ownershipModel !== "resolution"
+    ) {
       throw new VitestNativeTypeError(
         "INVALID_OPTION",
-        `"experimental.ownershipModel" must be "resolver".`,
+        `"experimental.ownershipModel" must be "resolver" or "resolution".`,
       );
     }
   }

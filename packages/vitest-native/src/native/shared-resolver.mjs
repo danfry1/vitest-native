@@ -45,8 +45,8 @@ export function unexpectedFallbacks(realms = resolverCounters() ?? {}) {
   return unexpected;
 }
 
-/** The option's values today; `'resolution'` arrives with the ownership predicate. */
-export const OWNERSHIP_MODEL_VALUES = Object.freeze(["resolver"]);
+/** The option's values: both resolve through the shared resolver. */
+export const OWNERSHIP_MODEL_VALUES = Object.freeze(["resolver", "resolution"]);
 
 /**
  * The one key for comparing paths across realms: the native real path, the spelling Vite
@@ -661,7 +661,7 @@ export function ownershipShadowFile(contextRef, inputsHash) {
  * while Vite resolves with it, so that fails by name instead.
  */
 export function ownershipResolverInputs(context, realm, nodeConditions) {
-  if (context?.ownershipModel !== "resolver") return null;
+  if (!OWNERSHIP_MODEL_VALUES.includes(context?.ownershipModel)) return null;
   if (!context.resolverInputs) {
     throw new VitestNativeError(
       "RESOLVER_INPUTS_MISSING",

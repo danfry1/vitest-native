@@ -470,6 +470,78 @@ async function loadAssetModules(): Promise<AssetModules> {
  * copy into the plugin entry. Returns the registry path, or null when one could not
  * be produced, in which case the engine keeps loading RN file by file.
  */
+interface BridgeProject {
+  provide(key: string, value: unknown): void;
+  vite: {
+    environments: Record<string, unknown>;
+    config: { root: string; server?: { fs?: { allow?: readonly string[] } } };
+  };
+  _transformService?: {
+    fetch(
+      url: string,
+      importer: string | undefined,
+      environment: unknown,
+      cacheFs: boolean,
+    ): Promise<{ file?: string } & Record<string, unknown>>;
+  };
+  config: { env?: Record<string, string> };
+}
+
+/**
+ * The main-process half of the require bridge (native/bridge-server.mjs) for one project:
+ * it answers a worker's synchronous fetch with Vitest's own fetch (the one the worker's
+ * module runner makes, externalization included), for files the project's ownership
+ * policy gives to Vite only.
+ */
+async function startRequireBridge(
+  project: BridgeProject,
+  vitest: unknown,
+  policy: NativeOwnershipPolicy,
+): Promise<void> {
+  const { startBridgeServer, BRIDGE_PROVIDE_KEY } = (await import(
+    pathToFileURL(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "native/bridge-server.mjs"),
+    ).href
+  )) as {
+    startBridgeServer: (options: {
+      fetch: (url: string, importer: string | undefined, environment: string) => Promise<object>;
+      isViteOwned: (file: string) => boolean;
+    }) => Promise<{ endpoint: string; token: string; close(): Promise<void> }>;
+    BRIDGE_PROVIDE_KEY: string;
+  };
+  // The directories Vite serves project files from (server.fs.allow: by default the
+  // workspace root, so a monorepo's sibling packages are inside): nothing outside them is
+  // Vite's to evaluate for Node, whatever the policy says.
+  const allow = project.vite.config.server?.fs?.allow ?? [];
+  const roots = allow.length > 0 ? [...allow] : [project.vite.config.root];
+  const inRoots = (file: string) =>
+    roots.some((root) => {
+      const relative = path.relative(root, file);
+      return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+    });
+  const server = await startBridgeServer({
+    fetch: async (url, importer, environmentName) => {
+      const transform = project._transformService;
+      const environment = project.vite.environments[environmentName];
+      if (typeof transform?.fetch !== "function" || environment === undefined) {
+        throw new VitestNativeError(
+          "BRIDGE_CONTRACT_CHANGED",
+          `Vitest's per-project fetch (${environment === undefined ? `environment ${environmentName}` : "_transformService"}) is not where this version of vitest-native expects it`,
+        );
+      }
+      return transform.fetch(url, importer, environment, false);
+    },
+    // As the worker decides it (native/bridge.mjs isViteOwned): outside node_modules and
+    // not Node's by the policy; Vitest's own fetch then inlines or externalizes it.
+    isViteOwned: (file) =>
+      inRoots(file) &&
+      !/[\\/]node_modules[\\/]/.test(file) &&
+      policy.decideFile(file).owner !== "node",
+  });
+  project.provide(BRIDGE_PROVIDE_KEY, { endpoint: server.endpoint, token: server.token, roots });
+  (vitest as { onClose?: (fn: () => unknown) => void }).onClose?.(() => server.close());
+}
+
 interface RegistryOptions {
   projectRoot: string;
   platform: string;
@@ -1685,8 +1757,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // experimental.ownershipModel: the value when the project opted in under the native
   // engine, the resolver inputs config() knows (the conditions arrive in
   // configureVitest, from Vitest's own worker arguments), and the Vite realm's resolver.
+  const requestedModel = options?.experimental?.ownershipModel;
   const ownershipModel =
-    options?.experimental?.ownershipModel === "resolver" ? "resolver" : undefined;
+    requestedModel === "resolver" || requestedModel === "resolution" ? requestedModel : undefined;
   const pendingResolverInputs = new Map<string, Omit<ResolverInputs, "conditions">>();
   const viteResolvers = new Map<string, SharedResolver>();
   // experimental.ownershipModel: the registry options config() knows, built in
@@ -3169,6 +3242,24 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         );
       } else {
         publish(changes);
+      }
+      // experimental.ownershipModel 'resolution': the require bridge's server, started
+      // before any worker, and named to the workers through Vitest's provide.
+      if (ownershipModel === "resolution" && resolverInputs) {
+        if (nativeOwnership === null) {
+          throw new VitestNativeError(
+            "BRIDGE_UNAVAILABLE",
+            `experimental.ownershipModel 'resolution': the project at ${root} has no ownership ` +
+              `policy to decide which files Vite owns. Report this, with the Vitest config, as ` +
+              `a vitest-native bug.`,
+          );
+        }
+        const bridge = startRequireBridge(
+          project as unknown as BridgeProject,
+          vitest,
+          nativeOwnership,
+        );
+        ownershipReady = Promise.all([ownershipReady, bridge]).then(() => undefined);
       }
     }
     const cli = vitest._cliOptions ?? vitest.config?.cliOptions ?? {};

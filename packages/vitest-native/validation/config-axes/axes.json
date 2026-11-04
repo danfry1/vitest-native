@@ -13,13 +13,22 @@
   },
   "flags": {
     "$comment": "Behaviour flags a run can opt into with run.mjs --ownership <value> (ownership.mjs); not part of any CI cell yet, so every scheduled run keeps the flag off. Every run is judged with the value it ran under, so a known-failing entry may name one in `when`. A build that does not read the flag records 'flag not supported by this build' instead of verdicts. Track A's resolver PR (A1) moves ownershipModel into `runtime`.",
-    "ownershipModel": ["off", "resolver"]
+    "ownershipModel": ["off", "resolver", "resolution"]
   },
   "constraints": [
     {
       "$comment": "experimental.ownershipModel changes how the native engine resolves for Node and Vite; the mock engine has no Node side.",
       "if": {
         "ownershipModel": "resolver"
+      },
+      "then": {
+        "engine": "native"
+      }
+    },
+    {
+      "$comment": "'resolution' is 'resolver' plus the require bridge: native engine only, likewise.",
+      "if": {
+        "ownershipModel": "resolution"
       },
       "then": {
         "engine": "native"

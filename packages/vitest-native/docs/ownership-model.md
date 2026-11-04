@@ -41,6 +41,15 @@ Relative and absolute requests, Node's built-ins, React Native itself and the te
 runtime (Vitest, Vite, chai) are not answered by the resolver: their resolution is
 already shared, or another owner answers it.
 
+## `'resolution'` (in progress)
+
+`'resolution'` resolves exactly as `'resolver'` does. It also starts the require bridge's
+private channel, which the next step uses to give Node's `require` of a project file Vite's
+own instance, in either load order. The channel is a Unix socket in a directory only the
+user can enter (a named pipe on Windows); each request carries a token the workers get
+through Vitest's `provide`; anything else is ignored, and only files Vite evaluates are
+served. It is started only under `'resolution'`, and closed with Vitest.
+
 ## How it fails
 
 - **`RESOLVER_INPUT_MISMATCH`**: a realm's copy of the record does not hash to the

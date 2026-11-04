@@ -28,7 +28,7 @@ export interface ProjectContextFields {
   nativeModuleSpecs?: Record<string, string[]>;
   nativeModules?: "permissive";
   /** experimental.ownershipModel (ADR-0004/0005): absent unless the project opts in. */
-  ownershipModel?: "resolver";
+  ownershipModel?: "resolver" | "resolution";
   resolverInputs?: import("./native/shared-resolver.mjs").ResolverInputs;
   resolverInputsHash?: string;
 }

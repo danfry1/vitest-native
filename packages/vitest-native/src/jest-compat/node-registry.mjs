@@ -39,7 +39,9 @@ const context = projectContext();
 // resolver's (every string and RegExp alias, and tsconfig `paths`, in Vite's order), and
 // the plugin writes no second one.
 const resolverAliases =
-  context?.ownershipModel === "resolver" ? (context.resolverInputs?.aliases ?? []) : null;
+  context?.ownershipModel === "resolver" || context?.ownershipModel === "resolution"
+    ? (context.resolverInputs?.aliases ?? [])
+    : null;
 const requireAliases = context?.requireAliases ?? [];
 
 export const config = {
