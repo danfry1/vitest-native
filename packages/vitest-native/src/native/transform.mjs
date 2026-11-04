@@ -27,6 +27,7 @@ import { handleToolchainRequest } from "./babel-toolchain.mjs";
 import { ESM_EXPORTS_MARK, ESM_INTEROP_RUNTIME } from "./esm-interop.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import { resolveTransformPreset } from "./babel-preset.mjs";
+import { projectContext } from "../context.mjs";
 
 // Toolchain state is scoped PER PROJECT ROOT, not per process. It used to be a
 // set of module globals initialized by the first caller — but registries for
@@ -707,7 +708,7 @@ function transformFailure(err, file, platform) {
 
 /** Transform an RN source file to runnable CJS. Cached in-memory + on disk. */
 
-// Source maps for the source a project owns.
+// Source maps for the source a project owns, while coverage is on.
 //
 // Code Node compiles runs as Babel's output, not as the file on disk, so a coverage
 // report needs a map from one to the other: V8 counts executions at offsets in the
@@ -717,16 +718,25 @@ function transformFailure(err, file, platform) {
 // from this output, which is what the test worker ran.
 //
 // Inline, at the end of the output: the code above the comment is byte-for-byte what it
-// was, so nothing V8 or the module's own stack traces see moves. Only for files outside
-// node_modules: @vitest/coverage-v8 drops every script under node_modules before it
-// reads a map (as Jest's coveragePathIgnorePatterns does by default), and React
-// Native's ~450 sources would pay for maps no report reads. A workspace package is
-// reached through its real path (Node resolves symlinks), so it is mapped too.
+// was, so no offset V8 counts moves. Only for files outside node_modules:
+// @vitest/coverage-v8 drops every script under node_modules before it reads a map (as
+// Jest's coveragePathIgnorePatterns does by default). A workspace package is reached
+// through its real path (Node resolves symlinks), so it is mapped too. And only while
+// coverage is on: the plugin says so in the project context (`sourceMaps`) for the test
+// workers, and the provider calls enableSourceMaps() in the main process. A map costs
+// about half again Babel's time and several times the output's size, which a run
+// without coverage would pay for nothing.
 const SOURCE_MAP_TOKEN = "inline-source-map-1";
+let sourceMapsEnabled = false;
+
+/** The main process's coverage provider compiles for the report as the workers did. */
+export function enableSourceMaps() {
+  sourceMapsEnabled = true;
+}
 
 /** Does `file`'s compiled output carry an inline source map? */
 export function carriesSourceMap(file) {
-  return !NODE_MODULES.test(file);
+  return (sourceMapsEnabled || projectContext()?.sourceMaps === true) && !NODE_MODULES.test(file);
 }
 
 /**

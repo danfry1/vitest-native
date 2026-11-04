@@ -6,6 +6,10 @@
 //   default  The package is linked into node_modules, as a workspace install links it,
 //            so the engine detects it (it peers on react-native) and Node compiles it.
 //   hot      The same under the hot runtime, both test files in one worker.
+//   projects tests-native/coverage-projects: coverage configured in a root config that
+//            lists one project, and vitest-native only in that project's config. A
+//            workspace package the app aliases to its source and Node owns must be
+//            reported, with what ran covered and what did not uncovered.
 //
 // In every mode @vitest/coverage-v8 must not fail to parse anything, the report must
 // hold exactly the project's four source files (the untested one through
@@ -130,6 +134,47 @@ function matchesReference(mode, reference) {
   }
 }
 
+/** The projects shape: the provider is installed from a project's config. */
+function projects() {
+  const dir = path.join(packageRoot, "tests-native", "coverage-projects");
+  const appModules = path.join(dir, "packages", "app", "node_modules");
+  const reports = path.join(outDir, "projects");
+  try {
+    fs.mkdirSync(appModules, { recursive: true });
+    fs.symlinkSync(
+      path.join(dir, "packages", "lib"),
+      path.join(appModules, "lib"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    const result = spawnSync(process.execPath, [vitestEntry, "run", "--coverage"], {
+      cwd: dir,
+      encoding: "utf8",
+      env: { ...process.env, FORCE_COLOR: "0", VN_COVERAGE_DIR: reports },
+    });
+    if (result.error) throw result.error;
+    const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+    const fail = (message) => {
+      throw new Error(`projects: ${message}\n${output}`);
+    };
+    if (result.status !== 0) fail(`vitest exited ${result.status}`);
+    if (/Failed to parse/.test(output)) fail("coverage failed to parse");
+    const report = JSON.parse(fs.readFileSync(path.join(reports, "coverage-final.json"), "utf8"));
+    const entry = Object.entries(report).find(([file]) =>
+      file.split(path.sep).join("/").endsWith("packages/lib/src/index.ts"),
+    )?.[1];
+    if (!entry) fail(`lib/src/index.ts is not in the report: ${Object.keys(report)}`);
+    // add() ran, sub() did not.
+    const calls = Object.fromEntries(
+      Object.entries(entry.fnMap).map(([id, fn]) => [fn.decl.start.line, entry.f[id]]),
+    );
+    if (!(calls[2] > 0) || calls[3] !== 0) {
+      fail(`expected add (line 2) called and sub (line 3) not, got ${JSON.stringify(calls)}`);
+    }
+  } finally {
+    fs.rmSync(appModules, { recursive: true, force: true });
+  }
+}
+
 try {
   link();
   unlinkWorkspacePackage();
@@ -142,9 +187,10 @@ try {
   link();
   matchesReference("default", reference);
   matchesReference("hot", reference);
+  projects();
   console.log(
-    "[vitest-native] coverage of Node-compiled source matches Vite's, default and hot, " +
-      "with nothing failing to parse",
+    "[vitest-native] coverage of Node-compiled source matches Vite's, default, hot and " +
+      "from a project config, with nothing failing to parse",
   );
 } finally {
   fs.rmSync(nodeModules, { recursive: true, force: true });

@@ -12,7 +12,7 @@ import { coverageFile, nodeScripts, nodeSource } from "../src/native/coverage-v8
 type Range = { startOffset: number; endOffset: number; count: number };
 type Fn = { functionName: string; ranges: Range[]; isBlockCoverage: boolean };
 type Script = { scriptId: string; url: string; functions: Fn[] };
-type Source = { compiled: boolean; code: string; map: unknown } | null;
+type Source = { compiled: boolean; code: string; map: unknown } | { unmappable: string } | null;
 
 const root = (end: number, count = 1, inner: Range[] = []): Fn => ({
   functionName: "",
@@ -55,6 +55,26 @@ describe("nodeScripts", () => {
     expect(out).toHaveLength(1);
     expect(out[0]!.functions).toEqual([module, grade]);
     expect(warnings).toEqual([]);
+  });
+
+  it("keeps a module function that starts at offset 0, never called", () => {
+    // Compiled output can begin with a declaration: `function Foo(){…}module.exports=Foo`.
+    const module = root(500);
+    const first = fn("Foo", 0, 36, 0);
+    const { out, warnings } = convert(
+      [{ scriptId: "1", url, functions: [module, first] }],
+      compiledSource,
+    );
+    expect(out[0]!.functions).toEqual([module, first]);
+    expect(warnings).toEqual([]);
+  });
+
+  it("leaves out, with a warning, a compiled file it cannot map", () => {
+    const { out, warnings } = convert([{ scriptId: "1", url, functions: [root(500)] }], {
+      unmappable: "the tests compiled it without a source map",
+    });
+    expect(out).toEqual([]);
+    expect(warnings).toEqual([expect.stringContaining("without a source map")]);
   });
 
   it("drops a compiled file's stamped entry: only the hot runtime's facade runs there", () => {
@@ -128,6 +148,29 @@ describe("nodeSource", () => {
     expect(source.compiled).toBe(true);
     expect(source.code).toContain(`/* ${dir} ios */`);
     expect(source.map).toEqual({ ...map, sources: [pathToFileURL(ts).href] });
+  });
+
+  it("keeps the sources a file's own map names, resolved from the file", () => {
+    const built = { version: 3, sources: ["../src/index.ts"], mappings: "AAAA" };
+    const source = nodeSource(ts, project(true), {
+      ...toolchain,
+      transformRN: () =>
+        `x;\n//# sourceMappingURL=data:application/json;charset=utf-8;base64,${Buffer.from(JSON.stringify(built)).toString("base64")}`,
+    });
+    expect(source.map.sources).toEqual([pathToFileURL(path.join(dir, "src", "index.ts")).href]);
+  });
+
+  it("is unmappable when the compiled code has no map, or does not compile", () => {
+    expect(nodeSource(ts, project(true), { ...toolchain, transformRN: () => "x;" })).toEqual({
+      unmappable: "the tests compiled it without a source map",
+    });
+    const failing = nodeSource(ts, project(true), {
+      ...toolchain,
+      transformRN: () => {
+        throw new Error("boom");
+      },
+    });
+    expect(failing.unmappable).toContain("boom");
   });
 
   it("is the file itself when Node runs it as published", () => {

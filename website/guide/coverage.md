@@ -12,7 +12,7 @@ npx vitest run --coverage
 Coverage reports the files your tests load from your own project, mapped back to their source lines:
 
 - **Files Vite loads.** These are your tests and most app source. They work as they do in any Vitest project.
-- **Files Node compiles (native engine).** Under `engine: 'native'`, Node loads workspace packages written for React Native (see [How It Works](/guide/how-it-works)). Babel compiles these files for Node and adds a source map, so their coverage is reported against your `.ts`/`.tsx` lines like everything else.
+- **Files Node compiles (native engine).** Under `engine: 'native'`, Node loads workspace packages written for React Native (see [How It Works](/guide/how-it-works)). Babel compiles these files for Node. While coverage is on, it also writes a source map for each, so their coverage is reported against your `.ts`/`.tsx` lines like everything else.
 
 With `provider: 'v8'` (Vitest's default), the plugin swaps in a coverage provider that knows about the files Node compiles. That provider is `@vitest/coverage-v8` with one change: for those files it reads the code Node ran from the engine's transform cache, instead of asking Vite. The report still says "Coverage report from v8". Your `include`, `exclude`, reporters and thresholds apply as before.
 
@@ -20,6 +20,14 @@ With `provider: 'v8'` (Vitest's default), the plugin swaps in a coverage provide
 
 - **`node_modules`.** This includes React Native itself, and packages that publish Flow, JSX or TypeScript source. `@vitest/coverage-v8` skips these, just as Jest's default `coveragePathIgnorePatterns` does.
 - **Files outside the project root.** In a monorepo, a workspace package that lives next to your app rather than inside it is left out by default. To report it, set `coverage.allowExternal: true` and add it to `coverage.include` with a glob relative to the project root, for example `include: ['src/**', '../packages/*/src/**']`.
+
+## Running one project with `--project`
+
+With `--project <name>`, Vitest matches `coverage.include` against that project's root, not the root config's directory. Repo-relative patterns then match nothing, and the report comes out 0/0. For a package beside the project, use a pattern relative to the project, and allow external files:
+
+```bash
+vitest run --coverage --project app --coverage.include='../lib/src/**' --coverage.allowExternal
+```
 
 ## Known differences
 

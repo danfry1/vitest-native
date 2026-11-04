@@ -33,8 +33,10 @@
 //   compiled code only under the file's path, so a stamped script of a compiled file
 //   can only be a facade, and is dropped.
 //
-// @vitest/coverage-v8 is the one Vitest itself would load: resolved from the running
-// Vitest, which is how Vitest imports its built-in providers.
+// @vitest/coverage-v8 is resolved beside the `vitest` this package resolves (its peer,
+// which a package manager links to the project's own), as Vitest imports its built-in
+// providers from its own location. @vitest/coverage-v8 warns by itself when its version
+// and the running Vitest's differ.
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
@@ -43,7 +45,7 @@ import { VitestNativeError } from "../errors.mjs";
 
 let runtime = null;
 
-/** @vitest/coverage-v8's module, as Vitest would import it. */
+/** @vitest/coverage-v8's module, resolved beside `vitest`. */
 function coverageV8() {
   runtime ??= (async () => {
     const fromHere = createRequire(import.meta.url);
@@ -77,7 +79,11 @@ export default {
   },
   async getProvider() {
     const base = await (await coverageV8()).getProvider();
-    const { transformRN, needsTransform } = await import("./transform.mjs");
+    const { transformRN, needsTransform, enableSourceMaps } = await import("./transform.mjs");
+    // The test workers compile project source with a source map while coverage is on
+    // (the project context's `sourceMaps`); this process compiles it again, for the
+    // report, the same way.
+    enableSourceMaps();
     return nodeAwareProvider(base, { transformRN, needsTransform });
   },
 };
@@ -99,8 +105,9 @@ function nativeApi(project) {
 }
 
 /**
- * What Node ran for `file` in `project`: `{ compiled, code, map }`, or null when Vite
- * loads the file (or the project does not use the native engine).
+ * What Node ran for `file` in `project`: `{ compiled, code, map }`; `{ unmappable }`, a
+ * reason, when Node compiled it but its compiled code cannot be mapped here; or null
+ * when Vite loads the file (or the project does not use the native engine).
  */
 export function nodeSource(file, project, toolchain) {
   const target = nativeApi(project)?.nodeCoverageTarget?.(file);
@@ -116,12 +123,23 @@ export function nodeSource(file, project, toolchain) {
   if (!COMPILED_EXTENSION.test(file) && !toolchain.needsTransform(file, src)) {
     return { compiled: false, code: src, map: null };
   }
-  const code = toolchain.transformRN(file, src, target.root, target.platform);
+  let code;
+  try {
+    code = toolchain.transformRN(file, src, target.root, target.platform);
+  } catch (err) {
+    return { unmappable: `compiling it for the report failed: ${err?.message ?? err}` };
+  }
   const inline = INLINE_MAP.exec(code);
-  const map = inline ? JSON.parse(Buffer.from(inline[1], "base64").toString("utf8")) : null;
-  // `sources` as file URLs, so the report names the original file wherever the map
-  // was written from.
-  if (map) map.sources = [pathToFileURL(file).href];
+  // No map: the tests ran without one, as when coverage was turned on in a watch session
+  // after they started. Counts read without it would land on the compiled code's lines.
+  if (!inline) return { unmappable: "the tests compiled it without a source map" };
+  const map = JSON.parse(Buffer.from(inline[1], "base64").toString("utf8"));
+  // `sources` as file URLs, resolved as the map itself would resolve them: Babel names
+  // the file it compiled, or, for a file that carries a map of its own (a built library
+  // with its `.js.map`), the sources that map names.
+  const base = new URL(map.sourceRoot ?? "", pathToFileURL(file));
+  map.sources = (map.sources ?? []).map((source) => new URL(source, base).href);
+  delete map.sourceRoot;
   return { compiled: true, code, map };
 }
 
@@ -145,6 +163,10 @@ export function nodeScripts(scripts, sourceOf, warn) {
       out.push(script);
       continue;
     }
+    if (source.unmappable) {
+      warn(unmappableMessage(file, source.unmappable));
+      continue;
+    }
     const stamped = /[?#]/.test(script.url);
     const url = stamped ? pathToFileURL(file).href : script.url;
     // A file Node ran as published, or an `.mjs` the loader serves compiled at its own
@@ -156,21 +178,33 @@ export function nodeScripts(scripts, sourceOf, warn) {
     // Compiled code runs only under the file's plain path (Node's CommonJS loader); a
     // stamped URL is the hot runtime's facade.
     if (stamped) continue;
+    // The facade is the compiled code plus its own lines around it, so its top-level
+    // function always reaches past the code's end. A function of the module that starts
+    // at offset 0 (compiled output can begin with a declaration) never does.
     const length = source.code.length;
-    const isOtherRoot = (fn) =>
-      fn.ranges[0]?.startOffset === 0 && fn.ranges[0].endOffset !== length;
-    const functions = script.functions.filter((fn) => !isOtherRoot(fn));
-    if (!functions.some((fn) => fn.ranges[0]?.startOffset === 0)) {
+    const isFacade = (fn) => fn.ranges[0]?.startOffset === 0 && fn.ranges[0].endOffset > length;
+    const functions = script.functions.filter((fn) => !isFacade(fn));
+    if (
+      !functions.some((fn) => fn.ranges[0]?.startOffset === 0 && fn.ranges[0].endOffset === length)
+    ) {
       warn(
-        `[vitest-native] coverage: ${file} changed after the tests ran it (or ran with ` +
-          `another Babel configuration), so its counts cannot be mapped to its source. ` +
-          `It is left out of this report.`,
+        unmappableMessage(
+          file,
+          "it changed after the tests ran it, or they compiled it with other Babel settings",
+        ),
       );
       continue;
     }
     out.push({ ...script, functions });
   }
   return out;
+}
+
+function unmappableMessage(file, reason) {
+  return (
+    `[vitest-native] coverage: ${file} is left out of this report: ${reason}, so its ` +
+    `counts cannot be mapped to its source.`
+  );
 }
 
 function nodeAwareProvider(base, toolchain) {
@@ -184,11 +218,19 @@ function nodeAwareProvider(base, toolchain) {
     return base;
   }
   class NativeV8CoverageProvider extends Base {
+    // Per file as it is on disk now: a watch session keeps this provider across reruns,
+    // and an edited file must be read again (transformRN's own memo is keyed the same).
     #sources = new Map();
     #warned = new Set();
 
     #sourceOf(file, project) {
-      const key = `${project?.name ?? ""}\0${file}`;
+      let stat;
+      try {
+        stat = fs.statSync(file);
+      } catch {
+        return null;
+      }
+      const key = `${project?.name ?? ""}\0${file}\0${stat.mtimeMs}\0${stat.size}`;
       let source = this.#sources.get(key);
       if (source === undefined) {
         source = nodeSource(file, project, toolchain);
@@ -197,21 +239,38 @@ function nodeAwareProvider(base, toolchain) {
       return source;
     }
 
+    #warn(message) {
+      if (this.#warned.has(message)) return;
+      this.#warned.add(message);
+      this.ctx.logger.warn(message);
+    }
+
+    async generateCoverage(...args) {
+      // Once per report: a rerun that still cannot map a file says so again.
+      this.#warned.clear();
+      return super.generateCoverage(...args);
+    }
+
     async convertCoverage(coverage, project = this.ctx.getRootProject(), environment) {
       const result = nodeScripts(
         coverage.result,
-        (file) => this.#sourceOf(file, project),
-        (message) => {
-          if (this.#warned.has(message)) return;
-          this.#warned.add(message);
-          this.ctx.logger.warn(message);
-        },
+        // A file the report leaves out anyway (`include`, `exclude`, outside the root) is
+        // not compiled for it.
+        (file) => (this.isIncluded(file) ? this.#sourceOf(file, project) : null),
+        (message) => this.#warn(message),
       );
       return super.convertCoverage({ ...coverage, result }, project, environment);
     }
 
     async transformFile(url, project, ...rest) {
-      const source = this.#sourceOf(coverageFile(url), project);
+      const file = coverageFile(url);
+      const source = this.#sourceOf(file, project);
+      if (source?.unmappable) {
+        // Reached for a file no test ran (`coverage.include`): it is reported as empty
+        // rather than parsed as JavaScript.
+        this.#warn(unmappableMessage(file, source.unmappable));
+        return { code: "", map: null };
+      }
       if (source !== null) return { code: source.code, map: source.map };
       return super.transformFile(url, project, ...rest);
     }

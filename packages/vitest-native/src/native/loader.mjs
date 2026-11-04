@@ -473,6 +473,9 @@ export function requireFacade(url, file, compiled) {
       shortCircuit: true,
     };
   }
+  // Carried whole, source map included (transform.mjs adds one while coverage is on):
+  // the coverage provider tells this facade from the module by the facade's reaching
+  // past the end of the compiled code (coverage-v8.mjs, nodeScripts).
   return {
     format: "commonjs",
     source: [

@@ -436,6 +436,7 @@ function parseReactNativeMembers(indexSource: string): { name: string; deprecate
 interface CoverageProviderConfig {
   provider?: string;
   customProviderModule?: string;
+  enabled?: boolean;
 }
 
 /**
@@ -457,11 +458,16 @@ interface CoverageProviderConfig {
  * providers are left as configured. The test workers load the same @vitest/coverage-v8
  * runtime either way.
  */
-function useNativeCoverageProvider(coverage: CoverageProviderConfig | undefined): void {
-  if (!coverage || coverage.provider !== "v8") return;
+function useNativeCoverageProvider(coverage: CoverageProviderConfig | undefined): boolean {
+  if (!coverage) return false;
   const dir = path.dirname(fileURLToPath(import.meta.url));
-  coverage.provider = "custom";
-  coverage.customProviderModule = path.resolve(dir, "native/coverage-v8.mjs");
+  const module = path.resolve(dir, "native/coverage-v8.mjs");
+  if (coverage.provider === "v8") {
+    coverage.provider = "custom";
+    coverage.customProviderModule = module;
+  }
+  // Whether this run's coverage goes through it: another project may have switched it.
+  return coverage.enabled === true && coverage.customProviderModule === module;
 }
 
 /**
@@ -2880,7 +2886,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   }) {
     const projectConfig = project.config;
     const root = projectConfig.root ? path.resolve(projectConfig.root) : process.cwd();
-    if (engine === "native") useNativeCoverageProvider(vitest.config?.coverage);
+    const coverage = engine === "native" && useNativeCoverageProvider(vitest.config?.coverage);
     // The running Vitest, as Vitest states it, rather than the package a lookup from the
     // project root finds (host.ts).
     if (typeof vitest.version === "string") {
@@ -2935,9 +2941,16 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             `\`root\`, or report this, with the Vitest config, as a vitest-native bug.`,
         );
       }
-      const ref = presetExports
-        ? amendProjectContext(contextRef, { presetExports }, root)
-        : contextRef;
+      // With coverage on, Node-compiled source carries a source map (sourceMaps in
+      // native/transform.mjs, read by native/coverage-v8.mjs).
+      const changes: Partial<ProjectContextFields> = {
+        ...(presetExports ? { presetExports } : {}),
+        ...(coverage ? { sourceMaps: true } : {}),
+      };
+      const ref =
+        Object.keys(changes).length > 0
+          ? amendProjectContext(contextRef, changes, root)
+          : contextRef;
       projectConfig.env![CONTEXT_ENV] = ref;
       // A cache cleared during a watch session: rewrite the file before each rerun.
       const fields = writtenContexts.get(ref);
