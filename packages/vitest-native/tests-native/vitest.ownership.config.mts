@@ -37,6 +37,7 @@ export default defineConfig(({ mode }) => {
       globalSetup: [
         path.resolve(here, "../tests/support/temp-root.global.ts"),
         path.resolve(here, "ownership/fixtures.global.ts"),
+        ...(off ? [] : [path.resolve(here, "ownership/vite-realm.global.ts")]),
       ],
       globals: true,
       environment: "node",

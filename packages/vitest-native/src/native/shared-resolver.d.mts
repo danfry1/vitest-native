@@ -46,6 +46,11 @@ export declare function ownershipResolverInputs(
 /** Under diagnostics, the JSON-lines file every realm writes the resolution shadow to. */
 export declare function ownershipShadowFile(contextRef: string): string;
 
+/** Per realm, fallbacks outside FALLBACK_ALLOWED with the errors named; empty when none. */
+export declare function unexpectedFallbacks(
+  realms?: Record<string, ResolverCounters>,
+): Record<string, Record<string, number | string[]>>;
+
 export declare const FALLBACK_ALLOWED: readonly string[];
 export declare const OWNERSHIP_MODEL_VALUES: readonly string[];
 

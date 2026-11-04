@@ -27,6 +27,23 @@ const OWNED_ELSEWHERE =
 export const FALLBACK_ALLOWED = Object.freeze(["unresolved"]);
 const UNRESOLVED_CODES = new Set(["MODULE_NOT_FOUND", "ERR_PACKAGE_PATH_NOT_EXPORTED", "ENOENT"]);
 
+/**
+ * Per realm, the fallbacks counted outside FALLBACK_ALLOWED, with the errors named:
+ * empty when every realm resolved, or fell back only because nothing was installed.
+ * The native suite checks it in the workers (after each file) and in the main process
+ * (Vite's realm, after the run).
+ */
+export function unexpectedFallbacks(realms = resolverCounters() ?? {}) {
+  const unexpected = {};
+  for (const [realm, counters] of Object.entries(realms)) {
+    for (const [reason, count] of Object.entries(counters.fallbacks)) {
+      if (!FALLBACK_ALLOWED.includes(reason)) (unexpected[realm] ??= {})[reason] = count;
+    }
+    if (unexpected[realm]) unexpected[realm].errors = counters.errors;
+  }
+  return unexpected;
+}
+
 /** The option's values today; `'resolution'` arrives with the ownership predicate. */
 export const OWNERSHIP_MODEL_VALUES = Object.freeze(["resolver"]);
 
