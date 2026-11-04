@@ -1954,6 +1954,15 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       if (hotRuntimeRequested && hotRecycle.esmGeneration === false) {
         fields.hotEsmGeneration = false;
       }
+      // A released module generation is safe to read only through Vitest's interop proxy,
+      // which falls back to the module's default export (loader.mjs, releaseGenerations).
+      // Without it a test file's late callback would read a cleared binding, so nothing is
+      // released.
+      const userDeps = (userConfig as { test?: { deps?: { interopDefault?: unknown } } }).test
+        ?.deps;
+      if (hotRuntimeRequested && userDeps?.interopDefault === false) {
+        fields.hotReleaseGenerations = false;
+      }
 
       // Native engine: externalize RN so it loads through Node's single CJS graph,
       // where the native setup file's hooks Flow-strip it and mock the boundary.

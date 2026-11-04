@@ -33,6 +33,22 @@ const counting = typeof nodeModule.registerHooks === "function";
 const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-hot-workspace-member-"));
 
 const STAMP = /[?&]vnhot=\d+/;
+// A CommonJS module a file imports is served behind a generation facade (generationFacade
+// in src/native/loader.mjs): one evaluation, seen here as two loads in a row. The first
+// generation is the facade and the module it re-exports (`&vnnode`); a later one is the
+// facade and the module's own load through `require`. Only the second load of such a
+// pair is dropped, so any other load of the same file still counts.
+const NODE_SERVED = "&vnnode";
+function evaluations(urls) {
+  return urls.filter((url, index) => {
+    const previous = urls[index - 1];
+    if (previous === undefined || !STAMP.test(previous) || previous.endsWith(NODE_SERVED))
+      return true;
+    if (url.endsWith(NODE_SERVED)) return url.slice(0, -NODE_SERVED.length) !== previous;
+    return STAMP.test(url) || fileOf(url) !== fileOf(previous);
+  });
+}
+
 const fileOf = (url) => fileURLToPath(url.replace(/[?#].*$/, "")).replace(/\\/g, "/");
 const inNodeModules = (file) => /\/node_modules\//.test(file);
 const isMember = (file) => file.startsWith(`${member}/`);
@@ -81,7 +97,9 @@ function run(mode) {
   if (!counting) return null;
   if (!fs.existsSync(log)) fail("no load log was written");
   const loads = JSON.parse(fs.readFileSync(log, "utf8"));
-  const files = new Map(loads.files.map((entry) => [path.basename(entry.file), entry.loads]));
+  const files = new Map(
+    loads.files.map((entry) => [path.basename(entry.file), evaluations(entry.loads)]),
+  );
   if (files.size !== 4) fail(`expected loads for 4 files, got ${[...files.keys()].join(", ")}`);
 
   // No twin runtime, anywhere in the worker's life.
