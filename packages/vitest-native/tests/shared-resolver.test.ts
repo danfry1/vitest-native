@@ -13,11 +13,15 @@ import {
   createSharedResolver,
   expandResolutionAlias,
   nodeOptionsList,
+  ownershipResolverInputs,
+  resolverCounters,
   resolverInputsHash,
   serializeResolutionAliases,
 } from "../src/native/shared-resolver.mjs";
 // @ts-expect-error — runtime .mjs, no types
 import { registryKey } from "../src/native/registry.mjs";
+import { reactNative } from "../src/index.js";
+import { runPluginConfig } from "./plugin-config.js";
 
 const roots: string[] = [];
 afterAll(() => {
@@ -193,6 +197,70 @@ describe("each realm checks the inputs it resolves from", () => {
     expect(conditionsIn(nodeOptionsList(" --conditions=src  --max-old-space-size=1 "))).toEqual([
       "src",
     ]);
+  });
+});
+
+describe("a realm with the flag on and no inputs", () => {
+  const inputs = inputsFor("/p");
+  const hash = resolverInputsHash(inputs);
+
+  it("fails by name instead of resolving as if the flag were off", () => {
+    expect(() => ownershipResolverInputs({ ownershipModel: "resolver" }, "test")).toThrow(
+      expect.objectContaining({ code: "RESOLVER_INPUTS_MISSING" }),
+    );
+  });
+
+  it("builds nothing with the flag off, and the checked record with it on", () => {
+    expect(ownershipResolverInputs({ resolverInputs: inputs, resolverInputsHash: hash }, "t")).toBe(
+      null,
+    );
+    expect(ownershipResolverInputs(null, "test")).toBe(null);
+    expect(
+      ownershipResolverInputs(
+        { ownershipModel: "resolver", resolverInputs: inputs, resolverInputsHash: hash },
+        "test",
+      ),
+    ).toBe(inputs);
+  });
+});
+
+describe("the Vite side under the flag", () => {
+  // configureVitest records the inputs for the project's root; resolveId then asks for
+  // the requesting environment's root.
+  const configured = async (configRoot: string) => {
+    const plugin = reactNative({
+      engine: "native",
+      experimental: { ownershipModel: "resolver" },
+    }) as any;
+    const config = await runPluginConfig(plugin, { root: configRoot });
+    await plugin.configResolved?.({ root: configRoot });
+    const vitestProject = {
+      config: { root: configRoot, setupFiles: config.test.setupFiles, env: { ...config.test.env } },
+    };
+    plugin.configureVitest({ vitest: { config: { cliOptions: {} } }, project: vitestProject });
+    return (root: string) =>
+      plugin.resolveId.call({ environment: { config: { root } } }, "dual-nope-not-installed");
+  };
+
+  it("finds the project's resolver under another spelling of its root", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-resolver-spelling-"));
+    roots.push(dir);
+    const link = path.join(dir, "link");
+    fs.symlinkSync(process.cwd(), link, "junction");
+    const resolve = await configured(link);
+    const calls = () => resolverCounters()?.vite?.calls ?? 0;
+    const before = calls();
+    expect(() => resolve(process.cwd())).not.toThrow();
+    expect(() => resolve(link)).not.toThrow();
+    // The project's own resolver answered both, not "no resolver, flag off in Vite".
+    expect(calls()).toBe(before + 2);
+  });
+
+  it("never answers with another project's resolver", async () => {
+    const resolve = await configured(process.cwd());
+    expect(() => resolve(os.tmpdir())).toThrow(
+      expect.objectContaining({ code: "RESOLVER_INPUTS_MISSING" }),
+    );
   });
 });
 

@@ -33,6 +33,19 @@ export declare function exportTarget(
   conditions: readonly string[],
 ): string | null;
 
+/** The context's resolver inputs, checked; null with the flag off; throws when they are missing. */
+export declare function ownershipResolverInputs(
+  context:
+    | { ownershipModel?: string; resolverInputs?: ResolverInputs; resolverInputsHash?: string }
+    | null
+    | undefined,
+  realm: string,
+  nodeConditions?: readonly string[],
+): ResolverInputs | null;
+
+/** Under diagnostics, the JSON-lines file every realm writes the resolution shadow to. */
+export declare function ownershipShadowFile(contextRef: string): string;
+
 export declare const FALLBACK_ALLOWED: readonly string[];
 export declare const OWNERSHIP_MODEL_VALUES: readonly string[];
 
@@ -59,7 +72,7 @@ export interface SharedResolver {
 
 export declare function createSharedResolver(
   inputs: ResolverInputs,
-  options?: { realm?: string; memo?: boolean },
+  options?: { realm?: string; memo?: boolean; shadowFile?: string | null },
 ): SharedResolver;
 
 export declare function serializeResolutionAliases(

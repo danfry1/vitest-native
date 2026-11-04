@@ -6,6 +6,8 @@
 //
 // `--mode off` runs only the identity probes with the flag off: the control that
 // shows they fail without the shared resolver (scripts/test-ownership-control.mjs).
+// `--mode shadow` runs only the shadow probe, with `diagnostics` on: the shadow is
+// written under diagnostics only.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
@@ -17,6 +19,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig(({ mode }) => {
   const off = mode === "off";
+  const shadow = mode === "shadow";
   if (off) process.env.VN_OWNERSHIP_FLAG = "off";
   return {
     plugins: [
@@ -24,6 +27,7 @@ export default defineConfig(({ mode }) => {
         engine: "native",
         hotRuntime: mode === "hot",
         presets: { expo: true },
+        ...(shadow ? { diagnostics: true } : {}),
         ...(off ? {} : { experimental: { ownershipModel: "resolver" } }),
       }),
       jestMockTransform(),
@@ -42,7 +46,9 @@ export default defineConfig(({ mode }) => {
       ],
       include: off
         ? ["tests-native/ownership/*.test.ts"]
-        : [
+        : shadow
+          ? ["tests-native/ownership/shadow.test.ts"]
+          : [
             "tests-native/*.test.tsx",
             "tests-native/*.test.ts",
             "tests-native/jest-compat/*.test.ts",
@@ -53,6 +59,10 @@ export default defineConfig(({ mode }) => {
         "tests-native/navigation-params.test.tsx",
         // Asserts the flag is off: it runs in the default suite.
         "tests-native/ownership-off.test.ts",
+        // Needs diagnostics: it runs in --mode shadow.
+        ...(shadow ? [] : ["tests-native/ownership/shadow.test.ts"]),
+        // Asserts diagnostics is off: --mode off runs the flag off, where it is moot.
+        ...(off ? ["tests-native/ownership/no-shadow.test.ts"] : []),
       ],
       server: { deps: { external: ["ext-rn-named-lib", "ext-platform-lib"] } },
     },

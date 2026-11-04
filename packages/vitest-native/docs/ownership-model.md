@@ -43,6 +43,10 @@ already shared, or another owner answers it.
   context's, or Node applies a different set of conditions in that realm than the
   record holds (for example `--conditions` set for some workers but not others).
   Conditions compare as sets.
+- **`RESOLVER_INPUTS_MISSING`**: the flag is on but a realm has no record to build its
+  resolver from (a worker started without the plugin's `configureVitest` step), or Vite
+  resolves for a project the plugin recorded no inputs for. No realm resolves as if the
+  flag were off, and no project uses another project's resolver.
 - **Fallbacks are counted, never silent.** A request the resolver cannot answer because
   nothing is installed (`MODULE_NOT_FOUND`, a subpath the package does not export) is an
   allowed `unresolved` fallback, answered by Node as before. Any other error is counted

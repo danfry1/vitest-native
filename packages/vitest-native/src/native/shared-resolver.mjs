@@ -140,7 +140,10 @@ export function exportTarget(exportsField, subpath, conditions) {
  * @param {string} [options.realm]  name used in the counters
  * @param {boolean} [options.memo]  hold answers (default true)
  */
-export function createSharedResolver(inputs, { realm = "unknown", memo: useMemo = true } = {}) {
+export function createSharedResolver(
+  inputs,
+  { realm = "unknown", memo: useMemo = true, shadowFile = null } = {},
+) {
   const { projectRoot, platform } = inputs;
   const sourceExts = inputs.sourceExts ?? ["js", "jsx", "json", "ts", "tsx"];
   const aliases = inputs.aliases ?? [];
@@ -309,9 +312,12 @@ export function createSharedResolver(inputs, { realm = "unknown", memo: useMemo 
   function shadow(request, fromFile, next, previous) {
     if (previous === next || previous == null) return;
     counters.deltas++;
-    if (counters.deltaSample.length < 50) {
-      counters.deltaSample.push({ request, from: fromFile ?? projectRoot, previous, next });
-    }
+    const delta = { request, from: fromFile ?? projectRoot, previous, next };
+    if (counters.deltaSample.length < 50) counters.deltaSample.push(delta);
+    // One JSON line per delta, every realm and worker into the one file the main
+    // process names (ownershipShadowFile).
+    if (shadowFile !== null)
+      fs.appendFileSync(shadowFile, `${JSON.stringify({ realm, ...delta })}\n`);
   }
 
   /** Forget held answers: the Vite side does this when a watched file is added or removed. */
@@ -455,6 +461,45 @@ export function checkResolverInputs(inputs, hash, realm, view = {}) {
       );
     }
   }
+}
+
+/**
+ * Under `diagnostics`, where every realm writes the resolution shadow: a JSON-lines file
+ * beside the project context, named by its key, so each project and configuration has
+ * its own. `contextRef` is the CONTEXT_ENV value ("<file>#<key>").
+ */
+export function ownershipShadowFile(contextRef) {
+  const hash = contextRef.lastIndexOf("#");
+  const contextsDir = path.dirname(contextRef.slice(0, hash));
+  return path.join(
+    path.dirname(contextsDir),
+    "ownership-shadow",
+    `${contextRef.slice(hash + 1)}.jsonl`,
+  );
+}
+
+/**
+ * The resolver inputs a realm builds its resolver from: null with the flag off, and the
+ * context's record, checked against the conditions Node applies in this worker, with it
+ * on. With the flag on and no record, the realm would resolve as if the flag were off
+ * while Vite resolves with it, so that fails by name instead.
+ */
+export function ownershipResolverInputs(context, realm, nodeConditions) {
+  if (context?.ownershipModel !== "resolver") return null;
+  if (!context.resolverInputs) {
+    throw new VitestNativeError(
+      "RESOLVER_INPUTS_MISSING",
+      `experimental.ownershipModel: the ${realm} realm runs with the flag on, but the ` +
+        `project context has no resolver inputs, so it would resolve as if the flag were ` +
+        `off while Vite resolves with it. The plugin records them before any worker ` +
+        `starts; a worker reaching this ran without the plugin's configureVitest step. ` +
+        `Report this, with the Vitest config, as a vitest-native bug.`,
+    );
+  }
+  checkResolverInputs(context.resolverInputs, context.resolverInputsHash, realm, {
+    nodeConditions,
+  });
+  return context.resolverInputs;
 }
 
 function mismatch(realm, field, detail) {

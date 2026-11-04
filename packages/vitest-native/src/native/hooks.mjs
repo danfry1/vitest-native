@@ -1,7 +1,7 @@
 // Patches Node's CJS loader so RN's internal require() chains are Flow-stripped and
 // native-boundary modules are mocked. The companion loader.mjs handles the import() path.
 import Module from "node:module";
-import { projectContext } from "../context.mjs";
+import { CONTEXT_ENV, projectContext } from "../context.mjs";
 import path from "node:path";
 import fs from "node:fs";
 import { heldTransform, transformRN, isFlow, needsTransform } from "./transform.mjs";
@@ -22,7 +22,11 @@ import { nativeAssetModuleSource } from "./assets.mjs";
 import { expandAlias } from "../jest-compat/aliases.mjs";
 import { noteIfRntlEntryLoaded } from "../rntl-support.mjs";
 import { cjsConditionsWithout } from "./export-condition-recovery.mjs";
-import { checkResolverInputs, createSharedResolver } from "./shared-resolver.mjs";
+import {
+  createSharedResolver,
+  ownershipResolverInputs,
+  ownershipShadowFile,
+} from "./shared-resolver.mjs";
 
 // Guarded via globalThis, not module scope: under the hot runtime this module
 // can be evaluated twice in one worker (once by the worker entry through Node's
@@ -478,19 +482,21 @@ export function installRequireHooks(
   // against the conditions Node applies here. Never built with the flag off. The memo
   // above holds its answers, so it keeps none of its own.
   const ownershipContext = projectContext();
-  let sharedResolver = null;
-  if (ownershipContext?.ownershipModel === "resolver" && ownershipContext.resolverInputs) {
-    checkResolverInputs(
-      ownershipContext.resolverInputs,
-      ownershipContext.resolverInputsHash,
-      "CommonJS hooks",
-      { nodeConditions: cjsConditionsWithout("react-native") },
-    );
-    sharedResolver = createSharedResolver(ownershipContext.resolverInputs, {
-      realm: "cjs",
-      memo: false,
-    });
-  }
+  const sharedInputs = ownershipResolverInputs(
+    ownershipContext,
+    "CommonJS hooks",
+    cjsConditionsWithout("react-native"),
+  );
+  // The resolution shadow, under diagnostics only: it resolves each distinct request a
+  // second time, the old way, to record where the answers differ.
+  const shadowFile =
+    sharedInputs !== null && ownershipContext.diagnostics === true
+      ? ownershipShadowFile(process.env[CONTEXT_ENV])
+      : null;
+  const sharedResolver =
+    sharedInputs === null
+      ? null
+      : createSharedResolver(sharedInputs, { realm: "cjs", memo: false, shadowFile });
   // A caller passing other conditions than this realm's (none does but a direct
   // `Module._resolveFilename` call) gets Node's own answer for them.
   const recordConditions = new Set(ownershipContext?.resolverInputs?.conditions ?? []);
@@ -536,14 +542,15 @@ export function installRequireHooks(
         sharedResolver.resolve(request, parent?.filename, (target) =>
           origResolve.call(this, target, parent, ...rest),
         ) ?? undefined;
-      if (resolved !== undefined) {
+      if (resolved !== undefined && shadowFile !== null) {
         // The shadow: what Node alone would have answered, once per distinct request
-        // (the memo holds the answer after this).
-        let previous = null;
+        // (the memo holds the answer after this). Node failing where the resolver
+        // answers (a regex alias) is a delta too.
+        let previous;
         try {
           previous = origResolve.call(this, request, parent, ...rest);
-        } catch {
-          // Node alone could not resolve it: not a delta to report.
+        } catch (error) {
+          previous = `unresolved (${error?.code ?? error})`;
         }
         sharedResolver.shadow(request, parent?.filename, resolved, previous);
       }

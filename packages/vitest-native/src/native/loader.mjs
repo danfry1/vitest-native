@@ -4,7 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { projectContext } from "../context.mjs";
 import { createRequire } from "node:module";
 import { cjsConditionsWithout } from "./export-condition-recovery.mjs";
-import { checkResolverInputs, createSharedResolver } from "./shared-resolver.mjs";
+import { createSharedResolver, ownershipResolverInputs } from "./shared-resolver.mjs";
 import path from "node:path";
 import fs from "node:fs";
 import {
@@ -132,14 +132,15 @@ export function initialize(data) {
   const context = data?.context ? projectContext(data.context) : null;
   DIAGNOSTICS = context?.diagnostics === true;
   // experimental.ownershipModel: the resolver Vite and the require hooks use, from the
-  // same record, checked here against the conditions Node applies in this thread.
+  // same record, checked here against the conditions Node applies in this worker.
   // Never built with the flag off.
-  if (context?.ownershipModel === "resolver" && context.resolverInputs) {
-    checkResolverInputs(context.resolverInputs, context.resolverInputsHash, "ESM loader", {
-      nodeConditions: cjsConditionsWithout("react-native"),
-    });
-    SHARED_RESOLVER = createSharedResolver(context.resolverInputs, { realm: "esm" });
-  }
+  const sharedInputs = ownershipResolverInputs(
+    context,
+    "ESM loader",
+    cjsConditionsWithout("react-native"),
+  );
+  SHARED_RESOLVER =
+    sharedInputs === null ? null : createSharedResolver(sharedInputs, { realm: "esm" });
   const configuredOwnership = parseNativeOwnershipManifest(context?.ownership);
   ownership = createNativeOwnershipPolicy({
     projectRoot: PROJECT_ROOT,

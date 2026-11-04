@@ -24,6 +24,7 @@ import { tsconfigPathAliases } from "./native/tsconfig-paths.mjs";
 import {
   aliasList,
   checkResolverInputs,
+  ownershipShadowFile,
   conditionsIn,
   createSharedResolver,
   nodeDefaultConditions,
@@ -1304,15 +1305,17 @@ function prependSetupFile(userConfig: UserConfig, contributed: { setupFiles?: un
 // for a path (`C:\Users\RUNNER~1` and `C:\Users\runneradmin`), and the context and
 // the project can each be handed either; the native realpath expands both to one.
 function sameDirectory(a: string, b: string): boolean {
-  if (a === b) return true;
-  const real = (p: string) => {
-    try {
-      return fs.realpathSync.native(p);
-    } catch {
-      return path.resolve(p);
-    }
-  };
-  return real(a) === real(b);
+  return a === b || directoryKey(a) === directoryKey(b);
+}
+
+// The one spelling a directory-keyed map uses, so that a lookup with the other
+// spelling of the same directory finds it (sameDirectory compares by it).
+function directoryKey(dir: string): string {
+  try {
+    return fs.realpathSync.native(dir);
+  } catch {
+    return path.resolve(dir);
+  }
 }
 
 function hasSetupFile(setupFiles: unknown, file: string): boolean {
@@ -1644,6 +1647,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     options?.experimental?.ownershipModel === "resolver" ? "resolver" : undefined;
   const pendingResolverInputs = new Map<string, Omit<ResolverInputs, "conditions">>();
   const viteResolvers = new Map<string, SharedResolver>();
+  // A root as Vite spells it → its directoryKey: resolveId runs for every import.
+  const resolverKeys = new Map<string, string>();
 
   // Vite and Node must land on the same file for a package, or it exists twice with
   // separate module-level state. Cached: resolveId runs for every import.
@@ -1682,17 +1687,37 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // experimental.ownershipModel: the same resolver Node's loaders use, from the same
   // inputs. A package it does not answer (no `exports` target, no alias) falls through
   // to alignedResolution, which already matches Node's `main`.
-  const sharedResolution = (source: string, importer?: string): string | undefined => {
+  const sharedResolution = (
+    source: string,
+    importer: string | undefined,
+    environmentRoot: string | undefined,
+  ): string | undefined => {
+    // Before configureVitest records the inputs there is no resolver yet; Node's
+    // realms fail by name if they start without them.
     if (viteResolvers.size === 0) return undefined;
-    const resolver = viteResolvers.get(alignRoot) ?? viteResolvers.values().next().value;
-    if (!resolver) return undefined;
+    // The requesting project's own resolver, never another project's: their aliases
+    // and conditions can differ.
+    const root = environmentRoot ?? alignRoot;
+    let rootKey = resolverKeys.get(root);
+    if (rootKey === undefined) resolverKeys.set(root, (rootKey = directoryKey(root)));
+    const resolver = viteResolvers.get(rootKey);
+    if (!resolver) {
+      throw new VitestNativeError(
+        "RESOLVER_INPUTS_MISSING",
+        `experimental.ownershipModel: Vite resolves for the project at ${root}, but the ` +
+          `plugin recorded resolver inputs only for ` +
+          `${[...viteResolvers.keys()].join(", ")}. Give each Vitest project its own ` +
+          `reactNative() and \`root\`, or report this, with the Vitest config, as a ` +
+          `vitest-native bug.`,
+      );
+    }
     const from =
       importer && path.isAbsolute(importer) && !importer.startsWith("\0") ? importer : undefined;
     const req = createRequire(from ?? path.join(alignRoot || process.cwd(), "package.json"));
     const next = resolver.resolve(source, from, (id) => req.resolve(id));
     if (next === null) return undefined;
     const key = `${from ?? ""}\0${source}`;
-    if (!shadowed.has(key)) {
+    if (diagnostics && !shadowed.has(key)) {
       // The shadow: what the Vite side answered before the flag (alignedResolution, or
       // Vite's own resolution when that declines, which is not computed here).
       shadowed.add(key);
@@ -2018,7 +2043,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
               ]),
           );
         }
-        pendingResolverInputs.set(resolvedRoot, {
+        pendingResolverInputs.set(directoryKey(resolvedRoot), {
           projectRoot: resolvedRoot,
           platform,
           // The source profile, as the require hooks see it (fields.sourceExts below).
@@ -2633,7 +2658,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         if (presetHit) return presetHit;
         return (
           resolveExtensionless(source, importer) ??
-          sharedResolution(source, importer) ??
+          sharedResolution(
+            source,
+            importer,
+            (this as { environment?: { config?: { root?: string } } }).environment?.config?.root,
+          ) ??
           alignedResolution(source, importer)
         );
       }
@@ -2977,19 +3006,46 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         );
       }
       const changes: Partial<ProjectContextFields> = presetExports ? { presetExports } : {};
-      const pending = pendingResolverInputs.get(root);
-      if (pending) {
-        const resolverInputs = finishResolverInputs(
-          pending,
-          project as unknown as VitestProjectForConditions,
+      const pending = pendingResolverInputs.get(directoryKey(root));
+      // This plugin recorded the flag's inputs, but for another directory: the project
+      // would run with the flag on in its workers and off in Vite.
+      if (!pending && pendingResolverInputs.size > 0) {
+        throw new VitestNativeError(
+          "RESOLVER_INPUTS_MISSING",
+          `experimental.ownershipModel: the Vitest project at ${root} has no resolver ` +
+            `inputs; this reactNative() recorded them for ` +
+            `${[...pendingResolverInputs.keys()].join(", ")}. Give each Vitest project its ` +
+            `own reactNative() and \`root\`, or report this, with the Vitest config, as a ` +
+            `vitest-native bug.`,
         );
+      }
+      const resolverInputs = pending
+        ? finishResolverInputs(pending, project as unknown as VitestProjectForConditions)
+        : undefined;
+      if (resolverInputs) {
         changes.resolverInputs = resolverInputs;
         changes.resolverInputsHash = resolverInputsHash(resolverInputs);
         checkResolverInputs(resolverInputs, changes.resolverInputsHash, "Vite");
-        viteResolvers.set(root, createSharedResolver(resolverInputs, { realm: "vite" }));
       }
       const ref =
-        Object.keys(changes).length > 0 ? amendProjectContext(contextRef, changes, root) : contextRef;
+        Object.keys(changes).length > 0
+          ? amendProjectContext(contextRef, changes, root)
+          : contextRef;
+      if (resolverInputs) {
+        // Under diagnostics, the resolution shadow of this run, from every realm: emptied
+        // here, before any worker starts, and named once.
+        let shadowFile: string | null = null;
+        if (diagnostics) {
+          shadowFile = ownershipShadowFile(ref);
+          fs.mkdirSync(path.dirname(shadowFile), { recursive: true });
+          fs.writeFileSync(shadowFile, "");
+          console.error(`[vitest-native] experimental.ownershipModel shadow: ${shadowFile}`);
+        }
+        viteResolvers.set(
+          directoryKey(root),
+          createSharedResolver(resolverInputs, { realm: "vite", shadowFile }),
+        );
+      }
       projectConfig.env![CONTEXT_ENV] = ref;
       // A cache cleared during a watch session: rewrite the file before each rerun.
       const fields = writtenContexts.get(ref);
