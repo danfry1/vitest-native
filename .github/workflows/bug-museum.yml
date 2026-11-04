@@ -41,14 +41,32 @@ on:
       - 'packages/vitest-native/validation/config-axes/**'
       - 'bun.lock'
       - '.github/workflows/bug-museum.yml'
+  # Main runs it after each merge that can move a verdict (the same paths), so the
+  # verdicts STATUS.md records are checked against main itself, and weekly, so a
+  # dependency that moved under an exhibit shows up within a week. Both are the record
+  # the "two weeks green on main" condition above is judged by.
+  push:
+    branches: [main]
+    paths:
+      - 'packages/vitest-native/src/**'
+      - 'packages/vitest-native/package.json'
+      - 'packages/vitest-native/tsdown.config.*'
+      - 'packages/vitest-native/validation/bug-museum/**'
+      - 'packages/vitest-native/validation/config-axes/**'
+      - 'bun.lock'
+      - '.github/workflows/bug-museum.yml'
+  schedule:
+    # Mondays, after the RN matrix (09:00) and the config-axis matrix (10:00).
+    - cron: '0 11 * * 1'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# Superseded pull request runs are cancelled; main keeps a verdict for every commit.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   museum:
