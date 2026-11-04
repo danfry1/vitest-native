@@ -570,7 +570,7 @@ import(workerUrl).catch((err) => {
 
 /**
  * How long a request may go unanswered before Babel's thread is presumed lost and
- * stopped. A thread that ends normally, or throws, says so at once (babel-worker.mjs);
+ * stopped. A thread that ends normally, or throws, says so at once (TOOLCHAIN_BOOTSTRAP);
  * one V8 stops for running out of heap runs no handler, and only this ends the wait.
  *
  * A transform grows with its input: TypeScript's own 9.1 MB typescript.js took 5-6 s
@@ -661,7 +661,7 @@ function startToolchain() {
     resourceLimits: { ...YOUNG_GENERATION, ...toolchainOptions.resourceLimits },
   });
   // The caller already failed the transform when it was not answered; this is the
-  // thread's own account (out of memory, a throw while loading), printed beside it
+  // thread's own account (out of memory, a throw after it loaded), printed beside it
   // rather than left as an unhandled error event in the test worker.
   worker.on("error", (err) => {
     process.stderr.write(`[vitest-native] Babel's thread: ${err?.stack ?? err}\n`);

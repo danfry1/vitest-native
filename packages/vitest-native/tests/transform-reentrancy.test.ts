@@ -254,11 +254,13 @@ it("reports Babel's thread failing to load Babel's side, without waiting for the
   );
 }, 180_000);
 
-it("reports a Babel worker file that is missing or throws as it loads, without waiting for the deadline", () => {
+it("reports a Babel worker file that is missing, does not parse or throws as it loads, without waiting for the deadline", () => {
   // Nothing of these files runs before they fail, so nothing in them can say so. The
   // clock stands still: only the thread can end the wait.
   const broken = path.join(root, "broken-worker.mjs");
   fs.writeFileSync(broken, `throw new Error("failed to load");\n`);
+  const unparsable = path.join(root, "unparsable-worker.mjs");
+  fs.writeFileSync(unparsable, `export const = ;\n`);
   const missing = path.join(root, "no-such-worker.mjs");
   const { result } = inChild(`
     _setToolchainOptions({ deadlineMs: 5_000, now: never(), workerUrl: new URL(${JSON.stringify(pathToFileURL(broken).href)}) });
@@ -267,9 +269,22 @@ it("reports a Babel worker file that is missing or throws as it loads, without w
     const again = attempt("unloadedAgain.js");
     _setToolchainOptions({ deadlineMs: 5_000, now: never(), workerUrl: new URL(${JSON.stringify(pathToFileURL(missing).href)}) });
     const absent = attempt("noWorker.js");
-    console.log("RESULT=" + JSON.stringify({ throws, again, absent }));
+    _setToolchainOptions({ deadlineMs: 5_000, now: never(), workerUrl: new URL(${JSON.stringify(pathToFileURL(unparsable).href)}) });
+    // The worker file's own error, its class kept, is the cause of the thread's.
+    let unparsed;
+    const unparsedFile = path.join(root, "unparsed.js");
+    fs.writeFileSync(unparsedFile, "const z = 1;\\n");
+    try {
+      transformRN(unparsedFile, undefined, root);
+    } catch (err) {
+      unparsed = { message: err.message, causes: [err.cause?.code, err.cause?.cause?.name] };
+    }
+    console.log("RESULT=" + JSON.stringify({ throws, again, absent, unparsed }));
   `);
-  const { throws, again, absent } = result as Record<string, { code: string; message: string }>;
+  const { throws, again, absent, unparsed } = result as Record<
+    string,
+    { code: string; message: string; causes?: unknown[] }
+  >;
   expect(throws.code).toBe("TRANSFORM_FAILED");
   expect(throws.message).toMatch(
     /unloaded\.js[\s\S]*Babel's thread could not load .*broken-worker\.mjs: Error: failed to load/,
@@ -279,6 +294,10 @@ it("reports a Babel worker file that is missing or throws as it loads, without w
   expect(absent.message).toMatch(
     /noWorker\.js[\s\S]*Babel's thread could not load .*no-such-worker\.mjs: Error: Cannot find module/,
   );
+  expect(unparsed.message).toMatch(
+    /unparsed\.js[\s\S]*could not load .*unparsable-worker\.mjs: SyntaxError: /,
+  );
+  expect(unparsed.causes).toEqual(["TRANSFORM_FAILED", "SyntaxError"]);
 }, 180_000);
 
 it("stops a Babel thread that has not answered by the deadline", () => {
