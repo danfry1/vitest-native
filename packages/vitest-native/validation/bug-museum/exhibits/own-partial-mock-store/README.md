@@ -2,7 +2,7 @@
 
 - **Class:** ownership
 - **Source:** migration testing (2026-10)
-- **Fixed by:** #345 (draft) (`origin/fix/require-actual-single-graph`)
+- **Fixed by:** #345 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug
