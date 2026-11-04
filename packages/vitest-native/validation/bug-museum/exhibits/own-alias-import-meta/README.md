@@ -2,7 +2,7 @@
 
 - **Class:** ownership
 - **Source:** migration testing (2026-10)
-- **Fixed by:** the native engine's Node-side compile lowering `import.meta` (`origin/feat/import-meta-node-compile`)
+- **Fixed by:** #453 (draft) (`origin/feat/import-meta-node-compile`)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug
