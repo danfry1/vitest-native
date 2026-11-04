@@ -4,6 +4,7 @@
   "private": true,
   "main": "./index.js",
   "dependencies": {
+    "dispatch-cycle-lib": "file:../dispatch-cycle-lib",
     "dispatch-redirect-lib": "file:../dispatch-redirect-lib",
     "dispatch-split-lib": "file:../dispatch-split-lib",
     "dispatch-target-lib": "file:../dispatch-target-lib"

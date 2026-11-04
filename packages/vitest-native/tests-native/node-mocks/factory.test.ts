@@ -1,11 +1,16 @@
 /**
- * A vi.mock factory applies to an installed package's own require of the mocked module
- * (#322), as one instance with the test's import (R3).
+ * A vi.mock factory applies to an installed package's own require and import of the
+ * mocked module (#322), as one instance with the test's import (R3), and an ES module's
+ * default import reads the mock's `default` (R4).
  */
+import { createRequire } from "node:module";
 import { expect, it, vi } from "vitest";
 import target from "dispatch-target-lib";
+import * as targetNs from "dispatch-target-lib";
 import { Platform } from "react-native";
-import { requireFrom } from "dispatch-consumer-lib";
+import { importFrom, requireFrom } from "dispatch-consumer-lib";
+
+const splitLibFile = createRequire(import.meta.url).resolve("dispatch-split-lib");
 
 vi.mock("dispatch-target-lib", () => ({ source: "mock", default: { tag: "mock default" } }));
 
@@ -24,6 +29,8 @@ it("costs an unrelated require from an installed package no resolution of its ow
   const before = { ...stats };
   requireFrom("react-native");
   requireFrom("dispatch-split-lib");
+  // By absolute path, as React Native's precompiled registry requires its helpers.
+  requireFrom(splitLibFile);
   expect({
     resolves: stats.resolves - before.resolves,
     toNode: stats.toNode - before.toNode,
@@ -31,6 +38,16 @@ it("costs an unrelated require from an installed package no resolution of its ow
     resolves: 0,
     toNode: 0,
   });
+});
+
+it("reaches an installed ES module's import, named and default", async () => {
+  const consumer = (await importFrom("dispatch-consumer-lib/esm-consumer.mjs")) as {
+    seen: string;
+    defaultSeen: unknown;
+  };
+  expect(consumer.seen).toBe("mock");
+  expect(consumer.defaultSeen).toBe(target);
+  expect(targetNs.source).toBe("mock");
 });
 
 it("leaves the modules the test does not mock alone", () => {

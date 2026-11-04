@@ -4,7 +4,7 @@
  */
 import { expect, it, vi } from "vitest";
 import * as target from "dispatch-target-lib";
-import { requireFrom } from "dispatch-consumer-lib";
+import { importFrom, requireFrom } from "dispatch-consumer-lib";
 
 vi.mock("dispatch-target-lib", async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -21,7 +21,11 @@ it("gives vi.importActual the original", async () => {
   expect(actual.source).toBe("real");
 });
 
-it("serves the partial mock to an installed package's require", () => {
+it("serves the partial mock to an installed package's require and import", async () => {
   expect(requireFrom("dispatch-target-lib").source).toBe("partial");
   expect(requireFrom("dispatch-target-lib").kind).toBe("top");
+  const consumer = (await importFrom("dispatch-consumer-lib/esm-consumer.mjs")) as {
+    seen: string;
+  };
+  expect(consumer.seen).toBe("partial");
 });

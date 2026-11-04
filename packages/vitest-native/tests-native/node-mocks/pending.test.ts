@@ -3,13 +3,21 @@
  * fails by name for a require of that file, and only for that file (R7, R9).
  */
 import { expect, it, vi } from "vitest";
-import { requireFrom } from "dispatch-consumer-lib";
+import { importFrom, requireFrom } from "dispatch-consumer-lib";
 
 it("names a pending vi.doMock of the required file", () => {
   vi.doMock("dispatch-target-lib", () => ({ source: "pending" }));
   expect(() => requireFrom("dispatch-target-lib")).toThrow(
     expect.objectContaining({ code: "MOCK_NOT_SEEN_BY_NODE" }),
   );
+});
+
+it("names it for an installed ES module's import too", async () => {
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  vi.doMock("dispatch-target-lib", () => ({ source: "pending" }));
+  await expect(importFrom("dispatch-consumer-lib/esm-consumer-2.mjs")).rejects.toMatchObject({
+    code: "MOCK_NOT_SEEN_BY_NODE",
+  });
 });
 
 it("leaves another file with the same specifier alone", () => {

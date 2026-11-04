@@ -14,7 +14,13 @@ import {
 import { boundarySourceFor } from "./boundary.mjs";
 import { nativeAssetModuleSource } from "./assets.mjs";
 import { extensionsFor, resolveRelativePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
-import { NODE_MODULES_PATH, isUtilitySubpath, packageNameOf, subpathLeafOf } from "./match.mjs";
+import {
+  NODE_MODULES_PATH,
+  isUtilitySubpath,
+  isVitestOwnFile,
+  packageNameOf,
+  subpathLeafOf,
+} from "./match.mjs";
 import {
   createNativeOwnershipPolicy,
   isRuntimeResidentFile,
@@ -118,6 +124,11 @@ function versionable(url) {
   return true;
 }
 
+// experimental.nodeMocks: a module the test mocks is served to Node's ESM imports too
+// (resolveMocked, mockModule), through Node's CommonJS loader's per-file mock step
+// (jest-compat/node-registry.mjs).
+let NODE_MOCKS = false;
+
 export function initialize(data) {
   if (data && data.projectRoot) PROJECT_ROOT = data.projectRoot;
   PLATFORM = data?.platform === "android" ? "android" : "ios";
@@ -126,6 +137,7 @@ export function initialize(data) {
   SOURCE_EXTS = HAS_SOURCE_PROFILE ? data.sourceExts : ["js", "jsx", "json", "ts", "tsx"];
   const context = data?.context ? projectContext(data.context) : null;
   DIAGNOSTICS = context?.diagnostics === true;
+  NODE_MOCKS = context?.nodeMocks === true;
   const configuredOwnership = parseNativeOwnershipManifest(context?.ownership);
   ownership = createNativeOwnershipPolicy({
     projectRoot: PROJECT_ROOT,
@@ -140,7 +152,17 @@ export function initialize(data) {
   if (data && data.hotGeneration) generation = data.hotGeneration;
 }
 
-function resolveBefore(specifier, context) {
+/** Whether the preset redirect (resolveBefore) serves `specifier`. */
+function isPresetSpecifier(specifier) {
+  if (Object.prototype.hasOwnProperty.call(presetExports, specifier)) return true;
+  if (specifier.endsWith(".json") || isUtilitySubpath(specifier)) return false;
+  const specExt = /\.([a-z0-9]+)$/i.exec(specifier);
+  if (specExt && assetExtSet.has(specExt[1].toLowerCase())) return false;
+  const pkg = packageNameOf(specifier);
+  return pkg !== specifier && Object.prototype.hasOwnProperty.call(presetExports, pkg);
+}
+
+function resolveBefore(specifier, context, presets = true) {
   // Preset redirect (ESM): a bare import of a preset package — whether from the
   // test graph or, crucially, nested inside an externalized third-party lib — is
   // redirected to a synthetic module that re-exports the runtime preset mock. This
@@ -150,17 +172,8 @@ function resolveBefore(specifier, context) {
   // Exempt: JSON subpaths (package.json version gates), asset subpaths, and
   // Node-safe utility entries (jest-utils, mock, plugin) — those pass through
   // to the real file.
-  if (Object.prototype.hasOwnProperty.call(presetExports, specifier)) {
+  if (presets && isPresetSpecifier(specifier)) {
     return { done: { url: PRESET_SCHEME + specifier, shortCircuit: true } };
-  }
-  if (!specifier.endsWith(".json") && !isUtilitySubpath(specifier)) {
-    const specExt = /\.([a-z0-9]+)$/i.exec(specifier);
-    if (!specExt || !assetExtSet.has(specExt[1].toLowerCase())) {
-      const pkg = packageNameOf(specifier);
-      if (pkg !== specifier && Object.prototype.hasOwnProperty.call(presetExports, pkg)) {
-        return { done: { url: PRESET_SCHEME + specifier, shortCircuit: true } };
-      }
-    }
   }
 
   const parent =
@@ -273,7 +286,55 @@ export function isRequireContext(context) {
 }
 
 export function resolveSync(specifier, context, nextResolve) {
-  const before = resolveBefore(specifier, context);
+  if (NODE_MOCKS) {
+    const mocked = resolveMocked(specifier, context, nextResolve);
+    if (mocked !== null) return mocked;
+  }
+  return resolvePlain(specifier, context, nextResolve, true);
+}
+
+// experimental.nodeMocks: the query that marks a mocked import's URL (R2). A mocked
+// module is its own entry in Node's ESM cache, apart from Vitest's load of the real
+// file, and a new one for each registration (and so each test file).
+const MOCK_PARAM = "vitest-native-mock";
+
+/**
+ * A module Node loaded importing a mocked module: the mocked file's URL, marked. Decided
+ * here, where the importer is known (R1): Vitest's own loads (its evaluator, loading an
+ * original) are never mocked, and a mock outranks a preset, as in the CommonJS
+ * dispatcher. Otherwise the resolution it made to find out, when that is the plain one
+ * (no preset applies), or null.
+ */
+function resolveMocked(specifier, context, nextResolve) {
+  const mockFor = globalThis.__vitest_native_node_mock_for;
+  if (mockFor?.markFor === undefined) return null;
+  const parent =
+    typeof context.parentURL === "string" && context.parentURL.startsWith("file:")
+      ? fileURLToPath(context.parentURL)
+      : null;
+  if (parent === null || isVitestOwnFile(parent) || !mockFor.mayReach(specifier, parent)) {
+    return null;
+  }
+  // The file a preset stands in for, which only a mock of it needs, may not resolve at
+  // all (a deep path the package does not export): the preset serves it then.
+  const preset = isPresetSpecifier(specifier);
+  let resolved;
+  try {
+    resolved = resolvePlain(specifier, context, nextResolve, false);
+  } catch (err) {
+    if (preset) return null;
+    throw err;
+  }
+  const plain = preset ? null : resolved;
+  if (typeof resolved?.url !== "string" || !resolved.url.startsWith("file:")) return plain;
+  const mark = mockFor.markFor(fileURLToPath(resolved.url), specifier, parent);
+  if (mark === null) return plain;
+  const join = resolved.url.includes("?") ? "&" : "?";
+  return { ...resolved, url: `${resolved.url}${join}${MOCK_PARAM}=${mark}`, shortCircuit: true };
+}
+
+function resolvePlain(specifier, context, nextResolve, presets) {
+  const before = resolveBefore(specifier, context, presets);
   if (before.done) return before.done;
   let resolved = before.resolved;
   if (!resolved) {
@@ -331,6 +392,29 @@ export function requireFacade(url, file, compiled) {
   };
 }
 
+/**
+ * A mocked module for an ES module Node loaded (R4): an ES module whose default export is
+ * the mock's `default` and whose named exports are the mock's own keys, as the test's
+ * import reads them. The value comes through Node's CommonJS loader, whose mock step
+ * answers it from the same registration (R3).
+ */
+function mockModule(url, file, value) {
+  const names = Object.keys(value).filter((name) => name !== "default" && name !== "__esModule");
+  return {
+    format: "module",
+    source: [
+      `import { createRequire } from "node:module";`,
+      `const m = createRequire(${JSON.stringify(url)})(${JSON.stringify(file)});`,
+      `export default m.default;`,
+      ...names.map(
+        (name, i) =>
+          `const e${i} = m[${JSON.stringify(name)}];\nexport { e${i} as ${JSON.stringify(name)} };`,
+      ),
+    ].join("\n"),
+    shortCircuit: true,
+  };
+}
+
 /** `load` never awaits: every path returns a result or `nextLoad(...)` directly. */
 export function loadSync(url, context, nextLoad) {
   // Serve the synthetic preset module. The generated source reads the mock built
@@ -371,6 +455,13 @@ export function loadSync(url, context, nextLoad) {
   if (!url.startsWith("file:")) return nextLoad(url, context);
   const file = fileURLToPath(url);
   const norm = file.replace(/\\/g, "/");
+
+  // Only a URL resolveMocked marked is a mock; every other load of the file is real.
+  if (NODE_MOCKS && url.includes(`${MOCK_PARAM}=`)) {
+    const mockFor = globalThis.__vitest_native_node_mock_for;
+    const value = mockFor === undefined ? undefined : mockFor(file);
+    if (value !== undefined && value !== mockFor.NONE) return mockModule(url, file, value);
+  }
 
   // Asset imports (`import logo from './logo.png'`, `import font from './Icon.ttf'`)
   // from ANY package: Node's ESM loader can't parse a binary asset as a module and

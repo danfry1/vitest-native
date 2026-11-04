@@ -204,6 +204,17 @@ export function packageNameOf(specifier) {
 }
 
 /**
+ * Whether `file` is Vitest's or Vite's own code (the module runner, Vitest's evaluator):
+ * a request it makes is Vitest's, such as its load of a mocked module's original.
+ */
+export function isVitestOwnFile(file) {
+  return (
+    typeof file === "string" &&
+    /[\\/]node_modules[\\/](?:vitest|vite|@vitest[\\/][^\\/]+)[\\/]dist[\\/]/.test(file)
+  );
+}
+
+/**
  * The package `file` belongs to: the one after its last `node_modules/`, so a package
  * nested inside another's node_modules is its own. Null outside node_modules.
  */
