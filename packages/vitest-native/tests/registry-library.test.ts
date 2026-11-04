@@ -195,6 +195,31 @@ describe("library registry", () => {
     expect(out).toBe(1);
   });
 
+  it("requires another package by path without Node resolving it again", () => {
+    const out = run(`
+      // The worker's preset hooks, with a preset for a package none of this touches.
+      globalThis.__vitest_native_preset_mocks = { "some-other-package": null };
+      globalThis.__vitest_native_preset_require = (request, file) => Module._load(file, null, false);
+      req("lib-a");
+      let resolutions = 0;
+      const resolve = Module._resolveFilename;
+      Module._resolveFilename = function (request, ...rest) {
+        resolutions++;
+        return resolve.call(this, request, ...rest);
+      };
+      // Each file runs the library again from a reset registry, as the hot runtime does.
+      for (let file = 0; file < 3; file++) {
+        globalThis.__vitest_native_registry_reset();
+        req("lib-a");
+      }
+      Module._resolveFilename = resolve;
+      return resolutions;
+    `);
+    // Neither lib-a by name (the registry's own lookup, once per worker) nor its
+    // requires of dep-b, dep-p, lib-c and dep-q.
+    expect(out).toBe(0);
+  });
+
   it("runs a library module only when it is required", () => {
     const out = run(`
       const lib = req("lib-a");
@@ -285,6 +310,7 @@ describe("library registry", () => {
   it("applies a preset shadowing another package to a library's require of it", () => {
     const out = run(`
       const shadow = { other: "preset" };
+      globalThis.__vitest_native_preset_mocks = { "lib-c": null };
       globalThis.__vitest_native_preset_require = (request, file) =>
         request === "lib-c" ? shadow : Module._load(file, null, false);
       return req("lib-a").other;
@@ -294,6 +320,7 @@ describe("library registry", () => {
 
   it("applies a jest.mock of another package before a preset shadowing it", () => {
     const out = run(`
+      globalThis.__vitest_native_preset_mocks = { "lib-c": null };
       globalThis.__vitest_native_preset_require = (request, file) =>
         request === "lib-c" ? { other: "preset" } : Module._load(file, null, false);
       const target = req.resolve("lib-c");

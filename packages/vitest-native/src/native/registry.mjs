@@ -400,13 +400,25 @@ function emit(files, modules, { library = false } = {}) {
   // require at a pre-resolved path. In a library registry, a path that is one of React
   // Native's modules is served from React Native's registry instance instead, so a
   // library and the app share one React Native by construction rather than by
-  // re-entering Node's loader for it. Any other target, another package of this
-  // registry included, is required by path with the request it was written as, which
-  // the per-file hooks check against the active presets first
-  // (__vitest_native_preset_require, hooks.mjs) as they check every require; a target
-  // in this registry then comes back to it by path (installRegistry's interceptor).
+  // re-entering Node's loader for it. A request for a package a preset shadows gets
+  // what the per-file hooks give it (__vitest_native_preset_require, hooks.mjs). Any
+  // other target, another package of this registry included, is required by path
+  // through this file's own require, which Node resolves once per path rather than on
+  // every call; a target in this registry comes back to it by path
+  // (installRegistry's interceptor).
   const outside = library
     ? [
+        `const __names = new Map();`,
+        `function __name(q) {`,
+        `  let n = __names.get(q);`,
+        `  if (n === undefined) {`,
+        `    const c = q.charCodeAt(0);`,
+        `    const parts = q.split("/");`,
+        `    n = c === 46 || c === 47 || q.includes(":") ? null : c === 64 ? parts.slice(0, 2).join("/") : parts[0];`,
+        `    __names.set(q, n);`,
+        `  }`,
+        `  return n;`,
+        `}`,
         `function __out(t, q) {`,
         // A jest.mock of the target wins, then a preset shadowing it, as for a require
         // that goes through Node's loader (jest-compat's hook runs first there).
@@ -417,8 +429,14 @@ function emit(files, modules, { library = false } = {}) {
         `  }`,
         `  const rn = __rnIdOf.get(t);`,
         `  if (rn !== undefined) return __rnLoad(rn);`,
+        `  const mocks = globalThis.__vitest_native_preset_mocks;`,
         `  const preset = globalThis.__vitest_native_preset_require;`,
-        `  return preset === undefined ? __ext(t) : preset(q, t);`,
+        `  if (mocks !== undefined && preset !== undefined) {`,
+        `    const name = __name(q);`,
+        `    const own = Object.prototype.hasOwnProperty;`,
+        `    if (own.call(mocks, q) || (name !== null && own.call(mocks, name))) return preset(q, t);`,
+        `  }`,
+        `  return __ext(t);`,
         `}`,
       ]
     : [];
