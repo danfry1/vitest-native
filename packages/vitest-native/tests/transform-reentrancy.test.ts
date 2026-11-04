@@ -147,7 +147,7 @@ const HUNG_MS = 120_000;
  * still, so only the thread can end the wait. `after(ready)` stands still until
  * `ready()` has held on one read, then passes any deadline on the next, so the deadline
  * comes after what `ready` waits for, however long the machine took to get there.
- * `printed` settles once the thread's own account ("Babel's thread: …") is written.
+ * `reported()` settles once the thread's own account ("Babel's thread: …") is written.
  */
 function inChild(body: string): { result: Record<string, unknown>; stderr: string } {
   const transformUrl = pathToFileURL(path.join(import.meta.dirname, "../src/native/transform.mjs"));
@@ -173,6 +173,13 @@ function inChild(body: string): { result: Record<string, unknown>; stderr: strin
     `    return write(chunk, ...rest);\n` +
     `  };\n` +
     `});\n` +
+    // The thread is unref'd and its account arrives as an event: a timer keeps the child
+    // alive until it has.
+    `const reported = async () => {\n` +
+    `  const alive = setInterval(() => {}, 1_000);\n` +
+    `  await printed;\n` +
+    `  clearInterval(alive);\n` +
+    `};\n` +
     body;
   const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
     encoding: "utf8",
@@ -203,7 +210,7 @@ it("reports a Babel thread that ran out of heap, by the deadline, and starts ano
     _setToolchainOptions({ deadlineMs: 5_000, now: never() });
     const next = attempt("afterOom.js");
     // The thread's own error arrives as an event, after the caller has failed.
-    await printed;
+    await reported();
     console.log("RESULT=" + JSON.stringify({ lost, next }));
   `);
   const lost = result.lost as { code: string; message: string };
@@ -234,7 +241,7 @@ it("reports Babel's thread failing to load Babel's side, without waiting for the
   const { result, stderr } = inChild(`
     _setToolchainOptions({ deadlineMs: 5_000, now: never(), workerUrl: new URL(${JSON.stringify(workerUrl)}) });
     const lost = attempt("toolchainUnloaded.js");
-    await printed;
+    await reported();
     console.log("RESULT=" + JSON.stringify({ lost }));
   `);
   const lost = result.lost as { code: string; message: string };
@@ -256,7 +263,7 @@ it("reports a Babel thread that failed to load without a word, by the deadline",
   const { result, stderr } = inChild(`
     _setToolchainOptions({ deadlineMs: 2_000, now: after(() => fs.existsSync(marker("broken-worker"))), workerUrl: new URL(${JSON.stringify(pathToFileURL(broken).href)}) });
     const lost = attempt("unloaded.js");
-    await printed;
+    await reported();
     console.log("RESULT=" + JSON.stringify({ lost }));
   `);
   const lost = result.lost as { code: string; message: string };
