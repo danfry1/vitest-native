@@ -536,7 +536,11 @@ async function startRequireBridge(project: BridgeProject, vitest: unknown): Prom
     // decision (the ownership policy); for the imports of a module it evaluates, Vitest's
     // own fetch decides, as for any import: an inlined dependency is code, an installed
     // package is externalized (decided before anything is transformed).
-    mayServe: (file) => inRoots(file) && isFileLoadingAllowed(project.vite.config, file),
+    // An installed package (anywhere: pnpm's and bun's stores, `npm link`) is answered as
+    // any import of it is; Vitest externalizes it from its id, before transforming it.
+    mayServe: (file) =>
+      /[\\/]node_modules[\\/]/.test(file) ||
+      (inRoots(file) && isFileLoadingAllowed(project.vite.config, file)),
   });
   project.provide(BRIDGE_PROVIDE_KEY, { endpoint: server.endpoint, token: server.token, roots });
   (vitest as { onClose?: (fn: () => unknown) => void }).onClose?.(() => server.close());
