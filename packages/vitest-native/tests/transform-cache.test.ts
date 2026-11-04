@@ -10,7 +10,12 @@ import fs from "node:fs";
 import os from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 // @ts-expect-error — runtime .mjs, no types
-import { transformRN, transformCacheDir, cacheRootFor } from "../src/native/transform.mjs";
+import {
+  carriesSourceMap,
+  transformRN,
+  transformCacheDir,
+  cacheRootFor,
+} from "../src/native/transform.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 function findUp(rel: string, start: string): string {
@@ -86,16 +91,19 @@ describe("transform disk cache", () => {
   // Exact-key assertions, not directory-entry counts: other test files
   // transform into the same shared project cache dir from parallel workers,
   // so counting entries races. The expected key mirrors the implementation's
-  // sha1(platform, path, content) scheme.
-  const diskKeyFor = (platform: string, file: string, src: string) =>
-    crypto
+  // sha1(platform, path, content) scheme, plus the source-map token for a file outside
+  // node_modules (whose output carries an inline map).
+  const diskKeyFor = (platform: string, file: string, src: string) => {
+    const hash = crypto
       .createHash("sha1")
       .update(platform)
       .update("\0")
       .update(file)
       .update("\0")
-      .update(src)
-      .digest("hex");
+      .update(src);
+    if (carriesSourceMap(file)) hash.update("\0inline-source-map-1");
+    return hash.digest("hex");
+  };
 
   it("keys entries by path + content, not mtime — CI-restore friendly", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-contentkey-"));

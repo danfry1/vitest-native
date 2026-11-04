@@ -432,6 +432,38 @@ function parseReactNativeMembers(indexSource: string): { name: string; deprecate
   return [...members].map(([name, deprecated]) => ({ name, deprecated }));
 }
 
+/** The part of Vitest's resolved coverage options that picks the provider. */
+interface CoverageProviderConfig {
+  provider?: string;
+  customProviderModule?: string;
+}
+
+/**
+ * Coverage of the files Node compiles (native/coverage-v8.mjs): `@vitest/coverage-v8`,
+ * told how to read them.
+ *
+ * Under the native engine, Node runs part of a project's own source: workspace packages
+ * written for React Native, and app source a test reaches through `require()`. V8 counts
+ * what ran, which for those files is Babel's output, while @vitest/coverage-v8 maps
+ * counts back through Vite's transform of the file. Vite does not own those files (the
+ * plugin refuses them, see transform below), so the provider fell back to parsing the
+ * original TypeScript, failed, and left the file out: "Failed to parse … Excluding it
+ * from coverage". The provider installed here is @vitest/coverage-v8 with that one step
+ * answered from Node's compiled output and its inline source map.
+ *
+ * Set on Vitest's resolved options, before Vitest loads the provider: coverage options
+ * belong to the root config, and a monorepo often configures this plugin only in its
+ * projects. Only `provider: 'v8'` (Vitest's default) is replaced; Istanbul and custom
+ * providers are left as configured. The test workers load the same @vitest/coverage-v8
+ * runtime either way.
+ */
+function useNativeCoverageProvider(coverage: CoverageProviderConfig | undefined): void {
+  if (!coverage || coverage.provider !== "v8") return;
+  const dir = path.dirname(fileURLToPath(import.meta.url));
+  coverage.provider = "custom";
+  coverage.customProviderModule = path.resolve(dir, "native/coverage-v8.mjs");
+}
+
 /**
  * The Metro asset-module generator (native/assets.mjs). It ships as runtime `.mjs`
  * for the Node hooks, so — like the registry builder below — it is reached through a
@@ -1789,6 +1821,14 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     // config() has built the policy, and under the mock engine.
     api: {
       nativeOwnership: (): NativeOwnershipPolicy | null => nativeOwnership,
+      // For the coverage provider (native/coverage-v8.mjs): how to reproduce what Node
+      // ran for a file this project's tests load through Node, or null for a file Vite
+      // loads (and under the mock engine).
+      nodeCoverageTarget: (file: string): { root: string; platform: string } | null => {
+        if (engine !== "native" || nativeOwnership === null) return null;
+        if (nativeOwnership.decideFile(file).owner !== "node") return null;
+        return { root: alignRoot, platform };
+      },
     },
 
     // This plugin is `enforce:"pre"` for resolution/transform semantics, but its
@@ -2812,7 +2852,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // `config.cliOptions`. The vitest-semantics gate runs both and fails by name
       // if either moves.
       _cliOptions?: CliOptions;
-      config?: { cliOptions?: CliOptions; watch?: boolean; maxWorkers?: unknown };
+      config?: {
+        cliOptions?: CliOptions;
+        watch?: boolean;
+        maxWorkers?: unknown;
+        coverage?: CoverageProviderConfig;
+      };
       projects?: readonly GroupedProject[];
     };
     project: {
@@ -2835,6 +2880,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   }) {
     const projectConfig = project.config;
     const root = projectConfig.root ? path.resolve(projectConfig.root) : process.cwd();
+    if (engine === "native") useNativeCoverageProvider(vitest.config?.coverage);
     // The running Vitest, as Vitest states it, rather than the package a lookup from the
     // project root finds (host.ts).
     if (typeof vitest.version === "string") {

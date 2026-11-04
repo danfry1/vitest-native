@@ -1,0 +1,10 @@
+{
+  "name": "vn-coverage-native",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "dependencies": {
+    "@cov/rnlib": "*",
+    "flow-jsx-lib": "*"
+  }
+}

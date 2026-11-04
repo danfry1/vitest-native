@@ -707,6 +707,28 @@ function transformFailure(err, file, platform) {
 
 /** Transform an RN source file to runnable CJS. Cached in-memory + on disk. */
 
+// Source maps for the source a project owns.
+//
+// Code Node compiles runs as Babel's output, not as the file on disk, so a coverage
+// report needs a map from one to the other: V8 counts executions at offsets in the
+// code it ran. Without one, @vitest/coverage-v8 could only re-read the original
+// TypeScript and failed to parse it ("Failed to parse … Excluding it from coverage").
+// The provider this engine installs for coverage (coverage-v8.mjs) reads the map back
+// from this output, which is what the test worker ran.
+//
+// Inline, at the end of the output: the code above the comment is byte-for-byte what it
+// was, so nothing V8 or the module's own stack traces see moves. Only for files outside
+// node_modules: @vitest/coverage-v8 drops every script under node_modules before it
+// reads a map (as Jest's coveragePathIgnorePatterns does by default), and React
+// Native's ~450 sources would pay for maps no report reads. A workspace package is
+// reached through its real path (Node resolves symlinks), so it is mapped too.
+const SOURCE_MAP_TOKEN = "inline-source-map-1";
+
+/** Does `file`'s compiled output carry an inline source map? */
+export function carriesSourceMap(file) {
+  return !NODE_MODULES.test(file);
+}
+
 /**
  * The compiled output transformRN already holds for `file` as it is on disk now
  * (same size and mtime), or undefined. For a caller that must read the source to
@@ -765,6 +787,11 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   // package — the interop is decided at run time — so nothing else needs keying. The
   // token names the helpers' revision, so output from an earlier revision is not reused.
   if (esm) hash.update(`\0esm-goal\0${ESM_INTEROP_RUNTIME}`);
+  // Source outside node_modules carries an inline source map (see SOURCE_MAPPED), so its
+  // entries are keyed apart from the map-less output an earlier version cached for it.
+  // React Native's sources and every other package keep their keys and stay warm.
+  const sourceMap = carriesSourceMap(file);
+  if (sourceMap) hash.update(`\0${SOURCE_MAP_TOKEN}`);
   const key = hash.digest("hex");
   const cachePath = path.join(ctx.cacheDir, key + ".js");
   try {
@@ -783,6 +810,7 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
             file,
             src,
             project: true,
+            sourceMap,
             caller: babelJestCaller(ctx, platform),
           }
         : {
@@ -793,6 +821,7 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
             esmInterop: esm,
             options: {
               filename: file,
+              ...(sourceMap ? { sourceMaps: "inline" } : {}),
               plugins: [ctx.flowEnums, ctx.exportNamespaceFrom].filter(Boolean),
               // A fresh options object each call, as before Expo's preset was supported:
               // Babel caches a preset's result per options object, so sharing one would
