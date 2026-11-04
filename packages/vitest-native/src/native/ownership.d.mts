@@ -29,6 +29,7 @@ export interface NativeOwnershipRule {
   readonly packages?: readonly string[];
   readonly roots?: readonly string[];
   readonly patterns?: readonly string[];
+  readonly files?: readonly string[];
 }
 
 export interface NativeOwnershipManifest {
@@ -36,6 +37,8 @@ export interface NativeOwnershipManifest {
   readonly enforcement: "enforced" | "overridden-by-inline-all";
   readonly projectRoot: string;
   readonly projectDirs: readonly string[];
+  /** The project's `test.setupFiles`: Vite-owned entries wherever they live outside node_modules. */
+  readonly entryFiles?: readonly string[];
   readonly reactNativeRoots: readonly string[];
   readonly nodeTransformPackages: readonly string[];
   readonly runtimeTransformAugmentations: readonly string[];
@@ -56,6 +59,8 @@ export interface NativeOwnershipPolicy {
   readonly reactNativePathFor: (file: string) => string | null;
   readonly decideFile: (file: string) => NativeOwnershipDecision;
   readonly manifest: () => NativeOwnershipManifest;
+  /** The directory a package resolves to from the project root, as the patterns used it. */
+  readonly packageDirOf: (name: string) => string | null;
 }
 
 export interface NativeOwnershipConflict {
@@ -74,7 +79,11 @@ export interface NativeOwnershipOptions {
   runtimeTransformAugmentations?: string[];
   projectDirs?: string[];
   reactNativeRoots?: string[];
+  /** Files Vitest runs as entries without a test-file name: the project's `test.setupFiles`. */
+  entryFiles?: string[];
   serverDepsInlineAll?: boolean;
+  /** How each package's directory is found; defaults to `packageDirOf` (match.mjs). */
+  packageDirOf?: (name: string, fromDir: string) => string | null;
 }
 
 export declare const TEST_ENTRY_PATTERNS: readonly RegExp[];

@@ -26,14 +26,18 @@ afterAll(() => {
 
 // A thread that ends without a word is caught by the deadline. Shorter than the default
 // minute, so a regression fails this file in seconds rather than hanging CI, and long
-// enough for Babel's first load on a loaded machine.
+// enough for Babel's first load on a loaded machine. No test below passes by beating it:
+// each thread here answers, or says it ended, and the deadline only bounds a regression.
 const DEADLINE_MS = 30_000;
 beforeEach(() => _setToolchainOptions({ deadlineMs: DEADLINE_MS }));
 
 // A stand-in preset that reports where Babel evaluates it. @babel/core resolves from
-// this package's node_modules by Node's ordinary upward lookup.
+// this package's node_modules by Node's ordinary upward lookup. Each way of failing
+// leaves a file behind (named after it) once it has started, so the tests can order
+// the deadline after it rather than race it.
 const presetDir = path.join(root, "node_modules", "@react-native", "babel-preset");
 const report = path.join(root, "report.json");
+const marker = (name: string) => path.join(root, `${name}.marker`);
 fs.mkdirSync(presetDir, { recursive: true });
 fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "probe" }));
 fs.writeFileSync(
@@ -42,28 +46,47 @@ fs.writeFileSync(
 );
 fs.writeFileSync(
   path.join(presetDir, "index.js"),
-  `module.exports = (api) => {
-    require("node:fs").writeFileSync(${JSON.stringify(report)}, JSON.stringify({
+  `const fs = require("node:fs");
+  const marker = (name) => ${JSON.stringify(root)} + "/" + name + ".marker";
+  module.exports = (api) => {
+    fs.writeFileSync(${JSON.stringify(report)}, JSON.stringify({
       threadId: require("node:worker_threads").threadId,
       sawTestGlobal: "__vnProbe" in globalThis,
     }));
+    const platform = api.caller((c) => c && c.platform);
     // A preset that ends its thread, as a crash in Babel would.
-    if (api.caller((c) => c && c.platform) === "end-thread") process.exit(3);
-    // Or runs out of heap, which runs no exit handler.
-    if (api.caller((c) => c && c.platform) === "out-of-memory") {
+    if (platform === "end-thread") process.exit(3);
+    // Or runs out of heap, which runs no exit handler. The count of what it holds shows
+    // when it has stopped.
+    if (platform === "out-of-memory") {
       const hold = [];
-      for (;;) hold.push(new Array(1e5).fill({}));
+      for (let n = 1; ; n++) {
+        hold.push(new Array(1e5).fill({}));
+        fs.writeFileSync(marker("out-of-memory"), String(n));
+      }
     }
-    // Or stops answering, still running (a heartbeat shows whether it was stopped).
-    if (api.caller((c) => c && c.platform) === "busy") {
-      for (;;) require("node:fs").writeFileSync(${JSON.stringify(path.join(root, "beat"))}, String(Date.now()));
+    // Or stops answering, still running (a count shows whether it was stopped). Each
+    // count is written beside the marker and renamed over it, so a read never sees a
+    // file the preset is halfway through writing.
+    if (platform === "busy") {
+      for (let n = 1; ; n++) {
+        fs.writeFileSync(marker("busy") + ".next", String(n));
+        fs.renameSync(marker("busy") + ".next", marker("busy"));
+      }
     }
-    // Or takes its time, as a very large file on a busy machine does.
-    if (api.caller((c) => c && c.platform) === "slow") {
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2_500);
+    // Or takes its time, as a very large file on a busy machine does: it answers once
+    // the caller lets it go (see slowClock).
+    if (platform === "slow") {
+      while (!fs.existsSync(marker("release"))) {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+      }
     }
-    // Or after it has answered, while idle.
-    if (api.caller((c) => c && c.platform) === "end-thread-later") setTimeout(() => process.exit(4), 0);
+    // Or after it has answered, while idle. Listeners run in the order they were added,
+    // so the marker is written after babel-worker.mjs has said the thread ended.
+    if (platform === "end-thread-later") {
+      process.on("exit", () => fs.writeFileSync(marker("end-thread-later"), ""));
+      setTimeout(() => process.exit(4), 0);
+    }
     return { plugins: [] };
   };\n`,
 );
@@ -104,35 +127,68 @@ it("starts another Babel thread when the last one ended while idle", async () =>
   const file = path.join(root, "later.js");
   fs.writeFileSync(file, "const e = 5;\n");
   expect(transformRN(file, "const e = 5;\n", root, "end-thread-later")).toContain("e = 5");
-  // Let the idle thread end.
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  // Wait for the idle thread to have ended, as it says once it has.
+  while (!fs.existsSync(marker("end-thread-later"))) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
   const next = path.join(root, "afterIdle.js");
   fs.writeFileSync(next, "const f = 6;\n");
   expect(transformRN(next, "const f = 6;\n", root)).toContain("f = 6");
 });
 
+// How long a child below may run before it counts as hung. Nothing below waits on it:
+// each deadline is driven by the clock the child installs (see inChild), so this only
+// turns a regression that leaves the caller waiting into a failure. The test's own
+// timeout cannot, as spawnSync holds this thread's event loop.
+const HUNG_MS = 120_000;
+
 /**
  * A Babel thread that dies or stops answering, driven in a child process: if that ever
  * leaves the caller waiting, or raises an error nothing handles, the child is what hangs
  * or crashes, and the spawn timeout turns it into this file's failure, not a stuck run.
+ *
+ * The deadline runs on a clock the child installs (`now` in _setToolchainOptions), read
+ * once as a request is sent and then between waits of at most a second. `never()` stands
+ * still, so only the thread can end the wait. `after(ready)` stands still until
+ * `ready()` has held on one read, then passes any deadline on the next, so the deadline
+ * comes after what `ready` waits for, however long the machine took to get there.
+ * `reported()` settles once the thread's own account ("Babel's thread: …") is written.
  */
 function inChild(body: string): { result: Record<string, unknown>; stderr: string } {
   const transformUrl = pathToFileURL(path.join(import.meta.dirname, "../src/native/transform.mjs"));
   const script =
     `import { _setToolchainOptions, transformRN } from ${JSON.stringify(transformUrl.href)};\n` +
     `import fs from "node:fs";\n` +
+    `import path from "node:path";\n` +
     `const root = ${JSON.stringify(root)};\n` +
+    `const marker = (name) => root + "/" + name + ".marker";\n` +
     `const attempt = (name, platform, source = "const x = 1;\\n") => {\n` +
-    `  const file = root + "/" + name; fs.writeFileSync(file, source);\n` +
-    `  const started = performance.now();\n` +
+    `  const file = path.join(root, name);\n` +
+    `  fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, source);\n` +
     `  try { transformRN(file, undefined, root, platform); return { ok: true }; }\n` +
-    `  catch (err) { return { code: err.code, message: err.message, ms: performance.now() - started }; }\n` +
+    `  catch (err) { return { code: err.code, message: err.message }; }\n` +
     `};\n` +
     `const settle = (ms) => new Promise((resolve) => setTimeout(resolve, ms));\n` +
+    `const never = () => () => 0;\n` +
+    `const after = (ready) => { let seen = false; return () => { if (seen) return 1e15; seen = ready(); return 0; }; };\n` +
+    `const printed = new Promise((resolve) => {\n` +
+    `  const write = process.stderr.write.bind(process.stderr);\n` +
+    `  process.stderr.write = (chunk, ...rest) => {\n` +
+    `    if (String(chunk).includes("Babel's thread: ")) resolve();\n` +
+    `    return write(chunk, ...rest);\n` +
+    `  };\n` +
+    `});\n` +
+    // The thread is unref'd and its account arrives as an event: a timer keeps the child
+    // alive until it has.
+    `const reported = async () => {\n` +
+    `  const alive = setInterval(() => {}, 1_000);\n` +
+    `  await printed;\n` +
+    `  clearInterval(alive);\n` +
+    `};\n` +
     body;
   const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
     encoding: "utf8",
-    timeout: 60_000,
+    timeout: HUNG_MS,
   });
   const line = child.stdout.split("\n").find((l) => l.startsWith("RESULT="));
   if (!line) {
@@ -143,30 +199,39 @@ function inChild(body: string): { result: Record<string, unknown>; stderr: strin
   return { result: JSON.parse(line.slice("RESULT=".length)), stderr: child.stderr };
 }
 
-it("reports a Babel thread that ran out of heap, promptly, and starts another", () => {
+it("reports a Babel thread that ran out of heap, by the deadline, and starts another", () => {
   const { result, stderr } = inChild(`
-    _setToolchainOptions({ deadlineMs: 5_000, resourceLimits: { maxOldGenerationSizeMb: 64 } });
+    // The heap is gone once what the preset holds has stopped growing across three
+    // reads (a second's wait apart); the deadline passes on the read after.
+    let last = 0, still = 0;
+    const outOfHeap = () => {
+      const held = Number(fs.existsSync(marker("out-of-memory")) && fs.readFileSync(marker("out-of-memory"), "utf8"));
+      still = held > 0 && held === last ? still + 1 : 0;
+      last = held;
+      return still >= 3;
+    };
+    _setToolchainOptions({ deadlineMs: 5_000, now: after(outOfHeap), resourceLimits: { maxOldGenerationSizeMb: 64 } });
     const lost = attempt("oom.js", "out-of-memory");
-    _setToolchainOptions({ deadlineMs: 30_000 });
+    _setToolchainOptions({ deadlineMs: 5_000, now: never() });
     const next = attempt("afterOom.js");
     // The thread's own error arrives as an event, after the caller has failed.
-    await settle(500);
+    await reported();
     console.log("RESULT=" + JSON.stringify({ lost, next }));
   `);
-  const lost = result.lost as { code: string; message: string; ms: number };
+  const lost = result.lost as { code: string; message: string };
   expect(lost.code).toBe("TRANSFORM_FAILED");
   expect(lost.message).toMatch(
     /oom\.js[\s\S]*has not answered in 5 s compiling 0\.0 MB of source[\s\S]*out of memory[\s\S]*--max-old-space-size/,
   );
   expect(lost.message).not.toMatch(/could not parse/);
-  expect(lost.ms).toBeLessThan(5_000 + 5_000);
   expect(result.next).toEqual({ ok: true });
   expect(stderr).toMatch(/Babel's thread: .*out of memory/);
-}, 120_000);
+}, 180_000);
 
-it("reports Babel's thread failing to load Babel's side, at once", () => {
+it("reports Babel's thread failing to load Babel's side, without waiting for the deadline", () => {
   // The real worker beside a babel-toolchain.mjs that throws as it loads: the exit
-  // handler the worker registers first says so, with no wait for the deadline.
+  // handler the worker registers first says so. The clock stands still, so the deadline
+  // never comes and only that handler can end the wait.
   const dir = path.join(root, "real-worker");
   fs.mkdirSync(dir, { recursive: true });
   fs.copyFileSync(
@@ -179,48 +244,71 @@ it("reports Babel's thread failing to load Babel's side, at once", () => {
   );
   const workerUrl = pathToFileURL(path.join(dir, "babel-worker.mjs")).href;
   const { result, stderr } = inChild(`
-    _setToolchainOptions({ deadlineMs: 30_000, workerUrl: new URL(${JSON.stringify(workerUrl)}) });
+    _setToolchainOptions({ deadlineMs: 5_000, now: never(), workerUrl: new URL(${JSON.stringify(workerUrl)}) });
     const lost = attempt("toolchainUnloaded.js");
-    await settle(500);
+    await reported();
     console.log("RESULT=" + JSON.stringify({ lost }));
   `);
-  const lost = result.lost as { code: string; message: string; ms: number };
+  const lost = result.lost as { code: string; message: string };
   expect(lost.code).toBe("TRANSFORM_FAILED");
   expect(lost.message).toMatch(/Babel's thread ended before it answered/);
-  expect(lost.ms).toBeLessThan(2_000);
   expect(stderr).toMatch(/Babel's thread: Error: toolchain failed to load/);
-}, 120_000);
+}, 180_000);
 
 it("reports a Babel thread that failed to load without a word, by the deadline", () => {
-  // A worker that throws before it can say so: only the deadline ends the wait.
+  // A worker that throws before it can say so: only the deadline ends the wait. It
+  // passes once the worker has started throwing.
   const broken = path.join(root, "broken-worker.mjs");
-  fs.writeFileSync(broken, 'throw new Error("failed to load");\n');
+  fs.writeFileSync(
+    broken,
+    `import fs from "node:fs";\n` +
+      `fs.writeFileSync(${JSON.stringify(marker("broken-worker"))}, "");\n` +
+      `throw new Error("failed to load");\n`,
+  );
   const { result, stderr } = inChild(`
-    _setToolchainOptions({ deadlineMs: 2_000, workerUrl: new URL(${JSON.stringify(pathToFileURL(broken).href)}) });
+    _setToolchainOptions({ deadlineMs: 2_000, now: after(() => fs.existsSync(marker("broken-worker"))), workerUrl: new URL(${JSON.stringify(pathToFileURL(broken).href)}) });
     const lost = attempt("unloaded.js");
-    await settle(500);
+    await reported();
     console.log("RESULT=" + JSON.stringify({ lost }));
   `);
-  const lost = result.lost as { code: string; message: string; ms: number };
+  const lost = result.lost as { code: string; message: string };
   expect(lost.code).toBe("TRANSFORM_FAILED");
   expect(lost.message).toMatch(/has not answered in 2 s/);
-  expect(lost.ms).toBeLessThan(2_000 + 3_000);
   expect(stderr).toMatch(/Babel's thread: Error: failed to load/);
-}, 120_000);
+}, 180_000);
 
 it("stops a Babel thread that has not answered by the deadline", () => {
-  const beat = path.join(root, "beat");
   const { result } = inChild(`
-    _setToolchainOptions({ deadlineMs: 3_000 });
+    // The deadline passes once the preset is running.
+    _setToolchainOptions({ deadlineMs: 3_000, now: after(() => fs.existsSync(marker("busy"))) });
     const lost = attempt("busy.js", "busy");
-    await settle(1_000);
-    const first = fs.readFileSync(${JSON.stringify(beat)}, "utf8");
-    await settle(1_000);
-    const second = fs.readFileSync(${JSON.stringify(beat)}, "utf8");
-    console.log("RESULT=" + JSON.stringify({ code: lost.code, stopped: first === second }));
+    // Stopped: the preset's count holds across five reads, two seconds in all. A
+    // thread left running never gets there, and the child hangs.
+    const count = () => fs.readFileSync(marker("busy"), "utf8");
+    let last = count(), still = 0;
+    while (still < 5) {
+      await settle(400);
+      const now = count();
+      still = now === last ? still + 1 : 0;
+      last = now;
+    }
+    console.log("RESULT=" + JSON.stringify(lost));
   `);
-  expect(result).toEqual({ code: "TRANSFORM_FAILED", stopped: true });
-}, 120_000);
+  expect(result.code).toBe("TRANSFORM_FAILED");
+  expect(result.message).toMatch(/busy\.js[\s\S]*has not answered in 3 s compiling 0\.0 MB/);
+}, 180_000);
+
+it("ends the wait on the real clock when no clock is injected", () => {
+  // The tests above drive the deadline with a clock of their own; this one keeps the
+  // production clock, so a deadline that never reads elapsed time is caught. No upper
+  // bound on the time it takes: a wait that never ends is the child guard's failure.
+  const { result } = inChild(`
+    _setToolchainOptions({ deadlineMs: 1_000 });
+    const lost = attempt("busyRealClock.js", "busy");
+    console.log("RESULT=" + JSON.stringify(lost));
+  `);
+  expect(result.code).toBe("TRANSFORM_FAILED");
+}, 180_000);
 
 it("compiles while a test has stubbed what the call to Babel's thread uses", () => {
   // The call runs with test code on the stack: what it uses was captured as it loaded.
@@ -252,13 +340,29 @@ it("gives a transform more time the more source it carries", () => {
 });
 
 it("lets a transform of more source run past the base deadline", () => {
-  // Each takes 2.5 s against a 1 s base: the small file runs out of time, and the
-  // 0.25 MB one, given 1 s + 3.75 s, compiles.
+  // Each takes 2.5 s on the clock against a 1 s base: the small file runs out of time,
+  // and the 0.25 MB one, given 1 s + 3.75 s, compiles. The clock reads 0 as the request
+  // is sent and 2.5 s from then on; the preset is let go only on a read after a wait at
+  // 2.5 s, which a caller whose deadline has passed never makes. The files sit under
+  // node_modules, so no project-config lookup reads the clock first.
   const { result } = inChild(`
-    _setToolchainOptions({ deadlineMs: 1_000 });
-    const small = attempt("slowSmall.js", "slow");
-    const large = attempt("slowLarge.js", "slow", "// " + "x".repeat(256 * 1024) + "\\nconst y = 2;\\n");
-    console.log("RESULT=" + JSON.stringify({ small: small.code ?? "ok", large: large.code ?? "ok" }));
+    const slowClock = () => {
+      let reads = 0;
+      return () => {
+        reads++;
+        if (reads === 1) return 0;
+        if (reads >= 3) fs.writeFileSync(marker("release"), "");
+        return 2_500;
+      };
+    };
+    _setToolchainOptions({ deadlineMs: 1_000, now: slowClock() });
+    const small = attempt("node_modules/slow/small.js", "slow");
+    _setToolchainOptions({ deadlineMs: 1_000, now: slowClock() });
+    const large = attempt("node_modules/slow/large.js", "slow", "// " + "x".repeat(256 * 1024) + "\\nconst y = 2;\\n");
+    console.log("RESULT=" + JSON.stringify({ small, large }));
   `);
-  expect(result).toEqual({ small: "TRANSFORM_FAILED", large: "ok" });
-}, 120_000);
+  const { small, large } = result as Record<string, { code?: string; message?: string }>;
+  expect(small.code).toBe("TRANSFORM_FAILED");
+  expect(small.message).toMatch(/small\.js[\s\S]*has not answered in 1 s/);
+  expect(large).toEqual({ ok: true });
+}, 180_000);

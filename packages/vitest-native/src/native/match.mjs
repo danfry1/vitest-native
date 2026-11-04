@@ -114,10 +114,21 @@ export function containsPath(dir, target) {
  * point — see buildPkgMatcher.
  */
 export function packageDirOf(name, fromDir) {
+  return findPackageDir(name, fromDir, false);
+}
+
+/** packageDirOf, or with `installedOnly` dependencyDirOf. */
+function findPackageDir(name, fromDir, installedOnly) {
   const req = createRequire(path.join(fromDir, "package.json"));
   try {
     return canonicalDir(path.dirname(req.resolve(`${name}/package.json`)));
   } catch {}
+  const found = findUnexportedPackageDir(name, req);
+  return installedOnly && found !== null && !NODE_MODULES_PATH.test(found) ? null : found;
+}
+
+/** The steps after `<name>/package.json` fails: the lookup paths, then the entry. */
+function findUnexportedPackageDir(name, req) {
   for (const lookup of req.resolve.paths(name) ?? []) {
     const candidate = path.join(lookup, ...name.split("/"));
     if (fs.existsSync(path.join(candidate, "package.json"))) return canonicalDir(candidate);
@@ -138,6 +149,62 @@ export function packageDirOf(name, fromDir) {
     if (parent === dir) return null;
     dir = parent;
   }
+}
+
+/**
+ * The directory of a dependency the engine may DETECT (ecosystem detection), or null.
+ *
+ * A package whose `exports` map leaves out `./package.json` is found the way
+ * packageDirOf finds it only when it is installed: its real path lies inside a node_modules directory, as
+ * expo-symbols 57's does (#406). A workspace member, whose real path lies outside every
+ * node_modules, is found only when `<name>/package.json` resolves, which is the rule
+ * 0.14.0-rc.10 and earlier applied to every package.
+ *
+ * Why the two differ: detecting a workspace member makes it Node-owned, so `vi.mock`
+ * from a test no longer reaches its internal imports and any of its files that imports
+ * `vitest` fails. Widening detection to every workspace member whose exports omit
+ * `./package.json` changed that silently for libraries that ran in Vite before. Which
+ * owner a workspace member should have is the ownership track's decision (A3, the
+ * ownership predicate; A6, the fix for `vi.mock` reaching a Node-owned package's own
+ * imports, #322), not a side effect of how its manifest is found. Rejected: applying
+ * #406 to workspace members as well (the silent change above), and reverting #406
+ * (expo-symbols then runs uncompiled again).
+ */
+export function dependencyDirOf(name, fromDir) {
+  return findPackageDir(name, fromDir, true);
+}
+
+/**
+ * `packageDirOf` (or `resolve`, such as dependencyDirOf) with each answer kept for the
+ * life of the returned function.
+ *
+ * One config evaluation asks for the same directories several times: detection, the
+ * linked-package check, and every pattern list and matcher the ownership policy
+ * builds. On an Expo project that is hundreds of packages, each a handful of
+ * resolutions and real-path calls, repeated three to five times over.
+ *
+ * Nothing here is module state, so this file stays pure (see the header): the caller
+ * owns the cache and decides how long it lives. The plugin makes one per lookup
+ * function per config evaluation, and Vitest evaluates the config afresh when it
+ * restarts in watch mode, so a package installed mid-session is seen on the next
+ * restart, as before.
+ *
+ * Keyed by `fromDir` as resolved, not by its real path. The answer is already in
+ * Node's real-path spelling (canonicalDir); it is the QUESTION that depends on the
+ * spelling, because Node's lookup paths are built from `fromDir` as written, and a
+ * symlinked spelling walks different parent node_modules than the real one. Two
+ * spellings of one directory therefore cost two lookups, but can never be handed each
+ * other's answer.
+ */
+export function memoizePackageDirOf(resolve = packageDirOf) {
+  const dirs = new Map();
+  return (name, fromDir) => {
+    const key = `${path.resolve(fromDir)}\0${name}`;
+    if (dirs.has(key)) return dirs.get(key);
+    const dir = resolve(name, fromDir);
+    dirs.set(key, dir);
+    return dir;
+  };
 }
 
 /**
@@ -164,12 +231,13 @@ export function packageDirOf(name, fromDir) {
  * test file's `import { it } from 'vitest'` becomes `require('vitest')` and throws.
  *
  * `projectRoot` is optional; without it only the `node_modules` rule applies, since
- * there is nothing to resolve against.
+ * there is nothing to resolve against. `dirOf` is how the directory is found:
+ * `packageDirOf`, or a memoized copy of it (memoizePackageDirOf).
  */
-export function packagePatterns(name, projectRoot) {
+export function packagePatterns(name, projectRoot, dirOf = packageDirOf) {
   const patterns = [new RegExp(`[\\\\/]node_modules[\\\\/]${escapeRe(name)}[\\\\/]`)];
   if (!projectRoot) return patterns;
-  const dir = packageDirOf(name, projectRoot);
+  const dir = dirOf(name, projectRoot);
   if (dir && !containsPath(dir, projectRoot)) {
     patterns.push(new RegExp(`^${escapeRe(toPosix(dir).replace(/\/$/, ""))}[\\\\/]`));
   }
@@ -184,8 +252,8 @@ export function packagePatterns(name, projectRoot) {
  * slashes (the form Vitest presents module ids in) while callers here pass whatever
  * Node handed them, which on Windows is backslashes.
  */
-export function buildPkgMatcher(pkgs, projectRoot) {
-  const patterns = (pkgs || []).flatMap((name) => packagePatterns(name, projectRoot));
+export function buildPkgMatcher(pkgs, projectRoot, dirOf = packageDirOf) {
+  const patterns = (pkgs || []).flatMap((name) => packagePatterns(name, projectRoot, dirOf));
   return (file) => {
     const norm = toPosix(file);
     return patterns.some((re) => re.test(norm));
