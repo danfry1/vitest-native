@@ -721,6 +721,23 @@ describe("native preset redirect (ESM loader)", () => {
     expect(await nativeLoader.resolve(deep, { parentURL }, () => sentinel)).toBe(sentinel);
   });
 
+  it("a subpath Node resolves to the package's entry is the root mock", async () => {
+    const pkgDir = path.join(projectRoot, "node_modules", "react-native-safe-area-context");
+    await nativeLoader.initialize({
+      projectRoot,
+      transformPkgs: [],
+      presetExports: { "react-native-safe-area-context": ["SafeAreaView"] },
+      assetExts: [],
+    });
+    const parentURL = pathToFileURL(path.join(projectRoot, "src", "index.ts")).href;
+    const result = await nativeLoader.resolve(
+      "react-native-safe-area-context/src",
+      { parentURL },
+      () => ({ url: pathToFileURL(path.join(pkgDir, "src", "index.tsx")).href }),
+    );
+    expect(result.url).toBe("vitest-native-preset:react-native-safe-area-context");
+  });
+
   it("passes preset package.json and asset subpaths through to the real resolver", async () => {
     // package.json falls through (and gets the JSON import attribute injected).
     const jsonResult = await nativeLoader.resolve(
