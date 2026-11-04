@@ -96,10 +96,9 @@ export async function startBridgeServer({ fetch, mayServe, root = process.cwd() 
       // Code is served only for a file Vite owns, whether it comes inline or through
       // Vitest's module cache (`cached` + `tmp`). An externalized module carries no code:
       // the worker loads it through Node, as Vitest would.
-      if (
-        !("externalize" in result) &&
-        !(typeof result.file === "string" && mayServe(result.file))
-      ) {
+      // A virtual module (a plugin's `\0…` id, React Native's facade) has no file: it is
+      // generated, not read, and is answered as Vitest answers it.
+      if (!("externalize" in result) && typeof result.file === "string" && !mayServe(result.file)) {
         return refused(seq, url);
       }
       return JSON.stringify({ seq, ok: result });

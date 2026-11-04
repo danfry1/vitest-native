@@ -30,6 +30,8 @@ const SERVER = `
       if (url.includes("slow")) await new Promise((r) => setTimeout(r, 3000));
       if (url.includes("boom")) throw new Error("transform failed: boom");
       if (url.includes("external")) return { externalize: "file:///proj/node_modules/x/index.js", type: "module" };
+      // A plugin's virtual module: code, no file.
+      if (url.includes("virtual")) return { code: "export const v = 2", file: null, id: "\0virtual:x", url };
       // What Vitest answers from its module cache: the code in a file, none inline.
       if (url.includes("cached-outside")) return { cached: true, tmp: "/tmp/x", file: "/etc/hosts", id: "/etc/hosts", url };
       return { code: "export const v = 1", file: "/proj/src/" + url, id: "/proj/src/" + url, url: "/src/" + url, importer, environment };
@@ -96,6 +98,12 @@ describe("the require bridge", () => {
     expect(() => fetchSync("/@fs/etc/hosts?raw", undefined, "ssr")).toThrow(
       expect.objectContaining({ code: "BRIDGE_FILE_REFUSED" }),
     );
+  });
+
+  it("answers a virtual module, which has no file", () => {
+    expect(fetchSync("\0virtual:x", undefined, "ssr")).toMatchObject({
+      code: "export const v = 2",
+    });
   });
 
   it("refuses a file Vite does not own when Vitest answers it from its module cache", () => {
