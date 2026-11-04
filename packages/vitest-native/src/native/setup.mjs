@@ -215,7 +215,7 @@ function installLoaderHooks(data) {
     globalThis.__vitest_native_loader_mode = "thread";
     return;
   }
-  nativeLoader.initialize(data);
+  nativeLoader.initialize({ ...data, inThread: true });
   globalThis.__vitest_native_loader_mode = "in-thread";
   const fromRequire = nativeLoader.isRequireContext;
   registerHooks({

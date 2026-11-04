@@ -33,6 +33,19 @@ const counting = typeof nodeModule.registerHooks === "function";
 const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-hot-workspace-member-"));
 
 const STAMP = /[?&]vnhot=\d+/;
+// A CommonJS module a file imports is served behind a generation facade (generationFacade
+// in src/native/loader.mjs): one evaluation, seen here as two loads. The first generation
+// is the facade and the module it re-exports (`&vnnode`); a later one is the facade and
+// the module's own load through `require`. Each pair is counted once, as the module.
+const NODE_SERVED = "&vnnode";
+function evaluations(urls) {
+  const facades = new Set(urls.filter((url) => STAMP.test(url)).map(fileOf));
+  return urls.filter((url) =>
+    url.endsWith(NODE_SERVED)
+      ? !urls.includes(url.slice(0, -NODE_SERVED.length))
+      : STAMP.test(url) || !facades.has(fileOf(url)),
+  );
+}
 const fileOf = (url) => fileURLToPath(url.replace(/[?#].*$/, "")).replace(/\\/g, "/");
 const inNodeModules = (file) => /\/node_modules\//.test(file);
 const isMember = (file) => file.startsWith(`${member}/`);
@@ -81,7 +94,9 @@ function run(mode) {
   if (!counting) return null;
   if (!fs.existsSync(log)) fail("no load log was written");
   const loads = JSON.parse(fs.readFileSync(log, "utf8"));
-  const files = new Map(loads.files.map((entry) => [path.basename(entry.file), entry.loads]));
+  const files = new Map(
+    loads.files.map((entry) => [path.basename(entry.file), evaluations(entry.loads)]),
+  );
   if (files.size !== 4) fail(`expected loads for 4 files, got ${[...files.keys()].join(", ")}`);
 
   // No twin runtime, anywhere in the worker's life.

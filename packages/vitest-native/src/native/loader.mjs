@@ -183,6 +183,12 @@ export function initialize(data) {
   if (data && data.assetExts)
     assetExtSet = new Set(data.assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
   if (data && data.hotGenerationBuffer) genView = new Int32Array(data.hotGenerationBuffer);
+  generationFacades = Boolean(genView) && data?.inThread === true;
+  if (generationFacades) {
+    globalThis.__vitest_native_hot_export_names = recordExportNames;
+    globalThis.__vitest_native_hot_facade = trackFacade;
+    globalThis.__vitest_native_hot_release = releaseGenerations;
+  }
 }
 
 // A `require()` inside a CommonJS module this loader compiled and returned with its
@@ -301,7 +307,7 @@ function resolveRecover(err, specifier, parent) {
   return resolved;
 }
 
-function resolveAfter(resolved, context) {
+function resolveAfter(resolved, specifier, context) {
   // JSON imports without an explicit `with { type: 'json' }` attribute throw
   // ERR_IMPORT_ATTRIBUTE_MISSING on Node 22+. RN ecosystem packages do
   // `import pkg from './package.json'` unconditionally (e.g. @react-navigation).
@@ -324,7 +330,9 @@ function resolveAfter(resolved, context) {
   if (versionable(resolved.url)) {
     const gen = generationOf();
     if (gen > 0 && !resolved.url.includes("vnhot=")) {
-      return { ...resolved, url: `${resolved.url}?vnhot=${gen}`, shortCircuit: true };
+      const url = `${resolved.url}?vnhot=${gen}`;
+      pinIfResident(url, specifier, context.parentURL);
+      return { ...resolved, url, shortCircuit: true };
     }
   }
   return resolved;
@@ -373,7 +381,7 @@ export async function resolve(specifier, context, nextResolve) {
       }
     }
   }
-  return resolveAfter(resolved, context);
+  return resolveAfter(resolved, specifier, context);
 }
 
 /**
@@ -425,7 +433,7 @@ export function resolveSync(specifier, context, nextResolve) {
       }
     }
   }
-  return resolveAfter(resolved, context);
+  return resolveAfter(resolved, specifier, context);
 }
 
 export async function load(url, context, nextLoad) {
@@ -455,6 +463,8 @@ export async function load(url, context, nextLoad) {
  * it does read, from the compiled code (cjsExportNames). Exported as a test seam.
  */
 export function requireFacade(url, file, compiled) {
+  const generation = generationFacade(url, file, compiled);
+  if (generation !== undefined) return generation;
   // A `#!` line is valid only as a source's first characters; carried inside the
   // facade it would be a syntax error. The carried code is never run.
   const code = compiled.startsWith("#!") ? compiled.replace(/^#!.*/, "") : compiled;
@@ -484,8 +494,173 @@ export function requireFacade(url, file, compiled) {
   };
 }
 
+/**
+ * Hot generation facades: what keeps a finished test file's packages from staying in
+ * memory for the rest of the run.
+ *
+ * Node keeps every module it loads through `import` in its ESM load cache, keyed by
+ * URL, with no public way to evict one, so each generation URL (`?vnhot=N`, see
+ * versionable) stays there for the worker's life. Served as CommonJS, as Node serves
+ * a CommonJS package and as requireFacade serves a compiled one, that entry pins the
+ * whole instance three ways: the namespace's export cells hold `module.exports` and
+ * each named export's value, the module record holds the CommonJS `Module`, and
+ * Node's CommonJS translator keeps that `Module` in a map of its own (`cjsCache`),
+ * with its exports, its children and its source. A test file that imports a large
+ * CommonJS package left one full copy of it behind per file.
+ *
+ * So from its second generation on, a CommonJS module reached through `import` is
+ * served as a small ES module instead. It requires the file through Node's CommonJS
+ * loader, which owns the instance in `Module._cache` alone, where the per-file reset
+ * drops it, and binds each export with `let`. When the generation is retired those
+ * bindings are cleared, so what the load cache keeps is the facade and nothing it
+ * pointed to. Nothing reaches Node's `cjsCache`.
+ *
+ * An ES module's export list is fixed by its source, so the facade has to know the
+ * names before it runs. They are Node's own: the first generation of each module is
+ * served exactly as before, behind a facade that re-exports it and records the names
+ * its namespace has. That generation, like the one per module that a file outside
+ * the reset holds (pinned below), stays for the run, so memory stops growing per file
+ * rather than reaching zero. The names are kept with what they were read from (the
+ * compiled code, or the file's size and time), so an edited module records them again.
+ *
+ * Only with the in-thread hooks (setup.mjs): the facade reports to the worker through
+ * `globalThis`, which a loader thread does not share. On the loader thread every
+ * generation is served as before.
+ */
+let generationFacades = false;
+const GENERATION = /[?&]vnhot=(\d+)/;
+const NODE_SERVED = "&vnnode";
+// Unstamped URL -> { fingerprint, names } from the generation that recorded them.
+const exportNames = new Map();
+// Unstamped URL -> the fingerprint of the generation now recording it.
+const recording = new Map();
+// Facades not yet released: [generation, url, release].
+let liveFacades = [];
+// Generation URLs a file outside the per-file reset imported, so never released.
+const pinnedFacades = new Set();
+
+function fingerprintOf(file) {
+  try {
+    const stat = fs.statSync(file);
+    return `${stat.size}:${stat.mtimeMs}`;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The generation facade for `url`, or undefined to serve it as before. `fingerprint`
+ * identifies the module's current source: the compiled code, or the file's stat.
+ */
+function generationFacade(url, file, fingerprint) {
+  if (!generationFacades || url.includes(NODE_SERVED) || file.endsWith(".mjs")) return undefined;
+  const stamp = GENERATION.exec(url);
+  if (!stamp || fingerprint === undefined) return undefined;
+  const key = url.replace(STAMP, "");
+  const known = exportNames.get(key);
+  if (known && known.fingerprint === fingerprint) {
+    return {
+      format: "module",
+      source: releasableFacade(url, file, stamp[1], known.names),
+      shortCircuit: true,
+    };
+  }
+  recording.set(key, fingerprint);
+  const inner = JSON.stringify(url + NODE_SERVED);
+  return {
+    format: "module",
+    source: [
+      `import * as ns from ${inner};`,
+      `globalThis.__vitest_native_hot_export_names?.(${JSON.stringify(key)}, Object.keys(ns));`,
+      `export * from ${inner};`,
+      `export { default } from ${inner};`,
+    ].join("\n"),
+    shortCircuit: true,
+  };
+}
+
+/**
+ * A generation of a CommonJS module as an ES module whose bindings can be cleared:
+ * `names` are the export names Node gave the module's namespace when it served it as
+ * CommonJS, and each is bound as Node binds it. Exported as a test seam.
+ */
+export function releasableFacade(url, file, generation, names) {
+  const named = names.filter((name) => name !== "default" && name !== "module.exports");
+  const locals = named.map((_, index) => `v${index}`);
+  // Node binds a named export only when it is an own property, and reads it once,
+  // ignoring a getter that throws (translators.js, createCJSModuleWrap).
+  return [
+    `import { createRequire } from "node:module";`,
+    `let e = createRequire(${JSON.stringify(url)})(${JSON.stringify(file)});`,
+    `const own = (k) => { if (e == null || !Object.prototype.hasOwnProperty.call(e, k)) return; try { return e[k]; } catch {} };`,
+    ...named.map((name, index) => `let ${locals[index]} = own(${JSON.stringify(name)});`),
+    `export { e as default${names.includes("module.exports") ? ', e as "module.exports"' : ""}${named
+      .map((name, index) => `, ${locals[index]} as ${JSON.stringify(name)}`)
+      .join("")} };`,
+    `globalThis.__vitest_native_hot_facade?.(${generation}, ${JSON.stringify(url)}, () => { ${[
+      "e",
+      ...locals,
+    ].join(" = ")} = undefined; });`,
+  ].join("\n");
+}
+
+function recordExportNames(key, names) {
+  const fingerprint = recording.get(key);
+  recording.delete(key);
+  if (fingerprint !== undefined) exportNames.set(key, { fingerprint, names });
+}
+
+function trackFacade(generation, url, release) {
+  liveFacades.push([generation, url, release]);
+}
+
+/**
+ * Release the facades of every generation before the previous one. The previous
+ * file's are kept one file longer: a timer or promise it left running still finds its
+ * imports while the next file starts, as it did before facades.
+ */
+export function releaseGenerations(current) {
+  const kept = [];
+  let released = 0;
+  for (const entry of liveFacades) {
+    if (entry[0] >= current - 1) kept.push(entry);
+    else if (!pinnedFacades.has(entry[1])) {
+      entry[2]();
+      released++;
+    }
+  }
+  liveFacades = kept;
+  return released;
+}
+
+/**
+ * A file outside the per-file reset (the test stack, a resident package) that imports
+ * a generation URL by name holds that generation for the run: never release it. The
+ * test file's own imports reach Node through the module runner, which imports a
+ * resolved absolute path; a stamped module's imports are released with it.
+ */
+function pinIfResident(url, specifier, parentURL) {
+  if (!generationFacades || typeof parentURL !== "string" || STAMP.test(parentURL)) return;
+  if (specifier.startsWith("file:") || path.isAbsolute(specifier)) return;
+  pinnedFacades.add(url);
+}
+
 /** `load` never awaits: every path returns a result or `nextLoad(...)` directly. */
 export function loadSync(url, context, nextLoad) {
+  if (!generationFacades || !GENERATION.test(url) || url.includes(NODE_SERVED)) {
+    return loadModule(url, context, nextLoad);
+  }
+  let fromNode = false;
+  const result = loadModule(url, context, (nextUrl, nextContext) => {
+    fromNode = true;
+    return nextLoad(nextUrl, nextContext);
+  });
+  if (!fromNode || result.format !== "commonjs") return result;
+  const file = fileURLToPath(url);
+  return generationFacade(url, file, fingerprintOf(file)) ?? result;
+}
+
+function loadModule(url, context, nextLoad) {
   // Serve the synthetic preset module. The generated source reads the mock built
   // by the native setup file from globalThis (this source executes in the main
   // realm, so globalThis is the populated one), mirroring the Vite virtual:preset.
