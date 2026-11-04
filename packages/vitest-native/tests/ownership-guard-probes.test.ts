@@ -18,11 +18,11 @@
  * must stay quiet; where two copies are live it must name them.
  */
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { linkDir, linkNodeModules, longTempDir } from "./support/link-node-modules.js";
 
 const packageRoot = path.resolve(import.meta.dirname, "..");
 const distExists = fs.existsSync(path.join(packageRoot, "dist", "index.mjs"));
@@ -41,18 +41,10 @@ const STORE = "export const store = { value: null as string | null };\n";
 
 beforeAll(() => {
   if (!distExists) return;
-  base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-ownership-probes-")));
+  base = longTempDir("vn-ownership-probes-");
   app = path.join(base, "app");
-  fs.mkdirSync(path.join(app, "node_modules"), { recursive: true });
-  for (const name of fs.readdirSync(path.join(packageRoot, "node_modules"))) {
-    if (name.startsWith(".")) continue;
-    fs.symlinkSync(
-      path.join(packageRoot, "node_modules", name),
-      path.join(app, "node_modules", name),
-      DIR,
-    );
-  }
-  fs.symlinkSync(packageRoot, path.join(app, "node_modules", "vitest-native"), DIR);
+  linkNodeModules(path.join(packageRoot, "node_modules"), path.join(app, "node_modules"));
+  linkDir(packageRoot, path.join(app, "node_modules", "vitest-native"));
   // Installed packages: one Vite inlines, two that require it through Node, and an ES
   // module package that imports project source.
   write("node_modules/pure-lib/package.json", {
@@ -203,6 +195,8 @@ export function out(name: string, split: boolean, file: RegExp, extra = "") {
   const ext = require("ext-dep");
   out("inline", ext.pure.store !== (pure as any).store, /pure-lib/);`,
   };
+  // Two spellings of one file exist only where the file system ignores case.
+  if (!CASE_INSENSITIVE) delete probes.case;
   for (const [name, body] of Object.entries(probes)) {
     write(
       `src/${name}.test.ts`,

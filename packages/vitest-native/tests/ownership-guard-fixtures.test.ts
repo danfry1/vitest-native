@@ -24,11 +24,11 @@
  * ledger keyed by spelling would miss these (path-spelling keys).
  */
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { linkDir, linkNodeModules, longTempDir } from "./support/link-node-modules.js";
 
 const packageRoot = path.resolve(import.meta.dirname, "..");
 const distExists = fs.existsSync(path.join(packageRoot, "dist", "index.mjs"));
@@ -47,7 +47,7 @@ let linked = "";
 
 beforeAll(() => {
   if (!distExists) return;
-  base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-ownership-guard-")));
+  base = longTempDir("vn-ownership-guard-");
   real = path.join(base, "real");
   linked = path.join(base, "linked");
   fs.mkdirSync(real);
@@ -113,12 +113,8 @@ export const readStore = (): string | null => store.value;
   );
 
   const modules = path.join(real, "node_modules");
-  fs.mkdirSync(modules);
-  for (const name of fs.readdirSync(path.join(packageRoot, "node_modules"))) {
-    if (name.startsWith(".")) continue;
-    fs.symlinkSync(path.join(packageRoot, "node_modules", name), path.join(modules, name), DIR);
-  }
-  fs.symlinkSync(packageRoot, path.join(modules, "vitest-native"), DIR);
+  linkNodeModules(path.join(packageRoot, "node_modules"), modules);
+  linkDir(packageRoot, path.join(modules, "vitest-native"));
   fs.mkdirSync(path.join(modules, "@og"));
   fs.symlinkSync(path.join(real, "packages/feature"), path.join(modules, "@og/feature"), DIR);
   fs.symlinkSync(path.join(real, "packages/validator"), path.join(modules, "@og/validator"), DIR);
