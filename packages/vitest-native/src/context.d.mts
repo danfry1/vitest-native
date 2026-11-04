@@ -27,6 +27,8 @@ export interface ProjectContextFields {
   knownNativeModules?: string[];
   nativeModuleSpecs?: Record<string, string[]>;
   nativeModules?: "permissive";
+  /** The supported Expo SDKs, `[minimum, maximum]` (checkLoadedExpoSdk). */
+  expoSdks?: [number, number];
 }
 
 export declare function writeProjectContext(

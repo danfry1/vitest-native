@@ -13,6 +13,7 @@ import { validateOptions, validatePeerDependency, warnUnknownOptions } from "./v
 import {
   installedExpoVersion,
   PEER_REQUIREMENTS,
+  SUPPORTED_EXPO_SDKS,
   unsupportedExpoSdkMessage,
 } from "./peer-requirements.js";
 import { VitestNativeError, VitestNativeTypeError } from "./errors.mjs";
@@ -1934,6 +1935,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         fields.knownNativeModules = knownNativeModulesFor(resolvedRoot);
         fields.nativeModuleSpecs = nativeModuleSpecsFor(resolvedRoot);
         if (options?.nativeModules === "permissive") fields.nativeModules = "permissive";
+        fields.expoSdks = [SUPPORTED_EXPO_SDKS.minimum, SUPPORTED_EXPO_SDKS.maximum];
       }
       // Asset extensions for the Node require hook (matches the Vite graph): a CJS
       // `require('./logo.png')` reaching Node's loader must become a Metro-shaped
