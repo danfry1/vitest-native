@@ -17,8 +17,9 @@
  * covers copies and symlinks end to end), the preset and @babel/core versions in the
  * transform's directory, the file, mtime, size and platform in its memory key, the
  * platform and a project Babel config file's bytes (babel.config.js and .babelrc.js) in
- * its disk key, the ES-module goal and interop revision in the per-file key, and the
- * interop plugin's code under that revision. transform-project-babel-config.test.ts covers the
+ * its disk key, the ES-module goal and interop revision in the per-file key, the
+ * interop plugin's code under that revision, and the `import.meta` lowering's revision
+ * and code on entries that hold `import.meta`. transform-project-babel-config.test.ts covers the
  * options a project Babel config loads.
  */
 import { execFileSync } from "node:child_process";
@@ -56,6 +57,7 @@ afterEach(() => {
   vi.doUnmock("../src/native/transform.mjs");
   vi.doUnmock("../src/native/boundary.mjs");
   vi.doUnmock("../src/native/esm-interop.mjs");
+  vi.doUnmock("../src/native/babel-toolchain.mjs");
   vi.resetModules();
 });
 
@@ -361,6 +363,31 @@ describe("transform cache directory ledger", () => {
     expect(entries(root)).toHaveLength(2);
   });
 
+  it("keys the import.meta lowering's revision on entries that hold import.meta, and only those", async () => {
+    const root = transformRoot();
+    const dir = path.join(root, "node_modules", "meta-lib");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "meta-lib" }));
+    const meta = path.join(dir, "meta.js");
+    const plain = path.join(dir, "plain.js");
+    fs.writeFileSync(meta, "module.exports = import.meta.dirname;\n");
+    fs.writeFileSync(plain, "module.exports = 1;\n");
+    transformRN(meta, undefined, root);
+    transformRN(plain, undefined, root);
+    expect(entries(root)).toHaveLength(2);
+    vi.resetModules();
+    vi.doMock("../src/native/babel-toolchain.mjs", async (importOriginal) => ({
+      ...(await importOriginal<Record<string, unknown>>()),
+      IMPORT_META_LOWERING: "import-meta-cjs-ledger",
+    }));
+    const bumped = await import("../src/native/transform.mjs");
+    bumped.transformRN(plain, undefined, root);
+    // A file without import.meta keeps its entry: the token is not in its key.
+    expect(entries(root)).toHaveLength(2);
+    bumped.transformRN(meta, undefined, root);
+    expect(entries(root)).toHaveLength(3);
+  });
+
   it("keys the preset's and @babel/core's versions", () => {
     expect(dirName(transformRoot({ presetVersion: "0.0.2-ledger" }))).not.toBe(
       dirName(transformRoot()),
@@ -588,5 +615,42 @@ describe("ES-module interop guard", () => {
       fingerprint,
       `the ES-module interop plugin changed under ${ESM_INTEROP_RUNTIME}, so warm caches would keep its old output. Rename ESM_INTEROP_RUNTIME in src/native/esm-interop.mjs and add a row for it with "${fingerprint}".`,
     ).toBe(INTEROP_FINGERPRINTS[ESM_INTEROP_RUNTIME]);
+  });
+});
+
+/**
+ * The `import.meta` lowering (babel-toolchain.mjs: the values it substitutes and the
+ * plugin), fingerprinted per IMPORT_META_LOWERING. Babel adds it on its own thread to
+ * files that hold `import.meta`, outside the options fingerprinted above, and its code
+ * is keyed only by that token. Comment lines are left out. When this fails, rename
+ * IMPORT_META_LOWERING in src/native/babel-toolchain.mjs and ADD a row.
+ */
+const IMPORT_META_FINGERPRINTS: Record<string, string> = {
+  "import-meta-cjs-1": "837b3e9c637a17e1",
+};
+
+describe("import.meta lowering guard", () => {
+  it("records a fingerprint of the lowering's code for this IMPORT_META_LOWERING", async () => {
+    const { IMPORT_META_LOWERING } = await import("../src/native/babel-toolchain.mjs");
+    const source = fs
+      .readFileSync(path.join(packageRoot, "src/native/babel-toolchain.mjs"), "utf8")
+      .split(/\r?\n/);
+    const start = source.findIndex((line) => line.startsWith("const IMPORT_META_VALUES"));
+    const end = source.findIndex((line) => line.startsWith("function importMetaUnsupported"));
+    expect(start, "IMPORT_META_VALUES not found in babel-toolchain.mjs").toBeGreaterThan(-1);
+    expect(end, "importMetaUnsupported not found after the lowering").toBeGreaterThan(start);
+    const code = source
+      .slice(start, end)
+      .filter((line) => !/^\s*(?:\/\/|\/\*\*|\*)/.test(line))
+      .join("\n");
+    const fingerprint = crypto.createHash("sha1").update(code).digest("hex").slice(0, 16);
+    const reused = Object.entries(IMPORT_META_FINGERPRINTS).find(
+      ([token, value]) => value === fingerprint && token !== IMPORT_META_LOWERING,
+    );
+    expect(reused, "this lowering was already recorded under another token").toBeUndefined();
+    expect(
+      fingerprint,
+      `the import.meta lowering changed under ${IMPORT_META_LOWERING}, so warm caches would keep its old output. Rename IMPORT_META_LOWERING in src/native/babel-toolchain.mjs and add a row for it with "${fingerprint}".`,
+    ).toBe(IMPORT_META_FINGERPRINTS[IMPORT_META_LOWERING]);
   });
 });
