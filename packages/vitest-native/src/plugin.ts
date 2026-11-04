@@ -2252,7 +2252,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         if (nativePresetNames.length > 0) {
           fields.presetNames = nativePresetNames;
         }
-        if (options?.experimental?.nodeMocks === true) fields.nodeMocks = true;
+        // 'resolution' implies nodeMocks: the bridge serves a mocked dependency as the
+        // test's instance, so Node's own require of it must be served the same.
+        if (options?.experimental?.nodeMocks === true || ownershipModel === "resolution") {
+          fields.nodeMocks = true;
+        }
         if (selection.modulePaths.length > 0) {
           fields.presetModules = selection.modulePaths;
         }

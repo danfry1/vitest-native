@@ -105,6 +105,16 @@ export function validateOptions(options: Record<string, unknown>): void {
         `"experimental.nodeMocks" must be a boolean.`,
       );
     }
+    // The require bridge gives Node's require of a Vite-owned file Vite's instance; a
+    // mocked one must then be the test's mock, which nodeMocks serves.
+    if (entries.ownershipModel === "resolution" && entries.nodeMocks === false) {
+      throw new VitestNativeTypeError(
+        "INVALID_OPTION",
+        `"experimental.ownershipModel": "resolution" turns "experimental.nodeMocks" on, ` +
+          `and cannot run with it set to false. Remove "nodeMocks: false", or use ` +
+          `"ownershipModel": "resolver".`,
+      );
+    }
   }
   if (options.diagnostics !== undefined && typeof options.diagnostics !== "boolean") {
     throw new VitestNativeTypeError("INVALID_OPTION", `"diagnostics" must be a boolean.`);
