@@ -13,6 +13,7 @@
  * `__filename` and `__dirname` come from.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import Module, { createRequire } from "node:module";
@@ -307,6 +308,39 @@ describe("what is left alone", () => {
       options: babelOptions(file, [own]),
     });
     expect(code).toContain("projectsOwnImportMeta.env");
+    expect(code).not.toContain("importMeta_");
+  });
+
+  it("under babel-preset-expo, Expo's own rewrite stands, as under jest-expo", () => {
+    // babel-preset-expo replaces `import.meta` with the registry Expo's runtime installs;
+    // jest-expo compiles with the same Metro caller, so this is the value Jest gives.
+    // Resolved through `expo`, whose dependency it is. Compiled in a child process: in
+    // this one, the test setup's resolver patches would load Expo's preset.
+    const expoPreset = createRequire(presetRequire.resolve("expo/package.json")).resolve(
+      "babel-preset-expo",
+    );
+    const request = {
+      kind: "transform",
+      root: projectRoot,
+      src: "export const url = import.meta.url;\nexport const mode = import.meta.env.MODE;\n",
+      importMeta: true,
+      options: { ...babelOptions(path.join(dir, "expo", "meta.ts")), presets: [expoPreset] },
+    };
+    const toolchain = pathToFileURL(path.join(projectRoot, "src/native/babel-toolchain.mjs")).href;
+    const child = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `const { handleToolchainRequest } = await import(${JSON.stringify(toolchain)});` +
+          `process.stdout.write(handleToolchainRequest(${JSON.stringify(request)}).code);`,
+      ],
+      { encoding: "utf8" },
+    );
+    expect(child.status, child.stderr).toBe(0);
+    const code = child.stdout;
+    expect(code).toContain("globalThis.__ExpoImportMetaRegistry.url");
+    expect(code).toContain("globalThis.__ExpoImportMetaRegistry.env.MODE");
     expect(code).not.toContain("importMeta_");
   });
 
