@@ -23,16 +23,30 @@ const write = (rel: string, source = "") => {
 };
 const pkg = (rel: string, name: string) => write(`${rel}/package.json`, JSON.stringify({ name }));
 
-write("package.json", JSON.stringify({ name: "app", dependencies: { "@ws/lib": "*" } }));
+write(
+  "package.json",
+  JSON.stringify({
+    name: "app",
+    dependencies: { "@ws/lib": "*", "@testing-library/react-native": "*" },
+  }),
+);
 write("src/app.ts");
 pkg("packages/lib", "@ws/lib");
 write("packages/lib/src/index.ts");
-fs.mkdirSync(path.join(root, "node_modules/@ws"), { recursive: true });
-fs.symlinkSync(
-  path.join(root, "packages/lib"),
-  path.join(root, "node_modules/@ws/lib"),
-  process.platform === "win32" ? "junction" : "dir",
-);
+// A vendored fork of the testing library, kept in the workspace.
+pkg("packages/rntl-fork", "@testing-library/react-native");
+write("packages/rntl-fork/build/index.js");
+for (const [dir, name] of [
+  ["packages/lib", "@ws/lib"],
+  ["packages/rntl-fork", "@testing-library/react-native"],
+]) {
+  fs.mkdirSync(path.dirname(path.join(root, "node_modules", name)), { recursive: true });
+  fs.symlinkSync(
+    path.join(root, dir),
+    path.join(root, "node_modules", name),
+    process.platform === "win32" ? "junction" : "dir",
+  );
+}
 pkg("vendor/react-native", "react-native");
 write("vendor/react-native/index.js");
 write("tools/vitest-native/dist/index.mjs");
@@ -44,7 +58,7 @@ for (const name of ["plain-pkg", "react", "react-native", "vitest", "chai"]) {
 const policy = createNativeOwnershipPolicy({
   projectRoot: root,
   projectDirs: [path.join(root, "src")],
-  ecosystemPackages: ["@ws/lib"],
+  ecosystemPackages: ["@ws/lib", "@testing-library/react-native"],
   reactNativeRoots: [path.join(root, "vendor/react-native")],
 });
 const generation = new Int32Array(new SharedArrayBuffer(4));
@@ -78,6 +92,12 @@ describe("hot generation stamp", () => {
     expect(stamped("src/app.ts")).toBe(false);
     expect(stamped("vendor/react-native/index.js")).toBe(false);
     expect(stamped("tools/vitest-native/dist/index.mjs")).toBe(false);
+  });
+
+  it("keeps a workspace package named like a resident one at one instance", () => {
+    const file = path.join(root, "packages/rntl-fork/build/index.js");
+    expect(policy.decideFile(file).owner).toBe("node");
+    expect(stamped("packages/rntl-fork/build/index.js")).toBe(false);
   });
 
   it("keeps the node_modules rule: packages stamped, the resident runtime not", () => {

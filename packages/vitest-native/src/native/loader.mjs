@@ -16,6 +16,7 @@ import { nativeAssetModuleSource } from "./assets.mjs";
 import { extensionsFor, resolveRelativePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
 import {
   NODE_MODULES_PATH,
+  containsPath,
   isUtilitySubpath,
   packageNameOf,
   presetPackageOfFile,
@@ -24,6 +25,7 @@ import {
 } from "./match.mjs";
 import {
   createNativeOwnershipPolicy,
+  isResidentPackageName,
   isRuntimeResidentFile,
   isTestRuntimeResidentFile,
   parseNativeOwnershipManifest,
@@ -125,14 +127,24 @@ const generationOf = () => (genView ? Atomics.load(genView, 0) : 0);
 // CommonJS entry, and Node's ESM registry would otherwise keep the previous file's
 // copy behind every `import` of it. Any other file outside node_modules is the
 // project's own source, which Vite owns, or this engine and the test stack in-repo,
-// which must stay resident, so nothing else there is stamped. The policy's answer
-// depends only on the path, so it is kept per file.
+// which must stay resident, so nothing else there is stamped. A workspace package
+// named like a resident one (a vendored fork of React, React Native, the testing
+// library or the test stack) stays resident, as it would under node_modules; its name
+// is the Node-loaded package whose directory, already looked up by the policy, holds
+// the file. The answer depends only on the path, so it is kept per file.
 const workspaceStamp = new Map();
 function nodeOwnedPerFile(file) {
   let stamp = workspaceStamp.get(file);
   if (stamp === undefined) {
     const decision = ownership.decideFile(file);
     stamp = decision.owner === "node" && decision.reset === "per-file";
+    if (stamp) {
+      const name = ownership.nodeTransformPackages.find((pkg) => {
+        const dir = ownership.packageDirOf(pkg);
+        return Boolean(dir) && containsPath(dir, file);
+      });
+      if (name !== undefined && isResidentPackageName(name)) stamp = false;
+    }
     workspaceStamp.set(file, stamp);
   }
   return stamp;

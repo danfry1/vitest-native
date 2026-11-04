@@ -2,6 +2,6 @@
 "vitest-native": patch
 ---
 
-**Native engine, `hotRuntime`: a React Native workspace library loaded by Node is now evaluated again for each test file.** It kept the first file's instances, so later files read stale state and `instanceof` failed against their own classes. No action needed.
+**Native engine, `hotRuntime`: a workspace library loaded by Node, whether a detected React Native library or one named in `transform`, is now evaluated again for each test file.** It kept the first file's instances, so later files read stale state and `instanceof` failed. No action needed.
 
-- A file that does not touch such a library loads exactly what it did before.
+- Each file that touches such a library runs it again and holds about its compiled source in memory until the worker recycles, as for an installed package.
