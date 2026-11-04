@@ -786,6 +786,13 @@ describe("preset: safeAreaContext", () => {
     expect(Wrapped.displayName).toBe("withSafeAreaInsets(MyComp)");
   });
 
+  it("serves 5.11's corner-adapted context, and cornerAdaptation answers the regular insets", () => {
+    expect(mock.SafeAreaCornerAdaptedInsetsContext).toHaveProperty("Provider");
+    expect(mock.useSafeAreaInsets({ cornerAdaptation: "vertical" })).toEqual(
+      mock.useSafeAreaInsets(),
+    );
+  });
+
   it("_setInsets updates insets returned by useSafeAreaInsets", () => {
     mock._setInsets({ top: 0, bottom: 0 });
     const insets = mock.useSafeAreaInsets();
