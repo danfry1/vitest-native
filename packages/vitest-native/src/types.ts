@@ -444,8 +444,9 @@ export interface VitestNativeOptions {
    *
    * - `'warn'`: report each such file once per worker, naming both sides, the route
    *   and the fix.
-   * - `'error'`: throw `SOURCE_EVALUATED_TWICE` at the second evaluation, before the
-   *   second copy is used.
+   * - `'error'`: throw `SOURCE_EVALUATED_TWICE` at the second evaluation and fail the
+   *   test file. A second Node copy never runs; a second Vite copy has run its top level
+   *   when it is seen, and its import throws.
    *
    * The object form adds `allow`, the only exemption: a file or directory (resolved
    * against the Vitest root) and the reason it is deliberate. Detection cannot be turned

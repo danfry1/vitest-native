@@ -47,8 +47,7 @@ returns `owner: 'vite' | 'node' | 'vitest-default'`:
 Two checks read it, and both are partial:
 
 - `plugin.ts` `transform()` throws `MODULE_OWNER_CONFLICT` when Vite transforms a file
-  the policy gives to Node. This is fail-closed, but it only sees the Vite half, and it
-  is off under `server.deps.inline: true`.
+  the policy gives to Node. This is fail-closed, but it only sees the Vite half.
 - `hooks.mjs` `checkProjectSourceResolvedByNode` warns when an *installed* package
   makes Node resolve project source. It sees resolution, not evaluation, and it ignores
   requirers outside `node_modules`.

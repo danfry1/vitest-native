@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { MessageChannel, receiveMessageOnPort } from "node:worker_threads";
-import { NODE_MODULES_PATH, containsPath } from "./match.mjs";
+import { NODE_MODULES_PATH } from "./match.mjs";
 import {
   TEST_RUNTIME_RESIDENT_PATH,
   createNativeOwnershipPolicy,
@@ -189,11 +189,15 @@ export function createOwnershipLedger({
   const conflicts = [];
   const allowUsed = new Set();
 
-  // On the path as spelled, not the folded key.
-  const exemption = (file) => {
-    if (TEST_RUNTIME_RESIDENT_PATH.test(file)) return "the test runtime (vitest, chai)";
-    if (exemptDirs.some((dir) => containsPath(dir, file))) return "the engine's own runtime";
-    const hit = allow.find((entry) => containsPath(entry.path, file));
+  // On the ledger key (real path, folded where the file system ignores case), the same
+  // whichever side was second: Node's filename and Vite's id can spell one file apart.
+  const within = (dirKey, key) => key === dirKey || key.startsWith(`${dirKey}/`);
+  const exemptKeys = exemptDirs.map((dir) => realKey(dir).replace(/\/+$/, ""));
+  const allowKeys = allow.map((entry) => ({ entry, key: realKey(entry.path).replace(/\/+$/, "") }));
+  const exemption = (key) => {
+    if (TEST_RUNTIME_RESIDENT_PATH.test(key)) return "the test runtime (vitest, chai)";
+    if (exemptKeys.some((dir) => within(dir, key))) return "the engine's own runtime";
+    const hit = allowKeys.find((candidate) => within(candidate.key, key))?.entry;
     if (!hit) return null;
     allowUsed.add(hit.path);
     return `ownership.allow: ${hit.reason}`;
@@ -283,14 +287,20 @@ export function createOwnershipLedger({
     recordNode(filename, entry, { key = nodeKey(filename), deferred = false } = {}) {
       entry.filename = filename;
       const prior = vite.get(key);
-      if (prior && viteLive(prior) && !exemption(filename)) {
+      if (prior && viteLive(prior) && !exemption(key)) {
         report(key, entry, prior, "node", { deferred });
       }
       const records = node.get(key);
       if (records === undefined) node.set(key, [entry]);
       else {
-        // Drop only collected modules: isolateModules restores an evicted copy.
-        const kept = records.filter((record) => !collected(record));
+        // Drop only collected modules (isolateModules restores an evicted copy) and ES
+        // module records of an earlier hot generation, which can never be live again.
+        const stale = (record) =>
+          record.via === "esm" &&
+          record.generation != null &&
+          entry.generation != null &&
+          record.generation !== entry.generation;
+        const kept = records.filter((record) => !collected(record) && !stale(record));
         kept.push(entry);
         node.set(key, kept);
       }
@@ -299,7 +309,7 @@ export function createOwnershipLedger({
     recordVite(key, file) {
       const entry = { file, key };
       const prior = liveNode(key);
-      if (prior && !exemption(file)) report(key, prior, entry, "vite");
+      if (prior && !exemption(key)) report(key, prior, entry, "vite");
       vite.set(key, entry);
     },
   };

@@ -1566,7 +1566,13 @@ export class OwnershipSummaryReporter {
     this.used.clear();
     this.mode = "warn";
   }
-  onTestModuleEnd(testModule: { moduleId: string; meta(): Record<string, unknown> }): void {
+  onTestModuleEnd(testModule: {
+    moduleId: string;
+    meta(): Record<string, unknown>;
+    errors?(): readonly { message?: string }[];
+  }): void {
+    const where = (route: string) =>
+      `${path.relative(process.cwd(), testModule.moduleId)} (${route})`;
     const data = testModule.meta()?.[OWNERSHIP_META_KEY] as
       | {
           mode: string;
@@ -1574,12 +1580,27 @@ export class OwnershipSummaryReporter {
           allowUsed: string[];
         }
       | undefined;
-    if (!data) return;
+    if (!data) {
+      // A file that failed while collecting (error mode's throw at a static import) runs
+      // no hooks, so its findings arrive only as its errors.
+      for (const error of testModule.errors?.() ?? []) {
+        const match = /\[vitest-native\] (.+?) was evaluated by both Node and Vite/.exec(
+          error.message ?? "",
+        );
+        const route = /route\s+-> (.+)/.exec(error.message ?? "")?.[1] ?? "while collecting";
+        if (!match) continue;
+        this.mode = "error";
+        const at = this.found.get(match[1]) ?? new Set<string>();
+        at.add(where(route));
+        this.found.set(match[1], at);
+      }
+      return;
+    }
     if (data.mode === "error") this.mode = "error";
     for (const used of data.allowUsed) this.used.add(used);
     for (const conflict of data.conflicts) {
       const at = this.found.get(conflict.file) ?? new Set<string>();
-      at.add(`${path.relative(process.cwd(), testModule.moduleId)} (${conflict.route})`);
+      at.add(where(conflict.route));
       this.found.set(conflict.file, at);
     }
   }
@@ -1600,7 +1621,8 @@ export class OwnershipSummaryReporter {
       lines.push(
         `[vitest-native] ownership.allow: ${unused.length} entr${unused.length === 1 ? "y" : "ies"} exempted nothing in this run:`,
         ...unused.map((entry) => `  ${entry.path} (${entry.reason})`),
-        "  Remove an entry whose dual evaluation is gone, so it cannot hide a new one.",
+        "  If the files that needed an entry ran, its dual evaluation is gone: remove it, so it " +
+          "cannot hide a new one. A run of only some files leaves others unexercised.",
       );
     }
     if (lines.length > 0) this.write(`${lines.join("\n")}\n`);
@@ -1641,6 +1663,12 @@ export function withOwnershipMarker(
   return marker === null ? undefined : { code: `${code}\n;${marker}\n`, map: null };
 }
 
+/** The ownership summary of each running Vitest, and the exemption lists it reports on. */
+const ownershipSummaries = new WeakMap<
+  object,
+  { sources: Set<Map<string, { path: string; reason: string }[]>> }
+>();
+
 export function reactNative(options?: VitestNativeOptions): Plugin {
   // Per plugin INSTANCE, not module scope. A Vitest workspace calls reactNative() once
   // per project and they share this module, so module-level state means the last
@@ -1675,7 +1703,6 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   const cacheKeys = new Map<string, string>();
   // The ownership guard's exemptions per root, for the end-of-run reporter.
   const ownershipAllow = new Map<string, { path: string; reason: string }[]>();
-  let ownershipReporterAdded = false;
   let warnedMissingJestMockTransform = false;
   let warnedTsconfigPaths = false;
   // The version of the Vite running this config, from the host rather than the package
@@ -2999,17 +3026,26 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   }) {
     const projectConfig = project.config;
     const root = projectConfig.root ? path.resolve(projectConfig.root) : process.cwd();
-    // One summary per run, for every native project of this plugin instance. Vitest 5
-    // builds its reporters from `config.reporters` after this hook; if a version has
-    // already built them, the instance joins the live list instead.
-    if (!ownershipReporterAdded && ownershipAllow.size > 0) {
-      ownershipReporterAdded = true;
-      const reporter = new OwnershipSummaryReporter(() => [...ownershipAllow.values()].flat());
-      if (Array.isArray(vitest.reporters) && vitest.reporters.length > 0) {
-        vitest.reporters.push(reporter);
-      } else if (Array.isArray(vitest.config?.reporters)) {
-        vitest.config.reporters.push(reporter);
+    // One summary per Vitest run, shared by every native project of every reactNative()
+    // instance in it (a `projects` config calls it once per project). Vitest 5 builds its
+    // reporters from `config.reporters` after this hook; if a version has already built
+    // them, the reporter joins the live list instead.
+    if (ownershipAllow.size > 0) {
+      let summary = ownershipSummaries.get(vitest);
+      if (!summary) {
+        const sources = new Set<Map<string, { path: string; reason: string }[]>>();
+        const reporter = new OwnershipSummaryReporter(() =>
+          [...sources].flatMap((source) => [...source.values()].flat()),
+        );
+        summary = { sources };
+        ownershipSummaries.set(vitest, summary);
+        if (Array.isArray(vitest.reporters) && vitest.reporters.length > 0) {
+          vitest.reporters.push(reporter);
+        } else if (Array.isArray(vitest.config?.reporters)) {
+          vitest.config.reporters.push(reporter);
+        }
       }
+      summary.sources.add(ownershipAllow);
     }
     // The running Vitest, as Vitest states it, rather than the package a lookup from the
     // project root finds (host.ts).

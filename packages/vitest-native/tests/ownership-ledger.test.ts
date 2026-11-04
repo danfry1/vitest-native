@@ -24,6 +24,7 @@ import {
   withOwnershipMarker,
 } from "../src/plugin.js";
 import { validateOptions } from "../src/validate.js";
+import { runPluginConfig } from "./plugin-config.js";
 
 const FILE = "/repo/app/src/store.ts";
 
@@ -129,6 +130,46 @@ describe("the ledger", () => {
     dead.ledger.recordVite(nodeKey(FILE), FILE);
     dead.ledger.recordNode(FILE, { via: "cjs" });
     expect(dead.ledger.conflicts).toEqual([]);
+  });
+
+  it("keeps one ES module record per hot generation, so liveness checks stay constant", () => {
+    let checks = 0;
+    const { ledger } = ledgerWith({
+      nodeLive: (record) => {
+        checks++;
+        return record.generation === 1000;
+      },
+    });
+    for (let generation = 1; generation <= 1000; generation++) {
+      ledger.recordNode(FILE, { via: "esm", generation });
+    }
+    ledger.recordVite(nodeKey(FILE), FILE);
+    expect(ledger.conflicts).toHaveLength(1);
+    expect(checks).toBeLessThanOrEqual(2);
+  });
+
+  it("matches an exemption on the file's real path, whichever side spelled it", () => {
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-ledger-allow-")));
+    try {
+      fs.mkdirSync(path.join(dir, "real"));
+      fs.writeFileSync(path.join(dir, "real", "store.ts"), "");
+      fs.symlinkSync(path.join(dir, "real"), path.join(dir, "link"), "junction");
+      const real = path.join(dir, "real", "store.ts");
+      const linked = path.join(dir, "link", "store.ts");
+      const key = nodeKey(real);
+      for (const viteFirst of [true, false]) {
+        const { ledger } = ledgerWith({
+          allow: [{ path: path.join(dir, "link"), reason: "deliberate" }],
+        });
+        if (viteFirst) ledger.recordVite(key, linked);
+        ledger.recordNode(real, { via: "cjs" });
+        if (!viteFirst) ledger.recordVite(key, linked);
+        expect(ledger.conflicts, `vite first: ${viteFirst}`).toEqual([]);
+        expect([...ledger.allowUsed]).toEqual([path.join(dir, "link")]);
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("matches a file across Node's and Vite's spellings of one path", () => {
@@ -448,6 +489,51 @@ describe("the plugin's side of the guard", () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("counts a file that failed while collecting from its error, as no hook ran", () => {
+    const written: string[] = [];
+    const reporter = new OwnershipSummaryReporter(
+      () => [],
+      (text) => written.push(text),
+    );
+    reporter.onTestRunStart();
+    reporter.onTestModuleEnd({
+      moduleId: "/repo/src/a.test.ts",
+      meta: () => ({}),
+      errors: () => [
+        {
+          message:
+            "[vitest-native] /repo/src/store.ts was evaluated by both Node and Vite in this " +
+            "worker.\n  route        -> an import from source Node evaluated\n",
+        },
+        { message: "an unrelated error" },
+      ],
+    });
+    reporter.onTestRunEnd();
+    const text = written.join("");
+    expect(text).toContain("1 file(s) were evaluated by both");
+    expect(text).toContain("failed: ownership 'error'");
+    expect(text).toContain("/repo/src/store.ts");
+    expect(text).toMatch(/in .*a\.test\.ts \(an import from source Node evaluated\)/);
+  });
+
+  it("adds one summary per Vitest run, whatever the number of reactNative() calls", async () => {
+    const vitest = { reporters: [{}], config: { cliOptions: {} } };
+    for (const platform of ["ios", "android"] as const) {
+      const plugin = reactNative({ engine: "native", platform }) as any;
+      const config = await runPluginConfig(plugin, { root: process.cwd() });
+      await plugin.configResolved?.({ root: process.cwd() });
+      const project = {
+        config: { root: process.cwd(), setupFiles: config.test.setupFiles, env: config.test.env },
+      };
+      try {
+        await plugin.configureVitest({ vitest, project });
+      } catch {
+        // Only the reporter registration, which runs first, is under test here.
+      }
+    }
+    expect(vitest.reporters.filter((r) => r instanceof OwnershipSummaryReporter)).toHaveLength(1);
   });
 
   it("reports each watch-mode run's findings, not every run's so far", () => {

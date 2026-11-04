@@ -128,6 +128,7 @@ export default defineConfig({
     'import { expect, it } from "vitest";\nimport { covered } from "./fx/cov";\nit("cov", () => expect(covered(1)).toBe("pos"));\n',
   );
   write("src/fx/data.json", '{ "value": null }\n');
+  write("src/fx/vdata.json", '{ "value": null }\n');
   // A symlinked directory: Vite can keep the link in its id, Node keys the real path.
   fs.symlinkSync(path.join(app, "src/fx"), path.join(app, "src/fxlink"), DIR);
   write("src/fx/esm.mjs", "export const store = { value: null };\n");
@@ -178,6 +179,9 @@ export function out(name: string, split: boolean, file: RegExp, extra = "") {
     cjs: `const viaNode = require("./fx/legacy.cjs");
   const viaVite: any = await import("./fx/legacy.cjs");
   out("cjs", (viaVite.default ?? viaVite).store !== viaNode.store, /fx[\\\\/]legacy\\.cjs/);`,
+    jsonvite: `const viaVite: any = (await import("./fx/vdata.json")).default;
+  const viaNode = require("./fx/vdata.json");
+  out("jsonvite", viaVite !== viaNode, /vdata\\.json/);`,
     cjsvite: `const viaVite: any = await import("./fx/vlegacy.cjs");
   const viaNode = require("./fx/vlegacy.cjs");
   out("cjsvite", (viaVite.default ?? viaVite).store !== viaNode.store, /vlegacy\\.cjs/);`,
@@ -342,7 +346,11 @@ const SPLIT_SHAPES = [
 
 // Vite evaluated the file first, so Node's require is handed Vite's instance (#345, and
 // `module.exports` for CommonJS): one copy, nothing to report.
-const ONE_INSTANCE_SHAPES = ["reqactual", "cjsvite", "barrelvite"] as const;
+const ONE_INSTANCE_SHAPES = ["reqactual", "cjsvite", "barrelvite", "jsonvite"] as const;
+
+it("needs dist", () => {
+  expect(distExists, "run `bun run build` before this suite — CI builds first").toBe(true);
+});
 
 describe.runIf(distExists)("the ownership guard on the review's shapes", () => {
   it("coverage reports only the file's own lines, the marker none", () => {

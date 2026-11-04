@@ -459,11 +459,14 @@ export function shareProjectModules() {
  */
 const viteFacades = new WeakMap();
 function viteInstanceOf(filename) {
-  if (!SOURCE_FILE.test(filename)) return NONE;
+  const json = filename.endsWith(".json");
+  if (!json && !SOURCE_FILE.test(filename)) return NONE;
   const nodes = worker()?.evaluatedModules?.getModulesByFile?.(filename.replace(/\\/g, "/"));
   for (const node of nodes ?? []) {
     if (node.id?.startsWith("mock:") || !node.evaluated || node.exports == null) continue;
     const ns = node.exports;
+    // JSON: `require` returns the parsed object, which Vite's module exports as default.
+    if (json) return "default" in ns ? ns.default : NONE;
     if (isCommonJsNamespace(ns)) return ns.default;
     return requireFacade(ns);
   }
