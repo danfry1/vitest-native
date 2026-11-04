@@ -2,5 +2,8 @@
   "name": "dispatch-consumer-lib",
   "version": "1.0.0",
   "private": true,
-  "main": "./index.js"
+  "main": "./index.js",
+  "dependencies": {
+    "dispatch-target-lib": "file:../dispatch-target-lib"
+  }
 }

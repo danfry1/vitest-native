@@ -13,7 +13,9 @@ const KNOWN_OPTIONS = [
   "transform",
   "hotRuntime",
   "nativeModules",
+  "experimental",
 ];
+const KNOWN_EXPERIMENTAL_OPTIONS = ["nodeMocks"];
 const KNOWN_HOT_RUNTIME_OPTIONS = [
   "recycleAfterFiles",
   "memoryLimit",
@@ -72,6 +74,27 @@ export function validateOptions(options: Record<string, unknown>): void {
       "INVALID_OPTION",
       `"nativeModules" must be "device" or "permissive".`,
     );
+  }
+  if (options.experimental !== undefined) {
+    const experimental = options.experimental;
+    if (experimental === null || Array.isArray(experimental) || typeof experimental !== "object") {
+      throw new VitestNativeTypeError("INVALID_OPTION", `"experimental" must be an object.`);
+    }
+    const entries = experimental as Record<string, unknown>;
+    const unknown = Object.keys(entries).filter((key) => !KNOWN_EXPERIMENTAL_OPTIONS.includes(key));
+    if (unknown.length > 0) {
+      throw new VitestNativeTypeError(
+        "UNKNOWN_OPTION",
+        `Unknown experimental option "${unknown[0]}". Valid options: ` +
+          `${KNOWN_EXPERIMENTAL_OPTIONS.join(", ")}.`,
+      );
+    }
+    if (entries.nodeMocks !== undefined && typeof entries.nodeMocks !== "boolean") {
+      throw new VitestNativeTypeError(
+        "INVALID_OPTION",
+        `"experimental.nodeMocks" must be a boolean.`,
+      );
+    }
   }
   if (options.diagnostics !== undefined && typeof options.diagnostics !== "boolean") {
     throw new VitestNativeTypeError("INVALID_OPTION", `"diagnostics" must be a boolean.`);

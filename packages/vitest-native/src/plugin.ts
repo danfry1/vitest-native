@@ -1939,6 +1939,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         if (nativePresetNames.length > 0) {
           fields.presetNames = nativePresetNames;
         }
+        if (options?.experimental?.nodeMocks === true) fields.nodeMocks = true;
         if (selection.modulePaths.length > 0) {
           fields.presetModules = selection.modulePaths;
         }
