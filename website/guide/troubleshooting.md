@@ -73,7 +73,7 @@ Known differences from per-file isolation under the hot runtime:
 
 - **`useId` values continue from the previous file**, so a snapshot that contains a generated id can change with file order.
 - **React shows a development warning once per worker, not once per file.** A setup that fails a test on `console.error` can miss a warning in a later file.
-- **An un-awaited `act()` can leave the next file's render empty**, so the next file fails instead of the one that forgot `await`.
+- **An `act()` scope left open stays open for the worker.** A test that times out while awaiting `act()`, or starts an async `act()` without awaiting it, leaves React's scope open, and later renders on that worker would never commit. With two or more workers the hot runtime replaces that worker after the file, and the timed-out test names the open scope. With one worker it cannot: the next file waits up to `testTimeout` for the scope to close, and if it does not, the remaining files fail with `this worker cannot run this file`, naming the file that left it open.
 - **Fake timers active when React first loads stay captured by React's scheduler**, so a later file's timer-driven updates never render, and that file fails at its test timeout. This happens when a setup file imports React and then enables fake timers, or when a test file enables fake timers before React is first loaded.
 - **RNTL reinstalls fake timers only in the first file that loads it.** When RNTL loads while fake timers are on, it switches to real timers and back to capture the real ones. That reinstalls Vitest's fake timers with the project's `fakeTimers` config, and drops per-call options, the system time and pending fake timers. Under per-file isolation this happens in every file, as under Jest. Under the hot runtime RNTL stays loaded, so it happens only in the first file, and a setup file's `vi.setSystemTime()` or per-call options survive in later files.
 
@@ -97,6 +97,29 @@ On Vitest 4 the same steps apply with the experimental names: the cache director
 ## `CONTEXT_INVALID` at startup
 
 The plugin writes one description of each Vitest project, its _project context_, to `node_modules/.cache/vitest-native/contexts/` (or the system temp directory when that cannot be written), and every worker reads its configuration from that file. `CONTEXT_INVALID` means a worker found it missing, from another version, changed after it was written, or with a field of the wrong shape; the message names the reason, the field and the directory. Re-run Vitest, and if it persists delete that directory. A worker started without the plugin's configuration reports it too.
+
+## Getting more detail in the log
+
+Turn on the plugin's diagnostics in the config:
+
+```ts
+reactNative({ diagnostics: true });
+```
+
+It logs how modules resolve, which engine and presets apply, and the hot runtime's full memory plan. It is a plugin option only; to turn it on for one run, see [`diagnostics`](/guide/plugin-options#diagnostics). Without it, the startup log still names the engine, the presets and, under the hot runtime, the worker count (`[vitest-native] workers: …`), or why the hot runtime is off.
+
+## When React Native's precompiled modules are reused or rebuilt
+
+The native engine compiles React Native once into a single precompiled file (see [engines](/guide/engines)) and reuses it on later runs, one file per platform and configuration. It is stored in `node_modules/.cache/vitest-native/registry/` under the Vitest project's root. A project without a `node_modules` of its own, such as a workspace package whose dependencies are hoisted, uses the nearest one above it that holds React Native. When neither exists or can be written, it is `vitest-native-cache/registry/` in the system temp directory.
+
+A run reuses it when all of these are unchanged, and rebuilds it otherwise:
+
+- the vitest-native version;
+- which `react-native` the project resolves, and the versions of `react-native`, `react`, `expo`, `@babel/core` and the Babel preset React Native compiles with;
+- the `platform` option, the source and asset extensions (the defaults, or your Metro config's with `metroConfig: true`, plus the `assetExts` option), and `BABEL_ENV` / `NODE_ENV`;
+- the files it was built from, React Native's own and those they load from other packages such as `react`: each is checked by size and modification time, so editing or reinstalling either rebuilds it.
+
+To force a rebuild, delete that `registry` directory; files for earlier configurations stay there until you do. To run without the precompiled file (each module is then loaded on its own, more slowly, with the same results), set `VITEST_NATIVE_NO_REGISTRY=1`.
 
 ## Still stuck?
 

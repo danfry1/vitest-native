@@ -18,6 +18,7 @@
 //                  bug's precondition and shows the exhibit can pass)
 // Anything else is reported as what it is (requires-CI, NOT PROVEN), never rounded up.
 import fs from "node:fs";
+import { depsProblem } from "./lib/deps.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { exhibitHash } from "./lib/hash.mjs";
@@ -96,6 +97,15 @@ for (const exhibit of manifest.exhibits) {
       continue;
     }
     const sha = expectedSha(exhibit, column);
+    // STATUS.md records the flag off: a run.mjs --ownership verdict is another column.
+    if (verdict.ownershipModel)
+      problems.push(
+        `${exhibit.id}: the ${column} verdict ran with experimental.ownershipModel: ${verdict.ownershipModel}; STATUS.md records the flag off`,
+      );
+    // Each column runs against its own ref's installed packages (run.mjs, `deps`): a
+    // verdict materialised against another ref's dependencies measured those, not the bug.
+    const deps = depsProblem(verdict);
+    if (deps) problems.push(`${exhibit.id}: the ${column} verdict ${deps}`);
     if (!verdict.build?.verified)
       problems.push(
         `${exhibit.id}: the ${column} verdict ran on an unverified build (${verdict.build?.sha ?? "no SHA"}); build it with build-ref.mjs`,

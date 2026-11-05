@@ -174,6 +174,39 @@ describe("installedExpoVersion", () => {
     expect(installedExpoVersion(path.join(root, "packages", "lib"))).toBe("54.0.33");
   });
 
+  it("ignores the expo a declared package peers only optionally", () => {
+    // @react-native-vector-icons/material-icons 14 peers expo optionally; pnpm hoists an
+    // expo 54 another package installs into node_modules/.pnpm/node_modules, which Node
+    // reaches from the store.
+    const icons =
+      "node_modules/.pnpm/@react-native-vector-icons+material-icons@14.0.0/node_modules/@react-native-vector-icons/material-icons";
+    const layout = (optional: boolean) => {
+      const root = project({
+        "node_modules/.pnpm/node_modules/expo/package.json": { name: "expo", version: "54.0.33" },
+        "packages/lib/package.json": {
+          name: "lib",
+          dependencies: { "@react-native-vector-icons/material-icons": "*" },
+        },
+        [`${icons}/package.json`]: {
+          name: "@react-native-vector-icons/material-icons",
+          peerDependencies: { expo: "*", "react-native": "*" },
+          ...(optional ? { peerDependenciesMeta: { expo: { optional: true } } } : {}),
+        },
+      });
+      fs.mkdirSync(path.join(root, "packages/lib/node_modules/@react-native-vector-icons"), {
+        recursive: true,
+      });
+      fs.symlinkSync(
+        path.join(root, icons),
+        path.join(root, "packages/lib/node_modules/@react-native-vector-icons/material-icons"),
+        "dir",
+      );
+      return path.join(root, "packages", "lib");
+    };
+    expect(installedExpoVersion(layout(true))).toBeNull();
+    expect(installedExpoVersion(layout(false))).toBe("54.0.33");
+  });
+
   it("prefers a parent's resolvable expo to a package's own pnpm directory", () => {
     const root = project({
       ...expo("58.0.16"),

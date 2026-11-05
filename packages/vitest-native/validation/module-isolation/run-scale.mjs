@@ -3,13 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import "../../scripts/release-age.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(here, "../..");
 const scaleRoot = path.resolve(here, "../idiomatic/scale");
-const vitestRoot = path.resolve(
-  process.argv[2] ?? "/private/tmp/vitest-module-isolation-upstream",
-);
+const vitestRoot = path.resolve(process.argv[2] ?? "/private/tmp/vitest-module-isolation-upstream");
 const repetitions = Number(process.argv[3] ?? 1);
 const componentCount = Number(process.argv[4] ?? 120);
 const modes = (process.argv[5] ?? "default,modules,hot,shared").split(",");
@@ -136,11 +135,7 @@ try {
     ["pack", "--pack-destination", tempRoot],
     path.join(vitestRoot, "packages/vitest"),
   );
-  const nativeTarball = pack(
-    "npm",
-    ["pack", "--pack-destination", tempRoot],
-    packageRoot,
-  );
+  const nativeTarball = pack("npm", ["pack", "--pack-destination", tempRoot], packageRoot);
   fs.writeFileSync(
     path.join(tempRoot, "package.json"),
     `${JSON.stringify(

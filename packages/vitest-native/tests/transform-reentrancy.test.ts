@@ -82,7 +82,7 @@ fs.writeFileSync(
       }
     }
     // Or after it has answered, while idle. Listeners run in the order they were added,
-    // so the marker is written after babel-worker.mjs has said the thread ended.
+    // so the marker is written after the thread has said it ended.
     if (platform === "end-thread-later") {
       process.on("exit", () => fs.writeFileSync(marker("end-thread-later"), ""));
       setTimeout(() => process.exit(4), 0);
@@ -229,9 +229,8 @@ it("reports a Babel thread that ran out of heap, by the deadline, and starts ano
 }, 180_000);
 
 it("reports Babel's thread failing to load Babel's side, without waiting for the deadline", () => {
-  // The real worker beside a babel-toolchain.mjs that throws as it loads: the exit
-  // handler the worker registers first says so. The clock stands still, so the deadline
-  // never comes and only that handler can end the wait.
+  // The real worker beside a babel-toolchain.mjs that throws as it loads. The clock
+  // stands still, so the deadline never comes and only the thread can end the wait.
   const dir = path.join(root, "real-worker");
   fs.mkdirSync(dir, { recursive: true });
   fs.copyFileSync(
@@ -243,38 +242,62 @@ it("reports Babel's thread failing to load Babel's side, without waiting for the
     'throw new Error("toolchain failed to load");\n',
   );
   const workerUrl = pathToFileURL(path.join(dir, "babel-worker.mjs")).href;
-  const { result, stderr } = inChild(`
+  const { result } = inChild(`
     _setToolchainOptions({ deadlineMs: 5_000, now: never(), workerUrl: new URL(${JSON.stringify(workerUrl)}) });
     const lost = attempt("toolchainUnloaded.js");
-    await reported();
     console.log("RESULT=" + JSON.stringify({ lost }));
   `);
   const lost = result.lost as { code: string; message: string };
   expect(lost.code).toBe("TRANSFORM_FAILED");
-  expect(lost.message).toMatch(/Babel's thread ended before it answered/);
-  expect(stderr).toMatch(/Babel's thread: Error: toolchain failed to load/);
+  expect(lost.message).toMatch(
+    /toolchainUnloaded\.js[\s\S]*Babel's thread could not load .*babel-worker\.mjs: Error: toolchain failed to load/,
+  );
 }, 180_000);
 
-it("reports a Babel thread that failed to load without a word, by the deadline", () => {
-  // A worker that throws before it can say so: only the deadline ends the wait. It
-  // passes once the worker has started throwing.
+it("reports a Babel worker file that is missing, does not parse or throws as it loads, without waiting for the deadline", () => {
+  // Nothing of these files runs before they fail, so nothing in them can say so. The
+  // clock stands still: only the thread can end the wait.
   const broken = path.join(root, "broken-worker.mjs");
-  fs.writeFileSync(
-    broken,
-    `import fs from "node:fs";\n` +
-      `fs.writeFileSync(${JSON.stringify(marker("broken-worker"))}, "");\n` +
-      `throw new Error("failed to load");\n`,
-  );
-  const { result, stderr } = inChild(`
-    _setToolchainOptions({ deadlineMs: 2_000, now: after(() => fs.existsSync(marker("broken-worker"))), workerUrl: new URL(${JSON.stringify(pathToFileURL(broken).href)}) });
-    const lost = attempt("unloaded.js");
-    await reported();
-    console.log("RESULT=" + JSON.stringify({ lost }));
+  fs.writeFileSync(broken, `throw new Error("failed to load");\n`);
+  const unparsable = path.join(root, "unparsable-worker.mjs");
+  fs.writeFileSync(unparsable, `export const = ;\n`);
+  const missing = path.join(root, "no-such-worker.mjs");
+  const { result } = inChild(`
+    _setToolchainOptions({ deadlineMs: 5_000, now: never(), workerUrl: new URL(${JSON.stringify(pathToFileURL(broken).href)}) });
+    const throws = attempt("unloaded.js");
+    // A second request starts a second thread, which fails the same way.
+    const again = attempt("unloadedAgain.js");
+    _setToolchainOptions({ deadlineMs: 5_000, now: never(), workerUrl: new URL(${JSON.stringify(pathToFileURL(missing).href)}) });
+    const absent = attempt("noWorker.js");
+    _setToolchainOptions({ deadlineMs: 5_000, now: never(), workerUrl: new URL(${JSON.stringify(pathToFileURL(unparsable).href)}) });
+    // The worker file's own error, its class kept, is the cause of the thread's.
+    let unparsed;
+    const unparsedFile = path.join(root, "unparsed.js");
+    fs.writeFileSync(unparsedFile, "const z = 1;\\n");
+    try {
+      transformRN(unparsedFile, undefined, root);
+    } catch (err) {
+      unparsed = { message: err.message, causes: [err.cause?.code, err.cause?.cause?.name] };
+    }
+    console.log("RESULT=" + JSON.stringify({ throws, again, absent, unparsed }));
   `);
-  const lost = result.lost as { code: string; message: string };
-  expect(lost.code).toBe("TRANSFORM_FAILED");
-  expect(lost.message).toMatch(/has not answered in 2 s/);
-  expect(stderr).toMatch(/Babel's thread: Error: failed to load/);
+  const { throws, again, absent, unparsed } = result as Record<
+    string,
+    { code: string; message: string; causes?: unknown[] }
+  >;
+  expect(throws.code).toBe("TRANSFORM_FAILED");
+  expect(throws.message).toMatch(
+    /unloaded\.js[\s\S]*Babel's thread could not load .*broken-worker\.mjs: Error: failed to load/,
+  );
+  expect(again.message).toMatch(/unloadedAgain\.js[\s\S]*could not load .*broken-worker\.mjs/);
+  expect(absent.code).toBe("TRANSFORM_FAILED");
+  expect(absent.message).toMatch(
+    /noWorker\.js[\s\S]*Babel's thread could not load .*no-such-worker\.mjs: Error: Cannot find module/,
+  );
+  expect(unparsed.message).toMatch(
+    /unparsed\.js[\s\S]*could not load .*unparsable-worker\.mjs: SyntaxError: /,
+  );
+  expect(unparsed.causes).toEqual(["TRANSFORM_FAILED", "SyntaxError"]);
 }, 180_000);
 
 it("stops a Babel thread that has not answered by the deadline", () => {
@@ -296,6 +319,89 @@ it("stops a Babel thread that has not answered by the deadline", () => {
   `);
   expect(result.code).toBe("TRANSFORM_FAILED");
   expect(result.message).toMatch(/busy\.js[\s\S]*has not answered in 3 s compiling 0\.0 MB/);
+}, 180_000);
+
+/**
+ * A worker that answers the protocol in babel-worker.mjs (`{ id, request }` in; the answer
+ * posted with its id, then the id stored to the signal and the caller woken), except
+ * that it holds back part of its first answer until the caller has sent its next
+ * request. `late` is the code run then. It answers that next request after it.
+ */
+function lateWorker(name: string, { beforeHold, late }: { beforeHold: string; late: string }) {
+  const file = path.join(root, `${name}.mjs`);
+  const toolchainUrl = pathToFileURL(
+    path.join(import.meta.dirname, "../src/native/babel-toolchain.mjs"),
+  );
+  fs.writeFileSync(
+    file,
+    `import fs from "node:fs";\n` +
+      `import { receiveMessageOnPort, workerData } from "node:worker_threads";\n` +
+      `const { port, signal } = workerData;\n` +
+      `const marker = (name) => ${JSON.stringify(root)} + "/" + name + ".marker";\n` +
+      `const { handleToolchainRequest } = await import(${JSON.stringify(toolchainUrl.href)});\n` +
+      `const pause = () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1);\n` +
+      `const answer = ({ id, request }) => {\n` +
+      `  port.postMessage({ id, ok: handleToolchainRequest(request) });\n` +
+      `  Atomics.store(signal, 0, id);\n` +
+      `  Atomics.notify(signal, 0);\n` +
+      `};\n` +
+      `let first = true;\n` +
+      `port.on("message", ({ id, request }) => {\n` +
+      `  if (!first) return answer({ id, request });\n` +
+      `  first = false;\n` +
+      `  ${beforeHold}\n` +
+      // Taken from the port here, so it is answered only after the late part.
+      `  let next;\n` +
+      `  while ((next = receiveMessageOnPort(port)) === undefined) pause();\n` +
+      `  ${late}\n` +
+      `  answer(next.message);\n` +
+      `});\n`,
+  );
+  return pathToFileURL(file).href;
+}
+
+it("waits for the answer when the last answer's wake-up arrives late", () => {
+  // Babel's thread answers by storing to the signal, then waking the caller. The caller
+  // can see the store and go on before that wake-up arrives, when the thread is
+  // descheduled between the two on a busy machine, and the wake-up then lands on its
+  // wait for the next request. This worker answers the first request that way: it holds
+  // that wake-up until the caller is waiting on the next request (Atomics.notify counts
+  // the waiters it woke). The clock stands still, so only an answer can end that wait.
+  const workerUrl = lateWorker("late-wake-worker", {
+    beforeHold:
+      "port.postMessage({ id, ok: handleToolchainRequest(request) }); Atomics.store(signal, 0, id);",
+    late: "while (Atomics.notify(signal, 0) === 0) pause();",
+  });
+  const { result } = inChild(`
+    _setToolchainOptions({ deadlineMs: 5_000, now: never(), workerUrl: new URL(${JSON.stringify(workerUrl)}) });
+    const first = attempt("node_modules/stale/first.js");
+    const second = attempt("node_modules/stale/second.js");
+    console.log("RESULT=" + JSON.stringify({ first, second }));
+  `);
+  expect(result).toEqual({ first: { ok: true }, second: { ok: true } });
+}, 180_000);
+
+it("waits for the answer when the last answer's store arrives late", () => {
+  // The thread posts its answer, then stores to the signal. If the caller's deadline
+  // passes between the two, it finds the answer on the port and goes on, and the store
+  // lands while its next request is outstanding. This worker answers the first request
+  // that way: it posts, and stores (and wakes) only once the caller has sent the next
+  // request and is waiting on it. The clock passes the first deadline once the answer
+  // is posted, then stands still: only an answer can end the second wait.
+  const workerUrl = lateWorker("late-store-worker", {
+    beforeHold:
+      'port.postMessage({ id, ok: handleToolchainRequest(request) }); fs.writeFileSync(marker("late-store"), "");',
+    late: "Atomics.store(signal, 0, id); while (Atomics.notify(signal, 0) === 0) pause();",
+  });
+  const { result } = inChild(`
+    let clock = after(() => fs.existsSync(marker("late-store")));
+    _setToolchainOptions({ deadlineMs: 5_000, now: () => clock(), workerUrl: new URL(${JSON.stringify(workerUrl)}) });
+    const first = attempt("node_modules/stale/firstStore.js");
+    clock = never();
+    const second = attempt("node_modules/stale/secondStore.js");
+    console.log("RESULT=" + JSON.stringify({ first, second }));
+  `);
+  expect(result).toEqual({ first: { ok: true }, second: { ok: true } });
 }, 180_000);
 
 it("ends the wait on the real clock when no clock is injected", () => {

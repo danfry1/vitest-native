@@ -25,7 +25,7 @@ if (globalThis.__vitest_native_module_mode_bootstrap) {
   globalThis.__vitest_native_hot_reset = () => {
     globalThis.__vitest_native_registry_reset?.();
     if (globalThis.__vitest_native_hot_generation) {
-      globalThis.__vitest_native_hot_generation.value++;
+      Atomics.add(globalThis.__vitest_native_hot_generation.counter, 0, 1);
     }
     const dropped = resetNodeModules();
     hotReset();

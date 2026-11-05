@@ -1,0 +1,8 @@
+{
+  "name": "museum-own-pnpm-store-peer-name",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "museum-counter": "1.0.0"
+  }
+}

@@ -183,6 +183,13 @@ few or none.
   imports only, so externalized/resident RN's own require of the submodule isn't intercepted.
   Prefer the public API from `react-native`. A submodule mock **with a factory** does reach React
   Native under jest-compat (see the jest-compat guide's "One module registry per test file").
+- **Finding nodes by host type name** (`node.type === 'View'`, `findAllByType('Text')`) — Jest's
+  preset mocks `View` and `Text` as host elements named `'View'` and `'Text'`. Real RN renders its
+  native host components: `RCTView` for `View`, `RCTText` for `Text` (`RCTVirtualText` when nested
+  in another `Text`), so a lookup by the mock's name finds nothing. The mock engine keeps the
+  `'View'`/`'Text'` names. Query by what the user sees instead (RNTL's `getByText`, `getByRole`,
+  `getByTestId` don't depend on host names), or match the real host names when a test must walk
+  the tree.
 - **`image.props.source.uri` / raw `source`-shape assertions** — real RN normalizes `source`, so the
   raw shape differs. Native = real RN = ground truth; assert on behavior instead.
 - **`jest.mock('react-native', …)` nested inside `beforeAll`/`describe` callbacks** — Jest doesn't

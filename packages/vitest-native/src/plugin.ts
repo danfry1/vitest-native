@@ -13,6 +13,7 @@ import { validateOptions, validatePeerDependency, warnUnknownOptions } from "./v
 import {
   installedExpoVersion,
   PEER_REQUIREMENTS,
+  SUPPORTED_EXPO_SDKS,
   unsupportedExpoSdkMessage,
 } from "./peer-requirements.js";
 import { VitestNativeError, VitestNativeTypeError } from "./errors.mjs";
@@ -25,10 +26,11 @@ import { fsModuleCacheKey, shouldDefaultFsModuleCache } from "./fs-module-cache.
 import { knownNativeModulesFor, nativeModuleSpecsFor } from "./native/native-modules.mjs";
 import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
-import { detectEcosystemPackages } from "./native/ecosystem.js";
+import { aliasReachedPaths, detectEcosystemPackages } from "./native/ecosystem.js";
 import {
   containsPath,
   dependencyDirOf,
+  isPackageEntryFile,
   memoizePackageDirOf,
   packageDirOf,
 } from "./native/match.mjs";
@@ -430,6 +432,48 @@ function parseReactNativeMembers(indexSource: string): { name: string; deprecate
     members.set(name, (members.get(name) ?? false) || /\bwarnOnce\s*\(/.test(text));
   });
   return [...members].map(([name, deprecated]) => ({ name, deprecated }));
+}
+
+/** The part of Vitest's resolved coverage options that picks the provider. */
+interface CoverageProviderConfig {
+  provider?: string;
+  customProviderModule?: string;
+  enabled?: boolean;
+}
+
+/**
+ * Coverage of the files Node compiles (native/coverage-v8.mjs): `@vitest/coverage-v8`,
+ * told how to read them.
+ *
+ * Under the native engine, Node runs part of a project's own source: workspace packages
+ * written for React Native, and app source a test reaches through `require()`. V8 counts
+ * what ran, which for those files is Babel's output, while @vitest/coverage-v8 maps
+ * counts back through Vite's transform of the file. Vite does not own those files (the
+ * plugin refuses them, see transform below), so the provider fell back to parsing the
+ * original TypeScript, failed, and left the file out: "Failed to parse … Excluding it
+ * from coverage". The provider installed here is @vitest/coverage-v8 with that one step
+ * answered from Node's compiled output and its inline source map.
+ *
+ * Set on Vitest's resolved options, before Vitest loads the provider: coverage options
+ * belong to the root config, and a monorepo often configures this plugin only in its
+ * projects. Only `provider: 'v8'` (Vitest's default) is replaced; Istanbul and custom
+ * providers are left as configured. The test workers load the same @vitest/coverage-v8
+ * runtime either way.
+ */
+function useNativeCoverageProvider(coverage: CoverageProviderConfig | undefined): boolean {
+  if (!coverage) return false;
+  const dir = path.dirname(fileURLToPath(import.meta.url));
+  const module = path.resolve(dir, "native/coverage-v8.mjs");
+  // Only for a run with coverage on (`--coverage` is resolved by now): with it off, the
+  // options stay as configured for anything that reads them. Coverage switched on later
+  // from watch mode or the UI keeps the stock provider, whose workers were not started
+  // with source maps (carriesSourceMap) and so could not be mapped anyway.
+  if (coverage.provider === "v8" && coverage.enabled === true) {
+    coverage.provider = "custom";
+    coverage.customProviderModule = module;
+  }
+  // Whether this run's coverage goes through it: another project may have switched it.
+  return coverage.enabled === true && coverage.customProviderModule === module;
 }
 
 /**
@@ -1373,8 +1417,9 @@ function hotRuntimeOverridden(reason: string): VitestNativeError {
   return new VitestNativeError(
     "HOT_RUNTIME_OVERRIDDEN",
     `hotRuntime was requested, but ${reason}, which the hot runtime cannot honour. ` +
-      `Remove that setting, or use hotRuntime:'auto' to fall back to it automatically ` +
-      `or hotRuntime:false.`,
+      `Remove that setting, or use hotRuntime:'auto' (or add mode:'auto' to the options ` +
+      `object, keeping its recycling options) to fall back to it automatically, or ` +
+      `hotRuntime:false.`,
   );
 }
 
@@ -1424,6 +1469,8 @@ type HotMemorySelection = {
   /** A plan for a worker count the user chose (memory admission, no automatic cap). */
   replan: (requestedWorkers: number) => HotMemoryPlan;
   formatPlan: (plan: HotMemoryPlan) => string[];
+  /** The one-line worker decision for the startup log (formatHotWorkerDecision). */
+  formatDecision: (plan: HotMemoryPlan) => string;
   /** config() capped the user's count; configureVitest warns if hot still runs. */
   capWarning: boolean;
 };
@@ -1434,6 +1481,20 @@ function warnWorkersCapped(requestedWorkers: number, plan: HotMemoryPlan): void 
       `${plan.maxWorkers} for the ${plan.source} memory budget. ` +
       `Set diagnostics:true to see the full envelope.`,
   );
+}
+
+// Once per process, as the engine banner is, and beside it: the first hot project's.
+let workerDecisionPrinted = false;
+
+/**
+ * The hot runtime's worker count, printed with the engine banner on every run, not only
+ * with diagnostics: the number a user tunes `maxWorkers` against or quotes in a report.
+ * Printed where the count is final (configureVitest, after a --maxWorkers re-plan).
+ */
+function printWorkerDecision(line: string): void {
+  if (workerDecisionPrinted) return;
+  workerDecisionPrinted = true;
+  console.error(`[vitest-native] ${line}`);
 }
 
 function printHotMemoryPlan(lines: readonly string[]): void {
@@ -1754,8 +1815,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   const hotRuntimeExplicit = options?.hotRuntime !== undefined;
   const hotRuntimeOpt = options?.hotRuntime ?? false;
   const hotRuntimeRequested = hotRuntimeOpt !== false;
-  const hotRuntimeAuto = hotRuntimeOpt === "auto";
   const hotRecycle = typeof hotRuntimeOpt === "object" ? hotRuntimeOpt : {};
+  // `{ mode: 'auto', … }` selects as 'auto' does and applies the object's recycling
+  // options when hot runs.
+  const hotRuntimeAuto = hotRuntimeOpt === "auto" || hotRecycle.mode === "auto";
   // Resolved at config() time, once the consumer project root is known. Seeded to a
   // safe default so the hooks (resolveId/load/transform), which run after config(),
   // never read undefined.
@@ -1779,8 +1842,25 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       return undefined;
     }
     const pkg = packageNameOf(source);
-    if (pkg !== source && presetModules.has(pkg)) return `\0virtual:preset:${source}`;
-    return undefined;
+    if (pkg === source || !presetModules.has(pkg)) return undefined;
+    // Under the native engine a subpath is the mock's only when the mock exports its
+    // leaf (pkg/Swipeable); any other loads its real file, as `jest.mock(pkg)` leaves
+    // subpaths alone under Jest (native/loader.mjs, shadowsSubpath). The mock engine
+    // has no real package to load, so it keeps serving the mock.
+    if (engine === "native" && unexportedPresetSubpath(source) !== null) return undefined;
+    return `\0virtual:preset:${source}`;
+  };
+  // Native engine: the preset package of a subpath whose leaf its mock does not export,
+  // or null. Such a subpath is the package itself only when it resolves to the package's
+  // entry (pkg/src); resolveId decides that once Vite has resolved it.
+  const unexportedPresetSubpath = (source: string): string | null => {
+    const pkg = packageNameOf(source);
+    if (pkg === source || !presetModules.has(pkg) || presetModules.has(source)) return null;
+    if (source.endsWith(".json") || assetPattern?.test(source) || isUtilitySubpath(source)) {
+      return null;
+    }
+    const leaf = subpathLeafOf(source);
+    return leaf !== null && (presetExportNames.get(pkg) ?? []).includes(leaf) ? null : pkg;
   };
 
   const pluginDefinition = {
@@ -1792,6 +1872,14 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     // config() has built the policy, and under the mock engine.
     api: {
       nativeOwnership: (): NativeOwnershipPolicy | null => nativeOwnership,
+      // For the coverage provider (native/coverage-v8.mjs): how to reproduce what Node
+      // ran for a file this project's tests load through Node, or null for a file Vite
+      // loads (and under the mock engine).
+      nodeCoverageTarget: (file: string): { root: string; platform: string } | null => {
+        if (engine !== "native" || nativeOwnership === null) return null;
+        if (nativeOwnership.decideFile(file).owner !== "node") return null;
+        return { root: alignRoot, platform };
+      },
     },
 
     // This plugin is `enforce:"pre"` for resolution/transform semantics, but its
@@ -1913,10 +2001,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // jest.requireActual resolves through Node, which does not apply resolve.alias.
       // Hand the serializable entries to the compat setup so an aliased specifier
       // (`@/services/api`) reaches the same file the suite's imports do.
-      const requireAliases = serializableAliases(
-        (userConfig as { resolve?: { alias?: unknown } }).resolve?.alias,
-        resolvedRoot,
-      );
+      const userAlias = (userConfig as { resolve?: { alias?: unknown } }).resolve?.alias;
+      const requireAliases = serializableAliases(userAlias, resolvedRoot);
+      // Where aliases point, for the closure walk: every resolve.alias entry, including
+      // the RegExp ones the compat layer above cannot apply, then tsconfig `paths`.
+      const aliasTargets = aliasReachedPaths(userAlias, resolvedRoot);
       // tsconfig `paths` too, whenever Vite resolves them for imports: the user turned
       // `resolve.tsconfigPaths` on, or the plugin does for an Expo project (below).
       const userTsconfigPaths = (userConfig.resolve as { tsconfigPaths?: unknown } | undefined)
@@ -1926,7 +2015,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         userTsconfigPaths === true ||
         expoTsconfigPaths(resolvedRoot, userTsconfigPaths, viteMajorForPaths) === "enable"
       ) {
-        requireAliases.entries.push(...tsconfigPathAliases(resolvedRoot).entries);
+        const pathAliases = tsconfigPathAliases(resolvedRoot).entries;
+        requireAliases.entries.push(...pathAliases);
+        aliasTargets.push(
+          ...pathAliases.map(([, target]) => target).filter((target) => path.isAbsolute(target)),
+        );
       }
       if (requireAliases.entries.length > 0) fields.requireAliases = requireAliases.entries;
       if (requireAliases.skipped.length > 0) fields.requireAliasesSkipped = requireAliases.skipped;
@@ -1938,6 +2031,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         fields.knownNativeModules = knownNativeModulesFor(resolvedRoot);
         fields.nativeModuleSpecs = nativeModuleSpecsFor(resolvedRoot);
         if (options?.nativeModules === "permissive") fields.nativeModules = "permissive";
+        fields.expoSdks = [SUPPORTED_EXPO_SDKS.minimum, SUPPORTED_EXPO_SDKS.maximum];
       }
       // Asset extensions for the Node require hook (matches the Vite graph): a CJS
       // `require('./logo.png')` reaching Node's loader must become a Metro-shaped
@@ -1952,6 +2046,15 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // Only the opt-out is recorded: the setup file defaults this on under hot.
       if (hotRuntimeRequested && hotRecycle.esmGeneration === false) {
         fields.hotEsmGeneration = false;
+      }
+      // A released module generation is safe to read only through Vitest's interop proxy,
+      // which falls back to the module's default export (loader.mjs, releaseGenerations).
+      // Without it a test file's late callback would read a cleared binding, so nothing is
+      // released.
+      const userDeps = (userConfig as { test?: { deps?: { interopDefault?: unknown } } }).test
+        ?.deps;
+      if (hotRuntimeRequested && userDeps?.interopDefault === false) {
+        fields.hotReleaseGenerations = false;
       }
 
       // Native engine: externalize RN so it loads through Node's single CJS graph,
@@ -2045,9 +2148,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           nativePresetNames,
           memoizePackageDirOf(dependencyDirOf),
           {
-            reachedPaths: requireAliases.entries
-              .map(([, target]) => target)
-              .filter((target) => path.isAbsolute(target)),
+            reachedPaths: aliasTargets,
             onReachedUndeclared: (name, dir) => {
               if (diagnostics) {
                 console.log(
@@ -2131,12 +2232,17 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
               allowUnboundedMemory: boolean;
               replan: (requestedWorkers: number) => HotMemoryPlan;
               formatPlan: (plan: HotMemoryPlan) => string[];
+              formatDecision: (plan: HotMemoryPlan) => string;
               capWarning: boolean;
             }
           | undefined;
         if (hotRuntimeRequested) {
-          const { createHotMemoryPlan, formatHotMemoryPlan, resolveRequestedWorkers } =
-            await import("./native/memory.mjs");
+          const {
+            createHotMemoryPlan,
+            formatHotMemoryPlan,
+            formatHotWorkerDecision,
+            resolveRequestedWorkers,
+          } = await import("./native/memory.mjs");
           const requestedWorkers = resolveRequestedWorkers(userTest?.maxWorkers, {
             fileParallelism: userTest?.fileParallelism,
           });
@@ -2160,7 +2266,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           if (autoDeclineReason !== null) {
             if (hotRuntimeExplicit || diagnostics) {
               console.warn(
-                `[vitest-native] hotRuntime:'auto' kept default isolation: ${autoDeclineReason}.`,
+                `[vitest-native] hotRuntime${hotRuntimeOpt === "auto" ? ":'auto'" : " mode:'auto'"} ` +
+                  `kept default isolation: ${autoDeclineReason}.`,
               );
             }
           } else if (!allowUnboundedMemory && plan.maxWorkers < 2) {
@@ -2173,8 +2280,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
                 (plan.admittedWorkers < 2
                   ? `The effective ${plan.source} memory ceiling admits only one worker. `
                   : `This config selects one worker (maxWorkers or fileParallelism). `) +
-                `Use hotRuntime:false, provide enough ` +
-                `memory for at least two workers, or explicitly accept unbounded growth with ` +
+                `Use hotRuntime:'auto' (or mode:'auto' in the options object) to fall back to ` +
+                `per-file isolation here, hotRuntime:false, provide enough memory for at ` +
+                `least two workers, or explicitly accept unbounded growth with ` +
                 `hotRuntime:{ allowUnboundedMemory:true }.`,
             );
           }
@@ -2208,6 +2316,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
               replan: (count) =>
                 createHotMemoryPlan({ requestedWorkers: count, explicitWorkers: true }),
               formatPlan: formatHotMemoryPlan,
+              formatDecision: formatHotWorkerDecision,
               capWarning,
             };
           }
@@ -2268,6 +2377,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
                     userMemoryLimit: hotRecycle.memoryLimit !== undefined,
                     replan: hotMemory.replan,
                     formatPlan: hotMemory.formatPlan,
+                    formatDecision: hotMemory.formatDecision,
                     capWarning: hotMemory.capWarning,
                   }
                 : undefined,
@@ -2550,7 +2660,18 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         }
         const presetHit = resolvePresetId(source);
         if (presetHit) return presetHit;
-        return resolveExtensionless(source, importer) ?? alignedResolution(source, importer);
+        const resolveReal = () =>
+          resolveExtensionless(source, importer) ?? alignedResolution(source, importer);
+        const entryOf = assetPattern ? unexportedPresetSubpath(source) : null;
+        if (entryOf === null) return resolveReal();
+        // A subpath that resolves to the package's own entry (pkg/src) is the package,
+        // and gets the root mock on every route (isPackageEntryFile).
+        return this.resolve(source, importer, { skipSelf: true }).then((hit) =>
+          hit &&
+          isPackageEntryFile(entryOf, stripFsPrefix(hit.id.split("?")[0]), importer?.split("?")[0])
+            ? `\0virtual:preset:${entryOf}`
+            : resolveReal(),
+        );
       }
 
       // Redirect react-native root import to a virtual module.
@@ -2814,7 +2935,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // `config.cliOptions`. The vitest-semantics gate runs both and fails by name
       // if either moves.
       _cliOptions?: CliOptions;
-      config?: { cliOptions?: CliOptions; watch?: boolean; maxWorkers?: unknown };
+      config?: {
+        cliOptions?: CliOptions;
+        watch?: boolean;
+        maxWorkers?: unknown;
+        coverage?: CoverageProviderConfig;
+      };
       projects?: readonly GroupedProject[];
     };
     project: {
@@ -2837,6 +2963,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   }) {
     const projectConfig = project.config;
     const root = projectConfig.root ? path.resolve(projectConfig.root) : process.cwd();
+    const coverage = engine === "native" && useNativeCoverageProvider(vitest.config?.coverage);
     // The running Vitest, as Vitest states it, rather than the package a lookup from the
     // project root finds (host.ts).
     if (typeof vitest.version === "string") {
@@ -2891,9 +3018,16 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             `\`root\`, or report this, with the Vitest config, as a vitest-native bug.`,
         );
       }
-      const ref = presetExports
-        ? amendProjectContext(contextRef, { presetExports }, root)
-        : contextRef;
+      // With coverage on, Node-compiled source carries a source map (sourceMaps in
+      // native/transform.mjs, read by native/coverage-v8.mjs).
+      const changes: Partial<ProjectContextFields> = {
+        ...(presetExports ? { presetExports } : {}),
+        ...(coverage ? { sourceMaps: true } : {}),
+      };
+      const ref =
+        Object.keys(changes).length > 0
+          ? amendProjectContext(contextRef, changes, root)
+          : contextRef;
       projectConfig.env![CONTEXT_ENV] = ref;
       // A cache cleared during a watch session: rewrite the file before each rerun.
       const fields = writtenContexts.get(ref);
@@ -2950,6 +3084,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         warnWorkersCapped(selection.memory.plan.requestedWorkers, selection.memory.plan);
       }
       if (selection.memory) selection.memory.capWarning = false;
+      printWorkerDecision(
+        selection.memory
+          ? selection.memory.formatDecision(selection.memory.plan)
+          : `workers: ${String(projectConfig.maxWorkers ?? "Vitest's default")} (allowUnboundedMemory: no memory plan)`,
+      );
       return;
     }
     // Hot is off, so the count Vitest resolved applies as it stood.
