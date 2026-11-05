@@ -6,17 +6,12 @@
  * behave differently under the two runners on purpose (`*.check.js`, so this suite does
  * not collect them). Paths in them are placeholders (/project for the root).
  *
- * The end-to-end tests run the CLI's main(): Vitest for real on a copy of the fixture,
- * with the recorded Jest report (`--jest-results`). This repository does not depend on
- * Jest; with VN_COMPARE_JEST set to an installed Jest package directory, the last block
- * runs both runners for real and checks that their live reports put every test in the
- * bucket the recorded ones do. VN_COMPARE_RECORD=1 re-records both reports from that run
- * (then run oxfmt on fixtures/compare-reports/). The cases an adversarial review found
- * are in cli-compare-edges.test.ts.
+ * The end-to-end tests, which run Vitest (and Jest with VN_COMPARE_JEST), are in
+ * cli-compare.e2e.test.ts. The cases an adversarial review found are in
+ * cli-compare-edges.test.ts and cli-compare-edges.e2e.test.ts.
  */
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { main } from "../src/cli/index.js";
@@ -32,11 +27,9 @@ import {
   type Comparison,
   type NormaliseContext,
 } from "../src/cli/compare.js";
-import { parseCompareArgs, runCompare, splitArgs } from "../src/cli/compare-run.js";
-import { packageDir, runCli, scratchProject, treeBytes } from "./support/compare-helpers.js";
+import { parseCompareArgs, splitArgs } from "../src/cli/compare-run.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT = path.join(here, "fixtures", "compare-project");
 const REPORTS = path.join(here, "fixtures", "compare-reports");
 const PLACEHOLDER = "/project";
 
@@ -372,166 +365,3 @@ describe("compare: arguments", () => {
 // ---------------------------------------------------------------------------
 // End to end
 // ---------------------------------------------------------------------------
-
-/** A copy of the fixture project with Vitest (and Jest, when given) linked in. */
-function project(jestDir?: string): string {
-  return scratchProject({ from: PROJECT, jestDir });
-}
-
-/** The recorded Jest report, its placeholder paths pointed at `root`. */
-function jestReportFor(root: string): string {
-  const json = recorded("jest");
-  for (const f of json.testResults) {
-    f.name = path.join(root, path.relative(PLACEHOLDER, f.name));
-    f.message = f.message.split(PLACEHOLDER).join(root);
-  }
-  const file = path.join(root, "..", `${path.basename(root)}-jest.json`);
-  fs.writeFileSync(file, JSON.stringify(json));
-  return file;
-}
-
-describe("compare: end to end with Vitest and a recorded Jest report", () => {
-  it("runs Vitest, classifies, writes the report, and leaves the project as it was", async () => {
-    const root = project();
-    const before = treeBytes(root);
-    const out = path.join(root, "..", `${path.basename(root)}-report.json`);
-    const { code, text } = await runCli([
-      "--root",
-      root,
-      "--jest-results",
-      jestReportFor(root),
-      "--json",
-      out,
-    ]);
-
-    expect(code).toBe(1);
-    // --jest-results: the run order is unknown, so the %p row is listed for review here.
-    expect(text).toContain("✗ 12 of the 16 tests that pass under Jest do not pass under Vitest");
-    expect(text).toContain("✗ 4 tests could only be matched by title shape; check them");
-    expect(text).toContain("✗ `vitest run` exits 1:");
-    expect(text).toContain("snapshots read from an isolated copy");
-    expect(text).toMatch(/2× cannot load this file under Vitest/);
-    expect(text).toContain(
-      "no Vitest snapshot recorded. Give Vitest its own snapshot directory first",
-    );
-    expect(text).toContain("src/jest-only.check.js (1 test, passed)");
-    expect(text).toContain(
-      "formats an object { a: 1, b: [Array] }  ~  formats an object { a: 1, b: [ 1, 2 ] }",
-    );
-
-    const report = JSON.parse(fs.readFileSync(out, "utf8"));
-    expect(report.format).toBe("vitest-native-compare@1");
-    expect(report.verdict).toMatchObject({
-      holds: false,
-      jestPassed: 16,
-      confirmed: 4,
-      vitestExitCode: 1,
-    });
-    expect(report.projectChanges).toEqual([]);
-    // The live Vitest run lands every test where the recorded one did.
-    const listed = report.tests
-      .filter((t: { bucket: Bucket }) => t.bucket !== "same-pass")
-      .map((t: { bucket: Bucket; file: string; ancestors: string[]; title: string }) => [
-        t.bucket,
-        t.file,
-        t.ancestors,
-        t.title,
-      ]);
-    expect(sorted(listed)).toEqual(
-      sorted(EXPECTED.filter(([b]) => b !== "same-pass" && b !== "same-skip")),
-    );
-    expect(JSON.stringify(report)).not.toContain(root);
-    expect(JSON.stringify(report)).not.toContain(os.homedir());
-
-    // Every file, Jest's .snap files included, is byte-identical (Vitest rewrites a Jest
-    // .snap header when it reads one, even under CI); Vitest read its own.
-    expect(treeBytes(root)).toEqual(before);
-    expect(fs.existsSync(path.join(root, "node_modules", ".vitest-native"))).toBe(false);
-  }, 120_000);
-
-  it("fails the claim when Vitest's config collects nothing", async () => {
-    const root = project();
-    fs.writeFileSync(
-      path.join(root, "nothing.config.mjs"),
-      `export default { test: { include: ["nothing/**/*.check.js"], passWithNoTests: true } };\n`,
-    );
-    const { code, text } = await runCli([
-      "--root",
-      root,
-      "--jest-results",
-      jestReportFor(root),
-      "--vitest-config",
-      path.join(root, "nothing.config.mjs"),
-    ]);
-    expect(code).toBe(1);
-    expect(text).toContain("16 not collected");
-    expect(text).toContain("! Test files only Jest collected (9):");
-    // An absolute config path is shown relative to the root.
-    expect(text).toContain("config: nothing.config.mjs");
-  }, 120_000);
-
-  it("stops a runner that outlives --timeout and reports it", async () => {
-    const root = project();
-    fs.writeFileSync(
-      path.join(root, "src", "hang.check.js"),
-      `it("hangs", () => new Promise(() => {}), 600_000);\n`,
-    );
-    const { code, text } = await runCli([
-      "--root",
-      root,
-      "--jest-results",
-      jestReportFor(root),
-      "--timeout",
-      "8",
-    ]);
-    expect(code).toBe(2);
-    expect(text).toContain("Vitest did not finish within 8s and was stopped");
-  }, 120_000);
-});
-
-const jestDir = process.env.VN_COMPARE_JEST;
-
-describe.skipIf(!jestDir)("compare: end to end with real Jest (VN_COMPARE_JEST)", () => {
-  it("runs both runners and agrees with the recorded reports", async () => {
-    const root = project(jestDir);
-    const before = treeBytes(root);
-    const raw = path.join(root, "..", `${path.basename(root)}-raw`);
-    const lines: string[] = [];
-    const parsed = parseCompareArgs(["--root", root]);
-    if ("error" in parsed) throw new Error(parsed.error);
-    const code = await runCompare({ ...parsed, log: (l) => lines.push(l), rawReportsDir: raw });
-    expect(code, lines.join("\n")).toBe(1);
-    expect(treeBytes(root)).toEqual(before);
-
-    const live = {
-      jest: JSON.parse(fs.readFileSync(path.join(raw, "jest.json"), "utf8")),
-      vitest: JSON.parse(fs.readFileSync(path.join(raw, "vitest.json"), "utf8")),
-    };
-    const ctx: NormaliseContext = { root };
-    const c = classify(
-      normaliseReport(live.jest, "jest", ctx),
-      normaliseReport(live.vitest, "vitest", ctx),
-    );
-    expect(bucketsOf(c)).toEqual(sorted(EXPECTED));
-    expect(
-      c.entries.filter((e) => e.file === "src/each.check.js").map((e) => e.vitestTitle),
-    ).toEqual(VITEST_EACH_TITLES);
-
-    if (process.env.VN_COMPARE_RECORD === "1") {
-      // Placeholders for every machine-specific path, longest first.
-      const replacements: Array<[string, string]> = [
-        [root, PLACEHOLDER],
-        [fs.realpathSync(jestDir as string), "/jest"],
-        [packageDir("vitest"), "/vitest"],
-        [path.resolve(here, "..", "..", ".."), "/repo"],
-        [path.dirname(fs.realpathSync(jestDir as string)), "/jest-deps"],
-        [os.homedir(), "/home/user"],
-      ];
-      for (const name of ["jest", "vitest"] as const) {
-        let text = JSON.stringify(live[name], null, 2);
-        for (const [from, to] of replacements) text = text.split(from).join(to);
-        fs.writeFileSync(path.join(REPORTS, `${name}.json`), `${text}\n`);
-      }
-    }
-  }, 180_000);
-});
