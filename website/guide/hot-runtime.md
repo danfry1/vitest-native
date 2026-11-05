@@ -43,7 +43,8 @@ Workers stay alive, and some state is known to carry over from one file to the n
 - React shows a development warning once per worker, not once per file;
 - an `act()` scope left open stays open for the worker;
 - fake timers active when React first loads stay captured by React's scheduler;
-- RNTL reinstalls fake timers only in the first file that loads it.
+- RNTL reinstalls fake timers only in the first file that loads it;
+- an environment variable a module sets when it is imported is set only in the first file on a worker that imports it (RNTL's `dont-cleanup-after-each` is handled).
 
 [Troubleshooting](/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files) describes each one and how to confirm it. Beyond these, vitest-native cannot discover every piece of state a third-party library keeps for the life of a process. A test that passes on its own but fails after other files is the sign: set `hotRuntime: false` for that suite, and [report it](https://github.com/danfry1/vitest-native/issues) with the library involved.
 

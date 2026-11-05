@@ -39,7 +39,7 @@ import fs from "node:fs";
 import Module from "node:module";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
-import { noteRntlEntryImported, RNTL_ENTRY } from "../rntl-support.mjs";
+import { noteRntlEntryImported, RNTL_DONT_CLEANUP, RNTL_ENTRY } from "../rntl-support.mjs";
 
 const WRAPPED = Symbol.for("vitest-native.rntl-hooks");
 
@@ -50,7 +50,10 @@ function entryFile(id) {
   } catch {
     return null;
   }
-  return RNTL_ENTRY.test(file) ? file : null;
+  // RNTL's entry, or its dont-cleanup-after-each module: a resident copy of either is run
+  // again when a file imports it, as under per-file isolation, so the entry registers its
+  // hooks and the opt-out sets RNTL_SKIP_AUTO_CLEANUP for this file too (#527).
+  return RNTL_ENTRY.test(file) || RNTL_DONT_CLEANUP.test(file) ? file : null;
 }
 
 // The key Node's module cache holds `file` under, if it is cached.
