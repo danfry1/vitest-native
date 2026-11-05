@@ -5,7 +5,9 @@
 // copy into node_modules) and `src/`. It is copied to a fresh directory, and its
 // node_modules is assembled from what this repository already has installed:
 //
-//   - every package in packages/vitest-native/node_modules, as a symlink into bun's store
+//   - every package in the BUILD's package root's node_modules (`deps`: the build under
+//     test, which build-ref.mjs installs from that ref's own lockfile; by default this
+//     package), as a symlink into bun's store
 //     (so every package is reached through a store path, as in an isolated install);
 //   - vitest-native itself, COPIED from the build under test (package.json + dist), so
 //     that its own imports (vitest, vite, @babel/core) resolve from this node_modules, as
@@ -154,7 +156,7 @@ function placeInPnpmShape(modules, name) {
  * `build` is the vitest-native package directory under test; `vitest4` the directory
  * vitest4.mjs prepared (required when the exhibit needs Vitest 4).
  */
-export function materialise(exhibit, { work, build, vitest4, edits = [] }) {
+export function materialise(exhibit, { work, build, deps = build, vitest4, edits = [] }) {
   const root = path.join(work, exhibit.id);
   fs.rmSync(root, { recursive: true, force: true });
   fs.cpSync(path.join(museumRoot, "exhibits", exhibit.id), root, { recursive: true });
@@ -183,12 +185,14 @@ export function materialise(exhibit, { work, build, vitest4, edits = [] }) {
     }
   }
   copyPackage(build, path.join(modules, "vitest-native"));
-  linkAll(modules, path.join(packageRoot, "node_modules"));
+  // The installed packages of the build's own ref, not this checkout's: an old build is
+  // judged against what that ref declared (Expo, React Native, RNTL), never today's.
+  linkAll(modules, path.join(deps, "node_modules"));
 
   // Packages this package does not depend on directly but the repository's bun store has
   // (`storeLinks`: { name: version }).
   for (const [name, version] of Object.entries(exhibit.storeLinks ?? {})) {
-    const store = path.join(packageRoot, "../../node_modules/.bun");
+    const store = path.join(deps, "../../node_modules/.bun");
     const prefix = `${name.replace("/", "+")}@${version}`;
     const entry = fs.readdirSync(store).find((e) => e === prefix || e.startsWith(`${prefix}+`));
     if (!entry) throw new Error(`storeLinks: no ${prefix} in ${store}`);
