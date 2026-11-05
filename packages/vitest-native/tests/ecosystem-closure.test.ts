@@ -18,8 +18,10 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
-import { detectEcosystemPackages } from "../src/native/ecosystem.js";
+import { afterAll, describe, expect, it, vi } from "vitest";
+import { serializableAliases } from "../src/jest-compat/aliases.mjs";
+import { aliasReachedPaths, detectEcosystemPackages } from "../src/native/ecosystem.js";
+import { dependencyDirOf } from "../src/native/match.mjs";
 
 const roots: string[] = [];
 afterAll(() => {
@@ -824,6 +826,67 @@ describe("ecosystem detection: workspace members the run reaches", () => {
   it("does not walk a member the run neither declares nor aliases into", () => {
     expect(detect(monorepo().feature)).not.toContain("widget-internals");
   });
+
+  // Where a resolve.alias config points, as the plugin hands it to the walk.
+  const viaAlias = (dir: string, alias: unknown, named?: (n: string) => void) =>
+    detect(dir, aliasReachedPaths(alias, dir), named);
+
+  it("walks what a member reached through a RegExp alias depends on, and names it", () => {
+    const { feature, tokens } = monorepo();
+    const named: string[] = [];
+    const alias = [{ find: /^@tokens\/(.*)$/, replacement: `${tokens}/src/$1` }];
+    expect(viaAlias(feature, alias, (n) => named.push(n))).toEqual(
+      expect.arrayContaining(["rn-widget", "widget-internals"]),
+    );
+    expect(named).toEqual(["@w/tokens"]);
+  });
+
+  it("walks a member a RegExp alias reaches with a literal replacement", () => {
+    const { feature, tokens } = monorepo();
+    const alias = [{ find: /^@tokens$/, replacement: path.join(tokens, "src", "index.ts") }];
+    expect(viaAlias(feature, alias)).toContain("widget-internals");
+  });
+
+  it("walks a member a string alias with a customResolver reaches", () => {
+    const { feature, tokens } = monorepo();
+    const alias = [{ find: "@tokens", replacement: tokens, customResolver: () => null }];
+    expect(viaAlias(feature, alias)).toContain("widget-internals");
+  });
+
+  it("reaches no member when the substitution chooses the member", () => {
+    // `packages/$1` could be any member; walking them all is the seeding #433 rejected.
+    const { feature } = monorepo();
+    const alias = [{ find: /^@w\/([^/]+)$/, replacement: `${path.dirname(feature)}/$1` }];
+    expect(viaAlias(feature, alias)).not.toContain("widget-internals");
+  });
+
+  it("resolves no more packages than before for a config without RegExp aliases", () => {
+    // Counts, not timing: the dependency-directory lookups the walk makes with #433's
+    // seeds (string aliases, through the compat layer's list) and with every alias's.
+    const { feature, tokens } = monorepo();
+    const lookups = (reachedPaths: string[]) => {
+      let calls = 0;
+      const counted: typeof dependencyDirOf = (...args) => {
+        calls++;
+        return dependencyDirOf(...args);
+      };
+      detectEcosystemPackages(feature, [], [], [], [], counted, { reachedPaths });
+      return calls;
+    };
+    for (const alias of [undefined, { "@tokens": tokens, "@rel": "./src", lib: "lodash-es" }]) {
+      const before = serializableAliases(alias, feature)
+        .entries.map(([, target]) => target)
+        .filter((target) => path.isAbsolute(target));
+      expect(lookups(aliasReachedPaths(alias, feature))).toBe(lookups(before));
+    }
+  });
+
+  it("reaches nothing through an alias to a package name", () => {
+    const { feature } = monorepo();
+    expect(viaAlias(feature, [{ find: /^tokens$/, replacement: "@w/tokens" }])).not.toContain(
+      "widget-internals",
+    );
+  });
 });
 
 describe("ecosystem detection: what a reached workspace member may add", () => {
@@ -1005,5 +1068,125 @@ describe("ecosystem detection: what a reached workspace member may add", () => {
     const named: string[] = [];
     const detected = detect(dirs["@w/app"], [path.join(dirs["@w/icons"], "src")], named);
     expect(named, JSON.stringify(detected)).toEqual(["@w/icons"]);
+  });
+});
+
+describe("aliasReachedPaths: where a resolve.alias config points", () => {
+  const root = path.resolve("/w/packages/feature");
+  // What #433 seeded from: the compat layer's string entries with absolute targets.
+  const stringSeeds = (alias: unknown) =>
+    serializableAliases(alias, root)
+      .entries.map(([, target]) => target)
+      .filter((target) => path.isAbsolute(target));
+
+  it("seeds nothing for a project without aliases, as before", () => {
+    expect(aliasReachedPaths(undefined, root)).toEqual([]);
+    expect(aliasReachedPaths({}, root)).toEqual([]);
+    expect(aliasReachedPaths([], root)).toEqual([]);
+  });
+
+  it("seeds exactly what string aliases seeded before, in object and array form", () => {
+    const object = { "@ui": "/w/packages/ui/src", "@rel": "./src", lodash: "lodash-es" };
+    const array = Object.entries(object).map(([find, replacement]) => ({ find, replacement }));
+    for (const alias of [object, array]) {
+      expect(aliasReachedPaths(alias, root)).toEqual(stringSeeds(alias));
+    }
+  });
+
+  it("adds the target of a RegExp alias, which the compat layer skips", () => {
+    const alias = [{ find: /^@ui$/, replacement: "/w/packages/ui/src/index.ts" }];
+    expect(stringSeeds(alias)).toEqual([]);
+    expect(aliasReachedPaths(alias, root)).toEqual(["/w/packages/ui/src/index.ts"]);
+  });
+
+  it("keeps only the fixed part of a replacement that substitutes the match", () => {
+    const alias = [
+      { find: /^@ui\/(.*)$/, replacement: "/w/packages/ui/src/$1" },
+      { find: /^@w\/(.*)$/, replacement: "/w/packages/$1/src" },
+    ];
+    expect(aliasReachedPaths(alias, root)).toEqual(["/w/packages/ui/src/", "/w/packages/"]);
+  });
+
+  it("keeps a `$` that String.replace does not substitute as part of the path", () => {
+    // String finds seed what they did before: their `$1` is literal too.
+    const alias = {
+      "@ci": "/home/ci/$work/packages/ui",
+      "@share": "/mnt/c$/repo/packages/ui",
+      "@one": "/w/$1/ui",
+    };
+    expect(aliasReachedPaths(alias, root)).toEqual(Object.values(alias));
+    expect(aliasReachedPaths(alias, root)).toEqual(stringSeeds(alias));
+  });
+
+  it("reads `$$` as `$` and stops at every substitution String.replace makes", () => {
+    const alias = [
+      { find: "@a", replacement: "/w/a$$b/ui" },
+      { find: "@b", replacement: "/w/packages/ui$&" },
+      { find: /^@c$/, replacement: "/w/packages/ui/$<rest>" },
+      { find: /^@d$/, replacement: "/w/packages/ui/$'" },
+      { find: /^@e$/, replacement: "/w/packages/ui/$`" },
+      { find: /^@f$/, replacement: "/w/$work/ui" },
+    ];
+    expect(aliasReachedPaths(alias, root)).toEqual([
+      "/w/a$b/ui",
+      "/w/packages/ui",
+      "/w/packages/ui/",
+      "/w/packages/ui/",
+      "/w/packages/ui/",
+      "/w/$work/ui",
+    ]);
+  });
+
+  it("ignores a replacement that is not a string or not a path", () => {
+    const alias = [
+      { find: /^a$/, replacement: undefined },
+      { find: /^b$/, replacement: "some-package" },
+      { find: /^c$/, replacement: "$1" },
+      null,
+    ];
+    expect(aliasReachedPaths(alias, root)).toEqual([]);
+  });
+});
+
+describe("the plugin seeds the walk from every resolve.alias entry", () => {
+  // This package runs inside the repository's workspace, beside apps/example
+  // (@vitest-native/example), which it does not declare: an alias into it reaches an
+  // undeclared member, and `diagnostics` names it. Through the plugin, so a regression in
+  // what plugin.ts hands detectEcosystemPackages fails here, not only in the museum.
+  const packageRoot = path.resolve(import.meta.dirname, "..");
+  const example = path.resolve(packageRoot, "../../apps/example");
+  const reachedLog = async (alias: unknown) => {
+    vi.stubEnv("VITEST_NATIVE_NO_REGISTRY", "1");
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const { reactNative } = await import("../src/index.js");
+      const { runPluginConfig } = await import("./plugin-config.js");
+      await runPluginConfig(reactNative({ engine: "native", diagnostics: true }), {
+        root: packageRoot,
+        resolve: { alias },
+      });
+      return log.mock.calls
+        .map((args) => String(args[0]))
+        .filter((line) => line.includes("is reached through an alias"));
+    } finally {
+      vi.restoreAllMocks();
+      vi.unstubAllEnvs();
+    }
+  };
+
+  it("names a member reached through a RegExp alias", async () => {
+    const alias = [{ find: /^@example\/(.*)$/, replacement: `${example}/src/$1` }];
+    expect(await reachedLog(alias)).toEqual([expect.stringContaining("@vitest-native/example")]);
+  });
+
+  it("names a member reached through a string alias, as before", async () => {
+    expect(await reachedLog({ "@example": example })).toEqual([
+      expect.stringContaining("@vitest-native/example"),
+    ]);
+  });
+
+  it("names nothing without an alias into a member", async () => {
+    expect(await reachedLog(undefined)).toEqual([]);
   });
 });
