@@ -25,6 +25,7 @@ import {
   vitestOutputReader,
   GUARDIAN,
   treeState,
+  unreadablePaths,
   WATCHDOG,
 } from "../src/cli/compare-run.js";
 import { jestReport, runCli, scratchProject, treeBytes } from "./support/compare-helpers.js";
@@ -506,6 +507,16 @@ describe("compare: snapshots are never written", () => {
       forwarded: ["--maxWorkers=2", "--silent"],
       ignored: ["--verbose"],
     });
+  });
+
+  it("says when package.json cannot be read, instead of forwarding nothing silently", () => {
+    const root = scratchProject({ files: { "package.json": "{ not json" } });
+    const flags = forwardedScriptFlags(root);
+    expect(flags.forwarded).toEqual([]);
+    expect(flags.unreadable).toMatch(/JSON/);
+    const none = scratchProject({});
+    fs.rmSync(path.join(none, "package.json"));
+    expect(forwardedScriptFlags(none)).toEqual({ forwarded: [], ignored: [] });
   });
 });
 
@@ -1094,6 +1105,23 @@ describe("compare: matching", () => {
     ]);
     fs.rmSync(root, { recursive: true, force: true });
   });
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "records a directory it cannot read instead of skipping it, and lists it",
+    () => {
+      const root = scratchProject({ files: { "src/a.js": "1\n", "locked/b.js": "2\n" } });
+      const locked = path.join(root, "locked");
+      fs.chmodSync(locked, 0o000);
+      try {
+        const state = treeState(root);
+        expect(state?.get("locked")).toMatch(/^unreadable:EACCES$/);
+        expect(unreadablePaths(state ?? new Map())).toEqual(["locked (EACCES)"]);
+        expect(state?.has("src/a.js")).toBe(true);
+      } finally {
+        fs.chmodSync(locked, 0o755);
+      }
+    },
+  );
 
   it("imports a config on another Windows drive by its absolute path", () => {
     expect(

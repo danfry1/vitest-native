@@ -75,6 +75,9 @@ environment variable, or a `resolveSnapshotPath` that points at Jest's `__snapsh
     rewrite, during which the comparison does not count.
   - New files of other kinds, such as a reporter's output or a file a test generates, are listed
     neutrally ("the runs wrote these files") and do not fail it.
+  - A path the walk cannot read (a directory without read permission, say) is not skipped
+    silently: compare lists it as not checked, and it counts as changed if it becomes readable
+    or unreadable between the two runs.
 
 A `.snap` test with no Vitest snapshot fails under CI. Only then does the report say so, with the
 recipe: give Vitest its own directory first, then record. Following "run `vitest run`" without the

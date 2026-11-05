@@ -288,11 +288,8 @@ function stripLine(line: string): string {
  * `/home/profile/edit` and `/settings/privacy` stay.
  */
 function isPath(span: string): boolean {
-  try {
-    if (fs.existsSync(span)) return true;
-  } catch {
-    // unreadable: decide by shape
-  }
+  // existsSync answers false for a path it cannot read; then the shape decides.
+  if (fs.existsSync(span)) return true;
   if (DEEP_HOME.test(span)) return true;
   return SHARED_ROOT.test(span) && span.split("/").some((segment) => /\./.test(segment));
 }

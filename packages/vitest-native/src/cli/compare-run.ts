@@ -410,8 +410,9 @@ function runBounded(
       if (posix) {
         try {
           process.kill(-child.pid, signal);
-        } catch {
-          // the group is already gone
+        } catch (error) {
+          // ESRCH: the group is already gone. Anything else (EPERM): stop the child itself.
+          if (errorCode(error) !== "ESRCH") child.kill(signal);
         }
       } else {
         spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
@@ -625,11 +626,23 @@ const FORWARDED = [
   "passWithNoTests",
 ];
 
-export function forwardedScriptFlags(root: string): { forwarded: string[]; ignored: string[] } {
+export function forwardedScriptFlags(root: string): {
+  forwarded: string[];
+  ignored: string[];
+  /** Why package.json could not be read, when it exists but is not valid JSON. */
+  unreadable?: string;
+} {
   const forwarded: string[] = [];
   const ignored: string[] = [];
+  let pkg: { scripts?: { test?: unknown } };
   try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+    pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+  } catch (error) {
+    // No package.json: nothing to forward. An unreadable one is reported by the caller.
+    if (errorCode(error) === "ENOENT") return { forwarded, ignored };
+    return { forwarded, ignored, unreadable: (error as Error).message.split("\n")[0] };
+  }
+  {
     const script = pkg.scripts?.test;
     const parsed = typeof script === "string" ? parseJestScript("test", script) : null;
     for (const [name, value] of parsed?.flags ?? []) {
@@ -640,8 +653,6 @@ export function forwardedScriptFlags(root: string): { forwarded: string[]; ignor
         ignored.push(`--${name}`);
       }
     }
-  } catch {
-    // no/invalid package.json: nothing to forward
   }
   return { forwarded, ignored };
 }
@@ -651,6 +662,16 @@ export function forwardedScriptFlags(root: string): { forwarded: string[]; ignor
 // ---------------------------------------------------------------------------
 
 type TreeState = Map<string, string>;
+
+/** The state of a path the walk could not read, followed by its error code. */
+const UNREADABLE = "unreadable:";
+
+/** Paths a tree state could not read (treeState), for the summary. */
+export function unreadablePaths(state: TreeState): string[] {
+  return [...state]
+    .filter(([, v]) => v.startsWith(UNREADABLE))
+    .map(([k, v]) => `${k} (${v.slice(UNREADABLE.length)})`);
+}
 
 /** Directories skipped by name anywhere: package installs and version control. */
 const SKIPPED_DIR_NAMES = new Set(["node_modules", ".git"]);
@@ -685,9 +706,18 @@ export function treeState(root: string, limit = 200_000): TreeState | null {
   let realRoot: string;
   try {
     realRoot = fs.realpathSync(root);
-  } catch {
+  } catch (error) {
+    // The root itself is unreadable: nothing below it can be checked.
+    out.set(".", `${UNREADABLE}${errorCode(error) ?? "error"}`);
     return out;
   }
+  // A path the walk cannot read is recorded with its error code, not skipped: compare says
+  // it was not checked, and a path that becomes readable or unreadable shows as changed.
+  const unreadable = (abs: string, error: unknown) =>
+    out.set(
+      path.relative(root, abs).split(path.sep).join("/") || ".",
+      `${UNREADABLE}${errorCode(error) ?? "error"}`,
+    );
   const inside = (real: string) => real === realRoot || real.startsWith(realRoot + path.sep);
   const stack = [root];
   while (stack.length) {
@@ -695,7 +725,8 @@ export function treeState(root: string, limit = 200_000): TreeState | null {
     let real: string;
     try {
       real = fs.realpathSync(dir);
-    } catch {
+    } catch (error) {
+      unreadable(dir, error);
       continue;
     }
     if (seen.has(real) || !inside(real)) continue;
@@ -703,7 +734,8 @@ export function treeState(root: string, limit = 200_000): TreeState | null {
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
+    } catch (error) {
+      unreadable(dir, error);
       continue;
     }
     for (const e of entries) {
@@ -714,17 +746,22 @@ export function treeState(root: string, limit = 200_000): TreeState | null {
       let stat: fs.Stats;
       try {
         stat = e.isSymbolicLink() ? fs.statSync(abs) : fs.lstatSync(abs);
-      } catch {
-        continue; // a dangling link, or gone already
+      } catch (error) {
+        // ENOENT: a dangling link, or gone already. Anything else was not checked.
+        if (errorCode(error) !== "ENOENT") unreadable(abs, error);
+        continue;
       }
       if (stat.isDirectory()) stack.push(abs);
       else if (stat.isFile()) {
         if (e.isSymbolicLink()) {
+          let target: string;
           try {
-            if (!inside(fs.realpathSync(abs))) continue;
-          } catch {
+            target = fs.realpathSync(abs);
+          } catch (error) {
+            if (errorCode(error) !== "ENOENT") unreadable(abs, error);
             continue;
           }
+          if (!inside(target)) continue;
         }
         out.set(rel, `${stat.size}:${stat.mtimeMs}`);
         if (out.size > limit) return null;
@@ -773,6 +810,11 @@ export function treeChanges(before: TreeState, after: TreeState): TreeChanges {
 // ---------------------------------------------------------------------------
 // compare
 // ---------------------------------------------------------------------------
+
+/** The `code` of a Node system error (`ENOENT`, `ESRCH`, …), or undefined. */
+function errorCode(error: unknown): string | undefined {
+  return (error as NodeJS.ErrnoException | undefined)?.code;
+}
 
 function readReport(file: string): unknown | null {
   try {
@@ -874,6 +916,14 @@ export async function runCompare(options: CompareOptions): Promise<number> {
   };
   for (const s of SIGNALS) process.on(s, onSignal);
   const before = treeState(root);
+  const notChecked = before ? unreadablePaths(before) : [];
+  if (notChecked.length) {
+    log(
+      `  ${notChecked.length} ${notChecked.length === 1 ? "path" : "paths"} could not be read, so the ` +
+        `check that the runs change nothing does not cover them: ${notChecked.slice(0, 5).join(", ")}` +
+        (notChecked.length > 5 ? ", …" : ""),
+    );
+  }
   try {
     let baseFile: string;
     let vitestConfigLabel: string;
@@ -926,6 +976,9 @@ export async function runCompare(options: CompareOptions): Promise<number> {
     } else {
       const out = path.join(work, "jest.json");
       const script = forwardedScriptFlags(root);
+      if (script.unreadable) {
+        log(`  package.json could not be read (${script.unreadable}); no script flags forwarded.`);
+      }
       if (script.ignored.length) {
         log(
           `  scripts.test also passes ${script.ignored.join(" ")} to Jest; not forwarded ` +
@@ -1150,8 +1203,12 @@ export async function runCompare(options: CompareOptions): Promise<number> {
       if (existed) continue;
       try {
         fs.rmdirSync(dir);
-      } catch {
-        // not empty, or already gone
+      } catch (error) {
+        // Not empty (the project's own files) or already gone: left as it is.
+        const code = errorCode(error);
+        if (code !== "ENOTEMPTY" && code !== "EEXIST" && code !== "ENOENT") {
+          log(`  Could not remove ${dir}, which compare created: ${(error as Error).message}`);
+        }
       }
     }
     if (guardian?.connected) guardian.disconnect();
