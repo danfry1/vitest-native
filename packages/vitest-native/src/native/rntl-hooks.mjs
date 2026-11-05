@@ -1,5 +1,5 @@
 // The RNTL adapter: what React Native Testing Library needs from its environment
-// and does not get under Vitest, for each supported major (12, 13, 14). Two parts:
+// and does not get under Vitest, for each supported major (13, 14). Two parts:
 //   1. per-file hooks under the hot runtime (registerRntlHooksOnImport);
 //   2. a `jest` for RNTL's fake-timer support (installRntlJest).
 //
@@ -99,7 +99,7 @@ export function registerRntlHooksOnImport(evaluator) {
 // --- 2. RNTL's fake-timer `jest` ---
 //
 // RNTL drives fake timers only through a free `jest` identifier. Every supported major
-// (12.9, 13.3, 14.x) reads it in these three files, which its entry loads:
+// (13.3, 14.x) reads it in these three files, which its entry loads:
 //
 //   helpers/timers.js          `typeof jest`, then `setTimeout._isMockFunction` (legacy)
 //                              or `setTimeout.clock` + `jest.getRealSystemTime()`

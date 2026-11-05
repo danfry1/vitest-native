@@ -5,8 +5,9 @@
  * RNTL's matchers work at runtime under this plugin, but RNTL declares their types for
  * Jest. Before RNTL 14 nothing reached Vitest's `Assertion`, so `toHaveTextContent`,
  * `toHaveStyle`, `toBeVisible` and the rest were `Property 'x' does not exist on type
- * 'Assertion<...>'` for anyone who typechecks. RNTL 14 also augments the global
- * `jest.Matchers<R>`, which Vitest 4's `JestAssertion<T>` extends as `Matchers<void, T>`.
+ * 'Assertion<...>'` for anyone who typechecks. RNTL 14 augments the global
+ * `jest.Matchers<R>`, which Vitest 5's `Assertion` does not inherit: its `JestAssertion`
+ * extends `CustomMatcher<R>`.
  *
  * Reference it once, anywhere in the project:
  *
@@ -22,13 +23,11 @@
  * this shape. @testing-library/jest-dom ships its `/vitest` entry for the same reason.
  *
  * The matcher interface is declared here rather than imported: RNTL does not export it
- * from its entry point, and its internal location differs by major (`build/` in 12 and
- * 13, `dist/` in 14), so a deep import typed the matchers on one major and silently
- * dropped them on the others. Only the element type is version-specific
- * (`ReactTestInstance` before 14, `TestInstance` from 14); it is read from RNTL's public
- * `screen` API, so it is identical to the type RNTL's own global augmentation uses. A
- * different type declares `toContainElement` twice on Vitest 4, which TypeScript 7
- * reports as TS2320 under `skipLibCheck: false`.
+ * from its entry point, and its internal location differs by major (`build/` in 13,
+ * `dist/` in 14), so a deep import typed the matchers on one major and silently dropped
+ * them on the other. Only the element type is version-specific (`ReactTestInstance` in
+ * 13, `TestInstance` from 14); it is read from RNTL's public `screen` API, so it is
+ * identical to the type RNTL's own global augmentation uses.
  * tests/rntl-matchers-types.test.ts compares these members with the installed RNTL's.
  */
 import type { screen } from "@testing-library/react-native";
@@ -65,12 +64,9 @@ interface RNTLMatchers<R> {
 }
 
 declare module "vitest" {
-  // `void`, the same instantiation Vitest 4's JestAssertion inherits from RNTL 14's global
-  // augmentation. Any other argument declares every matcher twice with different return
-  // types, which TypeScript 7 rejects (TS2320) for RNTL 14 users; Vitest's own matchers
-  // return void as well. The type parameters follow Vitest 5's `Assertion<R, T>`; on
-  // Vitest 4 with `skipLibCheck: false` that is reported as TS2428, and the matchers
-  // stay typed.
+  // `void`: the matchers return void, as Vitest's own do and as RNTL 14's global
+  // augmentation declares them. The type parameters follow Vitest 5's `Assertion<R, T>`,
+  // which interface declarations must agree on.
   // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   interface Assertion<
     R extends void | Promise<void> = void,

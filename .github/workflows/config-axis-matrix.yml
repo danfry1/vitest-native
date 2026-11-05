@@ -1,7 +1,7 @@
 name: Config-axis matrix
 
 # The configuration axes a project chooses and our fixtures did not vary:
-# RNTL 12, 13 or 14, a hoisted (npm) or isolated (pnpm) install, the mock or native
+# RNTL 13 or 14, a hoisted (npm) or isolated (pnpm) install, the mock or native
 # engine, Vitest globals on or off, the hot runtime on or off, jest-compat on or off.
 # Defects that sit on one or two of these axes pass every fixed-configuration gate, so this
 # workflow varies them. Each cell installs a small probe workspace from the packed tarball

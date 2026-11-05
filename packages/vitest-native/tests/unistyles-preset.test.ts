@@ -530,7 +530,7 @@ describe("unistyles preset: rendering", () => {
     }
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
-      // RNTL 12 and 13 render synchronously and throw; RNTL 14's render rejects.
+      // RNTL 13 renders synchronously and throws; RNTL 14's render rejects.
       await expect(async () =>
         render(React.createElement(m.ScopedTheme, { name: "sepia" }, React.createElement(Box))),
       ).rejects.toThrow(
