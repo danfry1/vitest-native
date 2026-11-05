@@ -69,7 +69,7 @@ The `@jest/globals` alias unblocks RNTL < 12, but **upgrading to `@testing-libra
 
 ### Delete third-party native-lib mocks
 
-You do **not** need `jest.mock('react-native-reanimated', …)`, safe-area's `jest/mock`, gesture-handler's jestSetup, etc. vitest-native **auto-detects** installed third-party libraries and shadows their native runtimes with built-in [presets](/guide/presets), under **both** engines. Just have the package installed; delete the manual mock. (Reanimated, Gesture Handler, Safe Area, Navigation, Screens and AsyncStorage are covered out of the box; the [full list](/guide/presets#available-presets) names every package. Expo modules need no mock either: under the native engine they run their own JavaScript, as under jest-expo, and the `expo` preset applies only under the mock engine or with `presets: { expo: true }`.)
+You do **not** need `jest.mock('react-native-reanimated', …)`, safe-area's `jest/mock`, gesture-handler's jestSetup, etc. vitest-native **auto-detects** installed third-party libraries and shadows their native runtimes with built-in [presets](/guide/presets), under **both** engines. Just have the package installed; delete the manual mock. (Reanimated, Gesture Handler, Safe Area, Navigation, Screens and AsyncStorage are covered out of the box; the [full list](/guide/presets#available-presets) names every package. Expo modules need no mock either: under the native engine they run their own JavaScript, as under jest-expo, and the `expo` preset applies only under the mock engine, or when you turn it on with `presets: { expo: true }` or list it in a `presets` array.)
 
 ### Keep Jest's and Vitest's snapshots apart {#snapshots}
 

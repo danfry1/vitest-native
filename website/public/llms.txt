@@ -6,7 +6,7 @@
 
 Two engines behind one plugin (`reactNative()`), so you choose the fidelity each suite needs:
 
-- `engine: 'native'` (default): runs real React Native JS, mocking only the thin native boundary: native modules and native host components. Jest's React Native preset mocks a superset of that (it also swaps View, Text, ScrollView, TextInput, Image and Modal for stand-ins), so the real component JavaScript runs here. Needs `@react-native/babel-preset` (or Expo's preset, from Expo SDK 56) + `@babel/core` (present in any RN or Expo app). Highest fidelity.
+- `engine: 'native'` (what the default `auto` resolves to in any RN or Expo app): runs real React Native JS, mocking only the thin native boundary: native modules and native host components. Jest's React Native preset mocks more than that (it also swaps View, Text, ScrollView, Image and Modal for stand-ins; both replace TextInput), so the real component JavaScript runs here. Needs `@react-native/babel-preset` (or Expo's preset, from Expo SDK 56) + `@babel/core` (present in any RN or Expo app). Highest fidelity.
 - `engine: 'mock'`: a fast, zero-dependency pure-JS reimplementation of React Native. No Babel. For pure-logic suites, environment control, maximum determinism. Covers 100% of RN's stable public API.
 - `engine: 'auto'` (the default): native when babel deps present, else mock.
 
@@ -34,17 +34,17 @@ Requirements: Node 22.13+ (on 22) or 24.3+, Vitest 4.x or 5.x, Vite ^6.4.2 or ^7
 `reactNative({ engine, platform, diagnostics, presets, mocks, assetExts, transform, hotRuntime, nativeModules, metroConfig })`
 - engine: 'native' | 'mock' | 'auto' (default 'auto')
 - platform: 'ios' | 'android' (default 'ios')
-- presets: third-party library presets. Omit to auto-detect from installed deps; an array replaces auto-detection (`[]` disables all); an object such as `{ navigation: false }` switches presets off; a string is a path to your own preset module
+- presets: third-party library presets. Omit to auto-detect from installed deps; an array replaces auto-detection (`[]` disables all); an object such as `{ navigation: false }` switches presets off; a string inside either form is a path to your own preset module (`{ './my-preset.ts': true }` adds one)
 - mocks: mock engine only (a non-empty value under native is a config error). JSON-serializable values only; each replaces that export whole. For components or functions use `vi.mock('react-native', ...)` in a setup file
 - assetExts: extra asset extensions (loaded as Metro does: a registered asset id)
 - transform: extra node_modules to transform (native engine; like Jest's transformIgnorePatterns)
 - hotRuntime: false (default, fresh worker per file) | 'auto' | true | options object. Opt-in, experimental: reuses workers across files; measure whether it is faster on your suite
-- nativeModules: 'device' (default; unregistered native modules are absent, as on a device) | 'permissive'
+- nativeModules: native engine only. 'device' (default; unregistered native modules are absent, as on a device) | 'permissive'
 - metroConfig: experimental; use the project's Metro source-extension order and asset list
 
-## Presets (auto-detected, apply under both engines)
+## Presets (auto-detected; most apply under both engines)
 
-The full list, with the exact packages each preset shadows, is at https://danfry1.github.io/vitest-native/guide/presets#available-presets. Coming from Jest, delete a manual native-library mock only when a preset shadows that exact package.
+The full list, with the exact packages each preset shadows, is at https://danfry1.github.io/vitest-native/guide/presets#available-presets. Coming from Jest, delete a manual native-library mock only when a preset shadows that exact package. Under the native engine the `expo` preset is off unless enabled (`presets: { expo: true }` or listed in an array): Expo modules run their own JavaScript, as under jest-expo.
 
 ## Test helpers (`vitest-native/helpers`)
 

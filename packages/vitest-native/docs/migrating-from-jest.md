@@ -86,7 +86,7 @@ installed; delete the manual mock. (Reanimated, Gesture Handler, Safe Area, Navi
 AsyncStorage are covered out of the box. Validated under the native engine —
 `tests-native/third-party-stack.test.tsx`. Expo modules need no mock either: under the native engine
 they run their own JavaScript, as under jest-expo, and the `expo` preset applies only under the mock
-engine or with `presets: { expo: true }`.)
+engine, or when you turn it on with `presets: { expo: true }` or list it in a `presets` array.)
 
 ### 2d. Snapshots: keep Jest's and Vitest's apart, then record Vitest's
 Jest's `.snap` files are not something Vitest can check against, for two reasons.
