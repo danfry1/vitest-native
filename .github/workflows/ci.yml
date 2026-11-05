@@ -479,9 +479,10 @@ jobs:
         if: matrix.gate == 'hot-runtime'
         run: bun run --filter vitest-native validate:metro-profile
 
-      - name: Packed CJS reset mutation control
-        # One packed RN consumer, not another full matrix. Omitting the installed
-        # drain must fail, proving that the positive gate reaches this reset seam.
+      - name: Packed CJS reset consumer
+        # One packed RN consumer, not another full matrix: the direct CJS re-export
+        # consumer passes under the hot runtime. Its drain mutation control could only
+        # fail under the threaded loader the Node floor removed (#530).
         if: matrix.gate == 'hot-runtime'
         run: node packages/vitest-native/validation/module-isolation/run-packed-cjs-reset.mjs
 
