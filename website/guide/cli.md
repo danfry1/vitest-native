@@ -10,7 +10,9 @@ npx vitest-native doctor        # diagnose peers, engine, presets, RNTL/Node
 npx vitest-native migrate       # analyze your jest config → migration report
 ```
 
-All commands accept `--root <dir>` (default: the current directory).
+All commands accept `--root <dir>` (default: the current directory). A flag the command
+does not take is refused with the valid ones listed, so a typo such as `--wirte` stops the run
+instead of quietly doing something else.
 
 ## `init`
 

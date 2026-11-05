@@ -286,6 +286,14 @@ jobs:
         if: matrix.part != 'native'
         run: bun run test
 
+      - name: compare end-to-end tests
+        # `vitest-native compare`'s end-to-end tests run Vitest for real, seconds per test
+        # (about half a minute each on Windows). Inside the unit suite they starved its
+        # fast tests of CPU until those timed out, so they run here, after it, on one leg
+        # per OS.
+        if: ${{ !matrix.rntl && matrix.part != 'native' && matrix.node-version == '22.22.3' }}
+        run: bun run --filter vitest-native test:cli-compare-e2e
+
       - name: Docs checks selection
         # The docs job runs this only on docs-only pull requests, and a change to the
         # script itself is not docs-only, so the selection runs here once as well.
