@@ -220,6 +220,8 @@ Thank you to [@AntSplash360](https://github.com/AntSplash360), [@arvidtorbjoerns
 
 ### Patch Changes
 
+- c3832c2: **`vitest-native migrate --write` no longer ends with "Re-run with --write".** Once the config is saved, the closing line names the next step instead: `✓ wrote vitest.config.mts from the analysis above. Next: npx vitest-native doctor && npx vitest`. Without `--write`, the report still ends with how to save the config. No action needed.
+
 - 5f991ed: **Native engine: a workspace library reached through a regular-expression `resolve.alias` now has its React Native dependencies compiled, as one reached through a string alias does.** Tests that failed with `Cannot find module '…/expo-asset/build/Asset.fx'` now run. No action needed.
 
   - Also applies to an alias with a `customResolver`.
