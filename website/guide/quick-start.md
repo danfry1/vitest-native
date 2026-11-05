@@ -4,6 +4,7 @@ This walks through writing and running your first React Native test with vitest-
 
 ## Write a component
 
+<!-- doc-snippet: src/Greeting.tsx -->
 ```tsx
 // Greeting.tsx
 import { Text, View } from 'react-native'
@@ -19,6 +20,7 @@ export function Greeting({ name }: { name: string }) {
 
 ## Write a test
 
+<!-- doc-snippet: src/Greeting.test.tsx -->
 ```tsx
 // Greeting.test.tsx
 import { describe, it, expect } from 'vitest'
@@ -53,6 +55,7 @@ Vitest picks up every `*.test.*` and `*.spec.*` file by default, including the o
 
 RNTL works exactly as you'd expect. Query by text, test ID, or role; fire events; assert with the jest-native matchers (registered automatically):
 
+<!-- doc-snippet: src/press.test.tsx -->
 ```tsx
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react-native'
@@ -75,9 +78,10 @@ it('handles a press', async () => {
 
 Use the [test helpers](/guide/helpers) to control dimensions or color scheme inside a test — these work under both engines:
 
+<!-- doc-snippet: src/device-state.test.tsx -->
 ```tsx
 import { setDimensions, setColorScheme, resetAllMocks } from 'vitest-native/helpers'
-import { afterEach } from 'vitest'
+import { afterEach, it } from 'vitest'
 
 afterEach(() => resetAllMocks())
 

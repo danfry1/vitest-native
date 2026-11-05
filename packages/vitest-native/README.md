@@ -63,6 +63,7 @@ npm install -D vitest vite vitest-native @testing-library/react-native
 Native and Expo apps already have the Babel packages the default engine uses.
 `npx vitest-native init` writes this config (as `vitest.config.mts` in a TypeScript project), or add it yourself:
 
+<!-- doc-snippet: vitest.config.mts -->
 ```ts
 // vitest.config.mts
 import { defineConfig } from "vitest/config";
@@ -75,6 +76,7 @@ export default defineConfig({
 
 Write a test:
 
+<!-- doc-snippet: src/readme-greeting.test.tsx -->
 ```tsx
 // Greeting.test.tsx
 import { expect, test } from "vitest";
