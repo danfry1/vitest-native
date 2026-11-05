@@ -36,7 +36,7 @@ import Module, { createRequire } from "node:module";
 import path from "node:path";
 import { inspect } from "node:util";
 import vm from "node:vm";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { VitestNativeError } from "../errors.mjs";
 import { projectContext } from "../context.mjs";
 import { nodeDispatch } from "../node-dispatch.mjs";
@@ -148,24 +148,14 @@ export function requireViteOwned(file, parent) {
     if (node.id?.startsWith("mock:") || !node.promise) continue;
     // Part-way through Vite's own evaluation, its exports are not finished: served only
     // when this require is a cycle back into that evaluation (knownExports).
-    const exports = knownExports(node, null, [], parent);
+    const exports = knownExports(node, null, []);
     bridgedStats.servedFromVite++;
     return forRequire(exports);
   }
   const result = fetchSync(file, parent?.filename, environmentName());
   if ("externalize" in result) return undefined;
-  // The Node module that asked, for the cycle test of every import this evaluation makes.
-  const outer = requirer;
-  requirer = parent ?? null;
-  try {
-    return forRequire(evaluate(result, []));
-  } finally {
-    requirer = outer;
-  }
+  return forRequire(evaluate(result, []));
 }
-
-/** The Node module whose require started the bridge's current evaluation, or null. */
-let requirer = null;
 
 function evaluatingElsewhere(id) {
   return new VitestNativeError(
@@ -186,16 +176,16 @@ function evaluatingElsewhere(id) {
  *   - on this synchronous evaluation's own import chain (`callstack`, then `importer`):
  *     an ES import cycle, so its exports as they are now, as ModuleRunner.cachedRequest
  *     returns them (`callstack.includes(moduleId)`);
- *   - reached through Node from inside its own evaluation (a Node-owned module it imports
- *     requires it, or requires a module the bridge evaluates that imports it): a cycle
- *     across the two module systems, so its exports so far too, as Node and Jest give a
- *     require back into a module still loading (isNodeCycle);
+ *   - reached from inside its own evaluation, through Node (a Node-loaded module its body
+ *     calls requires it, directly or through modules the bridge evaluates): a cycle across
+ *     the two module systems, so its exports so far too, as Node and Jest give a require
+ *     back into a module still loading (isRunningNow);
  *   - otherwise part-way through an evaluation elsewhere (Vite's own, which is waiting on
  *     something): fails by name. So does a node with a promise and no exports object yet
  *     (Vite's runner awaits createImportMeta between the two; Vitest's sets exports first,
  *     so no code of the test's runs there today).
  */
-function knownExports(known, importer, callstack, parent = requirer) {
+function knownExports(known, importer, callstack) {
   if (importer) {
     known.importers.add(importer.id);
     importer.imports.add(known.id);
@@ -206,7 +196,7 @@ function knownExports(known, importer, callstack, parent = requirer) {
   }
   if (
     known.exports != null &&
-    ((importer && [...callstack, importer.id].includes(known.id)) || isNodeCycle(known, parent))
+    ((importer && [...callstack, importer.id].includes(known.id)) || isRunningNow(known))
   ) {
     bridgedStats.cycles++;
     return known.exports;
@@ -215,32 +205,32 @@ function knownExports(known, importer, callstack, parent = requirer) {
 }
 
 /**
- * Whether Node's require from `parent` reached `node` (part-way through evaluating) from
- * inside that evaluation: `parent`, or a module that required it, is in `node`'s import
- * graph (Vite's map records the modules it hands to Node as nodes too). Walks at most 64
- * requirers up, and each node of the graph once.
+ * Whether `node`'s module body is running now: a frame of its file is on the current call
+ * stack, or the code running now is what it awaits (V8's async frames). That is when a
+ * require of it is a require from inside its evaluation. A CommonJS load is synchronous,
+ * so in Node and Jest only code its body calls can reach a module still loading; a timer
+ * or another test's code reaching it later is not a cycle. Read from the stack's text, as
+ * V8 prints a frame (`at <file>:<line>:<column>`, in parentheses after a function name, or
+ * as a `file:` URL), with Error.stackTraceLimit lifted for the one capture: only a module
+ * part-way through evaluating pays for it.
  */
-function isNodeCycle(node, parent) {
-  if (!parent) return false;
-  const requirers = new Set();
-  for (let p = parent; p && requirers.size < 64; p = p.parent) {
-    if (typeof p.filename === "string") requirers.add(p.filename.replace(/\\/g, "/"));
+function isRunningNow(node) {
+  if (typeof node.file !== "string" || !path.isAbsolute(node.file)) return false;
+  const limit = Error.stackTraceLimit;
+  Error.stackTraceLimit = Infinity;
+  let stack;
+  try {
+    stack = new Error().stack ?? "";
+  } finally {
+    Error.stackTraceLimit = limit;
   }
-  const map = evaluatedModules();
-  const seen = new Set();
-  const queue = [node];
-  while (queue.length > 0) {
-    const current = queue.pop();
-    if (seen.has(current.id)) continue;
-    seen.add(current.id);
-    if (current !== node && requirers.has(current.file)) return true;
-    for (const id of current.imports ?? []) {
-      const next = map.getModuleById(id);
-      if (next) queue.push(next);
-    }
-  }
-  return false;
+  const spellings = [node.file, node.file.replace(/\//g, "\\"), pathToFileURL(node.file).href];
+  return spellings.some((file) =>
+    new RegExp(`(?:at (?:async )?|\\()${escapeRegExp(file)}:\\d+:\\d+`).test(stack),
+  );
 }
+
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
  * Whether a promise has rejected, read synchronously. Node has no public API for a

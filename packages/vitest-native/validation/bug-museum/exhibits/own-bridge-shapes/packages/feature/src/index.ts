@@ -16,3 +16,10 @@ export const requireUsesSep = () => require("@m/validator/uses-sep");
 export const requireBack = () => require("@m/validator/back");
 // Called while @m/validator/loop-x is evaluating: Node requires loop-y, which imports loop-x.
 export const requireLoopY = () => require("@m/validator/loop-y");
+// Called from the test body while @m/validator/fp-x waits on a top-level await: not a cycle.
+export const requireFpX = () => require("@m/validator/fp-x");
+// Called while @m/validator/fn-x is evaluating: Node requires fn-y, whose Node-loaded import
+// requires fn-x back (a deeper cycle).
+export const requireFnY = () => require("@m/validator/fn-y");
+// Called while @m/validator/sx is evaluating, through a helper the test loaded first.
+export const viaShared = () => require("./shared.js").requireSx();

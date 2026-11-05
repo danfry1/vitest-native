@@ -33,6 +33,9 @@ synchronously. One test file per shape:
 | `cycle` | an ES import cycle among required modules | evaluated once each; the import back gets the exports so far, as in Vite's runner |
 | `node-cycle` | Vite evaluates a module whose Node-loaded import requires it back | the require gets its exports so far, as in Node and Jest |
 | `node-loop` | that require reaches a module the bridge evaluates, which imports the first back | its exports so far, through the bridge; one module afterwards |
+| `node-deep` | the bridged module's own Node-loaded import requires the first back | its exports so far, two hops deep |
+| `node-first-loader` | the require back goes through a helper something else loaded first | its exports so far: decided by who calls now |
+| `in-flight-importer` | a require from the test body while Vite evaluates a module that imports the requiring library | `REQUIRE_OF_EVALUATING_VITE_MODULE`: not from inside the evaluation |
 | `failed` | a required module throws; or Vite's import of it threw earlier | `BRIDGED_EVALUATION_FAILED` with the module's error as `cause`; never served half-built |
 | `dep-mock` | a required module imports a file the test mocks | the module gets the test's own mock (the mock dispatcher serves it) |
 | `builtin-mock` | a required module imports a Node builtin the test mocks | the module gets the test's mock |

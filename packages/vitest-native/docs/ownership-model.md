@@ -64,9 +64,11 @@ What cannot be served this way fails by name:
   far instead:
   - an ES import cycle among the modules the bridge evaluates, as Vite's own runner gives
     it;
-  - a `require` back into a module from inside its own evaluation: a Node-loaded module it
-    imports requires it, directly or through a module the bridge evaluates. Node and Jest
-    give a `require` of a module still loading the same.
+  - a `require` back into a module from inside its own evaluation: code its body is running
+    (a Node-loaded module it calls, directly or through modules the bridge evaluates)
+    requires it. Node and Jest give a `require` of a module still loading the same. A
+    `require` from anything else (the test body, a timer) fails by name, even from a library
+    the module imports.
 
 Mocks apply as they do to the test's own imports. `'resolution'` turns on
 `experimental.nodeMocks`, so Node's `require` of a mocked file gets the test's mock, and a
