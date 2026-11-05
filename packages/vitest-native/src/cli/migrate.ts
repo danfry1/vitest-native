@@ -927,7 +927,22 @@ function classifyAllowlist(
   }
 }
 
-export function renderMigrationReport(report: MigrationReport): string[] {
+/** The commands to run once the suggested config is saved. */
+export function migrationNextStep(report: MigrationReport): string {
+  return report.vitePlus
+    ? "npx vitest-native doctor && vp test"
+    : "npx vitest-native doctor && npx vitest";
+}
+
+/**
+ * The report `migrate` prints. With `write: true` (`migrate --write`) the config is about to
+ * be saved, so the closing line does not ask for a re-run with --write; the CLI prints the
+ * next step after the file is written.
+ */
+export function renderMigrationReport(
+  report: MigrationReport,
+  { write = false }: { write?: boolean } = {},
+): string[] {
   const lines: string[] = [];
   if (!report.source) {
     lines.push(
@@ -949,12 +964,9 @@ export function renderMigrationReport(report: MigrationReport): string[] {
   section("Dropped (no equivalent needed)", report.dropped);
   lines.push(report.vitePlus ? "Suggested vite.config:" : "Suggested vitest.config:", "");
   lines.push(...report.suggestedConfig.split("\n").map((l) => `  ${l}`));
-  lines.push(
-    report.vitePlus
-      ? "Re-run with --write to save this config, then: npx vitest-native doctor && vp test"
-      : "Re-run with --write to save this config, then: npx vitest-native doctor && npx vitest",
-    "",
-    ...HOT_RUNTIME_NOTE,
-  );
+  if (!write) {
+    lines.push(`Re-run with --write to save this config, then: ${migrationNextStep(report)}`, "");
+  }
+  lines.push(...HOT_RUNTIME_NOTE);
   return lines;
 }

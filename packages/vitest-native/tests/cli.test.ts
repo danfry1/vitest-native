@@ -479,6 +479,38 @@ describe("migrate", () => {
     const written = fs.readFileSync(path.join(root, "vitest.config.mjs"), "utf8");
     expect(written).toContain("testTimeout: 9000");
     expect(written).toContain("jestMockTransform()");
+    // The config is saved, so the output gives the next step, not "re-run with --write".
+    expect(io.text()).not.toContain("--write");
+    expect(io.text()).toContain(
+      "✓ wrote vitest.config.mjs from the analysis above. Next: npx vitest-native doctor && npx vitest",
+    );
+  });
+
+  it("--write over an existing config points at --force, not at --write", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": { preset: "react-native" },
+      "vitest.config.mjs": "export default {}",
+    });
+    const io = capture();
+    expect(main(["migrate", "--write", "--root", root], io.log)).toBe(1);
+    expect(fs.readFileSync(path.join(root, "vitest.config.mjs"), "utf8")).toBe("export default {}");
+    expect(io.text()).toContain("--force");
+    expect(io.text()).not.toContain("Re-run with --write");
+  });
+
+  it("without --write, main() asks for a re-run with --write and writes nothing", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": { preset: "react-native" },
+    });
+    const io = capture();
+    expect(main(["migrate", "--root", root], io.log)).toBe(0);
+    expect(fs.existsSync(path.join(root, "vitest.config.mjs"))).toBe(false);
+    expect(io.text()).toContain(
+      "Re-run with --write to save this config, then: npx vitest-native doctor && npx vitest",
+    );
+    expect(io.text()).not.toContain("✓ wrote");
   });
 });
 
