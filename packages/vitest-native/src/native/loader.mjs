@@ -14,7 +14,12 @@ import {
 } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import { nativeAssetModuleSource } from "./assets.mjs";
-import { extensionsFor, resolveRelativePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
+import {
+  extensionsFor,
+  hasKnownExtension,
+  resolveRelativePlatformFile,
+  resolveDeepPackageFile,
+} from "./resolve.mjs";
 import {
   NODE_MODULES_PATH,
   containsPath,
@@ -300,7 +305,7 @@ function resolveBefore(specifier, context) {
     parent &&
     (NODE_MODULES_PATH.test(parent) || ownership.isReactNativeFile(parent) || isExtra(parent)) &&
     specifier.startsWith(".") &&
-    !path.extname(specifier)
+    !hasKnownExtension(specifier, SOURCE_EXTS, assetExtSet)
   ) {
     const hit = resolveRelativePlatformFile(specifier, parent, PLATFORM, SOURCE_EXTS);
     // Not returned directly: `json` is a Metro source extension, so this can now
@@ -317,7 +322,11 @@ function resolveRecover(err, specifier, parent) {
   // Fallback: an extensionless relative import that Node's ESM resolver rejected
   // but a bundler (Metro) would accept. Common in externalized RN libs shipping
   // ESM with extensionless imports. Resolve it on disk ourselves.
-  if (parent && specifier.startsWith(".") && !path.extname(specifier)) {
+  if (
+    parent &&
+    specifier.startsWith(".") &&
+    !hasKnownExtension(specifier, SOURCE_EXTS, assetExtSet)
+  ) {
     const hit = resolveExtensionless(path.resolve(path.dirname(parent), specifier));
     if (hit) resolved = { url: pathToFileURL(hit).href, shortCircuit: true };
   }
