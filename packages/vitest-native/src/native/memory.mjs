@@ -141,6 +141,24 @@ export function formatHotWorkerDecision(plan) {
       ? "memory unknown"
       : `${formatBytes(plan.effectiveLimit)} ${plan.source === "constrained" ? "memory limit" : "host memory"}`;
   if (plan.maxWorkers < plan.requestedWorkers) {
+    // What memory alone admits, from the plan's own figures (createHotMemoryPlan). Fewer
+    // admitted than that is the automatic cap, which a count the user sets lifts: say
+    // which of the two chose the number, since only one of them is about memory.
+    const memoryAdmits =
+      plan.softRssLimit == null
+        ? null
+        : Math.max(
+            1,
+            Math.floor(
+              Math.max(
+                0,
+                plan.softRssLimit - plan.mainProcessReserve - plan.replacementOverlapReserve,
+              ) / WORKER_RSS_ADMISSION_COST,
+            ),
+          );
+    if (memoryAdmits === null || plan.admittedWorkers < memoryAdmits) {
+      return `workers: ${plan.maxWorkers} (automatic cap of ${MAX_AUTO_WORKERS}; ${plan.requestedWorkers} available, set maxWorkers to run more; ${memory})`;
+    }
     return `workers: ${plan.maxWorkers} (memory plan admitted ${plan.admittedWorkers} of ${plan.requestedWorkers} requested, ${memory})`;
   }
   return `workers: ${plan.maxWorkers} (as requested; memory plan admits up to ${plan.admittedWorkers}, ${memory})`;

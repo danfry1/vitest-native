@@ -99,6 +99,26 @@ describe("hot memory planning", () => {
       `workers: ${capped.maxWorkers} (memory plan admitted ${capped.admittedWorkers} of 8 requested, 2048 MiB host memory)`,
     );
     expect(capped.maxWorkers).toBeLessThan(8);
+    // Plenty of memory, no count set: the automatic cap chose, not memory.
+    const auto = createHotMemoryPlan({
+      totalMemory: 64 * GIB,
+      constrainedMemory: 0,
+      requestedWorkers: 9,
+    });
+    expect(auto.maxWorkers).toBe(4);
+    expect(formatHotWorkerDecision(auto)).toBe(
+      "workers: 4 (automatic cap of 4; 9 available, set maxWorkers to run more; 65536 MiB host memory)",
+    );
+    // The same machine with the count set: memory alone bounds it.
+    const set = createHotMemoryPlan({
+      totalMemory: 64 * GIB,
+      constrainedMemory: 0,
+      requestedWorkers: 9,
+      explicitWorkers: true,
+    });
+    expect(formatHotWorkerDecision(set)).toMatch(
+      /^workers: 9 \(as requested; memory plan admits up to \d+, 65536 MiB host memory\)$/,
+    );
     // A container's limit below the host's is named as the limit.
     const roomy = createHotMemoryPlan({
       totalMemory: 64 * GIB,
