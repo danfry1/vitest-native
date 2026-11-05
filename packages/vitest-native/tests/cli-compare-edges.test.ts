@@ -839,6 +839,52 @@ describe.skipIf(!posix)("compare: processes", () => {
 // 7–8. Titles, foreign roots, small things
 // ---------------------------------------------------------------------------
 
+describe("compare: the Jest run", () => {
+  it("runs only Jest's default reporter, so a configured reporter cannot write into the project", async () => {
+    // A stand-in Jest: it writes the --json report it is pointed at and, like jest-junit,
+    // rewrites the project's tracked junit.xml whenever the configured reporters run.
+    const fakeJest = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-fake-jest-"));
+    fs.writeFileSync(
+      path.join(fakeJest, "package.json"),
+      JSON.stringify({ name: "jest", version: "30.0.0", bin: { jest: "bin.js" } }),
+    );
+    fs.writeFileSync(
+      path.join(fakeJest, "bin.js"),
+      `#!/usr/bin/env node
+const fs = require("node:fs");
+const path = require("node:path");
+const args = process.argv.slice(2);
+const out = args.find((a) => a.startsWith("--outputFile=")).slice("--outputFile=".length);
+if (!args.includes("--reporters=default")) {
+  fs.writeFileSync(path.join(process.cwd(), "junit.xml"), '<testsuites tests="1"/>');
+}
+fs.copyFileSync(process.env.VN_FAKE_JEST_REPORT, out);
+`,
+      { mode: 0o755 },
+    );
+    const root = scratchProject({
+      jestDir: fakeJest,
+      files: {
+        "vitest.config.mjs": VITEST_CONFIG,
+        "src/a.check.js": `test("adds", () => {});\n`,
+        "junit.xml": "<testsuites/>\n",
+      },
+    });
+    const report = jestReport(root, { "src/a.check.js": [{ title: "adds" }] });
+    const previous = process.env.VN_FAKE_JEST_REPORT;
+    process.env.VN_FAKE_JEST_REPORT = report;
+    try {
+      const { code, text } = await runCli(["--root", root]);
+      expect(text).not.toContain("changed junit.xml");
+      expect(fs.readFileSync(path.join(root, "junit.xml"), "utf8")).toBe("<testsuites/>\n");
+      expect(code).toBe(0);
+    } finally {
+      if (previous === undefined) delete process.env.VN_FAKE_JEST_REPORT;
+      else process.env.VN_FAKE_JEST_REPORT = previous;
+    }
+  }, 120_000);
+});
+
 describe("compare: matching", () => {
   it("confirms a pair only when the titles are the same; a shape match is for review", () => {
     // The same title, up to quote style, whitespace runs and a trailing comma inside a

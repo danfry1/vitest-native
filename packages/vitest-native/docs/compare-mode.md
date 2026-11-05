@@ -17,7 +17,9 @@ npx vitest-native compare [--root <dir>] [--jest-args "<args>"] [--vitest-args "
 one Jest finds by itself, or the one the `test` script names with `--config`. The script's
 `--testTimeout`, `--maxWorkers`, `--runInBand`, `--silent` and `--passWithNoTests` are passed too,
 because `migrate` maps those into the Vitest config, so both sides get them. The run adds
-`--json --outputFile=<temp> --coverage=false`, and `--ci` last. `--jest-results <file>` reads the JSON of a Jest run
+`--json --outputFile=<temp> --coverage=false --reporters=default`, and `--ci` last. Only Jest's
+default reporter runs: a configured one that writes a file, such as jest-junit's `junit.xml`,
+would change the project. `--jest-results <file>` reads the JSON of a Jest run
 made elsewhere, such as in CI, instead of running Jest. Its absolute paths name that machine's
 checkout. compare finds that directory from the file names both runners report, or takes it from
 `--jest-root`.
@@ -138,14 +140,14 @@ Each runner's result for a test is passed, failed, skipped (`skipped`, `pending`
   reports a failing `beforeAll` this way, as a failed file with an empty message and its tests
   skipped.
 
-| Jest → Vitest | bucket |
-| --- | --- |
-| passed → passed, failed → failed, skipped → skipped | same |
-| passed → failed | **regression** (passed under Jest, fails under Vitest) |
-| failed → passed | improvement |
-| one side skipped, the other ran it | skipped differently |
-| test missing from a file the other runner ran | only in Jest / only in Vitest (test) |
-| file not in the other runner's test set | only in Jest / only in Vitest (file) |
+| Jest → Vitest                                       | bucket                                                 |
+| --------------------------------------------------- | ------------------------------------------------------ |
+| passed → passed, failed → failed, skipped → skipped | same                                                   |
+| passed → failed                                     | **regression** (passed under Jest, fails under Vitest) |
+| failed → passed                                     | improvement                                            |
+| one side skipped, the other ran it                  | skipped differently                                    |
+| test missing from a file the other runner ran       | only in Jest / only in Vitest (test)                   |
+| file not in the other runner's test set             | only in Jest / only in Vitest (file)                   |
 
 ## What the summary claims
 
@@ -178,7 +180,7 @@ identities (root-relative file, `describe` titles, title), statuses, and error m
 from messages:
 
 - ANSI codes.
-- The stack, cut at the first `    at ` or `❯` frame.
+- The stack, cut at the first `   at` or `❯` frame.
 - Code-frame lines in each runner's style: `> 12 |`, `12| `, `12 │`, box drawing.
 - Any line a `^^^` or `~~~` marker points at, with the marker. That covers Node's and esbuild's
   source excerpts, TypeScript diagnostics and tab-indented frames, and Node's `file:line` heading

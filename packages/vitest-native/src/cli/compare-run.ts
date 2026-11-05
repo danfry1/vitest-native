@@ -942,6 +942,10 @@ export async function runCompare(options: CompareOptions): Promise<number> {
           `--outputFile=${out}`,
           // Coverage is not compared, and it writes coverage/ in the project.
           "--coverage=false",
+          // Only Jest's own reporter. A configured one that writes a file (jest-junit's
+          // junit.xml, often tracked) would change the project, which fails the run.
+          // The comparison reads only the --json report above.
+          "--reporters=default",
           ...script.forwarded,
           ...options.jestArgs,
           "--ci",
