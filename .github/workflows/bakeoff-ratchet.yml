@@ -55,7 +55,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22.22.2'
+          node-version: '22.22.3'
 
       # The Corepack bundled with older Node 22 releases has stale package-manager
       # signing keys. Keep this external observation job on a current compatible

@@ -25,8 +25,8 @@
 // CommonJS `require` only, which is how Vitest loads jsdom. An ESM `import` under the
 // same condition is resolved by Node's ESM loader and is not recovered here.
 import fs from "node:fs";
-import Module from "node:module";
 import path from "node:path";
+import { nodeDispatch } from "../node-dispatch.mjs";
 
 const RN = "react-native";
 
@@ -152,10 +152,8 @@ export function recoverMissingReactNativeTarget(
   if (error?.code !== "MODULE_NOT_FOUND" || typeof error.path !== "string") return null;
   const name = packageName(request);
   if (name === null) return null;
-  // Node reports the package directory on 22.22 and 24, but its package.json on 20.19
-  // and 22.13 (measured on each).
-  const packageDir =
-    path.basename(error.path) === "package.json" ? path.dirname(error.path) : error.path;
+  // Node reports the package directory (measured on 22.22 and 24).
+  const packageDir = error.path;
   let manifest;
   try {
     manifest = JSON.parse(fs.readFileSync(path.join(packageDir, "package.json"), "utf8"));
@@ -174,22 +172,21 @@ export function recoverMissingReactNativeTarget(
   return fileExists(file) ? file : null;
 }
 
-const INSTALLED = Symbol.for("vitest-native.export-condition-recovery");
-
 export function installExportConditionRecovery() {
-  // Marked on the process, not the function: later patches of _resolveFilename
-  // (native/hooks.mjs, module-reset.mjs) wrap this one.
-  if (globalThis[INSTALLED]) return;
-  globalThis[INSTALLED] = true;
+  // The innermost resolve step (node-dispatch.mjs), right above Node: it acts only on
+  // Node's own failure.
   const conditions = cjsConditionsWithout(RN);
-  const original = Module._resolveFilename;
-  Module._resolveFilename = function (request, parent, ...rest) {
-    try {
-      return original.call(this, request, parent, ...rest);
-    } catch (error) {
-      const file = recoverMissingReactNativeTarget(request, error, conditions);
-      if (file === null) throw error;
-      return file;
-    }
-  };
+  nodeDispatch().resolve.add(
+    "recovery",
+    (next) =>
+      function (request, parent, ...rest) {
+        try {
+          return next(request, parent, ...rest);
+        } catch (error) {
+          const file = recoverMissingReactNativeTarget(request, error, conditions);
+          if (file === null) throw error;
+          return file;
+        }
+      },
+  );
 }

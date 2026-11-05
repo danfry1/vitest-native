@@ -1,10 +1,9 @@
 // Flow-strips a React Native source file via the project's React Native Babel preset
 // (babel-preset.mjs; the only transformer that lowers RN's `component` syntax). Used by
-// BOTH the loader hook (import) and the require hook, which run in separate threads:
-// each gets its own instance of this module, so the in-memory `mem` cache below is
-// per-thread (no shared mutable state to race on). The disk cache — keyed by CONTENT
-// hash + platform, in a directory versioned by preset + @babel/core versions — is the
-// layer shared across threads, workers, runs, and (because content-keyed entries
+// BOTH the loader hook (import) and the require hook, which run on the same worker
+// thread and share this module's in-memory `mem` cache. The disk cache — keyed by
+// CONTENT hash + platform, in a directory versioned by preset + @babel/core versions —
+// is the layer shared across workers, runs, and (because content-keyed entries
 // survive fresh installs and mtime normalization) CI cache restores. The path is part
 // of the key too — Babel output embeds the filename — so restores are valid wherever
 // the checkout path is stable (CI runners use a fixed workspace path).

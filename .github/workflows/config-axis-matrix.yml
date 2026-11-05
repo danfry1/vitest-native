@@ -81,9 +81,9 @@ jobs:
 
       - uses: ./.github/actions/setup
         with:
-          node-version: 22.13.0
+          node-version: 22.22.3
 
-      # Node 22.13's bundled npm 10 crashes on these dependency graphs ("Cannot read
+      # Node 22's bundled npm 10 crashes on these dependency graphs ("Cannot read
       # properties of null (reading 'edgesOut')"); the same step as ci.yml's packed cells.
       - name: Use an npm without the arborist edgesOut bug
         run: npm install -g npm@11.20.0

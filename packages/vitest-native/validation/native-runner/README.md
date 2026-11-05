@@ -11,16 +11,13 @@ This experiment combines the production native engine with Vitest's
 ```bash
 # Vitest native runner without the React Native plugin.
 vitest run --config validation/native-runner/vitest.minimal.mts
-
-# React Native/RNTL and the idiomatic workload, using an experiment-only project
-# TS/TSX/JSX loader and source resolver.
-vitest run --config validation/native-runner/vitest.load.mts
 ```
 
-`vitest.load.mts` disables Vitest's experimental Node mock loader because it does not
-currently compose with the production asynchronous React Native loader: with both
-enabled, the test entry does not execute and Vitest reports no suite. The project
-loader also preserves live RNTL CommonJS reads so `screen` follows the render result.
+A second configuration ran React Native and RNTL through an experiment-only project
+loader registered with `module.register()`, composed with the engine's asynchronous
+loader. Both loaders were removed when the engine moved to in-thread hooks
+(`module.registerHooks()`, Node 22.22.3+ / 24.12+ / 26+), so that configuration is gone;
+its measured results stay in `docs/runtime-architecture-bakeoff.md`.
 
 This route is therefore not a production candidate yet. See
 `docs/runtime-architecture-bakeoff.md` for the measured results and upstream work.

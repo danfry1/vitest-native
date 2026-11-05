@@ -94,8 +94,9 @@ describe('MyComponent', () => {
 
 ## Requirements
 
-- **Node.js** 22.13 or later on Node 22, or 24.3 or later (Node 20 reached end of life in April 2026;
-  on Node 24.0–24.2 `jest.mock` does not reach modules Node loads)
+- **Node.js** 22.22.3 or later on Node 22, 24.12 or later on Node 24, or Node 26 and later: the
+  releases where Node's in-thread module hooks work (see
+  [versioning](packages/vitest-native/docs/versioning.md#support-policy))
 - **Vitest** 4.x or 5.x (both run the full gate in CI)
 - **Vite** ^6.4.2, ^7.3.2, or ^8.0.5
 - **React** >= 18
