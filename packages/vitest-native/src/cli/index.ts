@@ -11,7 +11,39 @@ import fs from "node:fs";
 import { runDoctor } from "./doctor.js";
 import { runInit } from "./init.js";
 import { analyzeJestConfig, migrationNextStep, renderMigrationReport } from "./migrate.js";
-import { COMPARE_VALUED_FLAGS, parseCompareArgs, runCompare } from "./compare-run.js";
+import {
+  COMPARE_SWITCHES,
+  COMPARE_VALUED_FLAGS,
+  parseCompareArgs,
+  runCompare,
+} from "./compare-run.js";
+
+/** Each command's flags, besides --root <dir> and --help, which every command takes. */
+const COMMAND_FLAGS: Record<string, string[]> = {
+  init: ["--jest-compat", "--force"],
+  doctor: [],
+  migrate: ["--write", "--force"],
+  compare: [...COMPARE_VALUED_FLAGS, ...COMPARE_SWITCHES],
+};
+/** Flags whose value is the next argument (unless written as --flag=value). */
+const VALUED_FLAGS = new Set(["--root", ...COMPARE_VALUED_FLAGS]);
+
+/**
+ * The first flag `command` does not take, or null. An ignored typo (`--wirte`, `--stirct`)
+ * would run something other than what was asked, so it is refused instead. The argument
+ * after a valued flag is its value, even when it starts with "--" (`--jest-args "--ci"`).
+ */
+export function unknownFlag(command: string, args: string[]): string | null {
+  const allowed = new Set(["--root", "--help", "-h", ...(COMMAND_FLAGS[command] ?? [])]);
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (!arg.startsWith("-")) continue;
+    const name = arg.split("=")[0];
+    if (!allowed.has(name)) return name;
+    if (VALUED_FLAGS.has(name) && !arg.includes("=")) i++;
+  }
+  return null;
+}
 
 const USAGE = `vitest-native — test React Native with Vitest
 
@@ -56,6 +88,12 @@ export function main(
   }
   if (!command) {
     log(USAGE);
+    return 1;
+  }
+  const unknown = command in COMMAND_FLAGS ? unknownFlag(command, args) : null;
+  if (unknown) {
+    const valid = ["--root", "--help", ...COMMAND_FLAGS[command]];
+    log(`✗ unknown option ${unknown} for ${command}. Valid: ${valid.join(", ")}.`);
     return 1;
   }
   if (!fs.existsSync(path.join(root, "package.json"))) {

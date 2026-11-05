@@ -501,6 +501,18 @@ describe("compare: snapshots are never written", () => {
     }
   });
 
+  it("refuses an unknown option instead of ignoring it", () => {
+    const parsed = parseCompareArgs(["--stirct"]);
+    expect(parsed).toEqual({
+      error: expect.stringContaining("unknown option --stirct for compare"),
+    });
+    expect((parsed as { error: string }).error).toContain("--strict");
+    expect(parseCompareArgs(["--strict", "--jest-args", "--runInBand"])).toMatchObject({
+      strict: true,
+      jestArgs: ["--runInBand"],
+    });
+  });
+
   it("forwards the test script's flags migrate maps, --silent included", () => {
     const root = scratchProject({
       files: {

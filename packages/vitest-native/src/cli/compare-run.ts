@@ -210,6 +210,9 @@ const VALUED = [
   "timeout",
 ];
 export const COMPARE_VALUED_FLAGS = VALUED.map((f) => `--${f}`);
+/** compare's switches (no value). */
+const SWITCHES = ["show-output", "strict"];
+export const COMPARE_SWITCHES = SWITCHES.map((f) => `--${f}`);
 
 /** `compare`'s options from argv (after the command), or an error to print. */
 export function parseCompareArgs(argv: string[]): Omit<CompareOptions, "log"> | { error: string } {
@@ -223,8 +226,16 @@ export function parseCompareArgs(argv: string[]): Omit<CompareOptions, "log"> | 
       const value = inline ?? argv[++i];
       if (value === undefined) return { error: `--${name} needs a value.` };
       values.set(name, value);
-    } else {
+    } else if (SWITCHES.includes(name) || name === "help") {
       flags.add(name);
+    } else {
+      // A typo such as --stirct must not run a different comparison than the one asked for.
+      return {
+        error:
+          `unknown option --${name} for compare. Valid: ` +
+          [...COMPARE_VALUED_FLAGS, ...COMPARE_SWITCHES, "--help"].join(", ") +
+          ".",
+      };
     }
   }
   const jestArgs = splitArgs(values.get("jest-args") ?? "");
