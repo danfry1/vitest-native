@@ -131,7 +131,7 @@ This is the direct replacement for having listed the lib in `transformIgnorePatt
 
 ### Babel plugins your Jest run applied
 
-Under Jest, babel-jest ran your `babel.config.js` on every file. vitest-native applies it only to project TypeScript files Node loads (through `require()` or `jest.requireActual`): the files your tests `import` go through Vite's transform, and React Native's own code through RN's Babel preset. Most plugins in a React Native Babel config exist for Metro and are not missed, but a few change what the code means. `vitest-native migrate` and `doctor` read the config and sort its plugins:
+Under Jest, babel-jest ran your `babel.config.js` on every file. Under the native engine, vitest-native applies it only to project TypeScript files Node loads (through `require()` or `jest.requireActual`): the files your tests `import` go through Vite's transform, and React Native's own code through RN's Babel preset. Most plugins in a React Native Babel config exist for Metro and are not missed, but a few change what the code means. `vitest-native migrate` and `doctor` read the config and sort its plugins:
 
 | Plugin | Under vitest-native |
 |---|---|

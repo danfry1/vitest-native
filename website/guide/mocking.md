@@ -27,7 +27,7 @@ Under the native engine this does **not** swap React Native for a mock: React Na
 
 ## What `vi.mock` reaches
 
-Under the **mock engine** everything loads through Vite, so `vi.mock` works as in any Vitest project.
+Under the **mock engine**, React Native is a set of modules Vite serves, so `vi.mock` works as in any Vitest project.
 
 Under the **native engine**, React Native and third-party React Native packages are loaded by Node rather than Vite. That decides what a `vi.mock` call can see:
 
@@ -37,7 +37,7 @@ Under the **native engine**, React Native and third-party React Native packages 
 | `react-native` | Yes | No: a library's own `require('react-native')` gets the real one |
 | A third-party package | Yes | No: another library's own `require` of it gets the real one |
 
-So `vi.mock('rn-library')` replaces what your code imports from `rn-library`, and a library that depends on `rn-library` keeps the real one. The package's own test, `tests-native/ecosystem-inline.test.tsx`, checks both halves. Where the code under test reaches a module only through a library, mock below it: a [preset](/guide/presets), a [native module](/guide/helpers#mocknativemodule-name-impl), or the test on the mock engine.
+So `vi.mock('rn-library')` replaces what your code imports from `rn-library`, and a library that depends on `rn-library` keeps the real one. The package's own test, `tests-native/ecosystem-inline.test.tsx`, checks this for `react-native`. Where the code under test reaches a module only through a library, mock below it: a [preset](/guide/presets), a [native module](/guide/helpers#mocknativemodule-name-impl), or the test on the mock engine.
 
 ### Overriding a preset
 
@@ -51,7 +51,7 @@ vi.mock('@react-navigation/native', async (importOriginal) => ({
 }))
 ```
 
-For one-off changes, [`extendPresetMock`](/guide/helpers#extendpresetmock-pkg-overrides) is lighter. To run the real library instead, turn the preset off: `reactNative({ presets: { navigation: false } })`.
+A `vi.mock` override changes what your test and app code import; libraries still get the preset's own mock. To change the preset for libraries too, use [`extendPresetMock`](/guide/helpers#extendpresetmock-pkg-overrides), which edits the mock they all share. To run the real library instead, turn the preset off: `reactNative({ presets: { navigation: false } })`.
 
 ## Packages that ship untranspiled source
 
@@ -66,13 +66,13 @@ Most of the React Native ecosystem publishes JSX, Flow or TypeScript and leaves 
   reactNative({ transform: { include: ['some-untranspiled-lib'] } })
   ```
 
-- **`transform.exclude` when the detection guesses wrong.** A package listed here is never compiled, whatever selected it: detection, another package's dependencies, or the engine's built-in lists. Use it when compiling a package fails, typically a build tool that loads Babel itself:
+- **`transform.exclude` when the detection guesses wrong.** A package listed here is never compiled, whatever selected it: detection, another package's dependencies, or `transform.include`. Use it when compiling a package fails, typically a build tool that loads Babel itself:
 
   ```ts
   reactNative({ transform: { exclude: ['some-build-tool'] } })
   ```
 
-To see what was selected, run with `reactNative({ diagnostics: true })`: the `Node / native transform` line lists every package the engine compiles.
+To see what was selected, run with `reactNative({ diagnostics: true })`: the `ownership: Node / native transform` line lists the packages compiled besides React Native.
 
 Packages a preset replaces are never compiled (their real source never loads), and neither is the test infrastructure (`@testing-library/react-native` and the renderers).
 
@@ -83,9 +83,9 @@ React Native Testing Library's `waitFor`, `findBy*` and `userEvent` delays advan
 - **Native engine:** vitest-native gives RNTL a `jest` backed by `vi`, so `vi.useFakeTimers()` works with `waitFor`, `findBy*` and `userEvent` as it does under Jest. Nothing to configure.
 - **Mock engine:** RNTL sees no `jest` unless you use the [jest-compat layer](/guide/jest-compat). Without it, `waitFor` and `findBy*` wait in real time while the fake clock stands still, and time out. Add jest-compat, or advance the clock yourself before querying: `await vi.advanceTimersByTimeAsync(ms)`, or `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })` for user events.
 
-Two details hold under both engines:
+Two more details:
 
-- When RNTL loads while fake timers are on (a setup file turned them on), it switches to real timers and back to capture the real ones. That reinstalls fake timers with the project's `test.fakeTimers` config and drops per-call options, as under Jest. Set options in `test.fakeTimers` or in a `beforeEach` rather than in a setup file's top level.
+- Under the native engine, and under the mock engine with jest-compat: when RNTL loads while fake timers are on (a setup file turned them on), it switches to real timers and back. Fake timers come back with the project's `test.fakeTimers` config; per-call options, the system time and pending timers are lost, as under Jest. Set options in `test.fakeTimers` or in a `beforeEach`.
 - `jest.useFakeTimers(options)` under jest-compat takes Jest's options; see [fake timers in jest-compat](/guide/jest-compat#fake-timers).
 
 The hot runtime has [two more differences](/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files) around fake timers.
