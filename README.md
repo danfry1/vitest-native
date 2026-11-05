@@ -7,7 +7,7 @@
 **Test React Native with Vitest, against real React Native.**
 
 vitest-native is a Vitest plugin. Your tests run React Native's real JavaScript, the same code
-that ships in your app, and only the native modules and the native component registry are mocked.
+that ships in your app, and only the native modules and native host components are mocked.
 It works the same for bare React Native and Expo apps.
 
 **📖 Documentation: [danfry1.github.io/vitest-native](https://danfry1.github.io/vitest-native/)**
@@ -24,7 +24,7 @@ mock boundary sits lower, so your tests run React Native's real component code.
 | Native modules and host components | Mocked | Mocked |
 | Rendered host names | `View`, `Text` | `RCTView`, `RCTText` |
 
-A fast pure-JS mock engine is also available (`engine: 'mock'`) for tests that need no React
+A lightweight pure-JS mock engine is also available (`engine: 'mock'`) for tests that need no React
 Native at all. See the [comparison with Jest](https://danfry1.github.io/vitest-native/guide/comparison) and
 [choosing an engine](https://danfry1.github.io/vitest-native/guide/engines).
 
@@ -44,8 +44,7 @@ Migrating a large Jest suite is incremental, not turnkey.
   Native, across every React Native version CI supports, and any difference fails the build. The
   badge above shows the current count; the [fidelity report](https://danfry1.github.io/vitest-native/guide/fidelity) lists every probe.
 - **Packed consumers in CI.** The release tarball is installed into bare React Native, Expo SDK 57
-  and 58 apps (with expo-router), and npm and pnpm workspace monorepos, and their tests run on every
-  change.
+  and 58 apps (with expo-router), and npm and pnpm workspace monorepos, and their tests run in CI.
 - **Real apps, as observations.** Public apps are run in the
   [bake-offs repository](https://github.com/danfry1/vitest-native-bakeoffs), with each app's setup
   in the repository. Their results are not capability claims; see the
@@ -62,10 +61,10 @@ npm install -D vitest vite vitest-native @testing-library/react-native
 
 `vitest` and `vite` are peer dependencies, and `@testing-library/react-native` is optional. React
 Native and Expo apps already have the Babel packages the default engine uses.
-`npx vitest-native init` writes this config (as `vitest.config.mts`), or add it yourself:
+`npx vitest-native init` writes this config (as `vitest.config.mts` in a TypeScript project), or add it yourself:
 
 ```ts
-// vitest.config.ts
+// vitest.config.mts
 import { defineConfig } from "vitest/config";
 import { reactNative } from "vitest-native";
 
@@ -109,6 +108,10 @@ through the jest-compat layer. See [migrating from Jest](https://danfry1.github.
 | React Native | 0.81–0.88 |
 | Expo SDK | 57 and 58 |
 | React Native Testing Library | 12.x, 13.x or 14.x (optional) |
+
+Use the React version your React Native release requires, and a `@react-native/babel-preset`
+that matches its minor version. Node 24.0–24.2 are excluded because `jest.mock` does not reach
+modules Node loads there.
 
 ## Learn more
 

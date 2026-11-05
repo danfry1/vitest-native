@@ -83,14 +83,25 @@ reactNative({
 `mocks` merges overrides into the mock's export table, so it only applies with `engine: 'mock'` — the native engine runs the real `react-native` module and throws a configuration error if `mocks` is set. Use `vi.mock()` in a setup file or [`mockNativeModule`](/guide/helpers#mocknativemodule-name-impl) instead.
 :::
 
-Custom mock overrides, keyed by export name. Useful for the handful of [unstable/private RN exports](/api/coverage#not-covered) that aren't mocked:
+Overrides for the mock's `react-native` exports, keyed by export name. Each value replaces that export whole, so an object you pass is the entire export, not a partial update. Values must be JSON-serializable (strings, numbers, booleans, plain objects, arrays), because they are passed to the test workers; a function value, such as a component, fails with `INVALID_OPTION`:
 
 ```ts
 reactNative({
+  engine: 'mock',
   mocks: {
-    unstable_NativeText: MyCustomMock,
+    ReactNativeVersion: { major: 0, minor: 86, patch: 0 },
   },
 })
+```
+
+To supply a component or function, such as one of the handful of [unstable/private RN exports](/api/coverage#not-covered) the mock does not provide, use `vi.mock` in a setup file instead:
+
+```ts
+// vitest.setup.ts
+vi.mock('react-native', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-native')>()),
+  unstable_NativeText: MyCustomMock,
+}))
 ```
 
 ## `assetExts`

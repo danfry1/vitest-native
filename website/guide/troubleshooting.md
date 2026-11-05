@@ -27,7 +27,7 @@ If you call `useColorScheme` or `useWindowDimensions` directly outside a compone
 
 ## `vi.mock` of an RN-side library isn't taking effect
 
-Under `engine: 'native'`, libraries that load through Node (not your Vite source graph) bypass Vitest's mocker. Prefer a [preset](/guide/presets) if one exists, or mock at the native boundary. Your _own_ modules mock normally. See [How It Works](/guide/how-it-works#a-consequence-worth-knowing).
+Under `engine: 'native'`, React Native and third-party React Native packages load through Node. `vi.mock` applies to what your test and app source import, but not to `require()` calls inside a Node-loaded library: a library's own import of a mocked package still gets the real one. Prefer a [preset](/guide/presets) if one exists, mock at the native boundary with [`mockNativeModule`](/guide/helpers#mocknativemodule-name-impl), or test that boundary on the mock engine. See [React Native packages in `node_modules`](/guide/how-it-works#react-native-packages-in-node-modules).
 
 ## A third-party library ships untranspiled source and fails to parse
 

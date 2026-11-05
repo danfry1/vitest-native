@@ -84,9 +84,15 @@ vi.mock('react-native', async (importOriginal) => ({
 }))
 ```
 
-Under `engine: 'native'` this does **not** swap React Native for a mock: React Native still runs for real in Node, and your test and app code get a module that re-exports that same instance with your replacements on top. `Platform.OS` is still real, `<View>` still renders `RCTView`, and only the exports you replaced are yours. The replacement covers your project's own code; a third-party package loaded by Node gets the unmocked React Native through its own `require`.
+Under `engine: 'native'` this does **not** swap React Native for a mock: React Native still runs for real in Node, and your test and app code get a module that re-exports that same instance with your replacements on top. `Platform.OS` is still real, `<View>` still renders `RCTView`, and only the exports you replaced are yours. The replacement covers your project's own code; any third-party package gets the unmocked React Native through its own `require`.
 
 For native modules specifically, prefer [`mockNativeModule()`](/guide/helpers#mocknativemodule-name-impl): it drives the same boundary the engine already mocks, under both engines.
+
+### React Native packages in `node_modules`
+
+Most of the React Native ecosystem publishes untranspiled source (JSX, Flow or TypeScript) on the assumption that Metro will compile it, which Node cannot run. Under other runners that means growing a `transformIgnorePatterns` allowlist one `SyntaxError: Unexpected token '<'` at a time. The native engine detects these packages instead: packages your project depends on that declare `react-native` as a dependency or peer dependency, and their runtime dependencies, are compiled with your project's React Native Babel preset as Node loads them. Nothing to configure. Packages a [preset](/guide/presets) replaces are skipped (their real source never loads), and so is the test infrastructure itself (`@testing-library/react-native` and the renderers, where a second copy breaks rendering). For a package the detection misses, list it in [`transform`](/guide/plugin-options#transform).
+
+These packages are loaded by Node, so `vi.mock('the-package')` applies to what your test and app code import, but not to a `require()` inside another Node-loaded library: a library's own import of a mocked package still gets the real one. Platform-specific files resolve the way Metro resolves them for these packages too (`@react-navigation`'s `useLinking.native.js`, for example), not only for your own code.
 
 ### Package entry points
 

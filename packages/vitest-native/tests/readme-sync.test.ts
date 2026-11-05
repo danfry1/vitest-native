@@ -19,12 +19,15 @@ const CONTRIBUTORS = /<!-- contributors:start -->[\s\S]*?<!-- contributors:end -
 const outsideContributors = (file: string) =>
   fs.readFileSync(file, "utf8").replace(CONTRIBUTORS, "<!-- contributors -->");
 
+// The rows of the first table under "## Requirements", up to the next heading.
 function requirementRows(file: string): Map<string, string> {
   const text = fs.readFileSync(file, "utf8");
-  const section = text.slice(text.indexOf("## Requirements"), text.indexOf("## Learn more"));
+  const from = text.indexOf("## Requirements");
+  const to = text.indexOf("\n## ", from + 1);
+  const section = text.slice(from, to === -1 ? undefined : to);
   return new Map(
-    [...section.matchAll(/^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|$/gm)]
-      .filter(([, name]) => name !== "" && !/^-+$/.test(name))
+    [...section.matchAll(/^\|\s*([^|]*?)\s*\|\s*([^|]+?)\s*\|$/gm)]
+      .filter(([, name, value]) => name !== "" && !/^-+$/.test(name) && !/^-+$/.test(value))
       .map(([, name, value]) => [name, value]),
   );
 }
@@ -43,26 +46,38 @@ describe("README.md", () => {
     expect(outsideContributors(PACKAGE_README)).toBe(outsideContributors(ROOT_README));
   });
 
-  it("states the supported versions the plugin and CI use", () => {
-    const rows = requirementRows(PACKAGE_README);
+  // "22.13.0" is written "22.13", "22.22.3" as is.
+  const shortVersion = (version: string) => version.replace(/\.0$/, "");
+
+  function expectedRequirements(): Map<string, string> {
     const manifest = JSON.parse(fs.readFileSync(path.join(packageRoot, "package.json"), "utf8"));
     const { rn } = JSON.parse(
       fs.readFileSync(path.join(repoRoot, ".github", "rn-matrix.json"), "utf8"),
     );
-    const [node22, node24] = (manifest.engines.node as string)
-      .split("||")
-      .map((range) => range.trim().match(/>=(\d+\.\d+)/)![1]);
+    const nodeRanges = (manifest.engines.node as string).split("||").map((range) => range.trim());
+    // The row's sentence has one floor per Node line; a third range needs a new sentence.
+    expect(nodeRanges, "engines.node").toHaveLength(2);
+    const [node22, node24] = nodeRanges.map((range) => shortVersion(range.match(/>=(\S+)/)![1]));
+    return new Map([
+      ["Node.js", `${node22}+ on Node 22, or ${node24}+`],
+      ["Vitest", list(majors("vitest"))],
+      ["Vite", list(Object.values(peer("vite").minimumByMajor!).map((v) => `^${v}`))],
+      ["React", `${peer("react").minimum.split(".")[0]} or later`],
+      ["React Native", `${rn[0]}–${rn.at(-1)}`],
+      ["Expo SDK", expoSdkList("and", SUPPORTED_EXPO_SDKS)],
+      [
+        "React Native Testing Library",
+        `${list(majors("@testing-library/react-native"))} (optional)`,
+      ],
+    ]);
+  }
 
-    expect(rows.get("Node.js")).toBe(`${node22}+ on Node 22, or ${node24}+`);
-    expect(rows.get("Vitest")).toBe(list(majors("vitest")));
-    expect(rows.get("Vite")).toBe(
-      list(Object.values(peer("vite").minimumByMajor!).map((v) => `^${v}`)),
-    );
-    expect(rows.get("React")).toBe(`${peer("react").minimum.split(".")[0]} or later`);
-    expect(rows.get("React Native")).toBe(`${rn[0]}–${rn.at(-1)}`);
-    expect(rows.get("Expo SDK")).toBe(expoSdkList("and", SUPPORTED_EXPO_SDKS));
-    expect(rows.get("React Native Testing Library")).toBe(
-      `${list(majors("@testing-library/react-native"))} (optional)`,
+  it.each([
+    ["README.md", PACKAGE_README],
+    ["website/guide/install.md", path.join(repoRoot, "website/guide/install.md")],
+  ])("%s states the supported versions the plugin and CI use", (_name, file) => {
+    expect(Object.fromEntries(requirementRows(file))).toEqual(
+      Object.fromEntries(expectedRequirements()),
     );
   });
 });

@@ -42,12 +42,12 @@ The following **unstable / experimental / private** exports are intentionally no
 | `unstable_VirtualView` | Private experimental component |
 | `VirtualViewMode` | Private experimental enum |
 
-If your code imports any of these, provide a custom mock via the [`mocks` option](/guide/plugin-options#mocks):
+If your code imports any of these, provide one with `vi.mock` in a setup file:
 
 ```ts
-reactNative({
-  mocks: {
-    unstable_NativeText: MyCustomMock,
-  },
-})
+// vitest.setup.ts
+vi.mock('react-native', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-native')>()),
+  unstable_NativeText: MyCustomMock,
+}))
 ```
