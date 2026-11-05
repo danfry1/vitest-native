@@ -1008,7 +1008,12 @@ function installLoadHook(state) {
   const jestMockForImport = (entry, id, parent) => {
     const imported = worker()?.evaluatedModules?.getModuleById?.(`mock:${id}`)?.exports;
     if (imported != null) return imported;
-    const value = state.valueForImport(entry);
+    // The bridge evaluates synchronously, so it takes the factory as Node's require does
+    // (valueOf): jestMockTransform's original, synchronous one, whose jest.requireActual
+    // is synchronous, as under Jest. The value is memoized, so Vite's import of the module
+    // later gets the same object. Only a factory the author wrote async, or one Vite has
+    // already started, has no synchronous value yet.
+    const value = entry.has ? entry.value : (entry.pending ?? state.valueOf(entry));
     if (Object.prototype.toString.call(value) === "[object Promise]") {
       throw mockNotSeenByNode(id, parent, FACTORY_NOT_SETTLED);
     }
