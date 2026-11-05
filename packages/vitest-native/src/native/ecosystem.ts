@@ -366,7 +366,12 @@ export interface ReachedPackages {
    * field everywhere, as Metro does, so a declared package whose field names source plain
    * JavaScript cannot run (JSX, Flow) is compiled too, rather than loaded raw.
    */
-  compileReactNativeFieldSource?: { platform: string; sourceExts: readonly string[] };
+  compileReactNativeFieldSource?: {
+    platform: string;
+    sourceExts: readonly string[];
+    /** Packages the shared resolver sends to `main` (ownJestSupport): their field is not read. */
+    resolvedToMain?: readonly string[];
+  };
   /**
    * Absolute paths the run imports outside its own package without declaring them as
    * dependencies: the targets of `resolve.alias` entries. A workspace member containing
@@ -878,6 +883,7 @@ export function detectEcosystemPackages(
     // stays Vite's, so vi.mock reaches its imports (#427).
     for (const name of projectDeclared) {
       if (inClosure.has(name) || excluded(name) || ownsTheRun(name)) continue;
+      if (compileReactNativeFieldSource.resolvedToMain?.includes(name)) continue;
       const installed = installedOf(name);
       if (!installed || !NODE_MODULES_DIR.test(installed.dir)) continue;
       if (installed.manifest.exports != null) continue;

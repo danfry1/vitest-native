@@ -2368,6 +2368,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // The Jest setup files of installed libraries whose preset steps aside here and
         // that run as themselves (LIBRARY_SETUP_FILES), for the native setup file to
         // run ahead of the project's own.
+        let ownJestSupport: string[] = [];
         if (!selection.listed) {
           const librarySetupFiles = autoDetectPresetNames(resolvedRoot, diagnostics)
             .filter((n) => !disabledNative.has(n) && !nativePresetNames.includes(n))
@@ -2376,6 +2377,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           if (librarySetupFiles.length > 0) {
             fields.librarySetupFiles = librarySetupFiles;
           }
+          // experimental.ownershipModel: these libraries run as themselves under their own
+          // Jest support, so both module systems resolve them as Jest does, to `main`
+          // (decision (d)): one file, the one their Jest setup and test utilities load.
+          ownJestSupport = librarySetupFiles.map((request) => packageNameOf(request));
+          const pending = pendingResolverInputs.get(directoryKey(resolvedRoot));
+          if (pending && ownJestSupport.length > 0) pending.ownJestSupport = ownJestSupport;
         }
         if (selection.modulePaths.length > 0) {
           fields.presetModules = selection.modulePaths;
@@ -2440,7 +2447,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           memoizePackageDirOf(dependencyDirOf),
           {
             compileReactNativeFieldSource:
-              ownershipModel && engine === "native" ? { platform, sourceExts } : undefined,
+              ownershipModel && engine === "native"
+                ? { platform, sourceExts, resolvedToMain: ownJestSupport }
+                : undefined,
             reachedPaths: aliasTargets,
             onReachedUndeclared: (name, dir) => {
               if (diagnostics) {
