@@ -39,10 +39,17 @@ export function createStateManifest({ diagnostics = false, mutation = null } = {
         "state manifest entries require a non-empty string id",
       );
     }
-    if (typeof entry.capture !== "function" || typeof entry.restore !== "function") {
+    // verify() is what makes a restore observable: without it, a restore that stops
+    // working is reported, if at all, by whichever test later trips over the state,
+    // and the state-manifest mutation gate cannot tell that from any other failure.
+    if (
+      typeof entry.capture !== "function" ||
+      typeof entry.restore !== "function" ||
+      typeof entry.verify !== "function"
+    ) {
       throw new VitestNativeTypeError(
         "INVALID_OPTION",
-        `state manifest entry '${entry.id}' requires capture() and restore()`,
+        `state manifest entry '${entry.id}' requires capture(), restore() and verify()`,
       );
     }
     // Setup files re-evaluate per file. Their registration is intentionally
@@ -90,12 +97,10 @@ export function createStateManifest({ diagnostics = false, mutation = null } = {
     // inline would miss damage caused by a later entry.
     for (const record of ordered) {
       const { entry, snapshot } = record;
-      if (typeof entry.verify === "function") {
-        try {
-          entry.verify(snapshot);
-        } catch (error) {
-          failures.push(`${entry.id} verify: ${messageOf(error)}`);
-        }
+      try {
+        entry.verify(snapshot);
+      } catch (error) {
+        failures.push(`${entry.id} verify: ${messageOf(error)}`);
       }
     }
     if (failures.length > 0) {

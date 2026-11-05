@@ -2,6 +2,7 @@
 // native-boundary modules are mocked. The companion loader.mjs handles the import() path.
 import Module from "node:module";
 import { projectContext } from "../context.mjs";
+import { VitestNativeError } from "../errors.mjs";
 import path from "node:path";
 import fs from "node:fs";
 import { heldTransform, transformRN, isFlow, needsTransform } from "./transform.mjs";
@@ -134,6 +135,16 @@ const checkedExpoDirs = new Set();
 /** Forget which copies this file was warned about; their versions stay read. */
 export function resetExpoSdkWarnings() {
   checkedExpoDirs.clear();
+}
+
+/** The hot runtime's check that resetExpoSdkWarnings ran: no copy is still marked warned. */
+export function verifyExpoSdkWarningsReset() {
+  if (checkedExpoDirs.size > 0) {
+    throw new VitestNativeError(
+      "HOT_STATE_RESTORE_FAILED",
+      `${checkedExpoDirs.size} Expo copies are still marked as warned about`,
+    );
+  }
 }
 
 /** Test seam. */
