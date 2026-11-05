@@ -38,6 +38,13 @@ export declare function exportTarget(
   conditions: readonly string[],
 ): string | null;
 
+/** A main field's file as the resolver completes it (platform files, `sourceExts`, `index`), or null. */
+export declare function mainFieldFile(
+  target: string,
+  platform: string,
+  sourceExts: readonly string[],
+): string | null;
+
 /** The context's resolver inputs, checked; null with the flag off; throws when they are missing. */
 export declare function ownershipResolverInputs(
   context:

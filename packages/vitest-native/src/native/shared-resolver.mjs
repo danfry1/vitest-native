@@ -162,6 +162,24 @@ export function exportTarget(exportsField, subpath, conditions) {
  *   tsconfig `paths` (the `exact` and `prefix` entries) Vite applies only after, so they
  *   still apply.
  */
+/**
+ * A main field's file, completed the way Node completes `main`, with Metro's platform
+ * and source extensions. The resolver's choice, and what detection reads to decide
+ * whether that file needs compiling (ecosystem.ts).
+ *
+ * @param {string} target  the field's value, resolved against the package directory
+ * @param {string} platform
+ * @param {readonly string[]} sourceExts
+ * @returns {string | null}
+ */
+export function mainFieldFile(target, platform, sourceExts) {
+  if (fs.statSync(target, { throwIfNoEntry: false })?.isFile()) return target;
+  return (
+    resolvePlatformFile(target, platform, sourceExts) ??
+    resolvePlatformFile(path.join(target, "index"), platform, sourceExts)
+  );
+}
+
 export function createSharedResolver(
   inputs,
   { realm = "unknown", memo: useMemo = true, shadowFile = null, viteAliasesApplied = false } = {},
@@ -222,14 +240,7 @@ export function createSharedResolver(
     return { dir, manifest };
   }
 
-  /** A main field's file, completed the way Node completes `main`. */
-  function fieldFile(target) {
-    if (fs.statSync(target, { throwIfNoEntry: false })?.isFile()) return target;
-    return (
-      resolvePlatformFile(target, platform, sourceExts) ??
-      resolvePlatformFile(path.join(target, "index"), platform, sourceExts)
-    );
-  }
+  const fieldFile = (target) => mainFieldFile(target, platform, sourceExts);
 
   /**
    * The real path of the file `request` from `parentFile` loads, or null to let the

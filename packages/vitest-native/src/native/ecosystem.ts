@@ -3,6 +3,7 @@ import path from "node:path";
 import { babelParser, isPlainJavaScript } from "../cli/untranspiled.js";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
 import { containsPath, dependencyDirOf, type PackageDirOf } from "./match.mjs";
+import { mainFieldFile } from "./shared-resolver.mjs";
 
 /** A path inside a node_modules directory: an installed package's, not a workspace member's. */
 const NODE_MODULES_DIR = /[\\/]node_modules[\\/]/;
@@ -73,25 +74,11 @@ function publishesOnlyEsm(manifest: Record<string, unknown>): boolean {
   return manifest.type === "module" && !hasReactNativeBuild(manifest);
 }
 
-const PLAIN_SOURCE = [".js", ".jsx", ".mjs", ".cjs"];
-
 /**
- * Whether the file a `react-native` field names is source plain JavaScript cannot run
- * (JSX, Flow), by the same evidence `migrate` uses (untranspiled.ts). TypeScript is not:
- * the require hooks load it as it is. A field that names no file, or a project without
- * Babel's parser, gives no evidence.
+ * Extensions of a `react-native` field's file that plain JavaScript must parse.
+ * TypeScript is not among them: the require hooks load it as it is.
  */
-function fieldSourceNeedsCompiling(target: string, projectRoot: string): boolean {
-  const isFile = (file: string) => fs.statSync(file, { throwIfNoEntry: false })?.isFile() === true;
-  const file = [
-    target,
-    ...PLAIN_SOURCE.map((ext) => target + ext),
-    ...PLAIN_SOURCE.map((ext) => path.join(target, `index${ext}`)),
-  ].find((candidate) => PLAIN_SOURCE.includes(path.extname(candidate)) && isFile(candidate));
-  if (!file) return false;
-  const parse = babelParser(projectRoot);
-  return parse !== null && !isPlainJavaScript(parse, file);
-}
+const PLAIN_SOURCE = [".js", ".jsx", ".mjs", ".cjs"];
 
 /** Manifest fields that make a package part of the React Native ecosystem. */
 function dependsOnReactNative(manifest: Record<string, unknown>): boolean {
@@ -213,7 +200,7 @@ export interface ReachedPackages {
    * field everywhere, as Metro does, so a declared package whose field names source plain
    * JavaScript cannot run (JSX, Flow) is compiled too, rather than loaded raw.
    */
-  compileReactNativeFieldSource?: boolean;
+  compileReactNativeFieldSource?: { platform: string; sourceExts: readonly string[] };
   /**
    * Absolute paths the run imports outside its own package without declaring them as
    * dependencies: the targets of `resolve.alias` entries. A workspace member containing
@@ -261,11 +248,7 @@ export function detectEcosystemPackages(
   neverTransform: string[] = [],
   activePresets?: readonly string[],
   dirOf: PackageDirOf = dependencyDirOf,
-  {
-    reachedPaths = [],
-    onReachedUndeclared,
-    compileReactNativeFieldSource = false,
-  }: ReachedPackages = {},
+  { reachedPaths = [], onReachedUndeclared, compileReactNativeFieldSource }: ReachedPackages = {},
 ): string[] {
   // More than one root because `manifestsFrom` only walks UP. In a workspace the
   // run root is often above the package under test — Nx invokes tasks from the
@@ -702,13 +685,29 @@ export function detectEcosystemPackages(
   // A package compiling cannot fix still fails by name when Node loads it
   // (explainUntransformedSyntaxError).
   if (compileReactNativeFieldSource) {
-    for (const name of candidates) {
+    let parse: ReturnType<typeof babelParser> | false | undefined;
+    // The project's own declarations only, as the closure seeds: a package only a sibling
+    // declares is that sibling's business. Installed packages only: a workspace member
+    // stays Vite's, so vi.mock reaches its imports (#427).
+    for (const name of projectDeclared) {
       if (inClosure.has(name) || excluded(name) || ownsTheRun(name)) continue;
       const installed = installedOf(name);
-      if (!installed || installed.manifest.exports != null) continue;
+      if (!installed || !NODE_MODULES_DIR.test(installed.dir)) continue;
+      if (installed.manifest.exports != null) continue;
       const field = installed.manifest["react-native"];
       if (typeof field !== "string") continue;
-      if (fieldSourceNeedsCompiling(path.resolve(installed.dir, field), roots[0])) {
+      const file = mainFieldFile(
+        path.resolve(installed.dir, field),
+        compileReactNativeFieldSource.platform,
+        compileReactNativeFieldSource.sourceExts,
+      );
+      parse ??= babelParser(roots[0]) ?? false;
+      if (
+        file &&
+        PLAIN_SOURCE.includes(path.extname(file)) &&
+        parse &&
+        !isPlainJavaScript(parse, file)
+      ) {
         inClosure.add(name);
       }
     }

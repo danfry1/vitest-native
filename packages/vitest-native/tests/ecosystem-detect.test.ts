@@ -159,13 +159,21 @@ describe("detectEcosystemPackages with compileReactNativeFieldSource", () => {
       // No react-native dependency: nothing else selects it.
       { "field-pkg": { "react-native": file, ...fields } },
     );
-    fs.writeFileSync(path.join(dir, "node_modules", "field-pkg", file), source);
-    fs.mkdirSync(path.join(dir, "node_modules", "@babel"), { recursive: true });
-    fs.symlinkSync(babelCore, path.join(dir, "node_modules", "@babel", "core"), "junction");
+    const target = path.join(dir, "node_modules", "field-pkg", file);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, source);
+    linkBabel(dir);
     return dir;
   }
-  const detect = (dir: string, on = true) =>
-    detectEcosystemPackages(dir, [], [], [], [], undefined, { compileReactNativeFieldSource: on });
+  const profile = { platform: "ios", sourceExts: ["js", "jsx", "json", "ts", "tsx"] };
+  const detect = (dir: string | string[], on = true, sourceExts = profile.sourceExts) =>
+    detectEcosystemPackages(dir, [], [], [], [], undefined, {
+      compileReactNativeFieldSource: on ? { ...profile, sourceExts } : undefined,
+    });
+  const linkBabel = (dir: string) => {
+    fs.mkdirSync(path.join(dir, "node_modules", "@babel"), { recursive: true });
+    fs.symlinkSync(babelCore, path.join(dir, "node_modules", "@babel", "core"), "junction");
+  };
 
   it("compiles a package whose react-native field names JSX", () => {
     const dir = fieldProject("src.js", "export const A = () => <View />;\n");
@@ -195,6 +203,73 @@ describe("detectEcosystemPackages with compileReactNativeFieldSource", () => {
       exports: { ".": "./index.js" },
     });
     expect(detect(dir)).toEqual([]);
+  });
+
+  // The file is the shared resolver's own choice (mainFieldFile): platform files and
+  // Metro's sourceExts order, not a fixed extension list.
+  it("reads the platform file the resolver picks", () => {
+    const dir = fieldProject("src/index.native.js", "export const A = () => <View />;\n", {
+      "react-native": "src/index",
+    });
+    expect(detect(dir)).toEqual(["field-pkg"]);
+  });
+
+  it("reads the file Metro's sourceExts order picks", () => {
+    // JSX in the .js, TypeScript first in sourceExts: the resolver loads the .ts.
+    const dir = fieldProject("src/index.js", "export const A = () => <View />;\n", {
+      "react-native": "src/index",
+    });
+    fs.writeFileSync(
+      path.join(dir, "node_modules", "field-pkg", "src", "index.ts"),
+      "export const a = 1;\n",
+    );
+    expect(detect(dir)).toEqual(["field-pkg"]);
+    expect(detect(dir, true, ["ts", "tsx", "js", "jsx", "json"])).toEqual([]);
+  });
+
+  /** A workspace: the app declares a member (linked), a sibling declares an installed package. */
+  function workspace(): string {
+    const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-eco-ws-"));
+    const write = (file: string, content: unknown) => {
+      fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      fs.writeFileSync(
+        path.join(root, file),
+        typeof content === "string" ? content : JSON.stringify(content),
+      );
+    };
+    const jsx = "export const A = () => <View />;\n";
+    write("package.json", { name: "root", private: true, workspaces: ["app", "libs/*"] });
+    write("app/package.json", { name: "app", dependencies: { "@w/ui": "*" } });
+    write("libs/ui/package.json", {
+      name: "@w/ui",
+      version: "1.0.0",
+      "react-native": "src/index.js",
+    });
+    write("libs/ui/src/index.js", jsx);
+    write("libs/other/package.json", { name: "@w/other", dependencies: { sib: "1" } });
+    write("node_modules/sib/package.json", {
+      name: "sib",
+      version: "1.0.0",
+      "react-native": "src/index.js",
+    });
+    write("node_modules/sib/src/index.js", jsx);
+    fs.mkdirSync(path.join(root, "node_modules", "@w"), { recursive: true });
+    fs.symlinkSync(
+      path.join(root, "libs", "ui"),
+      path.join(root, "node_modules", "@w", "ui"),
+      "junction",
+    );
+    linkBabel(root);
+    return root;
+  }
+
+  it("leaves a workspace member to Vite, so vi.mock reaches its imports", () => {
+    expect(detect(path.join(workspace(), "app"))).toEqual([]);
+  });
+
+  it("leaves a package only a sibling declares", () => {
+    const root = workspace();
+    expect(detect([path.join(root, "app"), root])).toEqual([]);
   });
 
   it("claims nothing without Babel's parser", () => {
