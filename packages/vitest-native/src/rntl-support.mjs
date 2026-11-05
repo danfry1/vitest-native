@@ -7,7 +7,7 @@ import fs from "node:fs";
 import Module from "node:module";
 import { setImmediate as realSetImmediate } from "node:timers";
 
-/** RNTL's package entry: `build/index.js` (12, 13) or `dist/index.js` (14). */
+/** RNTL's package entry: `build/index.js` (13) or `dist/index.js` (14). */
 export const RNTL_ENTRY =
   /[\\/]node_modules[\\/]@testing-library[\\/]react-native[\\/](?:build|dist)[\\/]index\.js$/;
 
@@ -66,8 +66,8 @@ function rntlEntriesInFileGraph() {
 /**
  * Register RNTL's automatic cleanup through Vitest's `afterEach` when RNTL cannot.
  *
- * RNTL's entry registers it only if `afterEach` is a global (12.9 build/index.js:25,
- * 13.3 build/index.js:27, 14.1 dist/index.js:26: `if (typeof afterEach === 'function')`).
+ * RNTL's entry registers it only if `afterEach` is a global (13.3 build/index.js:27,
+ * 14.1 dist/index.js:26: `if (typeof afterEach === 'function')`).
  * Vitest defines its globals only with `test.globals: true`, so with Vitest's default
  * every rendered tree stayed mounted for the rest of the file: `screen` and later
  * queries saw earlier tests' screens, and their effects kept running. With globals on,
@@ -78,15 +78,14 @@ function rntlEntriesInFileGraph() {
  *     `@testing-library/react-native/pure` is RNTL's documented opt-out, so the setup
  *     files never load the entry themselves and it is detected lazily, when the hook runs;
  *   - not when RNTL_SKIP_AUTO_CLEANUP is set, tested by truthiness as RNTL does
- *     (12.9 build/index.js:19, 13.3 :21, 14.1 dist/index.js:20); its
+ *     (13.3 build/index.js:21, 14.1 dist/index.js:20); its
  *     `dont-cleanup-after-each` module sets it;
- *   - the cleanup each version's own hook calls: 12's synchronous `cleanup`
- *     (12.9 build/index.js:29), 13's `cleanupAsync` (13.3 build/index.js:30; its
+ *   - the cleanup each version's own hook calls: 13's `cleanupAsync` (13.3 build/index.js:30; its
  *     `cleanup` is the synchronous one), and 14's `cleanup`, which is async and has no
  *     `cleanupAsync` (14.1 dist/index.js:29, dist/cleanup.js:11);
  *   - after one macrotask turn, as RNTL's `flushMicroTasks` (13.3/14.1
- *     flush-micro-tasks.js:9) or 12's `flushMicroTasksLegacy` (12.9 :27) wait. RNTL uses
- *     the `setImmediate` it captured when it loaded (12.9/13.3 build/helpers/timers.js:67,
+ *     flush-micro-tasks.js:9) waits. RNTL uses
+ *     the `setImmediate` it captured when it loaded (13.3 build/helpers/timers.js:67,
  *     14.1 dist/helpers/timers.js:74), not the current one, so a test that ends with fake
  *     timers still installed does not hang its cleanup. This hook's own wait uses
  *     `node:timers`' `setImmediate`, which Vitest's fake timers never replace: a capture
@@ -103,7 +102,7 @@ function rntlEntriesInFileGraph() {
  * expects the tree to be unmounted already sees it still mounted here.
  *
  * RNTL's entry also pairs `beforeAll`/`afterAll` to set React's act environment for the
- * file (12.9 build/index.js:32). Both engines set IS_REACT_ACT_ENVIRONMENT for every
+ * file. Both engines set IS_REACT_ACT_ENVIRONMENT for every
  * file already, so that pair is not reproduced.
  *
  * @param {(fn: () => Promise<void>) => void} afterEach Vitest's `afterEach`.

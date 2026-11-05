@@ -14,21 +14,11 @@
 //     it to decide where string children may live, so without RCTVirtualText a
 //     nested <Text> throws "Text strings must be rendered within a <Text>
 //     component". Adding the name to the list fixes both.
-//   - RNTL 12 and 13 (build/) export only the predicate isHostText (13 tests a
-//     private ['Text', 'RCTText']; 12 compares with the detected
-//     getHostComponentNames().text, which is "RCTText"). Every caller of it in
-//     those builds reads it through the module's exports object at call time, as
-//     Babel's CommonJS output does — `(0, _hostComponentNames.isHostText)(node)` —
-//     so replacing the export reaches all of them.
-//
-// Known gap, RNTL 12: role queries. Its isAccessibilityElement
-// (build/helpers/accessibility.js) does not call isHostText; it compares the type
-// with getHostComponentNames().text directly. So on RNTL 12 a nested
-// `<Text accessibilityRole="link">` is found by getByText but not by
-// getByRole("link"); RNTL 13 and 14 go through isHostText and find it. This is
-// deliberately left unpatched: replacing RNTL's exports is a stopgap, and RNTL
-// handling is to move into a per-major RNTL adapter rather than gain more patches
-// here.
+//   - RNTL 13 (build/) exports only the predicate isHostText, which tests a private
+//     ['Text', 'RCTText']. Every caller of it in that build reads it through the
+//     module's exports object at call time, as Babel's CommonJS output does —
+//     `(0, _hostComponentNames.isHostText)(node)` — so replacing the export reaches
+//     all of them.
 
 const VIRTUAL_TEXT = "RCTVirtualText";
 const WRAPPED = Symbol.for("vitest-native.rntl-virtual-text-host");

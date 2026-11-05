@@ -445,15 +445,13 @@ try {
 // --- RNTL: register RCTVirtualText as a text host ---
 // Real RN renders a NESTED <Text> as the host "RCTVirtualText", which RNTL's text
 // hosts omit. On RNTL 14 that makes a nested <Text> throw "Text strings must be
-// rendered within a <Text> component"; on RNTL 12 and 13 the inner text is not a
-// text element, so getByText cannot find it. rntl-text-host.mjs explains both and
-// patches whichever shape the installed RNTL has (dist/ is 14, build/ is 12 and 13).
+// rendered within a <Text> component"; on RNTL 13 the inner text is not a text
+// element, so getByText cannot find it. rntl-text-host.mjs explains both and patches
+// whichever shape the installed RNTL has (dist/ is 14, build/ is 13).
 //
 // Requiring the module here adds no evaluation-order hazard (see the hot-reset
-// block): on 13 and 14 it is a leaf, and on 12, where it requires react-native,
-// RNTL's config and render-act, the RNTL matchers loaded just above already
-// required it and react-native is loaded by now, so this is a cache hit. `req` is
-// the project-root require the matchers use, so both patch the same RNTL copy.
+// block): on 13 and 14 it is a leaf. `req` is the project-root require the matchers
+// use, so both patch the same RNTL copy.
 try {
   let registered = null;
   let lastError;
