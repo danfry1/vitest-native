@@ -33,6 +33,8 @@ Which engine to use. See [Choosing an Engine](/guide/engines) for the full break
 
 Set to `true` to log plugin activity — useful when debugging resolution or which engine resolved. Default `false`.
 
+It is an option of the plugin, set in the config: `reactNative({ diagnostics: true })`. There is no environment variable for it; `VITEST_NATIVE_DIAGNOSTICS` is not read.
+
 ## `presets`
 
 An array of [third-party presets](/guide/presets). Presets are auto-detected from your installed dependencies, so listing them is usually optional:

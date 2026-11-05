@@ -166,7 +166,6 @@ export default defineConfig({
     process.execPath,
     [path.join(tempRoot, "node_modules/vitest/vitest.mjs"), "run"],
     tempRoot,
-    { VITEST_NATIVE_DIAGNOSTICS: "true" },
   );
 
   for (const project of projects) {

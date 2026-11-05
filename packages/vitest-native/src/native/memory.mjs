@@ -130,6 +130,22 @@ export function formatBytes(bytes) {
   return `${Math.round(bytes / MIB)} MiB`;
 }
 
+/**
+ * The hot runtime's worker decision as one line of the startup log, so a user can tune
+ * `maxWorkers` or report a run without turning diagnostics on (formatHotMemoryPlan has
+ * the full envelope).
+ */
+export function formatHotWorkerDecision(plan) {
+  const memory =
+    plan.effectiveLimit == null
+      ? "memory unknown"
+      : `${formatBytes(plan.effectiveLimit)} ${plan.source === "constrained" ? "memory limit" : "host memory"}`;
+  if (plan.maxWorkers < plan.requestedWorkers) {
+    return `workers: ${plan.maxWorkers} (memory plan admitted ${plan.admittedWorkers} of ${plan.requestedWorkers} requested, ${memory})`;
+  }
+  return `workers: ${plan.maxWorkers} (as requested; memory plan admits up to ${plan.admittedWorkers}, ${memory})`;
+}
+
 export function formatHotMemoryPlan(plan) {
   return [
     `effective limit: ${formatBytes(plan.effectiveLimit)} (${plan.source})`,

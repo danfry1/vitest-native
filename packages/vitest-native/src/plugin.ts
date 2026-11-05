@@ -1468,6 +1468,8 @@ type HotMemorySelection = {
   /** A plan for a worker count the user chose (memory admission, no automatic cap). */
   replan: (requestedWorkers: number) => HotMemoryPlan;
   formatPlan: (plan: HotMemoryPlan) => string[];
+  /** The one-line worker decision for the startup log (formatHotWorkerDecision). */
+  formatDecision: (plan: HotMemoryPlan) => string;
   /** config() capped the user's count; configureVitest warns if hot still runs. */
   capWarning: boolean;
 };
@@ -1478,6 +1480,20 @@ function warnWorkersCapped(requestedWorkers: number, plan: HotMemoryPlan): void 
       `${plan.maxWorkers} for the ${plan.source} memory budget. ` +
       `Set diagnostics:true to see the full envelope.`,
   );
+}
+
+// Once per process, as the engine banner is, and beside it: the first hot project's.
+let workerDecisionPrinted = false;
+
+/**
+ * The hot runtime's worker count, printed with the engine banner on every run, not only
+ * with diagnostics: the number a user tunes `maxWorkers` against or quotes in a report.
+ * Printed where the count is final (configureVitest, after a --maxWorkers re-plan).
+ */
+function printWorkerDecision(line: string): void {
+  if (workerDecisionPrinted) return;
+  workerDecisionPrinted = true;
+  console.error(`[vitest-native] ${line}`);
 }
 
 function printHotMemoryPlan(lines: readonly string[]): void {
@@ -2209,12 +2225,17 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
               allowUnboundedMemory: boolean;
               replan: (requestedWorkers: number) => HotMemoryPlan;
               formatPlan: (plan: HotMemoryPlan) => string[];
+              formatDecision: (plan: HotMemoryPlan) => string;
               capWarning: boolean;
             }
           | undefined;
         if (hotRuntimeRequested) {
-          const { createHotMemoryPlan, formatHotMemoryPlan, resolveRequestedWorkers } =
-            await import("./native/memory.mjs");
+          const {
+            createHotMemoryPlan,
+            formatHotMemoryPlan,
+            formatHotWorkerDecision,
+            resolveRequestedWorkers,
+          } = await import("./native/memory.mjs");
           const requestedWorkers = resolveRequestedWorkers(userTest?.maxWorkers, {
             fileParallelism: userTest?.fileParallelism,
           });
@@ -2288,6 +2309,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
               replan: (count) =>
                 createHotMemoryPlan({ requestedWorkers: count, explicitWorkers: true }),
               formatPlan: formatHotMemoryPlan,
+              formatDecision: formatHotWorkerDecision,
               capWarning,
             };
           }
@@ -2348,6 +2370,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
                     userMemoryLimit: hotRecycle.memoryLimit !== undefined,
                     replan: hotMemory.replan,
                     formatPlan: hotMemory.formatPlan,
+                    formatDecision: hotMemory.formatDecision,
                     capWarning: hotMemory.capWarning,
                   }
                 : undefined,
@@ -3054,6 +3077,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         warnWorkersCapped(selection.memory.plan.requestedWorkers, selection.memory.plan);
       }
       if (selection.memory) selection.memory.capWarning = false;
+      printWorkerDecision(
+        selection.memory
+          ? selection.memory.formatDecision(selection.memory.plan)
+          : `workers: ${String(projectConfig.maxWorkers ?? "Vitest's default")} (allowUnboundedMemory: no memory plan)`,
+      );
       return;
     }
     // Hot is off, so the count Vitest resolved applies as it stood.

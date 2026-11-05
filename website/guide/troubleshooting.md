@@ -98,6 +98,16 @@ On Vitest 4 the same steps apply with the experimental names: the cache director
 
 The plugin writes one description of each Vitest project, its _project context_, to `node_modules/.cache/vitest-native/contexts/` (or the system temp directory when that cannot be written), and every worker reads its configuration from that file. `CONTEXT_INVALID` means a worker found it missing, from another version, changed after it was written, or with a field of the wrong shape; the message names the reason, the field and the directory. Re-run Vitest, and if it persists delete that directory. A worker started without the plugin's configuration reports it too.
 
+## Getting more detail in the log
+
+Turn on the plugin's diagnostics in the config:
+
+```ts
+reactNative({ diagnostics: true });
+```
+
+It logs how modules resolve, which engine and presets apply, and the hot runtime's full memory plan. It is a plugin option only: the `VITEST_NATIVE_DIAGNOSTICS` environment variable is not read. Without it, the startup log still names the engine, the presets and, under the hot runtime, the worker count (`[vitest-native] workers: …`), or why the hot runtime is off.
+
 ## Still stuck?
 
 If something that worked under Jest or the old `vitest-react-native` plugin doesn't work here, [open an issue](https://github.com/danfry1/vitest-native/issues) — parity is a goal, and the cross-check corpus is how we prove it.

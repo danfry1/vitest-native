@@ -4,6 +4,7 @@ import {
   createHotMemoryPlan,
   effectiveMemoryLimit,
   formatHotMemoryPlan,
+  formatHotWorkerDecision,
   resolveRequestedWorkers,
   type HotMemoryPlan,
 } from "../src/native/memory.mjs";
@@ -85,6 +86,36 @@ describe("hot memory planning", () => {
     expect(resolveRequestedWorkers("50%", { parallelism: 10 })).toBe(5);
     expect(resolveRequestedWorkers("3", { parallelism: 10 })).toBe(3);
     expect(resolveRequestedWorkers(8, { parallelism: 10, fileParallelism: false })).toBe(1);
+  });
+
+  it("states the worker decision in one line", () => {
+    // 2 GiB admits one worker: fewer than the eight requested.
+    const capped = createHotMemoryPlan({
+      totalMemory: 2 * GIB,
+      constrainedMemory: 0,
+      requestedWorkers: 8,
+    });
+    expect(formatHotWorkerDecision(capped)).toBe(
+      `workers: ${capped.maxWorkers} (memory plan admitted ${capped.admittedWorkers} of 8 requested, 2048 MiB host memory)`,
+    );
+    expect(capped.maxWorkers).toBeLessThan(8);
+    // A container's limit below the host's is named as the limit.
+    const roomy = createHotMemoryPlan({
+      totalMemory: 64 * GIB,
+      constrainedMemory: 32 * GIB,
+      requestedWorkers: 2,
+    });
+    expect(formatHotWorkerDecision(roomy)).toBe(
+      `workers: 2 (as requested; memory plan admits up to ${roomy.admittedWorkers}, 32768 MiB memory limit)`,
+    );
+    const unknown = createHotMemoryPlan({
+      totalMemory: 0,
+      constrainedMemory: 0,
+      requestedWorkers: 3,
+    });
+    expect(formatHotWorkerDecision(unknown)).toMatch(
+      /^workers: 3 \(as requested; .*, memory unknown\)$/,
+    );
   });
 
   it("formats every decision needed for diagnostics", () => {

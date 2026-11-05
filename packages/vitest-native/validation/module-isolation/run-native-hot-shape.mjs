@@ -99,7 +99,6 @@ try {
     process.execPath,
     [path.join(tempRoot, "node_modules/vitest/vitest.mjs"), "run", "--config", "vitest.hot-shape.mts"],
     tempRoot,
-    { VITEST_NATIVE_DIAGNOSTICS: "true" },
   );
   console.log("Native hot-shape module-isolation gate passed.");
 } finally {
