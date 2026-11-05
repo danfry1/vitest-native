@@ -219,6 +219,18 @@ Thank you to [@AntSplash360](https://github.com/AntSplash360), [@arvidtorbjoerns
 
 ### Patch Changes
 
+- 5f991ed: **Native engine: a workspace library reached through a regular-expression `resolve.alias` now has its React Native dependencies compiled, as one reached through a string alias does.** Tests that failed with `Cannot find module '…/expo-asset/build/Asset.fx'` now run. No action needed.
+
+  - Also applies to an alias with a `customResolver`.
+  - A replacement counts up to its first substitution (`$1`, `$<name>`), so `/repo/packages/ui/src/$1` reaches the library, while `/repo/packages/$1` still needs it declared as a dependency.
+  - Not covered: `test.alias`, and aliases other plugins resolve, such as `vite-tsconfig-paths`.
+
+- c1b556d: **The published package now holds one copy of each runtime module, and `vitest-native doctor` reads its supported Node range from the installed manifest.** The plugin entry imports the shipped runtime files instead of bundling a second copy of them. No action needed.
+
+- ddaaf2d: **Under the hot runtime, the startup log now names the worker count on every run, and what chose it.** It reads `[vitest-native] workers: 4 (automatic cap of 4; 9 available, set maxWorkers to run more; 24576 MiB host memory)`, so tuning `maxWorkers` or reporting a run no longer needs diagnostics on. No action needed.
+
+- 933b43e: **Under the native engine, a broken install of Babel's thread now fails the first compile at once, naming the file it could not load.** Before, a missing `babel-worker.mjs`, or one that failed as it loaded, left each compile waiting the full deadline (a minute or more) before a generic "has not answered" error. Each request to Babel's thread now also carries an id, and only the answer with that id ends its wait, so an answer that arrives late can never be read as the next one's. No action needed.
+
 - 1bddfde: **Native engine: `@vitest/coverage-v8` now reports the files Node compiles, such as a React Native workspace package, mapped to their source lines.** Before, it printed "Failed to parse … Excluding it from coverage" for each one and left it out of the report. No action needed.
 
   - With `provider: 'v8'`, the plugin sets Vitest up to use `@vitest/coverage-v8` with one change: it reads those files from the engine's transform cache. While coverage is on, that cache keeps an inline source map for each file outside `node_modules`. The report still says "v8".
