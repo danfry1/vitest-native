@@ -16,7 +16,7 @@ npm rm vitest-react-native @vitejs/plugin-react
 npm i -D vitest-native @react-native/babel-preset @babel/core
 ```
 
-Keep your existing `vitest`, `vite`, `react`, `react-native`, and `@testing-library/react-native`. Requirements: **Vitest 5.x, Vite ^8.0.5, the React version required by your RN release, React Native 0.81–0.88 (validated in CI), and RNTL 12–14.** RNTL 14 uses async rendering APIs. vitest-native supports Node 22.22.3+ on Node 22, 24.12+ on Node 24, or 26+.
+Keep your existing `vitest`, `vite`, `react`, `react-native`, and `@testing-library/react-native`. Requirements: **Vitest 5.x, Vite ^8.0.5, the React version required by your RN release, React Native 0.86–0.88, and RNTL 13–14.** RNTL 14 uses async rendering APIs. vitest-native supports Node 22.22.3+ on Node 22, 24.12+ on Node 24, or 26+.
 
 ## 2. Update vitest.config
 

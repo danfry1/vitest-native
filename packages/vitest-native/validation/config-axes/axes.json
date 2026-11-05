@@ -2,7 +2,7 @@
   "$comment": "The configuration axes the config-axis matrix varies. See docs/config-axis-matrix.md. Install axes change what is in node_modules (one CI job each); runtime axes are AXIS_* variables read by fixture/apps/app/vitest.config.mts (several runs per job).",
   "install": {
     "vitest": ["5"],
-    "rntl": ["12", "13", "14"],
+    "rntl": ["13", "14"],
     "layout": ["hoisted", "isolated"]
   },
   "runtime": {
@@ -59,7 +59,6 @@
       "5": "lockfile"
     },
     "rntl": {
-      "12": "^12",
       "13": "^13",
       "14": "lockfile"
     },

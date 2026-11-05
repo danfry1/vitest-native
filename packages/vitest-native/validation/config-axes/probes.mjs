@@ -43,7 +43,7 @@ export const PROBES = [
   {
     id: "recoverable-error",
     files: ["recoverable-error.test.tsx"],
-    observes: { rntl: ["12", "13"] },
+    observes: { rntl: ["13"] },
     alone: true,
     bug: "a recoverable React error exits 1 with every test passing",
   },

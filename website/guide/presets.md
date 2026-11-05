@@ -5,7 +5,7 @@ Most React Native apps depend on native libraries — Reanimated, Gesture Handle
 The engine banner at the start of a run names the presets that run applies, and the project's own preset modules as the config names them:
 
 ```
-[vitest-native] engine: native — real react-native@0.81.5 · mocked: gestureHandler, safeAreaContext, navigation, screens (platform ios, hot runtime)
+[vitest-native] engine: native — real react-native@0.88.0 · mocked: gestureHandler, safeAreaContext, navigation, screens (platform ios, hot runtime)
 ```
 
 ## Auto-detection

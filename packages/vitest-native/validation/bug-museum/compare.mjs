@@ -11,7 +11,7 @@
 //   now passes    main FAIL, now PASS: a fix. Record it (run-columns.mjs, status.mjs)
 //   inconclusive  the exhibit's check.mjs reports its precondition unmet on this machine
 //                 (cfg-group-conflict-fallback: hot auto decides by the runner's memory)
-//   skipped       N/A here (an RNTL 12/13 install this job does not provide)
+//   skipped       N/A here (an RNTL 13 install this job does not provide)
 // Exits 1 when any exhibit regressed or has no verdict. Writes a Markdown table to
 // GITHUB_STEP_SUMMARY when it is set.
 import fs from "node:fs";

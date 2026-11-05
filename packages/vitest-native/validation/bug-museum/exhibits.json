@@ -1197,46 +1197,6 @@
       "preFixRef": "0f2400e"
     },
     {
-      "id": "pre-rntl12-nested-text",
-      "class": "presets",
-      "title": "Nested Text is not queryable on RNTL 12",
-      "source": "migration testing (2026-10)",
-      "fixedBy": "#341 (merged)",
-      "requires": {
-        "rntl": "12"
-      },
-      "bugSignature": "^nested-text\\.test\\.tsx: Error: Unable to find an element with text: inner",
-      "status": {
-        "main": "PASS",
-        "preFix": "FAIL (bug)",
-        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
-        "proof": "landed proven"
-      },
-      "preFixRef": "0f2400e"
-    },
-    {
-      "id": "pre-rntl12-nested-text-role",
-      "class": "presets",
-      "title": "A nested Text link is not findable by role on RNTL 12",
-      "source": "#341 adversarial review",
-      "fixedBy": "open (#341 documents it as out of scope)",
-      "requires": {
-        "rntl": "12"
-      },
-      "bugSignature": "^role\\.test\\.tsx: Error: Unable to find an element with role: link, name: docs",
-      "control": {
-        "why": "On RNTL 14 (this repository's) the same query finds the link.",
-        "requires": {}
-      },
-      "status": {
-        "main": "FAIL (bug)",
-        "control": "PASS",
-        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
-        "mainSignature": "role.test.tsx: Error: Unable to find an element with role: link, name: docs",
-        "proof": "open (control passes)"
-      }
-    },
-    {
       "id": "pre-rntl13-nested-text",
       "class": "presets",
       "title": "Nested Text is not queryable on RNTL 13",

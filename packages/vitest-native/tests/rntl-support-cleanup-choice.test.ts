@@ -42,7 +42,7 @@ test("calls cleanupAsync when the entry has one (RNTL 13)", async () => {
   expect(cleanup).not.toHaveBeenCalled();
 });
 
-test("calls cleanup when there is no cleanupAsync (RNTL 12, 14)", async () => {
+test("calls cleanup when there is no cleanupAsync (RNTL 14)", async () => {
   const cleanup = vi.fn(async () => {});
   await runCleanupWith({ cleanup });
   expect(cleanup).toHaveBeenCalledOnce();
