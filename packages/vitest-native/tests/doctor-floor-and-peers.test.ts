@@ -13,7 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { nodeRange, runDoctor, satisfiesNodeRange } from "../src/cli/doctor.js";
+import { NODE_24_13_0_CRASH, nodeRange, runDoctor, satisfiesNodeRange } from "../src/cli/doctor.js";
 
 const roots: string[] = [];
 afterAll(() => {
@@ -45,6 +45,33 @@ const testingLine = (root: string) => {
   const start = lines.indexOf("Testing library");
   return lines.slice(start + 1, start + 2).join(" ");
 };
+
+describe("doctor: Node 24.13.0's startup crash", () => {
+  // Measured: a V8 garbage-collection segfault on worker threads in about 1.5% of cold
+  // hot-runtime runs on 24.13.0, none on 24.12, 24.14, 24.16 or 24.18. Supported, so it is a warning.
+  const warned = (node: string) =>
+    runDoctor(project({}), node).lines.some((line) => line.includes(NODE_24_13_0_CRASH));
+
+  it("warns on exactly 24.13.0, and still passes the supported-range check", () => {
+    const result = runDoctor(project({}), "24.13.0");
+    expect(warned("24.13.0")).toBe(true);
+    expect(result.lines.find((l) => l.includes("Node 24.13.0"))).toMatch(/✓/);
+  });
+
+  it.each(["24.12.0", "24.13.1", "24.14.0", "24.18.0", "22.22.3", "26.13.0"])(
+    "does not warn on %s",
+    (node) => {
+      expect(warned(node)).toBe(false);
+    },
+  );
+
+  it("names the fix and where to read about it", () => {
+    expect(NODE_24_13_0_CRASH).toMatch(/Upgrade to Node 24\.14 or later/);
+    expect(NODE_24_13_0_CRASH).toContain(
+      "guide/troubleshooting#node-24-13-0-segmentation-fault-at-startup",
+    );
+  });
+});
 
 describe("doctor: the supported Node range is the one the plugin enforces", () => {
   it("matches this package's own manifest", () => {
