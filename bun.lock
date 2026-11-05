@@ -1947,7 +1947,15 @@
 
     "vite/rolldown": ["rolldown@1.2.14", "", { "dependencies": { "@oxc-project/types": "=0.154.0", "@rolldown/pluginutils": "^1.0.0" }, "optionalDependencies": { "@rolldown/binding-android-arm-eabi": "1.2.14", "@rolldown/binding-android-arm64": "1.2.14", "@rolldown/binding-darwin-arm64": "1.2.14", "@rolldown/binding-darwin-x64": "1.2.14", "@rolldown/binding-freebsd-x64": "1.2.14", "@rolldown/binding-linux-arm-gnueabihf": "1.2.14", "@rolldown/binding-linux-arm64-gnu": "1.2.14", "@rolldown/binding-linux-arm64-musl": "1.2.14", "@rolldown/binding-linux-ppc64-gnu": "1.2.14", "@rolldown/binding-linux-s390x-gnu": "1.2.14", "@rolldown/binding-linux-x64-gnu": "1.2.14", "@rolldown/binding-linux-x64-musl": "1.2.14", "@rolldown/binding-openharmony-arm64": "1.2.14", "@rolldown/binding-win32-arm64-msvc": "1.2.14", "@rolldown/binding-win32-x64-msvc": "1.2.14" }, "bin": { "rolldown": "./bin/cli.mjs" } }, "sha512-eTBTTqMR6uHKLgcUqpJP8ntzDI6V4LYA8negAMBEI7gkgVvOdrx6VsvS2Ym+83KhOPdLCHWJu0w7UQFJZhHKNw=="],
 
-    "vitest-native/dispatch-consumer-lib": ["dispatch-consumer-lib@file:packages/vitest-native/tests-native/fixtures/dispatch-consumer-lib", {}],
+    "vitest-native/dispatch-consumer-lib": ["dispatch-consumer-lib@file:packages/vitest-native/tests-native/fixtures/dispatch-consumer-lib", { "dependencies": { "dispatch-cycle-lib": "file:../dispatch-cycle-lib", "dispatch-redirect-lib": "file:../dispatch-redirect-lib", "dispatch-split-lib": "file:../dispatch-split-lib", "dispatch-target-lib": "file:../dispatch-target-lib" } }],
+
+    "vitest-native/dispatch-consumer-lib/dispatch-cycle-lib": ["dispatch-cycle-lib@file:packages/vitest-native/tests-native/fixtures/dispatch-cycle-lib", {}],
+
+    "vitest-native/dispatch-consumer-lib/dispatch-redirect-lib": ["dispatch-redirect-lib@file:packages/vitest-native/tests-native/fixtures/dispatch-redirect-lib", {}],
+
+    "vitest-native/dispatch-consumer-lib/dispatch-split-lib": ["dispatch-split-lib@file:packages/vitest-native/tests-native/fixtures/dispatch-split-lib", {}],
+
+    "vitest-native/dispatch-consumer-lib/dispatch-target-lib": ["dispatch-target-lib@file:packages/vitest-native/tests-native/fixtures/dispatch-target-lib", {}],
 
     "vitest-native/dispatch-cycle-lib": ["dispatch-cycle-lib@file:packages/vitest-native/tests-native/fixtures/dispatch-cycle-lib", {}],
 
