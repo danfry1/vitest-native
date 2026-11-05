@@ -946,6 +946,16 @@ describe("compare: matching", () => {
       ],
       ['escaped "say \\"hi\\" now" ok', "escaped %p ok"],
       ["wraps (1) once", "wraps (%p) once"],
+      // Two %p in one token (Bluesky's url-helpers suite).
+      [
+        'given input uri "foo.example.com", returns "foo.","example.com"',
+        "given input uri %p, returns %p,%p",
+      ],
+      // A printed string with punctuation right after it (Bluesky's url-helpers suite).
+      [
+        'given input uri "http://example.com" and text "example.com", returns false',
+        "given input uri %p and text %p, returns %p",
+      ],
     ]) {
       expect(titleMatch(jest, vitest), `${jest} ⇄ ${vitest}`).toBe("placeholder");
     }
@@ -961,6 +971,8 @@ describe("compare: matching", () => {
         'given input string "hello @alice goodbye" and cursor position 0',
         "given input string %p and cursor %p",
       ],
+      // The text between two %p must be there as it is.
+      ['returns "a";"b"', "returns %p,%p"],
       // A quote inside ordinary text is not a printed value.
       ['say "hi there to everyone', "say %p to everyone"],
     ]) {
@@ -1000,6 +1012,24 @@ describe("compare: matching", () => {
     const headline = text.split("\n").find((l) => l.includes("do not pass under Vitest")) ?? "";
     expect(headline).not.toContain("not collected");
     expect(text).toMatch(/only under Vitest\s+0 /);
+  }, 120_000);
+
+  it("compares full titles: Vitest's 40-character cut of a formatted value is turned off", async () => {
+    const long = "You joined Bluesky using a Starter Pack just now";
+    const root = scratchProject({
+      files: {
+        "vitest.config.mjs": VITEST_CONFIG,
+        // Object rows with $-keys: the format whose string values Vitest cuts at 40.
+        "src/long.check.js": `test.each(${JSON.stringify([{ m: long }, { m: long.replace("just now", "5 seconds ago") }])})("$m", () => {});\n`,
+      },
+    });
+    const jest = jestReport(root, {
+      "src/long.check.js": [{ title: long }, { title: long.replace("just now", "5 seconds ago") }],
+    });
+    const { code, text } = await runCli(["--root", root, "--jest-results", jest]);
+    expect(text).not.toContain("Starter Pack…");
+    expect(text).not.toContain("named differently");
+    expect(code).toBe(0);
   }, 120_000);
 
   it("lists %p rows for review when they do not pair one to one, or the run is shuffled", async () => {

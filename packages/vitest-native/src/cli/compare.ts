@@ -627,8 +627,12 @@ function titleTokens(title: string): string[] {
     const c = title[i];
     const stringEnd = c === '"' && word === "" ? printedStringEnd(title, i) : -1;
     if (stringEnd !== -1) {
-      tokens.push(title.slice(i, stringEnd + 1));
-      i = stringEnd;
+      // Punctuation attached after the closing quote stays in the token, as it does for a
+      // word: `"x",` lines up with Vitest's `%p,`.
+      let end = stringEnd + 1;
+      while (end < title.length && !/\s/.test(title[end])) end++;
+      tokens.push(title.slice(i, end));
+      i = end - 1;
       continue;
     }
     if (c === "{" || c === "[") {
@@ -707,16 +711,15 @@ function normalTitle(t: string): string {
 }
 
 /**
- * Whether Vitest's token `b` is a literal `%p` standing in for Jest's printed value `a`.
- * Punctuation stays attached to a token, so `%p,` stands for `0,` and `(%p)` for `(1)`:
- * what surrounds `%p` must surround a non-empty value in `a`.
+ * Whether Vitest's token `b` is literal `%p`s standing in for Jest's printed values in `a`.
+ * Punctuation stays attached to a token, so `%p,` stands for `0,`, `(%p)` for `(1)` and
+ * `%p,%p` for `"",""`: the text around and between the `%p`s must appear in `a` as it is,
+ * and each `%p` must stand for something.
  */
 function stoodInForBy(a: string, b: string): boolean {
-  const at = b.indexOf("%p");
-  if (at === -1 || b.indexOf("%p", at + 2) !== -1) return false;
-  const before = b.slice(0, at);
-  const after = b.slice(at + 2);
-  return a.length > before.length + after.length && a.startsWith(before) && a.endsWith(after);
+  if (!b.includes("%p")) return false;
+  const literal = b.split("%p").map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return new RegExp(`^${literal.join("(.+)")}$`, "s").test(a);
 }
 
 /**
@@ -856,6 +859,27 @@ export function classify(
     // their titles match (titleMatch): the same title, or the same shape, which is
     // listed for review and does not confirm. The rest stay unmatched; a Jest test with a
     // Vitest test at its place is "named differently".
+    //
+    // Positions count rows. Where the Vitest side holds `%p` rows (one per row, above),
+    // Jest's copies of one printed title (two rows that both print `[Object]`) are split
+    // into rows too, and both sides are put in the order each runner reported them, which
+    // is declaration order: otherwise one grouped Jest title shifts every later row.
+    const at = (tests: RunnerTest[]) => (g: Group) => tests.indexOf(g.tests[0]);
+    for (const [block, groups] of unmatched.jest) {
+      const vs = unmatched.vitest.get(block) ?? [];
+      if (!vs.some((b) => b.title.includes("%p"))) continue;
+      const rows = groups.flatMap((a) =>
+        a.tests.length > 1 ? a.tests.map((t) => ({ ...a, tests: [t] })) : [a],
+      );
+      unmatched.jest.set(
+        block,
+        rows.sort((x, y) => at(jf.tests)(x) - at(jf.tests)(y)),
+      );
+      unmatched.vitest.set(
+        block,
+        [...vs].sort((x, y) => at(vf.tests)(x) - at(vf.tests)(y)),
+      );
+    }
     for (const [block, js] of unmatched.jest) {
       const vs = unmatched.vitest.get(block) ?? [];
       const left: Group[] = [];

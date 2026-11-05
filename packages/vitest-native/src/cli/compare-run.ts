@@ -603,6 +603,9 @@ function compareConfig(config) {
     resolveSnapshotPath: isolate(own),
     projects: Array.isArray(test.projects) ? test.projects.map((p) => isolateProject(p, own)) : test.projects,
     update: false,
+    // Full parametrised titles: Vitest cuts each formatted value at 40 characters by
+    // default, so two rows can print the same title and none matches Jest's.
+    taskTitleValueFormatTruncate: 0,
   };
   return resolved;
 }

@@ -28,7 +28,8 @@ checkout. compare finds that directory from the file names both runners report, 
 way Vitest finds it (`vitest.config.*`, then `vite.config.*`) or named with `--vitest-config`. If
 the project has no Vitest config yet, compare uses the config `vitest-native migrate` would write.
 That config is executed but never saved: it lives in a temporary directory under `node_modules/`,
-and its `import.meta.url` paths are pointed back at the root. The run adds `run --reporter=json`,
+and its `import.meta.url` paths are pointed back at the root. The wrapper config also turns off Vitest's 40-character cut of formatted values in parametrised
+titles (`taskTitleValueFormatTruncate: 0`), so titles are compared in full. The run adds `run --reporter=json`,
 `--reporter=default` and `--coverage.enabled=false`. Coverage is not compared, and both
 runners would write `coverage/` into the project. Because coverage is off in both runs, compare
 does not exercise `coverageThreshold` or any setup that only runs with coverage on. The default reporter's output is the only place unhandled errors and
@@ -127,7 +128,9 @@ decides how:
   "named differently", which is unconfirmed too.
 
 Vitest leaves `%p` unformatted, so all rows of a `%p` table share one title there. Each row is
-matched to Jest's row at its place, as above.
+matched to Jest's row at its place, as above. Jest gives rows that print the same title one identity with several copies;
+those are split into rows too, and both sides are taken in declaration order, so row N pairs
+with row N.
 
 Rows whose titles both runners print identically (`perms: [Array]` in both) cannot be told apart
 by title. Their results are compared, not their data.
