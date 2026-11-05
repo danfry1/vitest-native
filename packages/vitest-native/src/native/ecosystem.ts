@@ -72,6 +72,41 @@ function publishesOnlyEsm(manifest: Record<string, unknown>): boolean {
   return manifest.type === "module" && !hasReactNativeBuild(manifest);
 }
 
+// A bare package name in a require, an import or an export-from of JavaScript source.
+const IMPORTED_PACKAGE =
+  /(?:\brequire\s*\(\s*|\bimport\s*\(\s*|\bfrom\s*|\bimport\s+)["']((?:@[\w.-]+\/)?[\w.-]+)(?:\/[^"']*)?["']/g;
+const SOURCE_FILE = /\.(?:[cm]?js|jsx|tsx?)$/;
+const referencedMemo = new Map<string, Set<string>>();
+
+/**
+ * The packages a package's own files require or import, by name: every source file in its
+ * directory, its own node_modules excluded. Read once per directory and process. For the
+ * peer edge only (see the closure walk), so a package is scanned only when it has a
+ * required React Native peer that nothing declares.
+ */
+function referencedPackages(dir: string): Set<string> {
+  let names = referencedMemo.get(dir);
+  if (names) return names;
+  names = new Set<string>();
+  const pending = [dir];
+  while (pending.length > 0) {
+    const current = pending.pop() as string;
+    // The package's own directory, and directories just listed in it.
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) pending.push(full);
+      else if (SOURCE_FILE.test(entry.name) && !entry.name.endsWith(".d.ts")) {
+        for (const match of fs.readFileSync(full, "utf8").matchAll(IMPORTED_PACKAGE)) {
+          names.add(match[1]);
+        }
+      }
+    }
+  }
+  referencedMemo.set(dir, names);
+  return names;
+}
+
 /** Manifest fields that make a package part of the React Native ecosystem. */
 function dependsOnReactNative(manifest: Record<string, unknown>): boolean {
   for (const field of ["dependencies", "peerDependencies"]) {
@@ -590,11 +625,13 @@ export function detectEcosystemPackages(
   // `build/` ES modules loaded raw and their extensionless imports failed ("Cannot find
   // module 'expo-asset/build/Asset.fx'").
   //
-  // A peer dependency is an edge too, but only into a package already detected: expo-image
-  // reaches `expo` as a peer, resolved beside it under an isolated install. Following
-  // every React Native peer instead added peers nothing declares, with their closures: on
-  // one Expo app that declares `expo`, expo-router and its web dependencies (157 packages
-  // to 206), which the app never imports.
+  // A peer dependency is an edge too: into a package already detected (expo-image reaches
+  // `expo` as a peer, resolved beside it under an isolated install), and into a required
+  // React Native peer installed beside the package that nothing declares (pnpm installs
+  // a required peer itself: expo-router's expo-linking, #508). Following every React
+  // Native peer, optional ones included, added peers nothing loads, with their closures:
+  // on one Expo app that declares `expo`, expo-router and its web dependencies (157
+  // packages to 206), which the app never imports.
   const detectedSet = new Set(detected);
   const inClosure = new Set(detected);
   const walked = new Set<string>();
@@ -657,10 +694,28 @@ export function detectEcosystemPackages(
         if (admits(installed)) reach(dep, installed);
       }
       const peers = pkg.manifest.peerDependencies;
+      const peersMeta = pkg.manifest.peerDependenciesMeta as
+        | Record<string, { optional?: unknown } | undefined>
+        | undefined;
       for (const peer of peers && typeof peers === "object" ? Object.keys(peers as object) : []) {
-        if (walked.has(peer) || excluded(peer) || !detectedSet.has(peer)) continue;
+        if (walked.has(peer) || excluded(peer)) continue;
         const installed = dependencyOf(pkg, peer);
-        if (installed && admits(installed)) reach(peer, installed);
+        if (!installed || !admits(installed)) continue;
+        // Into a detected package, as always; and into a React Native peer that nothing
+        // declares but that the package loads: required, installed beside it (a package
+        // manager installs a required peer itself: pnpm's auto-installed peers), and
+        // required or imported by the package's own files. That last test is what makes it
+        // reached: expo-constants lists `expo` as a required peer and never loads it, and a
+        // library that only dev-depends on expo-constants must not compile expo (and get
+        // Expo's runtime). An optional peer is not followed: those grew one Expo app from
+        // 157 to 206 compiled packages (expo's web peers), and the app never loads them.
+        const loadedReactNativePeer =
+          !detectedSet.has(peer) &&
+          peersMeta?.[peer]?.optional !== true &&
+          dependsOnReactNative(installed.manifest) &&
+          !ownsTheRun(peer) &&
+          referencedPackages(pkg.dir).has(peer);
+        if (detectedSet.has(peer) || loadedReactNativePeer) reach(peer, installed);
       }
     }
   };
