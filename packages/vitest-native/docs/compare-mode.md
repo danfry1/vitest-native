@@ -8,7 +8,7 @@ under Vitest, grouped by error, plus a report it can attach to an issue.
 ```sh
 npx vitest-native compare [--root <dir>] [--jest-args "<args>"] [--vitest-args "<args>"]
                           [--vitest-config <file>] [--jest-results <file>] [--jest-root <dir>]
-                          [--json <file>] [--top <n>] [--timeout <seconds>] [--show-output]
+                          [--json <file>] [--top <n>] [--timeout <seconds>] [--show-output] [--strict]
 ```
 
 ## What runs
@@ -125,6 +125,8 @@ decides how:
   run order compare cannot know. When compare runs Jest 29.2 or later itself it passes
   `--randomize=false`, so a config's `randomize: true` does not reorder the report. Vitest's
   `--sequence.shuffle` does not reorder Vitest's report (it shuffles at run time only).
+  `--strict` turns pairing by position off: every such row is listed for review, so the claim
+  rests on titles and data alone (for CI that wants no heuristic in it).
 - **Same shape — review.** The titles are equal only if a printed value is ignored: Jest's
   `{"a": 1}` or `{ user: [Object] }` against Vitest's `{ a: 1 }` or `{ user: { role: 'guest' } }`,
   Jest's `$var` against Vitest's `undefined`, or the `undefined` Vitest

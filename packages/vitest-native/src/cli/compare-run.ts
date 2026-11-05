@@ -37,6 +37,11 @@ export interface CompareOptions {
   top: number;
   timeoutMs: number;
   showOutput: boolean;
+  /**
+   * `--strict`: no pairing by row position. A `%p` row is listed for review instead of
+   * confirmed by its place in the table (for CI that wants no heuristic in the claim).
+   */
+  strict: boolean;
   log: (line: string) => void;
   /**
    * Not a CLI flag: copy each runner's raw report here (tests record fixtures with it).
@@ -256,6 +261,7 @@ export function parseCompareArgs(argv: string[]): Omit<CompareOptions, "log"> | 
     top,
     timeoutMs: timeout * 1000,
     showOutput: flags.has("show-output"),
+    strict: flags.has("strict"),
   };
 }
 
@@ -1133,6 +1139,7 @@ export async function runCompare(options: CompareOptions): Promise<number> {
       // review. Vitest's --sequence.shuffle does not reorder its report (suite.tasks keeps
       // declaration order); it is checked only to be safe.
       ordered:
+        !options.strict &&
         !options.jestResults &&
         !options.jestArgs.some((a) => /^--randomize(=true)?$/.test(a)) &&
         !options.vitestArgs.some((a) => /^--sequence\.shuffle(=true)?$/.test(a)),

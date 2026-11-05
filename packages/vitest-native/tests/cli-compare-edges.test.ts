@@ -856,18 +856,20 @@ describe.skipIf(!posix)("compare: processes", () => {
 // 7–8. Titles, foreign roots, small things
 // ---------------------------------------------------------------------------
 
-describe("compare: the Jest run", () => {
-  it("runs only Jest's default reporter, so a configured reporter cannot write into the project", async () => {
-    // A stand-in Jest: it writes the --json report it is pointed at and, like jest-junit,
-    // rewrites the project's tracked junit.xml whenever the configured reporters run.
-    const fakeJest = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-fake-jest-"));
-    fs.writeFileSync(
-      path.join(fakeJest, "package.json"),
-      JSON.stringify({ name: "jest", version: "30.0.0", bin: { jest: "bin.js" } }),
-    );
-    fs.writeFileSync(
-      path.join(fakeJest, "bin.js"),
-      `#!/usr/bin/env node
+/**
+ * A stand-in Jest package: it writes the --json report VN_FAKE_JEST_REPORT names and its
+ * arguments to VN_FAKE_JEST_ARGS, and, like jest-junit, rewrites the project's tracked
+ * junit.xml whenever the configured reporters run.
+ */
+function makeFakeJest(): string {
+  const fakeJest = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-fake-jest-"));
+  fs.writeFileSync(
+    path.join(fakeJest, "package.json"),
+    JSON.stringify({ name: "jest", version: "30.0.0", bin: { jest: "bin.js" } }),
+  );
+  fs.writeFileSync(
+    path.join(fakeJest, "bin.js"),
+    `#!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
 const args = process.argv.slice(2);
@@ -878,8 +880,14 @@ if (!args.includes("--reporters=default")) {
 }
 fs.copyFileSync(process.env.VN_FAKE_JEST_REPORT, out);
 `,
-      { mode: 0o755 },
-    );
+    { mode: 0o755 },
+  );
+  return fakeJest;
+}
+
+describe("compare: the Jest run", () => {
+  it("runs only Jest's default reporter, so a configured reporter cannot write into the project", async () => {
+    const fakeJest = makeFakeJest();
     const root = scratchProject({
       jestDir: fakeJest,
       files: {
@@ -909,6 +917,33 @@ fs.copyFileSync(process.env.VN_FAKE_JEST_REPORT, out);
       delete process.env.VN_FAKE_JEST_ARGS;
     }
   }, 120_000);
+
+  it("confirms %p rows by position on a run it started, and lists them for review with --strict", async () => {
+    const fakeJest = makeFakeJest();
+    const root = scratchProject({
+      jestDir: fakeJest,
+      files: {
+        "vitest.config.mjs": VITEST_CONFIG,
+        "src/rows.check.js": `test.each([[1], [2], [3]])("loads %p", () => {});\n`,
+      },
+    });
+    process.env.VN_FAKE_JEST_REPORT = jestReport(root, {
+      "src/rows.check.js": [{ title: "loads 1" }, { title: "loads 2" }, { title: "loads 3" }],
+    });
+    process.env.VN_FAKE_JEST_ARGS = path.join(fakeJest, "args.json");
+    try {
+      const byPosition = await runCli(["--root", root]);
+      expect(byPosition.code).toBe(0);
+      expect(byPosition.text).toContain("! 3 tests confirmed by row position only");
+      const strict = await runCli(["--root", root, "--strict"]);
+      expect(strict.code).toBe(1);
+      expect(strict.text).toContain("3 matched only by title shape");
+      expect(strict.text).not.toContain("confirmed by row position only");
+    } finally {
+      delete process.env.VN_FAKE_JEST_REPORT;
+      delete process.env.VN_FAKE_JEST_ARGS;
+    }
+  }, 180_000);
 });
 
 describe("compare: Jest's --randomize", () => {

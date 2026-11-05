@@ -28,6 +28,7 @@ Usage:
       --json <file>           write a report to attach to an issue (no source code)
       --top <n>               groups and files to list (10)
       --timeout <seconds>     per runner (1800)         --show-output           stream both runners' output
+      --strict                confirm a parametrised (%p) row only by its title, never by its place
       exits 0 when every Jest-passing test passes under Vitest and \`vitest run\` exits 0,
       1 when not, 2 when a runner could not run or the project changed, 130 when interrupted
 Options:
