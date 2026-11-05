@@ -1,6 +1,30 @@
 {
   "versionGroups": [
     {
+      "label": "Every package syncpack reads is a workspace package or a consumer fixture listed in these groups: a new or renamed fixture package must be added here and to its fixture's group, or every dependency it declares fails as banned",
+      "packages": [
+        "**",
+        "!vitest-native",
+        "!@vitest-native/example",
+        "!vitest-native-consumer-expo",
+        "!vitest-native-consumer-expo-jest-parity",
+        "!vitest-native-consumer-expo-pnpm-suite",
+        "!@suite/*",
+        "!vitest-native-consumer-bare",
+        "!vitest-native-consumer-current-rn",
+        "!runtime-probe",
+        "!consumer-state-fixture",
+        "!vitest-native-consumer-expo-sdk57",
+        "!vitest-native-consumer-jest-migration",
+        "!vitest-native-consumer-mock-rntl14",
+        "!vitest-native-consumer-monorepo",
+        "!vitest-native-consumer-monorepo-pnpm",
+        "!@consumer/*",
+        "!vitest-native-consumer-expo-template"
+      ],
+      "isBanned": true
+    },
+    {
       "label": "Consumer fixtures are not published: they have no version of their own, and they reach their sibling fixture packages by file: or a bare range",
       "packages": [
         "vitest-native-consumer-expo",
@@ -67,23 +91,25 @@
       "isIgnored": true
     },
     {
-      "label": "The current Expo SDK fixtures run the Expo SDK the workspace tests against: Expo's own packages match the workspace's versions",
+      "label": "The current Expo SDK fixtures (the Expo template included) run the Expo SDK the workspace tests against: Expo's own packages match the workspace's versions",
       "packages": [
         "vitest-native-consumer-expo",
         "vitest-native-consumer-expo-jest-parity",
         "vitest-native-consumer-expo-pnpm-suite",
         "@suite/*",
+        "vitest-native-consumer-expo-template",
         "vitest-native"
       ],
       "dependencies": ["expo", "expo-constants", "expo-status-bar"]
     },
     {
-      "label": "The current Expo SDK fixtures agree with each other on everything else: their native libraries are the versions Expo's own install picks for the SDK, not the workspace's",
+      "label": "The current Expo SDK fixtures (the Expo template included) agree with each other on everything else: their native libraries are the versions Expo's own install picks for the SDK, not the workspace's",
       "packages": [
         "vitest-native-consumer-expo",
         "vitest-native-consumer-expo-jest-parity",
         "vitest-native-consumer-expo-pnpm-suite",
-        "@suite/*"
+        "@suite/*",
+        "vitest-native-consumer-expo-template"
       ],
       "dependencyTypes": ["prod", "dev"],
       "dependencies": ["**", "!vite"]
@@ -115,11 +141,6 @@
         "vitest-native-consumer-monorepo-pnpm",
         "@consumer/*"
       ]
-    },
-    {
-      "label": "The Expo template fixture reproduces create-expo-app's own package.json, ranges included",
-      "packages": ["vitest-native-consumer-expo-template"],
-      "isIgnored": true
     },
     {
       "label": "vitest must be a single version across the workspace: the hot runtime runs its own worker entry, and a root/package mismatch makes it report no tests at all",
@@ -169,9 +190,10 @@
       "isIgnored": true
     },
     {
-      "label": "The Expo template fixture keeps create-expo-app's own ranges, which also float only past the install cooldown",
+      "label": "The Expo template fixture keeps create-expo-app's own ranges for @types/react and typescript, which float only past the install cooldown",
       "packages": ["vitest-native-consumer-expo-template"],
-      "isIgnored": true
+      "isIgnored": true,
+      "dependencies": ["@types/react", "typescript"]
     },
     {
       "label": "Fixtures reach their sibling fixture packages by file: or a bare range, not a registry version",
