@@ -5,6 +5,8 @@ import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 // @ts-expect-error — runtime .mjs outside the package, no types
 import { classify, GROUPS } from "../../../.github/scripts/classify-change.mjs";
+// @ts-expect-error — runtime .mjs, no types
+import { SNIPPET_PAGES } from "../scripts/doc-snippets.mjs";
 
 // .github/scripts/classify-change.mjs decides which gate jobs a change runs. Only a pull
 // request is narrowed; a merge-queue group is classified as docs-only like a pull
@@ -100,7 +102,8 @@ describe("change-based selection", () => {
   it("runs the documented snippets alone when only their pages change", () => {
     const snippets = (files: string[], event = "pull_request") => classify(event, files).snippets;
     // Prose to every other rule: a docs-only change to these pages runs only their code.
-    for (const page of ["README.md", `${P}README.md`, "website/guide/quick-start.md"]) {
+    // Every page the extractor reads, and the root README it mirrors.
+    for (const page of ["README.md", ...SNIPPET_PAGES]) {
       expect(classify("pull_request", [page])["docs-only"], page).toBe(true);
       expect(snippets([page]), page).toBe(true);
     }

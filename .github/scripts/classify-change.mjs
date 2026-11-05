@@ -41,6 +41,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
+import { SNIPPET_PAGES } from "../../packages/vitest-native/scripts/doc-snippets.mjs";
 
 export const GROUPS = ["full", "packed", "rn", "axes"];
 const ALL = GROUPS;
@@ -93,22 +94,17 @@ export function groupsForFile(file) {
   return ALL;
 }
 
-/** Each output for an event and the files it changes. */
 /**
- * The pages whose marked code blocks run against the packed package
- * (packages/vitest-native/scripts/doc-snippets.mjs), plus the extractor and the app they
- * run in. They are prose to every other rule, so a change to one alone would run nothing
- * that executes them.
+ * The pages whose marked code blocks run against the packed package (SNIPPET_PAGES, the
+ * list scripts/doc-snippets.mjs reads, so the two cannot drift), the root README the
+ * package README mirrors, and the extractor and the app they run in. They are prose to
+ * every other rule, so a change to one alone would run nothing that executes them.
  */
-export const SNIPPET_PATHS = [
-  "README.md",
-  `${P}README.md`,
-  "website/guide/quick-start.md",
-  `${P}scripts/doc-snippets.mjs`,
-];
+export const SNIPPET_PATHS = ["README.md", ...SNIPPET_PAGES, `${P}scripts/doc-snippets.mjs`];
 const isSnippetSource = (file) =>
   SNIPPET_PATHS.includes(file) || file.startsWith(`${P}consumer-tests/expo-template/`);
 
+/** Each output for an event and the files it changes. */
 export function classify(event, files) {
   const pullRequest = event === "pull_request";
   const reviewable = pullRequest || event === "merge_group";
