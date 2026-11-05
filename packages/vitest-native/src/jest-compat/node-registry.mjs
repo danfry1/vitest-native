@@ -21,8 +21,6 @@ import { projectContext } from "../context.mjs";
 import { nodeDispatch } from "../node-dispatch.mjs";
 
 const STATE = "__vitest_native_jest_registry";
-// Shared by name with native/ownership-ledger.mjs, which jest-compat does not import:
-// the mock engine has no ledger.
 /** The manifest id under which the hot runtime clears the registry per file. */
 export const NODE_MOCKS_STATE_ID = "jest-compat.node-mocks";
 

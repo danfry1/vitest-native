@@ -15,10 +15,13 @@ import {
 import { VitestNativeError } from "../errors.mjs";
 import { projectContext } from "../context.mjs";
 
-// One global for both records the ledger receives from outside the worker's own code:
-// `.vite(key, file)` from the call appended to each Vite module, `.nodeEsm(url)` from the
-// in-thread loader hook (loader.mjs).
-/** The engine's dispatcher channel the ledger lives on (node-dispatch.mjs). */
+/**
+ * The engine's dispatcher channel the ledger lives on (node-dispatch.mjs): `ledger`, and
+ * the records it receives from outside the worker's own code, `.vite(key, file)` from the
+ * call appended to each Vite module and `.nodeEsm(url)` from the in-thread loader hook
+ * (loader.mjs); jest-compat raises `jestRequireDepth` around its synchronous
+ * requireActual/requireMock loads.
+ */
 export const OWNERSHIP_CHANNEL = "ownership";
 /**
  * How code Vite runs reaches the ledger: through the dispatcher, whose one per-worker
@@ -26,7 +29,6 @@ export const OWNERSHIP_CHANNEL = "ownership";
  */
 export const OWNERSHIP_ACCESS = `globalThis[Symbol.for("vitest-native.node-dispatch")]?.channel(${JSON.stringify(OWNERSHIP_CHANNEL)})`;
 export const OWNERSHIP_META_KEY = "vitestNativeOwnership";
-// jest-compat raises it around its synchronous requireActual/requireMock loads.
 
 // The engine's own runtime (src/ or dist/): exempt, as the hot worker loads it through
 // Node and the setup file through Vite, and every install in it is guarded.
@@ -185,6 +187,9 @@ export function createOwnershipLedger({
   viteLive = () => true,
   viteImporter = () => null,
   ownerOf = () => null,
+  // Whether Node holds `file` now, loaded or still loading: a requirer Node is still
+  // evaluating is not recorded yet (Node's copies are recorded once they have loaded).
+  nodeHolds = () => false,
   warn = (message) => console.warn(message),
 } = {}) {
   const node = new Map();
@@ -215,7 +220,9 @@ export function createOwnershipLedger({
     if (nodeEntry.jestRequire) return "jest-compat";
     const parent = nodeEntry.parent;
     if (typeof parent === "string" && NODE_MODULES_PATH.test(parent)) return "installed-package";
-    if (typeof parent === "string" && node.has(nodeKey(parent))) return "node-owned-source";
+    if (typeof parent === "string" && (node.has(nodeKey(parent)) || nodeHolds(parent))) {
+      return "node-owned-source";
+    }
     return "require-from-vite";
   }
 
@@ -291,10 +298,6 @@ export function createOwnershipLedger({
     // dispatcher's report), so the throw fails the require after it ran.
     recordNode(filename, entry, { key = nodeKey(filename) } = {}) {
       entry.filename = filename;
-      const prior = vite.get(key);
-      if (prior && viteLive(prior) && !exemption(key)) {
-        report(key, entry, prior, "node");
-      }
       const records = node.get(key);
       if (records === undefined) node.set(key, [entry]);
       else {
@@ -308,6 +311,11 @@ export function createOwnershipLedger({
         const kept = records.filter((record) => !collected(record) && !stale(record));
         kept.push(entry);
         node.set(key, kept);
+      }
+      // Recorded first, so a copy error mode refuses is still known to a later Vite load.
+      const prior = vite.get(key);
+      if (prior && viteLive(prior) && !exemption(key)) {
+        report(key, entry, prior, "node");
       }
     },
     // After Vite ran the module: the marker is its last statement.
@@ -377,6 +385,7 @@ export function installOwnershipLedger({ projectRoot = process.cwd() } = {}) {
       return module !== undefined && Module._cache[record.cacheKey] === module;
     },
     collected: (record) => record.ref !== undefined && record.ref.deref() === undefined,
+    nodeHolds: (file) => Module._cache[file] !== undefined,
     viteLive: (entry) => {
       if (typeof graph()?.getModulesByFile !== "function") return true;
       return viteNodes(entry.file).some((n) => n.evaluated || n.promise);
@@ -399,18 +408,25 @@ export function installOwnershipLedger({ projectRoot = process.cwd() } = {}) {
   // throws is not reported: Node drops it from its cache, so it leaves no twin. In error
   // mode the require fails here, after Node's copy ran.
   nodeDispatch().onNodeEvaluation(({ filename, module, via }) => {
-    ledger.recordNode(
-      filename,
-      {
-        via,
-        ref: new WeakRef(module),
-        cacheKey: filename,
-        // A string, so the record holds nothing alive. DEP0144 is documentation-only.
-        parent: module.parent?.filename,
-        jestRequire: jestRequire(),
-      },
-      { key: keyOf(filename) },
-    );
+    try {
+      ledger.recordNode(
+        filename,
+        {
+          via,
+          ref: new WeakRef(module),
+          cacheKey: filename,
+          // A string, so the record holds nothing alive. DEP0144 is documentation-only.
+          parent: module.parent?.filename,
+          jestRequire: jestRequire(),
+        },
+        { key: keyOf(filename) },
+      );
+    } catch (error) {
+      // Error mode refused Node's copy after it loaded: take it out of Node's cache, as
+      // Node does for a module that throws, so no later require is handed it.
+      if (Module._cache[filename] === module) delete Module._cache[filename];
+      throw error;
+    }
   });
 
   const fileOf = (url) => {

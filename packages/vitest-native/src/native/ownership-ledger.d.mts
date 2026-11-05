@@ -69,6 +69,7 @@ export declare function createOwnershipLedger(options?: {
   viteLive?: (entry: ViteEvaluation) => boolean;
   viteImporter?: (entry: ViteEvaluation) => string | null;
   ownerOf?: (file: string) => { owner: string; reason: string } | null;
+  nodeHolds?: (file: string) => boolean;
   warn?: (message: string) => void;
 }): OwnershipLedger;
 export declare function installOwnershipLedger(options?: {

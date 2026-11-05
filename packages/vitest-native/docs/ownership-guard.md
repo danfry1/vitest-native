@@ -218,7 +218,8 @@ differ only in case, each evaluated by a different side. They would be reported 
       marker is last. A Vite copy evaluated second is therefore seen after its body
       ran. In `error` mode its import throws (the message says "Vite's copy ran; this
       file fails") and the end-of-file check fails the test file.
-    - A Node copy evaluated second is still refused before it runs.
+    - A Node copy evaluated second is refused before it runs only when it is a true ES
+      module; a CommonJS copy is seen once it has loaded (see Fail loud).
   - The mock engine keeps the transform `pre`, because its Flow strip must run before
     esbuild.
   - Query-suffixed ids (`./x.ts?v=1`) are the file's own code and are recorded under
@@ -279,7 +280,9 @@ Routes:
 - **At the evaluation.** In `error` mode a second Node evaluation fails its require or
   import. A true ES module is refused before it runs. A CommonJS module (or JSON, or a
   `require()` of an ES module) is reported once Node has loaded it, so it has run; the
-  require still throws, so the copy is not handed to the requirer. A second Vite
+  ledger takes it out of Node's cache and the require throws, so neither that requirer
+  nor a later one is handed the copy (a later require evaluates and is refused again).
+  A second Vite
   evaluation has already run when its marker is reached; its import throws, so the copy
   is not handed to the importer.
 - **At the end of each test file.** The setup file's `afterAll` lists every dual
@@ -344,6 +347,12 @@ stops being reported on the next run.
 
 - A CommonJS, JSON or `require()`-of-ESM copy Node evaluates second has run before it is
   seen (the dispatcher reports a load once it is done), as described above.
+- **A resolver installed above the engine's dispatcher that answers from its own cache**
+  can hide Node's second load of an evicted module from the dispatcher's report, as a
+  resolve hook that short-circuits can.
+- **Modules the precompiled registry compiles with `_compile`** (the few that use
+  `import()`) are answered above the dispatcher's report and are not seen; the
+  registry's other modules never were.
 - **Inside `jest.isolateModules`.** jest-compat sets Vite's module map aside for the
   block, so a Node copy loaded there is not compared with a Vite instance the test still
   holds from before the block.

@@ -114,7 +114,7 @@ describe("the ledger", () => {
     expect(ledger.conflicts).toHaveLength(1);
   });
 
-  it("throws in error mode before Node's copy is recorded", () => {
+  it("throws in error mode, once Node's copy is recorded", () => {
     const { ledger, warnings } = ledgerWith({ mode: "error" });
     ledger.recordVite(nodeKey(FILE), FILE);
     expect(() => ledger.recordNode(FILE, { via: "cjs" })).toThrow(
@@ -304,11 +304,11 @@ describe("the installed ledger", () => {
     dir = "";
   });
 
-  function node(script: string, args: string[] = []) {
+  function node(script: string, args: string[] = [], env: Record<string, string> = {}) {
     const child = spawnSync(process.execPath, [...args, "--input-type=module", "-e", script], {
       cwd: dir,
       encoding: "utf8",
-      env: { ...process.env, LEDGER: ledgerUrl },
+      env: { ...process.env, LEDGER: ledgerUrl, ...env },
     });
     expect(child.status, child.stderr).toBe(0);
     return child.stdout.trim();
@@ -344,6 +344,43 @@ describe("the installed ledger", () => {
     // Dropped from the cache (a reset): nothing to report. Loaded again and still held:
     // a live twin, reported.
     expect(out).toBe("0 1");
+  });
+
+  it("names a Node-owned requirer still loading, when Vite evaluated the file first", () => {
+    dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-ledger-route-")));
+    fs.writeFileSync(path.join(dir, "child.js"), "exports.c = {};\n");
+    fs.writeFileSync(path.join(dir, "parent.js"), 'require("./child.js");\n');
+    const out = node(`${prelude}
+      viteEvaluates("child.js");
+      require("./parent.js");
+      console.log(ledger.conflicts.map((c) => c.first + ">" + c.second + ":" + c.route).join());
+    `);
+    // parent.js is in Node's cache, still loading, when it requires child.js: recorded
+    // Node copies are only the ones that have loaded, so the cache decides.
+    expect(out).toBe("vite>node:node-owned-source");
+  });
+
+  it("in error mode, takes a refused Node copy out of Node's cache, so no require is handed it", () => {
+    dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-ledger-error-")));
+    fs.writeFileSync(path.join(dir, "m.js"), "exports.store = {};\n");
+    const contextUrl = pathToFileURL(path.resolve(import.meta.dirname, "../src/context.mjs")).href;
+    const ref = node(`
+      const { writeProjectContext } = await import(${JSON.stringify(contextUrl)});
+      process.stdout.write(writeProjectContext({ platform: "ios", diagnostics: false, projectRoot: process.cwd(), ownershipGuard: { mode: "error" } }, process.cwd()));
+    `);
+    const out = node(
+      `${prelude}
+      const file = fs.realpathSync("m.js");
+      viteEvaluates(file);
+      const attempt = () => { try { require("./m.js"); return "served"; } catch (e) { return e.code; } };
+      const first = attempt();
+      const cached = Module._cache[file] !== undefined;
+      console.log(ledger.mode, first, cached, attempt());
+    `,
+      [],
+      { VITEST_NATIVE_CONTEXT: ref },
+    );
+    expect(out).toBe("error SOURCE_EVALUATED_TWICE false SOURCE_EVALUATED_TWICE");
   });
 
   it("looks a copy up under the key Node used, with --preserve-symlinks", () => {
