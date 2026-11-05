@@ -1,14 +1,130 @@
 {
   "versionGroups": [
     {
+      "label": "Consumer fixtures are not published: they have no version of their own, and they reach their sibling fixture packages by file: or a bare range",
+      "packages": [
+        "vitest-native-consumer-expo",
+        "vitest-native-consumer-expo-jest-parity",
+        "vitest-native-consumer-expo-pnpm-suite",
+        "@suite/*",
+        "vitest-native-consumer-bare",
+        "vitest-native-consumer-current-rn",
+        "runtime-probe",
+        "consumer-state-fixture",
+        "vitest-native-consumer-expo-sdk57",
+        "vitest-native-consumer-jest-migration",
+        "vitest-native-consumer-mock-rntl14",
+        "vitest-native-consumer-monorepo",
+        "vitest-native-consumer-monorepo-pnpm",
+        "@consumer/*",
+        "vitest-native-consumer-expo-template"
+      ],
+      "dependencyTypes": ["local"],
+      "isIgnored": true
+    },
+    {
+      "label": "Fixture libraries' peer ranges are what a library declares, not an installed version",
+      "packages": [
+        "vitest-native-consumer-expo",
+        "vitest-native-consumer-expo-jest-parity",
+        "vitest-native-consumer-expo-pnpm-suite",
+        "@suite/*",
+        "vitest-native-consumer-bare",
+        "vitest-native-consumer-current-rn",
+        "runtime-probe",
+        "consumer-state-fixture",
+        "vitest-native-consumer-expo-sdk57",
+        "vitest-native-consumer-jest-migration",
+        "vitest-native-consumer-mock-rntl14",
+        "vitest-native-consumer-monorepo",
+        "vitest-native-consumer-monorepo-pnpm",
+        "@consumer/*",
+        "vitest-native-consumer-expo-template"
+      ],
+      "dependencyTypes": ["peer"],
+      "isIgnored": true
+    },
+    {
+      "label": "Fixtures' sibling packages (file:./runtime-probe, @consumer/ui@*) are local links, not registry versions",
+      "packages": [
+        "vitest-native-consumer-expo",
+        "vitest-native-consumer-expo-jest-parity",
+        "vitest-native-consumer-expo-pnpm-suite",
+        "@suite/*",
+        "vitest-native-consumer-bare",
+        "vitest-native-consumer-current-rn",
+        "runtime-probe",
+        "consumer-state-fixture",
+        "vitest-native-consumer-expo-sdk57",
+        "vitest-native-consumer-jest-migration",
+        "vitest-native-consumer-mock-rntl14",
+        "vitest-native-consumer-monorepo",
+        "vitest-native-consumer-monorepo-pnpm",
+        "@consumer/*",
+        "vitest-native-consumer-expo-template"
+      ],
+      "dependencies": ["runtime-probe", "consumer-state-fixture", "@consumer/ui", "@suite/*"],
+      "isIgnored": true
+    },
+    {
+      "label": "The current Expo SDK fixtures run the Expo SDK the workspace tests against: Expo's own packages match the workspace's versions",
+      "packages": [
+        "vitest-native-consumer-expo",
+        "vitest-native-consumer-expo-jest-parity",
+        "vitest-native-consumer-expo-pnpm-suite",
+        "@suite/*",
+        "vitest-native"
+      ],
+      "dependencies": ["expo", "expo-constants", "expo-status-bar"]
+    },
+    {
+      "label": "The current Expo SDK fixtures agree with each other on everything else: their native libraries are the versions Expo's own install picks for the SDK, not the workspace's",
+      "packages": [
+        "vitest-native-consumer-expo",
+        "vitest-native-consumer-expo-jest-parity",
+        "vitest-native-consumer-expo-pnpm-suite",
+        "@suite/*"
+      ],
+      "dependencyTypes": ["prod", "dev"],
+      "dependencies": ["**", "!vite"]
+    },
+    {
+      "label": "Support-matrix fixture, RN 0.83 + RNTL 12 + the Vitest 4 floor: its versions are the axis it tests, so it does not follow the workspace; within it, each dependency has one version",
+      "packages": ["vitest-native-consumer-bare"]
+    },
+    {
+      "label": "Support-matrix fixture, RN 0.86 + RNTL 13: its versions are the axis it tests, so it does not follow the workspace; within it, each dependency has one version",
+      "packages": ["vitest-native-consumer-current-rn", "runtime-probe", "consumer-state-fixture"]
+    },
+    {
+      "label": "Support-matrix fixture, Expo SDK 57: its versions are the axis it tests, so it does not follow the workspace; within it, each dependency has one version",
+      "packages": ["vitest-native-consumer-expo-sdk57"]
+    },
+    {
+      "label": "Support-matrix fixture, a Jest project being migrated: its versions are the axis it tests, so it does not follow the workspace; within it, each dependency has one version",
+      "packages": ["vitest-native-consumer-jest-migration"]
+    },
+    {
+      "label": "Support-matrix fixture, the mock engine on RNTL 14: its versions are the axis it tests, so it does not follow the workspace; within it, each dependency has one version",
+      "packages": ["vitest-native-consumer-mock-rntl14"]
+    },
+    {
+      "label": "Support-matrix fixture, npm and pnpm monorepos (the same packages in two layouts): its versions are the axis it tests, so it does not follow the workspace; within it, each dependency has one version",
+      "packages": [
+        "vitest-native-consumer-monorepo",
+        "vitest-native-consumer-monorepo-pnpm",
+        "@consumer/*"
+      ]
+    },
+    {
+      "label": "The Expo template fixture reproduces create-expo-app's own package.json, ranges included",
+      "packages": ["vitest-native-consumer-expo-template"],
+      "isIgnored": true
+    },
+    {
       "label": "vitest must be a single version across the workspace: the hot runtime runs its own worker entry, and a root/package mismatch makes it report no tests at all",
-      "dependencies": [
-        "vitest",
-        "@vitest/coverage-v8"
-      ],
-      "dependencyTypes": [
-        "dev"
-      ],
+      "dependencies": ["vitest", "@vitest/coverage-v8"],
+      "dependencyTypes": ["dev"],
       "policy": "sameRange"
     },
     {
@@ -31,19 +147,113 @@
   ],
   "semverGroups": [
     {
-      "label": "devDependencies are pinned to exact versions (supply-chain hardening)",
-      "dependencyTypes": [
-        "dev"
+      "label": "A fixture's vite range floats, as a consumer writes it. It only reaches releases older than the install cooldown (scripts/release-age.mjs)",
+      "packages": [
+        "vitest-native-consumer-expo",
+        "vitest-native-consumer-expo-jest-parity",
+        "vitest-native-consumer-expo-pnpm-suite",
+        "@suite/*",
+        "vitest-native-consumer-bare",
+        "vitest-native-consumer-current-rn",
+        "runtime-probe",
+        "consumer-state-fixture",
+        "vitest-native-consumer-expo-sdk57",
+        "vitest-native-consumer-jest-migration",
+        "vitest-native-consumer-mock-rntl14",
+        "vitest-native-consumer-monorepo",
+        "vitest-native-consumer-monorepo-pnpm",
+        "@consumer/*",
+        "vitest-native-consumer-expo-template"
       ],
+      "dependencies": ["vite"],
+      "isIgnored": true
+    },
+    {
+      "label": "The Expo template fixture keeps create-expo-app's own ranges, which also float only past the install cooldown",
+      "packages": ["vitest-native-consumer-expo-template"],
+      "isIgnored": true
+    },
+    {
+      "label": "Fixtures reach their sibling fixture packages by file: or a bare range, not a registry version",
+      "packages": [
+        "vitest-native-consumer-expo",
+        "vitest-native-consumer-expo-jest-parity",
+        "vitest-native-consumer-expo-pnpm-suite",
+        "@suite/*",
+        "vitest-native-consumer-bare",
+        "vitest-native-consumer-current-rn",
+        "runtime-probe",
+        "consumer-state-fixture",
+        "vitest-native-consumer-expo-sdk57",
+        "vitest-native-consumer-jest-migration",
+        "vitest-native-consumer-mock-rntl14",
+        "vitest-native-consumer-monorepo",
+        "vitest-native-consumer-monorepo-pnpm",
+        "@consumer/*",
+        "vitest-native-consumer-expo-template"
+      ],
+      "dependencies": ["runtime-probe", "consumer-state-fixture", "@consumer/ui", "@suite/*"],
+      "isIgnored": true
+    },
+    {
+      "label": "Fixture libraries' peer ranges are what a library declares",
+      "packages": [
+        "vitest-native-consumer-expo",
+        "vitest-native-consumer-expo-jest-parity",
+        "vitest-native-consumer-expo-pnpm-suite",
+        "@suite/*",
+        "vitest-native-consumer-bare",
+        "vitest-native-consumer-current-rn",
+        "runtime-probe",
+        "consumer-state-fixture",
+        "vitest-native-consumer-expo-sdk57",
+        "vitest-native-consumer-jest-migration",
+        "vitest-native-consumer-mock-rntl14",
+        "vitest-native-consumer-monorepo",
+        "vitest-native-consumer-monorepo-pnpm",
+        "@consumer/*",
+        "vitest-native-consumer-expo-template"
+      ],
+      "dependencyTypes": ["peer"],
+      "isIgnored": true
+    },
+    {
+      "label": "Every other fixture dependency is an exact version",
+      "packages": [
+        "vitest-native-consumer-expo",
+        "vitest-native-consumer-expo-jest-parity",
+        "vitest-native-consumer-expo-pnpm-suite",
+        "@suite/*",
+        "vitest-native-consumer-bare",
+        "vitest-native-consumer-current-rn",
+        "runtime-probe",
+        "consumer-state-fixture",
+        "vitest-native-consumer-expo-sdk57",
+        "vitest-native-consumer-jest-migration",
+        "vitest-native-consumer-mock-rntl14",
+        "vitest-native-consumer-monorepo",
+        "vitest-native-consumer-monorepo-pnpm",
+        "@consumer/*",
+        "vitest-native-consumer-expo-template"
+      ],
+      "dependencyTypes": ["prod", "dev"],
+      "range": ""
+    },
+    {
+      "label": "devDependencies are pinned to exact versions (supply-chain hardening)",
+      "dependencyTypes": ["dev"],
       "range": ""
     },
     {
       "label": "runtime + peer deps keep author-defined ranges so consumers can dedupe",
-      "dependencyTypes": [
-        "prod",
-        "peer"
-      ],
+      "dependencyTypes": ["prod", "peer"],
       "isIgnored": true
     }
+  ],
+  "source": [
+    "package.json",
+    "apps/*/package.json",
+    "packages/*/package.json",
+    "packages/vitest-native/consumer-tests/**/package.json"
   ]
 }
