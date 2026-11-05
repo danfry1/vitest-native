@@ -21,6 +21,7 @@ import {
 import {
   forwardedScriptFlags,
   importSpecifier,
+  jestRandomizeFlag,
   parseCompareArgs,
   vitestOutputReader,
   GUARDIAN,
@@ -32,6 +33,11 @@ import { jestReport, runCli, scratchProject, treeBytes } from "./support/compare
 
 const ctx: NormaliseContext = { root: "/project", realpath: (p) => p, home: "/home/user", tmp: [] };
 const posix = process.platform !== "win32";
+const RENDER = {
+  jest: { version: "30", config: "x" },
+  vitest: { version: "5", config: "y" },
+  top: 5,
+};
 
 const report = (files: Record<string, Array<[string, string]>>) => ({
   testResults: Object.entries(files).map(([name, tests]) => ({
@@ -866,6 +872,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const args = process.argv.slice(2);
 const out = args.find((a) => a.startsWith("--outputFile=")).slice("--outputFile=".length);
+fs.writeFileSync(process.env.VN_FAKE_JEST_ARGS, JSON.stringify(args));
 if (!args.includes("--reporters=default")) {
   fs.writeFileSync(path.join(process.cwd(), "junit.xml"), '<testsuites tests="1"/>');
 }
@@ -884,16 +891,34 @@ fs.copyFileSync(process.env.VN_FAKE_JEST_REPORT, out);
     const prepared = jestReport(root, { "src/a.check.js": [{ title: "adds" }] });
     const previous = process.env.VN_FAKE_JEST_REPORT;
     process.env.VN_FAKE_JEST_REPORT = prepared;
+    const argsFile = path.join(fakeJest, "args.json");
+    process.env.VN_FAKE_JEST_ARGS = argsFile;
     try {
       const { code, text } = await runCli(["--root", root]);
       expect(text).not.toContain("changed junit.xml");
       expect(fs.readFileSync(path.join(root, "junit.xml"), "utf8")).toBe("<testsuites/>\n");
       expect(code).toBe(0);
+      // Declaration order whatever the config says (Jest 29.2+), so %p rows pair by place.
+      const args = JSON.parse(fs.readFileSync(argsFile, "utf8")) as string[];
+      expect(args).toContain("--randomize=false");
+      expect(args).toContain("--reporters=default");
+      expect(args.at(-1)).toBe("--ci");
     } finally {
       if (previous === undefined) delete process.env.VN_FAKE_JEST_REPORT;
       else process.env.VN_FAKE_JEST_REPORT = previous;
+      delete process.env.VN_FAKE_JEST_ARGS;
     }
   }, 120_000);
+});
+
+describe("compare: Jest's --randomize", () => {
+  it("is turned off from Jest 29.2, where the flag exists, and left alone before it", () => {
+    expect(jestRandomizeFlag("30.2.0")).toBe(true);
+    expect(jestRandomizeFlag("29.2.1")).toBe(true);
+    expect(jestRandomizeFlag("29.1.9")).toBe(false);
+    expect(jestRandomizeFlag("28.1.3")).toBe(false);
+    expect(jestRandomizeFlag(null)).toBe(false);
+  });
 });
 
 describe("compare: matching", () => {
@@ -1001,13 +1026,13 @@ describe("compare: matching", () => {
     });
     const { code, text } = await runCli(["--root", root, "--jest-results", jest]);
     expect(code).toBe(1);
-    // The %p rows pair one to one, in order, so they are confirmed; the other two are
-    // printed values that can hide a different row, so they are only listed.
-    expect(text).toContain("2 of the 5 tests that pass under Jest do not pass under Vitest");
-    expect(text).toContain("2 matched only by title shape");
-    expect(text).toContain("✗ 2 tests could only be matched by title shape; check them");
+    // A --jest-results report comes from a run compare did not start, so its order is not
+    // known: the %p rows are listed for review too (confirmed in order: the classify tests).
+    expect(text).toContain("5 of the 5 tests that pass under Jest do not pass under Vitest");
+    expect(text).toContain("5 matched only by title shape");
+    expect(text).toContain("✗ 5 tests could only be matched by title shape; check them");
     expect(text).toContain("allows { user: [Object] }  ~  allows { user: { role: 'guest' } }");
-    expect(text).not.toContain('loads {"id": 3}  ~  loads %p');
+    expect(text).toContain('loads {"id": 3}  ~  loads %p');
     // Every %p row is matched, none is left "not collected".
     const headline = text.split("\n").find((l) => l.includes("do not pass under Vitest")) ?? "";
     expect(headline).not.toContain("not collected");
@@ -1032,41 +1057,73 @@ describe("compare: matching", () => {
     expect(code).toBe(0);
   }, 120_000);
 
-  it("lists %p rows for review when they do not pair one to one, or the run is shuffled", async () => {
-    const files = {
-      "vitest.config.mjs": VITEST_CONFIG,
-      "src/rows.check.js": `test.each([[1], [2], [3]])("loads %p", () => {});\n`,
-    };
-    // Jest reported two of the three rows: the places no longer say which row is which.
-    const fewer = scratchProject({ files });
-    const twoRows = jestReport(fewer, {
-      "src/rows.check.js": [{ title: "loads 1" }, { title: "loads 2" }],
-    });
-    const short = await runCli(["--root", fewer, "--jest-results", twoRows]);
-    expect(short.text).toContain("2 matched only by title shape");
-    // Shuffled: the same rows, but order is not identity.
-    const shuffled = scratchProject({ files });
-    const threeRows = jestReport(shuffled, {
-      "src/rows.check.js": [{ title: "loads 1" }, { title: "loads 2" }, { title: "loads 3" }],
-    });
-    const run = await runCli([
-      "--root",
-      shuffled,
-      "--jest-results",
-      threeRows,
-      "--vitest-args",
-      "--sequence.shuffle",
+  it("confirms %p rows by position only in declaration order, one to one, and says so", () => {
+    const rows = (titles: Array<[string, string]>) => report({ "rows.test.js": titles });
+    const vitestRows = rows([
+      ["loads %p", "passed"],
+      ["loads %p", "passed"],
+      ["loads %p", "passed"],
     ]);
-    expect(run.text).toContain("3 matched only by title shape");
-    // The same rows, in order: confirmed.
-    const ordered = scratchProject({ files });
-    const inOrder = jestReport(ordered, {
-      "src/rows.check.js": [{ title: "loads 1" }, { title: "loads 2" }, { title: "loads 3" }],
+    const jestRows = rows([
+      ["loads 1", "passed"],
+      ["loads 2", "passed"],
+      ["loads 3", "passed"],
+    ]);
+    const run = (j: unknown, v: unknown, ordered?: boolean) =>
+      classify(normaliseReport(j, "jest", ctx), normaliseReport(v, "vitest", ctx), {
+        ordered,
+      });
+    // In order, one to one: confirmed, and counted as confirmed by position.
+    const ok = run(jestRows, vitestRows);
+    expect(ok.confirmed).toBe(3);
+    expect(ok.confirmedByPosition).toBe(3);
+    expect(ok.entries.every((e) => e.matchedBy === "position")).toBe(true);
+    expect(renderComparison(ok, RENDER).join("\n")).toContain(
+      "! 3 tests confirmed by row position only",
+    );
+    // A randomized Jest run, or a report from a run compare did not start: for review only.
+    const unordered = run(jestRows, vitestRows, false);
+    expect(unordered.confirmed).toBe(0);
+    expect(unordered.entries.every((e) => e.matchedBy === "shape")).toBe(true);
+    // Jest reported two of the three rows: the places no longer say which row is which.
+    const fewer = run(
+      rows([
+        ["loads 1", "passed"],
+        ["loads 2", "passed"],
+      ]),
+      vitestRows,
+    );
+    expect(fewer.confirmed).toBe(0);
+  });
+
+  it("splits Jest's copies of one printed title into rows, in declaration order", () => {
+    // Jest prints rows 1 and 3 as `allows [Object]` (one identity, two copies, not next to
+    // each other) after another unmatched test; Vitest prints every row as `%p`. Row 2 fails
+    // under Vitest, and the regression must land on Jest's row 2, `allows 3`.
+    const jest = report({
+      "rows.test.js": [
+        ["renders", "passed"],
+        ["allows [Object]", "passed"],
+        ["allows 3", "passed"],
+        ["allows [Object]", "passed"],
+      ],
     });
-    const ok = await runCli(["--root", ordered, "--jest-results", inOrder]);
-    expect(ok.code).toBe(0);
-    expect(ok.text).not.toContain("matched only by title shape");
-  }, 180_000);
+    const vitest = report({
+      "rows.test.js": [
+        ["renders twice", "passed"],
+        ["allows %p", "passed"],
+        ["allows %p", "failed"],
+        ["allows %p", "passed"],
+      ],
+    });
+    const c = classify(normaliseReport(jest, "jest", ctx), normaliseReport(vitest, "vitest", ctx));
+    const allows = c.entries.filter((e) => e.title.startsWith("allows"));
+    expect(allows.map((e) => [e.title, e.bucket])).toEqual([
+      ["allows [Object]", "same-pass"],
+      ["allows 3", "regression"],
+      ["allows [Object]", "same-pass"],
+    ]);
+  });
 
   it("never confirms a Jest test by an unrelated Vitest test at its place", async () => {
     const root = scratchProject({

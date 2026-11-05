@@ -84,8 +84,13 @@ export interface Entry {
    * matched by position in their block.
    */
   vitestTitle?: string;
-  /** Set when the titles match only in shape (titleMatch): listed for review, never confirmed. */
-  matchedBy?: "shape";
+  /**
+   * `shape`: the titles match only in shape (titleMatch); listed for review, never confirmed.
+   * `position`: a `%p` row paired by its place in the table (titleMatch's `placeholder`).
+   * Vitest did not print the value, so the row's data was not compared: confirmed, and
+   * counted apart (Comparison.confirmedByPosition).
+   */
+  matchedBy?: "shape" | "position";
   /**
    * On a test only Jest reported: the unmatched Vitest test at its place in the block,
    * which may be it named differently. Unconfirmed either way.
@@ -126,6 +131,8 @@ export interface Comparison {
   jestPassed: number;
   /** Of those, the ones that also passed under Vitest. */
   confirmed: number;
+  /** Of the confirmed, those paired only by their place in a `%p` table (matchedBy `position`). */
+  confirmedByPosition: number;
   vitest: VitestRun & {
     /** Why `vitest run` does not exit 0; empty when it does. */
     problems: string[];
@@ -925,6 +932,7 @@ export function classify(
       };
       if (vitestTitle !== undefined && vitestTitle !== ref.title) entry.vitestTitle = vitestTitle;
       if (matchedBy === "shape") entry.matchedBy = "shape";
+      else if (matchedBy === "placeholder") entry.matchedBy = "position";
       if (vitestCandidate !== undefined && !v) entry.vitestCandidate = vitestCandidate;
       const message = v?.message ?? "";
       if (bucket === "regression" && options.snapshotHint && SNAPSHOT_MISMATCH.test(message)) {
@@ -949,6 +957,9 @@ export function classify(
   };
   const jestPassed = entries.filter((e) => e.jest?.status === "passed").length;
   const confirmed = entries.filter(isConfirmed).length;
+  const confirmedByPosition = entries.filter(
+    (e) => isConfirmed(e) && e.matchedBy === "position",
+  ).length;
   const broken = (r: RunnerResults) =>
     [...r.files.values()].filter((f) => f.broken).map((f) => summary(f, r.runner));
   const brokenVitest = broken(vitest);
@@ -991,6 +1002,7 @@ export function classify(
     totals: { jest: total(jest), vitest: total(vitest) },
     jestPassed,
     confirmed,
+    confirmedByPosition,
     vitest: { ...run, problems, ignoredErrors: run.exitCode === 0 ? run.errors : [] },
     claimHolds: jestPassed > 0 && confirmed === jestPassed && run.exitCode === 0,
   };
@@ -1145,6 +1157,13 @@ export function renderComparison(c: Comparison, options: RenderOptions): string[
           `(Jest prints values differently, so a different row can look the same).`,
       );
     }
+  }
+  if (c.confirmedByPosition) {
+    lines.push(
+      `! ${plural(c.confirmedByPosition, "test")} confirmed by row position only: Vitest printed ` +
+        "`%p` instead of the value, so each was paired with the Jest row at its place in the table, " +
+        "not by its data. A table built differently under the two runners would pair wrong rows.",
+    );
   }
   if (!c.vitest.engine) {
     lines.push(
@@ -1304,6 +1323,7 @@ export function jsonReport(c: Comparison, meta: JsonMeta): Record<string, unknow
       holds: c.claimHolds,
       jestPassed: c.jestPassed,
       confirmed: c.confirmed,
+      confirmedByPosition: c.confirmedByPosition,
       vitestExitCode: c.vitest.exitCode,
       vitestProblems: c.vitest.problems,
       vitestIgnoredErrors: c.vitest.ignoredErrors,

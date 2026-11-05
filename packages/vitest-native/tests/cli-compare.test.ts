@@ -133,7 +133,7 @@ describe("compare: classifying recorded Jest 30 and Vitest 5 reports", () => {
   it("matches it.each tests by position: a literal %p row is confirmed, other printed values only in shape", () => {
     const each = compareRecorded().entries.filter((e) => e.file === "src/each.check.js");
     expect(each.map((e) => e.vitestTitle)).toEqual(VITEST_EACH_TITLES);
-    expect(each.map((e) => e.matchedBy)).toEqual(["shape", undefined, "shape", "shape"]);
+    expect(each.map((e) => e.matchedBy)).toEqual(["shape", "position", "shape", "shape"]);
   });
 
   it("does not match tests in different describe blocks by position", () => {
@@ -405,8 +405,9 @@ describe("compare: end to end with Vitest and a recorded Jest report", () => {
     ]);
 
     expect(code).toBe(1);
-    expect(text).toContain("✗ 11 of the 16 tests that pass under Jest do not pass under Vitest");
-    expect(text).toContain("✗ 3 tests could only be matched by title shape; check them");
+    // --jest-results: the run order is unknown, so the %p row is listed for review here.
+    expect(text).toContain("✗ 12 of the 16 tests that pass under Jest do not pass under Vitest");
+    expect(text).toContain("✗ 4 tests could only be matched by title shape; check them");
     expect(text).toContain("✗ `vitest run` exits 1:");
     expect(text).toContain("snapshots read from an isolated copy");
     expect(text).toMatch(/2× cannot load this file under Vitest/);
@@ -423,7 +424,7 @@ describe("compare: end to end with Vitest and a recorded Jest report", () => {
     expect(report.verdict).toMatchObject({
       holds: false,
       jestPassed: 16,
-      confirmed: 5,
+      confirmed: 4,
       vitestExitCode: 1,
     });
     expect(report.projectChanges).toEqual([]);

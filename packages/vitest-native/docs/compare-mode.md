@@ -29,7 +29,9 @@ way Vitest finds it (`vitest.config.*`, then `vite.config.*`) or named with `--v
 the project has no Vitest config yet, compare uses the config `vitest-native migrate` would write.
 That config is executed but never saved: it lives in a temporary directory under `node_modules/`,
 and its `import.meta.url` paths are pointed back at the root. The wrapper config also turns off Vitest's 40-character cut of formatted values in parametrised
-titles (`taskTitleValueFormatTruncate: 0`), so titles are compared in full. The run adds `run --reporter=json`,
+titles (`taskTitleValueFormatTruncate: 0`, for the root and for each inline project), so titles are
+compared in full. A project listed by config-file path keeps its own setting, and Vitest 4, which
+reads `chaiConfig.truncateThreshold` there, is not covered (compare ships with the Vitest 5 floor). The run adds `run --reporter=json`,
 `--reporter=default` and `--coverage.enabled=false`. Coverage is not compared, and both
 runners would write `coverage/` into the project. Because coverage is off in both runs, compare
 does not exercise `coverageThreshold` or any setup that only runs with coverage on. The default reporter's output is the only place unhandled errors and
@@ -111,12 +113,18 @@ decides how:
   quote style (`'` and `"`, quotes kept), whitespace runs and a trailing comma may differ. Text
   outside printed values must match exactly: `it's on` and `it"s on`, or `a , b` and `a, b`, are
   different titles. The pair is the same test.
-- **Vitest left `%p` unformatted.** The titles differ only where Vitest printed a literal
-  `%p` (punctuation around it included, and Jest's printed string counted as one value, spaces
-  and all). Vitest's title hides nothing Jest's shows, so when the block's unmatched rows pair
-  one to one, in declaration order, each row is the same source row in both runners and the
-  pair is the same test. It is listed for review instead when the counts differ, or when the run
-  was shuffled (`--randomize`, `--sequence.shuffle`).
+- **Vitest left `%p` unformatted — confirmed by row position.** The titles differ only where
+  Vitest printed a literal `%p` (punctuation around it included, and Jest's printed string counted
+  as one value, spaces and all). The pair is confirmed when the block's unmatched rows pair one to
+  one in declaration order: row N with row N. That is a pairing by place, not by data. Vitest did
+  not print the value, so a table built differently under the two runners (from a mocked module's
+  keys, say) would pair different rows. Such confirmations are counted apart: the summary says
+  "N tests confirmed by row position only", and the JSON verdict has `confirmedByPosition`.
+  They are listed for review instead when the counts differ, when Jest's run was randomized
+  (`--randomize` in `--jest-args`), or when the Jest report came from `--jest-results`, whose
+  run order compare cannot know. When compare runs Jest 29.2 or later itself it passes
+  `--randomize=false`, so a config's `randomize: true` does not reorder the report. Vitest's
+  `--sequence.shuffle` does not reorder Vitest's report (it shuffles at run time only).
 - **Same shape — review.** The titles are equal only if a printed value is ignored: Jest's
   `{"a": 1}` or `{ user: [Object] }` against Vitest's `{ a: 1 }` or `{ user: { role: 'guest' } }`,
   Jest's `$var` against Vitest's `undefined`, or the `undefined` Vitest

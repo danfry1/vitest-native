@@ -591,7 +591,10 @@ function isolateProject(project, inherited) {
   if (!project || typeof project !== "object" || typeof project.then === "function") return project;
   const test = project.test ?? {};
   const own = test.resolveSnapshotPath ?? (project.extends ? inherited : undefined);
-  return { ...project, test: { ...test, resolveSnapshotPath: isolate(own) } };
+  return {
+    ...project,
+    test: { ...test, resolveSnapshotPath: isolate(own), taskTitleValueFormatTruncate: 0 },
+  };
 }
 
 function compareConfig(config) {
@@ -637,7 +640,7 @@ export function forwardedScriptFlags(root: string): {
 } {
   const forwarded: string[] = [];
   const ignored: string[] = [];
-  let pkg: { scripts?: { test?: unknown } };
+  let pkg: { scripts?: { test?: unknown } } | null;
   try {
     pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
   } catch (error) {
@@ -646,7 +649,7 @@ export function forwardedScriptFlags(root: string): {
     return { forwarded, ignored, unreadable: (error as Error).message.split("\n")[0] };
   }
   {
-    const script = pkg.scripts?.test;
+    const script = pkg?.scripts?.test;
     const parsed = typeof script === "string" ? parseJestScript("test", script) : null;
     for (const [name, value] of parsed?.flags ?? []) {
       if (FORWARDED.includes(name)) {
@@ -813,6 +816,12 @@ export function treeChanges(before: TreeState, after: TreeState): TreeChanges {
 // ---------------------------------------------------------------------------
 // compare
 // ---------------------------------------------------------------------------
+
+/** Jest's `--randomize` option exists from Jest 29.2; an older Jest rejects the flag. */
+export function jestRandomizeFlag(version: string | null): boolean {
+  const [major, minor] = (version ?? "").split(".").map(Number);
+  return major > 29 || (major === 29 && minor >= 2);
+}
 
 /** The `code` of a Node system error (`ENOENT`, `ESRCH`, …), or undefined. */
 function errorCode(error: unknown): string | undefined {
@@ -1002,6 +1011,9 @@ export async function runCompare(options: CompareOptions): Promise<number> {
           // junit.xml, often tracked) would change the project, which fails the run.
           // The comparison reads only the --json report above.
           "--reporters=default",
+          // Declaration order, whatever the config says: `%p` rows are paired by their place
+          // (Jest's randomize reorders its report). --randomize in --jest-args still wins.
+          ...(jestRandomizeFlag(jest?.version ?? null) ? ["--randomize=false"] : []),
           ...script.forwarded,
           ...options.jestArgs,
           "--ci",
@@ -1116,7 +1128,12 @@ export async function runCompare(options: CompareOptions): Promise<number> {
     const comparison = classify(jestResults, vitestResults, {
       snapshotHint: (file, message) => snapshotHint(root, resolutions.get(file), file, message),
       vitestRun: { exitCode: run.code, errors: reader.errors, engine: reader.engine() },
+      // Jest's report follows its run order, so a randomized run (asked for in --jest-args,
+      // or a --jest-results report from a run compare did not start) leaves `%p` rows to
+      // review. Vitest's --sequence.shuffle does not reorder its report (suite.tasks keeps
+      // declaration order); it is checked only to be safe.
       ordered:
+        !options.jestResults &&
         !options.jestArgs.some((a) => /^--randomize(=true)?$/.test(a)) &&
         !options.vitestArgs.some((a) => /^--sequence\.shuffle(=true)?$/.test(a)),
     });
