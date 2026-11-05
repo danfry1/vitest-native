@@ -4,7 +4,7 @@
 import { createRequire, registerHooks } from "node:module";
 import * as nativeLoader from "./loader.mjs";
 import path from "node:path";
-import { afterEach, expect, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, test, vi } from "vitest";
 import { installGlobals, installErrorUtils, installExpoRuntime } from "./globals.mjs";
 import { installRequireHooks } from "./hooks.mjs";
 import { installRntlJest } from "./rntl-hooks.mjs";
@@ -285,7 +285,7 @@ installErrorUtils(projectRoot);
 installRntlJest(vi);
 // Libraries' own test support (their jestSetup and mock files) runs with a `jest` of
 // its own, with Jest's module-registry semantics (library-jest.mjs).
-installLibraryJest(vi);
+installLibraryJest(vi, { expect, describe, it, test, beforeEach, afterEach, beforeAll, afterAll });
 // Each test file keeps only what a still-loaded library support module registered,
 // under every pool: the hot runtime and `isolate: false` reuse a worker.
 beginTestFile();

@@ -45,16 +45,25 @@ import { projectContext } from "../context.mjs";
 const SUPPORT_LEAVES = new Set(["jestSetup", "mock"]);
 const MENTIONS_JEST = /\bjest\b/;
 
+/**
+ * The worker's library-support state, on the dispatcher's "library-jest" channel: one per
+ * worker however many instances of this file are evaluated (Node loads it for the require
+ * hooks; the setup file may reach another instance, through Vite's runner under the hot
+ * runtime), as node-dispatch.mjs keeps its own.
+ */
+const lib = nodeDispatch().channel("library-jest");
 /** Packages whose test support has loaded in this worker. */
-const active = new Set();
+const active = (lib.active ??= new Set());
+/** The support entries evaluated in this worker: `{ pkg, module }`. */
+const entries = (lib.entries ??= new Set());
 /** How many library-building scopes are open (support entries, their factories). */
-let building = 0;
+lib.building ??= 0;
 /** The support entries being evaluated, innermost last: `{ pkg, module }`. */
-const owners = [];
+const owners = (lib.owners ??= []);
 /** One `jest` per file. */
-const jestByFile = new Map();
+const jestByFile = (lib.jestByFile ??= new Map());
 /** Each directory's package, by its nearest named package.json (workspace links too). */
-const packageByFile = new Map();
+const packageByFile = (lib.packageByFile ??= new Map());
 const projectRoot = path.resolve(projectContext()?.projectRoot ?? process.cwd());
 
 /**
@@ -122,6 +131,12 @@ function loaded(owner) {
 export function beginTestFile() {
   active.clear();
   jestByFile.clear();
+  // A support entry still loaded (`isolate: false` keeps modules) keeps its package's
+  // support active, whether or not it registered a mock.
+  for (const owner of entries) {
+    if (loaded(owner)) active.add(owner.pkg);
+    else entries.delete(owner);
+  }
   globalThis.__vitest_native_jest_registry?.clear({
     keep(entry) {
       if (!entry.library || !loaded(entry.owner)) return false;
@@ -154,7 +169,7 @@ export function libraryJestFor(vi, file) {
     for (const [name, toImpl] of BASELINE_SETTERS) {
       const set = mock[name];
       mock[name] = (value) => {
-        if (building === 0) return set.call(mock, value);
+        if (lib.building === 0) return set.call(mock, value);
         own = toImpl(value);
         return mock;
       };
@@ -164,13 +179,13 @@ export function libraryJestFor(vi, file) {
   // A factory the library registers runs later, when the module is first required;
   // what it builds is part of the library's mocks too, and belongs to the same entry.
   const asBuilding = (factory, owner) => () => {
-    building++;
+    lib.building++;
     if (owner !== null) owners.push(owner);
     try {
       return factory();
     } finally {
       if (owner !== null) owners.pop();
-      building--;
+      lib.building--;
     }
   };
   const mock = (spec, factory) => {
@@ -203,23 +218,25 @@ export function libraryJestFor(vi, file) {
  * compiled by the engine's CommonJS handlers (native/hooks.mjs), which call
  * compileSupport/loadSupport. Once per worker.
  */
-export function installLibraryJest(vi) {
-  libraryVi = vi;
-  nodeDispatch().channel("library-jest").libraryJestFor ??= (file) => libraryJestFor(vi, file);
-  // `@jest/globals` from a support file is that file's `jest` (LOAD_STEPS).
+export function installLibraryJest(vi, globals = {}) {
+  lib.vi = vi;
+  lib.globals = globals;
+  lib.libraryJestFor = (file) => libraryJestFor(lib.vi, file);
+  // `@jest/globals` from a support file is that file's `jest`, with the test API beside it
+  // (LOAD_STEPS). jest-runtime answers it before any mock, as this step's rank does.
   nodeDispatch().load.add(
     "librarySupport",
     (next) =>
       function (request, parent, ...rest) {
         if (request === "@jest/globals" && isSupportFile(parent?.filename)) {
-          const jest = libraryJestFor(vi, parent.filename);
-          return { jest, expect: globalThis.expect, __esModule: true, default: { jest } };
+          const jest = libraryJestFor(lib.vi, parent.filename);
+          const api = { ...lib.globals, jest };
+          return { ...api, __esModule: true, default: api };
         }
         return next(request, parent, ...rest);
       },
   );
 }
-let libraryVi = null;
 
 /**
  * What library support needs of `filename`'s compile, or null (the common case, one
@@ -227,7 +244,7 @@ let libraryVi = null;
  * `jest`.
  */
 function supportOf(filename) {
-  if (libraryVi === null) return null;
+  if (lib.vi === undefined) return null;
   const entryOf = supportPackageOfFile(filename);
   if (entryOf !== null) active.add(entryOf);
   const wantsJest = isSupportFile(filename);
@@ -235,16 +252,18 @@ function supportOf(filename) {
 }
 
 /** `content` with a `jest` of the file's own, or null when it needs none or cannot have one. */
-function withJest(content, filename) {
+function withJest(content, filename, probe) {
   if (typeof content !== "string" || !MENTIONS_JEST.test(content)) return null;
   // On the first line, so line numbers stay. A parameter rather than a `var`, and the
   // code in a function of its own, so a file that declares its own `jest`
-  // (`const { jest } = require("@jest/globals")`) still compiles and shadows it.
+  // (`const { jest } = require("@jest/globals")`) still compiles and shadows it. Node's
+  // module arguments pass through, for code that reads `arguments`.
   const wrapped =
-    `(function (jest) {return (function () {${stripShebang(content)}\n}).call(this);}).call(this, ` +
-    `globalThis[Symbol.for("vitest-native.node-dispatch")].channel("library-jest").libraryJestFor(__filename));`;
-  // An ES module's syntax cannot sit in a function body: such a file is left as it is.
-  return parses(wrapped, filename) ? wrapped : null;
+    `(function (jest, args) {return (function () {${stripShebang(content)}\n}).apply(this, args);}).call(this, ` +
+    `globalThis[Symbol.for("vitest-native.node-dispatch")].channel("library-jest").libraryJestFor(__filename), arguments);`;
+  // An ES module's syntax cannot sit in a function body: a file read from disk is probed,
+  // and left as it is when it is one. The engine's compiled output is CommonJS already.
+  return !probe || parses(wrapped, filename) ? wrapped : null;
 }
 
 /** Run `compile` as the evaluation of `mod`, a support entry of `entryOf` when it is one. */
@@ -252,13 +271,15 @@ function asSupport(mod, entryOf, compile) {
   // A support entry, however it is reached (`require`, `import`, `setupFiles`), builds the
   // library's mocks, and owns what it registers.
   if (entryOf === null) return compile();
-  building++;
-  owners.push({ pkg: entryOf, module: mod });
+  const owner = { pkg: entryOf, module: mod };
+  entries.add(owner);
+  lib.building++;
+  owners.push(owner);
   try {
     return compile();
   } finally {
     owners.pop();
-    building--;
+    lib.building--;
   }
 }
 
@@ -266,7 +287,7 @@ function asSupport(mod, entryOf, compile) {
 export function compileSupport(mod, content, filename) {
   const support = supportOf(filename);
   if (support === null) return mod._compile(content, filename);
-  const wrapped = support.wantsJest ? withJest(content, filename) : null;
+  const wrapped = support.wantsJest ? withJest(content, filename, false) : null;
   return asSupport(mod, support.entryOf, () => mod._compile(wrapped ?? content, filename));
 }
 
@@ -280,7 +301,7 @@ export function loadSupport(mod, filename, loadJs) {
   if (support === null) return loadJs(mod, filename);
   let wrapped = null;
   if (support.wantsJest && !isModuleType(filename)) {
-    wrapped = withJest(fs.readFileSync(filename, "utf8").replace(/^\uFEFF/, ""), filename);
+    wrapped = withJest(fs.readFileSync(filename, "utf8").replace(/^\uFEFF/, ""), filename, true);
   }
   return asSupport(mod, support.entryOf, () =>
     wrapped !== null ? mod._compile(wrapped, filename) : loadJs(mod, filename),
@@ -289,6 +310,8 @@ export function loadSupport(mod, filename, loadJs) {
 
 /** Whether Node loads `.js` in `filename`'s directory as an ES module (`"type": "module"`). */
 function isModuleType(filename) {
+  if (filename.endsWith(".cjs")) return false;
+  if (filename.endsWith(".mjs")) return true;
   for (let dir = path.dirname(filename); ; dir = path.dirname(dir)) {
     if (moduleTypeByDir.has(dir)) return moduleTypeByDir.get(dir);
     const manifest = path.join(dir, "package.json");
@@ -306,7 +329,7 @@ function isModuleType(filename) {
     if (path.dirname(dir) === dir) return false;
   }
 }
-const moduleTypeByDir = new Map();
+const moduleTypeByDir = (lib.moduleTypeByDir ??= new Map());
 
 /** Whether `code` parses as a script; it is not run. */
 function parses(code, filename) {

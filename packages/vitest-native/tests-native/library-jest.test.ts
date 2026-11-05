@@ -103,4 +103,25 @@ describe("a library's support files of other kinds", () => {
     require("vn-lib-esm-support/jest/setup");
     expect((globalThis as { __vnEsmSupportFormat?: string }).__vnEsmSupportFormat).toBe("esm");
   });
+
+  it("gives a .cjs support file of an ES module package its jest, and Node's module arguments", () => {
+    const cjs = require("vn-lib-esm-support/jest/setup.cjs");
+    expect(cjs.args).toBe(5);
+    vi.resetAllMocks();
+    expect(cjs.built()).toBe("library jest");
+  });
+
+  it("gives @jest/globals the test API beside jest", () => {
+    expect(require("vn-lib-jest-support/jest/globals").names).toEqual([
+      "afterAll",
+      "afterEach",
+      "beforeAll",
+      "beforeEach",
+      "describe",
+      "expect",
+      "it",
+      "jest",
+      "test",
+    ]);
+  });
 });
