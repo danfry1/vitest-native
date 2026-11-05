@@ -83,14 +83,25 @@ reactNative({
 `mocks` merges overrides into the mock's export table, so it only applies with `engine: 'mock'` — the native engine runs the real `react-native` module and throws a configuration error if `mocks` is set. Use `vi.mock()` in a setup file or [`mockNativeModule`](/guide/helpers#mocknativemodule-name-impl) instead.
 :::
 
-Custom mock overrides, keyed by export name. Useful for the handful of [unstable/private RN exports](/api/coverage#not-covered) that aren't mocked:
+Overrides for the mock's `react-native` exports, keyed by export name. Each value replaces that export whole, so an object you pass is the entire export, not a partial update. Values must be JSON-serializable (strings, numbers, booleans, plain objects, arrays), because they are passed to the test workers; a function value, such as a component, fails with `INVALID_OPTION`:
 
 ```ts
 reactNative({
+  engine: 'mock',
   mocks: {
-    unstable_NativeText: MyCustomMock,
+    ReactNativeVersion: { major: 0, minor: 86, patch: 0 },
   },
 })
+```
+
+To supply a component or function, such as one of the handful of [unstable/private RN exports](/api/coverage#not-covered) the mock does not provide, use `vi.mock` in a setup file instead:
+
+```ts
+// vitest.setup.ts
+vi.mock('react-native', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-native')>()),
+  unstable_NativeText: MyCustomMock,
+}))
 ```
 
 ## `assetExts`
@@ -147,5 +158,23 @@ reactNative({ hotRuntime: { mode: 'auto', memoryLimit: 2 * 1024 ** 3 } })
 ```ts
 reactNative({ nativeModules: 'permissive' })
 ```
+
+## `metroConfig`
+
+::: warning Experimental
+Opt-in while the framework and package-manager compatibility matrix is being validated. Default: `false`.
+:::
+
+Pass `metroConfig: true` to use your project's Metro source-extension order and asset list in both Vite and Node resolution:
+
+```ts
+reactNative({ metroConfig: true })
+// Config outside the project root:
+reactNative({ metroConfig: { configFile: '../../metro.config.cjs' } })
+```
+
+Expo's defaults prefer TypeScript over JavaScript when both variants exist; bare React Native's defaults prefer JavaScript. The profile is evaluated in a short-lived child process using the project's own Metro tooling. Explicit `assetExts` additions still apply. Metro transforms are not installed: source formats such as SVG need a corresponding Vitest/Vite transform.
+
+A custom `resolver.resolveRequest` is code and does not run under Vitest: the source and asset extensions still apply, and a warning names the gap. Where one of its redirects matters to tests, reproduce it with `resolve.alias`. Package main fields and conditions keep the engine's own resolution ([package entry points](/guide/how-it-works#package-entry-points)); `diagnostics: true` reports the observed Metro values. Config is evaluated on startup; changing it requires restarting the run. Findings and remaining gates are recorded in [the investigation log](https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/docs/metro-profile-investigation.md).
 
 Next: [Third-Party Presets](/guide/presets).

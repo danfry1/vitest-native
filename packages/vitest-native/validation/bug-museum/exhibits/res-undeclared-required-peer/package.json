@@ -1,0 +1,8 @@
+{
+  "name": "museum-res-undeclared-required-peer",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "museum-router": "6.0.0"
+  }
+}
