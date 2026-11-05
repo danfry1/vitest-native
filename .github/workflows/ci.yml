@@ -20,18 +20,20 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  # Docs-only pull requests do not run the gate: a README wording change was
-  # burning the full OS × Node matrix, the packed consumer installs, and the
-  # cross-check for a diff nothing executes. The rules live in
-  # .github/scripts/classify-change.sh, shared with native-rn-matrix.yml. The gate
-  # jobs skip by condition, which GitHub reports as success, and `CI verdict` below
-  # is the single required check either way.
+  # A pull request runs the gate jobs its changed files need: a docs-only change runs
+  # none, a test-only change skips the packed cells, and code runs everything. The
+  # rules live in .github/scripts/classify-change.mjs, shared with native-rn-matrix.yml
+  # and config-axis-matrix.yml. The gate jobs skip by condition, which GitHub reports as
+  # success, and `CI verdict` below is the single required check either way.
   classify:
     name: Classify change
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       docs-only: ${{ steps.docs.outputs.docs-only }}
+      full: ${{ steps.docs.outputs.full }}
+      packed: ${{ steps.docs.outputs.packed }}
+      unit: ${{ steps.docs.outputs.unit }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -42,7 +44,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-        run: .github/scripts/classify-change.sh "$EVENT" "$BASE_SHA" "$HEAD_SHA"
+        run: node .github/scripts/classify-change.mjs "$EVENT" "$BASE_SHA" "$HEAD_SHA"
 
   # A docs-only pull request skips the gate, but some unit tests take a Markdown page as
   # their source of truth (the versioning contract, the preset tables, the documented
@@ -93,12 +95,49 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         run: node packages/vitest-native/scripts/check-changeset.mjs "$BASE_SHA" "$HEAD_SHA"
 
+  # When a pull request skips the Full gate, one leg of its static checks and unit
+  # suite still runs: unit tests read the workflows, the validation scripts and the RN
+  # matrix definition as their source of truth, so no change that is not docs-only goes
+  # without them.
+  unit:
+    name: Unit checks
+    needs: classify
+    if: needs.classify.outputs.unit == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+        with:
+          node-version: 22.13.0
+
+      - name: Verify dependencies are pinned
+        run: bun run lint:deps
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Check formatting
+        run: bun run format:check
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Build
+        run: bun run build
+
+      - name: Test
+        run: bun run test
+
   check:
     # Unique per leg: the two back-compat legs differ only by RNTL, and GitHub resolves
     # a check name shared by two jobs ambiguously.
     name: Full gate (${{ matrix.os }}, Node ${{ matrix.node-version }}${{ matrix.rntl && format(', RNTL {0}', matrix.rntl) || '' }}${{ matrix.part && format(', {0}', matrix.part) || '' }})
     needs: classify
-    if: needs.classify.outputs.docs-only != 'true'
+    if: needs.classify.outputs.full == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
 
@@ -332,7 +371,7 @@ jobs:
   packed:
     name: Packed gate (${{ matrix.label }})
     needs: classify
-    if: needs.classify.outputs.docs-only != 'true'
+    if: needs.classify.outputs.packed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -464,12 +503,13 @@ jobs:
   # had to be kept in step by hand (a name neither reported left a PR unmergeable).
   # This job depends on every gate and runs whatever happened (`always()`): it fails
   # if any of them failed or was cancelled, and passes when they succeeded or were
-  # skipped by condition — a docs-only pull request, or `changeset` on a push to main.
+  # skipped by condition — a gate a pull request's changes do not need, or `changeset`
+  # on a push to main.
   # needs.<job>.result is one of success, failure, cancelled, skipped (GitHub Actions
   # contexts reference).
   verdict:
     name: CI verdict
-    needs: [classify, docs, changeset, check, packed]
+    needs: [classify, docs, changeset, unit, check, packed]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
