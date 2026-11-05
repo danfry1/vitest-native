@@ -1,0 +1,9 @@
+{
+  "name": "museum-router",
+  "version": "6.0.0",
+  "main": "index.js",
+  "peerDependencies": {
+    "museum-linking": "*",
+    "react-native": "*"
+  }
+}

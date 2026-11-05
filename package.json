@@ -33,6 +33,7 @@
     "test:native:android": "bun run --filter vitest-native test:native:android",
     "test:native:advice": "bun run --filter vitest-native test:native:advice",
     "test:native:hot": "bun run --filter vitest-native test:native:hot",
+    "test:native:coverage": "bun run --filter vitest-native test:native:coverage",
     "test:native:hot:isolation": "bun run --filter vitest-native test:native:hot:isolation",
     "test:native:hot:soak": "bun run --filter vitest-native test:native:hot:soak",
     "test:consumers": "bun run build && bun run --filter vitest-native test:consumers",

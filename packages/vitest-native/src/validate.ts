@@ -17,6 +17,7 @@ const KNOWN_OPTIONS = [
 ];
 const KNOWN_EXPERIMENTAL_OPTIONS = ["ownershipModel", "nodeMocks"];
 const KNOWN_HOT_RUNTIME_OPTIONS = [
+  "mode",
   "recycleAfterFiles",
   "memoryLimit",
   "allowUnboundedMemory",
@@ -222,6 +223,22 @@ export function validateOptions(options: Record<string, unknown>): void {
           ` Valid options: ${KNOWN_HOT_RUNTIME_OPTIONS.join(", ")}.`,
       );
     }
+  }
+  if (hotOptions.mode !== undefined && hotOptions.mode !== "auto") {
+    throw new VitestNativeTypeError(
+      "INVALID_OPTION",
+      `"hotRuntime.mode" must be "auto", or left out to require the hot runtime.`,
+    );
+  }
+  // 'auto' falls back to per-file isolation exactly where a one-worker run would need
+  // allowUnboundedMemory, so the two cannot both hold.
+  if (hotOptions.mode === "auto" && hotOptions.allowUnboundedMemory === true) {
+    throw new VitestNativeTypeError(
+      "INVALID_OPTION",
+      `"hotRuntime.allowUnboundedMemory" cannot be combined with mode: "auto", which keeps ` +
+        `per-file isolation where memory cannot be bounded. Leave out mode to require the ` +
+        `hot runtime with unbounded memory.`,
+    );
   }
   if (hotOptions.recycleAfterFiles !== undefined) {
     assertNonNegativeInteger(hotOptions.recycleAfterFiles, "hotRuntime.recycleAfterFiles");

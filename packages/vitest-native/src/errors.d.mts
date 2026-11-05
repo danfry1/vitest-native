@@ -45,6 +45,8 @@ export type VitestNativeErrorCode =
   | "HOT_STATE_CAPTURE_FAILED"
   | "HOT_STATE_RESTORE_FAILED"
   | "HOT_CJS_CACHE_RESET"
+  | "HOT_RESIDENT_UNUSABLE"
+  | "HOT_FILE_NOT_RUN"
   | "PRESET_UNAVAILABLE"
   | "PRESET_NOT_PREPARED"
   | "WRONG_ENGINE_FOR_HELPER"
@@ -56,6 +58,7 @@ export type VitestNativeErrorCode =
   | "BABEL_IGNORES_FILE"
   | "UNKNOWN_DISPATCH_STEP"
   | "MOCK_NOT_SEEN_BY_NODE"
+  | "IMPORT_META_IN_NODE_OWNED"
   | "MATCHER_BAD_RECEIVER";
 
 export interface VitestNativeErrorOptions {

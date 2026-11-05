@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach } 
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 // @ts-expect-error — runtime .mjs, no types
 import { transformRN } from "../src/native/transform.mjs";
 import { parseDeprecatedReactNativeExports, parseReactNativeExports } from "../src/plugin.js";
@@ -11,6 +11,7 @@ import { validatePeerDependency } from "../src/validate.js";
 import { nativePool } from "../src/native/pool.js";
 import { createRequire } from "node:module";
 import { runPluginConfig } from "./plugin-config.js";
+import { COLD_TRANSFORM_BUDGET_MS, warmTransform } from "./support/warm-transform.js";
 
 // Anchor all resolution to THIS test file's location (cwd-independent — vitest's
 // process.cwd() varies with where it was launched). Walk up from here looking for
@@ -36,6 +37,10 @@ const RN = path.dirname(fs.realpathSync(findUp("node_modules/react-native/packag
 const projectRoot = path.dirname(findUp("package.json", HERE));
 
 describe("transformRN", () => {
+  // The RN source files below are usually served from the disk cache, so whichever test
+  // first reached Babel paid the worker's cold start and could time out.
+  beforeAll(() => warmTransform(transformRN, projectRoot), COLD_TRANSFORM_BUDGET_MS);
+
   it("lowers RN 0.84 Flow component syntax to runnable JS", () => {
     const file = path.join(RN, "Libraries/Components/View/View.js");
     const src = fs.readFileSync(file, "utf8");
@@ -656,6 +661,62 @@ describe("native preset redirect (ESM loader)", () => {
     expect(loaded.source).toContain('const _hit = "Swipeable" in _m;');
     expect(loaded.source).toContain('export default (_hit ? _m["Swipeable"]');
     expect(loaded.source).toContain('export const State = _m["State"];');
+  });
+
+  it("passes a subpath whose leaf the mock does not export to the real resolver", async () => {
+    // As jest.mock(pkg) leaves subpaths alone under Jest: the root mock is another
+    // module's exports.
+    await nativeLoader.initialize({
+      projectRoot,
+      transformPkgs: [],
+      presetExports: { "react-native-gesture-handler": ["Swipeable", "State"] },
+      assetExts: ["png", "ttf"],
+    });
+    const sentinel = { url: "file:///real/ReanimatedSwipeable.js", shortCircuit: true };
+    const result = nativeLoader.resolveSync(
+      "react-native-gesture-handler/ReanimatedSwipeable",
+      { parentURL: undefined },
+      () => sentinel,
+    );
+    expect(result).toBe(sentinel);
+  });
+
+  it("by resolved file: the package's entry is the mock, any other file is real", async () => {
+    const pkgDir = path.join(projectRoot, "node_modules", "react-native-safe-area-context");
+    const manifest = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf8"));
+    await nativeLoader.initialize({
+      projectRoot,
+      transformPkgs: [],
+      presetExports: { "react-native-safe-area-context": ["SafeAreaView"] },
+      assetExts: [],
+    });
+    const parentURL = pathToFileURL(path.join(projectRoot, "src", "index.ts")).href;
+    const entry = pathToFileURL(path.join(pkgDir, manifest.main)).href;
+    const fromEntry = nativeLoader.resolveSync(entry, { parentURL }, () => {
+      throw new Error("the entry is the mock");
+    });
+    expect(fromEntry.url).toContain("react-native-safe-area-context");
+    expect(fromEntry.url).not.toMatch(/^file:/);
+    const deep = pathToFileURL(path.join(pkgDir, "lib/commonjs/SafeAreaContext.js")).href;
+    const sentinel = { url: deep, shortCircuit: true };
+    expect(nativeLoader.resolveSync(deep, { parentURL }, () => sentinel)).toBe(sentinel);
+  });
+
+  it("a subpath Node resolves to the package's entry is the root mock", async () => {
+    const pkgDir = path.join(projectRoot, "node_modules", "react-native-safe-area-context");
+    await nativeLoader.initialize({
+      projectRoot,
+      transformPkgs: [],
+      presetExports: { "react-native-safe-area-context": ["SafeAreaView"] },
+      assetExts: [],
+    });
+    const parentURL = pathToFileURL(path.join(projectRoot, "src", "index.ts")).href;
+    const result = nativeLoader.resolveSync(
+      "react-native-safe-area-context/src",
+      { parentURL },
+      () => ({ url: pathToFileURL(path.join(pkgDir, "src", "index.tsx")).href }),
+    );
+    expect(result.url).toBe("vitest-native-preset:react-native-safe-area-context");
   });
 
   it("passes preset package.json and asset subpaths through to the real resolver", async () => {
@@ -2257,6 +2318,14 @@ describe("plugin subpath resolution (mock engine)", () => {
     expect(code).toContain('export default (_hit ? _m["Swipeable"]');
     // Named exports still come from the root preset mock.
     expect(code).toContain("export const State = _m['State'];");
+  });
+
+  it("keeps serving the mock for a subpath whose leaf the mock does not export", async () => {
+    // The mock engine has no real package to load.
+    const plugin = await makePlugin();
+    expect(plugin.resolveId("react-native-gesture-handler/ReanimatedSwipeable", undefined)).toBe(
+      "\0virtual:preset:react-native-gesture-handler/ReanimatedSwipeable",
+    );
   });
 
   it("does not redirect preset package.json, asset, or utility subpaths", async () => {

@@ -12,15 +12,6 @@
       "why": "Node's alias fallback cannot represent a regex alias: Cannot find module. Ownership track A1 (#370, the shared resolver behind experimental.ownershipModel) applies regex aliases on Node's side, deciding by resolution rather than by alias text as #344 does. The entry covers the flag off only: with 'resolver' the probe must pass, so a run that drops the flag fails here instead of matching this entry."
     },
     {
-      "probe": "aliased-source-import-meta",
-      "when": {
-        "engine": "native"
-      },
-      "failure": "^aliased-source-import-meta\\.test\\.ts: Cannot use 'import\\.meta' outside a module",
-      "fixedBy": "#344",
-      "why": "Node compiles the aliased source to CommonJS: Cannot use 'import.meta' outside a module. #344 fixes it by leaving aliased workspace source to Vite, a decision by alias text; the ownership track plans to fix it instead by lowering import.meta in Node-owned compiles (A4, after the predicate A3). #370 does not fix it."
-    },
-    {
       "probe": "rntl-findby-fake-timers",
       "when": {
         "engine": "mock",

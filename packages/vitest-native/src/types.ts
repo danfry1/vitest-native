@@ -247,6 +247,14 @@ export interface NavigationPresetOptions {
   defaultRouteParams?: Record<string, unknown>;
 }
 
+/** The `hotRuntime` object form's recycling options, shared by both of its modes. */
+export interface HotRuntimeRecycleOptions {
+  recycleAfterFiles?: number;
+  memoryLimit?: number;
+  preserveGlobals?: string[];
+  esmGeneration?: boolean;
+}
+
 export interface VitestNativeOptions {
   /** Target platform. Default: 'ios' */
   platform?: "ios" | "android";
@@ -328,10 +336,12 @@ export interface VitestNativeOptions {
   /**
    * `engine: 'native'` only. Names of additional node_modules packages whose
    * source the native engine should transform (Flow/TS/JSX stripped) as it
-   * loads them. By default only `react-native` / `@react-native` are
-   * transformed; third-party RN libraries that ship untranspiled source
-   * (e.g. `react-native-reanimated`, `react-native-safe-area-context`) need to
-   * be listed here, analogous to Jest's `transformIgnorePatterns` allowlist.
+   * loads them. Packages the project depends on that declare `react-native` as
+   * a dependency or peer dependency, and their runtime dependencies, are
+   * detected and transformed without being listed; list a package here when it
+   * ships untranspiled source but is not detected, as you would add it to
+   * Jest's `transformIgnorePatterns` allowlist. A listed package's own
+   * dependencies are transformed too.
    *
    * The object form adds `exclude`, which names packages the engine must NEVER
    * transform, whatever else would have selected them — auto-detection, a detected
@@ -349,12 +359,12 @@ export interface VitestNativeOptions {
    *
    * @example
    * ```ts
-   * reactNative({ engine: 'native', transform: ['react-native-reanimated'] })
+   * reactNative({ engine: 'native', transform: ['some-untranspiled-lib'] })
    *
    * reactNative({
    *   engine: 'native',
    *   transform: {
-   *     include: ['react-native-reanimated'],
+   *     include: ['some-untranspiled-lib'],
    *     exclude: ['some-build-tool'], // never hand this to the Babel preset
    *   },
    * })
@@ -441,6 +451,13 @@ export interface VitestNativeOptions {
    * explicit custom pool; otherwise the run keeps per-file isolation and prints the
    * reason for falling back.
    *
+   * - `mode: 'auto'` in the object form selects the same way, with the object's
+   *   recycling options applied when the hot runtime runs:
+   *   `{ mode: 'auto', memoryLimit: 2 * 1024 ** 3 }`. Without `mode`, the object
+   *   form requires the hot runtime, as `true` does. Cannot be combined with
+   *   `allowUnboundedMemory: true`. Worker count and process-RSS limits still come
+   *   from the memory plan; `memoryLimit: 0` turns the heap threshold off.
+   *
    * Default: `false`, as in 0.13.0: each file runs in a fresh worker, with React
    * Native reloaded per file. The hot runtime has known differences from per-file
    * isolation, listed in the troubleshooting guide.
@@ -448,13 +465,8 @@ export interface VitestNativeOptions {
   hotRuntime?:
     | boolean
     | "auto"
-    | {
-        recycleAfterFiles?: number;
-        memoryLimit?: number;
-        allowUnboundedMemory?: boolean;
-        preserveGlobals?: string[];
-        esmGeneration?: boolean;
-      };
+    | (HotRuntimeRecycleOptions & { mode?: undefined; allowUnboundedMemory?: boolean })
+    | (HotRuntimeRecycleOptions & { mode: "auto"; allowUnboundedMemory?: false });
 
   /**
    * `engine: 'native'` only. How native module lookups answer.

@@ -13,6 +13,9 @@ export interface ProjectContextFields {
   assetExts?: string[];
   hotPreserveGlobals?: string[];
   hotEsmGeneration?: boolean;
+  /** Coverage is on: Node-compiled project source carries an inline source map. */
+  sourceMaps?: boolean;
+  hotReleaseGenerations?: boolean;
   registry?: string;
   ownership?: Record<string, unknown>;
   projectDirs?: string[];
@@ -33,6 +36,8 @@ export interface ProjectContextFields {
   ownershipModel?: "resolver" | "resolution";
   resolverInputs?: import("./native/shared-resolver.mjs").ResolverInputs;
   resolverInputsHash?: string;
+  /** The supported Expo SDKs, `[minimum, maximum]` (checkLoadedExpoSdk). */
+  expoSdks?: [number, number];
 }
 
 export declare function writeProjectContext(

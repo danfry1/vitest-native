@@ -14,7 +14,9 @@ import { describe, expect, it } from "vitest";
 import {
   allowed,
   cartesian,
+  CELLS_PER_JOB,
   cellsFor,
+  jobsFor,
   readAxes,
   scopeFor,
 } from "../validation/config-axes/cells.mjs";
@@ -115,6 +117,16 @@ describe("cells", () => {
           ).toBe(true);
         }
       }
+    }
+  });
+
+  it("CI jobs run every cell of each scope exactly once, at most CELLS_PER_JOB a job", () => {
+    for (const scope of ["pairwise", "full"]) {
+      const cells = cellsFor(axes, scope);
+      const jobs: unknown[][] = jobsFor(cells);
+      expect(jobs.every((job) => job.length >= 1 && job.length <= CELLS_PER_JOB)).toBe(true);
+      expect(jobs.flat()).toEqual(cells);
+      expect(jobs.length).toBe(Math.ceil(cells.length / CELLS_PER_JOB));
     }
   });
 

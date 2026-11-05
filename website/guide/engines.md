@@ -72,9 +72,9 @@ It uses Vitest's custom worker APIs, which Vitest labels experimental.
 
 ### Choosing the hot runtime
 
-Turn it on when a suite is large enough that loading React Native in every file dominates the run, and the suite passes the same way with and without it. On the repository's generated benchmark suite it ran 1.79× faster than Jest at 50 files and 2.66× at 200, where per-file isolation ran at 0.47× and 0.34× Jest's speed, about 2× and 3× slower ([the repository README](https://github.com/danfry1/vitest-native#readme) has the table and the conditions). Treat those as indicative and measure your own suite with both settings.
+Turn it on when a suite is large enough that loading React Native in every file dominates the run, and the suite passes the same way with and without it. Whether it is faster depends on the suite, so measure your own suite with both settings.
 
-What it changes: workers stay alive across test files, so React Native loads once per worker instead of once per file. Your app and test modules, mocks, timers and a verified list of process-wide state are still reset per file. Some state is known to carry over, and each case can change a test's result depending on which files ran before it in the same worker: generated `useId` values, React's once-per-worker development warnings, an un-awaited `act()`, fake timers captured by React's scheduler, and fake timers RNTL reinstalls only once. [Troubleshooting](/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files) describes each one and how to confirm it.
+What it changes: workers stay alive across test files, so React Native loads once per worker instead of once per file. Your app and test modules, mocks, timers and a verified list of process-wide state are still reset per file. Some state is known to carry over, and each case can change a test's result depending on which files ran before it in the same worker: generated `useId` values, React's once-per-worker development warnings, an `act()` scope left open with one worker, fake timers captured by React's scheduler, and fake timers RNTL reinstalls only once. [Troubleshooting](/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files) describes each one and how to confirm it.
 
 It is opt-in because those differences can change a test's result depending on file order. It can become the default again once:
 
@@ -104,10 +104,12 @@ If you set `NODE_COMPILE_CACHE` yourself, Node turns the cache on in every worke
 
 ### Worker recycling
 
-The hot runtime automatically derives a worker-total budget from the lower of host and container/cgroup memory. It reserves main-process and replacement headroom, caps automatic concurrency at four, recycles workers on local heap or process RSS, and stops before starting more work at the hard RSS boundary. Use `diagnostics: true` or `vitest-native doctor` to inspect the plan.
+The hot runtime automatically derives a worker-total budget from the lower of host and container/cgroup memory. It reserves main-process and replacement headroom, caps automatic concurrency at four, recycles workers on local heap or process RSS, and stops before starting more work at the hard RSS boundary. The startup log names the worker count it chose on every run, for example `[vitest-native] workers: 4 (automatic cap of 4; 9 available, set maxWorkers to run more; 24576 MiB host memory)`. For the full plan (limits, reserves and the heap recycle threshold), set `reactNative({ diagnostics: true })` or run `vitest-native doctor`.
 
 The cap of four applies only to the worker count vitest-native picks itself; in the measurement behind it, eight workers were about 6% faster than four for about 512 MiB more peak memory. A count you set — `test.maxWorkers` in the config, `--maxWorkers` on the command line, or `VITEST_MAX_WORKERS` — is honoured up to what the memory budget holds, so setting one is how to run more than four hot workers. Where no memory limit can be read, the cap of four applies to an explicit count too.
 
 Recycling only fires with **two or more workers** under current Vitest. In single-worker mode Vitest batches every file into one task and never exposes a recycle boundary, so `'auto'` keeps per-file isolation there and `hotRuntime: true` fails that configuration instead of silently trusting an inert limit. Use `maxWorkers >= 2` for hot mode. If an external scheduler already enforces the process boundary, `hotRuntime: { allowUnboundedMemory: true }` explicitly accepts the risk and disables the automatic worker cap and process-RSS enforcement.
+
+The plan picks each worker's heap threshold. To set your own and keep `'auto'`'s fallback to per-file isolation, use `hotRuntime: { mode: 'auto', memoryLimit }` (bytes); without `mode`, an object requires the hot runtime and fails where it cannot run. The heap a worker reports is read when its file finishes, before any garbage collection, so it can sit above what the worker actually retains; leave headroom when you choose a threshold.
 
 Next: [How It Works](/guide/how-it-works) explains what the plugin does under the hood.
