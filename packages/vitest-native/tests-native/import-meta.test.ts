@@ -15,7 +15,8 @@ declare const jest: { requireActual: (m: string) => Record<string, unknown> };
 const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures/import-meta");
 
 it("leaves a file Vite loads to Vite", () => {
-  expect(viteOwned.mode).toBe("test");
+  // The mode of this run: "test" by default, the --mode a suite passes otherwise.
+  expect(viteOwned.mode).toBe(import.meta.env.MODE);
   expect(viteOwned.url).toBe(pathToFileURL(path.join(fixtures, "vite-owned.ts")).href);
 });
 
