@@ -9,6 +9,9 @@
 //           when `full` is skipped. Several unit tests read workflows, validation
 //           scripts and fixtures as their source of truth, so every change that is not
 //           docs-only runs them.
+//   snippets ci.yml `Doc snippets`: the README and quick-start code run against the
+//           packed package (SNIPPET_PATHS), when a change touches it and `packed` is
+//           skipped; the packed consumer cell runs it otherwise.
 //
 // Only a pull request is narrowed. A push to main, a schedule, a manual run and a
 // merge-queue group run every group (a docs-only group still skips, as before): main
@@ -91,6 +94,21 @@ export function groupsForFile(file) {
 }
 
 /** Each output for an event and the files it changes. */
+/**
+ * The pages whose marked code blocks run against the packed package
+ * (packages/vitest-native/scripts/doc-snippets.mjs), plus the extractor and the app they
+ * run in. They are prose to every other rule, so a change to one alone would run nothing
+ * that executes them.
+ */
+export const SNIPPET_PATHS = [
+  "README.md",
+  `${P}README.md`,
+  "website/guide/quick-start.md",
+  `${P}scripts/doc-snippets.mjs`,
+];
+const isSnippetSource = (file) =>
+  SNIPPET_PATHS.includes(file) || file.startsWith(`${P}consumer-tests/expo-template/`);
+
 export function classify(event, files) {
   const pullRequest = event === "pull_request";
   const reviewable = pullRequest || event === "merge_group";
@@ -101,6 +119,9 @@ export function classify(event, files) {
   const out = { "docs-only": docsOnly };
   for (const group of GROUPS) out[group] = need.has(group);
   out.unit = !docsOnly && !need.has("full");
+  // The packed consumer cell runs the snippets with the fixtures; when it is skipped,
+  // `Doc snippets` runs them alone.
+  out.snippets = !need.has("packed") && files.some(isSnippetSource);
   return out;
 }
 
