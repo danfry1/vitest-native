@@ -464,11 +464,8 @@ export function registryLocation({
     sourceExts,
     additionalEntries,
   });
-  const registryFile = path.join(
-    cacheRootFor(projectRoot),
-    "registry",
-    `rn-${platform}-${key}.cjs`,
-  );
+  const dir = path.join(cacheRootFor(projectRoot), "registry");
+  const registryFile = path.join(dir, `rn-${platform}-${key}.cjs`);
   return { key, registryFile, metaFile: `${registryFile}.json` };
 }
 
