@@ -192,7 +192,6 @@
     "@types/node": "25.9.9",
     "@types/react": "19.3.0",
     "@vitest/coverage-v8": "5.0.5",
-    "dispatch-consumer-lib": "file:./tests-native/fixtures/dispatch-consumer-lib",
     "dispatch-cycle-lib": "file:./tests-native/fixtures/dispatch-cycle-lib",
     "dispatch-redirect-lib": "file:./tests-native/fixtures/dispatch-redirect-lib",
     "dispatch-split-lib": "file:./tests-native/fixtures/dispatch-split-lib",

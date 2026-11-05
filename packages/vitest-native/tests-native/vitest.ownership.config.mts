@@ -43,6 +43,7 @@ export default defineConfig(({ mode }) => {
       globalSetup: [
         path.resolve(here, "../tests/support/temp-root.global.ts"),
         path.resolve(here, "ownership/fixtures.global.ts"),
+        path.resolve(here, "support/dispatch-fixtures.global.ts"),
         ...(off ? [] : [path.resolve(here, "ownership/vite-realm.global.ts")]),
       ],
       globals: true,
@@ -56,11 +57,11 @@ export default defineConfig(({ mode }) => {
         : shadow
           ? ["tests-native/ownership/shadow.test.ts"]
           : [
-            "tests-native/*.test.tsx",
-            "tests-native/*.test.ts",
-            "tests-native/jest-compat/*.test.ts",
-            "tests-native/ownership/*.test.ts",
-          ],
+              "tests-native/*.test.tsx",
+              "tests-native/*.test.ts",
+              "tests-native/jest-compat/*.test.ts",
+              "tests-native/ownership/*.test.ts",
+            ],
       exclude: [
         "tests-native/android.test.ts",
         "tests-native/navigation-params.test.tsx",
