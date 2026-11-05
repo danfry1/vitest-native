@@ -22,7 +22,7 @@ const countAt = (line) =>
 const taken = countAt(4);
 const notTaken = countAt(6);
 const picked = countAt(9);
-if (!(taken.length && taken.every((n) => n > 0) && picked.every((n) => n > 0))) {
+if (!(taken.length && picked.length && [...taken, ...picked].every((n) => n > 0))) {
   console.log(
     `covered.ts: the statements that ran are not counted (line 4: ${taken}, line 9: ${picked})`,
   );
