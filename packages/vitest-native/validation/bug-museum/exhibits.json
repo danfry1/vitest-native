@@ -26,7 +26,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -56,7 +56,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -74,11 +74,11 @@
       "bugSignature": "^meta\\.test\\.ts: Cannot use 'import\\.meta' outside a module",
       "preFixRef": "ddd8beb",
       "status": {
-        "main": "FAIL (bug)",
+        "main": "PASS",
         "fix": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
-        "mainSignature": "meta.test.ts: Cannot use 'import.meta' outside a module",
-        "proof": "fix proven"
+        "preFix": "FAIL (bug)",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
+        "proof": "landed proven"
       }
     },
     {
@@ -106,7 +106,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -136,7 +136,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -166,7 +166,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -197,7 +197,7 @@
         "main": "FAIL (bug)",
         "control": "PASS",
         "fix": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "mainSignature": "split.test.ts: Cannot find module '@m/validator/store'",
         "proof": "fix proven"
       }
@@ -228,7 +228,7 @@
         "main": "FAIL (bug)",
         "control": "PASS",
         "fix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "mainSignature": "split.test.ts: Cannot find module '@m/validator/store'",
         "proof": "open (control passes)"
       }
@@ -258,7 +258,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -288,7 +288,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -304,7 +304,7 @@
       "status": {
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "mainSignature": "require.test.ts: AssertionError: expected [Function legacy] to be [Function legacy] // Object.is equality",
         "proof": "fix proven"
       }
@@ -319,11 +319,11 @@
       "bugSignature": "^partial-mock\\.test\\.ts: AssertionError: expected null to be 'set-by-the-app'",
       "preFixRef": "5f819d66^",
       "status": {
-        "main": "FAIL (bug)",
+        "main": "PASS",
         "fix": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
-        "mainSignature": "partial-mock.test.ts: AssertionError: expected null to be 'set-by-the-app' // Object.is equality",
-        "proof": "fix proven"
+        "preFix": "FAIL (bug)",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
+        "proof": "landed proven"
       }
     },
     {
@@ -340,7 +340,7 @@
       "status": {
         "main": "PASS",
         "buggy": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "guard proven"
       }
     },
@@ -369,7 +369,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -399,7 +399,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -408,7 +408,7 @@
       "id": "own-expo-runtime-undeclared",
       "class": "ownership",
       "title": "Expo's runtime loads uncompiled where expo resolves but is not compiled",
-      "source": "the bug museum itself, once the repository's install had expo 58 for another package's tests (46 exhibits failed with \"Cannot find module '\u2026/expo/build/winter/runtime'\")",
+      "source": "the bug museum itself, once the repository's install had expo 58 for another package's tests (46 exhibits failed with \"Cannot find module '…/expo/build/winter/runtime'\")",
       "fixedBy": "open (fix/expo-runtime-follows-ownership)",
       "fixRef": "fix/expo-runtime-follows-ownership",
       "bugSignature": "^runtime\\.test\\.ts: (\\[vitest-native\\] 'expo' shipped source Node can't run directly \\(require is not defined in ES module scope|Cannot find module '[^']*/expo/build/winter/runtime' imported from )",
@@ -421,6 +421,13 @@
             "replace": "\"react-native\": \"*\",\n    \"expo\": \"58.0.0\""
           }
         ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "fix": "PASS",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
+        "proof": "NOT PROVEN"
       }
     },
     {
@@ -440,6 +447,13 @@
             "replace": "hotRuntime: false"
           }
         ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "fix": "PASS",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
+        "proof": "NOT PROVEN"
       }
     },
     {
@@ -452,7 +466,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -463,11 +477,11 @@
       "title": "Errors with per-instance methods are unequal under jest-compat",
       "source": "migration testing (2026-10)",
       "fixedBy": "#346 (merged)",
-      "bugSignature": "^error-equality\\.test\\.ts: AssertionError: expected Error: bad input \\{ issues: \\[\\], \u2026\\(1\\) \\} to deeply equal Error: bad input",
+      "bugSignature": "^error-equality\\.test\\.ts: AssertionError: expected Error: bad input \\{ issues: \\[\\], …\\(1\\) \\} to deeply equal Error: bad input",
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -482,7 +496,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -497,7 +511,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -516,7 +530,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -533,7 +547,7 @@
       "status": {
         "main": "PASS",
         "buggy": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "guard proven"
       }
     },
@@ -547,7 +561,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -562,7 +576,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -588,7 +602,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -617,7 +631,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -644,7 +658,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -680,7 +694,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -705,7 +719,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "mainSignature": "b.test.tsx: AssertionError: the timer-driven update rendered within 300 ms: expected 'waiting' to be 'done' // Object.is equality",
         "proof": "open (control passes)"
       }
@@ -728,11 +742,11 @@
         ]
       },
       "status": {
-        "main": "FAIL (bug)",
+        "main": "FAIL (other)",
         "control": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
-        "mainSignature": "b.test.tsx: AssertionError: this file's render committed a tree: expected null not to be null",
-        "proof": "open (control passes)"
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
+        "mainSignature": "b.test.tsx: [vitest-native] hotRuntime: this worker cannot run this file: React's act() scope is still open (react.act-scope) since <exhibit>/a.test.tsx ended, and it did not close within 10000 ms. Renders would queue inside it and never co",
+        "proof": "NOT PROVEN"
       }
     },
     {
@@ -755,7 +769,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "mainSignature": "b.test.tsx: AssertionError: this file's first useId is the earlier file's first useId: expected '_r_1_' to be '_r_0_' // Object.is equality",
         "proof": "open (control passes)"
       }
@@ -780,7 +794,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "mainSignature": "b.test.tsx: AssertionError: React warned about the missing key in this file: expected false to be true // Object.is equality",
         "proof": "open (control passes)"
       }
@@ -796,7 +810,7 @@
       "status": {
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "mainSignature": "issue351.test.tsx: AssertionError: Gesture Handler 3 exports Touchable: expected 'undefined' not to be 'undefined' // Object.is equality",
         "proof": "fix proven"
       }
@@ -815,7 +829,7 @@
         "main": "FAIL (other)",
         "fix": "PASS",
         "buggy": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "mainSignature": "issue351.test.tsx: TypeError: gh.useTapGesture is not a function",
         "proof": "fix proven (bug on buggyRef)"
       }
@@ -831,7 +845,7 @@
       "status": {
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "mainSignature": "issue351.test.tsx: AssertionError: interpolate computes: expected +0 to be 50 // Object.is equality",
         "proof": "fix proven"
       }
@@ -847,7 +861,7 @@
       "status": {
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "mainSignature": "issue351.test.tsx: AssertionError: the scroll handler received the scroll event: expected [] to deeply equal [ 7 ]",
         "proof": "fix proven"
       }
@@ -862,7 +876,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -877,11 +891,11 @@
       "bugSignature": "^stylesheet\\.test\\.ts: AssertionError: (expected \\[ null, \\{ color: 'red' \\} \\] to be \\{ color: 'red' \\}|expected .* to deeply equal \\{\\})",
       "preFixRef": "c50112c2^",
       "status": {
-        "main": "FAIL (bug)",
+        "main": "PASS",
         "fix": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
-        "mainSignature": "stylesheet.test.ts: AssertionError: expected [ null, { color: 'red' } ] to be { color: 'red' } // Object.is equality",
-        "proof": "fix proven"
+        "preFix": "FAIL (bug)",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
+        "proof": "landed proven"
       }
     },
     {
@@ -908,7 +922,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -926,7 +940,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -948,7 +962,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "mainSignature": "role.test.tsx: Error: Unable to find an element with role: link, name: docs",
         "proof": "open (control passes)"
       }
@@ -966,7 +980,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -984,7 +998,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1000,7 +1014,7 @@
       "status": {
         "main": "PASS",
         "buggy": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "guard proven"
       }
     },
@@ -1024,12 +1038,12 @@
       },
       "preFixRef": "4bda491c^",
       "status": {
-        "main": "FAIL (bug)",
+        "main": "PASS",
         "control": "PASS",
-        "fix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
-        "mainSignature": "interop.test.ts: TypeError: Cannot read properties of undefined (reading '__extends')",
-        "proof": "open (control passes)"
+        "fix": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
+        "proof": "landed proven"
       }
     },
     {
@@ -1042,11 +1056,11 @@
       "bugSignature": "^interop\\.test\\.ts: TypeError: Cannot read properties of undefined \\(reading '__extends'\\)",
       "preFixRef": "4bda491c^",
       "status": {
-        "main": "FAIL (bug)",
+        "main": "PASS",
         "fix": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
-        "mainSignature": "interop.test.ts: TypeError: Cannot read properties of undefined (reading '__extends')",
-        "proof": "fix proven"
+        "preFix": "FAIL (bug)",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
+        "proof": "landed proven"
       }
     },
     {
@@ -1069,12 +1083,12 @@
       },
       "preFixRef": "4bda491c^",
       "status": {
-        "main": "FAIL (bug)",
+        "main": "PASS",
         "control": "PASS",
-        "fix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
-        "mainSignature": "interop.test.ts: TypeError: Cannot read properties of undefined (reading '__extends')",
-        "proof": "open (control passes)"
+        "fix": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
+        "proof": "landed proven"
       }
     },
     {
@@ -1088,7 +1102,7 @@
       "status": {
         "main": "PASS",
         "buggy": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "guard proven"
       }
     },
@@ -1103,7 +1117,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       }
     },
@@ -1136,9 +1150,10 @@
         "main": "PASS",
         "control": "PASS",
         "fix": "PASS",
+        "buggy": "FAIL (bug)",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
-        "proof": "landed proven"
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
+        "proof": "guard proven"
       },
       "preFixRef": "0f2400e"
     },
@@ -1162,7 +1177,7 @@
         "main": "PASS",
         "fix": "FAIL (other)",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1174,7 +1189,13 @@
       "source": "registry fidelity review (2026-10)",
       "fixedBy": "open (fix/registry-module-strictness)",
       "fixRef": "fix/registry-module-strictness",
-      "bugSignature": "^sloppy\\.test\\.ts: TypeError: Cannot assign to read only property '__constants'"
+      "bugSignature": "^sloppy\\.test\\.ts: TypeError: Cannot assign to read only property '__constants'",
+      "status": {
+        "main": "PASS",
+        "fix": "PASS",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
+        "proof": "NOT PROVEN"
+      }
     },
     {
       "id": "res-sibling-declared-closure",
@@ -1193,6 +1214,13 @@
             "replace": "\"museum-image\": \"1.0.0\",\n    \"museum-expo\": \"58.0.0\""
           }
         ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "fix": "PASS",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
+        "proof": "NOT PROVEN"
       }
     },
     {
@@ -1212,6 +1240,13 @@
             "replace": ""
           }
         ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "fix": "PASS",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
+        "proof": "NOT PROVEN"
       }
     },
     {
@@ -1243,6 +1278,13 @@
             "replace": "install(\"MuseumControlTextDecoder\","
           }
         ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "fix": "PASS",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
+        "proof": "NOT PROVEN"
       }
     },
     {
@@ -1258,7 +1300,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1279,7 +1321,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1294,7 +1336,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1328,7 +1370,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1353,7 +1395,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
         "mainSignature": "outer.test.ts: AssertionError: jest.mock under globals: false works or names the setting: expected 'fails: vi is not defined' to match /^(works|names the setting)$/",
         "proof": "open (control passes)"
       }
@@ -1378,6 +1420,13 @@
             "replace": "\"museum-control-no-react-native\": \"*\""
           }
         ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "fix": "PASS",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
+        "proof": "NOT PROVEN"
       }
     },
     {
@@ -1400,13 +1449,20 @@
             "replace": "\"museum-control-no-react-native\": \"*\""
           }
         ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "fix": "PASS",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
+        "proof": "NOT PROVEN"
       }
     },
     {
       "id": "res-workspace-member-closure",
       "class": "transform/resolution",
       "title": "A workspace library's dependencies are not compiled for the package that depends on it",
-      "source": "a monorepo feature package depending on a workspace UI library that declares expo-image, with expo declared by an app (\"Cannot find module '\u2026/expo-asset/build/Asset.fx'\")",
+      "source": "a monorepo feature package depending on a workspace UI library that declares expo-image, with expo declared by an app (\"Cannot find module '…/expo-asset/build/Asset.fx'\")",
       "fixedBy": "open (fix/closure-seed-reached-packages)",
       "fixRef": "fix/closure-seed-reached-packages",
       "links": {
@@ -1422,13 +1478,20 @@
             "replace": "\"museum-ui\": \"workspace:*\",\n    \"museum-image\": \"1.0.0\""
           }
         ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "fix": "PASS",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
+        "proof": "NOT PROVEN"
       }
     },
     {
       "id": "res-alias-member-closure",
       "class": "transform/resolution",
       "title": "A workspace library's dependencies are not compiled for a package that imports it through an alias",
-      "source": "a monorepo package importing a sibling workspace library's source through resolve.alias without declaring it (\"Cannot find module '\u2026/expo-asset/build/Asset.fx'\")",
+      "source": "a monorepo package importing a sibling workspace library's source through resolve.alias without declaring it (\"Cannot find module '…/expo-asset/build/Asset.fx'\")",
       "fixedBy": "open (fix/closure-seed-reached-packages)",
       "fixRef": "fix/closure-seed-reached-packages",
       "bugSignature": "^closure\\.test\\.ts: (Error: )?Cannot find module '[^']*museum-expo-asset/build/Asset\\.fx'",
@@ -1441,6 +1504,13 @@
             "replace": "\"dependencies\": {\n    \"museum-image\": \"1.0.0\"\n  }"
           }
         ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "fix": "PASS",
+        "measuredOn": "3a37af1242d48497dc0037b9603e0e6430b5c64b",
+        "proof": "NOT PROVEN"
       }
     }
   ]
