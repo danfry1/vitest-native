@@ -42,11 +42,15 @@ function options(source: string, name: string): Map<string, Declared> {
     doc += `${line}\n`;
     const property = /^ {2}([a-zA-Z]+)\??:(.*)$/.exec(line);
     if (!property) return;
-    // A type that continues on lines indented deeper than the property.
+    // A type that continues on lines indented deeper than the property. An object type
+    // documents its own keys, and those JSDoc lines are not part of the type.
     let type = property[2];
-    for (let next = index + 1; next < lines.length && /^ {4}/.test(lines[next]); next++) {
-      type += ` ${lines[next]}`;
+    let next = index + 1;
+    for (; next < lines.length && /^ {4}/.test(lines[next]); next++) {
+      if (!/^\s*(\/\*\*|\*|\/\/)/.test(lines[next])) type += ` ${lines[next]}`;
     }
+    // An object type closes at the property's own indent.
+    if (/^ {2}[}\]]/.test(lines[next] ?? "")) type += ` ${lines[next]}`;
     // The JSDoc directly above this property, and nothing from an earlier one.
     const only = /`engine: '(native|mock)'` only/.exec(doc);
     result.set(property[1], {
