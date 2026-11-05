@@ -23,7 +23,9 @@ const taken = countAt(4);
 const notTaken = countAt(6);
 const picked = countAt(9);
 if (!(taken.length && taken.every((n) => n > 0) && picked.every((n) => n > 0))) {
-  console.log(`covered.ts: the statements that ran are not counted (line 4: ${taken}, line 9: ${picked})`);
+  console.log(
+    `covered.ts: the statements that ran are not counted (line 4: ${taken}, line 9: ${picked})`,
+  );
   process.exit(1);
 }
 if (!(notTaken.length && notTaken.every((n) => n === 0))) {
