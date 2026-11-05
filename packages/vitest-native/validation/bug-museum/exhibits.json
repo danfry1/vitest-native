@@ -443,6 +443,18 @@
       "bugSignature": "^(cjs-import-first|legacy)\\.test\\.ts: AssertionError: one module\\.exports: |^(require-first|reset)\\.test\\.ts: AssertionError: one store(?: after the reset)?: |^(in-flight|mock-pending|failed)\\.test\\.ts: AssertionError: expected function to throw an error, but it didn't|^dep-mock\\.test\\.ts: AssertionError: the mock's label: |^builtin-mock\\.test\\.ts: AssertionError: the mocked builtin: |^mock-direct\\.test\\.ts: AssertionError: the require gets the mock: |^cycle\\.test\\.ts: AssertionError: one cyc-a: |^node-(cycle|loop)\\.test\\.ts: TypeError: \\(0 , _feature\\.require(Back|LoopY)\\) is not a function|^node-deep\\.test\\.ts: AssertionError: the exports so far, two hops deep: |^in-flight-importer\\.test\\.ts: AssertionError: refused from outside the evaluation: |^failed\\.test\\.ts: AssertionError: expected Error: boom-original to match object |^(top-level-await|for-await)\\.test\\.ts: AssertionError: expected error to match asymmetric matcher"
     },
     {
+      "id": "own-bridge-coverage",
+      "class": "ownership",
+      "title": "Coverage of project source Node requires before the test imports it",
+      "source": "ownership track A3, decision condition 5 (coverage of a bridged module)",
+      "fixedBy": "open (ownership track A3, under experimental.ownershipModel: 'resolution')",
+      "links": {
+        "@m/feature": "packages/feature",
+        "@m/validator": "packages/validator"
+      },
+      "bugSignature": "^coverage\\.test\\.ts: AssertionError: expected \\[Function pick\\] to be \\[Function pick\\]|^check\\.mjs: no coverage report was written"
+    },
+    {
       "id": "own-hot-rule7-esm-residency",
       "class": "ownership",
       "title": "Under the hot runtime, a Node-owned workspace library keeps the first file's ES module instance",

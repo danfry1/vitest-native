@@ -1,0 +1,12 @@
+{
+  "name": "museum-own-bridge-coverage",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "dependencies": {
+    "@m/feature": "*",
+    "@m/validator": "*"
+  }
+}
