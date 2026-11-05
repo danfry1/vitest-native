@@ -271,6 +271,13 @@ jobs:
         if: ${{ !matrix.rntl && matrix.part != 'native' }}
         run: bun run test:native:hot:isolation
 
+      - name: Native engine hot-runtime state-manifest mutations
+        # Omits each per-file restore in turn and requires the isolation suite to fail
+        # naming it, so a restore that stops being checked is caught. Fourteen suite
+        # runs, so one Linux leg on the newest Node line carries it.
+        if: runner.os == 'Linux' && matrix.node-version == '26.13.0'
+        run: bun run --filter vitest-native test:native:hot:state-manifest
+
       - name: Native engine hot-runtime soak and recycling
         if: ${{ !matrix.rntl && matrix.part != 'suite' }}
         run: bun run test:native:hot:soak
@@ -400,6 +407,12 @@ jobs:
         # protocol, OOM retry and timeout on every supported OS/Node corner.
         if: matrix.gate == 'hot-runtime'
         run: bun run --filter vitest-native validate:registry-process
+
+      - name: Metro profile from the installed Expo and React Native
+        # Loads the project-scoped Metro profile from the real Expo and RN Metro
+        # packages, and checks their graphs are released with the child process.
+        if: matrix.gate == 'hot-runtime'
+        run: bun run --filter vitest-native validate:metro-profile
 
       - name: Packed CJS reset mutation control
         # One packed RN consumer, not another full matrix. Omitting the installed
