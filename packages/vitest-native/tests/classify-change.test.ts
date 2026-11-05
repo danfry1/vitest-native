@@ -215,11 +215,13 @@ const code = (file: string) =>
     .split("\n")
     .filter((line) => !/^\s*(\/\/|\/\*|\*|#)/.test(line))
     .join("\n");
+/** A repository-relative path with forward slashes, on every OS. */
+const rel = (file: string) => path.relative(repoRoot, file).split(path.sep).join("/");
 const referencing = (dirs: string[], pattern: RegExp) =>
   dirs
     .flatMap(sources)
     .filter((file) => pattern.test(code(file)))
-    .map((file) => path.relative(repoRoot, file));
+    .map((file) => rel(file));
 /** The repository's own apps/ workspaces, by name (fixtures have apps/ dirs of their own). */
 const repoApps = new RegExp(
   `(?<![\\w-])apps/(?:${fs.readdirSync(path.join(repoRoot, "apps")).join("|")})\\b`,
@@ -237,9 +239,7 @@ describe("what each narrowed path is read by", () => {
     const gates = [
       ...sources(".github"),
       path.join(packageRoot, "package.json"),
-      ...sources(`${P}validation`).filter(
-        (file) => !manual.includes(path.relative(repoRoot, file)),
-      ),
+      ...sources(`${P}validation`).filter((file) => !manual.includes(rel(file))),
     ].map(code);
     for (const file of manual) {
       const name = path.basename(file);
@@ -274,7 +274,7 @@ describe("what each narrowed path is read by", () => {
         .filter((file) =>
           /from\s+["'][^"']*\/cli\/|import\(["'][^"']*\/cli\//.test(fs.readFileSync(file, "utf8")),
         )
-        .map((file) => path.relative(repoRoot, file)),
+        .map((file) => rel(file)),
     ).toEqual([]);
   });
 
