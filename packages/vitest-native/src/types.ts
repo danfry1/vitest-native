@@ -336,10 +336,12 @@ export interface VitestNativeOptions {
   /**
    * `engine: 'native'` only. Names of additional node_modules packages whose
    * source the native engine should transform (Flow/TS/JSX stripped) as it
-   * loads them. By default only `react-native` / `@react-native` are
-   * transformed; third-party RN libraries that ship untranspiled source
-   * (e.g. `react-native-reanimated`, `react-native-safe-area-context`) need to
-   * be listed here, analogous to Jest's `transformIgnorePatterns` allowlist.
+   * loads them. Packages the project depends on that declare `react-native` as
+   * a dependency or peer dependency, and their runtime dependencies, are
+   * detected and transformed without being listed; list a package here when it
+   * ships untranspiled source but is not detected, as you would add it to
+   * Jest's `transformIgnorePatterns` allowlist. A listed package's own
+   * dependencies are transformed too.
    *
    * The object form adds `exclude`, which names packages the engine must NEVER
    * transform, whatever else would have selected them — auto-detection, a detected
@@ -357,12 +359,12 @@ export interface VitestNativeOptions {
    *
    * @example
    * ```ts
-   * reactNative({ engine: 'native', transform: ['react-native-reanimated'] })
+   * reactNative({ engine: 'native', transform: ['some-untranspiled-lib'] })
    *
    * reactNative({
    *   engine: 'native',
    *   transform: {
-   *     include: ['react-native-reanimated'],
+   *     include: ['some-untranspiled-lib'],
    *     exclude: ['some-build-tool'], // never hand this to the Babel preset
    *   },
    * })

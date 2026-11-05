@@ -69,7 +69,7 @@ The `@jest/globals` alias unblocks RNTL < 12, but **upgrading to `@testing-libra
 
 ### Delete third-party native-lib mocks
 
-You do **not** need `jest.mock('react-native-reanimated', …)`, safe-area's `jest/mock`, gesture-handler's jestSetup, etc. vitest-native **auto-detects** installed third-party libraries and shadows their native runtimes with built-in [presets](/guide/presets), under **both** engines. Just have the package installed; delete the manual mock. (Reanimated, Gesture Handler, Safe Area, Navigation, Screens, AsyncStorage, Expo are covered out of the box.)
+You do **not** need `jest.mock('react-native-reanimated', …)`, safe-area's `jest/mock`, gesture-handler's jestSetup, etc. vitest-native **auto-detects** installed third-party libraries and shadows their native runtimes with built-in [presets](/guide/presets), under **both** engines. Just have the package installed; delete the manual mock. (Reanimated, Gesture Handler, Safe Area, Navigation, Screens and AsyncStorage are covered out of the box; the [full list](/guide/presets#available-presets) names every package. Expo modules need no mock either: under the native engine they run their own JavaScript, as under jest-expo, and the `expo` preset applies only under the mock engine, or when you turn it on with `presets: { expo: true }` or list it in a `presets` array.)
 
 ### Keep Jest's and Vitest's snapshots apart {#snapshots}
 
@@ -127,11 +127,11 @@ The error names the offending file — add that package to `transform` so vitest
 reactNative({ engine: 'native', transform: ['<lib>'] })
 ```
 
-This is the direct replacement for having listed the lib in `transformIgnorePatterns` under Jest. It's also required when a `vi.mock('<lib>')` must intercept an otherwise-externalized library — `vi.mock` only applies to modules pulled into the Vite graph.
+This is the direct replacement for having listed the lib in `transformIgnorePatterns` under Jest. Most React Native libraries don't need it: packages that declare `react-native` are detected and compiled automatically. See [untranspiled packages](/guide/mocking#packages-that-ship-untranspiled-source), and [what `vi.mock` reaches](/guide/mocking#what-vi-mock-reaches) for mocking a library.
 
 ### Babel plugins your Jest run applied
 
-Under Jest, babel-jest ran your `babel.config.js` on every file. vitest-native does not read it: your source goes through Vite's transform, and React Native's own code through RN's Babel preset. Most plugins in a React Native Babel config exist for Metro and are not missed, but a few change what the code means. `vitest-native migrate` and `doctor` read the config and sort its plugins:
+Under Jest, babel-jest ran your `babel.config.js` on every file. Under the native engine, vitest-native applies it only to project TypeScript files Node loads (through `require()` or `jest.requireActual`): the files your tests `import` go through Vite's transform, and React Native's own code through RN's Babel preset. Most plugins in a React Native Babel config exist for Metro and are not missed, but a few change what the code means. `vitest-native migrate` and `doctor` read the config and sort its plugins:
 
 | Plugin | Under vitest-native |
 |---|---|

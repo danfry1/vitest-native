@@ -22,6 +22,14 @@ describe("externalized node_modules package: Metro-style resolution via the load
     expect(result.variant).toBe("native");
   });
 
+  // A dot in the name is not an extension unless it is a known one (#506): Node's
+  // resolver fails `./Kind.types` outright, and the lookup must still append extensions,
+  // platform variants first, as Metro does.
+  it("resolves a relative import whose name has a dot, platform variant first", () => {
+    expect(result.kind).toBe("types");
+    expect(result.theme).toBe("native");
+  });
+
   it("serves ESM asset imports as Metro's registering module", () => {
     // Through Node's ESM loader, not Vite — and still into the registry React
     // Native's resolveAssetSource reads. The fixture is a truncated PNG, so it

@@ -22,10 +22,11 @@ npx vitest-native init                 # plain config
 npx vitest-native init --jest-compat   # + jest-compat layer, for migrated suites
 ```
 
-The `--jest-compat` variant is byte-for-byte the config block the
+The `--jest-compat` variant writes the same pieces the
 [Jest migration guide](/migration/from-jest) documents: `jestMockTransform()`
-after `reactNative()`, `globals: true`, the `@jest/globals` alias, and the
-jest-compat setup file.
+beside `reactNative()`, `globals: true`, the `@jest/globals` alias, and the
+jest-compat setup file. It leaves the engine on its default (`auto`), where the
+guide's example names `engine: 'native'`.
 
 ## `doctor`
 

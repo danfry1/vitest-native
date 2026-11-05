@@ -34,6 +34,7 @@ jobs:
       full: ${{ steps.docs.outputs.full }}
       packed: ${{ steps.docs.outputs.packed }}
       unit: ${{ steps.docs.outputs.unit }}
+      snippets: ${{ steps.docs.outputs.snippets }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -73,6 +74,35 @@ jobs:
       - name: Tests that read repository Markdown
         working-directory: packages/vitest-native
         run: bun run test:docs
+
+  # The README's and the quick start's marked code blocks, run against the packed
+  # package in a copy of the Expo template fixture (scripts/doc-snippets.mjs). The packed
+  # consumer cell runs them with the fixtures; this job runs them alone when a change
+  # touches those pages and the packed cells are skipped, as on a docs-only pull request.
+  snippets:
+    name: Doc snippets
+    needs: classify
+    if: needs.classify.outputs.snippets != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+        with:
+          node-version: 22.22.3
+
+      # As in the packed cells: the npm 10 that Node 22 bundles crashes on these fixtures'
+      # dependency graphs.
+      - name: Use an npm without the arborist edgesOut bug
+        run: npm install -g npm@11.20.0
+
+      - name: Run the documented snippets against the packed package
+        env:
+          VN_CONSUMERS: doc-snippets
+        run: bun run test:consumers
 
   changeset:
     name: Changeset for shipped changes
@@ -499,7 +529,7 @@ jobs:
   # contexts reference).
   verdict:
     name: CI verdict
-    needs: [classify, docs, changeset, unit, check, packed]
+    needs: [classify, docs, snippets, changeset, unit, check, packed]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2

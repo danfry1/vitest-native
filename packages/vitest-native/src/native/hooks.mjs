@@ -8,6 +8,7 @@ import fs from "node:fs";
 import { heldTransform, transformRN, isFlow, needsTransform } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import {
+  hasKnownExtension,
   resolvePlatformFile,
   resolveRelativePlatformFile,
   resolveDeepPackageFile,
@@ -457,7 +458,7 @@ export function installRequireHooks(
     if (!parent?.filename || NODE_MODULES_PATH.test(parent.filename)) return null;
     const expanded = expandAlias(request, requireAliases);
     if (expanded === request) return null;
-    if (path.isAbsolute(expanded) && !path.extname(expanded)) {
+    if (path.isAbsolute(expanded) && !hasKnownExtension(expanded, activeSourceExts, assetExtSet)) {
       const hit = resolvePlatformFile(expanded, platform, activeSourceExts);
       if (hit) return hit;
     }
@@ -593,7 +594,12 @@ export function installRequireHooks(
     }
     // Relative, extensionless: Metro's platform order for every parent, app source
     // included (`./PlatformInfo` → `index.native.ts` before `index.ts`).
-    if (!resolved && parent?.filename && request.startsWith(".") && !path.extname(request)) {
+    if (
+      !resolved &&
+      parent?.filename &&
+      request.startsWith(".") &&
+      !hasKnownExtension(request, activeSourceExts, assetExtSet)
+    ) {
       resolved = resolveRelativePlatformFile(request, parent.filename, platform, activeSourceExts);
       if (resolved) resolved = asNodeResolves(resolved);
     }

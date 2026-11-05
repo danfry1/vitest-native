@@ -21,6 +21,12 @@ Support and fidelity claims must be backed by package-owned, deterministic check
 These checks can block a release. When a capability is added or a bug is fixed, the minimal
 reproduction belongs in one of these package-owned suites.
 
+The blocking checks a release must pass, and the stability label of each part of the package, are listed in the [release-readiness policy](https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/docs/release-readiness.md).
+
+### Conformance with React Native's own tests
+
+The mock engine is also checked against tests ported from React Native's own test suite (Flow stripped, Jest calls moved to Vitest): Easing curves, cubic Bezier properties, `flattenStyle`, `processColor`, interpolation, and `Animated` listeners, events and composition. The few edge cases that are skipped are documented in the test files; run them with `vitest run tests/rn-conformance/` in `packages/vitest-native`.
+
 ## External-app observations
 
 Pinned suites such as react-native-paper and the Obytes template are useful integration tripwires,

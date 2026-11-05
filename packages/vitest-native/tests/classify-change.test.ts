@@ -5,6 +5,8 @@ import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 // @ts-expect-error — runtime .mjs outside the package, no types
 import { classify, GROUPS } from "../../../.github/scripts/classify-change.mjs";
+// @ts-expect-error — runtime .mjs, no types
+import { SNIPPET_PAGES } from "../scripts/doc-snippets.mjs";
 
 // .github/scripts/classify-change.mjs decides which gate jobs a change runs. Only a pull
 // request is narrowed; a merge-queue group is classified as docs-only like a pull
@@ -78,7 +80,11 @@ describe("change-based selection", () => {
   });
 
   it("runs nothing but the docs job for a docs-only change", () => {
-    const out = classify("pull_request", ["README.md", ".changeset/x.md", "website/guide/a.md"]);
+    const out = classify("pull_request", [
+      "CONTRIBUTING.md",
+      ".changeset/x.md",
+      "website/guide/a.md",
+    ]);
     expect(out).toEqual({
       "docs-only": true,
       full: false,
@@ -86,10 +92,29 @@ describe("change-based selection", () => {
       rn: false,
       axes: false,
       unit: false,
+      snippets: false,
     });
     // The generated fidelity pages are gated by fidelity:check.
     expect(runs(["website/guide/fidelity.md"])).toEqual(EVERYTHING);
     expect(runs(["scripts/contributors.mjs"])).toEqual([]);
+  });
+
+  it("runs the documented snippets alone when only their pages change", () => {
+    const snippets = (files: string[], event = "pull_request") => classify(event, files).snippets;
+    // Prose to every other rule: a docs-only change to these pages runs only their code.
+    // Every page the extractor reads, and the root README it mirrors.
+    for (const page of ["README.md", ...SNIPPET_PAGES]) {
+      expect(classify("pull_request", [page])["docs-only"], page).toBe(true);
+      expect(snippets([page]), page).toBe(true);
+    }
+    expect(snippets([".changeset/x.md", "website/guide/quick-start.md"])).toBe(true);
+    // Other pages do not.
+    expect(snippets(["website/guide/engines.md", `${P}docs/versioning.md`])).toBe(false);
+    // When the packed cells run, they run the snippets with the fixtures.
+    expect(snippets(["README.md", `${P}src/plugin.ts`])).toBe(false);
+    expect(snippets([`${P}scripts/doc-snippets.mjs`])).toBe(false); // runs everything
+    expect(snippets([`${P}consumer-tests/expo-template/App.tsx`])).toBe(false); // packed
+    expect(snippets(["README.md"], "push")).toBe(false);
   });
 
   it("never narrows a push, a schedule, a manual run or a merge-queue group", () => {
@@ -156,6 +181,7 @@ describe("classify-change.mjs", () => {
       rn: "false",
       axes: "false",
       unit: "false",
+      snippets: "false",
     });
   });
 
@@ -297,7 +323,7 @@ describe("what each narrowed path is read by", () => {
 describe("the workflows that use the classification", () => {
   it("read only outputs their classify job declares, and gate each group on it", () => {
     const expected: Record<string, string[]> = {
-      "ci.yml": ["docs-only", "full", "packed", "unit"],
+      "ci.yml": ["docs-only", "full", "packed", "unit", "snippets"],
       "native-rn-matrix.yml": ["rn"],
       "config-axis-matrix.yml": ["axes"],
     };
@@ -324,6 +350,20 @@ describe("the workflows that use the classification", () => {
         'node .github/scripts/classify-change.mjs "$EVENT" "$BASE_SHA" "$HEAD_SHA"',
       );
     }
+    // `CI verdict` is the required check: it must wait on every other job in ci.yml, or
+    // a job it leaves out can fail without failing the pull request.
+    const ci = fs.readFileSync(path.join(repoRoot, ".github/workflows/ci.yml"), "utf8");
+    const jobs = [...ci.slice(ci.indexOf("\njobs:")).matchAll(/^ {2}([\w-]+):\s*$/gm)].map(
+      (m) => m[1],
+    );
+    const verdictNeeds = /^ {2}verdict:\n(?: {4}.*\n)*? {4}needs: \[([^\]]*)\]/m.exec(ci)?.[1];
+    expect(verdictNeeds, "CI verdict needs").toBeTruthy();
+    expect(
+      verdictNeeds!
+        .split(",")
+        .map((job) => job.trim())
+        .sort(),
+    ).toEqual(jobs.filter((job) => job !== "verdict").sort());
     expect([...GROUPS, "unit"].sort()).toEqual(["axes", "full", "packed", "rn", "unit"]);
   });
 });
