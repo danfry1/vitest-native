@@ -13,7 +13,8 @@
 //     they do in a consumer's install, and a different build can be swapped in;
 //   - the exhibit's `vendor/*` packages, copied (a registry install copies; a `file:`
 //     link would leave the real path outside node_modules);
-//   - the exhibit's workspace members, linked by name (`links` in exhibits.json);
+//   - the exhibit's workspace members, linked by name (`links` in exhibits.json), or at a
+//     path with a `/node_modules/` segment for a nested copy;
 //   - `installedCopies`: a real copy of an installed package at a path in the exhibit
 //     (a second copy of React, as a monorepo app that has its own has);
 //   - the install axes the exhibit requires (exhibits.json `requires`):
@@ -222,9 +223,12 @@ export function materialise(exhibit, { work, build, vitest4, edits = [], ownersh
   const modules = path.join(root, "node_modules");
   fs.mkdirSync(modules, { recursive: true });
 
+  // A name with a `/node_modules/` segment is a path inside the exhibit: a nested copy of
+  // a package, which a module under that directory resolves before the top-level one.
   for (const [name, dir] of Object.entries(exhibit.links ?? {})) {
-    fs.mkdirSync(path.dirname(path.join(modules, name)), { recursive: true });
-    fs.symlinkSync(path.join(root, dir), path.join(modules, name));
+    const at = name.includes("/node_modules/") ? path.join(root, name) : path.join(modules, name);
+    fs.mkdirSync(path.dirname(at), { recursive: true });
+    fs.symlinkSync(path.join(root, dir), at);
   }
   const vendor = path.join(root, "vendor");
   if (fs.existsSync(vendor)) {

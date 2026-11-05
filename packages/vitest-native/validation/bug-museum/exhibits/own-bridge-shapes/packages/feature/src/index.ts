@@ -23,3 +23,5 @@ export const requireFpX = () => require("@m/validator/fp-x");
 export const requireFnY = () => require("@m/validator/fn-y");
 // Called while @m/validator/sx is evaluating, through a helper the test loaded first.
 export const viaShared = () => require("./shared.js").requireSx();
+// Called first: requires a module whose imports reach two copies of one package.
+export const requireDupBoth = () => require("@m/validator/dup-both");

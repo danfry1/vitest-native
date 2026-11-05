@@ -322,7 +322,7 @@ function loadDependency(dep, importer, callstack) {
     if (mocked !== undefined) return mocked;
     return knownExports(known, importer, callstack);
   }
-  const result = fetchSync(dep, importer.id, environmentName());
+  const result = fetchExternalOnce(dep, importer);
   const mocked = mockFor("externalize" in result ? result.externalize : result.id, importer);
   if (mocked !== undefined) return mocked;
   if ("externalize" in result) {
@@ -332,6 +332,27 @@ function loadDependency(dep, importer, callstack) {
     return externalNamespace(target, importer.file);
   }
   return evaluate(result, [...callstack, importer.id], importer);
+}
+
+/**
+ * Externalized answers already had, by the URL Vite's transform wrote. Vite resolves an
+ * import from its importer before writing it, so two copies of one package are two URLs.
+ */
+const externals = new Map();
+
+/**
+ * Vitest's fetch result for `dep` imported by `importer`. An external's answer does not
+ * change within a worker (Vitest decides it by id), so it is asked for once, as Vite's
+ * runner keeps its externals: fetches are then the modules evaluated plus the distinct
+ * externals, not one per import edge. Modules Vite evaluates are not kept here: Vite's own
+ * map holds them once evaluated.
+ */
+function fetchExternalOnce(dep, importer) {
+  const held = externals.get(dep);
+  if (held !== undefined) return held;
+  const result = fetchSync(dep, importer.id, environmentName());
+  if ("externalize" in result) externals.set(dep, result);
+  return result;
 }
 
 /**

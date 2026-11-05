@@ -36,6 +36,7 @@ synchronously. One test file per shape:
 | `node-deep` | the bridged module's own Node-loaded import requires the first back | its exports so far, two hops deep |
 | `node-first-loader` | the require back goes through a helper something else loaded first | its exports so far: decided by who calls now |
 | `in-flight-importer` | a require from the test body while Vite evaluates a module that imports the requiring library | `REQUIRE_OF_EVALUATING_VITE_MODULE`: not from inside the evaluation |
+| `nested-copy` | modules the bridge evaluates import one package from two directories with different copies | each gets its own copy |
 | `failed` | a required module throws; or Vite's import of it threw earlier | `BRIDGED_EVALUATION_FAILED` with the module's error as `cause`; never served half-built |
 | `dep-mock` | a required module imports a file the test mocks | the module gets the test's own mock (the mock dispatcher serves it) |
 | `builtin-mock` | a required module imports a Node builtin the test mocks | the module gets the test's mock |
