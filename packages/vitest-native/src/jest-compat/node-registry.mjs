@@ -283,17 +283,29 @@ function createState() {
       pending: null,
       evaluating: false,
     };
-    if (filename !== null) state.entries.set(filename, entry);
-    else state.unresolved.set(spec, entry);
+    if (filename !== null) {
+      state.entries.set(filename, entry);
+      state.decided.add(canonical(filename));
+    } else state.unresolved.set(spec, entry);
     // The hoisted `vi.mock` factory looks its entry up by where it was written.
     state.byCall.set(`${from}\0${spec}`, entry);
     return entry;
   };
   state.byCall = new Map();
+  /**
+   * The files a jest.* call registered or unregistered in this test file. Jest-compat
+   * applies each to Node's require at once, and also queues it with Vitest for the
+   * test's next import; that queued vi.doMock/vi.doUnmock is jest-compat's own, already
+   * applied here, so it is no pending mock for Node (assertNoPendingMockOf).
+   */
+  state.decided = new Set();
 
   state.unregister = (from, spec) => {
     const filename = state.resolveFrom(spec, from);
-    if (filename !== null) state.entries.delete(filename);
+    if (filename !== null) {
+      state.entries.delete(filename);
+      state.decided.add(canonical(filename));
+    }
     state.unresolved.delete(spec);
   };
 
@@ -413,6 +425,7 @@ function createState() {
     state.entries.clear();
     state.unresolved.clear();
     state.byCall.clear();
+    state.decided.clear();
     state.bypass = null;
     state.isolation = null;
   };
@@ -854,6 +867,8 @@ function assertNoPendingMockOf(state, filename, request, parent) {
   const pending = globalThis.__vitest_mocker__?.constructor?.pendingIds;
   if (!Array.isArray(pending) || pending.length === 0 || filename === null) return;
   const target = canonical(filename);
+  // A jest.* call decided this file for Node already (state.decided).
+  if (state.decided.has(target)) return;
   for (const queued of pending) {
     if (
       (queued?.action !== "mock" && queued?.action !== "unmock") ||
