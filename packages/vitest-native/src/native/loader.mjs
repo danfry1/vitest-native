@@ -14,7 +14,12 @@ import {
 } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import { nativeAssetModuleSource } from "./assets.mjs";
-import { extensionsFor, resolveRelativePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
+import {
+  extensionsFor,
+  hasKnownExtension,
+  resolveRelativePlatformFile,
+  resolveDeepPackageFile,
+} from "./resolve.mjs";
 import {
   NODE_MODULES_PATH,
   containsPath,
@@ -300,7 +305,7 @@ function resolveBefore(specifier, context) {
     parent &&
     (NODE_MODULES_PATH.test(parent) || ownership.isReactNativeFile(parent) || isExtra(parent)) &&
     specifier.startsWith(".") &&
-    !path.extname(specifier)
+    !hasKnownExtension(specifier, SOURCE_EXTS, assetExtSet)
   ) {
     const hit = resolveRelativePlatformFile(specifier, parent, PLATFORM, SOURCE_EXTS);
     // Not returned directly: `json` is a Metro source extension, so this can now
@@ -317,7 +322,11 @@ function resolveRecover(err, specifier, parent) {
   // Fallback: an extensionless relative import that Node's ESM resolver rejected
   // but a bundler (Metro) would accept. Common in externalized RN libs shipping
   // ESM with extensionless imports. Resolve it on disk ourselves.
-  if (parent && specifier.startsWith(".") && !path.extname(specifier)) {
+  if (
+    parent &&
+    specifier.startsWith(".") &&
+    !hasKnownExtension(specifier, SOURCE_EXTS, assetExtSet)
+  ) {
     const hit = resolveExtensionless(path.resolve(path.dirname(parent), specifier));
     if (hit) resolved = { url: pathToFileURL(hit).href, shortCircuit: true };
   }
@@ -403,48 +412,8 @@ function stampedResolutionKey(specifier, context) {
   ].join("\0");
 }
 
-// One implementation, two hook APIs. `module.register()` (off-thread, async) is the
-// only option before Node 22.15; `module.registerHooks()` runs the same logic
-// synchronously on the calling thread, without a cross-thread round trip per
-// resolve and load (see installLoaderHooks in setup.mjs).
-export async function resolve(specifier, context, nextResolve) {
-  const before = resolveBefore(specifier, context);
-  if (before.done) return before.done;
-  let resolved = before.resolved;
-  if (!resolved) {
-    const key = stampedResolutionKey(specifier, context);
-    // A hit skips nextResolve, which Node accepts only from a short-circuited result.
-    const hit = key ? stampedResolutions.get(key) : undefined;
-    resolved = hit ? { ...hit, shortCircuit: true } : undefined;
-    if (!resolved) {
-      try {
-        resolved = await nextResolve(specifier, context);
-        if (key) stampedResolutions.set(key, resolved);
-      } catch (err) {
-        resolved = resolveRecover(err, specifier, before.parent);
-      }
-    }
-  }
-  return resolveAfter(resolved, context);
-}
-
-/**
- * Whether Node's in-thread hooks (module.registerHooks) carry the engine on `version`:
- * Node 22 from 22.22.3, Node 24 from 24.12.0, and Node 26 on. Measured across Node minors
- * and patches, the releases before those that have the hooks fail with them in-thread
- * while the threaded hooks (module.register) pass: expo-router's elements fail to load
- * ("request for 'node:module' is from a module not been linked", through 22.22.2 and
- * 24.11), and the hot runtime's CommonJS lookup reset stops mattering, so its mutation
- * control passes when it must fail. Node 25 was not measured, and Node 23 is past its
- * end of life, so both keep the threaded hooks.
- */
-export function inThreadHooksReliable(version) {
-  const [major, minor, patch] = version.replace(/^v/, "").split(".").map(Number);
-  if (major === 22) return minor > 22 || (minor === 22 && patch >= 3);
-  if (major === 24) return minor >= 12;
-  return major >= 26;
-}
-
+// The hooks run in-thread (module.registerHooks, see installLoaderHooks in setup.mjs):
+// synchronous, on the calling thread, with no cross-thread round trip per resolve and load.
 /**
  * Whether an in-thread hook call (module.registerHooks) comes from `require()` rather
  * than `import`. An import's context always lists its conditions, "import" among them.
@@ -478,10 +447,6 @@ export function resolveSync(specifier, context, nextResolve) {
     }
   }
   return resolveAfter(resolved, context);
-}
-
-export async function load(url, context, nextLoad) {
-  return loadSync(url, context, nextLoad);
 }
 
 /**

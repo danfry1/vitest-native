@@ -852,35 +852,6 @@
       "preFixRef": "0f2400e"
     },
     {
-      "id": "pfs-hot-automock-vitest4",
-      "class": "per-file-state",
-      "title": "Under hot on Vitest 4.1, an automock replays another file's factory",
-      "source": "migration testing (2026-10)",
-      "fixedBy": "#338 (merged)",
-      "requires": {
-        "vitest": "4"
-      },
-      "bugSignature": "^[ab]\\.test\\.ts: AssertionError: (an automock for the module this file automocks: expected false to be true|this file's own factory: expected .* to be 'factory-[ab]')",
-      "control": {
-        "why": "The stock runtime (hotRuntime: false) gives every file a fresh module graph, as Jest does: the leak's precondition is gone.",
-        "edits": [
-          {
-            "file": "vitest.config.mts",
-            "find": "hotRuntime: { allowUnboundedMemory: true }",
-            "replace": "hotRuntime: false"
-          }
-        ]
-      },
-      "status": {
-        "main": "PASS",
-        "control": "PASS",
-        "preFix": "FAIL (bug)",
-        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
-        "proof": "landed proven"
-      },
-      "preFixRef": "0f2400e"
-    },
-    {
       "id": "pfs-hot-dropped-file",
       "class": "per-file-state",
       "title": "Under hot, a jest.mock of an RN module to null loses the next file",
@@ -992,8 +963,8 @@
       "class": "per-file-state",
       "title": "Under hot, an un-awaited act in one file poisons the next file",
       "source": "v1 hot-runtime cross-file leaks (2026-10-28 M0 gates)",
-      "fixedBy": "open (the v2 per-file world)",
-      "bugSignature": "^b\\.test\\.tsx: (AssertionError: this file's render committed a tree: expected null not to be null|\\[vitest-native\\] hotRuntime: this worker cannot run this file: React's act\\(\\) scope is still open)",
+      "fixedBy": "#452: fails by name, the accepted outcome with one worker",
+      "bugSignature": "^b\\.test\\.tsx: AssertionError: this file's render committed a tree: expected null not to be null",
       "control": {
         "why": "The stock runtime (hotRuntime: false) gives every file a fresh module graph, as Jest does: the leak's precondition is gone.",
         "edits": [
@@ -1475,6 +1446,24 @@
         "proof": "landed proven"
       },
       "preFixRef": "43139a6^"
+    },
+    {
+      "id": "res-undeclared-required-peer",
+      "class": "transform/resolution",
+      "title": "A required React Native peer that nothing declares is not compiled",
+      "source": "#296 and #508: an Expo app declares expo-router but not expo-linking, its required peer, which pnpm installs itself (\"Cannot require() ES Module …/expo-linking/build/Linking.js because it is not yet fully loaded\"; \"Cannot find module …/Linking.types\", #506)",
+      "fixedBy": "open (#508)",
+      "bugSignature": "^peer\\.test\\.ts: (Error: )?(Cannot find module '[^']*museum-linking/build/Linking\\.types'|Cannot require\\(\\) ES Module [^ ]*museum-linking)",
+      "control": {
+        "why": "Declaring museum-linking in the project makes it a candidate, detected on its own manifest, which removes the precondition.",
+        "edits": [
+          {
+            "file": "package.json",
+            "find": "\"museum-router\": \"6.0.0\"",
+            "replace": "\"museum-router\": \"6.0.0\",\n    \"museum-linking\": \"8.0.0\""
+          }
+        ]
+      }
     },
     {
       "id": "res-transform-named-closure",

@@ -17,13 +17,14 @@ import {
   unsupportedExpoSdkMessage,
 } from "./peer-requirements.js";
 import { VitestNativeError, VitestNativeTypeError } from "./errors.mjs";
+import { assertSupportedNode } from "./node-range.js";
 import { presetFromModule } from "./preset-modules.mjs";
 import { BUILT_IN_PRESET } from "./presets/built-in.js";
 import { serializableAliases } from "./jest-compat/aliases.mjs";
 import { tsconfigPathAliases } from "./native/tsconfig-paths.mjs";
 import { fsModuleCacheKey, shouldDefaultFsModuleCache } from "./fs-module-cache.js";
 import { knownNativeModulesFor, nativeModuleSpecsFor } from "./native/native-modules.mjs";
-import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
+import { JSX_TRANSFORM, nativeEngineConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
 import { aliasReachedPaths, detectEcosystemPackages } from "./native/ecosystem.js";
 import {
@@ -40,7 +41,6 @@ import { workerVitestMismatch } from "./native/worker-vitest.js";
 import {
   assertHostResolvesRunningVitest,
   assertHotWorkerLoadsRunningVitest,
-  ownVitestPackage,
   runningVite,
 } from "./host.js";
 import {
@@ -258,19 +258,14 @@ function resolvePackageVersion(packageName: string, projectRoot: string): string
  * tsconfig path aliases by default (`experiments.tsconfigPaths`, docs.expo.dev/guides/
  * typescript), and the SDK 57 template imports its own components through `@/…`, so
  * without this a new Expo project's first component test fails to resolve. Bare React
- * Native's Metro does not, so neither does this. Vite 8 resolves tsconfig paths itself
- * when `resolve.tsconfigPaths` is on; Vite 6 and 7 have no such option.
+ * Native's Metro does not, so neither does this. Vite resolves tsconfig paths itself
+ * when `resolve.tsconfigPaths` is on.
  *
- * Returns "enable" (Vite 8), "unsupported" (an older Vite with `paths` to resolve, worth
- * a warning), or null (not an Expo project, no tsconfig, opted out, or the user set
- * `resolve.tsconfigPaths` themselves).
+ * False when it is not an Expo project, has no tsconfig, opted out, or the user set
+ * `resolve.tsconfigPaths` themselves.
  */
-export function expoTsconfigPaths(
-  projectRoot: string,
-  userTsconfigPaths: unknown,
-  viteMajor: number,
-): "enable" | "unsupported" | null {
-  if (userTsconfigPaths !== undefined) return null;
+export function expoTsconfigPaths(projectRoot: string, userTsconfigPaths: unknown): boolean {
+  if (userTsconfigPaths !== undefined) return false;
   const read = (file: string): string | null => {
     try {
       return fs.readFileSync(path.join(projectRoot, file), "utf8");
@@ -282,21 +277,20 @@ export function expoTsconfigPaths(
   try {
     manifest = JSON.parse(read("package.json") ?? "{}");
   } catch {
-    return null;
+    return false;
   }
-  if (!("expo" in { ...manifest.dependencies, ...manifest.devDependencies })) return null;
+  if (!("expo" in { ...manifest.dependencies, ...manifest.devDependencies })) return false;
   const tsconfig = read("tsconfig.json");
-  if (tsconfig === null) return null;
+  if (tsconfig === null) return false;
   try {
     const app = JSON.parse(read("app.json") ?? "{}") as {
       expo?: { experiments?: { tsconfigPaths?: unknown } };
     };
-    if (app.expo?.experiments?.tsconfigPaths === false) return null;
+    if (app.expo?.experiments?.tsconfigPaths === false) return false;
   } catch {
     // An unreadable app.json leaves Expo's default in place.
   }
-  if (viteMajor >= 8) return "enable";
-  return /"paths"\s*:/.test(tsconfig) ? "unsupported" : null;
+  return true;
 }
 
 /**
@@ -371,12 +365,6 @@ const warnedExpoProblems = new Set<string>();
 
 function majorOf(version: string | null | undefined): number {
   return Number(version?.replace(/^[^0-9]*/, "").split(".")[0]);
-}
-
-function getJsxTransformConfig(viteMajor: number): JsxTransformConfig {
-  return viteMajor >= 8
-    ? { oxc: { jsx: { runtime: "automatic" } } }
-    : { esbuild: { jsx: "automatic" } };
 }
 
 /**
@@ -564,11 +552,9 @@ async function loadProjectMetroProfile(options: {
 }
 
 /**
- * Vite 6/7 and Vite 8 expose mutually exclusive JSX config types:
- * `esbuild.jsx` before Vite 8 and `oxc.jsx` from Vite 8 onward. The runtime
- * version check above guarantees that only the matching shape is returned,
- * but a build against any single Vite major cannot type the other major's
- * valid config. Keep that unavoidable assertion at this compatibility edge.
+ * The config this plugin returns, typed as Vite's: nativeEngineConfig builds it from
+ * plain objects (its `test` section is Vitest's), which TypeScript cannot match to
+ * Vite's `UserConfig` structurally.
  */
 function asCompatibleViteConfig(config: object): Omit<UserConfig, "plugins"> {
   return config as unknown as Omit<UserConfig, "plugins">;
@@ -1147,10 +1133,7 @@ async function loadPresetModules(files: string[], root: string): Promise<Preset[
         logLevel: "error",
         plugins: [presetModuleReactNative],
         // A bare import is otherwise handed to Node before any plugin resolves it.
-        // `resolve.noExternal` is Vite 8's spelling for every environment;
-        // `ssr.noExternal` is Vite 6 and 7's.
         resolve: { noExternal: [REACT_NATIVE_IMPORT] },
-        ssr: { noExternal: [REACT_NATIVE_IMPORT] },
       } as Parameters<typeof runnerImport>[1]));
     } catch (cause) {
       throw new VitestNativeError(
@@ -1225,7 +1208,7 @@ function hotAutoConfigDeclineReason(userPool: unknown, userIsolate: unknown): st
 
 /**
  * Why the resolved Vitest config overrides a hot runtime chosen at config time, or
- * null. Vitest 4 applies CLI flags after plugins' config hooks, so `--maxWorkers=1`,
+ * null. Vitest applies CLI flags after plugins' config hooks, so `--maxWorkers=1`,
  * `--no-file-parallelism`, `--pool` and `--isolate`/`--no-isolate` arrive only in the
  * resolved config. `--no-isolate` sets the same `isolate: false` the hot runtime uses,
  * so it is read from the CLI options themselves.
@@ -1262,7 +1245,7 @@ export function hotOverrideReason(
 }
 
 /**
- * The root Vitest gives a project: `test.root` over Vite's `root` (Vitest 4 and 5's
+ * The root Vitest gives a project: `test.root` over Vite's `root` (Vitest 5's
  * resolveConfig). `vitest --root` arrives as `test.root`. Per-project state is keyed
  * by it, since that is the root configureVitest sees.
  */
@@ -1281,8 +1264,8 @@ export function vitestRootOf(config: { root?: unknown; test?: unknown }): string
  * ownership, env, the hot pool. Vitest shares a server only when an entry sets no
  * Vite-level option; `root` is one, and pinning it to the inherited value changes
  * nothing else. Unlike `sharedViteServer: false`, which Vitest reads from the
- * top-level config alone, this works in a nested config too. Vitest 4 resolves every
- * inline project through the config file already. Returns how many were pinned.
+ * top-level config alone, this works in a nested config too. Returns how many were
+ * pinned.
  */
 export function pinInlineProjectRoots(test: unknown, declaringRoot: string): number {
   const projects = (test as { projects?: unknown } | undefined)?.projects;
@@ -1364,7 +1347,7 @@ type GroupedProject = {
  * Why this project's worker count cannot coexist with another project's, or null.
  * Vitest schedules projects that share a `sequence.groupOrder` (0 unless set) as one
  * group, and throws when they resolve to different `maxWorkers` ("Projects … have
- * different 'maxWorkers' but same 'sequence.groupOrder'", groupSpecs in Vitest 4 and
+ * different 'maxWorkers' but same 'sequence.groupOrder'", groupSpecs in Vitest
  * 5). The hot runtime's memory plan caps workers (at most four unless the user set the
  * count), while a project beside it gets Vitest's default of one fewer than the CPUs,
  * so a native project next to a mock or non-React-Native project failed on any machine
@@ -1425,7 +1408,7 @@ function hotRuntimeOverridden(reason: string): VitestNativeError {
 /**
  * The worker count Vitest would have used had the hot runtime not capped it: the
  * user's own value (a count or a percentage of the CPUs), else Vitest's default.
- * Mirrors Vitest 4/5's resolveMaxWorkers and getWorkersCountByPercentage.
+ * Mirrors Vitest 5's resolveMaxWorkers and getWorkersCountByPercentage.
  */
 export function vitestMaxWorkers(
   userValue: unknown,
@@ -1503,7 +1486,7 @@ function printHotMemoryPlan(lines: readonly string[]): void {
 /**
  * Rebuild the hot memory plan for the worker count Vitest resolved, when it is not the
  * count config() planned for. Vitest applies `--maxWorkers` and `VITEST_MAX_WORKERS`
- * over the `maxWorkers` every config hook returned (resolveConfig in Vitest 4.1 and 5;
+ * over the `maxWorkers` every config hook returned (resolveConfig in Vitest 5;
  * Vitest 5 also copies `--maxWorkers` into each project), and config() never sees the
  * environment variable: `VITEST_MAX_WORKERS=10` ran ten workers on a heap threshold
  * and plan sized for four. The count is the user's explicit choice, so memory
@@ -1554,6 +1537,9 @@ function applyHotMemoryPlan(
 }
 
 export function reactNative(options?: VitestNativeOptions): Plugin {
+  // Before anything else: on an unsupported Node the loader hooks below are unreliable,
+  // and the failures they cause look like the project's own bugs.
+  assertSupportedNode();
   // Per plugin INSTANCE, not module scope. A Vitest workspace calls reactNative() once
   // per project and they share this module, so module-level state means the last
   // project's configResolved decides for all of them — suppressing the warning for a
@@ -1561,7 +1547,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   let jestMockTransformPresent = true;
   // The hot runtime chosen in config(), re-checked against Vitest's resolved config.
   // Keyed by project root: each project decides for itself, and an instance can see
-  // more than one project (a config re-used by several, or Vitest 4 workspaces).
+  // more than one project (a config re-used by several).
   const hotSelections = new Map<
     string,
     {
@@ -1586,7 +1572,6 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // fs-module-cache.ts).
   const cacheKeys = new Map<string, string>();
   let warnedMissingJestMockTransform = false;
-  let warnedTsconfigPaths = false;
   // The version of the Vite running this config, from the host rather than the package
   // named `vite` (host.ts). Set at the start of config(); every version decision reads it.
   let hostViteVersion: string | null = null;
@@ -1959,7 +1944,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           );
         }
       }
-      const jsxTransform = getJsxTransformConfig(majorOf(hostViteVersion));
+      const jsxTransform = JSX_TRANSFORM;
       // Resolve the concrete engine now that the project root is known. Default
       // (auto) prefers native when RN's Babel deps resolve; silently, with a notice
       // only when it must fall back to mock. See detect.ts / AUTO_PREFERS_NATIVE.
@@ -2006,11 +1991,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // `resolve.tsconfigPaths` on, or the plugin does for an Expo project (below).
       const userTsconfigPaths = (userConfig.resolve as { tsconfigPaths?: unknown } | undefined)
         ?.tsconfigPaths;
-      const viteMajorForPaths = majorOf(hostViteVersion);
-      if (
-        userTsconfigPaths === true ||
-        expoTsconfigPaths(resolvedRoot, userTsconfigPaths, viteMajorForPaths) === "enable"
-      ) {
+      if (userTsconfigPaths === true || expoTsconfigPaths(resolvedRoot, userTsconfigPaths)) {
         const pathAliases = tsconfigPathAliases(resolvedRoot).entries;
         requireAliases.entries.push(...pathAliases);
         aliasTargets.push(
@@ -2515,22 +2496,21 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
 
       // Validate peer dependencies (table shared with the CLI's doctor command).
       const peerErrors: string[] = [];
-      for (const { name, minimum, maximumMajor, minimumByMajor, optional } of PEER_REQUIREMENTS) {
+      for (const { name, minimum, maximumMajor, optional } of PEER_REQUIREMENTS) {
         if (optional) continue; // reported below, never fatal
         // Vitest is checked in configureVitest against the running instance: under a
         // wrapper such as Vite+ the project root may not resolve `vitest` at all. Here only
-        // a Vitest found by name and older than the range is refused, so that Vitest 2 and
-        // 3 (whose configureVitest is missing or differs) still stop by name.
+        // a Vitest found by name and older than the range is refused, so that an older
+        // Vitest (whose configureVitest differs or is missing) still stops by name.
         if (name === "vitest") {
           const found = resolvePackageVersion("vitest", config.root);
-          if (found === null || !(majorOf(found) < 4)) continue;
+          if (found === null || !(majorOf(found) < 5)) continue;
         }
         const error = validatePeerDependency(
           name,
           minimum,
           config.root,
           maximumMajor,
-          minimumByMajor,
           name === "vite" ? hostViteVersion : undefined,
           name === "vite" ? hostViteSource : undefined,
         );
@@ -2544,15 +2524,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       }
 
       // Optional peers (RNTL): report but never block — absent is a valid setup.
-      for (const { name, minimum, maximumMajor, minimumByMajor, optional } of PEER_REQUIREMENTS) {
+      for (const { name, minimum, maximumMajor, optional } of PEER_REQUIREMENTS) {
         if (!optional) continue;
-        const error = validatePeerDependency(
-          name,
-          minimum,
-          config.root,
-          maximumMajor,
-          minimumByMajor,
-        );
+        const error = validatePeerDependency(name, minimum, config.root, maximumMajor);
         if (error && !error.includes("not found")) {
           console.warn(`[vitest-native] ${error}`);
         }
@@ -2919,18 +2893,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     vitest,
     project,
     defineCacheKeyGenerator,
-    experimental_defineCacheKeyGenerator,
   }: {
-    // Vitest 5; Vitest 4.0.11 and later 4.x spell it experimental_defineCacheKeyGenerator.
     defineCacheKeyGenerator?: (generator: () => string) => void;
-    experimental_defineCacheKeyGenerator?: (generator: () => string) => void;
     vitest: {
       version?: string;
       distPath?: string;
-      // Vitest 4 keeps the CLI flags on `_cliOptions` (internal); Vitest 5 on
-      // `config.cliOptions`. The vitest-semantics gate runs both and fails by name
-      // if either moves.
-      _cliOptions?: CliOptions;
+      // The CLI flags. The vitest-semantics gate fails by name if they move.
       config?: {
         cliOptions?: CliOptions;
         watch?: boolean;
@@ -2971,7 +2939,6 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           vitestPeer.minimum,
           root,
           vitestPeer.maximumMajor,
-          vitestPeer.minimumByMajor,
           vitest.version,
         );
       if (error)
@@ -2981,8 +2948,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         );
     }
     const cacheKey = cacheKeys.get(root);
-    if (cacheKey)
-      (defineCacheKeyGenerator ?? experimental_defineCacheKeyGenerator)?.(() => cacheKey);
+    if (cacheKey) defineCacheKeyGenerator?.(() => cacheKey);
     // A project that shares a Vite server without this plugin's test config would
     // run without React Native's setup; say so instead of failing per file.
     const setupFile = contributedSetup.get(root);
@@ -3036,8 +3002,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         });
       }
     }
-    const cli = vitest._cliOptions ?? vitest.config?.cliOptions ?? {};
-    // On Vitest 4 a `--pool` flag arrives after config(), past its check.
+    const cli = vitest.config?.cliOptions ?? {};
+    // A `--pool` flag can arrive after config(), past its check.
     if (nativeRoots.has(root) && isVmPool(cli.pool)) throw vmPoolUnsupported(cli.pool);
     // Skia's own mock, which the skia preset serves, require()s react-native through
     // Node. Under the mock engine that require reaches the React Native mock through
@@ -3170,17 +3136,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         if (test) test.execArgv = [...(test.execArgv ?? []), ...EXPORT_RECOVERY_ARGV];
         if (test) {
           const viteRoot = userConfig.root ? path.resolve(userConfig.root) : process.cwd();
-          // config() runs before Vitest hands over its instance, and Vitest builds the
-          // module cache before configureVitest, so the running version is not available
-          // here. The project root's copy decides, as before; under Vite+ (no `vitest` at
-          // the root) the copy this package resolves stands in.
-          const vitestMajor = majorOf(
-            resolvePackageVersion("vitest", viteRoot) ?? ownVitestPackage()?.version,
-          );
           const userTest = (
-            userConfig as { test?: Parameters<typeof shouldDefaultFsModuleCache>[1] }
+            userConfig as { test?: Parameters<typeof shouldDefaultFsModuleCache>[0] }
           ).test;
-          if (shouldDefaultFsModuleCache(vitestMajor, userTest)) {
+          if (shouldDefaultFsModuleCache(userTest)) {
             (test as { fsModuleCache?: boolean }).fsModuleCache = true;
           }
           cacheKeys.set(
@@ -3194,23 +3153,14 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         }
         if (test) {
           const viteRoot = userConfig.root ? path.resolve(userConfig.root) : process.cwd();
-          const viteMajor = majorOf(hostViteVersion);
-          const tsconfigPaths = expoTsconfigPaths(
-            viteRoot,
-            (userConfig.resolve as { tsconfigPaths?: unknown } | undefined)?.tsconfigPaths,
-            viteMajor,
-          );
           const config = result as { resolve?: Record<string, unknown> };
-          if (tsconfigPaths === "enable")
+          if (
+            expoTsconfigPaths(
+              viteRoot,
+              (userConfig.resolve as { tsconfigPaths?: unknown } | undefined)?.tsconfigPaths,
+            )
+          ) {
             config.resolve = { ...config.resolve, tsconfigPaths: true };
-          else if (tsconfigPaths === "unsupported" && !warnedTsconfigPaths) {
-            warnedTsconfigPaths = true;
-            console.warn(
-              `[vitest-native] This Expo project's tsconfig declares \`paths\`, which Expo's ` +
-                `Metro resolves by default, but Vite ${viteMajor} cannot (Vite 8 adds ` +
-                `\`resolve.tsconfigPaths\`). Upgrade to Vite 8, or add the vite-tsconfig-paths ` +
-                `plugin, so imports such as \`@/…\` resolve in tests.`,
-            );
           }
         }
         return result;

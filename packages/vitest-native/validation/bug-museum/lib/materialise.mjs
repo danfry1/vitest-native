@@ -20,7 +20,6 @@
 //     (a second copy of React, as a monorepo app that has its own has);
 //   - the install axes the exhibit requires (exhibits.json `requires`):
 //       rntl: "12" | "13"   a copy of that RNTL from a local bun store (RNTL_STORE)
-//       vitest: "4"         Vitest 4.1.11 assembled from bun's cache (vitest4.mjs)
 //       layout: "pnpm"      `pnpmShaped` packages moved into a pnpm-shaped store
 //                           directory named after their peers (#349's class reads it)
 //
@@ -206,14 +205,10 @@ export function wrapForOwnership(installed, root, model) {
 
 /**
  * Materialise `exhibit` (an exhibits.json entry) under `work`. Returns the app root.
- * `build` is the vitest-native package directory under test; `vitest4` the directory
- * vitest4.mjs prepared (required when the exhibit needs Vitest 4); `ownershipModel`
- * other than "off" wraps the installed copy (wrapForOwnership).
+ * `build` is the vitest-native package directory under test; `ownershipModel` other than
+ * "off" wraps the installed copy (wrapForOwnership).
  */
-export function materialise(
-  exhibit,
-  { work, build, deps = build, vitest4, edits = [], ownershipModel = "off" },
-) {
+export function materialise(exhibit, { work, build, deps = build, edits = [], ownershipModel = "off" }) {
   const root = path.join(work, exhibit.id);
   fs.rmSync(root, { recursive: true, force: true });
   fs.cpSync(path.join(museumRoot, "exhibits", exhibit.id), root, { recursive: true });
@@ -269,17 +264,6 @@ export function materialise(
 
   const requires = exhibit.requires ?? {};
   if (requires.rntl) placeRntl(modules, findRntl(requires.rntl));
-  if (requires.vitest === "4") {
-    for (const entry of fs.readdirSync(path.join(vitest4, "node_modules"))) {
-      const names = entry.startsWith("@")
-        ? fs.readdirSync(path.join(vitest4, "node_modules", entry)).map((n) => `${entry}/${n}`)
-        : [entry];
-      for (const name of names) {
-        if (name === "vitest" || name.startsWith("@vitest/"))
-          replaceWith(modules, name, path.join(vitest4, "node_modules", name), { copy: false });
-      }
-    }
-  }
   for (const name of exhibit.pnpmShaped ?? []) placeInPnpmShape(modules, name);
 
   // Compiled package output requires Babel's helpers by name; every real install puts

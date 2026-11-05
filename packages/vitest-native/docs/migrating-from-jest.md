@@ -75,16 +75,18 @@ on the literal `jest.mock` member form, not `jest` aliased to another local name
 ### 2b. Upgrade RNTL to 12–14 (recommended)
 The `@jest/globals` alias unblocks RNTL < 12, but **upgrading to `@testing-library/react-native@^12`
 is the cleaner fix** (12 dropped the `@jest/globals` dependency). vitest-native supports RNTL
-12–14. RNTL 14 requires Node 22.13 or 24+ and makes rendering APIs async, so await `render` and
+12–14. RNTL 14 requires a supported Node (22.22.3+, 24.12+ or 26+) and makes rendering APIs async, so await `render` and
 other APIs as described in its migration guide.
 
 ### 2c. Delete third-party native-lib mocks — they're automatic now
 You do **not** need `jest.mock('react-native-reanimated', …)`, safe-area's `jest/mock`,
 gesture-handler's jestSetup, etc. vitest-native **auto-detects** installed third-party libraries and
 shadows their native runtimes with built-in presets, under **both** engines. Just have the package
-installed; delete the manual mock. (Reanimated, Gesture Handler, Safe Area, Navigation, Screens,
-AsyncStorage, Expo are covered out of the box. Validated under the native engine —
-`tests-native/third-party-stack.test.tsx`.)
+installed; delete the manual mock. (Reanimated, Gesture Handler, Safe Area, Navigation, Screens and
+AsyncStorage are covered out of the box. Validated under the native engine —
+`tests-native/third-party-stack.test.tsx`. Expo modules need no mock either: under the native engine
+they run their own JavaScript, as under jest-expo, and the `expo` preset applies only under the mock
+engine, or when you turn it on with `presets: { expo: true }` or list it in a `presets` array.)
 
 ### 2d. Snapshots: keep Jest's and Vitest's apart, then record Vitest's
 Jest's `.snap` files are not something Vitest can check against, for two reasons.

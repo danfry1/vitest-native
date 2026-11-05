@@ -4,13 +4,14 @@
 // returns exactly the URL the hooks produced, stamp included.
 //
 // The invariant under test: the test stack itself (vitest, @vitest/*, chai, and the
-// engine) must NEVER carry a generation stamp. A stamped URL is a twin runtime —
+// engine) must NEVER carry a generation stamp. Vitest 5 bundles its snapshot client into
+// `vitest` itself; @vitest/mocker is the @vitest/* package it still loads separately. A stamped URL is a twin runtime —
 // a SnapshotClient no one set up, fake-timer state the runner never reads — and the
 // failures it causes downstream are emergent and order-dependent, which is why the
 // gate asserts the resolution invariant instead of waiting for a symptom.
 export const resolvedUrls = {
   vitest: import.meta.resolve("vitest"),
-  snapshot: import.meta.resolve("@vitest/snapshot"),
+  mocker: import.meta.resolve("@vitest/mocker"),
   chai: import.meta.resolve("chai"),
   engine: import.meta.resolve("vitest-native"),
   // Control: this probe package itself IS expected to be stamped (its module-level

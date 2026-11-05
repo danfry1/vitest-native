@@ -44,9 +44,9 @@ import type { ProjectContextFields } from "../context.mjs";
 import type { NativeOwnershipPolicy } from "./ownership.mjs";
 import { createNativeOwnershipPolicy, formatNativeOwnershipManifest } from "./ownership.mjs";
 
-export type JsxTransformConfig =
-  | { esbuild: { jsx: "automatic" } }
-  | { oxc: { jsx: { runtime: "automatic" } } };
+/** React's automatic JSX runtime, through Vite 8's Oxc transform. */
+export type JsxTransformConfig = { oxc: { jsx: { runtime: "automatic" } } };
+export const JSX_TRANSFORM: JsxTransformConfig = { oxc: { jsx: { runtime: "automatic" } } };
 
 export function nativeEngineConfig(
   setupFilePath: string,
@@ -54,7 +54,7 @@ export function nativeEngineConfig(
   extensions: string[],
   transformPkgs: string[] = [],
   hot?: { pool: PoolRunnerInitializer; runnerPath: string; maxWorkers?: number },
-  jsxTransform: JsxTransformConfig = { esbuild: { jsx: "automatic" } },
+  jsxTransform: JsxTransformConfig = JSX_TRANSFORM,
   userPool?: unknown,
   inlinePkgs: string[] = [],
   projectRoot: string = process.cwd(),
