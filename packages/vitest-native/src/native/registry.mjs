@@ -25,8 +25,7 @@
 // The registry is an optimization, never a semantic: anything it cannot serve falls
 // through to the per-file hooks in hooks.mjs / loader.mjs, and a failed build leaves
 // the engine running exactly as it did before.
-import Module from "node:module";
-import { createRequire } from "node:module";
+import Module, { createRequire } from "node:module";
 import path from "node:path";
 import fs from "node:fs";
 import crypto from "node:crypto";
@@ -52,6 +51,7 @@ import {
 import { createNativeOwnershipPolicy } from "./ownership.mjs";
 import { owningPackageOfFile, packageNameOf } from "./match.mjs";
 import { libraryExtensionsFor, libraryResolverFiles } from "./jest-resolvers.mjs";
+import { nodeDispatch } from "../node-dispatch.mjs";
 
 /**
  * Losing the registry is a silent performance cliff, not a correctness problem:
@@ -1048,59 +1048,63 @@ export function installRegistry(
   }
   const idOf = new Map(registry.ids.map((f, i) => [f, i]));
   const entryId = idOf.get(registry.entry);
-  const origLoad = Module._load;
-  Module._load = function (request, parent, ...rest) {
-    if (request === "react-native") return registry.load(entryId);
-    // An absolute path lands here when something re-enters through Node's loader
-    // with an already-resolved file — most importantly the ESM loader's
-    // `react-native/index.js` facade, which requires the real index by path.
-    const direct = idOf.get(request);
-    if (direct !== undefined) return registry.load(direct);
-    if (library !== null) {
-      const served = library.serve(request, parent);
-      if (served !== NOT_SERVED) return served.value;
-    }
-    // Deep imports of RN internals (`react-native/Libraries/…`) and of the
-    // @react-native/* packages inlined alongside it must resolve to the SAME
-    // instances the entry graph uses, or RN's singletons would exist twice.
-    if (request.startsWith("react-native/") || request.startsWith("@react-native/")) {
-      // The registry's own code requires with the registry FILE as parent, and that
-      // file lives in a cache directory that may be outside the project (tmpdir when
-      // the project has no writable node_modules). Resolve those from the project.
-      const fromProject =
-        !parent?.filename ||
-        parent.filename === registryFile ||
-        parent.filename === registryRealFile ||
-        (library !== null && library.isRegistryFile(parent.filename));
-      const resolver = fromProject ? req : createRequire(parent.filename);
-      const platform = projectContext()?.platform === "android" ? "android" : "ios";
-      let resolved;
-      try {
-        resolved = resolver.resolve(request);
-      } catch {
-        // RN 0.87's exports map refuses the deep self-references its preset
-        // emits; resolve by path (Metro's behavior) so the file still lands on
-        // the registry's instance instead of loading a twin outside it.
-        resolved =
-          (fromProject
-            ? null
-            : resolveDeepPackageFile(
-                request,
-                path.dirname(parent.filename),
-                platform,
-                sourceExts,
-              )) ?? resolveDeepPackageFile(request, projectRoot, platform, sourceExts);
-      }
-      const id = resolved === null ? undefined : idOf.get(resolved);
-      if (id !== undefined) return registry.load(id);
-      // Resolved by path but not in the registry: forward the PATH — reloading
-      // the bare specifier would just hit the exports map again.
-      if (resolved !== null && path.isAbsolute(resolved)) {
-        return origLoad.call(this, resolved, parent, ...rest);
-      }
-    }
-    return origLoad.call(this, request, parent, ...rest);
-  };
+  // Beneath a per-file mock and a preset, above Node (LOAD_STEPS).
+  nodeDispatch().load.add(
+    "registry",
+    (next) =>
+      function (request, parent, ...rest) {
+        if (request === "react-native") return registry.load(entryId);
+        // An absolute path lands here when something re-enters through Node's loader
+        // with an already-resolved file — most importantly the ESM loader's
+        // `react-native/index.js` facade, which requires the real index by path.
+        const direct = idOf.get(request);
+        if (direct !== undefined) return registry.load(direct);
+        if (library !== null) {
+          const served = library.serve(request, parent);
+          if (served !== NOT_SERVED) return served.value;
+        }
+        // Deep imports of RN internals (`react-native/Libraries/…`) and of the
+        // @react-native/* packages inlined alongside it must resolve to the SAME
+        // instances the entry graph uses, or RN's singletons would exist twice.
+        if (request.startsWith("react-native/") || request.startsWith("@react-native/")) {
+          // The registry's own code requires with the registry FILE as parent, and that
+          // file lives in a cache directory that may be outside the project (tmpdir when
+          // the project has no writable node_modules). Resolve those from the project.
+          const fromProject =
+            !parent?.filename ||
+            parent.filename === registryFile ||
+            parent.filename === registryRealFile ||
+            (library !== null && library.isRegistryFile(parent.filename));
+          const resolver = fromProject ? req : createRequire(parent.filename);
+          const platform = projectContext()?.platform === "android" ? "android" : "ios";
+          let resolved;
+          try {
+            resolved = resolver.resolve(request);
+          } catch {
+            // RN 0.87's exports map refuses the deep self-references its preset
+            // emits; resolve by path (Metro's behavior) so the file still lands on
+            // the registry's instance instead of loading a twin outside it.
+            resolved =
+              (fromProject
+                ? null
+                : resolveDeepPackageFile(
+                    request,
+                    path.dirname(parent.filename),
+                    platform,
+                    sourceExts,
+                  )) ?? resolveDeepPackageFile(request, projectRoot, platform, sourceExts);
+          }
+          const id = resolved === null ? undefined : idOf.get(resolved);
+          if (id !== undefined) return registry.load(id);
+          // Resolved by path but not in the registry: forward the PATH — reloading
+          // the bare specifier would just hit the exports map again.
+          if (resolved !== null && path.isAbsolute(resolved)) {
+            return next(resolved, parent, ...rest);
+          }
+        }
+        return next(request, parent, ...rest);
+      },
+  );
   return true;
 }
 

@@ -99,7 +99,7 @@ unless `--allow-na` is given.
 ## In CI
 
 `.github/workflows/bug-museum.yml` runs every exhibit against the packed package on pull
-requests that touch the package, on Node 22.13.0, and `compare.mjs` compares each verdict
+requests that touch the package, on Node 22.22.3, and `compare.mjs` compares each verdict
 with the main verdict exhibits.json records. Since open bugs fail on main by design, the
 check fails only when a pull request regresses an exhibit: one that passes on main fails,
 or one that fails as its bug fails some other way. An exhibit that now passes is listed,

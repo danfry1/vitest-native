@@ -11,6 +11,7 @@ export type VitestNativeErrorCode =
   | "INVALID_OPTION"
   | "UNKNOWN_OPTION"
   | "UNSUPPORTED_PEER"
+  | "UNSUPPORTED_NODE"
   | "VITEST_TWIN_INSTANCE"
   | "CONTEXT_INVALID"
   | "UNSUPPORTED_POOL"
@@ -43,6 +44,7 @@ export type VitestNativeErrorCode =
   | "JEST_COMPAT_SETUP_MISSING"
   | "BABEL_IGNORES_FILE"
   | "LIBRARY_REGISTRY_FAILED"
+  | "UNKNOWN_DISPATCH_STEP"
   | "MATCHER_BAD_RECEIVER";
 
 export interface VitestNativeErrorOptions {
