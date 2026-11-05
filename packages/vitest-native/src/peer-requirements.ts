@@ -121,6 +121,10 @@ export function installedExpoVersion(root: string): string | null {
         const dep = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
         const peers = dep.peerDependencies;
         if (!peers || typeof peers !== "object" || !("expo" in peers)) continue;
+        // An optional peer (@react-native-vector-icons/* 14) works without expo, so the
+        // expo it resolves, such as one pnpm hoisted for another package, says nothing.
+        const meta = dep.peerDependenciesMeta as Record<string, { optional?: unknown }> | undefined;
+        if (meta?.expo?.optional === true) continue;
         const version = expoVersionFrom(path.dirname(file));
         if (version) return version;
       } catch {

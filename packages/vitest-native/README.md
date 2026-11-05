@@ -320,6 +320,10 @@ reactNative({
 });
 ```
 
+That object requires the hot runtime and fails where it cannot run. Add `mode: "auto"` to keep
+these options and fall back to per-file isolation instead, as `'auto'` does:
+`hotRuntime: { mode: "auto", memoryLimit: 2 * 1024 ** 3 }`.
+
 Recycling is applied between Vitest scheduler tasks. Current Vitest batches every file into one
 uninterruptible task at `maxWorkers: 1`, so `'auto'` keeps per-file isolation there and
 `hotRuntime: true` fails that configuration rather than claim an inert memory bound. Use at least
@@ -970,6 +974,17 @@ reactNative({
 ```
 
 This prints details about which presets were detected, which modules are being mocked, and how imports are resolved. Useful for debugging unexpected behavior.
+
+To turn it on for a single run, read an environment variable you choose, then run
+`RN_TEST_DEBUG=1 vitest run`:
+
+```ts
+reactNative({ diagnostics: process.env.RN_TEST_DEBUG === "1" });
+```
+
+There is no `VITEST_NATIVE_DIAGNOSTICS` variable. Older releases' `VITEST_NATIVE_*` settings, such
+as `VITEST_NATIVE_PLATFORM`, are no longer read; set the matching option. Startup warns when one
+is set.
 
 ---
 

@@ -2,6 +2,7 @@
 // native-boundary modules are mocked. The companion loader.mjs handles the import() path.
 import Module from "node:module";
 import { projectContext } from "../context.mjs";
+import { VitestNativeError } from "../errors.mjs";
 import path from "node:path";
 import fs from "node:fs";
 import { heldTransform, transformRN, isFlow, needsTransform } from "./transform.mjs";
@@ -11,7 +12,13 @@ import {
   resolveRelativePlatformFile,
   resolveDeepPackageFile,
 } from "./resolve.mjs";
-import { NODE_MODULES_PATH, isUtilitySubpath, packageNameOf, subpathLeafOf } from "./match.mjs";
+import {
+  NODE_MODULES_PATH,
+  isUtilitySubpath,
+  packageNameOf,
+  isPackageEntryFile,
+  subpathLeafOf,
+} from "./match.mjs";
 import {
   createNativeOwnershipPolicy,
   findNativeOwnershipConflict,
@@ -120,6 +127,75 @@ export function checkProjectSourceResolvedByNode(resolved, parent, dirs = projec
       "  package that does not sit underneath the dependency.",
   );
 }
+// Versions read, per worker; directories checked in this test file, cleared per file
+// under the hot runtime (resetExpoSdkWarnings), so each file names the copy it loads.
+const expoVersions = new Map();
+const checkedExpoDirs = new Set();
+
+/** Forget which copies this file was warned about; their versions stay read. */
+export function resetExpoSdkWarnings() {
+  checkedExpoDirs.clear();
+}
+
+/** The hot runtime's check that resetExpoSdkWarnings ran: no copy is still marked warned. */
+export function verifyExpoSdkWarningsReset() {
+  if (checkedExpoDirs.size > 0) {
+    throw new VitestNativeError(
+      "HOT_STATE_RESTORE_FAILED",
+      `${checkedExpoDirs.size} Expo copies are still marked as warned about`,
+    );
+  }
+}
+
+/** Test seam. */
+export function _resetExpoSdkChecks() {
+  expoVersions.clear();
+  checkedExpoDirs.clear();
+}
+
+function manifestVersion(dir) {
+  try {
+    const { version } = JSON.parse(fs.readFileSync(`${dir}/package.json`, "utf8"));
+    return typeof version === "string" ? version : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Warn, once per package directory per test file, when a file of `expo` or
+ * `expo-modules-core` loads from an Expo SDK outside `sdks` ([min, max], from the
+ * plugin). This sees the copy a test loads, where the plugin sees only the project's
+ * `expo`. expo-modules-core's major is its SDK's from SDK 55. Any other file costs a
+ * substring test, and each package.json is read once per worker.
+ */
+export function checkLoadedExpoSdk(norm, sdks) {
+  if (!sdks || !norm.includes("/node_modules/expo")) return;
+  const at = norm.lastIndexOf("/node_modules/") + "/node_modules/".length;
+  const name = norm.slice(at, norm.indexOf("/", at));
+  if (name !== "expo" && name !== "expo-modules-core") return;
+  const dir = norm.slice(0, at + name.length);
+  if (checkedExpoDirs.has(dir)) return;
+  checkedExpoDirs.add(dir);
+  if (!expoVersions.has(dir)) expoVersions.set(dir, manifestVersion(dir));
+  const version = expoVersions.get(dir);
+  const major = Number(/^(\d+)\.\d+\.\d+(?:[-+].*)?$/.exec(version ?? "")?.[1] ?? NaN);
+  const [minimum, maximum] = sdks;
+  if (!(major < minimum || major > maximum)) return;
+  const list = Array.from({ length: maximum - minimum + 1 }, (_, i) => minimum + i)
+    .join(", ")
+    .replace(/, (\d+)$/, " and $1");
+  const sdk =
+    name === "expo-modules-core" && major < 55 ? "Expo SDK 54 or older" : `Expo SDK ${major}`;
+  console.warn(
+    `[vitest-native] ${name} ${version} (${path.normalize(dir)}) is from ${sdk}; vitest-native supports ` +
+      `Expo SDK ${list}. ` +
+      (major > maximum
+        ? "Check for a newer vitest-native."
+        : "Tests that load it can fail: upgrade to a supported Expo SDK."),
+  );
+}
+
 function reportDuplicateInstance(pkg, nodeFile, viteFile, field) {
   reportedDuplicates.add(pkg);
   console.warn(
@@ -192,12 +268,11 @@ export function installRequireHooks(
     // pin the boot-time env list forever, and the divergence is hot-only because
     // under stock the setup file IS the first caller. Rebuild the matcher when
     // a later caller brings a different list; hook layers are never stacked.
-    globalThis.__vitest_native_require_hooks_update?.({
+    return globalThis.__vitest_native_require_hooks_update?.({
       transformPkgs,
       assetExts,
       sourceExts,
     });
-    return;
   }
   globalThis.__vitest_native_require_hooks_installed = true;
 
@@ -241,6 +316,11 @@ export function installRequireHooks(
   });
   let isExtra = ownership.matchesNodeTransformedFile;
   let isExtraKey = JSON.stringify(transformPkgs);
+  // Whether these hooks compile a package file for the project, read at call time so a
+  // rebuilt matcher (below) answers. Returned by every call, the first and the later ones
+  // the updater serves: Expo's runtime is installed only for files this says yes to
+  // (globals.mjs installExpoRuntime), one rule for what Node compiles.
+  const compiles = (file) => isExtra(String(file).replace(/\\/g, "/"));
   // A field left out keeps its current value (tests-native/resolution-memo.test.ts
   // changes the source extensions alone, and puts them back).
   let activeAssetExts = assetExts;
@@ -255,10 +335,11 @@ export function installRequireHooks(
     assetExtSet = new Set(activeAssetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
     installAssetExtensions(activeAssetExts);
     const key = JSON.stringify(pkgs);
-    if (key === isExtraKey) return;
+    if (key === isExtraKey) return compiles;
     isExtraKey = key;
     ownership = createNativeOwnershipPolicy({ ...ownershipBase, runtimeTransforms: pkgs });
     isExtra = ownership.matchesNodeTransformedFile;
+    return compiles;
   };
 
   // Preset redirect (CJS): when an externalized third-party module require()s a
@@ -280,29 +361,41 @@ export function installRequireHooks(
   // keying by the container would serve file 1's mocks to every later file in
   // the worker.
   const subpathMemo = new WeakMap();
+  // Whether the preset's declared names include `request`'s leaf: the list the ESM
+  // loader and the plugin decide on (shadowsSubpath in loader.mjs), so every route
+  // agrees whatever else the mock object carries.
+  function presetExportsLeaf(pkg, request) {
+    const leaf = subpathLeafOf(request);
+    const names = projectContext()?.presetExports?.[pkg];
+    return leaf !== null && Array.isArray(names) && names.includes(leaf);
+  }
+  // Whether `request` resolves to the package's own entry (pkg/lib/commonjs/index,
+  // pkg/src): that is the package itself, and gets the root mock, as the ESM loader's
+  // route by resolved file decides (presetRequestForFile in loader.mjs).
+  function isPackageEntry(pkg, request, parent) {
+    let file;
+    try {
+      file = Module._resolveFilename(request, parent, false);
+    } catch {
+      return false;
+    }
+    return isPackageEntryFile(pkg, file, parent?.filename);
+  }
   function presetSubpathExports(mocks, pkg, request) {
     const mock = mocks[pkg];
     if (mock === null || (typeof mock !== "object" && typeof mock !== "function")) return mock;
     let memo = subpathMemo.get(mock);
     if (!memo) subpathMemo.set(mock, (memo = new Map()));
     if (memo.has(request)) return memo.get(request);
-    const leaf = subpathLeafOf(request);
-    let exportsValue = mock;
-    if (leaf && Object.prototype.hasOwnProperty.call(mock, leaf)) {
-      const value = mock[leaf];
-      exportsValue =
-        value !== null && (typeof value === "object" || typeof value === "function")
-          ? new Proxy(value, {
-              get: (t, p, r) =>
-                p === "default" ? t : p === "__esModule" ? true : Reflect.get(t, p, r),
-              has: (t, p) => p === "default" || p === "__esModule" || Reflect.has(t, p),
-            })
-          : { __esModule: true, default: value };
-    } else if (projectContext()?.diagnostics === true) {
-      console.warn(
-        `[vitest-native] '${request}' has no matching export on the '${pkg}' preset mock; serving the root mock namespace.`,
-      );
-    }
+    const value = mock[subpathLeafOf(request)];
+    const exportsValue =
+      value !== null && (typeof value === "object" || typeof value === "function")
+        ? new Proxy(value, {
+            get: (t, p, r) =>
+              p === "default" ? t : p === "__esModule" ? true : Reflect.get(t, p, r),
+            has: (t, p) => p === "default" || p === "__esModule" || Reflect.has(t, p),
+          })
+        : { __esModule: true, default: value };
     memo.set(request, exportsValue);
     return exportsValue;
   }
@@ -312,7 +405,7 @@ export function installRequireHooks(
   // file from CommonJS that the ESM loader compiled (loader.mjs serves those through
   // globalThis.__vitest_native_preset_require), so the two cannot disagree.
   const NO_PRESET = Symbol("no preset");
-  function presetExportsFor(request) {
+  function presetExportsFor(request, parent) {
     const mocks = globalThis.__vitest_native_preset_mocks;
     if (!mocks) return NO_PRESET;
     if (Object.prototype.hasOwnProperty.call(mocks, request)) return mocks[request];
@@ -325,8 +418,11 @@ export function installRequireHooks(
     const reqExt = reqExtMatch ? reqExtMatch[1].toLowerCase() : "";
     if (reqExt !== "json" && !assetExtSet.has(reqExt) && !isUtilitySubpath(request)) {
       const pkg = packageNameOf(request);
+      // Only a subpath whose leaf the mock exports is the mock's (loader.mjs,
+      // shadowsSubpath); any other is the real file, as under Jest's jest.mock(pkg).
       if (pkg !== request && Object.prototype.hasOwnProperty.call(mocks, pkg)) {
-        return presetSubpathExports(mocks, pkg, request);
+        if (presetExportsLeaf(pkg, request)) return presetSubpathExports(mocks, pkg, request);
+        if (parent !== undefined && isPackageEntry(pkg, request, parent)) return mocks[pkg];
       }
     }
     return NO_PRESET;
@@ -338,7 +434,7 @@ export function installRequireHooks(
 
   const origLoad = Module._load;
   Module._load = function (request, parent, ...rest) {
-    const shadowed = presetExportsFor(request);
+    const shadowed = presetExportsFor(request, parent ?? null);
     if (shadowed !== NO_PRESET) return shadowed;
     const exports = origLoad.call(this, request, parent, ...rest);
     // Every require of RNTL's main entry, cached or not, tells the setup file's
@@ -546,8 +642,10 @@ export function installRequireHooks(
   };
 
   const origJs = Module._extensions[".js"];
+  const expoSdks = projectContext()?.expoSdks;
   Module._extensions[".js"] = function (mod, filename) {
     const norm = filename.replace(/\\/g, "/");
+    checkLoadedExpoSdk(norm, expoSdks);
     const rnPath = ownership.reactNativePathFor(filename);
     const boundary = boundarySourceFor(rnPath ?? norm, platform, reactNativeVersion);
     if (boundary != null) return mod._compile(boundary, filename);
@@ -599,10 +697,11 @@ export function installRequireHooks(
   const origMjs = Module._extensions[".mjs"];
   if (origMjs) {
     Module._extensions[".mjs"] = function (mod, filename) {
+      const norm = filename.replace(/\\/g, "/");
+      checkLoadedExpoSdk(norm, expoSdks);
       if (globalThis.__vitest_native_loader_mode !== "thread") {
         return origMjs(mod, filename);
       }
-      const norm = filename.replace(/\\/g, "/");
       const rnPath = ownership.reactNativePathFor(filename);
       if (rnPath === null && !isExtra(norm)) return origMjs(mod, filename);
       const boundary = boundarySourceFor(rnPath ?? norm, platform, reactNativeVersion);
@@ -622,15 +721,14 @@ export function installRequireHooks(
     Module._extensions[ext] = function (mod, filename) {
       // Boundary stubs can live in TS sources too (expo publishes src/ alongside
       // build/, and some resolution paths reach the .ts files directly).
-      const boundary = boundarySourceFor(
-        filename.replace(/\\/g, "/"),
-        platform,
-        reactNativeVersion,
-      );
+      const norm = filename.replace(/\\/g, "/");
+      checkLoadedExpoSdk(norm, expoSdks);
+      const boundary = boundarySourceFor(norm, platform, reactNativeVersion);
       if (boundary != null) return mod._compile(boundary, filename);
       // No source: transformRN reads the file only when its compiled output is not
       // already held for this file's size and mtime.
       return mod._compile(transformRN(filename, undefined, projectRoot, platform), filename);
     };
   }
+  return compiles;
 }

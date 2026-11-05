@@ -1,0 +1,7 @@
+{
+  "name": "flow-jsx-lib",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "peerDependencies": { "react-native": "*" }
+}

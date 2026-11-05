@@ -57,6 +57,7 @@ describe("hot-runtime state manifest", () => {
       "react-native.error-utils",
       "expo.runtime",
       "jest-compat.node-mocks",
+      "expo.sdk-warnings",
     ]);
   });
 
@@ -87,12 +88,13 @@ describe("hot-runtime state manifest", () => {
     const duplicateRestore = vi.fn();
     const manifest = createStateManifest();
 
-    expect(manifest.register({ id: "setup", capture: () => null, restore: firstRestore })).toBe(
-      true,
-    );
-    expect(manifest.register({ id: "setup", capture: () => null, restore: duplicateRestore })).toBe(
-      false,
-    );
+    const verify = () => {};
+    expect(
+      manifest.register({ id: "setup", capture: () => null, restore: firstRestore, verify }),
+    ).toBe(true);
+    expect(
+      manifest.register({ id: "setup", capture: () => null, restore: duplicateRestore, verify }),
+    ).toBe(false);
     manifest.beginFile();
     manifest.beginFile();
 
@@ -169,6 +171,7 @@ describe("hot-runtime state manifest", () => {
         throw cause;
       },
       restore: () => {},
+      verify: () => {},
     });
 
     expect(() => manifest.beginFile()).toThrowError(
@@ -176,6 +179,18 @@ describe("hot-runtime state manifest", () => {
         cause,
         code: "HOT_STATE_CAPTURE_FAILED",
         message: expect.stringContaining("broken-capture"),
+      }),
+    );
+  });
+
+  it("refuses an entry without verify(), whose restore nothing could observe", () => {
+    const manifest = createStateManifest();
+    expect(() =>
+      manifest.register({ id: "unverified", capture: () => null, restore: () => {} } as never),
+    ).toThrowError(
+      expect.objectContaining({
+        code: "INVALID_OPTION",
+        message: expect.stringContaining("'unverified' requires capture(), restore() and verify()"),
       }),
     );
   });
@@ -188,6 +203,7 @@ describe("hot-runtime state manifest", () => {
       restore: () => {
         throw new Error("restore exploded");
       },
+      verify: () => {},
     });
     manifest.register({
       id: "verify-failure",

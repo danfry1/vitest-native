@@ -26,7 +26,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -56,7 +56,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -66,8 +66,8 @@
       "class": "ownership",
       "title": "Aliased workspace source using import.meta is a SyntaxError",
       "source": "migration testing (2026-10)",
-      "fixedBy": "#344 (draft)",
-      "fixRef": "origin/fix/source-aliased-workspace-ownership",
+      "fixedBy": "#453 (draft)",
+      "fixRef": "origin/feat/import-meta-node-compile",
       "links": {
         "@m/feature": "packages/feature"
       },
@@ -75,7 +75,7 @@
       "status": {
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "mainSignature": "meta.test.ts: Cannot use 'import.meta' outside a module",
         "proof": "fix proven"
       }
@@ -105,7 +105,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -135,7 +135,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -165,7 +165,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -196,7 +196,7 @@
         "main": "FAIL (bug)",
         "control": "PASS",
         "fix": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "mainSignature": "split.test.ts: Cannot find module '@m/validator/store'",
         "proof": "fix proven"
       }
@@ -227,7 +227,7 @@
         "main": "FAIL (bug)",
         "control": "PASS",
         "fix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "mainSignature": "split.test.ts: Cannot find module '@m/validator/store'",
         "proof": "open (control passes)"
       }
@@ -257,7 +257,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -287,10 +287,84 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
+    },
+    {
+      "id": "own-alias-renamed",
+      "class": "ownership",
+      "title": "A workspace library aliased to source under another name loads twice",
+      "source": "#344 (monorepo-source-ownership.test.ts, the renamed case)",
+      "fixedBy": "#371 (merged; guard for #344's renamed-alias case)",
+      "links": {
+        "@m/feature": "packages/feature",
+        "@m/validator": "packages/validator"
+      },
+      "bugSignature": "^split\\.test\\.ts: AssertionError: expected null to be 'written by the test'",
+      "control": {
+        "why": "The library no longer peers on react-native, so the engine does not detect it and Vite owns it: the bug's precondition is gone.",
+        "edits": [
+          {
+            "file": "packages/feature/package.json",
+            "find": "\"react-native\": \"*\"",
+            "replace": "\"museum-control-no-react-native\": \"*\""
+          }
+        ]
+      },
+      "preFixRef": "a5592d2^",
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "proof": "landed proven"
+      }
+    },
+    {
+      "id": "own-alias-node-require",
+      "class": "ownership",
+      "title": "An installed package requiring a source-aliased workspace library by name gets its built copy",
+      "source": "#344 (monorepo-source-ownership.test.ts, the required case)",
+      "fixedBy": "#454 (ownershipModel resolver; open)",
+      "links": {
+        "@m/feature": "packages/feature",
+        "@m/validator": "packages/validator"
+      },
+      "bugSignature": "^node-require\\.test\\.ts: AssertionError: museum-requires-feature reads the store the test wrote: expected 'built copy' to be 'written by the test'",
+      "control": {
+        "why": "museum-requires-feature no longer peers on react-native, imports the library instead of requiring it, and is inlined (server.deps.inline), so Vite owns it and its import of @m/feature goes through Vite's alias to the source: the bug's precondition, a Node-owned consumer, is gone. (Vite does not process the require() of an inlined CommonJS file, so the import is part of the control.)",
+        "edits": [
+          {
+            "file": "vendor/museum-requires-feature/package.json",
+            "find": "\"peerDependencies\": {\n    \"react-native\": \"*\"\n  }",
+            "replace": "\"peerDependencies\": {\n    \"museum-control-no-react-native\": \"*\"\n  }"
+          },
+          {
+            "file": "vendor/museum-requires-feature/package.json",
+            "find": "\"main\": \"index.js\",",
+            "replace": "\"type\": \"module\",\n  \"main\": \"index.js\","
+          },
+          {
+            "file": "vendor/museum-requires-feature/index.js",
+            "find": "exports.viaNode = () => require(\"@m/feature\").readStore();",
+            "replace": "import { readStore } from \"@m/feature\";\nexport const viaNode = () => readStore();"
+          },
+          {
+            "file": "vitest.config.mts",
+            "find": "    include: [\"*.test.{ts,tsx}\"],",
+            "replace": "    include: [\"*.test.{ts,tsx}\"],\n    server: { deps: { inline: [\"museum-requires-feature\"] } },"
+          }
+        ]
+      },
+      "status": {
+        "main": "FAIL (bug)",
+        "control": "PASS",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "mainSignature": "node-require.test.ts: AssertionError: museum-requires-feature reads the store the test wrote: expected 'built copy' to be 'written by the test' // Object.is equality",
+        "proof": "open (control passes)"
+      }
     },
     {
       "id": "own-jest-require-imported-cjs",
@@ -303,7 +377,7 @@
       "status": {
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "mainSignature": "require.test.ts: AssertionError: expected [Function legacy] to be [Function legacy] // Object.is equality",
         "proof": "fix proven"
       }
@@ -313,32 +387,31 @@
       "class": "ownership",
       "title": "A Jest partial mock of project source gets a second module graph",
       "source": "migration testing (2026-10)",
-      "fixedBy": "#345 (draft)",
-      "fixRef": "origin/fix/require-actual-single-graph",
+      "fixedBy": "#345 (merged)",
       "bugSignature": "^partial-mock\\.test\\.ts: AssertionError: expected null to be 'set-by-the-app'",
       "status": {
-        "main": "FAIL (bug)",
-        "fix": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
-        "mainSignature": "partial-mock.test.ts: AssertionError: expected null to be 'set-by-the-app' // Object.is equality",
-        "proof": "fix proven"
-      }
+        "main": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "proof": "landed proven"
+      },
+      "preFixRef": "5f819d6^"
     },
     {
       "id": "own-partial-mock-workspace",
       "class": "ownership",
       "title": "A partial mock of a detected workspace React Native package is refused as a cycle",
       "source": "#345 adversarial review (a regression of #345, not of main)",
-      "fixedBy": "open (regression guard for #345)",
+      "fixedBy": "#345 (merged; regression guard for its first version)",
       "links": {
         "@m/ui": "packages/ui"
       },
-      "buggyRef": "origin/fix/require-actual-single-graph",
+      "buggyRef": "64b47ec",
       "bugSignature": "^partial-mock\\.test\\.ts: .*\\(caused by: VitestNativeError: \\[vitest-native\\] '@m/ui' was required while its jest\\.mock factory was still loading the real module",
       "status": {
         "main": "PASS",
         "buggy": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "guard proven"
       }
     },
@@ -367,7 +440,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -397,10 +470,235 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
+    },
+    {
+      "id": "own-require-first",
+      "class": "ownership",
+      "title": "A project file Node loads before the test imports it is a second instance",
+      "source": "ownership gains attribution (2026-11): the load-order case #371 leaves open",
+      "fixedBy": "open (ownership track A3)",
+      "links": {
+        "@m/feature": "packages/feature",
+        "@m/validator": "packages/validator"
+      },
+      "bugSignature": "^require-first\\.test\\.ts: AssertionError: one store instance, whichever side loaded it first: expected null to be 'written by the test'",
+      "control": {
+        "why": "The test imports the store before the library (Vite first), the order in which #371 hands Node Vite's instance: the bug's precondition, Node loading first, is gone.",
+        "edits": [
+          {
+            "file": "require-first.test.ts",
+            "find": "import { readStore } from \"@m/feature\";\nimport { store } from \"@m/validator/store\";",
+            "replace": "import { store } from \"@m/validator/store\";\nimport { readStore } from \"@m/feature\";"
+          }
+        ]
+      },
+      "status": {
+        "main": "FAIL (bug)",
+        "control": "PASS",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "mainSignature": "require-first.test.ts: AssertionError: one store instance, whichever side loaded it first: expected null to be 'written by the test' // Object.is equality",
+        "proof": "open (control passes)"
+      }
+    },
+    {
+      "id": "own-hot-rule7-esm-residency",
+      "class": "ownership",
+      "title": "Under the hot runtime, a Node-owned workspace library keeps the first file's ES module instance",
+      "source": "ownership track A3 mechanism spike and its review (2026-11-04)",
+      "fixedBy": "#447 (draft)",
+      "fixRef": "origin/fix/hot-rule7-esm-residency",
+      "links": {
+        "@m/feature": "packages/feature",
+        "@m/validator": "packages/validator"
+      },
+      "bugSignature": "^b\\.test\\.ts: AssertionError: the library's Box is this file's Box: expected false to be true",
+      "control": {
+        "why": "Without the hot runtime every file starts in a fresh module world, so Node evaluates the library again for b: the bug's precondition, a module registry that carries the library from a to b, is gone.",
+        "edits": [
+          {
+            "file": "vitest.config.mts",
+            "find": "reactNative({ hotRuntime: { allowUnboundedMemory: true } })",
+            "replace": "reactNative({ hotRuntime: false })"
+          }
+        ]
+      },
+      "status": {
+        "main": "FAIL (bug)",
+        "control": "PASS",
+        "fix": "PASS",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "mainSignature": "b.test.ts: AssertionError: the library's Box is this file's Box: expected false to be true // Object.is equality",
+        "proof": "fix proven"
+      }
+    },
+    {
+      "id": "own-vi-mock-node-consumer",
+      "class": "ownership",
+      "title": "vi.mock does not reach a Node-owned package's own import of the mocked module",
+      "source": "#322",
+      "fixedBy": "open (ownership track A6)",
+      "bugSignature": "^vi-mock\\.test\\.ts: AssertionError: museum-linking reads the mocked museum-constants: expected 'real://home' to be 'mocked://home'",
+      "control": {
+        "why": "museum-linking no longer peers on react-native and is inlined (server.deps.inline), so Vite owns it and its require of museum-constants goes through Vite's graph, where the mock applies: the bug's precondition, a Node-owned consumer, is gone. (The engine refuses to inline a React Native package: INLINE_BREAKS_OWNERSHIP.)",
+        "edits": [
+          {
+            "file": "vendor/museum-linking/package.json",
+            "find": "\"peerDependencies\": {\n    \"react-native\": \"*\"\n  }",
+            "replace": "\"peerDependencies\": {\n    \"museum-control-no-react-native\": \"*\"\n  }"
+          },
+          {
+            "file": "vitest.config.mts",
+            "find": "    include: [\"*.test.{ts,tsx}\"],",
+            "replace": "    include: [\"*.test.{ts,tsx}\"],\n    server: { deps: { inline: [\"museum-linking\"] } },"
+          }
+        ]
+      },
+      "status": {
+        "main": "FAIL (bug)",
+        "control": "PASS",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "mainSignature": "vi-mock.test.ts: AssertionError: museum-linking reads the mocked museum-constants: expected 'real://home' to be 'mocked://home' // Object.is equality",
+        "proof": "open (control passes)"
+      }
+    },
+    {
+      "id": "own-dual-export-file",
+      "class": "ownership",
+      "title": "A package with separate import and require builds loads twice",
+      "source": "ADR-0004 dual-export-file; #370's identity probes",
+      "fixedBy": "#370 (draft, experimental.ownershipModel: 'resolver')",
+      "bugSignature": "^dual-export\\.test\\.ts: AssertionError: one museum-dual, whichever condition loaded it: expected null to be 'configured'",
+      "control": {
+        "why": "Both conditions name the same build, so there is one file to load: the bug's precondition, two builds, is gone.",
+        "edits": [
+          {
+            "file": "vendor/museum-dual/package.json",
+            "find": "\"import\": \"./esm.mjs\"",
+            "replace": "\"import\": \"./cjs.cjs\""
+          }
+        ]
+      },
+      "status": {
+        "main": "FAIL (bug)",
+        "control": "PASS",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "mainSignature": "dual-export.test.ts: AssertionError: one museum-dual, whichever condition loaded it: expected null to be 'configured' // Object.is equality",
+        "proof": "open (control passes)"
+      }
+    },
+    {
+      "id": "own-registry-react-alias",
+      "class": "ownership",
+      "title": "A React dedupe alias with the precompiled registry gives two Reacts",
+      "source": "compressed plan review F5 (registry externals and the shared resolver)",
+      "fixedBy": "open (ownership track A1: registry externals through the resolver)",
+      "installedCopies": {
+        "app/node_modules/react": "react"
+      },
+      "bugSignature": "^react-alias\\.test\\.tsx: TypeError: Cannot read properties of null \\(reading 'useState'\\)",
+      "control": {
+        "why": "The alias names the root's React, the copy React Native resolves, so there is one React to load: the bug's precondition, a second copy the alias points at, is gone.",
+        "edits": [
+          {
+            "file": "vitest.config.mts",
+            "find": "alias: { react: path.join(here, \"app/node_modules/react\") },",
+            "replace": "alias: { react: path.join(here, \"node_modules/react\") },"
+          }
+        ]
+      },
+      "status": {
+        "main": "FAIL (bug)",
+        "control": "PASS",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "mainSignature": "react-alias.test.tsx: TypeError: Cannot read properties of null (reading 'useState')",
+        "proof": "open (control passes)"
+      }
+    },
+    {
+      "id": "own-pnpm-store-peer-name",
+      "class": "ownership",
+      "title": "A pnpm store directory named after its peers decides a package's ownership",
+      "source": "ADR-0004 decision 3 (names matched on whole path segments; decoy paths); #349's class",
+      "fixedBy": "open (guard for ownership track A5: the total predicate)",
+      "requires": {
+        "layout": "pnpm"
+      },
+      "pnpmShaped": [
+        "museum-counter"
+      ],
+      "bugSignature": "^b\\.test\\.ts: AssertionError: this file's museum-counter starts fresh: expected 2 to be 1",
+      "control": {
+        "why": "Without peers, pnpm's directory name is museum-counter@1.0.0 alone and carries no package names: the decoy, the bug's precondition, is gone.",
+        "edits": [
+          {
+            "file": "vendor/museum-counter/package.json",
+            "find": "\"peerDependencies\": {\n    \"react\": \"*\",\n    \"vitest\": \"*\"\n  }",
+            "replace": "\"peerDependencies\": {}"
+          }
+        ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "proof": "NOT PROVEN"
+      }
+    },
+    {
+      "id": "own-expo-runtime-undeclared",
+      "class": "ownership",
+      "title": "Expo's runtime loads uncompiled where expo resolves but is not compiled",
+      "source": "the bug museum itself, once the repository's install had expo 58 for another package's tests (46 exhibits failed with \"Cannot find module '…/expo/build/winter/runtime'\")",
+      "fixedBy": "#432 (merged)",
+      "preFixRef": "858e0c76^",
+      "bugSignature": "^runtime\\.test\\.ts: (\\[vitest-native\\] 'expo' shipped source Node can't run directly \\(require is not defined in ES module scope|Cannot find module '[^']*/expo/build/winter/runtime' imported from )",
+      "control": {
+        "why": "Declaring expo makes the engine compile it, which removes the precondition: the runtime loads compiled.",
+        "edits": [
+          {
+            "file": "package.json",
+            "find": "\"react-native\": \"*\"",
+            "replace": "\"react-native\": \"*\",\n    \"expo\": \"58.0.0\""
+          }
+        ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "proof": "landed proven"
+      }
+    },
+    {
+      "id": "env-permissive-expo-dev-launcher",
+      "class": "env-contract",
+      "title": "Importing expo throws under nativeModules: 'permissive'",
+      "source": "the 0.14.0 release candidates (rc.10 and rc.11)",
+      "fixedBy": "#439 (merged)",
+      "preFixRef": "1ce2f5de^",
+      "bugSignature": "^dev-launcher\\.test\\.ts: SyntaxError: Unexpected token '\\(', \"\\(\\.\\.\\.args\\) \"\\.\\.\\. is not valid JSON",
+      "control": {
+        "why": "Without permissive mode EXDevLauncher is absent, as React Native's own JavaScript never requests it, so expo-constants never parses a manifest.",
+        "edits": [
+          {
+            "file": "vitest.config.mts",
+            "find": "hotRuntime: false, nativeModules: \"permissive\"",
+            "replace": "hotRuntime: false"
+          }
+        ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "proof": "landed proven"
+      }
     },
     {
       "id": "env-expo-os",
@@ -412,7 +710,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -427,7 +725,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -442,7 +740,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -457,7 +755,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -476,7 +774,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -493,7 +791,7 @@
       "status": {
         "main": "PASS",
         "buggy": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "guard proven"
       }
     },
@@ -507,7 +805,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -522,7 +820,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -548,7 +846,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -577,7 +875,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -604,7 +902,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -640,7 +938,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -665,9 +963,28 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "mainSignature": "b.test.tsx: AssertionError: the timer-driven update rendered within 300 ms: expected 'waiting' to be 'done' // Object.is equality",
         "proof": "open (control passes)"
+      }
+    },
+    {
+      "id": "pfs-hot-act-scope-timeout",
+      "class": "per-file-state",
+      "title": "Under hot, a test that times out inside act() fails every later file on its worker",
+      "source": "#449",
+      "fixedBy": "#449's fix (draft)",
+      "fixRef": "origin/fix/hot-act-scope-retire",
+      "bugSignature": "^b0\\d\\.test\\.tsx: Error: Unable to find an element with text: hello",
+      "control": {
+        "why": "The stock runtime (hotRuntime: false) gives every file a fresh React, as Jest does: the leak's precondition is gone.",
+        "edits": [
+          {
+            "file": "vitest.config.mts",
+            "find": "hotRuntime: { allowUnboundedMemory: true }",
+            "replace": "hotRuntime: false"
+          }
+        ]
       }
     },
     {
@@ -676,7 +993,7 @@
       "title": "Under hot, an un-awaited act in one file poisons the next file",
       "source": "v1 hot-runtime cross-file leaks (2026-10-28 M0 gates)",
       "fixedBy": "open (the v2 per-file world)",
-      "bugSignature": "^b\\.test\\.tsx: AssertionError: this file's render committed a tree: expected null not to be null",
+      "bugSignature": "^b\\.test\\.tsx: (AssertionError: this file's render committed a tree: expected null not to be null|\\[vitest-native\\] hotRuntime: this worker cannot run this file: React's act\\(\\) scope is still open)",
       "control": {
         "why": "The stock runtime (hotRuntime: false) gives every file a fresh module graph, as Jest does: the leak's precondition is gone.",
         "edits": [
@@ -690,7 +1007,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "mainSignature": "b.test.tsx: AssertionError: this file's render committed a tree: expected null not to be null",
         "proof": "open (control passes)"
       }
@@ -715,7 +1032,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "mainSignature": "b.test.tsx: AssertionError: this file's first useId is the earlier file's first useId: expected '_r_1_' to be '_r_0_' // Object.is equality",
         "proof": "open (control passes)"
       }
@@ -740,7 +1057,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "mainSignature": "b.test.tsx: AssertionError: React warned about the missing key in this file: expected false to be true // Object.is equality",
         "proof": "open (control passes)"
       }
@@ -756,7 +1073,7 @@
       "status": {
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "mainSignature": "issue351.test.tsx: AssertionError: Gesture Handler 3 exports Touchable: expected 'undefined' not to be 'undefined' // Object.is equality",
         "proof": "fix proven"
       }
@@ -775,7 +1092,7 @@
         "main": "FAIL (other)",
         "fix": "PASS",
         "buggy": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "mainSignature": "issue351.test.tsx: TypeError: gh.useTapGesture is not a function",
         "proof": "fix proven (bug on buggyRef)"
       }
@@ -791,7 +1108,7 @@
       "status": {
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "mainSignature": "issue351.test.tsx: AssertionError: interpolate computes: expected +0 to be 50 // Object.is equality",
         "proof": "fix proven"
       }
@@ -807,7 +1124,7 @@
       "status": {
         "main": "FAIL (bug)",
         "fix": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "mainSignature": "issue351.test.tsx: AssertionError: the scroll handler received the scroll event: expected [] to deeply equal [ 7 ]",
         "proof": "fix proven"
       }
@@ -822,7 +1139,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -832,16 +1149,15 @@
       "class": "presets",
       "title": "The mock engine's StyleSheet.compose/flatten diverge from React Native",
       "source": "verification-harness audit 2026-10-28 (a mutation survived the crosscheck)",
-      "fixedBy": "#359",
-      "fixRef": "origin/fix/mock-stylesheet-compose",
+      "fixedBy": "#359 (merged)",
       "bugSignature": "^stylesheet\\.test\\.ts: AssertionError: (expected \\[ null, \\{ color: 'red' \\} \\] to be \\{ color: 'red' \\}|expected .* to deeply equal \\{\\})",
       "status": {
-        "main": "FAIL (bug)",
-        "fix": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
-        "mainSignature": "stylesheet.test.ts: AssertionError: expected [ null, { color: 'red' } ] to be { color: 'red' } // Object.is equality",
-        "proof": "fix proven"
-      }
+        "main": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "proof": "landed proven"
+      },
+      "preFixRef": "c50112c^"
     },
     {
       "id": "pre-navigation-off-isolated",
@@ -867,7 +1183,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -885,7 +1201,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -907,7 +1223,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "mainSignature": "role.test.tsx: Error: Unable to find an element with role: link, name: docs",
         "proof": "open (control passes)"
       }
@@ -925,7 +1241,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -943,7 +1259,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -953,13 +1269,13 @@
       "class": "transform/resolution",
       "title": "A default import read during an import cycle must stay live",
       "source": "#339 adversarial review (a regression of #339's eager interop)",
-      "fixedBy": "open (regression guard for #339)",
+      "fixedBy": "#339 (merged; regression guard for its first version)",
       "bugSignature": "^interop\\.test\\.ts: TypeError: \\(0 , _a\\.default\\) is not a function",
-      "buggyRef": "origin/fix/esm-goal-import-interop",
+      "buggyRef": "9bcad2a",
       "status": {
         "main": "PASS",
         "buggy": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "guard proven"
       }
     },
@@ -968,8 +1284,7 @@
       "class": "transform/resolution",
       "title": "A combined default + named import of __esModule CommonJS loses the default",
       "source": "#339 adversarial review",
-      "fixedBy": "open (a gap in #339's claim: it fixes the default-only form)",
-      "fixRef": "origin/fix/esm-goal-import-interop",
+      "fixedBy": "#339 (merged)",
       "bugSignature": "^interop\\.test\\.ts: TypeError: Cannot read properties of undefined \\(reading '__extends'\\)",
       "control": {
         "why": "CommonJS that also sets exports.default (Babel's own output) is read correctly by Babel's helpers.",
@@ -982,37 +1297,35 @@
         ]
       },
       "status": {
-        "main": "FAIL (bug)",
+        "main": "PASS",
         "control": "PASS",
-        "fix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
-        "mainSignature": "interop.test.ts: TypeError: Cannot read properties of undefined (reading '__extends')",
-        "proof": "open (control passes)"
-      }
+        "preFix": "FAIL (bug)",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "proof": "landed proven"
+      },
+      "preFixRef": "4bda491^"
     },
     {
       "id": "res-esm-default-interop",
       "class": "transform/resolution",
       "title": "An ES module's default import of __esModule CommonJS is undefined",
       "source": "migration testing (2026-10)",
-      "fixedBy": "#339 (draft)",
-      "fixRef": "origin/fix/esm-goal-import-interop",
+      "fixedBy": "#339 (merged)",
       "bugSignature": "^interop\\.test\\.ts: TypeError: Cannot read properties of undefined \\(reading '__extends'\\)",
       "status": {
-        "main": "FAIL (bug)",
-        "fix": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
-        "mainSignature": "interop.test.ts: TypeError: Cannot read properties of undefined (reading '__extends')",
-        "proof": "fix proven"
-      }
+        "main": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "proof": "landed proven"
+      },
+      "preFixRef": "4bda491^"
     },
     {
       "id": "res-esm-namespace-default",
       "class": "transform/resolution",
       "title": "A namespace import's .default of __esModule CommonJS is undefined",
       "source": "#339 adversarial review",
-      "fixedBy": "open (outside #339's stated scope: the namespace form)",
-      "fixRef": "origin/fix/esm-goal-import-interop",
+      "fixedBy": "#339 (merged)",
       "bugSignature": "^interop\\.test\\.ts: TypeError: Cannot read properties of undefined \\(reading '__extends'\\)",
       "control": {
         "why": "CommonJS that also sets exports.default (Babel's own output) is read correctly by Babel's helpers.",
@@ -1025,26 +1338,26 @@
         ]
       },
       "status": {
-        "main": "FAIL (bug)",
+        "main": "PASS",
         "control": "PASS",
-        "fix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
-        "mainSignature": "interop.test.ts: TypeError: Cannot read properties of undefined (reading '__extends')",
-        "proof": "open (control passes)"
-      }
+        "preFix": "FAIL (bug)",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "proof": "landed proven"
+      },
+      "preFixRef": "4bda491^"
     },
     {
       "id": "res-esm-proxy-default",
       "class": "transform/resolution",
       "title": "A default import of a Proxy-served CommonJS module must read its trap",
       "source": "#339 adversarial review (a regression of #339's eager interop)",
-      "fixedBy": "open (regression guard for #339)",
+      "fixedBy": "#339 (merged; regression guard for its first version)",
       "bugSignature": "^interop\\.test\\.ts: TypeError: \\(0 , _proxy\\.default\\) is not a function",
-      "buggyRef": "origin/fix/esm-goal-import-interop",
+      "buggyRef": "9bcad2a",
       "status": {
         "main": "PASS",
         "buggy": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "guard proven"
       }
     },
@@ -1059,7 +1372,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       }
     },
@@ -1091,9 +1404,9 @@
         "main": "PASS",
         "control": "PASS",
         "fix": "PASS",
-        "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
-        "proof": "landed proven"
+        "preFix": "PASS",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "proof": "NOT PROVEN"
       },
       "preFixRef": "0f2400e"
     },
@@ -1116,9 +1429,9 @@
       "status": {
         "main": "PASS",
         "fix": "FAIL (other)",
-        "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
-        "proof": "landed proven"
+        "preFix": "FAIL (other)",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "proof": "NOT PROVEN"
       },
       "preFixRef": "0f2400e"
     },
@@ -1127,17 +1440,22 @@
       "class": "transform/resolution",
       "title": "The precompiled registry runs React Native's sloppy modules in strict mode",
       "source": "registry fidelity review (2026-10)",
-      "fixedBy": "open (fix/registry-module-strictness)",
-      "fixRef": "fix/registry-module-strictness",
-      "bugSignature": "^sloppy\\.test\\.ts: TypeError: Cannot assign to read only property '__constants'"
+      "fixedBy": "#385 (merged)",
+      "bugSignature": "^sloppy\\.test\\.ts: TypeError: Cannot assign to read only property '__constants'",
+      "status": {
+        "main": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "proof": "landed proven"
+      },
+      "preFixRef": "97615f3^"
     },
     {
       "id": "res-sibling-declared-closure",
       "class": "transform/resolution",
       "title": "A sibling-declared package's dependencies are not compiled when the run reaches it",
       "source": "an Expo workspace: a library declaring expo-image, an app declaring expo (\"Cannot find module 'expo-asset/build/Asset.fx'\"); SDK 58's expo, expo-asset and expo-constants have this shape",
-      "fixedBy": "open (fix/closure-walk-reached-packages)",
-      "fixRef": "fix/closure-walk-reached-packages",
+      "fixedBy": "#388 (merged)",
       "bugSignature": "^closure\\.test\\.ts: (Error: )?Cannot find module '[^']*museum-expo-asset/build/Asset\\.fx'",
       "control": {
         "why": "Declaring museum-expo in the project itself makes it a seed of the walk, which removes the precondition.",
@@ -1148,15 +1466,22 @@
             "replace": "\"museum-image\": \"1.0.0\",\n    \"museum-expo\": \"58.0.0\""
           }
         ]
-      }
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "proof": "landed proven"
+      },
+      "preFixRef": "43139a6^"
     },
     {
       "id": "res-transform-named-closure",
       "class": "transform/resolution",
       "title": "A package named in transform no longer has its dependencies compiled",
       "source": "react-native-flash-message named in transform: react-native-iphone-screen-helper read Platform.OS from undefined",
-      "fixedBy": "open (fix/closure-walk-reached-packages)",
-      "fixRef": "fix/closure-walk-reached-packages",
+      "fixedBy": "#388 (merged)",
       "bugSignature": "^closure\\.test\\.ts: AssertionError: museum-screen-helper's Platform\\.OS: expected undefined to be 'ios'",
       "control": {
         "why": "Without museum-flash in transform, detection seeds the walk from it, which removes the precondition.",
@@ -1167,15 +1492,22 @@
             "replace": ""
           }
         ]
-      }
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "proof": "landed proven"
+      },
+      "preFixRef": "43139a6^"
     },
     {
       "id": "res-babel-lazy-global",
       "class": "transform/resolution",
       "title": "A cache miss after Expo's runtime is installed compiles with a half-loaded Babel",
       "source": "Expo SDK 57's winter runtime with a warm transform cache (2026-10)",
-      "fixedBy": "open (fix/babel-reentry-winter)",
-      "fixRef": "fix/babel-reentry-winter",
+      "fixedBy": "#390 (merged)",
       "runs": [
         {
           "files": [
@@ -1198,6 +1530,39 @@
             "replace": "install(\"MuseumControlTextDecoder\","
           }
         ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "proof": "landed proven"
+      },
+      "preFixRef": "c4f31b0^"
+    },
+    {
+      "id": "res-rn-field-implementation",
+      "class": "transform/resolution",
+      "title": "An installed library's require ignores a react-native field that is a different implementation",
+      "source": "ADR-0005 decision 7 (react-native field classification)",
+      "fixedBy": "#370 (draft, experimental.ownershipModel: 'resolver')",
+      "bugSignature": "^rn-field\\.test\\.ts: AssertionError: (the import|a library's require) takes the react-native implementation: expected 'web' to be 'native'",
+      "control": {
+        "why": "main names the native build too, so the field is format-only: the bug's precondition, a field that names a different implementation, is gone.",
+        "edits": [
+          {
+            "file": "vendor/museum-rn-field/package.json",
+            "find": "\"main\": \"web.js\"",
+            "replace": "\"main\": \"native.js\""
+          }
+        ]
+      },
+      "status": {
+        "main": "FAIL (bug)",
+        "control": "PASS",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "mainSignature": "rn-field.test.ts: AssertionError: a library's require takes the react-native implementation: expected 'web' to be 'native' // Object.is equality",
+        "proof": "open (control passes)"
       }
     },
     {
@@ -1213,7 +1578,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1234,7 +1599,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1249,7 +1614,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1283,7 +1648,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1308,9 +1673,141 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "mainSignature": "outer.test.ts: AssertionError: jest.mock under globals: false works or names the setting: expected 'fails: vi is not defined' to match /^(works|names the setting)$/",
         "proof": "open (control passes)"
+      }
+    },
+    {
+      "id": "own-workspace-setup-file",
+      "class": "ownership",
+      "title": "A setup file inside a Node-owned workspace library is refused",
+      "source": "0.14.0-rc.11 regression testing",
+      "fixedBy": "#427 (merged)",
+      "preFixRef": "74f1bf01^",
+      "links": {
+        "@m/kit": "packages/kit"
+      },
+      "bugSignature": "^setup-file\\.test\\.ts: \\[vitest-native\\] Vite attempted to transform '[^']*vitest\\.setup\\.ts', but the native ownership policy assigns that file to Node",
+      "control": {
+        "why": "The library no longer peers on react-native, so the engine does not detect it and nothing assigns its files to Node: the bug's precondition is gone.",
+        "edits": [
+          {
+            "file": "packages/kit/package.json",
+            "find": "\"react-native\": \"*\"",
+            "replace": "\"museum-control-no-react-native\": \"*\""
+          }
+        ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "proof": "landed proven"
+      }
+    },
+    {
+      "id": "own-workspace-unexported-manifest",
+      "class": "ownership",
+      "title": "A workspace library whose exports omit ./package.json leaves Vite",
+      "source": "0.14.0-rc.11 regression testing",
+      "fixedBy": "#427 (merged)",
+      "preFixRef": "74f1bf01^",
+      "links": {
+        "@m/kit": "packages/kit"
+      },
+      "bugSignature": "^library\\.test\\.ts: (\\[vitest-native\\] Vite attempted to transform '[^']*vitest\\.setup\\.ts', but the native ownership policy assigns that file to Node|Vitest cannot be imported in a CommonJS module using require\\(\\)|AssertionError: kit (store written by the setup file|vitest helper|internal import mocked):)",
+      "control": {
+        "why": "The library no longer peers on react-native, so no rule can detect it: it runs in Vite, which is the expected behaviour on every build.",
+        "edits": [
+          {
+            "file": "packages/kit/package.json",
+            "find": "\"react-native\": \"*\"",
+            "replace": "\"museum-control-no-react-native\": \"*\""
+          }
+        ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "proof": "landed proven"
+      }
+    },
+    {
+      "id": "res-workspace-member-closure",
+      "class": "transform/resolution",
+      "title": "A workspace library's dependencies are not compiled for the package that depends on it",
+      "source": "a monorepo feature package depending on a workspace UI library that declares expo-image, with expo declared by an app (\"Cannot find module '…/expo-asset/build/Asset.fx'\")",
+      "fixedBy": "#433 (merged)",
+      "preFixRef": "64ac3833^",
+      "links": {
+        "museum-ui": "packages/ui"
+      },
+      "bugSignature": "^closure\\.test\\.ts: (Error: )?Cannot find module '[^']*museum-expo-asset/build/Asset\\.fx'",
+      "control": {
+        "why": "Declaring museum-image in the project itself makes it a seed of the walk, which removes the precondition.",
+        "edits": [
+          {
+            "file": "package.json",
+            "find": "\"museum-ui\": \"workspace:*\"",
+            "replace": "\"museum-ui\": \"workspace:*\",\n    \"museum-image\": \"1.0.0\""
+          }
+        ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "proof": "landed proven"
+      }
+    },
+    {
+      "id": "res-alias-member-closure",
+      "class": "transform/resolution",
+      "title": "A workspace library's dependencies are not compiled for a package that imports it through an alias",
+      "source": "a monorepo package importing a sibling workspace library's source through resolve.alias without declaring it (\"Cannot find module '…/expo-asset/build/Asset.fx'\")",
+      "fixedBy": "#433 (merged)",
+      "preFixRef": "64ac3833^",
+      "bugSignature": "^closure\\.test\\.ts: (Error: )?Cannot find module '[^']*museum-expo-asset/build/Asset\\.fx'",
+      "control": {
+        "why": "Declaring museum-image in the project itself makes it a seed of the walk, which removes the precondition.",
+        "edits": [
+          {
+            "file": "package.json",
+            "find": "\"dependencies\": {}",
+            "replace": "\"dependencies\": {\n    \"museum-image\": \"1.0.0\"\n  }"
+          }
+        ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "proof": "landed proven"
+      }
+    },
+    {
+      "id": "res-regex-alias-member-closure",
+      "class": "transform/resolution",
+      "title": "A workspace library's dependencies are not compiled for a package that imports it through a RegExp alias",
+      "source": "a monorepo package importing a sibling workspace library's source through a resolve.alias whose find is a RegExp, without declaring it (\"Cannot find module '…/expo-asset/build/Asset.fx'\")",
+      "fixedBy": "open (fix/regex-alias-closure-seed)",
+      "fixRef": "fix/regex-alias-closure-seed",
+      "bugSignature": "^closure\\.test\\.ts: (Error: )?Cannot find module '[^']*museum-expo-asset/build/Asset\\.fx'",
+      "control": {
+        "why": "Declaring museum-image in the project itself makes it a seed of the walk, which removes the precondition.",
+        "edits": [
+          {
+            "file": "package.json",
+            "find": "\"dependencies\": {}",
+            "replace": "\"dependencies\": {\n    \"museum-image\": \"1.0.0\"\n  }"
+          }
+        ]
       }
     }
   ]

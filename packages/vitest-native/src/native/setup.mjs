@@ -215,7 +215,11 @@ function installLoaderHooks(data) {
     globalThis.__vitest_native_loader_mode = "thread";
     return;
   }
-  nativeLoader.initialize(data);
+  nativeLoader.initialize({
+    ...data,
+    inThread: true,
+    hotGeneration: globalThis.__vitest_native_hot_generation,
+  });
   globalThis.__vitest_native_loader_mode = "in-thread";
   const fromRequire = nativeLoader.isRequireContext;
   registerHooks({
@@ -243,8 +247,11 @@ if (!globalThis.__vitest_native_loader_registered) {
     runContext.hotEsmGeneration !== false &&
     process.env.VITEST_NATIVE_HOT_ESM_GEN !== "0"
   ) {
-    globalThis.__vitest_native_hot_generation = new Int32Array(new SharedArrayBuffer(4));
-    globalThis.__vitest_native_hot_generation[0] = 1;
+    // The hot-generation channel: the counter, and what the in-thread loader adds to
+    // it for its generation facades (loader.mjs initialize).
+    const counter = new Int32Array(new SharedArrayBuffer(4));
+    counter[0] = 1;
+    globalThis.__vitest_native_hot_generation = { counter };
   }
   installLoaderHooks({
     projectRoot,
@@ -255,7 +262,7 @@ if (!globalThis.__vitest_native_loader_registered) {
     assetExts,
     sourceExts: runContext.sourceExts,
     context: process.env[CONTEXT_ENV],
-    hotGenerationBuffer: globalThis.__vitest_native_hot_generation?.buffer,
+    hotGenerationBuffer: globalThis.__vitest_native_hot_generation?.counter.buffer,
   });
 }
 // Serve React Native from the precompiled registry when the plugin produced one
@@ -273,7 +280,7 @@ if (runContext.registry) {
 }
 // The NitroModules boundary's install() calls this (see nitro.mjs).
 globalThis.__vitest_native_install_nitro = () => installNitroProxy(projectRoot);
-installRequireHooks(
+const nodeCompiles = installRequireHooks(
   projectRoot,
   nodeTransformPkgs,
   platform,
@@ -356,7 +363,7 @@ g.__vitest_native_expo_modules = createExpoNativeModuleResolver({
   mockFn: (implementation) => vi.fn(implementation),
 });
 // Before the project's setup files run, as jest-expo does (see globals.mjs).
-installExpoRuntime(projectRoot);
+installExpoRuntime(projectRoot, nodeCompiles);
 const initialDimensions = {
   window: { ...RN.Dimensions.get("window") },
   screen: { ...RN.Dimensions.get("screen") },

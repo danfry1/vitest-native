@@ -1,0 +1,11 @@
+{
+  "name": "museum-expo",
+  "version": "58.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "museum-expo-asset": "12.0.0"
+  },
+  "peerDependencies": {
+    "react-native": "*"
+  }
+}

@@ -11,19 +11,35 @@ export declare function containsPath(dir: string, target: string): boolean;
 export declare function installedPackageDirOf(name: string, projectRoot: string): string | null;
 
 /** The on-disk directory a package resolves to from `projectRoot`, or null. */
-export declare function packageDirOf(name: string, projectRoot: string): string | null;
+export declare function packageDirOf(name: string, fromDir: string): string | null;
+/** A dependency the engine may detect: installed, or resolvable through `<name>/package.json`. */
+export declare function dependencyDirOf(name: string, fromDir: string): string | null;
+
+/** How a package's directory is found from a directory: `packageDirOf`, `dependencyDirOf`, or a memoized copy. */
+export type PackageDirOf = (name: string, fromDir: string) => string | null;
+
+/**
+ * `resolve` (default `packageDirOf`) with each answer kept for the life of the returned
+ * function, keyed by the resolved `fromDir` and the package name.
+ */
+export declare function memoizePackageDirOf(resolve?: PackageDirOf): PackageDirOf;
 
 /**
  * The patterns identifying one package's files: under `node_modules/<name>/`, and
  * inside the directory it resolves to. The second is omitted when that directory
  * contains `projectRoot` — the project is not one of its own dependencies.
  */
-export declare function packagePatterns(name: string, projectRoot?: string): RegExp[];
+export declare function packagePatterns(
+  name: string,
+  projectRoot?: string,
+  dirOf?: PackageDirOf,
+): RegExp[];
 
 /** A predicate over `packagePatterns` for every named package. */
 export declare function buildPkgMatcher(
   pkgs: string[] | undefined,
   projectRoot?: string,
+  dirOf?: PackageDirOf,
 ): (file: string) => boolean;
 
 /** The bare package name of an import specifier. */
@@ -44,3 +60,9 @@ export declare function requestForPackageFile(
   subpath: string,
   manifest: Record<string, unknown> | null | undefined,
 ): string;
+/** Whether the resolved `file` is preset package `pkg`'s own entry. */
+export declare function isPackageEntryFile(
+  pkg: string,
+  file: string,
+  parentFile: string | null | undefined,
+): boolean;

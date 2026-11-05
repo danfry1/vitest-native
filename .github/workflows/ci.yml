@@ -44,6 +44,34 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         run: .github/scripts/classify-change.sh "$EVENT" "$BASE_SHA" "$HEAD_SHA"
 
+  # A docs-only pull request skips the gate, but some unit tests take a Markdown page as
+  # their source of truth (the versioning contract, the preset tables, the documented
+  # configuration block). Those still run here, so a page that drifts from the code
+  # fails its pull request instead of main's next push. The full gate runs them in
+  # `bun run test`, so this job only runs when the gate does not.
+  docs:
+    name: Docs checks
+    needs: classify
+    if: needs.classify.outputs.docs-only == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+        with:
+          node-version: 22.13.0
+
+      # The versioning contract checks the documented exports against the build.
+      - name: Build
+        run: bun run build
+
+      - name: Tests that read repository Markdown
+        working-directory: packages/vitest-native
+        run: bun run test:docs
+
   changeset:
     name: Changeset for shipped changes
     # Pull requests only: the check compares against the base branch, and a push to
@@ -59,7 +87,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Require a changeset when shipped source changes
+      - name: Require a changeset when shipped source changes, written in the changeset style
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
@@ -68,7 +96,7 @@ jobs:
   check:
     # Unique per leg: the two back-compat legs differ only by RNTL, and GitHub resolves
     # a check name shared by two jobs ambiguously.
-    name: Full gate (${{ matrix.os }}, Node ${{ matrix.node-version }}${{ matrix.rntl && format(', RNTL {0}', matrix.rntl) || '' }})
+    name: Full gate (${{ matrix.os }}, Node ${{ matrix.node-version }}${{ matrix.rntl && format(', RNTL {0}', matrix.rntl) || '' }}${{ matrix.part && format(', {0}', matrix.part) || '' }})
     needs: classify
     if: needs.classify.outputs.docs-only != 'true'
     runs-on: ${{ matrix.os }}
@@ -92,15 +120,38 @@ jobs:
             rntl: '13'
           - os: ubuntu-latest
             node-version: 22.13.0
+          # macOS and Windows run the same steps as every other leg, split across two
+          # parallel jobs by `part`: `suite` (static checks, the unit suite, hot-runtime
+          # isolation, the cross-check, the example app, Windows loader contracts) and
+          # `native` (the native engine suites and the hot-runtime soak). Run whole,
+          # the Windows leg took about 11 minutes against about 6 for the Linux legs
+          # and set the time of every run, macOS next at about 8. Each half pays one
+          # more setup (about a minute) and finishes in about 6. The native suites
+          # start from the restored transform cache rather than after the unit suite,
+          # as they already do in every native-rn-matrix.yml cell.
           - os: macos-latest
             node-version: 22.13.0
+            part: suite
+          - os: macos-latest
+            node-version: 22.13.0
+            part: native
           - os: windows-latest
             node-version: 22.13.0
+            part: suite
+          - os: windows-latest
+            node-version: 22.13.0
+            part: native
           # Node 24 is the current release line and the matrix stopped at 22, which is
           # how a workspace-level Vitest mismatch went unnoticed locally for a whole
           # session. Everything runs here, hot runtime included.
           - os: ubuntu-latest
             node-version: 24.13.0
+          # The newest Node 24, unpinned: Node's ESM loader changes within a release line
+          # (24.18 stopped marking a default CommonJS load for reload through
+          # Module._load), and a pinned leg never sees it. The hot runtime's generation
+          # facades depend on that load result (generationFacade in native/loader.mjs).
+          - os: ubuntu-latest
+            node-version: '24'
           # Node 26 is the active LTS line (26.13.0, October 2026) and engines.node
           # (>=24.3.0) admits it, so it runs the full gate too: the loader hooks run
           # in-thread on it, and their behaviour has changed between Node lines before.
@@ -117,15 +168,26 @@ jobs:
           node-version: ${{ matrix.node-version }}
 
       - name: Verify dependencies are pinned
+        if: matrix.part != 'native'
         run: bun run lint:deps
 
       - name: Lint
+        if: matrix.part != 'native'
         run: bun run lint
 
       - name: Check formatting
+        if: matrix.part != 'native'
         run: bun run format:check
 
+      - name: Structural scorecard (patch sites, env switches, globals, swallowed catches may only fall)
+        if: matrix.part != 'native'
+        # A ratchet for the in-place rebuild: scripts/structural-scorecard.mjs counts
+        # them in src/ and fails when any rises above scorecard.json, or falls without
+        # the baseline being lowered with it.
+        run: bun run --filter vitest-native check:structure
+
       - name: Typecheck
+        if: matrix.part != 'native'
         run: bun run typecheck
 
       # Lint/format/typecheck above run against the locked RNTL (14); pin the
@@ -154,12 +216,21 @@ jobs:
         run: bun run --filter vitest-native check-compat
 
       - name: Test
+        if: matrix.part != 'native'
         run: bun run test
 
+      - name: Docs checks selection
+        # The docs job runs this only on docs-only pull requests, and a change to the
+        # script itself is not docs-only, so the selection runs here once as well.
+        if: runner.os == 'Linux' && matrix.node-version == '22.13.0' && !matrix.rntl
+        run: bun run --filter vitest-native test:docs
+
       - name: Native engine tests
+        if: matrix.part != 'suite'
         run: bun run test:native
 
       - name: Native engine tests (forks pool)
+        if: matrix.part != 'suite'
         # When a project configures a VM pool the plugin throws and points at 'threads'
         # or 'forks'. Nothing ran the forks pool, so that advice was untested — and the
         # engine's module hooks have to install in a child process just as they do in a
@@ -168,18 +239,22 @@ jobs:
         run: bun run test:native:forks
 
       - name: Native engine tests (navigation preset)
+        if: matrix.part != 'suite'
         run: bun run test:native:navigation
 
       - name: Native engine tests (Android)
+        if: matrix.part != 'suite'
         run: bun run test:native:android
 
       - name: Native engine remediation advice
+        if: matrix.part != 'suite'
         # The explainer tells users to add a package to `transform: [...]` when Node
         # cannot parse its source — the most common migration blocker. That advice was
         # only ever asserted as a substring of the error message; this applies it.
         run: bun run test:native:advice
 
       - name: Native engine tests (hot runtime)
+        if: matrix.part != 'suite'
         # The hot runtime rides @experimental Vitest internals (vitest/worker,
         # ThreadsPoolWorker, poolRunner) — the most churn-prone surface we depend
         # on, so gate it on every PR, not just the weekly matrix.
@@ -191,12 +266,26 @@ jobs:
         # runtime was in fact fine on RNTL 12/13 — nothing was checking.
         run: bun run test:native:hot
 
-      - name: Native engine hot-runtime isolation
+      - name: Native engine coverage
+        # @vitest/coverage-v8 over source Node compiles (a React Native workspace
+        # package) must match coverage of the same source loaded by Vite, default and
+        # hot, with nothing failing to parse.
         if: ${{ !matrix.rntl }}
+        run: bun run test:native:coverage
+
+      - name: Native engine hot-runtime isolation
+        if: ${{ !matrix.rntl && matrix.part != 'native' }}
         run: bun run test:native:hot:isolation
 
+      - name: Native engine hot-runtime state-manifest mutations
+        # Omits each per-file restore in turn and requires the isolation suite to fail
+        # naming it, so a restore that stops being checked is caught. Fourteen suite
+        # runs, so one Linux leg on the newest Node line carries it.
+        if: runner.os == 'Linux' && matrix.node-version == '26.13.0'
+        run: bun run --filter vitest-native test:native:hot:state-manifest
+
       - name: Native engine hot-runtime soak and recycling
-        if: ${{ !matrix.rntl }}
+        if: ${{ !matrix.rntl && matrix.part != 'suite' }}
         run: bun run test:native:hot:soak
 
       - name: Cross-check (mock ≡ real RN) + fidelity report freshness
@@ -204,10 +293,11 @@ jobs:
         # RNTL-version-specific real-RN behavior, so it runs only on the RNTL 14 legs.
         # fidelity:check runs the cross-check AND fails if the published fidelity
         # page/badge no longer match the live corpus (run `bun run fidelity:report`).
-        if: ${{ !matrix.rntl }}
+        if: ${{ !matrix.rntl && matrix.part != 'native' }}
         run: bun run fidelity:check
 
       - name: Test example app
+        if: matrix.part != 'native'
         run: bun run test:example
 
       - name: Check package exports
@@ -217,13 +307,13 @@ jobs:
       # The Windows floor (22.13) predates registerHooks. Reuse the existing job
       # for a dependency-free modern-Node contract run, after all floor checks.
       - name: Modern Node for Windows loader-hook contracts
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && matrix.part != 'native'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.16.0
 
       - name: Windows synchronous loader-hook contracts
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && matrix.part != 'native'
         env:
           VN_CJS_DRAIN_RESEARCH: '1'
         run: node --test packages/vitest-native/validation/module-isolation/test-node-cjs-reset.mjs packages/vitest-native/validation/module-isolation/test-node-cjs-drain-contract.mjs
@@ -234,9 +324,11 @@ jobs:
   # the run that motivated this split). As parallel cells, each starting from the
   # same build, the slowest cell sets the time instead of their sum. Cells are
   # balanced on measured step times: packed consumers about 3 min, the semantics
-  # gate about 70 s per Vitest major, the hot-runtime and registry gates about 2 min
-  # together. Minutes are not the constraint — standard runners are free for public
-  # repositories (GitHub Actions billing docs) and no job waited in a queue.
+  # gate about 130 s per Vitest major (both in one cell), the hot-runtime and
+  # registry gates about 4 min together. Minutes are free for public repositories
+  # (GitHub Actions billing docs), but jobs are not: every pull request's jobs wait
+  # for slots under the account's concurrent-job cap, so a cell well under the
+  # critical path is better merged than split.
   packed:
     name: Packed gate (${{ matrix.label }})
     needs: classify
@@ -249,12 +341,18 @@ jobs:
         include:
           - gate: consumers
             label: consumer projects
+          # A realistic Expo SDK 58 app in a pnpm workspace (isolated layout), its suite
+          # run per-file and with hotRuntime 'auto', on iOS and Android, plus a
+          # workspace library's own suite. Its own cell, so it runs beside the others
+          # instead of lengthening the consumer cell; the Windows Full gate stays the
+          # longest leg.
+          - gate: consumers-expo-pnpm
+            label: Expo pnpm suite
+          # Both supported Vitest majors in one job, one after the other: about 130 s
+          # each after a 35 s setup, so the job still ends before the full gate legs,
+          # and a pull request starts one job fewer under the concurrent-job cap.
           - gate: vitest-semantics
-            vitest: 5.0.1
-            label: Vitest semantics, Vitest 5
-          - gate: vitest-semantics
-            vitest: 4.1.11
-            label: Vitest semantics, Vitest 4 floor
+            label: Vitest semantics, Vitest 5 and the Vitest 4 floor
           - gate: hot-runtime
             label: hot runtime and registry
 
@@ -316,13 +414,19 @@ jobs:
         if: matrix.gate == 'hot-runtime'
         run: bun run --filter vitest-native validate:registry-process
 
+      - name: Metro profile from the installed Expo and React Native
+        # Loads the project-scoped Metro profile from the real Expo and RN Metro
+        # packages, and checks their graphs are released with the child process.
+        if: matrix.gate == 'hot-runtime'
+        run: bun run --filter vitest-native validate:metro-profile
+
       - name: Packed CJS reset mutation control
         # One packed RN consumer, not another full matrix. Omitting the installed
         # drain must fail, proving that the positive gate reaches this reset seam.
         if: matrix.gate == 'hot-runtime'
         run: node packages/vitest-native/validation/module-isolation/run-packed-cjs-reset.mjs
 
-      - name: Vitest semantics under the defaults (Vitest ${{ matrix.vitest }})
+      - name: Vitest semantics under the defaults (Vitest 5)
         # A packed project run the way Vitest users run it: config and CLI flags
         # (isolate, pool, workers, shard, retry, bail, related, coverage, projects, a
         # project root below the install, a read-only node_modules, the jsdom and
@@ -330,16 +434,30 @@ jobs:
         # mode.
         # Each scenario asserts which runtime ran, Vitest's own outcome, and
         # cross-file isolation. An explicit Vitest setting must never be overridden.
-        # One cell per Vitest major, so each runs in parallel with the other.
         if: matrix.gate == 'vitest-semantics'
         env:
-          VN_SEMANTICS_VITEST: ${{ matrix.vitest }}
+          VN_SEMANTICS_VITEST: 5.0.1
+        run: bun run --filter vitest-native validate:vitest-semantics
+
+      - name: Vitest semantics under the defaults (Vitest 4 floor)
+        # The same scenarios on the oldest supported Vitest. Runs even when the Vitest 5
+        # step failed, so one pull request reports both majors.
+        if: ${{ !cancelled() && matrix.gate == 'vitest-semantics' }}
+        env:
+          VN_SEMANTICS_VITEST: 4.1.11
         run: bun run --filter vitest-native validate:vitest-semantics
 
       - name: Test packed consumer projects
         if: matrix.gate == 'consumers'
+        env:
+          VN_CONSUMERS: fixtures
         run: bun run test:consumers
 
+      - name: Test the packed Expo pnpm suite
+        if: matrix.gate == 'consumers-expo-pnpm'
+        env:
+          VN_CONSUMERS: expo-pnpm-suite
+        run: bun run test:consumers
 
   # The one required check for this workflow. Branch protection used to list every
   # matrix leg by name, plus a docs-only job that echoed the same names, and the two
@@ -351,7 +469,7 @@ jobs:
   # contexts reference).
   verdict:
     name: CI verdict
-    needs: [classify, changeset, check, packed]
+    needs: [classify, docs, changeset, check, packed]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
