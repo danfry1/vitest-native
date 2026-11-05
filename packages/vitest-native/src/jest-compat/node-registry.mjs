@@ -863,13 +863,19 @@ function vitestMockModule(entry, request, parent) {
  * R7: a `vi.doMock` Vitest has queued but not registered (it registers queued mocks on
  * the test's next import) of the file this requester resolved. Matched per requester:
  * the pending specifier is resolved from where it was written.
+ *
+ * Returns true when the file is unmocked for Node already: a jest.* call decided it
+ * (state.decided), jest-compat holds no mock for it, and the last queued action for it
+ * is an unmock (`jest.dontMock`/`doUnmock`'s own). Vitest's registry still holds the
+ * mock that unmock replaces until the next import, so the caller serves the real module,
+ * as Jest does from the call on, instead of that stale mock.
  */
 function assertNoPendingMockOf(state, filename, request, parent) {
   const pending = globalThis.__vitest_mocker__?.constructor?.pendingIds;
-  if (!Array.isArray(pending) || pending.length === 0 || filename === null) return;
+  if (!Array.isArray(pending) || pending.length === 0 || filename === null) return false;
   const target = canonical(filename);
-  // A jest.* call decided this file for Node already (state.decided).
-  if (state.decided.has(target)) return;
+  const decided = state.decided.has(target);
+  let last;
   for (const queued of pending) {
     if (
       (queued?.action !== "mock" && queued?.action !== "unmock") ||
@@ -878,14 +884,18 @@ function assertNoPendingMockOf(state, filename, request, parent) {
       continue;
     }
     const resolved = state.resolveFrom(queued.id, queued.importer);
-    if (resolved !== null && canonical(resolved) === target) {
+    if (resolved === null || canonical(resolved) !== target) continue;
+    if (!decided) {
       throw mockNotSeenByNode(
         request,
         parent,
         `it was ${queued.action}ed after the test's last import, and Vitest applies that on the next one`,
       );
     }
+    last = queued.action;
   }
+  // A jest.* call decided this file for Node already: its queued action is applied here.
+  return last === "unmock" && !state.entries.has(target);
 }
 
 const marks = new WeakMap();
@@ -1011,7 +1021,7 @@ function installLoadHook(state) {
     if (entry === BYPASSED) return NONE;
     if (entry !== undefined) return state.valueOf(entry);
     if (!nodeMocks) return NONE;
-    if (pendingCount() > 0) assertNoPendingMockOf(state, filename, filename, null);
+    if (pendingCount() > 0 && assertNoPendingMockOf(state, filename, filename, null)) return NONE;
     const mocked = vitestMocks()?.byFile.get(canonical(filename));
     return mocked === undefined ? NONE : vitestMockValue(mocked, filename, null);
   }
@@ -1059,7 +1069,12 @@ function installLoadHook(state) {
   const jestMockForImport = (entry, id, parent) => {
     const imported = worker()?.evaluatedModules?.getModuleById?.(`mock:${id}`)?.exports;
     if (imported != null) return imported;
-    const value = state.valueForImport(entry);
+    // The bridge evaluates synchronously, so it takes the factory as Node's require does
+    // (valueOf): jestMockTransform's original, synchronous one, whose jest.requireActual
+    // is synchronous, as under Jest. The value is memoized, so Vite's import of the module
+    // later gets the same object. Only a factory the author wrote async, or one Vite has
+    // already started, has no synchronous value yet.
+    const value = entry.has ? entry.value : (entry.pending ?? state.valueOf(entry));
     if (Object.prototype.toString.call(value) === "[object Promise]") {
       throw mockNotSeenByNode(id, parent, FACTORY_NOT_SETTLED);
     }
@@ -1074,7 +1089,7 @@ function installLoadHook(state) {
       const entry = state.lookup(canonical(file), file);
       if (entry === BYPASSED) return NONE;
       if (entry !== undefined) return jestMockForImport(entry, id, parent);
-      if (pendingCount() > 0) assertNoPendingMockOf(state, file, id, parent);
+      if (pendingCount() > 0 && assertNoPendingMockOf(state, file, id, parent)) return NONE;
     }
     const byId = globalThis.__vitest_mocker__?.getMockerRegistry?.()?.registryById;
     // Keyed by Vite's id, as Vitest's registry is: the bridge has the id Vite resolved.
@@ -1106,7 +1121,7 @@ function installLoadHook(state) {
     const parent = { filename: parentFile };
     const jestEntry = state.entries.get(canonical(file));
     if (jestEntry !== undefined) return markOf(jestEntry);
-    if (pendingCount() > 0) assertNoPendingMockOf(state, file, request, parent);
+    if (pendingCount() > 0 && assertNoPendingMockOf(state, file, request, parent)) return null;
     const index = vitestMocks();
     const entry = index === null ? undefined : vitestMockFor(index, request, parent, file);
     // A mark is a cache entry for good: none for a mock Vitest is still building.
@@ -1118,7 +1133,7 @@ function installLoadHook(state) {
     const reachable = index !== null && mayReachMock(index, request, parent);
     if (!reachable && !pending) return NONE;
     const filename = resolve();
-    if (pending) assertNoPendingMockOf(state, filename, request, parent);
+    if (pending && assertNoPendingMockOf(state, filename, request, parent)) return NONE;
     if (!reachable) return NONE;
     const entry = vitestMockFor(index, request, parent, filename);
     return entry === undefined ? NONE : vitestMockValue(entry, request, parent);
