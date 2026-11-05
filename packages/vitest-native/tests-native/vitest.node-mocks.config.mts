@@ -35,6 +35,7 @@ export default defineConfig(({ mode }) => ({
   test: {
     environment: "node",
     globals: true,
+    globalSetup: [path.join(here, "node-mocks", "nested-copy.global.ts")],
     setupFiles: mode === "jest-compat" ? [path.resolve(here, "../dist/jest-compat/setup.mjs")] : [],
     include: mode === "jest-compat" ? ["*.test.ts", "jest/*.test.ts"] : ["*.test.ts"],
     ...(mode === "hot"
