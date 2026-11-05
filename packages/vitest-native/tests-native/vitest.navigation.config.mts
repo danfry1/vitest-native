@@ -6,7 +6,7 @@ import { presets, reactNative } from "../dist/index.mjs";
 // are rebuilt in-worker from their name). See navigation-params.test.tsx.
 export default defineConfig({
   plugins: [
-    reactNative({
+    reactNative({ ownership: "error",
       engine: "native",
       hotRuntime: false,
       presets: [presets.navigation({ defaultRouteParams: { id: "42", mode: "edit" } })],

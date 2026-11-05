@@ -570,8 +570,8 @@ const now = performance.now.bind(performance);
 // signal[0]: 0 while a request is outstanding, 1 answered, 2 the thread ended.
 // signal[1]: 1 once the thread has ended.
 let toolchain = null;
-// Internal: the deadline, the worker file and its resource limits, for tests that end a
-// thread on purpose (_setToolchainOptions).
+// Internal: the deadline, its clock, the worker file and its resource limits, for tests
+// that end a thread on purpose (_setToolchainOptions).
 let toolchainOptions = {};
 // The registry compiler's child process runs no test code, so Babel runs there on the
 // one thread, as before: that process's heap bound and its out-of-memory retry
@@ -584,8 +584,10 @@ export function compileOnThisThread() {
 }
 
 /**
- * Internal test seam: `{ deadlineMs, workerUrl, resourceLimits }` (deadlineMs replaces the
- * base, and source still adds to it); stops the current thread.
+ * Internal test seam: `{ deadlineMs, workerUrl, resourceLimits, now }` (deadlineMs replaces
+ * the base, and source still adds to it; `now` replaces the clock the deadline is read
+ * on, so a test can order the deadline after an event instead of racing elapsed time);
+ * stops the current thread.
  */
 export function _setToolchainOptions(options = {}) {
   toolchain?.worker.terminate();
@@ -645,11 +647,12 @@ function callToolchain(request) {
   if (toolchain === null || atomicsLoad(toolchain.signal, 1) === 1) toolchain = startToolchain();
   const { port, signal, worker } = toolchain;
   const deadlineMs = toolchainDeadlineMs(request, toolchainOptions.deadlineMs);
+  const clock = toolchainOptions.now ?? now;
   atomicsStore(signal, 0, 0);
   port.postMessage(request);
-  const deadline = now() + deadlineMs;
+  const deadline = clock() + deadlineMs;
   for (;;) {
-    const left = deadline - now();
+    const left = deadline - clock();
     if (left <= 0) break;
     if (atomicsWait(signal, 0, 0, Math.min(left, 1000)) !== "timed-out") break;
     if (atomicsLoad(signal, 1) === 1) break;

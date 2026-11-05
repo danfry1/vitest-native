@@ -61,7 +61,7 @@ import { reactNative } from ${JSON.stringify(pluginUrl)};
 const hotRuntime = JSON.parse(process.env.VN_CC_HOT);
 export default defineConfig({
   root: ${JSON.stringify(fixture)},
-  plugins: [reactNative({ engine: "native", hotRuntime })],
+  plugins: [reactNative({ engine: "native", hotRuntime, ownership: "error" })],
   test: {
     environment: "node",
     include: ["tests/*.test.ts"],

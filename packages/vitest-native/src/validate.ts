@@ -13,6 +13,7 @@ const KNOWN_OPTIONS = [
   "transform",
   "hotRuntime",
   "nativeModules",
+  "ownership",
 ];
 const KNOWN_HOT_RUNTIME_OPTIONS = [
   "recycleAfterFiles",
@@ -41,6 +42,42 @@ function assertNonNegativeInteger(value: unknown, option: string): asserts value
       "INVALID_OPTION",
       `"${option}" must be a non-negative safe integer.`,
     );
+  }
+}
+
+const OWNERSHIP_MODES = ["warn", "error"];
+
+function validateOwnership(value: unknown): void {
+  const invalid = (detail: string) =>
+    new VitestNativeTypeError("INVALID_OPTION", `"ownership" ${detail}`);
+  if (typeof value === "string") {
+    if (!OWNERSHIP_MODES.includes(value)) throw invalid(`must be "warn" or "error".`);
+    return;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw invalid(`must be "warn", "error", or { mode, allow }.`);
+  }
+  const { mode, allow, ...rest } = value as Record<string, unknown>;
+  const unknown = Object.keys(rest);
+  if (unknown.length > 0) throw invalid(`has unknown keys: ${unknown.join(", ")}.`);
+  if (mode !== undefined && !OWNERSHIP_MODES.includes(mode as string)) {
+    throw invalid(`mode must be "warn" or "error".`);
+  }
+  if (allow === undefined) return;
+  // An exemption names one file or directory and why: there is no "ignore all".
+  if (
+    !Array.isArray(allow) ||
+    allow.some(
+      (entry) =>
+        !entry ||
+        typeof entry !== "object" ||
+        typeof entry.path !== "string" ||
+        entry.path.length === 0 ||
+        typeof entry.reason !== "string" ||
+        entry.reason.trim().length === 0,
+    )
+  ) {
+    throw invalid(`allow must be an array of { path, reason } with non-empty strings.`);
   }
 }
 
@@ -73,6 +110,7 @@ export function validateOptions(options: Record<string, unknown>): void {
       `"nativeModules" must be "device" or "permissive".`,
     );
   }
+  if (options.ownership !== undefined) validateOwnership(options.ownership);
   if (options.diagnostics !== undefined && typeof options.diagnostics !== "boolean") {
     throw new VitestNativeTypeError("INVALID_OPTION", `"diagnostics" must be a boolean.`);
   }

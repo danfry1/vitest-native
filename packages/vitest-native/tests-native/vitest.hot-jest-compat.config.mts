@@ -27,7 +27,7 @@ export default defineConfig(({ mode }) => {
   }
   return {
     plugins: [
-      reactNative({
+      reactNative({ ownership: "error",
         engine: "native",
         hotRuntime: mode === "hot" ? { allowUnboundedMemory: true } : false,
       }),

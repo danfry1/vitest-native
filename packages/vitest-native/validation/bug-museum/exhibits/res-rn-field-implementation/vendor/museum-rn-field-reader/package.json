@@ -1,0 +1,11 @@
+{
+  "name": "museum-rn-field-reader",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "museum-rn-field": "1.0.0"
+  },
+  "peerDependencies": {
+    "react-native": "*"
+  }
+}

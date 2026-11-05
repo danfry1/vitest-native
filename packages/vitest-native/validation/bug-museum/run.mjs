@@ -3,6 +3,7 @@
 //
 //   node validation/bug-museum/run.mjs [--only id,id] [--class ownership,...]
 //        [--build <vitest-native package dir>] [--json <file>] [--work <dir>] [--keep]
+//        [--ownership off|resolver]
 //
 //   --build   the package under test (default: this package). It must be built; its
 //             package.json + dist are copied into each exhibit's node_modules.
@@ -15,6 +16,13 @@
 //             remove the bug's precondition). A control must PASS on any build: it shows
 //             the exhibit can pass, which is the only evidence for exhibits whose fix does
 //             not exist yet.
+//   --ownership off|resolver
+//             the ownershipModel axis (../config-axes/ownership.mjs): every reactNative()
+//             call gets experimental.ownershipModel (lib/materialise.mjs wraps the
+//             installed copy). Default "off": the option unset, as without the flag. A
+//             build that does not read the flag records every exhibit N/A ("flag not
+//             supported by this build") and exits 0; an exhibit whose reactNative() never
+//             saw the flag fails. Verdicts record the model; status.mjs refuses them.
 //
 // Every exhibit asserts the CORRECT behaviour, so it PASSes only on a build without the
 // bug. A run PASSes only when all three witnesses agree (lib/accounting.mjs): the process
@@ -31,7 +39,14 @@ import { fileURLToPath } from "node:url";
 import { buildInfo } from "./lib/build-info.mjs";
 import { exhibitHash } from "./lib/hash.mjs";
 import { runLines } from "./lib/lines.mjs";
-import { findRntl, materialise, museumRoot, packageRoot } from "./lib/materialise.mjs";
+import {
+  findRntl,
+  materialise,
+  museumRoot,
+  OWNERSHIP_MARKER,
+  packageRoot,
+} from "./lib/materialise.mjs";
+import { ownershipModelArgument, ownershipSupport } from "../config-axes/ownership.mjs";
 import { classify, validateSignature } from "./lib/verdict.mjs";
 import { prepareVitest4 } from "./lib/vitest4.mjs";
 
@@ -176,6 +191,12 @@ function runExhibit(original, context) {
     );
   }
   const seconds = Number(((Date.now() - started) / 1000).toFixed(1));
+  // The axis is evidence only where the flag reached the plugin: an exhibit whose config
+  // never called the wrapped reactNative() ran with the flag off.
+  if (context.ownershipModel !== "off" && !fs.existsSync(path.join(root, OWNERSHIP_MARKER)))
+    failures.push(
+      `museum: experimental.ownershipModel: ${context.ownershipModel} never reached reactNative()`,
+    );
   const checkFile = path.join(root, "check.mjs");
   if (fs.existsSync(checkFile)) {
     // check.mjs gets the combined output on stdin and the exhibit root as its argument;
@@ -222,7 +243,10 @@ function main() {
     build,
     keep: flag("keep"),
     control: flag("control"),
+    ownershipModel: ownershipModelArgument(argument("ownership")),
   };
+  // A build without the flag would ignore it: say so instead of measuring "off" twice.
+  const support = ownershipSupport(build, context.ownershipModel);
   if (selected.some((e) => e.requires?.vitest === "4")) {
     const prepared = prepareVitest4(path.join(context.work, ".vitest4"));
     context.vitest4 = prepared.dir;
@@ -233,7 +257,9 @@ function main() {
   for (const exhibit of selected) {
     let verdict;
     try {
-      verdict = runExhibit(exhibit, context);
+      verdict = support.supported
+        ? runExhibit(exhibit, context)
+        : { verdict: "N/A", reason: support.reason, unsupported: true };
     } catch (error) {
       verdict = {
         verdict: "FAIL",
@@ -245,6 +271,7 @@ function main() {
       ...verdict,
       build: provenance,
       exhibit: exhibitHash(museumRoot, exhibit),
+      ...(context.ownershipModel === "off" ? {} : { ownershipModel: context.ownershipModel }),
     };
     const tag =
       verdict.verdict === "FAIL"
@@ -262,8 +289,12 @@ function main() {
     if (process.env.MUSEUM_DEBUG && verdict.output) console.log(verdict.output);
   }
   const count = (v) => Object.values(verdicts).filter((x) => x.verdict === v).length;
+  const model =
+    context.ownershipModel === "off"
+      ? ""
+      : `, experimental.ownershipModel: ${context.ownershipModel}`;
   console.log(
-    `\n${count("PASS")} pass, ${count("FAIL")} fail, ${count("N/A")} n/a (build: ${build}, ${provenance.sha}${provenance.ref ? ` = ${provenance.ref}` : ""})`,
+    `\n${count("PASS")} pass, ${count("FAIL")} fail, ${count("N/A")} n/a (build: ${build}, ${provenance.sha}${provenance.ref ? ` = ${provenance.ref}` : ""}${model})`,
   );
   if (argument("json")) {
     const out = path.resolve(argument("json"));
@@ -278,8 +309,14 @@ function main() {
   if (!argument("work") && !context.keep) fs.rmSync(work, { recursive: true, force: true });
   // N/A is not a pass: an exhibit that could not run (a missing local copy, a hand-set
   // `na`) proves nothing, so it fails the run unless the caller says it may.
-  const na = count("N/A") > 0 && !flag("allow-na");
-  if (na) console.log(`${count("N/A")} exhibit(s) N/A: exiting 1 (pass --allow-na to accept)`);
+  // A build without the ownership flag is recorded, not failed: there is nothing to judge.
+  const unsupported = Object.values(verdicts).filter((v) => v.unsupported).length;
+  if (unsupported > 0) console.log(`experimental.ownershipModel: ${support.reason}`);
+  const na = count("N/A") > unsupported && !flag("allow-na");
+  if (na)
+    console.log(
+      `${count("N/A") - unsupported} exhibit(s) N/A: exiting 1 (pass --allow-na to accept)`,
+    );
   process.exitCode = count("FAIL") > 0 || na ? 1 : 0;
 }
 

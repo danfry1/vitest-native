@@ -15,6 +15,7 @@ export interface ProjectContextFields {
   hotEsmGeneration?: boolean;
   registry?: string;
   ownership?: Record<string, unknown>;
+  ownershipGuard?: { mode: "warn" | "error"; allow: { path: string; reason: string }[] };
   projectDirs?: string[];
   requireAliases?: [string, string][];
   requireAliasesSkipped?: string[];

@@ -36,6 +36,7 @@ const SCHEMA = {
   hotEsmGeneration: { valid: (v) => typeof v === "boolean" },
   registry: { valid: absolute },
   ownership: { valid: object },
+  ownershipGuard: { valid: object },
   projectDirs: { valid: strings },
   requireAliases: {
     valid: (v) =>

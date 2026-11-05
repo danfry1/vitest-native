@@ -22,6 +22,7 @@ import { installRegistry } from "./registry.mjs";
 import { captureModuleBaseline, resetEvaluatedModules } from "./module-reset.mjs";
 import { registerRntlHooksOnImport } from "./rntl-hooks.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
+import { installOwnershipLedger } from "./ownership-ledger.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import { markBootContext, requireProjectContext } from "../context.mjs";
 
@@ -58,6 +59,9 @@ if (diagnostics) {
 const hotEsmGeneration =
   context.hotEsmGeneration !== false && process.env.VITEST_NATIVE_HOT_ESM_GEN !== "0";
 enableV8CompileCache(projectRoot, { skip: hotEsmGeneration });
+// First, so the resident graph is in the ledger: a later Vite evaluation of a file this
+// worker keeps resident is the dual evaluation that outlives every per-file reset.
+installOwnershipLedger({ projectRoot });
 installGlobals({ projectRoot, platform });
 installKnownNativeModules(projectRoot);
 // The registry must be installed BEFORE the preload below, not just by the setup

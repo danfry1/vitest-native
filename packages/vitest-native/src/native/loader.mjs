@@ -1,5 +1,6 @@
 // Node ESM loader hooks (installed in-thread with module.registerHooks). Intercepts import() of RN —
 // which Module._extensions cannot — Flow-stripping and serving boundary mock source.
+import { nodeDispatch } from "../node-dispatch.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { projectContext } from "../context.mjs";
 import path from "node:path";
@@ -331,6 +332,29 @@ export function requireFacade(url, file, compiled) {
   };
 }
 
+/**
+ * A file Node loads as published. True ESM among them is recorded in the ownership ledger
+ * (ownership-ledger.mjs), through the engine's dispatcher channel, before Node evaluates
+ * the module: this loader runs in the worker's thread (module.registerHooks). CommonJS is
+ * never recorded here: Node evaluates it through Module._load, which the ledger observes
+ * (nodeDispatch().onNodeEvaluation), and that record knows when the hot reset drops it.
+ */
+function recordModule(url, result) {
+  if (result?.format !== "module") return;
+  nodeDispatch().channel("ownership").nodeEsm?.(url);
+}
+function loadAsPublished(url, context, nextLoad) {
+  const result = nextLoad(url, context);
+  if (typeof result?.then === "function") {
+    return result.then((settled) => {
+      recordModule(url, settled);
+      return settled;
+    });
+  }
+  recordModule(url, result);
+  return result;
+}
+
 /** `load` never awaits: every path returns a result or `nextLoad(...)` directly. */
 export function loadSync(url, context, nextLoad) {
   // Serve the synthetic preset module. The generated source reads the mock built
@@ -404,7 +428,7 @@ export function loadSync(url, context, nextLoad) {
     // No source: transformRN reads the file only when it holds no output for it.
     return requireFacade(url, file, transformRN(file, undefined, PROJECT_ROOT, PLATFORM));
   }
-  if (!isRN && !isExtra(norm)) return nextLoad(url, context);
+  if (!isRN && !isExtra(norm)) return loadAsPublished(url, context, nextLoad);
 
   if (isRN) {
     // RN's main index exports everything via lazy getters (`module.exports = {
@@ -439,7 +463,7 @@ export function loadSync(url, context, nextLoad) {
       if (isFlow(src))
         return requireFacade(url, file, transformRN(file, src, PROJECT_ROOT, PLATFORM));
     }
-    return nextLoad(url, context);
+    return loadAsPublished(url, context, nextLoad);
   }
 
   // Configured third-party package: transform any JS/TS/JSX source to CJS, served
@@ -474,8 +498,8 @@ export function loadSync(url, context, nextLoad) {
     // Only compile what Node cannot run as published — see needsTransform. A file V8
     // accepts is handed straight back to Node, which is how the toolchain packages a
     // closure walk drags in stop reaching the Babel preset at all.
-    if (!needsTransform(file, src)) return nextLoad(url, context);
+    if (!needsTransform(file, src)) return loadAsPublished(url, context, nextLoad);
     return requireFacade(url, file, transformRN(file, src, PROJECT_ROOT, PLATFORM));
   }
-  return nextLoad(url, context);
+  return loadAsPublished(url, context, nextLoad);
 }

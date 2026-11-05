@@ -18,6 +18,30 @@ export default defineConfig(({ mode }) => ({
       ...(mode === "early"
         ? { presets: { "./tests-native/one-instance-early/early-registry-preset.ts": true } }
         : {}),
+      // Each of these is two live instances on purpose: the tests pin today's behaviour
+      // where one module is not shared, so the change that shares it flips them. The
+      // ownership guard names every one, and fails on anything else.
+      ownership: {
+        mode: "error",
+        allow: [
+          {
+            path: path.join(here, "one-instance/fixtures/order-store.ts"),
+            reason: "require-then-import.test.ts: required before it is imported (Node first)",
+          },
+          {
+            path: path.join(here, "one-instance/fixtures/held.ts"),
+            reason: "shapes.test.ts: a module Node already holds stays the one require returns",
+          },
+          {
+            path: path.join(here, "one-instance/fixtures/cyc-a.ts"),
+            reason: "shapes.test.ts: a file Vite is still evaluating is not shared (a cycle)",
+          },
+          {
+            path: path.join(here, "one-instance/fixtures/isolated-late.ts"),
+            reason: "shapes.test.ts: inside an isolation block, require is not handed Vite's copy",
+          },
+        ],
+      },
     }),
   ],
   resolve: {

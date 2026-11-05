@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "main": "./src/index.tsx",
+  "exports": {
+    ".": "./src/index.tsx",
+    "./vitest.setup": "./vitest.setup.ts"
+  },
   "dependencies": {
     "expo-image": "58.0.16"
   },

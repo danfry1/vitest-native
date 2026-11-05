@@ -1,0 +1,9 @@
+{
+  "name": "museum-own-vi-mock-node-consumer",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "museum-constants": "1.0.0",
+    "museum-linking": "1.0.0"
+  }
+}

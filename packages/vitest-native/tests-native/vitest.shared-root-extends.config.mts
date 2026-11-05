@@ -8,7 +8,7 @@ import { reactNative } from "../dist/index.mjs";
 const include = ["tests-native/shared-root/*.test.ts"];
 
 export default defineConfig({
-  plugins: [reactNative({ engine: "native", platform: "android", hotRuntime: false })],
+  plugins: [reactNative({ ownership: "error", engine: "native", platform: "android", hotRuntime: false })],
   test: {
     environment: "node",
     projects: ["a", "b"].map((name) => ({
