@@ -1,5 +1,6 @@
 // Patches Node's CJS loader so RN's internal require() chains are Flow-stripped and
 // native-boundary modules are mocked. The companion loader.mjs handles the import() path.
+import { compileSupport, loadSupport } from "./library-jest.mjs";
 import Module from "node:module";
 import { nodeDispatch } from "../node-dispatch.mjs";
 import { projectContext } from "../context.mjs";
@@ -334,8 +335,9 @@ export function installRequireHooks(
     if (!mocks) return NO_PRESET;
     // jest.requireActual of a shadowed package: this one load is the package itself
     // (jest-compat/node-registry.mjs), as Jest's requireActual gives it.
-    if (globalThis.__vitest_native_preset_actual === request) {
-      globalThis.__vitest_native_preset_actual = undefined;
+    const registry = globalThis.__vitest_native_jest_registry;
+    if (registry !== undefined && registry.presetActual === request) {
+      registry.presetActual = undefined;
       return NO_PRESET;
     }
     if (Object.prototype.hasOwnProperty.call(mocks, request)) return mocks[request];
@@ -620,12 +622,12 @@ export function installRequireHooks(
     // registry compiles without the isFlow test below.
     if (rnPath === null && isExtra(norm)) {
       const held = heldTransform(filename, projectRoot, platform);
-      if (held !== undefined) return mod._compile(held, filename);
+      if (held !== undefined) return compileSupport(mod, held, filename);
     }
     if (rnPath !== null) {
       const src = fs.readFileSync(filename, "utf8");
       if (isFlow(src))
-        return mod._compile(transformRN(filename, src, projectRoot, platform), filename);
+        return compileSupport(mod, transformRN(filename, src, projectRoot, platform), filename);
     } else if (isExtra(norm)) {
       // Selected for compiling — but only compile what Node cannot run as published.
       // `isFlow` is not enough here (TS `import type` and JSX slip past it), and
@@ -633,9 +635,9 @@ export function installRequireHooks(
       // needsTransform: V8 answers the question Node is about to ask.
       const src = fs.readFileSync(filename, "utf8");
       if (needsTransform(filename, src)) {
-        return mod._compile(transformRN(filename, src, projectRoot, platform), filename);
+        return compileSupport(mod, transformRN(filename, src, projectRoot, platform), filename);
       }
-      return origJs(mod, filename);
+      return loadSupport(mod, filename, origJs);
     }
     if (NODE_MODULES_PATH.test(norm)) {
       // A node_modules package we did NOT transform: when Node's compile throws a
@@ -643,12 +645,12 @@ export function installRequireHooks(
       // real fix (add the package to `transform: [...]`) instead of leaving a
       // bare "Unexpected token '<'" — the single most common migration blocker.
       try {
-        return origJs(mod, filename);
+        return loadSupport(mod, filename, origJs);
       } catch (err) {
         throw explainUntransformedSyntaxError(err, filename) ?? err;
       }
     }
-    return origJs(mod, filename);
+    return loadSupport(mod, filename, origJs);
   };
 
   // Node's CJS loader has no `.ts`/`.tsx` handler, so a synchronous
@@ -670,7 +672,7 @@ export function installRequireHooks(
       if (boundary != null) return mod._compile(boundary, filename);
       // No source: transformRN reads the file only when its compiled output is not
       // already held for this file's size and mtime.
-      return mod._compile(transformRN(filename, undefined, projectRoot, platform), filename);
+      return compileSupport(mod, transformRN(filename, undefined, projectRoot, platform), filename);
     };
   }
   return compiles;

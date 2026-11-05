@@ -300,7 +300,7 @@ function createState() {
       state.bypass = filename ?? `\0${spec}`;
       // A preset shadows its package by name (native/hooks.mjs); the actual module is
       // the package, as Jest's requireActual gives it, so this one load skips it too.
-      if (!isPath) globalThis.__vitest_native_preset_actual = spec;
+      if (!isPath) state.presetActual = spec;
     }
     try {
       const load = createRequire(anchor);
@@ -323,7 +323,7 @@ function createState() {
     } finally {
       if (actual) {
         state.bypass = null;
-        globalThis.__vitest_native_preset_actual = undefined;
+        state.presetActual = undefined;
       }
     }
   };

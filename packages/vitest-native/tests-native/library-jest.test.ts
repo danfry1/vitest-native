@@ -89,3 +89,18 @@ describe("at the next test file in the same worker", () => {
     expect(() => nativeThing().read()).toThrow("NativeThing is a native module");
   });
 });
+
+describe("a library's support files of other kinds", () => {
+  it("gives a TypeScript support file its jest", () => {
+    const { typed } = require("vn-lib-jest-support/jest/typed");
+    expect(vi.isMockFunction(typed)).toBe(true);
+    // The library's jest, not the test's: its built implementation survives a reset.
+    vi.resetAllMocks();
+    expect(typed()).toBe("typed");
+  });
+
+  it("leaves an ES module package's support file an ES module", () => {
+    require("vn-lib-esm-support/jest/setup");
+    expect((globalThis as { __vnEsmSupportFormat?: string }).__vnEsmSupportFormat).toBe("esm");
+  });
+});
