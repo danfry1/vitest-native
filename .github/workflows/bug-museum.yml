@@ -21,28 +21,59 @@ name: Bug museum
 #             pre-rntl13-native-stack-header
 # The pnpm-layout exhibits run: run.mjs assembles that layout from the frozen install.
 
+# Path-filtered, which is safe only because the check is advisory (a required check
+# skipped by `paths` would stay pending). Docs and test-only changes do not run it: the
+# exhibits exercise the built package, so only what goes into the build, the exhibits,
+# and the config-axes helpers they import (ownership, verdict, accounting, the fixture)
+# can change a verdict.
 on:
   pull_request:
+    branches: [main]
+    # ready_for_review starts a run when a draft leaves draft; the job's `if` skips
+    # drafts, so the 8-minute museum runs only on pull requests that are up for merge.
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'packages/vitest-native/src/**'
+      - 'packages/vitest-native/package.json'
+      - 'packages/vitest-native/tsdown.config.*'
+      - 'packages/vitest-native/validation/bug-museum/**'
+      - 'packages/vitest-native/validation/config-axes/**'
+      - 'bun.lock'
+      - '.github/workflows/bug-museum.yml'
+  # Main runs it after each merge that can move a verdict (the same paths), so the
+  # verdicts STATUS.md records are checked against main itself, and weekly, so a
+  # dependency that moved under an exhibit shows up within a week. Both are the record
+  # the "two weeks green on main" condition above is judged by.
+  push:
     branches: [main]
     paths:
       - 'packages/vitest-native/src/**'
       - 'packages/vitest-native/package.json'
       - 'packages/vitest-native/tsdown.config.*'
-      - 'packages/vitest-native/validation/**'
+      - 'packages/vitest-native/validation/bug-museum/**'
+      - 'packages/vitest-native/validation/config-axes/**'
       - 'bun.lock'
       - '.github/workflows/bug-museum.yml'
+  schedule:
+    # Mondays, after the RN matrix (09:00) and the config-axis matrix (10:00).
+    - cron: '0 11 * * 1'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# Superseded pull request runs are cancelled. On main each commit has its own group:
+# a group holds one running and one pending run, and a newer pending run cancels the
+# older one, so a shared main group would drop the verdict of a commit merged between
+# two others.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   museum:
     name: Bug museum (advisory)
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

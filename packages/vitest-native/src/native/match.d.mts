@@ -50,3 +50,19 @@ export declare function subpathLeafOf(specifier: string): string | null;
 
 /** Deep entries of preset packages that must not be shadowed by the preset mock. */
 export declare function isUtilitySubpath(specifier: string): boolean;
+export declare function presetPackageOfFile(
+  file: string,
+  parentFile: string | null | undefined,
+  isPresetPackage: (pkg: string) => boolean,
+): { pkg: string; subpath: string } | null;
+export declare function requestForPackageFile(
+  pkg: string,
+  subpath: string,
+  manifest: Record<string, unknown> | null | undefined,
+): string;
+/** Whether the resolved `file` is preset package `pkg`'s own entry. */
+export declare function isPackageEntryFile(
+  pkg: string,
+  file: string,
+  parentFile: string | null | undefined,
+): boolean;

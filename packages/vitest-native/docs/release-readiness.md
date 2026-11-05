@@ -59,7 +59,7 @@ Two checks are required on `main`: `CI verdict` (`ci.yml`) and `RN matrix verdic
 and fails if any failed or was cancelled, so adding a matrix leg never needs a branch-protection
 change.
 
-- **Docs-only pull requests** skip the gates by a job condition (`.github/scripts/classify-change.sh`).
+- **Pull requests run the gates their changes need**, by a job condition (`.github/scripts/classify-change.mjs`); docs-only ones run none.
   GitHub reports a job skipped by a condition as successful, but leaves the checks of a workflow
   skipped by a `paths` filter pending, which would block a required check.
 - **Merge-queue ready, not enabled.** The workflows that produce the required checks also run on

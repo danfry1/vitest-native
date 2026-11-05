@@ -1,8 +1,8 @@
 // Runs every unit test that reads one of the repository's Markdown files.
 //
-// A docs-only pull request skips the full gate (.github/scripts/classify-change.sh),
+// A docs-only pull request skips the full gate (.github/scripts/classify-change.mjs),
 // but several tests take a Markdown page as their source of truth: the versioning
-// contract (docs/versioning.md), the preset tables (README.md, website/guide/presets.md)
+// contract (docs/versioning.md), the preset table (website/guide/presets.md), the README sync (README.md)
 // and the documented configuration block (website/guide/plugin-options.md). Skipping
 // them let a page drift merge green and turn main red on the next push. CI runs this
 // on docs-only pull requests instead.

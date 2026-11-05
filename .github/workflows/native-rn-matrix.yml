@@ -53,8 +53,8 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  # Docs-only pull requests skip the matrix, by the same rules as ci.yml
-  # (.github/scripts/classify-change.sh). The skip is a job condition, not an
+  # Pull requests run the matrix only when their changed files need it, by the same
+  # rules as ci.yml (.github/scripts/classify-change.mjs). The skip is a job condition, not an
   # `on.pull_request.paths` filter: a workflow skipped by a path filter leaves its
   # checks pending and blocks a required check, while a job skipped by a condition
   # reports success (GitHub Docs, "Troubleshooting required status checks").
@@ -65,7 +65,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      docs-only: ${{ steps.docs.outputs.docs-only }}
+      rn: ${{ steps.docs.outputs.rn }}
       matrix: ${{ steps.cells.outputs.matrix }}
       scope: ${{ steps.cells.outputs.scope }}
     steps:
@@ -78,7 +78,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-        run: .github/scripts/classify-change.sh "$EVENT" "$BASE_SHA" "$HEAD_SHA"
+        run: node .github/scripts/classify-change.mjs "$EVENT" "$BASE_SHA" "$HEAD_SHA"
       # Pull requests run the ends of the React Native range in every Vitest column;
       # main, the weekly schedule and manual runs run every cell. The cells are defined
       # once in .github/rn-matrix.json (see .github/scripts/rn-matrix.mjs).
@@ -92,7 +92,7 @@ jobs:
   matrix:
     name: native+hot — vitest ${{ matrix.vitest }} × RN ${{ matrix.rn }}
     needs: classify
-    if: needs.classify.outputs.docs-only != 'true'
+    if: needs.classify.outputs.rn != 'false'
     runs-on: ubuntu-latest
     # Without a bound, a hung cell (e.g. a stuck hot-soak worker) burns the
     # 360-minute default. A healthy cell finishes well under 15 minutes.
@@ -202,8 +202,8 @@ jobs:
 
   # The one required check for this workflow, so branch protection does not list 16
   # cell names that change whenever a row is added. Fails if any cell failed or was
-  # cancelled; passes when every cell succeeded or the matrix was skipped as
-  # docs-only. Same pattern as `CI verdict` in ci.yml.
+  # cancelled; passes when every cell succeeded or the matrix was skipped because
+  # the pull request's changes do not need it. Same pattern as `CI verdict` in ci.yml.
   verdict:
     name: RN matrix verdict
     needs: [classify, matrix]

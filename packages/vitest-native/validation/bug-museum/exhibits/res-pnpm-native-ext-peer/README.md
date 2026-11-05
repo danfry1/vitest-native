@@ -12,3 +12,11 @@ Since #336 the engine runs relative requests through reanimated's and worklets' 
 ## Expected behaviour
 
 A library installed beside worklets in a pnpm store resolves `./platform` to `platform.native.js`.
+
+## Cannot reproduce on current main
+
+This exhibit no longer reaches its bug. Main pins `react-native-worklets` 0.13.1, and the
+exhibit passes on main, on the build before the fix and on the fix branch alike (Proof:
+NOT PROVEN). It needs the reanimated-peer shape (a library whose pnpm store directory
+names `react-native-reanimated`) once #419/#444 lands and the engine runs reanimated's
+own Jest support again.

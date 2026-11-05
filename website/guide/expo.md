@@ -145,6 +145,16 @@ modules can fail on it, so upgrade to SDK 57 or 58. This is about the Expo SDK o
 SDK's React Native can still be inside the supported React Native range (SDK 54 pairs with 0.81),
 and a bare React Native app on that version is supported.
 
+The plugin and doctor read the `expo` that resolves from the project. A package can load Expo
+modules without one: a library that uses an Expo module reached through another dependency, or a
+module that depends on `expo-modules-core` alone. Under the native engine, the test worker checks
+the `expo-modules-core` or `expo` a test actually loads and names an unsupported one with its
+version and path. From SDK 55, `expo-modules-core` carries its SDK's number (55.0.x); an older one
+is reported as SDK 54 or older. The warning appears with the first test in each test file that
+loads the copy, so it shows when that test fails; each worker reads the copy's version once. A
+copy that is installed but never loaded is not reported, nor is an `expo` a package peers only
+optionally.
+
 Expo SDKs trail React Native. Pin `react-native` to the version your SDK supports rather than the
 newest release.
 

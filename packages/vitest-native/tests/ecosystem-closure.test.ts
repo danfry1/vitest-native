@@ -18,8 +18,10 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
-import { detectEcosystemPackages } from "../src/native/ecosystem.js";
+import { afterAll, describe, expect, it, vi } from "vitest";
+import { serializableAliases } from "../src/jest-compat/aliases.mjs";
+import { aliasReachedPaths, detectEcosystemPackages } from "../src/native/ecosystem.js";
+import { dependencyDirOf } from "../src/native/match.mjs";
 
 const roots: string[] = [];
 afterAll(() => {
@@ -27,7 +29,13 @@ afterAll(() => {
 });
 
 // `fields`: other manifest fields, where a helper writes them (the workspace helper).
-type Pkg = { deps?: string[]; peerDeps?: string[]; fields?: Record<string, unknown> };
+type Pkg = {
+  deps?: string[];
+  peerDeps?: string[];
+  fields?: Record<string, unknown>;
+  /** index.js; module.exports = {} when absent. */
+  source?: string;
+};
 
 /** A project root with `installed` packages, and the project depending on `declares`. */
 function project(declares: string[], installed: Record<string, Pkg>): string {
@@ -350,6 +358,7 @@ describe("ecosystem detection: an isolated install layout", () => {
     declares: string[],
     installed: Record<string, Pkg>,
     hoisted: string[] = [],
+    { linkPeers = false }: { linkPeers?: boolean } = {},
   ): string {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-isolated-"));
     roots.push(root);
@@ -380,14 +389,16 @@ describe("ecosystem detection: an isolated install layout", () => {
           ...(pkg.peerDeps
             ? { peerDependencies: Object.fromEntries(pkg.peerDeps.map((d) => [d, "*"])) }
             : {}),
+          ...pkg.fields,
         }),
       );
-      fs.writeFileSync(path.join(dir, "index.js"), "module.exports = {};");
+      fs.writeFileSync(path.join(dir, "index.js"), pkg.source ?? "module.exports = {};");
     }
     for (const [name, pkg] of Object.entries(installed)) {
       // The store's node_modules that holds `name`: its dependencies go beside it.
       const modules = path.dirname(storeDir(name)).replace(/[\\/]@[^\\/]+$/, "");
-      for (const dep of pkg.deps ?? []) {
+      // pnpm links an installed peer beside the package too (an auto-installed peer).
+      for (const dep of [...(pkg.deps ?? []), ...(linkPeers ? (pkg.peerDeps ?? []) : [])]) {
         if (dep in installed) link(storeDir(dep), path.join(modules, ...dep.split("/")));
       }
     }
@@ -410,6 +421,110 @@ describe("ecosystem detection: an isolated install layout", () => {
       "@nav/core": { deps: ["deep-helper"] },
       "deep-helper": {},
     });
+
+  // #508: pnpm installs a required peer itself, so a package can reach one nobody
+  // declares. expo-router (compiled) requires expo-linking, its auto-installed peer; left
+  // uncompiled, its published ES module build was loaded by both module systems.
+  const routerLike = (linkingPeer: Pkg = { peerDeps: ["react-native"] }, linked = true) =>
+    isolated(
+      ["react-native", "router-ish"],
+      {
+        "react-native": {},
+        "router-ish": {
+          peerDeps: ["react-native", "linking-ish"],
+          deps: ["router-core"],
+          source: 'module.exports = require("linking-ish");',
+        },
+        "router-core": {},
+        "linking-ish": linkingPeer,
+      },
+      [],
+      { linkPeers: linked },
+    );
+
+  it("compiles a required React Native peer nothing declares, installed beside its package", () => {
+    const detected = detectEcosystemPackages(routerLike());
+    expect(detected).toContain("router-ish");
+    expect(detected).toContain("linking-ish");
+  });
+
+  it("does not follow an optional peer", () => {
+    const root = isolated(
+      ["react-native", "router-ish"],
+      {
+        "react-native": {},
+        "router-ish": {
+          peerDeps: ["react-native", "linking-ish"],
+          fields: { peerDependenciesMeta: { "linking-ish": { optional: true } } },
+          source: 'module.exports = require("linking-ish");',
+        },
+        "linking-ish": { peerDeps: ["react-native"] },
+      },
+      [],
+      { linkPeers: true },
+    );
+    expect(detectEcosystemPackages(root)).not.toContain("linking-ish");
+  });
+
+  it("does not follow a required peer that is not React Native", () => {
+    expect(detectEcosystemPackages(routerLike({}))).not.toContain("linking-ish");
+  });
+
+  it("does not follow a required React Native peer the package's files never load", () => {
+    // expo-constants' shape: `expo` is a required peer, and nothing in it loads expo.
+    const root = isolated(
+      ["react-native", "constants-ish"],
+      {
+        "react-native": {},
+        "constants-ish": { peerDeps: ["react-native", "expo-ish"] },
+        "expo-ish": { peerDeps: ["react-native"] },
+      },
+      [],
+      { linkPeers: true },
+    );
+    expect(detectEcosystemPackages(root)).not.toContain("expo-ish");
+  });
+
+  it("does not count a peer named only outside the package's runtime files", () => {
+    // expo-constants' real shape: its config plugin and scripts require `expo/config`, and
+    // its sources import a type from it; its runtime build never loads expo.
+    const root = isolated(
+      ["react-native", "constants-ish"],
+      {
+        "react-native": {},
+        "constants-ish": {
+          peerDeps: ["react-native", "expo-ish"],
+          fields: { main: "build/index.js" },
+          source: 'require("expo-ish/config");',
+        },
+        "expo-ish": { peerDeps: ["react-native"] },
+      },
+      [],
+      { linkPeers: true },
+    );
+    const store = path.join(
+      root,
+      "node_modules",
+      ".store",
+      "constants-ish",
+      "node_modules",
+      "constants-ish",
+    );
+    fs.mkdirSync(path.join(store, "build"), { recursive: true });
+    fs.writeFileSync(
+      path.join(store, "build", "index.js"),
+      [
+        'import type { Config } from "expo-ish/config";',
+        '// require("expo-ish") is how the config plugin reaches it',
+        'export const version = "1";',
+      ].join("\n"),
+    );
+    expect(detectEcosystemPackages(root)).not.toContain("expo-ish");
+  });
+
+  it("does not follow a peer that is not installed beside its package", () => {
+    expect(detectEcosystemPackages(routerLike(undefined, false))).not.toContain("linking-ish");
+  });
 
   it("resolves no transitive dependency from the project root (the layout's premise)", () => {
     // Control: if these resolved from the root, the layout would be hoisted and the
@@ -656,14 +771,19 @@ describe("ecosystem detection: a sibling-declared package the run reaches", () =
     expect(detect(path.join(root, "packages", "ui"))).not.toContain("rn-owned-child");
   });
 
-  it("follows a peer only into a package something declares", () => {
-    // An installed peer nobody declares (expo-router's, for an app that never imports
-    // it) is not added, and neither is its closure.
+  it("does not follow an optional peer nobody declares into its closure", () => {
+    // An installed optional peer nobody declares (expo-router, which @expo/cli lists as an
+    // optional peer, for an app that never imports it) is not added, and neither is its
+    // closure. In the real manifests that edge is optional; a required React Native peer
+    // installed beside its package is followed (#508, the isolated-install tests).
     const root = workspace(
       { ui: { declares: ["react-native", "expo-image"] } },
       {
         ...expoLike,
-        "expo-image": { peerDeps: ["expo", "react-native", "router-ish"] },
+        "expo-image": {
+          peerDeps: ["expo", "react-native", "router-ish"],
+          fields: { peerDependenciesMeta: { "router-ish": { optional: true } } },
+        },
         "router-ish": { peerDeps: ["react-native"], deps: ["router-helper"] },
         "router-helper": {},
       },
@@ -823,6 +943,67 @@ describe("ecosystem detection: workspace members the run reaches", () => {
 
   it("does not walk a member the run neither declares nor aliases into", () => {
     expect(detect(monorepo().feature)).not.toContain("widget-internals");
+  });
+
+  // Where a resolve.alias config points, as the plugin hands it to the walk.
+  const viaAlias = (dir: string, alias: unknown, named?: (n: string) => void) =>
+    detect(dir, aliasReachedPaths(alias, dir), named);
+
+  it("walks what a member reached through a RegExp alias depends on, and names it", () => {
+    const { feature, tokens } = monorepo();
+    const named: string[] = [];
+    const alias = [{ find: /^@tokens\/(.*)$/, replacement: `${tokens}/src/$1` }];
+    expect(viaAlias(feature, alias, (n) => named.push(n))).toEqual(
+      expect.arrayContaining(["rn-widget", "widget-internals"]),
+    );
+    expect(named).toEqual(["@w/tokens"]);
+  });
+
+  it("walks a member a RegExp alias reaches with a literal replacement", () => {
+    const { feature, tokens } = monorepo();
+    const alias = [{ find: /^@tokens$/, replacement: path.join(tokens, "src", "index.ts") }];
+    expect(viaAlias(feature, alias)).toContain("widget-internals");
+  });
+
+  it("walks a member a string alias with a customResolver reaches", () => {
+    const { feature, tokens } = monorepo();
+    const alias = [{ find: "@tokens", replacement: tokens, customResolver: () => null }];
+    expect(viaAlias(feature, alias)).toContain("widget-internals");
+  });
+
+  it("reaches no member when the substitution chooses the member", () => {
+    // `packages/$1` could be any member; walking them all is the seeding #433 rejected.
+    const { feature } = monorepo();
+    const alias = [{ find: /^@w\/([^/]+)$/, replacement: `${path.dirname(feature)}/$1` }];
+    expect(viaAlias(feature, alias)).not.toContain("widget-internals");
+  });
+
+  it("resolves no more packages than before for a config without RegExp aliases", () => {
+    // Counts, not timing: the dependency-directory lookups the walk makes with #433's
+    // seeds (string aliases, through the compat layer's list) and with every alias's.
+    const { feature, tokens } = monorepo();
+    const lookups = (reachedPaths: string[]) => {
+      let calls = 0;
+      const counted: typeof dependencyDirOf = (...args) => {
+        calls++;
+        return dependencyDirOf(...args);
+      };
+      detectEcosystemPackages(feature, [], [], [], [], counted, { reachedPaths });
+      return calls;
+    };
+    for (const alias of [undefined, { "@tokens": tokens, "@rel": "./src", lib: "lodash-es" }]) {
+      const before = serializableAliases(alias, feature)
+        .entries.map(([, target]) => target)
+        .filter((target) => path.isAbsolute(target));
+      expect(lookups(aliasReachedPaths(alias, feature))).toBe(lookups(before));
+    }
+  });
+
+  it("reaches nothing through an alias to a package name", () => {
+    const { feature } = monorepo();
+    expect(viaAlias(feature, [{ find: /^tokens$/, replacement: "@w/tokens" }])).not.toContain(
+      "widget-internals",
+    );
   });
 });
 
@@ -1005,5 +1186,125 @@ describe("ecosystem detection: what a reached workspace member may add", () => {
     const named: string[] = [];
     const detected = detect(dirs["@w/app"], [path.join(dirs["@w/icons"], "src")], named);
     expect(named, JSON.stringify(detected)).toEqual(["@w/icons"]);
+  });
+});
+
+describe("aliasReachedPaths: where a resolve.alias config points", () => {
+  const root = path.resolve("/w/packages/feature");
+  // What #433 seeded from: the compat layer's string entries with absolute targets.
+  const stringSeeds = (alias: unknown) =>
+    serializableAliases(alias, root)
+      .entries.map(([, target]) => target)
+      .filter((target) => path.isAbsolute(target));
+
+  it("seeds nothing for a project without aliases, as before", () => {
+    expect(aliasReachedPaths(undefined, root)).toEqual([]);
+    expect(aliasReachedPaths({}, root)).toEqual([]);
+    expect(aliasReachedPaths([], root)).toEqual([]);
+  });
+
+  it("seeds exactly what string aliases seeded before, in object and array form", () => {
+    const object = { "@ui": "/w/packages/ui/src", "@rel": "./src", lodash: "lodash-es" };
+    const array = Object.entries(object).map(([find, replacement]) => ({ find, replacement }));
+    for (const alias of [object, array]) {
+      expect(aliasReachedPaths(alias, root)).toEqual(stringSeeds(alias));
+    }
+  });
+
+  it("adds the target of a RegExp alias, which the compat layer skips", () => {
+    const alias = [{ find: /^@ui$/, replacement: "/w/packages/ui/src/index.ts" }];
+    expect(stringSeeds(alias)).toEqual([]);
+    expect(aliasReachedPaths(alias, root)).toEqual(["/w/packages/ui/src/index.ts"]);
+  });
+
+  it("keeps only the fixed part of a replacement that substitutes the match", () => {
+    const alias = [
+      { find: /^@ui\/(.*)$/, replacement: "/w/packages/ui/src/$1" },
+      { find: /^@w\/(.*)$/, replacement: "/w/packages/$1/src" },
+    ];
+    expect(aliasReachedPaths(alias, root)).toEqual(["/w/packages/ui/src/", "/w/packages/"]);
+  });
+
+  it("keeps a `$` that String.replace does not substitute as part of the path", () => {
+    // String finds seed what they did before: their `$1` is literal too.
+    const alias = {
+      "@ci": "/home/ci/$work/packages/ui",
+      "@share": "/mnt/c$/repo/packages/ui",
+      "@one": "/w/$1/ui",
+    };
+    expect(aliasReachedPaths(alias, root)).toEqual(Object.values(alias));
+    expect(aliasReachedPaths(alias, root)).toEqual(stringSeeds(alias));
+  });
+
+  it("reads `$$` as `$` and stops at every substitution String.replace makes", () => {
+    const alias = [
+      { find: "@a", replacement: "/w/a$$b/ui" },
+      { find: "@b", replacement: "/w/packages/ui$&" },
+      { find: /^@c$/, replacement: "/w/packages/ui/$<rest>" },
+      { find: /^@d$/, replacement: "/w/packages/ui/$'" },
+      { find: /^@e$/, replacement: "/w/packages/ui/$`" },
+      { find: /^@f$/, replacement: "/w/$work/ui" },
+    ];
+    expect(aliasReachedPaths(alias, root)).toEqual([
+      "/w/a$b/ui",
+      "/w/packages/ui",
+      "/w/packages/ui/",
+      "/w/packages/ui/",
+      "/w/packages/ui/",
+      "/w/$work/ui",
+    ]);
+  });
+
+  it("ignores a replacement that is not a string or not a path", () => {
+    const alias = [
+      { find: /^a$/, replacement: undefined },
+      { find: /^b$/, replacement: "some-package" },
+      { find: /^c$/, replacement: "$1" },
+      null,
+    ];
+    expect(aliasReachedPaths(alias, root)).toEqual([]);
+  });
+});
+
+describe("the plugin seeds the walk from every resolve.alias entry", () => {
+  // This package runs inside the repository's workspace, beside apps/example
+  // (@vitest-native/example), which it does not declare: an alias into it reaches an
+  // undeclared member, and `diagnostics` names it. Through the plugin, so a regression in
+  // what plugin.ts hands detectEcosystemPackages fails here, not only in the museum.
+  const packageRoot = path.resolve(import.meta.dirname, "..");
+  const example = path.resolve(packageRoot, "../../apps/example");
+  const reachedLog = async (alias: unknown) => {
+    vi.stubEnv("VITEST_NATIVE_NO_REGISTRY", "1");
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const { reactNative } = await import("../src/index.js");
+      const { runPluginConfig } = await import("./plugin-config.js");
+      await runPluginConfig(reactNative({ engine: "native", diagnostics: true }), {
+        root: packageRoot,
+        resolve: { alias },
+      });
+      return log.mock.calls
+        .map((args) => String(args[0]))
+        .filter((line) => line.includes("is reached through an alias"));
+    } finally {
+      vi.restoreAllMocks();
+      vi.unstubAllEnvs();
+    }
+  };
+
+  it("names a member reached through a RegExp alias", async () => {
+    const alias = [{ find: /^@example\/(.*)$/, replacement: `${example}/src/$1` }];
+    expect(await reachedLog(alias)).toEqual([expect.stringContaining("@vitest-native/example")]);
+  });
+
+  it("names a member reached through a string alias, as before", async () => {
+    expect(await reachedLog({ "@example": example })).toEqual([
+      expect.stringContaining("@vitest-native/example"),
+    ]);
+  });
+
+  it("names nothing without an alias into a member", async () => {
+    expect(await reachedLog(undefined)).toEqual([]);
   });
 });

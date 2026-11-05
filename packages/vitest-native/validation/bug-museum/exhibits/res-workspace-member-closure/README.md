@@ -2,7 +2,7 @@
 
 - **Class:** transform/resolution
 - **Source:** a monorepo whose feature package depends on a workspace UI library that declares expo-image, with expo declared by an app package ("Cannot find module '…/expo-asset/build/Asset.fx'"); the packed Expo pnpm suite's `feature` package has this shape
-- **Fixed by:** fix/closure-seed-reached-packages
+- **Fixed by:** #433 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

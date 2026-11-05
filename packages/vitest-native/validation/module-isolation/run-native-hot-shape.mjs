@@ -3,12 +3,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import "../../scripts/release-age.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(here, "../..");
-const vitestRoot = path.resolve(
-  process.argv[2] ?? "/private/tmp/vitest-module-isolation-upstream",
-);
+const vitestRoot = path.resolve(process.argv[2] ?? "/private/tmp/vitest-module-isolation-upstream");
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "vn-module-isolation-hot-"));
 
 function run(command, args, cwd, env = {}) {
@@ -40,11 +39,7 @@ try {
     ["pack", "--pack-destination", tempRoot],
     path.join(vitestRoot, "packages/vitest"),
   );
-  const nativeTarball = packedTarball(
-    "npm",
-    ["pack", "--pack-destination", tempRoot],
-    packageRoot,
-  );
+  const nativeTarball = packedTarball("npm", ["pack", "--pack-destination", tempRoot], packageRoot);
 
   fs.writeFileSync(
     path.join(tempRoot, "package.json"),
@@ -72,9 +67,13 @@ try {
     ),
   );
 
-  fs.cpSync(path.join(packageRoot, "tests-native/hot-isolation"), path.join(tempRoot, "hot-isolation"), {
-    recursive: true,
-  });
+  fs.cpSync(
+    path.join(packageRoot, "tests-native/hot-isolation"),
+    path.join(tempRoot, "hot-isolation"),
+    {
+      recursive: true,
+    },
+  );
   for (const file of [
     "bootstrap.mjs",
     "install-hot-after-setup.mjs",
@@ -97,9 +96,13 @@ try {
   console.log(`module-isolation Vitest: ${installedVersion}`);
   run(
     process.execPath,
-    [path.join(tempRoot, "node_modules/vitest/vitest.mjs"), "run", "--config", "vitest.hot-shape.mts"],
+    [
+      path.join(tempRoot, "node_modules/vitest/vitest.mjs"),
+      "run",
+      "--config",
+      "vitest.hot-shape.mts",
+    ],
     tempRoot,
-    { VITEST_NATIVE_DIAGNOSTICS: "true" },
   );
   console.log("Native hot-shape module-isolation gate passed.");
 } finally {

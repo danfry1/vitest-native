@@ -28,6 +28,7 @@ import {
   statusChanges,
   testStatuses,
 } from "./bakeoff-observation.mjs";
+import "./release-age.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ratchetPath = path.join(root, "bakeoffs-ratchet.json");
