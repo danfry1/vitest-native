@@ -59,19 +59,19 @@ Testing React Native code with Jest has traditionally required a patchwork of co
 
 ```bash
 # bun
-bun add -d vitest vitest-native @testing-library/react-native
+bun add -d vitest vite vitest-native @testing-library/react-native
 
 # npm
-npm install -D vitest vitest-native @testing-library/react-native
+npm install -D vitest vite vitest-native @testing-library/react-native
 
 # yarn
-yarn add -D vitest vitest-native @testing-library/react-native
+yarn add -D vitest vite vitest-native @testing-library/react-native
 
 # pnpm
-pnpm add -D vitest vitest-native @testing-library/react-native
+pnpm add -D vitest vite vitest-native @testing-library/react-native
 ```
 
-`vitest` is a peer dependency. `@testing-library/react-native` is optional, but the examples
+`vitest` and `vite` are peer dependencies. `@testing-library/react-native` is optional, but the examples
 below use it. A real React Native project already provides what the native engine needs —
 `react-native`, `@react-native/babel-preset`, and `@babel/core`. From Expo SDK 56,
 `babel-preset-expo` no longer depends on `@react-native/babel-preset`, and the engine compiles
@@ -686,8 +686,9 @@ Flow/TS/JSX, add it to the
 **My `babel.config.js` plugin isn't running**
 Files your tests `import` go through Vite's JSX transformer, not your Babel config, so custom Babel
 plugins don't apply to them. Vite 6–7 use esbuild and Vite 8 uses Oxc; the plugin configures the
-automatic JSX runtime for both. Project files that Node loads (through `require()` or
-`jest.requireActual`) are compiled with your Babel config, as babel-jest compiles them.
+automatic JSX runtime for both. Project TypeScript files that Node loads (through `require()` or
+`jest.requireActual`) are compiled with your Babel config, as babel-jest compiles them; plain `.js`
+project files Node loads are not compiled.
 `vitest-native doctor` lists the Babel plugins a run does not apply; one your tests depend on, such
 as a macro plugin, runs through a Vite plugin that calls Babel
 ([recipe](https://danfry1.github.io/vitest-native/migration/from-jest#babel-plugins-your-jest-run-applied)).
