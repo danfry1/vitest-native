@@ -1,6 +1,6 @@
 # Troubleshooting
 
-## "vitest-native helpers called before setup"
+## "helpers were called before setup ran"
 
 This means the plugin isn't configured. Ensure `reactNative()` is in your `vitest.config.ts` `plugins` array.
 

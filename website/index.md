@@ -53,8 +53,8 @@ import { render, screen } from '@testing-library/react-native'
 import { MyComponent } from './MyComponent'
 
 describe('MyComponent', () => {
-  it('renders correctly', () => {
-    render(<MyComponent title="Hello" />)
+  it('renders correctly', async () => {
+    await render(<MyComponent title="Hello" />)
     expect(screen.getByText('Hello')).toBeTruthy()
   })
 })
@@ -94,6 +94,6 @@ but their custom migration config, dependency changes, snapshots, and Jest-era s
 pass counts do not define vitest-native capability or fidelity. A change is reduced into a minimal
 package-owned test before it is classified. See the [validation model](/guide/validation-model).
 
-> **Beta.** Some APIs may still shift before 1.0. Maintained successor to [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native) — same core idea, rebuilt for modern Vitest (v4).
+> **Beta.** Some APIs may still shift before 1.0. Maintained successor to [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native) — same core idea, rebuilt for Vitest 4 and 5.
 
 [Get started →](/guide/)
