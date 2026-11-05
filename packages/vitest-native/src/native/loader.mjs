@@ -3,7 +3,6 @@
 import Module, { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { projectContext } from "../context.mjs";
-import { createRequire } from "node:module";
 import { cjsConditionsWithout } from "./export-condition-recovery.mjs";
 import { ownershipResolverInputs, workerSharedResolver } from "./shared-resolver.mjs";
 import path from "node:path";

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { babelParser, isPlainJavaScript } from "../cli/untranspiled.js";
+import { babelParser, isPlainJavaScript } from "./plain-javascript.js";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
 import { containsPath, dependencyDirOf, type PackageDirOf } from "./match.mjs";
 import { mainFieldFile } from "./shared-resolver.mjs";

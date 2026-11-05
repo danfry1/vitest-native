@@ -120,10 +120,11 @@ export function fetchSync(url, importer, environment) {
   }
   bridgeStats.fetches++;
   if (reply.error) {
-    throw new VitestNativeError(
-      reply.error.code === "BRIDGE_FILE_REFUSED" ? "BRIDGE_FILE_REFUSED" : "VITE_FETCH_FAILED",
-      `experimental.ownershipModel 'resolution': ${reply.error.message}`,
-    );
+    const message = `experimental.ownershipModel 'resolution': ${reply.error.message}`;
+    if (reply.error.code === "BRIDGE_FILE_REFUSED") {
+      throw new VitestNativeError("BRIDGE_FILE_REFUSED", message);
+    }
+    throw new VitestNativeError("VITE_FETCH_FAILED", message);
   }
   // As Vitest's own worker reads a fetch answered from its module cache: the code is in
   // the file `tmp` names (vitest's module-runner transport, `"cached" in result`).

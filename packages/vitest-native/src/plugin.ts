@@ -2245,10 +2245,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
               `is not a string). Rewrite it as a string or RegExp alias, or leave the flag off.`,
           );
         }
-        if (
-          userTsconfigPaths === true ||
-          expoTsconfigPaths(resolvedRoot, userTsconfigPaths, viteMajorForPaths) === "enable"
-        ) {
+        if (userTsconfigPaths === true || expoTsconfigPaths(resolvedRoot, userTsconfigPaths)) {
           shared.entries.push(
             ...tsconfigPathAliases(resolvedRoot)
               .entries.sort((a, b) => b[0].length - a[0].length)

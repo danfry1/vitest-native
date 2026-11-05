@@ -373,8 +373,8 @@ export interface VitestNativeOptions {
   transform?: string[] | { include?: string[]; exclude?: string[] };
 
   /**
-   * Behaviour changes that are not the default yet. Each is decided (made the default,
-   * or removed) by the date in `src/flags.ts`.
+   * `engine: 'native'` only. Behaviour changes that are not the default yet. Each is
+   * decided (made the default, or removed) by the date in `src/flags.ts`.
    */
   experimental?: {
     /**

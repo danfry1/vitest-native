@@ -94,6 +94,10 @@ The Skia preset's mock was built before CanvasKit loaded. Inside a test run the 
 
 A library asked Nitro for a native HybridObject, which has no implementation in tests. Use the library's own test mode if it has one, or mock the library with `vi.mock()`.
 
+### `UNKNOWN_DISPATCH_STEP` {#UNKNOWN_DISPATCH_STEP}
+
+vitest-native's module loader was given a step it does not know. Usually two copies of vitest-native, of different versions, are loaded into the same process; no configuration causes it otherwise. Install one vitest-native version (dedupe it in the workspace), and report it with your config if it persists.
+
 ## Helpers and jest-compat
 
 ### `HELPERS_BEFORE_SETUP` {#HELPERS_BEFORE_SETUP}
@@ -119,6 +123,17 @@ A `jest.mock` factory requires the module it mocks, directly or through somethin
 ### `REQUIRE_ACTUAL_ALIAS_UNSUPPORTED` {#REQUIRE_ACTUAL_ALIAS_UNSUPPORTED}
 
 `jest.requireActual()` could not resolve a path that depends on a `resolve.alias` entry it cannot apply: only string-to-string aliases work there. Use a string `find` for that alias, or a relative path.
+
+### `MOCK_NOT_SEEN_BY_NODE` {#MOCK_NOT_SEEN_BY_NODE}
+
+With [`experimental.nodeMocks`](/guide/plugin-options#experimental) on (or `ownershipModel: 'resolution'`, which turns it on), a `vi.mock` applies to modules Node loads too, as `jest.mock` does under Jest. This error means a module Node loads required the mocked module before the mock could be handed to it, so it fails by name instead of quietly loading the real module. The message names the requiring file and the reason, which is one of:
+
+- an async factory that has not settled;
+- an automock or `__mocks__` file the test has not imported yet;
+- a `vi.doMock` or `vi.doUnmock`, which Vitest applies only on the test's next import;
+- a package that Vite and Node resolve to different files.
+
+Import the mocked module in the test before the code that requires it, or give the mock a synchronous factory. The message is also printed once as a warning, because a package that probes for an optional dependency with `try { require(x) } catch {}` would otherwise swallow it.
 
 ## Hot runtime
 
@@ -169,3 +184,51 @@ The hot runtime's worker entry was started outside a `worker_threads` worker. Th
 A hot worker could not load React Native from the project when it started. The message carries the underlying error, which is usually the same one a run with `hotRuntime: false` shows.
 
 Next: [Troubleshooting](/guide/troubleshooting).
+
+## Ownership model (experimental)
+
+These come only from [`experimental.ownershipModel`](/guide/plugin-options#experimental), which makes Vite and Node resolve each package to the same file. Turning the option off makes them go away. Most of them mean a vitest-native bug: report it with the Vitest config. The design is described in [ownership-model.md](https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/docs/ownership-model.md).
+
+### `RESOLVER_INPUTS_MISSING` {#RESOLVER_INPUTS_MISSING}
+
+A test worker runs with the option on, but the project's configuration has no resolver inputs, so Node would resolve as if the option were off while Vite resolves with it. The plugin records them before any worker starts, so this means a worker started without the plugin's setup step. Report it, with the Vitest config.
+
+### `RESOLVER_INPUT_MISMATCH` {#RESOLVER_INPUT_MISMATCH}
+
+Two parts of the run would resolve with different inputs, for example different `--conditions`, and a package could then load twice. The message names the setting and both values. Set `--conditions` in one place (`test.execArgv`, or `NODE_OPTIONS` for the whole run). If the values come from nothing you set, report it.
+
+### `RESOLVER_ERROR` {#RESOLVER_ERROR}
+
+The shared resolver failed while React Native's precompiled modules were being built. The message lists each failure. Report it, with the Vitest config and the packages it names.
+
+### `BRIDGE_UNAVAILABLE` {#BRIDGE_UNAVAILABLE}
+
+With `ownershipModel: 'resolution'`, Node's `require()` of a file Vite loads goes through a bridge to Vitest's main process. The bridge could not start: the main process could not listen, or the worker was not given the bridge's address. Report it, with the Vitest config.
+
+### `BRIDGE_CONTRACT_CHANGED` {#BRIDGE_CONTRACT_CHANGED}
+
+A part of Vitest or Vite the bridge relies on is not where this vitest-native version expects it, usually after a Vitest or Vite upgrade. Set the option back to `'resolver'`, and report it with the Vitest and Vite versions.
+
+### `BRIDGE_FILE_REFUSED` {#BRIDGE_FILE_REFUSED}
+
+A `require()` reached a file the bridge will not fetch: outside the project's directories, or refused by Vite's `server.fs` rules. Installed packages are always allowed. The message names the file. Move it inside the project, or allow its directory in `server.fs.allow`.
+
+### `VITE_FETCH_FAILED` {#VITE_FETCH_FAILED}
+
+Vite could not return its transform of a file a `require()` reached, or the bridge's thread ended before it did. The message carries Vite's own error; the bridge thread's error, if it has one, is printed separately as "the require bridge's thread:". Fix the error Vite reports; if there is none, report it.
+
+### `VITE_FETCH_TIMEOUT` {#VITE_FETCH_TIMEOUT}
+
+The main process did not return Vite's transform of a file a `require()` reached in time, so the `require()` cannot be answered and the bridge's thread was stopped. The usual cause is a transform that hangs, such as a Vite plugin waiting on something that never arrives. The message names the file.
+
+### `REQUIRE_OF_ASYNC_VITE_MODULE` {#REQUIRE_OF_ASYNC_VITE_MODULE}
+
+A `require()` reached a file with top-level `await`. `require()` cannot wait for it, and Node's own `require()` of such an ES module refuses it too. Import the file from the test, or a setup file, before the code that requires it runs.
+
+### `REQUIRE_OF_EVALUATING_VITE_MODULE` {#REQUIRE_OF_EVALUATING_VITE_MODULE}
+
+A `require()` reached a file Vite is part-way through evaluating, from outside that evaluation, while the evaluation waits on something else. Its exports are unfinished, so returning them would be wrong. Await the import that evaluates it before the code that requires it runs.
+
+### `BRIDGED_EVALUATION_FAILED` {#BRIDGED_EVALUATION_FAILED}
+
+A file Vite loads threw while it was being evaluated, so the `require()` of it fails too, as an import of it would. The original error is attached as the `cause`. Fix that error.
