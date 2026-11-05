@@ -1626,7 +1626,6 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // available (React Native absent, or its index could not be read), in which case
   // the native engine leaves `react-native` externalized exactly as before.
   let rnFacadeExports: string[] | null = null;
-  // The subset of those whose getter prints a deprecation notice when read.
   let rnFacadeRoot = "";
   // One project-scoped owner/transform/reset policy. Config, the Vite fallback
   // transform, runtime serialization and diagnostics all consume this same object.
