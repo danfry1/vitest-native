@@ -252,7 +252,8 @@ try {
 
   // VN_CONSUMERS=expo-pnpm-suite runs only the real-suite Expo workspace (its own CI
   // cell); VN_CONSUMERS=fixtures everything else, the doc snippets included;
-  // VN_CONSUMERS=doc-snippets only the snippets, for a pull request that changes no code.
+  // VN_CONSUMERS=doc-snippets only the snippets (to run them locally, and for a
+  // docs-only pull request that changes a page carrying snippets).
   // Unset runs all of them, as prepublishOnly does.
   const only = process.env.VN_CONSUMERS;
   const LEGS = ["fixtures", "doc-snippets", "expo-pnpm-suite"];

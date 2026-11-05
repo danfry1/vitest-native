@@ -39,6 +39,31 @@ describe("doc snippets", () => {
     expect(extractSnippets(page)).toEqual([{ file: "src/a.test.ts", code: "marked()\n" }]);
   });
 
+  // A marker that does not sit directly on its fence is not a snippet. REQUIRED above
+  // catches this on the real pages; these cases record the rule.
+  it.each([
+    ["a blank line between marker and fence", "<!-- doc-snippet: a.ts -->\n\n```ts\nx()\n```\n"],
+    ["a fence with a title", "<!-- doc-snippet: a.ts -->\n```ts [a.ts]\nx()\n```\n"],
+    ["a tilde fence", "<!-- doc-snippet: a.ts -->\n~~~ts\nx()\n~~~\n"],
+  ])("does not extract %s", (_case, page) => {
+    expect(extractSnippets(page)).toEqual([]);
+  });
+
+  it.each(["../escape.ts", "src/../../escape.ts", path.resolve(os.tmpdir(), "escape.ts")])(
+    "refuses a snippet that writes outside the project: %s",
+    (file) => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "doc-snippets-"));
+      try {
+        expect(() => writeSnippets(dir, [{ file, code: "", page: "a.md" }])).toThrow(
+          /outside the project/,
+        );
+        expect(fs.existsSync(path.resolve(dir, file))).toBe(false);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("refuses two snippets that write the same file", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "doc-snippets-"));
     try {

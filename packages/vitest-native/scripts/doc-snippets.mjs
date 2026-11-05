@@ -38,7 +38,10 @@ export function readSnippets(root = repoRoot) {
   );
 }
 
-/** Writes the snippets into `dir`. Two snippets naming one file is an error. */
+/**
+ * Writes the snippets into `dir`. Two snippets naming one file, or a file outside
+ * `dir` (an absolute path, or one that climbs out with `..`), is an error.
+ */
 export function writeSnippets(dir, snippets = readSnippets()) {
   const seen = new Map();
   for (const { file, code, page } of snippets) {
@@ -46,7 +49,11 @@ export function writeSnippets(dir, snippets = readSnippets()) {
       throw new Error(`doc snippets: ${page} and ${seen.get(file)} both write ${file}`);
     }
     seen.set(file, page);
-    const target = path.join(dir, file);
+    const target = path.resolve(dir, file);
+    const inside = path.relative(dir, target);
+    if (path.isAbsolute(file) || inside.startsWith("..") || path.isAbsolute(inside)) {
+      throw new Error(`doc snippets: ${page} names ${file}, which is outside the project`);
+    }
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, code);
   }
