@@ -19,6 +19,8 @@ reactNative({
 
 ## `engine`
 
+**Type:** `'auto' | 'mock' | 'native'` · **Default:** `'auto'` · **Engine:** both
+
 Which engine to use. See [Choosing an Engine](/guide/engines) for the full breakdown.
 
 - `'auto'` *(default)* — native when a React Native Babel preset (`@react-native/babel-preset`, or Expo's from SDK 56) + `@babel/core` are present, else mock with a one-line notice.
@@ -27,9 +29,13 @@ Which engine to use. See [Choosing an Engine](/guide/engines) for the full break
 
 ## `platform`
 
+**Type:** `'ios' | 'android'` · **Default:** `'ios'` · **Engine:** both
+
 `'ios'` (default) or `'android'`. Controls which platform-specific file extension wins during resolution (`.ios.ts` vs `.android.ts`) and the value of `Platform.OS`. To test both platforms, run them as separate Vitest projects with one plugin instance each. (Under the mock engine only, [`setPlatform`](/guide/helpers#setplatform-os) can also switch per-test at runtime; the native engine fixes the platform when the module graph loads.)
 
 ## `diagnostics`
+
+**Type:** `boolean` · **Default:** `false` · **Engine:** both
 
 Set to `true` to log plugin activity — useful when debugging resolution or which engine resolved. Default `false`.
 
@@ -46,6 +52,8 @@ RN_TEST_DEBUG=1 vitest run
 vitest-native does not read a `VITEST_NATIVE_DIAGNOSTICS` variable. Older releases' `VITEST_NATIVE_*` settings, such as `VITEST_NATIVE_PLATFORM`, are no longer read either; set the matching option, such as `platform`. Startup warns when one is set.
 
 ## `presets`
+
+**Type:** `(Preset | string)[] | Record<string, boolean>` · **Default:** auto-detected from installed packages (the native engine leaves Expo's packages unmocked) · **Engine:** both
 
 An array of [third-party presets](/guide/presets). Presets are auto-detected from your installed dependencies, so listing them is usually optional:
 
@@ -79,6 +87,8 @@ reactNative({
 
 ## `mocks`
 
+**Type:** `Record<string, JSON value>` · **Default:** `{}` · **Engine:** mock
+
 ::: warning Mock engine only
 `mocks` merges overrides into the mock's export table, so it only applies with `engine: 'mock'` — the native engine runs the real `react-native` module and throws a configuration error if `mocks` is set. Use `vi.mock()` in a setup file or [`mockNativeModule`](/guide/helpers#mocknativemodule-name-impl) instead.
 :::
@@ -106,6 +116,8 @@ vi.mock('react-native', async (importOriginal) => ({
 
 ## `assetExts`
 
+**Type:** `string[]` · **Default:** `[]` · **Engine:** both
+
 Additional extensions to load as [assets](/guide/how-it-works#_2-assets) — registered with React Native's asset registry, as Metro does — beyond the built-in defaults:
 
 ```ts
@@ -116,7 +128,9 @@ reactNative({
 
 ## `transform`
 
-(Native engine.) `string[] | { include?: string[]; exclude?: string[] }`. Packages that declare `react-native` are compiled automatically; `transform` adjusts that set — the vitest-native equivalent of Jest's `transformIgnorePatterns`. An array (or `include`) adds packages that ship untranspiled source (Flow/TS/JSX) but aren't detected; `exclude` names packages that must never be compiled, whatever selected them:
+**Type:** `string[] | { include?: string[]; exclude?: string[] }` · **Default:** `[]` · **Engine:** native
+
+Packages that declare `react-native` are compiled automatically; `transform` adjusts that set — the vitest-native equivalent of Jest's `transformIgnorePatterns`. An array (or `include`) adds packages that ship untranspiled source (Flow/TS/JSX) but aren't detected; `exclude` names packages that must never be compiled, whatever selected them:
 
 ```ts
 reactNative({
@@ -132,29 +146,36 @@ A listed package's own dependencies are compiled too, as an auto-detected packag
 
 ## `hotRuntime`
 
-(Native engine.) Keeps React Native's precompiled factory registry and worker realm warm while resetting RN instances, app/test modules, and a verified manifest of supported process-wide state. Uses Vitest's custom worker APIs, which Vitest labels experimental.
+**Type:** `boolean | 'auto' | object` · **Default:** `false` · **Engine:** native
 
-The default, `false`, always isolates per worker, as in 0.13.0. `'auto'` opts in: it uses the hot runtime when the run can be bounded and recycled (at least two workers, no explicitly configured pool or `test.isolate`) and otherwise falls back to per-file isolation, printing why; `true` requires hot mode and fails closed when it cannot be bounded or when an explicit pool, `test.isolate`, or a CLI flag such as `--no-isolate` conflicts with it (`HOT_RUNTIME_OVERRIDDEN`).
+Reuses test workers across files instead of starting a fresh one for each, while still giving every file fresh app and test modules, mocks and timers. It is opt-in and experimental: it uses Vitest's custom worker APIs, which Vitest labels experimental, and it has [known differences](/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files) from per-file isolation. Whether it is faster depends on the suite, so measure it on yours. See [Hot runtime](/guide/engines#hot-runtime).
+
+- `false` *(default)*: each test file runs in a fresh worker.
+- `'auto'`: use the hot runtime where the run can be bounded and recycled (at least two workers, no explicit pool, `test.isolate` or overriding CLI flag, and a matching Vitest install), and per-file isolation otherwise, printing why.
+- `true`: require the hot runtime. Startup fails with `HOT_MEMORY_UNBOUNDED` when the run has one worker, and with `HOT_RUNTIME_OVERRIDDEN` when an explicit pool or `test.isolate`, a CLI flag (`--no-isolate`, `--pool`, `--maxWorkers=1`, `--no-file-parallelism`) or a `sequence.groupOrder` worker-count clash rules it out.
+- An object: tune worker recycling. On its own it requires the hot runtime, as `true` does; add `mode: 'auto'` to fall back as `'auto'` does.
+
+| Key | What it does |
+|---|---|
+| `mode` | `'auto'`: fall back to per-file isolation where the hot runtime cannot run, instead of failing |
+| `recycleAfterFiles` | retire a worker after it has run this many test files (default off) |
+| `memoryLimit` | retire a worker when its JS heap reaches this many bytes; `0` turns the threshold off; by default the memory plan picks it |
+| `preserveGlobals` | exact `globalThis` property names a resident library owns, kept between files (Storybook's preview registry is kept automatically) |
+| `esmGeneration` | `true` by default: re-run, for each file, the packages Node loads for a test file's `import`s (not the React Native packages vitest-native compiles), so their state does not carry over; `false` keeps them loaded |
+| `allowUnboundedMemory` | permit a run where recycling cannot be enforced, such as one worker; also turns off the automatic worker cap and memory hard stop. Only when something outside the run bounds its memory. Not with `mode: 'auto'` |
 
 ```ts
-reactNative({ hotRuntime: false }) // opt out
-```
-
-It can dramatically cut the per-file cost on large suites. The RN registry is reset from its in-memory factories per file, and the shared realm is restored through a mutation-tested state manifest. Arbitrary mutable state in an unknown resident third-party singleton cannot be discovered generically; a test that passes alone but fails after other files remains a correctness signal. See [Hot runtime](/guide/engines#hot-runtime) for the exact boundary and worker recycling.
-
-Hot mode installs a cgroup-aware memory plan by default and requires at least two workers so it can recycle at file boundaries. A deliberate externally bounded single-worker run can use `hotRuntime: { allowUnboundedMemory: true }`; this disables the automatic worker cap and process-RSS enforcement and is intentionally noisy.
-
-The object form tunes worker recycling: `recycleAfterFiles`, `memoryLimit` (worker heap in bytes), `allowUnboundedMemory`, `preserveGlobals` and `esmGeneration` ([Worker recycling](/guide/engines#worker-recycling)). On its own it requires the hot runtime, as `true` does. Add `mode: 'auto'` to select the way `'auto'` does: the hot runtime with your options where the run can be bounded, per-file isolation with the printed reason where it cannot.
-
-```ts
+reactNative({ hotRuntime: 'auto' })
 reactNative({ hotRuntime: { mode: 'auto', memoryLimit: 2 * 1024 ** 3 } })
 ```
 
-`mode: 'auto'` cannot be combined with `allowUnboundedMemory: true`. The worker count and the process-RSS limits still come from the memory plan, and `memoryLimit: 0` turns the heap threshold off.
+The worker count and memory limits come from a plan derived from the host or container's memory. It caps the worker count it picks itself at four; a `maxWorkers` you set is capped only by memory. See [worker recycling](/guide/engines#worker-recycling).
 
 ## `nativeModules`
 
-(Native engine.) How native module lookups answer.
+**Type:** `'device' | 'permissive'` · **Default:** `'device'` · **Engine:** native
+
+How native module lookups answer.
 
 - `'device'` *(default)* — as on a device and under Jest's React Native preset. `NativeModules[name]` and `TurboModuleRegistry.get(name)` find React Native's own modules and those registered with [`mockNativeModule`](/guide/helpers#mocknativemodule-name-impl), and are `undefined` / `null` for any other name. A React Native module's stub has only the members of its codegen spec. See [which native modules exist](/guide/how-it-works#which-native-modules-exist).
 - `'permissive'` — every name is present for every lookup, and every stub answers every property with a method. An escape hatch for a suite written against that behaviour while you register the modules it needs; library feature detection (`if (NativeModules.X)`) takes the "present" branch for every module in this mode.
@@ -164,6 +185,8 @@ reactNative({ nativeModules: 'permissive' })
 ```
 
 ## `metroConfig`
+
+**Type:** `boolean | { configFile?: string }` · **Default:** `false` · **Engine:** both
 
 ::: warning Experimental
 Opt-in while the framework and package-manager compatibility matrix is being validated. Default: `false`.
