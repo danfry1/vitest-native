@@ -134,6 +134,17 @@ describe("the shared resolver", () => {
     );
   });
 
+  it("tells inputs with a different ownJestSupport apart, and leaves the hash alone without it", () => {
+    const base = { projectRoot: "/p", platform: "ios" };
+    expect(resolverInputsHash({ ...base, ownJestSupport: ["a"] })).not.toBe(
+      resolverInputsHash(base),
+    );
+    expect(resolverInputsHash({ ...base, ownJestSupport: ["b", "a"] })).toBe(
+      resolverInputsHash({ ...base, ownJestSupport: ["a", "b"] }),
+    );
+    expect(resolverInputsHash({ ...base, ownJestSupport: [] })).toBe(resolverInputsHash(base));
+  });
+
   it("reads a package manifest once, however many directories ask", () => {
     const root = project({ ...dual });
     const resolver = createSharedResolver(inputsFor(root), { realm: "t-reads", memo: false });

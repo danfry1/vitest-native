@@ -79,6 +79,10 @@ function canonicalInputs(inputs) {
     preserveSymlinks: inputs.preserveSymlinks === true,
     aliases: inputs.aliases ?? [],
     conditions: [...(inputs.conditions ?? [])].sort(),
+    // It changes what the resolver answers, so every realm's copy must agree on it, and
+    // the caches keyed by this hash must tell it apart. Left out when empty, so the hash
+    // (and the registries cached under it) is unchanged for every other project.
+    ...(inputs.ownJestSupport?.length ? { ownJestSupport: [...inputs.ownJestSupport].sort() } : {}),
   };
 }
 
