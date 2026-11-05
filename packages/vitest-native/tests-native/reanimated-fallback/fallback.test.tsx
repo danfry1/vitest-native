@@ -25,7 +25,7 @@ import Animated, {
   useScrollOffset,
   useSharedValue,
 } from "react-native-reanimated";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 describe("the reanimated preset, with gesture-handler 3", () => {
   it("is the hand-written preset: this reanimated has no Jest resolver", () => {
@@ -102,5 +102,28 @@ describe("the reanimated preset, with gesture-handler 3", () => {
     await fireEvent.scroll(list, { nativeEvent: { contentOffset: { y: 5 } } });
     expect(seen).toEqual(["begin", "scroll 5"]);
     expect(isSharedValue(offset)).toBe(true);
+  });
+
+  it("gives a scroll handler a test can spy on, that still runs after a reset", async () => {
+    let handler: any;
+    const seen: number[] = [];
+    function List() {
+      handler = useAnimatedScrollHandler((e) => seen.push(e.contentOffset.y));
+      return (
+        <Animated.ScrollView testID="spied" onScroll={handler}>
+          <Text>row</Text>
+        </Animated.ScrollView>
+      );
+    }
+    await render(<List />);
+    await fireEvent.scroll(screen.getByTestId("spied"), {
+      nativeEvent: { contentOffset: { y: 3 } },
+    });
+    expect(handler).toHaveBeenCalledTimes(1);
+    vi.resetAllMocks();
+    await fireEvent.scroll(screen.getByTestId("spied"), {
+      nativeEvent: { contentOffset: { y: 4 } },
+    });
+    expect(seen).toEqual([3, 4]);
   });
 });

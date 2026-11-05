@@ -252,3 +252,24 @@ describe("react-native-reanimated under native engine", () => {
     expect(isSharedValue(shared)).toBe(true);
   });
 });
+
+describe("useSharedValue's listeners across renders", () => {
+  it("keeps one value per component, so a listener hears a later render's write", async () => {
+    const seen: Array<{
+      value: number;
+      addListener?: (id: number, f: (v: number) => void) => void;
+    }> = [];
+    function Holder({ n }: { n: number }) {
+      seen.push(Reanimated.useSharedValue(0) as never);
+      return <Text>{`render ${n}`}</Text>;
+    }
+    const view = await render(<Holder n={1} />);
+    await view.rerender(<Holder n={2} />);
+    expect(seen).toHaveLength(2);
+    expect(seen[1]).toBe(seen[0]);
+    const heard: number[] = [];
+    seen[0]!.addListener?.(1, (v) => heard.push(v));
+    seen[1]!.value = 5;
+    expect(heard).toEqual([5]);
+  });
+});

@@ -1044,6 +1044,9 @@ export function installRegistry(
   // The linked library registry, beside React Native's on the registry's own surface,
   // for the per-file accounting the native suite holds it to.
   registry.library = library?.registry ?? null;
+  // Which files the library registry holds, for a preset that requires one by path to
+  // get the registry's module (presets/reanimated.ts, ownHelpers).
+  nodeDispatch().channel("registry").libraryHolds = (file) => library?.holds(file) === true;
   globalThis.__vitest_native_registry_installed = true;
   // One reset for both layers: a library module holds React Native instances, so it
   // must never outlive the React Native registry instances it was linked to.
@@ -1157,6 +1160,8 @@ function linkLibraryRegistry(req, file, rnRegistry) {
   return {
     registry,
     isRegistryFile,
+    /** Whether `file` (its path as Node spells it) is one of the library registry's modules. */
+    holds: (filename) => idOf.has(filename),
     serve(request, parent) {
       let id = idOf.get(request);
       if (id === undefined) {

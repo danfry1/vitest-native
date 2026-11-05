@@ -2,7 +2,6 @@ import type { Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
 import { createRequire, Module } from "node:module";
-import fs from "node:fs";
 import path from "node:path";
 import { VitestNativeError } from "../errors.mjs";
 import { builtInPreset } from "./built-in.js";
@@ -183,8 +182,8 @@ export function mockCorrections(
   mock: Record<string, any>,
   dir: string,
   fromRegistry = false,
+  helpers: Helpers = ownHelpers(dir, fromRegistry),
 ): Record<string, any> {
-  const helpers = ownHelpers(dir, fromRegistry);
   const probes: Record<keyof Helpers, (f: Fn) => unknown> = {
     interpolate: (f) => f(5, [0, 10], [0, 100]),
     clamp: (f) => f(5, 0, 3),
@@ -205,6 +204,9 @@ export function mockCorrections(
   const fixed: Record<string, any> = { ...fixHelpers(mock) };
   const scrollFixed = neverCalls((h) => mock.useAnimatedScrollHandler?.({ onScroll: h }));
   if (scrollFixed) fixed.useAnimatedScrollHandler = handlers.useAnimatedScrollHandler;
+  // Probed with a plain function. Reanimated composes the handlers its own hooks build
+  // (workletEventHandler); a mock that composed only those would read as a no-op here and
+  // be replaced by one that also runs plain functions, which is a superset.
   if (neverCalls((h) => mock.useComposedEventHandler?.([h]))) {
     fixed.useComposedEventHandler = handlers.useComposedEventHandler;
   }
@@ -212,7 +214,15 @@ export function mockCorrections(
   let useSharedValue = mock.useSharedValue;
   if (lacksListeners(mock.useSharedValue)) {
     const own = mock.useSharedValue;
-    useSharedValue = (init: unknown) => withListeners(own(init));
+    // One value per component, as reanimated's own hook keeps it: a listener added on
+    // one render (Gesture Handler's, on a gesture's `enabled`) hears a write made
+    // through a later render's value. Outside a render, which the mock allows, a new one.
+    useSharedValue = (init: unknown) => {
+      const held = useRefOrNull<object>();
+      if (held === null) return withListeners(own(init));
+      if (held.current === null) held.current = withListeners(own(init));
+      return held.current;
+    };
     fixed.useSharedValue = useSharedValue;
   }
   const offsets = scrollHandlers(useSharedValue).useScrollOffset;
@@ -286,11 +296,13 @@ function ownHelpers(dir: string, fromRegistry = false): Helpers {
   for (const [file, names] of Object.entries(files)) {
     // The registry holds the files the package's react-native field leads to (src/).
     const source = path.join(dir, file.replace(/^lib\/module\//, "src/").replace(/\.js$/, ".ts"));
-    const loaded = loadOrNull(() =>
-      fromRegistry && fs.existsSync(source)
-        ? required(source)
-        : loadOwnFile(path.join(dir, file), /^\.\/(core|hook\/useSharedValue)(\.js)?$/, NOT_LOADED),
-    );
+    const own = () =>
+      loadOwnFile(path.join(dir, file), /^\.\/(core|hook\/useSharedValue)(\.js)?$/, NOT_LOADED);
+    // Only a file the registry holds: required by path otherwise, it would load a second
+    // copy of reanimated's source through Node.
+    const loaded =
+      (fromRegistry && registryHolds(source) ? loadOrNull(() => required(source)) : null) ??
+      loadOrNull(own);
     for (const name of names) {
       if (typeof loaded?.[name] === "function") helpers[name] = loaded[name];
     }
@@ -315,6 +327,21 @@ const EVENT_PROPS: Record<string, keyof ScrollHandlers> = {
   onMomentumScrollBegin: "onMomentumBegin",
   onMomentumScrollEnd: "onMomentumEnd",
 };
+
+/** React's `useRef` in a render, or null outside one (where hooks cannot run). */
+function useRefOrNull<T>(): { current: T | null } | null {
+  try {
+    return React.useRef<T | null>(null);
+  } catch {
+    return null;
+  }
+}
+
+/** Whether the library registry holds `file` (native/registry.mjs, through the dispatcher). */
+function registryHolds(file: string): boolean {
+  const dispatch = (globalThis as Record<symbol, any>)[Symbol.for("vitest-native.node-dispatch")];
+  return dispatch?.channel("registry").libraryHolds?.(file) === true;
+}
 
 /** What `load` returns, or null when it throws: not this version's layout, or not loadable here. */
 function loadOrNull(load: () => Record<string, any>): Record<string, any> | null {
@@ -368,7 +395,9 @@ function scrollHandlers(useSharedValue?: Fn) {
       const context: Record<string, unknown> = {};
       const run = (name: keyof ScrollHandlers) => (event: any) =>
         latest.current[name]?.(event?.nativeEvent ?? event, context);
-      const handler: any = run("onScroll");
+      // A spy, as the preset's handler was before it ran handlers, whose implementation
+      // (vi.fn(impl)) survives a reset.
+      const handler: any = vi.fn(run("onScroll"));
       handler[SCROLL_EVENTS] = Object.fromEntries(
         Object.entries(EVENT_PROPS).map(([prop, name]) => [prop, run(name)]),
       );

@@ -83,14 +83,27 @@ describe("reanimated mock corrections", () => {
     expect(shared.get()).toBe(1); // the mock's own get(), over its own state
   });
 
+  // Every helper loaded, so each probe runs: in this worker interpolateColor.js does not
+  // load (it imports React Native), and a missing helper keeps the name unprobed.
+  const allHelpers = {
+    interpolate: () => 50,
+    clamp: () => 3,
+    interpolateColor: () => "rgba(0, 0, 0, 1)",
+  };
+
   it("keep each name the mock answers itself", () => {
     const mock = workingMock();
-    const fixed = mockCorrections(mock, dir);
+    const fixed = mockCorrections(mock, dir, false, allHelpers);
     for (const name of [...NAMES, "interpolateColor"] as const) {
       expect(fixed[name], name).toBe(mock[name]);
     }
     expect(fixed.default.interpolate).toBe(mock.default.interpolate);
     expect(fixed.default.ScrollView).toBe(mock.default.ScrollView);
+  });
+
+  it("replace a no-op interpolateColor with reanimated's own", () => {
+    const fixed = mockCorrections(noOpMock(), dir, false, allHelpers);
+    expect(fixed.interpolateColor).toBe(allHelpers.interpolateColor);
   });
 
   it("keep a hook that needs a render (it throws outside one)", () => {
