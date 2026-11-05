@@ -116,15 +116,19 @@ reactNative({
 
 ## `transform`
 
-(Native engine.) Extra `node_modules` packages whose source should be transformed (Flow/TS/JSX) — the vitest-native equivalent of Jest's `transformIgnorePatterns`. Use it for pure-JS third-party libraries that ship untranspiled source:
+(Native engine.) `string[] | { include?: string[]; exclude?: string[] }`. Packages that declare `react-native` are compiled automatically; `transform` adjusts that set — the vitest-native equivalent of Jest's `transformIgnorePatterns`. An array (or `include`) adds packages that ship untranspiled source (Flow/TS/JSX) but aren't detected; `exclude` names packages that must never be compiled, whatever selected them:
 
 ```ts
 reactNative({
   transform: ['some-untranspiled-lib'],
 })
+
+reactNative({
+  transform: { include: ['some-untranspiled-lib'], exclude: ['some-build-tool'] },
+})
 ```
 
-A listed package's own dependencies are compiled too, as an auto-detected package's are.
+A listed package's own dependencies are compiled too, as an auto-detected package's are. See [untranspiled packages](/guide/mocking#packages-that-ship-untranspiled-source).
 
 ## `hotRuntime`
 

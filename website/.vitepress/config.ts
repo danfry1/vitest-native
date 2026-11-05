@@ -68,6 +68,7 @@ export default defineConfig({
             { text: 'Expo', link: '/guide/expo' },
             { text: 'Coverage', link: '/guide/coverage' },
             { text: 'Matchers & Snapshots', link: '/guide/matchers' },
+            { text: 'Mocking', link: '/guide/mocking' },
             { text: 'Test Helpers', link: '/guide/helpers' },
             { text: 'CLI', link: '/guide/cli' },
           ],
