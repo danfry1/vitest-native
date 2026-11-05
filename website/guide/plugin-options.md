@@ -33,7 +33,17 @@ Which engine to use. See [Choosing an Engine](/guide/engines) for the full break
 
 Set to `true` to log plugin activity — useful when debugging resolution or which engine resolved. Default `false`.
 
-It is an option of the plugin, set in the config: `reactNative({ diagnostics: true })`. There is no environment variable for it; `VITEST_NATIVE_DIAGNOSTICS` is not read.
+To turn it on for a single run without editing the config each time, read an environment variable you choose:
+
+```ts
+reactNative({ diagnostics: process.env.RN_TEST_DEBUG === "1" });
+```
+
+```bash
+RN_TEST_DEBUG=1 vitest run
+```
+
+vitest-native does not read a `VITEST_NATIVE_DIAGNOSTICS` variable. Older releases' `VITEST_NATIVE_*` settings, such as `VITEST_NATIVE_PLATFORM`, are no longer read either; set the matching option, such as `platform`. Startup warns when one is set.
 
 ## `presets`
 

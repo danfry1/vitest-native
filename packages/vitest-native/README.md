@@ -975,6 +975,17 @@ reactNative({
 
 This prints details about which presets were detected, which modules are being mocked, and how imports are resolved. Useful for debugging unexpected behavior.
 
+To turn it on for a single run, read an environment variable you choose, then run
+`RN_TEST_DEBUG=1 vitest run`:
+
+```ts
+reactNative({ diagnostics: process.env.RN_TEST_DEBUG === "1" });
+```
+
+There is no `VITEST_NATIVE_DIAGNOSTICS` variable. Older releases' `VITEST_NATIVE_*` settings, such
+as `VITEST_NATIVE_PLATFORM`, are no longer read; set the matching option. Startup warns when one
+is set.
+
 ---
 
 ## Support Policy
