@@ -794,6 +794,15 @@ export function analyzeJestConfig(root: string): MigrationReport {
     for (const p of classified.filter((c) => c.verdict === "unknown")) {
       attention.push(`${babel.source}: ${p.reason}`);
     }
+    if (babel.lazyImports.length) {
+      attention.push(
+        `${babel.source}: ${babel.lazyImports.join(", ")} — under Jest a package import ran only when the test ` +
+          `first used it; here every import runs when its file loads. A module a test never touched is now ` +
+          `evaluated, so a partial jest.mock of something it needs can fail (e.g. "requireOptionalNativeModule ` +
+          `is not a function"). Give such a mock the rest of the module: ` +
+          `jest.mock('x', () => ({ ...jest.requireActual('x'), ... })).`,
+      );
+    }
     if (!babel.evaluated) {
       attention.push(
         `${babel.source} could not be evaluated, so only plugins recognized by name are listed; ` +
