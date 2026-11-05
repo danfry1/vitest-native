@@ -59,27 +59,23 @@ Testing React Native code with Jest has traditionally required a patchwork of co
 
 ```bash
 # bun
-bun add -d vitest-native
+bun add -d vitest vitest-native @testing-library/react-native
 
 # npm
-npm install -D vitest-native
+npm install -D vitest vitest-native @testing-library/react-native
 
 # yarn
-yarn add -D vitest-native
+yarn add -D vitest vitest-native @testing-library/react-native
 
 # pnpm
-pnpm add -D vitest-native
+pnpm add -D vitest vitest-native @testing-library/react-native
 ```
 
-A real React Native project already provides what the native engine needs —
+`vitest` is a peer dependency. `@testing-library/react-native` is optional, but the examples
+below use it. A real React Native project already provides what the native engine needs —
 `react-native`, `@react-native/babel-preset`, and `@babel/core`. From Expo SDK 56,
 `babel-preset-expo` no longer depends on `@react-native/babel-preset`, and the engine compiles
-with Expo's own preset instead, as Metro does. Add
-`@testing-library/react-native` if you don't have it yet (the examples below use it):
-
-```bash
-npm install -D @testing-library/react-native
-```
+with Expo's own preset instead, as Metro does.
 
 See [Requirements](#requirements) for exact versions.
 
@@ -153,7 +149,7 @@ export default defineConfig({
       engine: "auto", // 'auto' | 'mock' | 'native' — auto → native when RN's babel deps are present, else mock
       platform: "ios", // 'ios' | 'android' (default: 'ios')
       // presets: omit to auto-detect; an array replaces auto-detection (`[]` means none)
-      mocks: {}, // Custom mock overrides for the react-native module
+      mocks: {}, // engine: 'mock' only; non-empty under native is a config error
       diagnostics: false, // Enable verbose logging
       assetExts: [".lottie"], // Additional asset extensions to stub
       transform: [], // Extra native-engine packages to Flow/TS transform
@@ -200,7 +196,7 @@ main fields and conditions remain governed by the engine's ownership policy;
 startup; changing it requires restarting the run.
 
 Default: `false`. Findings and remaining gates are recorded in
-[the investigation log](docs/metro-profile-investigation.md).
+[the investigation log](https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/docs/metro-profile-investigation.md).
 
 ### `engine`
 
@@ -627,7 +623,7 @@ common case it's a config swap:
 
 Named import, and drop `@vitejs/plugin-react` (vitest-native handles the JSX runtime itself). The
 full walkthrough — install, gotchas, what's the same — is in
-**[docs/migrating-from-vitest-react-native.md](docs/migrating-from-vitest-react-native.md)**.
+**[docs/migrating-from-vitest-react-native.md](https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/docs/migrating-from-vitest-react-native.md)**.
 
 ---
 
@@ -650,7 +646,7 @@ export default defineConfig({
 
 This is **not** a turnkey drop-in — a real suite still needs a small per-suite cleanup (mocks for
 native libraries with no preset, RNTL ≥ 12, record snapshots for Vitest in their own directory). The full recipe,
-with a worked real-app example, is in **[docs/migrating-from-jest.md](docs/migrating-from-jest.md)**.
+with a worked real-app example, is in **[docs/migrating-from-jest.md](https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/docs/migrating-from-jest.md)**.
 
 ---
 
@@ -688,17 +684,20 @@ Flow/TS/JSX, add it to the
 [`transform`](#plugin-options) list.
 
 **My `babel.config.js` plugin isn't running**
-Transforms go through Vite's JSX transformer, not your Babel config, so custom Babel plugins don't
-apply. Vite 6–7 use esbuild and Vite 8 uses Oxc; the plugin configures the automatic JSX runtime for
-both. RN/preset Flow-stripping is handled separately; for anything else, prefer a Vite plugin or a
-preset.
+Files your tests `import` go through Vite's JSX transformer, not your Babel config, so custom Babel
+plugins don't apply to them. Vite 6–7 use esbuild and Vite 8 uses Oxc; the plugin configures the
+automatic JSX runtime for both. Project files that Node loads (through `require()` or
+`jest.requireActual`) are compiled with your Babel config, as babel-jest compiles them.
+`vitest-native doctor` lists the Babel plugins a run does not apply; one your tests depend on, such
+as a macro plugin, runs through a Vite plugin that calls Babel
+([recipe](https://danfry1.github.io/vitest-native/migration/from-jest#babel-plugins-your-jest-run-applied)).
 
 **Snapshots differ after switching from Jest or the mock engine**
 Real RN computes host props (e.g. `<Text>`'s `accessible`, `allowFontScaling`) that mocks omit, so
 the tree is richer. Vitest also keys snapshots differently from Jest (`a > b 1`, not `a b 1`), so
 it cannot check Jest's `.snap` files, and `vitest -u` rewrites them for Vitest. While both runners
 run, give Vitest its own directory with `test.resolveSnapshotPath`; see
-[docs/migrating-from-jest.md](docs/migrating-from-jest.md#2d-snapshots-keep-jests-and-vitests-apart-then-record-vitests).
+[docs/migrating-from-jest.md](https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/docs/migrating-from-jest.md#2d-snapshots-keep-jests-and-vitests-apart-then-record-vitests).
 
 **`Worker terminated due to reaching memory limit` / `JS heap out of memory` (large native suites)**
 Every test file that renders real React Native loads a full renderer. Under the default per-file
@@ -1004,11 +1003,11 @@ Every release must pass:
   package export analysis.
 
 Current React Native edge releases are also tested weekly. See
-[the release-readiness policy](docs/release-readiness.md) for the exact gates and stability labels.
+[the release-readiness policy](https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/docs/release-readiness.md) for the exact gates and stability labels.
 
 For what is *promised* rather than what is tested — which exports and options are protected by
 semver, which are experimental, how the version ranges above may move, and what 1.0 will mean —
-see [versioning and stability](docs/versioning.md).
+see [versioning and stability](https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/docs/versioning.md).
 
 ---
 
