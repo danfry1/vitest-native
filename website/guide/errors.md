@@ -12,6 +12,10 @@ An option has the wrong type or value: for example a preset factory passed witho
 
 A `hotRuntime` or `metroConfig` options object has a key vitest-native does not know. The message lists the valid keys, and for `hotRuntime` suggests the closest one.
 
+### `UNSUPPORTED_NODE` {#UNSUPPORTED_NODE}
+
+The Node running Vitest is one vitest-native does not support: older than 22.22.3 on Node 22 or 24.12.0 on Node 24, or an end-of-life line such as 20, 23 or 25. Earlier releases of 22 and 24 lack the module hooks the native engine loads React Native through, so an update within your Node major is enough; otherwise use Node 26 or later. It also fires when a runtime reports a supported Node version but has no `module.registerHooks` (Bun, for example): run Vitest with Node. See the [requirements](/guide/install#requirements).
+
 ### `MOCKS_REQUIRE_MOCK_ENGINE` {#MOCKS_REQUIRE_MOCK_ENGINE}
 
 `mocks` was set while the native engine runs. It applies only to the mock engine, because the native engine runs the real `react-native` module. Use `vi.mock('react-native', …)` in a setup file or [`mockNativeModule`](/guide/helpers#mocknativemodule-name-impl) instead, or set `engine: 'mock'`. See [Mocking](/guide/mocking).

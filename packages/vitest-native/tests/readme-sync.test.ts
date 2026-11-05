@@ -47,19 +47,26 @@ describe("README.md", () => {
   });
 
   // "22.13.0" is written "22.13", "22.22.3" as is.
-  const shortVersion = (version: string) => version.replace(/\.0$/, "");
 
   function expectedRequirements(): Map<string, string> {
     const manifest = JSON.parse(fs.readFileSync(path.join(packageRoot, "package.json"), "utf8"));
     const { rn } = JSON.parse(
       fs.readFileSync(path.join(repoRoot, ".github", "rn-matrix.json"), "utf8"),
     );
-    const nodeRanges = (manifest.engines.node as string).split("||").map((range) => range.trim());
-    // The row's sentence has one floor per Node line; a third range needs a new sentence.
-    expect(nodeRanges, "engines.node").toHaveLength(2);
-    const [node22, node24] = nodeRanges.map((range) => shortVersion(range.match(/>=(\S+)/)![1]));
+    // One clause per supported Node line: a bounded range names its major ("22.22.3+ on Node
+    // 22"), the open-ended last one does not ("26+"). "24.12.0" is written "24.12".
+    const nodeRow = (manifest.engines.node as string).split("||").map((range) => {
+      const floor = range.trim().match(/>=(\S+)/)![1];
+      const short = floor.replace(/(\.0)+$/, "");
+      return range.includes("<") ? `${short}+ on Node ${floor.split(".")[0]}` : `${short}+`;
+    });
     return new Map([
-      ["Node.js", `${node22}+ on Node 22, or ${node24}+`],
+      [
+        "Node.js",
+        nodeRow.length === 1
+          ? nodeRow[0]
+          : `${nodeRow.slice(0, -1).join(", ")}, or ${nodeRow.at(-1)}`,
+      ],
       ["Vitest", list(majors("vitest"))],
       ["Vite", list(Object.values(peer("vite").minimumByMajor!).map((v) => `^${v}`))],
       ["React", `${peer("react").minimum.split(".")[0]} or later`],
