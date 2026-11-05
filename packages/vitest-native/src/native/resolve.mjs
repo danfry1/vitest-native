@@ -185,6 +185,25 @@ export function resolvePlatformFile(absBase, platform = "ios", sourceExts = METR
  * `path.resolve` drops a trailing separator, and with it the request's meaning: Node
  * and Metro both resolve `./lib/` to the directory, never to a sibling `lib.ts`.
  */
+// Extensions a request always names as its own, whatever the source and asset lists say.
+const EXPLICIT_EXTS = new Set(["js", "mjs", "cjs", "json", "node"]);
+
+/**
+ * Whether `request` ends in an extension, as Metro decides it: a known source or asset
+ * extension (or one Node always treats as explicit), not anything after the last dot.
+ * `./Linking.types` names no extension, so it is looked up as Linking.types.js and the
+ * rest; `path.extname` would have read `.types` and stopped the lookup (#506).
+ */
+export function hasKnownExtension(request, sourceExts, assetExts) {
+  const ext = path.extname(request).slice(1).toLowerCase();
+  if (ext === "") return false;
+  if (EXPLICIT_EXTS.has(ext)) return true;
+  if (sourceExts.some((source) => String(source).replace(/^\./, "").toLowerCase() === ext)) {
+    return true;
+  }
+  return assetExts.has(ext);
+}
+
 export function resolveRelativePlatformFile(request, fromFile, platform, sourceExts) {
   const base = path.resolve(path.dirname(fromFile), request);
   return resolvePlatformFile(

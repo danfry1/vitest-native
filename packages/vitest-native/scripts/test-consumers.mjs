@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import "./release-age.mjs";
+import { writeSnippets } from "./doc-snippets.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fixturesRoot = path.join(packageRoot, "consumer-tests");
@@ -224,6 +225,25 @@ function runExpoPnpmSuites(tarball) {
   }
 }
 
+// The README's and the quick start's code, run as written (scripts/doc-snippets.mjs).
+// The app is the Expo SDK 58 template fixture, on RNTL 14, whose async render() is
+// what an unawaited snippet breaks. Its own config and tests are removed first, so the
+// run is nothing but what the pages show.
+function runDocSnippets(tarball) {
+  const fixtureRoot = path.join(tempRoot, "doc-snippets");
+  fs.cpSync(path.join(fixturesRoot, "expo-template"), fixtureRoot, { recursive: true });
+  for (const name of fs.readdirSync(fixtureRoot)) {
+    if (name.startsWith("vitest.config.")) fs.rmSync(path.join(fixtureRoot, name));
+  }
+  fs.rmSync(path.join(fixtureRoot, "src"), { recursive: true, force: true });
+  const files = writeSnippets(fixtureRoot);
+  console.log(`\ndoc snippets: ${files.join(", ")}`);
+  addPackedDependency(fixtureRoot, tarball);
+  run("npm", ["install"], fixtureRoot);
+  // The fixture's own Vitest, never npx: a missing binary would resolve from the registry.
+  run(process.execPath, [path.join("node_modules", "vitest", "vitest.mjs"), "run"], fixtureRoot);
+}
+
 try {
   run("npm", ["pack", "--ignore-scripts", "--pack-destination", packRoot], packageRoot);
   const tarballName = fs.readdirSync(packRoot).find((name) => name.endsWith(".tgz"));
@@ -231,9 +251,17 @@ try {
   const tarball = path.join(packRoot, tarballName);
 
   // VN_CONSUMERS=expo-pnpm-suite runs only the real-suite Expo workspace (its own CI
-  // cell); VN_CONSUMERS=fixtures everything else. Unset runs both, as prepublishOnly does.
+  // cell); VN_CONSUMERS=fixtures everything else, the doc snippets included;
+  // VN_CONSUMERS=doc-snippets only the snippets (to run them locally, and for a
+  // docs-only pull request that changes a page carrying snippets).
+  // Unset runs all of them, as prepublishOnly does.
   const only = process.env.VN_CONSUMERS;
-  if (only !== "expo-pnpm-suite") {
+  const LEGS = ["fixtures", "doc-snippets", "expo-pnpm-suite"];
+  if (only && !LEGS.includes(only)) {
+    throw new Error(`VN_CONSUMERS=${only} is not one of ${LEGS.join(", ")}`);
+  }
+  const runs = (leg) => !only || only === leg || (leg === "doc-snippets" && only === "fixtures");
+  if (runs("fixtures")) {
     for (const fixture of [
       "bare",
       "expo",
@@ -383,7 +411,8 @@ try {
     run("npx", ["--no-install", "vitest-native", "migrate", "--write"], migrateFixture);
     run("npm", ["test"], migrateFixture);
   }
-  if (only !== "fixtures") runExpoPnpmSuites(tarball);
+  if (runs("doc-snippets")) runDocSnippets(tarball);
+  if (runs("expo-pnpm-suite")) runExpoPnpmSuites(tarball);
 
   console.log("\nThe packed consumer fixtures passed.");
 } finally {
