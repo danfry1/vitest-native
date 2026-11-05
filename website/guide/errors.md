@@ -1,16 +1,16 @@
 # Error Codes
 
-Every error vitest-native raises starts with `[vitest-native]` and has a `code`. The message says what went wrong and how to fix it; this page adds the common causes. Search for the start of the message, or, in your own `try`/`catch`, read `error.code`. (Vitest's reporter shows the message but not the code.)
+Errors vitest-native raises start with `[vitest-native]`, and most carry a `code`. The message says what went wrong and how to fix it; this page adds the common causes. Search for the start of the message, or, in your own `try`/`catch`, read `error.code`. (Vitest's reporter shows the message but not the code.)
 
 ## Configuration
 
 ### `INVALID_OPTION` {#INVALID_OPTION}
 
-An option has the wrong type or value: for example a preset factory passed without calling it (`presets.reanimated` instead of `presets.reanimated()`), a hand-built or copied preset object, a function inside [`mocks`](/guide/plugin-options#mocks), or a `hotRuntime.mode` other than `'auto'`. The message names the option and the accepted values. See [Plugin Options](/guide/plugin-options).
+An option has the wrong type or value: for example a preset factory passed without calling it (`presets.reanimated` instead of `presets.reanimated()`), a hand-built or copied preset object, a function inside [`mocks`](/guide/plugin-options#mocks), or a `hotRuntime.mode` other than `'auto'` (or `mode: 'auto'` combined with `allowUnboundedMemory: true`). A preset module listed by path raises it too when it does not exist, does not resolve, fails to import, default-exports an async function or something that is not a preset, or reuses a built-in or duplicate preset name. Unknown keys in `transform` raise it as well. The message names the option and the accepted values. See [Plugin Options](/guide/plugin-options).
 
 ### `UNKNOWN_OPTION` {#UNKNOWN_OPTION}
 
-An option object has a key vitest-native does not know, such as a misspelt `hotRuntime` or `metroConfig` option. The message lists the valid keys and suggests the closest one.
+A `hotRuntime` or `metroConfig` options object has a key vitest-native does not know. The message lists the valid keys, and for `hotRuntime` suggests the closest one.
 
 ### `MOCKS_REQUIRE_MOCK_ENGINE` {#MOCKS_REQUIRE_MOCK_ENGINE}
 
@@ -26,11 +26,11 @@ An installed peer is outside the supported range (Vitest, Vite, React or React N
 
 ### `UNSUPPORTED_POOL` {#UNSUPPORTED_POOL}
 
-The native engine, or the Skia preset, was asked to run on a VM pool (`vmThreads` or `vmForks`). React Native loads through Node's module hooks, which a VM pool's context does not use. Use `threads` (the default) or `forks`; for Skia alone, `presets: { skia: false }` also works.
+The native engine, or the Skia preset, was asked to run on a VM pool (`vmThreads` or `vmForks`). React Native loads through Node's module hooks, which a VM pool's context does not use. Use `threads` (the default) or `forks`, or `engine: 'mock'`, which needs no hooks; for Skia alone, `presets: { skia: false }` also works.
 
 ### `INLINE_BREAKS_OWNERSHIP` {#INLINE_BREAKS_OWNERSHIP}
 
-A Vitest `server.deps.inline` (or similar) rule pulls React Native packages into Vite while the native engine loads them through Node, so one package could load twice with separate state. Remove the overlapping inline rule; to compile an untranspiled package, use [`transform`](/guide/mocking#packages-that-ship-untranspiled-source) instead.
+A Vitest `server.deps.inline` setting (`true`, or a list naming React Native packages) pulls React Native packages into Vite while the native engine loads them through Node, so one package could load twice with separate state. Remove the overlapping inline rule; to compile an untranspiled package, use [`transform`](/guide/mocking#packages-that-ship-untranspiled-source) instead.
 
 ### `MODULE_OWNER_CONFLICT` {#MODULE_OWNER_CONFLICT}
 
@@ -54,13 +54,13 @@ With `metroConfig` on, the loaded Metro config has no usable `resolver.sourceExt
 
 ### `CONTEXT_INVALID` {#CONTEXT_INVALID}
 
-A test worker could not read the configuration the plugin writes for it: missing, from another vitest-native version, changed after it was written, or malformed. Re-run Vitest; if it persists, delete the directory the message names. See [troubleshooting](/guide/troubleshooting#context-invalid-at-startup).
+A test worker could not read the configuration the plugin writes for it: missing, from another vitest-native version, changed after it was written, or malformed. It also fires when one Vitest project is handed another project's settings: give each Vitest project its own `root`. Otherwise re-run Vitest, and if it persists, delete the directory the message names. See [troubleshooting](/guide/troubleshooting#context-invalid-at-startup).
 
 ## Loading your code
 
 ### `TRANSFORM_FAILED` {#TRANSFORM_FAILED}
 
-A file could not be compiled or loaded: Babel failed on a React Native or package file, or an asset has no name before its extension (`.png`), which Metro cannot register either. The message carries the underlying error. For a package that should not be compiled at all, see [`transform.exclude`](/guide/mocking#packages-that-ship-untranspiled-source).
+Babel's worker could not compile a file at all: it failed to start, stopped answering (a very large file or out of memory; raise Node's `--max-old-space-size`), or ended early (for example a `process.exit()` in a Babel config, preset or plugin). It also fires for an asset with no name before its extension (`.png`), which Metro cannot register either, and for an asset loaded before the plugin finished configuring. A syntax error Babel reports in a file is a different error, with no code.
 
 ### `BABEL_IGNORES_FILE` {#BABEL_IGNORES_FILE}
 
@@ -72,7 +72,15 @@ A file Node loads compiled to CommonJS uses `import.meta` beyond `url`, `filenam
 
 ### `PRESET_UNAVAILABLE` {#PRESET_UNAVAILABLE}
 
-A preset cannot be applied: it is listed in `presets` but none of its packages resolve from the project root (set the Vitest project's `root` to the package that depends on them, or remove the preset), a preset module changed after the run started (restart the run), or the installed package's exports could not be read. The message says which.
+A preset cannot be applied:
+
+- it is listed in `presets`, but none of its packages resolve from the project root: set the Vitest project's `root` to the package that depends on them, or remove the preset;
+- a preset module changed after the run started: restart the run;
+- the installed package's exports could not be read;
+- the Skia preset is on but Skia is not installed, or CanvasKit failed to load: install it, or set `presets: { skia: false }`;
+- the reanimated preset needs a `react-native` component that is missing, usually because a `vi.mock('react-native')` replaces the whole module: spread `importOriginal()` into the mock instead.
+
+The message says which.
 
 ### `PRESET_NOT_PREPARED` {#PRESET_NOT_PREPARED}
 
@@ -94,7 +102,11 @@ A helper from `vitest-native/helpers` ran before the plugin's setup, usually bec
 
 ### `JEST_API_UNSUPPORTED` {#JEST_API_UNSUPPORTED}
 
-A `jest.*` API with no Vitest equivalent was called (such as `jest.createMockFromModule`), or a `jest.mock` factory was used that this test file never registered. The message says what to use instead. See [jest-compat](/guide/jest-compat).
+A `jest.*` API with no Vitest equivalent was called (such as `jest.createMockFromModule`), or a `jest.mock` factory was used that this test file never registered. For an unsupported API, the message names the replacement. See [jest-compat](/guide/jest-compat).
+
+### `JEST_COMPAT_SETUP_MISSING` {#JEST_COMPAT_SETUP_MISSING}
+
+A test file uses `jest.mock()` factories, but the jest-compat setup is not loaded. Add `jestCompatSetup` from `vitest-native/jest-compat` to `test.setupFiles`, ahead of any setup file that calls `jest.mock()`. See [jest-compat](/guide/jest-compat).
 
 ### `JEST_MOCK_FACTORY_CYCLE` {#JEST_MOCK_FACTORY_CYCLE}
 
@@ -138,7 +150,7 @@ The hot runtime could not record a piece of process state it restores between fi
 
 ### `HOT_STATE_RESTORE_FAILED` {#HOT_STATE_RESTORE_FAILED}
 
-After a file, some process state could not be restored to how it was before the file ran (for example `jest.mock` registrations that remain). The message says what was left. Set `hotRuntime: false` for the suite and report it with the file involved.
+After a file, some process state could not be restored to how it was before the file ran (for example `jest.mock` registrations that remain). The message says what was left. One cause a test can create: a global defined as non-configurable (`could not delete …`); define it with `configurable: true`. Set `hotRuntime: false` for the suite and report it with the file involved.
 
 ### `HOT_CJS_CACHE_RESET` {#HOT_CJS_CACHE_RESET}
 

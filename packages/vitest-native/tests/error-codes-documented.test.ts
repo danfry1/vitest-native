@@ -11,6 +11,16 @@ const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const srcRoot = path.join(packageRoot, "src");
 const PAGE = path.resolve(packageRoot, "../../website/guide/errors.md");
 
+// Generated code builds the error itself, with the same name and a literal code
+// (jest-compat/transform.ts emits one into test files that use jest.mock factories).
+const GENERATED =
+  /name:\s*\\?"VitestNative(?:Type)?Error\\?",\s*code:\s*\\?"([A-Z][A-Z0-9_]*)\\?"/g;
+
+// The ErrorCode union (src/errors.d.mts) types `error.code` for users. Codes it lists
+// that nothing throws are recorded here, so removing or starting to throw one is a
+// decision this test makes visible.
+const TYPED_NOT_THROWN = ["MATCHER_BAD_RECEIVER", "UNTRANSPILED_PACKAGE"];
+
 // A constructor whose code is not a string literal cannot be read here. Each one is
 // listed with the codes it can carry, which must be thrown literally elsewhere too.
 const NON_LITERAL: Record<string, string[]> = {
@@ -36,6 +46,7 @@ function thrownCodes() {
     )) {
       codes.add(code);
     }
+    for (const [, code] of text.matchAll(GENERATED)) codes.add(code);
     if (/new VitestNative(?:Type)?Error\(\s*[^"'`\s]/.test(text)) {
       nonLiteral.add(path.relative(srcRoot, file).split(path.sep).join("/"));
     }
@@ -66,6 +77,16 @@ describe("website/guide/errors.md", () => {
     const documented = documentedCodes();
     expect(documented.length, "duplicate entries").toBe(new Set(documented).size);
     expect([...documented].sort()).toEqual([...codes].sort());
+  });
+
+  it("types every code it throws, and lists the typed codes it does not", () => {
+    const union = fs.readFileSync(path.join(srcRoot, "errors.d.mts"), "utf8");
+    const typed = new Set([...union.matchAll(/\|\s*"([A-Z][A-Z0-9_]*)"/g)].map(([, code]) => code));
+    expect(
+      [...codes].filter((code) => !typed.has(code)),
+      "thrown but not typed",
+    ).toEqual([]);
+    expect([...typed].filter((code) => !codes.has(code)).sort()).toEqual(TYPED_NOT_THROWN);
   });
 
   it("knows every constructor whose code is not a literal", () => {
