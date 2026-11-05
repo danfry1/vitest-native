@@ -8,8 +8,9 @@ name: Native engine — Vitest × RN matrix
 #  • React Native (rows). The engine runs REAL RN JS and mocks only the ~7-module
 #    native boundary, so it is sensitive to RN-version drift (the boundary has
 #    broken before on SectionList / RendererProxy changes between minors).
-#    Supported range (verified): RN 0.81–0.88. 0.80 and earlier fail host-component
-#    detection and are below the floor; latest is canaried in compat-check.yml.
+#    Supported range: RN 0.86–0.88 (0.86 is Expo SDK 57's; docs/versioning.md). Below
+#    it the native engine stops with UNSUPPORTED_PEER; latest is canaried in
+#    compat-check.yml.
 #    The rows and columns are defined once, in .github/rn-matrix.json. Keep the
 #    newest row in sync with the lockfile RN version — the fidelity page derives its
 #    published claim from that file (scripts/fidelity-report.mjs), so a stale matrix
@@ -27,8 +28,8 @@ name: Native engine — Vitest × RN matrix
 # cross-check — the full real-RN gate against that (Vitest, RN) pair.
 #
 # RNTL is the third dependency but is pinned to the lockfile version (14) here, not
-# matrixed — the supported peer range (>=12 <15) is proven by the RNTL 12 and 13
-# back-compat legs in ci.yml.
+# matrixed — the supported peer range (>=13 <15) is proven by the RNTL 13
+# back-compat leg in ci.yml.
 
 on:
   push:
@@ -129,7 +130,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       # The install-age gate (bunfig.toml minimumReleaseAge) is respected here too:
-      # we deliberately stay >=7 days behind. RN 0.81-0.85 are long past that.
+      # we deliberately stay >=7 days behind. The supported rows are long past that.
       - name: Pin react-native + babel-preset to ${{ matrix.rn }}
         env:
           RN_VERSION: ${{ matrix.rn }}

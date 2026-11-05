@@ -106,10 +106,10 @@ through the jest-compat layer. See [migrating from Jest](https://danfry1.github.
 | Node.js | 22.22.3+ on Node 22, 24.12+ on Node 24, or 26+ |
 | Vitest | 5.x |
 | Vite | ^8.0.5 |
-| React | 18 or later |
-| React Native | 0.81–0.88 |
+| React | 19 or later |
+| React Native | 0.86–0.88 |
 | Expo SDK | 57 and 58 |
-| React Native Testing Library | 12.x, 13.x or 14.x (optional) |
+| React Native Testing Library | 13.x or 14.x (optional) |
 
 Use the React version your React Native release requires, and a `@react-native/babel-preset`
 that matches its minor version. Each Node line starts at the release where Node's in-thread

@@ -63,9 +63,9 @@ jest.mock('./api', () => ({ get: vi.fn() }))  // named-only → `import api from
 
 …and in most cases you can **delete** third-party native-lib mocks entirely — see below.
 
-### Upgrade RNTL to 12–14 (recommended)
+### Upgrade RNTL to 13–14
 
-The `@jest/globals` alias unblocks RNTL < 12, but **upgrading to `@testing-library/react-native@^12` is the cleaner fix** (12 dropped the `@jest/globals` dependency). vitest-native supports RNTL 12–14. RNTL 14 makes rendering APIs async, so await `render` and other APIs as described in its migration guide.
+vitest-native supports RNTL 13–14. The `@jest/globals` alias unblocks RNTL < 12 while you upgrade, but **upgrading to `@testing-library/react-native@^13` or later is required** (12 dropped the `@jest/globals` dependency). RNTL 14 makes rendering APIs async, so await `render` and other APIs as described in its migration guide.
 
 ### Delete third-party native-lib mocks
 
@@ -195,4 +195,4 @@ The `jest.requireActual('react-native')` clone-and-override pattern (`const RN =
 
 ## 5. What "done" looks like
 
-A migrated suite runs under Vitest with: the jest-compat aliases + setup, RNTL 12–14, no manual third-party native mocks, top-level mocks converted, and snapshots recorded by Vitest. You get Vitest's speed/watch/UI while keeping `engine: 'native'` real-RN fidelity (or `engine: 'mock'` for the fast path). The compat layer is intentionally small — it removes the mechanical Jest coupling so the only work left is the genuinely suite-specific bits.
+A migrated suite runs under Vitest with: the jest-compat aliases + setup, RNTL 13–14, no manual third-party native mocks, top-level mocks converted, and snapshots recorded by Vitest. You get Vitest's speed/watch/UI while keeping `engine: 'native'` real-RN fidelity (or `engine: 'mock'` for the fast path). The compat layer is intentionally small — it removes the mechanical Jest coupling so the only work left is the genuinely suite-specific bits.

@@ -6,7 +6,7 @@ import * as rntl from "@testing-library/react-native/pure";
 import { expect, test } from "vitest";
 
 // RNTL 13's `cleanup` calls each unmount without awaiting it; its `cleanupAsync` waits.
-// RNTL 12's and 14's `cleanup` finish the unmount themselves (14's is async).
+// RNTL 14's `cleanup` finishes the unmount itself, and is async.
 const { cleanupAsync } = rntl as { cleanupAsync?: () => Promise<void> };
 const cleanUp = cleanupAsync ?? rntl.cleanup;
 
