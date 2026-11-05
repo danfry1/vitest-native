@@ -277,7 +277,8 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
     pass(`Node ${nodeVersion} (supported: ${range})`);
     // Supported, but measured to crash: a V8 garbage-collector segfault on worker threads
     // at startup in about 1.5% of cold hot-runtime runs, and in no run of 24.12, 24.14, 24.16 or 24.18
-    // (planning docs/node-24.13-sigsegv.md). Exactly this release: nothing else is known.
+    // (the troubleshooting guide, "Node 24.13.0: segmentation fault at startup"). Exactly
+    // this release: nothing else is known.
     if (nodeVersion === "24.13.0") warn(NODE_24_13_0_CRASH);
   } else {
     // The plugin's own startup message, so both say which release to install.
