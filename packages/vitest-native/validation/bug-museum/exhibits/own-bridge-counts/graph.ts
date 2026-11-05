@@ -18,7 +18,12 @@ export function writeGraph(): void {
       `export const size = 1 ${children.map((child) => `+ s${child}`).join(" ")};`,
       `export const used = [typeof create, sep];`,
     ].join("\n");
-    if (!fs.existsSync(file) || fs.readFileSync(file, "utf8") !== source)
-      fs.writeFileSync(file, source);
+    // Both test files write the graph, in parallel workers: each file is written whole to a
+    // file of its own and renamed into place, so a reader never sees a truncated module.
+    if (!fs.existsSync(file) || fs.readFileSync(file, "utf8") !== source) {
+      const partial = `${file}.${process.pid}.tmp`;
+      fs.writeFileSync(partial, source);
+      fs.renameSync(partial, file);
+    }
   }
 }

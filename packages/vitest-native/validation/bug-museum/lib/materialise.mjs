@@ -13,8 +13,8 @@
 //     they do in a consumer's install, and a different build can be swapped in;
 //   - the exhibit's `vendor/*` packages, copied (a registry install copies; a `file:`
 //     link would leave the real path outside node_modules);
-//   - the exhibit's workspace members, linked by name (`links` in exhibits.json), or at a
-//     path with a `/node_modules/` segment for a nested copy;
+//   - the exhibit's workspace members, linked by name (`links` in exhibits.json), or copied
+//     to a path with a `/node_modules/` segment, for a nested copy of a package;
 //   - `installedCopies`: a real copy of an installed package at a path in the exhibit
 //     (a second copy of React, as a monorepo app that has its own has);
 //   - the install axes the exhibit requires (exhibits.json `requires`):
@@ -224,11 +224,19 @@ export function materialise(exhibit, { work, build, vitest4, edits = [], ownersh
   fs.mkdirSync(modules, { recursive: true });
 
   // A name with a `/node_modules/` segment is a path inside the exhibit: a nested copy of
-  // a package, which a module under that directory resolves before the top-level one.
+  // a package, which a module under that directory resolves before the top-level one. It
+  // is copied, not linked: a link's real path is outside node_modules, so Vite would treat
+  // the package as project source instead of an installed one.
   for (const [name, dir] of Object.entries(exhibit.links ?? {})) {
-    const at = name.includes("/node_modules/") ? path.join(root, name) : path.join(modules, name);
+    const nested = name.includes("/node_modules/");
+    const at = nested ? path.join(root, name) : path.join(modules, name);
+    const inside = path.relative(root, at);
+    if (inside.startsWith("..") || path.isAbsolute(inside)) {
+      throw new Error(`${exhibit.id}: links entry ${name} is outside the exhibit`);
+    }
     fs.mkdirSync(path.dirname(at), { recursive: true });
-    fs.symlinkSync(path.join(root, dir), at);
+    if (nested) fs.cpSync(path.join(root, dir), at, { recursive: true, dereference: true });
+    else fs.symlinkSync(path.join(root, dir), at);
   }
   const vendor = path.join(root, "vendor");
   if (fs.existsSync(vendor)) {

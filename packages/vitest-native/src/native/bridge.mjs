@@ -335,8 +335,9 @@ function loadDependency(dep, importer, callstack) {
 }
 
 /**
- * Externalized answers already had, by the URL Vite's transform wrote. Vite resolves an
- * import from its importer before writing it, so two copies of one package are two URLs.
+ * Externalized answers already had, by Vite environment and the URL Vite's transform
+ * wrote. Vite resolves an import from its importer before writing it, so two copies of one
+ * package are two URLs.
  */
 const externals = new Map();
 
@@ -348,10 +349,12 @@ const externals = new Map();
  * map holds them once evaluated.
  */
 function fetchExternalOnce(dep, importer) {
-  const held = externals.get(dep);
+  const environment = environmentName();
+  const key = `${environment}\0${dep}`;
+  const held = externals.get(key);
   if (held !== undefined) return held;
-  const result = fetchSync(dep, importer.id, environmentName());
-  if ("externalize" in result) externals.set(dep, result);
+  const result = fetchSync(dep, importer.id, environment);
+  if ("externalize" in result) externals.set(key, result);
   return result;
 }
 
