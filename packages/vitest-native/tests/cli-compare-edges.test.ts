@@ -881,9 +881,9 @@ fs.copyFileSync(process.env.VN_FAKE_JEST_REPORT, out);
         "junit.xml": "<testsuites/>\n",
       },
     });
-    const report = jestReport(root, { "src/a.check.js": [{ title: "adds" }] });
+    const prepared = jestReport(root, { "src/a.check.js": [{ title: "adds" }] });
     const previous = process.env.VN_FAKE_JEST_REPORT;
-    process.env.VN_FAKE_JEST_REPORT = report;
+    process.env.VN_FAKE_JEST_REPORT = prepared;
     try {
       const { code, text } = await runCli(["--root", root]);
       expect(text).not.toContain("changed junit.xml");
