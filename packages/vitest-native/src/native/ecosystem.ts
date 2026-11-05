@@ -72,38 +72,104 @@ function publishesOnlyEsm(manifest: Record<string, unknown>): boolean {
   return manifest.type === "module" && !hasReactNativeBuild(manifest);
 }
 
-// A bare package name in a require, an import or an export-from of JavaScript source.
-const IMPORTED_PACKAGE =
-  /(?:\brequire\s*\(\s*|\bimport\s*\(\s*|\bfrom\s*|\bimport\s+)["']((?:@[\w.-]+\/)?[\w.-]+)(?:\/[^"']*)?["']/g;
-const SOURCE_FILE = /\.(?:[cm]?js|jsx|tsx?)$/;
-const referencedMemo = new Map<string, Set<string>>();
+// A module specifier in a require, a dynamic import, a static import or an export-from
+// (minified forms included: `import"x"`, `from'x'`). Type-only imports are removed first.
+const SPECIFIER = /(?:\brequire\s*\(\s*|\bimport\s*\(\s*|\bfrom\s*|\bimport\s*)["']([^"'\n]+)["']/g;
+const COMMENT = /\/\*[\s\S]*?\*\/|(^|[^:"'`\\])\/\/[^\n]*/g;
+const TYPE_ONLY = /\b(?:import|export)\s+type\b[^;]*?\bfrom\s*["'][^"']+["']/g;
+const RUNTIME_EXTENSIONS = [
+  ".native.js",
+  ".ios.js",
+  ".js",
+  ".mjs",
+  ".cjs",
+  ".jsx",
+  ".native.ts",
+  ".ios.ts",
+  ".ts",
+  ".native.tsx",
+  ".ios.tsx",
+  ".tsx",
+];
+const MAX_RUNTIME_FILES = 5000;
+// A bare package specifier (not a path, a URL, a builtin or a template's `${…}`).
+const PACKAGE_SPECIFIER = /^(?:@[\w.-]+\/)?[\w][\w.-]*(?:\/|$)/;
+const runtimeMemo = new Map<string, Set<string>>();
+
+/** The file a relative specifier names from `fromDir`, as Metro and Node find it, or null. */
+function runtimeFile(base: string): string | null {
+  const isFile = (file: string) => fs.statSync(file, { throwIfNoEntry: false })?.isFile() === true;
+  if (isFile(base)) return base;
+  for (const ext of RUNTIME_EXTENSIONS) if (isFile(base + ext)) return base + ext;
+  for (const ext of RUNTIME_EXTENSIONS) {
+    const index = path.join(base, `index${ext}`);
+    if (isFile(index)) return index;
+  }
+  return null;
+}
+
+/** Every string target of a manifest's `exports` root (all conditions), or none. */
+function exportTargets(exportsField: unknown): string[] {
+  if (typeof exportsField === "string") return [exportsField];
+  if (!exportsField || typeof exportsField !== "object") return [];
+  const node = exportsField as Record<string, unknown>;
+  const root =
+    "." in node ? node["."] : Object.keys(node).every((k) => !k.startsWith(".")) ? node : null;
+  const out: string[] = [];
+  const collect = (value: unknown) => {
+    if (typeof value === "string") out.push(value);
+    else if (value && typeof value === "object") Object.values(value).forEach(collect);
+  };
+  collect(root);
+  return out;
+}
 
 /**
- * The packages a package's own files require or import, by name: every source file in its
- * directory, its own node_modules excluded. Read once per directory and process. For the
- * peer edge only (see the closure walk), so a package is scanned only when it has a
- * required React Native peer that nothing declares.
+ * The packages a package loads when it runs, by name: the bare specifiers in the files
+ * reachable from its runtime entries (its `react-native` field, `main` and `exports`
+ * root) through relative requires and imports, with comments and type-only imports left
+ * out. Its config plugin, scripts and type declarations are not reached, so a package
+ * that names another only there (expo-constants' `expo`, from `expo/config`) does not
+ * load it. Read once per directory and process. For the peer edge only (see the closure
+ * walk).
  */
-function referencedPackages(dir: string): Set<string> {
-  let names = referencedMemo.get(dir);
+function runtimeImports(dir: string, manifest: Record<string, unknown>): Set<string> {
+  let names = runtimeMemo.get(dir);
   if (names) return names;
   names = new Set<string>();
-  const pending = [dir];
-  while (pending.length > 0) {
-    const current = pending.pop() as string;
-    // The package's own directory, and directories just listed in it.
-    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
-      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
-      const full = path.join(current, entry.name);
-      if (entry.isDirectory()) pending.push(full);
-      else if (SOURCE_FILE.test(entry.name) && !entry.name.endsWith(".d.ts")) {
-        for (const match of fs.readFileSync(full, "utf8").matchAll(IMPORTED_PACKAGE)) {
-          names.add(match[1]);
+  const entries = [
+    typeof manifest["react-native"] === "string" ? manifest["react-native"] : null,
+    typeof manifest.main === "string" ? manifest.main : null,
+    ...exportTargets(manifest.exports),
+  ].filter((entry): entry is string => entry !== null);
+  if (entries.length === 0) entries.push("index");
+  const pending = entries
+    .map((entry) => runtimeFile(path.resolve(dir, entry)))
+    .filter((file): file is string => file !== null && containsPath(dir, file));
+  const seen = new Set<string>();
+  while (pending.length > 0 && seen.size < MAX_RUNTIME_FILES) {
+    const file = pending.pop() as string;
+    if (seen.has(file) || file.endsWith(".json")) continue;
+    seen.add(file);
+    const code = fs.readFileSync(file, "utf8").replace(COMMENT, "$1").replace(TYPE_ONLY, "");
+    for (const match of code.matchAll(SPECIFIER)) {
+      const specifier = match[1];
+      if (specifier.startsWith(".")) {
+        const target = runtimeFile(path.resolve(path.dirname(file), specifier));
+        if (
+          target !== null &&
+          containsPath(dir, target) &&
+          !NODE_MODULES_DIR.test(path.relative(dir, target))
+        ) {
+          pending.push(target);
         }
+      } else if (PACKAGE_SPECIFIER.test(specifier)) {
+        const parts = specifier.split("/");
+        names.add(specifier.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0]);
       }
     }
   }
-  referencedMemo.set(dir, names);
+  runtimeMemo.set(dir, names);
   return names;
 }
 
@@ -336,6 +402,8 @@ export function detectEcosystemPackages(
   dirOf: PackageDirOf = dependencyDirOf,
   { reachedPaths = [], onReachedUndeclared }: ReachedPackages = {},
 ): string[] {
+  // Per detection, so a reinstall in a watch session is read afresh.
+  runtimeMemo.clear();
   // More than one root because `manifestsFrom` only walks UP. In a workspace the
   // run root is often above the package under test — Nx invokes tasks from the
   // workspace root, and Vitest's root defaults to the working directory — and the
@@ -702,19 +770,18 @@ export function detectEcosystemPackages(
         const installed = dependencyOf(pkg, peer);
         if (!installed || !admits(installed)) continue;
         // Into a detected package, as always; and into a React Native peer that nothing
-        // declares but that the package loads: required, installed beside it (a package
-        // manager installs a required peer itself: pnpm's auto-installed peers), and
-        // required or imported by the package's own files. That last test is what makes it
-        // reached: expo-constants lists `expo` as a required peer and never loads it, and a
-        // library that only dev-depends on expo-constants must not compile expo (and get
-        // Expo's runtime). An optional peer is not followed: those grew one Expo app from
+        // declares but that the package loads: required, installed beside it (pnpm, npm 7+
+        // and bun install a required peer themselves), and required or imported by the
+        // files its runtime entries reach (runtimeImports). That last test is what makes it
+        // reached: expo-constants lists `expo` as a required peer and names it only in its
+        // config plugin, scripts and types, and a library that only dev-depends on
+        // expo-constants must not compile expo (and get Expo's runtime). An optional peer is not followed: those grew one Expo app from
         // 157 to 206 compiled packages (expo's web peers), and the app never loads them.
         const loadedReactNativePeer =
           !detectedSet.has(peer) &&
           peersMeta?.[peer]?.optional !== true &&
           dependsOnReactNative(installed.manifest) &&
-          !ownsTheRun(peer) &&
-          referencedPackages(pkg.dir).has(peer);
+          runtimeImports(pkg.dir, pkg.manifest).has(peer);
         if (detectedSet.has(peer) || loadedReactNativePeer) reach(peer, installed);
       }
     }

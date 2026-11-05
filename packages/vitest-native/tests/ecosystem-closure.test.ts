@@ -485,6 +485,43 @@ describe("ecosystem detection: an isolated install layout", () => {
     expect(detectEcosystemPackages(root)).not.toContain("expo-ish");
   });
 
+  it("does not count a peer named only outside the package's runtime files", () => {
+    // expo-constants' real shape: its config plugin and scripts require `expo/config`, and
+    // its sources import a type from it; its runtime build never loads expo.
+    const root = isolated(
+      ["react-native", "constants-ish"],
+      {
+        "react-native": {},
+        "constants-ish": {
+          peerDeps: ["react-native", "expo-ish"],
+          fields: { main: "build/index.js" },
+          source: 'require("expo-ish/config");',
+        },
+        "expo-ish": { peerDeps: ["react-native"] },
+      },
+      [],
+      { linkPeers: true },
+    );
+    const store = path.join(
+      root,
+      "node_modules",
+      ".store",
+      "constants-ish",
+      "node_modules",
+      "constants-ish",
+    );
+    fs.mkdirSync(path.join(store, "build"), { recursive: true });
+    fs.writeFileSync(
+      path.join(store, "build", "index.js"),
+      [
+        'import type { Config } from "expo-ish/config";',
+        '// require("expo-ish") is how the config plugin reaches it',
+        'export const version = "1";',
+      ].join("\n"),
+    );
+    expect(detectEcosystemPackages(root)).not.toContain("expo-ish");
+  });
+
   it("does not follow a peer that is not installed beside its package", () => {
     expect(detectEcosystemPackages(routerLike(undefined, false))).not.toContain("linking-ish");
   });

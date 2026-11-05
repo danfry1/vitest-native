@@ -1,5 +1,5 @@
-// The default native engine. The package under test declares museum-image (expo-image's
-// shape); only its sibling, packages/app, declares museum-expo (expo's shape).
+// The default native engine. The project declares museum-router (expo-router's shape),
+// not museum-linking, its required peer (expo-linking's shape).
 import { defineConfig } from "vitest/config";
 import { reactNative } from "vitest-native";
 
