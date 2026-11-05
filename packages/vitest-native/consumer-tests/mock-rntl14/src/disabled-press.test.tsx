@@ -19,10 +19,9 @@ import { afterEach, expect, test, vi } from "vitest";
 // no longer blocks the press on its own. The mock marks disabled hosts with
 // pointerEvents:"none" so RNTL's isEventEnabled() rejects the press.
 //
-// This is the ONLY combination in CI that pairs the mock engine with RNTL 14
-// (unit tests run RNTL 12.9; the other consumer fixtures use the native
-// engine), so without this fixture the fix is unguarded. NOTE: render and
-// fireEvent MUST be awaited under RNTL 14.
+// This is the only packed install in CI that pairs the mock engine with RNTL 14
+// (the other consumer fixtures use the native engine). NOTE: render and fireEvent
+// MUST be awaited under RNTL 14.
 afterEach(() => cleanup());
 
 test("disabled Pressable does not fire onPress (mock + RNTL 14)", async () => {

@@ -31,15 +31,6 @@ function rntl13() {
   return exports;
 }
 
-/** RNTL 12 (build/): the predicate compares with the detected host name. */
-function rntl12() {
-  const getHostComponentNames = () => ({ text: "RCTText" });
-  const exports: Record<string, unknown> = {};
-  exports.isHostText = (element: { type?: unknown } | null) =>
-    element?.type === getHostComponentNames().text;
-  return exports;
-}
-
 type Predicate = (element: unknown) => boolean;
 
 /** How Babel's CommonJS output calls an import: through the exports object. */
@@ -56,10 +47,7 @@ describe("registerVirtualTextHost", () => {
     expect(mod.isHostText(nested)).toBe(true);
   });
 
-  for (const [version, make] of [
-    ["13", rntl13],
-    ["12", rntl12],
-  ] as const) {
+  for (const [version, make] of [["13", rntl13]] as const) {
     it(`wraps RNTL ${version}'s isHostText so callers reading the export accept it`, () => {
       const mod = make();
       expect(callThroughExports(mod, nested)).toBe(false);

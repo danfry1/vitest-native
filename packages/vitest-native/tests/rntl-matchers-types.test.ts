@@ -2,7 +2,7 @@
  * `vitest-native/rntl-matchers` declares RNTL's matcher interface itself, because RNTL
  * keeps it at a different internal path in each major. This keeps the copy honest: its
  * members must match the installed RNTL's `JestNativeMatchers`, parameter lists
- * included. CI runs this suite on the RNTL 12 and 13 legs as well as the locked 14.
+ * included. CI runs this suite on the RNTL 13 leg as well as the locked 14.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
