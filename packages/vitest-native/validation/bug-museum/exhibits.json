@@ -1477,6 +1477,24 @@
       "preFixRef": "43139a6^"
     },
     {
+      "id": "res-undeclared-required-peer",
+      "class": "transform/resolution",
+      "title": "A required React Native peer that nothing declares is not compiled",
+      "source": "#296 and #508: an Expo app declares expo-router but not expo-linking, its required peer, which pnpm installs itself (\"Cannot require() ES Module …/expo-linking/build/Linking.js because it is not yet fully loaded\"; \"Cannot find module …/Linking.types\", #506)",
+      "fixedBy": "open (#508)",
+      "bugSignature": "^peer\\.test\\.ts: (Error: )?(Cannot find module '[^']*museum-linking/build/Linking\\.types'|Cannot require\\(\\) ES Module [^ ]*museum-linking)",
+      "control": {
+        "why": "Declaring museum-linking in the project makes it a candidate, detected on its own manifest, which removes the precondition.",
+        "edits": [
+          {
+            "file": "package.json",
+            "find": "\"museum-router\": \"6.0.0\"",
+            "replace": "\"museum-router\": \"6.0.0\",\n    \"museum-linking\": \"8.0.0\""
+          }
+        ]
+      }
+    },
+    {
       "id": "res-transform-named-closure",
       "class": "transform/resolution",
       "title": "A package named in transform no longer has its dependencies compiled",

@@ -29,7 +29,13 @@ afterAll(() => {
 });
 
 // `fields`: other manifest fields, where a helper writes them (the workspace helper).
-type Pkg = { deps?: string[]; peerDeps?: string[]; fields?: Record<string, unknown> };
+type Pkg = {
+  deps?: string[];
+  peerDeps?: string[];
+  fields?: Record<string, unknown>;
+  /** index.js; module.exports = {} when absent. */
+  source?: string;
+};
 
 /** A project root with `installed` packages, and the project depending on `declares`. */
 function project(declares: string[], installed: Record<string, Pkg>): string {
@@ -352,6 +358,7 @@ describe("ecosystem detection: an isolated install layout", () => {
     declares: string[],
     installed: Record<string, Pkg>,
     hoisted: string[] = [],
+    { linkPeers = false }: { linkPeers?: boolean } = {},
   ): string {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-isolated-"));
     roots.push(root);
@@ -382,14 +389,16 @@ describe("ecosystem detection: an isolated install layout", () => {
           ...(pkg.peerDeps
             ? { peerDependencies: Object.fromEntries(pkg.peerDeps.map((d) => [d, "*"])) }
             : {}),
+          ...pkg.fields,
         }),
       );
-      fs.writeFileSync(path.join(dir, "index.js"), "module.exports = {};");
+      fs.writeFileSync(path.join(dir, "index.js"), pkg.source ?? "module.exports = {};");
     }
     for (const [name, pkg] of Object.entries(installed)) {
       // The store's node_modules that holds `name`: its dependencies go beside it.
       const modules = path.dirname(storeDir(name)).replace(/[\\/]@[^\\/]+$/, "");
-      for (const dep of pkg.deps ?? []) {
+      // pnpm links an installed peer beside the package too (an auto-installed peer).
+      for (const dep of [...(pkg.deps ?? []), ...(linkPeers ? (pkg.peerDeps ?? []) : [])]) {
         if (dep in installed) link(storeDir(dep), path.join(modules, ...dep.split("/")));
       }
     }
@@ -412,6 +421,110 @@ describe("ecosystem detection: an isolated install layout", () => {
       "@nav/core": { deps: ["deep-helper"] },
       "deep-helper": {},
     });
+
+  // #508: pnpm installs a required peer itself, so a package can reach one nobody
+  // declares. expo-router (compiled) requires expo-linking, its auto-installed peer; left
+  // uncompiled, its published ES module build was loaded by both module systems.
+  const routerLike = (linkingPeer: Pkg = { peerDeps: ["react-native"] }, linked = true) =>
+    isolated(
+      ["react-native", "router-ish"],
+      {
+        "react-native": {},
+        "router-ish": {
+          peerDeps: ["react-native", "linking-ish"],
+          deps: ["router-core"],
+          source: 'module.exports = require("linking-ish");',
+        },
+        "router-core": {},
+        "linking-ish": linkingPeer,
+      },
+      [],
+      { linkPeers: linked },
+    );
+
+  it("compiles a required React Native peer nothing declares, installed beside its package", () => {
+    const detected = detectEcosystemPackages(routerLike());
+    expect(detected).toContain("router-ish");
+    expect(detected).toContain("linking-ish");
+  });
+
+  it("does not follow an optional peer", () => {
+    const root = isolated(
+      ["react-native", "router-ish"],
+      {
+        "react-native": {},
+        "router-ish": {
+          peerDeps: ["react-native", "linking-ish"],
+          fields: { peerDependenciesMeta: { "linking-ish": { optional: true } } },
+          source: 'module.exports = require("linking-ish");',
+        },
+        "linking-ish": { peerDeps: ["react-native"] },
+      },
+      [],
+      { linkPeers: true },
+    );
+    expect(detectEcosystemPackages(root)).not.toContain("linking-ish");
+  });
+
+  it("does not follow a required peer that is not React Native", () => {
+    expect(detectEcosystemPackages(routerLike({}))).not.toContain("linking-ish");
+  });
+
+  it("does not follow a required React Native peer the package's files never load", () => {
+    // expo-constants' shape: `expo` is a required peer, and nothing in it loads expo.
+    const root = isolated(
+      ["react-native", "constants-ish"],
+      {
+        "react-native": {},
+        "constants-ish": { peerDeps: ["react-native", "expo-ish"] },
+        "expo-ish": { peerDeps: ["react-native"] },
+      },
+      [],
+      { linkPeers: true },
+    );
+    expect(detectEcosystemPackages(root)).not.toContain("expo-ish");
+  });
+
+  it("does not count a peer named only outside the package's runtime files", () => {
+    // expo-constants' real shape: its config plugin and scripts require `expo/config`, and
+    // its sources import a type from it; its runtime build never loads expo.
+    const root = isolated(
+      ["react-native", "constants-ish"],
+      {
+        "react-native": {},
+        "constants-ish": {
+          peerDeps: ["react-native", "expo-ish"],
+          fields: { main: "build/index.js" },
+          source: 'require("expo-ish/config");',
+        },
+        "expo-ish": { peerDeps: ["react-native"] },
+      },
+      [],
+      { linkPeers: true },
+    );
+    const store = path.join(
+      root,
+      "node_modules",
+      ".store",
+      "constants-ish",
+      "node_modules",
+      "constants-ish",
+    );
+    fs.mkdirSync(path.join(store, "build"), { recursive: true });
+    fs.writeFileSync(
+      path.join(store, "build", "index.js"),
+      [
+        'import type { Config } from "expo-ish/config";',
+        '// require("expo-ish") is how the config plugin reaches it',
+        'export const version = "1";',
+      ].join("\n"),
+    );
+    expect(detectEcosystemPackages(root)).not.toContain("expo-ish");
+  });
+
+  it("does not follow a peer that is not installed beside its package", () => {
+    expect(detectEcosystemPackages(routerLike(undefined, false))).not.toContain("linking-ish");
+  });
 
   it("resolves no transitive dependency from the project root (the layout's premise)", () => {
     // Control: if these resolved from the root, the layout would be hoisted and the
@@ -658,14 +771,19 @@ describe("ecosystem detection: a sibling-declared package the run reaches", () =
     expect(detect(path.join(root, "packages", "ui"))).not.toContain("rn-owned-child");
   });
 
-  it("follows a peer only into a package something declares", () => {
-    // An installed peer nobody declares (expo-router's, for an app that never imports
-    // it) is not added, and neither is its closure.
+  it("does not follow an optional peer nobody declares into its closure", () => {
+    // An installed optional peer nobody declares (expo-router, which @expo/cli lists as an
+    // optional peer, for an app that never imports it) is not added, and neither is its
+    // closure. In the real manifests that edge is optional; a required React Native peer
+    // installed beside its package is followed (#508, the isolated-install tests).
     const root = workspace(
       { ui: { declares: ["react-native", "expo-image"] } },
       {
         ...expoLike,
-        "expo-image": { peerDeps: ["expo", "react-native", "router-ish"] },
+        "expo-image": {
+          peerDeps: ["expo", "react-native", "router-ish"],
+          fields: { peerDependenciesMeta: { "router-ish": { optional: true } } },
+        },
         "router-ish": { peerDeps: ["react-native"], deps: ["router-helper"] },
         "router-helper": {},
       },

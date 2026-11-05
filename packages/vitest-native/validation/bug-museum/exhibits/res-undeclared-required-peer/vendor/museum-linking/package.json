@@ -1,0 +1,8 @@
+{
+  "name": "museum-linking",
+  "version": "8.0.0",
+  "main": "build/Linking.js",
+  "peerDependencies": {
+    "react-native": "*"
+  }
+}
