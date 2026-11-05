@@ -129,8 +129,14 @@ export interface LibraryMock {
   alsoFiles?: string[];
   /** The export the mock module is, when it is not the whole module ("default"). */
   exportKey?: string;
-  /** Whether the installed package can run its mock here; by default, whether `file` exists. */
+  /** Whether the installed package can run its mock here; by default, whether `entry` resolves. */
   available?: (packageDir: string, projectRoot: string) => boolean;
+  /**
+   * The preset's own names the mock lacks stay, from the preset's module: names a
+   * previous release served (bottom-sheet's `*_STATUS` enums and `BottomSheetFooter`,
+   * netinfo's `useNetInfoInstance`), so moving to the library's mock removes nothing.
+   */
+  keepsPresetNames?: boolean;
   /**
    * Whether the mock's module body sets up globals of the test environment
    * (worklets' sets `requestAnimationFrame`). Such a mock is built as each file is set
@@ -152,8 +158,10 @@ export const WORKLETS_MOCK: LibraryMock = {
 
 /** The installed package's directory, from `root`, when it ships `mock`; else null. */
 export function libraryMockDir(mock: LibraryMock, root: string): string | null {
-  const key = `${root}\0${mock.pkg}`;
-  let dir = mockDirs.get(key);
+  let byRoot = mockDirs.get(mock);
+  if (byRoot === undefined) mockDirs.set(mock, (byRoot = new Map()));
+  const key = root;
+  let dir = byRoot.get(key);
   if (dir === undefined) {
     dir = null;
     // On disk, up the node_modules directories: through require(), a preset's
@@ -162,19 +170,34 @@ export function libraryMockDir(mock: LibraryMock, root: string): string | null {
       const candidate = path.join(at, "node_modules", mock.pkg);
       if (fs.existsSync(path.join(candidate, "package.json"))) {
         const real = fs.realpathSync(candidate);
-        const available = mock.available ?? ((d: string) => fs.existsSync(path.join(d, mock.file)));
+        const available =
+          mock.available ??
+          ((d: string) => fs.existsSync(path.join(d, mock.file)) && entryResolves(mock, root));
         if (available(real, root)) dir = real;
         break;
       }
       if (path.dirname(at) === at) break;
     }
-    mockDirs.set(key, dir);
+    byRoot.set(key, dir);
   }
   return dir;
 }
 // Asked by a preset's module on every test file; the installed packages do not change
 // during a run.
-const mockDirs = new Map<string, string | null>();
+// Per mock: each has its own file, entry and availability, and a package can have more than one.
+const mockDirs = new WeakMap<LibraryMock, Map<string, string | null>>();
+
+/** Whether `require` of the mock's entry from `root` resolves (an `exports` map can refuse it). */
+function entryResolves(mock: LibraryMock, root: string): boolean {
+  try {
+    createRequire(path.join(root, "package.json")).resolve(
+      `${mock.pkg}/${mock.entry ?? mock.file}`,
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Whether reanimated's own mock can run for `projectRoot`: it loads the real package,

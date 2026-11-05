@@ -10,6 +10,7 @@ const NETINFO_MOCK: LibraryMock = {
   pkg: "@react-native-community/netinfo",
   entry: "jest/netinfo-mock.js",
   file: "jest/netinfo-mock.js",
+  keepsPresetNames: true,
 };
 
 /**

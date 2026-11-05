@@ -20,6 +20,7 @@ const BOTTOM_SHEET_MOCK: LibraryMock = {
   pkg: "@gorhom/bottom-sheet",
   entry: "mock",
   file: "mock.js",
+  keepsPresetNames: true,
 };
 
 // @gorhom/bottom-sheet renders through reanimated worklets + gesture-handler

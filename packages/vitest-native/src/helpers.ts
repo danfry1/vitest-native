@@ -91,6 +91,7 @@ export function setInsets(insets: {
     typeof hook.getMockImplementation === "function"
   ) {
     const current = hook.getMockImplementation();
+    presetMockUndos.push(() => hook.mockImplementation(current));
     hook.mockImplementation((...args: unknown[]) => ({
       ...(current ? current(...args) : { top: 0, right: 0, bottom: 0, left: 0 }),
       ...insets,
@@ -106,6 +107,8 @@ type PresetOverrideEntry = {
   previous: any;
 };
 let presetMockOverrides: PresetOverrideEntry[] = [];
+/** Undos of what a helper changed on a library's own mock (setInsets), replayed by resetAllMocks(). */
+let presetMockUndos: (() => void)[] = [];
 
 /**
  * Merge overrides into a preset's module mock (and its `default`, when that is
@@ -148,6 +151,8 @@ export function extendPresetMock(pkg: string, overrides: Record<string, any>): b
 }
 
 function restorePresetMockOverrides(): void {
+  for (let i = presetMockUndos.length - 1; i >= 0; i--) presetMockUndos[i]!();
+  presetMockUndos = [];
   for (let i = presetMockOverrides.length - 1; i >= 0; i--) {
     const { target, key, had, previous } = presetMockOverrides[i];
     // The journal only ever holds keys that passed the guard above, but that

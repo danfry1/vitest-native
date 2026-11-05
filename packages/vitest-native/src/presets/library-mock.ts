@@ -43,9 +43,10 @@ export function libraryMockModule(mock: LibraryMock, fallback: PresetModule): Pr
         if (dir) {
           const names = new Set(mockModuleExportNames(path.join(dir, mock.file)));
           for (const file of mock.alsoFiles ?? []) {
-            const full = path.join(dir, file);
-            if (fs.existsSync(full))
-              for (const name of mockModuleExportNames(full)) names.add(name);
+            for (const name of namesIn(path.join(dir, file))) names.add(name);
+          }
+          if (mock.keepsPresetNames) {
+            for (const name of presetNames(fallback, context)) names.add(name);
           }
           return [...names].sort();
         }
@@ -58,9 +59,51 @@ export function libraryMockModule(mock: LibraryMock, fallback: PresetModule): Pr
         const loaded = createRequire(path.join(root, "package.json"))(
           `${mock.pkg}/${mock.entry ?? mock.file}`,
         );
-        return mock.exportKey ? loaded[mock.exportKey] : loaded;
+        const module = mock.exportKey ? loaded?.[mock.exportKey] : loaded;
+        // A mock without the export it is meant to be is no module of it: the preset's.
+        if (module === undefined) return fallback.factory();
+        return mock.keepsPresetNames ? withPresetNames(module, fallback) : module;
       }
       return fallback.factory();
     },
   };
+}
+
+function presetNames(
+  fallback: PresetModule,
+  context: Parameters<NonNullable<PresetModule["exportsFor"]>>[0],
+): string[] {
+  const names = fallback.exportsFor ? fallback.exportsFor(context) : fallback.exports;
+  return Array.isArray(names) ? names : [];
+}
+
+/**
+ * `module` with the preset's own names it lacks, read from the preset's module when one
+ * is first read (it is built once, then). The library's mock object is left as it is.
+ */
+function withPresetNames(module: unknown, fallback: PresetModule): unknown {
+  if (module === null || typeof module !== "object") return module;
+  const names = Array.isArray(fallback.exports) ? fallback.exports : [];
+  const missing = names.filter((name) => name !== "default" && !(name in module));
+  if (missing.length === 0) return module;
+  let own: Record<string, unknown> | undefined;
+  const merged: Record<string, unknown> = { ...(module as Record<string, unknown>) };
+  for (const name of missing) {
+    Object.defineProperty(merged, name, {
+      enumerable: true,
+      configurable: true,
+      get: () => (own ??= fallback.factory() as Record<string, unknown>)[name],
+    });
+  }
+  return merged;
+}
+
+/** The export names of a further mock file, or none when it is absent or not readable as one. */
+function namesIn(file: string): string[] {
+  if (!fs.existsSync(file)) return [];
+  try {
+    return mockModuleExportNames(file);
+  } catch {
+    return [];
+  }
 }

@@ -8,6 +8,7 @@ import path from "node:path";
 import { afterAll, expect, it } from "vitest";
 import { mockModuleExportNames } from "../src/presets/esm-export-names.js";
 import { reanimated } from "../src/presets/index.js";
+import { libraryMockDir } from "../src/preset-map.js";
 
 const require = createRequire(import.meta.url);
 const dir = path.dirname(require.resolve("react-native-reanimated/package.json"));
@@ -39,4 +40,37 @@ it("is the preset's own module where the installed library cannot run its mock",
   const names = module.exportsFor!({ engine: "native", projectRoot: root } as never);
   expect(names).not.toContain("onlyInOldMock");
   expect(names).toContain("useSharedValue");
+});
+
+it("is no mock where the package's exports map refuses the mock's entry", () => {
+  const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-lib-mock-exports-"));
+  afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
+  const pkg = path.join(root, "node_modules", "vn-exports-lib");
+  fs.mkdirSync(pkg, { recursive: true });
+  fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "app" }));
+  fs.writeFileSync(
+    path.join(pkg, "package.json"),
+    JSON.stringify({ name: "vn-exports-lib", exports: { ".": "./index.js" } }),
+  );
+  fs.writeFileSync(path.join(pkg, "index.js"), "module.exports = {};\n");
+  fs.writeFileSync(path.join(pkg, "mock.js"), "module.exports = {};\n");
+  // The file is there, but `require("vn-exports-lib/mock")` is refused.
+  expect(
+    libraryMockDir({ pkg: "vn-exports-lib", entry: "mock", file: "mock.js" }, root),
+  ).toBeNull();
+  // One whose exports map lists the mock is one.
+  const listed = path.join(root, "node_modules", "vn-exports-lib-listed");
+  fs.mkdirSync(listed, { recursive: true });
+  fs.writeFileSync(
+    path.join(listed, "package.json"),
+    JSON.stringify({
+      name: "vn-exports-lib-listed",
+      exports: { ".": "./index.js", "./mock": "./mock.js" },
+    }),
+  );
+  fs.writeFileSync(path.join(listed, "index.js"), "module.exports = {};\n");
+  fs.writeFileSync(path.join(listed, "mock.js"), "module.exports = {};\n");
+  expect(
+    libraryMockDir({ pkg: "vn-exports-lib-listed", entry: "mock", file: "mock.js" }, root),
+  ).not.toBeNull();
 });
