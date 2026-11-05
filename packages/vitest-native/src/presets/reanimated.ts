@@ -2,6 +2,7 @@ import type { Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
 import { createRequire, Module } from "node:module";
+import fs from "node:fs";
 import path from "node:path";
 import { VitestNativeError } from "../errors.mjs";
 import { builtInPreset } from "./built-in.js";
@@ -41,7 +42,8 @@ const REANIMATED_MOCK: LibraryMock = {
   // names, and only while the mock's value still behaves so (mockCorrections), are
   // replaced: the helpers by reanimated's own (ownHelpers), the rest by ones that work
   // (scrollHandlers, withListeners). A reanimated whose mock does better keeps its own.
-  extend: (mock, dir) => mockCorrections(mock, dir),
+  // Under the native engine, beside the mock its library registry serves.
+  extend: (mock, dir) => mockCorrections(mock, dir, true),
 };
 
 type Fn = (...args: any[]) => any;
@@ -177,8 +179,12 @@ function withListeners<T extends object>(shared: T): T {
  * Reanimated's mock, with the names it answers with a no-op replaced (see
  * REANIMATED_MOCK). Exported for its tests.
  */
-export function mockCorrections(mock: Record<string, any>, dir: string): Record<string, any> {
-  const helpers = ownHelpers(dir);
+export function mockCorrections(
+  mock: Record<string, any>,
+  dir: string,
+  fromRegistry = false,
+): Record<string, any> {
+  const helpers = ownHelpers(dir, fromRegistry);
   const probes: Record<keyof Helpers, (f: Fn) => unknown> = {
     interpolate: (f) => f(5, [0, 10], [0, 100]),
     clamp: (f) => f(5, 0, 3),
@@ -268,15 +274,22 @@ const NOT_LOADED = new Proxy(
  * (it imports React Native's Flow source), nor, before 4.5, does interpolation.js
  * (its imports have no file extension, which Node's ES module loader rejects).
  */
-function ownHelpers(dir: string): Helpers {
+function ownHelpers(dir: string, fromRegistry = false): Helpers {
   const helpers: Helpers = {};
+  // Beside reanimated's own mock the files are already modules of its graph, which the
+  // library registry holds: a require by path is served from there, at no Node load.
+  const required = createRequire(path.join(dir, "package.json"));
   const files: Record<string, (keyof Helpers)[]> = {
     "lib/module/interpolation.js": ["interpolate", "clamp"],
     "lib/module/interpolateColor.js": ["interpolateColor"],
   };
   for (const [file, names] of Object.entries(files)) {
+    // The registry holds the files the package's react-native field leads to (src/).
+    const source = path.join(dir, file.replace(/^lib\/module\//, "src/").replace(/\.js$/, ".ts"));
     const loaded = loadOrNull(() =>
-      loadOwnFile(path.join(dir, file), /^\.\/(core|hook\/useSharedValue)(\.js)?$/, NOT_LOADED),
+      fromRegistry && fs.existsSync(source)
+        ? required(source)
+        : loadOwnFile(path.join(dir, file), /^\.\/(core|hook\/useSharedValue)(\.js)?$/, NOT_LOADED),
     );
     for (const name of names) {
       if (typeof loaded?.[name] === "function") helpers[name] = loaded[name];
