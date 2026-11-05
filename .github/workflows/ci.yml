@@ -219,6 +219,12 @@ jobs:
         if: matrix.part != 'native'
         run: bun run test
 
+      - name: Docs checks selection
+        # The docs job runs this only on docs-only pull requests, and a change to the
+        # script itself is not docs-only, so the selection runs here once as well.
+        if: runner.os == 'Linux' && matrix.node-version == '22.13.0' && !matrix.rntl
+        run: bun run --filter vitest-native test:docs
+
       - name: Native engine tests
         if: matrix.part != 'suite'
         run: bun run test:native
