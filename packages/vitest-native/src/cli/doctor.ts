@@ -244,6 +244,12 @@ export function resolutionRoot(start: string, exists = fs.existsSync): string {
   }
 }
 
+/** doctor's warning for Node 24.13.0, which troubleshooting.md explains. */
+export const NODE_24_13_0_CRASH =
+  "Node 24.13.0 can crash a test run at startup with a segmentation fault (an intermittent " +
+  "V8 garbage-collection crash on worker threads). Use another Node 24 release, such as 24.14 or later. " +
+  "See https://danfry1.github.io/vitest-native/guide/troubleshooting#node-24-13-0-segmentation-fault-at-startup";
+
 export function runDoctor(root: string, nodeVersion: string = process.versions.node): DoctorResult {
   const lines: string[] = [];
   let ok = true;
@@ -271,6 +277,11 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   const range = nodeRange();
   if (satisfiesNodeRange(nodeVersion, range)) {
     pass(`Node ${nodeVersion} (supported: ${range})`);
+    // Supported, but measured to crash: a V8 garbage-collector segfault on worker threads
+    // at startup in about 1.5% of cold hot-runtime runs, and in no run of 24.12, 24.14, 24.16 or 24.18
+    // (the troubleshooting guide, "Node 24.13.0: segmentation fault at startup"). Exactly
+    // this release: nothing else is known.
+    if (nodeVersion === "24.13.0") warn(NODE_24_13_0_CRASH);
   } else {
     // The plugin's own startup message, so both say which release to install.
     fail(unsupportedNodeMessage(nodeVersion));
