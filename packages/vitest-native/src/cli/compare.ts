@@ -597,7 +597,28 @@ function summary(file: RunnerFile, runner: Runner): FileSummary {
   };
 }
 
-/** A title as words and balanced `{…}` / `[…]` groups (printed values), in order. */
+/**
+ * The end of a printed string that starts at `start`: the index of its closing `"`, or -1.
+ * Jest's pretty-format prints a string `%p` value in double quotes, escaping `"` and `\`
+ * inside it. Only a quote that ends the token (followed by the end, whitespace or
+ * punctuation) closes it, so a lone `"` in ordinary text does not start a value.
+ */
+function printedStringEnd(title: string, start: number): number {
+  for (let j = start + 1; j < title.length; j++) {
+    if (title[j] === "\\") {
+      j++;
+      continue;
+    }
+    if (title[j] === '"') return /^($|[\s,;:)\]}])/.test(title.slice(j + 1)) ? j : -1;
+  }
+  return -1;
+}
+
+/**
+ * A title as words, balanced `{…}` / `[…]` groups and double-quoted strings (printed
+ * values), in order. A printed string is one token however many words it holds, so it
+ * lines up with Vitest's literal `%p` for the same value.
+ */
 function titleTokens(title: string): string[] {
   const tokens: string[] = [];
   let word = "";
@@ -607,6 +628,12 @@ function titleTokens(title: string): string[] {
   };
   for (let i = 0; i < title.length; i++) {
     const c = title[i];
+    const stringEnd = c === '"' && word === "" ? printedStringEnd(title, i) : -1;
+    if (stringEnd !== -1) {
+      tokens.push(title.slice(i, stringEnd + 1));
+      i = stringEnd;
+      continue;
+    }
     if (c === "{" || c === "[") {
       flush();
       let depth = 0;
@@ -683,6 +710,19 @@ function normalTitle(t: string): string {
 }
 
 /**
+ * Whether Vitest's token `b` is a literal `%p` standing in for Jest's printed value `a`.
+ * Punctuation stays attached to a token, so `%p,` stands for `0,` and `(%p)` for `(1)`:
+ * what surrounds `%p` must surround a non-empty value in `a`.
+ */
+function stoodInForBy(a: string, b: string): boolean {
+  const at = b.indexOf("%p");
+  if (at === -1 || b.indexOf("%p", at + 2) !== -1) return false;
+  const before = b.slice(0, at);
+  const after = b.slice(at + 2);
+  return a.length > before.length + after.length && a.startsWith(before) && a.endsWith(after);
+}
+
+/**
  * Whether two titles have the same shape: equal except where the runners are known to
  * print a parametrised title (`it.each`) differently, each of which can hide a different
  * value: a printed object or array (quotes and Jest's `[Array]` / `[Object]` ignored),
@@ -699,7 +739,7 @@ function sameShape(jest: string, vitest: string): boolean {
     if (b === undefined) return false;
     if (a === b) continue;
     if (isGroup(a) && isGroup(b) && sameValue(a, b)) continue;
-    if (b === "%p") continue;
+    if (stoodInForBy(a, b)) continue;
     if (/^\$[A-Za-z_$][\w$]*(?:\.[\w$]+)*$/.test(a) && b === "undefined") continue;
     return false;
   }
@@ -707,19 +747,37 @@ function sameShape(jest: string, vitest: string): boolean {
   return rest.length === 0 || (jest.includes("%") && rest.every((t) => t === "undefined"));
 }
 
-export type TitleMatch = "same" | "shape";
+export type TitleMatch = "same" | "placeholder" | "shape";
+
+/**
+ * Whether the titles differ only where Vitest left `%p` unformatted: the same number of
+ * tokens, each equal or a `%p` (with what surrounds it) standing in for Jest's value.
+ */
+function onlyPlaceholders(jest: string, vitest: string): boolean {
+  const j = titleTokens(jest);
+  const v = titleTokens(vitest);
+  return (
+    j.length === v.length &&
+    j.some((a, i) => a !== v[i]) &&
+    j.every((a, i) => a === v[i] || stoodInForBy(a, v[i]))
+  );
+}
 
 /**
  * How a Jest title matches a Vitest title, or null.
  *
  * - `same`: identical once quote style, whitespace and trailing commas are normalised
  *   (normalTitle). The same test; it confirms a Jest pass.
+ * - `placeholder`: equal except where Vitest printed a literal `%p` (onlyPlaceholders).
+ *   Vitest did not format the title at all, so it hides nothing Jest's print shows; the
+ *   pair confirms only when classify pairs the rows one to one, in order (see there).
  * - `shape`: equal only once a printed value is ignored (sameShape). Possibly the same
  *   test printed differently, possibly a different row (`allows { user: [Object] }` is
  *   Jest's print of any user). Listed for review, and never confirms a Jest pass.
  */
 export function titleMatch(jest: string, vitest: string): TitleMatch | null {
   if (normalTitle(jest) === normalTitle(vitest)) return "same";
+  if (onlyPlaceholders(jest, vitest)) return "placeholder";
   return sameShape(jest, vitest) ? "shape" : null;
 }
 
@@ -728,6 +786,12 @@ export interface ClassifyOptions {
   snapshotHint?: (file: string, message: string) => SnapshotHint | undefined;
   /** How the Vitest process ended; derived from the report when absent. */
   vitestRun?: VitestRun;
+  /**
+   * Both runners reported tests in declaration order (no `--randomize`, no
+   * `--sequence.shuffle`). Default true. When false, `%p` rows paired by position are only
+   * listed for review: the order no longer says which row is which.
+   */
+  ordered?: boolean;
 }
 
 const SNAPSHOT_MISMATCH = /Snapshot `[^`]*` mismatched/;
@@ -798,9 +862,13 @@ export function classify(
     for (const [block, js] of unmatched.jest) {
       const vs = unmatched.vitest.get(block) ?? [];
       const left: Group[] = [];
+      // A `%p` row is confirmed only when the block's unmatched rows pair one to one, in
+      // declaration order: then the row at a place is the same source row in both runners.
+      const oneToOne = options.ordered !== false && js.length === vs.length;
       js.forEach((a, i) => {
         const b = vs[i];
-        const match = b ? titleMatch(a.title, b.title) : null;
+        let match = b ? titleMatch(a.title, b.title) : null;
+        if (match === "placeholder" && !oneToOne) match = "shape";
         if (b && match) {
           pairs.push({ a, b, vitestTitle: b.title, matchedBy: match });
           vs[i] = undefined as unknown as Group;

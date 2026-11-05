@@ -864,7 +864,6 @@ describe("compare: matching", () => {
     // same rows, and pairs that are different rows (an adversarial review's).
     for (const [jest, vitest] of [
       ["obj-s { a: 1, b: [Array] }", "obj-s { a: 1, b: [ 1, 2 ] }"],
-      ['obj-p {"a": 1}', "obj-p %p"],
       ['dollar n {"deep": true}', "dollar n { deep: true }"],
       ["dollar-missing $nope", "dollar-missing undefined"],
       ["percent % a", "percent % a undefined"],
@@ -875,6 +874,24 @@ describe("compare: matching", () => {
     ]) {
       expect(titleMatch(jest, vitest), `${jest} ⇄ ${vitest}`).toBe("shape");
     }
+    // Different only where Vitest left %p unformatted: one or several, with punctuation
+    // attached, and printed strings with spaces in them (Bluesky's mention-manip suite).
+    // classify confirms these only when the block's rows pair one to one, in order.
+    for (const [jest, vitest] of [
+      ['obj-p {"a": 1}', "obj-p %p"],
+      [
+        'given input string "hello @alice goodbye" and cursor position 0, returns undefined',
+        "given input string %p and cursor position %p, returns %p",
+      ],
+      [
+        'given input string "hello @alice goodbye" and cursor position 6, returns "alice"',
+        "given input string %p and cursor position %p, returns %p",
+      ],
+      ['escaped "say \\"hi\\" now" ok', "escaped %p ok"],
+      ["wraps (1) once", "wraps (%p) once"],
+    ]) {
+      expect(titleMatch(jest, vitest), `${jest} ⇄ ${vitest}`).toBe("placeholder");
+    }
     for (const [jest, vitest] of [
       ["should charge the card when the order is placed", "should render the footer"],
       ["module Bluetooth is linked", "module WebView is linked"],
@@ -883,6 +900,12 @@ describe("compare: matching", () => {
       ["value 1", "value undefined"],
       // %p stands for one value, not for the rest of the title.
       ['pretty {"a": 1} on ios', "pretty %p on android"],
+      [
+        'given input string "hello @alice goodbye" and cursor position 0',
+        "given input string %p and cursor %p",
+      ],
+      // A quote inside ordinary text is not a printed value.
+      ['say "hi there to everyone', "say %p to everyone"],
     ]) {
       expect(titleMatch(jest, vitest), `${jest} ⇄ ${vitest}`).toBeNull();
     }
@@ -909,16 +932,54 @@ describe("compare: matching", () => {
     });
     const { code, text } = await runCli(["--root", root, "--jest-results", jest]);
     expect(code).toBe(1);
-    expect(text).toContain("5 of the 5 tests that pass under Jest do not pass under Vitest");
-    expect(text).toContain("5 matched only by title shape");
-    expect(text).toContain("✗ 5 tests could only be matched by title shape; check them");
+    // The %p rows pair one to one, in order, so they are confirmed; the other two are
+    // printed values that can hide a different row, so they are only listed.
+    expect(text).toContain("2 of the 5 tests that pass under Jest do not pass under Vitest");
+    expect(text).toContain("2 matched only by title shape");
+    expect(text).toContain("✗ 2 tests could only be matched by title shape; check them");
     expect(text).toContain("allows { user: [Object] }  ~  allows { user: { role: 'guest' } }");
-    expect(text).toContain('loads {"id": 3}  ~  loads %p');
+    expect(text).not.toContain('loads {"id": 3}  ~  loads %p');
     // Every %p row is matched, none is left "not collected".
     const headline = text.split("\n").find((l) => l.includes("do not pass under Vitest")) ?? "";
     expect(headline).not.toContain("not collected");
     expect(text).toMatch(/only under Vitest\s+0 /);
   }, 120_000);
+
+  it("lists %p rows for review when they do not pair one to one, or the run is shuffled", async () => {
+    const files = {
+      "vitest.config.mjs": VITEST_CONFIG,
+      "src/rows.check.js": `test.each([[1], [2], [3]])("loads %p", () => {});\n`,
+    };
+    // Jest reported two of the three rows: the places no longer say which row is which.
+    const fewer = scratchProject({ files });
+    const twoRows = jestReport(fewer, {
+      "src/rows.check.js": [{ title: "loads 1" }, { title: "loads 2" }],
+    });
+    const short = await runCli(["--root", fewer, "--jest-results", twoRows]);
+    expect(short.text).toContain("2 matched only by title shape");
+    // Shuffled: the same rows, but order is not identity.
+    const shuffled = scratchProject({ files });
+    const threeRows = jestReport(shuffled, {
+      "src/rows.check.js": [{ title: "loads 1" }, { title: "loads 2" }, { title: "loads 3" }],
+    });
+    const run = await runCli([
+      "--root",
+      shuffled,
+      "--jest-results",
+      threeRows,
+      "--vitest-args",
+      "--sequence.shuffle",
+    ]);
+    expect(run.text).toContain("3 matched only by title shape");
+    // The same rows, in order: confirmed.
+    const ordered = scratchProject({ files });
+    const inOrder = jestReport(ordered, {
+      "src/rows.check.js": [{ title: "loads 1" }, { title: "loads 2" }, { title: "loads 3" }],
+    });
+    const ok = await runCli(["--root", ordered, "--jest-results", inOrder]);
+    expect(ok.code).toBe(0);
+    expect(ok.text).not.toContain("matched only by title shape");
+  }, 180_000);
 
   it("never confirms a Jest test by an unrelated Vitest test at its place", async () => {
     const root = scratchProject({

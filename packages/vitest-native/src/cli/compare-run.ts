@@ -1056,6 +1056,9 @@ export async function runCompare(options: CompareOptions): Promise<number> {
     const comparison = classify(jestResults, vitestResults, {
       snapshotHint: (file, message) => snapshotHint(root, resolutions.get(file), file, message),
       vitestRun: { exitCode: run.code, errors: reader.errors, engine: reader.engine() },
+      ordered:
+        !options.jestArgs.some((a) => /^--randomize(=true)?$/.test(a)) &&
+        !options.vitestArgs.some((a) => /^--sequence\.shuffle(=true)?$/.test(a)),
     });
     vitestInfo.config += "; snapshots read from an isolated copy";
     // compare must leave the project as it found it. Checked before the summary, so a

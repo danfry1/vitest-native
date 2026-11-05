@@ -105,9 +105,15 @@ decides how:
   quote style (`'` and `"`, quotes kept), whitespace runs and a trailing comma may differ. Text
   outside printed values must match exactly: `it's on` and `it"s on`, or `a , b` and `a, b`, are
   different titles. The pair is the same test.
+- **Vitest left `%p` unformatted.** The titles differ only where Vitest printed a literal
+  `%p` (punctuation around it included, and Jest's printed string counted as one value, spaces
+  and all). Vitest's title hides nothing Jest's shows, so when the block's unmatched rows pair
+  one to one, in declaration order, each row is the same source row in both runners and the
+  pair is the same test. It is listed for review instead when the counts differ, or when the run
+  was shuffled (`--randomize`, `--sequence.shuffle`).
 - **Same shape — review.** The titles are equal only if a printed value is ignored: Jest's
   `{"a": 1}` or `{ user: [Object] }` against Vitest's `{ a: 1 }` or `{ user: { role: 'guest' } }`,
-  Vitest's literal `%p`, Jest's `$var` against Vitest's `undefined`, or the `undefined` Vitest
+  Jest's `$var` against Vitest's `undefined`, or the `undefined` Vitest
   appends after `%%`. That can be the same test printed differently, or a different row:
   `[Object]` is Jest's print of any object. These pairs are listed with both titles. They never
   confirm a Jest pass, so they block the claim: "✗ N tests could only be matched by title shape;
@@ -116,7 +122,7 @@ decides how:
   "named differently", which is unconfirmed too.
 
 Vitest leaves `%p` unformatted, so all rows of a `%p` table share one title there. Each row is
-matched to Jest's row at its place.
+matched to Jest's row at its place, as above.
 
 Rows whose titles both runners print identically (`perms: [Array]` in both) cannot be told apart
 by title. Their results are compared, not their data.
