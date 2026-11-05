@@ -20,5 +20,10 @@ it("serves the mock for a file URL import", async () => {
 });
 
 it("leaves a preset's deep path to the preset", async () => {
-  await expect(importFrom("react-native-gesture-handler/NoSuchSubpath")).resolves.toBeDefined();
+  // A deep path the real package does not have, whose leaf the preset exports.
+  const mod = (await importFrom("react-native-safe-area-context/SafeAreaView")) as Record<
+    string,
+    unknown
+  >;
+  expect(mod.SafeAreaView ?? (mod.default as Record<string, unknown>)?.SafeAreaView).toBeDefined();
 });
