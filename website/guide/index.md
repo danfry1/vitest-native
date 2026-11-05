@@ -4,7 +4,7 @@ vitest-native runs your React Native tests under [Vitest](https://vitest.dev), a
 
 It works the same for bare React Native and [Expo](/guide/expo) apps — including expo-router's own testing library, and a `migrate` command that translates a `jest-expo` setup.
 
-It is the maintained successor to [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native) — same core idea (externalize React Native, run its real JS under Node), rebuilt for Vitest 4 and 5.
+It is the maintained successor to [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native) — same core idea (externalize React Native, run its real JS under Node), rebuilt for Vitest 5.
 
 ## The idea
 

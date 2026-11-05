@@ -118,7 +118,7 @@ function runPnpmMonorepo(tarball) {
  */
 // The fixture pins Expo SDK 58. SDK 57 is the previous SDK, which most projects on
 // `latest` still run; the same fixture installs it with these pins (the expo-sdk57
-// fixture's), on RNTL 13 and the Vitest 4 floor.
+// fixture's), on RNTL 13.
 const EXPO_SDK57 = {
   "@testing-library/react-native": "13.3.3",
   expo: "57.0.24",
@@ -138,8 +138,8 @@ const EXPO_SDK57 = {
   "react-native-screens": "4.26.2",
   "react-native-worklets": "0.10.1",
   "react-test-renderer": "19.2.4",
-  vite: "7.3.2",
-  vitest: "4.1.11",
+  vite: "^8.3.4",
+  vitest: "5.0.5",
 };
 
 function pinVersions(dir, pins) {

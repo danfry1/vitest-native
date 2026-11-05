@@ -122,7 +122,7 @@ A `jest.mock` factory requires the module it mocks, directly or through somethin
 
 ## Hot runtime
 
-These come from the opt-in [hot runtime](/guide/engines#hot-runtime). Setting `hotRuntime: false` avoids all of them.
+These come from the opt-in [hot runtime](/guide/hot-runtime). Setting `hotRuntime: false` avoids all of them.
 
 ### `HOT_RUNTIME_OVERRIDDEN` {#HOT_RUNTIME_OVERRIDDEN}
 
@@ -134,7 +134,7 @@ The hot runtime's worker would load a different Vitest from the one running the 
 
 ### `HOT_MEMORY_UNBOUNDED` {#HOT_MEMORY_UNBOUNDED}
 
-The hot runtime cannot enforce its memory budget with one worker, because Vitest then runs every file as one task. Use `maxWorkers` of 2 or more, set `hotRuntime: false`, or accept the risk with `hotRuntime: { allowUnboundedMemory: true }`. See [worker recycling](/guide/engines#worker-recycling).
+The hot runtime cannot enforce its memory budget with one worker, because Vitest then runs every file as one task. Use `maxWorkers` of 2 or more, set `hotRuntime: false`, or accept the risk with `hotRuntime: { allowUnboundedMemory: true }`. See [workers and memory](/guide/hot-runtime#workers-and-memory).
 
 ### `HOT_MEMORY_BUDGET_EXCEEDED` {#HOT_MEMORY_BUDGET_EXCEEDED}
 

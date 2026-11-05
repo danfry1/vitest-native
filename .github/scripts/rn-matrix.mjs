@@ -22,7 +22,6 @@ export function matrixFor(definition, scope) {
   return {
     rn: definition.rn.filter((rn) => ends.has(rn)),
     vitest: definition.vitest,
-    include: definition.include.filter((cell) => ends.has(cell.rn)),
   };
 }
 

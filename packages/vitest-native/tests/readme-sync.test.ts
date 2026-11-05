@@ -39,7 +39,7 @@ const majors = (name: string) => {
   return Array.from({ length: maximumMajor! - first }, (_, i) => `${first + i}.x`);
 };
 const list = (items: string[]) =>
-  items.length === 2 ? items.join(" or ") : `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`;
+  items.length < 3 ? items.join(" or ") : `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`;
 
 describe("README.md", () => {
   it("is the same document in the repository and in the package, outside the contributors list", () => {
@@ -68,7 +68,15 @@ describe("README.md", () => {
           : `${nodeRow.slice(0, -1).join(", ")}, or ${nodeRow.at(-1)}`,
       ],
       ["Vitest", list(majors("vitest"))],
-      ["Vite", list(Object.values(peer("vite").minimumByMajor!).map((v) => `^${v}`))],
+      // One caret range per supported major, or the single minimum when only one major is.
+      [
+        "Vite",
+        list(
+          Object.values(peer("vite").minimumByMajor ?? { only: peer("vite").minimum }).map(
+            (v) => `^${v}`,
+          ),
+        ),
+      ],
       ["React", `${peer("react").minimum.split(".")[0]} or later`],
       ["React Native", `${rn[0]}–${rn.at(-1)}`],
       ["Expo SDK", expoSdkList("and", SUPPORTED_EXPO_SDKS)],

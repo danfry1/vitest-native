@@ -19,7 +19,6 @@ name: Bug museum
 #   RNTL 12   pre-rntl12-nested-text, pre-rntl12-nested-text-role
 #   RNTL 13   env-recoverable-error, env-rntl13-auto-cleanup, pre-rntl13-nested-text,
 #             pre-rntl13-native-stack-header
-#   Vitest 4  pfs-hot-automock-vitest4
 # The pnpm-layout exhibits run: run.mjs assembles that layout from the frozen install.
 
 # Path-filtered, which is safe only because the check is advisory (a required check

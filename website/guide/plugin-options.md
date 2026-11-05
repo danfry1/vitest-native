@@ -148,11 +148,11 @@ A listed package's own dependencies are compiled too, as an auto-detected packag
 
 **Type:** `boolean | 'auto' | object` · **Default:** `false` · **Engine:** native
 
-Reuses test workers across files instead of starting a fresh one for each, while still giving every file fresh app and test modules, mocks and timers. It is opt-in and experimental: it uses Vitest's custom worker APIs, which Vitest labels experimental, and it has [known differences](/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files) from per-file isolation. Whether it is faster depends on the suite, so measure it on yours. See [Hot runtime](/guide/engines#hot-runtime).
+Reuses test workers across files instead of starting a fresh one for each, while still giving every file fresh app and test modules, mocks and timers. It is opt-in and experimental: it uses Vitest's custom worker APIs, which Vitest labels experimental, and it has [known differences](/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files) from per-file isolation. Whether it is faster depends on the suite, so measure it on yours. See [Hot Runtime](/guide/hot-runtime).
 
 - `false` *(default)*: each test file runs in a fresh worker.
 - `'auto'`: use the hot runtime where the run can be bounded and recycled (at least two workers, no explicit pool, `test.isolate` or overriding CLI flag, and a matching Vitest install), and per-file isolation otherwise, printing why.
-- `true`: require the hot runtime. Startup fails with `HOT_MEMORY_UNBOUNDED` when the run has one worker, and with `HOT_RUNTIME_OVERRIDDEN` when an explicit pool or `test.isolate`, a CLI flag (`--no-isolate`, `--pool`, `--maxWorkers=1`, `--no-file-parallelism`) or a `sequence.groupOrder` worker-count clash rules it out.
+- `true`: require the hot runtime. Startup fails with [`HOT_MEMORY_UNBOUNDED`](/guide/errors#HOT_MEMORY_UNBOUNDED) when the run has one worker, and with [`HOT_RUNTIME_OVERRIDDEN`](/guide/errors#HOT_RUNTIME_OVERRIDDEN) when an explicit pool or `test.isolate`, a CLI flag (`--no-isolate`, `--pool`, `--maxWorkers=1`, `--no-file-parallelism`) or a `sequence.groupOrder` worker-count clash rules it out.
 - An object: tune worker recycling. On its own it requires the hot runtime, as `true` does; add `mode: 'auto'` to fall back as `'auto'` does.
 
 | Key | What it does |
@@ -169,7 +169,7 @@ reactNative({ hotRuntime: 'auto' })
 reactNative({ hotRuntime: { mode: 'auto', memoryLimit: 2 * 1024 ** 3 } })
 ```
 
-The worker count and memory limits come from a plan derived from the host or container's memory. It caps the worker count it picks itself at four; a `maxWorkers` you set is capped only by memory. See [worker recycling](/guide/engines#worker-recycling).
+The worker count and memory limits come from a plan derived from the host or container's memory. It caps the worker count it picks itself at four; a `maxWorkers` you set is capped only by memory. See [workers and memory](/guide/hot-runtime#workers-and-memory).
 
 ## `nativeModules`
 

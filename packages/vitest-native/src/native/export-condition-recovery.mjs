@@ -1,7 +1,7 @@
 // Recovery for packages whose `react-native` export target was never published.
 //
 // Vitest forwards the project's ssr resolve conditions to each worker as Node
-// `--conditions` flags (resolveConditions in Vitest 4 and 5), and both engines put
+// `--conditions` flags (resolveConditions in Vitest 5), and both engines put
 // `react-native` there, because Node-owned React Native packages must load their
 // native build. The flag is process-wide, so it also applies to what Vitest itself
 // loads in the worker before any test runs: the test environment. Jest loads its
