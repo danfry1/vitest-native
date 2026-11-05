@@ -170,7 +170,7 @@
   },
   "dependencies": {
     "flow-remove-types": "^2.337.0",
-    "magic-string": "^1.4.4"
+    "magic-string": "^1.4.5"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
