@@ -148,4 +148,22 @@ reactNative({ hotRuntime: { mode: 'auto', memoryLimit: 2 * 1024 ** 3 } })
 reactNative({ nativeModules: 'permissive' })
 ```
 
+## `metroConfig`
+
+::: warning Experimental
+Opt-in while the framework and package-manager compatibility matrix is being validated. Default: `false`.
+:::
+
+Pass `metroConfig: true` to use your project's Metro source-extension order and asset list in both Vite and Node resolution:
+
+```ts
+reactNative({ metroConfig: true })
+// Config outside the project root:
+reactNative({ metroConfig: { configFile: '../../metro.config.cjs' } })
+```
+
+Expo's defaults prefer TypeScript over JavaScript when both variants exist; bare React Native's defaults prefer JavaScript. The profile is evaluated in a short-lived child process using the project's own Metro tooling. Explicit `assetExts` additions still apply. Metro transforms are not installed: source formats such as SVG need a corresponding Vitest/Vite transform.
+
+A custom `resolver.resolveRequest` is code and does not run under Vitest: the source and asset extensions still apply, and a warning names the gap. Where one of its redirects matters to tests, reproduce it with `resolve.alias`. Package main fields and conditions keep the engine's own resolution ([package entry points](/guide/how-it-works#package-entry-points)); `diagnostics: true` reports the observed Metro values. Config is evaluated on startup; changing it requires restarting the run. Findings and remaining gates are recorded in [the investigation log](https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/docs/metro-profile-investigation.md).
+
 Next: [Third-Party Presets](/guide/presets).
