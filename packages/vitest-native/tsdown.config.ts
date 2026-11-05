@@ -29,11 +29,20 @@ const shared = {
 // top-level ones, native/ and jest-compat/. The bundles import those files rather than
 // inline a copy of them, so a process that loads both a bundle and the shipped runtime
 // (the plugin's process loads the registry and Metro profile modules from dist/native)
-// holds one instance of each module, with one set of caches. native/memory.mjs is the
-// exception: it ships only as a chunk. The CommonJS build keeps its copy, because a
-// require() of these ESM files would need require(esm) from every consumer.
-const VERBATIM_RUNTIME =
-  /[\\/]src[\\/](?:native[\\/](?!memory\.mjs$)|jest-compat[\\/])?[^\\/]+\.mjs$/;
+// holds one instance of each module, with one set of caches. The pattern lists exactly
+// the .mjs files isVerbatimRuntimeFile copies, so what ships verbatim and what the
+// bundles leave external cannot drift apart. The CommonJS build keeps its copy, because
+// a require() of these ESM files would need require(esm) from every consumer.
+const SEP = "[\\\\/]";
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const VERBATIM_RUNTIME = new RegExp(
+  `${SEP}src${SEP}(?:${VERBATIM_DIRS.flatMap((sub) =>
+    fs
+      .readdirSync(path.resolve("src", sub))
+      .filter((f) => f.endsWith(".mjs") && isVerbatimRuntimeFile(sub, f))
+      .map((f) => [sub, f].filter(Boolean).map(escapeRegExp).join(SEP)),
+  ).join("|")})$`,
+);
 
 export default defineConfig([
   {
