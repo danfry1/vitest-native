@@ -7,7 +7,7 @@ import { requireStore } from "@m/feature";
 vi.mock("@m/validator/store", () => ({ store: { value: "mock" } }));
 
 test("a require of a module the test mocks gets the mock, and it stays the mock", async () => {
-  expect(requireStore().store).toBe(store);
+  expect(requireStore().store, "the require gets the mock").toBe(store);
   expect(store.value).toBe("mock");
   expect((await import("@m/validator/store")).store.value).toBe("mock");
 });

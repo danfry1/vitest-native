@@ -6,6 +6,6 @@ import { requireUsesSep } from "@m/feature";
 vi.mock("node:path", () => ({ sep: "MOCK-SEP", default: { sep: "MOCK-SEP" } }));
 
 test("a required module's mocked builtin is the test's mock", async () => {
-  expect(requireUsesSep().seen).toBe("MOCK-SEP");
+  expect(requireUsesSep().seen, "the mocked builtin").toBe("MOCK-SEP");
   expect((await import("@m/validator/uses-sep")).seen).toBe("MOCK-SEP");
 });
