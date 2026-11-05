@@ -11,6 +11,7 @@ import { validatePeerDependency } from "../src/validate.js";
 import { nativePool } from "../src/native/pool.js";
 import { createRequire } from "node:module";
 import { runPluginConfig } from "./plugin-config.js";
+import { COLD_TRANSFORM_BUDGET_MS, warmTransform } from "./support/warm-transform.js";
 
 // Anchor all resolution to THIS test file's location (cwd-independent — vitest's
 // process.cwd() varies with where it was launched). Walk up from here looking for
@@ -36,6 +37,10 @@ const RN = path.dirname(fs.realpathSync(findUp("node_modules/react-native/packag
 const projectRoot = path.dirname(findUp("package.json", HERE));
 
 describe("transformRN", () => {
+  // The RN source files below are usually served from the disk cache, so whichever test
+  // first reached Babel paid the worker's cold start and could time out.
+  beforeAll(() => warmTransform(transformRN, projectRoot), COLD_TRANSFORM_BUDGET_MS);
+
   it("lowers RN 0.84 Flow component syntax to runnable JS", () => {
     const file = path.join(RN, "Libraries/Components/View/View.js");
     const src = fs.readFileSync(file, "utf8");
