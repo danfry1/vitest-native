@@ -98,6 +98,19 @@ On Vitest 4 the same steps apply with the experimental names: the cache director
 
 The plugin writes one description of each Vitest project, its _project context_, to `node_modules/.cache/vitest-native/contexts/` (or the system temp directory when that cannot be written), and every worker reads its configuration from that file. `CONTEXT_INVALID` means a worker found it missing, from another version, changed after it was written, or with a field of the wrong shape; the message names the reason, the field and the directory. Re-run Vitest, and if it persists delete that directory. A worker started without the plugin's configuration reports it too.
 
+## When React Native's precompiled modules are reused or rebuilt
+
+The native engine compiles React Native once into a single precompiled file (see [engines](/guide/engines)) and reuses it on later runs, one file per platform and configuration. It is stored in `node_modules/.cache/vitest-native/registry/` under the Vitest project's root. A project without a `node_modules` of its own, such as a workspace package whose dependencies are hoisted, uses the nearest one above it that holds React Native. When neither exists or can be written, it is `vitest-native-cache/registry/` in the system temp directory.
+
+A run reuses it when all of these are unchanged, and rebuilds it otherwise:
+
+- the vitest-native version;
+- which `react-native` the project resolves, and the versions of `react-native`, `react`, `expo`, `@babel/core` and the Babel preset React Native compiles with;
+- the `platform` option, the source and asset extensions (the defaults, or your Metro config's with `metroConfig: true`, plus the `assetExts` option), and `BABEL_ENV` / `NODE_ENV`;
+- the files it was built from, React Native's own and those they load from other packages such as `react`: each is checked by size and modification time, so editing or reinstalling either rebuilds it.
+
+To force a rebuild, delete that `registry` directory; files for earlier configurations stay there until you do. To run without the precompiled file (each module is then loaded on its own, more slowly, with the same results), set `VITEST_NATIVE_NO_REGISTRY=1`.
+
 ## Still stuck?
 
 If something that worked under Jest or the old `vitest-react-native` plugin doesn't work here, [open an issue](https://github.com/danfry1/vitest-native/issues) — parity is a goal, and the cross-check corpus is how we prove it.
