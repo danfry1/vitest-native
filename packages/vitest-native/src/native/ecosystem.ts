@@ -186,6 +186,71 @@ function manifestsFrom(projectRoot: string): { dir: string; manifest: Record<str
   }
 }
 
+/**
+ * The paths a `resolve.alias` config points into, whatever each entry's `find` is: a
+ * string, or a RegExp (an alias Vite applies to imports, which `jest.requireActual`
+ * cannot, so serializableAliases leaves it out of the compat layer's list). These seed
+ * the closure walk through the workspace members that contain them (ReachedPackages).
+ *
+ * A replacement may substitute part of the match (`/abs/packages/ui/src$1`): only the
+ * text before its first substitution is fixed (fixedReplacement), and that part is the
+ * path the alias reaches. A substitution that chooses the member (`/abs/packages/$1`)
+ * leaves a fixed part above every member, so it reaches none: walking every member such
+ * an alias could produce is the "seed from every member" #433 rejected. A `$` that is
+ * not a substitution (`/home/ci/$work`, a `c$` share) is part of the path. A replacement
+ * starting with `.` is taken from `root`, as the compat layer takes it; anything else
+ * that is not absolute (a package name) reaches no member.
+ *
+ * Plugins that resolve through `resolveId` (vite-tsconfig-paths, nxViteTsPaths) add no
+ * alias entry, so they are out of reach here by construction.
+ */
+export function aliasReachedPaths(alias: unknown, root: string): string[] {
+  const list = Array.isArray(alias)
+    ? alias
+    : alias && typeof alias === "object"
+      ? Object.entries(alias).map(([find, replacement]) => ({ find, replacement }))
+      : [];
+  const reached: string[] = [];
+  for (const item of list) {
+    const entry = item as { find?: unknown; replacement?: unknown } | null;
+    const replacement = entry?.replacement;
+    if (typeof replacement !== "string") continue;
+    const fixed = fixedReplacement(replacement, entry?.find instanceof RegExp);
+    const target = fixed.startsWith(".") ? path.resolve(root, fixed) : fixed;
+    if (target && path.isAbsolute(target)) reached.push(target);
+  }
+  return reached;
+}
+
+/**
+ * The text of an alias replacement up to its first substitution, with `$$` read as `$`.
+ * Vite applies an alias with `String.prototype.replace`, which substitutes `$&`, `` $` ``
+ * and `$'` for any pattern, and `$n` and `$<name>` for a RegExp; every other `$` is
+ * literal (with a string pattern, `$1` is too).
+ */
+function fixedReplacement(replacement: string, regExp: boolean): string {
+  let fixed = "";
+  for (let i = 0; i < replacement.length; i++) {
+    const char = replacement[i];
+    if (char !== "$") {
+      fixed += char;
+      continue;
+    }
+    const next = replacement[i + 1] ?? "";
+    if (next === "$") {
+      fixed += "$";
+      i++;
+    } else if (next === "&" || next === "`" || next === "'") {
+      break;
+    } else if (regExp && (/[0-9]/.test(next) || next === "<")) {
+      break;
+    } else {
+      fixed += "$";
+    }
+  }
+  return fixed;
+}
+
 export interface ReachedPackages {
   /**
    * Absolute paths the run imports outside its own package without declaring them as

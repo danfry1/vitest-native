@@ -25,7 +25,7 @@ import { fsModuleCacheKey, shouldDefaultFsModuleCache } from "./fs-module-cache.
 import { knownNativeModulesFor, nativeModuleSpecsFor } from "./native/native-modules.mjs";
 import { nativeEngineConfig, type JsxTransformConfig } from "./native/apply.js";
 import { detectEngine } from "./native/detect.js";
-import { detectEcosystemPackages } from "./native/ecosystem.js";
+import { aliasReachedPaths, detectEcosystemPackages } from "./native/ecosystem.js";
 import {
   containsPath,
   dependencyDirOf,
@@ -1997,10 +1997,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // jest.requireActual resolves through Node, which does not apply resolve.alias.
       // Hand the serializable entries to the compat setup so an aliased specifier
       // (`@/services/api`) reaches the same file the suite's imports do.
-      const requireAliases = serializableAliases(
-        (userConfig as { resolve?: { alias?: unknown } }).resolve?.alias,
-        resolvedRoot,
-      );
+      const userAlias = (userConfig as { resolve?: { alias?: unknown } }).resolve?.alias;
+      const requireAliases = serializableAliases(userAlias, resolvedRoot);
+      // Where aliases point, for the closure walk: every resolve.alias entry, including
+      // the RegExp ones the compat layer above cannot apply, then tsconfig `paths`.
+      const aliasTargets = aliasReachedPaths(userAlias, resolvedRoot);
       // tsconfig `paths` too, whenever Vite resolves them for imports: the user turned
       // `resolve.tsconfigPaths` on, or the plugin does for an Expo project (below).
       const userTsconfigPaths = (userConfig.resolve as { tsconfigPaths?: unknown } | undefined)
@@ -2010,7 +2011,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         userTsconfigPaths === true ||
         expoTsconfigPaths(resolvedRoot, userTsconfigPaths, viteMajorForPaths) === "enable"
       ) {
-        requireAliases.entries.push(...tsconfigPathAliases(resolvedRoot).entries);
+        const pathAliases = tsconfigPathAliases(resolvedRoot).entries;
+        requireAliases.entries.push(...pathAliases);
+        aliasTargets.push(
+          ...pathAliases.map(([, target]) => target).filter((target) => path.isAbsolute(target)),
+        );
       }
       if (requireAliases.entries.length > 0) fields.requireAliases = requireAliases.entries;
       if (requireAliases.skipped.length > 0) fields.requireAliasesSkipped = requireAliases.skipped;
@@ -2139,9 +2144,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           nativePresetNames,
           memoizePackageDirOf(dependencyDirOf),
           {
-            reachedPaths: requireAliases.entries
-              .map(([, target]) => target)
-              .filter((target) => path.isAbsolute(target)),
+            reachedPaths: aliasTargets,
             onReachedUndeclared: (name, dir) => {
               if (diagnostics) {
                 console.log(

@@ -1,6 +1,7 @@
 // Child processes for the config-axis harness (run.mjs): every one has a time budget, and
 // a step that runs out of it says so, instead of surfacing as a killed job.
 import { spawnSync } from "node:child_process";
+import "../../scripts/release-age.mjs";
 
 export const RUN_TIMEOUT_MS = 240_000;
 // A registry install of React Native, Vitest and RNTL: its own budget, well inside the
