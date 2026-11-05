@@ -73,6 +73,31 @@ One deliberate component-level exception: `TextInput` is replaced with the same 
 
 This is the same architecture as the original [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native), rebuilt to track current Vitest and React Native.
 
+### Mocking React Native itself
+
+`vi.mock('react-native')` works under both engines, including the `importOriginal()` form that keeps everything you don't name:
+
+```ts
+vi.mock('react-native', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-native')>()),
+  Alert: { alert: vi.fn() },
+}))
+```
+
+Under `engine: 'native'` this does **not** swap React Native for a mock: React Native still runs for real in Node, and your test and app code get a module that re-exports that same instance with your replacements on top. `Platform.OS` is still real, `<View>` still renders `RCTView`, and only the exports you replaced are yours. The replacement covers your project's own code; any third-party package gets the unmocked React Native through its own `require`.
+
+For native modules specifically, prefer [`mockNativeModule()`](/guide/helpers#mocknativemodule-name-impl): it drives the same boundary the engine already mocks, under both engines.
+
+### React Native packages in `node_modules`
+
+Most of the React Native ecosystem publishes untranspiled source (JSX, Flow or TypeScript) on the assumption that Metro will compile it, which Node cannot run. Under other runners that means growing a `transformIgnorePatterns` allowlist one `SyntaxError: Unexpected token '<'` at a time. The native engine detects these packages instead: packages your project depends on that declare `react-native` as a dependency or peer dependency, and their runtime dependencies, are compiled with your project's React Native Babel preset as Node loads them. Nothing to configure. Packages a [preset](/guide/presets) replaces are skipped (their real source never loads), and so is the test infrastructure itself (`@testing-library/react-native` and the renderers, where a second copy breaks rendering). For a package the detection misses, list it in [`transform`](/guide/plugin-options#transform).
+
+These packages are loaded by Node, so `vi.mock('the-package')` applies to what your test and app code import, but not to a `require()` inside another Node-loaded library: a library's own import of a mocked package still gets the real one. Platform-specific files resolve the way Metro resolves them for these packages too (`@react-navigation`'s `useLinking.native.js`, for example), not only for your own code.
+
+### Package entry points
+
+Package entries resolve the way Metro resolves them: the `react-native` export condition and the `react-native` main field win over the standard ones, so a package gives your tests its React Native build rather than its web or Node build. This applies wherever those fields appear, including on packages that aren't React Native libraries (Algolia's clients, `nanoid` and `msgpackr` all carry one). That matches what the app runs, but a dependency can resolve to a different file here than under a plain Node runner. To pin one, use an explicit `resolve.alias`.
+
 ### Loader hooks run in-thread
 
 Externalized packages loaded with `import` pass through vitest-native's Node loader hooks (preset redirects, platform extensions, on-the-fly compilation). On Node 22.22.3+ on Node 22, 24.12+ on Node 24, and Node 26 on, these are installed with `module.registerHooks()` and run synchronously on each test worker's own thread. Other Node versions use `module.register()` (earlier releases with `registerHooks` fail with it in-thread: expo-router's navigation elements do not load, and the hot runtime's module reset misbehaves), which runs the hooks on a separate loader thread, so every resolve and load waits on a cross-thread request. Measured on a 104-file production suite, that wait was 18% of worker CPU time. `VITEST_NATIVE_LOADER_THREAD=1` forces the threaded hooks, for comparing the two.
