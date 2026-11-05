@@ -407,11 +407,8 @@ jobs:
           # longest leg.
           - gate: consumers-expo-pnpm
             label: Expo pnpm suite
-          # Both supported Vitest majors in one job, one after the other: about 130 s
-          # each after a 35 s setup, so the job still ends before the full gate legs,
-          # and a pull request starts one job fewer under the concurrent-job cap.
           - gate: vitest-semantics
-            label: Vitest semantics, Vitest 5 and the Vitest 4 floor
+            label: Vitest semantics
           - gate: hot-runtime
             label: hot runtime and registry
 
@@ -497,14 +494,6 @@ jobs:
         if: matrix.gate == 'vitest-semantics'
         env:
           VN_SEMANTICS_VITEST: 5.0.1
-        run: bun run --filter vitest-native validate:vitest-semantics
-
-      - name: Vitest semantics under the defaults (Vitest 4 floor)
-        # The same scenarios on the oldest supported Vitest. Runs even when the Vitest 5
-        # step failed, so one pull request reports both majors.
-        if: ${{ !cancelled() && matrix.gate == 'vitest-semantics' }}
-        env:
-          VN_SEMANTICS_VITEST: 4.1.11
         run: bun run --filter vitest-native validate:vitest-semantics
 
       - name: Test packed consumer projects

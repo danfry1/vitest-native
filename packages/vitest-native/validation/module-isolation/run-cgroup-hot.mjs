@@ -95,7 +95,7 @@ try {
           "resident-singleton": "file:./resident-singleton",
           "test-renderer": "^1.2.0",
           vite: "8.2.0",
-          vitest: "4.1.10",
+          vitest: "5.0.5",
           "vitest-native": `file:./${packed}`,
         },
       },

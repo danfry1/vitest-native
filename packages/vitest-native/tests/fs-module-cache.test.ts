@@ -66,13 +66,11 @@ describe("fsModuleCacheKey", () => {
 });
 
 describe("shouldDefaultFsModuleCache", () => {
-  it("turns the cache on under Vitest 5 only when the user has not chosen", () => {
-    expect(shouldDefaultFsModuleCache(5, undefined)).toBe(true);
-    expect(shouldDefaultFsModuleCache(5, {})).toBe(true);
-    expect(shouldDefaultFsModuleCache(4, {})).toBe(false);
-    expect(shouldDefaultFsModuleCache(Number.NaN, {})).toBe(false);
-    expect(shouldDefaultFsModuleCache(5, { fsModuleCache: false })).toBe(false);
-    expect(shouldDefaultFsModuleCache(5, { experimental: { fsModuleCache: false } })).toBe(false);
+  it("turns the cache on only when the user has not chosen", () => {
+    expect(shouldDefaultFsModuleCache(undefined)).toBe(true);
+    expect(shouldDefaultFsModuleCache({})).toBe(true);
+    expect(shouldDefaultFsModuleCache({ fsModuleCache: false })).toBe(false);
+    expect(shouldDefaultFsModuleCache({ experimental: { fsModuleCache: false } })).toBe(false);
   });
 });
 
@@ -86,9 +84,7 @@ describe("the plugin", () => {
     expect(off.test.fsModuleCache).toBeUndefined();
   });
 
-  // Vitest 5 passes defineCacheKeyGenerator; Vitest 4.0.11 and later 4.x pass only
-  // experimental_defineCacheKeyGenerator, for `experimental.fsModuleCache`.
-  it.each(["defineCacheKeyGenerator", "experimental_defineCacheKeyGenerator"])(
+  it.each(["defineCacheKeyGenerator"])(
     "registers its cache key with Vitest through %s",
     async (hook) => {
       const plugin = reactNative({ engine: "mock" }) as never as {

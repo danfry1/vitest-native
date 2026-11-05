@@ -15,7 +15,6 @@ import {
 import { validatePeerDependency } from "../src/validate.js";
 import { runInit } from "../src/cli/init.js";
 import { runDoctor } from "../src/cli/doctor.js";
-import { viteMajor } from "../src/cli/babel-config.js";
 import { analyzeJestConfig } from "../src/cli/migrate.js";
 import { contextOf } from "./project-context-helpers.js";
 
@@ -112,48 +111,34 @@ describe("the running Vite", () => {
     await expect(runningViteVersion({ meta: { viteVersion: "8.3.4" } })).resolves.toBe("8.3.4");
   });
 
-  it("falls back to the vite module's own version export", async () => {
-    const vite = (await import("vite")) as { version: string };
-    await expect(runningViteVersion(undefined)).resolves.toBe(vite.version);
+  it("is null without a hook context", async () => {
+    await expect(runningViteVersion(undefined)).resolves.toBeNull();
   });
 
   it("is read from the module, not the manifest, for diagnostics", () => {
     expect(installedViteVersion(vitePlusProject())).toBe("8.3.4");
-    expect(viteMajor(vitePlusProject())).toBe(8);
   });
 
   it("passes the peer check under Vite+, where the manifest names the wrapper's version", () => {
     const root = vitePlusProject();
     // The lookup by name is the bug: it finds 1.3.0.
-    expect(validatePeerDependency("vite", "6.4.2", root, 9)).toMatch(/found 1\.3\.0/);
-    expect(validatePeerDependency("vite", "6.4.2", root, 9, undefined, "8.3.4")).toBeNull();
+    expect(validatePeerDependency("vite", "8.0.5", root, 9)).toMatch(/found 1\.3\.0/);
+    expect(validatePeerDependency("vite", "8.0.5", root, 9, "8.3.4")).toBeNull();
   });
 
   it("names which Vite it measured when the running one is too old", () => {
     expect(
-      validatePeerDependency(
-        "vite",
-        "6.4.2",
-        PACKAGE_ROOT,
-        9,
-        undefined,
-        "6.0.0",
-        "the running Vite",
-      ),
-    ).toMatch(/found 6\.0\.0 \(the running Vite\)/);
+      validatePeerDependency("vite", "8.0.5", PACKAGE_ROOT, 9, "7.3.2", "the running Vite"),
+    ).toMatch(/vite >= 8\.0\.5 and < 9, but found 7\.3\.2 \(the running Vite\)/);
   });
 
-  it("decides the JSX transform and Expo's tsconfig paths from the running version", async () => {
+  it("sets the JSX transform and Expo's tsconfig paths for Vite 8", async () => {
     quiet();
     const root = expoVitePlusProject();
     const eight = await configUnder(reactNative({ engine: "mock" }) as any, "8.3.4", root);
     expect(eight.oxc).toBeDefined();
     expect(eight.resolve?.tsconfigPaths).toBe(true);
     expect(JSON.stringify(contextOf(eight).requireAliases)).toContain("@/");
-    const seven = await configUnder(reactNative({ engine: "mock" }) as any, "7.3.2", root);
-    expect(seven.esbuild).toEqual({ jsx: "automatic" });
-    expect(seven.resolve?.tsconfigPaths).toBeUndefined();
-    expect(contextOf(seven).requireAliases).toBeUndefined();
   });
 });
 
@@ -185,11 +170,11 @@ describe("starting the plugin", () => {
     await expect(plugin.configResolved({ root, plugins: [], test: {} })).resolves.toBeUndefined();
   });
 
-  it("still refuses a Vitest 3 found at the project root, by name", async () => {
+  it("refuses a Vitest 4 found at the project root, by name, naming the floor", async () => {
     quiet();
     const root = project({
       "package.json": { name: "app" },
-      "node_modules/vitest/package.json": { name: "vitest", version: "3.0.9" },
+      "node_modules/vitest/package.json": { name: "vitest", version: "4.1.11" },
     });
     link(root, "react", REAL_REACT);
     link(root, "vite", REAL_VITE);
@@ -197,7 +182,7 @@ describe("starting the plugin", () => {
     await configUnder(plugin, (await import("vite")).version, root);
     const error = await failure(() => plugin.configResolved({ root, plugins: [], test: {} }));
     expect(error.code).toBe("UNSUPPORTED_PEER");
-    expect(error.message).toMatch(/vitest >= 4\.0\.0.*found 3\.0\.9/);
+    expect(error.message).toMatch(/vitest >= 5\.0\.0 and < 6, but found 4\.1\.11/);
   });
 
   it("defaults Vitest 5's module cache from the copy it binds to when the root has none", async () => {
@@ -313,12 +298,12 @@ describe("the running Vitest", () => {
     const plugin = reactNative({ engine: "mock" }) as any;
     const error = await failure(() =>
       plugin.configureVitest({
-        vitest: { version: "3.2.0", distPath: running.distPath, config: { cliOptions: {} } },
+        vitest: { version: "4.1.11", distPath: running.distPath, config: { cliOptions: {} } },
         project: { config: { root: PACKAGE_ROOT } },
       }),
     );
     expect(error.code).toBe("UNSUPPORTED_PEER");
-    expect(error.message).toMatch(/vitest >= 4\.0\.0.*found 3\.2\.0/);
+    expect(error.message).toMatch(/vitest >= 5\.0\.0 and < 6, but found 4\.1\.11/);
   });
 });
 

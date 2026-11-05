@@ -124,7 +124,7 @@ describe("hotRuntime: { mode: 'auto', memoryLimit }", () => {
       SERVE_ENV,
     );
     const config = { root: hotRoot, ...cfg.test, pool: "vitest-native", maxWorkers: 3 };
-    plugin.configureVitest({ vitest: { _cliOptions: {} }, project: { config } });
+    plugin.configureVitest({ vitest: { config: { cliOptions: {} } }, project: { config } });
     // The plan was rebuilt for three workers, and the threshold survived it.
     expect(JSON.parse(config.env.VITEST_NATIVE_MEMORY_PLAN).requestedWorkers).toBe(3);
     expect(config.isolate).toBe(false);
@@ -202,7 +202,7 @@ describe("hotRuntime: { mode: 'auto', memoryLimit }", () => {
       const config: Record<string, any> = { root: hotRoot, ...cfg.test, pool: "vitest-native" };
       Object.assign(config, cli);
       expect(() =>
-        plugin.configureVitest({ vitest: { _cliOptions: cli }, project: { config } }),
+        plugin.configureVitest({ vitest: { config: { cliOptions: cli } }, project: { config } }),
       ).not.toThrow();
       expect(config.runner, JSON.stringify(cli)).toBeUndefined();
       expect(config.env.VITEST_NATIVE_MEMORY_PLAN).toBeUndefined();

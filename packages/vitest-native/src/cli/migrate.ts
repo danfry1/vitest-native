@@ -34,7 +34,6 @@ import {
   pluginListSource,
   readBabelConfig,
   serializableOptions,
-  viteMajor,
 } from "./babel-config.js";
 import {
   activePresets,
@@ -718,7 +717,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
       }
     }
 
-    // Jest's default is clearMocks: false; Vitest 5 defaults it to true (Vitest 4: false).
+    // Jest's default is clearMocks: false; Vitest 5 defaults it to true.
     // Under true, calls a module makes while it loads are cleared before each test, so
     // a test asserting on them fails only after migrating.
     if (config.clearMocks === undefined) {
@@ -779,14 +778,11 @@ export function analyzeJestConfig(root: string): MigrationReport {
   if (babel.source) {
     const classified = classifyBabelPlugins(babel, root, active);
     const required = classified.filter((p) => p.verdict === "required");
-    const vite = viteMajor(root);
     if (required.length) {
-      // Emitted only when it can be done exactly: Vite 8 with @rolldown/plugin-babel
-      // and @babel/core installed, and plugin options that are plain data. Otherwise
-      // a config that imports a missing package would not load at all.
+      // Emitted only when it can be done exactly: @rolldown/plugin-babel and @babel/core
+      // installed, and plugin options that are plain data. Otherwise a config that
+      // imports a missing package would not load at all.
       const canEmit =
-        vite !== null &&
-        vite >= 8 &&
         installed(root, "@rolldown/plugin-babel") &&
         installed(root, "@babel/core") &&
         required.every(serializableOptions);
@@ -798,7 +794,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
         }
       } else {
         for (const p of required) {
-          attention.push(`${babel.source}: ${p.reason} Required: ${babelRecipe(vite, required)}.`);
+          attention.push(`${babel.source}: ${p.reason} Required: ${babelRecipe(required)}.`);
         }
       }
     }

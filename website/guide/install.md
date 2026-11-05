@@ -40,8 +40,8 @@ If anything looks off, `npx vitest-native doctor` checks your versions, engine a
 | | Supported |
 |---|---|
 | Node.js | 22.22.3+ on Node 22, 24.12+ on Node 24, or 26+ |
-| Vitest | 4.x or 5.x |
-| Vite | ^6.4.2, ^7.3.2 or ^8.0.5 |
+| Vitest | 5.x |
+| Vite | ^8.0.5 |
 | React | 18 or later |
 | React Native | 0.81–0.88 |
 | Expo SDK | 57 and 58 |
