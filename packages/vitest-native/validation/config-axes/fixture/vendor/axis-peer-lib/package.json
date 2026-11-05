@@ -1,0 +1,10 @@
+{
+  "name": "axis-peer-lib",
+  "version": "1.0.0",
+  "description": "Config-axis probe package: a React Native library with react-native-worklets as a peer, so pnpm names its store directory after worklets (#349).",
+  "main": "index.js",
+  "peerDependencies": {
+    "react-native": "*",
+    "react-native-worklets": "*"
+  }
+}

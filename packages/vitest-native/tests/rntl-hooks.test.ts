@@ -6,26 +6,26 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — runtime .mjs, no types
 import { registerRntlHooksOnImport } from "../src/native/rntl-hooks.mjs";
+import { installRntlAutoCleanup } from "../src/rntl-support.mjs";
 
 // A stand-in RNTL whose entry counts its own evaluations — the side effect that, in
-// the real package, registers the per-file hooks.
-function fakeRntl(): { entry: string; pure: string; runs: () => number } {
+// the real package, registers the per-file hooks — and calls of its `cleanup`.
+function fakeRntl(): { entry: string; pure: string; runs: () => number; cleanups: () => number } {
   const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-rntl-hooks-"));
   const dir = path.join(root, "node_modules", "@testing-library", "react-native", "build");
   fs.mkdirSync(dir, { recursive: true });
   const counter = `__vnRntlEntryRuns_${path.basename(root)}`;
   const entry = path.join(dir, "index.js");
   const pure = path.join(dir, "pure.js");
+  const cleanups = `${counter}_cleanups`;
   fs.writeFileSync(
     entry,
-    `globalThis[${JSON.stringify(counter)}] = (globalThis[${JSON.stringify(counter)}] ?? 0) + 1;\n`,
+    `globalThis[${JSON.stringify(counter)}] = (globalThis[${JSON.stringify(counter)}] ?? 0) + 1;\n` +
+      `exports.cleanup = () => { globalThis[${JSON.stringify(cleanups)}] = (globalThis[${JSON.stringify(cleanups)}] ?? 0) + 1; };\n`,
   );
   fs.writeFileSync(pure, "module.exports = {};\n");
-  return {
-    entry,
-    pure,
-    runs: () => ((globalThis as Record<string, unknown>)[counter] as number) ?? 0,
-  };
+  const read = (key: string) => ((globalThis as Record<string, unknown>)[key] as number) ?? 0;
+  return { entry, pure, runs: () => read(counter), cleanups: () => read(cleanups) };
 }
 
 // The evaluator's runExternalModule, reduced to what matters here: Node loads the file
@@ -106,5 +106,40 @@ describe("RNTL hook registration for a resident RNTL", () => {
     expect(rntl.runs()).toBe(2);
     expect(() => registerRntlHooksOnImport({})).not.toThrow();
     expect(() => registerRntlHooksOnImport(undefined)).not.toThrow();
+  });
+});
+
+describe("RNTL auto-cleanup for a resident RNTL", () => {
+  // installRntlAutoCleanup's hook, as one file's setup would register it.
+  function setupFile(): () => Promise<void> {
+    let hook: (() => Promise<void>) | undefined;
+    installRntlAutoCleanup((fn) => (hook = fn), { trackImports: true });
+    if (!hook) throw new Error("no afterEach hook was registered");
+    return hook;
+  }
+
+  it("cleans up after a file only when that file imported the entry", async () => {
+    const rntl = fakeRntl();
+    const evaluator = fakeEvaluator();
+    registerRntlHooksOnImport(evaluator);
+
+    // First file: imports the entry, which Node evaluates.
+    let afterEach = setupFile();
+    await evaluator.runExternalModule(rntl.entry);
+    await afterEach();
+    expect(rntl.cleanups()).toBe(1);
+
+    // Second file: the entry is resident in Node's module cache, but this file only
+    // imports `pure`, RNTL's opt-out.
+    afterEach = setupFile();
+    await evaluator.runExternalModule(rntl.pure);
+    await afterEach();
+    expect(rntl.cleanups()).toBe(1);
+
+    // Third file: imports the resident entry, which the wrapper re-runs.
+    afterEach = setupFile();
+    await evaluator.runExternalModule(rntl.entry);
+    await afterEach();
+    expect(rntl.cleanups()).toBe(2);
   });
 });

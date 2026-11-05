@@ -23,6 +23,7 @@
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
+import { projectContext } from "../context.mjs";
 
 /** Where React Native's JavaScript lives, relative to the package root. */
 export const REACT_NATIVE_SOURCE_DIRS = ["Libraries", "src"];
@@ -39,17 +40,23 @@ export const BOUNDARY_NATIVE_MODULES = Object.freeze([
   "NitroModules",
 ]);
 
+// The default runtime models Expo Go, as jest-expo does, and Expo Go registers no dev
+// launcher: `EXDevLauncher` is registered only by expo-dev-launcher, in a development
+// build. Expo reads the module as its development-client signal: expo sets
+// `IS_RUNNING_IN_DEV_CLIENT = !!NativeModules.EXDevLauncher` (expo/src/Expo.fx.tsx), and
+// expo-constants parses `NativeModules.EXDevLauncher.manifestString` whenever the module
+// is present (expo-constants/src/Constants.ts). tests/expo-dev-launcher-fact.test.ts
+// reads that source again, so an Expo release that changes either read fails by name.
+/** The native module only expo-dev-launcher registers, in a development build. */
+export const DEV_LAUNCHER_MODULE = "EXDevLauncher";
+
 /**
- * The environment variable carrying the known set from the plugin (computed once,
- * in the main process) to the workers.
+ * Modules the default runtime (Expo Go) does not have. Each is absent from every lookup
+ * (`NativeModules`, `TurboModuleRegistry`, `globalThis.expo.modules`) in every mode,
+ * `nativeModules: 'permissive'` included, unless a test registers it with
+ * mockNativeModule().
  */
-export const KNOWN_NATIVE_MODULES_ENV = "VITEST_NATIVE_RN_NATIVE_MODULES";
-
-/** Set to "permissive" by the plugin's `nativeModules: 'permissive'` option. */
-export const PERMISSIVE_NATIVE_MODULES_ENV = "VITEST_NATIVE_NATIVE_MODULES";
-
-/** The same, for each module's spec members. */
-export const NATIVE_MODULE_SPECS_ENV = "VITEST_NATIVE_RN_NATIVE_MODULE_SPECS";
+export const EXPO_GO_ABSENT_MODULES = Object.freeze([DEV_LAUNCHER_MODULE]);
 
 const CALL_RE = /TurboModuleRegistry\s*\.\s*(get|getEnforcing)\b/g;
 // `TurboModuleRegistry.get<Spec>('Name')`, including the multi-line form the
@@ -212,30 +219,24 @@ export function nativeModuleSpecsFor(projectRoot) {
   return scanFor(projectRoot)?.specs ?? {};
 }
 
-const fromEnv = (name) => {
-  try {
-    return JSON.parse(process.env[name] || "null");
-  } catch {
-    // Unreadable: recompute rather than run with an empty set.
-    return null;
-  }
-};
-
 /**
  * Publish the known set (globalThis.__vitest_native_known_modules) and each known
  * module's spec members (globalThis.__vitest_native_module_specs) to the boundary.
- * The plugin computes both once and passes them in the environment; without that
+ * The plugin computes both once and passes them in the project context; without that
  * (a setup file run outside the plugin), they are computed here from the project.
  */
 export function installKnownNativeModules(projectRoot) {
+  const context = projectContext();
+  // The plugin's `nativeModules: 'permissive'`, read by the boundary at lookup time.
+  globalThis.__vitest_native_permissive_modules = context?.nativeModules === "permissive";
   if (!(globalThis.__vitest_native_known_modules instanceof Set)) {
-    const names = fromEnv(KNOWN_NATIVE_MODULES_ENV);
+    const names = context?.knownNativeModules;
     globalThis.__vitest_native_known_modules = new Set(
       Array.isArray(names) ? names.map(String) : knownNativeModulesFor(projectRoot),
     );
   }
   if (!(globalThis.__vitest_native_module_specs instanceof Map)) {
-    const specs = fromEnv(NATIVE_MODULE_SPECS_ENV);
+    const specs = context?.nativeModuleSpecs;
     globalThis.__vitest_native_module_specs = new Map(
       Object.entries(
         specs !== null && typeof specs === "object" ? specs : nativeModuleSpecsFor(projectRoot),

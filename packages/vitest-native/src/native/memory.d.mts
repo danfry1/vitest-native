@@ -30,9 +30,12 @@ export declare function createHotMemoryPlan(input?: {
   totalMemory?: number;
   constrainedMemory?: number;
   requestedWorkers?: number;
+  /** The user set the worker count, so only memory, not the automatic cap, bounds it. */
+  explicitWorkers?: boolean;
 }): HotMemoryPlan;
 export declare function formatBytes(bytes: number | null | undefined): string;
 export declare function formatHotMemoryPlan(plan: HotMemoryPlan): string[];
+export declare function formatHotWorkerDecision(plan: HotMemoryPlan): string;
 export declare const hotMemoryConstants: Readonly<{
   MIB: number;
   MIN_WORKER_HEAP: number;

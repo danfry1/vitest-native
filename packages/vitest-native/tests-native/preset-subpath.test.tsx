@@ -1,9 +1,10 @@
 /**
- * Deep (subpath) imports of preset packages must be shadowed like the root
- * import — `import Swipeable from 'react-native-gesture-handler/Swipeable'` is a
- * common real-app pattern, and letting it fall through would load the package's
- * real native runtime (or fail resolution entirely: RNGH 3.x no longer ships a
- * /Swipeable file, so pre-3.x app code only works because of the redirect).
+ * Deep (subpath) imports of preset packages whose leaf the mock exports are shadowed
+ * like the root import: `import Swipeable from 'react-native-gesture-handler/Swipeable'`
+ * is a common real-app pattern, and RNGH 3.x no longer ships a /Swipeable file, so
+ * pre-3.x app code only works because of the redirect. Any other subpath loads its real
+ * file, as `jest.mock(pkg)` leaves a package's subpaths alone under Jest: serving the
+ * root mock for it gave the importer another module's exports.
  *
  * JSON subpaths are exempt: `require('pkg/package.json').version` gates must
  * read the real manifest.
@@ -65,10 +66,27 @@ describe("preset subpath imports under the native engine", () => {
     expect(a).toBe(b);
   });
 
-  it("unknown leaves fall back to the root preset mock", () => {
-    const mod = require("react-native-gesture-handler/lib/commonjs/whatever");
-    expect(mod.State).toBeDefined();
-    expect(mod.GestureHandlerRootView).toBeDefined();
+  it("a subpath whose leaf the mock does not export loads its real file", () => {
+    const mod = require("react-native-reanimated/src/common/style/propsBuilder");
+    expect(typeof mod.stylePropsBuilder).toBe("object");
+    expect(typeof mod.createNativePropsBuilder).toBe("function");
+    // Not the root mock's namespace.
+    expect(mod.useSharedValue).toBeUndefined();
+  });
+
+  it("an ESM import of such a subpath gets the real module's exports", async () => {
+    const mod = await import("react-native-reanimated/src/common/style/propsBuilder");
+    expect(mod.stylePropsBuilder).toBeDefined();
+    expect((mod as Record<string, unknown>).useSharedValue).toBeUndefined();
+  });
+
+  it("a subpath that resolves to the package's entry is the root mock, by require or import", async () => {
+    const root = require("react-native-safe-area-context");
+    const required = require("react-native-safe-area-context/src");
+    expect(required.SafeAreaView).toBe(root.SafeAreaView);
+    expect(typeof required._setInsets).toBe("function");
+    const imported = await import("react-native-safe-area-context/src");
+    expect(imported.SafeAreaView).toBe(root.SafeAreaView);
   });
 
   it("package.json subpath reads the real manifest", () => {

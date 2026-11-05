@@ -1,0 +1,9 @@
+{
+  "name": "vitest-native-consumer-expo-pnpm-suite",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "vite": "8.3.4",
+    "vitest": "5.0.4"
+  }
+}

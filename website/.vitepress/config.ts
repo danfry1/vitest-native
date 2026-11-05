@@ -66,6 +66,8 @@ export default defineConfig({
             { text: 'Plugin Options', link: '/guide/plugin-options' },
             { text: 'Third-Party Presets', link: '/guide/presets' },
             { text: 'Expo', link: '/guide/expo' },
+            { text: 'Coverage', link: '/guide/coverage' },
+            { text: 'Matchers & Snapshots', link: '/guide/matchers' },
             { text: 'Test Helpers', link: '/guide/helpers' },
             { text: 'CLI', link: '/guide/cli' },
           ],

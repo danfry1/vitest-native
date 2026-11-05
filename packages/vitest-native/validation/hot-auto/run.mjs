@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import "../../scripts/release-age.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(here, "../..");
@@ -118,7 +119,7 @@ import { Platform } from "react-native";
 
 test("auto selection ${index}", () => {
   const selected = process.env.VITEST_NATIVE_MEMORY_PLAN !== undefined;
-  expect(selected).toBe(["enabled", "default", "late-migration"].includes(process.env.VN_HOT_AUTO_SCENARIO));
+  expect(selected).toBe(["enabled", "late-migration"].includes(process.env.VN_HOT_AUTO_SCENARIO));
   expect(Platform.OS).toBe("ios");
 });
 `,
@@ -147,8 +148,9 @@ test("migration config runs hot, with jest.mock applied", () => {
     ["custom-pool", "'forks' is explicitly configured"],
     ["late-pool", "'forks' is explicitly configured"],
     ["late-migration", null],
-    // hotRuntime left unset: 'auto' by default, and a fallback it was not asked for is quiet.
-    ["default", null],
+    // hotRuntime left unset: per-file isolation by default (as in 0.13.0), selected
+    // quietly; only an explicit 'auto' or true selects the hot runtime.
+    ["default", "quiet"],
     ["default-custom-pool", "quiet"],
   ]) {
     const output = run(

@@ -1,22 +1,33 @@
 // Node ESM loader hook (registered via module.register). Intercepts import() of RN —
 // which Module._extensions cannot — Flow-stripping and serving boundary mock source.
+import Module, { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { projectContext } from "../context.mjs";
 import path from "node:path";
 import fs from "node:fs";
-import { transformRN, isFlow, cjsExportNames, needsTransform } from "./transform.mjs";
+import {
+  heldTransform,
+  transformRN,
+  isFlow,
+  cjsExportNames,
+  needsTransform,
+} from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import { nativeAssetModuleSource } from "./assets.mjs";
 import { extensionsFor, resolveRelativePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
 import {
   NODE_MODULES_PATH,
+  containsPath,
   isUtilitySubpath,
   packageNameOf,
+  isPackageEntryFile,
   presetPackageOfFile,
   requestForPackageFile,
   subpathLeafOf,
 } from "./match.mjs";
 import {
   createNativeOwnershipPolicy,
+  isResidentPackageName,
   isRuntimeResidentFile,
   isTestRuntimeResidentFile,
   parseNativeOwnershipManifest,
@@ -67,6 +78,7 @@ let PLATFORM = "ios";
 let REACT_NATIVE_VERSION = "0.0.0";
 let SOURCE_EXTS = ["js", "jsx", "json", "ts", "tsx"];
 let HAS_SOURCE_PROFILE = false;
+let DIAGNOSTICS = false;
 let isExtra = () => false;
 let ownership = createNativeOwnershipPolicy({ projectRoot: PROJECT_ROOT });
 // Preset package name → its mock's named-export list (from the preset definition).
@@ -75,7 +87,8 @@ let presetExports = {};
 let assetExtSet = new Set();
 
 /**
- * Hot-runtime ESM generation (experimental, `VITEST_NATIVE_HOT_ESM_GEN=1`).
+ * Hot-runtime ESM generation (on under the hot runtime; `VITEST_NATIVE_HOT_ESM_GEN=0`
+ * opts out, see setup.mjs).
  *
  * Node's ESM registry has no invalidation API, so a package a TEST FILE reaches
  * through `import` keeps its module state for the whole run — the per-file reset
@@ -87,10 +100,10 @@ let assetExtSet = new Set();
  * again. The counter lives in a SharedArrayBuffer because loader hooks run on their
  * own thread; the worker bumps it in the per-file reset.
  *
- * Cost is bounded by ownership: a CommonJS package re-enters through Module._cache,
- * which the reset already drops, so only a thin namespace wrapper is retained per
- * generation. A true-ESM package retains its whole instance — which is why this is
- * measured before it is trusted.
+ * Node keeps every generation in its ESM load cache for the worker's life. A CommonJS
+ * module is served through a generation facade, so a retired generation keeps only
+ * that facade (see generationFacade below); a true-ESM package keeps its whole
+ * instance, its module scope being the module record.
  */
 let genView = null;
 const generationOf = () => (genView ? Atomics.load(genView, 0) : 0);
@@ -109,11 +122,40 @@ const generationOf = () => (genView ? Atomics.load(genView, 0) : 0);
 // reach it. That is how this list was earned: react-native-paper under the hot
 // runtime, 603/678 -> 473/648, every extra failure a twin-runtime symptom. The
 // actual resident package rules live once in ownership.mjs.
+//
+// A file outside node_modules is stamped when the ownership policy gives it to Node
+// and resets it per file: a workspace member the engine compiles (a detected React
+// Native library, or one named in `transform`). Node loads it, so the reset drops its
+// CommonJS entry, and Node's ESM registry would otherwise keep the previous file's
+// copy behind every `import` of it. Any other file outside node_modules is the
+// project's own source, which Vite owns, or this engine and the test stack in-repo,
+// which must stay resident, so nothing else there is stamped. A workspace package
+// named like a resident one (a vendored fork of React, React Native, the testing
+// library or the test stack) stays resident, as it would under node_modules; its name
+// is the Node-loaded package whose directory, already looked up by the policy, holds
+// the file. The answer depends only on the path, so it is kept per file.
+const workspaceStamp = new Map();
+function nodeOwnedPerFile(file) {
+  let stamp = workspaceStamp.get(file);
+  if (stamp === undefined) {
+    const decision = ownership.decideFile(file);
+    stamp = decision.owner === "node" && decision.reset === "per-file";
+    if (stamp) {
+      const name = ownership.nodeTransformPackages.find((pkg) => {
+        const dir = ownership.packageDirOf(pkg);
+        return Boolean(dir) && containsPath(dir, file);
+      });
+      if (name !== undefined && isResidentPackageName(name)) stamp = false;
+    }
+    workspaceStamp.set(file, stamp);
+  }
+  return stamp;
+}
 /** Should this resolved file carry a generation stamp? */
 function versionable(url) {
   if (!genView || !url.startsWith("file:")) return false;
   const norm = fileURLToPath(url).replace(/\\/g, "/");
-  if (!NODE_MODULES_PATH.test(norm)) return false;
+  if (!NODE_MODULES_PATH.test(norm)) return nodeOwnedPerFile(norm);
   // React Native itself is preloaded once per worker and shared deliberately —
   // re-instantiating it per file would undo the reason the worker stays warm.
   if (ownership.isReactNativeFile(norm) || isRuntimeResidentFile(norm)) return false;
@@ -127,7 +169,10 @@ export function initialize(data) {
   if (data && data.reactNativeVersion) REACT_NATIVE_VERSION = data.reactNativeVersion;
   HAS_SOURCE_PROFILE = Array.isArray(data?.sourceExts);
   SOURCE_EXTS = HAS_SOURCE_PROFILE ? data.sourceExts : ["js", "jsx", "json", "ts", "tsx"];
-  const configuredOwnership = parseNativeOwnershipManifest(process.env.VITEST_NATIVE_OWNERSHIP);
+  // The project context arrives by reference in `data`: this may be its own thread.
+  const context = data?.context ? projectContext(data.context) : null;
+  DIAGNOSTICS = context?.diagnostics === true;
+  const configuredOwnership = parseNativeOwnershipManifest(context?.ownership);
   ownership = createNativeOwnershipPolicy({
     projectRoot: PROJECT_ROOT,
     projectDirs: configuredOwnership?.projectDirs ?? [],
@@ -135,10 +180,26 @@ export function initialize(data) {
     runtimeTransforms: data?.transformPkgs ?? [],
   });
   isExtra = ownership.matchesNodeTransformedFile;
+  workspaceStamp.clear();
   if (data && data.presetExports) presetExports = data.presetExports;
   if (data && data.assetExts)
     assetExtSet = new Set(data.assetExts.map((e) => String(e).replace(/^\./, "").toLowerCase()));
   if (data && data.hotGenerationBuffer) genView = new Int32Array(data.hotGenerationBuffer);
+  // In-thread, `data.hotGeneration` is the worker's hot-generation channel itself
+  // (setup.mjs): the facades and the per-file reset reach this module through it.
+  generationFacades = Boolean(genView) && data?.inThread === true && Boolean(data.hotGeneration);
+  // Released only through Vitest's interop proxy (see pinFacade), so not at all without it.
+  runnerImportSite =
+    generationFacades && context?.hotReleaseGenerations !== false
+      ? vitestModuleEvaluatorURL(PROJECT_ROOT)
+      : null;
+  if (generationFacades) {
+    Object.assign(data.hotGeneration, {
+      bind: bindFacade,
+      recordNames: recordExportNames,
+      release: releaseGenerations,
+    });
+  }
 }
 
 // A `require()` inside a CommonJS module this loader compiled and returned with its
@@ -177,7 +238,21 @@ function presetRequestForFile(specifier, parent) {
   const norm = file.replace(/\\/g, "/");
   const pkgDir = norm.slice(0, norm.length - hit.subpath.length - 1);
   const request = requestForPackageFile(hit.pkg, hit.subpath, packageManifest(pkgDir));
-  return isUtilitySubpath(request) ? null : request;
+  if (isUtilitySubpath(request)) return null;
+  const shadowed =
+    request === hit.pkg ||
+    Object.prototype.hasOwnProperty.call(presetExports, request) ||
+    shadowsSubpath(hit.pkg, request);
+  return shadowed ? request : null;
+}
+
+// A subpath of a preset package is the mock's only when the mock exports its leaf
+// (react-native-gesture-handler/Swipeable → mock.Swipeable). Any other subpath is the
+// real file, as `jest.mock(pkg)` leaves a package's subpaths to their own files under
+// Jest; serving the root mock for it gave the importer the wrong module's exports.
+function shadowsSubpath(pkg, specifier) {
+  const leaf = subpathLeafOf(specifier);
+  return leaf !== null && (presetExports[pkg] || []).includes(leaf);
 }
 
 function resolveBefore(specifier, context) {
@@ -185,8 +260,9 @@ function resolveBefore(specifier, context) {
   // test graph or, crucially, nested inside an externalized third-party lib — is
   // redirected to a synthetic module that re-exports the runtime preset mock. This
   // mirrors the Vite plugin's virtual:preset modules for the Node ESM path.
-  // Subpath imports (e.g. react-native-gesture-handler/Swipeable) are redirected
-  // too — the real deep entry would pull in the package's native runtime.
+  // A subpath import is redirected when the mock exports its leaf
+  // (react-native-gesture-handler/Swipeable); any other loads its real file
+  // (shadowsSubpath).
   // Exempt: JSON subpaths (package.json version gates), asset subpaths, and
   // Node-safe utility entries (jest-utils, mock, plugin) — those pass through
   // to the real file.
@@ -197,7 +273,11 @@ function resolveBefore(specifier, context) {
     const specExt = /\.([a-z0-9]+)$/i.exec(specifier);
     if (!specExt || !assetExtSet.has(specExt[1].toLowerCase())) {
       const pkg = packageNameOf(specifier);
-      if (pkg !== specifier && Object.prototype.hasOwnProperty.call(presetExports, pkg)) {
+      if (
+        pkg !== specifier &&
+        Object.prototype.hasOwnProperty.call(presetExports, pkg) &&
+        shadowsSubpath(pkg, specifier)
+      ) {
         return { done: { url: PRESET_SCHEME + specifier, shortCircuit: true } };
       }
     }
@@ -258,6 +338,20 @@ function resolveRecover(err, specifier, parent) {
 }
 
 function resolveAfter(resolved, context) {
+  // A subpath that resolved to a preset package's own entry (`pkg/src`) is the package,
+  // and gets the root mock, as by name (isPackageEntryFile).
+  // Only a file inside node_modules can be a preset package's: checked on the URL first,
+  // so every other resolution pays no path conversion.
+  if (resolved.url.startsWith("file:") && resolved.url.includes("/node_modules/")) {
+    const file = fileURLToPath(resolved.url);
+    const parent = context.parentURL?.startsWith("file:") ? fileURLToPath(context.parentURL) : null;
+    const hit = presetPackageOfFile(file, parent, (pkg) =>
+      Object.prototype.hasOwnProperty.call(presetExports, pkg),
+    );
+    if (hit && isPackageEntryFile(hit.pkg, file, parent)) {
+      return { url: PRESET_SCHEME + hit.pkg, shortCircuit: true };
+    }
+  }
   // JSON imports without an explicit `with { type: 'json' }` attribute throw
   // ERR_IMPORT_ATTRIBUTE_MISSING on Node 22+. RN ecosystem packages do
   // `import pkg from './package.json'` unconditionally (e.g. @react-navigation).
@@ -280,7 +374,9 @@ function resolveAfter(resolved, context) {
   if (versionable(resolved.url)) {
     const gen = generationOf();
     if (gen > 0 && !resolved.url.includes("vnhot=")) {
-      return { ...resolved, url: `${resolved.url}?vnhot=${gen}`, shortCircuit: true };
+      const url = `${resolved.url}?vnhot=${gen}`;
+      pinFacade(url, context.parentURL);
+      return { ...resolved, url, shortCircuit: true };
     }
   }
   return resolved;
@@ -408,9 +504,13 @@ export async function load(url, context, nextLoad) {
  * `exports.x =` and `Object.defineProperty(exports, …)` forms, re-exports), and a
  * function keeps the code's own declarations out of the facade's scope. Names the
  * lexer cannot follow (`module.exports = { A() {}, b: () => 1 }`) are added in the form
- * it does read, from the compiled code (cjsExportNames). Exported as a test seam.
+ * it does read, from the compiled code (cjsExportNames). Under the hot runtime, a
+ * generation after the first is served by a generation facade instead (below).
+ * Exported as a test seam.
  */
 export function requireFacade(url, file, compiled) {
+  const generation = generationFacade(url, file, compiled);
+  if (generation !== undefined) return generation;
   // A `#!` line is valid only as a source's first characters; carried inside the
   // facade it would be a syntax error. The carried code is never run.
   const code = compiled.startsWith("#!") ? compiled.replace(/^#!.*/, "") : compiled;
@@ -429,6 +529,9 @@ export function requireFacade(url, file, compiled) {
       shortCircuit: true,
     };
   }
+  // Carried whole, source map included (transform.mjs adds one while coverage is on):
+  // the coverage provider tells this facade from the module by the facade's reaching
+  // past the end of the compiled code (coverage-v8.mjs, nodeScripts).
   return {
     format: "commonjs",
     source: [
@@ -440,8 +543,262 @@ export function requireFacade(url, file, compiled) {
   };
 }
 
+/**
+ * Hot generation facades: what keeps a finished test file's packages from staying in
+ * memory for the rest of the run.
+ *
+ * Node keeps every module it loads through `import` in its ESM load cache, keyed by
+ * URL, with no public way to evict one, so each generation URL (`?vnhot=N`, see
+ * versionable) stays there for the worker's life. Served as CommonJS, as Node serves
+ * a CommonJS package and as requireFacade serves a compiled one, that entry pins the
+ * whole instance three ways: the namespace's export cells hold `module.exports` and
+ * each named export's value, the module record holds the CommonJS `Module`, and
+ * Node's CommonJS translator keeps that `Module` in a map of its own (`cjsCache`),
+ * with its exports, its children and its source. A test file that imports a large
+ * CommonJS package left one full copy of it behind per file.
+ *
+ * So from its second generation on, a CommonJS module reached through `import` is
+ * served as a small ES module instead. It requires the file through Node's CommonJS
+ * loader, which owns the instance in `Module._cache` alone, where the per-file reset
+ * drops it, and binds each export with `let`. When the generation is retired those
+ * bindings are cleared, so what the load cache keeps is the facade and nothing it
+ * pointed to. Nothing reaches Node's `cjsCache`.
+ *
+ * An ES module's export list is fixed by its source, so the facade has to know the
+ * names before it runs. They are Node's own: the first generation of each module is
+ * served exactly as before, behind a facade that re-exports it and records the names
+ * its namespace has. That generation stays for the run, as does one that a file
+ * outside the reset imports (pinFacade): a fixed cost per module, not per file. The
+ * names are kept with what they were read from (the compiled code, or the file's size
+ * and time), so an edited module records them again.
+ *
+ * Only with the in-thread hooks (setup.mjs): a facade reaches this module through the
+ * worker's hot-generation channel on `globalThis`, which a loader thread does not
+ * share. On the loader thread every generation is served as before.
+ */
+let generationFacades = false;
+const GENERATION = /[?&]vnhot=(\d+)/;
+const NODE_SERVED = "&vnnode";
+// Unstamped URL -> { fingerprint, id } from the generation that recorded its names.
+const exportNames = new Map();
+// The modules served through facades (see facadeModule), by id.
+const facadeModules = [];
+// Unstamped URL -> the fingerprint of the generation now recording it.
+const recording = new Map();
+// Facades not yet released: [generation, url, release].
+let liveFacades = [];
+// Generation URLs a file outside the per-file reset imported, so never released.
+const pinnedFacades = new Set();
+// The URL of the module from which Vitest's module runner imports a test file's
+// externalized modules (pinFacade), or null to release nothing.
+let runnerImportSite = null;
+
+/**
+ * Vitest's module evaluator, the module whose `import(file)` loads a test file's
+ * externalized modules (`runExternalModule`): resolved from the installed Vitest's own
+ * `#module-evaluator` import map entry, as Vitest resolves it, in Node's real-path
+ * spelling, which is how Node reports an importer. Null when it cannot be found.
+ */
+function vitestModuleEvaluatorURL(projectRoot) {
+  try {
+    const manifestPath = createRequire(path.join(projectRoot, "package.json")).resolve(
+      "vitest/package.json",
+    );
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    const target = manifest.imports?.["#module-evaluator"]?.default;
+    if (typeof target !== "string") return null;
+    return pathToFileURL(fs.realpathSync(path.resolve(path.dirname(manifestPath), target))).href;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether `source` (a string or bytes) is the file's content on disk. */
+function isFileSource(file, source) {
+  try {
+    const disk = fs.readFileSync(file);
+    return typeof source === "string"
+      ? disk.toString("utf8") === source
+      : Buffer.from(source.buffer, source.byteOffset, source.byteLength).equals(disk);
+  } catch {
+    return false;
+  }
+}
+
+function fingerprintOf(file) {
+  try {
+    const stat = fs.statSync(file);
+    return `${stat.size}:${stat.mtimeMs}`;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The generation facade for `url`, or undefined to serve it as before. `fingerprint`
+ * identifies the module's current source: the compiled code, or the file's stat.
+ */
+function generationFacade(url, file, fingerprint, loadResult = "returned") {
+  if (!generationFacades || url.includes(NODE_SERVED) || file.endsWith(".mjs")) return undefined;
+  const stamp = GENERATION.exec(url);
+  if (!stamp || fingerprint === undefined) return undefined;
+  const key = url.replace(STAMP, "");
+  const known = exportNames.get(key);
+  if (known && known.fingerprint === fingerprint) {
+    return { format: "module", source: releasableFacade(known.id, stamp[1]), shortCircuit: true };
+  }
+  recording.set(key, { fingerprint, loadResult });
+  const inner = JSON.stringify(url + NODE_SERVED);
+  return {
+    format: "module",
+    source: [
+      `import * as ns from ${inner};`,
+      `globalThis.__vitest_native_hot_generation.recordNames(${JSON.stringify(key)}, ${JSON.stringify(file)}, Object.keys(ns));`,
+      `export * from ${inner};`,
+      `export { default } from ${inner};`,
+    ].join("\n"),
+    shortCircuit: true,
+  };
+}
+
+/**
+ * A generation of a CommonJS module as an ES module whose bindings can be cleared. The
+ * module's `let` bindings are the only per-generation state, and the one function in it
+ * clears them; requiring the module and reading its exports is shared (bindFacade), so a
+ * released facade keeps its bindings and little else. `id` is the module's entry in
+ * facadeModules, which holds its file and the export names Node gave its namespace.
+ * Exported as a test seam.
+ */
+export function releasableFacade(id, generation) {
+  const { names, moduleExports } = facadeModules[id];
+  const locals = names.map((_, index) => `v${index}`);
+  return [
+    `let [e, ${locals.join(", ")}] = globalThis.__vitest_native_hot_generation.bind(${id}, ${generation}, () => {`,
+    `  ${["e", ...locals].join(" = ")} = undefined;`,
+    `});`,
+    `export { e as default${moduleExports ? ', e as "module.exports"' : ""}${names
+      .map((name, index) => `, ${locals[index]} as ${JSON.stringify(name)}`)
+      .join("")} };`,
+  ].join("\n");
+}
+
+/**
+ * The facadeModules entry for a module: its unstamped URL, its file and the names its
+ * namespace had when Node served it as CommonJS. Exported as a test seam.
+ */
+export function facadeModule(url, file, namespaceNames, loadResult = "returned") {
+  // A new entry each time: a facade already served keeps the names it was written with.
+  const key = url.replace(STAMP, "");
+  const id = facadeModules.length;
+  facadeModules[id] = {
+    url: key,
+    file,
+    names: namespaceNames.filter((name) => name !== "default" && name !== "module.exports"),
+    moduleExports: namespaceNames.includes("module.exports"),
+    loadResult,
+  };
+  return id;
+}
+
+/**
+ * Evaluate a facade's module: require it through Node's CommonJS loader and return
+ * `module.exports` and each named export, bound as Node binds them (translators.js,
+ * createCJSModuleWrap): a name only when it is an own property, read once, and a getter
+ * that throws read as undefined. `release` clears the facade's bindings; it is called
+ * when the generation is retired (releaseGenerations). Exported as a test seam.
+ */
+export function bindFacade(id, generation, release) {
+  const { file, names, loadResult } = facadeModules[id];
+  // As Node's CommonJS translator loads it: through Module._load with no parent, so a
+  // `Module._load` override (a jest.mock) applies as it does in the first generation and
+  // without the hot runtime, and `module.parent` is undefined. A Node release whose
+  // default load asks for that reload (`shouldBeReloadedByCJSLoader`, before 24.18) reads
+  // the module Node cached and ignores what an override returned; later releases use it.
+  const returned = Module._load(file, undefined, false);
+  const exports = loadResult === "cached" ? (Module._cache[file]?.exports ?? {}) : returned;
+  liveFacades.push([generation, `${facadeModules[id].url}?vnhot=${generation}`, release]);
+  return [exports, ...names.map((name) => namedExportValue(exports, name))];
+}
+
+/** A named export's value as Node binds it: undefined when not own, or when its getter throws. */
+function namedExportValue(exports, name) {
+  if (exports == null || !Object.prototype.hasOwnProperty.call(exports, name)) return undefined;
+  try {
+    return exports[name];
+  } catch {
+    return undefined;
+  }
+}
+
+function recordExportNames(key, file, names) {
+  const pending = recording.get(key);
+  recording.delete(key);
+  if (pending !== undefined) {
+    exportNames.set(key, {
+      fingerprint: pending.fingerprint,
+      id: facadeModule(key, file, names, pending.loadResult),
+    });
+  }
+}
+
+/**
+ * Release the facades of every generation before the previous one. The previous
+ * file's are kept one file longer: a timer or promise it left running still finds its
+ * imports while the next file starts, as it did before facades.
+ */
+export function releaseGenerations(current) {
+  const kept = [];
+  let released = 0;
+  for (const entry of liveFacades) {
+    if (entry[0] >= current - 1) kept.push(entry);
+    else if (!pinnedFacades.has(entry[1])) {
+      entry[2]();
+      released++;
+    }
+  }
+  liveFacades = kept;
+  return released;
+}
+
+/**
+ * Only a test file's own import of a generation may be released: the one Vitest's
+ * module runner makes from its module evaluator (runnerImportSite). The file's modules
+ * are reset with it, and what the file left running reads the module through Vitest's
+ * interop proxy, which falls back to the default export it captured when a released
+ * named binding reads undefined. Any other importer can outlive the file and read the
+ * bindings later, so the generation it imports is never released: a module outside the
+ * per-file reset (the test stack, a resident package, a resident's absolute-path
+ * import), and a stamped ES module, which Node's load cache keeps evaluated for the run
+ * (a snapshot serializer, a timer or a resident's import of it can call it files later).
+ */
+function pinFacade(url, parentURL) {
+  if (generationFacades && (runnerImportSite === null || parentURL !== runnerImportSite)) {
+    pinnedFacades.add(url);
+  }
+}
+
 /** `load` never awaits: every path returns a result or `nextLoad(...)` directly. */
 export function loadSync(url, context, nextLoad) {
+  if (!generationFacades || !GENERATION.test(url) || url.includes(NODE_SERVED)) {
+    return loadModule(url, context, nextLoad);
+  }
+  let fromNode = false;
+  const result = loadModule(url, context, (nextUrl, nextContext) => {
+    fromNode = true;
+    return nextLoad(nextUrl, nextContext);
+  });
+  if (!fromNode || result.format !== "commonjs") return result;
+  const file = fileURLToPath(url);
+  // Only the file as it is on disk, which Node's CommonJS loader would load anyway: a
+  // facade requires the file, so source another hook supplied is served as it is. Node's
+  // default load leaves the source out, or reads the file (marked as one to reload
+  // through Module._load before Node 24.18, not marked since), so it is compared.
+  const reload = result.shouldBeReloadedByCJSLoader === true;
+  if (result.source != null && !reload && !isFileSource(file, result.source)) return result;
+  return generationFacade(url, file, fingerprintOf(file), reload ? "cached" : "returned") ?? result;
+}
+
+function loadModule(url, context, nextLoad) {
   // Serve the synthetic preset module. The generated source reads the mock built
   // by the native setup file from globalThis (this source executes in the main
   // realm, so globalThis is the populated one), mirroring the Vite virtual:preset.
@@ -474,7 +831,7 @@ export function loadSync(url, context, nextLoad) {
       ...(leaf
         ? [
             `const _hit = ${JSON.stringify(leaf)} in _m;`,
-            `if (!_hit && process.env.VITEST_NATIVE_DIAGNOSTICS === "true") console.warn(${JSON.stringify(
+            `if (!_hit && ${DIAGNOSTICS}) console.warn(${JSON.stringify(
               `[vitest-native] '${specifier}' has no matching export on the '${pkg}' preset mock; serving the root mock namespace.`,
             )});`,
             `export default (_hit ? _m[${JSON.stringify(leaf)}] : ${fallback});`,
@@ -517,11 +874,8 @@ export function loadSync(url, context, nextLoad) {
   // Expo module without `expo` (whose dependencies are what detection follows) reached
   // it undetected. The CommonJS `.ts` hook compiles any such file (hooks.mjs).
   if (!isRN && !isExtra(norm) && NODE_MODULES_TS.test(norm)) {
-    return requireFacade(
-      url,
-      file,
-      transformRN(file, fs.readFileSync(file, "utf8"), PROJECT_ROOT, PLATFORM),
-    );
+    // No source: transformRN reads the file only when it holds no output for it.
+    return requireFacade(url, file, transformRN(file, undefined, PROJECT_ROOT, PLATFORM));
   }
   if (!isRN && !isExtra(norm)) return nextLoad(url, context);
 
@@ -586,6 +940,10 @@ export function loadSync(url, context, nextLoad) {
   if (stub != null) return requireFacade(url, file, stub);
 
   if (TRANSFORMABLE.test(norm)) {
+    // Compiled before and unchanged since (the hot runtime re-loads it per test file):
+    // answered without reading it to decide again, as the require hook does.
+    const held = heldTransform(file, PROJECT_ROOT, PLATFORM);
+    if (held !== undefined) return requireFacade(url, file, held);
     const src = fs.readFileSync(file, "utf8");
     // Only compile what Node cannot run as published — see needsTransform. A file V8
     // accepts is handed straight back to Node, which is how the toolchain packages a

@@ -53,15 +53,26 @@ export function resolveRequestedWorkers(value, { parallelism, fileParallelism = 
 }
 
 /**
- * Compute the automatic hot-runtime envelope.
+ * Compute the hot-runtime envelope.
  *
  * The reserves and four-worker cap were earned by the packed 406-file RNTL
  * experiment. They are conservative defaults, not portable benchmark claims.
+ *
+ * The four-worker cap bounds the AUTOMATIC choice only. On that experiment eight
+ * workers bought about 6% over four for about 512 MiB more peak RSS, so four is
+ * where a default stops paying for its memory; it is not a safety limit, and the
+ * measurement left higher concurrency as "an explicit or measured choice"
+ * (validation/module-isolation/README.md, "Worker-count curve"). A worker count the
+ * user set (`maxWorkers` in config, `--maxWorkers`, `VITEST_MAX_WORKERS`) is
+ * therefore admitted up to what the memory envelope holds, the bound that does
+ * protect the process. With no known memory limit nothing can admit more than the
+ * measured default, so the cap applies there either way.
  */
 export function createHotMemoryPlan({
   totalMemory = os.totalmem(),
   constrainedMemory = process.constrainedMemory?.() ?? 0,
   requestedWorkers = defaultRequestedWorkers(),
+  explicitWorkers = false,
 } = {}) {
   const effective = effectiveMemoryLimit({ totalMemory, constrainedMemory });
   const requested = Math.max(1, Math.floor(requestedWorkers));
@@ -87,9 +98,10 @@ export function createHotMemoryPlan({
     0,
     softRssLimit - MAIN_PROCESS_RESERVE - REPLACEMENT_OVERLAP_RESERVE,
   );
+  const memoryAdmits = Math.floor(workerEnvelope / WORKER_RSS_ADMISSION_COST);
   const admittedWorkers = Math.max(
     1,
-    Math.min(MAX_AUTO_WORKERS, Math.floor(workerEnvelope / WORKER_RSS_ADMISSION_COST)),
+    explicitWorkers ? memoryAdmits : Math.min(MAX_AUTO_WORKERS, memoryAdmits),
   );
   const maxWorkers = Math.min(requested, admittedWorkers);
   const perWorkerEnvelope = workerEnvelope / maxWorkers;
@@ -116,6 +128,40 @@ export function createHotMemoryPlan({
 export function formatBytes(bytes) {
   if (bytes == null) return "unknown";
   return `${Math.round(bytes / MIB)} MiB`;
+}
+
+/**
+ * The hot runtime's worker decision as one line of the startup log, so a user can tune
+ * `maxWorkers` or report a run without turning diagnostics on (formatHotMemoryPlan has
+ * the full envelope).
+ */
+export function formatHotWorkerDecision(plan) {
+  const memory =
+    plan.effectiveLimit == null
+      ? "memory unknown"
+      : `${formatBytes(plan.effectiveLimit)} ${plan.source === "constrained" ? "memory limit" : "host memory"}`;
+  if (plan.maxWorkers < plan.requestedWorkers) {
+    // What memory alone admits, from the plan's own figures (createHotMemoryPlan). Fewer
+    // admitted than that is the automatic cap, which a count the user sets lifts: say
+    // which of the two chose the number, since only one of them is about memory.
+    const memoryAdmits =
+      plan.softRssLimit == null
+        ? null
+        : Math.max(
+            1,
+            Math.floor(
+              Math.max(
+                0,
+                plan.softRssLimit - plan.mainProcessReserve - plan.replacementOverlapReserve,
+              ) / WORKER_RSS_ADMISSION_COST,
+            ),
+          );
+    if (memoryAdmits === null || plan.admittedWorkers < memoryAdmits) {
+      return `workers: ${plan.maxWorkers} (automatic cap of ${MAX_AUTO_WORKERS}; ${plan.requestedWorkers} available, set maxWorkers to run more; ${memory})`;
+    }
+    return `workers: ${plan.maxWorkers} (memory plan admitted ${plan.admittedWorkers} of ${plan.requestedWorkers} requested, ${memory})`;
+  }
+  return `workers: ${plan.maxWorkers} (as requested; memory plan admits up to ${plan.admittedWorkers}, ${memory})`;
 }
 
 export function formatHotMemoryPlan(plan) {

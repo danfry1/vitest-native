@@ -31,13 +31,19 @@ The plugin auto-injects a setup file that:
 
 - registers all mocks,
 - sets React Native globals (`__DEV__`, `requestAnimationFrame`, etc.),
-- wires up [`@testing-library/react-native`](https://callstack.github.io/react-native-testing-library/) if it's installed — registering its matchers, and setting host component names for older RNTL (RNTL ≥ 12 auto-detects them against real RN host names).
+- wires up [`@testing-library/react-native`](https://callstack.github.io/react-native-testing-library/) if it's installed — registering its matchers, setting host component names for older RNTL (RNTL ≥ 12 auto-detects them against real RN host names), and running its automatic cleanup after each test without `test.globals` (RNTL registers that only through a global `afterEach`; importing `@testing-library/react-native/pure` or setting `RNTL_SKIP_AUTO_CLEANUP` still opts out). The cleanup runs after the test file's own `afterEach` hooks, which is also where RNTL's runs under Vitest with `test.globals: true`; Jest runs RNTL's cleanup first, so an `afterEach` that expects the tree to be unmounted already needs to call `cleanup()` itself.
+
+::: warning Known limitation: RNTL and `vi.useFakeTimers()` without jest-compat
+RNTL detects fake timers only through a global `jest`. Without the [jest-compat layer](/guide/jest-compat) there is none, so under `vi.useFakeTimers()` RNTL's `waitFor` and `findBy*` poll on real time while the fake clock stands still, and time out. Use jest-compat, or advance the clock yourself: `await vi.advanceTimersByTimeAsync(ms)` before the query, or `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })` for user events.
+:::
 
 You do **not** add anything to `setupFiles` yourself, and you do **not** manually configure `hostComponentNames` — between the plugin and RNTL's own auto-detection, it's handled.
 
 ## 4. Transform cache
 
 On Vitest 5 the plugin turns on Vitest's persistent transform cache (`fsModuleCache`), so warm runs reuse compiled modules from disk the way Jest reuses its transform cache. Vitest keys each entry on the module's source, the config file and its own version; the plugin adds its own version, its resolved options and a digest of the project's lockfile, so upgrading vitest-native or any dependency invalidates the cache. Set `test.fsModuleCache: false` to turn it off. The cache lives in `node_modules`, so a clean install clears it too.
+
+On Vitest 4 the plugin leaves the cache off, so every run transforms every imported module again: about half a second per thousand imported modules on one benchmark. From Vitest 4.0.11 you can turn it on yourself with `test.experimental.fsModuleCache: true`, and the plugin's cache key applies to it as well; the top-level `test.fsModuleCache` is the Vitest 5 spelling and has no effect on 4. Before turning it on, read [this troubleshooting entry](/guide/troubleshooting#cannot-find-module-keeps-failing-after-the-missing-file-exists) on a Vitest bug ([vitest-dev/vitest#11789](https://github.com/vitest-dev/vitest/issues/11789)). Upgrading to Vitest 5 turns the cache on with no config. `vitest-native doctor` notes this on Vitest 4.
 
 ## The native engine, specifically
 
@@ -66,6 +72,31 @@ Stubs are stable objects, so `vi.spyOn(NativeModules.Vibration, 'vibrate')` reco
 One deliberate component-level exception: `TextInput` is replaced with the same passthrough shape Jest's preset uses, because the real `TextInput`'s internal event wiring double-fires `onChangeText` under RNTL's `userEvent.type`. That substitution is verified against real RN by the differential cross-check.
 
 This is the same architecture as the original [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native), rebuilt to track current Vitest and React Native.
+
+### Mocking React Native itself
+
+`vi.mock('react-native')` works under both engines, including the `importOriginal()` form that keeps everything you don't name:
+
+```ts
+vi.mock('react-native', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-native')>()),
+  Alert: { alert: vi.fn() },
+}))
+```
+
+Under `engine: 'native'` this does **not** swap React Native for a mock: React Native still runs for real in Node, and your test and app code get a module that re-exports that same instance with your replacements on top. `Platform.OS` is still real, `<View>` still renders `RCTView`, and only the exports you replaced are yours. The replacement covers your project's own code; any third-party package gets the unmocked React Native through its own `require`.
+
+For native modules specifically, prefer [`mockNativeModule()`](/guide/helpers#mocknativemodule-name-impl): it drives the same boundary the engine already mocks, under both engines.
+
+### React Native packages in `node_modules`
+
+Most of the React Native ecosystem publishes untranspiled source (JSX, Flow or TypeScript) on the assumption that Metro will compile it, which Node cannot run. Under other runners that means growing a `transformIgnorePatterns` allowlist one `SyntaxError: Unexpected token '<'` at a time. The native engine detects these packages instead: packages your project depends on that declare `react-native` as a dependency or peer dependency, and their runtime dependencies, are compiled with your project's React Native Babel preset as Node loads them. Nothing to configure. Packages a [preset](/guide/presets) replaces are skipped (their real source never loads), and so is the test infrastructure itself (`@testing-library/react-native` and the renderers, where a second copy breaks rendering). For a package the detection misses, list it in [`transform`](/guide/plugin-options#transform).
+
+These packages are loaded by Node, so `vi.mock('the-package')` applies to what your test and app code import, but not to a `require()` inside another Node-loaded library: a library's own import of a mocked package still gets the real one. Platform-specific files resolve the way Metro resolves them for these packages too (`@react-navigation`'s `useLinking.native.js`, for example), not only for your own code.
+
+### Package entry points
+
+Package entries resolve the way Metro resolves them: the `react-native` export condition and the `react-native` main field win over the standard ones, so a package gives your tests its React Native build rather than its web or Node build. This applies wherever those fields appear, including on packages that aren't React Native libraries (Algolia's clients, `nanoid` and `msgpackr` all carry one). That matches what the app runs, but a dependency can resolve to a different file here than under a plain Node runner. To pin one, use an explicit `resolve.alias`.
 
 ### Loader hooks run in-thread
 

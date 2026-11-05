@@ -5,6 +5,18 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { usesVitePlus } from "../host.js";
+
+/**
+ * Printed after `init` and `migrate`: the hot runtime is off by default, so a user
+ * reading only the CLI output would not otherwise learn it exists or what it costs.
+ */
+export const HOT_RUNTIME_NOTE = [
+  "Hot runtime: off by default. `hotRuntime: 'auto'` reuses workers across test files instead of",
+  "starting a fresh one per file. Whether that is faster depends on the suite, so measure it on yours.",
+  "It has known differences from per-file isolation:",
+  "  https://danfry1.github.io/vitest-native/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files",
+];
 
 export interface InitOptions {
   jestCompat?: boolean;
@@ -52,12 +64,24 @@ export default defineConfig({
 })
 `;
 
-export function renderInitConfig(jestCompat: boolean): string {
-  return jestCompat ? JEST_COMPAT_CONFIG : PLAIN_CONFIG;
+/**
+ * The config source. Under Vite+ the config is `vite.config.ts` with `defineConfig`
+ * from 'vite-plus' (viteplus.dev/guide/test): the project does not install `vitest`
+ * itself, so a config importing 'vitest/config' fails to load under pnpm.
+ */
+export function renderInitConfig(jestCompat: boolean, vitePlus = false): string {
+  const source = jestCompat ? JEST_COMPAT_CONFIG : PLAIN_CONFIG;
+  return vitePlus
+    ? source.replace(
+        "import { defineConfig } from 'vitest/config'",
+        "import { defineConfig } from 'vite-plus'",
+      )
+    : source;
 }
 
-function existingConfig(root: string): string | null {
+function existingConfig(root: string, vitePlus: boolean): string | null {
   for (const name of [
+    ...(vitePlus ? ["vite.config.ts", "vite.config.mts", "vite.config.js", "vite.config.mjs"] : []),
     "vitest.config.ts",
     "vitest.config.mts",
     "vitest.config.js",
@@ -72,7 +96,28 @@ function existingConfig(root: string): string | null {
 
 export function runInit(root: string, opts: InitOptions = {}): InitResult {
   const lines: string[] = [];
-  const existing = existingConfig(root);
+  const vitePlus = usesVitePlus(root);
+  const existing = existingConfig(root, vitePlus);
+  if (existing && vitePlus && existing.startsWith("vite.config")) {
+    // A Vite+ project keeps one config for build, lint and tests; replacing it would
+    // drop the rest. The plugin goes into the existing file instead.
+    return {
+      lines: [
+        `✗ ${existing} already exists. Vite+ keeps tests in the same config, so add`,
+        `  vitest-native to it rather than replacing it:`,
+        ``,
+        `  import { reactNative } from 'vitest-native'`,
+        ``,
+        `  export default defineConfig({`,
+        `    plugins: [reactNative()],`,
+        `    test: { environment: 'node' },`,
+        `  })`,
+        ``,
+        `  Then run: vp test`,
+      ],
+      ok: false,
+    };
+  }
   if (existing && !opts.force) {
     return {
       lines: [
@@ -85,19 +130,21 @@ export function runInit(root: string, opts: InitOptions = {}): InitResult {
 
   // TS projects get a .mts config (types flow through defineConfig); everything
   // else gets .mjs — both are ESM regardless of the package's "type".
-  const file = fs.existsSync(path.join(root, "tsconfig.json"))
-    ? "vitest.config.mts"
-    : "vitest.config.mjs";
+  const file = vitePlus
+    ? "vite.config.ts"
+    : fs.existsSync(path.join(root, "tsconfig.json"))
+      ? "vitest.config.mts"
+      : "vitest.config.mjs";
   const target = path.join(root, file);
-  fs.writeFileSync(target, renderInitConfig(opts.jestCompat ?? false));
+  fs.writeFileSync(target, renderInitConfig(opts.jestCompat ?? false, vitePlus));
 
   lines.push(`✓ wrote ${file}${opts.jestCompat ? " (jest-compat variant)" : ""}`);
   if (existing && opts.force) lines.push(`  (replaced ${existing === file ? "it" : existing})`);
   lines.push(
     "",
     "Next steps:",
-    `  1. add a script: "test": "vitest"`,
-    `  2. run: npx vitest`,
+    vitePlus ? `  1. add a script: "test": "vp test"` : `  1. add a script: "test": "vitest"`,
+    vitePlus ? `  2. run: vp test` : `  2. run: npx vitest`,
     `  3. check the environment: npx vitest-native doctor`,
   );
   if (opts.jestCompat) {
@@ -105,5 +152,6 @@ export function runInit(root: string, opts: InitOptions = {}): InitResult {
       `  4. migrating a Jest suite? \`vitest-native migrate\` maps your jest.config onto this file.`,
     );
   }
+  lines.push("", ...HOT_RUNTIME_NOTE);
   return { lines, ok: true, wrote: file };
 }

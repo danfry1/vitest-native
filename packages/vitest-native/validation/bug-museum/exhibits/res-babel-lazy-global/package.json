@@ -1,0 +1,8 @@
+{
+  "name": "museum-res-babel-lazy-global",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "expo": "*"
+  }
+}

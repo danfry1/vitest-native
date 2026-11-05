@@ -1,0 +1,25 @@
+{
+  "$comment": "Probes that fail TODAY, where, how, and the pull request that fixes each (verdict.mjs). The list may only shrink: a listed probe that passes turns its cell red, so the fixing pull request deletes its entry. `when` maps an axis to a value or a list; an entry without `when` matches every run. `failure` is a regex for the expected failure, the bug itself; `consequences` (optional) matches lines the bug causes but that do not identify it, accepted only beside a `failure` match. Every failure line must be accounted for, so a crash, a TypeError or a lost file in a listed probe is still a REGRESSION, and an applying entry whose `failure` matches no line is STALE (verdict.mjs). Entries and signatures were derived from local runs on Vitest 5 and 4.1.11 (RNTL 12.9, 13.3 and 14.1, both engines, every runtime combination; the isolated layout as a pnpm-shaped store built by run.mjs --link-deps) except where `why` says otherwise.",
+  "entries": [
+    {
+      "probe": "aliased-sibling-regex",
+      "when": {
+        "engine": "native",
+        "ownershipModel": "off"
+      },
+      "failure": "^aliased-sibling-regex\\.test\\.ts: Cannot find module '@axis/rvalidator/store'",
+      "fixedBy": "#370",
+      "why": "Node's alias fallback cannot represent a regex alias: Cannot find module. Ownership track A1 (#370, the shared resolver behind experimental.ownershipModel) applies regex aliases on Node's side, deciding by resolution rather than by alias text as #344 does. The entry covers the flag off only: with 'resolver' the probe must pass, so a run that drops the flag fails here instead of matching this entry."
+    },
+    {
+      "probe": "rntl-findby-fake-timers",
+      "when": {
+        "engine": "mock",
+        "jestCompat": "off"
+      },
+      "failure": "^rntl-findby-fake-timers\\.test\\.tsx: findBy advances Vitest's fake timers: Error: Unable to find an element with text: ready",
+      "fixedBy": "#374",
+      "why": "Under the mock engine without jest-compat, RNTL detects and advances fake timers through a free `jest`. #374 gives RNTL's own files that `jest` under the native engine only and documents the mock-engine gap; no fix for the mock engine exists yet, so this entry names the PR that documents it."
+    }
+  ]
+}

@@ -9,20 +9,30 @@
 // of the key too — Babel output embeds the filename — so restores are valid wherever
 // the checkout path is stable (CI runners use a fixed workspace path).
 //
-// @babel/core itself is loaded lazily: on a warm cache the default engine pays this
-// module's init in every isolated worker, and requiring Babel costs ~35ms vs ~0.5ms
-// for resolving versions — pure waste when every file is served from disk. Package
-// files load it only on a cache MISS. App source loads it for its cache key, since
-// only Babel can say which project configuration applies (projectBabelOptions).
-import { createRequire } from "node:module";
+// Babel compiles on a thread of its own, started on a thread's first cache miss (see
+// "Where Babel runs" below): on a warm cache the default engine pays this module's init
+// in every isolated worker, and loading Babel and the preset costs ~130ms vs ~0.5ms for
+// resolving versions — pure waste when every file is served from disk. App source asks
+// it for its cache key, since only Babel can say which project configuration applies
+// (projectBabelOptions).
+import nodeModule, { createRequire } from "node:module";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import os from "node:os";
 import crypto from "node:crypto";
 import vm from "node:vm";
+import { MessageChannel, receiveMessageOnPort, SHARE_ENV, Worker } from "node:worker_threads";
 import { decorateTransformError } from "./explain.mjs";
+import {
+  handleToolchainRequest,
+  IMPORT_META_LOWERING,
+  mentionsImportMeta,
+} from "./babel-toolchain.mjs";
+import { ESM_EXPORTS_MARK, ESM_INTEROP_RUNTIME } from "./esm-interop.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import { resolveTransformPreset } from "./babel-preset.mjs";
+import { projectContext } from "../context.mjs";
 
 // Toolchain state is scoped PER PROJECT ROOT, not per process. It used to be a
 // set of module globals initialized by the first caller — but registries for
@@ -233,22 +243,18 @@ function babelJestCaller(ctx, platform) {
  */
 function projectBabelOptions(ctx, file, platform) {
   if (!file.startsWith(ctx.root + path.sep) || NODE_MODULES.test(file)) return null;
-  if (!ctx.babel) ctx.babel = ctx.req("@babel/core");
   let partial;
-  transformState.depth++;
   try {
-    partial = ctx.babel.loadPartialConfig({
-      filename: file,
-      cwd: ctx.root,
+    partial = callToolchain({
+      kind: "config",
       root: ctx.root,
+      file,
       caller: babelJestCaller(ctx, platform),
     });
   } catch (err) {
-    throw decorateTransformError(err, file, platform);
-  } finally {
-    transformState.depth--;
+    throw transformFailure(err, file, platform);
   }
-  if (partial === null) {
+  if (partial.kind === "ignored") {
     // babel-jest's assertLoadedBabelConfig (build/index.js:103-113): compiling the file
     // without the configuration that excludes it would run code the project never
     // compiles that way.
@@ -260,15 +266,14 @@ function projectBabelOptions(ctx, file, platform) {
         `Remove it from the config's \`ignore\`, or add it to \`only\`.`,
     );
   }
-  if (!partial.hasFilesystemConfig()) return null;
+  if (partial.kind === "none") return null;
   return {
-    options: partial.options,
     // babel-jest keys its cache on the loaded options (getCacheKeyFromConfig,
     // build/index.js:135-165): a function config's output can depend on the
     // environment or the caller, which no file's bytes show. The config files' own
     // bytes join it, so an edit to an inline plugin is picked up as well.
     key: [
-      JSON.stringify(partial.options),
+      partial.options,
       configFileHash(ctx, partial.config),
       configFileHash(ctx, partial.babelrc),
     ].join("\0"),
@@ -301,6 +306,34 @@ function configFileHash(ctx, file) {
   return hash;
 }
 
+/**
+ * The Babel options a file compiles with when no project Babel config applies.
+ *
+ * Nothing in them reaches the disk-cache key except through the directory name
+ * (preset and Babel versions, the Babel env, the optional plugin's presence) and
+ * TRANSFORM_CACHE_VERSION. So any edit here that changes what Babel emits has to bump
+ * that version: tests/cache-key-ledger.test.ts records a fingerprint of these options
+ * per version and fails when they change under the same one.
+ */
+function packageTransformOptions(ctx, file, platform) {
+  return {
+    filename: file,
+    plugins: [ctx.flowEnums, ctx.exportNamespaceFrom].filter(Boolean),
+    // A fresh options object each call, as before Expo's preset was supported:
+    // Babel caches a preset's result per options object, so sharing one would
+    // change when the preset is instantiated.
+    presets: [[ctx.preset, { ...ctx.presetOptions }]],
+    babelrc: false,
+    configFile: false,
+    caller: { name: "metro", bundler: "metro", platform, supportsStaticESM: false },
+  };
+}
+
+/** packageTransformOptions for a project, resolving its toolchain. Test hook. */
+export function transformOptionsFor(projectRoot, file, platform = "ios") {
+  return packageTransformOptions(ctxFor(projectRoot), file, platform);
+}
+
 /** A project's transform disk-cache directory, once resolved. Test hook. */
 export function transformCacheDir(projectRoot) {
   return contexts.get(canonicalRoot(projectRoot))?.cacheDir ?? null;
@@ -320,9 +353,8 @@ const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
  * a name that is not an export appears. That is plain Node behaviour, reproducible
  * with no plugin involved.
  *
- * Reading it properly is possible here because Babel is already loaded to do the
- * transform, and because the input is the transform's own output rather than
- * arbitrary source. Names are used only to emit a dead `0 && (module.exports = {…})`
+ * Reading it properly is possible here because the input is the transform's own
+ * output rather than arbitrary source. Names are used only to emit a dead `0 && (module.exports = {…})`
  * hint, which is the form the lexer does understand.
  *
  * Returns an empty array when the shape is not statically knowable (`module.exports =
@@ -332,6 +364,12 @@ export function cjsExportNames(code) {
   // Parse-only, so any project's @babel/core serves: the input is this module's
   // own transformed output, and parsing is toolchain-neutral across the versions
   // in play. Callers have no project root of their own to hand over.
+  //
+  // On this thread, unlike compiling (see "Where Babel runs"): it runs on warm runs
+  // too, for every compiled module an import reaches, and a thread started for it
+  // would be paid where no file needs compiling. Parsing loads @babel/core and its
+  // parser, not the modules a transform loads lazily, and anything a test global's
+  // getter needs compiled while they load is compiled on Babel's own thread.
   const ctx = anyContext();
   if (!ctx) return [];
   if (!ctx.babel) ctx.babel = ctx.req("@babel/core");
@@ -441,6 +479,16 @@ export function needsTransform(file, src) {
   }
 }
 
+/** Is this file an ES module to Node: `.mjs`/`.mts`, or `type: module` and not `.cjs`/`.cts`? */
+function isModuleGoal(file) {
+  if (/\.m[jt]s$/.test(file)) return true;
+  if (/\.c[jt]s$/.test(file)) return false;
+  return moduleGoal(file);
+}
+
+// The default-import interop for ES modules compiled to CommonJS: esm-interop.mjs.
+export { ESM_EXPORTS_MARK, ESM_INTEROP_RUNTIME };
+
 /** Is this file's nearest package.json `type: module`? Cached per directory. */
 const goalCache = new Map();
 function moduleGoal(file) {
@@ -474,28 +522,361 @@ function moduleGoal(file) {
   }
 }
 
-/** Transform an RN source file to runnable CJS. Cached in-memory + on disk. */
-// Babel loads its own presets and plugins with `require` while a transform runs, and
-// those requires pass through the engine's CommonJS hook like any other. Compiling them
-// there is compiling the compiler mid-compile: @react-native/babel-preset's
-// babel-plugin-syntax-hermes-parser and hermes-parser keep an `@flow` header in their
-// published builds and sit under an @react-native package, so the hook sent them back
-// through Babel, which then read the half-loaded plugin's exports and Node warned
-// "Accessing non-existent property 'then' of module exports inside circular
-// dependency" on a project's first run. They load as published, as they do under
-// Jest, whose transformer is never transformed.
+// Where Babel runs.
 //
-// The depth lives on the realm, not in this module: when two copies of this module
-// share a thread (a test importing the source while the engine's hook runs from the
-// build), a module-local counter left each copy blind to the other's transform, and
-// the hook compiled @react-native/babel-preset's inline-platform-plugin while that
-// preset was loading: "Reentrant preset detected" (#296).
-const TRANSFORM_DEPTH = Symbol.for("vitest-native.transformDepth");
-const transformState = (globalThis[TRANSFORM_DEPTH] ??= { depth: 0 });
+// Babel compiles on a worker thread of its own (babel-worker.mjs), never on the thread
+// that runs the tests, for the reason Jest's transformer is safe: under Jest, test code
+// runs in a vm context, so whatever it installs on its globals never reaches Babel.
+// Here test code and the engine share one realm, and Babel loads its own modules
+// lazily, part of them during its first transform: @babel/traverse, @babel/generator
+// and its source-map codec, and the preset's plugins. Those modules read globals as they
+// initialise (@jridgewell/sourcemap-codec reads `TextDecoder`), and by then the realm
+// holds what the tests installed. Any getter there whose first read requires a file the
+// engine compiles is enough. Expo SDK 57's runtime, installed at setup as jest-expo does,
+// is one: it replaces `TextDecoder` with a getter that requires
+// expo/src/winter/TextDecoder.ts (SDK 58 no longer replaces `TextDecoder`). On a warm
+// cache Babel first loads at the first miss, after that runtime, so the getter ran
+// inside Babel's own loading, its require came back to the engine's hook, and the file
+// was compiled by the half-loaded Babel: helper-replace-supers read `visitors`
+// from a @babel/traverse still loading, and the run failed with "Cannot read
+// properties of undefined (reading 'environmentVisitor')", blamed on whichever file
+// had missed the cache. It happens only when the getter is still pending when Babel
+// first loads, so it came and went with the state of the cache.
+//
+// On its own thread Babel sees Node's globals, whatever the test files install, and
+// loads its presets and plugins as published, as under Jest, whose transformer is never
+// transformed. That used to need a guard here: Babel's requires passed through the
+// engine's CommonJS hook, which skipped compiling while a transform was running (#296)
+// and so could not tell Babel's own requires from a test global's.
+//
+// The registry compiler's child process runs no test code, so Babel runs there on its
+// one thread (compileOnThisThread). A thread that dies never leaves its caller waiting:
+// one that exits or throws says so at once, and a deadline catches one V8 stopped for
+// running out of heap (TOOLCHAIN_DEADLINE_MS).
+//
+// Rejected:
+// - Loading Babel and the preset before Expo's runtime (or anything else) is
+//   installed: about 130 ms (require 30 ms, first transform 100 ms, measured on an
+//   Expo app) in every isolated worker, on every run, warm or not. And it only
+//   covers what is installed after the engine's setup.
+// - Refusing a nested transform (a counter, failing with a clear message): the
+//   require inside the getter is synchronous and cannot wait, so the failure only gets
+//   a better name and the run still fails.
+// - Reading `TextDecoder` and the like from Node for the toolchain: it would mean
+//   patching what Babel's dependencies read, one global at a time.
+//
+// The thread costs about 15 ms to start, once per thread and only at the first miss
+// or project-config lookup, and about 0.02 ms per request. A warm run starts none.
+// The thread shares process.env (SHARE_ENV), so a configuration reading the
+// environment sees what it saw before. It is started with no execArgv: nothing of the
+// engine (hooks, conditions, loaders) loads there.
+const BABEL_WORKER = new URL("./babel-worker.mjs", import.meta.url);
 
-/** Whether a transform is running on this thread (a require now is Babel's own). */
-export function isTransforming() {
-  return transformState.depth > 0;
+/** The signal's value once Babel's thread has ended (see `toolchain` below). */
+const ENDED = -1;
+
+// The thread runs this first, and loads babel-worker.mjs from it. The caller is blocked
+// until it is answered, and events (the worker's "error") cannot reach it there, so the
+// thread must say when it ends before anything that could fail to load: this registers
+// the handler that says so, then imports the worker file, and reports the error if that
+// fails. A worker file that is missing (a broken install), does not parse or throws as
+// it loads then fails its first request at once, with its own error; started from the
+// file itself, such a thread ran nothing, and the caller waited out the deadline. Inline,
+// so the part that reports a failure to load cannot itself be missing.
+const TOOLCHAIN_BOOTSTRAP = `
+const { workerData } = require("node:worker_threads");
+const { port, signal, workerUrl } = workerData;
+process.on("exit", () => {
+  Atomics.store(signal, 0, ${ENDED});
+  Atomics.notify(signal, 0);
+});
+import(workerUrl).catch((err) => {
+  port.postMessage({ startupError: {
+    name: err?.name ?? "Error",
+    message: err?.message ?? String(err),
+    code: err?.code,
+    stack: err?.stack,
+  } });
+  process.exit(1);
+});
+`;
+
+/**
+ * How long a request may go unanswered before Babel's thread is presumed lost and
+ * stopped. A thread that ends normally, or throws, says so at once (TOOLCHAIN_BOOTSTRAP);
+ * one V8 stops for running out of heap runs no handler, and only this ends the wait.
+ *
+ * A transform grows with its input: TypeScript's own 9.1 MB typescript.js took 5-6 s
+ * alone and 86-95 s with 20 compiling at once, which a flat minute failed as if Babel
+ * had run out of memory, where compiling on the test thread had only been slow. So a
+ * transform gets the base plus TOOLCHAIN_DEADLINE_MS_PER_MB for each MB of source (that
+ * file: 197 s); a config lookup, which reads no source, gets the base.
+ */
+const TOOLCHAIN_DEADLINE_MS = 60_000;
+const TOOLCHAIN_DEADLINE_MS_PER_MB = 15_000;
+const MB = 1024 * 1024;
+
+/** The deadline for one request: the base, plus time for each MB of source it carries. */
+export function toolchainDeadlineMs(request, baseMs = TOOLCHAIN_DEADLINE_MS) {
+  const bytes = typeof request.src === "string" ? request.src.length : 0;
+  return baseMs + Math.ceil((bytes / MB) * TOOLCHAIN_DEADLINE_MS_PER_MB);
+}
+
+// Captured as this module loads: the call below runs while test code is on the stack,
+// and a test that stubs one of these (or fakes the clock) must not stop compiling.
+const atomicsLoad = Atomics.load;
+const atomicsWait = Atomics.wait;
+const SharedArrayBufferCtor = SharedArrayBuffer;
+const Int32ArrayCtor = Int32Array;
+const now = performance.now.bind(performance);
+
+// The signal, one Int32 that only Babel's thread writes: the id of the last request it
+// answered, or ENDED once the thread has ended. Each request carries a new id, and its
+// answer carries it back. An answer, a store or a wake-up for an earlier request (one
+// the thread is late with) is then never taken for the current one's.
+const MAX_ID = 0x7fffffff;
+let toolchain = null;
+// Internal: the deadline, its clock, the worker file and its resource limits, for tests
+// that end a thread on purpose (_setToolchainOptions).
+let toolchainOptions = {};
+// The registry compiler's child process runs no test code, so Babel runs there on the
+// one thread, as before: that process's heap bound and its out-of-memory retry
+// (bounded-process.mjs) apply to Babel too.
+let onThisThread = false;
+
+/** Run Babel on this thread: for a process that runs no test code (registry-compiler.mjs). */
+export function compileOnThisThread() {
+  onThisThread = true;
+}
+
+/**
+ * Internal test seam: `{ deadlineMs, workerUrl, resourceLimits, now }` (deadlineMs replaces
+ * the base, and source still adds to it; `now` replaces the clock the deadline is read
+ * on, so a test can order the deadline after an event instead of racing elapsed time);
+ * stops the current thread.
+ */
+export function _setToolchainOptions(options = {}) {
+  toolchain?.worker.terminate();
+  toolchain = null;
+  toolchainOptions = options;
+}
+
+// Sized explicitly. Left to its default, a worker started in a process whose old space
+// is capped small collects its young generation so often that compiling React Native's
+// 412 files takes about twice the CPU: 7.8-9.7 s against 3.6-6.1 s with this setting,
+// at --max-old-space-size=96 and 128. At 256 MB, 1024 MB and uncapped the two measured
+// the same. The engine's own capped process (the registry compiler) no longer starts
+// this thread, but a test process run with a small heap cap still would. The old space
+// keeps the process's cap.
+const YOUNG_GENERATION = { maxYoungGenerationSizeMb: 32 };
+
+function startToolchain() {
+  const { port1, port2 } = new MessageChannel();
+  const signal = new Int32ArrayCtor(new SharedArrayBufferCtor(4));
+  const workerUrl = String(toolchainOptions.workerUrl ?? BABEL_WORKER);
+  const worker = new Worker(TOOLCHAIN_BOOTSTRAP, {
+    eval: true,
+    // Node's compile cache as the calling thread has it (compile-cache.mjs decides per
+    // thread, and leaves it off where it would only grow), so Babel loads from it too.
+    workerData: {
+      port: port2,
+      signal,
+      workerUrl,
+      compileCache: nodeModule.getCompileCacheDir?.(),
+    },
+    transferList: [port2],
+    execArgv: [],
+    env: SHARE_ENV,
+    // The hot runtime's heap-based recycling (hotRuntime.memoryLimit) reads the test
+    // worker's own heap, which no longer holds Babel: this thread's heap is its own
+    // isolate's and is not counted. Babel's heap is bounded by what it compiles, and the
+    // thread ends with the test worker that started it.
+    resourceLimits: { ...YOUNG_GENERATION, ...toolchainOptions.resourceLimits },
+  });
+  // The caller already failed the transform when it was not answered; this is the
+  // thread's own account (out of memory, a throw after it loaded), printed beside it
+  // rather than left as an unhandled error event in the test worker.
+  worker.on("error", (err) => {
+    process.stderr.write(`[vitest-native] Babel's thread: ${err?.stack ?? err}\n`);
+  });
+  // Neither keeps the test thread alive: answers are read synchronously.
+  worker.unref();
+  port1.unref();
+  return { port: port1, signal, worker, workerUrl, lastId: 0 };
+}
+
+const ERROR_TYPES = { SyntaxError, TypeError, RangeError, ReferenceError };
+
+/** Babel's thread is gone: its own failure, not the file's. transformRN names the file. */
+function toolchainLost(detail, cause) {
+  const err = new VitestNativeError("TRANSFORM_FAILED", detail, { cause });
+  Object.defineProperty(err, "toolchainLost", { value: detail });
+  return err;
+}
+
+/** An error Babel's thread sent as `{ name, message, code, stack }`, rebuilt here. */
+function threadError({ name, message, code, stack }) {
+  const err = new (ERROR_TYPES[name] ?? Error)(message);
+  err.name = name;
+  if (code !== undefined) err.code = code;
+  if (stack) err.stack = stack;
+  return err;
+}
+
+/** A file URL as a path, where it is one. */
+function displayUrl(url) {
+  try {
+    return fileURLToPath(url);
+  } catch {
+    return url;
+  }
+}
+
+/** One request to Babel, answered synchronously. */
+function callToolchain(request) {
+  if (onThisThread) return handleToolchainRequest(request);
+  if (toolchain === null || atomicsLoad(toolchain.signal, 0) === ENDED) {
+    toolchain = startToolchain();
+  }
+  const { port, signal, worker, workerUrl } = toolchain;
+  const id = (toolchain.lastId = toolchain.lastId === MAX_ID ? 1 : toolchain.lastId + 1);
+  const deadlineMs = toolchainDeadlineMs(request, toolchainOptions.deadlineMs);
+  const clock = toolchainOptions.now ?? now;
+  port.postMessage({ id, request });
+  const deadline = clock() + deadlineMs;
+  // Only the signal ends the wait: this request's id (answered) or ENDED. A wake-up
+  // alone says nothing. The thread stores, then wakes; if it is descheduled between the
+  // two, the caller can see the store and go on, and the late wake-up lands on its wait
+  // for its NEXT request (#466). A late store does the same: a caller whose deadline
+  // passed after the thread posted its answer, but before it stored, takes the answer
+  // from the port, and the store then lands while the next request is outstanding
+  // (#467). Neither carries the next request's id. The wait is on the value last seen,
+  // so a store that lands before it begins ends it at once.
+  for (;;) {
+    const seen = atomicsLoad(signal, 0);
+    if (seen === id || seen === ENDED) break;
+    const left = deadline - clock();
+    if (left <= 0) break;
+    atomicsWait(signal, 0, seen, Math.min(left, 1000));
+  }
+  // The thread posts its answer before it stores, so an answered request's reply is on
+  // the port. Anything before it answered an earlier request whose caller gave up on it.
+  let reply;
+  let startupError;
+  for (let next = receiveMessageOnPort(port); next; next = receiveMessageOnPort(port)) {
+    if (next.message.id === id) {
+      reply = next.message;
+      break;
+    }
+    startupError ??= next.message.startupError;
+  }
+  if (reply === undefined) {
+    const ended = atomicsLoad(signal, 0) === ENDED;
+    toolchain = null;
+    if (startupError) {
+      const cause = threadError(startupError);
+      throw toolchainLost(
+        `Babel's thread could not load ${displayUrl(workerUrl)}: ` +
+          `${startupError.name}: ${startupError.message}`,
+        cause,
+      );
+    }
+    if (!ended) {
+      worker.terminate();
+      const size =
+        typeof request.src === "string"
+          ? ` compiling ${(request.src.length / MB).toFixed(1)} MB of source`
+          : "";
+      throw toolchainLost(
+        `Babel's thread has not answered in ${Math.round(deadlineMs / 1000)} s${size}, and ` +
+          `was stopped. Either the file is very large for a machine this busy, or Babel ` +
+          `ran out of memory, which V8 ends without running the thread's exit handlers. ` +
+          `For memory, give Node more heap (--max-old-space-size): the thread's heap ` +
+          `follows the process's.`,
+      );
+    }
+    throw toolchainLost(
+      "Babel's thread ended before it answered: something it ran ended it (a " +
+        "`process.exit()` in a Babel config, preset or plugin), or it crashed. Its own " +
+        'error, if it has one, is printed as "Babel\'s thread:".',
+    );
+  }
+  if (reply.error) throw threadError(reply.error);
+  return reply.ok;
+}
+
+/** A transform failure, named for the file: Babel's own, or its thread's. */
+function transformFailure(err, file, platform) {
+  // Already names the file and the fix; Babel prefixed its own copy of the path.
+  if (err?.code === "IMPORT_META_IN_NODE_OWNED") {
+    const message = String(err.message);
+    return new VitestNativeError(
+      err.code,
+      message.slice(Math.max(0, message.indexOf("[vitest-native]"))),
+    );
+  }
+  if (err?.toolchainLost) {
+    return new VitestNativeError(
+      "TRANSFORM_FAILED",
+      `Could not transform ${file} for platform '${platform}'. ${err.toolchainLost}`,
+      { cause: err },
+    );
+  }
+  return decorateTransformError(err, file, platform);
+}
+
+/** Transform an RN source file to runnable CJS. Cached in-memory + on disk. */
+
+// Source maps for the source a project owns, while coverage is on.
+//
+// Code Node compiles runs as Babel's output, not as the file on disk, so a coverage
+// report needs a map from one to the other: V8 counts executions at offsets in the
+// code it ran. Without one, @vitest/coverage-v8 could only re-read the original
+// TypeScript and failed to parse it ("Failed to parse … Excluding it from coverage").
+// The provider this engine installs for coverage (coverage-v8.mjs) reads the map back
+// from this output, which is what the test worker ran.
+//
+// Inline, at the end of the output: the code above the comment is byte-for-byte what it
+// was, so no offset V8 counts moves. Only for files outside node_modules:
+// @vitest/coverage-v8 drops every script under node_modules before it reads a map (as
+// Jest's coveragePathIgnorePatterns does by default). A workspace package is reached
+// through its real path (Node resolves symlinks), so it is mapped too. And only while
+// coverage is on: the plugin says so in the project context (`sourceMaps`) for the test
+// workers, and the provider calls enableSourceMaps() in the main process. A map costs
+// about half again Babel's time and several times the output's size, which a run
+// without coverage would pay for nothing.
+const SOURCE_MAP_TOKEN = "inline-source-map-1";
+let sourceMapsEnabled = false;
+
+/** The main process's coverage provider compiles for the report as the workers did. */
+export function enableSourceMaps() {
+  sourceMapsEnabled = true;
+}
+
+/** Does `file`'s compiled output carry an inline source map? */
+export function carriesSourceMap(file) {
+  return (sourceMapsEnabled || projectContext()?.sourceMaps === true) && !NODE_MODULES.test(file);
+}
+
+/**
+ * The compiled output transformRN already holds for `file` as it is on disk now
+ * (same size and mtime), or undefined. For a caller that must read the source to
+ * decide whether to compile at all (isFlow, needsTransform): a file it compiled before
+ * is answered without that read.
+ */
+export function heldTransform(file, projectRoot, platform = "ios") {
+  let st;
+  try {
+    st = fs.statSync(file);
+  } catch {
+    return undefined;
+  }
+  return ctxFor(projectRoot).mem.get(memoryKey(platform, file, st));
+}
+
+/** transformRN's in-memory key, shared with heldTransform so the two cannot differ. */
+function memoryKey(platform, file, st) {
+  return `${platform}\0${file}\0${st.mtimeMs}\0${st.size}`;
 }
 
 export function transformRN(file, src, projectRoot, platform = "ios") {
@@ -508,13 +889,21 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   // preset embeds the absolute path (_jsxFileName) in transformed JSX, so two
   // identical sources at different paths must not share an entry.
   const st = fs.statSync(file);
-  const memKey = `${platform}\0${file}\0${st.mtimeMs}\0${st.size}`;
+  const memKey = memoryKey(platform, file, st);
   const memHit = ctx.mem.get(memKey);
   if (memHit !== undefined) return memHit;
+  // A caller that has not read the file yet passes no source, and pays for the read
+  // only here, on a miss. The hot runtime re-loads a library a test file used on every
+  // file, so its sources would otherwise be read again each time just to find this hit.
+  if (src === undefined) src = fs.readFileSync(file, "utf8");
 
   // App source under a project Babel config compiles with it (projectBabelOptions),
   // and the options it loaded key the output.
   const projectConfig = projectBabelOptions(ctx, file, platform);
+  // An ES module to Node gets the default-import interop described at esmImportInterop
+  // (esm-interop.mjs).
+  // App source under its own Babel config is left to that config, as babel-jest leaves it.
+  const esm = projectConfig === null && isModuleGoal(file);
   const hash = crypto
     .createHash("sha1")
     .update(platform)
@@ -523,6 +912,27 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
     .update("\0")
     .update(src);
   if (projectConfig) hash.update("\0babel-config\0").update(projectConfig.key);
+  // The goal comes from the nearest package.json, not from the file's bytes, so it keys
+  // the entry: a package changing its `type` must not be served output compiled for the
+  // other goal. Only ESM-goal entries change key, and their previous output is exactly
+  // what this fixes, so TRANSFORM_CACHE_VERSION is not bumped: script-goal entries,
+  // React Native's own sources and the precompiled registry (keyed on that version)
+  // are byte-for-byte unchanged and stay warm. Output does not depend on any OTHER
+  // package — the interop is decided at run time — so nothing else needs keying. The
+  // token names the helpers' revision, so output from an earlier revision is not reused.
+  if (esm) hash.update(`\0esm-goal\0${ESM_INTEROP_RUNTIME}`);
+  // Source outside node_modules carries an inline source map (see SOURCE_MAP_TOKEN), so its
+  // entries are keyed apart from the map-less output an earlier version cached for it.
+  // React Native's sources and every other package keep their keys and stay warm.
+  const sourceMap = carriesSourceMap(file);
+  if (sourceMap) hash.update(`\0${SOURCE_MAP_TOKEN}`);
+  // `import.meta` gets its CommonJS value, or fails by name (importMetaToCommonJS in
+  // babel-toolchain.mjs). Decided on the source text first, so a file without it costs
+  // one regular-expression scan and no Babel work. Only these files' output changes, so
+  // only their key does, as for the ESM goal above: TRANSFORM_CACHE_VERSION, and with it
+  // every other entry and the precompiled registry, stays as it was.
+  const importMeta = mentionsImportMeta(src);
+  if (importMeta) hash.update(`\0${IMPORT_META_LOWERING}`);
   const key = hash.digest("hex");
   const cachePath = path.join(ctx.cacheDir, key + ".js");
   try {
@@ -532,32 +942,39 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   } catch {}
 
   let out;
-  transformState.depth++;
   try {
-    if (!ctx.babel) ctx.babel = ctx.req("@babel/core");
-    out = ctx.babel.transformSync(
-      src,
+    out = callToolchain(
       projectConfig
-        ? projectConfig.options
+        ? {
+            kind: "transform",
+            root: ctx.root,
+            file,
+            src,
+            project: true,
+            sourceMap,
+            importMeta,
+            caller: babelJestCaller(ctx, platform),
+          }
         : {
-            filename: file,
-            plugins: [ctx.flowEnums, ctx.exportNamespaceFrom].filter(Boolean),
-            // A fresh options object each call, as before Expo's preset was supported:
-            // Babel caches a preset's result per options object, so sharing one would
-            // change when the preset is instantiated.
-            presets: [[ctx.preset, { ...ctx.presetOptions }]],
-            babelrc: false,
-            configFile: false,
-            caller: { name: "metro", bundler: "metro", platform, supportsStaticESM: false },
+            kind: "transform",
+            root: ctx.root,
+            src,
+            // Added on Babel's side: a plugin is a function, which does not cross threads.
+            esmInterop: esm,
+            importMeta,
+            // The inline source map is keyed by its own token (SOURCE_MAP_TOKEN), not by
+            // TRANSFORM_CACHE_VERSION, so it is added here rather than to the options the
+            // cache-key ledger fingerprints.
+            options: sourceMap
+              ? { ...packageTransformOptions(ctx, file, platform), sourceMaps: "inline" }
+              : packageTransformOptions(ctx, file, platform),
           },
     ).code;
   } catch (err) {
     // Decorate here, at the single choke point, so every caller — the ESM
     // loader, the CJS require hook, requireActual's .ts handlers — surfaces
     // the file, platform, and owning package instead of a bare Babel stack.
-    throw decorateTransformError(err, file, platform);
-  } finally {
-    transformState.depth--;
+    throw transformFailure(err, file, platform);
   }
   // Atomic write: multiple worker threads may transform the same RN file
   // concurrently on a cold cache. Write to a unique temp file then rename

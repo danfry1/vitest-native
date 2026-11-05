@@ -1,8 +1,8 @@
 /**
  * Disk-cache behavior of the native-engine transform: project-local cache
- * location, content-hash keying, and lazy @babel/core loading on warm caches.
+ * location, content-hash keying, and no Babel at all on warm caches.
  */
-import { describe, it, expect } from "vitest";
+import { beforeAll, describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 import path from "node:path";
@@ -10,7 +10,13 @@ import fs from "node:fs";
 import os from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 // @ts-expect-error — runtime .mjs, no types
-import { transformRN, transformCacheDir, cacheRootFor } from "../src/native/transform.mjs";
+import {
+  carriesSourceMap,
+  transformRN,
+  transformCacheDir,
+  cacheRootFor,
+} from "../src/native/transform.mjs";
+import { COLD_TRANSFORM_BUDGET_MS, warmTransform } from "./support/warm-transform.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 function findUp(rel: string, start: string): string {
@@ -24,6 +30,9 @@ function findUp(rel: string, start: string): string {
   }
 }
 const projectRoot = path.dirname(findUp("package.json", HERE));
+
+// Each test file starts its own Babel worker; none of its tests should pay that start.
+beforeAll(() => warmTransform(transformRN, projectRoot), COLD_TRANSFORM_BUDGET_MS);
 
 describe("cacheRootFor", () => {
   it("prefers the project's node_modules/.cache when node_modules exists", () => {
@@ -86,16 +95,19 @@ describe("transform disk cache", () => {
   // Exact-key assertions, not directory-entry counts: other test files
   // transform into the same shared project cache dir from parallel workers,
   // so counting entries races. The expected key mirrors the implementation's
-  // sha1(platform, path, content) scheme.
-  const diskKeyFor = (platform: string, file: string, src: string) =>
-    crypto
+  // sha1(platform, path, content) scheme, plus the source-map token for a file outside
+  // node_modules (whose output carries an inline map).
+  const diskKeyFor = (platform: string, file: string, src: string) => {
+    const hash = crypto
       .createHash("sha1")
       .update(platform)
       .update("\0")
       .update(file)
       .update("\0")
-      .update(src)
-      .digest("hex");
+      .update(src);
+    if (carriesSourceMap(file)) hash.update("\0inline-source-map-1");
+    return hash.digest("hex");
+  };
 
   it("keys entries by path + content, not mtime — CI-restore friendly", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-contentkey-"));
@@ -136,9 +148,10 @@ describe("transform disk cache", () => {
     }
   });
 
-  it("does not load @babel/core when every file is served from the disk cache", () => {
-    // Two subprocesses sharing the disk cache: the first (cold) must load
-    // Babel; the second (warm) must serve from disk without ever requiring it.
+  it("does not start Babel when every file is served from the disk cache", () => {
+    // Two subprocesses sharing the disk cache: the first (cold) must start Babel's
+    // thread; the second (warm) must serve from disk without starting it or loading
+    // Babel on its own thread.
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-lazybabel-"));
     try {
       const file = path.join(dir, "mod.js");
@@ -155,6 +168,9 @@ describe("transform disk cache", () => {
           pathToFileURL(path.join(projectRoot, "src", "native", "transform.mjs")).href,
         )};
         import fs from "node:fs";
+        import diagnostics from "node:diagnostics_channel";
+        let threads = 0;
+        diagnostics.subscribe("worker_threads", () => threads++);
         const file = ${JSON.stringify(file)};
         transformRN(file, fs.readFileSync(file, "utf8"), ${JSON.stringify(projectRoot)});
         const { default: Module } = await import("node:module");
@@ -164,7 +180,7 @@ describe("transform disk cache", () => {
           (p) => p.includes(${JSON.stringify(path.join("@babel", "core") + path.sep)}) &&
             !p.endsWith("package.json"),
         );
-        console.log("BABEL_LOADED=" + loadedBabel);
+        console.log("BABEL_LOADED=" + (loadedBabel || threads > 0));
       `;
       const run = () =>
         execFileSync(process.execPath, ["--input-type=module", "-e", script], {

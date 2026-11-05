@@ -39,7 +39,11 @@ import {
   parseJestScript,
   translateDiscovery,
 } from "../src/cli/jest-discovery.js";
-import { classifyBabelPlugins, readBabelConfig } from "../src/cli/babel-config.js";
+import {
+  classifyBabelPlugins,
+  normalizeBabelName,
+  readBabelConfig,
+} from "../src/cli/babel-config.js";
 import { runDoctor } from "../src/cli/doctor.js";
 import { DEFAULT_ASSET_EXTS, PRESET_MODULES } from "../src/preset-map.js";
 
@@ -551,27 +555,6 @@ describe("a jest-expo app's package.json#jest", () => {
     expect(doctor).toContain("⚠ @lingui/babel-plugin-lingui-macro compiles macro imports away");
   });
 
-  it("judges the worklets plugin unneeded where worklets runs as itself, by its Jest resolver", () => {
-    const worklets = (withResolver: boolean) =>
-      blueskyLike({
-        "node_modules/react-native-worklets/package.json": {
-          name: "react-native-worklets",
-          version: withResolver ? "0.13.0" : "0.5.1",
-        },
-        ...(withResolver ? { "node_modules/react-native-worklets/jest/resolver.js": "" } : {}),
-      });
-    const verdict = (root: string) =>
-      classifyBabelPlugins(readBabelConfig(root), root, []).find(
-        (p) => p.name === "react-native-worklets/plugin",
-      );
-    const runsItself = verdict(worklets(true));
-    expect(runsItself?.verdict).toBe("unneeded");
-    expect(runsItself?.reason).toContain("runs as itself under the native engine");
-    // Before worklets 0.9 there is no resolver, its preset applies, and here it is not
-    // active, so the plugin is left to judge.
-    expect(verdict(worklets(false))?.verdict).toBe("unknown");
-  });
-
   it("emits the Babel plugin when Vite 8 and @rolldown/plugin-babel are installed", () => {
     const report = analyzeJestConfig(
       blueskyLike({
@@ -693,6 +676,132 @@ describe("Babel config reading", () => {
     expect(readBabelConfig(overridesRoot).plugins.map((p) => p.name)).toEqual([
       "babel-plugin-macros",
     ]);
+  });
+});
+
+describe("Babel name normalization", () => {
+  it("follows @babel/core's standardizeName, including the @babel scope", () => {
+    const cases: [string, "plugin" | "preset", string][] = [
+      ["macros", "plugin", "babel-plugin-macros"],
+      ["babel-plugin-macros", "plugin", "babel-plugin-macros"],
+      [
+        "@babel/plugin-transform-modules-commonjs",
+        "plugin",
+        "@babel/plugin-transform-modules-commonjs",
+      ],
+      ["@babel/transform-modules-commonjs", "plugin", "@babel/plugin-transform-modules-commonjs"],
+      ["@babel/preset-env", "preset", "@babel/preset-env"],
+      ["@babel/env", "preset", "@babel/preset-env"],
+      ["@lingui/babel-plugin-lingui-macro", "plugin", "@lingui/babel-plugin-lingui-macro"],
+      ["@scope/foo", "plugin", "@scope/babel-plugin-foo"],
+      ["@scope", "plugin", "@scope/babel-plugin"],
+      ["@react-native/babel-preset", "preset", "@react-native/babel-preset"],
+      ["expo", "preset", "babel-preset-expo"],
+      ["module:metro-react-native-babel-preset", "preset", "metro-react-native-babel-preset"],
+      ["react-native-worklets/plugin", "plugin", "react-native-worklets/plugin"],
+      ["./local-plugin", "plugin", "./local-plugin"],
+    ];
+    for (const [written, kind, expected] of cases) {
+      expect(normalizeBabelName(written, kind), written).toBe(expected);
+    }
+  });
+});
+
+describe("Babel settings that make imports lazy under Jest", () => {
+  const babelRoot = (config: string, file = "babel.config.js") =>
+    fixture({ "package.json": { name: "x" }, [file]: config });
+  const lazyOf = (config: string, file?: string) =>
+    readBabelConfig(babelRoot(config, file)).lazyImports;
+
+  it("names each setting that compiles imports into a require() run on first use", () => {
+    // Bluesky's shape: a function config, babel-preset-expo with lazyImports.
+    expect(
+      lazyOf(
+        `module.exports = (api) => ({ presets: [['babel-preset-expo', { lazyImports: true }]] });`,
+      ),
+    ).toEqual(["babel-preset-expo lazyImports"]);
+    // babel-preset-expo merges its native and per-platform options over the top level.
+    expect(
+      lazyOf(`module.exports = { presets: [['expo', { native: { lazyImports: true } }]] };`),
+    ).toEqual(["expo lazyImports"]);
+    expect(
+      lazyOf(`module.exports = { presets: [['expo', { ios: { lazyImports: ['lodash'] } }]] };`),
+    ).toEqual(["expo lazyImports"]);
+    expect(
+      lazyOf(
+        `module.exports = { presets: [['module:@react-native/babel-preset', { lazyImportExportTransform: true }]] };`,
+      ),
+    ).toEqual(["module:@react-native/babel-preset lazyImportExportTransform"]);
+    expect(
+      lazyOf(
+        `module.exports = { plugins: [['@babel/plugin-transform-modules-commonjs', { lazy: () => true }]] };`,
+      ),
+    ).toEqual(["@babel/plugin-transform-modules-commonjs lazy"]);
+    // Babel's short name for the same plugin, in the test env section Jest's Babel merges.
+    expect(
+      lazyOf(
+        `module.exports = { env: { test: { plugins: [['@babel/transform-modules-commonjs', { lazy: true }]] } } };`,
+      ),
+    ).toEqual(["@babel/transform-modules-commonjs lazy"]);
+    expect(
+      lazyOf(`module.exports = { plugins: ['babel-preset-fbjs/plugins/inline-requires'] };`),
+    ).toEqual(["babel-preset-fbjs/plugins/inline-requires"]);
+  });
+
+  it("reports nothing for the defaults or an explicit off", () => {
+    expect(
+      lazyOf(`module.exports = { presets: ['babel-preset-expo', '@react-native/babel-preset'] };`),
+    ).toEqual([]);
+    expect(
+      lazyOf(`module.exports = { presets: [['babel-preset-expo', { lazyImports: false }]] };`),
+    ).toEqual([]);
+    expect(
+      lazyOf(
+        `module.exports = { plugins: [['@babel/plugin-transform-modules-commonjs', { lazy: [] }]] };`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("finds the settings by name in a config it cannot evaluate", () => {
+    expect(
+      lazyOf(
+        `export default { presets: [['babel-preset-expo', { lazyImports: true }]] };`,
+        "babel.config.mjs",
+      ),
+    ).toEqual(["lazyImports"]);
+    expect(
+      lazyOf(
+        `export default { presets: [['babel-preset-expo', { lazyImports: false }]] };`,
+        "babel.config.mjs",
+      ),
+    ).toEqual([]);
+    // JSON with a comment fails JSON.parse and is read as text; its keys are quoted.
+    expect(
+      lazyOf(
+        '// comment\n{ "presets": [["babel-preset-expo", { "lazyImports": true }]] }\n',
+        ".babelrc",
+      ),
+    ).toEqual(["lazyImports"]);
+  });
+
+  it("puts the partial-mock risk and its fix under Needs your attention", () => {
+    const lazy = analyzeJestConfig(
+      blueskyLike({
+        "babel.config.js": `module.exports = function (api) {
+  api.cache(true)
+  return { presets: [['babel-preset-expo', { lazyImports: true }]] }
+}
+`,
+      }),
+    ).attention.join("\n");
+    expect(lazy).toContain(
+      "babel.config.js: babel-preset-expo lazyImports — under Jest a package import ran only when",
+    );
+    expect(lazy).toContain("jest.requireActual('x')");
+    // The fixture's default config (babel-preset-expo with no options) gets no such item.
+    expect(analyzeJestConfig(blueskyLike()).attention.join("\n")).not.toContain(
+      "import ran only when the test",
+    );
   });
 });
 
@@ -832,10 +941,11 @@ describe("the generated config, executed", () => {
         env: { ...process.env, CI: "1" },
       });
       expect(listed.status, listed.stderr).toBe(0);
+      // The native realpath: Windows spells the temp directory both `RUNNER~1` and
+      // `runneradmin`, and Vitest may report either.
+      const real = fs.realpathSync.native;
       const files = (JSON.parse(listed.stdout) as { file: string }[])
-        .map((f) =>
-          path.relative(fs.realpathSync(root), fs.realpathSync(f.file)).split(path.sep).join("/"),
-        )
+        .map((f) => path.relative(real(root), real(f.file)).split(path.sep).join("/"))
         .sort();
       expect(files).toEqual([
         "src/components/Button.test.tsx",

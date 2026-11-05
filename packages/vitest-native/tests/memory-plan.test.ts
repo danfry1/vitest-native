@@ -4,6 +4,7 @@ import {
   createHotMemoryPlan,
   effectiveMemoryLimit,
   formatHotMemoryPlan,
+  formatHotWorkerDecision,
   resolveRequestedWorkers,
   type HotMemoryPlan,
 } from "../src/native/memory.mjs";
@@ -44,11 +45,97 @@ describe("hot memory planning", () => {
     expect(plan(2 * GIB).hardRssLimit).toBeLessThan(2 * GIB);
   });
 
+  it("caps only the automatic worker count at four; memory bounds an explicit one", () => {
+    const host = (requestedWorkers: number, explicitWorkers?: boolean) =>
+      createHotMemoryPlan({
+        totalMemory: 4 * GIB,
+        constrainedMemory: 0,
+        requestedWorkers,
+        explicitWorkers,
+      });
+    expect(host(10)).toMatchObject({ admittedWorkers: 4, maxWorkers: 4 });
+    // 4 GiB leaves an envelope of eleven 256 MiB workers.
+    expect(host(10, true)).toMatchObject({ requestedWorkers: 10, maxWorkers: 10 });
+    expect(host(16, true)).toMatchObject({ admittedWorkers: 11, maxWorkers: 11 });
+    // More workers share the same envelope, so each recycles at a lower heap.
+    expect(host(10, true).workerHeapLimit).toBeLessThan(host(10).workerHeapLimit);
+    expect(host(3, true)).toMatchObject({ maxWorkers: 3 });
+
+    // Memory still caps an explicit request: 2 GiB admits four 256 MiB envelopes.
+    expect(
+      createHotMemoryPlan({
+        totalMemory: 16 * GIB,
+        constrainedMemory: 2 * GIB,
+        requestedWorkers: 8,
+        explicitWorkers: true,
+      }),
+    ).toMatchObject({ requestedWorkers: 8, admittedWorkers: 4, maxWorkers: 4 });
+    // With no known limit nothing admits more than the measured default.
+    expect(
+      createHotMemoryPlan({
+        totalMemory: 0,
+        constrainedMemory: 0,
+        requestedWorkers: 8,
+        explicitWorkers: true,
+      }),
+    ).toMatchObject({ source: "unknown", maxWorkers: 4 });
+  });
+
   it("resolves Vitest worker counts and percentage syntax", () => {
     expect(resolveRequestedWorkers(undefined, { parallelism: 10 })).toBe(9);
     expect(resolveRequestedWorkers("50%", { parallelism: 10 })).toBe(5);
     expect(resolveRequestedWorkers("3", { parallelism: 10 })).toBe(3);
     expect(resolveRequestedWorkers(8, { parallelism: 10, fileParallelism: false })).toBe(1);
+  });
+
+  it("states the worker decision in one line", () => {
+    // 2 GiB admits one worker: fewer than the eight requested.
+    const capped = createHotMemoryPlan({
+      totalMemory: 2 * GIB,
+      constrainedMemory: 0,
+      requestedWorkers: 8,
+    });
+    expect(formatHotWorkerDecision(capped)).toBe(
+      `workers: ${capped.maxWorkers} (memory plan admitted ${capped.admittedWorkers} of 8 requested, 2048 MiB host memory)`,
+    );
+    expect(capped.maxWorkers).toBeLessThan(8);
+    // Plenty of memory, no count set: the automatic cap chose, not memory.
+    const auto = createHotMemoryPlan({
+      totalMemory: 64 * GIB,
+      constrainedMemory: 0,
+      requestedWorkers: 9,
+    });
+    expect(auto.maxWorkers).toBe(4);
+    expect(formatHotWorkerDecision(auto)).toBe(
+      "workers: 4 (automatic cap of 4; 9 available, set maxWorkers to run more; 65536 MiB host memory)",
+    );
+    // The same machine with the count set: memory alone bounds it.
+    const set = createHotMemoryPlan({
+      totalMemory: 64 * GIB,
+      constrainedMemory: 0,
+      requestedWorkers: 9,
+      explicitWorkers: true,
+    });
+    expect(formatHotWorkerDecision(set)).toMatch(
+      /^workers: 9 \(as requested; memory plan admits up to \d+, 65536 MiB host memory\)$/,
+    );
+    // A container's limit below the host's is named as the limit.
+    const roomy = createHotMemoryPlan({
+      totalMemory: 64 * GIB,
+      constrainedMemory: 32 * GIB,
+      requestedWorkers: 2,
+    });
+    expect(formatHotWorkerDecision(roomy)).toBe(
+      `workers: 2 (as requested; memory plan admits up to ${roomy.admittedWorkers}, 32768 MiB memory limit)`,
+    );
+    const unknown = createHotMemoryPlan({
+      totalMemory: 0,
+      constrainedMemory: 0,
+      requestedWorkers: 3,
+    });
+    expect(formatHotWorkerDecision(unknown)).toMatch(
+      /^workers: 3 \(as requested; .*, memory unknown\)$/,
+    );
   });
 
   it("formats every decision needed for diagnostics", () => {

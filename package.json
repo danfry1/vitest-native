@@ -10,7 +10,7 @@
   "overrides": {
     "esbuild": "0.28.1",
     "shell-quote": "1.8.4",
-    "vite": "8.0.16",
+    "vite": "8.3.5",
     "react-native-skia-android": "file:./scripts/native-binary-stub",
     "react-native-skia-apple-ios": "file:./scripts/native-binary-stub",
     "react-native-skia-apple-macos": "file:./scripts/native-binary-stub",
@@ -33,6 +33,7 @@
     "test:native:android": "bun run --filter vitest-native test:native:android",
     "test:native:advice": "bun run --filter vitest-native test:native:advice",
     "test:native:hot": "bun run --filter vitest-native test:native:hot",
+    "test:native:coverage": "bun run --filter vitest-native test:native:coverage",
     "test:native:hot:isolation": "bun run --filter vitest-native test:native:hot:isolation",
     "test:native:hot:soak": "bun run --filter vitest-native test:native:hot:soak",
     "test:consumers": "bun run build && bun run --filter vitest-native test:consumers",
@@ -54,13 +55,13 @@
     "@changesets/cli": "3.0.3",
     "@types/node": "25.9.9",
     "@types/react": "19.3.0",
-    "oxc-minify": "0.154.0",
-    "oxfmt": "0.73.0",
-    "oxlint": "1.88.0",
+    "oxc-minify": "0.156.0",
+    "oxfmt": "0.75.0",
+    "oxlint": "1.90.0",
     "syncpack": "15.3.3",
-    "tsdown": "0.23.1",
+    "tsdown": "0.23.3",
     "typescript": "7.0.2",
-    "vitepress": "2.0.0-alpha.20",
+    "vitepress": "2.0.0-alpha.21",
     "vitest": "5.0.5"
   }
 }

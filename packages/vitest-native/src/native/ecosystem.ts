@@ -1,8 +1,10 @@
-import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
-import { containsPath } from "./match.mjs";
+import { containsPath, dependencyDirOf, type PackageDirOf } from "./match.mjs";
+
+/** A path inside a node_modules directory: an installed package's, not a workspace member's. */
+const NODE_MODULES_DIR = /[\\/]node_modules[\\/]/;
 
 /**
  * Packages that must never be auto-inlined even though they depend on React
@@ -185,6 +187,83 @@ function manifestsFrom(projectRoot: string): { dir: string; manifest: Record<str
 }
 
 /**
+ * The paths a `resolve.alias` config points into, whatever each entry's `find` is: a
+ * string, or a RegExp (an alias Vite applies to imports, which `jest.requireActual`
+ * cannot, so serializableAliases leaves it out of the compat layer's list). These seed
+ * the closure walk through the workspace members that contain them (ReachedPackages).
+ *
+ * A replacement may substitute part of the match (`/abs/packages/ui/src$1`): only the
+ * text before its first substitution is fixed (fixedReplacement), and that part is the
+ * path the alias reaches. A substitution that chooses the member (`/abs/packages/$1`)
+ * leaves a fixed part above every member, so it reaches none: walking every member such
+ * an alias could produce is the "seed from every member" #433 rejected. A `$` that is
+ * not a substitution (`/home/ci/$work`, a `c$` share) is part of the path. A replacement
+ * starting with `.` is taken from `root`, as the compat layer takes it; anything else
+ * that is not absolute (a package name) reaches no member.
+ *
+ * Plugins that resolve through `resolveId` (vite-tsconfig-paths, nxViteTsPaths) add no
+ * alias entry, so they are out of reach here by construction.
+ */
+export function aliasReachedPaths(alias: unknown, root: string): string[] {
+  const list = Array.isArray(alias)
+    ? alias
+    : alias && typeof alias === "object"
+      ? Object.entries(alias).map(([find, replacement]) => ({ find, replacement }))
+      : [];
+  const reached: string[] = [];
+  for (const item of list) {
+    const entry = item as { find?: unknown; replacement?: unknown } | null;
+    const replacement = entry?.replacement;
+    if (typeof replacement !== "string") continue;
+    const fixed = fixedReplacement(replacement, entry?.find instanceof RegExp);
+    const target = fixed.startsWith(".") ? path.resolve(root, fixed) : fixed;
+    if (target && path.isAbsolute(target)) reached.push(target);
+  }
+  return reached;
+}
+
+/**
+ * The text of an alias replacement up to its first substitution, with `$$` read as `$`.
+ * Vite applies an alias with `String.prototype.replace`, which substitutes `$&`, `` $` ``
+ * and `$'` for any pattern, and `$n` and `$<name>` for a RegExp; every other `$` is
+ * literal (with a string pattern, `$1` is too).
+ */
+function fixedReplacement(replacement: string, regExp: boolean): string {
+  let fixed = "";
+  for (let i = 0; i < replacement.length; i++) {
+    const char = replacement[i];
+    if (char !== "$") {
+      fixed += char;
+      continue;
+    }
+    const next = replacement[i + 1] ?? "";
+    if (next === "$") {
+      fixed += "$";
+      i++;
+    } else if (next === "&" || next === "`" || next === "'") {
+      break;
+    } else if (regExp && (/[0-9]/.test(next) || next === "<")) {
+      break;
+    } else {
+      fixed += "$";
+    }
+  }
+  return fixed;
+}
+
+export interface ReachedPackages {
+  /**
+   * Absolute paths the run imports outside its own package without declaring them as
+   * dependencies: the targets of `resolve.alias` entries. A workspace member containing
+   * one is reached, and its dependencies are walked (see "Workspace members the run
+   * reaches" below).
+   */
+  reachedPaths?: readonly string[];
+  /** Called once per workspace member reached through `reachedPaths` but not declared. */
+  onReachedUndeclared?: (name: string, dir: string) => void;
+}
+
+/**
  * Packages in the project that declare React Native in their own manifest.
  *
  * These are the ones published the way the React Native ecosystem publishes:
@@ -206,6 +285,12 @@ function manifestsFrom(projectRoot: string): { dir: string; manifest: Record<str
  * Excluded: packages a preset already shadows (their real source never loads), the
  * test infrastructure in NEVER_INLINE, and anything the consumer listed explicitly
  * in `transform` — that option keeps its existing meaning and takes precedence.
+ *
+ * `dirOf` finds a dependency's directory from a directory: `dependencyDirOf`, or a
+ * memoized copy of it (memoizePackageDirOf). Not `packageDirOf`, whose answer for a
+ * workspace member differs (see dependencyDirOf).
+ *
+ * `reachedPaths` adds the workspace members an alias reaches; see ReachedPackages.
  */
 export function detectEcosystemPackages(
   projectRoot: string | string[],
@@ -213,6 +298,8 @@ export function detectEcosystemPackages(
   testRoots: string[] = [],
   neverTransform: string[] = [],
   activePresets?: readonly string[],
+  dirOf: PackageDirOf = dependencyDirOf,
+  { reachedPaths = [], onReachedUndeclared }: ReachedPackages = {},
 ): string[] {
   // More than one root because `manifestsFrom` only walks UP. In a workspace the
   // run root is often above the package under test — Nx invokes tasks from the
@@ -245,9 +332,7 @@ export function detectEcosystemPackages(
   // package is linked only into the package that depends on it, so the run root
   // often cannot resolve what the app can — resolving only from the run root is
   // how a workspace library slips past detection when the run starts above it.
-  const requires = [...new Set(found.map((entry) => entry.dir))].map((dir) =>
-    createRequire(path.join(dir, "package.json")),
-  );
+  const declaringDirs = [...new Set(found.map((entry) => entry.dir))];
   for (const { manifest } of found) {
     for (const field of ["dependencies", "devDependencies", "optionalDependencies"]) {
       const deps = manifest[field];
@@ -258,17 +343,52 @@ export function detectEcosystemPackages(
   }
   if (candidates.size === 0) return [];
 
+  /**
+   * A package's manifest, and the real directory it is installed in, as Node finds it
+   * from `fromDir` (dependencyDirOf). Not `require.resolve("<name>/package.json")`
+   * alone: an installed package whose `exports` map leaves out `./package.json` refuses
+   * that request, and was silently never detected or compiled (expo-symbols 57, whose
+   * ES module build Node then ran raw). A workspace member is still found only through
+   * that request; dependencyDirOf says why.
+   */
+  type Installed = { manifest: Record<string, unknown>; dir: string };
+  const installedFrom = (fromDir: string, name: string): Installed | null => {
+    const dir = dirOf(name, fromDir);
+    if (!dir) return null;
+    try {
+      const manifest = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
+      return { manifest: manifest as Record<string, unknown>, dir };
+    } catch {
+      return null;
+    }
+  };
   /** Resolve a package's manifest from whichever root can see it. */
-  const manifestOf = (name: string): Record<string, unknown> | null => {
-    for (const req of requires) {
-      try {
-        return req(`${name}/package.json`) as Record<string, unknown>;
-      } catch {
-        // Not resolvable from this root — try the next one.
-      }
+  const installedOf = (name: string): Installed | null => {
+    for (const dir of declaringDirs) {
+      const installed = installedFrom(dir, name);
+      if (installed) return installed;
     }
     return null;
   };
+  const manifestOf = (name: string): Record<string, unknown> | null =>
+    installedOf(name)?.manifest ?? null;
+
+  // A dependency is resolved from the package that declares it, as Node resolves it
+  // when that package's code runs. One that does not resolve from there cannot load
+  // either, so it is not looked for elsewhere.
+  //
+  // Resolving it from the roots alone found only what is hoisted. An isolated install
+  // (pnpm, bun) links a project's direct dependencies into its node_modules and
+  // nothing else: @react-navigation/native's own dependencies, @react-navigation/core
+  // and @react-navigation/elements, are siblings of its real directory in the store
+  // and resolve from nowhere above the project. Every transitive dependency was then
+  // "declared but not installed" and left out of the walk, so with the navigation
+  // preset off, @react-navigation/native-stack imported an uncompiled
+  // @react-navigation/elements, whose ESM could not see the names the compiled
+  // @react-navigation/native re-exports from core: "does not provide an export named
+  // 'useTheme'".
+  const dependencyOf = (parent: Installed, name: string): Installed | null =>
+    installedFrom(parent.dir, name);
 
   /**
    * The packages the run itself lives in — the project, in other words.
@@ -327,9 +447,9 @@ export function detectEcosystemPackages(
   // naming react-native-animatable does, and nothing tells a user that.
   //
   // Membership of a detected package's dependency closure is the signal that its
-  // own manifest does not carry. Runtime `dependencies` only: devDependencies are
-  // not shipped, and peerDependencies are supplied by the project and reached
-  // through the normal candidate set.
+  // own manifest does not carry. Runtime `dependencies`, and devDependencies never:
+  // they are not shipped. A peer dependency is followed only into a package already
+  // detected (see the walk below).
   //
   // React Native's OWN dependencies are excluded. The precompiled registry compiles
   // React Native's graph and reaches everything outside it — invariant, nullthrows,
@@ -340,16 +460,19 @@ export function detectEcosystemPackages(
   // and it is the one package in that closure React Native also owns.
   const rnOwned = new Set<string>(Object.keys(manifestOf("react-native")?.dependencies ?? {}));
 
-  /** Every package reachable from `roots` through runtime dependencies. */
-  const closureOf = (starts: string[]): Set<string> => {
+  /** Every package reachable from `starts` through runtime dependencies. */
+  const closureOf = (starts: [string, Installed | null][]): Set<string> => {
     const seen = new Set<string>();
     const pending = [...starts];
     while (pending.length > 0) {
-      const name = pending.pop() as string;
+      const [name, installed] = pending.pop() as [string, Installed | null];
       if (seen.has(name)) continue;
       seen.add(name);
-      const deps = manifestOf(name)?.dependencies;
-      if (deps && typeof deps === "object") pending.push(...Object.keys(deps as object));
+      const deps = installed?.manifest.dependencies;
+      if (!installed || !deps || typeof deps !== "object") continue;
+      for (const dep of Object.keys(deps as object)) {
+        if (!seen.has(dep)) pending.push([dep, dependencyOf(installed, dep)]);
+      }
     }
     return seen;
   };
@@ -383,12 +506,40 @@ export function detectEcosystemPackages(
   // compiling. This list is retained only for MODULE-goal toolchain packages, which
   // the parse check deliberately does not judge. It should be deleted when ESM-goal
   // files stop being force-converted, and not extended before then: a new name here is
-  // a sign the parse check was bypassed rather than that the list was incomplete.
+  // a sign the parse check was bypassed rather than that the list was incomplete. The
+  // two Expo names below are the exception, added to bound the walk rather than to
+  // keep anything from Babel: under an isolated install the walk reaches Expo's
+  // toolchain, which does not belong in the transform set.
+  //
+  // Each seed is resolved where the toolchain installs it, not only from the project
+  // root. Under an isolated install (pnpm) the root links only the project's direct
+  // dependencies, so `metro` and `@babel/runtime` resolved from nowhere and seeded
+  // nothing, while the walk below, which resolves each dependency from its parent,
+  // reached their closures through `expo`. On a pnpm Expo 58 app that handed 244
+  // packages to the transform, Metro's own chain and Jest's among them. React Native's
+  // directory resolves them as React Native's own tooling does, and `expo`'s resolves
+  // Expo's.
+  //
+  // Both transform presets the engine can resolve (resolveTransformPreset) are seeds:
+  // `@react-native/babel-preset`, and from Expo SDK 56 `babel-preset-expo`, which an
+  // Expo app's closure reaches through `expo` whichever of the two the engine uses.
+  // So is `@expo/metro`, Expo's Metro. `@expo/cli` is not: its closure holds runtime
+  // packages (`@expo/log-box`, `@expo/dom-webview`) that must still be compiled.
+  const reactNativeInstalled = installedOf("react-native");
+  const expoInstalled = installedOf("expo");
+  const seed = (name: string): [string, Installed | null] => [
+    name,
+    installedOf(name) ??
+      (reactNativeInstalled && dependencyOf(reactNativeInstalled, name)) ??
+      (expoInstalled && dependencyOf(expoInstalled, name)),
+  ];
   const toolchain = closureOf([
-    "@babel/core",
-    "@react-native/babel-preset",
-    "@babel/runtime",
-    "metro",
+    seed("@babel/core"),
+    seed("@react-native/babel-preset"),
+    seed("babel-preset-expo"),
+    seed("@babel/runtime"),
+    seed("metro"),
+    seed("@expo/metro"),
   ]);
 
   // Only packages the RUN can actually reach seed the walk.
@@ -429,26 +580,155 @@ export function detectEcosystemPackages(
     }
   }
 
+  // Being in the set and having been walked are kept apart. A package detected on its
+  // own manifest is in the set from the start, but a sibling's declaration is what put
+  // it there, so its dependencies are walked only once the run reaches it. Checking the
+  // set alone stopped the walk at it instead. That is how `expo`, which an app in the
+  // workspace declares and the package under test reaches only through expo-image, was
+  // compiled while its own dependencies were not: under an isolated install expo-asset
+  // and expo-constants are expo's dependencies and nobody's declaration, so their
+  // `build/` ES modules loaded raw and their extensionless imports failed ("Cannot find
+  // module 'expo-asset/build/Asset.fx'").
+  //
+  // A peer dependency is an edge too, but only into a package already detected: expo-image
+  // reaches `expo` as a peer, resolved beside it under an isolated install. Following
+  // every React Native peer instead added peers nothing declares, with their closures: on
+  // one Expo app that declares `expo`, expo-router and its web dependencies (157 packages
+  // to 206), which the app never imports.
+  const detectedSet = new Set(detected);
   const inClosure = new Set(detected);
-  const queue = detected.filter((name) => projectDeclared.has(name));
-  while (queue.length > 0) {
-    const pkg = manifestOf(queue.pop() as string);
-    const deps = pkg?.dependencies;
-    if (!deps || typeof deps !== "object") continue;
-    for (const dep of Object.keys(deps as object)) {
-      if (inClosure.has(dep) || skip.has(dep) || dep.startsWith("@react-native/")) continue;
-      if (rnOwned.has(dep)) continue;
-      if (toolchain.has(dep)) continue;
-      // A sibling that depends on the package under test would otherwise pull it
-      // back in here, past the check above.
-      if (ownsTheRun(dep)) continue;
-      const depManifest = manifestOf(dep);
-      if (!depManifest) continue; // declared but not installed
-      if (publishesOnlyEsm(depManifest)) continue;
-      inClosure.add(dep);
-      queue.push(dep);
+  const walked = new Set<string>();
+  const queue: Installed[] = [];
+  const reach = (name: string, installed: Installed) => {
+    inClosure.add(name);
+    if (walked.has(name)) return;
+    walked.add(name);
+    queue.push(installed);
+  };
+  for (const name of detected) {
+    if (!projectDeclared.has(name)) continue;
+    const installed = installedOf(name);
+    if (installed) reach(name, installed);
+  }
+  // A package named in `transform: [...]` is loaded by the run as surely as one the
+  // project declares, so its dependencies are walked too; it is compiled because it is
+  // named, so it is not added itself. Naming a detected package there used to take it
+  // out of the walk instead: react-native-flash-message, listed by a project that
+  // predates detection, left its dependency react-native-iphone-screen-helper's ES
+  // module uncompiled, and Node's ES module loader bound `Platform` to nothing.
+  //
+  // Not one an active preset shadows, or one `transform.exclude` names: neither loads its
+  // real source, so its dependencies are no business of the run's. @gorhom/bottom-sheet,
+  // listed by a project and shadowed by its preset, would otherwise hand @gorhom/portal
+  // to Node.
+  const neverSeeded = new Set<string>([...shadowed, ...neverTransform]);
+  for (const name of explicit) {
+    if (neverSeeded.has(name)) continue;
+    const installed = installedOf(name);
+    if (!installed || walked.has(name)) continue;
+    walked.add(name);
+    queue.push(installed);
+  }
+  /** A dependency or peer the walk may not take, whatever its manifest says. */
+  const excluded = (dep: string): boolean =>
+    skip.has(dep) ||
+    dep.startsWith("@react-native/") ||
+    rnOwned.has(dep) ||
+    toolchain.has(dep) ||
+    // A sibling that depends on the package under test would otherwise pull it
+    // back in here, past the check above.
+    ownsTheRun(dep);
+  /**
+   * Walk the queue. With `installedOnly`, only installed packages (a real path inside a
+   * node_modules directory) are added: see "Workspace members the run reaches" below.
+   */
+  const walk = (installedOnly: boolean) => {
+    const admits = (installed: Installed) => !installedOnly || NODE_MODULES_DIR.test(installed.dir);
+    while (queue.length > 0) {
+      const pkg = queue.pop() as Installed;
+      const deps = pkg.manifest.dependencies;
+      for (const dep of deps && typeof deps === "object" ? Object.keys(deps as object) : []) {
+        if (walked.has(dep) || excluded(dep)) continue;
+        const installed = dependencyOf(pkg, dep);
+        if (!installed) continue; // declared but not installed
+        // A detected package stays in the set whatever it publishes; this test is for
+        // members the closure alone brings in.
+        if (!inClosure.has(dep) && publishesOnlyEsm(installed.manifest)) continue;
+        if (admits(installed)) reach(dep, installed);
+      }
+      const peers = pkg.manifest.peerDependencies;
+      for (const peer of peers && typeof peers === "object" ? Object.keys(peers as object) : []) {
+        if (walked.has(peer) || excluded(peer) || !detectedSet.has(peer)) continue;
+        const installed = dependencyOf(pkg, peer);
+        if (installed && admits(installed)) reach(peer, installed);
+      }
+    }
+  };
+  walk(false);
+
+  // Workspace members the run reaches. A workspace library the project depends on is
+  // not detected itself (its owner is the ownership track's decision, see
+  // dependencyDirOf), but its dependencies run in the project's tests all the same: a
+  // project that depends on `@w/ui`, which declares expo-image, loads expo-image, and
+  // through its peer expo, expo-asset. Seeding the walk only from what the project
+  // itself declares left those uncompiled, and Node ran expo-asset's ES module build as
+  // published ("Cannot find module …/expo-asset/build/Asset.fx"). The same holds for a
+  // member the run reaches through a `resolve.alias` into its source without declaring
+  // it, which is also reported (onReachedUndeclared).
+  // Reached: a member the project declares by name, a member an alias points into, and,
+  // transitively, a member a reached one declares. Their detected runtime `dependencies`
+  // seed a second walk, resolved from the member's own directory as Node resolves them,
+  // under the same exclusions as every other edge. A seed that is itself a workspace
+  // member is a detected one, already Node-owned. The walk then adds INSTALLED packages
+  // only (a real path inside node_modules), never a workspace member: which owner a workspace
+  // member has stays what it is without this (#427; the ownership track decides it), so a
+  // member an RN workspace library depends on keeps running in Vite, where `vi.mock`
+  // reaches its imports. It runs after the first walk has finished, so nothing the first
+  // walk would add is cut short by the restriction.
+  // Rejected: seeding from every workspace member (it walked what only an unrelated
+  // sibling uses; see the sibling tests), detecting the reached member itself, and letting
+  // the second walk add workspace members (both change a member's owner).
+  const members = found.filter(
+    ({ dir, manifest }) =>
+      typeof manifest.name === "string" && !ownerRoots.some((root) => containsPath(dir, root)),
+  );
+  const memberByName = new Map(members.map((m) => [m.manifest.name as string, m]));
+  const reachedMembers = new Map<string, (typeof members)[number]>();
+  const reachMember = (member: (typeof members)[number]) => {
+    if (reachedMembers.has(member.dir)) return;
+    reachedMembers.set(member.dir, member);
+    const deps = member.manifest.dependencies;
+    for (const dep of deps && typeof deps === "object" ? Object.keys(deps as object) : []) {
+      const other = memberByName.get(dep);
+      if (other) reachMember(other);
+    }
+  };
+  for (const name of projectDeclared) {
+    const member = memberByName.get(name);
+    if (member) reachMember(member);
+  }
+  for (const target of reachedPaths) {
+    // The innermost member containing the target: nested workspaces nest their members.
+    const member = members
+      .filter(({ dir }) => containsPath(dir, target))
+      .sort((a, b) => b.dir.length - a.dir.length)[0];
+    if (!member) continue;
+    // Members the project declares, and members those declare, were reached above.
+    if (!reachedMembers.has(member.dir)) {
+      onReachedUndeclared?.(member.manifest.name as string, member.dir);
+    }
+    reachMember(member);
+  }
+  for (const member of reachedMembers.values()) {
+    const deps = member.manifest.dependencies;
+    for (const dep of deps && typeof deps === "object" ? Object.keys(deps as object) : []) {
+      if (walked.has(dep) || excluded(dep) || !detectedSet.has(dep)) continue;
+      const installed = installedFrom(member.dir, dep);
+      if (installed) reach(dep, installed);
     }
   }
+
+  walk(true);
 
   return [...inClosure].sort();
 }

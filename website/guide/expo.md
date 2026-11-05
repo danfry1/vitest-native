@@ -141,12 +141,27 @@ for with `presets: { expo: true }`, for a suite that relies on its values while 
 
 ## SDK and React Native versions
 
+vitest-native supports Expo SDK 57 and 58, the SDKs CI installs as packed apps. Earlier SDKs are
+not supported: the plugin and `vitest-native doctor` warn about one, and tests that load Expo
+modules can fail on it, so upgrade to SDK 57 or 58. This is about the Expo SDK only. An older
+SDK's React Native can still be inside the supported React Native range (SDK 54 pairs with 0.81),
+and a bare React Native app on that version is supported.
+
+The plugin and doctor read the `expo` that resolves from the project. A package can load Expo
+modules without one: a library that uses an Expo module reached through another dependency, or a
+module that depends on `expo-modules-core` alone. Under the native engine, the test worker checks
+the `expo-modules-core` or `expo` a test actually loads and names an unsupported one with its
+version and path. From SDK 55, `expo-modules-core` carries its SDK's number (55.0.x); an older one
+is reported as SDK 54 or older. The warning appears with the first test in each test file that
+loads the copy, so it shows when that test fails; each worker reads the copy's version once. A
+copy that is installed but never loaded is not reported, nor is an `expo` a package peers only
+optionally.
+
 Expo SDKs trail React Native. Pin `react-native` to the version your SDK supports rather than the
-newest release. SDK 54 (React Native 0.81) and later fall inside the validated React Native range,
-0.81–0.88.
+newest release.
 
 From SDK 56, `babel-preset-expo` carries React Native's Babel plugins itself and no longer depends
-on `@react-native/babel-preset`, so a project created from an SDK 56, 57 or 58 template does not
+on `@react-native/babel-preset`, so a project created from an SDK 57 or 58 template does not
 have it. The native engine then
 compiles with Expo's preset (`expo/internal/babel-preset`), as Expo's Metro and jest-expo do, and
 needs nothing installed beyond the app's own dependencies.

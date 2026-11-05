@@ -68,7 +68,7 @@ Your existing tests render against real React Native exactly as before.
 
 - **Native is the zero-config default**, but a fast [**mock engine**](/guide/engines) is one option away — `reactNative({ engine: 'mock' })` — for pure-logic and environment-control tests. A CI-gated cross-check keeps the mock behaviorally honest against real RN.
 - [**Presets**](/guide/presets) auto-shadow common native libraries (Reanimated, Gesture Handler, Safe Area, Navigation, …) the way `jest` mocks them — no per-lib wiring.
-- A [**hot runtime**](/guide/engines#hot-runtime), on by default where the run can be bounded (`hotRuntime: 'auto'`), keeps RN warm across files while resetting app/test modules and common process-wide pollution between files. It uses Vitest's custom worker APIs; `hotRuntime: false` opts out.
+- A [**hot runtime**](/guide/engines#hot-runtime), opt-in where the run can be bounded (`hotRuntime: 'auto'`), keeps RN warm across files while resetting app/test modules and common process-wide pollution between files. It uses Vitest's custom worker APIs and has [known differences](/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files) from per-file isolation; the default, `hotRuntime: false`, gives each file a fresh worker.
 
 ## Gotchas (the margins)
 

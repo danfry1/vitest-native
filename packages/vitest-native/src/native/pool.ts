@@ -18,12 +18,24 @@
 // response. (Vitest's config-level `memoryLimit` is hardcoded to the vm pools —
 // custom pools can't receive task.memoryLimit — so the threshold is our own
 // option. Upstream RFC item.)
+//
+// The same response carries resident health: worker.mjs adds the resident state the
+// per-file reset cannot restore (resident-health.mjs) when a task ends with any, and
+// canReuse retires that worker before it gets another task.
 import path from "node:path";
 import { ThreadsPoolWorker } from "vitest/node";
 import type { PoolOptions, PoolRunnerInitializer, PoolTask, WorkerRequest } from "vitest/node";
 import { VitestNativeError } from "../errors.mjs";
 import type { HotMemoryPlan } from "./memory.mjs";
 import { workerVitestMismatch, workerVitestMismatchError } from "./worker-vitest.js";
+
+/** The field worker.mjs adds to a task's response when resident state is unusable. */
+const RESIDENT_PROBLEMS_KEY = "vitestNativeResidentProblems";
+
+interface ResidentProblem {
+  id: string;
+  message: string;
+}
 
 export interface NativePoolOptions {
   /** Absolute path to the hot worker entry (dist/native/worker.mjs). */
@@ -97,7 +109,10 @@ class NativePoolWorker extends ThreadsPoolWorker {
   private diagnostics: boolean;
   private filesRun = 0;
   private lastHeapUsed = 0;
-  private memoryListenerAttached = false;
+  private residentProblems: ResidentProblem[] = [];
+  private lastFiles: string[] = [];
+  private responseListenerAttached = false;
+  private retiredForResidentState = false;
   private batchWarningShown = false;
 
   constructor(
@@ -123,14 +138,22 @@ class NativePoolWorker extends ThreadsPoolWorker {
     await super.start();
     // The underlying thread exists only after start(); start() is idempotent
     // and may be called again on reuse, so attach exactly once.
-    if (this.reportMemory && !this.memoryListenerAttached) {
-      this.memoryListenerAttached = true;
-      this.on("message", (message: any) => {
-        if (message?.__vitest_worker_response__ && typeof message.usedMemory === "number") {
-          this.lastHeapUsed = message.usedMemory;
-        }
-      });
+    if (!this.responseListenerAttached) {
+      this.responseListenerAttached = true;
+      this.on("message", (message: unknown) => this.observeResponse(message));
     }
+  }
+
+  /** Reads what the pool acts on from a worker response: heap usage and resident health. */
+  observeResponse(message: unknown): void {
+    const response = message as Record<string, unknown> | null;
+    if (response?.__vitest_worker_response__ !== true) return;
+    if (this.reportMemory && typeof response.usedMemory === "number") {
+      this.lastHeapUsed = response.usedMemory;
+    }
+    if (response.type !== "testfileFinished") return;
+    const problems = response[RESIDENT_PROBLEMS_KEY];
+    this.residentProblems = Array.isArray(problems) ? (problems as ResidentProblem[]) : [];
   }
 
   override async stop(): Promise<void> {
@@ -190,6 +213,9 @@ class NativePoolWorker extends ThreadsPoolWorker {
         );
       }
       this.filesRun += message.context.files.length;
+      this.lastFiles = message.context.files.map((file) =>
+        typeof file === "string" ? file : file.filepath,
+      );
     }
     super.send(message);
   }
@@ -197,6 +223,19 @@ class NativePoolWorker extends ThreadsPoolWorker {
   // Consulted only for shared (isolate:false) runners; returning false retires
   // this worker (the scheduler stops it and creates a fresh one).
   canReuse(task: PoolTask): boolean {
+    // Unusable resident state retires the worker unconditionally: it is not a memory
+    // recycle, so it does not wait its turn with the memory coordinator.
+    if (this.residentProblems.length > 0) {
+      if (this.retiredForResidentState) return false;
+      this.retiredForResidentState = true;
+      const cause = this.residentProblems.map((p) => `${p.message} (${p.id})`).join("; ");
+      const files = this.lastFiles.map((file) => path.basename(file)).join(", ");
+      console.warn(
+        `[vitest-native] retiring a hot worker: ${cause} after ${files || "its last file"}. ` +
+          `Later files run on a fresh worker.`,
+      );
+      return false;
+    }
     let recycleReason: string | null = null;
     if (this.recycleAfterFiles > 0 && this.filesRun >= this.recycleAfterFiles) {
       recycleReason = `${this.filesRun} files`;
@@ -221,7 +260,13 @@ class NativePoolWorker extends ThreadsPoolWorker {
   }
 }
 
-/** Pool initializer for `test.pool` — keeps RN-hot workers alive across files. */
+/**
+ * Pool initializer for `test.pool` — keeps RN-hot workers alive across files.
+ *
+ * Each worker reads `options` as Vitest creates it, which is after every plugin's
+ * configureVitest hook, so the plugin can still swap in a memory plan rebuilt for the
+ * worker count Vitest resolved from `--maxWorkers` (see replanForVitestWorkers).
+ */
 export function nativePool(options: NativePoolOptions): PoolRunnerInitializer {
   const mismatch = workerVitestMismatch(path.resolve(options.workerEntry), options.projectRoot);
   if (mismatch) throw workerVitestMismatchError(mismatch);
