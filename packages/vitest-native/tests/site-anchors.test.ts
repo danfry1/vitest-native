@@ -37,11 +37,15 @@ function slugify(text: string): string {
 const withoutCode = (text: string) => text.replace(/^(```|~~~)[\s\S]*?^\1/gm, "");
 
 /** A heading's text as VitePress slugs it: link text kept, URLs, HTML and backticks dropped. */
-const headingText = (heading: string) =>
-  heading
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/<[^>]+>/g, "")
-    .replace(/`/g, "");
+function headingText(heading: string): string {
+  let text = heading.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
+  // Repeated until nothing changes, so a tag nested in a tag's text leaves no `<`.
+  for (let previous = ""; previous !== text;) {
+    previous = text;
+    text = text.replace(/<[^<>]*>/g, "");
+  }
+  return text.replace(/`/g, "");
+}
 
 /**
  * The anchors a page's headings get: an explicit `{#id}`, else the slug of their text,
