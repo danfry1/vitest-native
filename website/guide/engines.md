@@ -50,7 +50,7 @@ The mock engine covers [100% of React Native's stable public API](/api/coverage)
 
 Both engines share the same test API. You can mix them across suites in the same project.
 
-The native engine compiles React Native once, on the first run, in a separate short-lived process, and caches the result on disk; later runs reuse it ([where it lives and when it is rebuilt](/guide/troubleshooting#when-react-native-s-precompiled-modules-are-reused-or-rebuilt)). If that compilation fails, the engine loads React Native file by file instead, more slowly, with the same results.
+The native engine compiles React Native once, on the first run, in a separate short-lived process, and caches the result on disk; later runs reuse it ([where it lives and when it is rebuilt](/guide/troubleshooting#when-react-native-s-precompiled-modules-are-reused-or-rebuilt)). If that compilation fails, the engine loads React Native module by module instead, more slowly, with the same results.
 
 ## Keeping the mock honest
 

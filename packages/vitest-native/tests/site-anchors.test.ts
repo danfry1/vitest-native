@@ -25,7 +25,7 @@ function pages(dir: string): string[] {
 function slugify(text: string): string {
   return text
     .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/[\s~`!@#$%^&*()\-_+=[\]{}|\\;:"'“”‘’<>,.?/]+/g, "-")
     .replace(/-{2,}/g, "-")
     .replace(/^-+|-+$/g, "")
@@ -36,14 +36,32 @@ function slugify(text: string): string {
 /** Markdown with fenced code removed, so examples inside code are not read as content. */
 const withoutCode = (text: string) => text.replace(/^(```|~~~)[\s\S]*?^\1/gm, "");
 
-/** The anchors a page's headings get: an explicit `{#id}`, else the slug of their text. */
+/** A heading's text as VitePress slugs it: link text kept, URLs, HTML and backticks dropped. */
+const headingText = (heading: string) =>
+  heading
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/<[^>]+>/g, "")
+    .replace(/`/g, "");
+
+/**
+ * The anchors a page's headings get: an explicit `{#id}`, else the slug of their text,
+ * with `-1`, `-2`, … appended to repeats, as VitePress does.
+ */
 function anchors(file: string): Set<string> {
   const result = new Set<string>();
+  const seen = new Map<string, number>();
   for (const [, heading] of withoutCode(fs.readFileSync(file, "utf8")).matchAll(
     /^#{1,6} (.+)$/gm,
   )) {
-    const explicit = /\{#([^}]+)\}\s*$/.exec(heading);
-    result.add(explicit ? explicit[1] : slugify(heading.replace(/`/g, "")));
+    const explicit = /\{#([^\s}]+)[^}]*\}\s*$/.exec(heading);
+    if (explicit) {
+      result.add(explicit[1]);
+      continue;
+    }
+    const slug = slugify(headingText(heading));
+    const count = seen.get(slug) ?? 0;
+    seen.set(slug, count + 1);
+    result.add(count === 0 ? slug : `${slug}-${count}`);
   }
   return result;
 }
@@ -76,6 +94,10 @@ function links(): Link[] {
         result.push({ from, target: route.slice(SITE_URL.length), anchor });
       } else if (route.startsWith("/") && !isReadme) {
         result.push({ from, target: route, anchor });
+      } else if (route.startsWith(".") && !isReadme) {
+        // A relative link, as a route from this page's own route.
+        const own = `/${path.relative(SITE, file).replace(/\.md$/, "").split(path.sep).join("/")}`;
+        result.push({ from, target: path.posix.join(path.posix.dirname(own), route), anchor });
       }
     }
   }

@@ -16,7 +16,7 @@ reactNative({ hotRuntime: true })    // require it; fail at startup where it can
 reactNative({ hotRuntime: false })   // the default: a fresh worker per file
 ```
 
-The [`hotRuntime` option](/guide/plugin-options#hotruntime) lists every value and the object form's keys. The engine banner at the start of a run says `hot runtime` when it is on, and the startup log names the worker count it chose, for example:
+The [`hotRuntime` option](/guide/plugin-options#hotruntime) lists every value and the object form's keys. The engine banner at the start of a run says `hot runtime` when it is on (unless a following `hot runtime off: …` line names why it was turned off), and the startup log names the worker count it chose, for example:
 
 ```
 [vitest-native] workers: 4 (automatic cap of 4; 9 available, set maxWorkers to run more; 24576 MiB host memory)
@@ -29,9 +29,9 @@ The [`hotRuntime` option](/guide/plugin-options#hotruntime) lists every value an
 - the run has one worker (`maxWorkers: 1`, `--maxWorkers=1`, `--no-file-parallelism`, or a memory plan that admits only one), because Vitest then runs every file as one task and a worker cannot be recycled between them;
 - the config or the command line chooses a pool or isolation explicitly (`pool`, `test.isolate`, `--pool`, `--isolate`, `--no-isolate`). An explicit choice is always kept;
 - another project in the same `sequence.groupOrder` runs a different worker count, which Vitest does not allow. Give the native project its own `test.sequence.groupOrder` to keep the hot runtime;
-- the hot worker would load a different Vitest from the one running the tests.
+- the hot worker would load a different Vitest version from the one running the tests.
 
-With `hotRuntime: true` these fail instead: one worker with `HOT_MEMORY_UNBOUNDED`, an explicit pool, isolation, flag or `groupOrder` clash with `HOT_RUNTIME_OVERRIDDEN`, both at startup, and a different Vitest with `HOT_RUNTIME_UNAVAILABLE` when the worker starts.
+With `hotRuntime: true` these fail at startup instead: a one-worker config (`maxWorkers: 1`, `fileParallelism: false`) or memory plan with `HOT_MEMORY_UNBOUNDED`; a one-worker CLI flag or `VITEST_MAX_WORKERS=1`, an explicit pool or isolation, or a `groupOrder` clash with `HOT_RUNTIME_OVERRIDDEN`; a different Vitest version with `HOT_RUNTIME_UNAVAILABLE`.
 
 Suites migrated from Jest with the [jest-compat layer](/guide/jest-compat) are included: `jest.mock` in its forms, runtime mocks, spies, timers and React Native Testing Library's cleanup are reset between files.
 
@@ -54,13 +54,13 @@ The hot runtime plans its workers from the lower of the host's and the container
 - **Worker count.** The count it picks itself is capped at four: in the measurement behind that cap, eight workers were about 6% faster than four for about 512 MiB more peak memory. A count you set (`test.maxWorkers`, `--maxWorkers` or `VITEST_MAX_WORKERS`) is honoured up to what the memory plan admits, so set one to run more than four. Where no memory limit can be read, the cap of four applies to an explicit count too.
 - **The full plan** (limits, reserves and the heap threshold) is printed with `reactNative({ diagnostics: true })` or by `vitest-native doctor`.
 - **Your own threshold.** `hotRuntime: { mode: 'auto', memoryLimit }` (bytes) sets the heap at which a worker is recycled and keeps `'auto'`'s fallback; without `mode`, an object requires the hot runtime. The heap a worker reports is read when its file finishes, before garbage collection, so it can sit above what the worker really retains: leave headroom.
-- **One worker.** Recycling needs two or more workers. If something outside the run already bounds its memory, `hotRuntime: { allowUnboundedMemory: true }` accepts a single-worker run; it also turns off the automatic worker cap and the memory hard stop, and prints a warning.
+- **One worker.** Recycling needs two or more workers, so use `maxWorkers` of 2 or more. If something outside the run already bounds its memory, `hotRuntime: { allowUnboundedMemory: true }` accepts a single-worker run; it also turns off the automatic worker cap, recycling on process memory and the memory hard stop, and warns when Vitest batches the files into one task.
 
 ## Caches
 
-Under the native engine, vitest-native turns on Node's on-disk compile cache (`node_modules/.cache/vitest-native/v8`), so React Native's compiled code is reused by later workers and runs. Hot workers leave it off while `esmGeneration` is on, which is the default: each test file re-runs the packages Node loads for its `import`s, and the cache would keep one entry per package per file. That costs about 15–20 ms per hot worker start in one measured project. With `hotRuntime: { esmGeneration: false }` hot workers keep the cache, and packages loaded that way keep their state across files.
+Under the native engine, vitest-native turns on Node's on-disk compile cache (`node_modules/.cache/vitest-native/v8`), so React Native's compiled code is reused by later workers and runs. Hot workers leave it off while `esmGeneration` is on, which is the default: each test file re-runs the packages Node loads for its `import`s, and the cache would keep one entry per package per file. Leaving it off costs about 15–20 ms per hot worker start, including each recycle, in one measured project. With `hotRuntime: { esmGeneration: false }` hot workers keep the cache, and packages loaded that way keep their state across files.
 
-If you set `NODE_COMPILE_CACHE` yourself, Node turns the cache on in every worker before vitest-native runs; unset it for hot runs, or set `esmGeneration: false`.
+If you set `NODE_COMPILE_CACHE` yourself, Node turns the cache on in every worker before vitest-native runs, and hot workers then write those per-file entries again; unset it for hot runs, or set `esmGeneration: false`.
 
 React Native's own compiled modules are cached separately; [troubleshooting](/guide/troubleshooting#when-react-native-s-precompiled-modules-are-reused-or-rebuilt) says where and when they are rebuilt.
 
