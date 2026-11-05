@@ -11,6 +11,15 @@ import { setImmediate as realSetImmediate } from "node:timers";
 export const RNTL_ENTRY =
   /[\\/]node_modules[\\/]@testing-library[\\/]react-native[\\/](?:build|dist)[\\/]index\.js$/;
 
+/**
+ * RNTL's `dont-cleanup-after-each` module, at the package root in 12, 13 and 14: one line,
+ * `process.env.RNTL_SKIP_AUTO_CLEANUP = true`. A file that imports it opts out of cleanup.
+ */
+export const RNTL_DONT_CLEANUP =
+  /[\\/]node_modules[\\/]@testing-library[\\/]react-native[\\/]dont-cleanup-after-each\.js$/;
+
+const isRntlFile = (file) => RNTL_ENTRY.test(file) || RNTL_DONT_CLEANUP.test(file);
+
 // Per-file auto-cleanup state, created by installRntlAutoCleanup. When files share a
 // worker, native/rntl-hooks.mjs and native/hooks.mjs add the RNTL entries a file loads
 // to `imported`.
@@ -28,7 +37,8 @@ function cacheKeyOf(file) {
 }
 
 /**
- * The RNTL entries the running test file's own module graph imports, read from
+ * The RNTL entries, and RNTL's dont-cleanup-after-each module, that the running test
+ * file's own module graph imports, read from
  * Vitest's evaluated-module graph: the modules Vite evaluates, and for each module it
  * externalizes to Node, that module and the modules it required directly (a shared
  * test-utils that re-exports RNTL). With `isolate: false` and no hot runtime both the
@@ -52,9 +62,9 @@ function rntlEntriesInFileGraph() {
     if (typeof external === "string") {
       const key = cacheKeyOf(external);
       if (!key) continue;
-      if (RNTL_ENTRY.test(key)) found.push(key);
+      if (isRntlFile(key)) found.push(key);
       for (const child of Module._cache[key].children ?? []) {
-        if (RNTL_ENTRY.test(child.id)) found.push(child.id);
+        if (isRntlFile(child.id)) found.push(child.id);
       }
       continue;
     }
@@ -79,7 +89,8 @@ function rntlEntriesInFileGraph() {
  *     files never load the entry themselves and it is detected lazily, when the hook runs;
  *   - not when RNTL_SKIP_AUTO_CLEANUP is set, tested by truthiness as RNTL does
  *     (12.9 build/index.js:19, 13.3 :21, 14.1 dist/index.js:20); its
- *     `dont-cleanup-after-each` module sets it;
+ *     `dont-cleanup-after-each` module sets it. When files share a worker, also not when
+ *     this file imports that module, whose side effect ran in an earlier file only;
  *   - the cleanup each version's own hook calls: 12's synchronous `cleanup`
  *     (12.9 build/index.js:29), 13's `cleanupAsync` (13.3 build/index.js:30; its
  *     `cleanup` is the synchronous one), and 14's `cleanup`, which is async and has no
@@ -130,6 +141,10 @@ export function installRntlAutoCleanup(afterEach, { trackImports = false } = {})
     const files = state.imported
       ? new Set([...state.imported, ...rntlEntriesInFileGraph()])
       : Object.keys(Module._cache);
+    // When files share a worker, `dont-cleanup-after-each` stays loaded, so its variable is
+    // set only by the first file that imports it, and the worker's environment is restored
+    // between files. The file's own imports say whether it opted out (#527).
+    if (state.imported && [...files].some((file) => RNTL_DONT_CLEANUP.test(file))) return;
     for (const file of files) {
       if (!file.endsWith("index.js") || !RNTL_ENTRY.test(file)) continue;
       const rntl = Module._cache[file]?.exports;
