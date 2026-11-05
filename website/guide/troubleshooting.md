@@ -1,5 +1,7 @@
 # Troubleshooting
 
+An error that starts with `[vitest-native]` has a code; the [error-code reference](/guide/errors) lists each one with its common causes.
+
 ## "helpers were called before setup ran"
 
 This means the plugin isn't configured. Ensure `reactNative()` is in your `vitest.config.ts` `plugins` array.
