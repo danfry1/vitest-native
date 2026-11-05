@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import "../../scripts/release-age.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const scratch = path.resolve(root, "../../.tmp");
