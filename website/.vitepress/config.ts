@@ -91,6 +91,7 @@ export default defineConfig({
             { text: 'Fidelity Matrix', link: '/guide/fidelity-matrix' },
             { text: 'Comparison with Jest', link: '/guide/comparison' },
             { text: 'Troubleshooting', link: '/guide/troubleshooting' },
+            { text: 'Error Codes', link: '/guide/errors' },
           ],
         },
       ],
