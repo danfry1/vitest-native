@@ -60,9 +60,13 @@ What cannot be served this way fails by name:
   `await`, and a reporter always does). A module that threw here is evaluated afresh by a
   later import.
 - **`REQUIRE_OF_EVALUATING_VITE_MODULE`**: Vite is part-way through evaluating the file,
-  and not from inside an evaluation the bridge is running. An ES import cycle among the
-  modules the bridge evaluates gets the exports evaluated so far, as Vite's own runner gives
-  a cycle.
+  and the `require` is not part of that evaluation. A cycle gets the exports evaluated so
+  far instead:
+  - an ES import cycle among the modules the bridge evaluates, as Vite's own runner gives
+    it;
+  - a `require` back into a module from inside its own evaluation: a Node-loaded module it
+    imports requires it, directly or through a module the bridge evaluates. Node and Jest
+    give a `require` of a module still loading the same.
 
 Mocks apply as they do to the test's own imports. `'resolution'` turns on
 `experimental.nodeMocks`, so Node's `require` of a mocked file gets the test's mock, and a

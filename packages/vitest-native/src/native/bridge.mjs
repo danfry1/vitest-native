@@ -22,9 +22,11 @@
 //                                     here created are invalidated, so a later import
 //                                     evaluates afresh
 //   REQUIRE_OF_EVALUATING_VITE_MODULE the module is part-way through Vite's own (async)
-//                                     evaluation, so its exports are not finished. (An ES
-//                                     import cycle within the bridge's own evaluation gets
-//                                     the exports so far, as Vite's runner gives it.)
+//                                     evaluation, so its exports are not finished. (A
+//                                     cycle gets the exports so far: an ES import cycle
+//                                     within the bridge's own evaluation, as Vite's runner
+//                                     gives it, and a require back into a module from
+//                                     inside its evaluation, as Node and Jest give it.)
 //
 // Mocks are the engine's mock dispatcher's (jest-compat/node-registry.mjs): it serves Node's
 // require of a mocked file before the bridge is asked (experimental.nodeMocks, implied by
@@ -144,18 +146,26 @@ export function requireViteOwned(file, parent) {
   if (typeof map?.getModulesByFile !== "function") throw contractChanged("worker.evaluatedModules");
   for (const node of map.getModulesByFile(file.replace(/\\/g, "/")) ?? []) {
     if (node.id?.startsWith("mock:") || !node.promise) continue;
-    // Part-way through Vite's own evaluation, its exports are not finished, so a require
-    // now fails by name. (A require back into that evaluation, from a Node-owned module it
-    // imports, is the one case where they are the right answer, as in Node and Jest; that
-    // cross-runtime cycle is decided separately.)
-    const exports = knownExports(node, null, []);
+    // Part-way through Vite's own evaluation, its exports are not finished: served only
+    // when this require is a cycle back into that evaluation (knownExports).
+    const exports = knownExports(node, null, [], parent);
     bridgedStats.servedFromVite++;
     return forRequire(exports);
   }
   const result = fetchSync(file, parent?.filename, environmentName());
   if ("externalize" in result) return undefined;
-  return forRequire(evaluate(result, []));
+  // The Node module that asked, for the cycle test of every import this evaluation makes.
+  const outer = requirer;
+  requirer = parent ?? null;
+  try {
+    return forRequire(evaluate(result, []));
+  } finally {
+    requirer = outer;
+  }
 }
+
+/** The Node module whose require started the bridge's current evaluation, or null. */
+let requirer = null;
 
 function evaluatingElsewhere(id) {
   return new VitestNativeError(
@@ -176,12 +186,16 @@ function evaluatingElsewhere(id) {
  *   - on this synchronous evaluation's own import chain (`callstack`, then `importer`):
  *     an ES import cycle, so its exports as they are now, as ModuleRunner.cachedRequest
  *     returns them (`callstack.includes(moduleId)`);
+ *   - reached through Node from inside its own evaluation (a Node-owned module it imports
+ *     requires it, or requires a module the bridge evaluates that imports it): a cycle
+ *     across the two module systems, so its exports so far too, as Node and Jest give a
+ *     require back into a module still loading (isNodeCycle);
  *   - otherwise part-way through an evaluation elsewhere (Vite's own, which is waiting on
  *     something): fails by name. So does a node with a promise and no exports object yet
  *     (Vite's runner awaits createImportMeta between the two; Vitest's sets exports first,
  *     so no code of the test's runs there today).
  */
-function knownExports(known, importer, callstack) {
+function knownExports(known, importer, callstack, parent = requirer) {
   if (importer) {
     known.importers.add(importer.id);
     importer.imports.add(known.id);
@@ -190,11 +204,42 @@ function knownExports(known, importer, callstack) {
     if (isRejected(known.promise)) throw evaluationFailedEarlier(known);
     return known.exports;
   }
-  if (known.exports != null && importer && [...callstack, importer.id].includes(known.id)) {
+  if (
+    known.exports != null &&
+    ((importer && [...callstack, importer.id].includes(known.id)) || isNodeCycle(known, parent))
+  ) {
     bridgedStats.cycles++;
     return known.exports;
   }
   throw evaluatingElsewhere(known.id);
+}
+
+/**
+ * Whether Node's require from `parent` reached `node` (part-way through evaluating) from
+ * inside that evaluation: `parent`, or a module that required it, is in `node`'s import
+ * graph (Vite's map records the modules it hands to Node as nodes too). Walks at most 64
+ * requirers up, and each node of the graph once.
+ */
+function isNodeCycle(node, parent) {
+  if (!parent) return false;
+  const requirers = new Set();
+  for (let p = parent; p && requirers.size < 64; p = p.parent) {
+    if (typeof p.filename === "string") requirers.add(p.filename.replace(/\\/g, "/"));
+  }
+  const map = evaluatedModules();
+  const seen = new Set();
+  const queue = [node];
+  while (queue.length > 0) {
+    const current = queue.pop();
+    if (seen.has(current.id)) continue;
+    seen.add(current.id);
+    if (current !== node && requirers.has(current.file)) return true;
+    for (const id of current.imports ?? []) {
+      const next = map.getModuleById(id);
+      if (next) queue.push(next);
+    }
+  }
+  return false;
 }
 
 /**
