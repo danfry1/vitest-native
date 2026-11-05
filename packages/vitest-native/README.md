@@ -171,7 +171,7 @@ export default defineConfig({
 | `mocks`       | `Record<string, any>`          | `{}`        | **`engine: 'mock'` only.** JSON-serializable overrides merged into the `react-native` module mock. Function values are not supported; use `vi.mock()` in a setup file for function-based overrides.                                                                                                        |
 | `diagnostics` | `boolean`                      | `false`     | Log plugin activity to the console for debugging.                                                                                                                                                                                                                                                          |
 | `assetExts`   | `string[]`                     | `[]`        | Additional file extensions to stub as asset imports (beyond the built-in set).                                                                                                                                                                                                                             |
-| `transform`   | `string[]`                     | `[]`        | **`engine: 'native'` only.** Extra `node_modules` packages whose source the native engine should transform (Flow/TS/JSX stripped) as it loads them — for packages that ship untranspiled source and are not detected automatically (packages that declare `react-native` in their own manifest are compiled without being listed). Analogous to Jest's `transformIgnorePatterns` allowlist. |
+| `transform`   | `string[]`                     | `[]`        | **`engine: 'native'` only.** Extra `node_modules` packages whose source the native engine should transform (Flow/TS/JSX stripped) as it loads them — for packages that ship untranspiled source and are not detected automatically (packages your project depends on that declare `react-native` as a dependency or peer dependency, and their runtime dependencies, are compiled without being listed). Analogous to Jest's `transformIgnorePatterns` allowlist. |
 | `hotRuntime`  | `boolean \| 'auto' \| HotRuntimeOptions` | `false`     | `engine: 'native'` only. Reuse workers while keeping app/test modules isolated per file. `false` (the default) gives each file a fresh worker; `'auto'` opts in where the run can be bounded and recycled, and keeps per-file isolation otherwise. See [Hot runtime](#hot-runtime). |
 
 ### Experimental Metro configuration
@@ -674,18 +674,17 @@ npm i -D @react-native/babel-preset @babel/core
 To silence the notice and stay on mock deliberately, set `reactNative({ engine: 'mock' })`.
 
 **`vi.mock('some-rn-library')` doesn't take effect (native engine)**
-Under `engine: 'native'`, a package that declares `react-native` in its own manifest is compiled
-and loaded through Vite's module graph, so `vi.mock` of it applies. Other packages load through
-Node, outside that graph, where Vitest's mocker does not reach. Options:
+Under `engine: 'native'`, React Native and third-party RN packages load through Node. `vi.mock`
+applies to what your test and app source import, but not to `require()` calls inside a
+Node-loaded library: a library's own import of a mocked package still gets the real one. Options:
 
 - Use a **[preset](#auto-detect-presets)** if one exists (it shadows the library the way Jest does).
-- Add the package to the [`transform`](#plugin-options) list, which loads it the same way as a
-  detected package.
 - Or test that boundary on the **mock engine**, where `vi.mock` applies normally.
 
 **`Unexpected token` / Flow syntax errors from a third-party library (native engine)**
-Packages that declare `react-native` in their own manifest are compiled automatically. If a
-dependency that does not declare it ships untranspiled Flow/TS/JSX, add it to the
+Packages your project depends on that declare `react-native` as a dependency or peer dependency,
+and their runtime dependencies, are compiled automatically. If another package ships untranspiled
+Flow/TS/JSX, add it to the
 [`transform`](#plugin-options) list.
 
 **My `babel.config.js` plugin isn't running**
@@ -706,7 +705,7 @@ Every test file that renders real React Native loads a full renderer. Under the 
 isolation each file starts in a fresh worker, so heap does not accumulate across files. Under the
 hot runtime (`hotRuntime: 'auto'`), workers
 are reused and recycled on a memory budget; set your own heap threshold with
-`hotRuntime: { mode: "auto", memoryLimit }` (see [Hot runtime](#hot-runtime)).
+`hotRuntime: { mode: "auto", memoryLimit }` (bytes; see [Hot runtime](#hot-runtime)).
 
 **`Vitest caught N unhandled errors` in error-boundary tests**
 A test that intentionally throws inside a component (to exercise an error boundary) makes React log
