@@ -31,7 +31,7 @@ So the difference is **where the boundary sits**, not "real vs mocked." vitest-n
 
 ## Speed: not the reason to switch
 
-By default each test file gets a fresh worker (`hotRuntime: false`). The opt-in hot runtime (`hotRuntime: 'auto'`) reuses workers across test files instead; whether that is faster than Jest, or than per-file isolation, depends on the suite, so measure it on yours. [Choosing the hot runtime](/guide/engines#choosing-the-hot-runtime) covers the trade-off. Choose vitest-native for the **fidelity option and DX**.
+By default each test file gets a fresh worker (`hotRuntime: false`). The opt-in hot runtime (`hotRuntime: 'auto'`) reuses workers across test files instead; whether that is faster than Jest, or than per-file isolation, depends on the suite, so measure it on yours. [Choosing the hot runtime](/guide/hot-runtime) covers the trade-off. Choose vitest-native for the **fidelity option and DX**.
 
 ## At a glance
 
