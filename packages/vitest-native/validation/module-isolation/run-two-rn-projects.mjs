@@ -153,9 +153,7 @@ export default defineConfig({
   console.log(
     `${productionHot ? "production-hot" : "module-isolation"} Vitest: ${installedVersion}`,
   );
-  run(process.execPath, [path.join(tempRoot, "node_modules/vitest/vitest.mjs"), "run"], tempRoot, {
-    VITEST_NATIVE_DIAGNOSTICS: "true",
-  });
+  run(process.execPath, [path.join(tempRoot, "node_modules/vitest/vitest.mjs"), "run"], tempRoot);
 
   for (const project of projects) {
     const observed = fs

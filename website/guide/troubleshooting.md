@@ -98,6 +98,16 @@ On Vitest 4 the same steps apply with the experimental names: the cache director
 
 The plugin writes one description of each Vitest project, its _project context_, to `node_modules/.cache/vitest-native/contexts/` (or the system temp directory when that cannot be written), and every worker reads its configuration from that file. `CONTEXT_INVALID` means a worker found it missing, from another version, changed after it was written, or with a field of the wrong shape; the message names the reason, the field and the directory. Re-run Vitest, and if it persists delete that directory. A worker started without the plugin's configuration reports it too.
 
+## Getting more detail in the log
+
+Turn on the plugin's diagnostics in the config:
+
+```ts
+reactNative({ diagnostics: true });
+```
+
+It logs how modules resolve, which engine and presets apply, and the hot runtime's full memory plan. It is a plugin option only; to turn it on for one run, see [`diagnostics`](/guide/plugin-options#diagnostics). Without it, the startup log still names the engine, the presets and, under the hot runtime, the worker count (`[vitest-native] workers: …`), or why the hot runtime is off.
+
 ## When React Native's precompiled modules are reused or rebuilt
 
 The native engine compiles React Native once into a single precompiled file (see [engines](/guide/engines)) and reuses it on later runs, one file per platform and configuration. It is stored in `node_modules/.cache/vitest-native/registry/` under the Vitest project's root. A project without a `node_modules` of its own, such as a workspace package whose dependencies are hoisted, uses the nearest one above it that holds React Native. When neither exists or can be written, it is `vitest-native-cache/registry/` in the system temp directory.

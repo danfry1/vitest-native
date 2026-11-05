@@ -104,7 +104,7 @@ If you set `NODE_COMPILE_CACHE` yourself, Node turns the cache on in every worke
 
 ### Worker recycling
 
-The hot runtime automatically derives a worker-total budget from the lower of host and container/cgroup memory. It reserves main-process and replacement headroom, caps automatic concurrency at four, recycles workers on local heap or process RSS, and stops before starting more work at the hard RSS boundary. Use `diagnostics: true` or `vitest-native doctor` to inspect the plan.
+The hot runtime automatically derives a worker-total budget from the lower of host and container/cgroup memory. It reserves main-process and replacement headroom, caps automatic concurrency at four, recycles workers on local heap or process RSS, and stops before starting more work at the hard RSS boundary. The startup log names the worker count it chose on every run, for example `[vitest-native] workers: 4 (automatic cap of 4; 9 available, set maxWorkers to run more; 24576 MiB host memory)`. For the full plan (limits, reserves and the heap recycle threshold), set `reactNative({ diagnostics: true })` or run `vitest-native doctor`.
 
 The cap of four applies only to the worker count vitest-native picks itself; in the measurement behind it, eight workers were about 6% faster than four for about 512 MiB more peak memory. A count you set — `test.maxWorkers` in the config, `--maxWorkers` on the command line, or `VITEST_MAX_WORKERS` — is honoured up to what the memory budget holds, so setting one is how to run more than four hot workers. Where no memory limit can be read, the cap of four applies to an explicit count too.
 

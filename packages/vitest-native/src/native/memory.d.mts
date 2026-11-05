@@ -35,6 +35,7 @@ export declare function createHotMemoryPlan(input?: {
 }): HotMemoryPlan;
 export declare function formatBytes(bytes: number | null | undefined): string;
 export declare function formatHotMemoryPlan(plan: HotMemoryPlan): string[];
+export declare function formatHotWorkerDecision(plan: HotMemoryPlan): string;
 export declare const hotMemoryConstants: Readonly<{
   MIB: number;
   MIN_WORKER_HEAP: number;

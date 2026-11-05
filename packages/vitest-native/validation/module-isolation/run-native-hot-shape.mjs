@@ -103,7 +103,6 @@ try {
       "vitest.hot-shape.mts",
     ],
     tempRoot,
-    { VITEST_NATIVE_DIAGNOSTICS: "true" },
   );
   console.log("Native hot-shape module-isolation gate passed.");
 } finally {
