@@ -59,7 +59,8 @@ export type VitestNativeErrorCode =
   | "UNKNOWN_DISPATCH_STEP"
   | "MOCK_NOT_SEEN_BY_NODE"
   | "IMPORT_META_IN_NODE_OWNED"
-  | "MATCHER_BAD_RECEIVER";
+  | "MATCHER_BAD_RECEIVER"
+  | "COMPARE_REPORT_INVALID";
 
 export interface VitestNativeErrorOptions {
   cause?: unknown;

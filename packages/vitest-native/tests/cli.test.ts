@@ -9,7 +9,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { main } from "../src/cli/index.js";
+import { main, unknownFlag } from "../src/cli/index.js";
 import { HOT_RUNTIME_NOTE, runInit, renderInitConfig } from "../src/cli/init.js";
 import { runDoctor } from "../src/cli/doctor.js";
 import { PEER_REQUIREMENTS } from "../src/peer-requirements.js";
@@ -65,6 +65,36 @@ describe("cli dispatch", () => {
     expect(main(["--root", root, "migrate"], io.log)).toBe(1); // no jest config → 1, but dispatched
     expect(io.text()).toContain("no Jest configuration found");
     expect(main(["--help"], capture().log)).toBe(0);
+  });
+
+  it("refuses a flag the command does not take, naming it and the valid ones", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": { preset: "react-native" },
+    });
+    for (const [args, unknown] of [
+      [["migrate", "--wirte"], "--wirte"],
+      [["init", "--frce"], "--frce"],
+      [["doctor", "--verbose"], "--verbose"],
+      [["compare", "--stirct"], "--stirct"],
+      [["migrate", "--write=yes", "-u"], "-u"],
+    ] as const) {
+      const io = capture();
+      expect(main([...args, "--root", root], io.log), args.join(" ")).toBe(1);
+      expect(io.text()).toContain(
+        `✗ unknown option ${unknown} for ${args[0]}. Valid: --root, --help`,
+      );
+    }
+    // Nothing was written by the refused migrate --wirte.
+    expect(fs.existsSync(path.join(root, "vitest.config.mjs"))).toBe(false);
+    // The valid ones are listed, and a valued flag's value may itself start with "--".
+    const io = capture();
+    main(["compare", "--stirct", "--root", root], io.log);
+    expect(io.text()).toContain("--strict");
+    expect(unknownFlag("compare", ["--jest-args", "--runInBand", "--strict"])).toBeNull();
+    expect(unknownFlag("compare", ["--jest-args=--ci", "--top", "3"])).toBeNull();
+    expect(unknownFlag("migrate", ["--root", "--weird-dir-name", "--write"])).toBeNull();
+    expect(unknownFlag("migrate", ["--write", "--frce"])).toBe("--frce");
   });
 
   it("refuses to run outside a package root", () => {

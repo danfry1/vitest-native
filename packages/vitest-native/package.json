@@ -119,6 +119,7 @@
   "scripts": {
     "build": "bunx --bun tsdown && node scripts/copy-static-types.mjs",
     "test": "vitest run",
+    "test:cli-compare-e2e": "vitest run --config vitest.e2e.config.ts",
     "test:native": "node scripts/run-scripts.mjs test:native:no-globals test:native:main test:native:rntl-timers test:native:one-instance test:native:context test:native:shared-root test:native:preset-modules test:native:permissive test:native:partial-mock-external test:native:tsconfig-paths test:native:regex-alias test:native:dispatch-alias test:native:jest-registry-node-mocks test:native:node-mocks test:native:ownership",
     "test:native:main": "vitest run --config tests-native/vitest.config.mts",
     "test:native:regex-alias": "vitest run --config tests-native/vitest.regex-alias.config.mts",

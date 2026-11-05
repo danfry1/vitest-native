@@ -183,6 +183,12 @@ The hot runtime's worker entry was started outside a `worker_threads` worker. Th
 
 A hot worker could not load React Native from the project when it started. The message carries the underlying error, which is usually the same one a run with `hotRuntime: false` shows.
 
+## CLI
+
+### `COMPARE_REPORT_INVALID` {#COMPARE_REPORT_INVALID}
+
+`vitest-native compare` read a JSON file that is not a Jest or Vitest report: it has no `testResults` array. compare prints the message and exits with code 2. The usual cause is a `--jest-results` path that names some other JSON file. Point it at the file Jest wrote with `--json --outputFile`, or leave out `--jest-results` and compare runs Jest itself.
+
 Next: [Troubleshooting](/guide/troubleshooting).
 
 ## Ownership model (experimental)
