@@ -13,7 +13,7 @@ import { installedManifest } from "./manifest.js";
 
 type Parse = (code: string, options: Record<string, unknown>) => unknown;
 
-function babelParser(root: string): Parse | null {
+export function babelParser(root: string): Parse | null {
   const req = createRequire(path.join(root, "package.json"));
   for (const from of [() => req, () => createRequire(req.resolve("@babel/core"))]) {
     try {
@@ -23,6 +23,20 @@ function babelParser(root: string): Parse | null {
     }
   }
   return null;
+}
+
+/** Whether `file` parses as standard JavaScript: no JSX, no Flow. */
+export function isPlainJavaScript(parse: Parse, file: string): boolean {
+  try {
+    parse(fs.readFileSync(file, "utf8"), {
+      sourceType: "unambiguous",
+      allowReturnOutsideFunction: true,
+      allowAwaitOutsideFunction: true,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Directories in a package that are not part of what it runs. */
@@ -108,13 +122,7 @@ export function untranspiledFile(root: string, pkg: string): string | null {
         continue;
       }
       if (!/\.(js|cjs|mjs)$/.test(name) || budget-- <= 0) continue;
-      try {
-        parse(fs.readFileSync(file, "utf8"), {
-          sourceType: "unambiguous",
-          allowReturnOutsideFunction: true,
-          allowAwaitOutsideFunction: true,
-        });
-      } catch {
+      if (!isPlainJavaScript(parse, file)) {
         // POSIX separators, so the report reads the same on every platform.
         return path.relative(dir, file).split(path.sep).join("/");
       }

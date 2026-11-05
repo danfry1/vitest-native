@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { babelParser, isPlainJavaScript } from "../cli/untranspiled.js";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
 import { containsPath, dependencyDirOf, type PackageDirOf } from "./match.mjs";
 
@@ -70,6 +71,26 @@ function hasReactNativeBuild(manifest: Record<string, unknown>): boolean {
  */
 function publishesOnlyEsm(manifest: Record<string, unknown>): boolean {
   return manifest.type === "module" && !hasReactNativeBuild(manifest);
+}
+
+const PLAIN_SOURCE = [".js", ".jsx", ".mjs", ".cjs"];
+
+/**
+ * Whether the file a `react-native` field names is source plain JavaScript cannot run
+ * (JSX, Flow), by the same evidence `migrate` uses (untranspiled.ts). TypeScript is not:
+ * the require hooks load it as it is. A field that names no file, or a project without
+ * Babel's parser, gives no evidence.
+ */
+function fieldSourceNeedsCompiling(target: string, projectRoot: string): boolean {
+  const isFile = (file: string) => fs.statSync(file, { throwIfNoEntry: false })?.isFile() === true;
+  const file = [
+    target,
+    ...PLAIN_SOURCE.map((ext) => target + ext),
+    ...PLAIN_SOURCE.map((ext) => path.join(target, `index${ext}`)),
+  ].find((candidate) => PLAIN_SOURCE.includes(path.extname(candidate)) && isFile(candidate));
+  if (!file) return false;
+  const parse = babelParser(projectRoot);
+  return parse !== null && !isPlainJavaScript(parse, file);
 }
 
 /** Manifest fields that make a package part of the React Native ecosystem. */
@@ -188,6 +209,12 @@ function manifestsFrom(projectRoot: string): { dir: string; manifest: Record<str
 
 export interface ReachedPackages {
   /**
+   * experimental.ownershipModel: the shared resolver honours a package's `react-native`
+   * field everywhere, as Metro does, so a declared package whose field names source plain
+   * JavaScript cannot run (JSX, Flow) is compiled too, rather than loaded raw.
+   */
+  compileReactNativeFieldSource?: boolean;
+  /**
    * Absolute paths the run imports outside its own package without declaring them as
    * dependencies: the targets of `resolve.alias` entries. A workspace member containing
    * one is reached, and its dependencies are walked (see "Workspace members the run
@@ -234,7 +261,11 @@ export function detectEcosystemPackages(
   neverTransform: string[] = [],
   activePresets?: readonly string[],
   dirOf: PackageDirOf = dependencyDirOf,
-  { reachedPaths = [], onReachedUndeclared }: ReachedPackages = {},
+  {
+    reachedPaths = [],
+    onReachedUndeclared,
+    compileReactNativeFieldSource = false,
+  }: ReachedPackages = {},
 ): string[] {
   // More than one root because `manifestsFrom` only walks UP. In a workspace the
   // run root is often above the package under test — Nx invokes tasks from the
@@ -664,6 +695,24 @@ export function detectEcosystemPackages(
   }
 
   walk(true);
+
+  // experimental.ownershipModel: a declared package nothing selected whose `react-native`
+  // field names source Node cannot run as it is. The shared resolver gives both module
+  // systems that file (Metro's choice, ADR-0005), so it is compiled, as Metro compiles it.
+  // A package compiling cannot fix still fails by name when Node loads it
+  // (explainUntransformedSyntaxError).
+  if (compileReactNativeFieldSource) {
+    for (const name of candidates) {
+      if (inClosure.has(name) || excluded(name) || ownsTheRun(name)) continue;
+      const installed = installedOf(name);
+      if (!installed || installed.manifest.exports != null) continue;
+      const field = installed.manifest["react-native"];
+      if (typeof field !== "string") continue;
+      if (fieldSourceNeedsCompiling(path.resolve(installed.dir, field), roots[0])) {
+        inClosure.add(name);
+      }
+    }
+  }
 
   return [...inClosure].sort();
 }

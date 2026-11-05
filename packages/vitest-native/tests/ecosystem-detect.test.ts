@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { detectEcosystemPackages } from "../src/native/ecosystem.js";
 
@@ -136,5 +137,69 @@ describe("detectEcosystemPackages", () => {
 
   it("returns nothing for a project without a readable manifest", () => {
     expect(detectEcosystemPackages(fs.mkdtempSync(path.join(os.tmpdir(), "vn-none-")))).toEqual([]);
+  });
+});
+
+// experimental.ownershipModel: the shared resolver honours a package's `react-native` field
+// on both module systems, as Metro does. A field naming source Node cannot run (JSX, Flow)
+// would otherwise load raw, so the package is compiled.
+describe("detectEcosystemPackages with compileReactNativeFieldSource", () => {
+  const babelCore = path.dirname(
+    createRequire(import.meta.url).resolve("@babel/core/package.json"),
+  );
+
+  /** A project with Babel installed and one package whose `react-native` field holds `source`. */
+  function fieldProject(
+    file: string,
+    source: string,
+    fields: Record<string, unknown> = {},
+  ): string {
+    const dir = project(
+      { dependencies: { "field-pkg": "1" } },
+      // No react-native dependency: nothing else selects it.
+      { "field-pkg": { "react-native": file, ...fields } },
+    );
+    fs.writeFileSync(path.join(dir, "node_modules", "field-pkg", file), source);
+    fs.mkdirSync(path.join(dir, "node_modules", "@babel"), { recursive: true });
+    fs.symlinkSync(babelCore, path.join(dir, "node_modules", "@babel", "core"), "junction");
+    return dir;
+  }
+  const detect = (dir: string, on = true) =>
+    detectEcosystemPackages(dir, [], [], [], [], undefined, { compileReactNativeFieldSource: on });
+
+  it("compiles a package whose react-native field names JSX", () => {
+    const dir = fieldProject("src.js", "export const A = () => <View />;\n");
+    expect(detect(dir)).toEqual(["field-pkg"]);
+    // Flag off: the field is not honoured on Node's side, so nothing changes.
+    expect(detect(dir, false)).toEqual([]);
+  });
+
+  it("compiles one whose field names Flow", () => {
+    const dir = fieldProject(
+      "src.js",
+      "// @flow\nexport function f(x: number): string { return ''; }\n",
+    );
+    expect(detect(dir)).toEqual(["field-pkg"]);
+  });
+
+  it("leaves a field Node runs as it is", () => {
+    expect(detect(fieldProject("src.js", "export const a = 1;\n"))).toEqual([]);
+  });
+
+  it("leaves a TypeScript field, which the require hooks load", () => {
+    expect(detect(fieldProject("src.ts", "export const a: number = 1;\n"))).toEqual([]);
+  });
+
+  it("leaves a package with exports, where the field is not the resolver's choice", () => {
+    const dir = fieldProject("src.js", "export const A = () => <View />;\n", {
+      exports: { ".": "./index.js" },
+    });
+    expect(detect(dir)).toEqual([]);
+  });
+
+  it("claims nothing without Babel's parser", () => {
+    const dir = fieldProject("src.js", "export const A = () => <View />;\n");
+    fs.rmSync(path.join(dir, "node_modules", "@babel"), { recursive: true });
+    expect(detect(dir)).toEqual([]);
   });
 });
