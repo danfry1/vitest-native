@@ -1,0 +1,7 @@
+{
+  "name": "jest-config-ts-fixture",
+  "private": true,
+  "scripts": {
+    "test": "jest"
+  }
+}

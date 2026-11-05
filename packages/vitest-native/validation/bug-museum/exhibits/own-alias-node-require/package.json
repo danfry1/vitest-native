@@ -1,0 +1,13 @@
+{
+  "name": "museum-own-alias-node-require",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "dependencies": {
+    "@m/feature": "*",
+    "@m/validator": "*",
+    "museum-requires-feature": "1.0.0"
+  }
+}

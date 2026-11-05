@@ -34,6 +34,8 @@ export type VitestNativeErrorCode =
   | "HOT_STATE_CAPTURE_FAILED"
   | "HOT_STATE_RESTORE_FAILED"
   | "HOT_CJS_CACHE_RESET"
+  | "HOT_RESIDENT_UNUSABLE"
+  | "HOT_FILE_NOT_RUN"
   | "PRESET_UNAVAILABLE"
   | "PRESET_NOT_PREPARED"
   | "WRONG_ENGINE_FOR_HELPER"
@@ -43,6 +45,7 @@ export type VitestNativeErrorCode =
   | "JEST_MOCK_FACTORY_CYCLE"
   | "JEST_COMPAT_SETUP_MISSING"
   | "BABEL_IGNORES_FILE"
+  | "IMPORT_META_IN_NODE_OWNED"
   | "MATCHER_BAD_RECEIVER";
 
 export interface VitestNativeErrorOptions {

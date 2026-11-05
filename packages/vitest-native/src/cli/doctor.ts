@@ -6,6 +6,7 @@
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { validatePeerDependency } from "../validate.js";
 import { detectEngine } from "../native/detect.js";
 import { resolveTransformPreset } from "../native/babel-preset.mjs";
@@ -64,7 +65,24 @@ function packageVersion(root: string, name: string): string | null {
  * which a test holds equal to `engines.node` (what a package manager enforces).
  */
 export function nodeRange(): string {
-  return SUPPORTED_NODE;
+  const fallback = SUPPORTED_NODE;
+  // The nearest vitest-native manifest above this file: two levels up from src/cli/, one
+  // from the bundled dist/cli.mjs. A fixed relative path fits only one of them.
+  for (let dir = path.dirname(fileURLToPath(import.meta.url)); ; dir = path.dirname(dir)) {
+    const manifest = readManifest(path.join(dir, "package.json"));
+    if (manifest?.name === "vitest-native") return manifest.engines?.node?.trim() || fallback;
+    // A stale-but-close range is better than a diagnostic that throws.
+    if (path.dirname(dir) === dir) return fallback;
+  }
+}
+
+/** A package.json, or null where there is none or it does not parse. */
+function readManifest(file: string): { name?: string; engines?: { node?: string } } | null {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 export { satisfiesNodeRange };

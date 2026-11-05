@@ -2,7 +2,7 @@
 
 - **Class:** env-contract
 - **Source:** the 0.14.0 release candidates (rc.10 and rc.11)
-- **Fixed by:** open (`fix/permissive-expo-dev-launcher`)
+- **Fixed by:** #439 (merged)
 - **Needs:** nothing beyond this repository's install (expo 58)
 
 ## The bug

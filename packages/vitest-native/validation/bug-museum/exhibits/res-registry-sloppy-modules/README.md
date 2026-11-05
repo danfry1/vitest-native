@@ -2,7 +2,7 @@
 
 - **Class:** transform/resolution
 - **Source:** registry fidelity review (2026-10)
-- **Fixed by:** open (fix/registry-module-strictness)
+- **Fixed by:** #385 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

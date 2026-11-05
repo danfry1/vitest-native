@@ -26,6 +26,18 @@ jest-compat is documented as `jestCompatSetup` + `globals: true`: `jestMockTrans
 `jest.mock` to a global `vi`, so without globals a partial mock fails with `vi is not defined`.
 That error is itself worth a clearer message (see Open questions).
 
+**The `ownershipModel` flag axis (opt-in).** `axes.json` lists `ownershipModel: off, resolver`
+under `flags`, not `runtime`, so no CI cell runs it yet and every scheduled run keeps the flag
+off. `run.mjs --ownership resolver` sets `experimental.ownershipModel` on every native-engine
+run of a cell and judges each run with the value it used, so a known-failing entry can name
+it in `when`. A build that does not read the flag (main before #370) prints "flag not
+supported by this build" and exits 0 instead of measuring the flag off twice
+(`validation/config-axes/ownership.mjs`). A flag-on run whose flag never reaches
+`reactNative()` fails: the fixture's config writes a marker where it builds the option, and
+run.mjs reports a run without it. The `aliased-sibling-regex` entry names `ownershipModel:
+off` for the same reason. A build that cannot be loaded, or throws for the requested value,
+fails the run instead of reading as unsupported. Ownership track A1 moves the axis into `runtime`.
+
 ## What existing CI already covered
 
 | Cell            | Where                                                                                   | Notes                                                                      |
@@ -71,10 +83,10 @@ reported, when it crashed or timed out, or when its exit code is not what its re
 shared run those problems belong to no probe and are reported as `ERROR`, so no known failure
 can absorb them. In a run of one probe they are that probe's own failure lines.
 
-**Install axes per job, runtime axes per run.** A job installs one combination of Vitest, RNTL
+**Install axes per cell, runtime axes per run.** A cell installs one combination of Vitest, RNTL
 and layout from the registry, with vitest-native from the packed tarball. npm workspaces give a
 hoisted layout and pnpm workspaces an isolated one. The workspace has an app, four workspace
-libraries aliased to their source by string and regex, and a vendored ESM package. The job then
+libraries aliased to their source by string and regex, and a vendored ESM package. The cell then
 runs every allowed runtime combination (engine × globals × hot × jest-compat: 9 runs) through
 `AXIS_*` variables read by one `vitest.config.mts`. A run is one more Vitest process over the
 same `node_modules`: measured at 1–3 s warm and 7–11 s for the first.
@@ -86,7 +98,7 @@ banner of a run over no files, then judges the run as those values. Locally it c
 runtime. It leaves out the hot pairs, since `auto` chooses its own worker count. `hot, 2 workers` runs the hot runtime with `maxWorkers: 2`, as real suites do, and
 leaves out the hot pairs, which need one worker.
 
-Installs have no lockfile. Each job resolves the ranges in `axes.json` (and this package's
+Installs have no lockfile. Each cell resolves the ranges in `axes.json` (and this package's
 pins) a week behind the registry (`npm --before`, pnpm's `minimumReleaseAge`). So a cell can go
 red because a dependency moved, not because of the change under test: rerun the last green
 commit before blaming a merge. pnpm itself is pinned exactly (`sh.mjs`), fetched by `npx`, and
@@ -94,7 +106,7 @@ added to no manifest. Each install has its own time budget (10 minutes), and a s
 out reports "timed out" instead of the job being killed.
 
 **Pairwise on pull requests, full on schedule.** Installs are the expensive part, so pull
-requests run a two-way cover of the install axes (`cells.mjs`): 6 jobs, so every
+requests run a two-way cover of the install axes (`cells.mjs`): 6 cells, so every
 (Vitest, RNTL), (Vitest, layout) and (RNTL, layout) pair is installed once. Every runtime
 combination runs on each of them. Pushes to main, the weekly schedule, manual runs, and pull
 requests that change the matrix itself run all 12 installs × 9 runs (plus the extra runs). What
@@ -149,15 +161,15 @@ it required is the maintainer's decision.
 
 ## Cost
 
-| Scope                   | Jobs | Runs | Per job (estimate)                                                    |
-| ----------------------- | ---- | ---- | --------------------------------------------------------------------- |
-| pull request (pairwise) | 6    | 54   | setup + build ≈ 1.5 min, registry install ≈ 1–1.5 min, 9 runs ≈ 1 min |
-| main / weekly (full)    | 12   | 108  | the same                                                              |
+| Scope                   | Cells | Jobs | Runs | Per job (measured)                                         |
+| ----------------------- | ----- | ---- | ---- | ---------------------------------------------------------- |
+| pull request (pairwise) | 6     | 2    | 54   | checkout, setup and build ≈ 35 s, then ≈ 60 s per cell × 3 |
+| main / weekly (full)    | 12    | 4    | 108  | the same                                                   |
 
-Ubuntu runners in parallel, so wall time is about 4–5 min per pull request. That is under
-the Windows full gate, which is the critical path. The per-run figure is measured locally. The
-install figure is extrapolated from the `packed` cells (consumer installs about 3 min for eight
-fixtures) and is unmeasured until the first CI run.
+A job runs three cells in turn (`CELLS_PER_JOB` in `cells.mjs`), each in its own temporary
+workspace, and fails if any of them does. One cell per job spent about a third of each job
+on setup, and every job waits for a slot under the account's concurrent-job cap, so fewer,
+longer jobs finish sooner overall. A job takes about 3.5 min, under the Windows full gate.
 
 ## Gaps (deliberate, for now)
 

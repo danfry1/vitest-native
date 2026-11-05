@@ -1,18 +1,18 @@
 // The cells of the configuration-axis matrix, from axes.json.
 //
-// A cell is one CI job: one value of each INSTALL axis (Vitest, RNTL, layout), and the
+// A cell is one install: one value of each INSTALL axis (Vitest, RNTL, layout), and the
 // RUNTIME combinations (engine, globals, hot, jestCompat) run against that install.
 //
 // Scopes:
 //   pairwise  a two-way cover of the INSTALL axes (every pair of Vitest, RNTL and layout
-//             values is some job), each job running EVERY allowed runtime combination.
-//             Pull requests. 6 jobs, against 12 for the cartesian.
+//             values is some cell), each cell running EVERY allowed runtime combination.
+//             Pull requests. 6 cells, against 12 for the cartesian.
 //   full      every install combination × every runtime combination. Pushes to main,
 //             the weekly schedule, manual runs, and pull requests that change the matrix
 //             itself (the same rule as .github/scripts/rn-matrix.mjs).
 //
 // Pairwise rather than cartesian on pull requests because an install is the expensive
-// part of a job (a registry install of React Native, Vitest and RNTL), while a runtime
+// part of a cell (a registry install of React Native, Vitest and RNTL), while a runtime
 // combination is one more Vitest process over the same node_modules — measured at 1–3 s
 // warm, 7–11 s for the first. So the install axes are covered two-way and the runtime
 // axes in full: every runtime interaction is seen on six installs, and every defect this
@@ -141,6 +141,21 @@ export function cellName(cell) {
   return `vitest ${cell.vitest} · RNTL ${cell.rntl} · ${cell.layout}`;
 }
 
+/**
+ * Cells per CI job. A cell's probes take about 60 s, while a job's checkout, setup and
+ * build take about 35 s, and every job also waits for a slot under the account's
+ * concurrent-job cap. Three cells per job run in about 3.5 min, under the Windows full
+ * gate, and cut the jobs a pull request starts from 6 to 2 (12 to 4 on main).
+ */
+export const CELLS_PER_JOB = 3;
+
+/** Consecutive cells in groups of `size`: one group per CI job, every cell exactly once. */
+export function jobsFor(cells, size = CELLS_PER_JOB) {
+  const jobs = [];
+  for (let i = 0; i < cells.length; i += size) jobs.push(cells.slice(i, i + size));
+  return jobs;
+}
+
 export function scopeFor(event, changedFiles) {
   if (event !== "pull_request") return "full";
   return changedFiles.some((file) => SELF.some((prefix) => file.startsWith(prefix)))
@@ -159,9 +174,9 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
           .filter(Boolean)
       : [];
   const scope = scopeFor(event, changed);
-  const include = cellsFor(readAxes(), scope).map((cell) => ({
-    name: cellName(cell),
-    cell: JSON.stringify(cell),
+  const include = jobsFor(cellsFor(readAxes(), scope)).map((cells) => ({
+    name: cells.map(cellName).join(" | "),
+    cells: JSON.stringify(cells),
   }));
   const lines = [`matrix=${JSON.stringify({ include })}`, `scope=${scope}`];
   console.log(lines.join("\n"));

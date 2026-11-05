@@ -19,6 +19,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import "../../scripts/release-age.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(here, "../..");
@@ -98,9 +99,7 @@ function setUp() {
     "npm",
     [
       "install",
-      // The repository's release cooldown (bunfig minimumReleaseAge): a version published
-      // minutes ago can 404 while the registry propagates it, and is unvetted anyway.
-      `--before=${new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString()}`,
+      // The release cooldown reaches npm through process.env (scripts/release-age.mjs).
       "--ignore-scripts",
       "--no-audit",
       "--no-fund",

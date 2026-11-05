@@ -1,0 +1,9 @@
+{
+  "name": "museum-rn-field",
+  "version": "1.0.0",
+  "main": "web.js",
+  "react-native": "native.js",
+  "peerDependencies": {
+    "react-native": "*"
+  }
+}
