@@ -27,9 +27,9 @@ npm i -D vitest-native @react-native/babel-preset @babel/core
 ```
 
 Keep your existing `vitest`, `vite`, `react`, `react-native`, and
-`@testing-library/react-native`. Requirements: **Vitest 4.x or 5.x, Vite ^6.4.2, ^7.3.2, or ^8.0.5, the React
+`@testing-library/react-native`. Requirements: **Vitest 5.x, Vite ^8.0.5, the React
 version required by your RN release, React Native 0.81–0.88 (validated), and
-RNTL 12–14.** RNTL 14 uses async rendering APIs and requires Node 22.13 or 24+.
+RNTL 12–14.** RNTL 14 uses async rendering APIs and requires a supported Node (22.22.3+, 24.12+ or 26+).
 
 ## 2. Update `vitest.config`
 
@@ -103,7 +103,7 @@ original plugin too:
   that load through Node (not your Vite source graph) bypass Vitest's mocker.
   Prefer a **preset** (if one exists) or mock at the boundary. Your *own* modules
   mock normally.
-- **Custom Babel plugins don't run.** Transforms go through Vite/esbuild, not your
+- **Custom Babel plugins don't run.** Transforms go through Vite (Oxc), not your
   `babel.config.js`. Flow/TS stripping for RN and allow-listed packages is handled
   by the require hook; use the `transform` allowlist for extra pure-JS packages
   that ship untranspiled source.

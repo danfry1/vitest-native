@@ -34,7 +34,6 @@ import {
   pluginListSource,
   readBabelConfig,
   serializableOptions,
-  viteMajor,
 } from "./babel-config.js";
 import {
   activePresets,
@@ -69,14 +68,43 @@ interface JestConfig {
   [key: string]: unknown;
 }
 
-function loadConfigFile(
-  root: string,
-  file: string,
-): { source: string; config: JestConfig | null } | null {
+/**
+ * Jest 30's lookup order for `jest.config.*` (jest-config's JEST_CONFIG_EXT_ORDER; Jest 29's is
+ * the same without .mts and .cts). Jest refuses to run when more than one exists, so the order
+ * only decides which one migrate reports in that case.
+ */
+export const JEST_CONFIG_EXTENSIONS = [".js", ".ts", ".mjs", ".mts", ".cjs", ".cts", ".json"];
+
+/** A Jest config file as migrate read it: `config` is null when it could not be loaded. */
+interface LoadedConfig {
+  source: string;
+  config: JestConfig | null;
+  /** Why `config` is null, for the report. */
+  error?: string;
+}
+
+/**
+ * Loads a Jest config file the way Node would run it. TypeScript configs (.ts, .mts, .cts)
+ * load through Node's own type stripping, which is on by default from Node 22.18 and 23.6;
+ * ES module configs (.mjs, .mts, and .js/.ts in a "type": "module" package) through
+ * `require()` of ES modules. Jest itself loads a TypeScript config through ts-node and falls
+ * back to `import()`, so a config that relies on either (extensionless relative imports,
+ * `enum`, path aliases, top-level `await`) is reported with Node's reason rather than guessed at.
+ */
+function loadConfigFile(root: string, file: string): LoadedConfig | null {
   const abs = path.resolve(root, file);
   const name = path.relative(root, abs).split(path.sep).join("/") || file;
   if (!fs.existsSync(abs)) return null;
-  if (!/\.(c?js|json)$/.test(abs)) return { source: name, config: null };
+  if (!/\.(?:[cm]?[jt]s|json)$/.test(abs)) {
+    return { source: name, config: null, error: "not a JavaScript, TypeScript or JSON file" };
+  }
+  if (/\.[cm]?ts$/.test(abs) && !process.features.typescript) {
+    return {
+      source: name,
+      config: null,
+      error: `Node ${process.version} does not load TypeScript by itself; run migrate on Node 22.18 or later`,
+    };
+  }
   try {
     const req = createRequire(path.join(root, "package.json"));
     const loaded = abs.endsWith(".json") ? JSON.parse(fs.readFileSync(abs, "utf8")) : req(abs);
@@ -85,29 +113,37 @@ function loadConfigFile(
         ? (loaded as { default: unknown }).default
         : loaded
     ) as JestConfig;
-    if (typeof config === "function") return { source: name, config: null };
+    if (typeof config === "function") {
+      return {
+        source: name,
+        config: null,
+        error:
+          "it exports a function, which Jest calls to build the config; migrate reads only a config object",
+      };
+    }
+    if (!config || typeof config !== "object") {
+      return { source: name, config: null, error: "it does not export a config object" };
+    }
     return { source: name, config };
-  } catch {
-    return { source: name, config: null };
+  } catch (error) {
+    const message = error instanceof Error ? error.message.split("\n")[0] : String(error);
+    return { source: name, config: null, error: message };
   }
 }
 
 function loadJestConfig(
   root: string,
   explicit?: string,
-): { source: string | null; config: JestConfig | null } {
+): { source: string | null; config: JestConfig | null; error?: string } {
   // `jest --config <file>` in the test script names the config Jest actually reads.
   if (explicit) {
     const loaded = loadConfigFile(root, explicit);
     if (loaded) return loaded;
   }
   // Jest's own precedence: a jest.config.* file wins over package.json#jest.
-  for (const name of ["jest.config.js", "jest.config.cjs", "jest.config.json"]) {
-    const loaded = loadConfigFile(root, name);
+  for (const extension of JEST_CONFIG_EXTENSIONS) {
+    const loaded = loadConfigFile(root, `jest.config${extension}`);
     if (loaded) return loaded;
-  }
-  for (const name of ["jest.config.mjs", "jest.config.ts", "jest.config.mts"]) {
-    if (fs.existsSync(path.join(root, name))) return { source: name, config: null };
   }
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
@@ -229,12 +265,18 @@ export function analyzeJestConfig(root: string): MigrationReport {
     // no/invalid package.json
   }
   const explicitConfig = scriptFlags?.flags.get("config") ?? scriptFlags?.flags.get("c");
-  const { source, config } = loadJestConfig(
-    root,
-    typeof explicitConfig === "string" ? explicitConfig : undefined,
-  );
+  const {
+    source,
+    config,
+    error: configError,
+  } = loadJestConfig(root, typeof explicitConfig === "string" ? explicitConfig : undefined);
   const automatic: string[] = [];
   const attention: string[] = [];
+  if (source && configError) {
+    attention.push(
+      `${source} could not be loaded (${configError}), so none of its settings are in the suggested config; carry them over by hand.`,
+    );
+  }
   const presetCovered: string[] = [];
   const dropped: string[] = [];
 
@@ -675,7 +717,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
       }
     }
 
-    // Jest's default is clearMocks: false; Vitest 5 defaults it to true (Vitest 4: false).
+    // Jest's default is clearMocks: false; Vitest 5 defaults it to true.
     // Under true, calls a module makes while it loads are cleared before each test, so
     // a test asserting on them fails only after migrating.
     if (config.clearMocks === undefined) {
@@ -736,14 +778,11 @@ export function analyzeJestConfig(root: string): MigrationReport {
   if (babel.source) {
     const classified = classifyBabelPlugins(babel, root, active);
     const required = classified.filter((p) => p.verdict === "required");
-    const vite = viteMajor(root);
     if (required.length) {
-      // Emitted only when it can be done exactly: Vite 8 with @rolldown/plugin-babel
-      // and @babel/core installed, and plugin options that are plain data. Otherwise
-      // a config that imports a missing package would not load at all.
+      // Emitted only when it can be done exactly: @rolldown/plugin-babel and @babel/core
+      // installed, and plugin options that are plain data. Otherwise a config that
+      // imports a missing package would not load at all.
       const canEmit =
-        vite !== null &&
-        vite >= 8 &&
         installed(root, "@rolldown/plugin-babel") &&
         installed(root, "@babel/core") &&
         required.every(serializableOptions);
@@ -755,7 +794,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
         }
       } else {
         for (const p of required) {
-          attention.push(`${babel.source}: ${p.reason} Required: ${babelRecipe(vite, required)}.`);
+          attention.push(`${babel.source}: ${p.reason} Required: ${babelRecipe(required)}.`);
         }
       }
     }
@@ -793,6 +832,15 @@ export function analyzeJestConfig(root: string): MigrationReport {
     }
     for (const p of classified.filter((c) => c.verdict === "unknown")) {
       attention.push(`${babel.source}: ${p.reason}`);
+    }
+    if (babel.lazyImports.length) {
+      attention.push(
+        `${babel.source}: ${babel.lazyImports.join(", ")} — under Jest a package import ran only when the test ` +
+          `first used it; here every import runs when its file loads. A module a test never touched is now ` +
+          `evaluated, so a partial jest.mock of something it needs can fail (e.g. "requireOptionalNativeModule ` +
+          `is not a function"). Give such a mock the rest of the module: ` +
+          `jest.mock('x', () => ({ ...jest.requireActual('x'), ... })).`,
+      );
     }
     if (!babel.evaluated) {
       attention.push(
@@ -927,11 +975,26 @@ function classifyAllowlist(
   }
 }
 
-export function renderMigrationReport(report: MigrationReport): string[] {
+/** The commands to run once the suggested config is saved. */
+export function migrationNextStep(report: MigrationReport): string {
+  return report.vitePlus
+    ? "npx vitest-native doctor && vp test"
+    : "npx vitest-native doctor && npx vitest";
+}
+
+/**
+ * The report `migrate` prints. With `write: true` (`migrate --write`) the config is about to
+ * be saved, so the closing line does not ask for a re-run with --write; the CLI prints the
+ * next step after the file is written.
+ */
+export function renderMigrationReport(
+  report: MigrationReport,
+  { write = false }: { write?: boolean } = {},
+): string[] {
   const lines: string[] = [];
   if (!report.source) {
     lines.push(
-      "✗ no Jest configuration found (package.json#jest or jest.config.{js,cjs,json}).",
+      "✗ no Jest configuration found (package.json#jest or jest.config.{js,ts,mjs,cjs,mts,cts,json}).",
       "  Starting fresh? Run `vitest-native init` instead.",
     );
     return lines;
@@ -949,12 +1012,9 @@ export function renderMigrationReport(report: MigrationReport): string[] {
   section("Dropped (no equivalent needed)", report.dropped);
   lines.push(report.vitePlus ? "Suggested vite.config:" : "Suggested vitest.config:", "");
   lines.push(...report.suggestedConfig.split("\n").map((l) => `  ${l}`));
-  lines.push(
-    report.vitePlus
-      ? "Re-run with --write to save this config, then: npx vitest-native doctor && vp test"
-      : "Re-run with --write to save this config, then: npx vitest-native doctor && npx vitest",
-    "",
-    ...HOT_RUNTIME_NOTE,
-  );
+  if (!write) {
+    lines.push(`Re-run with --write to save this config, then: ${migrationNextStep(report)}`, "");
+  }
+  lines.push(...HOT_RUNTIME_NOTE);
   return lines;
 }

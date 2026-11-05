@@ -41,7 +41,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           package-manager-cache: false
-          node-version: 22.13.0
+          node-version: 22.22.3
 
       # Here only to fail a wrong tag before the test suite; `publish` runs it again.
       - name: Tag is on main and names the package version
@@ -136,7 +136,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           package-manager-cache: false
-          node-version: 22.13.0
+          node-version: 22.22.3
           registry-url: https://registry.npmjs.org
 
       - name: Tag is on main and names the package version

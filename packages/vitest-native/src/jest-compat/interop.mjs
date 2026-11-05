@@ -97,7 +97,7 @@ function withDefault(mod) {
  * Jest hands the factory's return to the importer as `module.exports`, and Babel's
  * CommonJS output reads a named import as a property of it (`_m.applicationId`): a
  * name the factory left out is simply `undefined`. Vitest instead wraps the factory
- * result in a proxy (VitestMocker#callFunctionMock, the same in Vitest 4 and 5) whose
+ * result in a proxy (VitestMocker#callFunctionMock in Vitest 5) whose
  * `get` throws `No "x" export is defined on the "m" mock` when `!(prop in target)`.
  * Mocking only what a test needs is ordinary in Jest suites, so a migrated suite
  * failed on imports its tests never touched.

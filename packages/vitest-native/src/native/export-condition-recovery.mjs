@@ -1,7 +1,7 @@
 // Recovery for packages whose `react-native` export target was never published.
 //
 // Vitest forwards the project's ssr resolve conditions to each worker as Node
-// `--conditions` flags (resolveConditions in Vitest 4 and 5), and both engines put
+// `--conditions` flags (resolveConditions in Vitest 5), and both engines put
 // `react-native` there, because Node-owned React Native packages must load their
 // native build. The flag is process-wide, so it also applies to what Vitest itself
 // loads in the worker before any test runs: the test environment. Jest loads its
@@ -152,10 +152,8 @@ export function recoverMissingReactNativeTarget(
   if (error?.code !== "MODULE_NOT_FOUND" || typeof error.path !== "string") return null;
   const name = packageName(request);
   if (name === null) return null;
-  // Node reports the package directory on 22.22 and 24, but its package.json on 20.19
-  // and 22.13 (measured on each).
-  const packageDir =
-    path.basename(error.path) === "package.json" ? path.dirname(error.path) : error.path;
+  // Node reports the package directory (measured on 22.22 and 24).
+  const packageDir = error.path;
   let manifest;
   try {
     manifest = JSON.parse(fs.readFileSync(path.join(packageDir, "package.json"), "utf8"));

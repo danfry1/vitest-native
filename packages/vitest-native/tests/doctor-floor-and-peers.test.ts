@@ -41,12 +41,12 @@ const runtimeLine = (root: string, node: string) =>
   runDoctor(root, node).lines.find((l) => l.includes("Node ")) ?? "";
 
 const testingLine = (root: string) => {
-  const { lines } = runDoctor(root, "22.13.0");
+  const { lines } = runDoctor(root, "22.22.3");
   const start = lines.indexOf("Testing library");
   return lines.slice(start + 1, start + 2).join(" ");
 };
 
-describe("doctor: the supported Node range comes from engines.node", () => {
+describe("doctor: the supported Node range is the one the plugin enforces", () => {
   it("matches this package's own manifest", () => {
     const manifest = JSON.parse(
       fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"),
@@ -61,24 +61,30 @@ describe("doctor: the supported Node range comes from engines.node", () => {
   it("passes each line's first supported release and fails the one before it", () => {
     // The bug this guards: 20.18 had the floor's major, and passed.
     const line = (node: string) => runtimeLine(project({}), node);
-    expect(line("22.13.0")).toContain("✓");
-    expect(line("22.12.0")).toContain("✗");
-    expect(line("24.3.0")).toContain("✓");
-    expect(line("24.2.0")).toContain("✗");
-    expect(line("24.2.0")).toContain(`supports Node ${nodeRange()}`);
+    expect(line("22.22.3")).toContain("✓");
+    expect(line("22.22.2")).toContain("✗");
+    expect(line("24.12.0")).toContain("✓");
+    expect(line("24.11.1")).toContain("✗");
+    expect(line("25.0.0")).toContain("✗");
+    expect(line("26.0.0")).toContain("✓");
+    // The plugin's startup message: within a supported line, update within the major.
+    expect(line("24.11.1")).toContain("needs Node 24.12.0 or later on Node 24");
+    expect(line("25.0.0")).toContain(`engines.node: ${nodeRange()}`);
   });
 });
 
 describe("satisfiesNodeRange", () => {
-  const range = ">=22.13.0 <23 || >=24.3.0";
+  // The range the package enforces (SUPPORTED_NODE, held equal to engines.node above).
+  const range = nodeRange();
   it.each([
     ["20.19.4", false],
-    ["22.12.0", false],
-    ["22.13.0", true],
+    ["22.13.0", false],
+    ["22.22.2", false],
     ["22.22.3", true],
     ["23.5.0", false],
-    ["24.2.9", false],
-    ["24.3.0", true],
+    ["24.11.1", false],
+    ["24.12.0", true],
+    ["25.0.0", false],
     ["26.0.0", true],
     ["v24.13.0", true],
   ])("%s → %s", (version, expected) => {
@@ -96,7 +102,7 @@ describe("doctor: RNTL 14 needs test-renderer", () => {
     const line = testingLine(root);
     expect(line).toContain("✗");
     expect(line).toContain("test-renderer");
-    expect(runDoctor(root, "22.13.0").ok).toBe(false);
+    expect(runDoctor(root, "22.22.3").ok).toBe(false);
   });
 
   it("passes when it is installed", () => {

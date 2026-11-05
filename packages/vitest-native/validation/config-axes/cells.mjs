@@ -17,7 +17,7 @@
 // warm, 7–11 s for the first. So the install axes are covered two-way and the runtime
 // axes in full: every runtime interaction is seen on six installs, and every defect this
 // matrix was built from sat on at most two axes (globals:false; RNTL 12/13 × native;
-// Vitest 4 × hot; an isolated layout × a preset switched off). Three-way interactions of
+// an isolated layout × a preset switched off). Three-way interactions of
 // install axes are the full scope's job.
 //
 //   node validation/config-axes/cells.mjs <event> [base-sha head-sha]

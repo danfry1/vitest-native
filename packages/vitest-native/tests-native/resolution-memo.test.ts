@@ -62,9 +62,9 @@ describe("a resolution held from an earlier require", () => {
           _resolveFilename(r: string, p: Module, m: boolean, o: object): string;
         }
       )._resolveFilename("cond-q", parent, false, { conditions: new Set(conditions) });
-    // `_resolveFilename` honours `options.conditions` on Node 22.22 and 24, and ignores
-    // them on 22.13, so the expected answers are plain Node's on this version, asked in a
-    // child process that carries none of vitest-native's hooks.
+    // `_resolveFilename` honours `options.conditions` on every supported Node (22.22.3+,
+    // 24.12+, 26+). The expected answers are plain Node's, asked in a child process that
+    // carries none of vitest-native's hooks.
     const plain = JSON.parse(
       execFileSync(
         process.execPath,
@@ -79,7 +79,7 @@ describe("a resolution held from an earlier require", () => {
       ),
     ) as [string, string];
     expect(plain[1]).toBe(b);
-    expect([a, b]).toContain(plain[0]);
+    expect(plain[0]).toBe(a);
     expect(resolveWith(["require", "node", "vn-custom"])).toBe(plain[0]);
     expect(resolveWith(["require", "node"])).toBe(plain[1]);
   });

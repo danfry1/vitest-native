@@ -10,14 +10,8 @@ import { matrixFor, scopeFor } from "../../../.github/scripts/rn-matrix.mjs";
 const definition = JSON.parse(
   fs.readFileSync(path.resolve(import.meta.dirname, "../../../.github/rn-matrix.json"), "utf8"),
 );
-const cells = (m: {
-  rn: string[];
-  vitest: string[];
-  include: { rn: string; vitest: string }[];
-}) => [
-  ...m.rn.flatMap((rn) => m.vitest.map((v) => `${rn}-${v}`)),
-  ...m.include.map((c) => `${c.rn}-${c.vitest}`),
-];
+const cells = (m: { rn: string[]; vitest: string[] }) =>
+  m.rn.flatMap((rn) => m.vitest.map((v) => `${rn}-${v}`));
 
 describe("the RN matrix selection", () => {
   it("runs every cell outside pull requests", () => {
@@ -26,7 +20,7 @@ describe("the RN matrix selection", () => {
       expect(scopeFor(event, [])).toBe("full");
     }
     expect(cells(matrixFor(definition, "full"))).toHaveLength(
-      definition.rn.length * definition.vitest.length + definition.include.length,
+      definition.rn.length * definition.vitest.length,
     );
   });
 
@@ -37,8 +31,8 @@ describe("the RN matrix selection", () => {
     const last = definition.rn.at(-1);
     expect(ends.rn).toEqual([first, last]);
     expect(ends.vitest).toEqual(definition.vitest);
-    // Every Vitest column, including the Vitest 4 floor, still meets both ends.
-    for (const column of [...definition.vitest, "v4"]) {
+    // Every Vitest column still meets both ends.
+    for (const column of definition.vitest) {
       expect(cells(ends)).toContain(`${first}-${column}`);
       expect(cells(ends)).toContain(`${last}-${column}`);
     }
