@@ -1,0 +1,9 @@
+{
+  "name": "museum-res-regex-alias-member-closure",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "dependencies": {}
+}

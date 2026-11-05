@@ -93,7 +93,7 @@ export function _resetRegistryFailureReports() {
 // 5: the registry's internal require consults jest-compat's Node-side mocks.
 // 6: each module keeps its own strictness, and runs with `this` = module.exports.
 // 7: modules are stored as source and compiled per module under their own file name.
-const REGISTRY_FORMAT_VERSION = 7;
+export const REGISTRY_FORMAT_VERSION = 7;
 
 /**
  * Literal `require('…')` / `require("…")` calls. The leading class excludes
@@ -202,7 +202,20 @@ function canonicalAssetExtensions(extensions) {
  *
  * Exported for tests. Not part of the public surface — see docs/versioning.md.
  */
-export function registryKey({
+export function registryKey(options) {
+  return crypto
+    .createHash("sha1")
+    .update(registryKeyInputs(options).join("\0"))
+    .digest("hex")
+    .slice(0, 16);
+}
+
+/**
+ * The inputs registryKey hashes, in order. Exported so tests/cache-key-ledger.test.ts
+ * can require the ones no fixture can vary (this module's own format version and the
+ * package version).
+ */
+export function registryKeyInputs({
   projectRoot,
   platform,
   reactNativeVersion,
@@ -228,63 +241,57 @@ export function registryKey({
     );
     boundaries.update("\0");
   }
-  return crypto
-    .createHash("sha1")
-    .update(
-      [
-        `f${REGISTRY_FORMAT_VERSION}`,
-        // The registry stores TRANSFORMED module source, so a change in what the
-        // transform emits must invalidate it. Nothing else here would: the preset and
-        // Babel versions are unchanged when the transform's own configuration changes,
-        // and ownVersion() is the published package version, which does not move during
-        // development. Adding the Flow-enum plugin produced exactly that situation — the
-        // transform was fixed and a warm registry kept serving modules built without it.
-        `t${TRANSFORM_CACHE_VERSION}`,
-        ownVersion(),
-        // Where the graph is seeded from. The registry bakes in absolute paths to every
-        // package it resolved, so it is only valid for the files those seeds resolve to.
-        // Without this, a checkout copied together with its cache reused the original's
-        // registry: the manifest check passed because the original's files still
-        // existed, and the copy loaded React Native from the original against its own
-        // React, failing every test with "more than one copy of React". The same holds
-        // when `react-native` starts resolving to a different copy from the same root.
-        // Keyed on the resolved files rather than the project root: require.resolve
-        // returns the spelling Node loads modules under (real paths, unless
-        // --preserve-symlinks), and projects that resolve the same graph — sibling
-        // workspaces, a Vitest project in a subdirectory — share one registry.
-        ...["react-native", ...canonicalAdditionalEntries(additionalEntries)].map((request) =>
-          resolvedOrZero(req, request),
-        ),
-        assetRegistryPathFor(projectRoot) ?? "0",
-        platform,
-        reactNativeVersion,
-        version("react-native"),
-        // React Native's modules resolve `react` at runtime, so the registry is only
-        // valid for the React it was built against. This was missing, and the manifest
-        // check below could not cover it: it stats React Native's own files, which do
-        // not change when React alone is upgraded. Upgrading React while staying on the
-        // same React Native therefore served a registry built against the previous one,
-        // and the suite failed with a null React dispatcher ("Cannot read properties of
-        // null (reading 'useContext')") plus React Native singletons that no longer
-        // compared equal — the duplicate-instance failure this cache exists to avoid.
-        // Reproduced by switching between two trees differing only in React's version;
-        // clearing node_modules/.cache/vitest-native was the only way out.
-        version("react"),
-        // React Native's own image assets are compiled in, and their descriptors carry
-        // Expo's fileHashes when Expo bundles the project (native/assets.mjs).
-        version("expo"),
-        // The preset React Native compiles with (babel-preset.mjs), by name and version.
-        transformPreset ? `${transformPreset.name}@${transformPreset.version}` : "0",
-        version("@babel/core"),
-        process.env.BABEL_ENV || process.env.NODE_ENV || "none",
-        ...sourceExts.map((extension) => `source:${extension}`),
-        ...canonicalAssetExtensions(assetExts).map((extension) => `asset:${extension}`),
-        ...canonicalAdditionalEntries(additionalEntries).map((entry) => `entry:${entry}`),
-        boundaries.digest("hex"),
-      ].join("\0"),
-    )
-    .digest("hex")
-    .slice(0, 16);
+  return [
+    `f${REGISTRY_FORMAT_VERSION}`,
+    // The registry stores TRANSFORMED module source, so a change in what the
+    // transform emits must invalidate it. Nothing else here would: the preset and
+    // Babel versions are unchanged when the transform's own configuration changes,
+    // and ownVersion() is the published package version, which does not move during
+    // development. Adding the Flow-enum plugin produced exactly that situation — the
+    // transform was fixed and a warm registry kept serving modules built without it.
+    `t${TRANSFORM_CACHE_VERSION}`,
+    ownVersion(),
+    // Where the graph is seeded from. The registry bakes in absolute paths to every
+    // package it resolved, so it is only valid for the files those seeds resolve to.
+    // Without this, a checkout copied together with its cache reused the original's
+    // registry: the manifest check passed because the original's files still
+    // existed, and the copy loaded React Native from the original against its own
+    // React, failing every test with "more than one copy of React". The same holds
+    // when `react-native` starts resolving to a different copy from the same root.
+    // Keyed on the resolved files rather than the project root: require.resolve
+    // returns the spelling Node loads modules under (real paths, unless
+    // --preserve-symlinks), and projects that resolve the same graph — sibling
+    // workspaces, a Vitest project in a subdirectory — share one registry.
+    ...["react-native", ...canonicalAdditionalEntries(additionalEntries)].map((request) =>
+      resolvedOrZero(req, request),
+    ),
+    assetRegistryPathFor(projectRoot) ?? "0",
+    platform,
+    reactNativeVersion,
+    version("react-native"),
+    // React Native's modules resolve `react` at runtime, so the registry is only
+    // valid for the React it was built against. This was missing, and the manifest
+    // check below could not cover it: it stats React Native's own files, which do
+    // not change when React alone is upgraded. Upgrading React while staying on the
+    // same React Native therefore served a registry built against the previous one,
+    // and the suite failed with a null React dispatcher ("Cannot read properties of
+    // null (reading 'useContext')") plus React Native singletons that no longer
+    // compared equal — the duplicate-instance failure this cache exists to avoid.
+    // Reproduced by switching between two trees differing only in React's version;
+    // clearing node_modules/.cache/vitest-native was the only way out.
+    version("react"),
+    // React Native's own image assets are compiled in, and their descriptors carry
+    // Expo's fileHashes when Expo bundles the project (native/assets.mjs).
+    version("expo"),
+    // The preset React Native compiles with (babel-preset.mjs), by name and version.
+    transformPreset ? `${transformPreset.name}@${transformPreset.version}` : "0",
+    version("@babel/core"),
+    process.env.BABEL_ENV || process.env.NODE_ENV || "none",
+    ...sourceExts.map((extension) => `source:${extension}`),
+    ...canonicalAssetExtensions(assetExts).map((extension) => `asset:${extension}`),
+    ...canonicalAdditionalEntries(additionalEntries).map((entry) => `entry:${entry}`),
+    boundaries.digest("hex"),
+  ];
 }
 
 /**

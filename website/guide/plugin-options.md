@@ -34,6 +34,18 @@ Which engine to use. See [Choosing an Engine](/guide/engines) for the full break
 
 Set to `true` to log plugin activity — useful when debugging resolution or which engine resolved. Default `false`.
 
+To turn it on for a single run without editing the config each time, read an environment variable you choose:
+
+```ts
+reactNative({ diagnostics: process.env.RN_TEST_DEBUG === "1" });
+```
+
+```bash
+RN_TEST_DEBUG=1 vitest run
+```
+
+vitest-native does not read a `VITEST_NATIVE_DIAGNOSTICS` variable. Older releases' `VITEST_NATIVE_*` settings, such as `VITEST_NATIVE_PLATFORM`, are no longer read either; set the matching option, such as `platform`. Startup warns when one is set.
+
 ## `presets`
 
 An array of [third-party presets](/guide/presets). Presets are auto-detected from your installed dependencies, so listing them is usually optional:
@@ -117,6 +129,14 @@ reactNative({ hotRuntime: false }) // opt out
 It can dramatically cut the per-file cost on large suites. The RN registry is reset from its in-memory factories per file, and the shared realm is restored through a mutation-tested state manifest. Arbitrary mutable state in an unknown resident third-party singleton cannot be discovered generically; a test that passes alone but fails after other files remains a correctness signal. See [Hot runtime](/guide/engines#hot-runtime) for the exact boundary and worker recycling.
 
 Hot mode installs a cgroup-aware memory plan by default and requires at least two workers so it can recycle at file boundaries. A deliberate externally bounded single-worker run can use `hotRuntime: { allowUnboundedMemory: true }`; this disables the automatic worker cap and process-RSS enforcement and is intentionally noisy.
+
+The object form tunes worker recycling: `recycleAfterFiles`, `memoryLimit` (worker heap in bytes), `allowUnboundedMemory`, `preserveGlobals` and `esmGeneration` ([Worker recycling](/guide/engines#worker-recycling)). On its own it requires the hot runtime, as `true` does. Add `mode: 'auto'` to select the way `'auto'` does: the hot runtime with your options where the run can be bounded, per-file isolation with the printed reason where it cannot.
+
+```ts
+reactNative({ hotRuntime: { mode: 'auto', memoryLimit: 2 * 1024 ** 3 } })
+```
+
+`mode: 'auto'` cannot be combined with `allowUnboundedMemory: true`. The worker count and the process-RSS limits still come from the memory plan, and `memoryLimit: 0` turns the heap threshold off.
 
 ## `nativeModules`
 

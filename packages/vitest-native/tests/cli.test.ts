@@ -17,6 +17,7 @@ import { PRESET_MODULES } from "../src/preset-map.js";
 import {
   analyzeJestConfig,
   extractAllowlistPackages,
+  JEST_CONFIG_EXTENSIONS,
   renderMigrationReport,
 } from "../src/cli/migrate.js";
 
@@ -479,6 +480,38 @@ describe("migrate", () => {
     const written = fs.readFileSync(path.join(root, "vitest.config.mjs"), "utf8");
     expect(written).toContain("testTimeout: 9000");
     expect(written).toContain("jestMockTransform()");
+    // The config is saved, so the output gives the next step, not "re-run with --write".
+    expect(io.text()).not.toContain("--write");
+    expect(io.text()).toContain(
+      "✓ wrote vitest.config.mjs from the analysis above. Next: npx vitest-native doctor && npx vitest",
+    );
+  });
+
+  it("--write over an existing config points at --force, not at --write", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": { preset: "react-native" },
+      "vitest.config.mjs": "export default {}",
+    });
+    const io = capture();
+    expect(main(["migrate", "--write", "--root", root], io.log)).toBe(1);
+    expect(fs.readFileSync(path.join(root, "vitest.config.mjs"), "utf8")).toBe("export default {}");
+    expect(io.text()).toContain("--force");
+    expect(io.text()).not.toContain("Re-run with --write");
+  });
+
+  it("without --write, main() asks for a re-run with --write and writes nothing", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": { preset: "react-native" },
+    });
+    const io = capture();
+    expect(main(["migrate", "--root", root], io.log)).toBe(0);
+    expect(fs.existsSync(path.join(root, "vitest.config.mjs"))).toBe(false);
+    expect(io.text()).toContain(
+      "Re-run with --write to save this config, then: npx vitest-native doctor && npx vitest",
+    );
+    expect(io.text()).not.toContain("✓ wrote");
   });
 });
 
@@ -532,5 +565,117 @@ describe("peer requirements match the published peerDependencies", () => {
       }
     }
     expect(mismatches).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Jest config files in every extension Jest reads
+// ---------------------------------------------------------------------------
+
+describe("migrate reads every jest.config extension Jest reads", () => {
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+
+  /** A copy of tests/fixtures/jest-config-ts, so each test loads its own file. */
+  const tsFixture = (): string => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-cli-ts-"));
+    fs.cpSync(path.join(HERE, "fixtures", "jest-config-ts"), root, { recursive: true });
+    return root;
+  };
+
+  // Node strips TypeScript by default from 22.18 and 23.6; CI's 22.13 legs take the branch the
+  // last test pins instead.
+  const stripsTypes = Boolean(process.features.typescript);
+
+  it.runIf(stripsTypes)(
+    "loads a TypeScript config with a type-only import and module.exports",
+    () => {
+      const report = analyzeJestConfig(tsFixture());
+      expect(report.source).toBe("jest.config.ts");
+      expect(report.attention.join("\n")).not.toContain("jest.config.ts could not be loaded");
+      expect(report.suggestedConfig).toContain("testTimeout: 7000");
+      expect(report.suggestedConfig).toContain('"./.ci/setupTests.ts"');
+    },
+  );
+
+  it("loads .mjs configs, and .mts and .cts where Node strips types", () => {
+    const cases: Record<string, string> = {
+      "jest.config.mjs": "export default { testTimeout: 6300 };\n",
+      ...(stripsTypes && {
+        "jest.config.mts":
+          "const timeout: number = 6100;\nexport default { testTimeout: timeout };\n",
+        "jest.config.cts":
+          "const timeout: number = 6200;\nmodule.exports = { testTimeout: timeout };\n",
+      }),
+    };
+    for (const [file, source] of Object.entries(cases)) {
+      const report = analyzeJestConfig(fixture({ "package.json": { name: "x" }, [file]: source }));
+      expect(report.source, file).toBe(file);
+      expect(report.suggestedConfig, file).toMatch(/testTimeout: 6[123]00/);
+    }
+  });
+
+  it("takes .mjs over .cjs and .json, as Jest does, on every supported Node", () => {
+    const report = analyzeJestConfig(
+      fixture({
+        "package.json": { name: "x" },
+        "jest.config.mjs": "export default { testTimeout: 4444 };\n",
+        "jest.config.cjs": "module.exports = { testTimeout: 5555 };\n",
+        "jest.config.json": { testTimeout: 6666 },
+      }),
+    );
+    expect(report.source).toBe("jest.config.mjs");
+    expect(report.suggestedConfig).toContain("testTimeout: 4444");
+  });
+
+  it.runIf(stripsTypes)("takes the first file in Jest's own order", () => {
+    expect(JEST_CONFIG_EXTENSIONS).toEqual([".js", ".ts", ".mjs", ".mts", ".cjs", ".cts", ".json"]);
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.ts": "export default { testTimeout: 1111 };\n",
+      "jest.config.cjs": "module.exports = { testTimeout: 2222 };\n",
+      "jest.config.json": { testTimeout: 3333 },
+    });
+    const report = analyzeJestConfig(root);
+    expect(report.source).toBe("jest.config.ts");
+    expect(report.suggestedConfig).toContain("testTimeout: 1111");
+  });
+
+  it("says which file could not be loaded and why, instead of migrating nothing silently", () => {
+    const fn = analyzeJestConfig(
+      fixture({
+        "package.json": { name: "x" },
+        "jest.config.mjs": "export default async () => ({ testTimeout: 9 });\n",
+      }),
+    );
+    expect(fn.attention.join("\n")).toContain(
+      "jest.config.mjs could not be loaded (it exports a function, which Jest calls to build the config",
+    );
+    if (!stripsTypes) return;
+    // Type stripping cannot erase an enum: the config is reported, not guessed at.
+    const needsTranspile = analyzeJestConfig(
+      fixture({
+        "package.json": { name: "x" },
+        "jest.config.ts":
+          "enum Env { Node = 'node' }\nexport default { testEnvironment: Env.Node };\n",
+      }),
+    );
+    expect(needsTranspile.attention.join("\n")).toMatch(
+      /jest\.config\.ts could not be loaded \(.+\)/,
+    );
+  });
+
+  it("explains a TypeScript config on a Node that cannot strip types", () => {
+    const features = process.features as { typescript: unknown };
+    const original = Object.getOwnPropertyDescriptor(features, "typescript");
+    Object.defineProperty(features, "typescript", { value: false, configurable: true });
+    try {
+      const report = analyzeJestConfig(tsFixture());
+      expect(report.attention.join("\n")).toContain(
+        `does not load TypeScript by itself; run migrate on Node 22.18 or later`,
+      );
+      expect(report.suggestedConfig).not.toContain("testTimeout: 7000");
+    } finally {
+      if (original) Object.defineProperty(features, "typescript", original);
+    }
   });
 });

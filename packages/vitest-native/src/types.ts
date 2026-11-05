@@ -247,6 +247,14 @@ export interface NavigationPresetOptions {
   defaultRouteParams?: Record<string, unknown>;
 }
 
+/** The `hotRuntime` object form's recycling options, shared by both of its modes. */
+export interface HotRuntimeRecycleOptions {
+  recycleAfterFiles?: number;
+  memoryLimit?: number;
+  preserveGlobals?: string[];
+  esmGeneration?: boolean;
+}
+
 export interface VitestNativeOptions {
   /** Target platform. Default: 'ios' */
   platform?: "ios" | "android";
@@ -407,6 +415,13 @@ export interface VitestNativeOptions {
    * explicit custom pool; otherwise the run keeps per-file isolation and prints the
    * reason for falling back.
    *
+   * - `mode: 'auto'` in the object form selects the same way, with the object's
+   *   recycling options applied when the hot runtime runs:
+   *   `{ mode: 'auto', memoryLimit: 2 * 1024 ** 3 }`. Without `mode`, the object
+   *   form requires the hot runtime, as `true` does. Cannot be combined with
+   *   `allowUnboundedMemory: true`. Worker count and process-RSS limits still come
+   *   from the memory plan; `memoryLimit: 0` turns the heap threshold off.
+   *
    * Default: `false`, as in 0.13.0: each file runs in a fresh worker, with React
    * Native reloaded per file. The hot runtime has known differences from per-file
    * isolation, listed in the troubleshooting guide.
@@ -414,13 +429,8 @@ export interface VitestNativeOptions {
   hotRuntime?:
     | boolean
     | "auto"
-    | {
-        recycleAfterFiles?: number;
-        memoryLimit?: number;
-        allowUnboundedMemory?: boolean;
-        preserveGlobals?: string[];
-        esmGeneration?: boolean;
-      };
+    | (HotRuntimeRecycleOptions & { mode?: undefined; allowUnboundedMemory?: boolean })
+    | (HotRuntimeRecycleOptions & { mode: "auto"; allowUnboundedMemory?: false });
 
   /**
    * `engine: 'native'` only. How native module lookups answer.

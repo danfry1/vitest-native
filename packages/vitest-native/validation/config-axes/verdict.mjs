@@ -215,7 +215,8 @@ export function judge(entries, probe, run, result) {
  */
 export function validateEntries(entries, axes, probes) {
   const problems = [];
-  const values = { ...axes.install, ...axes.runtime };
+  const { $comment: _flagsComment, ...flags } = axes.flags ?? {};
+  const values = { ...axes.install, ...axes.runtime, ...flags };
   const ids = new Set(probes.map((probe) => probe.id));
   for (const [index, entry] of entries.entries()) {
     const at = `known-failing.json entry ${index} (${entry.probe})`;

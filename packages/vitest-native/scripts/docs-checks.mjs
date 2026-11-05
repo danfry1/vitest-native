@@ -1,6 +1,6 @@
 // Runs every unit test that reads one of the repository's Markdown files.
 //
-// A docs-only pull request skips the full gate (.github/scripts/classify-change.sh),
+// A docs-only pull request skips the full gate (.github/scripts/classify-change.mjs),
 // but several tests take a Markdown page as their source of truth: the versioning
 // contract (docs/versioning.md), the preset tables (README.md, website/guide/presets.md)
 // and the documented configuration block (website/guide/plugin-options.md). Skipping

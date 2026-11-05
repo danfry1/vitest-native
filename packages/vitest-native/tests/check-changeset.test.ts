@@ -23,6 +23,8 @@ import {
   BANNED_TERMS,
   BODY_WORD_LIMIT,
   changesetFiles,
+  CREDIT_LINE,
+  CREDIT_REASON_WORD_LIMIT,
   LEAD_WORD_LIMIT,
   lintChangeset,
   MANIFEST,
@@ -83,6 +85,7 @@ describe("shipped build files and package.json fields", () => {
     for (const file of [
       "packages/vitest-native/tsdown.config.ts",
       "packages/vitest-native/scripts/copy-static-types.mjs",
+      "packages/vitest-native/scripts/verbatim-runtime.mjs",
     ]) {
       expect(assessChangeset([file]).ok, file).toBe(false);
       expect(assessChangeset([file, ".changeset/x.md"]).ok, file).toBe(true);
@@ -500,5 +503,105 @@ describe("changesetFiles", () => {
         "packages/vitest-native/CHANGELOG.md",
       ]),
     ).toEqual([".changeset/a-fix.md"]);
+  });
+});
+
+describe("credit lines", () => {
+  const entry = (credit: string) => patch(`**Lead.** No action needed.\n\n${credit}`);
+
+  it.each([
+    "Thanks @octo-cat for reporting this (#12).",
+    "Thanks @octocat for the fix (#12).",
+    "Thanks @octocat for the pull request (#12).",
+    "Thanks @a1 and @b-2 for reporting this (#12, #14).",
+    "Thanks @a, @b and @c for reporting and fixing this (#12).",
+    "Thanks @a, @b, and @c for the reports (#12, #14, #15).",
+    `Thanks @${"a".repeat(39)} for reporting this (#1).`,
+  ])("accepts %s", (credit) => {
+    expect(CREDIT_LINE.test(credit)).toBe(true);
+    expect(lintChangeset(entry(credit))).toEqual([]);
+  });
+
+  it.each([
+    ["no reference", "Thanks @octocat for reporting this."],
+    ["a reference without #", "Thanks @octocat for reporting this (12)."],
+    ["no full stop", "Thanks @octocat for reporting this (#12)"],
+    ["no handle", "Thanks octocat for reporting this (#12)."],
+    ["'Thanks to'", "Thanks to @octocat for reporting this (#12)."],
+    ["no reason", "Thanks @octocat (#12)."],
+    ["a handle ending in a hyphen", "Thanks @octocat- for reporting this (#12)."],
+    ["a double hyphen", "Thanks @octo--cat for reporting this (#12)."],
+    ["a 40-character handle", `Thanks @${"a".repeat(40)} for reporting this (#12).`],
+    ["lower case", "thanks @octocat for reporting this (#12)."],
+    ["'Thank you'", "Thank you @octocat for reporting this (#12)."],
+  ])("rejects a credit line with %s, naming the format", (_name, credit) => {
+    expect(CREDIT_LINE.test(credit)).toBe(false);
+    expect(lintChangeset(entry(credit))).toEqual([
+      expect.stringContaining(`malformed credit line "${credit}"`),
+    ]);
+  });
+
+  it("is not counted in the entry's length", () => {
+    // "**Lead.** No action needed." is 4 words.
+    const full = patch(`**Lead.** No action needed.\n\n${words(BODY_WORD_LIMIT - 4)}`);
+    expect(lintChangeset(full)).toEqual([]);
+    expect(lintChangeset(`${full}\nThanks @octocat for reporting this (#12).\n`)).toEqual([]);
+  });
+
+  it("is not checked for internal terms: a handle is a name", () => {
+    expect(lintChangeset(entry("Thanks @closure-owner for the fix (#12)."))).toEqual([]);
+  });
+
+  it("does not count as the action line", () => {
+    expect(lintChangeset(patch("**Lead.**\n\nThanks @octocat for the fix (#12)."))).toEqual([
+      expect.stringContaining("no action line"),
+    ]);
+  });
+
+  it("goes last: several may close the entry, none may precede the details", () => {
+    const two = "Thanks @a for reporting this (#12).\nThanks @b for the fix (#13).";
+    expect(lintChangeset(entry(two))).toEqual([]);
+    const early = patch(
+      "**Lead.** No action needed.\n\nThanks @a for reporting this (#12).\n\n- A detail.",
+    );
+    expect(lintChangeset(early)).toEqual([
+      "a credit line goes at the end of the entry, after the details",
+    ]);
+  });
+
+  it("accepts the credit line CONTRIBUTING.md documents", () => {
+    const contributing = fs.readFileSync(path.join(REPO, "CONTRIBUTING.md"), "utf8");
+    const documented = /`(Thanks @[^`]+)`/.exec(contributing)?.[1];
+    expect(documented).toBe("Thanks @handle for reporting this (#12).");
+    expect(CREDIT_LINE.test(documented!)).toBe(true);
+  });
+
+  it("leaves prose that starts with 'Thanks to' alone", () => {
+    const body = "**Lead.** No action needed.\n\nThanks to the new resolver, startup is quicker.";
+    expect(lintChangeset(patch(body))).toEqual([]);
+  });
+
+  it("does not read a line in a code fence as a credit", () => {
+    const body = "**Lead.** No action needed.\n\n```txt\nThanks @bot (#1)\n```\n\n- A detail.";
+    expect(lintChangeset(patch(body))).toEqual([]);
+  });
+
+  it("holds the reason to a few words in the user's vocabulary", () => {
+    const long = "Thanks @a for the fix to the hot runtime regression they found (#12).";
+    expect(lintChangeset(entry(long))).toEqual([
+      expect.stringContaining(`says more than ${CREDIT_REASON_WORD_LIMIT} words`),
+    ]);
+    expect(lintChangeset(entry("Thanks @a for the registry fix (#12)."))).toEqual([
+      expect.stringContaining('internal term "registry"'),
+    ]);
+    expect(lintChangeset(entry("Thanks @a for the rc.3 fix (#12)."))).toEqual([
+      expect.stringContaining('"rc.3" in a credit line'),
+    ]);
+  });
+
+  it("reports a malformed credit after the style's own problems", () => {
+    const problems = lintChangeset(patch("No lead.\n\nThanks @octocat."));
+    expect(problems[0]).toContain("no bold lead");
+    expect(problems.at(-1)).toContain("malformed credit line");
   });
 });

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import "./release-age.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fixturesRoot = path.join(packageRoot, "consumer-tests");
@@ -247,6 +248,15 @@ try {
     ]) {
       const fixtureRoot = path.join(tempRoot, fixture);
       fs.cpSync(path.join(fixturesRoot, fixture), fixtureRoot, { recursive: true });
+      if (fixture === "expo-sdk57") {
+        // The reader of Expo's runtime surface is the unit test's; this fixture checks the
+        // stand-in against SDK 57, installed only here (src/expo-runtime-surface.test.tsx).
+        fs.mkdirSync(path.join(fixtureRoot, "src", "lib"), { recursive: true });
+        fs.copyFileSync(
+          path.join(packageRoot, "tests", "support", "expo-runtime-surface.ts"),
+          path.join(fixtureRoot, "src", "lib", "expo-runtime-surface.ts"),
+        );
+      }
       addPackedDependency(fixtureRoot, tarball);
       run("npm", ["install"], fixtureRoot);
       run("npm", ["test"], fixtureRoot);

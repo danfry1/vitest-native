@@ -13,6 +13,9 @@ export interface ProjectContextFields {
   assetExts?: string[];
   hotPreserveGlobals?: string[];
   hotEsmGeneration?: boolean;
+  /** Coverage is on: Node-compiled project source carries an inline source map. */
+  sourceMaps?: boolean;
+  hotReleaseGenerations?: boolean;
   registry?: string;
   /** A registry compiling in the background on a cache miss (see activeRegistry). */
   registryPending?: { file: string; since: number };
@@ -29,6 +32,8 @@ export interface ProjectContextFields {
   knownNativeModules?: string[];
   nativeModuleSpecs?: Record<string, string[]>;
   nativeModules?: "permissive";
+  /** The supported Expo SDKs, `[minimum, maximum]` (checkLoadedExpoSdk). */
+  expoSdks?: [number, number];
 }
 
 export declare function writeProjectContext(

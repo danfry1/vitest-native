@@ -17,16 +17,22 @@
 // (projectBabelOptions).
 import nodeModule, { createRequire } from "node:module";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import os from "node:os";
 import crypto from "node:crypto";
 import vm from "node:vm";
 import { MessageChannel, receiveMessageOnPort, SHARE_ENV, Worker } from "node:worker_threads";
 import { decorateTransformError } from "./explain.mjs";
-import { handleToolchainRequest } from "./babel-toolchain.mjs";
+import {
+  handleToolchainRequest,
+  IMPORT_META_LOWERING,
+  mentionsImportMeta,
+} from "./babel-toolchain.mjs";
 import { ESM_EXPORTS_MARK, ESM_INTEROP_RUNTIME } from "./esm-interop.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import { resolveTransformPreset } from "./babel-preset.mjs";
+import { projectContext } from "../context.mjs";
 
 // Toolchain state is scoped PER PROJECT ROOT, not per process. It used to be a
 // set of module globals initialized by the first caller — but registries for
@@ -300,6 +306,34 @@ function configFileHash(ctx, file) {
   return hash;
 }
 
+/**
+ * The Babel options a file compiles with when no project Babel config applies.
+ *
+ * Nothing in them reaches the disk-cache key except through the directory name
+ * (preset and Babel versions, the Babel env, the optional plugin's presence) and
+ * TRANSFORM_CACHE_VERSION. So any edit here that changes what Babel emits has to bump
+ * that version: tests/cache-key-ledger.test.ts records a fingerprint of these options
+ * per version and fails when they change under the same one.
+ */
+function packageTransformOptions(ctx, file, platform) {
+  return {
+    filename: file,
+    plugins: [ctx.flowEnums, ctx.exportNamespaceFrom].filter(Boolean),
+    // A fresh options object each call, as before Expo's preset was supported:
+    // Babel caches a preset's result per options object, so sharing one would
+    // change when the preset is instantiated.
+    presets: [[ctx.preset, { ...ctx.presetOptions }]],
+    babelrc: false,
+    configFile: false,
+    caller: { name: "metro", bundler: "metro", platform, supportsStaticESM: false },
+  };
+}
+
+/** packageTransformOptions for a project, resolving its toolchain. Test hook. */
+export function transformOptionsFor(projectRoot, file, platform = "ios") {
+  return packageTransformOptions(ctxFor(projectRoot), file, platform);
+}
+
 /** A project's transform disk-cache directory, once resolved. Test hook. */
 export function transformCacheDir(projectRoot) {
   return contexts.get(canonicalRoot(projectRoot))?.cacheDir ?? null;
@@ -538,9 +572,38 @@ function moduleGoal(file) {
 // engine (hooks, conditions, loaders) loads there.
 const BABEL_WORKER = new URL("./babel-worker.mjs", import.meta.url);
 
+/** The signal's value once Babel's thread has ended (see `toolchain` below). */
+const ENDED = -1;
+
+// The thread runs this first, and loads babel-worker.mjs from it. The caller is blocked
+// until it is answered, and events (the worker's "error") cannot reach it there, so the
+// thread must say when it ends before anything that could fail to load: this registers
+// the handler that says so, then imports the worker file, and reports the error if that
+// fails. A worker file that is missing (a broken install), does not parse or throws as
+// it loads then fails its first request at once, with its own error; started from the
+// file itself, such a thread ran nothing, and the caller waited out the deadline. Inline,
+// so the part that reports a failure to load cannot itself be missing.
+const TOOLCHAIN_BOOTSTRAP = `
+const { workerData } = require("node:worker_threads");
+const { port, signal, workerUrl } = workerData;
+process.on("exit", () => {
+  Atomics.store(signal, 0, ${ENDED});
+  Atomics.notify(signal, 0);
+});
+import(workerUrl).catch((err) => {
+  port.postMessage({ startupError: {
+    name: err?.name ?? "Error",
+    message: err?.message ?? String(err),
+    code: err?.code,
+    stack: err?.stack,
+  } });
+  process.exit(1);
+});
+`;
+
 /**
  * How long a request may go unanswered before Babel's thread is presumed lost and
- * stopped. A thread that ends normally, or throws, says so at once (babel-worker.mjs);
+ * stopped. A thread that ends normally, or throws, says so at once (TOOLCHAIN_BOOTSTRAP);
  * one V8 stops for running out of heap runs no handler, and only this ends the wait.
  *
  * A transform grows with its input: TypeScript's own 9.1 MB typescript.js took 5-6 s
@@ -562,14 +625,16 @@ export function toolchainDeadlineMs(request, baseMs = TOOLCHAIN_DEADLINE_MS) {
 // Captured as this module loads: the call below runs while test code is on the stack,
 // and a test that stubs one of these (or fakes the clock) must not stop compiling.
 const atomicsLoad = Atomics.load;
-const atomicsStore = Atomics.store;
 const atomicsWait = Atomics.wait;
 const SharedArrayBufferCtor = SharedArrayBuffer;
 const Int32ArrayCtor = Int32Array;
 const now = performance.now.bind(performance);
 
-// signal[0]: 0 while a request is outstanding, 1 answered, 2 the thread ended.
-// signal[1]: 1 once the thread has ended.
+// The signal, one Int32 that only Babel's thread writes: the id of the last request it
+// answered, or ENDED once the thread has ended. Each request carries a new id, and its
+// answer carries it back. An answer, a store or a wake-up for an earlier request (one
+// the thread is late with) is then never taken for the current one's.
+const MAX_ID = 0x7fffffff;
 let toolchain = null;
 // Internal: the deadline, its clock, the worker file and its resource limits, for tests
 // that end a thread on purpose (_setToolchainOptions).
@@ -607,11 +672,18 @@ const YOUNG_GENERATION = { maxYoungGenerationSizeMb: 32 };
 
 function startToolchain() {
   const { port1, port2 } = new MessageChannel();
-  const signal = new Int32ArrayCtor(new SharedArrayBufferCtor(8));
-  const worker = new Worker(toolchainOptions.workerUrl ?? BABEL_WORKER, {
+  const signal = new Int32ArrayCtor(new SharedArrayBufferCtor(4));
+  const workerUrl = String(toolchainOptions.workerUrl ?? BABEL_WORKER);
+  const worker = new Worker(TOOLCHAIN_BOOTSTRAP, {
+    eval: true,
     // Node's compile cache as the calling thread has it (compile-cache.mjs decides per
     // thread, and leaves it off where it would only grow), so Babel loads from it too.
-    workerData: { port: port2, signal, compileCache: nodeModule.getCompileCacheDir?.() },
+    workerData: {
+      port: port2,
+      signal,
+      workerUrl,
+      compileCache: nodeModule.getCompileCacheDir?.(),
+    },
     transferList: [port2],
     execArgv: [],
     env: SHARE_ENV,
@@ -622,7 +694,7 @@ function startToolchain() {
     resourceLimits: { ...YOUNG_GENERATION, ...toolchainOptions.resourceLimits },
   });
   // The caller already failed the transform when it was not answered; this is the
-  // thread's own account (out of memory, a throw while loading), printed beside it
+  // thread's own account (out of memory, a throw after it loaded), printed beside it
   // rather than left as an unhandled error event in the test worker.
   worker.on("error", (err) => {
     process.stderr.write(`[vitest-native] Babel's thread: ${err?.stack ?? err}\n`);
@@ -630,38 +702,85 @@ function startToolchain() {
   // Neither keeps the test thread alive: answers are read synchronously.
   worker.unref();
   port1.unref();
-  return { port: port1, signal, worker };
+  return { port: port1, signal, worker, workerUrl, lastId: 0 };
 }
 
 const ERROR_TYPES = { SyntaxError, TypeError, RangeError, ReferenceError };
 
 /** Babel's thread is gone: its own failure, not the file's. transformRN names the file. */
-function toolchainLost(detail) {
-  const err = new VitestNativeError("TRANSFORM_FAILED", detail);
+function toolchainLost(detail, cause) {
+  const err = new VitestNativeError("TRANSFORM_FAILED", detail, { cause });
   Object.defineProperty(err, "toolchainLost", { value: detail });
   return err;
+}
+
+/** An error Babel's thread sent as `{ name, message, code, stack }`, rebuilt here. */
+function threadError({ name, message, code, stack }) {
+  const err = new (ERROR_TYPES[name] ?? Error)(message);
+  err.name = name;
+  if (code !== undefined) err.code = code;
+  if (stack) err.stack = stack;
+  return err;
+}
+
+/** A file URL as a path, where it is one. */
+function displayUrl(url) {
+  try {
+    return fileURLToPath(url);
+  } catch {
+    return url;
+  }
 }
 
 /** One request to Babel, answered synchronously. */
 function callToolchain(request) {
   if (onThisThread) return handleToolchainRequest(request);
-  if (toolchain === null || atomicsLoad(toolchain.signal, 1) === 1) toolchain = startToolchain();
-  const { port, signal, worker } = toolchain;
+  if (toolchain === null || atomicsLoad(toolchain.signal, 0) === ENDED) {
+    toolchain = startToolchain();
+  }
+  const { port, signal, worker, workerUrl } = toolchain;
+  const id = (toolchain.lastId = toolchain.lastId === MAX_ID ? 1 : toolchain.lastId + 1);
   const deadlineMs = toolchainDeadlineMs(request, toolchainOptions.deadlineMs);
   const clock = toolchainOptions.now ?? now;
-  atomicsStore(signal, 0, 0);
-  port.postMessage(request);
+  port.postMessage({ id, request });
   const deadline = clock() + deadlineMs;
+  // Only the signal ends the wait: this request's id (answered) or ENDED. A wake-up
+  // alone says nothing. The thread stores, then wakes; if it is descheduled between the
+  // two, the caller can see the store and go on, and the late wake-up lands on its wait
+  // for its NEXT request (#466). A late store does the same: a caller whose deadline
+  // passed after the thread posted its answer, but before it stored, takes the answer
+  // from the port, and the store then lands while the next request is outstanding
+  // (#467). Neither carries the next request's id. The wait is on the value last seen,
+  // so a store that lands before it begins ends it at once.
   for (;;) {
+    const seen = atomicsLoad(signal, 0);
+    if (seen === id || seen === ENDED) break;
     const left = deadline - clock();
     if (left <= 0) break;
-    if (atomicsWait(signal, 0, 0, Math.min(left, 1000)) !== "timed-out") break;
-    if (atomicsLoad(signal, 1) === 1) break;
+    atomicsWait(signal, 0, seen, Math.min(left, 1000));
   }
-  const reply = receiveMessageOnPort(port)?.message;
+  // The thread posts its answer before it stores, so an answered request's reply is on
+  // the port. Anything before it answered an earlier request whose caller gave up on it.
+  let reply;
+  let startupError;
+  for (let next = receiveMessageOnPort(port); next; next = receiveMessageOnPort(port)) {
+    if (next.message.id === id) {
+      reply = next.message;
+      break;
+    }
+    startupError ??= next.message.startupError;
+  }
   if (reply === undefined) {
-    const ended = atomicsLoad(signal, 1) === 1;
+    const ended = atomicsLoad(signal, 0) === ENDED;
     toolchain = null;
+    if (startupError) {
+      const cause = threadError(startupError);
+      throw toolchainLost(
+        `Babel's thread could not load ${displayUrl(workerUrl)}: ` +
+          `${startupError.name}: ${startupError.message}`,
+        cause,
+      );
+    }
     if (!ended) {
       worker.terminate();
       const size =
@@ -682,19 +801,20 @@ function callToolchain(request) {
         'error, if it has one, is printed as "Babel\'s thread:".',
     );
   }
-  if (reply.error) {
-    const { name, message, code, stack } = reply.error;
-    const err = new (ERROR_TYPES[name] ?? Error)(message);
-    err.name = name;
-    if (code !== undefined) err.code = code;
-    if (stack) err.stack = stack;
-    throw err;
-  }
+  if (reply.error) throw threadError(reply.error);
   return reply.ok;
 }
 
 /** A transform failure, named for the file: Babel's own, or its thread's. */
 function transformFailure(err, file, platform) {
+  // Already names the file and the fix; Babel prefixed its own copy of the path.
+  if (err?.code === "IMPORT_META_IN_NODE_OWNED") {
+    const message = String(err.message);
+    return new VitestNativeError(
+      err.code,
+      message.slice(Math.max(0, message.indexOf("[vitest-native]"))),
+    );
+  }
   if (err?.toolchainLost) {
     return new VitestNativeError(
       "TRANSFORM_FAILED",
@@ -706,6 +826,37 @@ function transformFailure(err, file, platform) {
 }
 
 /** Transform an RN source file to runnable CJS. Cached in-memory + on disk. */
+
+// Source maps for the source a project owns, while coverage is on.
+//
+// Code Node compiles runs as Babel's output, not as the file on disk, so a coverage
+// report needs a map from one to the other: V8 counts executions at offsets in the
+// code it ran. Without one, @vitest/coverage-v8 could only re-read the original
+// TypeScript and failed to parse it ("Failed to parse … Excluding it from coverage").
+// The provider this engine installs for coverage (coverage-v8.mjs) reads the map back
+// from this output, which is what the test worker ran.
+//
+// Inline, at the end of the output: the code above the comment is byte-for-byte what it
+// was, so no offset V8 counts moves. Only for files outside node_modules:
+// @vitest/coverage-v8 drops every script under node_modules before it reads a map (as
+// Jest's coveragePathIgnorePatterns does by default). A workspace package is reached
+// through its real path (Node resolves symlinks), so it is mapped too. And only while
+// coverage is on: the plugin says so in the project context (`sourceMaps`) for the test
+// workers, and the provider calls enableSourceMaps() in the main process. A map costs
+// about half again Babel's time and several times the output's size, which a run
+// without coverage would pay for nothing.
+const SOURCE_MAP_TOKEN = "inline-source-map-1";
+let sourceMapsEnabled = false;
+
+/** The main process's coverage provider compiles for the report as the workers did. */
+export function enableSourceMaps() {
+  sourceMapsEnabled = true;
+}
+
+/** Does `file`'s compiled output carry an inline source map? */
+export function carriesSourceMap(file) {
+  return (sourceMapsEnabled || projectContext()?.sourceMaps === true) && !NODE_MODULES.test(file);
+}
 
 /**
  * The compiled output transformRN already holds for `file` as it is on disk now
@@ -720,7 +871,12 @@ export function heldTransform(file, projectRoot, platform = "ios") {
   } catch {
     return undefined;
   }
-  return ctxFor(projectRoot).mem.get(`${platform}\0${file}\0${st.mtimeMs}\0${st.size}`);
+  return ctxFor(projectRoot).mem.get(memoryKey(platform, file, st));
+}
+
+/** transformRN's in-memory key, shared with heldTransform so the two cannot differ. */
+function memoryKey(platform, file, st) {
+  return `${platform}\0${file}\0${st.mtimeMs}\0${st.size}`;
 }
 
 export function transformRN(file, src, projectRoot, platform = "ios") {
@@ -733,7 +889,7 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   // preset embeds the absolute path (_jsxFileName) in transformed JSX, so two
   // identical sources at different paths must not share an entry.
   const st = fs.statSync(file);
-  const memKey = `${platform}\0${file}\0${st.mtimeMs}\0${st.size}`;
+  const memKey = memoryKey(platform, file, st);
   const memHit = ctx.mem.get(memKey);
   if (memHit !== undefined) return memHit;
   // A caller that has not read the file yet passes no source, and pays for the read
@@ -765,6 +921,18 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
   // package — the interop is decided at run time — so nothing else needs keying. The
   // token names the helpers' revision, so output from an earlier revision is not reused.
   if (esm) hash.update(`\0esm-goal\0${ESM_INTEROP_RUNTIME}`);
+  // Source outside node_modules carries an inline source map (see SOURCE_MAP_TOKEN), so its
+  // entries are keyed apart from the map-less output an earlier version cached for it.
+  // React Native's sources and every other package keep their keys and stay warm.
+  const sourceMap = carriesSourceMap(file);
+  if (sourceMap) hash.update(`\0${SOURCE_MAP_TOKEN}`);
+  // `import.meta` gets its CommonJS value, or fails by name (importMetaToCommonJS in
+  // babel-toolchain.mjs). Decided on the source text first, so a file without it costs
+  // one regular-expression scan and no Babel work. Only these files' output changes, so
+  // only their key does, as for the ESM goal above: TRANSFORM_CACHE_VERSION, and with it
+  // every other entry and the precompiled registry, stays as it was.
+  const importMeta = mentionsImportMeta(src);
+  if (importMeta) hash.update(`\0${IMPORT_META_LOWERING}`);
   const key = hash.digest("hex");
   const cachePath = path.join(ctx.cacheDir, key + ".js");
   try {
@@ -783,6 +951,8 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
             file,
             src,
             project: true,
+            sourceMap,
+            importMeta,
             caller: babelJestCaller(ctx, platform),
           }
         : {
@@ -791,17 +961,13 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
             src,
             // Added on Babel's side: a plugin is a function, which does not cross threads.
             esmInterop: esm,
-            options: {
-              filename: file,
-              plugins: [ctx.flowEnums, ctx.exportNamespaceFrom].filter(Boolean),
-              // A fresh options object each call, as before Expo's preset was supported:
-              // Babel caches a preset's result per options object, so sharing one would
-              // change when the preset is instantiated.
-              presets: [[ctx.preset, { ...ctx.presetOptions }]],
-              babelrc: false,
-              configFile: false,
-              caller: { name: "metro", bundler: "metro", platform, supportsStaticESM: false },
-            },
+            importMeta,
+            // The inline source map is keyed by its own token (SOURCE_MAP_TOKEN), not by
+            // TRANSFORM_CACHE_VERSION, so it is added here rather than to the options the
+            // cache-key ledger fingerprints.
+            options: sourceMap
+              ? { ...packageTransformOptions(ctx, file, platform), sourceMaps: "inline" }
+              : packageTransformOptions(ctx, file, platform),
           },
     ).code;
   } catch (err) {

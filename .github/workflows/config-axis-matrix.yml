@@ -9,9 +9,10 @@ name: Config-axis matrix
 # result against validation/config-axes/known-failing.json, which may only shrink.
 # Design, coverage map and costs: packages/vitest-native/docs/config-axis-matrix.md.
 #
-# Pull requests run a pairwise cover of the install axes (6 jobs); pushes to main, the
+# Pull requests run a pairwise cover of the install axes (6 cells); pushes to main, the
 # weekly schedule, manual runs and pull requests that change the matrix itself run every
-# install combination (12 jobs). See validation/config-axes/cells.mjs.
+# install combination (12 cells). Each job runs three cells in turn, so 2 and 4 jobs. See
+# validation/config-axes/cells.mjs.
 #
 # Not a required check yet: `Config-axis verdict` is reported on every pull request, and
 # whether it joins branch protection, once calibrated, is the maintainer's decision
@@ -37,14 +38,14 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  # Docs-only changes skip the cells by job condition, as in ci.yml and
-  # native-rn-matrix.yml (.github/scripts/classify-change.sh).
+  # Pull requests run the cells only when their changed files need them, by job
+  # condition, as in ci.yml and native-rn-matrix.yml (.github/scripts/classify-change.mjs).
   classify:
     name: Classify change
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      docs-only: ${{ steps.docs.outputs.docs-only }}
+      axes: ${{ steps.docs.outputs.axes }}
       matrix: ${{ steps.cells.outputs.matrix }}
       scope: ${{ steps.cells.outputs.scope }}
     steps:
@@ -57,7 +58,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-        run: .github/scripts/classify-change.sh "$EVENT" "$BASE_SHA" "$HEAD_SHA"
+        run: node .github/scripts/classify-change.mjs "$EVENT" "$BASE_SHA" "$HEAD_SHA"
       - id: cells
         env:
           EVENT: ${{ github.event_name }}
@@ -68,9 +69,9 @@ jobs:
   cell:
     name: axes — ${{ matrix.name }}
     needs: classify
-    if: needs.classify.outputs.docs-only != 'true'
+    if: needs.classify.outputs.axes != 'false'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.classify.outputs.matrix) }}
@@ -91,10 +92,19 @@ jobs:
       - name: Build
         run: bun run build
 
+      # Up to three cells per job (CELLS_PER_JOB in cells.mjs), one after another. Every
+      # cell runs even when an earlier one fails, and the step fails if any did.
       - name: Probes (${{ matrix.name }})
         env:
-          CELL: ${{ matrix.cell }}
-        run: node packages/vitest-native/validation/config-axes/run.mjs --cell "$CELL"
+          CELLS: ${{ matrix.cells }}
+        run: |
+          status=0
+          while IFS= read -r cell; do
+            echo "::group::$(jq -r '"vitest \(.vitest) · RNTL \(.rntl) · \(.layout)"' <<< "$cell")"
+            node packages/vitest-native/validation/config-axes/run.mjs --cell "$cell" || status=1
+            echo "::endgroup::"
+          done < <(jq -c '.[]' <<< "$CELLS")
+          exit "$status"
 
   verdict:
     name: Config-axis verdict

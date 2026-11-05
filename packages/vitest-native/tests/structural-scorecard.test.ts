@@ -107,7 +107,10 @@ describe("structural scorecard", () => {
     );
   });
 
-  it("is stable when files are renamed and moved", () => {
+  // Copies every source file and measures the tree twice: disk- and CPU-bound, with no
+  // timing assertion, so it gets a budget sized for Windows runners (about 14 s there,
+  // against 5 s by default) instead of Vitest's default.
+  it("is stable when files are renamed and moved", { timeout: 60_000 }, () => {
     const src = path.resolve(import.meta.dirname, "..", "src");
     const moved = fs.mkdtempSync(path.join(os.tmpdir(), "vn-scorecard-"));
     try {

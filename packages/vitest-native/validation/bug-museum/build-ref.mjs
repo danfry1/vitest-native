@@ -33,12 +33,6 @@ export function buildRef(ref, cache = path.join(os.tmpdir(), "vn-bug-museum-buil
   const root = path.join(cache, sha);
   const pkg = path.join(root, "packages/vitest-native");
   const info = path.join(pkg, BUILD_INFO);
-  if (fs.existsSync(info)) {
-    const cached = buildInfo(pkg);
-    if (cached.verified && cached.sha === sha) return pkg;
-  }
-  fs.rmSync(root, { recursive: true, force: true });
-  fs.mkdirSync(root, { recursive: true });
   const run = (command, args, cwd, what) => {
     const result = spawnSync(command, args, {
       cwd,
@@ -50,6 +44,26 @@ export function buildRef(ref, cache = path.join(os.tmpdir(), "vn-bug-museum-buil
         `${what} failed for ${ref} (${sha}):\n${(result.stdout + result.stderr).slice(-3000)}`,
       );
   };
+  if (fs.existsSync(info)) {
+    const cached = buildInfo(pkg);
+    if (cached.verified && cached.sha === sha) {
+      // The hash covers the build (package.json, dist/), not its install, which exhibits
+      // run against (lib/materialise.mjs). The cache sits in the system's temporary
+      // directory, whose periodic cleaner deletes files not read for days, leaving
+      // packages present but missing files (vite's dist/node/module-runner.js), which a
+      // plain install does not notice. So the ref's own frozen install is redone in full,
+      // from bun's cache (nothing is downloaded); dist/ is not touched.
+      run(
+        "bun",
+        ["install", "--frozen-lockfile", "--force"],
+        root,
+        "bun install --frozen-lockfile --force",
+      );
+      return pkg;
+    }
+  }
+  fs.rmSync(root, { recursive: true, force: true });
+  fs.mkdirSync(root, { recursive: true });
   run("sh", ["-c", `git -C '${repo}' archive '${sha}' | tar -x -C '${root}'`], root, "git archive");
   run("bun", ["install", "--frozen-lockfile"], root, "bun install --frozen-lockfile");
   run("nice", ["-n", "10", "bun", "run", "build"], pkg, "bun run build");

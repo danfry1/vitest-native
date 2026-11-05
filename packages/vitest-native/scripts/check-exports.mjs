@@ -37,6 +37,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import "./release-age.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
@@ -150,9 +151,11 @@ try {
 
   for (const pass of passes) {
     console.log(`\n=== ${pass.label} ===`);
+    // Pinned: an unpinned npx fetched the newest release and its floating dependency tree
+    // in a required check. Bump it like a dependency, once a release is a week old.
     const checked = run("npx", [
       "--yes",
-      "@arethetypeswrong/cli",
+      "@arethetypeswrong/cli@0.18.5",
       archive,
       "--profile",
       "node16",

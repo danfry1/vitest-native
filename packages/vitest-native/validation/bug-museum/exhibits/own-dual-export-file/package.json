@@ -1,0 +1,8 @@
+{
+  "name": "museum-own-dual-export-file",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "museum-dual": "1.0.0"
+  }
+}
