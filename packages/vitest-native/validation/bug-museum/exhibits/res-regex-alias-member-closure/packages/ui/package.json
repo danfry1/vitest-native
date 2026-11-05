@@ -1,0 +1,13 @@
+{
+  "name": "museum-ui",
+  "version": "1.0.0",
+  "exports": {
+    ".": "./index.js"
+  },
+  "dependencies": {
+    "museum-image": "1.0.0"
+  },
+  "peerDependencies": {
+    "react-native": "*"
+  }
+}

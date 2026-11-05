@@ -6,6 +6,7 @@
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { validatePeerDependency } from "../validate.js";
 import { detectEngine } from "../native/detect.js";
 import { resolveTransformPreset } from "../native/babel-preset.mjs";
@@ -53,15 +54,22 @@ function packageVersion(root: string, name: string): string | null {
  */
 export function nodeRange(): string {
   const fallback = ">=22.13.0 <23 || >=24.3.0";
+  // The nearest vitest-native manifest above this file: two levels up from src/cli/, one
+  // from the bundled dist/cli.mjs. A fixed relative path fits only one of them.
+  for (let dir = path.dirname(fileURLToPath(import.meta.url)); ; dir = path.dirname(dir)) {
+    const manifest = readManifest(path.join(dir, "package.json"));
+    if (manifest?.name === "vitest-native") return manifest.engines?.node?.trim() || fallback;
+    // A stale-but-close range is better than a diagnostic that throws.
+    if (path.dirname(dir) === dir) return fallback;
+  }
+}
+
+/** A package.json, or null where there is none or it does not parse. */
+function readManifest(file: string): { name?: string; engines?: { node?: string } } | null {
   try {
-    const manifest = JSON.parse(
-      fs.readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
-    ) as { engines?: { node?: string } };
-    return manifest.engines?.node?.trim() || fallback;
+    return JSON.parse(fs.readFileSync(file, "utf8"));
   } catch {
-    // Bundled layouts can put the manifest elsewhere; a stale-but-close range is
-    // better than a diagnostic that throws.
-    return fallback;
+    return null;
   }
 }
 

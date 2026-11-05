@@ -37,9 +37,20 @@ function referenceVitest(file: string): void {
   if (!text.startsWith(directive)) fs.writeFileSync(target, `${directive}\n${text}`);
 }
 
+// Every runtime .mjs the ESM build ships verbatim (copied by build:done below): the
+// top-level ones, native/ and jest-compat/. The bundles import those files rather than
+// inline a copy of them, so a process that loads both a bundle and the shipped runtime
+// (the plugin's process loads the registry and Metro profile modules from dist/native)
+// holds one instance of each module, with one set of caches. native/memory.mjs is the
+// exception: it ships only as a chunk. The CommonJS build keeps its copy, because a
+// require() of these ESM files would need require(esm) from every consumer.
+const VERBATIM_RUNTIME =
+  /[\\/]src[\\/](?:native[\\/](?!memory\.mjs$)|jest-compat[\\/])?[^\\/]+\.mjs$/;
+
 export default defineConfig([
   {
     ...shared,
+    deps: { neverBundle: [...shared.deps.neverBundle, VERBATIM_RUNTIME] },
     entry: {
       index: "src/index.ts",
       helpers: "src/helpers.ts",

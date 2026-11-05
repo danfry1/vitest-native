@@ -1790,6 +1790,25 @@
         "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
       }
+    },
+    {
+      "id": "res-regex-alias-member-closure",
+      "class": "transform/resolution",
+      "title": "A workspace library's dependencies are not compiled for a package that imports it through a RegExp alias",
+      "source": "a monorepo package importing a sibling workspace library's source through a resolve.alias whose find is a RegExp, without declaring it (\"Cannot find module '…/expo-asset/build/Asset.fx'\")",
+      "fixedBy": "open (fix/regex-alias-closure-seed)",
+      "fixRef": "fix/regex-alias-closure-seed",
+      "bugSignature": "^closure\\.test\\.ts: (Error: )?Cannot find module '[^']*museum-expo-asset/build/Asset\\.fx'",
+      "control": {
+        "why": "Declaring museum-image in the project itself makes it a seed of the walk, which removes the precondition.",
+        "edits": [
+          {
+            "file": "package.json",
+            "find": "\"dependencies\": {}",
+            "replace": "\"dependencies\": {\n    \"museum-image\": \"1.0.0\"\n  }"
+          }
+        ]
+      }
     }
   ]
 }
