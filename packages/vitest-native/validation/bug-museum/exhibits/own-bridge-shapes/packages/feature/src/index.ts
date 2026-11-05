@@ -11,3 +11,4 @@ export const requireLiteral = () => require("@m/validator/literal");
 export const requireCycle = () => require("@m/validator/cyc-a");
 export const requireCycleB = () => require("@m/validator/cyc-b");
 export const requireBoom = () => require("@m/validator/boom");
+export const requireUsesSep = () => require("@m/validator/uses-sep");

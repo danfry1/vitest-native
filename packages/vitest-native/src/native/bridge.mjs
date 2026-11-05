@@ -272,7 +272,11 @@ function externalNamespace(file, importerFile) {
 
 /** A static import of a bridged module: Vite's instance, an external, or bridged in turn. */
 function loadDependency(dep, importer, callstack) {
-  if (Module.isBuiltin(dep)) return externalNamespace(dep, importer.file);
+  if (Module.isBuiltin(dep)) {
+    // A builtin's mock is keyed without the `node:` prefix, as Vitest keys it.
+    const mocked = mockFor(dep.startsWith("node:") ? dep.slice("node:".length) : dep, importer);
+    return mocked !== undefined ? mocked : externalNamespace(dep, importer.file);
+  }
   // A mock applies by Vite's id, which is known from a node Vite's map holds, or else
   // from the fetch (the module's id, or the target of an external), as Vite's runner
   // applies one once it has the module's id.

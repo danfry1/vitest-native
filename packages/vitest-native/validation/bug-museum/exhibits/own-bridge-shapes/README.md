@@ -33,6 +33,7 @@ synchronously. One test file per shape:
 | `cycle` | an ES import cycle among required modules | evaluated once each; the import back gets the exports so far, as in Vite's runner |
 | `failed` | a required module throws; or Vite's import of it threw earlier | `BRIDGED_EVALUATION_FAILED` with the module's error as `cause`; never served half-built |
 | `dep-mock` | a required module imports a file the test mocks | the module gets the test's own mock (the mock dispatcher serves it) |
+| `builtin-mock` | a required module imports a Node builtin the test mocks | the module gets the test's mock |
 
 ## Control
 

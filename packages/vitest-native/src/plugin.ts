@@ -330,6 +330,7 @@ function printEngineBanner(
   presetNames: readonly string[],
   hotRuntime = false,
   ownershipModel?: string,
+  nodeMocks = false,
 ): void {
   // Once per process, so a multi-project run prints the first project's line only: its
   // engine, runtime and presets, which another project may not share. Naming each
@@ -351,8 +352,13 @@ function printEngineBanner(
     // line that tells someone reading the log that it is in play.
     const runtime = hotRuntime ? ", hot runtime" : "";
     const model = ownershipModel ? `, experimental.ownershipModel: ${ownershipModel}` : "";
+    // Named whether set or implied ('resolution' turns it on): it changes what a vi.mock
+    // reaches, and why a require can fail with MOCK_NOT_SEEN_BY_NODE.
+    const mocks = nodeMocks
+      ? `, experimental.nodeMocks${ownershipModel === "resolution" && model ? " (implied)" : ""}`
+      : "";
     console.error(
-      `[vitest-native] engine: native — real react-native${rn ? `@${rn}` : ""}${mocked} (platform ${platform}${runtime}${model})`,
+      `[vitest-native] engine: native — real react-native${rn ? `@${rn}` : ""}${mocked} (platform ${platform}${runtime}${model}${mocks})`,
     );
   } else {
     console.error(
@@ -2536,6 +2542,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           [...nativePresetNames, ...selection.moduleSpecs],
           hot !== undefined,
           ownershipModel,
+          fields.nodeMocks === true,
         );
         if (hot) {
           hotSelections.set(vitestRootOf(userConfig), {

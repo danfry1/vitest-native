@@ -610,6 +610,13 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
           `  · experimental.ownershipModel: '${model}' is on: Vite and Node's loaders ` +
             "resolve bare imports through one shared resolver (docs/ownership-model.md).",
         );
+        if (model === "resolution") {
+          lines.push(
+            "  · 'resolution' turns on experimental.nodeMocks: a vi.mock also reaches the " +
+              "modules Node loads, and a mock Node cannot have synchronously fails as " +
+              "MOCK_NOT_SEEN_BY_NODE.",
+          );
+        }
       }
     } else if (usage.imports) {
       warn(
