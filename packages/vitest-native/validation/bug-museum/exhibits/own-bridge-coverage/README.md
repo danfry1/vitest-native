@@ -8,8 +8,11 @@
 ## The bug
 
 A React Native workspace library (Node loads it) requires `covered.ts` before the test
-imports it. Node runs its own compile of the file, which v8 coverage does not attribute to
-the source, so the statements that ran are missing from the report.
+imports it. Node runs its own compile of the file, and the test's import has Vite
+evaluate it again: the module is two (`coverage.test.ts` fails on identity). Coverage
+itself is still reported then, from Vite's copy, so the flag-off failure is the identity
+one. What this exhibit adds over `own-require-first` is the flag-on half: the one
+evaluation, the bridge's, is counted under `covered.ts` (`check.mjs`).
 
 ## Expected behaviour
 
