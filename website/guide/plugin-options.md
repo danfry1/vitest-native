@@ -19,7 +19,7 @@ reactNative({
 
 ## `engine`
 
-**Type:** `'auto' | 'native' | 'mock'` · **Default:** `'auto'` · **Engine:** both
+**Type:** `'auto' | 'mock' | 'native'` · **Default:** `'auto'` · **Engine:** both
 
 Which engine to use. See [Choosing an Engine](/guide/engines) for the full breakdown.
 
@@ -53,7 +53,7 @@ vitest-native does not read a `VITEST_NATIVE_DIAGNOSTICS` variable. Older releas
 
 ## `presets`
 
-**Type:** `(Preset | string)[] | Record<string, boolean>` · **Default:** auto-detect from installed packages · **Engine:** both
+**Type:** `(Preset | string)[] | Record<string, boolean>` · **Default:** auto-detected from installed packages (the native engine leaves Expo's packages unmocked) · **Engine:** both
 
 An array of [third-party presets](/guide/presets). Presets are auto-detected from your installed dependencies, so listing them is usually optional:
 
@@ -151,17 +151,17 @@ A listed package's own dependencies are compiled too, as an auto-detected packag
 Reuses test workers across files instead of starting a fresh one for each, while still giving every file fresh app and test modules, mocks and timers. It is opt-in and experimental: it uses Vitest's custom worker APIs, which Vitest labels experimental, and it has [known differences](/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files) from per-file isolation. Whether it is faster depends on the suite, so measure it on yours. See [Hot runtime](/guide/engines#hot-runtime).
 
 - `false` *(default)*: each test file runs in a fresh worker.
-- `'auto'`: use the hot runtime where the run can be bounded and recycled (at least two workers, no explicitly configured pool or `test.isolate`), and per-file isolation otherwise, printing why.
-- `true`: require the hot runtime, and fail at startup (`HOT_RUNTIME_OVERRIDDEN`) when an explicit pool, `test.isolate`, or a CLI flag such as `--no-isolate` rules it out.
+- `'auto'`: use the hot runtime where the run can be bounded and recycled (at least two workers, no explicit pool, `test.isolate` or overriding CLI flag, and a matching Vitest install), and per-file isolation otherwise, printing why.
+- `true`: require the hot runtime. Startup fails with [`HOT_MEMORY_UNBOUNDED`](/guide/errors#HOT_MEMORY_UNBOUNDED) when the run has one worker, and with [`HOT_RUNTIME_OVERRIDDEN`](/guide/errors#HOT_RUNTIME_OVERRIDDEN) when an explicit pool or `test.isolate`, a CLI flag (`--no-isolate`, `--pool`, `--maxWorkers=1`, `--no-file-parallelism`) or a `sequence.groupOrder` worker-count clash rules it out.
 - An object: tune worker recycling. On its own it requires the hot runtime, as `true` does; add `mode: 'auto'` to fall back as `'auto'` does.
 
 | Key | What it does |
 |---|---|
 | `mode` | `'auto'`: fall back to per-file isolation where the hot runtime cannot run, instead of failing |
-| `recycleAfterFiles` | retire a worker after it has run this many test files |
-| `memoryLimit` | retire a worker when its JS heap reaches this many bytes; `0` turns the threshold off |
+| `recycleAfterFiles` | retire a worker after it has run this many test files (default off) |
+| `memoryLimit` | retire a worker when its JS heap reaches this many bytes; `0` turns the threshold off; by default the memory plan picks it |
 | `preserveGlobals` | exact `globalThis` property names a resident library owns, kept between files (Storybook's preview registry is kept automatically) |
-| `esmGeneration` | `true` by default: re-run the ES modules a test file imports from `node_modules` for each file, so their state does not carry over; `false` keeps them loaded |
+| `esmGeneration` | `true` by default: re-run, for each file, the packages Node loads for a test file's `import`s (not the React Native packages vitest-native compiles), so their state does not carry over; `false` keeps them loaded |
 | `allowUnboundedMemory` | permit a run where recycling cannot be enforced, such as one worker; also turns off the automatic worker cap and memory hard stop. Only when something outside the run bounds its memory. Not with `mode: 'auto'` |
 
 ```ts
@@ -169,7 +169,7 @@ reactNative({ hotRuntime: 'auto' })
 reactNative({ hotRuntime: { mode: 'auto', memoryLimit: 2 * 1024 ** 3 } })
 ```
 
-The worker count and memory limits come from a plan derived from the host or container's memory; see [worker recycling](/guide/engines#worker-recycling).
+The worker count and memory limits come from a plan derived from the host or container's memory. It caps the worker count it picks itself at four; a `maxWorkers` you set is capped only by memory. See [worker recycling](/guide/engines#worker-recycling).
 
 ## `nativeModules`
 

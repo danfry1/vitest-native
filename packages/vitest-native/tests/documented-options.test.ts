@@ -20,34 +20,57 @@ function interfaceBody(source: string, name: string): string {
   return source.slice(start, source.indexOf("\n}\n", start));
 }
 
-/** Each top-level property of an interface, with the engine its JSDoc restricts it to. */
-function options(source: string, name: string): Map<string, "native" | "mock" | "both"> {
-  const result = new Map<string, "native" | "mock" | "both">();
+type Declared = { engine: "native" | "mock" | "both"; type: string };
+
+/** A TypeScript type as one line, in the page's spelling (single quotes, no leading `|`). */
+const normalize = (type: string) =>
+  type
+    .replace(/\s+/g, " ")
+    .replace(/"/g, "'")
+    .replace(/^\s*\|\s*/, "")
+    .replace(/;\s*\}/g, " }")
+    .replace(/;$/, "")
+    .trim();
+
+/** Each top-level property of an interface, with its type and the engine its JSDoc restricts it to. */
+function options(source: string, name: string): Map<string, Declared> {
+  const result = new Map<string, Declared>();
+  const lines = interfaceBody(source, name).split("\n");
   let doc = "";
-  for (const line of interfaceBody(source, name).split("\n")) {
+  lines.forEach((line, index) => {
     if (/^ {2}\/\*\*/.test(line)) doc = "";
     doc += `${line}\n`;
-    const property = /^ {2}([a-zA-Z]+)\??:/.exec(line);
-    if (!property) continue;
+    const property = /^ {2}([a-zA-Z]+)\??:(.*)$/.exec(line);
+    if (!property) return;
+    // A type that continues on lines indented deeper than the property.
+    let type = property[2];
+    for (let next = index + 1; next < lines.length && /^ {4}/.test(lines[next]); next++) {
+      type += ` ${lines[next]}`;
+    }
     // The JSDoc directly above this property, and nothing from an earlier one.
     const only = /`engine: '(native|mock)'` only/.exec(doc);
-    result.set(property[1], only ? (only[1] as "native" | "mock") : "both");
+    result.set(property[1], {
+      engine: only ? (only[1] as "native" | "mock") : "both",
+      type: normalize(type),
+    });
     doc = "";
-  }
+  });
   return result;
 }
 
-/** Each `## \`option\`` section of the page: its header's Engine, and its text. */
-function sections(page: string): Map<string, { engine?: string; text: string }> {
-  const result = new Map<string, { engine?: string; text: string }>();
+type Section = { type?: string; engine?: string; text: string };
+
+/** Each `## \`option\`` section of the page: its header's Type and Engine, and its text. */
+function sections(page: string): Map<string, Section> {
+  const result = new Map<string, Section>();
   const parts = page.split(/^## `([a-zA-Z]+)`$/m);
   for (let i = 1; i < parts.length; i += 2) {
     const text = parts[i + 1];
     const header =
-      /^\s*\*\*Type:\*\* .+ · \*\*Default:\*\* .+ · \*\*Engine:\*\* (native|mock|both)$/m.exec(
+      /^\s*\*\*Type:\*\* `(.+)` · \*\*Default:\*\* .+ · \*\*Engine:\*\* (native|mock|both)$/m.exec(
         text.split("\n\n")[1] ?? "",
       );
-    result.set(parts[i], { engine: header?.[1], text });
+    result.set(parts[i], { type: header?.[1], engine: header?.[2], text });
   }
   return result;
 }
@@ -67,19 +90,33 @@ describe("website/guide/plugin-options.md", () => {
   });
 
   it("opens each section with Type, Default and the engine the type restricts it to", () => {
-    for (const [name, engine] of declared) {
+    for (const [name, { engine }] of declared) {
       expect(documented.get(name)?.engine, name).toBe(engine);
     }
   });
 
-  it("names every key of the hotRuntime object", () => {
-    const keys = [
-      ...options(source, "HotRuntimeRecycleOptions").keys(),
-      // From the union in VitestNativeOptions.hotRuntime, not the shared interface.
-      "mode",
-      "allowUnboundedMemory",
-    ];
+  // The page writes two types in readers' terms; every other Type is the declared one.
+  const READER_TYPES: Record<string, string> = {
+    mocks: "Record<string, JSON value>",
+    hotRuntime: "boolean | 'auto' | object",
+  };
+
+  it("gives each option its declared type", () => {
+    for (const [name, { type }] of declared) {
+      expect(documented.get(name)?.type, name).toBe(READER_TYPES[name] ?? type);
+    }
+  });
+
+  it("has a table row for every key the hotRuntime object accepts", () => {
+    // The list the option validator accepts (src/validate.ts), which covers the keys of
+    // every member of the hotRuntime union, not only the shared interface.
+    const validate = fs.readFileSync(path.join(packageRoot, "src", "validate.ts"), "utf8");
+    const list = /const KNOWN_HOT_RUNTIME_OPTIONS = \[([\s\S]*?)\]/.exec(validate);
+    const keys = [...(list?.[1] ?? "").matchAll(/"([a-zA-Z]+)"/g)].map(([, key]) => key);
+    expect(keys.length).toBeGreaterThanOrEqual(6);
+    for (const key of options(source, "HotRuntimeRecycleOptions").keys())
+      expect(keys).toContain(key);
     const text = documented.get("hotRuntime")?.text ?? "";
-    for (const key of keys) expect(text, key).toContain(`\`${key}\``);
+    for (const key of keys) expect(text, key).toMatch(new RegExp(`^\\| \`${key}\` \\|`, "m"));
   });
 });
