@@ -45,7 +45,7 @@ function scriptFiles(): string[] {
       if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
       const rel = path.posix.join(dir, entry.name);
       if (entry.isDirectory()) walk(rel);
-      else if (/\.(mjs|js|cjs)$/.test(entry.name)) out.push(rel);
+      else if (/\.(mjs|js|cjs|ts|mts)$/.test(entry.name)) out.push(rel);
     }
   };
   walk("scripts");
@@ -53,16 +53,29 @@ function scriptFiles(): string[] {
   return out;
 }
 
-/**
- * Whether a script runs a registry install: an `install` argument for npm or pnpm. A
- * bun install from the frozen lockfile (bug-museum/build-ref.mjs) is not one: bunfig.toml
- * and the lockfile already govern it.
- */
-const installsFromRegistry = (source: string) =>
-  /["']install["']/.test(source) && /["']npm["']|\bPNPM\b|["']pnpm["']/.test(source);
+/** A script's source without comment lines, so a comment never decides anything below. */
+const code = (file: string) =>
+  read(path.join(packageRoot, file))
+    .split("\n")
+    .filter((line) => !/^\s*(\/\/|\/\*|\*)/.test(line))
+    .join("\n");
 
-const installers = scriptFiles().filter((file) =>
-  installsFromRegistry(read(path.join(packageRoot, file))),
+/**
+ * Whether a script runs a package manager: npm, npx, pnpm (or the pinned PNPM spec) or
+ * yarn, as a spawned command or the start of a command string. Deliberately broad:
+ * every such script must apply the cooldown or be exempted below with its reason, so a
+ * new way of installing (`npm ci`, `npm pack <spec>`, `npx <pkg>`) cannot slip past.
+ */
+const runsPackageManager = (source: string) =>
+  /["'`](?:npm|npx|pnpm|yarn)(?:["'`]|\s)/.test(source) || /\bPNPM\b/.test(source);
+
+/** Scripts that run a package manager without resolving anything from the registry. */
+const EXEMPT: Record<string, string> = {
+  "scripts/check-package-size.mjs": "npm pack --dry-run of this package: nothing is resolved",
+};
+
+const installers = scriptFiles().filter(
+  (file) => file !== "scripts/release-age.mjs" && runsPackageManager(code(file)),
 );
 
 describe("release cooldown", () => {
@@ -71,11 +84,17 @@ describe("release cooldown", () => {
     expect(installers).toContain("scripts/test-consumers.mjs");
     expect(installers).toContain("validation/config-axes/run.mjs");
     expect(installers).toContain("validation/vitest-semantics/run.mjs");
+    expect(installers).toContain("scripts/check-exports.mjs"); // npx <pkg>
+    expect(installers).toContain("scripts/sync-expo-module-table.mjs"); // npm pack <spec>
+    // A bun install from the frozen lockfile is governed by bunfig.toml and the lockfile.
     expect(installers).not.toContain("validation/bug-museum/build-ref.mjs");
+    // Every exemption still names a file that runs a package manager.
+    for (const file of Object.keys(EXEMPT)) expect(installers).toContain(file);
   });
 
-  it("is applied by every script that installs from the registry, at the top of the file", () => {
+  it("is applied by every script that runs a package manager, at the top of the file", () => {
     const missing = installers.filter((file) => {
+      if (file in EXEMPT) return false;
       const rel = file.startsWith("scripts/")
         ? "./release-age.mjs"
         : "../../scripts/release-age.mjs";
@@ -92,15 +111,30 @@ describe("release cooldown", () => {
     expect(missing, `import the cooldown in: ${missing.join(", ")}`).toEqual([]);
   });
 
-  it("is chosen in one place: no script picks its own cutoff", () => {
+  it("is chosen in one place: no script picks, changes or removes its own cutoff", () => {
     const own = scriptFiles()
       .filter((file) => file !== "scripts/release-age.mjs")
       .filter((file) =>
-        /--before\b|minimumReleaseAge|minimum-release-age|npm_config_before\s*:/.test(
-          read(path.join(packageRoot, file)),
+        /--before\b|minimumReleaseAge|minimum-release-age|npm_config_(?:before|minimum_release_age)\s*[:=]|delete\s[\w.[\]"']*npm_config_(?:before|minimum_release_age)/.test(
+          code(file),
         ),
       );
     expect(own).toEqual([]);
+  });
+
+  it("pins a pnpm that reads its minimum age from npm_config_minimum_release_age", () => {
+    // pnpm added minimumReleaseAge in 10.16. The npm_config_ spelling was checked on
+    // 10.34; another major has to be checked again before it is pinned here.
+    const pins = scriptFiles().flatMap((file) =>
+      [...code(file).matchAll(/pnpm@(\d+)\.(\d+)\.\d+/g)].map((m) => ({
+        file,
+        major: +m[1],
+        minor: +m[2],
+      })),
+    );
+    expect(pins.length).toBeGreaterThan(0);
+    const unverified = pins.filter(({ major, minor }) => major !== 10 || minor < 16);
+    expect(unverified).toEqual([]);
   });
 
   it("reaches installs that run in a container", () => {
