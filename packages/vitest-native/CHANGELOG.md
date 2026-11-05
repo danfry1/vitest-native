@@ -10,7 +10,8 @@
   Node loads. `vitest-native doctor` checks the range.
 - **Per-file isolation stays the default.** `hotRuntime` defaults to `false`, as in 0.13.0: under
   the native engine each test file runs in a fresh worker. The hot runtime, which reuses workers
-  across files and is faster on most suites, is available with `hotRuntime: 'auto'`. Five known
+  across test files instead of starting a fresh one per file, is available with `hotRuntime: 'auto'`;
+  whether it is faster depends on the suite, so measure it on yours. Five known
   differences from per-file isolation are listed in
   [troubleshooting](https://danfry1.github.io/vitest-native/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files).
   Early 0.14.0 release candidates defaulted to `'auto'`; set `hotRuntime: 'auto'` to keep the hot runtime.
