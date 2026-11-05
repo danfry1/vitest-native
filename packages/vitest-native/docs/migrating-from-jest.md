@@ -225,7 +225,7 @@ see the [Expo guide](https://danfry1.github.io/vitest-native/guide/expo).
 5. Triage remaining failures — a missing query update, a suite-specific mock, or a known
    Jest-mock-coupled assertion (section 3). For runtime issues (large-suite memory limits,
    error-boundary console noise, overriding a preset's mock), see the
-   [Troubleshooting](../README.md#troubleshooting) section.
+   [troubleshooting guide](https://danfry1.github.io/vitest-native/guide/troubleshooting).
 
 ## 5. What "done" looks like
 

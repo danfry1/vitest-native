@@ -27,7 +27,7 @@ If you call `useColorScheme` or `useWindowDimensions` directly outside a compone
 
 ## `vi.mock` of an RN-side library isn't taking effect
 
-Under `engine: 'native'`, libraries that load through Node (not your Vite source graph) bypass Vitest's mocker. Prefer a [preset](/guide/presets) if one exists, or mock at the native boundary. Your _own_ modules mock normally. See [How It Works](/guide/how-it-works#a-consequence-worth-knowing).
+Under `engine: 'native'`, React Native and third-party React Native packages load through Node. `vi.mock` applies to what your test and app source import, but not to `require()` calls inside a Node-loaded library: a library's own import of a mocked package still gets the real one. Prefer a [preset](/guide/presets) if one exists, mock at the native boundary with [`mockNativeModule`](/guide/helpers#mocknativemodule-name-impl), or test that boundary on the mock engine. See [React Native packages in `node_modules`](/guide/how-it-works#react-native-packages-in-node-modules).
 
 ## A third-party library ships untranspiled source and fails to parse
 
@@ -120,6 +120,46 @@ A run reuses it when all of these are unchanged, and rebuilds it otherwise:
 - the files it was built from, React Native's own and those they load from other packages such as `react`: each is checked by size and modification time, so editing or reinstalling either rebuilds it.
 
 To force a rebuild, delete that `registry` directory; files for earlier configurations stay there until you do. To run without the precompiled file (each module is then loaded on its own, more slowly, with the same results), set `VITEST_NATIVE_NO_REGISTRY=1`.
+
+## `npm error Cannot read properties of null (reading 'edgesOut')` during install
+
+npm 10 (the version bundled with Node 22) crashes while resolving Vite 8.2+'s optional peer chain when the project pins Vitest 4, because that chain resolves to the latest Vitest (5.x). This is an npm bug, fixed in npm 11 ([vitest#11245](https://github.com/vitest-dev/vitest/issues/11245)). Upgrade npm (`npm install --global npm@11`), or use pnpm, Yarn or Bun.
+
+## `@react-native/babel-preset not found — using the mock engine`
+
+You asked for the default (`auto`) engine but the native engine's Babel packages aren't installed, so it fell back to the mock engine. An Expo project from SDK 56 needs nothing extra: the engine uses Expo's preset, and `expo` brings `@babel/core`. Otherwise, to run real React Native, install them:
+
+```bash
+npm i -D @react-native/babel-preset @babel/core
+```
+
+To silence the notice and stay on mock deliberately, set `reactNative({ engine: 'mock' })`.
+
+## My `babel.config.js` plugin isn't running
+
+Files your tests `import` go through Vite's JSX transformer, not your Babel config, so custom Babel plugins don't apply to them. Vite 6–7 use esbuild and Vite 8 uses Oxc; the plugin configures the automatic JSX runtime for both. Project TypeScript files that Node loads (through `require()` or `jest.requireActual`) are compiled with your Babel config, as babel-jest compiles them; plain `.js` project files Node loads are not compiled. `vitest-native doctor` lists the Babel plugins a run does not apply; one your tests depend on, such as a macro plugin, runs through a Vite plugin that calls Babel ([recipe](/migration/from-jest#babel-plugins-your-jest-run-applied)).
+
+## `Worker terminated due to reaching memory limit` / `JS heap out of memory`
+
+Every test file that renders real React Native loads a full renderer. Under the default per-file isolation each file starts in a fresh worker, so heap does not accumulate across files. Under the hot runtime (`hotRuntime: 'auto'`), workers are reused and recycled on a memory budget; set your own heap threshold with `hotRuntime: { mode: 'auto', memoryLimit }` (bytes; see [worker recycling](/guide/engines#worker-recycling)).
+
+## `Vitest caught N unhandled errors` in error-boundary tests
+
+A test that intentionally throws inside a component (to exercise an error boundary) makes React log a "recovered from an error during concurrent rendering" message and Vitest count it, even though the boundary worked and the test passes. It's cosmetic and the assertions are unaffected. Silence it in a setup file if you like (for example, filter the message in an `onConsoleLog` or `console.error` wrapper).
+
+## Overriding a preset's mock (e.g. navigation route params)
+
+Auto-detected presets shadow a library with a built-in mock. To change what that mock returns for a test or project, `vi.mock` the module in a setup file and spread the preset's mock. Presets expose the module to Vitest's graph, so `vi.mock` applies and `importOriginal()` returns the preset mock:
+
+```ts
+// vitest.setup.ts
+vi.mock('@react-navigation/native', async (importOriginal) => ({
+  ...(await importOriginal()),
+  useRoute: () => ({ key: 'r', name: 'Screen', params: { id: '1' } }),
+}))
+```
+
+For one-off overrides, [`extendPresetMock`](/guide/helpers#extendpresetmock-pkg-overrides) is lighter.
 
 ## Still stuck?
 
