@@ -102,7 +102,7 @@ jobs:
   unit:
     name: Unit checks
     needs: classify
-    if: needs.classify.outputs.unit == 'true'
+    if: needs.classify.outputs.unit != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -137,7 +137,7 @@ jobs:
     # a check name shared by two jobs ambiguously.
     name: Full gate (${{ matrix.os }}, Node ${{ matrix.node-version }}${{ matrix.rntl && format(', RNTL {0}', matrix.rntl) || '' }}${{ matrix.part && format(', {0}', matrix.part) || '' }})
     needs: classify
-    if: needs.classify.outputs.full == 'true'
+    if: needs.classify.outputs.full != 'false'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
 
@@ -371,7 +371,7 @@ jobs:
   packed:
     name: Packed gate (${{ matrix.label }})
     needs: classify
-    if: needs.classify.outputs.packed == 'true'
+    if: needs.classify.outputs.packed != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:

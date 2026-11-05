@@ -94,7 +94,7 @@ jobs:
   matrix:
     name: native+hot — vitest ${{ matrix.vitest }} × RN ${{ matrix.rn }}
     needs: classify
-    if: needs.classify.outputs.rn == 'true'
+    if: needs.classify.outputs.rn != 'false'
     runs-on: ubuntu-latest
     # Without a bound, a hung cell (e.g. a stuck hot-soak worker) burns the
     # 360-minute default. A healthy cell finishes well under 15 minutes.

@@ -32,7 +32,8 @@
 // runs the unit tests that read repository Markdown on a docs-only change.
 //
 // Usage: classify-change.mjs <event> <base-sha> <head-sha>   (needs full history)
-// Diffs the head against its merge base with the base. Writes each output to
+// Diffs the head against its merge base with the base, with renames listed as a
+// deletion and an addition so a file moved out of a fully gated path still counts. Writes each output to
 // $GITHUB_OUTPUT when set, and always to stdout.
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -56,7 +57,8 @@ export const RULES = [
   // Workflows that are not a gate group's own. bug-museum.yml runs itself, on its paths.
   [(f) => f === ".github/workflows/ci.yml", ["full", "packed"]],
   [(f) => f === ".github/workflows/native-rn-matrix.yml", ["rn"]],
-  [(f) => f === ".github/rn-matrix.json" || f === ".github/scripts/rn-matrix.mjs", ["rn"]],
+  // fidelity:check (Full gate) publishes the React Native range from rn-matrix.json.
+  [(f) => f === ".github/rn-matrix.json" || f === ".github/scripts/rn-matrix.mjs", ["full", "rn"]],
   [(f) => f === ".github/workflows/config-axis-matrix.yml", ["axes"]],
   [(f) => /^\.github\/workflows\/[\w-]+\.yml$/.test(f), []],
   [(f) => f === ".github/dependabot.yml", []],
@@ -65,7 +67,9 @@ export const RULES = [
   [(f) => f.startsWith(`${P}validation/config-axes/`), ["axes"]],
   // Read only by check:size, on a Full gate leg.
   [(f) => f === `${P}package-budget.json`, ["full"]],
-  [(f) => f.startsWith(`${P}tests/`), ["full"]],
+  // Only the unit test files themselves: tests/support and the fixtures are also read by
+  // tests-native (the RN matrix) and copied into packed consumers.
+  [(f) => /^packages\/vitest-native\/tests\/[\w.-]+\.test\.tsx?$/.test(f), ["full"]],
   [(f) => f.startsWith(`${P}tests-native/`) || f.startsWith(`${P}crosscheck/`), ["full", "rn"]],
   [
     (f) =>
@@ -75,7 +79,6 @@ export const RULES = [
     ["full", "packed"],
   ],
   [(f) => f.startsWith(`${P}src/cli/`), ["full", "packed"]],
-  [(f) => f.startsWith(`${P}src/jest-compat/`), ["full", "packed", "axes"]],
   // The benchmark workspace and the scheduled bake-off ratchet's data: no gate reads them.
   [(f) => f.startsWith("bench/") || f === `${P}bakeoffs-ratchet.json`, []],
   [(f) => /(^|\/)\.gitignore$/.test(f), []],
@@ -101,11 +104,23 @@ export function classify(event, files) {
   return out;
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+// Compared as real paths, so a symlinked checkout still runs the CLI. A run that wrote
+// no outputs would not skip anything: the job conditions run a group unless its output
+// is 'false'.
+const realpath = (file) => {
+  try {
+    return fs.realpathSync(file);
+  } catch {
+    return file;
+  }
+};
+if (process.argv[1] && realpath(process.argv[1]) === realpath(fileURLToPath(import.meta.url))) {
   const [event, base, head] = process.argv.slice(2);
   const files =
     event === "pull_request" || event === "merge_group"
-      ? execFileSync("git", ["diff", "--name-only", `${base}...${head}`], { encoding: "utf8" })
+      ? execFileSync("git", ["diff", "--name-only", "--no-renames", `${base}...${head}`], {
+          encoding: "utf8",
+        })
           .split("\n")
           .filter(Boolean)
       : [];

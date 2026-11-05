@@ -69,7 +69,7 @@ jobs:
   cell:
     name: axes — ${{ matrix.name }}
     needs: classify
-    if: needs.classify.outputs.axes == 'true'
+    if: needs.classify.outputs.axes != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:

@@ -37,6 +37,11 @@ describe("change-based selection", () => {
       ".github/actions/setup/action.yml",
       ".github/scripts/classify-change.mjs",
       `${P}validation/module-isolation/run-scale.mjs`,
+      // The native engine imports jest-compat; tests-native and packed fixtures read
+      // tests/support.
+      `${P}src/jest-compat/node-registry.mjs`,
+      `${P}tests/support/bare-rn-root.ts`,
+      `${P}tests/fixtures/app/index.js`,
       "a/new/directory/file.ts",
     ]) {
       expect(runs([file]), file).toEqual(EVERYTHING);
@@ -50,14 +55,13 @@ describe("change-based selection", () => {
     expect(runs([`${P}consumer-tests/bare/package.json`])).toEqual(["full", "packed"]);
     expect(runs(["apps/example/App.tsx"])).toEqual(["full", "packed"]);
     expect(runs([`${P}src/cli/init.ts`])).toEqual(["full", "packed"]);
-    expect(runs([`${P}src/jest-compat/index.ts`])).toEqual(["full", "packed", "axes"]);
     expect(runs([".github/workflows/ci.yml"])).toEqual(["full", "packed"]);
     expect(runs([`${P}package-budget.json`])).toEqual(["full"]);
   });
 
   it("runs the unit checks whenever the Full gate is skipped and the change is not docs", () => {
     // Unit tests read workflows, validation scripts and the RN matrix definition.
-    expect(runs([".github/rn-matrix.json"])).toEqual(["rn", "unit"]);
+    expect(runs([".github/rn-matrix.json"])).toEqual(["full", "rn"]); // fidelity:check
     expect(runs([".github/workflows/native-rn-matrix.yml"])).toEqual(["rn", "unit"]);
     expect(runs([`${P}validation/config-axes/cells.mjs`])).toEqual(["axes", "unit"]);
     expect(runs([".github/workflows/release.yml"])).toEqual(["unit"]);
@@ -66,7 +70,10 @@ describe("change-based selection", () => {
   });
 
   it("takes the union over every changed file", () => {
-    expect(runs([`${P}tests/a.test.ts`, ".github/rn-matrix.json"])).toEqual(["full", "rn"]);
+    expect(runs([`${P}tests/a.test.ts`, ".github/workflows/native-rn-matrix.yml"])).toEqual([
+      "full",
+      "rn",
+    ]);
     expect(runs(["README.md", `${P}src/native/loader.mjs`])).toEqual(EVERYTHING);
   });
 
@@ -161,5 +168,162 @@ describe("classify-change.mjs", () => {
   it("runs everything for a push to main", () => {
     const out = cli("push", repoWith({ "README.md": "edited\n" }));
     expect(out).toMatchObject({ "docs-only": "false", full: "true", rn: "true", unit: "false" });
+  });
+});
+
+describe("classify-change.mjs renames", () => {
+  it("counts a moved file's old path, so moving code out of a gated path still runs it", () => {
+    const repo = repoWith({ [`${P}src/native/core.mjs`]: "export const a = 1;\n".repeat(20) });
+    const git = (...args: string[]) =>
+      spawnSync("git", args, { cwd: repo.root, encoding: "utf8" }).stdout.trim();
+    git("checkout", "-q", repo.head);
+    const base = git("rev-parse", "HEAD");
+    git("checkout", "-qb", "move");
+    fs.mkdirSync(path.join(repo.root, `${P}src/cli`), { recursive: true });
+    git("mv", `${P}src/native/core.mjs`, `${P}src/cli/core.mjs`);
+    git("commit", "-qm", "move");
+    const out = cli("pull_request", { root: repo.root, base, head: git("rev-parse", "HEAD") });
+    expect(out).toMatchObject({ full: "true", packed: "true", rn: "true", axes: "true" });
+  });
+});
+
+// The narrowings rest on what each skipped group reads. These read the gates' own
+// sources, so a new reference across a narrowed boundary fails here instead of
+// passing a pull request that skipped the gate that runs it.
+const packageRoot = path.resolve(import.meta.dirname, "..");
+const repoRoot = path.resolve(packageRoot, "../..");
+function sources(dir: string): string[] {
+  const out: string[] = [];
+  const walk = (abs: string) => {
+    if (!fs.existsSync(abs)) return;
+    for (const entry of fs.readdirSync(abs, { withFileTypes: true })) {
+      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      const next = path.join(abs, entry.name);
+      if (entry.isDirectory()) walk(next);
+      else if (/\.(mjs|cjs|js|ts|tsx|mts|json|yml|sh)$/.test(entry.name)) out.push(next);
+    }
+  };
+  const root = path.join(repoRoot, dir);
+  if (fs.existsSync(root) && fs.statSync(root).isFile()) return [root];
+  walk(root);
+  return out;
+}
+/** A source without its comment lines, so prose that names a path is not a read. */
+const code = (file: string) =>
+  fs
+    .readFileSync(file, "utf8")
+    .split("\n")
+    .filter((line) => !/^\s*(\/\/|\/\*|\*|#)/.test(line))
+    .join("\n");
+const referencing = (dirs: string[], pattern: RegExp) =>
+  dirs
+    .flatMap(sources)
+    .filter((file) => pattern.test(code(file)))
+    .map((file) => path.relative(repoRoot, file));
+/** The repository's own apps/ workspaces, by name (fixtures have apps/ dirs of their own). */
+const repoApps = new RegExp(
+  `(?<![\\w-])apps/(?:${fs.readdirSync(path.join(repoRoot, "apps")).join("|")})\\b`,
+);
+
+describe("what each narrowed path is read by", () => {
+  it("tests-native and crosscheck are not read by the packed or config-axis cells", () => {
+    // Manual research runners that read tests-native; no workflow or package script
+    // runs them. Wiring one into a gate must re-check the tests-native rule.
+    const manual = [
+      `${P}validation/module-isolation/inline-all.config.mts`,
+      `${P}validation/module-isolation/run-native-hot-shape.mjs`,
+      `${P}validation/module-isolation/run-scale.mjs`,
+    ];
+    const gates = [
+      ...sources(".github"),
+      path.join(packageRoot, "package.json"),
+      ...sources(`${P}validation`).filter(
+        (file) => !manual.includes(path.relative(repoRoot, file)),
+      ),
+    ].map(code);
+    for (const file of manual) {
+      const name = path.basename(file);
+      expect(
+        gates.filter((text) => text.includes(name)),
+        name,
+      ).toEqual([]);
+    }
+    expect(
+      referencing(
+        [`${P}validation`, `${P}consumer-tests`, "apps", `${P}scripts/test-consumers.mjs`],
+        /tests-native|crosscheck/,
+      ).filter((file) => !manual.includes(file) && !/bug-museum\//.test(file)),
+    ).toEqual([]);
+  });
+
+  it("consumer-tests and apps are not read by the RN matrix or config-axis cells", () => {
+    expect(
+      referencing(
+        [`${P}tests-native`, `${P}crosscheck`, `${P}validation/config-axes`],
+        new RegExp(`consumer-tests|${repoApps.source}`),
+      ),
+    ).toEqual([]);
+  });
+
+  it("only the CLI imports src/cli", () => {
+    const outside = sources(`${P}src`).filter(
+      (file) => !file.includes(`${path.sep}cli${path.sep}`),
+    );
+    expect(
+      outside
+        .filter((file) =>
+          /from\s+["'][^"']*\/cli\/|import\(["'][^"']*\/cli\//.test(fs.readFileSync(file, "utf8")),
+        )
+        .map((file) => path.relative(repoRoot, file)),
+    ).toEqual([]);
+  });
+
+  it("no gate outside the unit suite reads a unit test file", () => {
+    expect(
+      referencing(
+        [
+          `${P}tests-native`,
+          `${P}validation`,
+          `${P}scripts`,
+          `${P}consumer-tests`,
+          `${P}crosscheck`,
+        ],
+        /(?<![\w-])tests\/[\w.-]+\.test\.tsx?\b/,
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("the workflows that use the classification", () => {
+  it("read only outputs their classify job declares, and gate each group on it", () => {
+    const expected: Record<string, string[]> = {
+      "ci.yml": ["docs-only", "full", "packed", "unit"],
+      "native-rn-matrix.yml": ["rn"],
+      "config-axis-matrix.yml": ["axes"],
+    };
+    for (const [workflow, keys] of Object.entries(expected)) {
+      const text = fs.readFileSync(path.join(repoRoot, ".github/workflows", workflow), "utf8");
+      const declared = [
+        ...text.matchAll(/^ {6}([\w-]+): \$\{\{ steps\.docs\.outputs\.([\w-]+) \}\}/gm),
+      ];
+      for (const [, key, output] of declared) expect(output, workflow).toBe(key);
+      expect(declared.map((m) => m[1]).sort(), workflow).toEqual([...keys].sort());
+      const used = new Set(
+        [...text.matchAll(/needs\.classify\.outputs\.([\w-]+)/g)].map((m) => m[1]),
+      );
+      for (const key of used) {
+        if (key === "matrix" || key === "scope") continue;
+        expect(keys, `${workflow} reads ${key}`).toContain(key);
+      }
+      // Fail closed: a missing output runs the group.
+      for (const key of keys.filter((k) => k !== "docs-only"))
+        expect(text, `${workflow}: ${key}`).toContain(
+          `if: needs.classify.outputs.${key} != 'false'`,
+        );
+      expect(text).toContain(
+        'node .github/scripts/classify-change.mjs "$EVENT" "$BASE_SHA" "$HEAD_SHA"',
+      );
+    }
+    expect([...GROUPS, "unit"].sort()).toEqual(["axes", "full", "packed", "rn", "unit"]);
   });
 });
