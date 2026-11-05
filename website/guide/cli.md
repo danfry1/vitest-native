@@ -32,7 +32,7 @@ guide's example names `engine: 'native'`.
 
 Read-only environment diagnosis:
 
-- Node version against the supported range (22.13+ on Node 22, or 24.3+).
+- Node version against the supported range (22.22.3+ on Node 22, 24.12+ on Node 24, or 26+).
 - Required peers (vitest, vite, react) against the supported ranges, including
   the per-major Vite security floors.
 - Which engine `auto` resolves to for this project, and why.
@@ -44,8 +44,6 @@ Read-only environment diagnosis:
   loads `babel.config.js` / `.babelrc.js` the way Babel would (with
   `NODE_ENV=test`); ESM and TypeScript configs are only scanned as text.
 - Whether a vitest config exists and uses vitest-native.
-- On Vitest 4, a note that the persistent transform cache is off (see
-  [how it works](/guide/how-it-works#_4-transform-cache)). Advisory only.
 
 Exits non-zero when it finds a blocking problem, so it can gate CI setup jobs.
 

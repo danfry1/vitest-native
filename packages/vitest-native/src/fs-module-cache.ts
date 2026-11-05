@@ -75,25 +75,13 @@ export function fsModuleCacheKey(
 }
 
 /**
- * Whether the plugin turns the cache on for this Vitest major when the user has not
- * chosen: from Vitest 5, where `fsModuleCache` is a top-level option. Vitest 4 has it
- * only as `experimental.fsModuleCache` (from 4.0.11), and it is left to the user there.
- * `vitest-native doctor` reads this too, so its Vitest 4 advisory cannot drift from
- * what the plugin does.
- */
-export function fsModuleCacheOnByDefault(vitestMajor: number): boolean {
-  return vitestMajor >= 5;
-}
-
-/**
- * Whether to turn the cache on: a Vitest the plugin defaults it on for, and the user
- * has not chosen either way, in either spelling.
+ * Whether to turn the cache on: the user has not chosen either way, in either spelling
+ * (`test.fsModuleCache`, or `test.experimental.fsModuleCache` carried over from a
+ * Vitest 4 config).
  */
 export function shouldDefaultFsModuleCache(
-  vitestMajor: number,
   userTest: { fsModuleCache?: unknown; experimental?: { fsModuleCache?: unknown } } | undefined,
 ): boolean {
-  if (!fsModuleCacheOnByDefault(vitestMajor)) return false;
   return (
     userTest?.fsModuleCache === undefined && userTest?.experimental?.fsModuleCache === undefined
   );

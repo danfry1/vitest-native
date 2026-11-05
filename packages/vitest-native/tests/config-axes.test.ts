@@ -572,7 +572,6 @@ describe("probe catalog", () => {
       ["esm-default-interop", { engine: "mock", hot: "off" }],
       ["rntl-nested-text", { engine: "mock", hot: "off" }],
       ["recoverable-error", { rntl: "14" }],
-      ["hot-automock", { vitest: "5", engine: "native", hot: "on" }],
     ] as [string, Row][]) {
       expect(canRun(byId(id), row(where)), id).toBe(true);
       expect(applies(byId(id), row(where)), id).toBe(false);

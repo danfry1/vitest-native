@@ -26,40 +26,31 @@ const EXPO = JSON.stringify({ dependencies: { expo: "~57.0.26" } });
 const TSCONFIG = `{\n  // comments, as the template has\n  "compilerOptions": { "paths": { "@/*": ["./src/*"] } }\n}\n`;
 
 describe("expoTsconfigPaths", () => {
-  it("enables Vite 8's tsconfig paths for an Expo project", () => {
+  it("enables Vite's tsconfig paths for an Expo project", () => {
     expect(
-      expoTsconfigPaths(project({ "package.json": EXPO, "tsconfig.json": TSCONFIG }), undefined, 8),
-    ).toBe("enable");
+      expoTsconfigPaths(project({ "package.json": EXPO, "tsconfig.json": TSCONFIG }), undefined),
+    ).toBe(true);
     const dev = JSON.stringify({ devDependencies: { expo: "57.0.0" } });
     expect(
-      expoTsconfigPaths(project({ "package.json": dev, "tsconfig.json": "{}" }), undefined, 8),
-    ).toBe("enable");
+      expoTsconfigPaths(project({ "package.json": dev, "tsconfig.json": "{}" }), undefined),
+    ).toBe(true);
   });
 
   it("leaves it to the user, an app.json opt-out, and non-Expo projects", () => {
     const root = project({ "package.json": EXPO, "tsconfig.json": TSCONFIG });
-    expect(expoTsconfigPaths(root, false, 8)).toBe(null);
-    expect(expoTsconfigPaths(root, true, 8)).toBe(null);
+    expect(expoTsconfigPaths(root, false)).toBe(false);
+    expect(expoTsconfigPaths(root, true)).toBe(false);
     const optedOut = project({
       "package.json": EXPO,
       "tsconfig.json": TSCONFIG,
       "app.json": JSON.stringify({ expo: { experiments: { tsconfigPaths: false } } }),
     });
-    expect(expoTsconfigPaths(optedOut, undefined, 8)).toBe(null);
+    expect(expoTsconfigPaths(optedOut, undefined)).toBe(false);
     const bare = JSON.stringify({ dependencies: { "react-native": "0.87.1" } });
     expect(
-      expoTsconfigPaths(project({ "package.json": bare, "tsconfig.json": TSCONFIG }), undefined, 8),
-    ).toBe(null);
-    expect(expoTsconfigPaths(project({ "package.json": EXPO }), undefined, 8)).toBe(null);
-  });
-
-  it("reports Vite 6 and 7, which cannot resolve tsconfig paths, only when paths exist", () => {
-    expect(
-      expoTsconfigPaths(project({ "package.json": EXPO, "tsconfig.json": TSCONFIG }), undefined, 7),
-    ).toBe("unsupported");
-    expect(
-      expoTsconfigPaths(project({ "package.json": EXPO, "tsconfig.json": "{}" }), undefined, 7),
-    ).toBe(null);
+      expoTsconfigPaths(project({ "package.json": bare, "tsconfig.json": TSCONFIG }), undefined),
+    ).toBe(false);
+    expect(expoTsconfigPaths(project({ "package.json": EXPO }), undefined)).toBe(false);
   });
 });
 

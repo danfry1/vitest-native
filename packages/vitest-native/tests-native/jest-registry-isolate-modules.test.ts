@@ -111,12 +111,8 @@ describe("jest.isolateModulesAsync", () => {
   });
 
   // A module mocked with a factory is fetched as a placeholder node that remembers the
-  // factory, and the reset at the block's start invalidates it (module-reset.mjs).
-  // The end of the block puts back each node's evaluation state, not that `meta`:
-  // every request fetches `meta` anew, so restoring it changes nothing except on
-  // Vitest 4.1, whose `cachedRequest` would replay the remembered factory for a module
-  // that is now automocked. Without it, the module is looked up under the current
-  // mocks, as Vitest 5 always does. Only Vitest 4.1 can fail this.
+  // factory. The end of the block puts back each node's evaluation state, and a later
+  // factoryless `vi.doMock` must still get an automock under the current mocks.
   it("a factoryless vi.doMock after the block automocks a module an earlier factory mocked", async () => {
     vi.doMock("./fixtures/alias-app/registry/counter", () => ({ increment: () => -1 }));
     expect((await import("./fixtures/alias-app/registry/counter")).increment()).toBe(-1);

@@ -18,7 +18,7 @@ import {
 import { createHotMemoryPlan, formatHotMemoryPlan } from "../native/memory.mjs";
 import { HOT_STATE_MANIFEST_ENTRIES } from "../native/state-manifest.mjs";
 import { AUTO_DETECT_PRESETS, PRESET_MODULES, autoDetectedPresetApplies } from "../preset-map.js";
-import { babelRecipe, classifyBabelPlugins, readBabelConfig, viteMajor } from "./babel-config.js";
+import { babelRecipe, classifyBabelPlugins, readBabelConfig } from "./babel-config.js";
 import {
   activePresets,
   installedManifest,
@@ -30,8 +30,19 @@ import {
   PEER_REQUIREMENTS,
   unsupportedExpoSdkMessage,
 } from "../peer-requirements.js";
+import { SUPPORTED_NODE, satisfiesNodeRange, unsupportedNodeMessage } from "../node-range.js";
 import { installedViteVersion, ownVitestPackage, usesVitePlus } from "../host.js";
-import { fsModuleCacheOnByDefault } from "../fs-module-cache.js";
+
+/**
+ * The Vitest that runs here, as the peer check reports it: the project's own, or under
+ * Vite+ the copy this package loads.
+ */
+function runningVitestVersion(from: string): string | null {
+  return (
+    packageVersion(from, "vitest") ??
+    (usesVitePlus(from) ? (ownVitestPackage()?.version ?? null) : null)
+  );
+}
 
 export interface DoctorResult {
   lines: string[];
@@ -48,12 +59,11 @@ function packageVersion(root: string, name: string): string | null {
 }
 
 /**
- * The supported Node versions, as this package's own `engines.node` states them.
- * Single source: the manifest is what a package manager enforces at install time, so a
- * diagnostic must not carry its own copy of the range.
+ * The supported Node range: SUPPORTED_NODE, the constant the plugin enforces at startup,
+ * which a test holds equal to `engines.node` (what a package manager enforces).
  */
 export function nodeRange(): string {
-  const fallback = ">=22.13.0 <23 || >=24.3.0";
+  const fallback = SUPPORTED_NODE;
   // The nearest vitest-native manifest above this file: two levels up from src/cli/, one
   // from the bundled dist/cli.mjs. A fixed relative path fits only one of them.
   for (let dir = path.dirname(fileURLToPath(import.meta.url)); ; dir = path.dirname(dir)) {
@@ -73,49 +83,7 @@ function readManifest(file: string): { name?: string; engines?: { node?: string 
   }
 }
 
-const versionParts = (version: string): [number, number, number] => {
-  const [major = 0, minor = 0, patch = 0] = version
-    .replace(/^v/, "")
-    .split(/[.-]/)
-    .map((part) => Number.parseInt(part, 10) || 0);
-  return [major, minor, patch];
-};
-
-const compareVersions = (a: string, b: string): number => {
-  const [x, y] = [versionParts(a), versionParts(b)];
-  return x[0] - y[0] || x[1] - y[1] || x[2] - y[2];
-};
-
-/**
- * Whether `version` is in `range`: `||`-separated sets of space-separated comparators
- * (`>=`, `>`, `<=`, `<`, `=`), the forms `engines.node` uses. A version missing parts
- * reads them as 0 (`<23` is `<23.0.0`).
- */
-export function satisfiesNodeRange(version: string, range: string): boolean {
-  return range.split("||").some((set) =>
-    set
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean)
-      .every((comparator) => {
-        const match = /^(>=|<=|>|<|=)?\s*v?(\d[\w.-]*)$/.exec(comparator);
-        if (!match) return false;
-        const order = compareVersions(version, match[2]);
-        switch (match[1] ?? "=") {
-          case ">=":
-            return order >= 0;
-          case ">":
-            return order > 0;
-          case "<=":
-            return order <= 0;
-          case "<":
-            return order < 0;
-          default:
-            return order === 0;
-        }
-      }),
-  );
-}
+export { satisfiesNodeRange };
 
 /**
  * In Vitest's own precedence order: a `vitest.config.*` wins, and `vite.config.*`
@@ -152,105 +120,6 @@ function findConfigFile(root: string): string | null {
 /** Source with comments removed, so a mention inside one cannot be mistaken for use. */
 function withoutComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
-}
-
-type CacheSetting = "off" | "set" | null;
-
-const settingOf = (value: string | undefined): CacheSetting =>
-  value === undefined ? null : value === "false" ? "off" : "set";
-
-/**
- * How a config sets Vitest's `fsModuleCache`, read as text, in each spelling: inside
- * `experimental: { ... }` (Vitest 4.0.11 and later) and anywhere else (the top-level
- * option, Vitest 5). `off` for a literal `false`, `set` for any other value, null when
- * that spelling is absent.
- */
-export function fsModuleCacheSetting(source: string): {
-  experimental: CacheSetting;
-  topLevel: CacheSetting;
-} {
-  const code = withoutComments(source);
-  const nested = /\bexperimental\s*:\s*\{[^{}]*?\bfsModuleCache\s*:\s*([^,}\s]*)/.exec(code);
-  const rest = nested ? code.replace(nested[0], " ") : code;
-  const top = /\bfsModuleCache\s*:\s*([^,}\s]*)/.exec(rest);
-  return { experimental: settingOf(nested?.[1]), topLevel: settingOf(top?.[1]) };
-}
-
-/** Whether `version` is at or above `[major, minor, patch]`. */
-function versionAtLeast(version: string, floor: [number, number, number]): boolean {
-  const parts = version
-    .replace(/^[^0-9]*/, "")
-    .split(/[.-]/)
-    .slice(0, 3)
-    .map(Number);
-  for (let i = 0; i < 3; i++) {
-    const part = parts[i] ?? 0;
-    if (part !== floor[i]) return part > floor[i];
-  }
-  return true;
-}
-
-/** The first Vitest with `experimental.fsModuleCache`. */
-const EXPERIMENTAL_FS_MODULE_CACHE_FROM: [number, number, number] = [4, 0, 11];
-
-const TROUBLESHOOTING_STALE_IMPORT =
-  "https://danfry1.github.io/vitest-native/guide/troubleshooting#cannot-find-module-keeps-failing-after-the-missing-file-exists";
-
-/**
- * The transform-cache note for a Vitest the plugin does not turn the cache on for.
- * Empty where it does (fsModuleCacheOnByDefault, which the plugin reads too), and where
- * the config turns the cache off on purpose.
- */
-export function transformCacheAdvice(
-  vitestVersion: string | null,
-  configSource: string | null,
-): string[] {
-  const major = Number(vitestVersion?.replace(/^[^0-9]*/, "").split(".")[0]);
-  // Below 4 is an unsupported peer, reported above.
-  if (!vitestVersion || !(major >= 4) || fsModuleCacheOnByDefault(major)) return [];
-  const setting =
-    configSource === null
-      ? { experimental: null, topLevel: null }
-      : fsModuleCacheSetting(configSource);
-  if (setting.experimental === "off") return [];
-  const hasOption = versionAtLeast(vitestVersion, EXPERIMENTAL_FS_MODULE_CACHE_FROM);
-  const caveat =
-    `A Vitest bug can keep a "Cannot find module" failure cached after the file exists ` +
-    `(reproduced on Vitest 5.0.5, unverified on 4); ${TROUBLESHOOTING_STALE_IMPORT} ` +
-    `lists when it happens and how to recover.`;
-  if (setting.experimental === "set" && hasOption) {
-    return [
-      `Vitest ${vitestVersion}: the config sets \`experimental.fsModuleCache\`; while it is on, ` +
-        `transformed modules are kept on disk between runs. ${caveat}`,
-    ];
-  }
-  const lines = [
-    `Vitest ${vitestVersion} re-transforms every imported module on each run, ` +
-      `about half a second per thousand imported modules on one benchmark. ` +
-      `Vitest 5 keeps transformed modules on disk between runs, and vitest-native turns that on.`,
-  ];
-  if (setting.topLevel !== null) {
-    lines.push(
-      "The config sets `test.fsModuleCache`, the Vitest 5 spelling, which has no effect on Vitest 4.",
-    );
-  }
-  lines.push(
-    hasOption
-      ? `To keep them on disk on Vitest 4, set \`test.experimental.fsModuleCache: true\`. ${caveat}`
-      : `Vitest 4.0.11 adds \`test.experimental.fsModuleCache\` to keep them on disk.`,
-  );
-  return lines;
-}
-
-/**
- * The Vitest that runs here, as the peer check reports it: the project's own, or under
- * Vite+ the copy this package loads.
- */
-function runningVitestVersion(from: string): string | null {
-  return (
-    packageVersion(from, "vitest") ??
-    (usesVitePlus(from) ? (ownVitestPackage()?.version ?? null) : null)
-  );
 }
 
 /**
@@ -393,21 +262,21 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
 
   // --- Runtime ---
   lines.push("", "Runtime");
-  // The supported range is read from this package's own `engines.node` rather than
-  // written out here. The floor was once hardcoded as 20 and compared on the MAJOR
-  // only, so when the real floor moved to 20.19 doctor kept passing Node 20.0. A range
-  // a user reads off a diagnostic has to come from the same place a package manager
-  // enforces it.
+  // The range is the one the plugin enforces at startup (node-range.ts), held equal to
+  // `engines.node` by a test: a range a user reads off a diagnostic has to be the one a
+  // package manager enforces. A per-line floor (22.22.3, 24.12) is compared on the full
+  // version, not the major: a major-only check would pass Node 22.13.
   const range = nodeRange();
   if (satisfiesNodeRange(nodeVersion, range)) {
     pass(`Node ${nodeVersion} (supported: ${range})`);
   } else {
-    fail(`Node ${nodeVersion} — vitest-native supports Node ${range}.`);
+    // The plugin's own startup message, so both say which release to install.
+    fail(unsupportedNodeMessage(nodeVersion));
   }
 
   // --- Required peers ---
   lines.push("", "Peer dependencies");
-  for (const { name, minimum, maximumMajor, minimumByMajor, optional } of PEER_REQUIREMENTS) {
+  for (const { name, minimum, maximumMajor, optional } of PEER_REQUIREMENTS) {
     if (optional) continue; // reported under "Testing library", and never blocking
     const from = rootFor(name);
     // Vite's version from its module, not its manifest: under Vite+ the package named
@@ -421,14 +290,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
         : name === "vitest"
           ? runningVitestVersion(from)
           : null;
-    const error = validatePeerDependency(
-      name,
-      minimum,
-      from,
-      maximumMajor,
-      minimumByMajor,
-      running,
-    );
+    const error = validatePeerDependency(name, minimum, from, maximumMajor, running);
     if (error) fail(error);
     else {
       pass(`${name} ${running ?? packageVersion(from, name)}`);
@@ -532,21 +394,9 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
     // plugin's startup check, and the published peerDependencies entry.
     const rntlReq = PEER_REQUIREMENTS.find((r) => r.name === "@testing-library/react-native");
     const rntlError =
-      rntlReq &&
-      validatePeerDependency(
-        rntlReq.name,
-        rntlReq.minimum,
-        root,
-        rntlReq.maximumMajor,
-        rntlReq.minimumByMajor,
-      );
+      rntlReq && validatePeerDependency(rntlReq.name, rntlReq.minimum, root, rntlReq.maximumMajor);
     if (rntlError) {
       warn(rntlError);
-    } else if (rntlMajor >= 14 && !satisfiesNodeRange(nodeVersion, ">=22.13.0")) {
-      fail(
-        `@testing-library/react-native ${rntl} requires Node >= 22.13, but this is Node ${nodeVersion}. ` +
-          `Upgrade Node or pin @testing-library/react-native@13.`,
-      );
     } else if (rntlMajor >= 14 && !packageVersion(rootFor("test-renderer"), "test-renderer")) {
       // RNTL 14 declares `test-renderer` as a NON-optional peer and reconciles
       // through it. Without it every render throws "Cannot find module
@@ -633,7 +483,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
     const required = classified.filter((p) => p.verdict === "required");
     for (const p of classified) {
       if (p.verdict === "required") {
-        warn(`${p.reason} Required: ${babelRecipe(viteMajor(rootFor("vite")), required)}.`);
+        warn(`${p.reason} Required: ${babelRecipe(required)}.`);
       } else if (p.verdict === "alias") {
         warn(
           `${p.reason} \`vitest-native migrate\` writes them; otherwise add them to resolve.alias.`,
@@ -656,12 +506,10 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   // --- Config ---
   lines.push("", "Config");
   const configFile = findConfigFile(configRoot);
-  let configSource: string | null = null;
   if (!configFile) {
     warn("no vitest.config.* found — run `vitest-native init` to create one.");
   } else {
     const content = fs.readFileSync(path.join(configRoot, configFile), "utf8");
-    configSource = content;
     const usage = analyzeConfigUsage(content);
     if (usage.imports && usage.invokes) {
       pass(`${configFile} uses vitest-native.`);
@@ -686,15 +534,6 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
           " — add `reactNative()` to `plugins: [...]`, or run `vitest-native init`.",
       );
     }
-  }
-
-  // --- Transform cache ---
-  // Advisory only, and only on a Vitest the plugin does not turn the cache on for. The
-  // version is the one the peer check reports.
-  const advice = transformCacheAdvice(runningVitestVersion(rootFor("vitest")), configSource);
-  if (advice.length) {
-    lines.push("", "Transform cache");
-    for (const line of advice) lines.push(`  · ${line}`);
   }
 
   lines.push("", ok ? "✓ No blocking problems found." : "✗ Blocking problems found (see ✗ above).");

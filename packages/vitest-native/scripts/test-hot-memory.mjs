@@ -25,9 +25,7 @@
 // arm to be enforced (ESM_ENFORCED), so the exemption cannot outlive the gap.
 //
 // The facades that make a generation collectable need Node's in-thread loader hooks
-// (module.registerHooks, see inThreadHooksReliable). On a Node release that runs the
-// hooks on their own thread the run is still checked for isolation, and the memory
-// check is skipped, by name.
+// (module.registerHooks), which every supported Node release runs.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -48,7 +46,6 @@ const generatedRoot = path.join(packageRoot, generatedName);
 const require = createRequire(path.join(packageRoot, "package.json"));
 const vitestEntry = path.join(path.dirname(require.resolve("vitest/package.json")), "vitest.mjs");
 const heapLog = path.join(generatedRoot, "heap.log");
-const modeLog = path.join(generatedRoot, "mode.log");
 const esmHeapLog = path.join(generatedRoot, "heap-esm.log");
 
 function write(rel, source) {
@@ -111,7 +108,6 @@ afterAll(() => {
   gc();
   gc();
   appendFileSync(process.env.VN_HOT_MEMORY_HEAP_LOG ?? ${JSON.stringify(heapLog)}, process.memoryUsage().heapUsed + "\\n");
-  appendFileSync(${JSON.stringify(modeLog)}, String((globalThis as any).__vitest_native_loader_mode) + "\\n");
 });
 `,
   );
@@ -264,17 +260,9 @@ const curveOf = (heap) =>
 try {
   generate();
   const heap = runArm("CommonJS", `${generatedName}/tests/*.test.ts`, heapLog);
-  const modes = new Set(fs.readFileSync(modeLog, "utf8").trim().split("\n"));
   const perFile = slope(heap.slice(WARM_UP));
   const curve = curveOf(heap);
-  const inThread = modes.has("in-thread");
-  if (!inThread) {
-    console.log(
-      `[vitest-native] hot memory: ${FILES} files isolated; memory not checked, the loader ` +
-        `hooks ran on their own thread on Node ${process.version} (${curve}, ` +
-        `${perFile.toFixed(2)} MiB per file)`,
-    );
-  } else if (perFile > LIMIT_MIB) {
+  if (perFile > LIMIT_MIB) {
     throw new Error(
       `hot memory gate: the worker's heap grew ${perFile.toFixed(2)} MiB per file after ` +
         `garbage collection (limit ${LIMIT_MIB}): ${curve}. A finished file's packages are ` +
@@ -292,12 +280,7 @@ try {
   const esmHeap = runArm("true ES module", `${generatedName}/tests-esm/*.test.ts`, esmHeapLog);
   const esmPerFile = slope(esmHeap.slice(WARM_UP));
   const esmCurve = curveOf(esmHeap);
-  if (!inThread) {
-    console.log(
-      `[vitest-native] hot memory, true ES module: ${FILES} files isolated; memory not checked ` +
-        `on the loader thread (${esmPerFile.toFixed(2)} MiB per file)`,
-    );
-  } else if (ESM_ENFORCED && esmPerFile > LIMIT_MIB) {
+  if (ESM_ENFORCED && esmPerFile > LIMIT_MIB) {
     throw new Error(
       `hot memory gate: with a true ES module, the worker's heap grew ${esmPerFile.toFixed(2)} ` +
         `MiB per file after garbage collection (limit ${LIMIT_MIB}): ${esmCurve}.`,

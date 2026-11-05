@@ -852,35 +852,6 @@
       "preFixRef": "0f2400e"
     },
     {
-      "id": "pfs-hot-automock-vitest4",
-      "class": "per-file-state",
-      "title": "Under hot on Vitest 4.1, an automock replays another file's factory",
-      "source": "migration testing (2026-10)",
-      "fixedBy": "#338 (merged)",
-      "requires": {
-        "vitest": "4"
-      },
-      "bugSignature": "^[ab]\\.test\\.ts: AssertionError: (an automock for the module this file automocks: expected false to be true|this file's own factory: expected .* to be 'factory-[ab]')",
-      "control": {
-        "why": "The stock runtime (hotRuntime: false) gives every file a fresh module graph, as Jest does: the leak's precondition is gone.",
-        "edits": [
-          {
-            "file": "vitest.config.mts",
-            "find": "hotRuntime: { allowUnboundedMemory: true }",
-            "replace": "hotRuntime: false"
-          }
-        ]
-      },
-      "status": {
-        "main": "PASS",
-        "control": "PASS",
-        "preFix": "FAIL (bug)",
-        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
-        "proof": "landed proven"
-      },
-      "preFixRef": "0f2400e"
-    },
-    {
       "id": "pfs-hot-dropped-file",
       "class": "per-file-state",
       "title": "Under hot, a jest.mock of an RN module to null loses the next file",

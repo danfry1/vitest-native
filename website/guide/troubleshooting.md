@@ -1,5 +1,7 @@
 # Troubleshooting
 
+An error that starts with `[vitest-native]` has a code; the [error-code reference](/guide/errors) lists each one with its common causes.
+
 ## "helpers were called before setup ran"
 
 This means the plugin isn't configured. Ensure `reactNative()` is in your `vitest.config.ts` `plugins` array.
@@ -78,7 +80,7 @@ If the failure goes away with `hotRuntime: false`, keep that setting for the pro
 
 ## "Cannot find module" keeps failing after the missing file exists
 
-On Vitest 5 the plugin turns on Vitest's persistent transform cache, `fsModuleCache` (see [how it works](/guide/how-it-works#_4-transform-cache)); on Vitest 4 it is on only if the config sets `test.experimental.fsModuleCache: true`. Vitest 5.0.5 can keep a test file's transform from a run where one of its imports did not resolve, and reuse it after the import target exists. The error names a root-relative path, such as `'/lib/components'` for `import '../../lib/components'`, and it persists across runs.
+The plugin turns on Vitest's persistent transform cache, `fsModuleCache` (see [how it works](/guide/how-it-works#_4-transform-cache)). Vitest 5.0.5 can keep a test file's transform from a run where one of its imports did not resolve, and reuse it after the import target exists. The error names a root-relative path, such as `'/lib/components'` for `import '../../lib/components'`, and it persists across runs.
 
 It happens when all of these hold:
 
@@ -87,9 +89,7 @@ It happens when all of these hold:
 - the importing file is in a subdirectory of the root, such as `src/`;
 - one run happened while the target was missing, for example before the other package was built.
 
-This is a Vitest bug, tracked in [vitest-dev/vitest#11789](https://github.com/vitest-dev/vitest/issues/11789). It is reproduced on Vitest 5.0.5; Vitest 4's experimental cache is likely affected too, but that is unverified. To recover, clear Vitest's cache with `vitest --clearCache`, or delete `node_modules/.vitest-cache` at the workspace root (or the directory set in `test.fsModuleCachePath`). To avoid it, build the other package before the first test run, or set `test.fsModuleCache: false` for that project.
-
-On Vitest 4 the same steps apply with the experimental names: the cache directory is `node_modules/.experimental-vitest-cache` (or `test.experimental.fsModuleCachePath`), and `test.experimental.fsModuleCache: false` turns the cache off.
+This is a Vitest bug, tracked in [vitest-dev/vitest#11789](https://github.com/vitest-dev/vitest/issues/11789). It is reproduced on Vitest 5.0.5. To recover, clear Vitest's cache with `vitest --clearCache`, or delete `node_modules/.vitest-cache` at the workspace root (or the directory set in `test.fsModuleCachePath`). To avoid it, build the other package before the first test run, or set `test.fsModuleCache: false` for that project.
 
 ## `CONTEXT_INVALID` at startup
 
@@ -118,10 +118,6 @@ A run reuses it when all of these are unchanged, and rebuilds it otherwise:
 
 To force a rebuild, delete that `registry` directory; files for earlier configurations stay there until you do. To run without the precompiled file (each module is then loaded on its own, more slowly, with the same results), set `VITEST_NATIVE_NO_REGISTRY=1`.
 
-## `npm error Cannot read properties of null (reading 'edgesOut')` during install
-
-npm 10 (the version bundled with Node 22) crashes while resolving Vite 8.2+'s optional peer chain when the project pins Vitest 4, because that chain resolves to the latest Vitest (5.x). This is an npm bug, fixed in npm 11 ([vitest#11245](https://github.com/vitest-dev/vitest/issues/11245)). Upgrade npm (`npm install --global npm@11`), or use pnpm, Yarn or Bun.
-
 ## `@react-native/babel-preset not found — using the mock engine`
 
 You asked for the default (`auto`) engine but the native engine's Babel packages aren't installed, so it fell back to the mock engine. An Expo project from SDK 56 needs nothing extra: the engine uses Expo's preset, and `expo` brings `@babel/core`. Otherwise, to run real React Native, install them:
@@ -138,7 +134,7 @@ Files your tests `import` go through Vite's JSX transformer, not your Babel conf
 
 ## `Worker terminated due to reaching memory limit` / `JS heap out of memory`
 
-Every test file that renders real React Native loads a full renderer. Under the default per-file isolation each file starts in a fresh worker, so heap does not accumulate across files. Under the hot runtime (`hotRuntime: 'auto'`), workers are reused and recycled on a memory budget; set your own heap threshold with `hotRuntime: { mode: 'auto', memoryLimit }` (bytes; see [worker recycling](/guide/engines#worker-recycling)).
+Every test file that renders real React Native loads a full renderer. Under the default per-file isolation each file starts in a fresh worker, so heap does not accumulate across files. Under the hot runtime (`hotRuntime: 'auto'`), workers are reused and recycled on a memory budget; set your own heap threshold with `hotRuntime: { mode: 'auto', memoryLimit }` (bytes; see [worker recycling](/guide/hot-runtime#workers-and-memory)).
 
 ## `Vitest caught N unhandled errors` in error-boundary tests
 

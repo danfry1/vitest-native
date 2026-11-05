@@ -25,18 +25,6 @@ const shared = {
   },
 } satisfies UserConfig;
 
-// The matcher declarations augment the "vitest" module. Under Vitest 4 that
-// augmentation only merges when the declaration file itself references vitest, and
-// declaration bundling drops both an unused type import and a `reference types`
-// directive from the source — so add the directive to the emitted file.
-function referenceVitest(file: string): void {
-  const target = path.resolve("dist", file);
-  if (!fs.existsSync(target)) return;
-  const text = fs.readFileSync(target, "utf8");
-  const directive = '/// <reference types="vitest" />';
-  if (!text.startsWith(directive)) fs.writeFileSync(target, `${directive}\n${text}`);
-}
-
 // Every runtime .mjs the ESM build ships verbatim (copied by build:done below): the
 // top-level ones, native/ and jest-compat/. The bundles import those files rather than
 // inline a copy of them, so a process that loads both a bundle and the shipped runtime
@@ -64,10 +52,9 @@ export default defineConfig([
     format: "esm",
     hooks: {
       // The native runtime + jest-compat shims are plain .mjs loaded by Node at
-      // runtime (native: via module.register; jest-compat: as setup file / alias
+      // runtime (native: via module.registerHooks; jest-compat: as setup file / alias
       // targets resolved by Vite), so they must ship verbatim rather than bundled.
       "build:done": () => {
-        referenceVitest("matchers.d.mts");
         // The runtime .mjs files and their hand-written .d.mts stubs ship verbatim
         // (scripts/verbatim-runtime.mjs, which check:size reads too). That includes the
         // top-level ones (errors.mjs): the shipped runtimes import them by relative path,
@@ -101,8 +88,5 @@ export default defineConfig([
       "jest-compat": "src/jest-compat/index.ts",
     },
     format: "cjs",
-    hooks: {
-      "build:done": () => referenceVitest("matchers.d.cts"),
-    },
   },
 ]);

@@ -21,15 +21,6 @@ describe("validatePeerDependency", () => {
     expect(result).toContain("supports vitest >= 4.0.0 and < 4");
   });
 
-  it("supports per-major security floors", () => {
-    const result = validatePeerDependency("vite", "6.4.2", process.cwd(), 9, {
-      6: "6.4.2",
-      7: "7.3.2",
-      8: "8.0.5",
-    });
-    expect(result).toBeNull();
-  });
-
   // Prerelease versions previously parsed to NaN ("4.0.0-beta.3" → [4, NaN, …])
   // and failed the minimum check — a hard startup error for exactly the
   // early-adopter installs that run betas/RCs.

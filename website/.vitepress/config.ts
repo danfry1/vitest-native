@@ -57,6 +57,7 @@ export default defineConfig({
             { text: 'Installation', link: '/guide/install' },
             { text: 'Quick Start', link: '/guide/quick-start' },
             { text: 'Choosing an Engine', link: '/guide/engines' },
+            { text: 'Hot Runtime', link: '/guide/hot-runtime' },
           ],
         },
         {
@@ -90,6 +91,7 @@ export default defineConfig({
             { text: 'Fidelity Matrix', link: '/guide/fidelity-matrix' },
             { text: 'Comparison with Jest', link: '/guide/comparison' },
             { text: 'Troubleshooting', link: '/guide/troubleshooting' },
+            { text: 'Error Codes', link: '/guide/errors' },
           ],
         },
       ],

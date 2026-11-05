@@ -99,8 +99,8 @@
         "@react-native/babel-preset": "*",
         "@testing-library/react-native": ">=12 <15",
         "react": ">=18",
-        "vite": "^6.4.2 || ^7.3.2 || ^8.0.5",
-        "vitest": ">=4 <6",
+        "vite": "^8.0.5",
+        "vitest": ">=5 <6",
       },
       "optionalPeers": [
         "@babel/core",
@@ -110,7 +110,6 @@
     },
   },
   "overrides": {
-    "esbuild": "0.28.1",
     "react-native-skia-android": "file:./scripts/native-binary-stub",
     "react-native-skia-apple-ios": "file:./scripts/native-binary-stub",
     "react-native-skia-apple-macos": "file:./scripts/native-binary-stub",
