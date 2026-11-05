@@ -20,6 +20,7 @@ import { resetEvaluatedModules, restoreEvaluatedModules } from "../native/module
 import { VitestNativeError } from "../errors.mjs";
 import { projectContext } from "../context.mjs";
 import { nodeDispatch } from "../node-dispatch.mjs";
+import { jestMockInterop } from "./interop.mjs";
 import { owningPackageOfFile, packageNameOf } from "../native/match.mjs";
 
 const STATE = "__vitest_native_jest_registry";
@@ -933,8 +934,13 @@ function installLoadHook(state) {
         if (!fromProject && state.isEmpty() && viMocks === null && !pendingMocks) {
           return next(request, parent, ...rest);
         }
-        // A jest.mock (this registry) is matched first, then a vi.mock (Vitest's).
-        if (state.isEmpty() && (viMocks !== null || pendingMocks)) {
+        // A jest.mock (this registry) is matched first, then a vi.mock (Vitest's). R8:
+        // jest.requireActual's own load is never a vi.mock either; it takes the path
+        // below, whose lookup gives it the real module.
+        const actualLoad =
+          state.bypass !== null &&
+          state.bypass === (state.resolve(request, parent) ?? `\0${request}`);
+        if (state.isEmpty() && !actualLoad && (viMocks !== null || pendingMocks)) {
           const served = serveVitestMock(viMocks, pendingMocks, request, parent, () =>
             state.resolve(request, parent),
           );
@@ -1043,6 +1049,22 @@ function installLoadHook(state) {
    * off too. A jest.mock is matched first, and jest.requireActual's module stays actual,
    * as for Node's require.
    */
+  /**
+   * A jest.mock as an import gets it, not as `require` does: Vitest's `mock:<id>` module
+   * once the test has imported it (jestMockTransform's factory hands Vitest the value
+   * through Jest's CommonJS interop, setup.mjs), else that interop of the settled value,
+   * so `import X from` reads the whole module of a factory returning a function or
+   * named exports only. A factory that has not settled fails by name.
+   */
+  const jestMockForImport = (entry, id, parent) => {
+    const imported = worker()?.evaluatedModules?.getModuleById?.(`mock:${id}`)?.exports;
+    if (imported != null) return imported;
+    const value = state.valueForImport(entry);
+    if (Object.prototype.toString.call(value) === "[object Promise]") {
+      throw mockNotSeenByNode(id, parent, FACTORY_NOT_SETTLED);
+    }
+    return jestMockInterop(value);
+  };
   mocks.forImport = (rawId, importerFile) => {
     const parent = { filename: importerFile };
     const id = viteIdOf(rawId);
@@ -1051,7 +1073,7 @@ function installLoadHook(state) {
     if (file !== null) {
       const entry = state.lookup(canonical(file), file);
       if (entry === BYPASSED) return NONE;
-      if (entry !== undefined) return state.valueOf(entry);
+      if (entry !== undefined) return jestMockForImport(entry, id, parent);
       if (pendingCount() > 0) assertNoPendingMockOf(state, file, id, parent);
     }
     const byId = globalThis.__vitest_mocker__?.getMockerRegistry?.()?.registryById;
