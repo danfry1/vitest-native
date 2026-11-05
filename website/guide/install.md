@@ -4,24 +4,24 @@
 
 ::: code-group
 ```bash [npm]
-npm install -D vitest-native
+npm install -D vitest vite vitest-native @testing-library/react-native
 ```
 ```bash [yarn]
-yarn add -D vitest-native
+yarn add -D vitest vite vitest-native @testing-library/react-native
 ```
 ```bash [pnpm]
-pnpm add -D vitest-native
+pnpm add -D vitest vite vitest-native @testing-library/react-native
 ```
 ```bash [bun]
-bun add -d vitest-native
+bun add -d vitest vite vitest-native @testing-library/react-native
 ```
 :::
 
-One package replaces three — you don't need a separate RN mock library, a JSX plugin, or a jest preset.
+`vitest` and `vite` are peer dependencies. [`@testing-library/react-native`](https://callstack.github.io/react-native-testing-library/) is optional, but the guides use it. One plugin replaces three — you don't need a separate RN mock library, a JSX plugin, or a jest preset.
 
 ## Configure
 
-Add the plugin to your Vitest config:
+`npx vitest-native init` writes this config for you (`vitest.config.mts` in a TypeScript project), or add the plugin yourself:
 
 ```ts
 // vitest.config.ts
@@ -33,7 +33,7 @@ export default defineConfig({
 })
 ```
 
-That's it. The plugin auto-injects its setup file, configures `@testing-library/react-native` if installed, stubs assets, and resolves platform-specific files. No manual `setupFiles`, no `@react-native/jest-preset`, no `transformIgnorePatterns`.
+If anything looks off, `npx vitest-native doctor` checks your versions, engine and presets. The plugin auto-injects its setup file, configures `@testing-library/react-native` if installed, stubs assets, and resolves platform-specific files. No manual `setupFiles`, no `@react-native/jest-preset`, no `transformIgnorePatterns`.
 
 ## Requirements
 

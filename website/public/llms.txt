@@ -1,12 +1,12 @@
 # vitest-native
 
-> Run your React Native tests under Vitest, against real React Native — the same JavaScript that ships in your app, mocking only the native-module boundary. That's the zero-config default. A fast pure-JS mock engine is available as an opt-in for RN-free unit tests. One plugin gives you both. Maintained successor to vitest-community/vitest-react-native, rebuilt for modern Vitest (4+).
+> Run your React Native tests under Vitest, against real React Native — the same JavaScript that ships in your app, mocking only the native-module boundary. That's the zero-config default. A fast pure-JS mock engine is available as an opt-in for RN-free unit tests. One plugin gives you both. Maintained successor to vitest-community/vitest-react-native, rebuilt for Vitest 4 and 5.
 
 ## Core idea
 
 Two engines behind one plugin (`reactNative()`), so you choose the fidelity each suite needs:
 
-- `engine: 'native'` (default): runs real React Native JS, mocking only the thin native boundary (the same modules Jest's preset mocks). Needs `@react-native/babel-preset` (or Expo's preset, from Expo SDK 56) + `@babel/core` (present in any RN or Expo app). Highest fidelity.
+- `engine: 'native'` (default): runs real React Native JS, mocking only the thin native boundary: native modules and native host components. Jest's React Native preset mocks a superset of that (it also swaps View, Text, ScrollView, TextInput, Image and Modal for stand-ins), so the real component JavaScript runs here. Needs `@react-native/babel-preset` (or Expo's preset, from Expo SDK 56) + `@babel/core` (present in any RN or Expo app). Highest fidelity.
 - `engine: 'mock'`: a fast, zero-dependency pure-JS reimplementation of React Native. No Babel. For pure-logic suites, environment control, maximum determinism. Covers 100% of RN's stable public API.
 - `engine: 'auto'` (the default): native when babel deps present, else mock.
 
@@ -18,7 +18,7 @@ Package capability and fidelity are defined only by package-owned conformance te
 
 ## Setup
 
-Install: `npm install -D vitest-native`
+Install: `npm install -D vitest vite vitest-native @testing-library/react-native` (vitest and vite are peers; RNTL is optional). `npx vitest-native init` writes the config; `npx vitest-native doctor` checks the setup.
 
 vitest.config.ts:
 ```ts
@@ -27,18 +27,20 @@ import { reactNative } from 'vitest-native'
 export default defineConfig({ plugins: [reactNative()] })
 ```
 
-Requirements: Node 22.13+ (on 22) or 24.3+, Vitest 4.x or 5.x, Vite ^6.4.2 or ^7.3.2 or ^8.0.5, React >= 18, React Native 0.81–0.88 (native engine). RNTL (@testing-library/react-native) 12–14 is an optional peer; auto-configured when installed.
+Requirements: Node 22.13+ (on 22) or 24.3+, Vitest 4.x or 5.x, Vite ^6.4.2 or ^7.3.2 or ^8.0.5, React >= 18, React Native 0.81–0.88 (native engine), Expo SDK 57 and 58. RNTL (@testing-library/react-native) 12–14 is an optional peer; auto-configured when installed. RNTL 14 makes render, fireEvent and act async: always `await render(...)` (a no-op on 12 and 13).
 
 ## Plugin options
 
-`reactNative({ engine, platform, diagnostics, presets, mocks, assetExts, transform, hotRuntime })`
+`reactNative({ engine, platform, diagnostics, presets, mocks, assetExts, transform, hotRuntime, nativeModules, metroConfig })`
 - engine: 'native' | 'mock' | 'auto' (default 'auto')
 - platform: 'ios' | 'android' (default 'ios')
-- presets: third-party library presets (auto-detected from installed deps)
-- mocks: custom mock overrides keyed by export name
+- presets: third-party library presets. Omit to auto-detect from installed deps; an array replaces auto-detection (`[]` disables all); an object such as `{ navigation: false }` switches presets off; a string is a path to your own preset module
+- mocks: mock engine only (a non-empty value under native is a config error). JSON-serializable values only; each replaces that export whole. For components or functions use `vi.mock('react-native', ...)` in a setup file
 - assetExts: extra asset extensions (loaded as Metro does: a registered asset id)
 - transform: extra node_modules to transform (native engine; like Jest's transformIgnorePatterns)
-- hotRuntime: experimental hot runtime for large native suites
+- hotRuntime: false (default, fresh worker per file) | 'auto' | true | options object. Opt-in, experimental: reuses workers across files; measure whether it is faster on your suite
+- nativeModules: 'device' (default; unregistered native modules are absent, as on a device) | 'permissive'
+- metroConfig: experimental; use the project's Metro source-extension order and asset list
 
 ## Presets (auto-detected, apply under both engines)
 
@@ -46,7 +48,7 @@ The full list, with the exact packages each preset shadows, is at https://danfry
 
 ## Test helpers (`vitest-native/helpers`)
 
-setPlatform, setDimensions, setColorScheme, mockNativeModule, resetAllMocks. Keyboard/AppState mocks expose `_show`/`_hide`/`_setState`.
+setDimensions, setColorScheme, setInsets, mockNativeModule, extendPresetMock, resetAllMocks (both engines). setPlatform is mock engine only (it throws under native; set `platform` in config). The mock engine's Keyboard/AppState also expose `_show`/`_hide`/`_setState`; native has no such methods.
 
 ## jest-compat (`vitest-native/jest-compat`)
 
