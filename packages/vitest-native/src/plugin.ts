@@ -2325,6 +2325,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           nativePresetNames,
           memoizePackageDirOf(dependencyDirOf),
           {
+            compileReactNativeFieldSource:
+              ownershipModel && engine === "native" ? { platform, sourceExts } : undefined,
             reachedPaths: requireAliases.entries
               .map(([, target]) => target)
               .filter((target) => path.isAbsolute(target)),
