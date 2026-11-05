@@ -2,7 +2,7 @@
  * Disk-cache behavior of the native-engine transform: project-local cache
  * location, content-hash keying, and no Babel at all on warm caches.
  */
-import { describe, it, expect } from "vitest";
+import { beforeAll, describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 import path from "node:path";
@@ -16,6 +16,7 @@ import {
   transformCacheDir,
   cacheRootFor,
 } from "../src/native/transform.mjs";
+import { COLD_TRANSFORM_BUDGET_MS, warmTransform } from "./support/warm-transform.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 function findUp(rel: string, start: string): string {
@@ -29,6 +30,9 @@ function findUp(rel: string, start: string): string {
   }
 }
 const projectRoot = path.dirname(findUp("package.json", HERE));
+
+// Each test file starts its own Babel worker; none of its tests should pay that start.
+beforeAll(() => warmTransform(transformRN, projectRoot), COLD_TRANSFORM_BUDGET_MS);
 
 describe("cacheRootFor", () => {
   it("prefers the project's node_modules/.cache when node_modules exists", () => {

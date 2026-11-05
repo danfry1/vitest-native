@@ -5,7 +5,9 @@
 // copy into node_modules) and `src/`. It is copied to a fresh directory, and its
 // node_modules is assembled from what this repository already has installed:
 //
-//   - every package in packages/vitest-native/node_modules, as a symlink into bun's store
+//   - every package in the BUILD's package root's node_modules (`deps`: the build under
+//     test, which build-ref.mjs installs from that ref's own lockfile; by default this
+//     package), as a symlink into bun's store
 //     (so every package is reached through a store path, as in an isolated install),
 //     except Expo's packages for an exhibit that does not declare expo (isExpoPackage);
 //   - vitest-native itself, COPIED from the build under test (package.json + dist), so
@@ -208,7 +210,10 @@ export function wrapForOwnership(installed, root, model) {
  * vitest4.mjs prepared (required when the exhibit needs Vitest 4); `ownershipModel`
  * other than "off" wraps the installed copy (wrapForOwnership).
  */
-export function materialise(exhibit, { work, build, vitest4, edits = [], ownershipModel = "off" }) {
+export function materialise(
+  exhibit,
+  { work, build, deps = build, vitest4, edits = [], ownershipModel = "off" },
+) {
   const root = path.join(work, exhibit.id);
   fs.rmSync(root, { recursive: true, force: true });
   fs.cpSync(path.join(museumRoot, "exhibits", exhibit.id), root, { recursive: true });
@@ -240,20 +245,22 @@ export function materialise(exhibit, { work, build, vitest4, edits = [], ownersh
   if (ownershipModel !== "off")
     wrapForOwnership(path.join(modules, "vitest-native"), root, ownershipModel);
   const expo = declaresExpo(root);
-  linkAll(modules, path.join(packageRoot, "node_modules"), (name) => !expo && isExpoPackage(name));
+  // The installed packages of the build's own ref, not this checkout's: an old build is
+  // judged against what that ref declared (Expo, React Native, RNTL), never today's.
+  linkAll(modules, path.join(deps, "node_modules"), (name) => !expo && isExpoPackage(name));
 
   // A second, real copy of an installed package at a path inside the exhibit
   // (`installedCopies`: { "<path>": "<name>" }): a monorepo whose app has its own copy
   // beside the root's. A link would share the real path, and so be one module.
   for (const [to, name] of Object.entries(exhibit.installedCopies ?? {})) {
-    const from = fs.realpathSync(path.join(packageRoot, "node_modules", name));
+    const from = fs.realpathSync(path.join(deps, "node_modules", name));
     fs.cpSync(from, path.join(root, to), { recursive: true, dereference: true });
   }
 
   // Packages this package does not depend on directly but the repository's bun store has
   // (`storeLinks`: { name: version }).
   for (const [name, version] of Object.entries(exhibit.storeLinks ?? {})) {
-    const store = path.join(packageRoot, "../../node_modules/.bun");
+    const store = path.join(deps, "../../node_modules/.bun");
     const prefix = `${name.replace("/", "+")}@${version}`;
     const entry = fs.readdirSync(store).find((e) => e === prefix || e.startsWith(`${prefix}+`));
     if (!entry) throw new Error(`storeLinks: no ${prefix} in ${store}`);

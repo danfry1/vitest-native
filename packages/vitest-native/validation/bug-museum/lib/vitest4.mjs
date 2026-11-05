@@ -80,14 +80,14 @@ function packageDir(context, name) {
   return null;
 }
 
-export function prepareVitest4(dir) {
+export function prepareVitest4(dir, deps = packageRoot) {
   const modules = path.join(dir, "node_modules");
   if (fs.existsSync(path.join(modules, "vitest/package.json"))) return { dir };
   const top = cached("vitest", VITEST4_VERSION);
   if (!top) return { dir: null, reason: `vitest@${VITEST4_VERSION} is not in bun's cache` };
 
   // Where Vitest 5 and its @vitest/* packages resolve their dependencies from.
-  const v5 = fs.realpathSync(path.join(packageRoot, "node_modules/vitest"));
+  const v5 = fs.realpathSync(path.join(deps, "node_modules/vitest"));
   const contexts = [createRequire(path.join(v5, "package.json"))];
   const v5manifest = JSON.parse(fs.readFileSync(path.join(v5, "package.json"), "utf8"));
   for (const dep of Object.keys(v5manifest.dependencies ?? {})) {

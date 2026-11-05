@@ -28,8 +28,12 @@ import {
   mentionsImportMeta,
   importMetaToCommonJS,
 } from "../src/native/babel-toolchain.mjs";
+import { COLD_TRANSFORM_BUDGET_MS, warmTransform } from "./support/warm-transform.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+// Each test file starts its own Babel worker; none of its tests should pay that start.
+beforeAll(() => warmTransform(transformRN, projectRoot), COLD_TRANSFORM_BUDGET_MS);
 
 let dir: string;
 

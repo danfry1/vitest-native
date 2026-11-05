@@ -50,8 +50,8 @@ Exits non-zero when it finds a blocking problem, so it can gate CI setup jobs.
 
 ## `migrate`
 
-Reads your Jest configuration (`package.json#jest` or
-`jest.config.{js,cjs,json}`) and reports, key by key:
+Reads your Jest configuration (`package.json#jest`, or the first
+`jest.config.{js,ts,mjs,mts,cjs,cts,json}` in Jest's own order) and reports, key by key:
 
 - **Mapped automatically** — keys the suggested config absorbs
   (`setupFilesAfterEnv` → `setupFiles`, path aliases → `resolve.alias`,
@@ -78,5 +78,8 @@ it (guarded like `init`). It never edits test files — top-level `jest.mock`
 calls are handled at runtime by
 [`jestMockTransform()`](/guide/jest-compat).
 
-`jest.config.ts` / `.mjs` and function-form configs can't be loaded
-automatically; the report says so instead of guessing.
+TypeScript configs load through Node's own type stripping (Node 22.18 or later). Jest
+loads them through ts-node instead, so a config that relies on it (an extensionless
+relative import, an `enum`, a path alias) can't be loaded, and neither can a config that
+uses top-level `await` or exports a function. The report then names the file and Node's
+reason, instead of guessing.

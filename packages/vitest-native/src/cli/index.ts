@@ -9,7 +9,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { runDoctor } from "./doctor.js";
 import { runInit } from "./init.js";
-import { analyzeJestConfig, renderMigrationReport } from "./migrate.js";
+import { analyzeJestConfig, migrationNextStep, renderMigrationReport } from "./migrate.js";
 
 const USAGE = `vitest-native — test React Native with Vitest
 
@@ -58,8 +58,9 @@ export function main(argv: string[], log: (line: string) => void = console.log):
     }
     case "migrate": {
       const report = analyzeJestConfig(root);
-      for (const line of renderMigrationReport(report)) log(line);
-      if (report.ok && has("--write")) {
+      const write = has("--write");
+      for (const line of renderMigrationReport(report, { write })) log(line);
+      if (report.ok && write) {
         const init = runInit(root, { force: has("--force") });
         if (!init.ok) {
           for (const line of init.lines) log(line);
@@ -67,7 +68,7 @@ export function main(argv: string[], log: (line: string) => void = console.log):
         }
         const target = path.join(root, init.wrote as string);
         fs.writeFileSync(target, report.suggestedConfig);
-        log(`✓ wrote ${init.wrote} from the analysis above.`);
+        log(`✓ wrote ${init.wrote} from the analysis above. Next: ${migrationNextStep(report)}`);
       }
       return report.ok ? 0 : 1;
     }

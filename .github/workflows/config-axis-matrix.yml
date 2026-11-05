@@ -38,14 +38,14 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  # Docs-only changes skip the cells by job condition, as in ci.yml and
-  # native-rn-matrix.yml (.github/scripts/classify-change.sh).
+  # Pull requests run the cells only when their changed files need them, by job
+  # condition, as in ci.yml and native-rn-matrix.yml (.github/scripts/classify-change.mjs).
   classify:
     name: Classify change
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      docs-only: ${{ steps.docs.outputs.docs-only }}
+      axes: ${{ steps.docs.outputs.axes }}
       matrix: ${{ steps.cells.outputs.matrix }}
       scope: ${{ steps.cells.outputs.scope }}
     steps:
@@ -58,7 +58,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-        run: .github/scripts/classify-change.sh "$EVENT" "$BASE_SHA" "$HEAD_SHA"
+        run: node .github/scripts/classify-change.mjs "$EVENT" "$BASE_SHA" "$HEAD_SHA"
       - id: cells
         env:
           EVENT: ${{ github.event_name }}
@@ -69,7 +69,7 @@ jobs:
   cell:
     name: axes — ${{ matrix.name }}
     needs: classify
-    if: needs.classify.outputs.docs-only != 'true'
+    if: needs.classify.outputs.axes != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:

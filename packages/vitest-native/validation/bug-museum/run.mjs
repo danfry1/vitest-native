@@ -238,9 +238,17 @@ function main() {
     ? path.resolve(argument("work"))
     : fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-bug-museum-")));
   fs.mkdirSync(work, { recursive: true });
+  // Exhibits link the build's own installed packages (lib/materialise.mjs): a build from
+  // build-ref.mjs has its ref's install, so an older ref is judged against what it
+  // declared. A packed tarball (CI's --build) has none: it is tested against this
+  // checkout's install, the same ref's. status.mjs accepts only build-ref builds, whose
+  // verdicts record their own install.
+  const deps = fs.existsSync(path.join(build, "node_modules")) ? build : packageRoot;
+  const depsProvenance = buildInfo(deps);
   const context = {
     work: fs.realpathSync(work),
     build,
+    deps,
     keep: flag("keep"),
     control: flag("control"),
     ownershipModel: ownershipModelArgument(argument("ownership")),
@@ -248,7 +256,7 @@ function main() {
   // A build without the flag would ignore it: say so instead of measuring "off" twice.
   const support = ownershipSupport(build, context.ownershipModel);
   if (selected.some((e) => e.requires?.vitest === "4")) {
-    const prepared = prepareVitest4(path.join(context.work, ".vitest4"));
+    const prepared = prepareVitest4(path.join(context.work, ".vitest4"), context.deps);
     context.vitest4 = prepared.dir;
     context.vitest4Reason = prepared.reason;
   }
@@ -270,6 +278,8 @@ function main() {
     verdicts[exhibit.id] = {
       ...verdict,
       build: provenance,
+      // Whose installed packages the exhibit ran against (the build's own: see above).
+      deps: { sha: depsProvenance.sha },
       exhibit: exhibitHash(museumRoot, exhibit),
       ...(context.ownershipModel === "off" ? {} : { ownershipModel: context.ownershipModel }),
     };
