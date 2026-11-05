@@ -140,11 +140,11 @@ The default, `false`, always isolates per worker, as in 0.13.0. `'auto'` opts in
 reactNative({ hotRuntime: false }) // opt out
 ```
 
-It can dramatically cut the per-file cost on large suites. The RN registry is reset from its in-memory factories per file, and the shared realm is restored through a mutation-tested state manifest. Arbitrary mutable state in an unknown resident third-party singleton cannot be discovered generically; a test that passes alone but fails after other files remains a correctness signal. See [Hot runtime](/guide/engines#hot-runtime) for the exact boundary and worker recycling.
+It can dramatically cut the per-file cost on large suites. The RN registry is reset from its in-memory factories per file, and the shared realm is restored through a mutation-tested state manifest. Arbitrary mutable state in an unknown resident third-party singleton cannot be discovered generically; a test that passes alone but fails after other files remains a correctness signal. See [Hot runtime](/guide/hot-runtime) for the exact boundary and worker recycling.
 
 Hot mode installs a cgroup-aware memory plan by default and requires at least two workers so it can recycle at file boundaries. A deliberate externally bounded single-worker run can use `hotRuntime: { allowUnboundedMemory: true }`; this disables the automatic worker cap and process-RSS enforcement and is intentionally noisy.
 
-The object form tunes worker recycling: `recycleAfterFiles`, `memoryLimit` (worker heap in bytes), `allowUnboundedMemory`, `preserveGlobals` and `esmGeneration` ([Worker recycling](/guide/engines#worker-recycling)). On its own it requires the hot runtime, as `true` does. Add `mode: 'auto'` to select the way `'auto'` does: the hot runtime with your options where the run can be bounded, per-file isolation with the printed reason where it cannot.
+The object form tunes worker recycling: `recycleAfterFiles`, `memoryLimit` (worker heap in bytes), `allowUnboundedMemory`, `preserveGlobals` and `esmGeneration` ([Worker recycling](/guide/hot-runtime#workers-and-memory)). On its own it requires the hot runtime, as `true` does. Add `mode: 'auto'` to select the way `'auto'` does: the hot runtime with your options where the run can be bounded, per-file isolation with the printed reason where it cannot.
 
 ```ts
 reactNative({ hotRuntime: { mode: 'auto', memoryLimit: 2 * 1024 ** 3 } })

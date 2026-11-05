@@ -137,7 +137,7 @@ Files your tests `import` go through Vite's JSX transformer, not your Babel conf
 
 ## `Worker terminated due to reaching memory limit` / `JS heap out of memory`
 
-Every test file that renders real React Native loads a full renderer. Under the default per-file isolation each file starts in a fresh worker, so heap does not accumulate across files. Under the hot runtime (`hotRuntime: 'auto'`), workers are reused and recycled on a memory budget; set your own heap threshold with `hotRuntime: { mode: 'auto', memoryLimit }` (bytes; see [worker recycling](/guide/engines#worker-recycling)).
+Every test file that renders real React Native loads a full renderer. Under the default per-file isolation each file starts in a fresh worker, so heap does not accumulate across files. Under the hot runtime (`hotRuntime: 'auto'`), workers are reused and recycled on a memory budget; set your own heap threshold with `hotRuntime: { mode: 'auto', memoryLimit }` (bytes; see [worker recycling](/guide/hot-runtime#workers-and-memory)).
 
 ## `Vitest caught N unhandled errors` in error-boundary tests
 

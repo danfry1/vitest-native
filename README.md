@@ -117,7 +117,7 @@ modules Node loads there.
 
 ## Learn more
 
-- [Choosing an engine](https://danfry1.github.io/vitest-native/guide/engines) and the [hot runtime](https://danfry1.github.io/vitest-native/guide/engines#hot-runtime)
+- [Choosing an engine](https://danfry1.github.io/vitest-native/guide/engines) and the [hot runtime](https://danfry1.github.io/vitest-native/guide/hot-runtime)
 - [Third-party presets](https://danfry1.github.io/vitest-native/guide/presets) (Reanimated, Gesture Handler, Navigation, …)
 - [Expo](https://danfry1.github.io/vitest-native/guide/expo) · [Plugin options](https://danfry1.github.io/vitest-native/guide/plugin-options) · [Test helpers](https://danfry1.github.io/vitest-native/guide/helpers)
 - [Coverage](https://danfry1.github.io/vitest-native/guide/coverage) · [CLI](https://danfry1.github.io/vitest-native/guide/cli) · [Troubleshooting](https://danfry1.github.io/vitest-native/guide/troubleshooting)
