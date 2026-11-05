@@ -47,7 +47,12 @@ agents read it for exact names. Keep it short and write for both.
    a release candidate broke says so in one short clause ("a regression in an earlier 0.14
    prerelease"), or is folded into the entry for the feature it fixes.
 6. **Use the user's vocabulary.** Neutral third person; never mention a person, team, report or
-   conversation.
+   conversation in the entry itself. The credit line (7) is the one place a person is named.
+7. **Credit the people the change came from.** When an issue or a pull request from someone
+   other than the maintainer led to the change, end the entry with one line:
+   `Thanks @handle for reporting this (#12).`, `… for the fix (#12).` or
+   `… for the pull request (#12).` Several people or references read `@a and @b`, `(#12, #14)`.
+   Use public GitHub handles only, and never name a reporter who asked to stay anonymous.
 
 | Instead of | Say |
 |---|---|
@@ -74,7 +79,8 @@ dependencies becomes:
 CI checks each vitest-native changeset a pull request adds or edits
 (`packages/vitest-native/scripts/check-changeset.mjs`): a bold lead of at most 30 words, at most
 110 words in all (a `code span` counts as one), an action line, no `rc.N`, and none of the terms
-above outside backticks. Empty changesets are exempt. Run it locally with
+above outside backticks. A credit line must be well formed and come last, and it does not count
+toward the length or the vocabulary check. Empty changesets are exempt. Run it locally with
 `node packages/vitest-native/scripts/check-changeset.mjs --lint .changeset/*.md`.
 
 ## Scripts
@@ -118,6 +124,7 @@ bunx changeset
 
 # 2. On a release branch, version the package: bumps package.json, writes CHANGELOG.md.
 bunx changeset version
+#    Add the "Thank you" paragraph at the end of the version's CHANGELOG section (see below).
 #    Open it as "chore(release): <version>" and merge it once CI is green (main is protected).
 
 # 3. Tag the merge commit on main and push the tag.
@@ -132,6 +139,21 @@ The release workflow refuses a tag that `main` cannot reach or that does not mat
 version. It then runs the full gate, stages the package with provenance, and creates a GitHub
 Release. The release body is the version's CHANGELOG section, followed by the generated list of
 merged pull requests.
+
+### Thanking contributors
+
+Every release thanks the people outside the maintainer whose issue was fixed (closed as completed)
+or whose pull request was merged in it. Print the paragraph and paste it into the version's CHANGELOG section and its
+release-notes page:
+
+```bash
+GITHUB_TOKEN=$(gh auth token) node scripts/release-thanks.mjs --release <milestone>
+GITHUB_TOKEN=$(gh auth token) node scripts/release-thanks.mjs --since v<previous-version>
+```
+
+`--release` reads the GitHub milestone, so it misses an issue whose fix was milestoned but which
+was not; `--since` takes everything closed after a tag or date, which covers a whole release cycle. Bots and the maintainer are left out. Read the list before
+pasting it, and remove anyone who asked not to be named.
 
 ### Prereleases
 

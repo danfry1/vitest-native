@@ -60,3 +60,9 @@ export declare function requestForPackageFile(
   subpath: string,
   manifest: Record<string, unknown> | null | undefined,
 ): string;
+/** Whether the resolved `file` is preset package `pkg`'s own entry. */
+export declare function isPackageEntryFile(
+  pkg: string,
+  file: string,
+  parentFile: string | null | undefined,
+): boolean;
