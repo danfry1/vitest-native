@@ -245,7 +245,7 @@ export function resolutionRoot(start: string, exists = fs.existsSync): string {
 /** doctor's warning for Node 24.13.0, which troubleshooting.md explains. */
 export const NODE_24_13_0_CRASH =
   "Node 24.13.0 can crash a test run at startup with a segmentation fault (an intermittent " +
-  "V8 garbage-collection crash on worker threads). Upgrade to Node 24.14 or later. " +
+  "V8 garbage-collection crash on worker threads). Use another Node 24 release, such as 24.14 or later. " +
   "See https://danfry1.github.io/vitest-native/guide/troubleshooting#node-24-13-0-segmentation-fault-at-startup";
 
 export function runDoctor(root: string, nodeVersion: string = process.versions.node): DoctorResult {

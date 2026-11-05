@@ -155,7 +155,7 @@ For one-off overrides, [`extendPresetMock`](/guide/helpers#extendpresetmock-pkg-
 
 ## Node 24.13.0: segmentation fault at startup
 
-On Node 24.13.0, a run can stop at startup with `Segmentation fault` (exit code 139) after Vitest prints `RUN`, before any test reports. It is a crash inside V8's garbage collector on a worker thread, not in your tests or in vitest-native, and it is intermittent: about 1 in 70 cold runs of the hot runtime in our measurements, and none in our runs of 24.12, 24.14, 24.16 or 24.18. Upgrade to Node 24.14 or later. `vitest-native doctor` warns when it runs on 24.13.0.
+On Node 24.13.0, a run can stop at startup with `Segmentation fault` (exit code 139) after Vitest prints `RUN` and before any test reports. It is an intermittent crash inside V8's garbage collector on a worker thread; no vitest-native code appears in the crashing native frames. In our measurements it happened in 2 of 135 cold runs with the hot runtime on Node 24.13.0, and in none of our runs on 24.12, 24.14, 24.16 or 24.18 (50 to 100 runs each, too few to prove any single one of them free of it). Use another Node 24 release, such as 24.14 or later. `vitest-native doctor` warns when it runs on 24.13.0.
 
 ## Still stuck?
 

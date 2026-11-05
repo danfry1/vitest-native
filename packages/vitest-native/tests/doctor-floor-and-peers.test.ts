@@ -66,7 +66,7 @@ describe("doctor: Node 24.13.0's startup crash", () => {
   );
 
   it("names the fix and where to read about it", () => {
-    expect(NODE_24_13_0_CRASH).toMatch(/Upgrade to Node 24\.14 or later/);
+    expect(NODE_24_13_0_CRASH).toMatch(/Use another Node 24 release, such as 24\.14 or later/);
     expect(NODE_24_13_0_CRASH).toContain(
       "guide/troubleshooting#node-24-13-0-segmentation-fault-at-startup",
     );
