@@ -27,11 +27,11 @@ If you call `useColorScheme` or `useWindowDimensions` directly outside a compone
 
 ## `vi.mock` of an RN-side library isn't taking effect
 
-Under `engine: 'native'`, React Native and third-party React Native packages load through Node. `vi.mock` applies to what your test and app source import, but not to `require()` calls inside a Node-loaded library: a library's own import of a mocked package still gets the real one. Prefer a [preset](/guide/presets) if one exists, mock at the native boundary with [`mockNativeModule`](/guide/helpers#mocknativemodule-name-impl), or test that boundary on the mock engine. See [React Native packages in `node_modules`](/guide/how-it-works#react-native-packages-in-node-modules).
+Under `engine: 'native'`, React Native and third-party React Native packages load through Node. `vi.mock` applies to what your test and app source import, but not to `require()` calls inside a Node-loaded library: a library's own import of a mocked package still gets the real one. Prefer a [preset](/guide/presets) if one exists, mock at the native boundary with [`mockNativeModule`](/guide/helpers#mocknativemodule-name-impl), or test that boundary on the mock engine. See [what `vi.mock` reaches](/guide/mocking#what-vi-mock-reaches).
 
 ## A third-party library ships untranspiled source and fails to parse
 
-Add it to the [`transform` allowlist](/guide/plugin-options#transform) (the native-engine equivalent of Jest's `transformIgnorePatterns`):
+Packages that declare `react-native` are compiled automatically. For one that doesn't, add it to [`transform`](/guide/plugin-options#transform) (the native-engine equivalent of Jest's `transformIgnorePatterns`); if compiling a package is what fails, exclude it with `transform: { exclude: [...] }`. See [untranspiled packages](/guide/mocking#packages-that-ship-untranspiled-source).
 
 ```ts
 reactNative({ transform: ["some-untranspiled-lib"] });
@@ -53,13 +53,9 @@ The same applies to a method a React Native module's codegen spec does not decla
 
 Vitest keys snapshots differently from Jest (`a > b 1` against Jest's `a b 1`; `name > hint 1` against `name: hint 1`), so it treats most of Jest's entries as missing: a local run writes new ones and passes, a CI run fails them as `mismatched`, and both rewrite the file's header to Vitest's, which `jest --ci` then refuses. Under `engine: 'native'`, real React Native also renders **real host component names** (`RCTText`, `RCTView`, `RCTScrollView`) where `@react-native/jest-preset` snapshots show mock names (`Text`, `View`). Running `vitest -u` against Jest's files rewrites them for Vitest and deletes Jest's entries. While both runners run, point Vitest at its own directory with `test.resolveSnapshotPath` and record there — see [Migrating from Jest](/migration/from-jest#snapshots). Prefer explicit queries over large snapshots — they're robust across host names.
 
-## `findBy*` or `waitFor` times out under `vi.useFakeTimers()` with the mock engine
-
-RNTL advances fake timers only through a `jest` it can see. Under `engine: 'native'`, RNTL's own files get one backed by `vi`, so `findBy*`, `waitFor` and `userEvent` delays advance Vitest's fake clock, with or without jest-compat. The mock engine does not give RNTL one yet. Without the [jest-compat layer](/guide/jest-compat), these helpers wait in real time while the fake clock stands still, and time out. Add jest-compat, or advance the clock before querying: `await vi.advanceTimersByTimeAsync(ms)`.
-
 ## `findBy*` or `waitFor` times out under `vi.useFakeTimers()`
 
-RNTL advances fake timers only when it finds a global `jest`, which the [jest-compat layer](/guide/jest-compat) provides. Without it, `waitFor` and `findBy*` wait in real time while the fake clock stands still. Add jest-compat, or advance the clock before querying: `await vi.advanceTimersByTimeAsync(ms)`. See [How it works](/guide/how-it-works).
+Under the mock engine, RNTL advances fake timers only with the [jest-compat layer](/guide/jest-compat). Add it, or advance the clock before querying: `await vi.advanceTimersByTimeAsync(ms)`. Under the native engine this works with no setup; if it still times out there, see [Mocking: fake timers](/guide/mocking#fake-timers) and, under the hot runtime, the next entry.
 
 ## A test passes on its own but fails when run with other files
 

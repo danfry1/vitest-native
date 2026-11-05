@@ -127,11 +127,11 @@ The error names the offending file — add that package to `transform` so vitest
 reactNative({ engine: 'native', transform: ['<lib>'] })
 ```
 
-This is the direct replacement for having listed the lib in `transformIgnorePatterns` under Jest. It's also required when a `vi.mock('<lib>')` must intercept an otherwise-externalized library — `vi.mock` only applies to modules pulled into the Vite graph.
+This is the direct replacement for having listed the lib in `transformIgnorePatterns` under Jest. Most React Native libraries don't need it: packages that declare `react-native` are detected and compiled automatically. See [untranspiled packages](/guide/mocking#packages-that-ship-untranspiled-source), and [what `vi.mock` reaches](/guide/mocking#what-vi-mock-reaches) for mocking a library.
 
 ### Babel plugins your Jest run applied
 
-Under Jest, babel-jest ran your `babel.config.js` on every file. vitest-native does not read it: your source goes through Vite's transform, and React Native's own code through RN's Babel preset. Most plugins in a React Native Babel config exist for Metro and are not missed, but a few change what the code means. `vitest-native migrate` and `doctor` read the config and sort its plugins:
+Under Jest, babel-jest ran your `babel.config.js` on every file. vitest-native applies it only to project TypeScript files Node loads (through `require()` or `jest.requireActual`): the files your tests `import` go through Vite's transform, and React Native's own code through RN's Babel preset. Most plugins in a React Native Babel config exist for Metro and are not missed, but a few change what the code means. `vitest-native migrate` and `doctor` read the config and sort its plugins:
 
 | Plugin | Under vitest-native |
 |---|---|

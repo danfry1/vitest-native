@@ -33,8 +33,8 @@ The plugin auto-injects a setup file that:
 - sets React Native globals (`__DEV__`, `requestAnimationFrame`, etc.),
 - wires up [`@testing-library/react-native`](https://callstack.github.io/react-native-testing-library/) if it's installed — registering its matchers, setting host component names for older RNTL (RNTL ≥ 12 auto-detects them against real RN host names), and running its automatic cleanup after each test without `test.globals` (RNTL registers that only through a global `afterEach`; importing `@testing-library/react-native/pure` or setting `RNTL_SKIP_AUTO_CLEANUP` still opts out). The cleanup runs after the test file's own `afterEach` hooks, which is also where RNTL's runs under Vitest with `test.globals: true`; Jest runs RNTL's cleanup first, so an `afterEach` that expects the tree to be unmounted already needs to call `cleanup()` itself.
 
-::: warning Known limitation: RNTL and `vi.useFakeTimers()` without jest-compat
-RNTL detects fake timers only through a global `jest`. Without the [jest-compat layer](/guide/jest-compat) there is none, so under `vi.useFakeTimers()` RNTL's `waitFor` and `findBy*` poll on real time while the fake clock stands still, and time out. Use jest-compat, or advance the clock yourself: `await vi.advanceTimersByTimeAsync(ms)` before the query, or `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })` for user events.
+::: tip Fake timers
+Under the native engine, RNTL's `waitFor`, `findBy*` and `userEvent` advance `vi.useFakeTimers()` with no extra setup; under the mock engine they need the jest-compat layer. See [Mocking: fake timers](/guide/mocking#fake-timers).
 :::
 
 You do **not** add anything to `setupFiles` yourself, and you do **not** manually configure `hostComponentNames` — between the plugin and RNTL's own auto-detection, it's handled.
@@ -73,26 +73,9 @@ One deliberate component-level exception: `TextInput` is replaced with the same 
 
 This is the same architecture as the original [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native), rebuilt to track current Vitest and React Native.
 
-### Mocking React Native itself
+### Mocking and untranspiled packages
 
-`vi.mock('react-native')` works under both engines, including the `importOriginal()` form that keeps everything you don't name:
-
-```ts
-vi.mock('react-native', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('react-native')>()),
-  Alert: { alert: vi.fn() },
-}))
-```
-
-Under `engine: 'native'` this does **not** swap React Native for a mock: React Native still runs for real in Node, and your test and app code get a module that re-exports that same instance with your replacements on top. `Platform.OS` is still real, `<View>` still renders `RCTView`, and only the exports you replaced are yours. The replacement covers your project's own code; any third-party package gets the unmocked React Native through its own `require`.
-
-For native modules specifically, prefer [`mockNativeModule()`](/guide/helpers#mocknativemodule-name-impl): it drives the same boundary the engine already mocks, under both engines.
-
-### React Native packages in `node_modules`
-
-Most of the React Native ecosystem publishes untranspiled source (JSX, Flow or TypeScript) on the assumption that Metro will compile it, which Node cannot run. Under other runners that means growing a `transformIgnorePatterns` allowlist one `SyntaxError: Unexpected token '<'` at a time. The native engine detects these packages instead: packages your project depends on that declare `react-native` as a dependency or peer dependency, and their runtime dependencies, are compiled with your project's React Native Babel preset as Node loads them. Nothing to configure. Packages a [preset](/guide/presets) replaces are skipped (their real source never loads), and so is the test infrastructure itself (`@testing-library/react-native` and the renderers, where a second copy breaks rendering). For a package the detection misses, list it in [`transform`](/guide/plugin-options#transform).
-
-These packages are loaded by Node, so `vi.mock('the-package')` applies to what your test and app code import, but not to a `require()` inside another Node-loaded library: a library's own import of a mocked package still gets the real one. Platform-specific files resolve the way Metro resolves them for these packages too (`@react-navigation`'s `useLinking.native.js`, for example), not only for your own code.
+How `vi.mock('react-native')` behaves under the native engine, what `vi.mock` reaches, and how packages that ship JSX, Flow or TypeScript are compiled (`transform.include` and `transform.exclude`) are covered on the [Mocking](/guide/mocking) page. Platform-specific files (`.ios.js`, `.native.js`) resolve the way Metro resolves them inside those packages too, not only in your own code.
 
 ### Package entry points
 
@@ -106,8 +89,8 @@ Externalized packages loaded with `import` pass through vitest-native's Node loa
 
 Because RN runs externalized through Node (not your Vite source graph):
 
-- **`vi.mock` of an externalized RN-side library may not intercept.** Libraries that load through Node bypass Vitest's mocker. Prefer a [preset](/guide/presets) (if one exists) or mock at the boundary. Your *own* modules mock normally.
-- **Custom Babel plugins don't run.** Transforms go through Vite/esbuild, not your `babel.config.js`. Flow/TS stripping for RN and allow-listed packages is handled by the require hook; use the [`transform` allowlist](/guide/plugin-options) for extra pure-JS packages that ship untranspiled source. A plugin your tests depend on — a macro plugin such as `@lingui/babel-plugin-lingui-macro` — has to be added to the Vitest config; `vitest-native doctor` lists them and [Migrating from Jest](/migration/from-jest#babel-plugins-your-jest-run-applied) has the recipe.
+- **`vi.mock` replaces what your test and app code import, not what a library `require`s.** A library's own import of a mocked package gets the real one. See [what `vi.mock` reaches](/guide/mocking#what-vi-mock-reaches).
+- **Your Babel config applies only where babel-jest's would through Node.** Files your tests `import` go through Vite's transform, not your `babel.config.js`; project TypeScript files Node loads (through `require()` or `jest.requireActual`) are compiled with it. React Native and detected packages are compiled with React Native's Babel preset ([untranspiled packages](/guide/mocking#packages-that-ship-untranspiled-source)). A plugin your tests depend on — a macro plugin such as `@lingui/babel-plugin-lingui-macro` — has to be added to the Vitest config; `vitest-native doctor` lists them and [Migrating from Jest](/migration/from-jest#babel-plugins-your-jest-run-applied) has the recipe.
 
 ## The mock engine, specifically
 
