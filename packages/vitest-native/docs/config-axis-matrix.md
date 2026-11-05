@@ -43,7 +43,7 @@ fails the run instead of reading as unsupported. Ownership track A1 moves the ax
 
 | Cell            | Where                                                                                   | Notes                                                                      |
 | --------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| RNTL 12 / 13    | `ci.yml` back-compat legs (ubuntu, Node 22.13)                                          | native + hot suites, but every native config there sets `globals: true`    |
+| RNTL 12 / 13    | `ci.yml` back-compat legs (ubuntu, Node 22.22.3)                                        | native + hot suites, but every native config there sets `globals: true`    |
 | Vitest 4        | RN matrix `v4` column (RN 0.81, 0.88); `packed` cell "Vitest semantics, Vitest 4 floor" | native + hot on RNTL 14 only; the semantics gate has no RNTL               |
 | Hot on          | `ci.yml` every leg; RN matrix every cell                                                | `globals: true`, RNTL 14 (12/13 in `ci.yml`)                               |
 | Isolated layout | `consumer-tests/monorepo-pnpm` (packed, pnpm)                                           | native, RNTL 14, `globals` off — but no RNTL cleanup, timer or alias probe |

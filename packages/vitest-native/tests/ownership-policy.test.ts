@@ -197,7 +197,7 @@ describe("native ownership policy", () => {
       `import { createRequire } from "node:module";`,
       `import { pathToFileURL } from "node:url";`,
       `import { installRequireHooks } from ${JSON.stringify(pathToFileURL(hooks).href)};`,
-      `import { initialize, load } from ${JSON.stringify(pathToFileURL(loader).href)};`,
+      `import { initialize, loadSync } from ${JSON.stringify(pathToFileURL(loader).href)};`,
       `import { buildRegistry } from ${JSON.stringify(pathToFileURL(registry).href)};`,
       `const root = ${JSON.stringify(projectRoot)};`,
       `const req = createRequire(root + "/package.json");`,
@@ -209,10 +209,10 @@ describe("native ownership policy", () => {
       `if (built.__vitestNativeRegistry.ids.length !== 3) throw new Error("linked RN dependency was not inlined");`,
       `await initialize({ projectRoot: root, platform: "ios", transformPkgs: [] });`,
       `const innerFile = ${JSON.stringify(path.join(canonicalLinkedRoot, "Libraries", "Utilities", "Inner.js"))};`,
-      `const esmInner = await load(pathToFileURL(innerFile).href, {}, async () => ({ format: "module", source: "sentinel" }));`,
+      `const esmInner = loadSync(pathToFileURL(innerFile).href, {}, () => ({ format: "module", source: "sentinel" }));`,
       `if (esmInner.format !== "commonjs" || esmInner.source === "sentinel" || esmInner.source.includes("value: string")) throw new Error("linked RN ESM loader did not transform Flow: " + JSON.stringify(esmInner));`,
       `const boundaryFile = ${JSON.stringify(path.join(canonicalLinkedRoot, "Libraries", "TurboModule", "TurboModuleRegistry.js"))};`,
-      `const esmBoundary = await load(pathToFileURL(boundaryFile).href, {}, async () => ({ format: "module", source: "sentinel" }));`,
+      `const esmBoundary = loadSync(pathToFileURL(boundaryFile).href, {}, () => ({ format: "module", source: "sentinel" }));`,
       // The loader serves a facade that requires the file (one instance with React
       // Native's own require), naming the boundary stub's exports for Node.
       `if (!esmBoundary.source.includes("createRequire(") || !/module\\.exports = \\{[^}]*\\bget\\b/.test(esmBoundary.source)) throw new Error("linked RN ESM loader missed the native boundary: " + esmBoundary.source);`,

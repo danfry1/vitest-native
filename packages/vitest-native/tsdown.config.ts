@@ -64,7 +64,7 @@ export default defineConfig([
     format: "esm",
     hooks: {
       // The native runtime + jest-compat shims are plain .mjs loaded by Node at
-      // runtime (native: via module.register; jest-compat: as setup file / alias
+      // runtime (native: via module.registerHooks; jest-compat: as setup file / alias
       // targets resolved by Vite), so they must ship verbatim rather than bundled.
       "build:done": () => {
         referenceVitest("matchers.d.mts");

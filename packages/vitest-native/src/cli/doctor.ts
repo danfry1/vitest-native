@@ -30,6 +30,7 @@ import {
   PEER_REQUIREMENTS,
   unsupportedExpoSdkMessage,
 } from "../peer-requirements.js";
+import { SUPPORTED_NODE, satisfiesNodeRange, unsupportedNodeMessage } from "../node-range.js";
 import { installedViteVersion, ownVitestPackage, usesVitePlus } from "../host.js";
 import { fsModuleCacheOnByDefault } from "../fs-module-cache.js";
 
@@ -48,12 +49,11 @@ function packageVersion(root: string, name: string): string | null {
 }
 
 /**
- * The supported Node versions, as this package's own `engines.node` states them.
- * Single source: the manifest is what a package manager enforces at install time, so a
- * diagnostic must not carry its own copy of the range.
+ * The supported Node range: SUPPORTED_NODE, the constant the plugin enforces at startup,
+ * which a test holds equal to `engines.node` (what a package manager enforces).
  */
 export function nodeRange(): string {
-  const fallback = ">=22.13.0 <23 || >=24.3.0";
+  const fallback = SUPPORTED_NODE;
   // The nearest vitest-native manifest above this file: two levels up from src/cli/, one
   // from the bundled dist/cli.mjs. A fixed relative path fits only one of them.
   for (let dir = path.dirname(fileURLToPath(import.meta.url)); ; dir = path.dirname(dir)) {
@@ -73,49 +73,7 @@ function readManifest(file: string): { name?: string; engines?: { node?: string 
   }
 }
 
-const versionParts = (version: string): [number, number, number] => {
-  const [major = 0, minor = 0, patch = 0] = version
-    .replace(/^v/, "")
-    .split(/[.-]/)
-    .map((part) => Number.parseInt(part, 10) || 0);
-  return [major, minor, patch];
-};
-
-const compareVersions = (a: string, b: string): number => {
-  const [x, y] = [versionParts(a), versionParts(b)];
-  return x[0] - y[0] || x[1] - y[1] || x[2] - y[2];
-};
-
-/**
- * Whether `version` is in `range`: `||`-separated sets of space-separated comparators
- * (`>=`, `>`, `<=`, `<`, `=`), the forms `engines.node` uses. A version missing parts
- * reads them as 0 (`<23` is `<23.0.0`).
- */
-export function satisfiesNodeRange(version: string, range: string): boolean {
-  return range.split("||").some((set) =>
-    set
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean)
-      .every((comparator) => {
-        const match = /^(>=|<=|>|<|=)?\s*v?(\d[\w.-]*)$/.exec(comparator);
-        if (!match) return false;
-        const order = compareVersions(version, match[2]);
-        switch (match[1] ?? "=") {
-          case ">=":
-            return order >= 0;
-          case ">":
-            return order > 0;
-          case "<=":
-            return order <= 0;
-          case "<":
-            return order < 0;
-          default:
-            return order === 0;
-        }
-      }),
-  );
-}
+export { satisfiesNodeRange };
 
 /**
  * In Vitest's own precedence order: a `vitest.config.*` wins, and `vite.config.*`
@@ -393,16 +351,16 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
 
   // --- Runtime ---
   lines.push("", "Runtime");
-  // The supported range is read from this package's own `engines.node` rather than
-  // written out here. The floor was once hardcoded as 20 and compared on the MAJOR
-  // only, so when the real floor moved to 20.19 doctor kept passing Node 20.0. A range
-  // a user reads off a diagnostic has to come from the same place a package manager
-  // enforces it.
+  // The range is the one the plugin enforces at startup (node-range.ts), held equal to
+  // `engines.node` by a test: a range a user reads off a diagnostic has to be the one a
+  // package manager enforces. A per-line floor (22.22.3, 24.12) is compared on the full
+  // version, not the major: a major-only check would pass Node 22.13.
   const range = nodeRange();
   if (satisfiesNodeRange(nodeVersion, range)) {
     pass(`Node ${nodeVersion} (supported: ${range})`);
   } else {
-    fail(`Node ${nodeVersion} — vitest-native supports Node ${range}.`);
+    // The plugin's own startup message, so both say which release to install.
+    fail(unsupportedNodeMessage(nodeVersion));
   }
 
   // --- Required peers ---
@@ -542,11 +500,6 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
       );
     if (rntlError) {
       warn(rntlError);
-    } else if (rntlMajor >= 14 && !satisfiesNodeRange(nodeVersion, ">=22.13.0")) {
-      fail(
-        `@testing-library/react-native ${rntl} requires Node >= 22.13, but this is Node ${nodeVersion}. ` +
-          `Upgrade Node or pin @testing-library/react-native@13.`,
-      );
     } else if (rntlMajor >= 14 && !packageVersion(rootFor("test-renderer"), "test-renderer")) {
       // RNTL 14 declares `test-renderer` as a NON-optional peer and reconciles
       // through it. Without it every render throws "Cannot find module

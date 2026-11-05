@@ -692,27 +692,14 @@ export function installRequireHooks(
     return origJs(mod, filename);
   };
 
-  // An `.mjs` file a compiled module requires: Babel turns `import … from "./x.mjs"`
-  // into require("./x.mjs"), which is Node's require(esm). Where the ESM loader runs on
-  // its own thread (register() before Node 22.15, see installLoaderHooks in setup.mjs),
-  // require(esm) does not consult it, so the file, and React Native's Flow source beneath
-  // it, ran uncompiled. There the files the loader would compile (React Native's, and
-  // packages selected for compiling) are compiled here, as the loader compiles an `.mjs`
-  // it is handed (requireFacade in loader.mjs). In-thread hooks see require(esm) and the
-  // file's own imports, so Node keeps it there.
+  // An `.mjs` file Node's require(esm) loads: the in-thread loader compiles what it must
+  // (requireFacade in loader.mjs), and this handler only checks Expo's SDK version, as
+  // the `.js` handler above does for CommonJS.
   const origMjs = Module._extensions[".mjs"];
   if (origMjs) {
     Module._extensions[".mjs"] = function (mod, filename) {
-      const norm = filename.replace(/\\/g, "/");
-      checkLoadedExpoSdk(norm, expoSdks);
-      if (globalThis.__vitest_native_loader_mode !== "thread") {
-        return origMjs(mod, filename);
-      }
-      const rnPath = ownership.reactNativePathFor(filename);
-      if (rnPath === null && !isExtra(norm)) return origMjs(mod, filename);
-      const boundary = boundarySourceFor(rnPath ?? norm, platform, reactNativeVersion);
-      if (boundary != null) return mod._compile(boundary, filename);
-      return mod._compile(transformRN(filename, undefined, projectRoot, platform), filename);
+      checkLoadedExpoSdk(filename.replace(/\\/g, "/"), expoSdks);
+      return origMjs(mod, filename);
     };
   }
 

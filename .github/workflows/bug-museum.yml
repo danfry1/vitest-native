@@ -13,7 +13,7 @@ name: Bug museum
 #     auto may pick per-file isolation on a hosted runner; compare.mjs reports that
 #     exhibit as inconclusive instead of failing).
 #
-# One job, one Node version (22.13.0, the floor the config-axis matrix also runs).
+# One job, one Node version (22.22.3, the floor the config-axis matrix also runs).
 # Skipped here (N/A, run.mjs --allow-na): the exhibits that need an install this job does
 # not assemble. They are measured locally by run-columns.mjs and recorded in STATUS.md:
 #   RNTL 12   pre-rntl12-nested-text, pre-rntl12-nested-text-role
@@ -84,7 +84,7 @@ jobs:
 
       - uses: ./.github/actions/setup
         with:
-          node-version: 22.13.0
+          node-version: 22.22.3
 
       - name: Build
         run: bun run build

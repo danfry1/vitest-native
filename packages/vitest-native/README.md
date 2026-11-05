@@ -103,7 +103,7 @@ through the jest-compat layer. See [migrating from Jest](https://danfry1.github.
 
 | | Supported |
 |---|---|
-| Node.js | 22.13+ on Node 22, or 24.3+ |
+| Node.js | 22.22.3+ on Node 22, 24.12+ on Node 24, or 26+ |
 | Vitest | 4.x or 5.x |
 | Vite | ^6.4.2, ^7.3.2 or ^8.0.5 |
 | React | 18 or later |
@@ -112,8 +112,8 @@ through the jest-compat layer. See [migrating from Jest](https://danfry1.github.
 | React Native Testing Library | 12.x, 13.x or 14.x (optional) |
 
 Use the React version your React Native release requires, and a `@react-native/babel-preset`
-that matches its minor version. Node 24.0–24.2 are excluded because `jest.mock` does not reach
-modules Node loads there.
+that matches its minor version. Each Node line starts at the release where Node's in-thread
+module hooks work; on an older Node the plugin stops at startup with `UNSUPPORTED_NODE`.
 
 ## Learn more
 

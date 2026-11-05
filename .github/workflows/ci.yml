@@ -65,7 +65,7 @@ jobs:
 
       - uses: ./.github/actions/setup
         with:
-          node-version: 22.13.0
+          node-version: 22.22.3
 
       # The versioning contract checks the documented exports against the build.
       - name: Build
@@ -92,10 +92,10 @@ jobs:
 
       - uses: ./.github/actions/setup
         with:
-          node-version: 22.13.0
+          node-version: 22.22.3
 
-      # As in the packed cells: npm 10.9.2 (bundled with Node 22.13.0) crashes on these
-      # fixtures' dependency graphs.
+      # As in the packed cells: the npm 10 that Node 22 bundles crashes on these fixtures'
+      # dependency graphs.
       - name: Use an npm without the arborist edgesOut bug
         run: npm install -g npm@11.20.0
 
@@ -142,7 +142,7 @@ jobs:
 
       - uses: ./.github/actions/setup
         with:
-          node-version: 22.13.0
+          node-version: 22.22.3
 
       - name: Verify dependencies are pinned
         run: bun run lint:deps
@@ -174,21 +174,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Node 22.13 is the Node 22 floor (engines.node is >=22.13.0 <23 || >=24.3.0),
-        # and runs the threaded loader; Node 24.13 runs it in-thread
-        # (inThreadHooksReliable in native/loader.mjs). The back-compat legs pin RNTL 12
+        # Node 22.22.3 is the Node 22 floor (engines.node; src/node-range.ts), the first
+        # Node 22 whose in-thread loader hooks carry the engine. The back-compat legs pin RNTL 12
         # and 13 to prove the full supported peer range (>=12 <15) on every push. The
         # hot runtime and cross-check are calibrated on the current RNTL and run only on
         # the RNTL 14 legs (step `if`s).
         include:
           - os: ubuntu-latest
-            node-version: 22.13.0
+            node-version: 22.22.3
             rntl: '12'
           - os: ubuntu-latest
-            node-version: 22.13.0
+            node-version: 22.22.3
             rntl: '13'
           - os: ubuntu-latest
-            node-version: 22.13.0
+            node-version: 22.22.3
           # macOS and Windows run the same steps as every other leg, split across two
           # parallel jobs by `part`: `suite` (static checks, the unit suite, hot-runtime
           # isolation, the cross-check, the example app, Windows loader contracts) and
@@ -199,16 +198,16 @@ jobs:
           # start from the restored transform cache rather than after the unit suite,
           # as they already do in every native-rn-matrix.yml cell.
           - os: macos-latest
-            node-version: 22.13.0
+            node-version: 22.22.3
             part: suite
           - os: macos-latest
-            node-version: 22.13.0
+            node-version: 22.22.3
             part: native
           - os: windows-latest
-            node-version: 22.13.0
+            node-version: 22.22.3
             part: suite
           - os: windows-latest
-            node-version: 22.13.0
+            node-version: 22.22.3
             part: native
           # Node 24 is the current release line and the matrix stopped at 22, which is
           # how a workspace-level Vitest mismatch went unnoticed locally for a whole
@@ -221,9 +220,8 @@ jobs:
           # facades depend on that load result (generationFacade in native/loader.mjs).
           - os: ubuntu-latest
             node-version: '24'
-          # Node 26 is the active LTS line (26.13.0, October 2026) and engines.node
-          # (>=24.3.0) admits it, so it runs the full gate too: the loader hooks run
-          # in-thread on it, and their behaviour has changed between Node lines before.
+          # Node 26 is the active LTS line (26.13.0, October 2026), so it runs the full
+          # gate too: the loader hooks' behaviour has changed between Node lines before.
           - os: ubuntu-latest
             node-version: 26.13.0
 
@@ -269,7 +267,7 @@ jobs:
         run: bun run build
 
       - name: Enforce published package budget
-        if: runner.os == 'Linux' && matrix.node-version == '22.13.0' && !matrix.rntl
+        if: runner.os == 'Linux' && matrix.node-version == '22.22.3' && !matrix.rntl
         run: bun run --filter vitest-native check:size
 
       - name: React Native API coverage (pinned RN)
@@ -281,7 +279,7 @@ jobs:
         # the gap surfacing days later as a canary failure against a different
         # version. One leg is enough: RN is identical across the matrix, only RNTL
         # varies. The canary keeps its own edge run.
-        if: runner.os == 'Linux' && matrix.node-version == '22.13.0' && !matrix.rntl
+        if: runner.os == 'Linux' && matrix.node-version == '22.22.3' && !matrix.rntl
         run: bun run --filter vitest-native check-compat
 
       - name: Test
@@ -291,7 +289,7 @@ jobs:
       - name: Docs checks selection
         # The docs job runs this only on docs-only pull requests, and a change to the
         # script itself is not docs-only, so the selection runs here once as well.
-        if: runner.os == 'Linux' && matrix.node-version == '22.13.0' && !matrix.rntl
+        if: runner.os == 'Linux' && matrix.node-version == '22.22.3' && !matrix.rntl
         run: bun run --filter vitest-native test:docs
 
       - name: Native engine tests
@@ -370,16 +368,8 @@ jobs:
         run: bun run test:example
 
       - name: Check package exports
-        if: runner.os == 'Linux' && matrix.node-version == '22.13.0'
+        if: runner.os == 'Linux' && matrix.node-version == '22.22.3'
         run: bun run check:exports
-
-      # The Windows floor (22.13) predates registerHooks. Reuse the existing job
-      # for a dependency-free modern-Node contract run, after all floor checks.
-      - name: Modern Node for Windows loader-hook contracts
-        if: runner.os == 'Windows' && matrix.part != 'native'
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24.16.0
 
       - name: Windows synchronous loader-hook contracts
         if: runner.os == 'Windows' && matrix.part != 'native'
@@ -432,10 +422,10 @@ jobs:
 
       - uses: ./.github/actions/setup
         with:
-          node-version: 22.13.0
+          node-version: 22.22.3
 
-      # Every packed cell installs fixtures with npm. Node 22.13.0 bundles npm
-      # 10.9.2, whose arborist crashes with "Cannot read properties of null (reading
+      # Every packed cell installs fixtures with npm. Node 22 bundles npm 10.9,
+      # whose arborist crashes with "Cannot read properties of null (reading
       # 'edgesOut')" on these fixtures' dependency graphs. It is not this package:
       # a fixture with vitest-native removed entirely crashes the same way, and the
       # commit that passed on 2026-07-27 fails on re-run with no code change, so a
@@ -489,9 +479,10 @@ jobs:
         if: matrix.gate == 'hot-runtime'
         run: bun run --filter vitest-native validate:metro-profile
 
-      - name: Packed CJS reset mutation control
-        # One packed RN consumer, not another full matrix. Omitting the installed
-        # drain must fail, proving that the positive gate reaches this reset seam.
+      - name: Packed CJS reset consumer
+        # One packed RN consumer, not another full matrix: the direct CJS re-export
+        # consumer passes under the hot runtime. Its drain mutation control could only
+        # fail under the threaded loader the Node floor removed (#530).
         if: matrix.gate == 'hot-runtime'
         run: node packages/vitest-native/validation/module-isolation/run-packed-cjs-reset.mjs
 
