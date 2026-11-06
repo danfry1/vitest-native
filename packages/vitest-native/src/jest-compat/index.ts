@@ -11,7 +11,7 @@
  * - `jestCompatAliases()` (`resolve.alias`): `@jest/globals` for RNTL < 12, and
  *   jest-native's `extend-expect` as a no-op.
  *
- * What stays a per-suite change (see docs/migrating-from-jest.md): upgrading
+ * What stays a per-suite change (see https://danfry1.github.io/vitest-native/migration/from-jest): upgrading
  * `@testing-library/react-native` to 12–14, and deleting the mocks of third-party native
  * libraries, which vitest-native's presets cover.
  *
