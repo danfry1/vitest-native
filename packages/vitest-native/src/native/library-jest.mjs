@@ -24,9 +24,12 @@
 // decide whether it runs under Jest.
 //
 // A package's test support is active once one of its support entries loads: a request
-// whose leaf is `jestSetup` or `mock`, or a file under its `jest/` directory, whether a
-// preset loads it or a suite migrated from Jest imports it. Its files that mention
-// `jest` then get one.
+// whose leaf is `jestSetup` or `mock`, a file under its `jest/` directory, or an Expo
+// module's `mocks/<NativeModule>` file (the mock of its native module, which
+// expo-modules-core generates for Jest; expo-font's calls `jest.fn` and
+// `jest.requireActual`), whether a preset loads it, the Expo module resolver does
+// (expo-module-mocks.mjs), or a suite migrated from Jest imports it. Its files that
+// mention `jest` then get one.
 //
 // What a support entry registers lasts as long as the entry's module does. Each test
 // file gets a fresh module registry by default, and under the hot runtime, which evicts
@@ -87,7 +90,7 @@ function packageRootOf(file) {
         name = undefined;
       }
       if (typeof name === "string") {
-        root = { name, dir };
+        root = { name, dir, expoModule: fs.existsSync(path.join(dir, "expo-module.config.json")) };
         break;
       }
     }
@@ -116,7 +119,11 @@ function supportPackageOfFile(file) {
   if (root.dir === projectRoot || projectRoot.startsWith(root.dir + path.sep)) return null;
   const rest = path.relative(root.dir, file).split(path.sep).join("/");
   const leaf = path.posix.basename(rest).replace(/\.[cm]?[jt]sx?$/, "");
-  return SUPPORT_LEAVES.has(leaf) || rest.split("/")[0] === "jest" ? root.name : null;
+  const parts = rest.split("/");
+  if (SUPPORT_LEAVES.has(leaf) || parts[0] === "jest") return root.name;
+  // An Expo module's mock of its native module, `mocks/<NativeModule>`.
+  if (root.expoModule && parts.length === 2 && parts[0] === "mocks") return root.name;
+  return null;
 }
 
 /** Whether the support entry `owner` is still the module a `require` of it returns. */
