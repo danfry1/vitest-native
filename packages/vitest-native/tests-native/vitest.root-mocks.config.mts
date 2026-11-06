@@ -21,6 +21,8 @@ export default defineConfig(({ mode }) => {
       reactNative({
         engine: "native",
         hotRuntime: mode === "hot" ? { allowUnboundedMemory: true } : false,
+        // scripts/test-root-mocks-registry.mjs reads whether the registry was compiled or reused.
+        diagnostics: process.env.VN_REGISTRY_DIAGNOSTICS === "1",
       }),
       jestMockTransform({ roots: [".", "other-root", "../root-mocks-outside"] }),
     ],
