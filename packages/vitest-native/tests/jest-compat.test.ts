@@ -674,7 +674,6 @@ describe("jest-compat: unsupported Jest APIs are signposts, not TypeErrors", () 
 
 describe("jest-compat shims for require()", () => {
   it("has a file for every jestCompatAliases() target, the one its export names", async () => {
-    const { jestCompatAliases } = await import("../src/jest-compat/index.js");
     const { JEST_COMPAT_SHIM_FILES } = await import("../src/jest-compat/aliases.mjs");
     const manifest = JSON.parse(
       fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"),
