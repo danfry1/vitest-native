@@ -2890,8 +2890,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           else if (started.pending) {
             fields.registryPending = started.pending;
             backgroundRegistryRoots.add(directoryKey(resolvedRoot));
-          }
-          else useRegistries(started);
+          } else useRegistries(started);
         }
 
         // Lazy import: pulls in vitest/node, which only exists when running under
