@@ -2026,8 +2026,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   let projectJsx: ReturnType<typeof projectJsxOptions>;
   // The project's Babel route per project root (project-babel.ts).
   const projectBabels = new Map<string, ProjectBabel>();
+  // Keyed by path.resolve's spelling: Vite's config.root is `C:/…` on Windows, the root
+  // configureProject has is `C:\…`, and both must find the same route.
   const projectBabelFor = (root: string | undefined): ProjectBabel | undefined =>
-    root === undefined ? undefined : projectBabels.get(root);
+    root === undefined ? undefined : projectBabels.get(path.resolve(root));
   const presetModules = new Map<string, () => Record<string, any>>();
   // Preset export names discovered by calling factories at config time.
   const presetExportNames = new Map<string, string[]>();
@@ -3239,8 +3241,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
               `Set projectBabel: 'never' to compile it with Oxc only.`,
           ),
       );
-      if (babelRoute) projectBabels.set(config.root, babelRoute);
-      else projectBabels.delete(config.root);
+      if (babelRoute) projectBabels.set(path.resolve(config.root), babelRoute);
+      else projectBabels.delete(path.resolve(config.root));
       babelRoute?.announceRoot();
 
       // Read the facade's export list from React Native's own index.

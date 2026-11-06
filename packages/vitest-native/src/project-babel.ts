@@ -696,9 +696,8 @@ export function createProjectBabel(
   // Only files in the project: a project-wide Babel config applies to any file Babel is
   // asked about, including a linked workspace package's and vitest-native's own.
   const rootPrefix = root.split(path.sep).join("/").replace(/\/?$/, "/");
-  const versions = new Map<string, string>();
-  // A package plugin by its version; a local plugin file by its content, re-read when it
-  // changes (watch mode keeps this process).
+  // A package plugin by its version; a local plugin file by its content, read each time
+  // (one small file), so an edit counts however coarse the file system's timestamps are.
   const versionOf = (item: ConfigItem): string => {
     const file = item.file?.resolved;
     if (!file) return "inline";
@@ -707,14 +706,7 @@ export function createProjectBabel(
       if (typeof manifest?.version === "string") return manifest.version;
     }
     if (!fs.existsSync(file)) return "missing";
-    const stat = fs.statSync(file);
-    const memo = `${file}\0${stat.mtimeMs}\0${stat.size}`;
-    let version = versions.get(memo);
-    if (version === undefined) {
-      version = crypto.createHash("sha1").update(fs.readFileSync(file)).digest("hex");
-      versions.set(memo, version);
-    }
-    return version;
+    return crypto.createHash("sha1").update(fs.readFileSync(file)).digest("hex");
   };
 
   return {
