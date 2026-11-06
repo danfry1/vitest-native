@@ -245,7 +245,7 @@ export function parseCompareArgs(argv: string[]): Omit<CompareOptions, "log"> | 
     return {
       error:
         `--jest-args may not contain ${refusedJest}: compare passes only arguments that cannot write ` +
-        `snapshots or replace its reports (see docs/compare-mode.md).`,
+        `snapshots or replace its reports (see https://danfry1.github.io/vitest-native/guide/cli#compare).`,
     };
   }
   const refusedVitest = refusedArg(vitestArgs, VITEST_ARGS);

@@ -6,8 +6,8 @@ import { describe, expect, it } from "vitest";
 // VitePress fails the build on a link to a page that does not exist, but not on a link
 // to a heading that does not: `/guide/engines#worker-recycling` kept building after the
 // section moved, and sent readers to the top of the page. This resolves every site link
-// with a fragment, from the site's pages and from both READMEs (which link the site by
-// absolute URL), against the headings VitePress turns into anchors.
+// with a fragment, from the site's pages, both READMEs and the package's own source (which
+// link the site by absolute URL), against the headings VitePress turns into anchors.
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const SITE = path.join(repoRoot, "website");
 const SITE_URL = "https://danfry1.github.io/vitest-native";
@@ -85,6 +85,31 @@ function pageFor(route: string): string | null {
 
 type Link = { from: string; target: string; anchor: string };
 
+const SOURCE = path.join(repoRoot, "packages/vitest-native/src");
+
+function sourceFiles(dir: string): string[] {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const file = path.join(dir, entry.name);
+    if (entry.isDirectory()) return sourceFiles(file);
+    return /\.(ts|mts|mjs)$/.test(entry.name) ? [file] : [];
+  });
+}
+
+/**
+ * The site links the package's own messages and doc comments carry: an error's "See …",
+ * a CLI hint. They are plain URLs in strings, not Markdown links.
+ */
+function sourceLinks(): Link[] {
+  const pattern = new RegExp(`${SITE_URL.replace(/[.]/g, "\\.")}(/[\\w/-]*)#([\\w-]+)`, "g");
+  return sourceFiles(SOURCE).flatMap((file) =>
+    [...fs.readFileSync(file, "utf8").matchAll(pattern)].map(([, target, anchor]) => ({
+      from: path.relative(repoRoot, file),
+      target,
+      anchor,
+    })),
+  );
+}
+
 function links(): Link[] {
   const result: Link[] = [];
   const sources = [...pages(SITE), ...READMES.map((readme) => path.join(repoRoot, readme))];
@@ -115,10 +140,19 @@ function links(): Link[] {
 }
 
 describe("site anchors", () => {
-  const all = links();
+  const fromSource = sourceLinks();
+  const all = [...links(), ...fromSource];
 
   it("finds the links to check", () => {
     expect(all.length).toBeGreaterThan(50);
+    expect(fromSource.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("links the site, not the repository's docs/ folder, from the package's messages", () => {
+    const repoDocs = sourceFiles(SOURCE).filter((file) =>
+      fs.readFileSync(file, "utf8").includes("github.com/danfry1/vitest-native/blob/"),
+    );
+    expect(repoDocs.map((file) => path.relative(repoRoot, file))).toEqual([]);
   });
 
   it("resolves every site link with a fragment to a heading", () => {
