@@ -17,6 +17,7 @@ const STORAGE_KEY = 'vitest-native:package-manager'
 const selected = ref<Manager>('npm')
 const copied = ref(false)
 const command = computed(() => managers.find((m) => m.id === selected.value)!.command)
+const words = computed(() => command.value.split(' '))
 const commandEl = ref<HTMLElement | null>(null)
 const tabEls = ref<HTMLButtonElement[]>([])
 
@@ -98,7 +99,13 @@ async function copy() {
       role="tabpanel"
       :aria-labelledby="`hero-install-tab-${selected}`"
     >
-      <code ref="commandEl"><span class="prompt" aria-hidden="true">$ </span>{{ command }}</code>
+      <!-- Breaks only between words, never inside a package name. -->
+      <code ref="commandEl"
+        ><span class="prompt" aria-hidden="true">$ </span
+        ><template v-for="(word, index) in words" :key="index"
+          ><span class="word">{{ word }}</span>{{ index < words.length - 1 ? ' ' : '' }}</template
+        ></code
+      >
       <button type="button" class="copy" @click="copy">
         {{ copied ? 'Copied' : 'Copy' }}
       </button>
@@ -110,7 +117,7 @@ async function copy() {
 <style scoped>
 .hero-install {
   margin-top: 28px;
-  max-width: 560px;
+  max-width: 100%;
   border: 1px solid var(--vp-c-divider);
   border-radius: 12px;
   background: var(--vp-c-bg-soft);
@@ -154,9 +161,12 @@ async function copy() {
   font-size: 14px;
   line-height: 1.6;
   color: var(--vp-c-text-1);
-  /* Wraps rather than scrolls, so nothing is out of reach of the keyboard. */
+  /* Wraps rather than scrolls, so nothing is out of reach of the keyboard, and only
+     between words. */
   white-space: normal;
-  overflow-wrap: anywhere;
+}
+.word {
+  white-space: nowrap;
 }
 .prompt {
   color: var(--vp-c-text-3);

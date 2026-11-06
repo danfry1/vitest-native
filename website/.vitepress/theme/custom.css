@@ -106,7 +106,7 @@
 }
 
 /* Hero ---------------------------------------------------------- */
-.VPHero .name {
+.VPHero .heading .name {
   font-family: var(--vp-font-family-mono);
   font-size: 15px !important;
   line-height: 1.6 !important;
@@ -120,6 +120,72 @@
 }
 .VPHero .tagline {
   text-wrap: pretty;
+}
+
+/* Home layout -------------------------------------------------- */
+/* The nav, the hero and the home content share one width and one edge. VitePress gives
+   the nav a wider box (86rem) and less padding (2rem) than the hero and home content
+   (72rem inside 3–4rem), so on a wide screen the nav ran past the hero on both sides.
+   Only pages without a sidebar (the home page) change; doc pages keep VitePress's nav. */
+@media (min-width: 768px) {
+  .VPNavBar:not(.has-sidebar) .wrapper {
+    padding: 0 3rem;
+  }
+}
+@media (min-width: 960px) {
+  .VPNavBar:not(.has-sidebar) .wrapper {
+    padding: 0 4rem;
+  }
+  .VPNavBar:not(.has-sidebar) .container {
+    max-width: 72rem;
+  }
+}
+
+/* The hero's second column holds the boundary diagram. Below 960px it stacks under the
+   text, left-aligned; VitePress would put the image first and centre everything. */
+.VPHome .VPHero.has-image .container {
+  text-align: start;
+}
+.VPHome .VPHero.has-image .name,
+.VPHome .VPHero.has-image .text,
+.VPHome .VPHero.has-image .tagline {
+  margin-inline: 0;
+}
+.VPHome .VPHero.has-image .actions {
+  justify-content: flex-start;
+}
+.VPHome .VPHero .image {
+  order: 3;
+  margin: 2.5rem 0 0;
+}
+.VPHome .VPHero .image-container {
+  width: 100%;
+  height: auto;
+  margin: 0;
+  transform: none;
+  display: block;
+}
+.VPHome .VPHero .image-bg {
+  display: none;
+}
+@media (min-width: 960px) {
+  .VPHome .VPHero.has-image .main {
+    max-width: none;
+    width: 55%;
+    flex-shrink: 1;
+  }
+  .VPHome .VPHero .image {
+    order: 2;
+    margin: 0 0 0 3rem;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    min-width: 0;
+  }
+  .VPHome .VPHero .image-container {
+    display: flex;
+    justify-content: flex-end;
+  }
 }
 
 /* Typography ---------------------------------------------------- */

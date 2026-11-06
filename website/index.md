@@ -3,9 +3,9 @@ layout: home
 title: vitest-native — Test React Native as it ships
 titleTemplate: false
 hero:
-  name: vitest-native
+  name: A Vitest plugin for React Native and Expo
   text: Test React Native as it ships.
-  tagline: A Vitest plugin. Your components run React Native's real JavaScript, and only the native side is mocked. For bare React Native and Expo.
+  tagline: Your components run React Native's real JavaScript, and only the native side is mocked.
   actions:
     - theme: brand
       text: Get started
