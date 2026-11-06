@@ -9,8 +9,7 @@ description: Measure vitest-native's speed or resource use so the result can be 
    exact versions (vitest-native commit, Node, Vitest, React Native, OS, CPU) and the
    command. `packages/vitest-native/docs/metro-profile-investigation.md` is the model.
 2. **Never act on one timing sample.** Run each side at least three times, alternate them,
-   and report medians with the spread. A single run once showed a 35% regression that
-   repeats proved to be noise.
+   and report medians with the spread.
 3. **Keep the unflattering results.** A slower case, a run that crashed, a suite where the
    change did nothing: they go in the log with the rest.
 4. **Prefer counts to clocks for tests.** A performance regression test counts the work

@@ -7,8 +7,9 @@ description: Cut a vitest-native release candidate (or a release). Use when prep
 
 1. **Review the pending changesets first** (see `changeset-style`) and land the edits.
 2. **Open the version PR from a fresh branch on main.** Run `bun install --frozen-lockfile`,
-   then `bunx changeset version` with the version set to `<version>-rc.<n>`. Keep the notes
-   under one `## <version>` heading; an rc can add a second one, so check.
+   then `bunx changeset version`, then set the version to `<version>-rc.<n>` (CONTRIBUTING.md,
+   "Prereleases"). Keep the notes under one `## <version>` heading; a candidate can add a
+   second one, so check.
 3. **Add the thank-you paragraph** from `scripts/release-thanks.mjs` (CONTRIBUTING.md,
    "Thanking contributors"). Read the list before pasting it.
 4. **Merge the version PR when its CI is green.** Title it `chore(release): <version>`.
@@ -22,5 +23,4 @@ description: Cut a vitest-native release candidate (or a release). Use when prep
    only stages it; nothing is installable until that approval (`npm stage approve <id>`).
 7. **Confirm it is live:** `npm view vitest-native dist-tags`. A prerelease goes to `next`;
    `latest` must not move.
-8. **Record the tag's commit and the published integrity** for the team. Changesets merged
-   after the tag go to the next candidate.
+8. **Changesets merged after the tag go to the next candidate.**

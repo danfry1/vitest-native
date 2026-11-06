@@ -6,7 +6,7 @@ description: Merge a pull request or a stack of dependent ones into main without
 # Land a stack
 
 1. **Squash-merge each PR** once its own CI is green and it has been reviewed. Merge one PR at
-   a time; a second merge queue makes every branch fall behind the other.
+   a time: merging two at once leaves each behind the other.
 2. **After a base PR is squash-merged, merge in two steps.** First merge the base PR's final
    branch tip into the next PR, then merge `origin/main`. Merging main alone uses an old
    merge base, and the stack's stale copy of the base wins silently in hunks that do not
@@ -17,9 +17,9 @@ description: Merge a pull request or a stack of dependent ones into main without
    generator reads that file.
 4. **Remember rerere.** Recorded resolutions replay on the next merge. Re-check every file
    it resolved.
-5. **Audit the result by blob before committing it.** For each file main changed since the
-   merge base, flag it if the result equals the branch's pre-merge blob but differs from
-   main's:
+5. **Audit the result by blob after committing the merge, before pushing it.** For each file
+   main changed since the merge base, flag it if the result equals the branch's pre-merge
+   blob but differs from main's (`HEAD^1` is the branch, `HEAD^2` is main):
    ```bash
    base=$(git merge-base HEAD^1 HEAD^2)
    for f in $(git diff --name-only "$base" HEAD^2); do

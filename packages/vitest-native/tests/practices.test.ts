@@ -68,11 +68,16 @@ describe("workflow skills", () => {
     const missing: string[] = [];
     for (const file of sources) {
       for (const token of mentionedPaths(fs.readFileSync(file, "utf8"))) {
-        checked.push(token);
+        checked.push(`${path.relative(repoRoot, file)}: ${token}`);
         if (!exists(token)) missing.push(`${path.relative(repoRoot, file)}: ${token}`);
       }
     }
     expect(missing).toEqual([]);
-    expect(checked.length).toBeGreaterThanOrEqual(15);
+    // Floors per source, so a skill that stops naming any file is noticed: CONTRIBUTING.md
+    // names the files its practices rest on, and the skills together name at least as many.
+    expect(checked.filter((t) => t.startsWith("CONTRIBUTING.md")).length).toBeGreaterThanOrEqual(8);
+    expect(checked.filter((t) => !t.startsWith("CONTRIBUTING.md")).length).toBeGreaterThanOrEqual(
+      12,
+    );
   });
 });

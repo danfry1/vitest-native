@@ -8,13 +8,13 @@ description: Fix a vitest-native bug so it cannot ship again. Use when a bug is 
 1. **Reproduce it on supported versions** (Node, Vitest, React Native, Expo in
    `docs/versioning.md`). A bug only an unsupported version shows gets an upgrade answer,
    not a patch.
-2. **Find which side loaded the file before you trust a result.** A probe that imported the
-   file through Vite says nothing about Node's `require` of it. Use a file that is only ever
+2. **Find out whether Vite or Node loaded the file before you trust a result.** A probe that
+   imported the file through Vite says nothing about Node's `require` of it. Use a file that is only ever
    required, check `typeof module`, or find the compiled entry in the transform cache.
 3. **If the bug is user-shaped** (an app pattern: a setup file, a `__mocks__` folder, a
    library), add a bug-museum exhibit under `packages/vitest-native/validation/bug-museum/`
-   that fails as the bug. Register it in `exhibits.json` with a `bugSignature` that matches
-   the bug's own failure line, not a generic crash.
+   that fails as the bug, following that folder's `README.md`. Its `bugSignature` matches the
+   bug's own failure line, not a generic crash.
 4. **Write the regression test first and watch it fail** for the bug's reason.
    - A test that loops over cases or classifies output counts the evidence it actually
      checked (non-empty trees, matched diffs) and asserts a floor on that count.
@@ -31,6 +31,6 @@ description: Fix a vitest-native bug so it cannot ship again. Use when a bug is 
 7. **Run the gates as the package's scripts, from `packages/vitest-native`:**
    `bun run format:check`, `bun run lint`, `bun run typecheck`, then the suites the change
    touches, one heavy suite at a time.
-8. **Record it.** Add the changeset (see `changeset-style`). Add a row to the regression
-   ledger: the bug, the fix, the tests, who mutation-checked it and how, and the exhibit. In
-   the PR, describe the test that was added, never how it was checked.
+8. **Record it.** Add the changeset (see `changeset-style`), and link the issue, the test and
+   the exhibit from the PR. In the PR, describe the test that was added, never how it was
+   checked.
