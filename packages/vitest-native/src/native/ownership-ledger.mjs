@@ -66,6 +66,8 @@ const NOT_THE_MODULE = /[?&](?:raw|url|inline|worker|sharedworker)\b/;
 const realDirs = new Map();
 function realpathOr(file, fallback) {
   try {
+    // The OS's spelling (realpathSync.native), as Vite's ids are: viteMarkerFor keys Vite's
+    // side by it.
     return fs.realpathSync.native(file);
   } catch {
     return fallback;
@@ -110,19 +112,24 @@ export function parseOwnershipGuardConfig(raw) {
   }
 }
 
-const ROUTES = {
+export const OWNERSHIP_ROUTES = {
   "jest-compat": {
     label: "a synchronous jest.requireActual/requireMock through jest-compat",
     fix:
       "Vite had not evaluated the file yet, so Node loaded its own copy. Import the " +
       "module statically before the jest.mock that needs it, or load it with " +
-      "`await vi.importActual(...)` inside an async factory.",
+      "`await vi.importActual(...)` inside an async factory. Or set " +
+      "reactNative({ experimental: { ownershipModel: 'resolution' } }), which gives " +
+      "Node's require of your source Vite's instance.",
   },
   "require-from-vite": {
     label: "require() in a file Vite evaluated",
     fix:
-      "Vitest's `require` inside a test or source file is Node's. Use `import` (or " +
-      "`await vi.importActual(...)`) so the file stays in Vite's graph.",
+      "Vitest's `require` inside a test or source file is Node's. Use `import`, or, in " +
+      "a jest.mock factory, load it with `await vi.importActual(...)` in an async " +
+      "factory, so the file stays in Vite's graph. Or set " +
+      "reactNative({ experimental: { ownershipModel: 'resolution' } }), which gives " +
+      "Node's require of your source Vite's instance.",
   },
   "node-owned-source": {
     label: "an import from source Node evaluated",
@@ -203,6 +210,8 @@ export function createOwnershipLedger({
   const node = new Map();
   const vite = new Map();
   const reported = new Set();
+  // The causes already printed in this worker, with how many files each has had since.
+  const printed = new Map();
   const conflicts = [];
   const allowUsed = new Set();
 
@@ -238,10 +247,48 @@ export function createOwnershipLedger({
     return "require-from-vite";
   }
 
+  /**
+   * Where Node's load of a file began: up its chain of Node-loaded parents to the first
+   * one whose parent Node did not load (a test file, a file Vite evaluated, an installed
+   * package). Every file one `require` pulls in shares it, so they are one cause: a jest.mock
+   * factory's require of a module that imports 600 others is one finding, not 600. The
+   * walk stops below a parent the policy gives Node (a workspace package Node owns):
+   * that code reaching a file Vite owns is the cause itself.
+   */
+  function originOf(nodeEntry) {
+    const seen = new Set([nodeEntry]);
+    let entry = nodeEntry;
+    for (;;) {
+      const parent = entry.parent;
+      if (typeof parent !== "string" || NODE_MODULES_PATH.test(parent)) return entry;
+      if (ownerOf(parent)?.owner === "node") return entry;
+      // A live copy only: under the hot runtime an earlier generation's record can remain.
+      const up = liveNode(nodeKey(parent));
+      if (up === undefined || seen.has(up)) return entry;
+      seen.add(up);
+      entry = up;
+    }
+  }
+
   function report(key, nodeEntry, viteEntry, second) {
     const owner = ownerOf(nodeEntry.filename);
     const route = routeOf(key, nodeEntry, owner);
-    const { label, fix } = ROUTES[route];
+    const { label } = OWNERSHIP_ROUTES[route];
+    const origin = originOf(nodeEntry);
+    const originRoute =
+      origin === nodeEntry
+        ? route
+        : routeOf(nodeKey(origin.filename), origin, ownerOf(origin.filename));
+    const cause = { route: originRoute, file: origin.filename };
+    const causeKey = `${originRoute}\0${origin.filename}`;
+    // The fix is the cause's: the files a require pulled in name their importer as the
+    // route, but what fixes them all is fixing that require.
+    const { fix } = OWNERSHIP_ROUTES[originRoute];
+    const originLine =
+      origin === nodeEntry
+        ? ""
+        : `  origin       -> ${origin.filename}, which Node loaded through ` +
+          `${OWNERSHIP_ROUTES[originRoute].label}, and which loaded this file\n`;
     const ownerName = { node: "Node", vite: "Vite", "vitest-default": "none declared" };
     const ownerLine = owner
       ? `${ownerName[owner.owner] ?? owner.owner} (${owner.reason})`
@@ -274,6 +321,7 @@ export function createOwnershipLedger({
       `  first        -> ${second === "vite" ? nodeLine : viteLine}\n` +
       `  second       -> ${second === "vite" ? viteLine : nodeLine}\n` +
       `  route        -> ${label}\n` +
+      originLine +
       `  fix          -> ${fix}\n` +
       (stack.length > 0
         ? `  Node stack:\n${stack.map((line) => `    ${line}`).join("\n")}\n`
@@ -288,6 +336,7 @@ export function createOwnershipLedger({
         first: second === "vite" ? "node" : "vite",
         second,
         route,
+        cause,
         via: nodeEntry.via,
         owner: owner?.owner ?? null,
         message,
@@ -298,7 +347,14 @@ export function createOwnershipLedger({
     }
     if (reported.has(key)) return;
     reported.add(key);
-    warn(message);
+    // One full warning per cause in this worker; the end-of-run summary counts the rest.
+    const count = printed.get(causeKey);
+    printed.set(causeKey, (count ?? 0) + 1);
+    if (count !== undefined) return;
+    warn(
+      `${message}\n  Other files with the same origin are not printed here; the summary ` +
+        `at the end of the run counts them.`,
+    );
   }
 
   return {

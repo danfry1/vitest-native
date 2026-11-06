@@ -98,6 +98,47 @@ describe("jest-compat: jestMockTransform (hoist + CJS interop)", () => {
     expect(calls[0].expression.arguments[1].params).toHaveLength(0);
   });
 
+  describe("a factory's require of project source", () => {
+    const viaVite = (spec: string) =>
+      `(await __vn_jest_compat__("__vnFactoryRequire")(import.meta.url, ${spec}, () => import(${spec})))`;
+
+    it("loads through Vite in the async variant, mock-aware as Jest's registry is", async () => {
+      const factory = "() => { const { defaults } = require('@/schema'); return { defaults }; }";
+      const out = await run(`jest.mock('@/persisted', ${factory});`);
+      expect(body(out.code)).toContain(
+        `async () => { const { defaults } = ${viaVite("'@/schema'")}; return { defaults }; }`,
+      );
+      // The synchronous original stays registered first, for a Node-side load.
+      expect(body(out.code)).toContain(`'@/persisted', ${factory}, async`);
+    });
+
+    it("leaves a require of the module the factory mocks, which cannot await itself", async () => {
+      const out = await run("jest.mock('./a', () => ({ ...require('./a'), x: 1 }));");
+      expect(out.code).not.toContain("__vnFactoryRequire");
+      expect(out.code).not.toContain("async");
+    });
+
+    it("leaves packages, nested functions, and a file that binds `require` itself", async () => {
+      for (const code of [
+        "jest.mock('./a', () => ({ ...require('pkg') }));",
+        "jest.mock('./a', () => ({ read: () => require('./b').read() }));",
+        "const require = createRequire(import.meta.url);\njest.mock('./a', () => require('./b'));",
+      ]) {
+        const out = await run(code);
+        expect(out.code, code).not.toContain("__vnFactoryRequire");
+      }
+    });
+
+    it("moves both kinds in one factory", async () => {
+      const out = await run(
+        "jest.mock('./a', () => ({ ...jest.requireActual('./a'), b: require('./b') }));",
+      );
+      expect(body(out.code)).toContain(
+        `async () => ({ ...(__vn_jest_compat__("__vnActualExports")(await vi.importActual('./a'))), b: ${viaVite("'./b'")} })`,
+      );
+    });
+  });
+
   describe("a factory's jest.requireActual of project source", () => {
     const lookup = (spec: string) =>
       `vi.mock(${spec}, () => __vn_jest_compat__("__vnJestMocked")(import.meta.url, ${spec}));`;
