@@ -149,15 +149,15 @@ if (typeof vi.now !== "function") vi.now = () => Date.now();
 // "jest.isolateModules is not a function" TypeErrors deep in a migrated suite.
 // Give each one an error that names the API and states the closest migration,
 // so the failure is a signpost instead of a mystery.
-const MIGRATION_GUIDE =
-  "https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/docs/migrating-from-jest.md";
+const UNSUPPORTED_DOCS =
+  "https://danfry1.github.io/vitest-native/guide/errors#JEST_API_UNSUPPORTED";
 function unsupported(name, guidance) {
   if (typeof vi[name] === "function") return;
   vi[name] = () => {
     throw new VitestNativeError(
       "JEST_API_UNSUPPORTED",
       `jest.${name}() has no Vitest equivalent. ${guidance}`,
-      { docs: MIGRATION_GUIDE },
+      { docs: UNSUPPORTED_DOCS },
     );
   };
 }
@@ -267,7 +267,7 @@ if (typeof globalThis.__vnInteropMock !== "function") globalThis.__vnInteropMock
   // file, so a worker reused without the hot runtime (`isolate: false`, or a watch
   // rerun of the same file) starts each one empty here. The hot runtime clears them at
   // the file boundary instead, through its state manifest, which verifies it did.
-  if (!globalThis.__vitest_native_hot_reset) registry.clear();
+  if (!globalThis.__vitest_native_hot_reset) registry.clear({ keepLibrary: true });
   // Hot runtime: cleared at the file boundary and verified empty (state-manifest.mjs).
   globalThis.__vitest_native_register_state?.({
     id: NODE_MOCKS_STATE_ID,

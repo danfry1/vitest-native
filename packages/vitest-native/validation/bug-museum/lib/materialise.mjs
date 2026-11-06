@@ -5,17 +5,22 @@
 // copy into node_modules) and `src/`. It is copied to a fresh directory, and its
 // node_modules is assembled from what this repository already has installed:
 //
-//   - every package in packages/vitest-native/node_modules, as a symlink into bun's store
-//     (so every package is reached through a store path, as in an isolated install);
+//   - every package in the BUILD's package root's node_modules (`deps`: the build under
+//     test, which build-ref.mjs installs from that ref's own lockfile; by default this
+//     package), as a symlink into bun's store
+//     (so every package is reached through a store path, as in an isolated install),
+//     except Expo's packages for an exhibit that does not declare expo (isExpoPackage);
 //   - vitest-native itself, COPIED from the build under test (package.json + dist), so
 //     that its own imports (vitest, vite, @babel/core) resolve from this node_modules, as
 //     they do in a consumer's install, and a different build can be swapped in;
 //   - the exhibit's `vendor/*` packages, copied (a registry install copies; a `file:`
 //     link would leave the real path outside node_modules);
-//   - the exhibit's workspace members, linked by name (`links` in exhibits.json);
+//   - the exhibit's workspace members, linked by name (`links` in exhibits.json), or copied
+//     to a path with a `/node_modules/` segment, for a nested copy of a package;
+//   - `installedCopies`: a real copy of an installed package at a path in the exhibit
+//     (a second copy of React, as a monorepo app that has its own has);
 //   - the install axes the exhibit requires (exhibits.json `requires`):
-//       rntl: "12" | "13"   a copy of that RNTL from a local bun store (RNTL_STORE)
-//       vitest: "4"         Vitest 4.1.11 assembled from bun's cache (vitest4.mjs)
+//       rntl: "13"          a copy of that RNTL from a local bun store (RNTL_STORE)
 //       layout: "pnpm"      `pnpmShaped` packages moved into a pnpm-shaped store
 //                           directory named after their peers (#349's class reads it)
 //
@@ -26,12 +31,13 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isExpoPackage } from "../../config-axes/local-install.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const museumRoot = path.resolve(here, "..");
 export const packageRoot = path.resolve(museumRoot, "../..");
 
-/** Where a local bun store keeps RNTL 12 and 13 (override with VN_MUSEUM_RNTL_STORE). */
+/** Where a local bun store keeps RNTL 13 (override with VN_MUSEUM_RNTL_STORE). */
 const RNTL_STORE =
   process.env.VN_MUSEUM_RNTL_STORE ??
   path.join(os.homedir(), "dev/vitest-react-native/node_modules/.bun");
@@ -47,7 +53,17 @@ export function findRntl(major) {
   return entry ? path.join(RNTL_STORE, entry, "node_modules/@testing-library/react-native") : null;
 }
 
-function linkAll(modules, source) {
+// An exhibit is a bare React Native project unless its package.json declares expo
+// (isExpoPackage). Vendored copies (own-expo-runtime-undeclared's expo) are already in
+// place and are not touched.
+function declaresExpo(root) {
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+  return ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"].some(
+    (field) => manifest[field]?.expo !== undefined,
+  );
+}
+
+function linkAll(modules, source, skip = () => false) {
   for (const entry of fs.readdirSync(source)) {
     if (entry.startsWith(".")) continue;
     const names = entry.startsWith("@")
@@ -55,7 +71,7 @@ function linkAll(modules, source) {
       : [entry];
     for (const name of names) {
       const to = path.join(modules, name);
-      if (fs.existsSync(to)) continue;
+      if (fs.existsSync(to) || skip(name)) continue;
       let target;
       try {
         target = fs.realpathSync(path.join(source, name));
@@ -149,12 +165,51 @@ function placeInPnpmShape(modules, name) {
   fs.symlinkSync(path.join(storeModules, name), at);
 }
 
+/** Where the ownership wrapper records each reactNative() call it saw, in the exhibit root. */
+export const OWNERSHIP_MARKER = ".museum-ownership-calls";
+
+/**
+ * `run.mjs --ownership <model>`: every reactNative() call in the exhibit gets
+ * `experimental.ownershipModel: model`, as if each config spelled it, without editing
+ * any exhibit. The installed copy's main entry becomes a module that re-exports the
+ * build's own and wraps reactNative; the build's files are untouched. Each call appends
+ * a line to OWNERSHIP_MARKER, so run.mjs can tell an exhibit the flag never reached.
+ */
+export function wrapForOwnership(installed, root, model) {
+  const manifestFile = path.join(installed, "package.json");
+  const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
+  const main = manifest.exports?.["."];
+  if (typeof main?.default !== "string")
+    throw new Error(`--ownership: ${manifestFile} has no exports["."].default to wrap`);
+  const wrapper = "museum-ownership.mjs";
+  fs.writeFileSync(
+    path.join(installed, wrapper),
+    [
+      "// Written by the bug museum (run.mjs --ownership): every reactNative() call",
+      "// gets experimental.ownershipModel. A local export shadows the star re-export.",
+      'import fs from "node:fs";',
+      `import { reactNative as buildReactNative } from ${JSON.stringify(main.default)};`,
+      `export * from ${JSON.stringify(main.default)};`,
+      "export function reactNative(options) {",
+      `  fs.appendFileSync(${JSON.stringify(path.join(root, OWNERSHIP_MARKER))}, ${JSON.stringify(`${model}\n`)});`,
+      "  return buildReactNative({",
+      "    ...options,",
+      `    experimental: { ...options?.experimental, ownershipModel: ${JSON.stringify(model)} },`,
+      "  });",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  manifest.exports["."] = { ...main, default: `./${wrapper}` };
+  fs.writeFileSync(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+}
+
 /**
  * Materialise `exhibit` (an exhibits.json entry) under `work`. Returns the app root.
- * `build` is the vitest-native package directory under test; `vitest4` the directory
- * vitest4.mjs prepared (required when the exhibit needs Vitest 4).
+ * `build` is the vitest-native package directory under test; `ownershipModel` other than
+ * "off" wraps the installed copy (wrapForOwnership).
  */
-export function materialise(exhibit, { work, build, vitest4, edits = [] }) {
+export function materialise(exhibit, { work, build, deps = build, edits = [], ownershipModel = "off" }) {
   const root = path.join(work, exhibit.id);
   fs.rmSync(root, { recursive: true, force: true });
   fs.cpSync(path.join(museumRoot, "exhibits", exhibit.id), root, { recursive: true });
@@ -168,9 +223,20 @@ export function materialise(exhibit, { work, build, vitest4, edits = [] }) {
   const modules = path.join(root, "node_modules");
   fs.mkdirSync(modules, { recursive: true });
 
+  // A name with a `/node_modules/` segment is a path inside the exhibit: a nested copy of
+  // a package, which a module under that directory resolves before the top-level one. It
+  // is copied, not linked: a link's real path is outside node_modules, so Vite would treat
+  // the package as project source instead of an installed one.
   for (const [name, dir] of Object.entries(exhibit.links ?? {})) {
-    fs.mkdirSync(path.dirname(path.join(modules, name)), { recursive: true });
-    fs.symlinkSync(path.join(root, dir), path.join(modules, name));
+    const nested = name.includes("/node_modules/");
+    const at = nested ? path.join(root, name) : path.join(modules, name);
+    const inside = path.relative(root, at);
+    if (inside.startsWith("..") || path.isAbsolute(inside)) {
+      throw new Error(`${exhibit.id}: links entry ${name} is outside the exhibit`);
+    }
+    fs.mkdirSync(path.dirname(at), { recursive: true });
+    if (nested) fs.cpSync(path.join(root, dir), at, { recursive: true, dereference: true });
+    else fs.symlinkSync(path.join(root, dir), at);
   }
   const vendor = path.join(root, "vendor");
   if (fs.existsSync(vendor)) {
@@ -183,12 +249,25 @@ export function materialise(exhibit, { work, build, vitest4, edits = [] }) {
     }
   }
   copyPackage(build, path.join(modules, "vitest-native"));
-  linkAll(modules, path.join(packageRoot, "node_modules"));
+  if (ownershipModel !== "off")
+    wrapForOwnership(path.join(modules, "vitest-native"), root, ownershipModel);
+  const expo = declaresExpo(root);
+  // The installed packages of the build's own ref, not this checkout's: an old build is
+  // judged against what that ref declared (Expo, React Native, RNTL), never today's.
+  linkAll(modules, path.join(deps, "node_modules"), (name) => !expo && isExpoPackage(name));
+
+  // A second, real copy of an installed package at a path inside the exhibit
+  // (`installedCopies`: { "<path>": "<name>" }): a monorepo whose app has its own copy
+  // beside the root's. A link would share the real path, and so be one module.
+  for (const [to, name] of Object.entries(exhibit.installedCopies ?? {})) {
+    const from = fs.realpathSync(path.join(deps, "node_modules", name));
+    fs.cpSync(from, path.join(root, to), { recursive: true, dereference: true });
+  }
 
   // Packages this package does not depend on directly but the repository's bun store has
   // (`storeLinks`: { name: version }).
   for (const [name, version] of Object.entries(exhibit.storeLinks ?? {})) {
-    const store = path.join(packageRoot, "../../node_modules/.bun");
+    const store = path.join(deps, "../../node_modules/.bun");
     const prefix = `${name.replace("/", "+")}@${version}`;
     const entry = fs.readdirSync(store).find((e) => e === prefix || e.startsWith(`${prefix}+`));
     if (!entry) throw new Error(`storeLinks: no ${prefix} in ${store}`);
@@ -197,17 +276,6 @@ export function materialise(exhibit, { work, build, vitest4, edits = [] }) {
 
   const requires = exhibit.requires ?? {};
   if (requires.rntl) placeRntl(modules, findRntl(requires.rntl));
-  if (requires.vitest === "4") {
-    for (const entry of fs.readdirSync(path.join(vitest4, "node_modules"))) {
-      const names = entry.startsWith("@")
-        ? fs.readdirSync(path.join(vitest4, "node_modules", entry)).map((n) => `${entry}/${n}`)
-        : [entry];
-      for (const name of names) {
-        if (name === "vitest" || name.startsWith("@vitest/"))
-          replaceWith(modules, name, path.join(vitest4, "node_modules", name), { copy: false });
-      }
-    }
-  }
   for (const name of exhibit.pnpmShaped ?? []) placeInPnpmShape(modules, name);
 
   // Compiled package output requires Babel's helpers by name; every real install puts

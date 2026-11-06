@@ -47,7 +47,7 @@ describe("RNTL under native engine", () => {
   // (test-renderer) a string child must live under a registered text host, so
   // nested/composite text would crash ("Text strings must be rendered within a
   // <Text> component") unless RCTVirtualText is registered as a text host; under
-  // RNTL 12 and 13 the inner <Text> is not a text element, so getByText cannot find
+  // RNTL 13 the inner <Text> is not a text element, so getByText cannot find
   // it alone. See native/rntl-text-host.mjs. This is the case jest's flat "Text"
   // mock never exercises.
   it("renders nested <Text> and matches composite text", async () => {

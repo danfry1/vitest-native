@@ -3,12 +3,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import "../../scripts/release-age.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(here, "../..");
-const vitestRoot = path.resolve(
-  process.argv[2] ?? "/private/tmp/vitest-module-isolation-upstream",
-);
+const vitestRoot = path.resolve(process.argv[2] ?? "/private/tmp/vitest-module-isolation-upstream");
 const productionHot = process.env.VN_TWO_RN_RUNTIME === "hot";
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "vn-module-isolation-projects-"));
 
@@ -64,17 +63,13 @@ test("loads project-owned React Native ${index}", () => {
 
 try {
   const vitestDependency = productionHot
-    ? "4.1.10"
+    ? "5.0.5"
     : `file:${pack(
         "pnpm",
         ["pack", "--pack-destination", tempRoot],
         path.join(vitestRoot, "packages/vitest"),
       )}`;
-  const nativeTarball = pack(
-    "npm",
-    ["pack", "--pack-destination", tempRoot],
-    packageRoot,
-  );
+  const nativeTarball = pack("npm", ["pack", "--pack-destination", tempRoot], packageRoot);
 
   writeJson(path.join(tempRoot, "package.json"), {
     name: "vitest-native-two-rn-projects",
@@ -116,14 +111,8 @@ try {
       ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--legacy-peer-deps"],
       root,
     );
-    fs.writeFileSync(
-      path.join(root, "a-version.test.mjs"),
-      projectTest(project.rn, 1),
-    );
-    fs.writeFileSync(
-      path.join(root, "b-version.test.mjs"),
-      projectTest(project.rn, 2),
-    );
+    fs.writeFileSync(path.join(root, "a-version.test.mjs"), projectTest(project.rn, 1));
+    fs.writeFileSync(path.join(root, "b-version.test.mjs"), projectTest(project.rn, 2));
   }
 
   fs.writeFileSync(
@@ -161,13 +150,10 @@ export default defineConfig({
     ["-p", "require('./node_modules/vitest/package.json').version"],
     { cwd: tempRoot, encoding: "utf8" },
   ).trim();
-  console.log(`${productionHot ? "production-hot" : "module-isolation"} Vitest: ${installedVersion}`);
-  run(
-    process.execPath,
-    [path.join(tempRoot, "node_modules/vitest/vitest.mjs"), "run"],
-    tempRoot,
-    { VITEST_NATIVE_DIAGNOSTICS: "true" },
+  console.log(
+    `${productionHot ? "production-hot" : "module-isolation"} Vitest: ${installedVersion}`,
   );
+  run(process.execPath, [path.join(tempRoot, "node_modules/vitest/vitest.mjs"), "run"], tempRoot);
 
   for (const project of projects) {
     const observed = fs

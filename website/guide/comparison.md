@@ -29,18 +29,16 @@ So the difference is **where the boundary sits**, not "real vs mocked." vitest-n
 | Native modules / host components | Mocked | Mocked |
 | Rendered host names | `View`, `Text` | `RCTView`, `RCTText` |
 
-## Speed: faster with the hot runtime, but not the reason to switch
+## Speed: not the reason to switch
 
-With its hot runtime turned on (`hotRuntime: 'auto'`, opt-in), the native engine reuses workers, and on the repository's head-to-head benchmark — the same generated React Native Testing Library suite for both — it ran 1.8× faster than Jest at 50 files and 2.7× faster at 200, with about a quarter of Jest's peak memory (Apple M5, Node 24.13, React Native 0.84.1, Jest 29.7, Vitest 5.0.1; the README has the full table and the command to reproduce it). With per-file worker isolation, the default (`hotRuntime: false`), it ran slower than Jest on that suite. [Choosing the hot runtime](/guide/engines#choosing-the-hot-runtime) covers the trade-off.
-
-That is one generated suite on one machine, and your suite's shape decides your numbers. Choose vitest-native for the **fidelity option and DX**; treat the speed as a bonus to measure on your own suite, not a promise.
+By default each test file gets a fresh worker (`hotRuntime: false`). The opt-in hot runtime (`hotRuntime: 'auto'`) reuses workers across test files instead; whether that is faster than Jest, or than per-file isolation, depends on the suite, so measure it on yours. [Choosing the hot runtime](/guide/hot-runtime) covers the trade-off. Choose vitest-native for the **fidelity option and DX**.
 
 ## At a glance
 
 |  | vitest-native | Jest + `@react-native/jest-preset` |
 |---|---|---|
 | Mock boundary | Native boundary only (real component JS), or full mock — your choice | Core components + native boundary mocked |
-| Runner | Vitest 4.x / 5.x | Jest |
+| Runner | Vitest 5.x | Jest |
 | Config | One plugin, zero setup | jest-preset + transformIgnorePatterns |
 | Watch / UI | Vitest watch + UI | Jest watch |
 | ESM | Native | Via transforms |
@@ -49,7 +47,7 @@ That is one generated suite on one machine, and your suite's shape decides your 
 
 ## The cross-check
 
-The mock engine is a reimplementation of React Native, so it could in principle drift from real RN behavior. vitest-native guards against that with a **CI-gated behavioral cross-check**: a corpus of probes runs the same assertions against both the mock engine and real RN across React Native 0.81–0.88, and divergences fail CI. It's reproducible — clone the repo and run `bun run crosscheck`. The full corpus and its current pass count are published in the [Fidelity Report](/guide/fidelity).
+The mock engine is a reimplementation of React Native, so it could in principle drift from real RN behavior. vitest-native guards against that with a **CI-gated behavioral cross-check**: a corpus of probes runs the same assertions against both the mock engine and real RN across React Native 0.86–0.88, and divergences fail CI. It's reproducible — clone the repo and run `bun run crosscheck`. The full corpus and its current pass count are published in the [Fidelity Report](/guide/fidelity).
 
 This is the trust mechanism for the mock — and it has already caught and fixed real mock bugs (for example, an `Animated.Text` host-name mismatch that broke `queryByText`, and `Animated.Value`-in-style not resolving for `toHaveStyle`). The native engine doesn't need this — it *is* real RN.
 

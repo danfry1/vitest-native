@@ -1,10 +1,10 @@
 // Native-engine setup file (injected into test.setupFiles by the plugin). Installs
 // globals, registers the ESM loader hook, installs the CJS require hooks, and
 // builds any third-party preset mocks the project uses.
-import { createRequire, register, registerHooks } from "node:module";
+import { createRequire, registerHooks } from "node:module";
 import * as nativeLoader from "./loader.mjs";
 import path from "node:path";
-import { afterEach, expect, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, test, vi } from "vitest";
 import { installGlobals, installErrorUtils, installExpoRuntime } from "./globals.mjs";
 import { installRequireHooks } from "./hooks.mjs";
 import { installRntlJest } from "./rntl-hooks.mjs";
@@ -14,12 +14,19 @@ import * as presetFactories from "../presets.mjs";
 import { animatedMatchers } from "../matchers.mjs";
 import { serializer as rnSerializer } from "../serializer.mjs";
 import { VitestNativeError } from "../errors.mjs";
-import { CONTEXT_ENV, assertBootContext, requireProjectContext } from "../context.mjs";
+import {
+  CONTEXT_ENV,
+  activeRegistry,
+  assertBootContext,
+  requireProjectContext,
+} from "../context.mjs";
 import { importPresetModule, presetModulePaths } from "../preset-modules.mjs";
 import { installNitroProxy } from "./nitro.mjs";
 import { createExpoNativeModuleResolver } from "./expo-native-modules.mjs";
+import { beginTestFile, installLibraryJest } from "./library-jest.mjs";
 import { cacheRootFor } from "./transform.mjs";
 import { installKnownNativeModules } from "./native-modules.mjs";
+import { OWNERSHIP_META_KEY, installOwnershipLedger } from "./ownership-ledger.mjs";
 import { installRntlAutoCleanup } from "../rntl-support.mjs";
 import { registerVirtualTextHost } from "./rntl-text-host.mjs";
 import { shareProjectModules } from "../jest-compat/node-registry.mjs";
@@ -163,6 +170,44 @@ const nodeTransformPkgs = [...new Set([...transformPkgs, ...Object.keys(presetEx
 // imports react-native, after this setup runs) so its bytecode is cached to disk
 // and reused on the next file/worker/run. Covers the stock (non-hot) path.
 enableV8CompileCache(projectRoot);
+// Before anything else loads through Node: the guard records every evaluation from here
+// on, on both sides (docs/ownership-guard.md). Once per worker; the hot worker installs
+// it at boot instead.
+const ownershipLedger = installOwnershipLedger({ projectRoot });
+// Every dual evaluation this file caused, once its tests are done: one a library
+// swallowed (`try { require(x) } catch {}` turns the error into "x is missing") still
+// fails the file in error mode, and the reporter prints them all at the end of the run
+// whatever the reporter or `silent` setting (ownership-reporter in plugin.ts).
+const ownershipStart = ownershipLedger.conflicts.length;
+// No declared parameters: Vitest 5 parses a hook's first parameter as a fixture
+// pattern and passes the file suite second, Vitest 4 passes it first.
+afterAll(function () {
+  // oxlint-disable-next-line prefer-rest-params -- a rest parameter is parsed as a fixture too
+  const file = [...arguments].find((arg) => arg && typeof arg === "object" && "tasks" in arg);
+  const found = ownershipLedger.conflicts.slice(ownershipStart);
+  if (file && typeof file === "object") {
+    file.meta ??= {};
+    file.meta[OWNERSHIP_META_KEY] = {
+      mode: ownershipLedger.mode,
+      conflicts: found.map(({ file: f, first, second, route, via }) => ({
+        file: f,
+        first,
+        second,
+        route,
+        via,
+      })),
+      allowUsed: [...ownershipLedger.allowUsed],
+    };
+  }
+  if (ownershipLedger.mode === "error" && found.length > 0) {
+    throw new VitestNativeError(
+      "SOURCE_EVALUATED_TWICE",
+      `${found.length} file(s) were evaluated by both Node and Vite during this test file ` +
+        `(ownership: 'error'), including any whose error a try/catch swallowed:\n` +
+        found.map((c) => c.message).join("\n\n"),
+    );
+  }
+});
 installGlobals({ projectRoot, platform });
 // Before React Native loads: its lookups ask the boundary which modules exist.
 installKnownNativeModules(projectRoot);
@@ -186,37 +231,34 @@ installRntlAutoCleanup(afterEach, {
     Boolean(globalThis.__vitest_native_hot_reset) ||
     globalThis.__vitest_worker__?.config?.isolate === false,
 });
-// register() once per WORKER, not per file: under the hot runtime this setup
+// Install the loader hooks once per WORKER, not per file: under the hot runtime this setup
 // file re-evaluates per test file in a persistent worker, and re-registering
 // would stack a new loader-hook layer on every file. (installGlobals and
 // installRequireHooks are internally guarded the same way.)
 /**
- * Install the ESM loader hooks (loader.mjs).
- *
- * `module.register()` runs hooks on a separate loader thread, so every resolve and load
- * of an externalized module blocks this thread on a synchronous cross-thread request
- * (Node's makeSyncRequest). Profiled on a 105-file production suite, that wait was 18%
- * of all worker CPU time. `module.registerHooks()` (Node 22.15+, 23.5+) runs the same
- * hooks synchronously on this thread instead, so it is used where Node's in-thread hooks
- * are reliable (inThreadHooksReliable in loader.mjs); every other Node keeps
- * `register()`. VITEST_NATIVE_LOADER_THREAD=1 forces the threaded hooks.
+ * Install the ESM loader hooks (loader.mjs) on this thread with `module.registerHooks()`,
+ * which runs them synchronously beside the require hooks. Every supported Node has
+ * reliable in-thread hooks (engines.node starts at 22.22.3 and 24.12 for that reason).
  *
  * In-thread hooks also run for `require()`. CommonJS is already handled by the require
- * hooks (hooks.mjs), so those calls go straight to Node's default resolution, as they
- * did when only `import` reached the threaded loader.
+ * hooks (hooks.mjs), so those calls go straight to Node's default resolution.
  */
 function installLoaderHooks(data) {
-  if (
-    typeof registerHooks !== "function" ||
-    process.env.VITEST_NATIVE_LOADER_THREAD === "1" ||
-    !nativeLoader.inThreadHooksReliable(process.versions.node)
-  ) {
-    register("./loader.mjs", import.meta.url, { data });
-    globalThis.__vitest_native_loader_mode = "thread";
-    return;
+  if (typeof registerHooks !== "function") {
+    // A runtime that reports a supported Node version without Node's in-thread hooks
+    // (Bun reports Node 26) cannot run the native engine's loader.
+    throw new VitestNativeError(
+      "UNSUPPORTED_NODE",
+      `This runtime reports Node ${process.versions.node} but has no \`module.registerHooks\`, ` +
+        `which the native engine's loader needs. Run Vitest with Node 22.22.3 or later on Node 22, ` +
+        `24.12.0 or later on Node 24, or Node 26 and later.`,
+    );
   }
-  nativeLoader.initialize(data);
-  globalThis.__vitest_native_loader_mode = "in-thread";
+  nativeLoader.initialize({
+    ...data,
+    inThread: true,
+    hotGeneration: globalThis.__vitest_native_hot_generation,
+  });
   const fromRequire = nativeLoader.isRequireContext;
   registerHooks({
     resolve: (specifier, context, nextResolve) =>
@@ -235,16 +277,18 @@ if (!globalThis.__vitest_native_loader_registered) {
   // for the whole run because Node's ESM registry cannot be invalidated. Only
   // meaningful under the hot runtime — `__vitest_native_hot_reset` is installed by
   // the hot worker before this setup file runs, and nothing bumps the counter
-  // otherwise. Shared rather than passed by value because loader hooks run on their
-  // own thread. Set VITEST_NATIVE_HOT_ESM_GEN=0 to opt out (and to mutation-test the
+  // otherwise. Set VITEST_NATIVE_HOT_ESM_GEN=0 to opt out (and to mutation-test the
   // isolation gate that covers this).
   if (
     globalThis.__vitest_native_hot_reset &&
     runContext.hotEsmGeneration !== false &&
     process.env.VITEST_NATIVE_HOT_ESM_GEN !== "0"
   ) {
-    globalThis.__vitest_native_hot_generation = new Int32Array(new SharedArrayBuffer(4));
-    globalThis.__vitest_native_hot_generation[0] = 1;
+    // The hot-generation channel: the counter, and what the in-thread loader adds to
+    // it for its generation facades (loader.mjs initialize).
+    const counter = new Int32Array(new SharedArrayBuffer(4));
+    counter[0] = 1;
+    globalThis.__vitest_native_hot_generation = { counter };
   }
   installLoaderHooks({
     projectRoot,
@@ -255,16 +299,25 @@ if (!globalThis.__vitest_native_loader_registered) {
     assetExts,
     sourceExts: runContext.sourceExts,
     context: process.env[CONTEXT_ENV],
-    hotGenerationBuffer: globalThis.__vitest_native_hot_generation?.buffer,
+    hotGenerationBuffer: globalThis.__vitest_native_hot_generation?.counter.buffer,
   });
 }
 // Serve React Native from the precompiled registry when the plugin produced one
-// (see registry.mjs). Installed BEFORE the require hooks so their preset-mock
+// (see registry.mjs), or when the one it is compiling in the background has landed
+// (activeRegistry). Installed BEFORE the require hooks so their preset-mock
 // redirect wraps this one and keeps precedence. Any module the registry cannot
 // serve — a computed require, a package in `transform` — falls through to the
 // hooks below, so this is purely a faster path to the same modules.
-if (runContext.registry) {
-  const installed = installRegistry(runContext.registry, projectRoot, sourceExts);
+// A registry still compiling in the background (activeRegistry) has no library registry
+// yet: runContext.libraryRegistry is set only beside a registry the run started with.
+const registryFile = activeRegistry(runContext);
+if (registryFile) {
+  const installed = installRegistry(
+    registryFile,
+    projectRoot,
+    sourceExts,
+    runContext.libraryRegistry,
+  );
   if (diagnostics) {
     console.log(
       `[vitest-native] (native) precompiled RN registry ${installed ? "installed" : "unavailable; using per-file module loading"}`,
@@ -273,7 +326,7 @@ if (runContext.registry) {
 }
 // The NitroModules boundary's install() calls this (see nitro.mjs).
 globalThis.__vitest_native_install_nitro = () => installNitroProxy(projectRoot);
-installRequireHooks(
+const nodeCompiles = installRequireHooks(
   projectRoot,
   nodeTransformPkgs,
   platform,
@@ -286,6 +339,23 @@ installErrorUtils(projectRoot);
 // Before any test or user setup file imports RNTL: its fake-timer support reads a
 // `jest` of its own (see rntl-hooks.mjs).
 installRntlJest(vi);
+// Libraries' own test support (their jestSetup and mock files) runs with a `jest` of
+// its own, with Jest's module-registry semantics (library-jest.mjs).
+installLibraryJest(vi, { expect, describe, it, test, beforeEach, afterEach, beforeAll, afterAll });
+// Each test file keeps only what a still-loaded library support module registered,
+// under every pool: the hot runtime and `isolate: false` reuse a worker.
+beginTestFile();
+// The setup files of libraries that run as themselves (LIBRARY_SETUP_FILES in
+// preset-map.ts), ahead of the project's, as a Jest suite lists them. Run afresh for
+// every test file, so each file's mocks are new ones, as under Jest.
+for (const request of runContext.librarySetupFiles ?? []) {
+  const load = createRequire(path.join(projectRoot, "package.json"));
+  // Not installed in this project: nothing to run.
+  const file = resolvedOrNull(load, request);
+  if (file === null) continue;
+  delete load.cache[file];
+  load(request);
+}
 // Through Vitest, so a TypeScript preset module loads. Its export lists already
 // reached the ESM loader from the plugin; a module the plugin did not read would be
 // served by the real package there.
@@ -356,7 +426,7 @@ g.__vitest_native_expo_modules = createExpoNativeModuleResolver({
   mockFn: (implementation) => vi.fn(implementation),
 });
 // Before the project's setup files run, as jest-expo does (see globals.mjs).
-installExpoRuntime(projectRoot);
+installExpoRuntime(projectRoot, nodeCompiles);
 const initialDimensions = {
   window: { ...RN.Dimensions.get("window") },
   screen: { ...RN.Dimensions.get("screen") },
@@ -406,6 +476,17 @@ g.__vitest_native_control = {
   },
 };
 
+// A library's own mock whose module body sets up globals of the test environment
+// (worklets' sets requestAnimationFrame) is built now, as a Jest suite installs it in
+// its setup, and after the control above, which tells it this is the native engine.
+// Built later, inside a test that installed fake timers, it would replace the faked
+// requestAnimationFrame while the faked cancelAnimationFrame stays.
+for (const { pkg, mod } of presetDefs) {
+  if (mod[Symbol.for("vitest-native.preset-built-at-setup")] === true) {
+    void g.__vitest_native_preset_mocks[pkg];
+  }
+}
+
 // --- RNTL built-in matchers (toBeOnTheScreen, toBeDisabled, toHaveStyle, …) ---
 // The mock engine's setup registers these; the native engine must too, or
 // `engine:'native'` users have no jest-native/RNTL matchers (and a jest-compat
@@ -446,15 +527,13 @@ try {
 // --- RNTL: register RCTVirtualText as a text host ---
 // Real RN renders a NESTED <Text> as the host "RCTVirtualText", which RNTL's text
 // hosts omit. On RNTL 14 that makes a nested <Text> throw "Text strings must be
-// rendered within a <Text> component"; on RNTL 12 and 13 the inner text is not a
-// text element, so getByText cannot find it. rntl-text-host.mjs explains both and
-// patches whichever shape the installed RNTL has (dist/ is 14, build/ is 12 and 13).
+// rendered within a <Text> component"; on RNTL 13 the inner text is not a text
+// element, so getByText cannot find it. rntl-text-host.mjs explains both and patches
+// whichever shape the installed RNTL has (dist/ is 14, build/ is 13).
 //
 // Requiring the module here adds no evaluation-order hazard (see the hot-reset
-// block): on 13 and 14 it is a leaf, and on 12, where it requires react-native,
-// RNTL's config and render-act, the RNTL matchers loaded just above already
-// required it and react-native is loaded by now, so this is a cache hit. `req` is
-// the project-root require the matchers use, so both patch the same RNTL copy.
+// block): on 13 and 14 it is a leaf. `req` is the project-root require the matchers
+// use, so both patch the same RNTL copy.
 try {
   let registered = null;
   let lastError;
@@ -499,3 +578,12 @@ shareProjectModules();
 // AppContainer mounts) to render null, so LogBoxStateSubscription never mounts
 // and never schedules its out-of-act setState. See boundary.mjs + the regression
 // test tests-native/logbox-act.test.tsx.
+
+/** Where `load` resolves `request`, or null when it is not installed. */
+function resolvedOrNull(load, request) {
+  try {
+    return load.resolve(request);
+  } catch {
+    return null;
+  }
+}

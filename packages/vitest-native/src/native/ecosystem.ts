@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
+import { babelParser, isPlainJavaScript } from "./plain-javascript.js";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
-import { containsPath, packageDirOf } from "./match.mjs";
+import { containsPath, dependencyDirOf, type PackageDirOf } from "./match.mjs";
+import { mainFieldFile } from "./shared-resolver.mjs";
+
+/** A path inside a node_modules directory: an installed package's, not a workspace member's. */
+const NODE_MODULES_DIR = /[\\/]node_modules[\\/]/;
 
 /**
  * Packages that must never be auto-inlined even though they depend on React
@@ -67,6 +72,113 @@ function hasReactNativeBuild(manifest: Record<string, unknown>): boolean {
  */
 function publishesOnlyEsm(manifest: Record<string, unknown>): boolean {
   return manifest.type === "module" && !hasReactNativeBuild(manifest);
+}
+
+/**
+ * Extensions of a `react-native` field's file that plain JavaScript must parse.
+ * TypeScript is not among them: the require hooks load it as it is.
+ */
+const PLAIN_SOURCE = [".js", ".jsx", ".mjs", ".cjs"];
+
+// A module specifier in a require, a dynamic import, a static import or an export-from
+// (minified forms included: `import"x"`, `from'x'`). Type-only imports are removed first.
+const SPECIFIER = /(?:\brequire\s*\(\s*|\bimport\s*\(\s*|\bfrom\s*|\bimport\s*)["']([^"'\n]+)["']/g;
+const COMMENT = /\/\*[\s\S]*?\*\/|(^|[^:"'`\\])\/\/[^\n]*/g;
+const TYPE_ONLY = /\b(?:import|export)\s+type\b[^;]*?\bfrom\s*["'][^"']+["']/g;
+const RUNTIME_EXTENSIONS = [
+  ".native.js",
+  ".ios.js",
+  ".js",
+  ".mjs",
+  ".cjs",
+  ".jsx",
+  ".native.ts",
+  ".ios.ts",
+  ".ts",
+  ".native.tsx",
+  ".ios.tsx",
+  ".tsx",
+];
+const MAX_RUNTIME_FILES = 5000;
+// A bare package specifier (not a path, a URL, a builtin or a template's `${…}`).
+const PACKAGE_SPECIFIER = /^(?:@[\w.-]+\/)?[\w][\w.-]*(?:\/|$)/;
+const runtimeMemo = new Map<string, Set<string>>();
+
+/** The file a relative specifier names from `fromDir`, as Metro and Node find it, or null. */
+function runtimeFile(base: string): string | null {
+  const isFile = (file: string) => fs.statSync(file, { throwIfNoEntry: false })?.isFile() === true;
+  if (isFile(base)) return base;
+  for (const ext of RUNTIME_EXTENSIONS) if (isFile(base + ext)) return base + ext;
+  for (const ext of RUNTIME_EXTENSIONS) {
+    const index = path.join(base, `index${ext}`);
+    if (isFile(index)) return index;
+  }
+  return null;
+}
+
+/** Every string target of a manifest's `exports` root (all conditions), or none. */
+function exportTargets(exportsField: unknown): string[] {
+  if (typeof exportsField === "string") return [exportsField];
+  if (!exportsField || typeof exportsField !== "object") return [];
+  const node = exportsField as Record<string, unknown>;
+  const root =
+    "." in node ? node["."] : Object.keys(node).every((k) => !k.startsWith(".")) ? node : null;
+  const out: string[] = [];
+  const collect = (value: unknown) => {
+    if (typeof value === "string") out.push(value);
+    else if (value && typeof value === "object") Object.values(value).forEach(collect);
+  };
+  collect(root);
+  return out;
+}
+
+/**
+ * The packages a package loads when it runs, by name: the bare specifiers in the files
+ * reachable from its runtime entries (its `react-native` field, `main` and `exports`
+ * root) through relative requires and imports, with comments and type-only imports left
+ * out. Its config plugin, scripts and type declarations are not reached, so a package
+ * that names another only there (expo-constants' `expo`, from `expo/config`) does not
+ * load it. Read once per directory and process. For the peer edge only (see the closure
+ * walk).
+ */
+function runtimeImports(dir: string, manifest: Record<string, unknown>): Set<string> {
+  let names = runtimeMemo.get(dir);
+  if (names) return names;
+  names = new Set<string>();
+  const entries = [
+    typeof manifest["react-native"] === "string" ? manifest["react-native"] : null,
+    typeof manifest.main === "string" ? manifest.main : null,
+    ...exportTargets(manifest.exports),
+  ].filter((entry): entry is string => entry !== null);
+  if (entries.length === 0) entries.push("index");
+  const pending = entries
+    .map((entry) => runtimeFile(path.resolve(dir, entry)))
+    .filter((file): file is string => file !== null && containsPath(dir, file));
+  const seen = new Set<string>();
+  while (pending.length > 0 && seen.size < MAX_RUNTIME_FILES) {
+    const file = pending.pop() as string;
+    if (seen.has(file) || file.endsWith(".json")) continue;
+    seen.add(file);
+    const code = fs.readFileSync(file, "utf8").replace(COMMENT, "$1").replace(TYPE_ONLY, "");
+    for (const match of code.matchAll(SPECIFIER)) {
+      const specifier = match[1];
+      if (specifier.startsWith(".")) {
+        const target = runtimeFile(path.resolve(path.dirname(file), specifier));
+        if (
+          target !== null &&
+          containsPath(dir, target) &&
+          !NODE_MODULES_DIR.test(path.relative(dir, target))
+        ) {
+          pending.push(target);
+        }
+      } else if (PACKAGE_SPECIFIER.test(specifier)) {
+        const parts = specifier.split("/");
+        names.add(specifier.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0]);
+      }
+    }
+  }
+  runtimeMemo.set(dir, names);
+  return names;
 }
 
 /** Manifest fields that make a package part of the React Native ecosystem. */
@@ -184,6 +296,94 @@ function manifestsFrom(projectRoot: string): { dir: string; manifest: Record<str
 }
 
 /**
+ * The paths a `resolve.alias` config points into, whatever each entry's `find` is: a
+ * string, or a RegExp (an alias Vite applies to imports, which `jest.requireActual`
+ * cannot, so serializableAliases leaves it out of the compat layer's list). These seed
+ * the closure walk through the workspace members that contain them (ReachedPackages).
+ *
+ * A replacement may substitute part of the match (`/abs/packages/ui/src$1`): only the
+ * text before its first substitution is fixed (fixedReplacement), and that part is the
+ * path the alias reaches. A substitution that chooses the member (`/abs/packages/$1`)
+ * leaves a fixed part above every member, so it reaches none: walking every member such
+ * an alias could produce is the "seed from every member" #433 rejected. A `$` that is
+ * not a substitution (`/home/ci/$work`, a `c$` share) is part of the path. A replacement
+ * starting with `.` is taken from `root`, as the compat layer takes it; anything else
+ * that is not absolute (a package name) reaches no member.
+ *
+ * Plugins that resolve through `resolveId` (vite-tsconfig-paths, nxViteTsPaths) add no
+ * alias entry, so they are out of reach here by construction.
+ */
+export function aliasReachedPaths(alias: unknown, root: string): string[] {
+  const list = Array.isArray(alias)
+    ? alias
+    : alias && typeof alias === "object"
+      ? Object.entries(alias).map(([find, replacement]) => ({ find, replacement }))
+      : [];
+  const reached: string[] = [];
+  for (const item of list) {
+    const entry = item as { find?: unknown; replacement?: unknown } | null;
+    const replacement = entry?.replacement;
+    if (typeof replacement !== "string") continue;
+    const fixed = fixedReplacement(replacement, entry?.find instanceof RegExp);
+    const target = fixed.startsWith(".") ? path.resolve(root, fixed) : fixed;
+    if (target && path.isAbsolute(target)) reached.push(target);
+  }
+  return reached;
+}
+
+/**
+ * The text of an alias replacement up to its first substitution, with `$$` read as `$`.
+ * Vite applies an alias with `String.prototype.replace`, which substitutes `$&`, `` $` ``
+ * and `$'` for any pattern, and `$n` and `$<name>` for a RegExp; every other `$` is
+ * literal (with a string pattern, `$1` is too).
+ */
+function fixedReplacement(replacement: string, regExp: boolean): string {
+  let fixed = "";
+  for (let i = 0; i < replacement.length; i++) {
+    const char = replacement[i];
+    if (char !== "$") {
+      fixed += char;
+      continue;
+    }
+    const next = replacement[i + 1] ?? "";
+    if (next === "$") {
+      fixed += "$";
+      i++;
+    } else if (next === "&" || next === "`" || next === "'") {
+      break;
+    } else if (regExp && (/[0-9]/.test(next) || next === "<")) {
+      break;
+    } else {
+      fixed += "$";
+    }
+  }
+  return fixed;
+}
+
+export interface ReachedPackages {
+  /**
+   * experimental.ownershipModel: the shared resolver honours a package's `react-native`
+   * field everywhere, as Metro does, so a declared package whose field names source plain
+   * JavaScript cannot run (JSX, Flow) is compiled too, rather than loaded raw.
+   */
+  compileReactNativeFieldSource?: {
+    platform: string;
+    sourceExts: readonly string[];
+    /** Packages the shared resolver sends to `main` (ownJestSupport): their field is not read. */
+    resolvedToMain?: readonly string[];
+  };
+  /**
+   * Absolute paths the run imports outside its own package without declaring them as
+   * dependencies: the targets of `resolve.alias` entries. A workspace member containing
+   * one is reached, and its dependencies are walked (see "Workspace members the run
+   * reaches" below).
+   */
+  reachedPaths?: readonly string[];
+  /** Called once per workspace member reached through `reachedPaths` but not declared. */
+  onReachedUndeclared?: (name: string, dir: string) => void;
+}
+
+/**
  * Packages in the project that declare React Native in their own manifest.
  *
  * These are the ones published the way the React Native ecosystem publishes:
@@ -205,6 +405,12 @@ function manifestsFrom(projectRoot: string): { dir: string; manifest: Record<str
  * Excluded: packages a preset already shadows (their real source never loads), the
  * test infrastructure in NEVER_INLINE, and anything the consumer listed explicitly
  * in `transform` — that option keeps its existing meaning and takes precedence.
+ *
+ * `dirOf` finds a dependency's directory from a directory: `dependencyDirOf`, or a
+ * memoized copy of it (memoizePackageDirOf). Not `packageDirOf`, whose answer for a
+ * workspace member differs (see dependencyDirOf).
+ *
+ * `reachedPaths` adds the workspace members an alias reaches; see ReachedPackages.
  */
 export function detectEcosystemPackages(
   projectRoot: string | string[],
@@ -212,7 +418,11 @@ export function detectEcosystemPackages(
   testRoots: string[] = [],
   neverTransform: string[] = [],
   activePresets?: readonly string[],
+  dirOf: PackageDirOf = dependencyDirOf,
+  { reachedPaths = [], onReachedUndeclared, compileReactNativeFieldSource }: ReachedPackages = {},
 ): string[] {
+  // Per detection, so a reinstall in a watch session is read afresh.
+  runtimeMemo.clear();
   // More than one root because `manifestsFrom` only walks UP. In a workspace the
   // run root is often above the package under test — Nx invokes tasks from the
   // workspace root, and Vitest's root defaults to the working directory — and the
@@ -257,14 +467,15 @@ export function detectEcosystemPackages(
 
   /**
    * A package's manifest, and the real directory it is installed in, as Node finds it
-   * from `fromDir` (packageDirOf). Not `require.resolve("<name>/package.json")` alone:
-   * a package whose `exports` map leaves out `./package.json` refuses that request, and
-   * was silently never detected or compiled (expo-symbols 57, whose ES module build
-   * Node then ran raw).
+   * from `fromDir` (dependencyDirOf). Not `require.resolve("<name>/package.json")`
+   * alone: an installed package whose `exports` map leaves out `./package.json` refuses
+   * that request, and was silently never detected or compiled (expo-symbols 57, whose
+   * ES module build Node then ran raw). A workspace member is still found only through
+   * that request; dependencyDirOf says why.
    */
   type Installed = { manifest: Record<string, unknown>; dir: string };
   const installedFrom = (fromDir: string, name: string): Installed | null => {
-    const dir = packageDirOf(name, fromDir);
+    const dir = dirOf(name, fromDir);
     if (!dir) return null;
     try {
       const manifest = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
@@ -501,11 +712,13 @@ export function detectEcosystemPackages(
   // `build/` ES modules loaded raw and their extensionless imports failed ("Cannot find
   // module 'expo-asset/build/Asset.fx'").
   //
-  // A peer dependency is an edge too, but only into a package already detected: expo-image
-  // reaches `expo` as a peer, resolved beside it under an isolated install. Following
-  // every React Native peer instead added peers nothing declares, with their closures: on
-  // one Expo app that declares `expo`, expo-router and its web dependencies (157 packages
-  // to 206), which the app never imports.
+  // A peer dependency is an edge too: into a package already detected (expo-image reaches
+  // `expo` as a peer, resolved beside it under an isolated install), and into a required
+  // React Native peer installed beside the package that nothing declares (pnpm installs
+  // a required peer itself: expo-router's expo-linking, #508). Following every React
+  // Native peer, optional ones included, added peers nothing loads, with their closures:
+  // on one Expo app that declares `expo`, expo-router and its web dependencies (157
+  // packages to 206), which the app never imports.
   const detectedSet = new Set(detected);
   const inClosure = new Set(detected);
   const walked = new Set<string>();
@@ -549,23 +762,147 @@ export function detectEcosystemPackages(
     // A sibling that depends on the package under test would otherwise pull it
     // back in here, past the check above.
     ownsTheRun(dep);
-  while (queue.length > 0) {
-    const pkg = queue.pop() as Installed;
-    const deps = pkg.manifest.dependencies;
-    for (const dep of deps && typeof deps === "object" ? Object.keys(deps as object) : []) {
-      if (walked.has(dep) || excluded(dep)) continue;
-      const installed = dependencyOf(pkg, dep);
-      if (!installed) continue; // declared but not installed
-      // A detected package stays in the set whatever it publishes; this test is for
-      // members the closure alone brings in.
-      if (!inClosure.has(dep) && publishesOnlyEsm(installed.manifest)) continue;
-      reach(dep, installed);
+  /**
+   * Walk the queue. With `installedOnly`, only installed packages (a real path inside a
+   * node_modules directory) are added: see "Workspace members the run reaches" below.
+   */
+  const walk = (installedOnly: boolean) => {
+    const admits = (installed: Installed) => !installedOnly || NODE_MODULES_DIR.test(installed.dir);
+    while (queue.length > 0) {
+      const pkg = queue.pop() as Installed;
+      const deps = pkg.manifest.dependencies;
+      for (const dep of deps && typeof deps === "object" ? Object.keys(deps as object) : []) {
+        if (walked.has(dep) || excluded(dep)) continue;
+        const installed = dependencyOf(pkg, dep);
+        if (!installed) continue; // declared but not installed
+        // A detected package stays in the set whatever it publishes; this test is for
+        // members the closure alone brings in.
+        if (!inClosure.has(dep) && publishesOnlyEsm(installed.manifest)) continue;
+        if (admits(installed)) reach(dep, installed);
+      }
+      const peers = pkg.manifest.peerDependencies;
+      const peersMeta = pkg.manifest.peerDependenciesMeta as
+        | Record<string, { optional?: unknown } | undefined>
+        | undefined;
+      for (const peer of peers && typeof peers === "object" ? Object.keys(peers as object) : []) {
+        if (walked.has(peer) || excluded(peer)) continue;
+        const installed = dependencyOf(pkg, peer);
+        if (!installed || !admits(installed)) continue;
+        // Into a detected package, as always; and into a React Native peer that nothing
+        // declares but that the package loads: required, installed beside it (pnpm, npm 7+
+        // and bun install a required peer themselves), and required or imported by the
+        // files its runtime entries reach (runtimeImports). That last test is what makes it
+        // reached: expo-constants lists `expo` as a required peer and names it only in its
+        // config plugin, scripts and types, and a library that only dev-depends on
+        // expo-constants must not compile expo (and get Expo's runtime). An optional peer is not followed: those grew one Expo app from
+        // 157 to 206 compiled packages (expo's web peers), and the app never loads them.
+        const loadedReactNativePeer =
+          !detectedSet.has(peer) &&
+          peersMeta?.[peer]?.optional !== true &&
+          dependsOnReactNative(installed.manifest) &&
+          runtimeImports(pkg.dir, pkg.manifest).has(peer);
+        if (detectedSet.has(peer) || loadedReactNativePeer) reach(peer, installed);
+      }
     }
-    const peers = pkg.manifest.peerDependencies;
-    for (const peer of peers && typeof peers === "object" ? Object.keys(peers as object) : []) {
-      if (walked.has(peer) || excluded(peer) || !detectedSet.has(peer)) continue;
-      const installed = dependencyOf(pkg, peer);
-      if (installed) reach(peer, installed);
+  };
+  walk(false);
+
+  // Workspace members the run reaches. A workspace library the project depends on is
+  // not detected itself (its owner is the ownership track's decision, see
+  // dependencyDirOf), but its dependencies run in the project's tests all the same: a
+  // project that depends on `@w/ui`, which declares expo-image, loads expo-image, and
+  // through its peer expo, expo-asset. Seeding the walk only from what the project
+  // itself declares left those uncompiled, and Node ran expo-asset's ES module build as
+  // published ("Cannot find module …/expo-asset/build/Asset.fx"). The same holds for a
+  // member the run reaches through a `resolve.alias` into its source without declaring
+  // it, which is also reported (onReachedUndeclared).
+  // Reached: a member the project declares by name, a member an alias points into, and,
+  // transitively, a member a reached one declares. Their detected runtime `dependencies`
+  // seed a second walk, resolved from the member's own directory as Node resolves them,
+  // under the same exclusions as every other edge. A seed that is itself a workspace
+  // member is a detected one, already Node-owned. The walk then adds INSTALLED packages
+  // only (a real path inside node_modules), never a workspace member: which owner a workspace
+  // member has stays what it is without this (#427; the ownership track decides it), so a
+  // member an RN workspace library depends on keeps running in Vite, where `vi.mock`
+  // reaches its imports. It runs after the first walk has finished, so nothing the first
+  // walk would add is cut short by the restriction.
+  // Rejected: seeding from every workspace member (it walked what only an unrelated
+  // sibling uses; see the sibling tests), detecting the reached member itself, and letting
+  // the second walk add workspace members (both change a member's owner).
+  const members = found.filter(
+    ({ dir, manifest }) =>
+      typeof manifest.name === "string" && !ownerRoots.some((root) => containsPath(dir, root)),
+  );
+  const memberByName = new Map(members.map((m) => [m.manifest.name as string, m]));
+  const reachedMembers = new Map<string, (typeof members)[number]>();
+  const reachMember = (member: (typeof members)[number]) => {
+    if (reachedMembers.has(member.dir)) return;
+    reachedMembers.set(member.dir, member);
+    const deps = member.manifest.dependencies;
+    for (const dep of deps && typeof deps === "object" ? Object.keys(deps as object) : []) {
+      const other = memberByName.get(dep);
+      if (other) reachMember(other);
+    }
+  };
+  for (const name of projectDeclared) {
+    const member = memberByName.get(name);
+    if (member) reachMember(member);
+  }
+  for (const target of reachedPaths) {
+    // The innermost member containing the target: nested workspaces nest their members.
+    const member = members
+      .filter(({ dir }) => containsPath(dir, target))
+      .sort((a, b) => b.dir.length - a.dir.length)[0];
+    if (!member) continue;
+    // Members the project declares, and members those declare, were reached above.
+    if (!reachedMembers.has(member.dir)) {
+      onReachedUndeclared?.(member.manifest.name as string, member.dir);
+    }
+    reachMember(member);
+  }
+  for (const member of reachedMembers.values()) {
+    const deps = member.manifest.dependencies;
+    for (const dep of deps && typeof deps === "object" ? Object.keys(deps as object) : []) {
+      if (walked.has(dep) || excluded(dep) || !detectedSet.has(dep)) continue;
+      const installed = installedFrom(member.dir, dep);
+      if (installed) reach(dep, installed);
+    }
+  }
+
+  walk(true);
+
+  // experimental.ownershipModel: a declared package nothing selected whose `react-native`
+  // field names source Node cannot run as it is. The shared resolver gives both module
+  // systems that file (Metro's choice, ADR-0005), so it is compiled, as Metro compiles it.
+  // A package compiling cannot fix still fails by name when Node loads it
+  // (explainUntransformedSyntaxError).
+  if (compileReactNativeFieldSource) {
+    let parse: ReturnType<typeof babelParser> | false | undefined;
+    // The project's own declarations only, as the closure seeds: a package only a sibling
+    // declares is that sibling's business. Installed packages only: a workspace member
+    // stays Vite's, so vi.mock reaches its imports (#427).
+    for (const name of projectDeclared) {
+      if (inClosure.has(name) || excluded(name) || ownsTheRun(name)) continue;
+      if (compileReactNativeFieldSource.resolvedToMain?.includes(name)) continue;
+      const installed = installedOf(name);
+      if (!installed || !NODE_MODULES_DIR.test(installed.dir)) continue;
+      if (installed.manifest.exports != null) continue;
+      const field = installed.manifest["react-native"];
+      if (typeof field !== "string") continue;
+      const file = mainFieldFile(
+        path.resolve(installed.dir, field),
+        compileReactNativeFieldSource.platform,
+        compileReactNativeFieldSource.sourceExts,
+      );
+      parse ??= babelParser(roots[0]) ?? false;
+      if (
+        file &&
+        PLAIN_SOURCE.includes(path.extname(file)) &&
+        parse &&
+        !isPlainJavaScript(parse, file)
+      ) {
+        inClosure.add(name);
+      }
     }
   }
 

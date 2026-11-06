@@ -14,19 +14,26 @@ import { createRequire } from "node:module";
 import { usesVitePlus } from "../host.js";
 import fs from "node:fs";
 import path from "node:path";
-import { DEFAULT_ASSET_EXTS, presetShadowing, type PresetName } from "../preset-map.js";
+import {
+  DEFAULT_ASSET_EXTS,
+  LIBRARY_SETUP_FILES,
+  presetShadowing,
+  type PresetName,
+} from "../preset-map.js";
 import { detectEcosystemPackages } from "../native/ecosystem.js";
 import { allows, extractAllowlistPackages, type AllowlistEntry } from "./allowlist.js";
 import { HOT_RUNTIME_NOTE } from "./init.js";
 import {
   booleanFlag,
   jestMajor,
-  loadJestPreset,
   parseJestScript,
+  projectDirectories,
   translateDiscovery,
   type JestDiscoveryOptions,
   type JestScriptFlags,
 } from "./jest-discovery.js";
+import { resolveJestPreset, withPresetSettings } from "./jest-preset.js";
+import { libraryResolver, onlyCallsSetUpTests, stripsOnlyReanimatedProps } from "./superseded.js";
 import {
   babelRecipe,
   classifyBabelPlugins,
@@ -34,7 +41,6 @@ import {
   pluginListSource,
   readBabelConfig,
   serializableOptions,
-  viteMajor,
 } from "./babel-config.js";
 import {
   activePresets,
@@ -69,14 +75,43 @@ interface JestConfig {
   [key: string]: unknown;
 }
 
-function loadConfigFile(
-  root: string,
-  file: string,
-): { source: string; config: JestConfig | null } | null {
+/**
+ * Jest 30's lookup order for `jest.config.*` (jest-config's JEST_CONFIG_EXT_ORDER; Jest 29's is
+ * the same without .mts and .cts). Jest refuses to run when more than one exists, so the order
+ * only decides which one migrate reports in that case.
+ */
+export const JEST_CONFIG_EXTENSIONS = [".js", ".ts", ".mjs", ".mts", ".cjs", ".cts", ".json"];
+
+/** A Jest config file as migrate read it: `config` is null when it could not be loaded. */
+interface LoadedConfig {
+  source: string;
+  config: JestConfig | null;
+  /** Why `config` is null, for the report. */
+  error?: string;
+}
+
+/**
+ * Loads a Jest config file the way Node would run it. TypeScript configs (.ts, .mts, .cts)
+ * load through Node's own type stripping, which is on by default from Node 22.18 and 23.6;
+ * ES module configs (.mjs, .mts, and .js/.ts in a "type": "module" package) through
+ * `require()` of ES modules. Jest itself loads a TypeScript config through ts-node and falls
+ * back to `import()`, so a config that relies on either (extensionless relative imports,
+ * `enum`, path aliases, top-level `await`) is reported with Node's reason rather than guessed at.
+ */
+function loadConfigFile(root: string, file: string): LoadedConfig | null {
   const abs = path.resolve(root, file);
   const name = path.relative(root, abs).split(path.sep).join("/") || file;
   if (!fs.existsSync(abs)) return null;
-  if (!/\.(c?js|json)$/.test(abs)) return { source: name, config: null };
+  if (!/\.(?:[cm]?[jt]s|json)$/.test(abs)) {
+    return { source: name, config: null, error: "not a JavaScript, TypeScript or JSON file" };
+  }
+  if (/\.[cm]?ts$/.test(abs) && !process.features.typescript) {
+    return {
+      source: name,
+      config: null,
+      error: `Node ${process.version} does not load TypeScript by itself; run migrate on Node 22.18 or later`,
+    };
+  }
   try {
     const req = createRequire(path.join(root, "package.json"));
     const loaded = abs.endsWith(".json") ? JSON.parse(fs.readFileSync(abs, "utf8")) : req(abs);
@@ -85,29 +120,37 @@ function loadConfigFile(
         ? (loaded as { default: unknown }).default
         : loaded
     ) as JestConfig;
-    if (typeof config === "function") return { source: name, config: null };
+    if (typeof config === "function") {
+      return {
+        source: name,
+        config: null,
+        error:
+          "it exports a function, which Jest calls to build the config; migrate reads only a config object",
+      };
+    }
+    if (!config || typeof config !== "object") {
+      return { source: name, config: null, error: "it does not export a config object" };
+    }
     return { source: name, config };
-  } catch {
-    return { source: name, config: null };
+  } catch (error) {
+    const message = error instanceof Error ? error.message.split("\n")[0] : String(error);
+    return { source: name, config: null, error: message };
   }
 }
 
 function loadJestConfig(
   root: string,
   explicit?: string,
-): { source: string | null; config: JestConfig | null } {
+): { source: string | null; config: JestConfig | null; error?: string } {
   // `jest --config <file>` in the test script names the config Jest actually reads.
   if (explicit) {
     const loaded = loadConfigFile(root, explicit);
     if (loaded) return loaded;
   }
   // Jest's own precedence: a jest.config.* file wins over package.json#jest.
-  for (const name of ["jest.config.js", "jest.config.cjs", "jest.config.json"]) {
-    const loaded = loadConfigFile(root, name);
+  for (const extension of JEST_CONFIG_EXTENSIONS) {
+    const loaded = loadConfigFile(root, `jest.config${extension}`);
     if (loaded) return loaded;
-  }
-  for (const name of ["jest.config.mjs", "jest.config.ts", "jest.config.mts"]) {
-    if (fs.existsSync(path.join(root, name))) return { source: name, config: null };
   }
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
@@ -174,6 +217,24 @@ function exactMapperKey(pattern: string): string | null {
   return expansions?.length === 1 && !expansions[0].includes(STAR) ? expansions[0] : null;
 }
 
+/**
+ * A `^prefix/(.*)$` → `<rootDir>/dir/$1` moduleNameMapper, which is a plain prefix
+ * alias: the literal prefix (escapes read as literals, as exactMapperKey reads them)
+ * and the project-relative target directory, or null.
+ */
+function prefixMapper(
+  pattern: string,
+  target: unknown,
+): { key: string; dir: string; rest: string } | null {
+  const m = /^\^(.+)\/\((\.\*|\.\+)\)\$?$/.exec(pattern);
+  if (!m || typeof target !== "string") return null;
+  const expansions = tryExpand(m[1], true);
+  if (expansions?.length !== 1 || expansions[0].includes(STAR)) return null;
+  const t = /^(<rootDir>|\.)(\/.*)?\/\$1$/.exec(target);
+  if (!t || target.indexOf("$") !== target.length - 2) return null;
+  return { key: expansions[0], dir: `.${t[2] ?? ""}`, rest: m[2] };
+}
+
 /** `pkg` and `/sub` of a bare specifier (scope-aware). */
 function splitSpecifier(specifier: string): { pkg: string; subpath: string } {
   const parts = specifier.split("/");
@@ -229,12 +290,18 @@ export function analyzeJestConfig(root: string): MigrationReport {
     // no/invalid package.json
   }
   const explicitConfig = scriptFlags?.flags.get("config") ?? scriptFlags?.flags.get("c");
-  const { source, config } = loadJestConfig(
-    root,
-    typeof explicitConfig === "string" ? explicitConfig : undefined,
-  );
+  const {
+    source,
+    config: projectConfig,
+    error: configError,
+  } = loadJestConfig(root, typeof explicitConfig === "string" ? explicitConfig : undefined);
   const automatic: string[] = [];
   const attention: string[] = [];
+  if (source && configError) {
+    attention.push(
+      `${source} could not be loaded (${configError}), so none of its settings are in the suggested config; carry them over by hand.`,
+    );
+  }
   const presetCovered: string[] = [];
   const dropped: string[] = [];
 
@@ -253,7 +320,18 @@ export function analyzeJestConfig(root: string): MigrationReport {
   let needsUrlImport = false;
   // Options for the reactNative() call, besides `transform`.
   const pluginOptions: string[] = [];
-  const jestPreset = typeof config?.preset === "string" ? config.preset : undefined;
+  // The preset's settings sit under the project's, as Jest merges them; a local preset
+  // that spreads a known one is translated as that preset (jest-preset.ts).
+  const resolvedPreset =
+    typeof projectConfig?.preset === "string"
+      ? resolveJestPreset(root, projectConfig.preset)
+      : undefined;
+  const presetKeys = Object.keys(resolvedPreset?.own ?? {});
+  const config: JestConfig | null =
+    projectConfig && resolvedPreset && presetKeys.length
+      ? withPresetSettings(projectConfig, resolvedPreset.own)
+      : projectConfig;
+  const jestPreset = resolvedPreset?.name;
   const fromJestExpo = /^jest-expo(\/(ios|android|universal))?$/.test(jestPreset ?? "");
 
   // jest-expo mocks Expo's native modules but not React Navigation, so its suites
@@ -269,6 +347,10 @@ export function analyzeJestConfig(root: string): MigrationReport {
   // detects and compiles by itself under them. A `transform` entry for one of those
   // would take precedence over detection and externalize it instead.
   const active: PresetName[] = activePresets(root, navigationOff ? ["navigation"] : []);
+  // A preset that steps aside under the native engine for a library that runs as itself
+  // with the Jest setup file it ships (LIBRARY_SETUP_FILES).
+  const runsWithOwnSetup = (preset: PresetName): boolean =>
+    LIBRARY_SETUP_FILES[preset] !== undefined && !active.includes(preset);
   const autoInlined = new Set(detectEcosystemPackages(root, [], [], [], active));
 
   const addAlias = (key: string, value: string) => {
@@ -277,6 +359,17 @@ export function analyzeJestConfig(root: string): MigrationReport {
     aliasEntries.push(`${JSON.stringify(key)}: ${value}`);
     return true;
   };
+  // A project file a Jest setting names (`<rootDir>/x`, `./x`, `x`), or null.
+  const projectSource = (file: string): string | null => {
+    if (/^(?:<rootDir>\/|\.\/)?node_modules\//.test(file)) return null;
+    const rel = file.replace(/^<rootDir>\/?/, "");
+    const base = path.resolve(root, rel);
+    const found = [base, `${base}.js`, `${base}.ts`].find((candidate) =>
+      fs.statSync(candidate, { throwIfNoEntry: false })?.isFile(),
+    );
+    return found === undefined ? null : fs.readFileSync(found, "utf8");
+  };
+  const reanimatedActive = active.includes("reanimated");
   const absolutePath = (relative: string) => {
     needsUrlImport = true;
     return `fileURLToPath(new URL(${JSON.stringify(relative)}, import.meta.url))`;
@@ -290,9 +383,11 @@ export function analyzeJestConfig(root: string): MigrationReport {
     };
 
     // preset
-    const preset = take<string>("preset");
+    take("preset");
+    const preset = resolvedPreset?.name;
+    const label = resolvedPreset?.label;
     if (preset === "react-native" || preset === "@react-native/jest-preset") {
-      automatic.push(`preset: '${preset}' → replaced by the reactNative() plugin.`);
+      automatic.push(`preset: ${label} → replaced by the reactNative() plugin.`);
     } else if (
       preset === "jest-expo" ||
       preset === "jest-expo/ios" ||
@@ -301,37 +396,43 @@ export function analyzeJestConfig(root: string): MigrationReport {
       const android = preset === "jest-expo/android";
       if (android) pluginOptions.push(`platform: 'android'`);
       automatic.push(
-        `preset: '${preset}' → replaced by the reactNative() plugin` +
+        `preset: ${label} → replaced by the reactNative() plugin` +
           `${android ? " with platform: 'android'" : ""}.`,
       );
-      attention.push(`preset: '${preset}' — ${expoPresetCoverage()}.`);
+      attention.push(`preset: ${label} — ${expoPresetCoverage()}.`);
     } else if (preset === "jest-expo/universal") {
       attention.push(
-        `preset: 'jest-expo/universal' runs one Jest project per platform. Define a Vitest project for each ` +
+        `preset: ${label} runs one Jest project per platform. Define a Vitest project for each ` +
           `native platform (reactNative({ platform: 'ios' }) and reactNative({ platform: 'android' })); ` +
           `its web and node projects are not React Native renders and stay outside vitest-native.`,
       );
     } else if (preset === "jest-expo/web" || preset === "jest-expo/node") {
       attention.push(
-        `preset: '${preset}' targets ${preset.slice("jest-expo/".length)}, not a React Native render; ` +
+        `preset: ${label} targets ${preset.slice("jest-expo/".length)}, not a React Native render; ` +
           `run these suites without vitest-native.`,
       );
+    } else if (preset && resolvedPreset?.loaded) {
+      attention.push(
+        `preset: ${label} — not a preset vitest-native translates by name; its settings are translated ` +
+          `below as Jest applies them, under this config's own. Review what else it did.`,
+      );
     } else if (preset) {
-      attention.push(`preset: '${preset}' — unknown preset; review what it configured.`);
+      attention.push(`preset: ${label} — unknown preset; review what it configured.`);
+    }
+    if (presetKeys.length) {
+      automatic.push(
+        `preset: ${label} also sets ${list(presetKeys)} → each is handled below like this config's own ` +
+          `keys, merged with them as Jest merges a preset's.`,
+      );
     }
 
     // The preset's own discovery settings (testMatch & co.) sit under the user's.
-    let presetConfig: JestDiscoveryOptions | null = null;
-    if (preset) {
-      const loaded = loadJestPreset(root, preset);
-      if ("config" in loaded) {
-        presetConfig = loaded.config;
-      } else {
-        attention.push(
-          `preset: '${preset}' could not be loaded (${loaded.error}), so its testMatch/testPathIgnorePatterns ` +
-            `could not be read; test.include falls back to Jest's defaults — compare with the preset.`,
-        );
-      }
+    const presetConfig: JestDiscoveryOptions | null = resolvedPreset?.loaded ?? null;
+    if (resolvedPreset && !resolvedPreset.loaded) {
+      attention.push(
+        `preset: ${label} could not be loaded (${resolvedPreset.loadError}), so its testMatch/testPathIgnorePatterns ` +
+          `could not be read; test.include falls back to Jest's defaults — compare with the preset.`,
+      );
     }
 
     // setup files
@@ -342,7 +443,10 @@ export function analyzeJestConfig(root: string): MigrationReport {
         // A library's own test setup (react-native-unistyles/mocks, a jestSetup.js):
         // run under the jest-compat shim, its jest.mock() calls would replace the
         // preset that already shadows the package.
-        const setupPackage = /^(@[^/]+\/[^/]+|[^@./][^/]*)\//.exec(f)?.[1];
+        // As a package request, or by path into node_modules, the form libraries' own
+        // docs give (`./node_modules/react-native-gesture-handler/jestSetup.js`).
+        const asRequest = f.replace(/^(?:<rootDir>\/|\.\/)?node_modules\//, "");
+        const setupPackage = /^(@[^/]+\/[^/]+|[^@./<][^/]*)\//.exec(asRequest)?.[1];
         const setupPreset = setupPackage ? presetShadowing(setupPackage) : undefined;
         if (/react-native\/jest\/setup/.test(f)) {
           presetCovered.push(`${key}: '${f}' — the plugin injects its own setup; delete.`);
@@ -350,6 +454,22 @@ export function analyzeJestConfig(root: string): MigrationReport {
           presetCovered.push(
             `${key}: '${f}' — ${setupPackage}'s own test setup; the auto-detected ${setupPreset} ` +
               `preset shadows ${setupPackage}, and this file's jest.mock() calls would replace it; delete.`,
+          );
+        } else if (
+          setupPreset &&
+          runsWithOwnSetup(setupPreset) &&
+          // Only the file the engine runs itself; another of the package's files stays.
+          asRequest.replace(/\.js$/, "") === LIBRARY_SETUP_FILES[setupPreset]?.replace(/\.js$/, "")
+        ) {
+          presetCovered.push(
+            `${key}: '${f}' — ${setupPackage}'s own test setup, which the native engine runs ` +
+              `before the setup files (${LIBRARY_SETUP_FILES[setupPreset]}); delete.`,
+          );
+        } else if (reanimatedActive && onlyCallsSetUpTests(projectSource(f) ?? "")) {
+          presetCovered.push(
+            `${key}: '${f}' — only calls Reanimated's setUpTests(), whose matchers cannot see the ` +
+              `rendered style here; vitest-native registers toHaveAnimatedStyle and ` +
+              `toHaveAnimatedProps itself; delete.`,
           );
         } else if (/jest-expo/.test(f)) {
           attention.push(`${key}: '${f}' — ${expoPresetCoverage()}.`);
@@ -381,6 +501,9 @@ export function analyzeJestConfig(root: string): MigrationReport {
         // itself (DEFAULT_ASSET_EXTS, the list plugin.ts uses), and said per extension.
         const assetGroup = /\\\.\(\??:?([a-z0-9|]+)\)\$?$/i.exec(pattern);
         const literal = exactMapperKey(pattern);
+        // `@/`, `~/` and `src/` keep the string alias below: nothing imports them bare.
+        const prefix = assetGroup ? null : prefixMapper(pattern, target);
+        const plainPrefix = prefix && !["@", "~", "src"].includes(prefix.key) ? prefix : null;
         if (assetGroup) {
           const exts = assetGroup[1].toLowerCase().split("|");
           const missing = exts.filter((e) => !DEFAULT_ASSET_EXTS.includes(e));
@@ -395,6 +518,18 @@ export function analyzeJestConfig(root: string): MigrationReport {
                 `the extensions the plugin handles by default → reactNative({ assetExts: ${JSON.stringify(missing)} }).`,
             );
           }
+        } else if (plainPrefix) {
+          // A RegExp `find` anchored as Jest's pattern is: a string key would also take
+          // the bare specifier (`utils` for `^utils/(.*)$`), which Jest leaves to the
+          // package. The directory is absolute: Vite resolves a substituted alias
+          // relative to the importer.
+          const find = `${regexLiteral(plainPrefix.key).slice(0, -2)}\\/(${plainPrefix.rest})$/`;
+          regexAliases.push(
+            `{ find: ${find}, replacement: ${absolutePath(plainPrefix.dir)} + "/$1" }`,
+          );
+          automatic.push(
+            `moduleNameMapper '${pattern}' → resolve.alias { find: ${find} } (absolute path).`,
+          );
         } else if (/^\^?@\/|\^~\/|\^src\//.test(pattern)) {
           const aliasKey = pattern
             .replace(/[\^$]/g, "")
@@ -611,7 +746,14 @@ export function analyzeJestConfig(root: string): MigrationReport {
       const value = take<never>(key);
       if (value !== undefined) discoveryOptions[key] = value;
     }
-    const discovery = translateDiscovery(discoveryOptions, presetConfig, jestMajor(root));
+    let directories: string[] | undefined;
+    const discovery = translateDiscovery(
+      discoveryOptions,
+      presetConfig,
+      jestMajor(root),
+      // Walked only if a `$`-anchored ignore pattern needs it, once.
+      () => (directories ??= projectDirectories(root)),
+    );
     if (discovery.include) {
       testEntries.push(`include: [${discovery.include.map((g) => JSON.stringify(g)).join(", ")}]`);
     }
@@ -651,6 +793,8 @@ export function analyzeJestConfig(root: string): MigrationReport {
       "globals",
       "snapshotSerializers",
       "reporters",
+      "watchPathIgnorePatterns",
+      "workerIdleMemoryLimit",
     ]) {
       if (config[key] !== undefined) {
         handled.add(key);
@@ -666,8 +810,34 @@ export function analyzeJestConfig(root: string): MigrationReport {
           );
           testEntries.push(`${vitestKey}: ${JSON.stringify(config[key])}`);
         } else if (key === "snapshotSerializers") {
-          attention.push(
-            `snapshotSerializers — Vitest uses expect.addSnapshotSerializer; vitest-native ships one for RN trees.`,
+          const serializers = Array.isArray(config[key]) ? (config[key] as unknown[]) : [];
+          const rest: string[] = [];
+          for (const entry of serializers) {
+            const code = typeof entry === "string" ? projectSource(entry) : null;
+            if (reanimatedActive && code !== null && stripsOnlyReanimatedProps(code)) {
+              presetCovered.push(
+                `snapshotSerializers '${entry}' — strips the jest* props Reanimated's real components ` +
+                  `add under Jest; the Reanimated preset's components add none; delete.`,
+              );
+            } else {
+              rest.push(String(entry));
+            }
+          }
+          if (rest.length || !serializers.length) {
+            attention.push(
+              `snapshotSerializers${rest.length ? ` ${rest.map((r) => `'${r}'`).join(", ")}` : ""} — ` +
+                `Vitest uses expect.addSnapshotSerializer; vitest-native ships one for RN trees.`,
+            );
+          }
+        } else if (key === "watchPathIgnorePatterns") {
+          dropped.push(
+            `${key} — affects only Jest's watch mode; Vitest's watch mode reruns by the module graph ` +
+              `(tune it with server.watch.ignored if needed); dropped.`,
+          );
+        } else if (key === "workerIdleMemoryLimit") {
+          dropped.push(
+            `${key} — Vitest recycles workers by memory only in its vm pools (test.vmMemoryLimit), ` +
+              `which vitest-native does not use; dropped. Watch memory on the first full run.`,
           );
         } else {
           dropped.push(`${key} — no vitest-native equivalent needed; dropped.`);
@@ -675,7 +845,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
       }
     }
 
-    // Jest's default is clearMocks: false; Vitest 5 defaults it to true (Vitest 4: false).
+    // Jest's default is clearMocks: false; Vitest 5 defaults it to true.
     // Under true, calls a module makes while it loads are cleared before each test, so
     // a test asserting on them fails only after migrating.
     if (config.clearMocks === undefined) {
@@ -683,6 +853,18 @@ export function analyzeJestConfig(root: string): MigrationReport {
       automatic.push(
         `Jest keeps mock calls between tests unless clearMocks is set → test.clearMocks: false ` +
           `(Vitest 5 clears them before each test by default).`,
+      );
+    }
+
+    // A library's own Jest resolver that the engine applies itself.
+    const resolver = typeof config.resolver === "string" ? config.resolver : undefined;
+    const resolverLibrary = resolver ? libraryResolver(resolver) : null;
+    if (resolverLibrary && (reanimatedActive || active.includes("worklets"))) {
+      handled.add("resolver");
+      presetCovered.push(
+        `resolver: '${resolver}' — ${resolverLibrary}'s own Jest resolver: the native engine applies ` +
+          `Reanimated's and Worklets' resolvers itself where their own mocks run, and their presets ` +
+          `replace the packages elsewhere; delete.`,
       );
     }
 
@@ -712,6 +894,11 @@ export function analyzeJestConfig(root: string): MigrationReport {
           presetCovered.push(
             `__mocks__/${candidate} — the auto-detected ${preset} preset shadows ${candidate}; delete the manual mock.`,
           );
+        } else if (preset && runsWithOwnSetup(preset) && installedManifest(root, candidate)) {
+          presetCovered.push(
+            `__mocks__/${candidate} — the native engine runs ${candidate} with its own Jest setup ` +
+              `(${LIBRARY_SETUP_FILES[preset]}), which replaces its native layer; delete the manual mock.`,
+          );
         } else if (installedManifest(root, candidate) && installedTestsItself(root, candidate)) {
           attention.push(
             `__mocks__/${candidate} — ${candidate} ${installedMajor(root, candidate)} runs its own test ` +
@@ -736,14 +923,11 @@ export function analyzeJestConfig(root: string): MigrationReport {
   if (babel.source) {
     const classified = classifyBabelPlugins(babel, root, active);
     const required = classified.filter((p) => p.verdict === "required");
-    const vite = viteMajor(root);
     if (required.length) {
-      // Emitted only when it can be done exactly: Vite 8 with @rolldown/plugin-babel
-      // and @babel/core installed, and plugin options that are plain data. Otherwise
-      // a config that imports a missing package would not load at all.
+      // Emitted only when it can be done exactly: @rolldown/plugin-babel and @babel/core
+      // installed, and plugin options that are plain data. Otherwise a config that
+      // imports a missing package would not load at all.
       const canEmit =
-        vite !== null &&
-        vite >= 8 &&
         installed(root, "@rolldown/plugin-babel") &&
         installed(root, "@babel/core") &&
         required.every(serializableOptions);
@@ -755,7 +939,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
         }
       } else {
         for (const p of required) {
-          attention.push(`${babel.source}: ${p.reason} Required: ${babelRecipe(vite, required)}.`);
+          attention.push(`${babel.source}: ${p.reason} Required: ${babelRecipe(required)}.`);
         }
       }
     }
@@ -793,6 +977,15 @@ export function analyzeJestConfig(root: string): MigrationReport {
     }
     for (const p of classified.filter((c) => c.verdict === "unknown")) {
       attention.push(`${babel.source}: ${p.reason}`);
+    }
+    if (babel.lazyImports.length) {
+      attention.push(
+        `${babel.source}: ${babel.lazyImports.join(", ")} — under Jest a package import ran only when the test ` +
+          `first used it; here every import runs when its file loads. A module a test never touched is now ` +
+          `evaluated, so a partial jest.mock of something it needs can fail (e.g. "requireOptionalNativeModule ` +
+          `is not a function"). Give such a mock the rest of the module: ` +
+          `jest.mock('x', () => ({ ...jest.requireActual('x'), ... })).`,
+      );
     }
     if (!babel.evaluated) {
       attention.push(
@@ -927,11 +1120,26 @@ function classifyAllowlist(
   }
 }
 
-export function renderMigrationReport(report: MigrationReport): string[] {
+/** The commands to run once the suggested config is saved. */
+export function migrationNextStep(report: MigrationReport): string {
+  return report.vitePlus
+    ? "npx vitest-native doctor && vp test"
+    : "npx vitest-native doctor && npx vitest";
+}
+
+/**
+ * The report `migrate` prints. With `write: true` (`migrate --write`) the config is about to
+ * be saved, so the closing line does not ask for a re-run with --write; the CLI prints the
+ * next step after the file is written.
+ */
+export function renderMigrationReport(
+  report: MigrationReport,
+  { write = false }: { write?: boolean } = {},
+): string[] {
   const lines: string[] = [];
   if (!report.source) {
     lines.push(
-      "✗ no Jest configuration found (package.json#jest or jest.config.{js,cjs,json}).",
+      "✗ no Jest configuration found (package.json#jest or jest.config.{js,ts,mjs,cjs,mts,cts,json}).",
       "  Starting fresh? Run `vitest-native init` instead.",
     );
     return lines;
@@ -949,12 +1157,9 @@ export function renderMigrationReport(report: MigrationReport): string[] {
   section("Dropped (no equivalent needed)", report.dropped);
   lines.push(report.vitePlus ? "Suggested vite.config:" : "Suggested vitest.config:", "");
   lines.push(...report.suggestedConfig.split("\n").map((l) => `  ${l}`));
-  lines.push(
-    report.vitePlus
-      ? "Re-run with --write to save this config, then: npx vitest-native doctor && vp test"
-      : "Re-run with --write to save this config, then: npx vitest-native doctor && npx vitest",
-    "",
-    ...HOT_RUNTIME_NOTE,
-  );
+  if (!write) {
+    lines.push(`Re-run with --write to save this config, then: ${migrationNextStep(report)}`, "");
+  }
+  lines.push(...HOT_RUNTIME_NOTE);
   return lines;
 }

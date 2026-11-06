@@ -1,16 +1,17 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach } from "vitest";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 // @ts-expect-error — runtime .mjs, no types
 import { transformRN } from "../src/native/transform.mjs";
-import { parseDeprecatedReactNativeExports, parseReactNativeExports } from "../src/plugin.js";
+import { parseReactNativeExports } from "../src/plugin.js";
 import { PEER_REQUIREMENTS } from "../src/peer-requirements.js";
 import { validatePeerDependency } from "../src/validate.js";
 import { nativePool } from "../src/native/pool.js";
 import { createRequire } from "node:module";
 import { runPluginConfig } from "./plugin-config.js";
+import { COLD_TRANSFORM_BUDGET_MS, warmTransform } from "./support/warm-transform.js";
 
 // Anchor all resolution to THIS test file's location (cwd-independent — vitest's
 // process.cwd() varies with where it was launched). Walk up from here looking for
@@ -36,6 +37,10 @@ const RN = path.dirname(fs.realpathSync(findUp("node_modules/react-native/packag
 const projectRoot = path.dirname(findUp("package.json", HERE));
 
 describe("transformRN", () => {
+  // The RN source files below are usually served from the disk cache, so whichever test
+  // first reached Babel paid the worker's cold start and could time out.
+  beforeAll(() => warmTransform(transformRN, projectRoot), COLD_TRANSFORM_BUDGET_MS);
+
   it("lowers RN 0.84 Flow component syntax to runnable JS", () => {
     const file = path.join(RN, "Libraries/Components/View/View.js");
     const src = fs.readFileSync(file, "utf8");
@@ -188,6 +193,8 @@ describe("native boundary", () => {
 
 import {
   BOUNDARY_NATIVE_MODULES,
+  DEV_LAUNCHER_MODULE,
+  EXPO_GO_ABSENT_MODULES,
   installKnownNativeModules,
   knownNativeModulesFor,
   nativeModuleSpecsFor,
@@ -252,13 +259,60 @@ describe("native boundary: which native modules exist", () => {
     installKnownNativeModules(projectRoot);
     try {
       const { tm, nm } = load();
-      expect(typeof nm.EXDevLauncher.anything).toBe("function");
-      expect("EXDevLauncher" in nm).toBe(true);
-      expect(tm.get("EXDevLauncher")).toBe(nm.EXDevLauncher);
+      expect(typeof nm.VitestNativeUnregistered.anything).toBe("function");
+      expect("VitestNativeUnregistered" in nm).toBe(true);
+      expect(tm.get("VitestNativeUnregistered")).toBe(nm.VitestNativeUnregistered);
       expect(typeof tm.get("SpecKeyboardObserver").captureRejections).toBe("function");
     } finally {
       vi.unstubAllEnvs();
       installKnownNativeModules(projectRoot);
+    }
+  });
+
+  // Expo Go has no dev launcher, and expo-constants parses EXDevLauncher.manifestString
+  // whenever the module is present (tests/expo-dev-launcher-fact.test.ts).
+  it.each(EXPO_GO_ABSENT_MODULES)(
+    "%s is absent from every lookup in every mode, as in Expo Go",
+    (name) => {
+      for (const nativeModules of ["device", "permissive"]) {
+        // The plugin writes no field for the default, "device".
+        stubProjectContext(nativeModules === "permissive" ? { nativeModules } : {});
+        installKnownNativeModules(projectRoot);
+        g.__vitest_native_known_modules.add(name);
+        try {
+          const { tm, nm } = load();
+          expect(nm[name], nativeModules).toBeUndefined();
+          expect(name in nm, nativeModules).toBe(false);
+          expect(tm.get(name), nativeModules).toBeNull();
+          expect(() => tm.getEnforcing(name), nativeModules).toThrow(
+            `TurboModuleRegistry.getEnforcing(...): '${name}' could not be found.`,
+          );
+        } finally {
+          vi.unstubAllEnvs();
+          installKnownNativeModules(projectRoot);
+        }
+      }
+    },
+  );
+
+  it("a test's mock of a module Expo Go lacks still wins, permissive or not", () => {
+    for (const nativeModules of ["device", "permissive"]) {
+      stubProjectContext(nativeModules === "permissive" ? { nativeModules } : {});
+      installKnownNativeModules(projectRoot);
+      try {
+        const { tm, nm } = load();
+        const impl = { manifestString: "{}" };
+        g.__vitest_native_module_mocks[DEV_LAUNCHER_MODULE] = impl;
+        expect(nm[DEV_LAUNCHER_MODULE]).toBe(impl);
+        expect(DEV_LAUNCHER_MODULE in nm).toBe(true);
+        expect(tm.get(DEV_LAUNCHER_MODULE)).toBe(impl);
+        expect(tm.getEnforcing(DEV_LAUNCHER_MODULE)).toBe(impl);
+        delete g.__vitest_native_module_mocks[DEV_LAUNCHER_MODULE];
+        expect(nm[DEV_LAUNCHER_MODULE]).toBeUndefined();
+      } finally {
+        vi.unstubAllEnvs();
+        installKnownNativeModules(projectRoot);
+      }
     }
   });
 
@@ -269,17 +323,17 @@ describe("native boundary: which native modules exist", () => {
 
   it("an unregistered module is null from get() and undefined from NativeModules", () => {
     const { tm, nm } = load();
-    expect(tm.get("EXDevLauncher")).toBeNull();
-    expect(nm.EXDevLauncher).toBeUndefined();
-    expect("EXDevLauncher" in nm).toBe(false);
+    expect(tm.get("VitestNativeUnregistered")).toBeNull();
+    expect(nm.VitestNativeUnregistered).toBeUndefined();
+    expect("VitestNativeUnregistered" in nm).toBe(false);
   });
 
   it("getEnforcing() still returns a stub for an unregistered module", () => {
     const { tm, nm } = load();
-    const required = tm.getEnforcing("EXDevLauncher");
+    const required = tm.getEnforcing("VitestNativeUnregistered");
     expect(typeof required.anything).toBe("function");
     // Requiring a module does not make it visible to optional lookups.
-    expect(nm.EXDevLauncher).toBeUndefined();
+    expect(nm.VitestNativeUnregistered).toBeUndefined();
   });
 
   it("a known module is present for every lookup kind", () => {
@@ -299,13 +353,13 @@ describe("native boundary: which native modules exist", () => {
 
   it("a mocked module is present on both paths", () => {
     const { tm, nm } = load();
-    const impl = { manifestString: "{}" };
-    g.__vitest_native_module_mocks.EXDevLauncher = impl;
-    expect(nm.EXDevLauncher).toBe(impl);
-    expect("EXDevLauncher" in nm).toBe(true);
-    expect(tm.get("EXDevLauncher")).toBe(impl);
-    delete g.__vitest_native_module_mocks.EXDevLauncher;
-    expect(nm.EXDevLauncher).toBeUndefined();
+    const impl = { value: "{}" };
+    g.__vitest_native_module_mocks.VitestNativeUnregistered = impl;
+    expect(nm.VitestNativeUnregistered).toBe(impl);
+    expect("VitestNativeUnregistered" in nm).toBe(true);
+    expect(tm.get("VitestNativeUnregistered")).toBe(impl);
+    delete g.__vitest_native_module_mocks.VitestNativeUnregistered;
+    expect(nm.VitestNativeUnregistered).toBeUndefined();
   });
 
   it("installKnownNativeModules reads the plugin's list, or computes it", () => {
@@ -529,33 +583,13 @@ describe("resolvePlatformFile", () => {
 // @ts-expect-error — runtime .mjs
 import * as nativeLoader from "../src/native/loader.mjs";
 
-describe("in-thread loader hooks: where Node's are reliable", () => {
-  it.each([
-    ["22.13.0", false],
-    ["22.19.0", false],
-    ["22.22.2", false],
-    ["22.22.3", true],
-    ["22.23.0", true],
-    ["23.11.0", false],
-    ["24.11.0", false],
-    ["24.12.0", true],
-    ["v24.13.0", true],
-    ["25.2.0", false],
-    ["26.0.0", true],
-  ])("%s → %s", (version, expected) => {
-    expect(nativeLoader.inThreadHooksReliable(version)).toBe(expected);
-  });
-});
-
 describe("in-thread loader hooks: require or import", () => {
   // The contexts Node passes module.registerHooks, as measured on each version.
   const requireOn22_19 = { conditions: ["require", "node", "node-addons", "module-sync"] };
-  const requireOn22_15 = { conditions: {} }; // 22.15–22.18 and 24.0–24.4
   const importAnywhere = { conditions: ["node", "import", "module-sync", "node-addons"] };
 
-  it("reads a require on every Node with registerHooks", () => {
+  it("reads a require as a require", () => {
     expect(nativeLoader.isRequireContext(requireOn22_19)).toBe(true);
-    expect(nativeLoader.isRequireContext(requireOn22_15)).toBe(true);
     expect(nativeLoader.isRequireContext({})).toBe(true);
   });
 
@@ -571,7 +605,7 @@ describe("native preset redirect (ESM loader)", () => {
       transformPkgs: [],
       presetExports: { "react-native-reanimated": ["useSharedValue", "View"] },
     });
-    const result = await nativeLoader.resolve(
+    const result = nativeLoader.resolveSync(
       "react-native-reanimated",
       { parentURL: undefined },
       () => {
@@ -583,13 +617,9 @@ describe("native preset redirect (ESM loader)", () => {
   });
 
   it("serves ESM source that re-exports the runtime mock from globalThis", async () => {
-    const result = await nativeLoader.load(
-      "vitest-native-preset:react-native-reanimated",
-      {},
-      () => {
-        throw new Error("nextLoad should not be called for a preset URL");
-      },
-    );
+    const result = nativeLoader.loadSync("vitest-native-preset:react-native-reanimated", {}, () => {
+      throw new Error("nextLoad should not be called for a preset URL");
+    });
     expect(result.format).toBe("module");
     expect(result.source).toContain("globalThis.__vitest_native_preset_mocks");
     expect(result.source).toContain('export const useSharedValue = _m["useSharedValue"];');
@@ -600,7 +630,7 @@ describe("native preset redirect (ESM loader)", () => {
 
   it("passes non-preset specifiers through to the next resolver", async () => {
     const sentinel = { url: "file:///passthrough", shortCircuit: true };
-    const result = await nativeLoader.resolve(
+    const result = nativeLoader.resolveSync(
       "some-unrelated-package",
       { parentURL: undefined },
       () => sentinel,
@@ -615,7 +645,7 @@ describe("native preset redirect (ESM loader)", () => {
       presetExports: { "react-native-gesture-handler": ["Swipeable", "State"] },
       assetExts: ["png", "ttf"],
     });
-    const resolved = await nativeLoader.resolve(
+    const resolved = nativeLoader.resolveSync(
       "react-native-gesture-handler/Swipeable",
       { parentURL: undefined },
       () => {
@@ -623,7 +653,7 @@ describe("native preset redirect (ESM loader)", () => {
       },
     );
     expect(resolved.url).toBe("vitest-native-preset:react-native-gesture-handler/Swipeable");
-    const loaded = await nativeLoader.load(resolved.url, {}, () => {
+    const loaded = nativeLoader.loadSync(resolved.url, {}, () => {
       throw new Error("nextLoad should not be called for a preset URL");
     });
     // Default = the mock export matching the leaf name, falling back to the
@@ -633,9 +663,65 @@ describe("native preset redirect (ESM loader)", () => {
     expect(loaded.source).toContain('export const State = _m["State"];');
   });
 
+  it("passes a subpath whose leaf the mock does not export to the real resolver", async () => {
+    // As jest.mock(pkg) leaves subpaths alone under Jest: the root mock is another
+    // module's exports.
+    await nativeLoader.initialize({
+      projectRoot,
+      transformPkgs: [],
+      presetExports: { "react-native-gesture-handler": ["Swipeable", "State"] },
+      assetExts: ["png", "ttf"],
+    });
+    const sentinel = { url: "file:///real/ReanimatedSwipeable.js", shortCircuit: true };
+    const result = nativeLoader.resolveSync(
+      "react-native-gesture-handler/ReanimatedSwipeable",
+      { parentURL: undefined },
+      () => sentinel,
+    );
+    expect(result).toBe(sentinel);
+  });
+
+  it("by resolved file: the package's entry is the mock, any other file is real", async () => {
+    const pkgDir = path.join(projectRoot, "node_modules", "react-native-safe-area-context");
+    const manifest = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf8"));
+    await nativeLoader.initialize({
+      projectRoot,
+      transformPkgs: [],
+      presetExports: { "react-native-safe-area-context": ["SafeAreaView"] },
+      assetExts: [],
+    });
+    const parentURL = pathToFileURL(path.join(projectRoot, "src", "index.ts")).href;
+    const entry = pathToFileURL(path.join(pkgDir, manifest.main)).href;
+    const fromEntry = nativeLoader.resolveSync(entry, { parentURL }, () => {
+      throw new Error("the entry is the mock");
+    });
+    expect(fromEntry.url).toContain("react-native-safe-area-context");
+    expect(fromEntry.url).not.toMatch(/^file:/);
+    const deep = pathToFileURL(path.join(pkgDir, "lib/commonjs/SafeAreaContext.js")).href;
+    const sentinel = { url: deep, shortCircuit: true };
+    expect(nativeLoader.resolveSync(deep, { parentURL }, () => sentinel)).toBe(sentinel);
+  });
+
+  it("a subpath Node resolves to the package's entry is the root mock", async () => {
+    const pkgDir = path.join(projectRoot, "node_modules", "react-native-safe-area-context");
+    await nativeLoader.initialize({
+      projectRoot,
+      transformPkgs: [],
+      presetExports: { "react-native-safe-area-context": ["SafeAreaView"] },
+      assetExts: [],
+    });
+    const parentURL = pathToFileURL(path.join(projectRoot, "src", "index.ts")).href;
+    const result = nativeLoader.resolveSync(
+      "react-native-safe-area-context/src",
+      { parentURL },
+      () => ({ url: pathToFileURL(path.join(pkgDir, "src", "index.tsx")).href }),
+    );
+    expect(result.url).toBe("vitest-native-preset:react-native-safe-area-context");
+  });
+
   it("passes preset package.json and asset subpaths through to the real resolver", async () => {
     // package.json falls through (and gets the JSON import attribute injected).
-    const jsonResult = await nativeLoader.resolve(
+    const jsonResult = nativeLoader.resolveSync(
       "react-native-gesture-handler/package.json",
       { parentURL: undefined },
       () => ({ url: "file:///real/package.json", shortCircuit: true }),
@@ -644,7 +730,7 @@ describe("native preset redirect (ESM loader)", () => {
     expect(jsonResult.importAttributes?.type).toBe("json");
     // Assets fall through so the real file is stubbed from disk.
     const assetSentinel = { url: "file:///real/back-icon.png", shortCircuit: true };
-    const assetResult = await nativeLoader.resolve(
+    const assetResult = nativeLoader.resolveSync(
       "react-native-gesture-handler/assets/back-icon.png",
       { parentURL: undefined },
       () => assetSentinel,
@@ -674,11 +760,7 @@ describe("native preset redirect (ESM loader)", () => {
       "react-native-reanimated/plugin",
     ]) {
       const sentinel = { url: `file:///real/${specifier.split("/").pop()}.js`, shortCircuit: true };
-      const result = await nativeLoader.resolve(
-        specifier,
-        { parentURL: undefined },
-        () => sentinel,
-      );
+      const result = nativeLoader.resolveSync(specifier, { parentURL: undefined }, () => sentinel);
       expect(result).toBe(sentinel);
     }
   });
@@ -712,6 +794,32 @@ import { reactNative } from "../src/index.js";
 const SERVE_ENV = { command: "serve", mode: "test" } as const;
 
 describe("plugin engine routing", () => {
+  // The hot runtime's routing reads the config, not the project's packages. On this
+  // package's root a config call detects its whole dependency closure (about 60 ms a
+  // call locally, ten times that on a loaded machine), and the hot tests below make
+  // dozens of calls, which timed out on CI runners. They use an app that has React
+  // Native (and this package's Vitest, so the run sees the same Vitest as under the
+  // package root): about 3 ms a call. Its node_modules is its own, so its
+  // registry cache starts empty and a call would compile React Native's registry in a
+  // child process; routing does not read the registry, so it is left out, as
+  // VITEST_NATIVE_NO_REGISTRY=1 does for a user.
+  let hotRoot: string;
+  beforeAll(() => {
+    hotRoot = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-hot-routing-"));
+    for (const name of ["react-native", "@react-native/babel-preset", "@babel/core", "vitest"]) {
+      const to = path.join(hotRoot, "node_modules", name);
+      fs.mkdirSync(path.dirname(to), { recursive: true });
+      fs.symlinkSync(fs.realpathSync(path.join(projectRoot, "node_modules", name)), to, "junction");
+    }
+    fs.writeFileSync(path.join(hotRoot, "package.json"), JSON.stringify({ name: "app" }));
+    fs.mkdirSync(path.join(hotRoot, "tests"));
+    vi.stubEnv("VITEST_NATIVE_NO_REGISTRY", "1");
+  });
+  afterAll(() => {
+    vi.unstubAllEnvs();
+    fs.rmSync(hotRoot, { recursive: true, force: true, maxRetries: 5 });
+  });
+
   it("auto (default) resolves to native when the project is native-capable", async () => {
     const plugin = reactNative({}) as any;
     const cfg = await runPluginConfig(plugin, { root: projectRoot }, SERVE_ENV);
@@ -727,20 +835,6 @@ describe("plugin engine routing", () => {
     const cfg = await runPluginConfig(plugin, { root: projectRoot }, SERVE_ENV);
     expect(cfg.oxc).toEqual({ jsx: { runtime: "automatic" } });
     expect(cfg.esbuild).toBeUndefined();
-  });
-
-  it("uses the legacy esbuild JSX configuration for Vite 6 and 7", async () => {
-    // The version is the running Vite's, as its hook context states it (src/host.ts),
-    // not the version of a package named `vite` under the project root.
-    const plugin = reactNative({ engine: "mock" }) as any;
-    const handler = plugin.config.handler ?? plugin.config;
-    const cfg = await handler.call(
-      { meta: { viteVersion: "7.3.2" } },
-      { root: projectRoot },
-      SERVE_ENV,
-    );
-    expect(cfg.esbuild).toEqual({ jsx: "automatic" });
-    expect(cfg.oxc).toBeUndefined();
   });
 
   it("explicit native sets RN external + a native setup file, and does NOT virtualize react-native", async () => {
@@ -808,7 +902,7 @@ describe("plugin engine routing", () => {
 
   it("native + hotRuntime wires the custom pool and isolate:false scheduling", async () => {
     const plugin = reactNative({ engine: "native", hotRuntime: true }) as any;
-    const cfg = await runPluginConfig(plugin, { root: projectRoot }, SERVE_ENV);
+    const cfg = await runPluginConfig(plugin, { root: hotRoot }, SERVE_ENV);
     // Scheduling: isolate:false keeps workers alive; the worker entry flips
     // isolate back on inside the worker (see src/native/worker.mjs).
     expect(cfg.test.isolate).toBe(false);
@@ -843,7 +937,7 @@ describe("plugin engine routing", () => {
   it("hotRuntime:'auto' selects bounded hot only for a safe stock-pool config", async () => {
     const enabled = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
     expect(enabled.config).toMatchObject({ order: "post" });
-    const hotConfig = await runPluginConfig(enabled, { root: projectRoot }, SERVE_ENV);
+    const hotConfig = await runPluginConfig(enabled, { root: hotRoot }, SERVE_ENV);
     expect(hotConfig.test.isolate).toBe(false);
     expect(hotConfig.test.pool).toMatchObject({ name: "vitest-native" });
     expect(JSON.parse(hotConfig.test.env.VITEST_NATIVE_MEMORY_PLAN)).toMatchObject({
@@ -854,25 +948,25 @@ describe("plugin engine routing", () => {
     const declineCases = [
       {
         label: "one unrecyclable worker",
-        config: { root: projectRoot, test: { fileParallelism: false, maxWorkers: 1 } },
+        config: { root: hotRoot, test: { fileParallelism: false, maxWorkers: 1 } },
         reason: /one unrecyclable worker/,
         pool: "threads",
       },
       {
         label: "explicit isolate: true",
-        config: { root: projectRoot, test: { maxWorkers: 2, isolate: true } },
+        config: { root: hotRoot, test: { maxWorkers: 2, isolate: true } },
         reason: /test\.isolate is explicitly true/,
         pool: "threads",
       },
       {
         label: "explicit isolate: false",
-        config: { root: projectRoot, test: { maxWorkers: 2, isolate: false } },
+        config: { root: hotRoot, test: { maxWorkers: 2, isolate: false } },
         reason: /test\.isolate is explicitly false/,
         pool: "threads",
       },
       {
         label: "explicit forks pool",
-        config: { root: projectRoot, test: { maxWorkers: 2, pool: "forks" } },
+        config: { root: hotRoot, test: { maxWorkers: 2, pool: "forks" } },
         reason: /'forks' is explicitly configured/,
         pool: "forks",
       },
@@ -895,7 +989,7 @@ describe("plugin engine routing", () => {
       [
         "Jest mock transform",
         {
-          root: projectRoot,
+          root: hotRoot,
           plugins: [{ name: "vitest-native:jest-mock-hoist" }],
           test: { maxWorkers: 2 },
         },
@@ -903,7 +997,7 @@ describe("plugin engine routing", () => {
       [
         "Jest compatibility setup",
         {
-          root: projectRoot,
+          root: hotRoot,
           test: { maxWorkers: 2, setupFiles: ["vitest-native/jest-compat/setup"] },
         },
       ],
@@ -919,13 +1013,13 @@ describe("plugin engine routing", () => {
     // Unset keeps 0.13.0's default: no hot pool, and nothing to warn about.
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const byDefault = reactNative({ engine: "native" }) as any;
-    const stockByDefault = await runPluginConfig(byDefault, { root: projectRoot }, SERVE_ENV);
+    const stockByDefault = await runPluginConfig(byDefault, { root: hotRoot }, SERVE_ENV);
     expect(stockByDefault.test.isolate).toBeUndefined();
     expect(stockByDefault.test.pool).not.toMatchObject({ name: "vitest-native" });
     const withPool = reactNative({ engine: "native" }) as any;
     const stock = await runPluginConfig(
       withPool,
-      { root: projectRoot, test: { maxWorkers: 2, pool: "forks" } },
+      { root: hotRoot, test: { maxWorkers: 2, pool: "forks" } },
       SERVE_ENV,
     );
     expect(stock.test.isolate).toBeUndefined();
@@ -935,13 +1029,13 @@ describe("plugin engine routing", () => {
 
     // Opting in with 'auto' selects it where the run can be bounded.
     const optIn = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
-    const hot = await runPluginConfig(optIn, { root: projectRoot }, SERVE_ENV);
+    const hot = await runPluginConfig(optIn, { root: hotRoot }, SERVE_ENV);
     expect(hot.test.isolate).toBe(false);
     expect(hot.test.pool).toMatchObject({ name: "vitest-native" });
 
     // Explicitly off stays off.
     const off = reactNative({ engine: "native", hotRuntime: false }) as any;
-    const plain = await runPluginConfig(off, { root: projectRoot }, SERVE_ENV);
+    const plain = await runPluginConfig(off, { root: hotRoot }, SERVE_ENV);
     expect(plain.test.isolate).toBeUndefined();
   });
 
@@ -950,7 +1044,7 @@ describe("plugin engine routing", () => {
     await expect(
       runPluginConfig(
         bounded,
-        { root: projectRoot, test: { fileParallelism: false, maxWorkers: 1 } },
+        { root: hotRoot, test: { fileParallelism: false, maxWorkers: 1 } },
         SERVE_ENV,
       ),
     ).rejects.toThrow(/one worker.*allowUnboundedMemory:true/s);
@@ -958,7 +1052,7 @@ describe("plugin engine routing", () => {
     // uncapped admission figure.
     const error = await runPluginConfig(
       reactNative({ engine: "native", hotRuntime: true }) as any,
-      { root: projectRoot, test: { maxWorkers: 1 } },
+      { root: hotRoot, test: { maxWorkers: 1 } },
       SERVE_ENV,
     ).catch((e: Error) => e);
     expect(String(error)).toMatch(/This config selects one worker/);
@@ -968,7 +1062,7 @@ describe("plugin engine routing", () => {
     vi.spyOn(process, "constrainedMemory").mockReturnValue(0);
     const tight = await runPluginConfig(
       reactNative({ engine: "native", hotRuntime: true }) as any,
-      { root: projectRoot, test: { maxWorkers: 4 } },
+      { root: hotRoot, test: { maxWorkers: 4 } },
       SERVE_ENV,
     ).catch((e: Error) => e);
     vi.restoreAllMocks();
@@ -980,7 +1074,7 @@ describe("plugin engine routing", () => {
     }) as any;
     const cfg = await runPluginConfig(
       explicit,
-      { root: projectRoot, test: { fileParallelism: false, maxWorkers: 1 } },
+      { root: hotRoot, test: { fileParallelism: false, maxWorkers: 1 } },
       SERVE_ENV,
     );
     expect(cfg.test.maxWorkers).toBeUndefined();
@@ -994,7 +1088,7 @@ describe("plugin engine routing", () => {
       const plugin = reactNative({ engine, hotRuntime: false }) as any;
       const result = await plugin.config.handler.call(
         {},
-        { root: projectRoot, test: { execArgv: ["--user-flag"] } },
+        { root: hotRoot, test: { execArgv: ["--user-flag"] } },
         SERVE_ENV,
       );
       const argv: string[] = result.test.execArgv;
@@ -1006,9 +1100,9 @@ describe("plugin engine routing", () => {
 
   it("gives inline projects their own server so the plugin reaches them", async () => {
     const plugin = reactNative({ engine: "native" }) as any;
-    const config = { root: projectRoot, test: { projects: [{ extends: true }] } };
+    const config = { root: hotRoot, test: { projects: [{ extends: true }] } };
     const result = await plugin.config.handler.call({}, config, SERVE_ENV);
-    expect(config.test.projects).toEqual([{ extends: true, root: projectRoot }]);
+    expect(config.test.projects).toEqual([{ extends: true, root: hotRoot }]);
     expect(result.test.setupFiles.length).toBeGreaterThan(0);
   });
 
@@ -1018,14 +1112,14 @@ describe("plugin engine routing", () => {
     for (const test of [{ pool: "forks" }, { isolate: true }, { isolate: false }]) {
       const plugin = reactNative({ engine: "native", hotRuntime: true }) as any;
       await expect(
-        runPluginConfig(plugin, { root: projectRoot, test: { maxWorkers: 2, ...test } }, SERVE_ENV),
+        runPluginConfig(plugin, { root: hotRoot, test: { maxWorkers: 2, ...test } }, SERVE_ENV),
         JSON.stringify(test),
       ).rejects.toThrow(/HOT_RUNTIME_OVERRIDDEN|cannot honour/);
     }
   });
 
   describe("configureVitest: reconciling CLI flags Vitest applied after config()", () => {
-    async function hotProject(hotRuntime: unknown, root = projectRoot, test = {}) {
+    async function hotProject(hotRuntime: unknown, root = hotRoot, test = {}) {
       const plugin = reactNative({ engine: "native", hotRuntime } as any) as any;
       const cfg = await runPluginConfig(
         plugin,
@@ -1037,10 +1131,9 @@ describe("plugin engine routing", () => {
     }
     const quiet = () => vi.spyOn(console, "error").mockImplementation(() => {});
     // Vitest applies CLI flags to the resolved config and also keeps them on their own.
-    const run = (plugin: any, config: any, cli: Record<string, unknown>, v5 = false) => {
+    const run = (plugin: any, config: any, cli: Record<string, unknown>) => {
       Object.assign(config, cli);
-      const vitest = v5 ? { config: { cliOptions: cli } } : { _cliOptions: cli };
-      plugin.configureVitest({ vitest, project: { config } });
+      plugin.configureVitest({ vitest: { config: { cliOptions: cli } }, project: { config } });
     };
 
     it("keeps hot when nothing overrode it", async () => {
@@ -1050,16 +1143,14 @@ describe("plugin engine routing", () => {
       expect(config.isolate).toBe(false);
     });
 
-    it("reads Vitest 5's config.cliOptions as well as Vitest 4's _cliOptions", async () => {
+    it("reads the CLI flags from config.cliOptions", async () => {
       const err = quiet();
-      for (const v5 of [false, true]) {
-        const { plugin, config } = await hotProject("auto");
-        run(plugin, config, { isolate: false }, v5);
-        expect(config.pool, `v5=${v5}`).toBe("threads");
-        expect(config.isolate).toBe(false);
-        expect(config.runner).toBeUndefined();
-        expect(config.env.VITEST_NATIVE_MEMORY_PLAN).toBeUndefined();
-      }
+      const { plugin, config } = await hotProject("auto");
+      run(plugin, config, { isolate: false });
+      expect(config.pool).toBe("threads");
+      expect(config.isolate).toBe(false);
+      expect(config.runner).toBeUndefined();
+      expect(config.env.VITEST_NATIVE_MEMORY_PLAN).toBeUndefined();
       expect(err).toHaveBeenCalledWith(expect.stringMatching(/hot runtime off: --no-isolate/));
       err.mockRestore();
     });
@@ -1100,10 +1191,10 @@ describe("plugin engine routing", () => {
       }
       // The mock engine needs no module hooks and runs on a VM pool.
       const mock = reactNative({ engine: "mock" }) as any;
-      const config = { root: projectRoot, pool: "vmThreads" };
+      const config = { root: hotRoot, pool: "vmThreads" };
       expect(() =>
         mock.configureVitest({
-          vitest: { _cliOptions: { pool: "vmThreads" } },
+          vitest: { config: { cliOptions: { pool: "vmThreads" } } },
           project: { config },
         }),
       ).not.toThrow();
@@ -1121,10 +1212,10 @@ describe("plugin engine routing", () => {
     it("keys projects by Vitest's root, which test.root overrides", async () => {
       const err = quiet();
       const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
-      const testRoot = path.join(projectRoot, "tests");
+      const testRoot = path.join(hotRoot, "tests");
       const cfg = await runPluginConfig(
         plugin,
-        { root: projectRoot, test: { root: testRoot, maxWorkers: 2 } },
+        { root: hotRoot, test: { root: testRoot, maxWorkers: 2 } },
         SERVE_ENV,
       );
       const config = { ...cfg.test, root: testRoot, pool: "vitest-native" };
@@ -1139,14 +1230,17 @@ describe("plugin engine routing", () => {
       // run ("have different 'maxWorkers' but same 'sequence.groupOrder'").
       const err = quiet();
       const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
-      const cfg = await runPluginConfig(plugin, { root: projectRoot }, SERVE_ENV);
-      const config = { root: projectRoot, ...cfg.test, pool: "vitest-native" };
+      const cfg = await runPluginConfig(plugin, { root: hotRoot }, SERVE_ENV);
+      const config = { root: hotRoot, ...cfg.test, pool: "vitest-native" };
       Object.assign(config, { pool: "forks" });
       plugin.configureVitest({
         // A root this plugin did not plan: another directory than the project's.
         vitest: {
-          _cliOptions: { pool: "forks" },
-          config: { root: path.join(projectRoot, ".."), maxWorkers: 7 },
+          config: {
+            cliOptions: { pool: "forks" },
+            root: path.join(hotRoot, ".."),
+            maxWorkers: 7,
+          },
         },
         project: { config },
       });
@@ -1161,13 +1255,16 @@ describe("plugin engine routing", () => {
       const cpus = vi.spyOn(os, "availableParallelism").mockReturnValue(8);
       const err = quiet();
       const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
-      const cfg = await runPluginConfig(plugin, { root: projectRoot }, SERVE_ENV);
-      const config = { root: projectRoot, ...cfg.test, pool: "vitest-native" };
+      const cfg = await runPluginConfig(plugin, { root: hotRoot }, SERVE_ENV);
+      const config = { root: hotRoot, ...cfg.test, pool: "vitest-native" };
       Object.assign(config, { pool: "forks" });
       plugin.configureVitest({
         vitest: {
-          _cliOptions: { pool: "forks" },
-          config: { root: projectRoot, maxWorkers: cfg.test.maxWorkers },
+          config: {
+            cliOptions: { pool: "forks" },
+            root: hotRoot,
+            maxWorkers: cfg.test.maxWorkers,
+          },
         },
         project: { config },
       });
@@ -1200,10 +1297,10 @@ describe("plugin engine routing", () => {
         const plugin = reactNative({ engine: "native", hotRuntime } as any) as any;
         const cfg = await runPluginConfig(
           plugin,
-          { root: projectRoot, test: { maxWorkers: 3 } },
+          { root: hotRoot, test: { maxWorkers: 3 } },
           SERVE_ENV,
         );
-        return { plugin, pool: cfg.test.pool, config: { root: projectRoot, ...cfg.test } };
+        return { plugin, pool: cfg.test.pool, config: { root: hotRoot, ...cfg.test } };
       }
       const envPlan = (config: any) => JSON.parse(config.env.VITEST_NATIVE_MEMORY_PLAN);
       afterEach(() => vi.restoreAllMocks());
@@ -1237,7 +1334,7 @@ describe("plugin engine routing", () => {
           host(2 * GIB);
           // VITEST_MAX_WORKERS reaches the resolved config with no CLI flag at all.
           config.maxWorkers = 8;
-          plugin.configureVitest({ vitest: { _cliOptions: {} }, project: { config } });
+          plugin.configureVitest({ vitest: { config: { cliOptions: {} } }, project: { config } });
           expect(config.isolate, String(hotRuntime)).toBe(false);
           expect(config.maxWorkers).toBe(4);
           expect(envPlan(config)).toMatchObject({ requestedWorkers: 8, maxWorkers: 4 });
@@ -1255,7 +1352,7 @@ describe("plugin engine routing", () => {
           const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
           const cfg = await runPluginConfig(
             plugin,
-            { root: projectRoot, test: { maxWorkers } },
+            { root: hotRoot, test: { maxWorkers } },
             SERVE_ENV,
           );
           return { maxWorkers: cfg.test.maxWorkers, plan: envPlan(cfg.test), cfg, plugin };
@@ -1267,8 +1364,11 @@ describe("plugin engine routing", () => {
         const capped = await plan(2 * GIB, 8);
         expect(capped).toMatchObject({ maxWorkers: 4 });
         expect(warn).not.toHaveBeenCalledWith(expect.stringMatching(/capped maxWorkers/));
-        const config = { root: projectRoot, ...capped.cfg.test };
-        capped.plugin.configureVitest({ vitest: { _cliOptions: {} }, project: { config } });
+        const config = { root: hotRoot, ...capped.cfg.test };
+        capped.plugin.configureVitest({
+          vitest: { config: { cliOptions: {} } },
+          project: { config },
+        });
         expect(config.isolate).toBe(false);
         expect(warn).toHaveBeenCalledWith(
           expect.stringMatching(/capped maxWorkers from 8 to 4 for the host memory budget/),
@@ -1282,15 +1382,15 @@ describe("plugin engine routing", () => {
         const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
         const cfg = await runPluginConfig(
           plugin,
-          { root: projectRoot, test: { maxWorkers: 8 } },
+          { root: hotRoot, test: { maxWorkers: 8 } },
           SERVE_ENV,
         );
-        const config = { root: projectRoot, ...cfg.test };
+        const config = { root: hotRoot, ...cfg.test };
         expect(config.maxWorkers).toBe(4);
         const self = { name: "native", config };
         const other = { name: "plain", config: { maxWorkers: 8 } };
         plugin.configureVitest({
-          vitest: { _cliOptions: {}, config: { maxWorkers: 8 }, projects: [self, other] },
+          vitest: { config: { cliOptions: {}, maxWorkers: 8 }, projects: [self, other] },
           project: self,
         });
         expect(config.isolate).toBe(true);
@@ -1307,10 +1407,10 @@ describe("plugin engine routing", () => {
         const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
         const cfg = await runPluginConfig(
           plugin,
-          { root: projectRoot, test: { maxWorkers: 8 } },
+          { root: hotRoot, test: { maxWorkers: 8 } },
           SERVE_ENV,
         );
-        const config = { root: projectRoot, ...cfg.test };
+        const config = { root: hotRoot, ...cfg.test };
         const before = config.env.VITEST_NATIVE_MEMORY_PLAN;
         expect(config.maxWorkers).toBe(4);
         run(plugin, config, { maxWorkers: 8, pool: "vitest-native" });
@@ -1324,10 +1424,10 @@ describe("plugin engine routing", () => {
         const plugin = reactNative({ engine: "native", hotRuntime: "auto", diagnostics: true });
         const cfg = await runPluginConfig(
           plugin as any,
-          { root: projectRoot, test: { maxWorkers: 2 } },
+          { root: hotRoot, test: { maxWorkers: 2 } },
           SERVE_ENV,
         );
-        const config = { root: projectRoot, ...cfg.test };
+        const config = { root: hotRoot, ...cfg.test };
         log.mockClear();
         host(4 * GIB);
         run(plugin, config, { maxWorkers: 6, pool: "vitest-native" });
@@ -1395,7 +1495,7 @@ describe("plugin engine routing", () => {
       // A plain project beside it: Vitest would resolve its worker count to 9 on 10 CPUs.
       const other = { name: "mock", config: { maxWorkers: config.maxWorkers + 5 } };
       plugin.configureVitest({
-        vitest: { _cliOptions: {}, config: {}, projects: [self, other] },
+        vitest: { config: { cliOptions: {} }, projects: [self, other] },
         project: self,
       });
       expect(config.isolate).toBe(true);
@@ -1408,7 +1508,7 @@ describe("plugin engine routing", () => {
       const explicitSelf = { name: "native", config: explicit.config };
       expect(() =>
         explicit.plugin.configureVitest({
-          vitest: { _cliOptions: {}, config: {}, projects: [explicitSelf, other] },
+          vitest: { config: { cliOptions: {} }, projects: [explicitSelf, other] },
           project: explicitSelf,
         }),
       ).toThrow(/HOT_RUNTIME_OVERRIDDEN|sequence.groupOrder/);
@@ -1418,7 +1518,7 @@ describe("plugin engine routing", () => {
       separate.config.sequence = { groupOrder: 1 };
       const separateSelf = { name: "native", config: separate.config };
       separate.plugin.configureVitest({
-        vitest: { _cliOptions: {}, config: {}, projects: [separateSelf, other] },
+        vitest: { config: { cliOptions: {} }, projects: [separateSelf, other] },
         project: separateSelf,
       });
       expect(separate.config.isolate).toBe(false);
@@ -1430,7 +1530,7 @@ describe("plugin engine routing", () => {
       // configureVitest call must not decide for the others.
       const err = quiet();
       const plugin = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
-      const roots = [projectRoot, path.join(projectRoot, "tests")];
+      const roots = [hotRoot, path.join(hotRoot, "tests")];
       const configs = [];
       for (const root of roots) {
         const cfg = await runPluginConfig(plugin, { root, test: { maxWorkers: 2 } }, SERVE_ENV);
@@ -1449,7 +1549,7 @@ describe("plugin engine routing", () => {
       engine: "native",
       hotRuntime: { recycleAfterFiles: 2, memoryLimit: 1024 },
     }) as any;
-    const cfg = await runPluginConfig(plugin, { root: projectRoot }, SERVE_ENV);
+    const cfg = await runPluginConfig(plugin, { root: hotRoot }, SERVE_ENV);
     expect(cfg.test.runner).toMatch(/native[\\/]runner\.mjs$/);
     const worker = cfg.test.pool.createPoolWorker({
       distPath: "/tmp/unused",
@@ -1508,6 +1608,24 @@ describe("engine-selection notices", () => {
     expect(banners).toHaveLength(1);
     expect(String(banners[0][0])).toContain("engine: native — real react-native");
     log.mockRestore();
+    err.mockRestore();
+  });
+
+  it("the native banner names experimental.nodeMocks when it is on, and when 'resolution' implies it", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const banner = async (options: object) => {
+      resetBanner();
+      err.mockClear();
+      await runPluginConfig(reactNative(options) as any, { root: projectRoot }, SERVE_ENV);
+      return String(err.mock.calls.find((c) => String(c[0]).includes("engine:"))?.[0] ?? "");
+    };
+    expect(await banner({ engine: "native" })).not.toContain("nodeMocks");
+    expect(
+      await banner({ engine: "native", experimental: { ownershipModel: "resolution" } }),
+    ).toMatch(/experimental\.ownershipModel: resolution, experimental\.nodeMocks \(implied\)\)$/);
+    expect(await banner({ engine: "native", experimental: { nodeMocks: true } })).toMatch(
+      /, experimental\.nodeMocks\)$/,
+    );
     err.mockRestore();
   });
 
@@ -2272,6 +2390,14 @@ describe("plugin subpath resolution (mock engine)", () => {
     expect(code).toContain("export const State = _m['State'];");
   });
 
+  it("keeps serving the mock for a subpath whose leaf the mock does not export", async () => {
+    // The mock engine has no real package to load.
+    const plugin = await makePlugin();
+    expect(plugin.resolveId("react-native-gesture-handler/ReanimatedSwipeable", undefined)).toBe(
+      "\0virtual:preset:react-native-gesture-handler/ReanimatedSwipeable",
+    );
+  });
+
   it("does not redirect preset package.json, asset, or utility subpaths", async () => {
     const plugin = await makePlugin();
     expect(plugin.resolveId("react-native-gesture-handler/package.json", undefined)).toBe(
@@ -2348,43 +2474,6 @@ describe("parseReactNativeExports", () => {
       "});",
     ].join("\n");
     expect(parseReactNativeExports(source)).toEqual(["View"]);
-  });
-});
-
-describe("parseDeprecatedReactNativeExports", () => {
-  it("finds the members whose getter calls warnOnce in React Native's real index", () => {
-    const source = fs.readFileSync(path.join(RN, "index.js"), "utf8");
-    const deprecated = parseDeprecatedReactNativeExports(source);
-    expect(deprecated).toContain("SafeAreaView");
-    expect(deprecated).toContain("Clipboard");
-    expect(deprecated).not.toContain("View");
-    expect(deprecated).not.toContain("Pressable");
-    const names = parseReactNativeExports(source);
-    for (const name of deprecated) expect(names).toContain(name);
-  });
-
-  it("attributes each warnOnce call to its own member only", () => {
-    const source = [
-      "module.exports = {",
-      "  get Before() {",
-      "    return 1;",
-      "  },",
-      "  /**",
-      "   * @deprecated Old is deprecated.",
-      "   */",
-      "  get Old() {",
-      "    warnOnce('old', 'Old is deprecated.');",
-      "    return 2;",
-      "  },",
-      "  get After() {",
-      "    return 3;",
-      "  },",
-      "} as ReactNativePublicAPI;",
-      "if (__DEV__) {",
-      "  warnOnce('outside', 'not a member');",
-      "}",
-    ].join("\n");
-    expect(parseDeprecatedReactNativeExports(source)).toEqual(["Old"]);
   });
 });
 
@@ -2497,13 +2586,13 @@ describe("hot pool: Vitest version guard", () => {
 describe("peer requirements", () => {
   const vitestReq = PEER_REQUIREMENTS.find((r) => r.name === "vitest")!;
 
-  it("accepts Vitest 4 and 5, and rejects 6", () => {
+  it("accepts Vitest 5, and rejects 4 and 6", () => {
     // The manifest's peer range and this table are the same promise stated twice;
     // a check that only asserted the table would let them drift apart.
     const manifest = JSON.parse(fs.readFileSync(path.join(HERE, "..", "package.json"), "utf8")) as {
       peerDependencies: Record<string, string>;
     };
-    expect(manifest.peerDependencies.vitest).toBe(">=4 <6");
+    expect(manifest.peerDependencies.vitest).toBe(">=5 <6");
     expect(vitestReq.maximumMajor).toBe(6);
   });
 
@@ -2526,9 +2615,8 @@ describe("peer requirements", () => {
     };
     expect(check("5.0.0-beta.6")).toBe(null);
     expect(check("5.0.0")).toBe(null);
-    expect(check("4.1.8")).toBe(null);
-    expect(check("6.0.0")).toMatch(/supports vitest >= 4\.0\.0 and < 6/);
-    expect(check("3.2.7")).toMatch(/requires vitest >= 4\.0\.0/);
+    expect(check("6.0.0")).toMatch(/supports vitest >= 5\.0\.0 and < 6/);
+    expect(check("4.1.8")).toMatch(/requires vitest >= 5\.0\.0 and < 6, but found 4\.1\.8/);
   });
 });
 
@@ -2610,6 +2698,9 @@ describe("the Expo native module resolver", () => {
       expect(resolver.present("ExpoObserve")).toBe(false);
       expect(resolver.present("MockedOnly")).toBe(true);
       expect(resolver.present("AnythingElse")).toBe(true);
+      // Layer 0: a module Expo Go lacks is absent, even with a package mock for it.
+      pkg("node_modules/expo-dev-launcher-mock", { "mocks/EXDevLauncher.js": "exports.x = 1;" });
+      expect(resolver.present("EXDevLauncher")).toBe(false);
       // Layer 2: the package mock is the whole module.
       const own = resolver.seed("ExpoCrypto");
       expect(own.complete).toBe(true);

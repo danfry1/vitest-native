@@ -16,15 +16,50 @@ const jestGlobal = () => (globalThis as Record<string, unknown>).jest as Record<
 
 /** Every member this shim promises, so a future Vitest rename cannot quietly drop one. */
 const JEST_API = [
-  "fn", "spyOn", "mock", "unmock", "doMock", "dontMock", "deepUnmock", "setMock",
-  "unstable_mockModule", "requireActual", "requireMock", "resetModules", "isolateModules",
-  "isolateModulesAsync", "createMockFromModule", "genMockFromModule", "mocked",
-  "replaceProperty", "clearAllMocks", "resetAllMocks", "restoreAllMocks", "useFakeTimers",
-  "useRealTimers", "runAllTicks", "runAllTimers", "runAllTimersAsync", "runOnlyPendingTimers",
-  "runOnlyPendingTimersAsync", "advanceTimersByTime", "advanceTimersByTimeAsync",
-  "advanceTimersToNextTimer", "advanceTimersToNextTimerAsync", "clearAllTimers",
-  "getTimerCount", "setSystemTime", "getRealSystemTime", "now", "setTimeout", "retryTimes",
-  "enableAutomock", "disableAutomock", "autoMockOff", "autoMockOn", "onGenerateMock",
+  "fn",
+  "spyOn",
+  "mock",
+  "unmock",
+  "doMock",
+  "dontMock",
+  "deepUnmock",
+  "setMock",
+  "unstable_mockModule",
+  "requireActual",
+  "requireMock",
+  "resetModules",
+  "isolateModules",
+  "isolateModulesAsync",
+  "createMockFromModule",
+  "genMockFromModule",
+  "mocked",
+  "replaceProperty",
+  "clearAllMocks",
+  "resetAllMocks",
+  "restoreAllMocks",
+  "useFakeTimers",
+  "useRealTimers",
+  "runAllTicks",
+  "runAllTimers",
+  "runAllTimersAsync",
+  "runOnlyPendingTimers",
+  "runOnlyPendingTimersAsync",
+  "advanceTimersByTime",
+  "advanceTimersByTimeAsync",
+  "advanceTimersToNextTimer",
+  "advanceTimersToNextTimerAsync",
+  "clearAllTimers",
+  "getTimerCount",
+  "setSystemTime",
+  "getRealSystemTime",
+  "now",
+  "setTimeout",
+  "retryTimes",
+  "enableAutomock",
+  "disableAutomock",
+  "autoMockOff",
+  "autoMockOn",
+  "onGenerateMock",
 ];
 
 describe("jest global API surface", () => {
@@ -96,7 +131,7 @@ describe("members with no equivalent", () => {
       expect(() => jestGlobal()[name](...args)).toThrow(
         new RegExp(`jest\\.${name}\\(\\) has no Vitest equivalent`),
       );
-      expect(() => jestGlobal()[name](...args)).toThrow(/migrating-from-jest/);
+      expect(() => jestGlobal()[name](...args)).toThrow(/guide\/errors#JEST_API_UNSUPPORTED/);
     });
   }
 });

@@ -4,6 +4,7 @@ This walks through writing and running your first React Native test with vitest-
 
 ## Write a component
 
+<!-- doc-snippet: src/Greeting.tsx -->
 ```tsx
 // Greeting.tsx
 import { Text, View } from 'react-native'
@@ -19,6 +20,7 @@ export function Greeting({ name }: { name: string }) {
 
 ## Write a test
 
+<!-- doc-snippet: src/Greeting.test.tsx -->
 ```tsx
 // Greeting.test.tsx
 import { describe, it, expect } from 'vitest'
@@ -26,8 +28,8 @@ import { render, screen } from '@testing-library/react-native'
 import { Greeting } from './Greeting'
 
 describe('Greeting', () => {
-  it('renders the name', () => {
-    render(<Greeting name="Ada" />)
+  it('renders the name', async () => {
+    await render(<Greeting name="Ada" />)
     expect(screen.getByText('Hello, Ada!')).toBeTruthy()
   })
 })
@@ -41,26 +43,33 @@ npx vitest            # watch mode
 npx vitest --ui       # the Vitest UI
 ```
 
-You get Vitest's full toolchain — watch mode, the UI, coverage, and native ESM — for your React Native tests.
+You get Vitest's full toolchain — watch mode, the UI, coverage, and native ESM — for your React Native tests. Add `"test": "vitest"` to your `package.json` scripts to run it as `npm test`.
+
+React Native Testing Library 14 makes `render`, `fireEvent` and `act` async, so the examples here `await` them. On RNTL 13 `render` and `fireEvent` are synchronous and awaiting them is harmless, so the same tests run on both.
+
+::: tip Running beside an existing Jest suite
+Vitest picks up every `*.test.*` and `*.spec.*` file by default, including the ones Jest still runs. While both runners are in use, point Vitest at the tests you've moved with [`test.include`](https://vitest.dev/config/include), for example `include: ['src/**/*.vitest.test.tsx']`.
+:::
 
 ## Interactions and queries
 
 RNTL works exactly as you'd expect. Query by text, test ID, or role; fire events; assert with the jest-native matchers (registered automatically):
 
+<!-- doc-snippet: src/press.test.tsx -->
 ```tsx
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react-native'
 import { Pressable, Text } from 'react-native'
 
-it('handles a press', () => {
+it('handles a press', async () => {
   const onPress = vi.fn()
-  render(
+  await render(
     <Pressable onPress={onPress} accessibilityRole="button">
       <Text>Tap me</Text>
     </Pressable>,
   )
 
-  fireEvent.press(screen.getByRole('button'))
+  await fireEvent.press(screen.getByRole('button'))
   expect(onPress).toHaveBeenCalledOnce()
 })
 ```
@@ -69,9 +78,10 @@ it('handles a press', () => {
 
 Use the [test helpers](/guide/helpers) to control dimensions or color scheme inside a test — these work under both engines:
 
+<!-- doc-snippet: src/device-state.test.tsx -->
 ```tsx
 import { setDimensions, setColorScheme, resetAllMocks } from 'vitest-native/helpers'
-import { afterEach } from 'vitest'
+import { afterEach, it } from 'vitest'
 
 afterEach(() => resetAllMocks())
 

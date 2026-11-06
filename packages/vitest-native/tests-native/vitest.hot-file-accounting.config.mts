@@ -25,7 +25,7 @@ export default defineConfig(({ mode }) => {
   }
   return {
     plugins: [
-      reactNative({ engine: "native", hotRuntime: { allowUnboundedMemory: true } }),
+      reactNative({ ownership: "error", engine: "native", hotRuntime: { allowUnboundedMemory: true } }),
       jestMockTransform(),
     ],
     test: {

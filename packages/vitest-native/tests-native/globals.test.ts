@@ -37,10 +37,10 @@ describe("native engine: fabricated expo native-module stubs", () => {
     // expo-constants, a devDependency here, defines ExponentConstants.
     expect(modules.ExponentConstants.statusBarHeight).toBe(54);
     expect(modules.ExponentConstants.executionEnvironment).toBe("mock");
-    // No `expo` is installed here, so no table is the installed SDK's and a member the
-    // table leaves out keeps the stub's conventions. With an SDK's own table it is
-    // undefined (the expo and expo-sdk57 consumers).
-    expect(modules.ExponentConstants.someConstantItLacks()).toBeUndefined();
+    // The `expo` installed here is SDK 58, which has its own table, so a member the
+    // table leaves out is one the module does not have: undefined, as in jest-expo.
+    // Under another SDK's table the stub's conventions answer it (native-unit.test.ts).
+    expect(modules.ExponentConstants.someConstantItLacks).toBeUndefined();
   });
 
   it("keeps a module present unless an installed package only probes for it", () => {
@@ -54,6 +54,32 @@ describe("native engine: fabricated expo native-module stubs", () => {
 
   it("resolves fabricated *Async methods to a Promise (Expo convention)", async () => {
     await expect(modules[PRESENT].getRegistrationInfoAsync()).resolves.toBeUndefined();
+  });
+
+  it("releases a shared object, as expo-modules-core's hooks do on unmount", () => {
+    const { SharedObject, SharedRef } = (globalThis as Record<string, any>).expo;
+    expect(new SharedObject().release()).toBeUndefined();
+    expect(new SharedRef().release()).toBeUndefined();
+    class Player extends modules[PRESENT].VideoPlayer {}
+    expect(new Player().release()).toBeUndefined();
+  });
+
+  it("lets LegacyEventEmitter take a module as itself, as on a device", () => {
+    // The native runtime names each module it registers; LegacyEventEmitter returns a named
+    // module as itself. Wrapped in React Native's NativeEventEmitter instead, a listener added
+    // through it never reached the module's own emit.
+    // expo-modules-core as Expo's packages reach it (it is not a dependency of this package).
+    const fromExpo = createRequire(require.resolve("expo/package.json"));
+    const { LegacyEventEmitter } = fromExpo("expo-modules-core");
+    const module = modules[PRESENT];
+    expect(module.__expo_module_name__).toBe(PRESENT);
+    const emitter = new LegacyEventEmitter(module);
+    expect(emitter).toBe(module);
+    const received: unknown[] = [];
+    const subscription = emitter.addListener("change", (value: unknown) => received.push(value));
+    module.emit("change", 1);
+    subscription.remove();
+    expect(received).toEqual([1]);
   });
 
   it("serves fabricated PascalCase properties as classes on SharedObject", () => {

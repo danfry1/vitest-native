@@ -18,6 +18,6 @@
   <rect x="96" y="200" width="140" height="140" rx="32" fill="#10211f"/>
   <path d="M120 272 L156 308 L212 240" fill="none" stroke="url(#g)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
   <text x="280" y="300" font-family="Inter, system-ui, sans-serif" font-size="84" font-weight="800" fill="url(#title)">vitest-native</text>
-  <text x="284" y="368" font-family="Inter, system-ui, sans-serif" font-size="34" font-weight="500" fill="#c9d6d4">Test React Native with Vitest — against real React Native.</text>
-  <text x="284" y="418" font-family="Inter, system-ui, sans-serif" font-size="26" font-weight="400" fill="#7f9591">One plugin · two engines · mock only the native boundary</text>
+  <text x="284" y="368" font-family="Inter, system-ui, sans-serif" font-size="34" font-weight="500" fill="#c9d6d4">Test React Native as it ships.</text>
+  <text x="284" y="418" font-family="Inter, system-ui, sans-serif" font-size="26" font-weight="400" fill="#7f9591">A Vitest plugin: real React Native JavaScript, only the native side mocked</text>
 </svg>

@@ -1,8 +1,8 @@
 // Runs every unit test that reads one of the repository's Markdown files.
 //
-// A docs-only pull request skips the full gate (.github/scripts/classify-change.sh),
+// A docs-only pull request skips the full gate (.github/scripts/classify-change.mjs),
 // but several tests take a Markdown page as their source of truth: the versioning
-// contract (docs/versioning.md), the preset tables (README.md, website/guide/presets.md)
+// contract (docs/versioning.md), the preset table (website/guide/presets.md), the README sync (README.md)
 // and the documented configuration block (website/guide/plugin-options.md). Skipping
 // them let a page drift merge green and turn main red on the next push. CI runs this
 // on docs-only pull requests instead.
@@ -11,7 +11,8 @@
 // names a tracked .md file (by basename, since tests build paths with path.join). A new
 // test that reads a page is picked up without editing anything. Over-matching is cheap
 // (a test that only names README.md also runs), under-matching is the failure mode, so
-// the run also requires the three known readers to be found.
+// the run also requires the known readers to be found. Tests that name the site's
+// config under website/.vitepress/ qualify too.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -37,12 +38,17 @@ const pageNames = new Set(
 );
 
 const LITERAL = /["'`]([^"'`\s]*\.md)["'`]/g;
+// The site's config (`website/.vitepress/…`) is docs too: a test that names it runs here.
+const SITE_CONFIG = /["'`][^"'`\s]*\.vitepress[^"'`\s]*["'`]/;
 const readers = fs
   .readdirSync(testsDir)
   .filter((file) => /\.test\.tsx?$/.test(file))
   .filter((file) => {
     const source = fs.readFileSync(path.join(testsDir, file), "utf8");
-    return [...source.matchAll(LITERAL)].some((m) => pageNames.has(path.basename(m[1])));
+    return (
+      [...source.matchAll(LITERAL)].some((m) => pageNames.has(path.basename(m[1]))) ||
+      SITE_CONFIG.test(source)
+    );
   })
   .sort();
 
@@ -50,6 +56,7 @@ const KNOWN = [
   "versioning-contract.test.ts",
   "docs-presets-sync.test.ts",
   "documented-config.test.ts",
+  "site-meta.test.ts",
 ];
 const lost = KNOWN.filter((file) => !readers.includes(file));
 if (lost.length > 0) {

@@ -4,17 +4,24 @@ import { defineConfig } from "vitest/config";
 import { reactNative } from "../dist/index.mjs";
 import { jestMockTransform } from "../dist/jest-compat.mjs";
 import { NATIVE_SUITE_SETUP_FILES } from "./support/setup-files.mjs";
+import { NATIVE_SUITE_OWNERSHIP } from "./support/ownership-allow.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
-  // The workspace installs expo-constants and expo-status-bar without expo itself, so
-  // their real JavaScript cannot run here (expo-modules-core resolves to another
-  // SDK's TypeScript source). The expo preset, which the native engine applies only
-  // when asked (NATIVE_ENGINE_RUNS_PACKAGES), is turned on; the packed Expo consumers
-  // run the real packages.
+  // The expo preset, which the native engine applies only when asked
+  // (NATIVE_ENGINE_RUNS_PACKAGES), is turned on, so this suite runs Expo's packages
+  // as the preset serves them; the packed Expo consumers run the real packages.
   plugins: [
-    reactNative({ engine: "native", hotRuntime: false, presets: { expo: true } }),
+    // This suite asserts the precompiled registry itself (registry-identity, stack
+    // frames, module semantics), so a cold run builds it first.
+    reactNative({
+      engine: "native",
+      hotRuntime: false,
+      presets: { expo: true },
+      registryBuild: "wait",
+      ownership: NATIVE_SUITE_OWNERSHIP,
+    }),
     jestMockTransform(),
   ],
   // A tsconfig-paths-style alias, which jest.requireActual must honour too
@@ -22,7 +29,10 @@ export default defineConfig({
   resolve: { alias: { "@vn-app": path.resolve(here, "fixtures/alias-app") } },
   test: {
     // A temporary root per run, removed afterwards (see the file).
-    globalSetup: [path.resolve(here, "../tests/support/temp-root.global.ts")],
+    globalSetup: [
+      path.resolve(here, "../tests/support/temp-root.global.ts"),
+      path.resolve(here, "support/dispatch-fixtures.global.ts"),
+    ],
     globals: true,
     environment: "node",
     setupFiles: NATIVE_SUITE_SETUP_FILES,
@@ -34,7 +44,13 @@ export default defineConfig({
     ],
     // android.test.ts needs platform:'android'; navigation-params needs the explicit
     // navigation preset config — both have their own dedicated config files.
-    exclude: ["tests-native/android.test.ts", "tests-native/navigation-params.test.tsx"],
+    // registry-background.test.ts spawns its own Vitest runs, for minutes; it runs in
+    // its own step (vitest.background.config.mts).
+    exclude: [
+      "tests-native/android.test.ts",
+      "tests-native/navigation-params.test.tsx",
+      "tests-native/registry-background.test.ts",
+    ],
     // Force the fixture lib to be externalized (loaded through Node, like a real
     // node_modules dep) instead of inlined — so its `import { Appearance } from
     // 'react-native'` exercises the loader's ESM facade. See

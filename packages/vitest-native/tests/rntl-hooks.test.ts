@@ -6,11 +6,18 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — runtime .mjs, no types
 import { registerRntlHooksOnImport } from "../src/native/rntl-hooks.mjs";
-import { installRntlAutoCleanup } from "../src/rntl-support.mjs";
+import { installRntlAutoCleanup, noteRntlEntryImported } from "../src/rntl-support.mjs";
 
 // A stand-in RNTL whose entry counts its own evaluations — the side effect that, in
 // the real package, registers the per-file hooks — and calls of its `cleanup`.
-function fakeRntl(): { entry: string; pure: string; runs: () => number; cleanups: () => number } {
+function fakeRntl(): {
+  entry: string;
+  pure: string;
+  dontCleanup: string;
+  runs: () => number;
+  cleanups: () => number;
+  optOutRuns: () => number;
+} {
   const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-rntl-hooks-"));
   const dir = path.join(root, "node_modules", "@testing-library", "react-native", "build");
   fs.mkdirSync(dir, { recursive: true });
@@ -24,8 +31,23 @@ function fakeRntl(): { entry: string; pure: string; runs: () => number; cleanups
       `exports.cleanup = () => { globalThis[${JSON.stringify(cleanups)}] = (globalThis[${JSON.stringify(cleanups)}] ?? 0) + 1; };\n`,
   );
   fs.writeFileSync(pure, "module.exports = {};\n");
+  // RNTL's opt-out sits at the package root, one line in the real package.
+  const dontCleanup = path.join(path.dirname(dir), "dont-cleanup-after-each.js");
+  const optOuts = `${counter}_optouts`;
+  fs.writeFileSync(
+    dontCleanup,
+    `globalThis[${JSON.stringify(optOuts)}] = (globalThis[${JSON.stringify(optOuts)}] ?? 0) + 1;\n` +
+      "process.env.RNTL_SKIP_AUTO_CLEANUP = true;\n",
+  );
   const read = (key: string) => ((globalThis as Record<string, unknown>)[key] as number) ?? 0;
-  return { entry, pure, runs: () => read(counter), cleanups: () => read(cleanups) };
+  return {
+    entry,
+    pure,
+    dontCleanup,
+    runs: () => read(counter),
+    cleanups: () => read(cleanups),
+    optOutRuns: () => read(optOuts),
+  };
 }
 
 // The evaluator's runExternalModule, reduced to what matters here: Node loads the file
@@ -117,6 +139,52 @@ describe("RNTL auto-cleanup for a resident RNTL", () => {
     if (!hook) throw new Error("no afterEach hook was registered");
     return hook;
   }
+
+  it("keeps dont-cleanup-after-each in effect in every file that loads it (#527)", async () => {
+    const rntl = fakeRntl();
+    const evaluator = fakeEvaluator();
+    registerRntlHooksOnImport(evaluator);
+    // The hot runtime restores process.env between files.
+    const restoreEnv = () => delete process.env.RNTL_SKIP_AUTO_CLEANUP;
+    try {
+      // First file: the opt-out runs on first load and sets the variable.
+      let afterEach = setupFile();
+      await evaluator.runExternalModule(rntl.dontCleanup);
+      await evaluator.runExternalModule(rntl.entry);
+      await afterEach();
+      expect(rntl.cleanups()).toBe(0);
+
+      // Second file: the opt-out is resident. Importing it runs it again, so the variable
+      // is set for this file too, as under per-file isolation.
+      restoreEnv();
+      afterEach = setupFile();
+      await evaluator.runExternalModule(rntl.dontCleanup);
+      await evaluator.runExternalModule(rntl.entry);
+      expect(rntl.optOutRuns()).toBe(2);
+      expect(process.env.RNTL_SKIP_AUTO_CLEANUP).toBeTruthy();
+      await afterEach();
+      expect(rntl.cleanups()).toBe(0);
+
+      // Third file: it loads the opt-out without anything running it again (a helper in
+      // node_modules require()s it; the walk of the file's graph records it). The variable
+      // stays unset, and the file's own loads still say it opted out.
+      restoreEnv();
+      afterEach = setupFile();
+      noteRntlEntryImported(rntl.dontCleanup);
+      await evaluator.runExternalModule(rntl.entry);
+      expect(process.env.RNTL_SKIP_AUTO_CLEANUP).toBeUndefined();
+      await afterEach();
+      expect(rntl.cleanups()).toBe(0);
+
+      // Fourth file: no opt-out, so it is cleaned up.
+      afterEach = setupFile();
+      await evaluator.runExternalModule(rntl.entry);
+      await afterEach();
+      expect(rntl.cleanups()).toBe(1);
+    } finally {
+      restoreEnv();
+    }
+  });
 
   it("cleans up after a file only when that file imported the entry", async () => {
     const rntl = fakeRntl();

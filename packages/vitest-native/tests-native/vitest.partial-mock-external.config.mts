@@ -16,7 +16,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const nodeRunsTypeScript = Boolean((process.features as { typescript?: unknown }).typescript);
 
 export default defineConfig({
-  plugins: [reactNative({ engine: "native", hotRuntime: false }), jestMockTransform()],
+  plugins: [reactNative({ engine: "native", hotRuntime: false, ownership: "error" }), jestMockTransform()],
   test: {
     environment: "node",
     globals: true,

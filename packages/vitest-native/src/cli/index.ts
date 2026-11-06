@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * vitest-native CLI: `init` (write a ready config), `doctor` (diagnose the
- * environment), `migrate` (analyze a Jest config and report the mapping).
+ * environment), `migrate` (analyze a Jest config and report the mapping),
+ * `compare` (run the suite under Jest and under Vitest and list the differences).
  * Deliberately vitest-free at module load — it runs via npx outside any test
  * process.
  */
@@ -9,7 +10,40 @@ import path from "node:path";
 import fs from "node:fs";
 import { runDoctor } from "./doctor.js";
 import { runInit } from "./init.js";
-import { analyzeJestConfig, renderMigrationReport } from "./migrate.js";
+import { analyzeJestConfig, migrationNextStep, renderMigrationReport } from "./migrate.js";
+import {
+  COMPARE_SWITCHES,
+  COMPARE_VALUED_FLAGS,
+  parseCompareArgs,
+  runCompare,
+} from "./compare-run.js";
+
+/** Each command's flags, besides --root <dir> and --help, which every command takes. */
+export const COMMAND_FLAGS: Record<string, string[]> = {
+  init: ["--jest-compat", "--force"],
+  doctor: [],
+  migrate: ["--write", "--force"],
+  compare: [...COMPARE_VALUED_FLAGS, ...COMPARE_SWITCHES],
+};
+/** Flags whose value is the next argument (unless written as --flag=value). */
+const VALUED_FLAGS = new Set(["--root", ...COMPARE_VALUED_FLAGS]);
+
+/**
+ * The first flag `command` does not take, or null. An ignored typo (`--wirte`, `--stirct`)
+ * would run something other than what was asked, so it is refused instead. The argument
+ * after a valued flag is its value, even when it starts with "--" (`--jest-args "--ci"`).
+ */
+export function unknownFlag(command: string, args: string[]): string | null {
+  const allowed = new Set(["--root", "--help", "-h", ...(COMMAND_FLAGS[command] ?? [])]);
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (!arg.startsWith("-")) continue;
+    const name = arg.split("=")[0];
+    if (!allowed.has(name)) return name;
+    if (VALUED_FLAGS.has(name) && !arg.includes("=")) i++;
+  }
+  return null;
+}
 
 const USAGE = `vitest-native — test React Native with Vitest
 
@@ -18,16 +52,32 @@ Usage:
   vitest-native doctor                           diagnose peers, engine, presets, RNTL/Node
   vitest-native migrate [--write] [--force]      analyze jest config → migration report
                                                  (--write also saves the suggested config)
+  vitest-native compare                          run the suite under Jest and under Vitest,
+                                                 list every test whose result differs
+      --jest-args "<args>"    extra Jest arguments      --vitest-args "<args>"  extra Vitest arguments
+      --vitest-config <file>  Vitest config to use      --jest-results <file>   read Jest's --json report
+      --jest-root <dir>       where that report was made (detected when omitted)
+      --json <file>           write a report to attach to an issue (no source code)
+      --top <n>               groups and files to list (10)
+      --timeout <seconds>     per runner (1800)         --show-output           stream both runners' output
+      --strict                confirm a parametrised (%p) row only by its title, never by its place
+      exits 0 when every Jest-passing test passes under Vitest and \`vitest run\` exits 0,
+      1 when not, 2 when a runner could not run or the project changed, 130 when interrupted
 Options:
   --root <dir>   project root (default: cwd)
   --help         this text
 
 Docs: https://danfry1.github.io/vitest-native/`;
 
-export function main(argv: string[], log: (line: string) => void = console.log): number {
+export function main(
+  argv: string[],
+  log: (line: string) => void = console.log,
+): number | Promise<number> {
   const args = argv.filter((a) => a !== "--");
-  // The value following --root is an argument, not the command.
-  const command = args.find((a, i) => !a.startsWith("-") && args[i - 1] !== "--root");
+  // The value following --root (or another valued flag) is an argument, not the command.
+  const command = args.find(
+    (a, i) => !a.startsWith("-") && !COMPARE_VALUED_FLAGS.includes(args[i - 1]),
+  );
   const has = (flag: string) => args.includes(flag);
   const rootIdx = args.indexOf("--root");
   const root = path.resolve(rootIdx !== -1 ? (args[rootIdx + 1] ?? ".") : ".");
@@ -38,6 +88,12 @@ export function main(argv: string[], log: (line: string) => void = console.log):
   }
   if (!command) {
     log(USAGE);
+    return 1;
+  }
+  const unknown = command in COMMAND_FLAGS ? unknownFlag(command, args) : null;
+  if (unknown) {
+    const valid = ["--root", "--help", ...COMMAND_FLAGS[command]];
+    log(`✗ unknown option ${unknown} for ${command}. Valid: ${valid.join(", ")}.`);
     return 1;
   }
   if (!fs.existsSync(path.join(root, "package.json"))) {
@@ -58,8 +114,9 @@ export function main(argv: string[], log: (line: string) => void = console.log):
     }
     case "migrate": {
       const report = analyzeJestConfig(root);
-      for (const line of renderMigrationReport(report)) log(line);
-      if (report.ok && has("--write")) {
+      const write = has("--write");
+      for (const line of renderMigrationReport(report, { write })) log(line);
+      if (report.ok && write) {
         const init = runInit(root, { force: has("--force") });
         if (!init.ok) {
           for (const line of init.lines) log(line);
@@ -67,9 +124,18 @@ export function main(argv: string[], log: (line: string) => void = console.log):
         }
         const target = path.join(root, init.wrote as string);
         fs.writeFileSync(target, report.suggestedConfig);
-        log(`✓ wrote ${init.wrote} from the analysis above.`);
+        log(`✓ wrote ${init.wrote} from the analysis above. Next: ${migrationNextStep(report)}`);
+        for (const line of init.notices ?? []) log(line);
       }
       return report.ok ? 0 : 1;
+    }
+    case "compare": {
+      const parsed = parseCompareArgs(args.filter((_, i) => i !== args.indexOf(command)));
+      if ("error" in parsed) {
+        log(`✗ ${parsed.error}`);
+        return 1;
+      }
+      return runCompare({ ...parsed, root, log });
     }
     default:
       log(`✗ unknown command '${command}'.`);
@@ -79,8 +145,11 @@ export function main(argv: string[], log: (line: string) => void = console.log):
 }
 
 // Invoked as a bin (npx vitest-native / node dist/cli.mjs) — dispatch and
-// exit. Tests import main() directly, where argv[1] is the test runner.
+// exit. Tests import main() directly, where argv[1] is the test runner. The CLI
+// ships as ESM only (dist/cli.mjs, the `bin`).
 const entry = process.argv[1] ? path.basename(process.argv[1]) : "";
-if (entry === "cli.mjs" || entry === "cli.cjs" || entry === "vitest-native") {
-  process.exit(main(process.argv.slice(2)));
+if (entry === "cli.mjs" || entry === "vitest-native") {
+  const code = main(process.argv.slice(2));
+  if (typeof code === "number") process.exit(code);
+  else void code.then((c) => process.exit(c));
 }

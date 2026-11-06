@@ -1,0 +1,9 @@
+{
+  "name": "museum-res-rn-field-implementation",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "museum-rn-field": "1.0.0",
+    "museum-rn-field-reader": "1.0.0"
+  }
+}

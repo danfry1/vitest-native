@@ -38,7 +38,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22.13.0
+          node-version: 22.22.3
 
       # npm 10 (bundled with Node 22) crashes resolving Vite 8.2+'s optional peer chain
       # (@vitejs/devtools -> @vitejs/devtools-vitest -> vitest: "*") once Vitest 5 is
@@ -70,7 +70,7 @@ jobs:
           npm install --no-audit --no-fund \
             react@19.2.8 react-native@0.86.0 react-test-renderer@19.2.8 test-renderer@^1 \
             @react-native/babel-preset@0.86.0 @babel/core \
-            @testing-library/react-native@14 vitest@^4 vite@^8
+            @testing-library/react-native@14 vitest@^5 vite@^8
           npm install --no-audit --no-fund "$TARBALL"
 
       - name: Report the resolved versions

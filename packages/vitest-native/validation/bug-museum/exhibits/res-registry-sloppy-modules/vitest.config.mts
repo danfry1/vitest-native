@@ -3,7 +3,8 @@ import { defineConfig } from "vitest/config";
 import { reactNative } from "vitest-native";
 
 export default defineConfig({
-  plugins: [reactNative({ hotRuntime: false })],
+  // The exhibit is about the registry, so a cold workspace builds it first.
+  plugins: [reactNative({ hotRuntime: false, registryBuild: "wait" })],
   test: {
     include: ["*.test.{ts,tsx}"],
     testTimeout: 10_000,

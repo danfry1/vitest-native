@@ -12,8 +12,9 @@ import { usesVitePlus } from "../host.js";
  * reading only the CLI output would not otherwise learn it exists or what it costs.
  */
 export const HOT_RUNTIME_NOTE = [
-  "Hot runtime: off by default. `hotRuntime: 'auto'` reuses workers between test files, which",
-  "usually makes large native-engine suites faster. It has known differences from per-file isolation:",
+  "Hot runtime: off by default. `hotRuntime: 'auto'` reuses workers across test files instead of",
+  "starting a fresh one per file. Whether that is faster depends on the suite, so measure it on yours.",
+  "It has known differences from per-file isolation:",
   "  https://danfry1.github.io/vitest-native/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files",
 ];
 
@@ -26,6 +27,11 @@ export interface InitResult {
   lines: string[];
   ok: boolean;
   wrote?: string;
+  /**
+   * What the write changed about which config Vitest reads: the file it replaced, and a
+   * vite.config.* it no longer reads. Part of `lines`; `migrate --write` prints them too.
+   */
+  notices?: string[];
 }
 
 const PLAIN_CONFIG = `import { defineConfig } from 'vitest/config'
@@ -78,19 +84,49 @@ export function renderInitConfig(jestCompat: boolean, vitePlus = false): string 
     : source;
 }
 
+/**
+ * Vitest's config file names, in the order it looks them up (CONFIG_NAMES and
+ * CONFIG_EXTENSIONS in vitest/dist/chunks/constants): the first that exists is the one
+ * it loads, every vitest.config.* before any vite.config.*, and it does not merge the two.
+ */
+const CONFIG_EXTENSIONS = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"];
+const VITEST_CONFIG_FILES = CONFIG_EXTENSIONS.map((ext) => `vitest.config${ext}`);
+const VITE_CONFIG_FILES = CONFIG_EXTENSIONS.map((ext) => `vite.config${ext}`);
+
+function firstExisting(root: string, names: string[]): string | null {
+  return names.find((name) => fs.existsSync(path.join(root, name))) ?? null;
+}
+
+/**
+ * The config Vitest would load from `root`, or null when there is none to replace. A
+ * vite.config.* counts only under Vite+, which keeps tests in it; elsewhere a new
+ * vitest.config.* goes beside it, and the takeover is reported.
+ */
 function existingConfig(root: string, vitePlus: boolean): string | null {
-  for (const name of [
-    ...(vitePlus ? ["vite.config.ts", "vite.config.mts", "vite.config.js", "vite.config.mjs"] : []),
-    "vitest.config.ts",
-    "vitest.config.mts",
-    "vitest.config.js",
-    "vitest.config.mjs",
-    "vitest.config.cts",
-    "vitest.config.cjs",
-  ]) {
-    if (fs.existsSync(path.join(root, name))) return name;
-  }
-  return null;
+  return firstExisting(root, [...VITEST_CONFIG_FILES, ...(vitePlus ? VITE_CONFIG_FILES : [])]);
+}
+
+/**
+ * Printed when a new vitest.config.* takes over from a vite.config.* Vitest was reading:
+ * from then on, that file's plugins, `resolve` options and aliases no longer reach tests.
+ */
+export function viteConfigTakeoverNotice(viteConfig: string, written: string): string[] {
+  const specifier = `./${viteConfig.replace(/\.[cm]?[jt]s$/, "")}`;
+  return [
+    `! Vitest now loads ${written} instead of ${viteConfig}: it reads a vite.config.* only when`,
+    `  there is no vitest.config.*, and does not merge the two. Plugins, \`resolve\` options and`,
+    `  aliases in ${viteConfig} no longer apply to tests. If tests need them, extend it in ${written}:`,
+    ``,
+    `  import { defineConfig, mergeConfig } from 'vitest/config'`,
+    `  import viteConfig from '${specifier}'`,
+    ``,
+    `  export default mergeConfig(viteConfig, defineConfig({ /* the settings this file has now */ }))`,
+    ``,
+    `  If ${viteConfig} exports a function, call it:`,
+    `  defineConfig((env) => mergeConfig(viteConfig(env), { /* ... */ }))`,
+    ``,
+    `  or copy over the settings tests need.`,
+  ];
 }
 
 export function runInit(root: string, opts: InitOptions = {}): InitResult {
@@ -117,6 +153,17 @@ export function runInit(root: string, opts: InitOptions = {}): InitResult {
       ok: false,
     };
   }
+  // vitest-native writes ES module configs, and does not rewrite a CommonJS one in place:
+  // a new file beside it would leave a config that looks live but is not loaded.
+  if (existing && /\.c[jt]s$/.test(existing)) {
+    return {
+      lines: [
+        `✗ ${existing} is a CommonJS config. vitest-native writes ES module configs and does not`,
+        `  rewrite a CommonJS one; remove or rename ${existing}, then re-run.`,
+      ],
+      ok: false,
+    };
+  }
   if (existing && !opts.force) {
     return {
       lines: [
@@ -127,18 +174,32 @@ export function runInit(root: string, opts: InitOptions = {}): InitResult {
     };
   }
 
-  // TS projects get a .mts config (types flow through defineConfig); everything
-  // else gets .mjs — both are ESM regardless of the package's "type".
-  const file = vitePlus
-    ? "vite.config.ts"
-    : fs.existsSync(path.join(root, "tsconfig.json"))
-      ? "vitest.config.mts"
-      : "vitest.config.mjs";
+  // --force replaces the file Vitest loads, in place: written beside it under another
+  // name, the new config would sit unread wherever Vitest looks that name up later
+  // (vitest.config.ts before .mts). In a package without "type": "module", Vite bundles
+  // an existing .ts or .js config to CommonJS; the ES module source still loads, with
+  // Vite's warning about ESM syntax in a CommonJS-loaded file, as the old file did.
+  // Otherwise TS projects get a .mts config (types flow through defineConfig) and
+  // everything else .mjs, both ESM regardless of the package's "type".
+  const file =
+    existing ??
+    (vitePlus
+      ? "vite.config.ts"
+      : fs.existsSync(path.join(root, "tsconfig.json"))
+        ? "vitest.config.mts"
+        : "vitest.config.mjs");
+  // A vite.config.* Vitest was reading until now: it stops when the new vitest.config.*
+  // lands, which happens only when no vitest.config.* existed. (Under Vite+, reaching
+  // here means there is no vite.config.*: an existing one was refused above.)
+  const viteConfig = existing ? null : firstExisting(root, VITE_CONFIG_FILES);
   const target = path.join(root, file);
   fs.writeFileSync(target, renderInitConfig(opts.jestCompat ?? false, vitePlus));
 
-  lines.push(`✓ wrote ${file}${opts.jestCompat ? " (jest-compat variant)" : ""}`);
-  if (existing && opts.force) lines.push(`  (replaced ${existing === file ? "it" : existing})`);
+  const notices = [
+    ...(existing ? [`  (replaced the existing ${existing}, the config Vitest loads)`] : []),
+    ...(viteConfig ? ["", ...viteConfigTakeoverNotice(viteConfig, file)] : []),
+  ];
+  lines.push(`✓ wrote ${file}${opts.jestCompat ? " (jest-compat variant)" : ""}`, ...notices);
   lines.push(
     "",
     "Next steps:",
@@ -152,5 +213,5 @@ export function runInit(root: string, opts: InitOptions = {}): InitResult {
     );
   }
   lines.push("", ...HOT_RUNTIME_NOTE);
-  return { lines, ok: true, wrote: file };
+  return { lines, ok: true, wrote: file, notices };
 }

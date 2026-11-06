@@ -11,7 +11,10 @@ export default defineConfig({
     globalSetup: ["./tests/support/temp-root.global.ts", "./tests/support/registry-warm.global.ts"],
     // Records whether presets finished preparing before user setup files run
     // (skia-preset.test.tsx).
-    setupFiles: ["./tests/support/preset-readiness.setup.ts"],
+    setupFiles: [
+      "./tests/support/registry-wait.setup.ts",
+      "./tests/support/preset-readiness.setup.ts",
+    ],
     // The native-engine suite (tests-native/) runs under its own config via
     // `test:native`; never run it under the default mock engine. `.tmp-spike*`
     // are scratch spikes that ship with their own setup. `crosscheck/**` runs only
@@ -24,6 +27,8 @@ export default defineConfig({
     // `ecosystem-probe/**` installs popular third-party packages into its own
     // project and runs from the packed tarball on a schedule; those packages are
     // not installed here, so globbing it into this suite fails to resolve them.
+    // `tests/**/*.e2e.test.ts` run Vitest itself per test; they have their own config
+    // (vitest.e2e.config.ts, `test:cli-compare-e2e`).
     exclude: [
       ...configDefaults.exclude,
       "tests-native/**",
@@ -32,6 +37,7 @@ export default defineConfig({
       "consumer-tests/**",
       "validation/**",
       "ecosystem-probe/**",
+      "tests/**/*.e2e.test.ts",
     ],
   },
 });

@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import "./release-age.mjs";
+import { writeSnippets } from "./doc-snippets.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fixturesRoot = path.join(packageRoot, "consumer-tests");
@@ -56,10 +58,12 @@ function runCaptured(command, args, cwd, env = {}) {
 }
 
 // pnpm for the pnpm-layout fixtures. VN_PNPM names a pnpm already on the machine
-// (space-separated command); otherwise npx fetches pnpm 10, as in CI.
+// (space-separated command); otherwise npx fetches the pinned pnpm, as in CI.
 const pnpmCommand = process.env.VN_PNPM
   ? process.env.VN_PNPM.split(" ")
-  : ["npx", "--yes", "pnpm@10"];
+  : // An exact release, as for every other dependency these gates install: a floating
+    // `pnpm@10` would run whatever pnpm published last, inside a required check.
+    ["npx", "--yes", "pnpm@10.34.9"];
 function pnpm(args, cwd) {
   run(pnpmCommand[0], [...pnpmCommand.slice(1), ...args], cwd);
 }
@@ -114,7 +118,7 @@ function runPnpmMonorepo(tarball) {
  */
 // The fixture pins Expo SDK 58. SDK 57 is the previous SDK, which most projects on
 // `latest` still run; the same fixture installs it with these pins (the expo-sdk57
-// fixture's), on RNTL 13 and the Vitest 4 floor.
+// fixture's), on RNTL 13.
 const EXPO_SDK57 = {
   "@testing-library/react-native": "13.3.3",
   expo: "57.0.24",
@@ -134,8 +138,8 @@ const EXPO_SDK57 = {
   "react-native-screens": "4.26.2",
   "react-native-worklets": "0.10.1",
   "react-test-renderer": "19.2.4",
-  vite: "7.3.2",
-  vitest: "4.1.11",
+  vite: "^8.3.4",
+  vitest: "5.0.5",
 };
 
 function pinVersions(dir, pins) {
@@ -154,10 +158,16 @@ function runExpoPnpmSuite(tarball, sdk) {
   fs.cpSync(path.join(fixturesRoot, "expo-pnpm-suite"), fixtureRoot, { recursive: true });
   const app = path.join(fixtureRoot, "apps/mobile");
   const library = path.join(fixtureRoot, "packages/ui");
-  for (const dir of [fixtureRoot, app, library]) {
+  // A workspace package shaped like a real monorepo's: it runs @suite/ui's setup file,
+  // aliases into its source and into an undeclared sibling (@suite/tokens), and reaches
+  // `expo` only through @suite/ui's expo-image (consumer-tests/expo-pnpm-suite/README.md).
+  const feature = path.join(fixtureRoot, "packages/feature");
+  const tokens = path.join(fixtureRoot, "packages/tokens");
+  for (const dir of [fixtureRoot, app, library, feature]) {
     if (sdk === 57) pinVersions(dir, EXPO_SDK57);
     addPackedDependency(dir, tarball);
   }
+  if (sdk === 57) pinVersions(tokens, EXPO_SDK57);
   pnpm(["install", "--no-frozen-lockfile"], fixtureRoot);
 
   // Every leg runs, and the failures are reported together at the end: one run shows
@@ -172,7 +182,7 @@ function runExpoPnpmSuite(tarball, sdk) {
         env,
       );
       const problem = check(output);
-      if (problem) failures.push(`${name}: ${problem}`);
+      if (problem) failures.push(`SDK ${sdk} ${name}: ${problem}`);
     } catch (error) {
       failures.push(`SDK ${sdk} ${name}: ${error.message}`);
     }
@@ -201,6 +211,7 @@ function runExpoPnpmSuite(tarball, sdk) {
       );
     }
     leg(`library (hotRuntime ${hot})`, library, [], { VN_HOT: hot });
+    leg(`feature package (hotRuntime ${hot})`, feature, [], { VN_HOT: hot });
   }
   return failures;
 }
@@ -214,6 +225,25 @@ function runExpoPnpmSuites(tarball) {
   }
 }
 
+// The README's and the quick start's code, run as written (scripts/doc-snippets.mjs).
+// The app is the Expo SDK 58 template fixture, on RNTL 14, whose async render() is
+// what an unawaited snippet breaks. Its own config and tests are removed first, so the
+// run is nothing but what the pages show.
+function runDocSnippets(tarball) {
+  const fixtureRoot = path.join(tempRoot, "doc-snippets");
+  fs.cpSync(path.join(fixturesRoot, "expo-template"), fixtureRoot, { recursive: true });
+  for (const name of fs.readdirSync(fixtureRoot)) {
+    if (name.startsWith("vitest.config.")) fs.rmSync(path.join(fixtureRoot, name));
+  }
+  fs.rmSync(path.join(fixtureRoot, "src"), { recursive: true, force: true });
+  const files = writeSnippets(fixtureRoot);
+  console.log(`\ndoc snippets: ${files.join(", ")}`);
+  addPackedDependency(fixtureRoot, tarball);
+  run("npm", ["install"], fixtureRoot);
+  // The fixture's own Vitest, never npx: a missing binary would resolve from the registry.
+  run(process.execPath, [path.join("node_modules", "vitest", "vitest.mjs"), "run"], fixtureRoot);
+}
+
 try {
   run("npm", ["pack", "--ignore-scripts", "--pack-destination", packRoot], packageRoot);
   const tarballName = fs.readdirSync(packRoot).find((name) => name.endsWith(".tgz"));
@@ -221,9 +251,17 @@ try {
   const tarball = path.join(packRoot, tarballName);
 
   // VN_CONSUMERS=expo-pnpm-suite runs only the real-suite Expo workspace (its own CI
-  // cell); VN_CONSUMERS=fixtures everything else. Unset runs both, as prepublishOnly does.
+  // cell); VN_CONSUMERS=fixtures everything else, the doc snippets included;
+  // VN_CONSUMERS=doc-snippets only the snippets (to run them locally, and for a
+  // docs-only pull request that changes a page carrying snippets).
+  // Unset runs all of them, as prepublishOnly does.
   const only = process.env.VN_CONSUMERS;
-  if (only !== "expo-pnpm-suite") {
+  const LEGS = ["fixtures", "doc-snippets", "expo-pnpm-suite"];
+  if (only && !LEGS.includes(only)) {
+    throw new Error(`VN_CONSUMERS=${only} is not one of ${LEGS.join(", ")}`);
+  }
+  const runs = (leg) => !only || only === leg || (leg === "doc-snippets" && only === "fixtures");
+  if (runs("fixtures")) {
     for (const fixture of [
       "bare",
       "expo",
@@ -238,6 +276,15 @@ try {
     ]) {
       const fixtureRoot = path.join(tempRoot, fixture);
       fs.cpSync(path.join(fixturesRoot, fixture), fixtureRoot, { recursive: true });
+      if (fixture === "expo-sdk57") {
+        // The reader of Expo's runtime surface is the unit test's; this fixture checks the
+        // stand-in against SDK 57, installed only here (src/expo-runtime-surface.test.tsx).
+        fs.mkdirSync(path.join(fixtureRoot, "src", "lib"), { recursive: true });
+        fs.copyFileSync(
+          path.join(packageRoot, "tests", "support", "expo-runtime-surface.ts"),
+          path.join(fixtureRoot, "src", "lib", "expo-runtime-surface.ts"),
+        );
+      }
       addPackedDependency(fixtureRoot, tarball);
       run("npm", ["install"], fixtureRoot);
       run("npm", ["test"], fixtureRoot);
@@ -281,6 +328,7 @@ try {
         for (const [dir, name] of [
           ["state-fixture", "consumer-state-fixture"],
           ["runtime-probe", "runtime-probe"],
+          ["first-load-fixture", "consumer-first-load-fixture"],
         ]) {
           const dest = path.join(fixtureRoot, "node_modules", name);
           fs.rmSync(dest, { recursive: true, force: true });
@@ -364,7 +412,8 @@ try {
     run("npx", ["--no-install", "vitest-native", "migrate", "--write"], migrateFixture);
     run("npm", ["test"], migrateFixture);
   }
-  if (only !== "fixtures") runExpoPnpmSuites(tarball);
+  if (runs("doc-snippets")) runDocSnippets(tarball);
+  if (runs("expo-pnpm-suite")) runExpoPnpmSuites(tarball);
 
   console.log("\nThe packed consumer fixtures passed.");
 } finally {

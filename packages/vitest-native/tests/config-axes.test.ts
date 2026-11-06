@@ -6,13 +6,17 @@
  * how their results are judged, cannot quietly cover less than it says.
  */
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — runtime .mjs, no types
 import {
   allowed,
   cartesian,
+  CELLS_PER_JOB,
   cellsFor,
+  jobsFor,
   readAxes,
   scopeFor,
 } from "../validation/config-axes/cells.mjs";
@@ -27,6 +31,17 @@ import {
 import { must, sh } from "../validation/config-axes/sh.mjs";
 // @ts-expect-error — runtime .mjs, no types
 import { fileResults, runProblems } from "../validation/config-axes/accounting.mjs";
+import {
+  judgeSupport,
+  ownershipModelArgument,
+  ownershipSupport,
+  UNSUPPORTED,
+  // @ts-expect-error — runtime .mjs, no types
+} from "../validation/config-axes/ownership.mjs";
+// @ts-expect-error — runtime .mjs, no types
+import { OWNERSHIP_MARKER, wrapForOwnership } from "../validation/bug-museum/lib/materialise.mjs";
+// @ts-expect-error — runtime .mjs, no types
+import { isExpoPackage } from "../validation/config-axes/local-install.mjs";
 import {
   judge,
   matchingEntries,
@@ -102,6 +117,16 @@ describe("cells", () => {
           ).toBe(true);
         }
       }
+    }
+  });
+
+  it("CI jobs run every cell of each scope exactly once, at most CELLS_PER_JOB a job", () => {
+    for (const scope of ["pairwise", "full"]) {
+      const cells = cellsFor(axes, scope);
+      const jobs: unknown[][] = jobsFor(cells);
+      expect(jobs.every((job) => job.length >= 1 && job.length <= CELLS_PER_JOB)).toBe(true);
+      expect(jobs.flat()).toEqual(cells);
+      expect(jobs.length).toBe(Math.ceil(cells.length / CELLS_PER_JOB));
     }
   });
 
@@ -280,6 +305,20 @@ describe("verdict", () => {
   });
 });
 
+describe("workspaces linked from this package's install", () => {
+  it("leave out Expo's packages, which a workspace that does not declare expo would not have", () => {
+    for (const name of ["expo", "expo-constants", "expo-status-bar", "@expo/config"])
+      expect(isExpoPackage(name), name).toBe(true);
+    for (const name of [
+      "react-native",
+      "expostore",
+      "@testing-library/react-native",
+      "museum-expo",
+    ])
+      expect(isExpoPackage(name), name).toBe(false);
+  });
+});
+
 describe("known-failing.json", () => {
   const known = readKnownFailing();
 
@@ -295,9 +334,16 @@ describe("known-failing.json", () => {
   });
 
   it("every entry matches some allowed run where its probe applies — otherwise it could never go stale", () => {
+    // run.mjs judges every run with its ownershipModel (a flag: "off" unless --ownership
+    // asks for another value where the constraints allow it), so an entry may name it.
+    const judgedRows = allowedRows.flatMap((row) =>
+      (axes.flags.ownershipModel as string[])
+        .map((ownershipModel) => ({ ...row, ownershipModel }))
+        .filter((judged) => allowed(judged, axes.constraints)),
+    );
     const unreachable = known.filter((entry: { probe: string }) => {
       const probe = PROBES.find((p: { id: string }) => p.id === entry.probe);
-      return !allowedRows.some(
+      return !judgedRows.some(
         (row) => applies(probe, row) && matchingEntries([entry], entry.probe, row).length > 0,
       );
     });
@@ -526,7 +572,6 @@ describe("probe catalog", () => {
       ["esm-default-interop", { engine: "mock", hot: "off" }],
       ["rntl-nested-text", { engine: "mock", hot: "off" }],
       ["recoverable-error", { rntl: "14" }],
-      ["hot-automock", { vitest: "5", engine: "native", hot: "on" }],
     ] as [string, Row][]) {
       expect(canRun(byId(id), row(where)), id).toBe(true);
       expect(applies(byId(id), row(where)), id).toBe(false);
@@ -537,5 +582,146 @@ describe("probe catalog", () => {
     const ids = PROBES.map((probe: { id: string }) => probe.id);
     expect(new Set(ids).size).toBe(ids.length);
     for (const probe of PROBES) expect(probe.bug, probe.id).toMatch(/^\S.{10,}$/);
+  });
+});
+
+describe("the ownershipModel axis", () => {
+  // A stand-in vitest-native whose reactNative() is `body`, in a fresh directory.
+  const fakeBuild = (body: string) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-ownership-axis-"));
+    fs.mkdirSync(path.join(dir, "dist"));
+    fs.writeFileSync(
+      path.join(dir, "package.json"),
+      JSON.stringify({
+        name: "vitest-native",
+        type: "module",
+        exports: { ".": { default: "./dist/index.mjs" } },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(dir, "dist/index.mjs"),
+      `export const other = "kept";\nexport function reactNative(options) {\n${body}\n}\n`,
+    );
+    return dir;
+  };
+
+  it("is opt-in: a flag, not a runtime axis, so no CI cell changes", () => {
+    expect(axes.flags.ownershipModel).toEqual(["off", "resolver", "resolution"]);
+    expect(axes.runtime).not.toHaveProperty("ownershipModel");
+    expect(ownershipModelArgument(undefined)).toBe("off");
+    expect(ownershipModelArgument("resolution")).toBe("resolution");
+    expect(() => ownershipModelArgument("bridge")).toThrow(/off, resolver, resolution/);
+  });
+
+  it("applies to the native engine only", () => {
+    expect(allowed({ engine: "native", ownershipModel: "resolver" }, axes.constraints)).toBe(true);
+    expect(allowed({ engine: "mock", ownershipModel: "resolver" }, axes.constraints)).toBe(false);
+    expect(allowed({ engine: "mock", ownershipModel: "resolution" }, axes.constraints)).toBe(false);
+  });
+
+  it("known-failing entries may name its values, and only those", () => {
+    const entry = (ownershipModel: string) => ({
+      probe: "aliased-sibling-regex",
+      when: { ownershipModel },
+      failure: "^aliased-sibling-regex\\.test\\.ts: Cannot find module '@axis/rvalidator/store'",
+      fixedBy: "#370",
+      why: "a reason",
+    });
+    expect(validateEntries([entry("off")], axes, PROBES)).toEqual([]);
+    expect(validateEntries([entry("resolution")], axes, PROBES)).toEqual([]);
+    expect(validateEntries([entry("bridge")], axes, PROBES)).toEqual([
+      'known-failing.json entry 0 (aliased-sibling-regex): ownershipModel has no value "bridge"',
+    ]);
+  });
+
+  it("a build supports the flag only when it accepts the value and rejects a wrong one by name", () => {
+    expect(
+      judgeSupport({ accepted: null, rejected: 'bad "experimental.ownershipModel"', warnings: [] }),
+    ).toEqual({ supported: true });
+    // main before #370: an unknown option, warned about and ignored
+    expect(
+      judgeSupport({
+        accepted: null,
+        rejected: null,
+        warnings: ["[vitest-native] Unknown option 'experimental'."],
+      }),
+    ).toMatchObject({ supported: false, reason: expect.stringContaining(UNSUPPORTED) });
+    // a build that drops the flag: it accepts any value, so it does not read it
+    expect(judgeSupport({ accepted: null, rejected: null, warnings: [] })).toMatchObject({
+      supported: false,
+      reason: expect.stringContaining("does not read it"),
+    });
+    // a build that throws for the value it is asked for is broken: the run fails
+    expect(() => judgeSupport({ accepted: "no", rejected: "no", warnings: [] })).toThrow(
+      /throws for the requested value: no/,
+    );
+  });
+
+  it("a flag-on run that drops the flag fails aliased-sibling-regex instead of matching its entry", () => {
+    // The regex-alias failure is known for the flag off only. A 'resolver' run whose
+    // workspace never passed the flag on (the fixture ignoring AXIS_OWNERSHIP_MODEL)
+    // shows the flag-off failure, and that must be a regression, not a known failure.
+    const known = readKnownFailing();
+    const native = { vitest: "5", rntl: "14", layout: "hoisted", engine: "native" };
+    const failed = {
+      status: "fail",
+      failures: [
+        "aliased-sibling-regex.test.ts: Cannot find module '@axis/rvalidator/store' imported from x",
+      ],
+    };
+    const off = { ...native, ownershipModel: "off" };
+    const on = { ...native, ownershipModel: "resolver" };
+    expect(judge(known, "aliased-sibling-regex", off, failed)).toMatchObject({ ok: true });
+    expect(judge(known, "aliased-sibling-regex", on, failed)).toMatchObject({ ok: false });
+    expect(judge(known, "aliased-sibling-regex", on, { status: "pass" })).toMatchObject({
+      ok: true,
+    });
+  });
+
+  it("asks the build itself, and calls a build that ignores the flag unsupported", () => {
+    const warns = fakeBuild(
+      `if (options?.experimental) console.warn("[vitest-native] Unknown option 'experimental'.");`,
+    );
+    const ignores = fakeBuild("return {};");
+    const throws = fakeBuild(`throw new Error("broken build");`);
+    const unloadable = fakeBuild("");
+    fs.writeFileSync(path.join(unloadable, "dist/index.mjs"), 'throw new Error("cannot load");\n');
+    const reads = fakeBuild(
+      `if (options?.experimental?.ownershipModel !== "resolver") throw new Error('"experimental.ownershipModel" must be "resolver".');`,
+    );
+    try {
+      expect(ownershipSupport(warns, "resolver").supported).toBe(false);
+      expect(ownershipSupport(ignores, "resolver").supported).toBe(false);
+      expect(ownershipSupport(reads, "resolver")).toEqual({ supported: true });
+      expect(ownershipSupport(warns, "off")).toEqual({ supported: true });
+      // broken builds fail the run instead of reading as "without the flag"
+      expect(() => ownershipSupport(throws, "resolver")).toThrow(/throws for the requested value/);
+      expect(() => ownershipSupport(unloadable, "resolver")).toThrow(/could not load the build/);
+    } finally {
+      for (const dir of [warns, ignores, reads, throws, unloadable])
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("the museum's wrapper gives every reactNative() call the flag, keeps the rest, and records the call", async () => {
+    const installed = fakeBuild("return options;");
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-ownership-root-"));
+    try {
+      wrapForOwnership(installed, root, "resolver");
+      const manifest = JSON.parse(fs.readFileSync(path.join(installed, "package.json"), "utf8"));
+      const entry = path.join(installed, manifest.exports["."].default);
+      const wrapped = await import(pathToFileURL(entry).href);
+      expect(wrapped.reactNative({ hotRuntime: false, experimental: { other: 1 } })).toEqual({
+        hotRuntime: false,
+        experimental: { other: 1, ownershipModel: "resolver" },
+      });
+      expect(wrapped.reactNative()).toEqual({ experimental: { ownershipModel: "resolver" } });
+      expect(wrapped.other).toBe("kept");
+      expect(fs.readFileSync(path.join(root, OWNERSHIP_MARKER), "utf8")).toBe(
+        "resolver\nresolver\n",
+      );
+    } finally {
+      for (const dir of [installed, root]) fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -8,6 +8,7 @@ import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CONTEXT_ENV,
+  activeRegistry,
   ESCAPE_HATCHES,
   assertBootContext,
   ensureProjectContext,
@@ -337,5 +338,77 @@ describe("the ESM loader takes diagnostics from the context", () => {
     };
     expect(source(true)).toContain("if (!_hit && true)");
     expect(source(false)).toContain("if (!_hit && false)");
+  });
+});
+
+describe("a registry compiling in the background", () => {
+  const scratch = () =>
+    fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-active-registry-"));
+
+  it("is not active while its metadata is missing, and is once it is published", () => {
+    const dir = scratch();
+    try {
+      const file = path.join(dir, "rn-ios-missing.cjs");
+      expect(activeRegistry({ registryPending: { file, since: 0 } })).toBeNull();
+      const later = path.join(dir, "rn-ios-landed.cjs");
+      fs.writeFileSync(later, "");
+      fs.writeFileSync(`${later}.json`, "{}");
+      expect(activeRegistry({ registryPending: { file: later, since: 0 } })).toBe(later);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // A directory this process cannot search: EACCES, not absence. Windows has no such
+  // mode, and root ignores it.
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "reports an error reading the metadata other than its absence",
+    () => {
+      const dir = scratch();
+      const locked = path.join(dir, "locked");
+      fs.mkdirSync(locked);
+      fs.chmodSync(locked, 0o000);
+      try {
+        const file = path.join(locked, "rn-ios-x.cjs");
+        expect(() => activeRegistry({ registryPending: { file, since: 0 } })).toThrow(
+          expect.objectContaining({ code: "EACCES" }),
+        );
+      } finally {
+        fs.chmodSync(locked, 0o700);
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
+});
+
+describe("experimental.nodeMocks", () => {
+  const warnings = async (engine: "mock" | "native") => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await runPluginConfig(reactNative({ engine, experimental: { nodeMocks: true } }) as any, {
+      root: process.cwd(),
+    });
+    return warn.mock.calls.map(([m]) => String(m)).filter((m) => m.includes("nodeMocks"));
+  };
+
+  it("says it is ignored under the mock engine", async () => {
+    expect(await warnings("mock")).toEqual([expect.stringMatching(/engine:'native' only/)]);
+  });
+
+  it("is quiet under the native engine", async () => {
+    expect(await warnings("native")).toEqual([]);
+  });
+
+  it("is on in the worker context under ownershipModel 'resolution', and only as asked otherwise", async () => {
+    const fieldsFor = async (experimental: object) => {
+      const out = await runPluginConfig(reactNative({ engine: "native", experimental }) as any, {
+        root: process.cwd(),
+      });
+      const ref = out.test.env[CONTEXT_ENV];
+      return JSON.parse(fs.readFileSync(fileOf(ref), "utf8")).fields;
+    };
+    expect((await fieldsFor({ ownershipModel: "resolution" })).nodeMocks).toBe(true);
+    expect((await fieldsFor({ ownershipModel: "resolver" })).nodeMocks).toBeUndefined();
+    expect((await fieldsFor({})).nodeMocks).toBeUndefined();
+    expect((await fieldsFor({ nodeMocks: true })).nodeMocks).toBe(true);
   });
 });

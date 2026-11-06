@@ -8,11 +8,16 @@
  * 'babel-plugin-macros'`), an error that names nothing about Babel.
  */
 import { createRequire } from "node:module";
-import { installedViteVersion } from "../host.js";
 import fs from "node:fs";
 import path from "node:path";
-import { AUTO_DETECT_PRESETS, presetShadowing, type PresetName } from "../preset-map.js";
-import { installedManifest, installedMajor } from "./manifest.js";
+import { detectEngine } from "../native/detect.js";
+import {
+  AUTO_DETECT_PRESETS,
+  libraryMockUsable,
+  presetShadowing,
+  type PresetName,
+} from "../preset-map.js";
+import { installedManifest } from "./manifest.js";
 
 // https://babeljs.io/docs/config-files: one project-wide config, plus one
 // file-relative config (.babelrc* or package.json#babel). Babel merges the two.
@@ -41,23 +46,31 @@ export interface BabelConfigReport {
   evaluated: boolean;
   plugins: BabelPluginEntry[];
   presets: string[];
+  /**
+   * The settings that make babel-jest compile imports into lazy `require()` calls, as the
+   * report names them (`babel-preset-expo lazyImports`). See lazyImportSettings.
+   */
+  lazyImports: string[];
 }
 
 /**
- * @babel/core's `standardizeName`: `foo` → `babel-plugin-foo`, `@scope/foo` →
- * `@scope/babel-plugin-foo`, `@scope` → `@scope/babel-plugin`, `module:foo` → `foo`.
+ * @babel/core's `standardizeName` (lib/config/files/plugins.js), rule for rule except that a name
+ * starting with `.` is taken as a relative path: `foo` →
+ * `babel-plugin-foo`, `@babel/foo` → `@babel/plugin-foo` (`@babel/plugin-foo` unchanged),
+ * `@scope/foo` → `@scope/babel-plugin-foo`, `@scope` → `@scope/babel-plugin`, `module:foo` →
+ * `foo`. A relative or absolute path is returned as written.
  */
 export function normalizeBabelName(name: string, kind: "plugin" | "preset" = "plugin"): string {
-  const prefix = `babel-${kind}`;
-  if (name.startsWith("module:")) return name.slice("module:".length);
   if (name.startsWith(".") || path.isAbsolute(name)) return name;
-  if (/^@[^/]+$/.test(name)) return `${name}/${prefix}`;
-  const scoped = /^(@[^/]+)\/(.+)$/.exec(name);
-  if (scoped) {
-    return scoped[2].startsWith(prefix) ? name : `${scoped[1]}/${prefix}-${scoped[2]}`;
-  }
-  if (name.includes("/") || name.startsWith(`${prefix}-`)) return name;
-  return `${prefix}-${name}`;
+  const prefix = new RegExp(`^(?!@|module:|[^/]+/|babel-${kind}-)`);
+  const babelOrg = new RegExp(`^(@babel/)(?!${kind}-|[^/]+/)`);
+  const otherOrg = new RegExp(`^(@(?!babel/)[^/]+/)(?![^/]*babel-${kind}(?:-|/|$)|[^/]+/)`);
+  return name
+    .replace(prefix, `babel-${kind}-`)
+    .replace(babelOrg, `$1${kind}-`)
+    .replace(otherOrg, `$1babel-${kind}-`)
+    .replace(/^(@(?!babel$)[^/]+)$/, `$1/babel-${kind}`)
+    .replace(/^module:/, "");
 }
 
 function entryOf(item: unknown, kind: "plugin" | "preset"): BabelPluginEntry {
@@ -142,6 +155,74 @@ function entriesOf(config: RawConfig, key: "plugins" | "presets"): unknown[] {
   return sections.flatMap((s) => array(s?.[key]));
 }
 
+/** Truthy in the sense Babel's `lazy` option is: `true`, a list of names, or a predicate. */
+const enablesLazy = (value: unknown): boolean =>
+  value === true || typeof value === "function" || (Array.isArray(value) && value.length > 0);
+
+/** The option bags babel-preset-expo merges for a native platform (its getOptions). */
+function expoNativeOptions(options: unknown): Record<string, unknown>[] {
+  if (!options || typeof options !== "object") return [];
+  const o = options as Record<string, unknown>;
+  return [o, o.native, o.ios, o.android].filter(
+    (bag): bag is Record<string, unknown> => !!bag && typeof bag === "object",
+  );
+}
+
+/**
+ * Settings that make babel-jest compile `import` into a `require()` run on first use, so a
+ * module a test never touches is never evaluated under Jest. Under vitest-native project
+ * source is compiled by Vite and its imports are evaluated when the file loads.
+ *
+ * - babel-preset-expo `lazyImports` (top level or under `native`/`ios`/`android`), passed on as
+ * - @react-native/babel-preset `lazyImportExportTransform`, which sets
+ * - @babel/plugin-transform-modules-commonjs `lazy`.
+ * - An inline-requires plugin (babel-preset-fbjs's, Metro's), which does the same for `require`.
+ *
+ * With no setting, @react-native/babel-preset makes only a fixed list of React Native's own
+ * modules lazy, which tests do not notice, so that is not reported.
+ */
+export function lazyImportSettings(
+  presets: BabelPluginEntry[],
+  plugins: BabelPluginEntry[],
+): string[] {
+  const found: string[] = [];
+  for (const preset of presets) {
+    if (preset.name === "babel-preset-expo") {
+      if (expoNativeOptions(preset.options).some((bag) => enablesLazy(bag.lazyImports))) {
+        found.push(`${preset.written} lazyImports`);
+      }
+    } else if (
+      /^(@react-native\/babel-preset|metro-react-native-babel-preset)$/.test(preset.name)
+    ) {
+      const options = (preset.options ?? {}) as Record<string, unknown>;
+      if (enablesLazy(options.lazyImportExportTransform)) {
+        found.push(`${preset.written} lazyImportExportTransform`);
+      }
+    }
+  }
+  for (const plugin of plugins) {
+    if (plugin.name === "@babel/plugin-transform-modules-commonjs") {
+      const options = (plugin.options ?? {}) as Record<string, unknown>;
+      if (enablesLazy(options.lazy)) found.push(`${plugin.written} lazy`);
+    } else if (/inline-requires/.test(plugin.name)) {
+      found.push(plugin.written);
+    }
+  }
+  return [...new Set(found)];
+}
+
+/** For a config that could only be read as text: the preset options, by name (quoted or not). */
+function lazyImportSettingsInText(text: string): string[] {
+  const found: string[] = [];
+  if (/\blazyImports["']?\s*:\s*(?!(?:false|null|undefined)\b)\S/.test(text))
+    found.push("lazyImports");
+  if (/\blazyImportExportTransform["']?\s*:\s*(?!(?:false|null|undefined)\b)\S/.test(text)) {
+    found.push("lazyImportExportTransform");
+  }
+  if (/inline-requires/.test(text)) found.push("inline requires");
+  return found;
+}
+
 export function readBabelConfig(root: string): BabelConfigReport {
   const found: { source: string; raw: unknown; text: string }[] = [];
   for (const group of [PROJECT_FILES, RELATIVE_FILES]) {
@@ -160,26 +241,38 @@ export function readBabelConfig(root: string): BabelConfigReport {
       // no package.json
     }
   }
-  if (found.length === 0) return { source: null, evaluated: false, plugins: [], presets: [] };
+  if (found.length === 0) {
+    return { source: null, evaluated: false, plugins: [], presets: [], lazyImports: [] };
+  }
 
   const plugins: BabelPluginEntry[] = [];
-  const presets: string[] = [];
+  const presetEntries: BabelPluginEntry[] = [];
+  const lazyInText: string[] = [];
   let evaluated = true;
   for (const { raw, text } of found) {
     if (raw && typeof raw === "object") {
       plugins.push(...entriesOf(raw as RawConfig, "plugins").map((p) => entryOf(p, "plugin")));
-      presets.push(...entriesOf(raw as RawConfig, "presets").map((p) => entryOf(p, "preset").name));
+      presetEntries.push(
+        ...entriesOf(raw as RawConfig, "presets").map((p) => entryOf(p, "preset")),
+      );
       continue;
     }
     // Not evaluable: list only the plugins this file names that are known below.
     evaluated = false;
+    lazyInText.push(...lazyImportSettingsInText(text));
     for (const written of new Set([...text.matchAll(/["'`]([^"'`\s]+)["'`]/g)].map((m) => m[1]))) {
       const name = normalizeBabelName(written);
       if (KNOWN_PLUGINS.some((known) => known.names.includes(name)))
         plugins.push({ written, name });
     }
   }
-  return { source: found.map((f) => f.source).join(" + "), evaluated, plugins, presets };
+  return {
+    source: found.map((f) => f.source).join(" + "),
+    evaluated,
+    plugins,
+    presets: presetEntries.map((p) => p.name),
+    lazyImports: [...new Set([...lazyImportSettings(presetEntries, plugins), ...lazyInText])],
+  };
 }
 
 export type BabelPluginVerdict = "required" | "alias" | "unneeded" | "unknown";
@@ -188,6 +281,20 @@ interface KnownPlugin {
   names: string[];
   verdict: BabelPluginVerdict;
   reason: (entry: BabelPluginEntry, active: readonly PresetName[]) => string;
+}
+
+/**
+ * Whether the generated config runs Reanimated as its own mock: the native engine (as
+ * `engine: 'auto'` resolves it) with Reanimated 4.7+ and Worklets 0.9+ (libraryMockUsable).
+ * That mock runs Reanimated's real hooks, which need the worklets Babel plugin; only the
+ * preset's own module (the mock engine, or an older Reanimated) makes the plugin unneeded.
+ */
+function reanimatedRunsItsOwnMock(root: string, active: readonly PresetName[]): boolean {
+  return (
+    active.includes("reanimated") &&
+    detectEngine("auto", root).engine === "native" &&
+    libraryMockUsable(root)
+  );
 }
 
 /** Why a worklet plugin is not needed — only when the preset replacing its library is active. */
@@ -246,6 +353,16 @@ export function classifyBabelPlugins(
 ): ClassifiedPlugin[] {
   return report.plugins.map((entry) => {
     const worklets = /^(react-native-worklets|react-native-reanimated)\/plugin$/.exec(entry.name);
+    if (worklets && reanimatedRunsItsOwnMock(root, active)) {
+      return {
+        ...entry,
+        verdict: "required",
+        reason:
+          `${entry.written} gives Reanimated's hooks their dependencies. Under the native engine, ` +
+          `Reanimated runs as its own mock, whose useAnimatedStyle throws without it ` +
+          `("used without a dependency array or Babel plugin").`,
+      };
+    }
     if (worklets) {
       const reason = workletReason(worklets[1], active, root);
       return reason
@@ -265,17 +382,6 @@ export function classifyBabelPlugins(
   });
 }
 
-/** The installed major version of `vite`, or null. */
-export function viteMajor(root: string): number | null {
-  // From the module, not the manifest: see installedViteVersion.
-  const major = Number(
-    installedViteVersion(root)
-      ?.replace(/^[^0-9]*/, "")
-      .split(".")[0],
-  );
-  return Number.isFinite(major) ? major : installedMajor(root, "vite");
-}
-
 /** Whether `name` is installed where the project resolves it. */
 export function installed(root: string, name: string): boolean {
   return installedManifest(root, name) !== null;
@@ -293,21 +399,13 @@ export function pluginListSource(plugins: BabelPluginEntry[]): string {
 }
 
 /**
- * How to run Babel plugins per Vite major. @vitejs/plugin-react 6 (Vite 8) dropped
- * Babel and points at @rolldown/plugin-babel; on Vite 7 and earlier its `babel`
- * option adds plugins.
+ * How to run Babel plugins: @vitejs/plugin-react 6 (Vite 8) dropped Babel and points at
+ * @rolldown/plugin-babel.
  */
-export function babelRecipe(major: number | null, plugins: BabelPluginEntry[]): string {
-  const list = pluginListSource(plugins);
-  if (major !== null && major < 8) {
-    return (
-      `install @vitejs/plugin-react and @babel/core, then add ` +
-      `\`react({ babel: { plugins: ${list} } })\` (import react from '@vitejs/plugin-react') to plugins`
-    );
-  }
+export function babelRecipe(plugins: BabelPluginEntry[]): string {
   return (
     `install @rolldown/plugin-babel and @babel/core, then add ` +
-    `\`babel({ plugins: ${list} })\` (import babel from '@rolldown/plugin-babel') to plugins`
+    `\`babel({ plugins: ${pluginListSource(plugins)} })\` (import babel from '@rolldown/plugin-babel') to plugins`
   );
 }
 

@@ -322,6 +322,21 @@ installed artifact: the negative run fails at the CJS re-export contract. The
 original installed file is restored in `finally`. Logs and results are retained
 under the workspace's ignored `.tmp/packed-cjs-reset-zfYa9C` for this run.
 
+Later (2026-11-05): the negative run fails only under the threaded loader
+(`module.register`). Under `module.registerHooks` (Node 22.22.3+ and 24.12+), the
+consumer passes with the drain removed. The Node floor removed the threaded loader, so
+the script ran the positive half only. Whether the drain is still needed is #530.
+
+#530 (2026-11-06): it is. Node's bug does not depend on the threaded loader; the
+standalone `test-node-cjs-reset.mjs` fails without the drain under in-thread hooks
+too. The consumer stopped catching it because, from a module's second generation, the
+hot runtime serves CommonJS through generation facades that load it with
+`Module._load`, not Node's CommonJS translator. A module's first load still goes
+through the translator. The control now targets that: two entries in one directory
+re-export the same leaf, each first imported by a different test file
+(`first-load-fixture`, `hot-c`/`hot-d`). With the drain removed the second file's
+entry has no exports (`count is not a function`) under `module.registerHooks`.
+
 ```sh
 bun run build
 node validation/module-isolation/run-packed-cjs-reset.mjs

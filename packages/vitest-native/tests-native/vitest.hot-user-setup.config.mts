@@ -12,7 +12,7 @@ import { reactNative } from "../dist/index.mjs";
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
-  plugins: [reactNative({ engine: "native", hotRuntime: { allowUnboundedMemory: true } })],
+  plugins: [reactNative({ ownership: "error", engine: "native", hotRuntime: { allowUnboundedMemory: true } })],
   test: {
     environment: "node",
     globals: true,

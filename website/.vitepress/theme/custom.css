@@ -5,14 +5,18 @@
    ────────────────────────────────────────────────────────────── */
 
 :root {
-  /* Teal accent; the dark shade reads on white for links/inline code. */
-  --vp-c-brand-1: #0d8276;
-  --vp-c-brand-2: #10b3a3;
-  --vp-c-brand-3: #10b3a3;
+  /* Teal accent, dark enough to read on white and on the soft tints: links and inline
+     code (brand-1), hover, a shade darker (brand-2), and the fill behind white button
+     text (brand-3).
+     tests/site-contrast.test.ts holds each pair to WCAG AA. */
+  --vp-c-brand-1: #0a6b61;
+  --vp-c-brand-2: #09625a;
+  --vp-c-brand-3: #0d8276;
   --vp-c-brand-soft: rgba(16, 179, 163, 0.14);
 
   --vp-home-hero-name-color: transparent;
-  --vp-home-hero-name-background: linear-gradient(120deg, #10b3a3 10%, #3bc9db 50%, #c9a800);
+  /* Large text: each stop reads at 3:1 or more on white. */
+  --vp-home-hero-name-background: linear-gradient(120deg, #0d8276 10%, #0b6b7d 50%, #8a6d00);
 
   --vp-home-hero-image-background-image: linear-gradient(120deg, rgba(16, 179, 163, 0.5), rgba(252, 199, 43, 0.45));
   --vp-home-hero-image-filter: blur(48px);
@@ -29,10 +33,14 @@
   --vp-c-bg-elv: #122625;
   /* Brighter teal/cyan for contrast on the dark background. */
   --vp-c-brand-1: #4ed8c8;
-  --vp-c-brand-2: #10b3a3;
+  --vp-c-brand-2: #2ec4b4;
   --vp-c-brand-3: #10b3a3;
   --vp-c-brand-soft: rgba(16, 179, 163, 0.18);
   --vp-home-hero-name-background: linear-gradient(120deg, #4ed8c8 10%, #fcc72b 90%);
+  /* White on the bright teal reads at 2.6:1; the dark background colour reads at 6.8:1. */
+  --vp-button-brand-text: #0c1a1a;
+  --vp-button-brand-hover-text: #0c1a1a;
+  --vp-button-brand-active-text: #0c1a1a;
 }
 
 /* Typography ---------------------------------------------------- */
