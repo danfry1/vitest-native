@@ -46,10 +46,14 @@
   padding-top: 1.5rem;
 }
 
-/* Reference tables read better with a touch more breathing room. */
-.vp-doc table {
-  display: table;
-  width: 100%;
+/* Reference tables read better at full width. Only on wide screens: below that,
+   VitePress's own `display: block` lets a wide table scroll inside itself instead of
+   widening the page. */
+@media (min-width: 768px) {
+  .vp-doc table {
+    display: table;
+    width: 100%;
+  }
 }
 
 .vp-doc th {

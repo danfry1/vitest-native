@@ -1,7 +1,8 @@
 import { defineConfig } from 'vitepress'
+import { groupIconMdPlugin, groupIconVitePlugin } from 'vitepress-plugin-group-icons'
 
 const description =
-  'Run your React Native tests under Vitest against real React Native — the same JS that ships in your app, mocking only the native-module boundary. One plugin, two engines.'
+  "A Vitest plugin for React Native. Your components run React Native's real JavaScript; only the native side is mocked."
 
 export default defineConfig({
   title: 'vitest-native',
@@ -19,9 +20,18 @@ export default defineConfig({
     ['meta', { property: 'og:image', content: 'https://danfry1.github.io/vitest-native/og-card.svg' }],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
     ['meta', { name: 'twitter:image', content: 'https://danfry1.github.io/vitest-native/og-card.svg' }],
-    ['meta', { property: 'og:title', content: 'vitest-native — Test React Native with Vitest' }],
-    ['meta', { name: 'twitter:title', content: 'vitest-native — Test React Native with Vitest' }],
+    ['meta', { property: 'og:title', content: 'vitest-native: Test React Native as it ships' }],
+    ['meta', { name: 'twitter:title', content: 'vitest-native: Test React Native as it ships' }],
   ],
+  // Icons on code-group tabs (npm, pnpm, yarn, bun) and file-name labels.
+  markdown: {
+    config(md) {
+      md.use(groupIconMdPlugin)
+    },
+  },
+  vite: {
+    plugins: [groupIconVitePlugin()],
+  },
   themeConfig: {
     search: { provider: 'local' },
     socialLinks: [{ icon: 'github', link: 'https://github.com/danfry1/vitest-native' }],
