@@ -1,4 +1,5 @@
 import React from "react";
+import { hostComponent } from "../host.js";
 import { buildPressableHostProps } from "./pressableHost.js";
 
 export function createButtonMock() {
@@ -22,7 +23,7 @@ export function createButtonMock() {
       undefined,
     );
     return React.createElement(
-      "View",
+      hostComponent("View"),
       hostProps,
       React.createElement("Text", { style: color ? { color } : undefined, disabled }, title),
     );

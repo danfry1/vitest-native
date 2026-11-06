@@ -1,6 +1,7 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
+import { asHost } from "../mocks/host.js";
 import { createViewMock } from "../mocks/components/View.js";
 import { createScrollViewMock } from "../mocks/components/ScrollView.js";
 import { builtInPreset } from "./built-in.js";
@@ -57,7 +58,7 @@ export function keyboardController(): Preset {
         factory: () => {
           function hostComponent(name: string) {
             const Component = React.forwardRef((props: any, ref: any) =>
-              React.createElement(name, { ...props, ref }, props.children),
+              React.createElement(asHost(name), { ...props, ref }, props.children),
             );
             Component.displayName = name;
             return Component;

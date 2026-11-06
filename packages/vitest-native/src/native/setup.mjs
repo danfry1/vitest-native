@@ -12,7 +12,6 @@ import { installRegistry } from "./registry.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
 import * as presetFactories from "../presets.mjs";
 import { animatedMatchers } from "../matchers.mjs";
-import { serializer as rnSerializer } from "../serializer.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import {
   CONTEXT_ENV,
@@ -565,7 +564,7 @@ try {
 }
 
 expect.extend(animatedMatchers);
-expect.addSnapshotSerializer(rnSerializer);
+// Snapshots print with Vitest's own ReactTestComponent plugin, as under Jest (src/setup.ts).
 
 // One instance of a project module per test file: Node's `require` of a project file the
 // test already imported gets Vite's instance. Last, after React Native and the setup's
