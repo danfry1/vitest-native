@@ -203,6 +203,9 @@ describe("init", () => {
     );
     expect(output).toContain("import viteConfig from './vite.config'");
     expect(output).toContain("mergeConfig(viteConfig, defineConfig(");
+    expect(output).toContain("import { defineConfig, mergeConfig } from 'vitest/config'");
+    expect(output).toContain("If vite.config.ts exports a function, call it:");
+    expect(output).toContain("defineConfig((env) => mergeConfig(viteConfig(env), {");
     expect(result.notices).toEqual([
       "",
       ...viteConfigTakeoverNotice("vite.config.ts", "vitest.config.mts"),

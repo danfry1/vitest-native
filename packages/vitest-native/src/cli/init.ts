@@ -122,6 +122,9 @@ export function viteConfigTakeoverNotice(viteConfig: string, written: string): s
     ``,
     `  export default mergeConfig(viteConfig, defineConfig({ /* the settings this file has now */ }))`,
     ``,
+    `  If ${viteConfig} exports a function, call it:`,
+    `  defineConfig((env) => mergeConfig(viteConfig(env), { /* ... */ }))`,
+    ``,
     `  or copy over the settings tests need.`,
   ];
 }
