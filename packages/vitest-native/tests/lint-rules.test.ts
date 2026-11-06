@@ -30,6 +30,18 @@ tester.run("realpath-spelling", rule("realpath-spelling"), {
       code: `const real = fs.realpathSync.native(dir); // OS spelling: expands 8.3 names`,
     },
     { filename: src(), code: `fs.existsSync(file);` },
+    {
+      filename: src(),
+      code: `// Keyed the way Node's loader keys require.cache,\n// so this is its spelling, not the OS's.\nconst key = cache.get(\n  fs.realpathSync(file),\n);`,
+    },
+    {
+      filename: src(),
+      code: `/**\n * The directory in Node's spelling (what Module._cache uses).\n */\nfunction canonical(dir) {\n  const x = 1;\n  return fs.realpathSync(dir);\n}`,
+    },
+    {
+      filename: src(),
+      code: `// Native spelling: the OS's canonical form.\nconst real = (p) => {\n  return fs.realpathSync.native(p);\n};`,
+    },
   ],
   invalid: [
     { filename: src(), code: `fs.realpathSync(file);`, errors: [{ messageId: "spelling" }] },
@@ -37,6 +49,12 @@ tester.run("realpath-spelling", rule("realpath-spelling"), {
     {
       filename: src(),
       code: `// resolve the link\n\nrealpathSync(file);`,
+      errors: [{ messageId: "spelling" }],
+    },
+    {
+      // A comment above an outer statement does not explain every call inside it.
+      filename: src(),
+      code: `// Node's spelling throughout.\nif (ok) {\n  run();\n  fs.realpathSync(file);\n}`,
       errors: [{ messageId: "spelling" }],
     },
   ],
