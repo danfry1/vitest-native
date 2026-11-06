@@ -1,4 +1,4 @@
-import type { Plugin, UserConfig } from "vite";
+import type { Plugin, ResolvedConfig, UserConfig } from "vite";
 import type { PoolRunnerInitializer } from "vitest/node";
 import type { VitestNativeOptions, ResolvedOptions, Preset } from "./types.js";
 import { getConfiguredPlatformExtensions, getPlatformExtensions } from "./resolve.js";
@@ -42,6 +42,8 @@ import {
 import { fsModuleCacheKey, shouldDefaultFsModuleCache } from "./fs-module-cache.js";
 import { knownNativeModulesFor, nativeModuleSpecsFor } from "./native/native-modules.mjs";
 import { JSX_TRANSFORM, nativeEngineConfig } from "./native/apply.js";
+import { isProjectJsFile, loadProjectJsx, projectJsxOptions } from "./project-jsx.js";
+import type { LoadChain } from "./project-jsx.js";
 import { detectEngine } from "./native/detect.js";
 import { aliasReachedPaths, detectEcosystemPackages } from "./native/ecosystem.js";
 import {
@@ -2003,6 +2005,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
 
   // These are populated in configResolved once we know the project root.
   let resolved: ResolvedOptions;
+  // The resolved Vite config and its Oxc options for project `.js` files (project-jsx.ts).
+  let viteConfig: ResolvedConfig | undefined;
+  let projectJsx: ReturnType<typeof projectJsxOptions>;
   const presetModules = new Map<string, () => Record<string, any>>();
   // Preset export names discovered by calling factories at config time.
   const presetExportNames = new Map<string, string[]>();
@@ -3021,6 +3026,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     },
 
     async configResolved(config) {
+      viteConfig = config;
+      projectJsx = projectJsxOptions(config.oxc);
+
       // load() is synchronous for assets; it needs the module generator in hand.
       assetModules ??= await loadAssetModules();
 
@@ -3281,6 +3289,19 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     },
 
     load(id) {
+      // JSX in a project .js file, as Metro and babel-jest compile it (project-jsx.ts).
+      if (projectJsx && isProjectJsFile(id)) {
+        // Only a dev environment (Vitest's) has a plugin container to ask.
+        const env = this.environment as { pluginContainer?: LoadChain } | undefined;
+        return loadProjectJsx(
+          id,
+          projectJsx,
+          viteConfig,
+          env?.pluginContainer,
+          diagnostics ? console.log : undefined,
+        );
+      }
+
       // The native engine's react-native facade. It re-exports the SAME instance
       // Node's graph holds — `_rn.View` is the very object an externalized library
       // sees — so nothing about React Native's behaviour or identity changes. What
