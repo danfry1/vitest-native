@@ -1,4 +1,5 @@
 import React from "react";
+import { hostComponent } from "../host.js";
 
 export function createTouchableNativeFeedbackMock() {
   const TouchableNativeFeedback = React.forwardRef((props: any, ref: any) => {
@@ -13,7 +14,7 @@ export function createTouchableNativeFeedbackMock() {
       delete rest.onPressOut;
       delete rest.onLongPress;
     }
-    return React.createElement("TouchableNativeFeedback", {
+    return React.createElement(hostComponent("TouchableNativeFeedback"), {
       accessible: true,
       // See pressableHost.ts: disabled must block press under RNTL >=14.
       ...(disabled ? { pointerEvents: "none" } : {}),

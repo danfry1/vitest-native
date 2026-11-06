@@ -6,7 +6,7 @@ import { afterAll, describe, expect, it } from "vitest";
 // @ts-expect-error — runtime .mjs outside the package, no types
 import { classify, GROUPS } from "../../../.github/scripts/classify-change.mjs";
 // @ts-expect-error — runtime .mjs, no types
-import { SNIPPET_PAGES } from "../scripts/doc-snippets.mjs";
+import { HERO_RUN, SNIPPET_FILES, SNIPPET_PAGES } from "../scripts/doc-snippets.mjs";
 
 // .github/scripts/classify-change.mjs decides which gate jobs a change runs. Only a pull
 // request is narrowed; a merge-queue group is classified as docs-only like a pull
@@ -108,6 +108,12 @@ describe("change-based selection", () => {
       expect(snippets([page]), page).toBe(true);
     }
     expect(snippets([".changeset/x.md", "website/guide/quick-start.md"])).toBe(true);
+    // The landing page's hero test and its committed run output are not Markdown, so a
+    // change to one runs the packed cells, which run the snippets and check the output.
+    for (const file of [...Object.values(SNIPPET_FILES), HERO_RUN]) {
+      const out = classify("pull_request", [file]);
+      expect(out.packed || out.snippets, file).toBe(true);
+    }
     // Other pages do not.
     expect(snippets(["website/guide/engines.md", `${P}docs/versioning.md`])).toBe(false);
     // When the packed cells run, they run the snippets with the fixtures.

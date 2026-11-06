@@ -10,7 +10,13 @@
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
-import { AUTO_DETECT_PRESETS, presetShadowing, type PresetName } from "../preset-map.js";
+import { detectEngine } from "../native/detect.js";
+import {
+  AUTO_DETECT_PRESETS,
+  libraryMockUsable,
+  presetShadowing,
+  type PresetName,
+} from "../preset-map.js";
 import { installedManifest } from "./manifest.js";
 
 // https://babeljs.io/docs/config-files: one project-wide config, plus one
@@ -277,6 +283,20 @@ interface KnownPlugin {
   reason: (entry: BabelPluginEntry, active: readonly PresetName[]) => string;
 }
 
+/**
+ * Whether the generated config runs Reanimated as its own mock: the native engine (as
+ * `engine: 'auto'` resolves it) with Reanimated 4.7+ and Worklets 0.9+ (libraryMockUsable).
+ * That mock runs Reanimated's real hooks, which need the worklets Babel plugin; only the
+ * preset's own module (the mock engine, or an older Reanimated) makes the plugin unneeded.
+ */
+function reanimatedRunsItsOwnMock(root: string, active: readonly PresetName[]): boolean {
+  return (
+    active.includes("reanimated") &&
+    detectEngine("auto", root).engine === "native" &&
+    libraryMockUsable(root)
+  );
+}
+
 /** Why a worklet plugin is not needed — only when the preset replacing its library is active. */
 function workletReason(pkg: string, active: readonly PresetName[], root: string): string | null {
   const preset = presetShadowing(pkg);
@@ -333,6 +353,16 @@ export function classifyBabelPlugins(
 ): ClassifiedPlugin[] {
   return report.plugins.map((entry) => {
     const worklets = /^(react-native-worklets|react-native-reanimated)\/plugin$/.exec(entry.name);
+    if (worklets && reanimatedRunsItsOwnMock(root, active)) {
+      return {
+        ...entry,
+        verdict: "required",
+        reason:
+          `${entry.written} gives Reanimated's hooks their dependencies. Under the native engine, ` +
+          `Reanimated runs as its own mock, whose useAnimatedStyle throws without it ` +
+          `("used without a dependency array or Babel plugin").`,
+      };
+    }
     if (worklets) {
       const reason = workletReason(worklets[1], active, root);
       return reason

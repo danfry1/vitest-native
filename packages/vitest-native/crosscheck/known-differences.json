@@ -27,7 +27,7 @@
   {
     "area": "Host component names and snapshots",
     "difference": "The mock engine renders host elements under their JavaScript component name — View, Text, TextInput — while real React Native uses the native view name: RCTView, RCTText. Real React Native also attaches props the mock leaves unset (a Text host carries allowFontScaling, ellipsizeMode and a style array beginning with { overflow: \"hidden\" }).",
-    "why": "React Native Testing Library detects host component names at runtime, so queries, matchers and fireEvent behave identically either way and the corpus above verifies that. SNAPSHOTS DO NOT TRANSFER: the serializer prints the host name and the props verbatim, so a snapshot recorded under one engine fails under the other. Record snapshots under the engine the suite runs on, and re-record when switching."
+    "why": "React Native Testing Library detects host component names at runtime, so queries, matchers and fireEvent behave identically either way and the corpus above verifies that. SNAPSHOTS DO NOT TRANSFER: a snapshot prints the host names and props the engine renders, in Jest's format (see [Snapshots](/guide/matchers#snapshots)), so a snapshot recorded under one engine, or under Jest's preset, fails under the other. Record snapshots under the engine the suite runs on, and re-record when switching."
   },
   {
     "area": "InteractionManager.runAfterInteractions timing",

@@ -1,4 +1,5 @@
 import React from "react";
+import { hostComponent } from "../host.js";
 import { vi } from "vitest";
 
 export function createFlatListMock() {
@@ -98,7 +99,7 @@ export function createFlatListMock() {
       children.unshift(refreshControl);
     }
 
-    return React.createElement("FlatList", { ...rest, ref }, ...children);
+    return React.createElement(hostComponent("FlatList"), { ...rest, ref }, ...children);
   });
   FlatList.displayName = "FlatList";
   return FlatList;
