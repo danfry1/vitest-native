@@ -45,6 +45,7 @@ import {
   readBabelConfig,
 } from "../src/cli/babel-config.js";
 import { runDoctor } from "../src/cli/doctor.js";
+import { main } from "../src/cli/index.js";
 import { DEFAULT_ASSET_EXTS, PRESET_MODULES } from "../src/preset-map.js";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -976,5 +977,52 @@ test('import-time mock calls survive', () => { expect(loaded).toHaveBeenCalledTi
       expect(run.status, run.stdout + run.stderr).toBe(0);
     },
     120_000,
+  );
+
+  it.runIf(distExists)(
+    "--write --force replaces the config Vitest's own lookup loads",
+    () => {
+      const root = fixture({
+        "package.json": { name: "x" },
+        "tsconfig.json": {},
+        "jest.config.json": { testTimeout: 9123 },
+        // Vitest looks up vitest.config.ts before vitest.config.mts.
+        "vitest.config.ts": "export default { test: { testTimeout: 1 } }",
+      });
+      const modules = path.join(root, "node_modules");
+      fs.mkdirSync(modules);
+      for (const name of fs.readdirSync(path.join(packageRoot, "node_modules"))) {
+        fs.symlinkSync(path.join(packageRoot, "node_modules", name), path.join(modules, name));
+      }
+      fs.symlinkSync(packageRoot, path.join(modules, "vitest-native"));
+
+      const lines: string[] = [];
+      expect(main(["migrate", "--write", "--force", "--root", root], (l) => lines.push(l))).toBe(0);
+      expect(lines.join("\n")).toContain("replaced the existing vitest.config.ts");
+      // Vitest's own lookup and load (vitest/node's resolveConfig), in a child process so
+      // the plugin the config loads starts outside this worker.
+      const probe = spawnSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "-e",
+          `import { resolveConfig } from 'vitest/node'
+const c = await resolveConfig({ root: process.cwd(), watch: false })
+console.log('RESOLVED ' + JSON.stringify({ file: c.configFile, timeout: c.test.testTimeout }))
+process.exit(0)`,
+        ],
+        { cwd: root, encoding: "utf8", env: { ...process.env, CI: "1" } },
+      );
+      const line = probe.stdout.split("\n").find((l) => l.startsWith("RESOLVED "));
+      expect(line, probe.stdout + probe.stderr).toBeDefined();
+      const resolved = JSON.parse((line as string).slice("RESOLVED ".length));
+      expect(fs.realpathSync(resolved.file)).toBe(
+        fs.realpathSync(path.join(root, "vitest.config.ts")),
+      );
+      // The loaded config is migrate's: the Jest config's timeout, not the old file's.
+      expect(resolved.timeout, lines.join("\n")).toBe(9123);
+      expect(fs.existsSync(path.join(root, "vitest.config.mts"))).toBe(false);
+    },
+    60_000,
   );
 });
