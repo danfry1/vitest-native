@@ -93,7 +93,10 @@ export class HangWatch {
     this.timer.unref?.();
   }
 
-  /** The message: what was running, and how to change the limit. */
+  /**
+   * The message: what was running, and how to change the limit. A worker reports a test's
+   * start asynchronously, so one stuck in synchronous code may be known by file only.
+   */
   report() {
     const seconds = Math.round(this.timeoutMs / 1000);
     const lines = [
@@ -108,7 +111,7 @@ export class HangWatch {
       lines.push(
         test
           ? `  Running: ${file} › ${test}`
-          : `  Running: ${file} (between tests: a hook, the file's imports or setup)`,
+          : `  Running: ${file} (no test reported as running: a test whose start was not reported yet, a hook, or the file's imports)`,
       );
     }
     lines.push(

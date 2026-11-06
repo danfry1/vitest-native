@@ -6,6 +6,7 @@
  */
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { expect, it } from "vitest";
@@ -14,8 +15,12 @@ import { scratchProject } from "./support/compare-helpers.js";
 const PACKAGE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = pathToFileURL(path.join(PACKAGE, "dist", "index.mjs")).href;
 
+const requireHere = createRequire(path.join(PACKAGE, "package.json"));
+// The plugin requires React (a peer dependency); the scratch project gets this repo's.
+const REACT = path.dirname(requireHere.resolve("react/package.json"));
+
 function project(option: string, files: Record<string, string>) {
-  return scratchProject({
+  const root = scratchProject({
     files: {
       "vitest.config.mjs":
         `import { reactNative } from ${JSON.stringify(DIST)};\n` +
@@ -23,6 +28,8 @@ function project(option: string, files: Record<string, string>) {
       ...files,
     },
   });
+  fs.symlinkSync(REACT, path.join(root, "node_modules", "react"), "junction");
+  return root;
 }
 
 function vitest(root: string) {
@@ -58,7 +65,10 @@ it("fails a test stuck in a synchronous loop within hangTimeout, naming it", asy
   const { code, output, ms } = await vitest(root);
   expect(code, output).toBe(1);
   expect(output).toContain("No test made progress for 3 s (hangTimeout)");
-  expect(output).toMatch(/Running: \S*spin\.check\.js › spins forever/);
+  // The file, always; the test only if the worker reported its start before it stuck.
+  expect(output).toMatch(
+    /Running: \S*spin\.check\.js( › spins forever| \(no test reported as running)/,
+  );
   expect(ms).toBeLessThan(45_000);
 }, 90_000);
 
