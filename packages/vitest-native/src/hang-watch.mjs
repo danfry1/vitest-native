@@ -126,7 +126,11 @@ export function exitKillingDescendants(code) {
     for (const pid of descendantsOf(process.pid)) {
       try {
         process.kill(pid, "SIGKILL");
-      } catch {}
+      } catch (error) {
+        // ESRCH: it exited on its own meanwhile. Anything else is worth knowing about.
+        if (error?.code !== "ESRCH")
+          fs.writeSync(2, `[vitest-native] could not stop process ${pid}: ${error}\n`);
+      }
     }
   }
   process.exit(code);
