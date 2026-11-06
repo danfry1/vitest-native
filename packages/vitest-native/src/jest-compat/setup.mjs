@@ -149,15 +149,15 @@ if (typeof vi.now !== "function") vi.now = () => Date.now();
 // "jest.isolateModules is not a function" TypeErrors deep in a migrated suite.
 // Give each one an error that names the API and states the closest migration,
 // so the failure is a signpost instead of a mystery.
-const MIGRATION_GUIDE =
-  "https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/docs/migrating-from-jest.md";
+const UNSUPPORTED_DOCS =
+  "https://danfry1.github.io/vitest-native/guide/errors#JEST_API_UNSUPPORTED";
 function unsupported(name, guidance) {
   if (typeof vi[name] === "function") return;
   vi[name] = () => {
     throw new VitestNativeError(
       "JEST_API_UNSUPPORTED",
       `jest.${name}() has no Vitest equivalent. ${guidance}`,
-      { docs: MIGRATION_GUIDE },
+      { docs: UNSUPPORTED_DOCS },
     );
   };
 }

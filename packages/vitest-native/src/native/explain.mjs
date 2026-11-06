@@ -82,8 +82,7 @@ export function explainUntransformedSyntaxError(err, file) {
       `${cause} ` +
       `Ask vitest-native to transform it:\n\n` +
       `  reactNative({ transform: ['${pkg}'] })\n\n` +
-      `in your vitest config. See https://github.com/danfry1/vitest-native` +
-      `/blob/main/packages/vitest-native/docs/migrating-from-jest.md`,
+      `in your vitest config. See https://danfry1.github.io/vitest-native/guide/mocking#packages-that-ship-untranspiled-source`,
     { cause: err },
   );
   return wrapped;

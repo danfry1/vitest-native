@@ -650,7 +650,9 @@ describe("jest-compat: unsupported Jest APIs are signposts, not TypeErrors", () 
     const jestGlobal = (globalThis as { jest?: Record<string, (...a: unknown[]) => unknown> })
       .jest!;
     for (const name of ["createMockFromModule", "genMockFromModule", "deepUnmock"]) {
-      expect(() => jestGlobal[name]("x")).toThrow(/no Vitest equivalent.*migrating-from-jest/s);
+      expect(() => jestGlobal[name]("x")).toThrow(
+        /no Vitest equivalent.*errors#JEST_API_UNSUPPORTED/s,
+      );
     }
   });
 

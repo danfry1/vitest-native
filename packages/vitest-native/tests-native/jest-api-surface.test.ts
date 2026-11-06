@@ -131,7 +131,7 @@ describe("members with no equivalent", () => {
       expect(() => jestGlobal()[name](...args)).toThrow(
         new RegExp(`jest\\.${name}\\(\\) has no Vitest equivalent`),
       );
-      expect(() => jestGlobal()[name](...args)).toThrow(/migrating-from-jest/);
+      expect(() => jestGlobal()[name](...args)).toThrow(/guide\/errors#JEST_API_UNSUPPORTED/);
     });
   }
 });

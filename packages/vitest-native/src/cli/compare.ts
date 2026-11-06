@@ -1015,18 +1015,18 @@ export function classify(
 export const SNAPSHOT_HINTS: Record<SnapshotHint, string> = {
   "no-vitest-snapshot":
     "no Vitest snapshot recorded. Give Vitest its own snapshot directory first (the " +
-    "resolveSnapshotPath recipe in docs/migrating-from-jest.md, section 2d), so recording " +
+    "resolveSnapshotPath recipe at https://danfry1.github.io/vitest-native/migration/from-jest#snapshots), so recording " +
     "cannot rewrite Jest's .snap files; then run `vitest run` once and review the new files",
   "shared-snapshot-dir":
     "your Vitest config resolves snapshots to Jest's .snap files. This snapshot's key is the " +
     "same in both runners, but Vitest rewrites the header of a Jest .snap file it reads, so " +
     "compare does not let it read Jest's. Give Vitest its own directory (the resolveSnapshotPath " +
-    "recipe in docs/migrating-from-jest.md, section 2d) and record there",
+    "recipe at https://danfry1.github.io/vitest-native/migration/from-jest#snapshots) and record there",
   "shared-snapshot-dir-nested":
     "your Vitest config resolves snapshots to Jest's .snap files. Vitest names this snapshot " +
     "differently (`a > b 1`, where Jest writes `a b 1`), so it would not find Jest's entry, and " +
     "it rewrites the header of a Jest .snap file it reads. Give Vitest its own directory (the " +
-    "resolveSnapshotPath recipe in docs/migrating-from-jest.md, section 2d) and record there",
+    "resolveSnapshotPath recipe at https://danfry1.github.io/vitest-native/migration/from-jest#snapshots) and record there",
 };
 
 export interface Cluster {
