@@ -6,5 +6,4 @@
 
 - The report names the file, how each side loaded it, and the fix. Exempt a deliberate case with `ownership: { allow: [{ path, reason }] }`.
 - `require()` of a CommonJS project file a test already imported now returns that same `module.exports`.
-
-See `docs/ownership-guard.md`.
+- The warning, its end-of-run summary and `vitest-native doctor` link the [error reference](https://danfry1.github.io/vitest-native/guide/errors#SOURCE_EVALUATED_TWICE).
