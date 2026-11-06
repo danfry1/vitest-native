@@ -1,5 +1,9 @@
 # How It Works
 
+Everything in a test runs as it ships down to React Native's native side, which is the only part mocked. Switch views to compare it with Jest's React Native preset and with the mock engine:
+
+<BoundaryDiagram />
+
 The `reactNative()` plugin does three things automatically, so you don't write any setup yourself.
 
 ## 1. Module resolution

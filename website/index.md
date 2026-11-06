@@ -21,13 +21,7 @@ hero:
 
 Jest's React Native preset also runs React Native's JavaScript, but it swaps the core components for stand-ins. vitest-native mocks a layer lower, so `View`, `Text` and `ScrollView` run as they ship.
 
-| | Jest + React Native preset | vitest-native |
-|---|---|---|
-| Core components (`View`, `Text`, `ScrollView`, …) | Stand-ins | Real |
-| Native modules and host components | Mocked | Mocked |
-| Rendered host names | `View`, `Text` | `RCTView`, `RCTText` |
-
-[Where each one draws the line →](/guide/comparison#where-the-mock-boundary-sits)
+<BoundaryDiagram />
 
 A second engine, `engine: 'mock'`, runs without React Native at all, for pure-logic suites. [Choosing an engine →](/guide/engines)
 
