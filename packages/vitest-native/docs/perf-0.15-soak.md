@@ -7,9 +7,12 @@ in the same container.
 **Bottom line:** on warm runs vitest-native is 1.75–1.95× slower than Jest on three of the four
 apps, and faster on the fourth. The cause is per-file worker startup, not transforms or caching.
 Under the default per-file isolation every test file gets a fresh worker thread, and each one
-pays Node's bootstrap, vitest-native's setup and Expo's runtime setup again. Jest reuses its
-workers. With worker reuse (`hotRuntime: 'auto'`) Rocket.Chat runs in 14.4 s, against 75.6 s
-isolated and 43.5 s under Jest.
+pays Node's bootstrap, vitest-native's setup and Expo's runtime setup again. Jest keeps its
+worker processes, but still gives every test file a fresh module registry and vm context, so
+its isolation is what vitest-native's per-file mode matches. With worker reuse
+(`hotRuntime: 'auto'`) Rocket.Chat runs in 14.4 s, against 75.6 s isolated and 43.5 s under
+Jest. The hot runtime keeps more state between files than Jest does, so that speed comes with
+looser isolation.
 
 ## Method
 
@@ -57,7 +60,8 @@ The profiles show where that time comes from.
 - **A worker thread per test file.**
   - 105 Bluesky files ran in about 110 worker threads, and 476 Rocket.Chat files in about 500.
   - Each thread lives 0.3–2.5 s, and a trivial file still costs about 0.3 s of CPU.
-  - Jest's ~10 processes live for the whole run.
+  - Jest's ~10 processes live for the whole run. Inside them each file still gets a fresh
+    module registry and vm context, but no new thread or Node bootstrap.
 - **Per thread, before any test runs:**
   - Node bootstrap and module compilation (`compileForInternalLoader`, `compileSourceTextModule`,
     `wrapSafe`): about 13 s of CPU on Rocket.Chat.
@@ -105,8 +109,11 @@ The profiles show where that time comes from.
      Jest), Bluesky −24% on its one clean run.
    - Routes:
      - Make the hot runtime safe enough to recommend for Jest-migration suites: #595 first,
-       then hot runs on all four apps.
-     - Or adopt an upstream per-file reset that reuses workers.
+       then hot runs on all four apps. Hot isolates less than Jest does, so a suite written
+       for per-file isolation needs a per-file vs hot comparison before it switches.
+     - Or adopt an upstream per-file reset that reuses workers, which would keep Jest's
+       isolation.
+     - Or make each new worker cheaper, keeping per-file isolation: items 2–5 below.
    - Everything below shrinks with it, because it is paid once per worker instead of once
      per file.
 2. **Ownership policy rebuilt twice per file.**
