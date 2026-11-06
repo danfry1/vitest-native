@@ -40,7 +40,10 @@ describe("project .js files compiled as JSX (#561)", () => {
         exclude: /y/,
         jsxInject: "import React from 'react'",
       }),
-    ).toEqual({ jsx: { runtime: "automatic", importSource: "custom" }, lang: "jsx" });
+    ).toEqual({
+      jsx: { runtime: "automatic", importSource: "custom", refresh: false },
+      lang: "jsx",
+    });
   });
 
   it("does nothing when Oxc is turned off", () => {
@@ -66,5 +69,44 @@ describe("project .js files compiled as JSX (#561)", () => {
     expect(await loadProjectJsx(file, OPTIONS, undefined, chain)).toBe(
       "export const a = 'plugin';",
     );
+  });
+
+  it("compiles a file another environment is loading at the same time", async () => {
+    // Environment A's ask is still pending when environment B loads the same file
+    // (two projects sharing a setup file): B must compile it, not skip it.
+    const file = tempFile("src/setup.js", "export const a = <Text>hi</Text>;\n");
+    let release!: () => void;
+    let entered!: () => void;
+    const pending = new Promise<void>((resolve) => (release = resolve));
+    const asked = new Promise<void>((resolve) => (entered = resolve));
+    const slow = { load: async () => (entered(), await pending, null) };
+    const a = loadProjectJsx(file, OPTIONS, undefined, slow);
+    await asked;
+    const b = await loadProjectJsx(file, OPTIONS, undefined, { load: async () => null });
+    release();
+    expect(b).toMatchObject({ code: expect.stringContaining("react/jsx-runtime") });
+    expect(await a).toMatchObject({ code: expect.stringContaining("react/jsx-runtime") });
+  });
+
+  it("answers nothing to its own question, then compiles", async () => {
+    const file = tempFile("src/a.js", "export const a = <Text>hi</Text>;\n");
+    const inner: unknown[] = [];
+    const chain = {
+      load: async (id: string) => {
+        inner.push(await loadProjectJsx(id, OPTIONS, undefined, chain));
+        return null;
+      },
+    };
+    const outer = await loadProjectJsx(file, OPTIONS, undefined, chain);
+    expect(inner).toEqual([undefined]);
+    expect(outer).toMatchObject({ code: expect.stringContaining("react/jsx-runtime") });
+  });
+
+  it("leaves a file Oxc cannot parse as JSX (Flow) to later plugins, and says so", async () => {
+    const file = tempFile("src/flow.js", "// @flow\nexport function f(x: Array<string>) {}\n");
+    const logged: string[] = [];
+    const result = await loadProjectJsx(file, OPTIONS, undefined, undefined, (m) => logged.push(m));
+    expect(result).toBeUndefined();
+    expect(logged).toEqual([expect.stringContaining("serving it unchanged")]);
   });
 });

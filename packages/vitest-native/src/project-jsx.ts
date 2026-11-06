@@ -16,6 +16,7 @@
  * Only files outside `node_modules`: packages are compiled by their own path (the native
  * engine's Babel transform, or the mock engine's Flow strip and Vite's pipeline).
  */
+import { AsyncLocalStorage } from "node:async_hooks";
 import fs from "node:fs";
 import path from "node:path";
 import { transformWithOxc } from "vite";
@@ -35,7 +36,11 @@ export function projectJsxOptions(oxc: ResolvedConfig["oxc"]): OxcOptions | unde
     jsxRefreshExclude: _jsxRefreshExclude,
     ...transform
   } = oxc;
-  return { ...transform, lang: "jsx" };
+  // No React Refresh: test files are never hot-replaced, and Vite turns it off for
+  // server consumers in its own Oxc plugin too.
+  const jsx =
+    typeof transform.jsx === "object" ? { ...transform.jsx, refresh: false } : transform.jsx;
+  return { ...transform, jsx, lang: "jsx" };
 }
 
 const NODE_MODULES = /[\\/]node_modules[\\/]/;
@@ -55,16 +60,20 @@ export function isProjectJsFile(id: string): boolean {
 /** A dev environment's plugin container (Vite's DevEnvironment), as much as this needs. */
 export type LoadChain = { load(id: string): Promise<Rollup.LoadResult> } | undefined;
 
-// Ids this module is asking the rest of the load chain about (see loadProjectJsx).
-const asking = new Set<string>();
+// The id this module's own load is asking the rest of the chain about, in that call's
+// async context only: a concurrent load of the same file (another environment, another
+// project's plugin) runs in its own context and is not mistaken for the re-entry.
+const asking = new AsyncLocalStorage<string>();
 
 /**
  * A project `.js` file compiled as JSX, or undefined to leave it to Vite: not a project
- * `.js` file, no possible JSX, or Oxc turned off.
+ * `.js` file, no possible JSX, Oxc turned off, or a file Oxc cannot parse as JSX (Flow,
+ * say, which a project's own transform plugin may strip later).
  *
  * Another plugin that loads the file keeps it: the chain is asked first (this hook
- * answers nothing while it asks), and what a plugin returns is served as it returned it.
- * The plugin's load hook runs early because the plugin is `enforce: "pre"`; asking first
+ * answers nothing to its own question), and what a plugin returns is served as it
+ * returned it. The plugin's load hook runs early because the plugin is `enforce: "pre"`
+ * (it also serves assets and virtual modules ahead of Vite's own plugins); asking first
  * keeps that from taking a file away from a project's own plugin.
  */
 export async function loadProjectJsx(
@@ -72,20 +81,23 @@ export async function loadProjectJsx(
   options: OxcOptions | undefined,
   config: ResolvedConfig | undefined,
   chain: LoadChain,
+  log?: (message: string) => void,
 ): Promise<Rollup.LoadResult> {
-  if (!options || !isProjectJsFile(id) || asking.has(id)) return undefined;
-  if (chain) {
-    asking.add(id);
-    let other: Rollup.LoadResult;
-    try {
-      other = await chain.load(id);
-    } finally {
-      asking.delete(id);
-    }
-    if (other != null) return other;
-  }
+  if (!options || !isProjectJsFile(id) || asking.getStore() === id) return undefined;
   const code = await fs.promises.readFile(id, "utf8");
   if (!MAY_HAVE_JSX.test(code)) return undefined;
-  const result = await transformWithOxc(code, id, options, undefined, config);
+  if (chain) {
+    const other = await asking.run(id, () => chain.load(id));
+    if (other != null) return other;
+  }
+  let result: Awaited<ReturnType<typeof transformWithOxc>>;
+  try {
+    result = await transformWithOxc(code, id, options, undefined, config);
+  } catch (error) {
+    log?.(
+      `[vitest-native] ${id} is not JSX Oxc can parse (${(error as Error).message.split("\n")[0]}); serving it unchanged.`,
+    );
+    return undefined;
+  }
   return { code: result.code, map: result.map };
 }

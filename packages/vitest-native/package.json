@@ -137,7 +137,7 @@
     "test:native:reanimated-fallback": "vitest run --config tests-native/vitest.reanimated-fallback.config.mts --mode native && vitest run --config tests-native/vitest.reanimated-fallback.config.mts --mode hot",
     "test:native:preset-modules": "vitest run --config tests-native/vitest.custom-preset.config.mts --mode native && vitest run --config tests-native/vitest.custom-preset.config.mts --mode hot && vitest run --config tests-native/vitest.custom-preset.config.mts --mode mock",
     "test:native:permissive": "vitest run --config tests-native/vitest.permissive.config.mts --mode stock && vitest run --config tests-native/vitest.permissive.config.mts --mode hot",
-    "test:native:project-js-jsx": "vitest run --config tests-native/vitest.project-js-jsx.config.mts --mode native && vitest run --config tests-native/vitest.project-js-jsx.config.mts --mode hot && vitest run --config tests-native/vitest.project-js-jsx.config.mts --mode mock",
+    "test:native:project-js-jsx": "vitest run --config tests-native/vitest.project-js-jsx.config.mts --mode native && vitest run --config tests-native/vitest.project-js-jsx.config.mts --mode hot && vitest run --config tests-native/vitest.project-js-jsx.config.mts --mode mock && vitest run --config tests-native/vitest.project-js-jsx.config.mts --mode projects",
     "test:native:forks": "vitest run --config tests-native/vitest.forks.config.mts",
     "test:native:navigation": "vitest run --config tests-native/vitest.navigation.config.mts && vitest run --config tests-native/vitest.native-stack.config.mts",
     "test:native:android": "vitest run --config tests-native/vitest.android.config.mts",

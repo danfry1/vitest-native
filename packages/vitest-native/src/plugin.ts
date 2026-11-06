@@ -3219,7 +3219,13 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       if (projectJsx && isProjectJsFile(id)) {
         // Only a dev environment (Vitest's) has a plugin container to ask.
         const env = this.environment as { pluginContainer?: LoadChain } | undefined;
-        return loadProjectJsx(id, projectJsx, viteConfig, env?.pluginContainer);
+        return loadProjectJsx(
+          id,
+          projectJsx,
+          viteConfig,
+          env?.pluginContainer,
+          diagnostics ? console.log : undefined,
+        );
       }
 
       // The native engine's react-native facade. It re-exports the SAME instance
