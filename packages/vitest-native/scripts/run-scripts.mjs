@@ -13,11 +13,14 @@
 // package names no other script resolves. A script's own commands still run in order.
 //
 // Scripts start in the order given, so put the longest first. Every script runs even
-// when another fails; the exit code is 1 if any failed. `--jobs 1` (or VN_TEST_JOBS=1)
+// when another fails; the exit code is 1 if any failed. With VN_SCRIPT_DEADLINE_MS set
+// (CI sets it), a script still running at that deadline is stopped and fails with the
+// test files it was running (scripts/ci/deadline.mjs), and its Vitest runs carry the
+// no-progress reporter (scripts/ci/hang-reporter.mjs). `--jobs 1` (or VN_TEST_JOBS=1)
 // is the old sequential behaviour, for bisecting a suspected interaction.
-import { spawn } from "node:child_process";
 import os from "node:os";
 import process from "node:process";
+import { describeRunning, runWithDeadline } from "./ci/deadline.mjs";
 
 const args = process.argv.slice(2);
 let jobs = Number(process.env.VN_TEST_JOBS) || 0;
@@ -36,47 +39,39 @@ if (!Number.isInteger(jobs) || jobs < 1)
   jobs = Math.max(1, Math.min(3, os.availableParallelism() - 1));
 
 const github = process.env.GITHUB_ACTIONS === "true";
-const children = new Set();
+const deadlineMs = Number(process.env.VN_SCRIPT_DEADLINE_MS) || 0;
 const results = [];
 
-function run(script) {
-  return new Promise((resolve) => {
-    const started = Date.now();
-    const chunks = [];
-    const child = spawn("bun", ["run", script], {
-      env: { ...process.env, FORCE_COLOR: process.env.FORCE_COLOR ?? "1" },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    children.add(child);
-    child.stdout.on("data", (chunk) => chunks.push(chunk));
-    child.stderr.on("data", (chunk) => chunks.push(chunk));
-    let finished = false;
-    const finish = (code, error) => {
-      // A spawn failure emits `error` and may still emit `close`: report it once.
-      if (finished) return;
-      finished = true;
-      children.delete(child);
-      const seconds = ((Date.now() - started) / 1000).toFixed(1);
-      const ok = code === 0;
-      const title = `${ok ? "✓" : "✗"} ${script} (${seconds}s)`;
-      process.stdout.write(github ? `::group::${title}\n` : `\n── ${title}\n`);
-      process.stdout.write(Buffer.concat(chunks));
-      if (error) process.stdout.write(`${error.stack ?? error}\n`);
-      if (github) process.stdout.write("::endgroup::\n");
-      if (!ok && github) process.stdout.write(`::error::${script} failed (exit ${code})\n`);
-      results.push({ script, ok, seconds, code });
-      resolve();
-    };
-    child.on("error", (error) => finish(1, error));
-    child.on("close", (code) => finish(code ?? 1));
+async function run(script) {
+  const started = Date.now();
+  const chunks = [];
+  const { code, timedOut, running } = await runWithDeadline("bun", ["run", script], {
+    deadlineMs,
+    env: { ...process.env, FORCE_COLOR: process.env.FORCE_COLOR ?? "1" },
+    onOutput: (chunk) => chunks.push(chunk),
   });
+  const seconds = ((Date.now() - started) / 1000).toFixed(1);
+  const ok = code === 0;
+  const title = `${ok ? "✓" : "✗"} ${script} (${seconds}s)`;
+  process.stdout.write(github ? `::group::${title}\n` : `\n── ${title}\n`);
+  process.stdout.write(Buffer.concat(chunks));
+  if (github) process.stdout.write("::endgroup::\n");
+  if (timedOut) {
+    const lines = [
+      `${script} passed its ${deadlineMs / 1000} s deadline and was stopped.`,
+      ...describeRunning(running),
+    ];
+    for (const line of lines) process.stdout.write(`${github ? "::error::" : "✗ "}${line}\n`);
+  } else if (!ok && github) {
+    process.stdout.write(`::error::${script} failed (exit ${code})\n`);
+  }
+  results.push({ script, ok, seconds, code });
 }
 
+// Ctrl-C or a cancelled job: each running script's process tree is stopped by its own
+// handler (scripts/ci/deadline.mjs); exit once those have run.
 for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.on(signal, () => {
-    for (const child of children) child.kill(signal);
-    process.exit(130);
-  });
+  process.on(signal, () => setImmediate(() => process.exit(130)));
 }
 
 const started = Date.now();
