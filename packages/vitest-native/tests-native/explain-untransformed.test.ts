@@ -21,7 +21,7 @@ describe("untransformed node_modules JSX", () => {
     const err = caught as SyntaxError & { cause?: unknown };
     expect(err.message).toContain("'untranspiled-jsx-lib' shipped source Node can't run directly");
     expect(err.message).toContain("transform: ['untranspiled-jsx-lib']");
-    expect(err.message).toContain("migrating-from-jest.md");
+    expect(err.message).toContain("guide/mocking#packages-that-ship-untranspiled-source");
     // The original Node error stays attached for debugging.
     expect(err.cause).toBeInstanceOf(SyntaxError);
   });

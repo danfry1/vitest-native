@@ -6,8 +6,8 @@ import { describe, expect, it } from "vitest";
 // VitePress fails the build on a link to a page that does not exist, but not on a link
 // to a heading that does not: `/guide/engines#worker-recycling` kept building after the
 // section moved, and sent readers to the top of the page. This resolves every site link
-// with a fragment, from the site's pages and from both READMEs (which link the site by
-// absolute URL), against the headings VitePress turns into anchors.
+// with a fragment, from the site's pages, both READMEs and the package's own source (which
+// link the site by absolute URL), against the headings VitePress turns into anchors.
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const SITE = path.join(repoRoot, "website");
 const SITE_URL = "https://danfry1.github.io/vitest-native";
@@ -83,7 +83,37 @@ function pageFor(route: string): string | null {
   return fs.existsSync(file) ? file : null;
 }
 
-type Link = { from: string; target: string; anchor: string };
+// `anchor` is null for a link to a page with no fragment: only the page must exist.
+type Link = { from: string; target: string; anchor: string | null };
+
+const SOURCE = path.join(repoRoot, "packages/vitest-native/src");
+
+function sourceFiles(dir: string): string[] {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const file = path.join(dir, entry.name);
+    if (entry.isDirectory()) return sourceFiles(file);
+    return /\.(ts|mts|mjs)$/.test(entry.name) ? [file] : [];
+  });
+}
+
+/**
+ * The site links the package's own messages and doc comments carry: an error's "See …",
+ * a CLI hint. They are plain URLs in strings, not Markdown links, each in one literal: a
+ * URL split across a `+` is not found.
+ */
+// SITE_URL as a regex literal, then the route and an optional fragment. A test below holds
+// it to SITE_URL.
+const SITE_LINK = /https:\/\/danfry1\.github\.io\/vitest-native(\/[\w/-]*)(?:#([\w-]+))?/g;
+
+function sourceLinks(): Link[] {
+  return sourceFiles(SOURCE).flatMap((file) =>
+    [...fs.readFileSync(file, "utf8").matchAll(SITE_LINK)].map(([, target, anchor]) => ({
+      from: path.relative(repoRoot, file),
+      target,
+      anchor: anchor ?? null,
+    })),
+  );
+}
 
 function links(): Link[] {
   const result: Link[] = [];
@@ -115,17 +145,41 @@ function links(): Link[] {
 }
 
 describe("site anchors", () => {
-  const all = links();
+  const fromSource = sourceLinks();
+  const all = [...links(), ...fromSource];
+
+  it("matches source links against the site's own URL", () => {
+    expect(`${SITE_URL}/guide/errors#X`.match(SITE_LINK)).toEqual([`${SITE_URL}/guide/errors#X`]);
+    expect("https://danfry1xgithub.io/vitest-native/guide".match(SITE_LINK)).toBeNull();
+  });
 
   it("finds the links to check", () => {
     expect(all.length).toBeGreaterThan(50);
+    expect(fromSource.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("links the site, not the repository's docs/ folder, from the package's messages", () => {
+    // Comment lines may cite docs/ for maintainers; a message, hint or warning may not:
+    // most of docs/ is not in the package, and the site is what users read.
+    const repoDocs = sourceFiles(SOURCE).flatMap((file) =>
+      fs
+        .readFileSync(file, "utf8")
+        .split("\n")
+        .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+        .filter((line) => /\/blob\/main\/packages|\bdocs\/[\w-]+\.md/.test(line))
+        .map((line) => `${path.relative(repoRoot, file)}: ${line.trim()}`),
+    );
+    expect(repoDocs).toEqual([]);
   });
 
   it("resolves every site link with a fragment to a heading", () => {
     const broken = all.filter(({ target, anchor }) => {
       const page = path.isAbsolute(target) && target.startsWith(SITE) ? target : pageFor(target);
-      return page === null || !anchors(page).has(decodeURIComponent(anchor));
+      if (page === null) return true;
+      return anchor !== null && !anchors(page).has(decodeURIComponent(anchor));
     });
-    expect(broken.map(({ from, target, anchor }) => `${from} → ${target}#${anchor}`)).toEqual([]);
+    expect(
+      broken.map(({ from, target, anchor }) => `${from} → ${target}${anchor ? `#${anchor}` : ""}`),
+    ).toEqual([]);
   });
 });
