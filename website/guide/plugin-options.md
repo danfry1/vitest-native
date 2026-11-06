@@ -145,6 +145,25 @@ reactNative({
 
 A listed package's own dependencies are compiled too, as an auto-detected package's are. See [untranspiled packages](/guide/mocking#packages-that-ship-untranspiled-source).
 
+## `projectBabel`
+
+**Type:** `'auto' | 'always' | 'never'` · **Default:** `'auto'` · **Engine:** both
+
+Compiles your own source with your project's Babel config where that config does something Vite's Oxc transform does not, as Metro and babel-jest compile it. Packages in `node_modules` are not affected.
+
+- `'auto'`: a project file compiles with Babel when the config Babel loads for it has a plugin, preset or option outside what Oxc and vitest-native already cover. Examples: legacy decorators (`@babel/plugin-proposal-decorators`), macros, `react-native-dotenv`, a custom plugin, a `loose` option, or a preset's `jsxImportSource`. A plugin vitest-native does not know counts as outside. A file with an `@flow` pragma compiles with Babel too. Every other file keeps Oxc. Startup names what caused it:
+
+  ```
+  [vitest-native] projectBabel: project source that needs it compiles with the project's Babel config, for @babel/plugin-proposal-decorators.
+  ```
+
+- `'always'`: every project file the config applies to compiles with Babel, as under babel-jest. Slower.
+- `'never'`: Oxc only.
+
+Covered without Babel: React Native's and Expo's presets, `@babel/preset-typescript`, `preset-react`, `preset-flow` and `preset-env`, standard `@babel/plugin-transform-*` and `-syntax-*` plugins, `babel-plugin-module-resolver` (its aliases map onto `resolve.alias`), and the worklets plugins, except when Reanimated runs as its own mock, which needs them.
+
+A Babel plugin already in your Vite config (such as `@rolldown/plugin-babel`) compiles that source itself, so `projectBabel` steps aside and says so. Editing the root `babel.config.*` or `.babelrc` invalidates Vitest's transform cache. A `.babelrc` in a subdirectory does not; run with `--clearCache` after changing one.
+
 ## `hotRuntime`
 
 **Type:** `boolean | 'auto' | object` · **Default:** `false` · **Engine:** native

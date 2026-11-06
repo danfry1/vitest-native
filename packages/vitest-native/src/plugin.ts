@@ -43,6 +43,8 @@ import { fsModuleCacheKey, shouldDefaultFsModuleCache } from "./fs-module-cache.
 import { knownNativeModulesFor, nativeModuleSpecsFor } from "./native/native-modules.mjs";
 import { JSX_TRANSFORM, nativeEngineConfig } from "./native/apply.js";
 import { isProjectJsFile, loadProjectJsx, projectJsxOptions } from "./project-jsx.js";
+import { createProjectBabel, isProjectSourceFile } from "./project-babel.js";
+import type { ProjectBabel } from "./project-babel.js";
 import type { LoadChain } from "./project-jsx.js";
 import { detectEngine } from "./native/detect.js";
 import { aliasReachedPaths, detectEcosystemPackages } from "./native/ecosystem.js";
@@ -2008,6 +2010,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // The resolved Vite config and its Oxc options for project `.js` files (project-jsx.ts).
   let viteConfig: ResolvedConfig | undefined;
   let projectJsx: ReturnType<typeof projectJsxOptions>;
+  // The project's Babel config for project source that needs it (project-babel.ts).
+  let projectBabel: ProjectBabel | null = null;
   const presetModules = new Map<string, () => Record<string, any>>();
   // Preset export names discovered by calling factories at config time.
   const presetExportNames = new Map<string, string[]>();
@@ -3193,6 +3197,36 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       }
       presetExportsByRoot.set(vitestRootOf(config), exportsByModule);
 
+      // projectBabel: the project's Babel config for project source that needs a plugin
+      // Oxc does not cover. A Babel Vite plugin already in the config compiles that
+      // source itself, so this defers to it rather than compile twice.
+      const babelMode = options?.projectBabel ?? "auto";
+      const babelPlugin = (config.plugins ?? []).find(
+        (plugin) => /babel/i.test(plugin?.name ?? "") && !plugin.name.startsWith("vitest-native"),
+      );
+      projectBabel = null;
+      if (babelMode !== "never" && babelPlugin) {
+        console.log(
+          `[vitest-native] projectBabel: the ${babelPlugin.name} plugin compiles project ` +
+            `source with Babel here, so the project's Babel config is left to it.`,
+        );
+      } else {
+        // Once per reason, the first time a file compiles for it (`overrides` can add a
+        // plugin for one directory only).
+        projectBabel = createProjectBabel(
+          config.root,
+          babelMode,
+          resolved.presets.map((preset) => preset.name as PresetName),
+          (reasons) =>
+            console.log(
+              `[vitest-native] projectBabel: project source that needs it compiles with the ` +
+                `project's Babel config, for ${reasons.join(", ")}. ` +
+                `Set projectBabel: 'never' to compile it with Oxc only.`,
+            ),
+        );
+        projectBabel?.announceRoot();
+      }
+
       // Read the facade's export list from React Native's own index.
       if (engine === "native") {
         rnFacadeRoot = config.root;
@@ -3295,18 +3329,22 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     },
 
     load(id) {
-      // JSX in a project .js file, as Metro and babel-jest compile it (project-jsx.ts).
-      if (projectJsx && isProjectJsFile(id)) {
-        // Only a dev environment (Vitest's) has a plugin container to ask.
-        const env = this.environment as { pluginContainer?: LoadChain } | undefined;
-        return loadProjectJsx(
-          id,
-          projectJsx,
-          viteConfig,
-          env?.pluginContainer,
-          diagnostics ? console.log : undefined,
-        );
+      // Project source: with the project's Babel config where it needs a plugin Oxc does
+      // not cover (project-babel.ts), else JSX in a .js file as Metro and babel-jest
+      // compile it (project-jsx.ts). Only a dev environment (Vitest's) has a plugin
+      // container to ask first.
+      const chain = (this.environment as { pluginContainer?: LoadChain } | undefined)
+        ?.pluginContainer;
+      const jsx = () =>
+        loadProjectJsx(id, projectJsx, viteConfig, chain, diagnostics ? console.log : undefined);
+      if (projectBabel && isProjectSourceFile(id)) {
+        return projectBabel
+          .load(id, chain)
+          .then((compiled) =>
+            compiled == null && projectJsx && isProjectJsFile(id) ? jsx() : compiled,
+          );
       }
+      if (projectJsx && isProjectJsFile(id)) return jsx();
 
       // The native engine's react-native facade. It re-exports the SAME instance
       // Node's graph holds — `_rn.View` is the very object an externalized library
