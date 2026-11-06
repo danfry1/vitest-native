@@ -555,6 +555,7 @@ function locateBin(root: string, pkg: string, binName: string): Located | null {
       const relative =
         typeof bin === "string" ? bin : (bin as Record<string, string> | undefined)?.[binName];
       if (!relative) return null;
+      // Node's spelling (fs.realpathSync) of the package directory: any spelling runs the bin.
       return {
         bin: path.join(fs.realpathSync(pkgDir), relative),
         version: typeof manifest.version === "string" ? manifest.version : null,
@@ -757,6 +758,8 @@ export function treeState(root: string, limit = 200_000): TreeState | null {
   const seen = new Set<string>();
   let realRoot: string;
   try {
+    // Node's spelling (fs.realpathSync), as for every directory below, which `inside`
+    // compares with it.
     realRoot = fs.realpathSync(root);
   } catch (error) {
     // The root itself is unreadable: nothing below it can be checked.
@@ -776,6 +779,7 @@ export function treeState(root: string, limit = 200_000): TreeState | null {
     const dir = stack.pop() as string;
     let real: string;
     try {
+      // The same spelling as realRoot (fs.realpathSync), which `inside` compares it with.
       real = fs.realpathSync(dir);
     } catch (error) {
       unreadable(dir, error);
@@ -808,6 +812,7 @@ export function treeState(root: string, limit = 200_000): TreeState | null {
         if (e.isSymbolicLink()) {
           let target: string;
           try {
+            // The same spelling as realRoot (fs.realpathSync), which `inside` compares it with.
             target = fs.realpathSync(abs);
           } catch (error) {
             if (errorCode(error) !== "ENOENT") unreadable(abs, error);

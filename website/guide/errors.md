@@ -72,7 +72,7 @@ A project file Node loads (through `require()` or `jest.requireActual`) is exclu
 
 ### `IMPORT_META_IN_NODE_OWNED` {#IMPORT_META_IN_NODE_OWNED}
 
-A file Node loads compiled to CommonJS uses `import.meta` beyond `url`, `filename` and `dirname`, which CommonJS cannot provide. The message names the file and the property. Move that code into a file your tests import, or avoid the property in it.
+A file Node loads compiled to CommonJS uses `import.meta` beyond `url`, `filename` and `dirname`, which CommonJS cannot provide. The message names the file and the property. If the file is in a package, let Vite load that package: add it to `transform: { exclude: [...] }`, and also to `test.server.deps.inline` when it is published as an ES module (`"type": "module"` or `.mjs`). If it is your own source, import it from the test instead of requiring it, or avoid the property in it.
 
 ### `PRESET_UNAVAILABLE` {#PRESET_UNAVAILABLE}
 
@@ -100,7 +100,7 @@ vitest-native's module loader was given a step it does not know. Usually two cop
 
 ### `SOURCE_EVALUATED_TWICE` {#SOURCE_EVALUATED_TWICE}
 
-One file ran twice in the same worker: Vite loaded it for the test's imports, and Node loaded it through a `require()`. The two copies don't share state, so a store or cache written through one is not seen by the other. The message names the file, which side loaded it first, how the second load reached it, and the fix for that case. With [`ownership`](/guide/plugin-options#ownership) at its default, `'warn'`, it is a warning, printed once per worker. With `'error'` it fails the test file. To accept a file that runs twice on purpose, list it in `ownership.allow: [{ path, reason }]`. An installed package's TypeScript source that a test both requires and imports runs twice unless [`experimental.nodeMocks`](/guide/plugin-options#experimental) is on: with it, Node loads the file once for both, and a `vi.mock` still reaches it.
+One file ran twice in the same worker: Vite loaded it for the test's imports, and Node loaded it through a `require()`. The two copies don't share state, so a store or cache written through one is not seen by the other. The message names the file, which side loaded it first, how the second load reached it, and the fix for that case. Files Node loaded through the same first `require()` share one cause: a `jest.mock` factory that requires a module importing 600 others is one cause, not 600 warnings. With [`ownership`](/guide/plugin-options#ownership) at its default, `'warn'`, the first file of each cause is printed in full, once per worker, and the end of the run lists each cause with its file count, its test files and the fix. With `'error'` it fails the test file. To accept a file that runs twice on purpose, list it in `ownership.allow: [{ path, reason }]`. An installed package's TypeScript source that a test both requires and imports runs twice unless [`experimental.nodeMocks`](/guide/plugin-options#experimental) is on: with it, Node loads the file once for both, and a `vi.mock` still reaches it.
 
 ### `LIBRARY_REGISTRY_FAILED` {#LIBRARY_REGISTRY_FAILED}
 

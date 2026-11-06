@@ -52,7 +52,8 @@ const OPT_OUT =
  * nearest `node_modules/<name>`, as Node looks it up. Read from disk rather than
  * through require(): under the mock engine, once a preset module's require() bridge is
  * installed, a request for the package resolves to the module's virtual id
- * (cjs-bridge.ts), and an `exports` map may not expose `./package.json`.
+ * (cjs-bridge.ts), and an `exports` map may not expose `./package.json`. Returned in
+ * Node's spelling (fs.realpathSync), the directory require() is given.
  */
 function packageDir(name: string, root: string): string | null {
   for (let dir = path.resolve(root); ; dir = path.dirname(dir)) {

@@ -384,6 +384,7 @@ export interface NormaliseContext {
 
 function defaultRealpath(p: string): string {
   try {
+    // The OS's spelling (realpathSync.native), which Vite's ids and so Vitest's output use.
     return fs.realpathSync.native(p);
   } catch {
     return p;
