@@ -42,6 +42,13 @@ const SCHEMA = {
   },
   libraryRegistry: { valid: absolute },
   ownership: { valid: object },
+  packageDirs: {
+    valid: (v) =>
+      object(v) &&
+      absolute(v.root) &&
+      object(v.dirs) &&
+      Object.values(v.dirs).every((dir) => dir === null || absolute(dir)),
+  },
   ownershipGuard: { valid: object },
   projectDirs: { valid: strings },
   requireAliases: {
