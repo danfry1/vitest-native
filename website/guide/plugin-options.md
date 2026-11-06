@@ -196,6 +196,16 @@ How native module lookups answer.
 reactNative({ nativeModules: 'permissive' })
 ```
 
+## `ownership`
+
+**Type:** `'warn' | 'error' | { mode?: 'warn' | 'error'; allow?: { path: string; reason: string }[] }` · **Default:** `'warn'` · **Engine:** native
+
+What happens when one file is evaluated by both Node and Vite in a worker. Such a file exists twice, and module state written through one copy is not seen by the other; nothing else reports it.
+
+- `'warn'`: report each such file once per worker, naming both sides, the route and the fix.
+- `'error'`: throw [`SOURCE_EVALUATED_TWICE`](/guide/errors#SOURCE_EVALUATED_TWICE) at the second evaluation and fail the test file.
+- The object form adds `allow`, the only exemption: a file or directory (resolved against the Vitest root) and the reason it is deliberate. Detection cannot be turned off.
+
 ## `metroConfig`
 
 **Type:** `boolean | { configFile?: string }` · **Default:** `false` · **Engine:** both

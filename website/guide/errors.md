@@ -98,6 +98,10 @@ A library asked Nitro for a native HybridObject, which has no implementation in 
 
 vitest-native's module loader was given a step it does not know. Usually two copies of vitest-native, of different versions, are loaded into the same process; no configuration causes it otherwise. Install one vitest-native version (dedupe it in the workspace), and report it with your config if it persists.
 
+### `SOURCE_EVALUATED_TWICE` {#SOURCE_EVALUATED_TWICE}
+
+One file was evaluated by both Node and Vite in the same worker, so it exists twice, and module state written through one copy is not seen by the other. The message names the file, the module system that owns it, which side evaluated it first and second, the route that reached it, and the fix for that route. With [`ownership`](/guide/plugin-options#ownership) at its default, `'warn'`, it is reported once per worker; with `'error'` it fails the test file. A deliberate case can be exempted with `ownership.allow: [{ path, reason }]`.
+
 ## Helpers and jest-compat
 
 ### `HELPERS_BEFORE_SETUP` {#HELPERS_BEFORE_SETUP}
