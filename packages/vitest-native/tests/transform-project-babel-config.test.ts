@@ -87,6 +87,28 @@ describe("the project's Babel config", () => {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
+
+  // The root is compared in its native real-path spelling, the one Vite's ids use. The JS
+  // realpath keeps the spelling it was given: a Windows 8.3 short name (RUNNER~1), or the
+  // letter case on a case-insensitive disk, which reproduces the same mismatch here.
+  const realRoot = fs.realpathSync.native(os.tmpdir());
+  const otherCase = realRoot.replace(/[a-z]/, (c) => c.toUpperCase());
+  const caseInsensitive = otherCase !== realRoot && fs.existsSync(otherCase);
+  it.runIf(caseInsensitive)("applies to app source when the root is spelled differently", () => {
+    const root = fs.realpathSync.native(makeRoot());
+    try {
+      const app = path.join(root, "src", "app.ts");
+      fs.mkdirSync(path.dirname(app));
+      fs.writeFileSync(app, "module.exports = 2;\n");
+      const spelled = root.replace(realRoot, otherCase);
+      expect(fs.realpathSync(spelled)).not.toBe(root);
+      expect(transformRN(app, fs.readFileSync(app, "utf8"), spelled)).toContain(
+        'var __VN_STAMP = "project-config:babel-jest"',
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 /** A fresh process's transform of `file`: a new process reads the disk cache. */

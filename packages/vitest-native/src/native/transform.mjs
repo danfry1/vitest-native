@@ -51,9 +51,12 @@ const canonicalRoots = new Map();
 function canonicalRoot(projectRoot) {
   const hit = canonicalRoots.get(projectRoot);
   if (hit) return hit;
+  // The native spelling, which Vite's ids use: the JS realpath keeps a Windows 8.3 short
+  // name (RUNNER~1) and the letter case the root was given in, so files Vite resolved
+  // were not "under" it (projectBabelOptions).
   let root;
   try {
-    root = fs.realpathSync(projectRoot);
+    root = fs.realpathSync.native(projectRoot);
   } catch {
     root = path.resolve(projectRoot);
   }
@@ -234,23 +237,6 @@ function babelJestCaller(ctx, platform) {
   return { name: "babel-jest", ...flags };
 }
 
-/**
- * Whether `file` is under the project root, in either spelling of the root. On Windows,
- * `ctx.root` (fs.realpathSync) keeps an 8.3 short name such as `RUNNER~1` that the
- * path was given with, while a file can arrive by its long name (Vite's ids come from
- * the native realpath), and drive letters and names compare without case.
- */
-function insideRoot(ctx, file) {
-  if (ctx.rootPrefixes === undefined) {
-    const native = nativeRealPath(ctx.root);
-    const fold = (p) => (process.platform === "win32" ? p.toLowerCase() : p);
-    ctx.foldPath = fold;
-    ctx.rootPrefixes = [...new Set([ctx.root, native])].map((root) => fold(root + path.sep));
-  }
-  const folded = ctx.foldPath(file);
-  return ctx.rootPrefixes.some((prefix) => folded.startsWith(prefix));
-}
-
 /** `file`'s long, native real path (no 8.3 names on Windows), or `file` if it has none. */
 function nativeRealPath(file) {
   try {
@@ -267,7 +253,14 @@ function nativeRealPath(file) {
  * (p95 0.3 ms), after a first call that loads the config's presets and plugins.
  */
 function projectBabelOptions(ctx, file, platform) {
-  if (NODE_MODULES.test(file) || !insideRoot(ctx, file)) return null;
+  if (NODE_MODULES.test(file)) return null;
+  // Compared in the root's native spelling, whichever spelling the file arrived in.
+  if (
+    !file.startsWith(ctx.root + path.sep) &&
+    !nativeRealPath(file).startsWith(ctx.root + path.sep)
+  ) {
+    return null;
+  }
   let partial;
   try {
     partial = callToolchain({

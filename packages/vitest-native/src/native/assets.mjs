@@ -290,6 +290,23 @@ const md5 = (buffer) => crypto.createHash("md5").update(buffer).digest("hex");
  *
  * Returns null when the file is not an asset Metro could register (no extension).
  */
+// The root in the native real-path spelling asset files arrive in (Vite's ids, and the
+// Node files under them): as given, it can be a Windows 8.3 short name, which put every
+// asset's URL directory outside the root.
+const nativeRoots = new Map();
+function nativeRoot(projectRoot) {
+  let root = nativeRoots.get(projectRoot);
+  if (root === undefined) {
+    try {
+      root = fs.realpathSync.native(projectRoot);
+    } catch {
+      root = projectRoot;
+    }
+    nativeRoots.set(projectRoot, root);
+  }
+  return root;
+}
+
 export function metroAssetDescriptor(file, { projectRoot, platform }) {
   const record = assetRecord(file, platform);
   if (record === null || record.requested === null) return null;
@@ -299,7 +316,7 @@ export function metroAssetDescriptor(file, { projectRoot, platform }) {
   // project root, under publicPath; a path escaping the root keeps its `..`.
   const expo = expoBundlesAssets(projectRoot);
   const publicPath = expo ? EXPO_PUBLIC_PATH : PUBLIC_PATH;
-  const localDir = path.dirname(path.relative(projectRoot, file));
+  const localDir = path.dirname(path.relative(nativeRoot(projectRoot), file));
   let urlPath = (
     localDir.startsWith("..")
       ? `${publicPath.replace(/\/$/, "")}/${localDir}`

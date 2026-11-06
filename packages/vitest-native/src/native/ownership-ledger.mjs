@@ -49,12 +49,10 @@ export function nodeKey(file) {
   return fold(ledgerKey(file));
 }
 
+// The native real path, as viteMarkerFor keys Vite's side: the JS realpath keeps a
+// Windows 8.3 short name, so an allow entry under a short-spelled root missed every file.
 export function realKey(file) {
-  try {
-    return fold(ledgerKey(fs.realpathSync(file)));
-  } catch {
-    return fold(ledgerKey(file));
-  }
+  return fold(ledgerKey(realpathOr(file, file)));
 }
 
 const NOT_THE_MODULE = /[?&](?:raw|url|inline|worker|sharedworker)\b/;

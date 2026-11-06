@@ -64,7 +64,17 @@ const owners = (lib.owners ??= []);
 const jestByFile = (lib.jestByFile ??= new Map());
 /** Each directory's package, by its nearest named package.json (workspace links too). */
 const packageByFile = (lib.packageByFile ??= new Map());
-const projectRoot = path.resolve(projectContext()?.projectRoot ?? process.cwd());
+// In the native real-path spelling, as packageRootOf's directories (from Vite's and
+// Node's file names) are: the root as given can be a Windows 8.3 short name.
+const projectRoot = nativeRealPath(path.resolve(projectContext()?.projectRoot ?? process.cwd()));
+
+function nativeRealPath(dir) {
+  try {
+    return fs.realpathSync.native(dir);
+  } catch {
+    return dir;
+  }
+}
 
 /**
  * The package `file` belongs to and its directory: the nearest package.json that names
