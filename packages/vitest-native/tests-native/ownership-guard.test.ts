@@ -12,6 +12,7 @@
  * node-registry.mjs), so here two copies used to exist in silence.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { projectContext } from "../src/context.mjs";
 
 declare const require: (id: string) => { store: { value: string | null } };
 
@@ -27,6 +28,8 @@ const ledger = (
   >
 )[Symbol.for("vitest-native.node-dispatch")]?.channel("ownership").ledger;
 
+// Only the require bridge ('resolution') hands Node's require of a project file to Vite.
+const flag = projectContext()?.ownershipModel === "resolution";
 const STORE = /fixtures[\\/]dual-evaluation[\\/]store\.ts was evaluated by both Node and Vite/;
 
 afterEach(() => {
@@ -38,7 +41,27 @@ describe("a file evaluated by Node and then by Vite", () => {
     expect(ledger?.mode).toMatch(/^(warn|error)$/);
   });
 
-  it("is reported with both sides, the owner and the route", async () => {
+  // Under ownershipModel 'resolution' the same shape gives one module (the require bridge
+  // serves Node's require of the project file from Vite), so the guard has nothing to
+  // report: this case runs there, and the one below everywhere else.
+  it.runIf(flag)(
+    "is one module under ownershipModel 'resolution', so nothing is reported",
+    async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const viaNode = require("./fixtures/dual-evaluation/store.ts");
+      viaNode.store.value = "written through Node";
+      const viaVite = await import("./fixtures/dual-evaluation/store");
+      expect(viaVite.store).toBe(viaNode.store);
+      expect(warn.mock.calls.map(([text]) => String(text)).filter((t) => STORE.test(t))).toEqual(
+        [],
+      );
+      expect(
+        ledger!.conflicts.filter((c) => /dual-evaluation[\\/]store\.ts$/.test(c.file)),
+      ).toEqual([]);
+    },
+  );
+
+  it.skipIf(flag)("is reported with both sides, the owner and the route", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const viaNode = require("./fixtures/dual-evaluation/store.ts");
     viaNode.store.value = "written through Node";

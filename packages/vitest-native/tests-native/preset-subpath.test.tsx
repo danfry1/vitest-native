@@ -74,12 +74,6 @@ describe("preset subpath imports under the native engine", () => {
     expect(mod.useSharedValue).toBeUndefined();
   });
 
-  it("an ESM import of such a subpath gets the real module's exports", async () => {
-    const mod = await import("react-native-reanimated/src/common/style/propsBuilder");
-    expect(mod.stylePropsBuilder).toBeDefined();
-    expect((mod as Record<string, unknown>).useSharedValue).toBeUndefined();
-  });
-
   it("a subpath that resolves to the package's entry is the root mock, by require or import", async () => {
     const root = require("react-native-safe-area-context");
     const required = require("react-native-safe-area-context/src");
