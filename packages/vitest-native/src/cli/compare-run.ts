@@ -380,13 +380,6 @@ interface Bounded {
 /** How long to wait for a runner's pipes after it exits: a test's own daemon can hold them. */
 const DRAIN_MS = 2000;
 
-/**
- * Run a runner (`node <args>`) under the watchdog, with a timeout. On POSIX the watchdog
- * leads its own process group, so the whole group — the runner's workers included — can
- * be signalled: on timeout, Ctrl-C, SIGTERM or SIGHUP it gets SIGTERM, then SIGKILL after
- * 5 s, and once the runner exits whatever is left in its group is killed. A process a
- * test starts in a session of its own is out of reach, as it is under the runners.
- */
 export type OutputStream = "stdout" | "stderr";
 
 /**
@@ -417,6 +410,13 @@ export function outputLines(onLine: (line: string, stream: OutputStream) => void
   };
 }
 
+/**
+ * Run a runner (`node <args>`) under the watchdog, with a timeout. On POSIX the watchdog
+ * leads its own process group, so the whole group — the runner's workers included — can
+ * be signalled: on timeout, Ctrl-C, SIGTERM or SIGHUP it gets SIGTERM, then SIGKILL after
+ * 5 s, and once the runner exits whatever is left in its group is killed. A process a
+ * test starts in a session of its own is out of reach, as it is under the runners.
+ */
 function runBounded(
   args: string[],
   options: {
