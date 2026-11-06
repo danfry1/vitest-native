@@ -348,13 +348,18 @@ function exposeNativeMethods() {
     const own = target.prototype;
     const replaceable =
       own === undefined ||
-      (!own.isReactComponent && Object.getOwnPropertyNames(own).every((key) => key === "constructor"));
+      (!own.isReactComponent &&
+        Object.getOwnPropertyNames(own).every((key) => key === "constructor"));
     if (!replaceable) continue;
     const methods = typeof get === "function" ? get(viewName)?.nativeMethods : undefined;
     if (methods == null || typeof methods.measure !== "function") continue;
     // An ordinary function's own prototype is writable but not configurable.
     if (own === undefined) {
-      Object.defineProperty(target, "prototype", { value: methods, configurable: true, writable: true });
+      Object.defineProperty(target, "prototype", {
+        value: methods,
+        configurable: true,
+        writable: true,
+      });
     } else {
       target.prototype = methods;
     }
