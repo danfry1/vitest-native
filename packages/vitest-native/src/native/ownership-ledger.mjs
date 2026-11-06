@@ -8,6 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { NODE_MODULES_PATH } from "./match.mjs";
 import {
+  INSTALLED_TYPESCRIPT,
   TEST_RUNTIME_RESIDENT_PATH,
   createNativeOwnershipPolicy,
   parseNativeOwnershipManifest,
@@ -144,6 +145,13 @@ const ROUTES = {
       "owner: drop the server.deps.inline rule that claims it, or the alias that " +
       "sends Vite to it.",
   },
+  "installed-typescript": {
+    label: "an installed package's TypeScript source, required and imported",
+    fix:
+      "Vitest gives Vite an installed package's TypeScript source, which Node also " +
+      "compiles for a require. Set reactNative({ experimental: { nodeMocks: true } }): " +
+      "Node then loads it once for both, and a vi.mock still reaches it.",
+  },
   "vite-inline": {
     label: "an installed file that Vite also evaluates",
     fix:
@@ -215,6 +223,10 @@ export function createOwnershipLedger({
   const liveNode = (key) => node.get(key)?.find((record) => nodeLive(record));
 
   function routeOf(key, nodeEntry, owner) {
+    // Only with nodeMocks off: with it on, the policy gives these files to Node (#544).
+    if (NODE_MODULES_PATH.test(key) && INSTALLED_TYPESCRIPT.test(key)) {
+      return "installed-typescript";
+    }
     if (owner?.owner === "node" || NODE_MODULES_PATH.test(key)) return "vite-inline";
     if (nodeEntry.via === "esm") return "node-esm";
     if (nodeEntry.jestRequire) return "jest-compat";
