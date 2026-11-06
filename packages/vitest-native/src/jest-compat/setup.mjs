@@ -262,6 +262,17 @@ if (typeof globalThis.__vnInteropMock !== "function") globalThis.__vnInteropMock
   // A factory's `jest.requireActual` of project source that jestMockTransform moved to
   // `vi.importActual` (transform.ts) gets its result in the shape requireActual gives.
   globalThis.__vnActualExports = actualExports;
+  // A factory's own `require` of project source, moved to Vite the same way: the mock
+  // registered for that file if there is one, as Jest's registry serves it, else the
+  // actual module in the shape `require` gives. `load` is the factory's own
+  // `vi.importActual` call, so the specifier resolves from the test file.
+  globalThis.__vnFactoryRequire = async (from, spec, load) => {
+    const filename = registry.resolveFrom(spec, from);
+    const entry =
+      filename !== null ? registry.entries.get(filename) : registry.unresolved.get(spec);
+    if (entry) return registry.valueForImport(entry);
+    return actualExports(await load());
+  };
   globalThis.__vnJestUnmock = (from, spec) => registry.unregister(from, spec);
   // Registrations are per test file, as in Jest. This file evaluates before each test
   // file, so a worker reused without the hot runtime (`isolate: false`, or a watch
