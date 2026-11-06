@@ -111,12 +111,13 @@ describe("the project context", () => {
     );
     expect(context.transform?.length ?? 0).toBeGreaterThan(0);
     expect(context.packageDirs?.root).toBe(path.resolve(packageRoot));
-    expect(Object.keys(context.packageDirs?.dirs ?? {}).sort()).toEqual(
-      [...(context.transform ?? [])].sort(),
-    );
-    // The answers a worker would have resolved itself: packageDirOf from the project root.
-    for (const [name, dir] of Object.entries(context.packageDirs?.dirs ?? {})) {
-      expect([name, dir]).toEqual([name, packageDirOf(name, packageRoot)]);
+    const dirs = context.packageDirs?.dirs ?? {};
+    for (const name of context.transform ?? []) {
+      const resolved = packageDirOf(name, packageRoot);
+      // Recorded: exactly the answer a worker would resolve itself. Left out: an answer
+      // that is not a directory (a preset's virtual module), which the worker resolves.
+      if (Object.hasOwn(dirs, name)) expect([name, dirs[name]]).toEqual([name, resolved]);
+      else expect([name, resolved === null || path.isAbsolute(resolved)]).toEqual([name, false]);
     }
   });
 });
