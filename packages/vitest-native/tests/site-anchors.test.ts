@@ -101,10 +101,13 @@ function sourceFiles(dir: string): string[] {
  * a CLI hint. They are plain URLs in strings, not Markdown links, each in one literal: a
  * URL split across a `+` is not found.
  */
+// SITE_URL as a regex literal, then the route and an optional fragment. A test below holds
+// it to SITE_URL.
+const SITE_LINK = /https:\/\/danfry1\.github\.io\/vitest-native(\/[\w/-]*)(?:#([\w-]+))?/g;
+
 function sourceLinks(): Link[] {
-  const pattern = new RegExp(`${SITE_URL.replace(/[.]/g, "\\.")}(/[\\w/-]*)(?:#([\\w-]+))?`, "g");
   return sourceFiles(SOURCE).flatMap((file) =>
-    [...fs.readFileSync(file, "utf8").matchAll(pattern)].map(([, target, anchor]) => ({
+    [...fs.readFileSync(file, "utf8").matchAll(SITE_LINK)].map(([, target, anchor]) => ({
       from: path.relative(repoRoot, file),
       target,
       anchor: anchor ?? null,
@@ -144,6 +147,11 @@ function links(): Link[] {
 describe("site anchors", () => {
   const fromSource = sourceLinks();
   const all = [...links(), ...fromSource];
+
+  it("matches source links against the site's own URL", () => {
+    expect(`${SITE_URL}/guide/errors#X`.match(SITE_LINK)).toEqual([`${SITE_URL}/guide/errors#X`]);
+    expect("https://danfry1xgithub.io/vitest-native/guide".match(SITE_LINK)).toBeNull();
+  });
 
   it("finds the links to check", () => {
     expect(all.length).toBeGreaterThan(50);
