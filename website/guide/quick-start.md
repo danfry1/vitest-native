@@ -45,7 +45,7 @@ npx vitest --ui       # the Vitest UI
 
 You get Vitest's full toolchain — watch mode, the UI, coverage, and native ESM — for your React Native tests. Add `"test": "vitest"` to your `package.json` scripts to run it as `npm test`.
 
-React Native Testing Library 14 makes `render`, `fireEvent` and `act` async, so the examples here `await` them. On RNTL 12 and 13 `render` and `fireEvent` are synchronous and awaiting them is harmless, so the same tests run on all three.
+React Native Testing Library 14 makes `render`, `fireEvent` and `act` async, so the examples here `await` them. On RNTL 13 `render` and `fireEvent` are synchronous and awaiting them is harmless, so the same tests run on both.
 
 ::: tip Running beside an existing Jest suite
 Vitest picks up every `*.test.*` and `*.spec.*` file by default, including the ones Jest still runs. While both runners are in use, point Vitest at the tests you've moved with [`test.include`](https://vitest.dev/config/include), for example `include: ['src/**/*.vitest.test.tsx']`.

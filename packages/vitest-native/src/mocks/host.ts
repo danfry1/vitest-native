@@ -33,3 +33,11 @@ export function hostComponent(name: string): React.ComponentClass<any> {
   }
   return Host;
 }
+
+/**
+ * A type for createElement: a host name through its class (as hostComponent), anything
+ * else, a component, as it is. For mocks whose host type is a variable.
+ */
+export function asHost<T>(type: T): T | React.ComponentClass<any> {
+  return typeof type === "string" ? hostComponent(type) : type;
+}

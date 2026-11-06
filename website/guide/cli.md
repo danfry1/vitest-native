@@ -86,7 +86,7 @@ it as `init --force` does). It never edits test files — top-level `jest.mock`
 calls are handled at runtime by
 [`jestMockTransform()`](/guide/jest-compat).
 
-TypeScript configs load through Node's own type stripping (Node 22.18 or later). Jest
+TypeScript configs load through Node's own type stripping. Jest
 loads them through ts-node instead, so a config that relies on it (an extensionless
 relative import, an `enum`, a path alias) can't be loaded, and neither can a config that
 uses top-level `await` or exports a function. The report then names the file and Node's

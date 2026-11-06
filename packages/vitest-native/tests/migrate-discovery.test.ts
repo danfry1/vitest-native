@@ -591,6 +591,100 @@ describe("a jest-expo app's package.json#jest", () => {
       `babel({ plugins: ["@lingui/babel-plugin-lingui-macro"] }), jestMockTransform()`,
     );
   });
+
+  describe("the worklets plugin, where Reanimated runs as its own mock", () => {
+    // The native engine's dependencies, and Reanimated 4.7+ / Worklets 0.9+ as
+    // libraryMockUsable() reads them: each ships jest/resolver.js, and worklets its mock.
+    const nativeReanimated = (resolvers = true): Record<string, string | object> => ({
+      "node_modules/react-native/package.json": { name: "react-native", version: "0.86.0" },
+      "node_modules/@react-native/babel-preset/package.json": {
+        name: "@react-native/babel-preset",
+        version: "0.86.0",
+        main: "index.js",
+      },
+      "node_modules/@react-native/babel-preset/index.js": "module.exports = () => ({});",
+      "node_modules/@babel/core/package.json": {
+        name: "@babel/core",
+        version: "7.29.0",
+        main: "index.js",
+      },
+      "node_modules/@babel/core/index.js": "module.exports = {};",
+      "node_modules/react-native-reanimated/package.json": {
+        name: "react-native-reanimated",
+        version: resolvers ? "4.7.1" : "4.6.0",
+      },
+      "node_modules/react-native-worklets/package.json": {
+        name: "react-native-worklets",
+        version: resolvers ? "0.13.1" : "0.8.0",
+      },
+      "node_modules/react-native-worklets/lib/module/mock.js": "module.exports = {};",
+      ...(resolvers
+        ? {
+            "node_modules/react-native-reanimated/jest/resolver.js": "module.exports = () => {};",
+            "node_modules/react-native-worklets/jest/resolver.js": "module.exports = () => {};",
+          }
+        : {}),
+    });
+    const pluginBabel = {
+      "node_modules/vite/package.json": { name: "vite", version: "8.0.0" },
+      "node_modules/@rolldown/plugin-babel/package.json": {
+        name: "@rolldown/plugin-babel",
+        version: "0.2.4",
+        exports: "./dist/index.mjs",
+      },
+      "node_modules/@rolldown/plugin-babel/dist/index.mjs": "export default () => ({});",
+    };
+
+    it("is required and wired, last as the config lists it", () => {
+      const root = blueskyLike({ ...nativeReanimated(), ...pluginBabel });
+      const classified = classifyBabelPlugins(readBabelConfig(root), root, ["reanimated"]);
+      expect(classified.find((p) => p.name === "react-native-worklets/plugin")?.verdict).toBe(
+        "required",
+      );
+      const report = analyzeJestConfig(root);
+      expect(report.suggestedConfig).toContain(
+        `babel({ plugins: ["@lingui/babel-plugin-lingui-macro", "react-native-worklets/plugin"] })`,
+      );
+      expect(report.automatic.join("\n")).toContain(
+        "react-native-worklets/plugin gives Reanimated's hooks their dependencies",
+      );
+      expect(report.dropped.join("\n")).not.toContain("react-native-worklets/plugin");
+    });
+
+    it("covers react-native-reanimated/plugin and keeps a plugin's options", () => {
+      const root = blueskyLike({
+        ...nativeReanimated(),
+        ...pluginBabel,
+        "babel.config.js": `module.exports = {
+  presets: ['babel-preset-expo'],
+  plugins: [['react-native-reanimated/plugin', { relativeSourceLocation: true }]],
+};`,
+      });
+      const classified = classifyBabelPlugins(readBabelConfig(root), root, ["reanimated"]);
+      expect(classified.map((p) => [p.name, p.verdict])).toEqual([
+        ["react-native-reanimated/plugin", "required"],
+      ]);
+      expect(analyzeJestConfig(root).suggestedConfig).toContain(
+        `babel({ plugins: [["react-native-reanimated/plugin", {"relativeSourceLocation":true}]] })`,
+      );
+    });
+
+    it("is listed with the install recipe when @rolldown/plugin-babel is missing", () => {
+      const report = analyzeJestConfig(blueskyLike(nativeReanimated()));
+      expect(report.suggestedConfig).not.toContain("plugin-babel");
+      expect(report.attention.join("\n")).toContain(
+        "react-native-worklets/plugin gives Reanimated's hooks their dependencies",
+      );
+      expect(report.dropped.join("\n")).not.toContain("react-native-worklets/plugin");
+    });
+
+    it("stays unneeded where the preset's own module serves Reanimated", () => {
+      // Reanimated 4.6 ships no Jest resolver, so the preset's module replaces it.
+      const report = analyzeJestConfig(blueskyLike({ ...nativeReanimated(false), ...pluginBabel }));
+      expect(report.dropped.join("\n")).toContain("react-native-worklets/plugin");
+      expect(report.suggestedConfig).not.toContain("react-native-worklets/plugin");
+    });
+  });
 });
 
 describe("script flags, quoted and boolean", () => {

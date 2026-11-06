@@ -1,12 +1,12 @@
 # vitest-native
 
-> Run your React Native tests under Vitest, against real React Native — the same JavaScript that ships in your app, mocking only the native-module boundary. That's the zero-config default. A fast pure-JS mock engine is available as an opt-in for RN-free unit tests. One plugin gives you both. Maintained successor to vitest-community/vitest-react-native, rebuilt for Vitest 4 and 5.
+> Run your React Native tests under Vitest, against real React Native — the same JavaScript that ships in your app, mocking only the native-module boundary. That's the zero-config default. A fast pure-JS mock engine is available as an opt-in for RN-free unit tests. One plugin gives you both. Maintained successor to vitest-community/vitest-react-native, rebuilt for Vitest 5.
 
 ## Core idea
 
 Two engines behind one plugin (`reactNative()`), so you choose the fidelity each suite needs:
 
-- `engine: 'native'` (what the default `auto` resolves to in any RN or Expo app): runs real React Native JS, mocking only the thin native boundary: native modules and native host components. Jest's React Native preset mocks more than that (it also swaps View, Text, ScrollView, Image and Modal for stand-ins; both replace TextInput), so the real component JavaScript runs here. Needs `@react-native/babel-preset` (or Expo's preset, from Expo SDK 56) + `@babel/core` (present in any RN or Expo app). Highest fidelity.
+- `engine: 'native'` (what the default `auto` resolves to in any RN or Expo app): runs real React Native JS, mocking only the thin native boundary: native modules and native host components. Jest's React Native preset mocks more than that (it also swaps View, Text, ScrollView, Image and Modal for stand-ins; both replace TextInput), so the real component JavaScript runs here. Needs `@react-native/babel-preset` (or, without it, Expo's preset) + `@babel/core` (present in any RN or Expo app). Highest fidelity.
 - `engine: 'mock'`: a fast, zero-dependency pure-JS reimplementation of React Native. No Babel. For pure-logic suites, environment control, maximum determinism. Covers 100% of RN's stable public API.
 - `engine: 'auto'` (the default): native when babel deps present, else mock.
 
@@ -27,7 +27,7 @@ import { reactNative } from 'vitest-native'
 export default defineConfig({ plugins: [reactNative()] })
 ```
 
-Requirements: Node 22.22.3+ (on 22), 24.12+ (on 24) or 26+, Vitest 5.x, Vite ^8.0.5, React 19, React Native 0.86–0.88 (native engine), Expo SDK 57 and 58. RNTL (@testing-library/react-native) 13–14 is an optional peer; auto-configured when installed. RNTL 14 makes render, fireEvent and act async: always `await render(...)` (a no-op on 12 and 13).
+Requirements: Node 22.22.3+ (on 22), 24.12+ (on 24) or 26+, Vitest 5.x, Vite ^8.0.5, React 19, React Native 0.86–0.88 (native engine), Expo SDK 57 and 58. RNTL (@testing-library/react-native) 13–14 is an optional peer; auto-configured when installed. RNTL 14 makes render, fireEvent and act async: always `await render(...)` (a no-op on 13).
 
 ## Plugin options
 

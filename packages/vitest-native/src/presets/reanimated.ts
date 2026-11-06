@@ -1,6 +1,7 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
+import { asHost } from "../mocks/host.js";
 import { createRequire, Module } from "node:module";
 import path from "node:path";
 import { VitestNativeError } from "../errors.mjs";
@@ -381,7 +382,7 @@ function loadOrNull(load: () => Record<string, any>): Record<string, any> | null
 function withScrollEvents(Component: any): any {
   const Wrapped = React.forwardRef((props: any, ref: any) => {
     const events = props.onScroll?.[SCROLL_EVENTS] as Record<string, Fn> | undefined;
-    if (!events) return React.createElement(Component, { ...props, ref });
+    if (!events) return React.createElement(asHost(Component), { ...props, ref });
     const extra: Record<string, Fn> = {};
     for (const [prop, run] of Object.entries(events)) {
       const own = props[prop];
@@ -390,7 +391,7 @@ function withScrollEvents(Component: any): any {
         if (typeof own === "function") own(event);
       };
     }
-    return React.createElement(Component, { ...props, ...extra, ref });
+    return React.createElement(asHost(Component), { ...props, ...extra, ref });
   });
   Wrapped.displayName = Component.displayName ?? Component.name ?? "ScrollView";
   return Wrapped;
@@ -728,7 +729,7 @@ export function reanimated(): Preset {
 
           function createAnimatedComponent(component: any) {
             const Animated = React.forwardRef((props: any, ref: any) => {
-              return React.createElement(component, { ...props, ref });
+              return React.createElement(asHost(component), { ...props, ref });
             });
             Animated.displayName = `Animated(${component.displayName || component.name || "Component"})`;
             return Animated;
@@ -753,7 +754,7 @@ export function reanimated(): Preset {
                     `replaces it wholesale.`,
                 );
               }
-              return React.createElement(Base, { ...props, ref });
+              return React.createElement(asHost(Base), { ...props, ref });
             });
             Comp.displayName = `Animated.${name}`;
             return Comp;
