@@ -6,10 +6,11 @@
 
 :root {
   /* Teal accent, dark enough to read on white and on the soft tints: links and inline
-     code (brand-1), hover (brand-2), and the fill behind white button text (brand-3).
+     code (brand-1), hover, a shade darker (brand-2), and the fill behind white button
+     text (brand-3).
      tests/site-contrast.test.ts holds each pair to WCAG AA. */
   --vp-c-brand-1: #0a6b61;
-  --vp-c-brand-2: #0b7c70;
+  --vp-c-brand-2: #09625a;
   --vp-c-brand-3: #0d8276;
   --vp-c-brand-soft: rgba(16, 179, 163, 0.14);
 
@@ -32,7 +33,7 @@
   --vp-c-bg-elv: #122625;
   /* Brighter teal/cyan for contrast on the dark background. */
   --vp-c-brand-1: #4ed8c8;
-  --vp-c-brand-2: #10b3a3;
+  --vp-c-brand-2: #2ec4b4;
   --vp-c-brand-3: #10b3a3;
   --vp-c-brand-soft: rgba(16, 179, 163, 0.18);
   --vp-home-hero-name-background: linear-gradient(120deg, #4ed8c8 10%, #fcc72b 90%);

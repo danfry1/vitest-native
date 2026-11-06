@@ -22,7 +22,10 @@ type Tokens = Map<string, string>;
 /** The custom properties declared directly in each `:root { … }` or `.dark { … }` block. */
 function declarations(css: string, selector: ":root" | ".dark"): Tokens {
   const tokens: Tokens = new Map();
-  const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  // Comments out, and @media blocks: a `:root` inside one applies only at some widths.
+  const text = css
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, "");
   for (const [, selectors, body] of text.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     if (!selectors.split(",").some((s) => s.trim() === selector)) continue;
     for (const [, name, value] of body.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) {
@@ -89,12 +92,19 @@ function contrast(a: Rgba, b: Rgba): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-// Text, then the surface it sits on, each a token. AA: 4.5 for body text.
-const PAIRS: Array<[text: string, surface: string]> = [
+// Text, then the surfaces under it, outermost first (each laid over the page). AA: 4.5:1.
+const PAIRS: Array<[text: string, ...surfaces: string[]]> = [
   ["--vp-c-brand-1", "--vp-c-bg"], // links, inline code
-  ["--vp-c-brand-1", "--vp-c-bg-soft"], // the active sidebar link
-  ["--vp-c-brand-1", "--vp-custom-block-tip-bg"], // a link inside a tip
+  ["--vp-c-brand-2", "--vp-c-bg"], // a link under the pointer
+  ["--vp-c-brand-1", "--vp-sidebar-bg-color"], // the active sidebar link
+  ["--vp-c-brand-1", "--vp-c-bg-soft"],
+  ["--vp-c-brand-1", "--vp-code-bg"], // a link's inline code
+  ["--vp-c-brand-2", "--vp-code-bg"],
   ["--vp-custom-block-tip-text", "--vp-custom-block-tip-bg"],
+  ["--vp-c-tip-1", "--vp-custom-block-tip-bg"], // a link inside a tip
+  ["--vp-c-tip-2", "--vp-custom-block-tip-bg"],
+  ["--vp-c-tip-1", "--vp-custom-block-tip-bg", "--vp-custom-block-tip-code-bg"],
+  ["--vp-c-tip-2", "--vp-custom-block-tip-bg", "--vp-custom-block-tip-code-bg"],
   ["--vp-badge-tip-text", "--vp-badge-tip-bg"],
   ["--vp-button-brand-text", "--vp-button-brand-bg"],
   ["--vp-button-brand-hover-text", "--vp-button-brand-hover-bg"],
@@ -105,15 +115,18 @@ for (const dark of [false, true]) {
   describe(`site colours, ${dark ? "dark" : "light"} theme`, () => {
     const tokens = theme(dark);
     const page = parseColor(resolve(tokens, "var(--vp-c-bg)"));
-    const color = (token: string) => over(parseColor(resolve(tokens, `var(${token})`)), page);
+    const raw = (token: string) => parseColor(resolve(tokens, `var(${token})`));
 
-    it.each(PAIRS)("%s on %s reads at 4.5:1 or more", (text, surface) => {
-      expect(contrast(color(text), color(surface))).toBeGreaterThanOrEqual(4.5);
+    it.each(PAIRS)("%s on %s reads at 4.5:1 or more", (text, ...surfaces) => {
+      const ground = surfaces.reduce((under, token) => over(raw(token), under), page);
+      expect(contrast(over(raw(text), ground), ground)).toBeGreaterThanOrEqual(4.5);
     });
 
     it("each stop of the hero name's gradient reads at 3:1 or more (large text)", () => {
       const gradient = resolve(tokens, "var(--vp-home-hero-name-background)");
-      const stops = gradient.match(/#[\da-f]{6}/gi) ?? [];
+      // Every stop must be a colour this reads, so none is skipped unchecked.
+      expect(gradient).not.toMatch(/var\(|hsl|#[\da-f]{3,4}\b|#[\da-f]{8}\b/i);
+      const stops = gradient.match(/#[\da-f]{6}\b|rgba?\([^)]*\)/gi) ?? [];
       expect(stops.length).toBeGreaterThanOrEqual(2);
       for (const stop of stops) {
         expect(contrast(over(parseColor(stop), page), page), stop).toBeGreaterThanOrEqual(3);
