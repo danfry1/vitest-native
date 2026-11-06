@@ -13,10 +13,9 @@ jobs:
   expo-module-table:
     name: Expo module tables match the newest jest-expo of each SDK
     runs-on: ubuntu-latest
-    # github-script opens a tracking issue when a table needs adopting.
+    # Read-only: compat-report (below) files the issue.
     permissions:
       contents: read
-      issues: write
     # The native engine answers Expo native modules from jest-expo's table for the
     # installed SDK (packages/vitest-native/src/native/expo-module-table-<sdk>.mjs). A new
     # jest-expo of a committed SDK, or a new SDK on npm's latest tag, fails this job so the
@@ -31,41 +30,13 @@ jobs:
       - name: Compare with the newest jest-expo of each SDK
         run: node packages/vitest-native/scripts/sync-expo-module-table.mjs --check
 
-      - name: Create issue on failure
-        if: failure()
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v7
-        env:
-          RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-        with:
-          script: |
-            const title = 'Expo module table differs from the newest jest-expo';
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              labels: 'compat-check',
-            });
-            if (!issues.some((issue) => issue.title === title)) {
-              await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title,
-                body: [
-                  'The weekly check found a jest-expo whose table of the native modules differs from the committed one, or a new Expo SDK without a table.',
-                  '',
-                  `See the [failed run](${process.env.RUN_URL}) for the command to regenerate it, and review the diff.`,
-                ].join('\n'),
-                labels: ['compat-check'],
-              });
-            }
 
   check-latest-rn:
     name: Check against current React Native edge
     runs-on: ubuntu-latest
-    # github-script opens a tracking issue when the edge build breaks.
+    # Read-only: it installs and runs unaged releases. compat-report (below) files the issue.
     permissions:
       contents: read
-      issues: write
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -87,7 +58,7 @@ jobs:
         # while the PR gate stays pinned and deterministic.
         run: |
           bun install --frozen-lockfile
-          bun add -d react-native@latest @react-native/babel-preset@latest metro-resolver@latest --minimum-release-age=0 --cwd packages/vitest-native
+          bun add -d react-native@latest @react-native/babel-preset@latest metro-resolver@latest --minimum-release-age=0 --ignore-scripts --cwd packages/vitest-native
 
       - name: Resolved versions
         run: |
@@ -126,34 +97,6 @@ jobs:
           expected=$(node -p "require('./packages/vitest-native/node_modules/react-native/package.json').version")
           VITEST_NATIVE_EXPECTED_RN_VERSION="$expected" bun run --filter vitest-native check-compat
 
-      - name: Create issue on failure
-        if: failure()
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v7
-        env:
-          RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-        with:
-          script: |
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              labels: 'compat-check',
-            });
-            if (issues.length === 0) {
-              await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title: 'Compatibility gap detected with latest react-native',
-                body: [
-                  'The weekly compatibility check found new React Native exports that are not mocked.',
-                  '',
-                  `See the [failed run](${process.env.RUN_URL}) for details.`,
-                  '',
-                  'Run `bun run --filter vitest-native check-compat` locally to see the gaps.',
-                ].join('\n'),
-                labels: ['compat-check'],
-              });
-            }
 
   canary:
     name: Canary (${{ matrix.channel }})
@@ -163,9 +106,9 @@ jobs:
     # (.github/scripts/canary-version.mjs). A channel with nothing ahead is skipped. Like the
     # edge job above, this installs releases younger than the seven-day gate, in this job
     # only; the pull-request gates stay pinned.
+    # Read-only: it installs and runs unaged prereleases. compat-report (below) files the issue.
     permissions:
       contents: read
-      issues: write
     strategy:
       fail-fast: false
       matrix:
@@ -199,12 +142,12 @@ jobs:
               # A next major is refused at startup by design; this job asks whether it would work.
               node .github/scripts/raise-peer-ceiling.mjs vitest "$v"
               [ "$vite" != latest ] && node .github/scripts/raise-peer-ceiling.mjs vite "$vite"
-              bun add -d "vitest@$v" "@vitest/coverage-v8@$v" "vite@$vite" --minimum-release-age=0 --cwd packages/vitest-native
+              bun add -d "vitest@$v" "@vitest/coverage-v8@$v" "vite@$vite" --minimum-release-age=0 --ignore-scripts --cwd packages/vitest-native
               ;;
             react-native)
               v=$(node .github/scripts/canary-version.mjs react-native)
               if [ -z "$v" ]; then echo "No React Native prerelease ahead of latest."; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0; fi
-              bun add -d "react-native@$v" "@react-native/babel-preset@$v" metro-resolver@latest --minimum-release-age=0 --cwd packages/vitest-native
+              bun add -d "react-native@$v" "@react-native/babel-preset@$v" metro-resolver@latest --minimum-release-age=0 --ignore-scripts --cwd packages/vitest-native
               ;;
             node-next)
               echo "Node $(node -v), the newest line setup-node offers."
@@ -228,27 +171,68 @@ jobs:
         if: steps.pick.outputs.skip != 'true'
         run: bun run test:native:hot
 
-      - name: Create issue on failure
-        if: failure()
+  compat-report:
+    name: File issues for failed checks
+    # The only job that can write issues, and it runs no package code: no checkout, no
+    # install. It reads this run's job results and failed jobs' log tails through the API,
+    # so a compromised release installed by a check above never holds a write token.
+    needs: [expo-module-table, check-latest-rn, canary]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      issues: write
+    steps:
+      - name: File or update an issue per failed check
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v7
         env:
-          CHANNEL: ${{ matrix.channel }}
           RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         with:
           script: |
-            const title = `Canary: the ${process.env.CHANNEL} prerelease fails`;
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              labels: 'compat-check',
+            // Job name (as shown in the run) → issue. Titles match the issues earlier runs
+            // opened, so an open one gets a comment rather than a duplicate.
+            const ISSUES = [
+              {
+                job: /^Expo module tables/,
+                title: () => 'Expo module table differs from the newest jest-expo',
+                text: 'The weekly check found a jest-expo whose table of the native modules differs from the committed one, or a new Expo SDK without a table. The failed run prints the command to regenerate it; review the diff.',
+              },
+              {
+                job: /^Check against current React Native edge/,
+                title: () => 'Compatibility gap detected with latest react-native',
+                text: 'The weekly check against react-native@latest failed. Run `bun run --filter vitest-native check-compat` locally to see export gaps.',
+              },
+              {
+                job: /^Canary \((.+)\)$/,
+                title: (m) => `Canary: the ${m[1]} prerelease fails`,
+                text: "A canary (upstream's next release, ahead of latest) fails the gate.",
+              },
+            ];
+            const repo = { owner: context.repo.owner, repo: context.repo.repo };
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              ...repo, run_id: context.runId, filter: 'latest',
             });
-            if (!issues.some((issue) => issue.title === title)) {
-              await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title,
-                body: `The ${process.env.CHANNEL} canary (upstream's next release, ahead of latest) fails the gate.\n\nRun: ${process.env.RUN_URL}`,
-                labels: ['compat-check'],
-              });
+            const open = await github.paginate(github.rest.issues.listForRepo, {
+              ...repo, state: 'open', labels: 'compat-check',
+            });
+            for (const job of jobs.filter((j) => j.conclusion === 'failure')) {
+              const rule = ISSUES.find((r) => r.job.test(job.name));
+              if (!rule) continue;
+              const title = rule.title(rule.job.exec(job.name));
+              let tail;
+              try {
+                const { data } = await github.rest.actions.downloadJobLogsForWorkflowRun({ ...repo, job_id: job.id });
+                // Log text from installed packages is untrusted: shown only inside a fence.
+                tail = String(data).split('\n').slice(-40).join('\n').replace(/`{3,}/g, '~~~');
+              } catch (error) {
+                tail = `(log unavailable: ${error.message})`;
+              }
+              const body = [rule.text, '', `Job: ${job.name}`, `Run: ${process.env.RUN_URL}`, '', '```text', tail, '```'].join('\n');
+              const existing = open.find((issue) => issue.title === title);
+              if (existing) {
+                await github.rest.issues.createComment({ ...repo, issue_number: existing.number, body });
+              } else {
+                await github.rest.issues.create({ ...repo, title, body, labels: ['compat-check'] });
+              }
             }
