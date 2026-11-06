@@ -23,8 +23,9 @@ async function expectWorkerGone(root: string) {
     }
   };
   for (let i = 0; i < 30 && alive(); i++) await new Promise((r) => setTimeout(r, 100));
-  if (alive()) process.kill(pid, "SIGKILL"); // never leave it spinning, even on failure
-  expect(alive()).toBe(false);
+  const survived = alive();
+  if (survived) process.kill(pid, "SIGKILL"); // never leave it spinning, even on failure
+  expect(survived).toBe(false);
 }
 
 const scripts = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "ci");
@@ -34,7 +35,16 @@ function run(args: string[], env: Record<string, string>, cwd: string) {
     const started = Date.now();
     const child = spawn(process.execPath, args, {
       cwd,
-      env: { ...process.env, ...env, NO_COLOR: "1", FORCE_COLOR: "0", GITHUB_ACTIONS: "" },
+      // VN_PROGRESS_LOG cleared: under CI this run is itself guarded, and its log is not
+      // these scratch runs' to write.
+      env: {
+        ...process.env,
+        VN_PROGRESS_LOG: "",
+        ...env,
+        NO_COLOR: "1",
+        FORCE_COLOR: "0",
+        GITHUB_ACTIONS: "",
+      },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "";

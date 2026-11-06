@@ -50,18 +50,17 @@ export function describeRunning(running) {
 }
 
 function killTree(child, signal) {
-  if (child.pid === undefined || child.exitCode !== null) return;
+  if (child.pid === undefined) return;
   if (process.platform === "win32") {
+    if (child.exitCode !== null) return;
     spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
     return;
   }
+  // The whole group, even if the direct child has exited: a descendant that ignored
+  // SIGTERM is still in it (ESRCH once the group is gone).
   try {
     process.kill(-child.pid, signal);
-  } catch {
-    try {
-      child.kill(signal);
-    } catch {}
-  }
+  } catch {}
 }
 
 /**
@@ -82,7 +81,9 @@ export function runWithDeadline(
       // Guarded only under a deadline: local runs without one are unchanged.
       env: deadlineMs > 0 ? { ...env, VN_HANG_GUARD: "1", VN_PROGRESS_LOG: log } : env,
       stdio: onOutput ? ["ignore", "pipe", "pipe"] : "inherit",
-      detached: process.platform !== "win32",
+      // Its own process group, so the deadline can stop the whole tree; only under a
+      // deadline, so local runs still end with the terminal.
+      detached: deadlineMs > 0 && process.platform !== "win32",
     });
     if (onOutput) {
       child.stdout.on("data", onOutput);

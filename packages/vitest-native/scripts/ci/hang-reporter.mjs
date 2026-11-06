@@ -25,10 +25,13 @@ export default class HangReporter {
     idleMs = Number(process.env.VN_HANG_IDLE_MS) || DEFAULT_IDLE_MS,
     log = process.env.VN_PROGRESS_LOG,
     exit = exitKillingDescendants,
+    // Straight to the file descriptor: Vitest's terminal renderer buffers process.stderr.
+    write = (text) => fs.writeSync(2, text),
   } = {}) {
     this.idleMs = idleMs;
     this.log = log;
     this.exit = exit;
+    this.write = write;
     /** Test file → the test running in it, or null between tests. */
     this.running = new Map();
     this.timer = undefined;
@@ -38,7 +41,15 @@ export default class HangReporter {
     this.event({ event: "init" });
   }
 
+  onTestModuleQueued(testModule) {
+    // A worker took the file: its imports and collection are in flight from here.
+    if (this.running.has(testModule.moduleId)) return;
+    this.running.set(testModule.moduleId, null);
+    this.event({ event: "file-start", file: testModule.moduleId });
+  }
+
   onTestModuleStart(testModule) {
+    if (this.running.has(testModule.moduleId)) return;
     this.running.set(testModule.moduleId, null);
     this.event({ event: "file-start", file: testModule.moduleId });
   }
@@ -69,6 +80,10 @@ export default class HangReporter {
   event(entry) {
     this.append(entry);
     clearTimeout(this.timer);
+    this.timer = undefined;
+    // Only while files are in flight: global setup and coverage send no test events, and
+    // a long one is the step deadline's to judge (scripts/ci/deadline.mjs).
+    if (this.running.size === 0) return;
     this.timer = setTimeout(() => this.trip(), this.idleMs);
     // Never the reason the process stays alive: a run that finished exits as before.
     this.timer.unref?.();
@@ -110,7 +125,7 @@ export default class HangReporter {
     const lines = this.report();
     this.append({ event: "hang", running: [...this.running] });
     const github = process.env.GITHUB_ACTIONS === "true";
-    for (const line of lines) process.stderr.write(`${github ? "::error::" : "✗ "}${line}\n`);
+    this.write(lines.map((line) => `${github ? "::error::" : "✗ "}${line}\n`).join(""));
     // A stuck worker cannot be closed politely: Vitest would wait for it. Exiting ends
     // its threads, and a forked worker (Vitest's default pool) is killed with the rest of
     // this process's descendants, or it would spin on after the run has failed.

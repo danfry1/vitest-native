@@ -23,11 +23,11 @@ afterEach(() => {
 describe("hang reporter", () => {
   const setup = (log?: string) => {
     vi.useFakeTimers();
-    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const exit = vi.fn();
-    const reporter = new HangReporter({ idleMs: 1000, exit, log });
+    const write = vi.fn();
+    const reporter = new HangReporter({ idleMs: 1000, exit, write, log });
     reporter.onInit();
-    return { reporter, exit };
+    return { reporter, exit, write };
   };
 
   it("fails after the idle limit with no progress, naming the file and test", () => {
@@ -51,11 +51,21 @@ describe("hang reporter", () => {
     expect(exit).not.toHaveBeenCalled();
   });
 
-  it("says when no file was running (setup or collection)", () => {
+  it("does not fire while no file is in flight (global setup, coverage)", () => {
     const { reporter, exit } = setup();
+    vi.advanceTimersByTime(10_000);
+    reporter.onTestModuleQueued(file("/p/a.test.ts"));
+    reporter.onTestModuleEnd(file("/p/a.test.ts"));
+    vi.advanceTimersByTime(10_000);
+    expect(exit).not.toHaveBeenCalled();
+  });
+
+  it("names a file stuck in its imports, from when a worker takes it", () => {
+    const { reporter, exit, write } = setup();
+    reporter.onTestModuleQueued(file("/p/stuck.test.ts"));
     vi.advanceTimersByTime(1000);
     expect(exit).toHaveBeenCalledWith(1);
-    expect(reporter.report().join("\n")).toMatch(/No test file was running/);
+    expect(write.mock.calls.join("")).toContain("Running: /p/stuck.test.ts (no test reported");
   });
 
   it("does not fire after the run ends", () => {

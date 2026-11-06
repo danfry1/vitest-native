@@ -17,10 +17,17 @@ if (process.env.VN_HANG_GUARD === "1") {
   // A --reporter on the command line replaces the config's reporters, so keep the
   // default output unless the caller chose reporters of their own.
   if (!args.some((arg) => arg === "--reporter" || arg.startsWith("--reporter="))) {
+    // Vitest's defaults, which a --reporter on the command line replaces: the terminal
+    // output, and on GitHub Actions the inline annotations for failing tests.
     args.push("--reporter=default");
+    if (process.env.GITHUB_ACTIONS === "true") args.push("--reporter=github-actions");
   }
   args.push(`--reporter=${reporter}`);
 }
 const child = spawn(process.execPath, [...process.execArgv, cli, ...args], { stdio: "inherit" });
-for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => child.kill(signal));
+// Ctrl-C reaches Vitest directly (same process group); a second SIGINT from here would
+// end it before its own cleanup. Only stay alive for it. A SIGTERM sent to this wrapper
+// alone is passed on.
+process.on("SIGINT", () => {});
+process.on("SIGTERM", () => child.kill("SIGTERM"));
 child.on("close", (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
