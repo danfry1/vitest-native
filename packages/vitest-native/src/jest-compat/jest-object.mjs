@@ -309,7 +309,8 @@ export function createJestObject(vi, members = {}) {
     ["spyOn", spyOn],
     ["useFakeTimers", useFakeTimers],
     ["useRealTimers", useRealTimers],
-    // Jest's module-registry members, supplied by the compat setup (setup.mjs).
+    // Members the compat setup supplies (setup.mjs): the module registry's, and
+    // replaceProperty.
     ...Object.entries(members),
   ]);
   const jest = new Proxy(vi, {
