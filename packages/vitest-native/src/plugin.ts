@@ -541,8 +541,12 @@ async function startRequireBridge(project: BridgeProject, vitest: unknown): Prom
   // Vite's to evaluate for Node, whatever the policy says.
   const allow = project.vite.config.server?.fs?.allow ?? [];
   const roots = allow.length > 0 ? [...allow] : [project.vite.config.root];
+  // In the real-path spelling mayServe compares files in (a Windows short name expanded).
+  const realRoots = roots.map((root) =>
+    fs.existsSync(root) ? fs.realpathSync.native(root) : root,
+  );
   const inRoots = (file: string) =>
-    roots.some((root) => {
+    realRoots.some((root) => {
       const relative = path.relative(root, file);
       return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
     });
@@ -577,9 +581,14 @@ async function startRequireBridge(project: BridgeProject, vitest: unknown): Prom
     // package is externalized (decided before anything is transformed).
     // An installed package (anywhere: pnpm's and bun's stores, `npm link`) is answered as
     // any import of it is; Vitest externalizes it from its id, before transforming it.
-    mayServe: (file) =>
-      /[\\/]node_modules[\\/]/.test(file) ||
-      (inRoots(file) && isFileLoadingAllowed(project.vite.config, file)),
+    mayServe: (file) => {
+      if (/[\\/]node_modules[\\/]/.test(file)) return true;
+      // Vite's spelling of the file: its real path (a Windows 8.3 short name such as
+      // RUNNER~1 expanded, which Vite refuses outright) with forward slashes, as Vite
+      // passes its own checks and holds server.fs.allow.
+      const real = (fs.existsSync(file) ? fs.realpathSync.native(file) : file).replace(/\\/g, "/");
+      return inRoots(real) && isFileLoadingAllowed(project.vite.config, real);
+    },
   });
   project.provide(BRIDGE_PROVIDE_KEY, { endpoint: server.endpoint, token: server.token, roots });
   (vitest as { onClose?: (fn: () => unknown) => void }).onClose?.(() => server.close());

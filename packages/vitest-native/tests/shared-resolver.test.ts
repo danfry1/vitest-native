@@ -458,10 +458,20 @@ describe("the Vite side under the flag", () => {
   };
 
   it("finds the project's resolver under another spelling of its root", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-resolver-spelling-"));
-    roots.push(dir);
-    const link = path.join(dir, "link");
-    fs.symlinkSync(process.cwd(), link, "junction");
+    // Another spelling of the same directory: a junction, or on Windows a change of case.
+    // On Windows CI no package resolved from a junction to the package (bun's relative
+    // node_modules links, reached through it, likely resolve against the junction's path).
+    let link: string;
+    if (process.platform === "win32") {
+      link = process
+        .cwd()
+        .replace(/[a-z]/i, (c) => (c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase()));
+    } else {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-resolver-spelling-"));
+      roots.push(dir);
+      link = path.join(dir, "link");
+      fs.symlinkSync(process.cwd(), link, "junction");
+    }
     const resolve = await configured(link);
     const calls = () => resolverCounters()?.vite?.calls ?? 0;
     const before = calls();

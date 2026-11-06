@@ -189,8 +189,6 @@ A hot worker could not load React Native from the project when it started. The m
 
 `vitest-native compare` read a JSON file that is not a Jest or Vitest report: it has no `testResults` array. compare prints the message and exits with code 2. The usual cause is a `--jest-results` path that names some other JSON file. Point it at the file Jest wrote with `--json --outputFile`, or leave out `--jest-results` and compare runs Jest itself.
 
-Next: [Troubleshooting](/guide/troubleshooting).
-
 ## Ownership model (experimental)
 
 These come only from [`experimental.ownershipModel`](/guide/plugin-options#experimental), which makes Vite and Node resolve each package to the same file. Turning the option off makes them go away. Most of them mean a vitest-native bug: report it with the Vitest config. The design is described in [ownership-model.md](https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/docs/ownership-model.md).
@@ -238,3 +236,5 @@ A `require()` reached a file Vite is part-way through evaluating, from outside t
 ### `BRIDGED_EVALUATION_FAILED` {#BRIDGED_EVALUATION_FAILED}
 
 A file Vite loads threw while it was being evaluated, so the `require()` of it fails too, as an import of it would. The original error is attached as the `cause`. Fix that error.
+
+Next: [Troubleshooting](/guide/troubleshooting).

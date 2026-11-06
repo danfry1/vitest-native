@@ -174,7 +174,9 @@ describe("a reply to an earlier request", () => {
     const path = await import("node:path");
     const os = await import("node:os");
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-stale-"));
-    const endpoint = path.join(dir, "s.sock");
+    // As the bridge server listens: a named pipe on Windows (named by the test), a
+    // socket file elsewhere.
+    const endpoint = process.env.VN_STALE_ENDPOINT || path.join(dir, "s.sock");
     net.createServer((socket) => {
       socket.setEncoding("utf8");
       socket.on("data", (chunk) => {
@@ -190,6 +192,11 @@ describe("a reply to an earlier request", () => {
   it("is never taken for the request waiting now", async () => {
     const stale = spawn(process.execPath, ["--input-type=module", "--eval", STALE], {
       stdio: ["ignore", "pipe", "inherit"],
+      env: {
+        ...process.env,
+        VN_STALE_ENDPOINT:
+          process.platform === "win32" ? `\\\\.\\pipe\\vn-stale-${process.pid}` : "",
+      },
     });
     const at = await new Promise<string>((resolve) => {
       stale.stdout!.on("data", (chunk) => resolve(String(chunk).trim()));
