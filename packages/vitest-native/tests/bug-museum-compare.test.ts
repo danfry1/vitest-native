@@ -48,3 +48,18 @@ it("still fails for a recorded exhibit that regressed or did not run", () => {
   expect(run([{ id: "x", status: { main: "PASS" } }], {}).status).toBe(1);
   expect(run([{ id: "x", status: { main: "FAIL (bug)" } }], { x: bug }).status).toBe(0);
 });
+
+it("fails when an exhibit's bug shows again where main failed some other way", () => {
+  const other = { verdict: "FAIL", matchesBug: false, failures: ["a.test.ts: something else"] };
+  const { status, out } = run([{ id: "x", status: { main: "FAIL (other)" } }], { x: bug });
+  expect(out).toMatch(/\| x \| FAIL \(other\) \| FAIL \(bug\) \| regressed \|/);
+  expect(status).toBe(1);
+  // The other way round too: the exhibit no longer reaches its bug.
+  expect(run([{ id: "x", status: { main: "FAIL (bug)" } }], { x: other }).status).toBe(1);
+});
+
+it("does not fail for an exhibit that now passes, a fix to record", () => {
+  const { status, out } = run([{ id: "x", status: { main: "FAIL (bug)" } }], { x: pass });
+  expect(out).toMatch(/\| x \| FAIL \(bug\) \| PASS \| now passes \|/);
+  expect(status).toBe(0);
+});
