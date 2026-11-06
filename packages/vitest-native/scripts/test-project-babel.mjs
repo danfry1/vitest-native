@@ -8,9 +8,9 @@
 //                         plugin again on worklet.ts: the result is the same.
 //   rn, expo, wrap        plain React Native and Expo configs, and an app preset wrapping
 //                         React Native's: nothing routes.
-//   wrapdec               an app preset wrapping React Native's and adding decorators and
-//                         loose class properties: only the files with a decorator or a
-//                         class route, as ES modules.
+//   wrapdec               an app preset wrapping React Native's and adding decorators and a
+//                         JSX importSource: only the files with a decorator or JSX route,
+//                         as ES modules (whatever React Native's preset does with classes).
 //   cjs                   an unknown plugin writes CommonJS, and nothing else applies: Oxc
 //                         instead, warned once.
 //   cjslabel              the same beside another unknown plugin the file needs: fails.
@@ -47,8 +47,9 @@ function run(fixture, mode, cache) {
   );
   return { status: result.status, output: `${result.stdout}\n${result.stderr}` };
 }
+// Every file routed, test files included, with "/" on every platform.
 const routed = (output) =>
-  [...output.matchAll(/projectBabel: (src\/\S+) \(/g)].map((m) => m[1]).sort();
+  [...output.matchAll(/projectBabel: (\S+) \(/g)].map((m) => m[1].replaceAll("\\", "/")).sort();
 
 let failed = false;
 function check(label, ok, output) {
@@ -65,7 +66,9 @@ function check(label, ok, output) {
   }
 }
 
-const MAIN_ROUTED = ["src/Model.js", "src/answer.ts", "src/flow.js", "src/worklet.ts"].join(",");
+const MAIN_ROUTED = ["src/Model.js", "src/answer.ts", "src/flow.js", "src/worklet.ts"]
+  .sort()
+  .join(",");
 for (const mode of ["native", "hot", "mock", "babel-plugin"]) {
   const cold = run("main", mode, `main-${mode}`);
   check(
@@ -106,10 +109,12 @@ for (const fixture of ["rn", "expo", "wrap"]) {
 for (const pass of ["cold", "warm"]) {
   const result = run("wrapdec", "native", "wrapdec");
   check(
-    `wrapdec ${pass}: passes${pass === "cold" ? ", routes src/Card.tsx and src/Model.js only" : ""}`,
+    `wrapdec ${pass}: passes${pass === "cold" ? ", routes card.test.tsx, src/Card.tsx and src/Model.js only" : ""}`,
     result.status === 0 &&
       /Tests\s+2 passed \(2\)/.test(result.output) &&
-      (pass === "warm" || routed(result.output).join(",") === "src/Card.tsx,src/Model.js"),
+      (pass === "warm" ||
+        routed(result.output).join(",") ===
+          ["card.test.tsx", "src/Card.tsx", "src/Model.js"].sort().join(",")),
     result.output,
   );
 }

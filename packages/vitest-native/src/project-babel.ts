@@ -43,7 +43,7 @@ export interface ProjectBabelEntry {
  * What an entry means for project source under Vite:
  * - `covered`: Oxc and the engine already do it;
  * - `strip`: it would make the output CommonJS or instrument it, so it is taken out;
- * - `needed`: a file compiles with Babel when `applies(source)` holds; `applies` null
+ * - `needed`: a file compiles with Babel when `applies(source, file)` holds; `applies` null
  *   means every file (an entry this does not know).
  */
 export type ProjectBabelClassification =
@@ -52,7 +52,7 @@ export type ProjectBabelClassification =
   | {
       kind: "needed";
       reason: string;
-      applies: ((source: string) => boolean) | null;
+      applies: ((source: string, file: string) => boolean) | null;
       /** An entry this does not know: compiled for every file, with Oxc as the fallback. */
       unknown?: boolean;
       entryKind?: "plugin" | "preset";
@@ -62,7 +62,7 @@ const COVERED = { kind: "covered" } as const;
 const STRIP = { kind: "strip" } as const;
 const needed = (
   reason: string,
-  applies: ((source: string) => boolean) | null,
+  applies: ((source: string, file: string) => boolean) | null,
 ): ProjectBabelClassification => ({ kind: "needed", reason, applies });
 const unknownEntry = (
   reason: string,
@@ -89,7 +89,9 @@ const MACRO_IMPORT = has(/['"][^'"\n]*[./]macro(?:\/index)?(?:\.[cm]?[jt]sx?)?['
 const WORKLET = has(
   /['"]worklet['"]|\buse(?:Animated\w*|DerivedValue|FrameCallback)\b|\brunOn(?:UI|JS|Runtime)\b|\bscheduleOnUI\b|\bGesture\.\w+\(/,
 );
-const JSX = has(/<[A-Za-z>]/);
+// JSX, in a file that can hold it: a `.ts` file cannot, and its generics (`Record<K, V>`)
+// would match.
+const JSX = (source: string, file: string) => !/\.[cm]?ts$/.test(file) && /<[A-Za-z>]/.test(source);
 // A class declaration or expression (generic, extending or implementing): `class`, an
 // optional name, then `<`, `extends`, `implements` or `{`.
 const CLASS = has(/\bclass\b(?:\s+[A-Za-z_$][\w$]*)?\s*(?:<|extends\b|implements\b|\{)/);
@@ -484,7 +486,7 @@ interface Babel {
 interface Plan {
   needs: {
     reason: string;
-    applies: ((source: string) => boolean) | null;
+    applies: ((source: string, file: string) => boolean) | null;
     unknown?: boolean;
     entryKind?: "plugin" | "preset";
     /** The resolved plugin key of an unknown entry, to name the one that writes CommonJS. */
@@ -779,13 +781,13 @@ export function createProjectBabel(
         mode === "always"
           ? ["projectBabel: 'always'"]
           : (matched = plan.needs.filter(
-              (need) => need.applies === null || need.applies(code),
+              (need) => need.applies === null || need.applies(code, id),
             )).map((need) => need.reason);
       // Flow, which React Native's preset strips and Oxc cannot parse.
       if (reasons.length === 0 && JS_FILE(id) && hasFlowPragma(code)) reasons.push("Flow syntax");
       if (reasons.length === 0) return undefined;
       announceOnce(reasons);
-      options.onCompile?.(path.relative(root, id), reasons);
+      options.onCompile?.(path.relative(root, id).split(path.sep).join("/"), reasons);
       if (chain) {
         const other = await asking.run(id, () => chain.load(id));
         if (other != null) return other;

@@ -1,5 +1,4 @@
 import { expect, it } from "vitest";
-// @ts-expect-error -- untyped Flow source.
 import { total } from "./src/flow.js";
 
 it("strips Flow from a project file with the project's preset", () => {

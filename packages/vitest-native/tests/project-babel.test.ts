@@ -19,9 +19,15 @@ const classify = (name: string, kind: "plugin" | "preset", options?: unknown) =>
 const trigger = (name: string, kind: "plugin" | "preset", options?: unknown) =>
   projectBabelTrigger({ name, kind, options }, ROOT, []);
 /** Whether a needed entry applies to `source` (an entry with no test applies to all). */
-const appliesTo = (name: string, kind: "plugin" | "preset", options: unknown, source: string) => {
+const appliesTo = (
+  name: string,
+  kind: "plugin" | "preset",
+  options: unknown,
+  source: string,
+  file = "/app/src/a.tsx",
+) => {
   const c = classify(name, kind, options);
-  return c.kind === "needed" && (c.applies === null || c.applies(source));
+  return c.kind === "needed" && (c.applies === null || c.applies(source, file));
 };
 
 describe("classifyProjectBabelEntry: which entries matter (#579)", () => {
