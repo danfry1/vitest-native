@@ -32,6 +32,7 @@ describe("root spelling", () => {
     "matches a file spelled as the root's real path, either way round",
     () => {
       const file = path.join(real, "a.ts");
+      // The root as the file spells it.
       expect(rootSpellingOf(other, file)).toBe(real);
       expect(relativeToRoot(other, file)).toBe("a.ts");
       // A file on disk, spelled unlike any spelling of the root: its own leading directories.

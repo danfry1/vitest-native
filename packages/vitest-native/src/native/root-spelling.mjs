@@ -35,12 +35,15 @@ export function rootSpellings(root) {
  * The spelling of `root` that `file` is under (or is), or null when it is outside it. A
  * file spelled unlike any of the root's own (a long name under a root given short, or the
  * other way round) is under the root when its native real path is; the spelling returned
- * is then the file's own leading directories, checked to be the root.
+ * is then the file's own leading directories, checked to be the root. Either way it is
+ * the root as the file spells it.
  */
 export function rootSpellingOf(root, file) {
   const spellingsOfRoot = rootSpellings(root);
   for (const spelling of spellingsOfRoot) {
-    if (under(file, spelling)) return spelling;
+    // The file's own characters: on Windows the match ignores case, and Babel compares
+    // its root with the file name case-sensitively.
+    if (under(file, spelling)) return file.slice(0, spelling.length);
   }
   const nativeRoot = natives.get(root);
   if (!under(realpathOr(fs.realpathSync.native, file), nativeRoot)) return null;
