@@ -4,24 +4,24 @@
 
 ::: code-group
 ```bash [npm]
-npm install -D vitest-native
+npm install -D vitest vite vitest-native @testing-library/react-native
 ```
 ```bash [yarn]
-yarn add -D vitest-native
+yarn add -D vitest vite vitest-native @testing-library/react-native
 ```
 ```bash [pnpm]
-pnpm add -D vitest-native
+pnpm add -D vitest vite vitest-native @testing-library/react-native
 ```
 ```bash [bun]
-bun add -d vitest-native
+bun add -d vitest vite vitest-native @testing-library/react-native
 ```
 :::
 
-One package replaces three — you don't need a separate RN mock library, a JSX plugin, or a jest preset.
+`vitest` and `vite` are peer dependencies. [`@testing-library/react-native`](https://callstack.github.io/react-native-testing-library/) is optional, but the guides use it. One plugin replaces three — you don't need a separate RN mock library, a JSX plugin, or a jest preset.
 
 ## Configure
 
-Add the plugin to your Vitest config:
+`npx vitest-native init` writes this config for you (`vitest.config.mts` in a TypeScript project), or add the plugin yourself:
 
 ```ts
 // vitest.config.ts
@@ -33,25 +33,28 @@ export default defineConfig({
 })
 ```
 
-That's it. The plugin auto-injects its setup file, configures `@testing-library/react-native` if installed, stubs assets, and resolves platform-specific files. No manual `setupFiles`, no `@react-native/jest-preset`, no `transformIgnorePatterns`.
+If anything looks off, `npx vitest-native doctor` checks your versions, engine and presets. The plugin auto-injects its setup file, configures `@testing-library/react-native` if installed, stubs assets, and resolves platform-specific files. No manual `setupFiles`, no `@react-native/jest-preset`, no `transformIgnorePatterns`.
 
 ## Requirements
 
-| Requirement | Version |
+| | Supported |
 |---|---|
-| **Node.js** | 22.13+ on Node 22, or 24.3+ |
-| **Vitest** | 4.x or 5.x |
-| **Vite** | ^6.4.2, ^7.3.2, or ^8.0.5 |
-| **React** | >= 18 |
-| **React Native** | 0.81–0.88 validated in CI (native engine) |
-| **Expo** (if used) | SDK 57 or 58 |
+| Node.js | 22.22.3+ on Node 22, 24.12+ on Node 24, or 26+ |
+| Vitest | 5.x |
+| Vite | ^8.0.5 |
+| React | 19 or later |
+| React Native | 0.86–0.88 |
+| Expo SDK | 57 and 58 |
+| React Native Testing Library | 13.x or 14.x (optional) |
+
+Use the React version your React Native release requires, and a `@react-native/babel-preset` that matches its minor version. Each Node line starts at the release where Node's in-thread module hooks work; on an older Node the plugin stops at startup with `UNSUPPORTED_NODE`.
 
 The default **`engine: 'native'`** needs `@react-native/babel-preset` and `@babel/core` — these already ship with React Native projects. From Expo SDK 56 the engine uses Expo's own preset instead, which `expo` brings with `@babel/core`, so an Expo app needs nothing extra. The plugin uses them to Flow-strip real React Native, the same toolchain RN already uses.
 
 The opt-in **`engine: 'mock'`** needs no Babel — it's just Vite.
 
 ::: tip Optional peer: RNTL
-[`@testing-library/react-native`](https://callstack.github.io/react-native-testing-library/) (RNTL 12–14) is an optional peer dependency. If it's installed, the plugin configures it automatically — you don't set `hostComponentNames` yourself. RNTL 14 uses async rendering APIs.
+[`@testing-library/react-native`](https://callstack.github.io/react-native-testing-library/) (RNTL 13–14) is an optional peer dependency. If it's installed, the plugin configures it automatically — you don't set `hostComponentNames` yourself. RNTL 14 uses async rendering APIs.
 :::
 
 Next: [Quick Start](/guide/quick-start) walks through writing and running your first test.

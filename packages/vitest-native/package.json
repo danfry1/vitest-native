@@ -1,6 +1,6 @@
 {
   "name": "vitest-native",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "description": "Run real React Native tests under Vitest. One install, zero config.",
   "keywords": [
     "expo",
@@ -119,18 +119,24 @@
   "scripts": {
     "build": "bunx --bun tsdown && node scripts/copy-static-types.mjs",
     "test": "vitest run",
-    "test:native": "node scripts/run-scripts.mjs test:native:no-globals test:native:main test:native:per-file test:native:rntl-timers test:native:one-instance test:native:context test:native:shared-root test:native:preset-modules test:native:permissive test:native:partial-mock-external test:native:tsconfig-paths test:native:regex-alias",
+    "test:cli-compare-e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:native": "node scripts/run-scripts.mjs test:native:no-globals test:native:main test:native:per-file test:native:rntl-timers test:native:one-instance test:native:context test:native:shared-root test:native:preset-modules test:native:permissive test:native:reanimated-fallback test:native:partial-mock-external test:native:tsconfig-paths test:native:regex-alias test:native:dispatch-alias test:native:jest-registry-node-mocks test:native:node-mocks test:native:ownership",
     "test:native:main": "vitest run --config tests-native/vitest.config.mts",
     "test:native:per-file": "vitest run --config tests-native/vitest.per-file.config.mts",
     "test:native:background": "vitest run --config tests-native/vitest.background.config.mts",
     "test:native:regex-alias": "vitest run --config tests-native/vitest.regex-alias.config.mts",
+    "test:native:dispatch-alias": "vitest run --config tests-native/vitest.dispatch-alias.config.mts",
+    "test:native:jest-registry-node-mocks": "vitest run --config tests-native/vitest.jest-registry-node-mocks.config.mts",
     "test:native:partial-mock-external": "vitest run --config tests-native/vitest.partial-mock-external.config.mts",
     "test:native:tsconfig-paths": "vitest run --config tests-native/tsconfig-paths/vitest.config.mts",
     "test:native:one-instance": "vitest run --config tests-native/vitest.one-instance.config.mts --mode stock && vitest run --config tests-native/vitest.one-instance.config.mts --mode hot && vitest run --config tests-native/vitest.one-instance.config.mts --mode early && vitest run --config tests-native/vitest.one-instance.config.mts --mode jest-compat",
     "test:native:rntl-timers": "vitest run --config tests-native/vitest.rntl-timers.config.mts --mode stock && vitest run --config tests-native/vitest.rntl-timers.config.mts --mode hot && vitest run --config tests-native/vitest.rntl-timers.config.mts --mode setup-stock && vitest run --config tests-native/vitest.rntl-timers.config.mts --mode setup-hot",
+    "test:native:ownership": "vitest run --config tests-native/vitest.ownership.config.mts --mode stock && vitest run --config tests-native/vitest.ownership.config.mts --mode hot && vitest run --config tests-native/vitest.ownership.config.mts --mode shadow && vitest run --config tests-native/vitest.ownership.config.mts --mode resolution && vitest run --config tests-native/vitest.ownership.config.mts --mode resolution-hot && vitest run --config tests-native/vitest.regex-alias.config.mts --mode ownership && node scripts/test-ownership-control.mjs && node scripts/test-ownership-registry-reuse.mjs",
     "test:native:context": "vitest run --config tests-native/vitest.context.config.mts && node --conditions=vn-probe node_modules/vitest/vitest.mjs run --config tests-native/vitest.context.config.mts --project threads",
     "test:native:no-globals": "vitest run --config tests-native/vitest.no-globals.config.mts --mode native && vitest run --config tests-native/vitest.no-globals.config.mts --mode hot && vitest run --config tests-native/vitest.no-globals.config.mts --mode noiso && vitest run --config tests-native/vitest.no-globals.config.mts --mode mock-noiso && vitest run --config tests-native/vitest.no-globals.config.mts --mode noiso-fakes-setup && vitest run --config tests-native/vitest.no-globals.config.mts --mode noiso-fakes-leak && vitest run --config tests-native/vitest.no-globals.config.mts --mode mock-noiso-fakes-setup && vitest run --config tests-native/vitest.no-globals.config.mts --mode mock-noiso-fakes-leak",
+    "test:native:node-mocks": "vitest run --config tests-native/vitest.node-mocks.config.mts --mode stock && vitest run --config tests-native/vitest.node-mocks.config.mts --mode hot && vitest run --config tests-native/vitest.node-mocks.config.mts --mode jest-compat",
     "test:native:shared-root": "vitest run --config tests-native/vitest.shared-root.config.mts --mode stock && vitest run --config tests-native/vitest.shared-root.config.mts --mode hot && vitest run --config tests-native/vitest.shared-root-extends.config.mts",
+    "test:native:reanimated-fallback": "vitest run --config tests-native/vitest.reanimated-fallback.config.mts --mode native && vitest run --config tests-native/vitest.reanimated-fallback.config.mts --mode hot",
     "test:native:preset-modules": "vitest run --config tests-native/vitest.custom-preset.config.mts --mode native && vitest run --config tests-native/vitest.custom-preset.config.mts --mode hot && vitest run --config tests-native/vitest.custom-preset.config.mts --mode mock",
     "test:native:permissive": "vitest run --config tests-native/vitest.permissive.config.mts --mode stock && vitest run --config tests-native/vitest.permissive.config.mts --mode hot",
     "test:native:forks": "vitest run --config tests-native/vitest.forks.config.mts",
@@ -138,9 +144,10 @@
     "test:native:android": "vitest run --config tests-native/vitest.android.config.mts",
     "test:native:advice": "vitest run --config tests-native/vitest.advice.config.mts",
     "test:native:hot": "vitest run --config tests-native/vitest.hot.config.mts",
-    "test:native:hot:isolation": "vitest run --config tests-native/vitest.hot-isolation.config.mts && vitest run --config tests-native/vitest.hot-user-setup.config.mts && vitest run --config tests-native/vitest.hot-jest-compat.config.mts --mode stock && vitest run --config tests-native/vitest.hot-jest-compat.config.mts --mode hot && vitest run --config tests-native/vitest.jest-registry-no-isolate.config.mts && bun run test:native:hot:file-accounting && bun run test:native:hot:act-scope && bun run test:native:hot:compile-cache && bun run test:native:hot:workspace-member && bun run test:native:hot:memory && bun run test:native:hot:generation-parity",
+    "test:native:hot:isolation": "vitest run --config tests-native/vitest.hot-isolation.config.mts && vitest run --config tests-native/vitest.hot-user-setup.config.mts && vitest run --config tests-native/vitest.hot-jest-compat.config.mts --mode stock && vitest run --config tests-native/vitest.hot-jest-compat.config.mts --mode hot && vitest run --config tests-native/vitest.jest-registry-no-isolate.config.mts && bun run test:native:hot:file-accounting && bun run test:native:hot:act-scope && bun run test:native:hot:rntl-optout && bun run test:native:hot:compile-cache && bun run test:native:hot:workspace-member && bun run test:native:hot:memory && bun run test:native:hot:generation-parity",
     "test:native:hot:file-accounting": "node scripts/test-hot-file-accounting.mjs",
     "test:native:hot:act-scope": "node scripts/test-hot-act-scope.mjs",
+    "test:native:hot:rntl-optout": "vitest run --config tests-native/vitest.hot-rntl-optout.config.mts --maxWorkers 1 && vitest run --config tests-native/vitest.hot-rntl-optout.config.mts --maxWorkers 2",
     "test:native:hot:compile-cache": "node scripts/test-hot-compile-cache.mjs",
     "test:native:hot:workspace-member": "node scripts/test-hot-workspace-member.mjs",
     "test:native:coverage": "node scripts/test-coverage-native.mjs",
@@ -172,7 +179,7 @@
   },
   "dependencies": {
     "flow-remove-types": "^2.337.0",
-    "magic-string": "^1.4.4"
+    "magic-string": "^1.4.5"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
@@ -189,8 +196,12 @@
     "@types/node": "25.9.9",
     "@types/react": "19.3.0",
     "@vitest/coverage-v8": "5.0.5",
-    "expo": "58.0.20",
-    "expo-constants": "58.0.13",
+    "dispatch-cycle-lib": "file:./tests-native/fixtures/dispatch-cycle-lib",
+    "dispatch-redirect-lib": "file:./tests-native/fixtures/dispatch-redirect-lib",
+    "dispatch-split-lib": "file:./tests-native/fixtures/dispatch-split-lib",
+    "dispatch-target-lib": "file:./tests-native/fixtures/dispatch-target-lib",
+    "expo": "58.0.21",
+    "expo-constants": "58.0.14",
     "expo-status-bar": "58.0.4",
     "ext-platform-lib": "file:./tests-native/fixtures/ext-platform-lib",
     "ext-rn-named-lib": "file:./tests-native/fixtures/ext-rn-named-lib",
@@ -215,20 +226,26 @@
     "rn-platform-flow-lib": "file:./tests-native/fixtures/rn-platform-flow-lib",
     "rn-singleton-lib": "file:./tests-native/fixtures/rn-singleton-lib",
     "test-renderer": "^1.3.1",
-    "tsdown": "0.23.3",
+    "tsdown": "0.23.4",
     "typescript": "7.0.2",
     "typescript-6": "npm:typescript@6.0.3",
     "untranspiled-jsx-lib": "file:./tests-native/fixtures/untranspiled-jsx-lib",
     "vite": "^8.3.5",
-    "vitest": "5.0.5"
+    "vitest": "5.0.5",
+    "vn-lib-esm-support": "file:./tests-native/fixtures/vn-lib-esm-support",
+    "vn-lib-jest-support": "file:./tests-native/fixtures/vn-lib-jest-support",
+    "vn-lib-own-mock": "file:./tests-native/fixtures/vn-lib-own-mock",
+    "vn-lib-plain-mock": "file:./tests-native/fixtures/vn-lib-plain-mock",
+    "vn-lib-plain-two-entries": "file:./tests-native/fixtures/vn-lib-plain-two-entries",
+    "vn-lib-two-entries": "file:./tests-native/fixtures/vn-lib-two-entries"
   },
   "peerDependencies": {
     "@babel/core": "*",
     "@react-native/babel-preset": "*",
-    "@testing-library/react-native": ">=12 <15",
-    "react": ">=18",
-    "vite": "^6.4.2 || ^7.3.2 || ^8.0.5",
-    "vitest": ">=4 <6"
+    "@testing-library/react-native": ">=13 <15",
+    "react": ">=19",
+    "vite": "^8.0.5",
+    "vitest": ">=5 <6"
   },
   "peerDependenciesMeta": {
     "@testing-library/react-native": {
@@ -242,6 +259,6 @@
     }
   },
   "engines": {
-    "node": ">=22.13.0 <23 || >=24.3.0"
+    "node": ">=22.22.3 <23 || >=24.12.0 <25 || >=26.0.0"
   }
 }

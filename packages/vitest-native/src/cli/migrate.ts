@@ -14,7 +14,12 @@ import { createRequire } from "node:module";
 import { usesVitePlus } from "../host.js";
 import fs from "node:fs";
 import path from "node:path";
-import { DEFAULT_ASSET_EXTS, presetShadowing, type PresetName } from "../preset-map.js";
+import {
+  DEFAULT_ASSET_EXTS,
+  LIBRARY_SETUP_FILES,
+  presetShadowing,
+  type PresetName,
+} from "../preset-map.js";
 import { detectEcosystemPackages } from "../native/ecosystem.js";
 import { allows, extractAllowlistPackages, type AllowlistEntry } from "./allowlist.js";
 import { HOT_RUNTIME_NOTE } from "./init.js";
@@ -34,7 +39,6 @@ import {
   pluginListSource,
   readBabelConfig,
   serializableOptions,
-  viteMajor,
 } from "./babel-config.js";
 import {
   activePresets,
@@ -312,6 +316,10 @@ export function analyzeJestConfig(root: string): MigrationReport {
   // detects and compiles by itself under them. A `transform` entry for one of those
   // would take precedence over detection and externalize it instead.
   const active: PresetName[] = activePresets(root, navigationOff ? ["navigation"] : []);
+  // A preset that steps aside under the native engine for a library that runs as itself
+  // with the Jest setup file it ships (LIBRARY_SETUP_FILES).
+  const runsWithOwnSetup = (preset: PresetName): boolean =>
+    LIBRARY_SETUP_FILES[preset] !== undefined && !active.includes(preset);
   const autoInlined = new Set(detectEcosystemPackages(root, [], [], [], active));
 
   const addAlias = (key: string, value: string) => {
@@ -385,7 +393,10 @@ export function analyzeJestConfig(root: string): MigrationReport {
         // A library's own test setup (react-native-unistyles/mocks, a jestSetup.js):
         // run under the jest-compat shim, its jest.mock() calls would replace the
         // preset that already shadows the package.
-        const setupPackage = /^(@[^/]+\/[^/]+|[^@./][^/]*)\//.exec(f)?.[1];
+        // As a package request, or by path into node_modules, the form libraries' own
+        // docs give (`./node_modules/react-native-gesture-handler/jestSetup.js`).
+        const asRequest = f.replace(/^(?:<rootDir>\/|\.\/)?node_modules\//, "");
+        const setupPackage = /^(@[^/]+\/[^/]+|[^@./<][^/]*)\//.exec(asRequest)?.[1];
         const setupPreset = setupPackage ? presetShadowing(setupPackage) : undefined;
         if (/react-native\/jest\/setup/.test(f)) {
           presetCovered.push(`${key}: '${f}' — the plugin injects its own setup; delete.`);
@@ -393,6 +404,16 @@ export function analyzeJestConfig(root: string): MigrationReport {
           presetCovered.push(
             `${key}: '${f}' — ${setupPackage}'s own test setup; the auto-detected ${setupPreset} ` +
               `preset shadows ${setupPackage}, and this file's jest.mock() calls would replace it; delete.`,
+          );
+        } else if (
+          setupPreset &&
+          runsWithOwnSetup(setupPreset) &&
+          // Only the file the engine runs itself; another of the package's files stays.
+          asRequest.replace(/\.js$/, "") === LIBRARY_SETUP_FILES[setupPreset]?.replace(/\.js$/, "")
+        ) {
+          presetCovered.push(
+            `${key}: '${f}' — ${setupPackage}'s own test setup, which the native engine runs ` +
+              `before the setup files (${LIBRARY_SETUP_FILES[setupPreset]}); delete.`,
           );
         } else if (/jest-expo/.test(f)) {
           attention.push(`${key}: '${f}' — ${expoPresetCoverage()}.`);
@@ -718,7 +739,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
       }
     }
 
-    // Jest's default is clearMocks: false; Vitest 5 defaults it to true (Vitest 4: false).
+    // Jest's default is clearMocks: false; Vitest 5 defaults it to true.
     // Under true, calls a module makes while it loads are cleared before each test, so
     // a test asserting on them fails only after migrating.
     if (config.clearMocks === undefined) {
@@ -755,6 +776,11 @@ export function analyzeJestConfig(root: string): MigrationReport {
           presetCovered.push(
             `__mocks__/${candidate} — the auto-detected ${preset} preset shadows ${candidate}; delete the manual mock.`,
           );
+        } else if (preset && runsWithOwnSetup(preset) && installedManifest(root, candidate)) {
+          presetCovered.push(
+            `__mocks__/${candidate} — the native engine runs ${candidate} with its own Jest setup ` +
+              `(${LIBRARY_SETUP_FILES[preset]}), which replaces its native layer; delete the manual mock.`,
+          );
         } else if (installedManifest(root, candidate) && installedTestsItself(root, candidate)) {
           attention.push(
             `__mocks__/${candidate} — ${candidate} ${installedMajor(root, candidate)} runs its own test ` +
@@ -779,14 +805,11 @@ export function analyzeJestConfig(root: string): MigrationReport {
   if (babel.source) {
     const classified = classifyBabelPlugins(babel, root, active);
     const required = classified.filter((p) => p.verdict === "required");
-    const vite = viteMajor(root);
     if (required.length) {
-      // Emitted only when it can be done exactly: Vite 8 with @rolldown/plugin-babel
-      // and @babel/core installed, and plugin options that are plain data. Otherwise
-      // a config that imports a missing package would not load at all.
+      // Emitted only when it can be done exactly: @rolldown/plugin-babel and @babel/core
+      // installed, and plugin options that are plain data. Otherwise a config that
+      // imports a missing package would not load at all.
       const canEmit =
-        vite !== null &&
-        vite >= 8 &&
         installed(root, "@rolldown/plugin-babel") &&
         installed(root, "@babel/core") &&
         required.every(serializableOptions);
@@ -798,7 +821,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
         }
       } else {
         for (const p of required) {
-          attention.push(`${babel.source}: ${p.reason} Required: ${babelRecipe(vite, required)}.`);
+          attention.push(`${babel.source}: ${p.reason} Required: ${babelRecipe(required)}.`);
         }
       }
     }
@@ -836,6 +859,15 @@ export function analyzeJestConfig(root: string): MigrationReport {
     }
     for (const p of classified.filter((c) => c.verdict === "unknown")) {
       attention.push(`${babel.source}: ${p.reason}`);
+    }
+    if (babel.lazyImports.length) {
+      attention.push(
+        `${babel.source}: ${babel.lazyImports.join(", ")} — under Jest a package import ran only when the test ` +
+          `first used it; here every import runs when its file loads. A module a test never touched is now ` +
+          `evaluated, so a partial jest.mock of something it needs can fail (e.g. "requireOptionalNativeModule ` +
+          `is not a function"). Give such a mock the rest of the module: ` +
+          `jest.mock('x', () => ({ ...jest.requireActual('x'), ... })).`,
+      );
     }
     if (!babel.evaluated) {
       attention.push(

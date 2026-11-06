@@ -16,7 +16,7 @@ const variant = (name: string, index: number) => {
     extends: false as const,
     root: import.meta.dirname + "/..",
     plugins: [
-      reactNative({
+      reactNative({ ownership: "error",
         engine: "native",
         hotRuntime: hot ? (name === "esm-off" ? { esmGeneration: false } : true) : false,
       }),

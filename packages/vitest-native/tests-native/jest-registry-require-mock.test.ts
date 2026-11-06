@@ -57,8 +57,20 @@ describe("jest.requireMock", () => {
     expect(() => jest.requireActual("vn-virtual-module")).toThrow(/Cannot find module/);
   });
 
-  it("has no Node-side mock for a factory-less jest.mock: require() gets the module", () => {
-    // Vitest builds that mock (automock or __mocks__) for imports only.
+  it("has no Node-side mock for a factory-less jest.mock until the test imports it", () => {
+    // Vitest builds that mock (automock or __mocks__) when the test imports the module.
+    // Without experimental.nodeMocks a require gets the module; with it (and under
+    // ownershipModel 'resolution', which turns it on) the require fails by name until
+    // the import has built the mock, rather than loading the real module beside it.
+    const servesNode = (
+      globalThis as unknown as Record<symbol, { channel(n: string): { servesNode?: boolean } }>
+    )[Symbol.for("vitest-native.node-dispatch")]?.channel("mocks").servesNode;
+    if (servesNode) {
+      expect(() => require("./fixtures/alias-app/registry/counter")).toThrow(
+        expect.objectContaining({ code: "MOCK_NOT_SEEN_BY_NODE" }),
+      );
+      return;
+    }
     const required = require("./fixtures/alias-app/registry/counter");
     expect(jest.isMockFunction(required.increment)).toBe(false);
     expect(required.increment()).toBe(1);

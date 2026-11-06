@@ -4,7 +4,7 @@
 // protocol, and a failure is returned for the parent to report once.
 import fs from "node:fs";
 import { Worker } from "node:worker_threads";
-import { buildRegistry } from "./registry.mjs";
+import { buildLibraryRegistry, buildRegistry } from "./registry.mjs";
 
 // A compile runs synchronously on this thread, so this process cannot notice its parent
 // dying, and the parent's timeout dies with the parent. A watchdog thread ends the
@@ -51,9 +51,26 @@ try {
       count = JSON.parse(fs.readFileSync(`${registryFile}.json`, "utf8")).count ?? null;
     } catch {}
   }
+  // The library registry is layered on React Native's and built in the same child,
+  // after it. Its failure is reported apart, so it never costs React Native's.
+  let libraryRegistryFile = null;
+  let libraryError;
+  if (registryFile && (options.libraryEntries?.length ?? 0) > 0) {
+    try {
+      libraryRegistryFile = buildLibraryRegistry({
+        ...options,
+        diagnostics: false,
+        failOnError: true,
+      });
+    } catch (error) {
+      libraryError = messageOf(error);
+    }
+  }
   respond({
     ok: registryFile !== null,
     registryFile,
+    libraryRegistryFile,
+    libraryError,
     count,
     durationMs: Math.round(performance.now() - started),
     heapUsed: process.memoryUsage().heapUsed,

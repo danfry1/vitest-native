@@ -71,7 +71,18 @@ describe("bounded registry compiler process", () => {
       throw new Error("warm cache launched the compiler");
     });
 
-    expect(result).toBe(registryFile);
+    expect(result).toEqual({ registry: registryFile, libraryRegistry: null });
+
+    // A library entry that does not resolve keeps React Native's warm registry, and
+    // launches nothing: a build would fail the same way.
+    const withLibrary = await buildRegistryFor(
+      { ...options, libraryEntries: ["not-installed-library"] },
+      async () => {
+        compilerCalls++;
+        throw new Error("an unresolvable library entry launched the compiler");
+      },
+    );
+    expect(withLibrary).toEqual({ registry: registryFile, libraryRegistry: null });
     expect(compilerCalls).toBe(0);
   });
 
@@ -269,8 +280,48 @@ describe("background registry build", () => {
       JSON.stringify({ key, count: 1, manifest: [[manifestFile, stat.mtimeMs, stat.size]] }),
     );
     held.finish();
-    expect(await waiting).toBe(registryFile);
+    expect(await waiting).toEqual({ registry: registryFile, libraryRegistry: null });
     expect(compiles).toBe(0);
+  });
+
+  it("returns a warm hit without compiling, and asks to wait when only the library registry is missing", () => {
+    const options = coldOptions("warm-library");
+    const key = registryKey(options) as string;
+    const registryDir = path.join(
+      options.projectRoot,
+      "node_modules",
+      ".cache",
+      "vitest-native",
+      "registry",
+    );
+    fs.mkdirSync(registryDir, { recursive: true });
+    const registryFile = path.join(registryDir, `rn-ios-${key}.cjs`);
+    fs.writeFileSync(registryFile, "module.exports = {};\n");
+    const manifestFile = path.join(options.projectRoot, "package.json");
+    const stat = fs.statSync(manifestFile);
+    fs.writeFileSync(
+      `${registryFile}.json`,
+      JSON.stringify({ key, count: 1, manifest: [[manifestFile, stat.mtimeMs, stat.size]] }),
+    );
+    const library = path.join(options.projectRoot, "node_modules", "vn-warm-library");
+    fs.mkdirSync(library);
+    fs.writeFileSync(
+      path.join(library, "package.json"),
+      JSON.stringify({ name: "vn-warm-library" }),
+    );
+    fs.writeFileSync(path.join(library, "index.js"), "module.exports = 1;\n");
+    const held = heldCompiler();
+
+    expect(startRegistryBuild(options, held.compiler)).toEqual({
+      registry: registryFile,
+      libraryRegistry: null,
+    });
+    // React Native's registry is warm and the library registry is not built: the caller
+    // builds it before the run (buildRegistryFor), so nothing compiles in the background.
+    expect(
+      startRegistryBuild({ ...options, libraryEntries: ["vn-warm-library"] }, held.compiler),
+    ).toEqual({ wait: true });
+    expect(held.calls).toHaveLength(0);
   });
 
   it("recognises CI from CI or a provider's variable, unless CI=false", () => {

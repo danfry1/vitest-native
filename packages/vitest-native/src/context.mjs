@@ -14,7 +14,6 @@ export const CONTEXT_VERSION = 1;
 
 /** Hand-set diagnostic switches that stay environment variables. */
 export const ESCAPE_HATCHES = Object.freeze([
-  "VITEST_NATIVE_LOADER_THREAD",
   "VITEST_NATIVE_NO_REGISTRY",
   "VITEST_NATIVE_HOT_ESM_GEN",
   "VITEST_NATIVE_HOT_STATE_MUTATION",
@@ -41,7 +40,9 @@ const SCHEMA = {
   registryPending: {
     valid: (v) => object(v) && absolute(v.file) && typeof v.since === "number",
   },
+  libraryRegistry: { valid: absolute },
   ownership: { valid: object },
+  ownershipGuard: { valid: object },
   projectDirs: { valid: strings },
   requireAliases: {
     valid: (v) =>
@@ -49,14 +50,20 @@ const SCHEMA = {
   },
   requireAliasesSkipped: { valid: strings },
   presetNames: { valid: strings },
+  nodeMocks: { valid: (v) => v === true },
   presetConfig: { valid: object },
   presetExports: { valid: object },
   presetModules: { valid: strings },
   presetDisabled: { valid: strings },
+  librarySetupFiles: { valid: strings },
   mocks: { valid: (v) => v !== undefined },
   knownNativeModules: { valid: strings },
   nativeModuleSpecs: { valid: object },
   nativeModules: { valid: (v) => v === "permissive" },
+  // experimental.ownershipModel (ADR-0004/0005): absent unless the project opts in.
+  ownershipModel: { valid: (v) => v === "resolver" || v === "resolution" },
+  resolverInputs: { valid: object },
+  resolverInputsHash: { valid: (v) => typeof v === "string" },
   expoSdks: {
     valid: (v) => Array.isArray(v) && v.length === 2 && v.every((n) => Number.isInteger(n)),
   },

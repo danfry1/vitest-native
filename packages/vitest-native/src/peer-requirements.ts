@@ -6,15 +6,11 @@ import path from "node:path";
  * The supported peer-dependency ranges — single source consumed by the plugin's
  * startup validation (plugin.ts configResolved) and the CLI's doctor command,
  * so the two can never drift apart.
- *
- * `minimumByMajor` entries are security floors: the minimum for that major is
- * the release carrying a security fix, not just the earliest compatible one.
  */
 export interface PeerRequirement {
   name: string;
   minimum: string;
   maximumMajor?: number;
-  minimumByMajor?: Record<number, string>;
   /**
    * An optional peer: absent is fine, and a version outside the range is reported
    * but does not block. The plugin has always treated these as a warning; `doctor`
@@ -24,18 +20,15 @@ export interface PeerRequirement {
 }
 
 export const PEER_REQUIREMENTS: PeerRequirement[] = [
-  // Vitest 5 is supported: the whole gate (native, hot, cross-check, soak) runs
-  // against it in CI. The ceiling stays one major ahead of what is proven rather
-  // than open-ended — Vitest churn is what bit-rotted this plugin's predecessor,
-  // so a new major must be verified before it is promised.
-  { name: "vitest", minimum: "4.0.0", maximumMajor: 6 },
-  {
-    name: "vite",
-    minimum: "6.4.2",
-    maximumMajor: 9,
-    minimumByMajor: { 6: "6.4.2", 7: "7.3.2", 8: "8.0.5" },
-  },
-  { name: "react", minimum: "18.0.0" },
+  // Vitest 5 and Vite 8 only (docs/versioning.md). Vitest 4 and Vite 6/7 are refused
+  // with UNSUPPORTED_PEER rather than kept on compatibility paths. The ceiling stays one
+  // major ahead of what is proven rather than open-ended: a new major must be verified
+  // before it is promised.
+  { name: "vitest", minimum: "5.0.0", maximumMajor: 6 },
+  // 8.0.5 is a security floor: the Vite 8 release carrying a security fix.
+  { name: "vite", minimum: "8.0.5", maximumMajor: 9 },
+  // React 19 only: the version React Native's supported releases (0.86–0.88) use.
+  { name: "react", minimum: "19.0.0" },
   // Optional: only suites that render need it. The range lived in three places —
   // this package's peerDependencies, the plugin's startup check and doctor's own
   // hardcoded major comparison — and none of the three was pinned to the others, so
@@ -43,7 +36,7 @@ export const PEER_REQUIREMENTS: PeerRequirement[] = [
   // peerDependencies range.
   {
     name: "@testing-library/react-native",
-    minimum: "12.0.0",
+    minimum: "13.0.0",
     maximumMajor: 15,
     optional: true,
   },
@@ -151,5 +144,39 @@ export function unsupportedExpoSdkMessage(expoVersion: string): string | null {
     ? `Expo SDK ${sdk} (expo ${expoVersion}) is not supported: ${supported}. Upgrade to Expo ` +
         `SDK ${expoSdkList("or")}; on an older SDK, tests that load Expo modules can fail.`
     : `Expo SDK ${sdk} (expo ${expoVersion}) is newer than this release supports: ${supported}. ` +
+        `Check for a newer vitest-native.`;
+}
+
+/**
+ * The React Native releases the native engine supports: 0.86 (Expo SDK 57's) to 0.88, the
+ * rows of the CI matrix (.github/rn-matrix.json). Below the floor the native engine stops
+ * with UNSUPPORTED_PEER; a newer minor only warns. The mock engine reimplements React
+ * Native and does not load it, so the range does not apply there.
+ */
+export const SUPPORTED_REACT_NATIVE = { minimumMinor: 86, maximumMinor: 88 } as const;
+
+/** The minor of a 0.x React Native version ("0.86.3" → 86), or null. */
+function reactNativeMinorOf(version: string): number | null {
+  const match = /^0\.(\d+)\.\d+(?:[-+].*)?$/.exec(version);
+  return match ? Number(match[1]) : null;
+}
+
+/** Whether a React Native version is older than the supported range. */
+export function isBelowSupportedReactNative(version: string): boolean {
+  const minor = reactNativeMinorOf(version);
+  return minor !== null && minor < SUPPORTED_REACT_NATIVE.minimumMinor;
+}
+
+/** Why a React Native version is outside the supported range, or null. */
+export function unsupportedReactNativeMessage(version: string): string | null {
+  const minor = reactNativeMinorOf(version);
+  if (minor === null) return null;
+  const { minimumMinor, maximumMinor } = SUPPORTED_REACT_NATIVE;
+  if (minor >= minimumMinor && minor <= maximumMinor) return null;
+  const supported = `the native engine supports react-native 0.${minimumMinor}–0.${maximumMinor}`;
+  return minor < minimumMinor
+    ? `react-native ${version} is not supported: ${supported}. Upgrade react-native to ` +
+        `0.${minimumMinor} or later (Expo SDK ${SUPPORTED_EXPO_SDKS.minimum} or later).`
+    : `react-native ${version} is newer than this release supports: ${supported}. ` +
         `Check for a newer vitest-native.`;
 }

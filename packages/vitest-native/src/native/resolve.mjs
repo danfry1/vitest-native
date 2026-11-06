@@ -2,7 +2,9 @@
 // then .native, then generic TS/JS variants, and fall back to a directory index.
 // Shared by the require hook and the loader.
 import fs from "node:fs";
+import Module from "node:module";
 import path from "node:path";
+import { packageNameOf } from "./match.mjs";
 
 /**
  * Metro's default `sourceExts`, in its order. Kept as data rather than spelled out
@@ -185,6 +187,25 @@ export function resolvePlatformFile(absBase, platform = "ios", sourceExts = METR
  * `path.resolve` drops a trailing separator, and with it the request's meaning: Node
  * and Metro both resolve `./lib/` to the directory, never to a sibling `lib.ts`.
  */
+// Extensions a request always names as its own, whatever the source and asset lists say.
+const EXPLICIT_EXTS = new Set(["js", "mjs", "cjs", "json", "node"]);
+
+/**
+ * Whether `request` ends in an extension, as Metro decides it: a known source or asset
+ * extension (or one Node always treats as explicit), not anything after the last dot.
+ * `./Linking.types` names no extension, so it is looked up as Linking.types.js and the
+ * rest; `path.extname` would have read `.types` and stopped the lookup (#506).
+ */
+export function hasKnownExtension(request, sourceExts, assetExts) {
+  const ext = path.extname(request).slice(1).toLowerCase();
+  if (ext === "") return false;
+  if (EXPLICIT_EXTS.has(ext)) return true;
+  if (sourceExts.some((source) => String(source).replace(/^\./, "").toLowerCase() === ext)) {
+    return true;
+  }
+  return assetExts.has(ext);
+}
+
 export function resolveRelativePlatformFile(request, fromFile, platform, sourceExts) {
   const base = path.resolve(path.dirname(fromFile), request);
   return resolvePlatformFile(
@@ -213,7 +234,32 @@ function isFile(file) {
 }
 
 function scanPlatformFile(absBase, platform, sourceExts) {
-  const extensions = extensionsFor(platform, sourceExts);
+  return scanWithExtensions(absBase, extensionsFor(platform, sourceExts));
+}
+
+/**
+ * `resolveRelativePlatformFile` with an explicit extension list: a library's own Jest
+ * resolver can narrow the list for its files (jest-resolvers.mjs).
+ */
+export function resolveRelativeWithExtensions(request, fromFile, extensions) {
+  const base = path.resolve(path.dirname(fromFile), request);
+  const key =
+    "\0ext\0" +
+    extensions.join("\0") +
+    "\0" +
+    base +
+    (TRAILING_SEPARATOR.test(request) ? path.sep : "");
+  const cached = resolveCache.get(key);
+  if (cached !== undefined) return cached;
+  const resolved = scanWithExtensions(
+    TRAILING_SEPARATOR.test(request) ? base + path.sep : base,
+    extensions,
+  );
+  resolveCache.set(key, resolved);
+  return resolved;
+}
+
+function scanWithExtensions(absBase, extensions) {
   // metro-resolver resolveModulePath (src/resolve.js:316-350): a path ending in a
   // separator skips the file lookup and goes straight to the directory.
   const dirOnly = TRAILING_SEPARATOR.test(absBase);
@@ -275,14 +321,74 @@ export function resolveDeepPackageFile(request, fromDir, platform, sourceExts = 
   const pkgDir = findPackageDir(fromDir, pkg);
   if (!pkgDir) return null;
   const base = path.join(pkgDir, rest);
-  try {
-    if (fs.statSync(base).isFile()) return base;
-  } catch {}
+  if (fs.statSync(base, { throwIfNoEntry: false })?.isFile()) return base;
   // `Foo.js` may exist only as a platform variant, and extensionless specifiers
   // need the full Metro candidate list either way.
   const stem = /\.[a-z0-9]+$/i.test(base) ? base.replace(/\.js$/, "") : base;
   return resolvePlatformFile(stem, platform, sourceExts);
 }
+
+/**
+ * Whether `request` names a whole installed package whose `react-native` field the
+ * engine follows (resolvePackageMainField): not a path, a subpath, a builtin, a subpath
+ * import (`#x`), or React Native itself, which its own registry serves.
+ */
+export function isWholePackageRequest(request) {
+  return (
+    !request.startsWith(".") &&
+    !request.startsWith("#") &&
+    !path.isAbsolute(request) &&
+    packageNameOf(request) === request &&
+    request !== "react-native" &&
+    !request.startsWith("@react-native/") &&
+    !Module.isBuiltin(request)
+  );
+}
+
+/**
+ * The entry a bare `request` for a whole package resolves to through its `react-native`
+ * field, as Metro resolves it and as Vite does for an `import` under the native engine
+ * (native/apply.ts `resolve.mainFields`), or null. Node's `require` reads `main`, so a
+ * package naming a different file in each was loaded twice, from two files: the test's
+ * import got one instance and a library's require another (react-native-worklets:
+ * `src/index.ts` and `lib/module/index.js`). Only for a
+ * package without an `exports` map, which Node and Vite already read alike through the
+ * `react-native` condition.
+ */
+export function resolvePackageMainField(
+  request,
+  fromDir,
+  platform,
+  sourceExts = METRO_SOURCE_EXTS,
+) {
+  // Every bare require reaches here, so both lookups are cached: which directory holds
+  // the package from `fromDir`, and what that package.json says. Neither changes within
+  // a worker's life.
+  const dirKey = `${fromDir}\0${request}`;
+  let pkgDir = packageDirCache.get(dirKey);
+  if (pkgDir === undefined) {
+    pkgDir = findPackageDir(fromDir, request);
+    packageDirCache.set(dirKey, pkgDir);
+  }
+  if (!pkgDir) return null;
+  let manifest = manifestCache.get(pkgDir);
+  if (manifest === undefined) {
+    try {
+      manifest = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf8"));
+    } catch {
+      manifest = null;
+    }
+    manifestCache.set(pkgDir, manifest);
+  }
+  if (!manifest) return null;
+  if (manifest.exports !== undefined || typeof manifest["react-native"] !== "string") return null;
+  const target = path.join(pkgDir, manifest["react-native"]);
+  if (fs.statSync(target, { throwIfNoEntry: false })?.isFile()) return target;
+  return resolvePlatformFile(target.replace(/\.[cm]?[jt]sx?$/, ""), platform, sourceExts);
+}
+
+const packageDirCache = new Map();
+const manifestCache = new Map();
 
 function findPackageDir(startDir, pkg) {
   let dir = path.resolve(startDir);

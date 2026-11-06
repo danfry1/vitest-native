@@ -26,4 +26,14 @@ describe("native engine: setInsets drives the safe-area preset", () => {
     );
     expect(screen.getByText("top:99 bottom:7")).toBeTruthy();
   });
+
+  it("is undone by resetAllMocks(), so the next test gets the provider's insets", async () => {
+    // The previous test set { top: 99, bottom: 7 }; afterEach reset it.
+    await render(
+      <SafeAreaProvider>
+        <Insets />
+      </SafeAreaProvider>,
+    );
+    expect(screen.getByText("top:0 bottom:0")).toBeTruthy();
+  });
 });

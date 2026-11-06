@@ -62,13 +62,11 @@ function render(cells: Parameters<typeof reportsDir>[0]): string {
 
 /** Every cell the matrix workflow gates — the set the headline quantifies over. */
 const ALL_CELLS = (() => {
-  const rns = ["0.81", "0.82", "0.83", "0.84", "0.85", "0.86", "0.87", "0.88"];
+  const rns = ["0.86", "0.87", "0.88"];
   const cells = rns.flatMap((rn) => [
     { rn, flavor: "locked", vitest: "5.0.1" },
     { rn, flavor: "latest-supported", vitest: "5.0.1" },
   ]);
-  cells.push({ rn: "0.81", flavor: "v4", vitest: "4.1.11" });
-  cells.push({ rn: "0.88", flavor: "v4", vitest: "4.1.11" });
   return cells;
 })();
 
@@ -83,15 +81,6 @@ describe("fidelity matrix cells", () => {
     expect(new Set(rows).size).toBe(rows.length);
   });
 
-  it("does not label a v4 floor cell as locked", () => {
-    const page = render([
-      { rn: "0.86", flavor: "locked", vitest: "5.0.1" },
-      { rn: "0.87", flavor: "v4", vitest: "4.1.11" },
-    ]);
-    expect(page).toContain("| v4 |");
-    expect(tableRows(page).filter((r) => r.includes("| locked |")).length).toBe(1);
-  });
-
   it("claims the full matrix only when every gated cell reported", () => {
     const page = render(ALL_CELLS);
     expect(page).toContain("Every probe matches on every gated React Native version.");
@@ -99,17 +88,17 @@ describe("fidelity matrix cells", () => {
   });
 
   it("qualifies the claim and names the gap when cells are missing", () => {
-    const page = render(ALL_CELLS.filter((c) => !(c.rn === "0.84" && c.flavor === "locked")));
+    const page = render(ALL_CELLS.filter((c) => !(c.rn === "0.87" && c.flavor === "locked")));
     expect(page).not.toContain("on every gated React Native version.");
     expect(page).toContain("Incomplete matrix data");
-    expect(page).toContain("0.84-locked");
+    expect(page).toContain("0.87-locked");
     expect(page).toContain(`missing 1 of the ${ALL_CELLS.length} gated cells`);
   });
 
   it("counts a wholly absent flavor as missing rather than passing silently", () => {
-    const page = render(ALL_CELLS.filter((c) => c.flavor !== "v4"));
+    const page = render(ALL_CELLS.filter((c) => c.flavor !== "latest-supported"));
     expect(page).toContain("Incomplete matrix data");
-    expect(page).toContain("0.81-v4");
-    expect(page).toContain("0.88-v4");
+    expect(page).toContain("0.86-latest-supported");
+    expect(page).toContain("0.88-latest-supported");
   });
 });

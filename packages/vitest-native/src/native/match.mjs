@@ -271,6 +271,31 @@ export function packageNameOf(specifier) {
   return specifier.split("/")[0];
 }
 
+/**
+ * Whether `file` is Vitest's or Vite's own code (the module runner, Vitest's evaluator):
+ * a request it makes is Vitest's, such as its load of a mocked module's original.
+ */
+export function isVitestOwnFile(file) {
+  return (
+    typeof file === "string" &&
+    /[\\/]node_modules[\\/](?:vitest|vite|@vitest[\\/][^\\/]+)[\\/]dist[\\/]/.test(file)
+  );
+}
+
+/**
+ * The package `file` belongs to: the one after its last `node_modules/`, so a package
+ * nested inside another's node_modules is its own. Null outside node_modules.
+ */
+export function owningPackageOfFile(file) {
+  const norm = toPosix(file);
+  const marker = "/node_modules/";
+  const at = norm.lastIndexOf(marker);
+  if (at === -1) return null;
+  const rest = norm.slice(at + marker.length);
+  const pkg = packageNameOf(rest);
+  return pkg === rest ? null : pkg;
+}
+
 // The leaf module name a subpath import points at ("pkg/lib/Swipeable" or
 // "pkg/Swipeable.ios.js" → "Swipeable"), used to pick the matching export off a
 // preset/RN mock. Returns null when there is no usable leaf (trailing slash).
@@ -290,7 +315,11 @@ const UTILITY_SUBPATH_LEAVES = new Set(["jest-utils", "jestSetup", "mock", "plug
 
 export function isUtilitySubpath(specifier) {
   const leaf = subpathLeafOf(specifier);
-  return leaf !== null && UTILITY_SUBPATH_LEAVES.has(leaf);
+  if (leaf !== null && UTILITY_SUBPATH_LEAVES.has(leaf)) return true;
+  // A package's `jest/` directory is its test tooling (react-native-worklets'
+  // jest/resolver.js, which reanimated's own resolver requires by name).
+  const pkg = packageNameOf(specifier);
+  return pkg !== specifier && specifier.slice(pkg.length + 1).split("/")[0] === "jest";
 }
 
 // The preset package a RESOLVED file belongs to, when the import that reached it came

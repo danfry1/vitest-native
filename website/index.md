@@ -53,8 +53,8 @@ import { render, screen } from '@testing-library/react-native'
 import { MyComponent } from './MyComponent'
 
 describe('MyComponent', () => {
-  it('renders correctly', () => {
-    render(<MyComponent title="Hello" />)
+  it('renders correctly', async () => {
+    await render(<MyComponent title="Hello" />)
     expect(screen.getByText('Hello')).toBeTruthy()
   })
 })
@@ -87,13 +87,13 @@ It is **not** primarily a speed play — choose it for the fidelity option and D
 
 ## How it's verified
 
-The reproducible guarantee is a **CI-gated behavioral cross-check**: a corpus of probes runs the same assertions under the mock engine **and** real React Native across React Native 0.81–0.88, and any divergence fails the build. Anyone can run it (`bun run crosscheck`), and the full corpus with its current pass count is published in the [Fidelity Report](/guide/fidelity). On top of that, the full CI gate runs lint, typecheck, build, and the mock + native + hot suites across an OS × Node matrix.
+The reproducible guarantee is a **CI-gated behavioral cross-check**: a corpus of probes runs the same assertions under the mock engine **and** real React Native across React Native 0.86–0.88, and any divergence fails the build. Anyone can run it (`bun run crosscheck`), and the full corpus with its current pass count is published in the [Fidelity Report](/guide/fidelity). On top of that, the full CI gate runs lint, typecheck, build, and the mock + native + hot suites across an OS × Node matrix.
 
 Pinned public apps are also run as **external integration observations**. They are useful tripwires,
 but their custom migration config, dependency changes, snapshots, and Jest-era shims mean their
 pass counts do not define vitest-native capability or fidelity. A change is reduced into a minimal
 package-owned test before it is classified. See the [validation model](/guide/validation-model).
 
-> **Beta.** Some APIs may still shift before 1.0. Maintained successor to [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native) — same core idea, rebuilt for modern Vitest (v4).
+> **Beta.** Some APIs may still shift before 1.0. Maintained successor to [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native) — same core idea, rebuilt for Vitest 5.
 
 [Get started →](/guide/)

@@ -40,7 +40,7 @@ test("externalized package state was reset between files", () => {
 test("the test stack resolves unstamped; ordinary packages resolve stamped", () => {
   expect(resolvedUrls.self).toContain("vnhot=");
   expect(resolvedUrls.vitest).not.toContain("vnhot=");
-  expect(resolvedUrls.snapshot).not.toContain("vnhot=");
+  expect(resolvedUrls.mocker).not.toContain("vnhot=");
   expect(resolvedUrls.chai).not.toContain("vnhot=");
   expect(resolvedUrls.engine).not.toContain("vnhot=");
 });

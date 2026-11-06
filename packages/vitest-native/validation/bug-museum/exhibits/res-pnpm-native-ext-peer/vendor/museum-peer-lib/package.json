@@ -4,6 +4,6 @@
   "main": "index.js",
   "peerDependencies": {
     "react-native": "*",
-    "react-native-worklets": "*"
+    "react-native-reanimated": "*"
   }
 }

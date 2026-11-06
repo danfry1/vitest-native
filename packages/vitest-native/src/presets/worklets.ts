@@ -1,17 +1,20 @@
 import type { Preset } from "../types.js";
 import { builtInPreset } from "./built-in.js";
+import { libraryMockModule } from "./library-mock.js";
+import { WORKLETS_MOCK } from "../preset-map.js";
 
-// react-native-worklets is reanimated's low-level runtime (and is imported
-// directly by apps, e.g. `import { scheduleOnUI } from 'react-native-worklets'`).
-// It ships a Jest mock at `react-native-worklets/lib/module/mock`, but that file
-// is ESM that ends with `module.exports = …`; under the native engine RN and its
-// ecosystem are externalized, so requiring it through Node throws "module is not
-// defined in ES module scope" and takes down the whole test file.
+// react-native-worklets is reanimated's low-level runtime (and is imported directly
+// by apps, e.g. `import { scheduleOnUI } from 'react-native-worklets'`).
 //
-// This preset shadows the package with a self-contained mock modelled on
-// worklets' own `mock.js` WorkletAPI. Schedulers run their worklet synchronously
-// (matching the reanimated preset's `runOnJS`/`runOnUI => fn` convention) so
-// UI-thread work is observable in tests without fake-timer juggling.
+// Under the native engine the module is worklets' own Jest mock
+// (`lib/module/mock.js`), as a Jest suite installs it with
+// `jest.mock('react-native-worklets', () => require('react-native-worklets/lib/module/mock'))`,
+// served from the library registry. Reanimated's own mock runs over it, and an app's
+// import and require of the package both get it, so there is one worklets.
+//
+// Under the mock engine, and for a worklets without that mock, the module below
+// serves: a self-contained mock modelled on worklets' own WorkletAPI, whose schedulers
+// run their worklet synchronously, as worklets' mock does.
 
 // Mirrors worklets' RuntimeKind enum (lib/module/runtimeKind.js). Tests run on
 // the React Native runtime.
@@ -25,7 +28,7 @@ export function worklets(): Preset {
   return builtInPreset({
     name: "worklets",
     modules: {
-      "react-native-worklets": {
+      "react-native-worklets": libraryMockModule(WORKLETS_MOCK, {
         exports: [
           "runOnJS",
           "runOnUI",
@@ -132,7 +135,7 @@ export function worklets(): Preset {
           api.default = api;
           return api;
         },
-      },
+      }),
     },
   });
 }

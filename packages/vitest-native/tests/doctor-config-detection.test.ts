@@ -40,7 +40,7 @@ function project(files: Record<string, string>): string {
 
 /** The Config section of the report. */
 function configLines(root: string): string {
-  const { lines } = runDoctor(root, "22.13.0");
+  const { lines } = runDoctor(root, "22.22.3");
   return lines.slice(lines.lastIndexOf("Config")).join("\n");
 }
 
@@ -144,6 +144,19 @@ export default { plugins: [reactNative()] };`;
     );
     expect(report).not.toContain("uses vitest-native.");
     expect(report).toContain("only mentioned in a comment");
+  });
+
+  it("says 'resolution' turns nodeMocks on, and only for 'resolution'", () => {
+    const withModel = (model: string) =>
+      configLines(
+        project({
+          "vitest.config.ts": `import { reactNative } from "vitest-native";
+export default { plugins: [reactNative({ experimental: { ownershipModel: "${model}" } })] };`,
+        }),
+      );
+    expect(withModel("resolution")).toContain("'resolution' turns on experimental.nodeMocks");
+    expect(withModel("resolver")).toContain("ownershipModel: 'resolver' is on");
+    expect(withModel("resolver")).not.toContain("nodeMocks");
   });
 
   it("still reports a missing config", () => {

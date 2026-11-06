@@ -1,5 +1,26 @@
 # vitest-native
 
+## 0.14.1
+
+### Patch Changes
+
+- 0dd12ca: **Native engine: a React Native package's required peer that your package manager installs for you (pnpm, npm 7+ and bun do), such as expo-router's `expo-linking`, is now compiled.** No action needed. Remove `transform: ['expo-linking']` if you added it for this.
+
+  - Before, a required peer that no `package.json` declared stayed uncompiled. It then failed with "Cannot require() ES Module … not yet fully loaded" or "Cannot find module …/Linking.types".
+  - Optional peers, and peers a package names only in its config plugin, scripts or types, are still not followed.
+
+  Thanks @AntSplash360 for reporting this (#296).
+
+- 967d3cf: **Under the native engine, a relative import whose name has a dot, such as `./Linking.types`, now resolves.** A package that Node loads as an ES module failed with "Cannot find module …/Linking.types" because the part after the dot was read as a file extension. Only a known source or asset extension counts now, as in Metro, so `./Linking.types` finds `Linking.types.js`, and a platform variant such as `Theme.config.native.js` wins over `Theme.config.js`. No action needed.
+
+  Thanks @AntSplash360 for reporting this (#296).
+
+- 8ea7273: **`vitest-native migrate` now reads `jest.config.ts`, `.mjs`, `.mts` and `.cts`, in Jest's own lookup order.** TypeScript configs load through Node's type stripping (Node 22.18 or later). A config that still can't be loaded, such as one that relies on ts-node (an extensionless relative import, an `enum`), uses top-level `await` or exports a function, is now listed under "Needs your attention" with the reason, where before the report silently left out its settings. No action needed.
+
+- e5ff183: **`vitest-native migrate` now warns when the project's Babel config makes imports lazy under Jest.** With `babel-preset-expo`'s `lazyImports`, `@react-native/babel-preset`'s `lazyImportExportTransform`, the CommonJS transform's `lazy` option or an inline-requires plugin, Jest ran a package import only when a test first used it, while vitest-native runs every import when its file loads. A module a test never touched is then evaluated, and a partial `jest.mock` of something it needs can fail. The report now lists the setting under "Needs your attention". Babel plugin names under the `@babel/` scope are also now read the way Babel reads them.
+
+  Use `jest.requireActual` to give such a mock the rest of its module: `jest.mock('x', () => ({ ...jest.requireActual('x'), ... }))`.
+
 ## 0.14.0
 
 ### Upgrading from 0.13

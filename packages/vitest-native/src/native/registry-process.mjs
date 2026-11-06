@@ -1,7 +1,12 @@
 // Parent-side controller for bounded cold registry compilation.
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { _warnRegistryUnavailable, buildRegistry, registryLocation } from "./registry.mjs";
+import {
+  _warnRegistryUnavailable,
+  buildLibraryRegistry,
+  buildRegistry,
+  registryLocation,
+} from "./registry.mjs";
 import { runBoundedProcess } from "./bounded-process.mjs";
 
 const INITIAL_HEAP_MB = 96;
@@ -64,11 +69,6 @@ function compilerInput(options) {
   return seams.compilerDelayMs > 0 ? { ...options, testDelayMs: seams.compilerDelayMs } : options;
 }
 
-/** Validate through the cache contract every reader uses, never the child's word. */
-function validatedRegistry(options) {
-  return buildRegistry({ ...options, cacheOnly: true, failOnError: true, diagnostics: false });
-}
-
 /**
  * The compiler's priority when it runs beside the tests: the lowest, so it takes only
  * CPU the workers leave idle and never slows the run it is building for.
@@ -124,21 +124,35 @@ function removeSignalHandlers() {
  * Native file by file throughout, which costs more than the build past roughly thirty
  * files per worker). So workers pick it up mid-run (activeRegistry in context.mjs).
  *
- * Returns `{ registry }` on a hit; on a miss `{ pending: { file, since } }`, `since`
- * being the metadata's mtime before the lookup (0 when absent); `{}` when no registry
- * can be had. settleRegistryBuilds, a stop signal or this process exiting ends it.
+ * Returns `{ registry, libraryRegistry }` on a hit; on a miss `{ pending: { file, since } }`,
+ * `since` being the metadata's mtime before the lookup (0 when absent); `{}` when no
+ * registry can be had. settleRegistryBuilds, a stop signal or this process exiting ends it.
+ *
+ * The library registry (`libraryEntries`) compiles in the same child, after React
+ * Native's. A run picks up React Native's registry mid-run, and the library registry
+ * from the next run: until then those libraries load file by file, as they do when it
+ * cannot be built. When React Native's registry is warm and only the library registry
+ * is missing, it returns `{ wait: true }`: that build is a fraction of React Native's,
+ * so the caller builds it first (buildRegistryFor) rather than run without it.
  */
 export function startRegistryBuild(options, compiler = compileRegistryInChild) {
   try {
-    if (process.env.VITEST_NATIVE_NO_REGISTRY === "1") return { registry: buildRegistry(options) };
+    if (process.env.VITEST_NATIVE_NO_REGISTRY === "1") {
+      buildRegistry(options);
+      return {};
+    }
     const location = registryLocation(options);
     const { registryFile, metaFile } = location;
     const joined = inFlight.get(registryFile);
     if (joined) return { pending: joined.pending };
     // Before the lookup, so a registry published in between still differs from `since`.
     const since = fs.statSync(metaFile, { throwIfNoEntry: false })?.mtimeMs ?? 0;
-    const cached = buildRegistry({ ...options, location, cacheOnly: true, failOnError: true });
-    if (cached) return { registry: cached };
+    const warm = cachedRegistries(options, location);
+    if (warm.complete) {
+      if (warm.libraryError) _warnRegistryUnavailable(warm.libraryError);
+      return { registry: warm.registry, libraryRegistry: warm.libraryRegistry };
+    }
+    if (warm.registry) return { wait: true };
 
     const controller = new AbortController();
     const started = performance.now();
@@ -153,15 +167,15 @@ export function startRegistryBuild(options, compiler = compileRegistryInChild) {
         });
         // A concurrent run's compiler may have published it instead, visible a moment
         // later where rename cannot replace a file (Windows), as in buildRegistryFor.
-        let file = validatedRegistry({ ...options, location });
-        if (!file && !result.ok && !result.cancelled) {
+        let built = cachedRegistries(options, location);
+        if (!built.complete && !result.ok && !result.cancelled) {
           for (const delayMs of [10, 20, 40, 80]) {
             await new Promise((resolve) => setTimeout(resolve, delayMs));
-            file = validatedRegistry({ ...options, location });
-            if (file) break;
+            built = cachedRegistries(options, location);
+            if (built.complete) break;
           }
         }
-        if (file) {
+        if (built.registry) {
           if (options.diagnostics) {
             console.log(
               `[vitest-native] (native) precompiled RN registry in the background ` +
@@ -169,7 +183,13 @@ export function startRegistryBuild(options, compiler = compileRegistryInChild) {
                 `from now on use it`,
             );
           }
-          return file;
+          if (built.libraryError) _warnRegistryUnavailable(built.libraryError);
+          else if (!built.complete && !result.cancelled) {
+            _warnRegistryUnavailable(
+              `library registry: ${result.libraryError ?? result.error ?? "bounded compiler completed without a usable cache entry"}`,
+            );
+          }
+          return { registry: built.registry, libraryRegistry: built.libraryRegistry };
         }
         if (!result.cancelled) {
           _warnRegistryUnavailable(
@@ -269,30 +289,76 @@ export function isCI(env = process.env) {
 }
 
 /**
- * Resolve a warm registry in the parent, or compile a cache miss in the bounded
- * child. The optional compiler is a test seam proving warm production lookups do
- * not spawn; ordinary callers always use compileRegistryInChild.
+ * The published registries for `options`, read through the cache contract every
+ * reader uses (key + manifest), without building anything. `complete` is false when
+ * React Native's registry or a requested library registry is missing.
+ */
+function cachedRegistries(options, location) {
+  const registry = buildRegistry({
+    ...options,
+    location,
+    cacheOnly: true,
+    failOnError: true,
+    diagnostics: false,
+  });
+  if (!registry) return { registry: null, libraryRegistry: null, complete: false };
+  const wantsLibrary = (options.libraryEntries?.length ?? 0) > 0;
+  if (!wantsLibrary) return { registry, libraryRegistry: null, complete: true };
+  try {
+    const libraryRegistry = buildLibraryRegistry({
+      ...options,
+      cacheOnly: true,
+      failOnError: true,
+      diagnostics: false,
+    });
+    return { registry, libraryRegistry, complete: libraryRegistry !== null };
+  } catch (error) {
+    // Entries that do not resolve, or a build of these inputs that failed before: a
+    // build would fail the same way. React Native's registry stays in use.
+    const reason = String(error?.message ?? error).replace(/^\[vitest-native\] /, "");
+    return {
+      registry,
+      libraryRegistry: null,
+      complete: true,
+      libraryError: `library registry: ${reason}`,
+    };
+  }
+}
+
+/**
+ * Resolve warm registries in the parent, or compile a cache miss in the bounded
+ * child: React Native's registry and, when `libraryEntries` names any, the library
+ * registry layered on it — one build lifecycle for both. Returns
+ * `{ registry, libraryRegistry }`, or null without a React Native registry. A
+ * library registry that cannot be built leaves `libraryRegistry` null and React
+ * Native's registry in use. The optional compiler is a test seam proving warm
+ * production lookups do not spawn; ordinary callers always use
+ * compileRegistryInChild.
  */
 export async function buildRegistryFor(options, compiler = compileRegistryInChild) {
   try {
     // Preserve the explicit escape hatch's existing diagnostic and silence
     // contracts, and avoid launching a process for work the user disabled.
     if (process.env.VITEST_NATIVE_NO_REGISTRY === "1") {
-      return buildRegistry(options);
+      buildRegistry(options);
+      return null;
     }
 
-    // A warm run is just the cache key + manifest stats in this process. In
+    // A warm run is just the cache keys + manifest stats in this process. In
     // particular, it never initializes Babel and never launches a child.
     const location = registryLocation(options);
-    const cached = buildRegistry({ ...options, location, cacheOnly: true, failOnError: true });
-    if (cached) return cached;
+    const warm = cachedRegistries(options, location);
+    if (warm.complete) {
+      if (warm.libraryError) _warnRegistryUnavailable(warm.libraryError);
+      return { registry: warm.registry, libraryRegistry: warm.libraryRegistry };
+    }
 
     // A background build of the same entry is already running in this process (another
     // project in the run, or a config reload): wait for it instead of compiling twice.
     const joined = inFlight.get(location.registryFile);
     if (joined) {
-      const file = await joined.done;
-      if (file) return file;
+      const registries = await joined.done;
+      if (registries) return registries;
     }
 
     const result = await compiler(COMPILER_FILE(), compilerInput(options));
@@ -302,27 +368,15 @@ export async function buildRegistryFor(options, compiler = compileRegistryInChil
     // compiler in a concurrent cold-cache race into success once the winner's
     // atomic metadata write becomes visible (notably on Windows, where rename
     // cannot replace an existing target).
-    let registryFile = buildRegistry({
-      ...options,
-      location,
-      cacheOnly: true,
-      failOnError: true,
-      diagnostics: false,
-    });
-    if (!registryFile && !result.ok) {
+    let built = cachedRegistries(options, location);
+    if (!built.complete && !result.ok) {
       for (const delayMs of [10, 20, 40, 80]) {
         await new Promise((resolve) => setTimeout(resolve, delayMs));
-        registryFile = buildRegistry({
-          ...options,
-          location,
-          cacheOnly: true,
-          failOnError: true,
-          diagnostics: false,
-        });
-        if (registryFile) break;
+        built = cachedRegistries(options, location);
+        if (built.complete) break;
       }
     }
-    if (registryFile) {
+    if (built.registry) {
       if (options.diagnostics) {
         if (result.ok) {
           const count = typeof result.count === "number" ? `${result.count} modules, ` : "";
@@ -343,7 +397,13 @@ export async function buildRegistryFor(options, compiler = compileRegistryInChil
           );
         }
       }
-      return registryFile;
+      if (built.libraryError) _warnRegistryUnavailable(built.libraryError);
+      else if (!built.complete) {
+        _warnRegistryUnavailable(
+          `library registry: ${result.libraryError ?? result.error ?? "bounded compiler completed without a usable cache entry"}`,
+        );
+      }
+      return { registry: built.registry, libraryRegistry: built.libraryRegistry };
     }
 
     _warnRegistryUnavailable(

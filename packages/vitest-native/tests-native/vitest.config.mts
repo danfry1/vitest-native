@@ -4,6 +4,7 @@ import { defineConfig } from "vitest/config";
 import { reactNative } from "../dist/index.mjs";
 import { jestMockTransform } from "../dist/jest-compat.mjs";
 import { NATIVE_SUITE_SETUP_FILES } from "./support/setup-files.mjs";
+import { NATIVE_SUITE_OWNERSHIP } from "./support/ownership-allow.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -19,6 +20,7 @@ export default defineConfig({
       hotRuntime: false,
       presets: { expo: true },
       registryBuild: "wait",
+      ownership: NATIVE_SUITE_OWNERSHIP,
     }),
     jestMockTransform(),
   ],
@@ -27,7 +29,10 @@ export default defineConfig({
   resolve: { alias: { "@vn-app": path.resolve(here, "fixtures/alias-app") } },
   test: {
     // A temporary root per run, removed afterwards (see the file).
-    globalSetup: [path.resolve(here, "../tests/support/temp-root.global.ts")],
+    globalSetup: [
+      path.resolve(here, "../tests/support/temp-root.global.ts"),
+      path.resolve(here, "support/dispatch-fixtures.global.ts"),
+    ],
     globals: true,
     environment: "node",
     setupFiles: NATIVE_SUITE_SETUP_FILES,

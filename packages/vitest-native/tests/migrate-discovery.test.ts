@@ -39,8 +39,13 @@ import {
   parseJestScript,
   translateDiscovery,
 } from "../src/cli/jest-discovery.js";
-import { classifyBabelPlugins, readBabelConfig } from "../src/cli/babel-config.js";
+import {
+  classifyBabelPlugins,
+  normalizeBabelName,
+  readBabelConfig,
+} from "../src/cli/babel-config.js";
 import { runDoctor } from "../src/cli/doctor.js";
+import { main } from "../src/cli/index.js";
 import { DEFAULT_ASSET_EXTS, PRESET_MODULES } from "../src/preset-map.js";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -675,6 +680,132 @@ describe("Babel config reading", () => {
   });
 });
 
+describe("Babel name normalization", () => {
+  it("follows @babel/core's standardizeName, including the @babel scope", () => {
+    const cases: [string, "plugin" | "preset", string][] = [
+      ["macros", "plugin", "babel-plugin-macros"],
+      ["babel-plugin-macros", "plugin", "babel-plugin-macros"],
+      [
+        "@babel/plugin-transform-modules-commonjs",
+        "plugin",
+        "@babel/plugin-transform-modules-commonjs",
+      ],
+      ["@babel/transform-modules-commonjs", "plugin", "@babel/plugin-transform-modules-commonjs"],
+      ["@babel/preset-env", "preset", "@babel/preset-env"],
+      ["@babel/env", "preset", "@babel/preset-env"],
+      ["@lingui/babel-plugin-lingui-macro", "plugin", "@lingui/babel-plugin-lingui-macro"],
+      ["@scope/foo", "plugin", "@scope/babel-plugin-foo"],
+      ["@scope", "plugin", "@scope/babel-plugin"],
+      ["@react-native/babel-preset", "preset", "@react-native/babel-preset"],
+      ["expo", "preset", "babel-preset-expo"],
+      ["module:metro-react-native-babel-preset", "preset", "metro-react-native-babel-preset"],
+      ["react-native-worklets/plugin", "plugin", "react-native-worklets/plugin"],
+      ["./local-plugin", "plugin", "./local-plugin"],
+    ];
+    for (const [written, kind, expected] of cases) {
+      expect(normalizeBabelName(written, kind), written).toBe(expected);
+    }
+  });
+});
+
+describe("Babel settings that make imports lazy under Jest", () => {
+  const babelRoot = (config: string, file = "babel.config.js") =>
+    fixture({ "package.json": { name: "x" }, [file]: config });
+  const lazyOf = (config: string, file?: string) =>
+    readBabelConfig(babelRoot(config, file)).lazyImports;
+
+  it("names each setting that compiles imports into a require() run on first use", () => {
+    // Bluesky's shape: a function config, babel-preset-expo with lazyImports.
+    expect(
+      lazyOf(
+        `module.exports = (api) => ({ presets: [['babel-preset-expo', { lazyImports: true }]] });`,
+      ),
+    ).toEqual(["babel-preset-expo lazyImports"]);
+    // babel-preset-expo merges its native and per-platform options over the top level.
+    expect(
+      lazyOf(`module.exports = { presets: [['expo', { native: { lazyImports: true } }]] };`),
+    ).toEqual(["expo lazyImports"]);
+    expect(
+      lazyOf(`module.exports = { presets: [['expo', { ios: { lazyImports: ['lodash'] } }]] };`),
+    ).toEqual(["expo lazyImports"]);
+    expect(
+      lazyOf(
+        `module.exports = { presets: [['module:@react-native/babel-preset', { lazyImportExportTransform: true }]] };`,
+      ),
+    ).toEqual(["module:@react-native/babel-preset lazyImportExportTransform"]);
+    expect(
+      lazyOf(
+        `module.exports = { plugins: [['@babel/plugin-transform-modules-commonjs', { lazy: () => true }]] };`,
+      ),
+    ).toEqual(["@babel/plugin-transform-modules-commonjs lazy"]);
+    // Babel's short name for the same plugin, in the test env section Jest's Babel merges.
+    expect(
+      lazyOf(
+        `module.exports = { env: { test: { plugins: [['@babel/transform-modules-commonjs', { lazy: true }]] } } };`,
+      ),
+    ).toEqual(["@babel/transform-modules-commonjs lazy"]);
+    expect(
+      lazyOf(`module.exports = { plugins: ['babel-preset-fbjs/plugins/inline-requires'] };`),
+    ).toEqual(["babel-preset-fbjs/plugins/inline-requires"]);
+  });
+
+  it("reports nothing for the defaults or an explicit off", () => {
+    expect(
+      lazyOf(`module.exports = { presets: ['babel-preset-expo', '@react-native/babel-preset'] };`),
+    ).toEqual([]);
+    expect(
+      lazyOf(`module.exports = { presets: [['babel-preset-expo', { lazyImports: false }]] };`),
+    ).toEqual([]);
+    expect(
+      lazyOf(
+        `module.exports = { plugins: [['@babel/plugin-transform-modules-commonjs', { lazy: [] }]] };`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("finds the settings by name in a config it cannot evaluate", () => {
+    expect(
+      lazyOf(
+        `export default { presets: [['babel-preset-expo', { lazyImports: true }]] };`,
+        "babel.config.mjs",
+      ),
+    ).toEqual(["lazyImports"]);
+    expect(
+      lazyOf(
+        `export default { presets: [['babel-preset-expo', { lazyImports: false }]] };`,
+        "babel.config.mjs",
+      ),
+    ).toEqual([]);
+    // JSON with a comment fails JSON.parse and is read as text; its keys are quoted.
+    expect(
+      lazyOf(
+        '// comment\n{ "presets": [["babel-preset-expo", { "lazyImports": true }]] }\n',
+        ".babelrc",
+      ),
+    ).toEqual(["lazyImports"]);
+  });
+
+  it("puts the partial-mock risk and its fix under Needs your attention", () => {
+    const lazy = analyzeJestConfig(
+      blueskyLike({
+        "babel.config.js": `module.exports = function (api) {
+  api.cache(true)
+  return { presets: [['babel-preset-expo', { lazyImports: true }]] }
+}
+`,
+      }),
+    ).attention.join("\n");
+    expect(lazy).toContain(
+      "babel.config.js: babel-preset-expo lazyImports — under Jest a package import ran only when",
+    );
+    expect(lazy).toContain("jest.requireActual('x')");
+    // The fixture's default config (babel-preset-expo with no options) gets no such item.
+    expect(analyzeJestConfig(blueskyLike()).attention.join("\n")).not.toContain(
+      "import ran only when the test",
+    );
+  });
+});
+
 describe("preset loading", () => {
   it("prefers jest-preset.json over jest-preset.js, as Jest's resolver does", () => {
     const root = fixture({
@@ -846,5 +977,52 @@ test('import-time mock calls survive', () => { expect(loaded).toHaveBeenCalledTi
       expect(run.status, run.stdout + run.stderr).toBe(0);
     },
     120_000,
+  );
+
+  it.runIf(distExists)(
+    "--write --force replaces the config Vitest's own lookup loads",
+    () => {
+      const root = fixture({
+        "package.json": { name: "x" },
+        "tsconfig.json": {},
+        "jest.config.json": { testTimeout: 9123 },
+        // Vitest looks up vitest.config.ts before vitest.config.mts.
+        "vitest.config.ts": "export default { test: { testTimeout: 1 } }",
+      });
+      const modules = path.join(root, "node_modules");
+      fs.mkdirSync(modules);
+      for (const name of fs.readdirSync(path.join(packageRoot, "node_modules"))) {
+        fs.symlinkSync(path.join(packageRoot, "node_modules", name), path.join(modules, name));
+      }
+      fs.symlinkSync(packageRoot, path.join(modules, "vitest-native"));
+
+      const lines: string[] = [];
+      expect(main(["migrate", "--write", "--force", "--root", root], (l) => lines.push(l))).toBe(0);
+      expect(lines.join("\n")).toContain("replaced the existing vitest.config.ts");
+      // Vitest's own lookup and load (vitest/node's resolveConfig), in a child process so
+      // the plugin the config loads starts outside this worker.
+      const probe = spawnSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "-e",
+          `import { resolveConfig } from 'vitest/node'
+const c = await resolveConfig({ root: process.cwd(), watch: false })
+console.log('RESOLVED ' + JSON.stringify({ file: c.configFile, timeout: c.test.testTimeout }))
+process.exit(0)`,
+        ],
+        { cwd: root, encoding: "utf8", env: { ...process.env, CI: "1" } },
+      );
+      const line = probe.stdout.split("\n").find((l) => l.startsWith("RESOLVED "));
+      expect(line, probe.stdout + probe.stderr).toBeDefined();
+      const resolved = JSON.parse((line as string).slice("RESOLVED ".length));
+      expect(fs.realpathSync(resolved.file)).toBe(
+        fs.realpathSync(path.join(root, "vitest.config.ts")),
+      );
+      // The loaded config is migrate's: the Jest config's timeout, not the old file's.
+      expect(resolved.timeout, lines.join("\n")).toBe(9123);
+      expect(fs.existsSync(path.join(root, "vitest.config.mts"))).toBe(false);
+    },
+    60_000,
   );
 });

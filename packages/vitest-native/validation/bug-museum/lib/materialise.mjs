@@ -15,12 +15,12 @@
 //     they do in a consumer's install, and a different build can be swapped in;
 //   - the exhibit's `vendor/*` packages, copied (a registry install copies; a `file:`
 //     link would leave the real path outside node_modules);
-//   - the exhibit's workspace members, linked by name (`links` in exhibits.json);
+//   - the exhibit's workspace members, linked by name (`links` in exhibits.json), or copied
+//     to a path with a `/node_modules/` segment, for a nested copy of a package;
 //   - `installedCopies`: a real copy of an installed package at a path in the exhibit
 //     (a second copy of React, as a monorepo app that has its own has);
 //   - the install axes the exhibit requires (exhibits.json `requires`):
-//       rntl: "12" | "13"   a copy of that RNTL from a local bun store (RNTL_STORE)
-//       vitest: "4"         Vitest 4.1.11 assembled from bun's cache (vitest4.mjs)
+//       rntl: "13"          a copy of that RNTL from a local bun store (RNTL_STORE)
 //       layout: "pnpm"      `pnpmShaped` packages moved into a pnpm-shaped store
 //                           directory named after their peers (#349's class reads it)
 //
@@ -37,7 +37,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 export const museumRoot = path.resolve(here, "..");
 export const packageRoot = path.resolve(museumRoot, "../..");
 
-/** Where a local bun store keeps RNTL 12 and 13 (override with VN_MUSEUM_RNTL_STORE). */
+/** Where a local bun store keeps RNTL 13 (override with VN_MUSEUM_RNTL_STORE). */
 const RNTL_STORE =
   process.env.VN_MUSEUM_RNTL_STORE ??
   path.join(os.homedir(), "dev/vitest-react-native/node_modules/.bun");
@@ -206,14 +206,10 @@ export function wrapForOwnership(installed, root, model) {
 
 /**
  * Materialise `exhibit` (an exhibits.json entry) under `work`. Returns the app root.
- * `build` is the vitest-native package directory under test; `vitest4` the directory
- * vitest4.mjs prepared (required when the exhibit needs Vitest 4); `ownershipModel`
- * other than "off" wraps the installed copy (wrapForOwnership).
+ * `build` is the vitest-native package directory under test; `ownershipModel` other than
+ * "off" wraps the installed copy (wrapForOwnership).
  */
-export function materialise(
-  exhibit,
-  { work, build, deps = build, vitest4, edits = [], ownershipModel = "off" },
-) {
+export function materialise(exhibit, { work, build, deps = build, edits = [], ownershipModel = "off" }) {
   const root = path.join(work, exhibit.id);
   fs.rmSync(root, { recursive: true, force: true });
   fs.cpSync(path.join(museumRoot, "exhibits", exhibit.id), root, { recursive: true });
@@ -227,9 +223,20 @@ export function materialise(
   const modules = path.join(root, "node_modules");
   fs.mkdirSync(modules, { recursive: true });
 
+  // A name with a `/node_modules/` segment is a path inside the exhibit: a nested copy of
+  // a package, which a module under that directory resolves before the top-level one. It
+  // is copied, not linked: a link's real path is outside node_modules, so Vite would treat
+  // the package as project source instead of an installed one.
   for (const [name, dir] of Object.entries(exhibit.links ?? {})) {
-    fs.mkdirSync(path.dirname(path.join(modules, name)), { recursive: true });
-    fs.symlinkSync(path.join(root, dir), path.join(modules, name));
+    const nested = name.includes("/node_modules/");
+    const at = nested ? path.join(root, name) : path.join(modules, name);
+    const inside = path.relative(root, at);
+    if (inside.startsWith("..") || path.isAbsolute(inside)) {
+      throw new Error(`${exhibit.id}: links entry ${name} is outside the exhibit`);
+    }
+    fs.mkdirSync(path.dirname(at), { recursive: true });
+    if (nested) fs.cpSync(path.join(root, dir), at, { recursive: true, dereference: true });
+    else fs.symlinkSync(path.join(root, dir), at);
   }
   const vendor = path.join(root, "vendor");
   if (fs.existsSync(vendor)) {
@@ -269,17 +276,6 @@ export function materialise(
 
   const requires = exhibit.requires ?? {};
   if (requires.rntl) placeRntl(modules, findRntl(requires.rntl));
-  if (requires.vitest === "4") {
-    for (const entry of fs.readdirSync(path.join(vitest4, "node_modules"))) {
-      const names = entry.startsWith("@")
-        ? fs.readdirSync(path.join(vitest4, "node_modules", entry)).map((n) => `${entry}/${n}`)
-        : [entry];
-      for (const name of names) {
-        if (name === "vitest" || name.startsWith("@vitest/"))
-          replaceWith(modules, name, path.join(vitest4, "node_modules", name), { copy: false });
-      }
-    }
-  }
   for (const name of exhibit.pnpmShaped ?? []) placeInPnpmShape(modules, name);
 
   // Compiled package output requires Babel's helpers by name; every real install puts

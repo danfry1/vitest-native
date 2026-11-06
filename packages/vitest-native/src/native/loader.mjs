@@ -1,8 +1,11 @@
 // Node ESM loader hook (registered via module.register). Intercepts import() of RN —
 // which Module._extensions cannot — Flow-stripping and serving boundary mock source.
+import { nodeDispatch } from "../node-dispatch.mjs";
 import Module, { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { projectContext } from "../context.mjs";
+import { cjsConditionsWithout } from "./export-condition-recovery.mjs";
+import { ownershipResolverInputs, workerSharedResolver } from "./shared-resolver.mjs";
 import path from "node:path";
 import fs from "node:fs";
 import {
@@ -14,11 +17,17 @@ import {
 } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import { nativeAssetModuleSource } from "./assets.mjs";
-import { extensionsFor, resolveRelativePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
+import {
+  extensionsFor,
+  hasKnownExtension,
+  resolveRelativePlatformFile,
+  resolveDeepPackageFile,
+} from "./resolve.mjs";
 import {
   NODE_MODULES_PATH,
   containsPath,
   isUtilitySubpath,
+  isVitestOwnFile,
   packageNameOf,
   isPackageEntryFile,
   presetPackageOfFile,
@@ -163,6 +172,12 @@ function versionable(url) {
   return true;
 }
 
+let SHARED_RESOLVER = null;
+// experimental.nodeMocks: a module the test mocks is served to Node's ESM imports too
+// (resolveMocked, mockModule), through Node's CommonJS loader's per-file mock step
+// (jest-compat/node-registry.mjs).
+let NODE_MOCKS = false;
+
 export function initialize(data) {
   if (data && data.projectRoot) PROJECT_ROOT = data.projectRoot;
   PLATFORM = data?.platform === "android" ? "android" : "ios";
@@ -172,6 +187,17 @@ export function initialize(data) {
   // The project context arrives by reference in `data`: this may be its own thread.
   const context = data?.context ? projectContext(data.context) : null;
   DIAGNOSTICS = context?.diagnostics === true;
+  NODE_MOCKS = context?.nodeMocks === true;
+  // experimental.ownershipModel: the resolver Vite and the require hooks use, from the
+  // same record, checked here against the conditions Node applies in this worker.
+  // Never built with the flag off.
+  const sharedInputs = ownershipResolverInputs(
+    context,
+    "ESM loader",
+    cjsConditionsWithout("react-native"),
+  );
+  // The same core as the require hooks: on the Node floor this loader runs in-thread.
+  SHARED_RESOLVER = sharedInputs === null ? null : workerSharedResolver(sharedInputs, "esm");
   const configuredOwnership = parseNativeOwnershipManifest(context?.ownership);
   ownership = createNativeOwnershipPolicy({
     projectRoot: PROJECT_ROOT,
@@ -255,7 +281,21 @@ function shadowsSubpath(pkg, specifier) {
   return leaf !== null && (presetExports[pkg] || []).includes(leaf);
 }
 
-function resolveBefore(specifier, context) {
+/** Whether the preset redirect (resolveBefore) serves `specifier`. */
+function isPresetSpecifier(specifier) {
+  if (Object.prototype.hasOwnProperty.call(presetExports, specifier)) return true;
+  if (specifier.endsWith(".json") || isUtilitySubpath(specifier)) return false;
+  const specExt = /\.([a-z0-9]+)$/i.exec(specifier);
+  if (specExt && assetExtSet.has(specExt[1].toLowerCase())) return false;
+  const pkg = packageNameOf(specifier);
+  return (
+    pkg !== specifier &&
+    Object.prototype.hasOwnProperty.call(presetExports, pkg) &&
+    shadowsSubpath(pkg, specifier)
+  );
+}
+
+function resolveBefore(specifier, context, presets = true) {
   // Preset redirect (ESM): a bare import of a preset package — whether from the
   // test graph or, crucially, nested inside an externalized third-party lib — is
   // redirected to a synthetic module that re-exports the runtime preset mock. This
@@ -266,28 +306,16 @@ function resolveBefore(specifier, context) {
   // Exempt: JSON subpaths (package.json version gates), asset subpaths, and
   // Node-safe utility entries (jest-utils, mock, plugin) — those pass through
   // to the real file.
-  if (Object.prototype.hasOwnProperty.call(presetExports, specifier)) {
+  if (presets && isPresetSpecifier(specifier)) {
     return { done: { url: PRESET_SCHEME + specifier, shortCircuit: true } };
-  }
-  if (!specifier.endsWith(".json") && !isUtilitySubpath(specifier)) {
-    const specExt = /\.([a-z0-9]+)$/i.exec(specifier);
-    if (!specExt || !assetExtSet.has(specExt[1].toLowerCase())) {
-      const pkg = packageNameOf(specifier);
-      if (
-        pkg !== specifier &&
-        Object.prototype.hasOwnProperty.call(presetExports, pkg) &&
-        shadowsSubpath(pkg, specifier)
-      ) {
-        return { done: { url: PRESET_SCHEME + specifier, shortCircuit: true } };
-      }
-    }
   }
 
   const parent =
     context.parentURL && context.parentURL.startsWith("file:")
       ? fileURLToPath(context.parentURL)
       : null;
-  const presetRequest = presetRequestForFile(specifier, parent);
+  // Not when resolving the file a preset stands in for (resolveMocked passes presets: false).
+  const presetRequest = presets ? presetRequestForFile(specifier, parent) : null;
   if (presetRequest) {
     const file = specifier.startsWith("file:") ? fileURLToPath(specifier) : specifier;
     const query = new URLSearchParams({ request: presetRequest, file });
@@ -300,12 +328,20 @@ function resolveBefore(specifier, context) {
     parent &&
     (NODE_MODULES_PATH.test(parent) || ownership.isReactNativeFile(parent) || isExtra(parent)) &&
     specifier.startsWith(".") &&
-    !path.extname(specifier)
+    !hasKnownExtension(specifier, SOURCE_EXTS, assetExtSet)
   ) {
     const hit = resolveRelativePlatformFile(specifier, parent, PLATFORM, SOURCE_EXTS);
     // Not returned directly: `json` is a Metro source extension, so this can now
     // land on a .json file, which still needs the import attribute injected below.
     if (hit) resolved = { url: pathToFileURL(hit).href, shortCircuit: true };
+  }
+  if (!resolved && SHARED_RESOLVER !== null && parent) {
+    // `require` wins, as in the other realms: a package without an `exports` target is
+    // answered by Node's CommonJS resolution (`main`).
+    const shared = SHARED_RESOLVER.resolve(specifier, parent, (id) =>
+      createRequire(parent).resolve(id),
+    );
+    if (shared) resolved = { url: pathToFileURL(shared).href, shortCircuit: true };
   }
 
   return { parent, resolved };
@@ -317,7 +353,11 @@ function resolveRecover(err, specifier, parent) {
   // Fallback: an extensionless relative import that Node's ESM resolver rejected
   // but a bundler (Metro) would accept. Common in externalized RN libs shipping
   // ESM with extensionless imports. Resolve it on disk ourselves.
-  if (parent && specifier.startsWith(".") && !path.extname(specifier)) {
+  if (
+    parent &&
+    specifier.startsWith(".") &&
+    !hasKnownExtension(specifier, SOURCE_EXTS, assetExtSet)
+  ) {
     const hit = resolveExtensionless(path.resolve(path.dirname(parent), specifier));
     if (hit) resolved = { url: pathToFileURL(hit).href, shortCircuit: true };
   }
@@ -403,48 +443,8 @@ function stampedResolutionKey(specifier, context) {
   ].join("\0");
 }
 
-// One implementation, two hook APIs. `module.register()` (off-thread, async) is the
-// only option before Node 22.15; `module.registerHooks()` runs the same logic
-// synchronously on the calling thread, without a cross-thread round trip per
-// resolve and load (see installLoaderHooks in setup.mjs).
-export async function resolve(specifier, context, nextResolve) {
-  const before = resolveBefore(specifier, context);
-  if (before.done) return before.done;
-  let resolved = before.resolved;
-  if (!resolved) {
-    const key = stampedResolutionKey(specifier, context);
-    // A hit skips nextResolve, which Node accepts only from a short-circuited result.
-    const hit = key ? stampedResolutions.get(key) : undefined;
-    resolved = hit ? { ...hit, shortCircuit: true } : undefined;
-    if (!resolved) {
-      try {
-        resolved = await nextResolve(specifier, context);
-        if (key) stampedResolutions.set(key, resolved);
-      } catch (err) {
-        resolved = resolveRecover(err, specifier, before.parent);
-      }
-    }
-  }
-  return resolveAfter(resolved, context);
-}
-
-/**
- * Whether Node's in-thread hooks (module.registerHooks) carry the engine on `version`:
- * Node 22 from 22.22.3, Node 24 from 24.12.0, and Node 26 on. Measured across Node minors
- * and patches, the releases before those that have the hooks fail with them in-thread
- * while the threaded hooks (module.register) pass: expo-router's elements fail to load
- * ("request for 'node:module' is from a module not been linked", through 22.22.2 and
- * 24.11), and the hot runtime's CommonJS lookup reset stops mattering, so its mutation
- * control passes when it must fail. Node 25 was not measured, and Node 23 is past its
- * end of life, so both keep the threaded hooks.
- */
-export function inThreadHooksReliable(version) {
-  const [major, minor, patch] = version.replace(/^v/, "").split(".").map(Number);
-  if (major === 22) return minor > 22 || (minor === 22 && patch >= 3);
-  if (major === 24) return minor >= 12;
-  return major >= 26;
-}
-
+// The hooks run in-thread (module.registerHooks, see installLoaderHooks in setup.mjs):
+// synchronous, on the calling thread, with no cross-thread round trip per resolve and load.
 /**
  * Whether an in-thread hook call (module.registerHooks) comes from `require()` rather
  * than `import`. An import's context always lists its conditions, "import" among them.
@@ -460,7 +460,55 @@ export function isRequireContext(context) {
 }
 
 export function resolveSync(specifier, context, nextResolve) {
-  const before = resolveBefore(specifier, context);
+  if (NODE_MOCKS) {
+    const mocked = resolveMocked(specifier, context, nextResolve);
+    if (mocked !== null) return mocked;
+  }
+  return resolvePlain(specifier, context, nextResolve, true);
+}
+
+// experimental.nodeMocks: the query that marks a mocked import's URL (R2). A mocked
+// module is its own entry in Node's ESM cache, apart from Vitest's load of the real
+// file, and a new one for each registration (and so each test file).
+const MOCK_PARAM = "vitest-native-mock";
+
+/**
+ * A module Node loaded importing a mocked module: the mocked file's URL, marked. Decided
+ * here, where the importer is known (R1): Vitest's own loads (its evaluator, loading an
+ * original) are never mocked, and a mock outranks a preset, as in the CommonJS
+ * dispatcher. Otherwise the resolution it made to find out, when that is the plain one
+ * (no preset applies), or null.
+ */
+function resolveMocked(specifier, context, nextResolve) {
+  const mockFor = globalThis.__vitest_native_node_mock_for;
+  if (mockFor?.markFor === undefined) return null;
+  const parent =
+    typeof context.parentURL === "string" && context.parentURL.startsWith("file:")
+      ? fileURLToPath(context.parentURL)
+      : null;
+  if (parent === null || isVitestOwnFile(parent) || !mockFor.mayReach(specifier, parent)) {
+    return null;
+  }
+  // The file a preset stands in for, which only a mock of it needs, may not resolve at
+  // all (a deep path the package does not export): the preset serves it then.
+  const preset = isPresetSpecifier(specifier);
+  let resolved;
+  try {
+    resolved = resolvePlain(specifier, context, nextResolve, false);
+  } catch (err) {
+    if (preset) return null;
+    throw err;
+  }
+  const plain = preset ? null : resolved;
+  if (typeof resolved?.url !== "string" || !resolved.url.startsWith("file:")) return plain;
+  const mark = mockFor.markFor(fileURLToPath(resolved.url), specifier, parent);
+  if (mark === null) return plain;
+  const join = resolved.url.includes("?") ? "&" : "?";
+  return { ...resolved, url: `${resolved.url}${join}${MOCK_PARAM}=${mark}`, shortCircuit: true };
+}
+
+function resolvePlain(specifier, context, nextResolve, presets) {
+  const before = resolveBefore(specifier, context, presets);
   if (before.done) return before.done;
   let resolved = before.resolved;
   if (!resolved) {
@@ -478,10 +526,6 @@ export function resolveSync(specifier, context, nextResolve) {
     }
   }
   return resolveAfter(resolved, context);
-}
-
-export async function load(url, context, nextLoad) {
-  return loadSync(url, context, nextLoad);
 }
 
 /**
@@ -538,6 +582,52 @@ export function requireFacade(url, file, compiled) {
       `module.exports = require("node:module").createRequire(${JSON.stringify(url)})(${JSON.stringify(file)});`,
       `0 && function () {\n${code}\n};`,
       ...(names.length > 0 ? [`0 && (module.exports = { ${names.join(", ")} });`] : []),
+    ].join("\n"),
+    shortCircuit: true,
+  };
+}
+
+/**
+ * A file Node loads as published. True ESM among them is recorded in the ownership ledger
+ * (ownership-ledger.mjs), through the engine's dispatcher channel, before Node evaluates
+ * the module: this loader runs in the worker's thread (module.registerHooks). CommonJS is
+ * never recorded here: Node evaluates it through Module._load, which the ledger observes
+ * (nodeDispatch().onNodeEvaluation), and that record knows when the hot reset drops it.
+ */
+function recordModule(url, result) {
+  if (result?.format !== "module") return;
+  nodeDispatch().channel("ownership").nodeEsm?.(url);
+}
+function loadAsPublished(url, context, nextLoad) {
+  const result = nextLoad(url, context);
+  if (typeof result?.then === "function") {
+    return result.then((settled) => {
+      recordModule(url, settled);
+      return settled;
+    });
+  }
+  recordModule(url, result);
+  return result;
+}
+
+/**
+ * A mocked module for an ES module Node loaded (R4): an ES module whose default export is
+ * the mock's `default` and whose named exports are the mock's own keys, as the test's
+ * import reads them. The value comes through Node's CommonJS loader, whose mock step
+ * answers it from the same registration (R3).
+ */
+function mockModule(url, file, value) {
+  const names = Object.keys(value).filter((name) => name !== "default" && name !== "__esModule");
+  return {
+    format: "module",
+    source: [
+      `import { createRequire } from "node:module";`,
+      `const m = createRequire(${JSON.stringify(url)})(${JSON.stringify(file)});`,
+      `export default m.default;`,
+      ...names.map(
+        (name, i) =>
+          `const e${i} = m[${JSON.stringify(name)}];\nexport { e${i} as ${JSON.stringify(name)} };`,
+      ),
     ].join("\n"),
     shortCircuit: true,
   };
@@ -845,6 +935,13 @@ function loadModule(url, context, nextLoad) {
   const file = fileURLToPath(url);
   const norm = file.replace(/\\/g, "/");
 
+  // Only a URL resolveMocked marked is a mock; every other load of the file is real.
+  if (NODE_MOCKS && url.includes(`${MOCK_PARAM}=`)) {
+    const mockFor = globalThis.__vitest_native_node_mock_for;
+    const value = mockFor === undefined ? undefined : mockFor(file);
+    if (value !== undefined && value !== mockFor.NONE) return mockModule(url, file, value);
+  }
+
   // Asset imports (`import logo from './logo.png'`, `import font from './Icon.ttf'`)
   // from ANY package: Node's ESM loader can't parse a binary asset as a module and
   // throws. Serve the module Metro generates for it (assets.mjs) — the same one the
@@ -877,7 +974,7 @@ function loadModule(url, context, nextLoad) {
     // No source: transformRN reads the file only when it holds no output for it.
     return requireFacade(url, file, transformRN(file, undefined, PROJECT_ROOT, PLATFORM));
   }
-  if (!isRN && !isExtra(norm)) return nextLoad(url, context);
+  if (!isRN && !isExtra(norm)) return loadAsPublished(url, context, nextLoad);
 
   if (isRN) {
     // RN's main index exports everything via lazy getters (`module.exports = {
@@ -912,7 +1009,7 @@ function loadModule(url, context, nextLoad) {
       if (isFlow(src))
         return requireFacade(url, file, transformRN(file, src, PROJECT_ROOT, PLATFORM));
     }
-    return nextLoad(url, context);
+    return loadAsPublished(url, context, nextLoad);
   }
 
   // Configured third-party package: transform any JS/TS/JSX source to CJS, served
@@ -948,8 +1045,8 @@ function loadModule(url, context, nextLoad) {
     // Only compile what Node cannot run as published — see needsTransform. A file V8
     // accepts is handed straight back to Node, which is how the toolchain packages a
     // closure walk drags in stop reaching the Babel preset at all.
-    if (!needsTransform(file, src)) return nextLoad(url, context);
+    if (!needsTransform(file, src)) return loadAsPublished(url, context, nextLoad);
     return requireFacade(url, file, transformRN(file, src, PROJECT_ROOT, PLATFORM));
   }
-  return nextLoad(url, context);
+  return loadAsPublished(url, context, nextLoad);
 }

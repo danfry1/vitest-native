@@ -11,6 +11,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       reactNative({
         engine: mode === "mock" ? "mock" : "native",
+        ...(mode === "mock" ? {} : { ownership: "error" as const }),
         hotRuntime: mode === "hot",
         // The object form keeps auto-detection and adds the module.
         presets: { "./tests-native/custom-preset/zz-lib-preset.ts": true },

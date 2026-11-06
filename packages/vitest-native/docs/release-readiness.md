@@ -19,15 +19,14 @@ semver, which are experimental, and how the peer ranges below are allowed to mov
 
 ## Blocking compatibility matrix
 
-- Node 22.13 (the floor) on Linux with RNTL 12, 13 and 14, and on macOS and Windows; Node 24 on
-  Linux.
-- Patched Vite lines ^6.4.2, ^7.3.2, and ^8.0.5 through packed consumers.
-- Vitest 5 (the lockfile release and the newest 5.x) against React Native 0.81–0.88, and the newest
-  Vitest 4.x against the oldest and newest of that range.
-- React Native 0.81–0.88 in the full native matrix (`.github/workflows/native-rn-matrix.yml`, the
+- Node 22.22.3 (the floor) on Linux with RNTL 13 and 14, and on macOS and Windows; Node 24 and
+  Node 26 on Linux.
+- Vite 8 (from the patched 8.0.5) through packed consumers.
+- Vitest 5 (the lockfile release and the newest 5.x) against React Native 0.86–0.88.
+- React Native 0.86–0.88 in the full native matrix (`.github/workflows/native-rn-matrix.yml`, the
   source the published fidelity range is generated from).
 - React Native 0.86 in a pinned packed Android consumer.
-- React Native Testing Library 12, 13, and 14.
+- React Native Testing Library 13 and 14.
 - Expo SDK 58 and SDK 57, a hoisted npm-workspace monorepo, and a pnpm-workspace monorepo.
 - jest-expo parity: the same probes under jest-expo and vitest-native in one Expo SDK 58 app, agreeing
   except for listed differences.
@@ -44,7 +43,7 @@ versions are rejected rather than allowed to fail later inside private runner in
 5. End-to-end memory-triggered worker recycling.
 6. Hot runtime against the default engine: file-for-file parity over a generated app-shaped corpus,
    and identical V8 and Istanbul coverage attribution.
-7. Vitest semantics under the defaults, on Vitest 5 and the Vitest 4 floor: config and CLI flags,
+7. Vitest semantics under the defaults: config and CLI flags,
    projects, watch mode, the jsdom and happy-dom environments, `--typecheck`, `vitest bench` and the
    HTML (UI) reporter run as Vitest documents them, with cross-file isolation.
 8. Mock-versus-real-RN behavioral cross-check.
@@ -84,15 +83,14 @@ change.
   them; the caches every pull request starts from are the ones `main` saves. `pages.yml` also
   publishes the fidelity matrix from the latest successful `main` run of the RN matrix.
 
-The ATTW gate ignores legacy Node 10 resolution because the package requires Node 22.13+ or 24.3+.
+The ATTW gate ignores legacy Node 10 resolution because the package requires Node 22.22.3+, 24.12+ or 26+.
 
 Seven of the eleven `exports` subpaths are ESM-only by design — `.`, `./setup`, `./presets`, the
 three `jest-compat` runtime shims, and the types-only `./rntl-matchers`. Each of the runtime ones
 depends on Vitest, which throws when it is reached through `require()`, so shipping a transpiled
 CommonJS build for them produced files that could not be loaded at all. They now declare a single
 ESM target for both conditions: a CommonJS consumer still reaches them, through Node's `require(esm)`
-support, which Node has had since 20.19 and 22.12; the range itself (22.13+ or 24.3+) also leaves out
-Node 24.0–24.2, where `jest.mock` does not reach modules Node loads.
+support, which every supported Node has.
 
 The remaining four subpaths ship a real CommonJS build and are checked with `cjs-resolves-to-esm`
 enforced, so a dual entry cannot quietly lose its `.cjs`. Which subpaths are intentionally ESM-only

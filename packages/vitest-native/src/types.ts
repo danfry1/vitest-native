@@ -206,10 +206,14 @@ export interface PresetModule {
   /**
    * Named exports read from the installed package, for a package whose API changes
    * between releases; replaces `exports` when present. Called once at Vite config time
-   * with the project root and platform. `null` means the package is not installed, so
-   * the module is not shadowed at all.
+   * with the project root, platform and engine. `null` means the package is not
+   * installed, so the module is not shadowed at all.
    */
-  exportsFor?: (context: { projectRoot: string; platform: "ios" | "android" }) => string[] | null;
+  exportsFor?: (context: {
+    projectRoot: string;
+    platform: "ios" | "android";
+    engine: "mock" | "native";
+  }) => string[] | null;
 }
 
 export interface Preset {
@@ -336,10 +340,12 @@ export interface VitestNativeOptions {
   /**
    * `engine: 'native'` only. Names of additional node_modules packages whose
    * source the native engine should transform (Flow/TS/JSX stripped) as it
-   * loads them. By default only `react-native` / `@react-native` are
-   * transformed; third-party RN libraries that ship untranspiled source
-   * (e.g. `react-native-reanimated`, `react-native-safe-area-context`) need to
-   * be listed here, analogous to Jest's `transformIgnorePatterns` allowlist.
+   * loads them. Packages the project depends on that declare `react-native` as
+   * a dependency or peer dependency, and their runtime dependencies, are
+   * detected and transformed without being listed; list a package here when it
+   * ships untranspiled source but is not detected, as you would add it to
+   * Jest's `transformIgnorePatterns` allowlist. A listed package's own
+   * dependencies are transformed too.
    *
    * The object form adds `exclude`, which names packages the engine must NEVER
    * transform, whatever else would have selected them — auto-detection, a detected
@@ -357,18 +363,52 @@ export interface VitestNativeOptions {
    *
    * @example
    * ```ts
-   * reactNative({ engine: 'native', transform: ['react-native-reanimated'] })
+   * reactNative({ engine: 'native', transform: ['some-untranspiled-lib'] })
    *
    * reactNative({
    *   engine: 'native',
    *   transform: {
-   *     include: ['react-native-reanimated'],
+   *     include: ['some-untranspiled-lib'],
    *     exclude: ['some-build-tool'], // never hand this to the Babel preset
    *   },
    * })
    * ```
    */
   transform?: string[] | { include?: string[]; exclude?: string[] };
+
+  /**
+   * `engine: 'native'` only. Behaviour changes that are not the default yet. Each is
+   * decided (made the default, or removed) by the date in `src/flags.ts`.
+   */
+  experimental?: {
+    /**
+     * `engine: 'native'` only. A `vi.mock` applies to the modules Node loads too, as a
+     * `jest.mock` does under Jest: an installed package's own `require` or `import` of
+     * the mocked module gets the test's mocked module, the same instance (#322). That
+     * holds for a factory, an automock, `{ spy: true }` and a `__mocks__` file. What
+     * Node cannot be served fails by name, `MOCK_NOT_SEEN_BY_NODE`, instead of loading
+     * the real module: an async factory that has not settled, an automock or `__mocks__`
+     * file the test has not imported yet, a `vi.doMock` or `vi.doUnmock` not applied
+     * yet, and a package Vite and Node resolve to different files. A module Node
+     * already loaded keeps what it required, as under Jest without
+     * `jest.resetModules()`, and an ES module reads each export of the mock once, when
+     * it loads (a getter on a factory's result is not a live binding there). Default:
+     * `false`, and on with `ownershipModel: 'resolution'`, which refuses it set to
+     * `false`.
+     */
+    nodeMocks?: boolean;
+    /**
+     * `'resolver'`: Vite, Node's CommonJS loader and its ESM loader resolve every bare
+     * request through one shared resolver, from one set of inputs, so a package loaded
+     * by both module systems is one module. Where a package's `exports` map has both
+     * `import` and `require` builds, both sides load the `require` one. Native engine
+     * only. `'resolution'` adds the bridge: Node's \`require\` of a file Vite owns gets
+     * Vite's own instance, evaluated then if Vite has not yet, so the order a test loads
+     * files in cannot split a module. `'resolution'` turns `nodeMocks` on: a mocked module
+     * the bridge or Node reaches is the test's mock. See https://danfry1.github.io/vitest-native/guide/plugin-options#experimental.
+     */
+    ownershipModel?: "resolver" | "resolution";
+  };
 
   /**
    * `engine: 'native'` only. Built on Vitest's experimental custom-pool API.
@@ -462,6 +502,32 @@ export interface VitestNativeOptions {
    * The hot runtime and CI runs always wait.
    */
   registryBuild?: "background" | "wait";
+
+  /**
+   * `engine: 'native'` only. What happens when one file is evaluated by both Node and
+   * Vite in a worker. Such a file exists twice, and module state written through one
+   * copy is not seen by the other; nothing else reports it.
+   *
+   * - `'warn'`: report each such file once per worker, naming both sides, the route
+   *   and the fix.
+   * - `'error'`: throw `SOURCE_EVALUATED_TWICE` at the second evaluation and fail the
+   *   test file. A second Node copy never runs; a second Vite copy has run its top level
+   *   when it is seen, and its import throws.
+   *
+   * The object form adds `allow`, the only exemption: a file or directory (resolved
+   * against the Vitest root) and the reason it is deliberate. Detection cannot be turned
+   * off.
+   *
+   * Default: `'warn'`.
+   * See https://danfry1.github.io/vitest-native/guide/errors#SOURCE_EVALUATED_TWICE.
+   */
+  ownership?:
+    | "warn"
+    | "error"
+    | {
+        mode?: "warn" | "error";
+        allow?: { path: string; reason: string }[];
+      };
 }
 
 export interface ResolvedOptions {
