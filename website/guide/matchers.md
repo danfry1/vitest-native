@@ -1,6 +1,6 @@
 # Matchers and Snapshots
 
-vitest-native registers React Native Testing Library's matchers, Vitest equivalents of Reanimated's animated matchers, and a snapshot serializer for React Native trees. None of them needs a setup file.
+vitest-native registers React Native Testing Library's matchers and Vitest equivalents of Reanimated's animated matchers, and React Native trees print in snapshots as under Jest. None of them needs a setup file.
 
 ## RNTL matchers
 
@@ -146,25 +146,61 @@ To type the matchers on `expect()`, add the matcher types to your `tsconfig.json
 ```
 
 
-## Snapshot serializer
+## Snapshots
 
-A snapshot serializer is auto-registered that produces clean, JSX-like output for React Native components. Instead of deeply nested `ReactTestInstance` objects, snapshots read naturally:
+A React Native tree prints the way Jest and Vitest print any React tree: with pretty-format's `ReactTestComponent` plugin, which Vitest registers. vitest-native adds no serializer of its own.
 
 ```
-<View>
-  <Text
-    style={
+<RCTView
+  style={
+    [
       {
-        "fontSize": 18,
-      }
+        "flex": 1,
+      },
+      undefined,
+    ]
+  }
+  testID="box"
+>
+  <RCTText
+    accessible={true}
+    allowFontScaling={true}
+    ellipsizeMode="tail"
+    style={
+      [
+        {
+          "overflow": "hidden",
+        },
+        undefined,
+      ]
     }
   >
-    Hello, World
-  </Text>
-</View>
+    hello
+  </RCTText>
+</RCTView>
 ```
 
-No configuration is required. The serializer is active for all snapshot tests automatically, under both engines. The example shows the mock engine's element names; under the native engine a snapshot shows React Native's real host names, such as `RCTView` and `RCTText`.
+That is `<View testID="box" style={[{ flex: 1 }, undefined]}><Text>hello</Text></View>` under the native engine (pinned by `tests-native/snapshot-format.test.tsx`).
+
+What a snapshot shows is the tree the engine renders:
+
+- **The native engine** renders React Native's own components down to its native boundary. A snapshot shows the host components React Native renders (`RCTView`, `RCTText`) with the props React Native passes them, such as the defaults `Text` adds.
+- **The mock engine** renders its own host elements, named after the component (`View`, `Text`).
+- **No host prints a `ref`.** A ref attaches to a host instance that has the native methods (`measure`, `focus`, …).
+
+### Snapshots written under Jest
+
+They are in the same format, and Vitest reads a Jest `.snap` file as it is. Snapshots of plain values pass unchanged.
+
+A snapshot of React Native components still differs once:
+
+- **Why.** React Native's Jest preset replaces `View`, `Text`, `Image`, `TextInput`, `ScrollView` and a few others with stand-ins. Those render a host named after the component, with the props as given. vitest-native renders React Native's own host components instead.
+- **What to do.** Once the rest of the suite passes, re-record with `vitest -u` and review the diff. `vitest-native migrate` counts the snapshot files this applies to.
+- **The header line.** When Vitest runs a test file whose snapshots all pass, it rewrites that `.snap` file's first line from Jest's header to its own, even in CI. Commit that change with the migration.
+
+::: details Before 0.15
+Snapshots used a format of vitest-native's own: props as one-line JSON, `undefined` as `"[undefined]"`. Snapshots recorded in it need `vitest -u` once. For one release the old format is still available: `expect.addSnapshotSerializer(serializer)` with `serializer` from `vitest-native/serializer`, in a setup file. It is deprecated.
+:::
 
 Next: [Test Helpers](/guide/helpers).
 

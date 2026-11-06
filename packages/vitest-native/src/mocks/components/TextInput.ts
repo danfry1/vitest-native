@@ -13,7 +13,8 @@ export function createTextInputMock() {
 
     React.useImperativeHandle(ref, () => instanceMethods);
 
-    return React.createElement("TextInput", { ...props, ref });
+    // The ref is the handle above; the host takes none.
+    return React.createElement("TextInput", props);
   });
   TextInput.displayName = "TextInput";
   return TextInput;
