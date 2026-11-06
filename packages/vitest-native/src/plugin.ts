@@ -71,6 +71,10 @@ import {
   type ProjectContextFields,
 } from "./context.mjs";
 import { cacheRootFor } from "./native/transform.mjs";
+import { HangWatch, debugging, hangTimeoutFor } from "./hang-watch.mjs";
+import inspector from "node:inspector";
+
+const HANG_WATCH = Symbol.for("vitest-native.hang-watch");
 import type { NativeOwnershipPolicy } from "./native/ownership.mjs";
 import {
   createNativeOwnershipPolicy,
@@ -3832,6 +3836,29 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
    * physical Vitest from the one running (host.ts): through the project's Vite resolver
    * for the setup file, and through Node for the hot runtime's worker.
    */
+  // hangTimeout (src/hang-watch.mjs): a reporter in the main process that fails a run
+  // whose tests stop making progress. Vitest builds its reporters after every
+  // configureVitest hook has returned, so one added here is in the run. Once per Vitest
+  // instance, whichever project's plugin gets here first.
+  function watchForHangs(vitest: {
+    config?: {
+      reporters?: unknown[];
+      testTimeout?: number;
+      hookTimeout?: number;
+      inspect?: unknown;
+      inspectBrk?: unknown;
+    };
+  }) {
+    const config = vitest.config;
+    if (!config?.reporters) return;
+    const watched = vitest as { [HANG_WATCH]?: true };
+    if (watched[HANG_WATCH]) return;
+    watched[HANG_WATCH] = true;
+    const timeoutMs = hangTimeoutFor(options?.hangTimeout, config);
+    if (timeoutMs === null || debugging(config, process.execArgv, inspector.url())) return;
+    config.reporters.push(new HangWatch({ timeoutMs }));
+  }
+
   async function verifyRunningVitest({
     vitest,
     project,
@@ -3937,6 +3964,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     // asynchronous).
     configureVitest(context: Parameters<typeof configureProject>[0]) {
       ownershipReady = undefined;
+      watchForHangs(context.vitest);
       configureProject(context);
       // Under experimental.ownershipModel, the context is published once the registry
       // is built (configureProject); Vitest awaits this before starting any worker.

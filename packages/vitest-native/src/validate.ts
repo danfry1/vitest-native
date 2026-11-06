@@ -14,6 +14,7 @@ const KNOWN_OPTIONS = [
   "hotRuntime",
   "nativeModules",
   "registryBuild",
+  "hangTimeout",
   "ownership",
   "experimental",
 ];
@@ -112,6 +113,20 @@ export function validateOptions(options: Record<string, unknown>): void {
     throw new VitestNativeTypeError(
       "INVALID_OPTION",
       `"registryBuild" must be "background" or "wait".`,
+    );
+  }
+  if (
+    options.hangTimeout !== undefined &&
+    options.hangTimeout !== false &&
+    !(
+      typeof options.hangTimeout === "number" &&
+      Number.isFinite(options.hangTimeout) &&
+      options.hangTimeout > 0
+    )
+  ) {
+    throw new VitestNativeTypeError(
+      "INVALID_OPTION",
+      `"hangTimeout" must be a positive number of milliseconds, or false.`,
     );
   }
   if (
