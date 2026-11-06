@@ -32,6 +32,9 @@ function place(name: string, build: (dir: string) => void) {
 }
 
 export function setup() {
+  place("vn-installed-ts-consumer", (dir) =>
+    fs.cpSync(path.join(fixtures, "vn-installed-ts-consumer"), dir, { recursive: true }),
+  );
   place("vn-installed-ts-lib", (dir) =>
     fs.cpSync(path.join(fixtures, "vn-installed-ts-lib"), dir, { recursive: true }),
   );

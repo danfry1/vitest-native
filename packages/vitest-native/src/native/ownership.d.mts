@@ -82,6 +82,8 @@ export interface NativeOwnershipOptions {
   /** Files Vitest runs as entries without a test-file name: the project's `test.setupFiles`. */
   entryFiles?: string[];
   serverDepsInlineAll?: boolean;
+  /** An installed package's TypeScript source is Node's (#544); default: the context's nodeMocks. */
+  installedTypeScriptToNode?: boolean;
   /** How each package's directory is found; defaults to `packageDirOf` (match.mjs). */
   packageDirOf?: (name: string, fromDir: string) => string | null;
 }
@@ -113,3 +115,6 @@ export declare function parseNativeOwnershipManifest(
 export declare function formatNativeOwnershipManifest(
   manifest: NativeOwnershipManifest | string | unknown,
 ): string[];
+
+/** TypeScript source under node_modules (not a declaration file): #544's rule. */
+export declare const INSTALLED_TYPESCRIPT: RegExp;

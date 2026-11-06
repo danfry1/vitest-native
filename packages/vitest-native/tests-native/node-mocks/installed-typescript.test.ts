@@ -1,11 +1,15 @@
 /**
- * An installed package's TypeScript source has one owner, Node (#544). Vitest inlines a
- * file Node cannot run as published, so Vite used to evaluate the TypeScript a test
- * imported while Node compiled its own copy for a `require` of it: two instances, whose
- * module state the ownership guard reported as SOURCE_EVALUATED_TWICE. Node now compiles
- * it for both, and Vite leaves it external.
+ * With nodeMocks on, an installed package's TypeScript source has one owner, Node (#544).
+ * Vitest inlines a file Node cannot run as published, so Vite evaluated the TypeScript a
+ * test imported while Node compiled its own copy for a `require` of it: two instances,
+ * which the ownership guard reported as SOURCE_EVALUATED_TWICE. Node now compiles it for
+ * both and Vite leaves it external, and a vi.mock still reaches its imports through Node.
+ * (Default flags: tests-native/installed-typescript-mocks.test.ts.)
  */
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
+import { read } from "vn-installed-ts-consumer";
+
+vi.mock("dispatch-target-lib", () => ({ source: "mocked" }));
 
 declare const require: (id: string) => Record<string, unknown>;
 
@@ -23,4 +27,8 @@ it("compiles an installed package's TypeScript for Node, enums included, as one 
   const viaVite = (await import("vn-installed-ts-lib")) as unknown as typeof viaNode;
   expect(viaVite.store).toBe(viaNode.store);
   expect(viaVite.store.mode).toBe("plain");
+});
+
+it("lets a vi.mock reach an installed TypeScript package's own import, through Node", () => {
+  expect(read()).toBe("mocked");
 });

@@ -95,18 +95,27 @@ describe("native ownership policy", () => {
   });
 
   // #544: Vitest inlines installed TypeScript (Node cannot run it as published), so a
-  // require (Node) and an import (Vite) of one file loaded it twice. Node owns it now.
-  it("leaves an installed package's TypeScript source to Node, which compiles it for require and import", () => {
-    for (const file of [
+  // require (Node) and an import (Vite) of one file loaded it twice. With nodeMocks on,
+  // Node owns it; with it off, Vite's inline is how a vi.mock reaches its imports.
+  it("leaves an installed package's TypeScript source to Node only with nodeMocks on", () => {
+    const withNodeMocks = createNativeOwnershipPolicy({
+      projectRoot: "/repo/app",
+      installedTypeScriptToNode: true,
+    });
+    const installed = [
       "/repo/app/node_modules/plain-lib/src/a.ts",
       "/repo/app/node_modules/plain-lib/src/view.tsx",
       "C:\\repo\\node_modules\\plain-lib\\src\\a.ts",
-    ]) {
-      expect(policy.decideFile(file)).toMatchObject({
+    ];
+    for (const file of installed) {
+      expect(withNodeMocks.decideFile(file)).toMatchObject({
         owner: "node",
         reason: "installed-typescript",
       });
-      expect(policy.externalPatterns.some((pattern) => pattern.test(file))).toBe(true);
+      expect(withNodeMocks.externalPatterns.some((pattern) => pattern.test(file))).toBe(true);
+      // The default (nodeMocks off): Vitest still decides.
+      expect(policy.decideFile(file)).toMatchObject({ owner: "vitest-default" });
+      expect(policy.externalPatterns.some((pattern) => pattern.test(file))).toBe(false);
     }
     // Declaration files are never loaded, Node has no handler for `.mts`/`.cts`, and
     // project TypeScript stays Vite's.
@@ -115,7 +124,7 @@ describe("native ownership policy", () => {
       "/repo/app/node_modules/plain-lib/src/a.mts",
       "/repo/app/src/a.ts",
     ]) {
-      expect(policy.externalPatterns.some((pattern) => pattern.test(file))).toBe(false);
+      expect(withNodeMocks.externalPatterns.some((pattern) => pattern.test(file))).toBe(false);
     }
   });
 

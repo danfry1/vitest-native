@@ -2673,6 +2673,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             resolvedRoot,
           ),
           serverDepsInlineAll: userInlinesEverything,
+          installedTypeScriptToNode: fields.nodeMocks === true,
           packageDirOf: dirOf,
         });
         assertInlineOwnership(userInline);

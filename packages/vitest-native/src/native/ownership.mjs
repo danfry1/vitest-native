@@ -7,6 +7,7 @@
  * the Vite main process and every worker reconstruct the same decision.
  */
 import path from "node:path";
+import { projectContext } from "../context.mjs";
 import {
   NODE_MODULES_PATH,
   REACT_NATIVE_PATH,
@@ -123,7 +124,7 @@ function decision(owner, format, transform, reset, reasons, evidence) {
  * Externalizing it leaves the one copy Node compiles. The same extensions as Node's
  * handlers: an `.mts` or `.cts` file has none, and stays Vitest's to decide.
  */
-const INSTALLED_TYPESCRIPT = /[\\/]node_modules[\\/].*(?<!\.d)\.tsx?$/;
+export const INSTALLED_TYPESCRIPT = /[\\/]node_modules[\\/].*(?<!\.d)\.tsx?$/;
 const isInstalledTypeScript = (file) => INSTALLED_TYPESCRIPT.test(file.replace(/[?#].*$/, ""));
 
 export function createNativeOwnershipPolicy({
@@ -136,6 +137,13 @@ export function createNativeOwnershipPolicy({
   reactNativeRoots = [],
   entryFiles = [],
   serverDepsInlineAll = false,
+  // Whether an installed package's TypeScript source is Node's (#544). Only with nodeMocks
+  // on (experimental.nodeMocks, or ownershipModel 'resolution'): there a vi.mock reaches
+  // what Node loads, so moving these files to Node keeps every mock reaching them. With
+  // it off, a package Vite inlines is the only route for a vi.mock to reach its imports,
+  // so Vitest keeps deciding. Workers read it from their context (the plugin sets
+  // `nodeMocks` there from the same condition).
+  installedTypeScriptToNode = projectContext()?.nodeMocks === true,
   packageDirOf,
 } = {}) {
   const dirOf = memoizePackageDirOf(packageDirOf);
@@ -186,7 +194,7 @@ export function createNativeOwnershipPolicy({
   const externalPatterns = [
     REACT_NATIVE_PATH,
     ...reactNativeRootPatterns,
-    INSTALLED_TYPESCRIPT,
+    ...(installedTypeScriptToNode ? [INSTALLED_TYPESCRIPT] : []),
     ...nodeTransformPackages.flatMap((name) => packagePatterns(name, root, dirOf)),
   ];
   const matchesNodeTransformedFile = buildPkgMatcher(nodeTransformPackages, root, dirOf);
@@ -312,7 +320,7 @@ export function createNativeOwnershipPolicy({
           : ["serialized worker transform set"],
       );
     }
-    if (isInstalledTypeScript(file)) {
+    if (installedTypeScriptToNode && isInstalledTypeScript(file)) {
       return decision(
         "node",
         "package",
