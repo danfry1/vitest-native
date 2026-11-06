@@ -25,6 +25,8 @@ export interface ProjectContextFields {
   ownershipGuard?: { mode: "warn" | "error"; allow: { path: string; reason: string }[] };
   projectDirs?: string[];
   requireAliases?: [string, string][];
+  /** The project sets test.restoreMocks: jest-compat restores jest.replaceProperty() before each test. */
+  restoreMocks?: true;
   requireAliasesSkipped?: string[];
   presetNames?: string[];
   /** experimental.nodeMocks: a `vi.mock` applies to the modules Node loads. */
