@@ -1,6 +1,7 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
+import { hostComponent as hostClass } from "../mocks/host.js";
 import { builtInPreset } from "./built-in.js";
 
 export function expo(): Preset {
@@ -211,7 +212,7 @@ export function expo(): Preset {
         ],
         factory: () => {
           const StatusBar = React.forwardRef((props: any, ref: any) =>
-            React.createElement("StatusBar", { ...props, ref }, props.children),
+            React.createElement(hostClass("StatusBar"), { ...props, ref }, props.children),
           );
           StatusBar.displayName = "StatusBar";
 
