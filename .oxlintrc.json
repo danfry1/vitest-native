@@ -1,6 +1,13 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["typescript", "unicorn", "import"],
+  "plugins": [
+    "typescript",
+    "unicorn",
+    "import"
+  ],
+  "jsPlugins": [
+    "./packages/vitest-native/lint/vitest-native-rules.mjs"
+  ],
   "categories": {
     "correctness": "error",
     "suspicious": "warn",
@@ -18,6 +25,17 @@
     "unicorn/no-array-reverse": "off",
     "import/no-unassigned-import": "off"
   },
+  "overrides": [
+    {
+      "files": [
+        "packages/vitest-native/src/**"
+      ],
+      "rules": {
+        "vitest-native/no-monkey-patching": "error",
+        "vitest-native/no-doc-urls-in-src": "error"
+      }
+    }
+  ],
   "settings": {
     "react": {
       "formComponents": [],
