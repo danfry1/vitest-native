@@ -328,6 +328,7 @@ try {
         for (const [dir, name] of [
           ["state-fixture", "consumer-state-fixture"],
           ["runtime-probe", "runtime-probe"],
+          ["first-load-fixture", "consumer-first-load-fixture"],
         ]) {
           const dest = path.join(fixtureRoot, "node_modules", name);
           fs.rmSync(dest, { recursive: true, force: true });

@@ -14,6 +14,7 @@
         "!vitest-native-consumer-current-rn",
         "!runtime-probe",
         "!consumer-state-fixture",
+        "!consumer-first-load-fixture",
         "!vitest-native-consumer-expo-sdk57",
         "!vitest-native-consumer-jest-migration",
         "!vitest-native-consumer-mock-rntl14",
@@ -35,6 +36,7 @@
         "vitest-native-consumer-current-rn",
         "runtime-probe",
         "consumer-state-fixture",
+        "consumer-first-load-fixture",
         "vitest-native-consumer-expo-sdk57",
         "vitest-native-consumer-jest-migration",
         "vitest-native-consumer-mock-rntl14",
@@ -57,6 +59,7 @@
         "vitest-native-consumer-current-rn",
         "runtime-probe",
         "consumer-state-fixture",
+        "consumer-first-load-fixture",
         "vitest-native-consumer-expo-sdk57",
         "vitest-native-consumer-jest-migration",
         "vitest-native-consumer-mock-rntl14",
@@ -79,6 +82,7 @@
         "vitest-native-consumer-current-rn",
         "runtime-probe",
         "consumer-state-fixture",
+        "consumer-first-load-fixture",
         "vitest-native-consumer-expo-sdk57",
         "vitest-native-consumer-jest-migration",
         "vitest-native-consumer-mock-rntl14",
@@ -87,7 +91,7 @@
         "@consumer/*",
         "vitest-native-consumer-expo-template"
       ],
-      "dependencies": ["runtime-probe", "consumer-state-fixture", "@consumer/ui", "@suite/*"],
+      "dependencies": ["runtime-probe", "consumer-state-fixture", "consumer-first-load-fixture", "@consumer/ui", "@suite/*"],
       "isIgnored": true
     },
     {
@@ -120,7 +124,12 @@
     },
     {
       "label": "Support-matrix fixture, RN 0.86 + RNTL 13: its versions are the axis it tests, so it does not follow the workspace; within it, each dependency has one version",
-      "packages": ["vitest-native-consumer-current-rn", "runtime-probe", "consumer-state-fixture"]
+      "packages": [
+        "vitest-native-consumer-current-rn",
+        "runtime-probe",
+        "consumer-state-fixture",
+        "consumer-first-load-fixture"
+      ]
     },
     {
       "label": "Support-matrix fixture, Expo SDK 57: its versions are the axis it tests, so it does not follow the workspace; within it, each dependency has one version",
@@ -178,6 +187,7 @@
         "vitest-native-consumer-current-rn",
         "runtime-probe",
         "consumer-state-fixture",
+        "consumer-first-load-fixture",
         "vitest-native-consumer-expo-sdk57",
         "vitest-native-consumer-jest-migration",
         "vitest-native-consumer-mock-rntl14",
@@ -206,6 +216,7 @@
         "vitest-native-consumer-current-rn",
         "runtime-probe",
         "consumer-state-fixture",
+        "consumer-first-load-fixture",
         "vitest-native-consumer-expo-sdk57",
         "vitest-native-consumer-jest-migration",
         "vitest-native-consumer-mock-rntl14",
@@ -214,7 +225,7 @@
         "@consumer/*",
         "vitest-native-consumer-expo-template"
       ],
-      "dependencies": ["runtime-probe", "consumer-state-fixture", "@consumer/ui", "@suite/*"],
+      "dependencies": ["runtime-probe", "consumer-state-fixture", "consumer-first-load-fixture", "@consumer/ui", "@suite/*"],
       "isIgnored": true
     },
     {
@@ -228,6 +239,7 @@
         "vitest-native-consumer-current-rn",
         "runtime-probe",
         "consumer-state-fixture",
+        "consumer-first-load-fixture",
         "vitest-native-consumer-expo-sdk57",
         "vitest-native-consumer-jest-migration",
         "vitest-native-consumer-mock-rntl14",
@@ -250,6 +262,7 @@
         "vitest-native-consumer-current-rn",
         "runtime-probe",
         "consumer-state-fixture",
+        "consumer-first-load-fixture",
         "vitest-native-consumer-expo-sdk57",
         "vitest-native-consumer-jest-migration",
         "vitest-native-consumer-mock-rntl14",

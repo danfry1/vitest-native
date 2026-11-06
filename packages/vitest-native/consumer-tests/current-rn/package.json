@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@testing-library/react-native": "13.3.3",
+    "consumer-first-load-fixture": "file:./first-load-fixture",
     "consumer-state-fixture": "file:./state-fixture",
     "react": "19.2.4",
     "react-native": "0.86.0",
