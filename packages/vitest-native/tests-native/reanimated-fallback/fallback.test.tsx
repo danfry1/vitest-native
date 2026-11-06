@@ -9,6 +9,7 @@ import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react-native";
 import { Text, View } from "react-native";
 import {
+  Gesture,
   GestureDetector,
   GestureHandlerRootView,
   ScrollView,
@@ -54,6 +55,26 @@ describe("the reanimated preset, with gesture-handler 3", () => {
     );
     fireGestureHandler(getByGestureTestId("tap"));
     expect(taps).toBe(1);
+  });
+
+  // The builder API's detector wires a gesture to Reanimated through the module's
+  // useEvent and useHandler (as gesture-handler 2 does for every gesture), which the
+  // preset lacked: "Reanimated.useEvent is not a function".
+  it("renders a builder-API gesture around an animated view", async () => {
+    function Fader() {
+      const opacity = useSharedValue(1);
+      return (
+        <GestureDetector gesture={Gesture.Tap()}>
+          <Animated.View testID="fader" style={{ opacity: opacity.value }} />
+        </GestureDetector>
+      );
+    }
+    await render(
+      <GestureHandlerRootView>
+        <Fader />
+      </GestureHandlerRootView>,
+    );
+    expect(screen.getByTestId("fader")).toBeTruthy();
   });
 
   it("scrolls a v3 ScrollView", async () => {

@@ -462,6 +462,9 @@ export function reanimated(): Preset {
           "useAnimatedKeyboard",
           "useReducedMotion",
           "useFrameCallback",
+          "useEvent",
+          "useHandler",
+          "setGestureState",
           "withTiming",
           "withSpring",
           "withDecay",
@@ -649,6 +652,18 @@ export function reanimated(): Preset {
             };
           }
 
+          // As reanimated's own mock answers them. Gesture Handler, which runs as itself
+          // under the native engine, builds its Reanimated integration on these: an event
+          // handler that never fires, a handler context, and gesture state set from a
+          // worklet (it would assign its own fallback onto this module otherwise).
+          function useEvent(_handler: unknown, _eventNames?: string[], _rebuild?: boolean) {
+            return () => {};
+          }
+          function useHandler() {
+            return { context: {}, doDependenciesDiffer: false, useWeb: false };
+          }
+          function setGestureState(_handlerTag: number, _newState: number) {}
+
           function withTiming(toValue: any, _config?: any, callback?: any) {
             callback?.({ finished: true, current: toValue });
             return toValue;
@@ -788,6 +803,9 @@ export function reanimated(): Preset {
             useAnimatedKeyboard,
             useReducedMotion,
             useFrameCallback,
+            useEvent,
+            useHandler,
+            setGestureState,
             withTiming,
             withSpring,
             withDecay,
