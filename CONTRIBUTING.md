@@ -81,6 +81,12 @@ anyone:
 - Guard every `rm -rf` in a script: `rm -rf "${dir:?}"`, and refuse a target outside the
   scratch directory.
 
+**Commits and pull requests**
+- Use a closing keyword (`fixes`, `closes`, `resolves` and their forms) only for the issue the
+  change fixes. GitHub acts on it when the commit reaches main, and a squash-merge copies the
+  pull request's text into the commit, so "fix #566" written about another pull request closed
+  it. Refer to anything else as "see #566" or "(#566)".
+
 **Long runs**
 - Run one heavy suite at a time. To check for another, match the process, not text that your
   own shell also contains: `pgrep -fl 'node .*vitest(\.mjs)? run'`. To queue behind a run,
