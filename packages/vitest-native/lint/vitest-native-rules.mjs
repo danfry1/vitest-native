@@ -87,6 +87,23 @@ const realpathSpelling = {
       }
       return null;
     };
+    // Where a statement's comments sit: before its `export` if it is exported, and before
+    // the statement it shares a first line with (a one-line `if` and its consequent).
+    const commentAnchor = (statement) => {
+      let at = statement;
+      for (;;) {
+        if (/^Export(Named|Default)Declaration$/.test(at.parent?.type ?? "")) {
+          at = at.parent;
+          continue;
+        }
+        const outer = nearestStatement(at);
+        if (outer && outer.loc.start.line === at.loc.start.line) {
+          at = outer;
+          continue;
+        }
+        return at;
+      }
+    };
     // Explained by a comment mentioning "spelling": on the call's own line, in the comment
     // block directly above the statement holding it, or in the comment block (JSDoc
     // included) above a function enclosing it; oxlint has no getJSDocComment. Not by a
@@ -96,11 +113,11 @@ const realpathSpelling = {
       if (source.getAllComments().some((c) => mentions(c) && c.loc.start.line === line))
         return true;
       const statement = nearestStatement(node);
-      if (statement && blockAbove(statement).some(mentions)) return true;
+      if (statement && blockAbove(commentAnchor(statement)).some(mentions)) return true;
       for (let at = node.parent; at; at = at.parent) {
         if (!FUNCTION.test(at.type)) continue;
         const declaration = at.type === "FunctionDeclaration" ? at : nearestStatement(at);
-        if (declaration && blockAbove(declaration).some(mentions)) return true;
+        if (declaration && blockAbove(commentAnchor(declaration)).some(mentions)) return true;
       }
       return false;
     };
