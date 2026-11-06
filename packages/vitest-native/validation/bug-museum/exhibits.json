@@ -1862,6 +1862,51 @@
       "fixedBy": "#564 (merged)",
       "bugSignature": "^jsx-js\\.test\\.tsx: AssertionError: a project \\.js file with JSX: expected 'throws: ",
       "preFixRef": "499f8886^"
+    },
+    {
+      "id": "env-jest-root-mocks",
+      "class": "env-contract",
+      "title": "A root __mocks__ file for a node_modules package is not applied",
+      "source": "obytes template (#562)",
+      "fixedBy": "#566",
+      "bugSignature": "^root-mock\\.test\\.ts: AssertionError: museum-motion, with __mocks__/museum-motion\\.js at the root: expected 'the real package' to be 'the manual mock'",
+      "fixRef": "b21f43e9686873980034ee8528ca86b8add92506"
+    },
+    {
+      "id": "own-jest-factory-require-source",
+      "class": "ownership",
+      "title": "A jest.mock factory's require of project source loads a second copy",
+      "source": "Bluesky trial (#571)",
+      "fixedBy": "#580",
+      "bugSignature": "^factory-require\\.test\\.ts: AssertionError: the mock reads the test's store: expected 'initial' to be 'set by the test'",
+      "fixRef": "0c220c664a"
+    },
+    {
+      "id": "env-jest-rn-deep-path-mock",
+      "class": "env-contract",
+      "title": "jest.mock of a react-native/Libraries path misses what react-native exports",
+      "source": "react-native-paper trial (#573)",
+      "fixedBy": "#582",
+      "bugSignature": "^deep-path\\.test\\.ts: AssertionError: BackHandler\\.mockPressBack from the setup file's mock: expected 'undefined' to be 'function'",
+      "fixRef": "8a2bc7d21e"
+    },
+    {
+      "id": "env-jest-view-prototype-spy",
+      "class": "env-contract",
+      "title": "View has no prototype for a jest.spyOn",
+      "source": "react-native-paper trial (#574)",
+      "fixedBy": "#594",
+      "bugSignature": "^view-prototype\\.test\\.tsx: AssertionError: a spy on View\\.prototype\\.measure: expected 'throws: ",
+      "fixRef": "b3ad89a6e96307d6c1fa20a76412d3eafef4653a"
+    },
+    {
+      "id": "res-compile-error-location",
+      "class": "transform/resolution",
+      "title": "A module that does not compile fails without naming where",
+      "source": "Rocket.Chat trial (#579)",
+      "fixedBy": "#586",
+      "bugSignature": "^location\\.test\\.ts: AssertionError: the compile error: expected '.*Invalid or unexpected token",
+      "fixRef": "31cf70fe0c"
     }
   ]
 }
