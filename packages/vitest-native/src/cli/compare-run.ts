@@ -7,6 +7,7 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
 import {
   classify,
@@ -386,6 +387,36 @@ const DRAIN_MS = 2000;
  * 5 s, and once the runner exits whatever is left in its group is killed. A process a
  * test starts in a session of its own is out of reach, as it is under the runners.
  */
+export type OutputStream = "stdout" | "stderr";
+
+/**
+ * Splits a child's stdout and stderr into lines, each stream on its own: the two pipes
+ * deliver chunks in any order and a chunk can end mid-line or mid-character, so a shared
+ * buffer would join half a stderr line to a stdout line and lose what it said.
+ */
+export function outputLines(onLine: (line: string, stream: OutputStream) => void) {
+  const streams = {
+    stdout: { decoder: new StringDecoder("utf8"), partial: "" },
+    stderr: { decoder: new StringDecoder("utf8"), partial: "" },
+  };
+  return {
+    push(stream: OutputStream, chunk: Buffer) {
+      const state = streams[stream];
+      const parts = (state.partial + state.decoder.write(chunk)).split("\n");
+      state.partial = parts.pop() ?? "";
+      for (const line of parts) onLine(line, stream);
+    },
+    flush() {
+      for (const stream of ["stdout", "stderr"] as const) {
+        const state = streams[stream];
+        const rest = state.partial + state.decoder.end();
+        state.partial = "";
+        if (rest) onLine(rest, stream);
+      }
+    },
+  };
+}
+
 function runBounded(
   args: string[],
   options: {
@@ -394,7 +425,7 @@ function runBounded(
     timeoutMs: number;
     showOutput: boolean;
     cleanup: string[];
-    onLine?: (line: string) => void;
+    onLine?: (line: string, stream: OutputStream) => void;
   },
 ): Promise<Bounded> {
   return new Promise((resolve) => {
@@ -411,17 +442,17 @@ function runBounded(
       },
     );
     const tail: string[] = [];
-    let partial = "";
-    const onData = (chunk: Buffer) => {
-      if (options.showOutput) process.stderr.write(chunk);
-      const parts = (partial + chunk.toString()).split("\n");
-      partial = parts.pop() ?? "";
-      for (const line of parts) options.onLine?.(line);
-      tail.push(...parts);
+    const lines = outputLines((line, stream) => {
+      options.onLine?.(line, stream);
+      tail.push(line);
       if (tail.length > 40) tail.splice(0, tail.length - 40);
+    });
+    const onData = (stream: OutputStream) => (chunk: Buffer) => {
+      if (options.showOutput) process.stderr.write(chunk);
+      lines.push(stream, chunk);
     };
-    child.stdout?.on("data", onData);
-    child.stderr?.on("data", onData);
+    child.stdout?.on("data", onData("stdout"));
+    child.stderr?.on("data", onData("stderr"));
 
     const killTree = (signal: NodeJS.Signals) => {
       if (child.pid === undefined) return;
@@ -467,10 +498,7 @@ function runBounded(
       clearTimeout(escalate);
       clearTimeout(drain);
       for (const s of signals) process.off(s, onSignal);
-      if (partial) {
-        options.onLine?.(partial);
-        tail.push(partial);
-      }
+      lines.flush();
       if (child.connected) child.disconnect();
       resolve({ code, timedOut, interrupted, tail });
     };
@@ -869,14 +897,16 @@ interface ManifestEntry {
 export function vitestOutputReader(sanitize: (s: string) => string) {
   const errors: string[] = [];
   let engine: string | null = null;
-  let pending: string | null = null;
+  // Per stream: the line after an error header is its message, and a line the other
+  // stream prints in between must not take its place.
+  const pending: Record<OutputStream, string | null> = { stdout: null, stderr: null };
   let running = false;
   // oxlint-disable-next-line no-control-regex -- ANSI escapes
   const plain = (line: string) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "");
   return {
     errors,
     engine: () => engine,
-    onLine(raw: string) {
+    onLine(raw: string, stream: OutputStream = "stdout") {
       const line = plain(raw);
       // Only the plugin's banner, printed while Vitest resolves its config, before the RUN
       // header: a test that prints the same words cannot set the engine.
@@ -885,12 +915,12 @@ export function vitestOutputReader(sanitize: (s: string) => string) {
       if (m) engine ??= m[1];
       const header = /⎯+\s*(Unhandled (?:Rejection|Error)|Uncaught Exception)\s*⎯+/.exec(line);
       if (header) {
-        pending = header[1];
+        pending[stream] = header[1];
         return;
       }
-      if (pending && line.trim() !== "") {
-        errors.push(`${pending}: ${sanitize(line.trim())}`);
-        pending = null;
+      if (pending[stream] && line.trim() !== "") {
+        errors.push(`${pending[stream]}: ${sanitize(line.trim())}`);
+        pending[stream] = null;
         return;
       }
       const close = /^error during close (.*)$/.exec(line);
