@@ -2072,6 +2072,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // experimental.ownershipModel: the registry options config() knows, built in
   // configureVitest once the resolver inputs are final (by directoryKey).
   const pendingRegistries = new Map<string, RegistryOptions>();
+  // Projects whose registry config() left compiling in the background: only their
+  // Vitest settles background builds when it closes.
+  const backgroundRegistryRoots = new Set<string>();
   // Set by configureProject when it publishes the context asynchronously (above).
   let ownershipReady: Promise<void> | undefined;
   // A root as Vite spells it → its directoryKey: resolveId runs for every import.
@@ -2884,7 +2887,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         } else {
           const started = await startRegistryFor(registryOptions);
           if (started.wait) useRegistries(await buildRegistryFor(registryOptions));
-          else if (started.pending) fields.registryPending = started.pending;
+          else if (started.pending) {
+            fields.registryPending = started.pending;
+            backgroundRegistryRoots.add(directoryKey(resolvedRoot));
+          }
           else useRegistries(started);
         }
 
@@ -3595,7 +3601,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           `Unsupported peer dependencies:\n- ${error}`,
         );
     }
-    if (!registrySettlers.has(vitest)) {
+    if (backgroundRegistryRoots.has(directoryKey(root)) && !registrySettlers.has(vitest)) {
       registrySettlers.add(vitest);
       const closable = vitest as {
         onClose?: (fn: () => Promise<void>) => void;

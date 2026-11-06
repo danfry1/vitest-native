@@ -9,6 +9,11 @@ process.env.VITEST_NATIVE_NO_REGISTRY = "1";
 
 export default mergeConfig(base, {
   test: {
-    exclude: ["tests-native/registry.test.ts", "tests-native/registry-identity.test.ts"],
+    exclude: [
+      "tests-native/registry.test.ts",
+      "tests-native/registry-identity.test.ts",
+      "tests-native/library-registry.test.tsx",
+      "tests-native/node-dispatch-precedence.test.ts",
+    ],
   },
 });
