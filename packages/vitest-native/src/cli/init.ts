@@ -27,6 +27,11 @@ export interface InitResult {
   lines: string[];
   ok: boolean;
   wrote?: string;
+  /**
+   * What the write changed about which config Vitest reads: the file it replaced, and a
+   * vite.config.* it no longer reads. Part of `lines`; `migrate --write` prints them too.
+   */
+  notices?: string[];
 }
 
 const PLAIN_CONFIG = `import { defineConfig } from 'vitest/config'
@@ -80,24 +85,48 @@ export function renderInitConfig(jestCompat: boolean, vitePlus = false): string 
 }
 
 /**
- * Vitest's config file names, in the order it looks them up (CONFIG_EXTENSIONS in
- * vitest/dist/chunks/constants): the first that exists is the one it loads. Vitest
- * reads a vite.config.* only when there is no vitest.config.*; under Vite+, which
- * keeps tests in vite.config.*, existingConfig checks that first on purpose.
+ * Vitest's config file names, in the order it looks them up (CONFIG_NAMES and
+ * CONFIG_EXTENSIONS in vitest/dist/chunks/constants): the first that exists is the one
+ * it loads, every vitest.config.* before any vite.config.*, and it does not merge the two.
  */
-const VITEST_CONFIG_FILES = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"].map(
-  (ext) => `vitest.config${ext}`,
-);
+const CONFIG_EXTENSIONS = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"];
+const VITEST_CONFIG_FILES = CONFIG_EXTENSIONS.map((ext) => `vitest.config${ext}`);
+const VITE_CONFIG_FILES = CONFIG_EXTENSIONS.map((ext) => `vite.config${ext}`);
 
-/** The config Vitest would load from `root`, or null when there is none to replace. */
+function firstExisting(root: string, names: string[]): string | null {
+  return names.find((name) => fs.existsSync(path.join(root, name))) ?? null;
+}
+
+/**
+ * The config Vitest would load from `root`, or null when there is none to replace. A
+ * vite.config.* counts only under Vite+, which keeps tests in it; elsewhere a new
+ * vitest.config.* goes beside it, and the takeover is reported.
+ */
 function existingConfig(root: string, vitePlus: boolean): string | null {
-  for (const name of [
-    ...(vitePlus ? ["vite.config.ts", "vite.config.mts", "vite.config.js", "vite.config.mjs"] : []),
-    ...VITEST_CONFIG_FILES,
-  ]) {
-    if (fs.existsSync(path.join(root, name))) return name;
-  }
-  return null;
+  return firstExisting(root, [...VITEST_CONFIG_FILES, ...(vitePlus ? VITE_CONFIG_FILES : [])]);
+}
+
+/**
+ * Printed when a new vitest.config.* takes over from a vite.config.* Vitest was reading:
+ * from then on, that file's plugins, `resolve` options and aliases no longer reach tests.
+ */
+export function viteConfigTakeoverNotice(viteConfig: string, written: string): string[] {
+  const specifier = `./${viteConfig.replace(/\.[cm]?[jt]s$/, "")}`;
+  return [
+    `! Vitest now loads ${written} instead of ${viteConfig}: it reads a vite.config.* only when`,
+    `  there is no vitest.config.*, and does not merge the two. Plugins, \`resolve\` options and`,
+    `  aliases in ${viteConfig} no longer apply to tests. If tests need them, extend it in ${written}:`,
+    ``,
+    `  import { defineConfig, mergeConfig } from 'vitest/config'`,
+    `  import viteConfig from '${specifier}'`,
+    ``,
+    `  export default mergeConfig(viteConfig, defineConfig({ /* the settings this file has now */ }))`,
+    ``,
+    `  If ${viteConfig} exports a function, call it:`,
+    `  defineConfig((env) => mergeConfig(viteConfig(env), { /* ... */ }))`,
+    ``,
+    `  or copy over the settings tests need.`,
+  ];
 }
 
 export function runInit(root: string, opts: InitOptions = {}): InitResult {
@@ -159,11 +188,18 @@ export function runInit(root: string, opts: InitOptions = {}): InitResult {
       : fs.existsSync(path.join(root, "tsconfig.json"))
         ? "vitest.config.mts"
         : "vitest.config.mjs");
+  // A vite.config.* Vitest was reading until now: it stops when the new vitest.config.*
+  // lands, which happens only when no vitest.config.* existed. (Under Vite+, reaching
+  // here means there is no vite.config.*: an existing one was refused above.)
+  const viteConfig = existing ? null : firstExisting(root, VITE_CONFIG_FILES);
   const target = path.join(root, file);
   fs.writeFileSync(target, renderInitConfig(opts.jestCompat ?? false, vitePlus));
 
-  lines.push(`✓ wrote ${file}${opts.jestCompat ? " (jest-compat variant)" : ""}`);
-  if (existing) lines.push(`  (replaced the existing ${existing}, the config Vitest loads)`);
+  const notices = [
+    ...(existing ? [`  (replaced the existing ${existing}, the config Vitest loads)`] : []),
+    ...(viteConfig ? ["", ...viteConfigTakeoverNotice(viteConfig, file)] : []),
+  ];
+  lines.push(`✓ wrote ${file}${opts.jestCompat ? " (jest-compat variant)" : ""}`, ...notices);
   lines.push(
     "",
     "Next steps:",
@@ -177,5 +213,5 @@ export function runInit(root: string, opts: InitOptions = {}): InitResult {
     );
   }
   lines.push("", ...HOT_RUNTIME_NOTE);
-  return { lines, ok: true, wrote: file };
+  return { lines, ok: true, wrote: file, notices };
 }

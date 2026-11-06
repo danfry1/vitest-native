@@ -20,7 +20,10 @@ instead of quietly doing something else.
 Writes `vitest.config.mts` (or `.mjs` in JS-only projects) with the
 zero-config plugin. Refuses to overwrite an existing config unless `--force`, which
 replaces the config file Vitest loads, under its own name (a CommonJS
-`vitest.config.cjs` or `.cts` is refused instead).
+`vitest.config.cjs` or `.cts` is refused instead). Vitest reads a `vite.config.*`
+only when there is no `vitest.config.*`, and does not merge the two, so when a
+`vite.config.*` exists, `init` says that the new file takes over from it and shows
+how to extend it with `mergeConfig`.
 
 ```bash
 npx vitest-native init                 # plain config

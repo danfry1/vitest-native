@@ -1025,4 +1025,51 @@ process.exit(0)`,
     },
     60_000,
   );
+
+  it.runIf(distExists)(
+    "--write over a vite.config writes the config Vitest's own lookup loads, and says so",
+    () => {
+      const root = fixture({
+        "package.json": { name: "x" },
+        "tsconfig.json": {},
+        "jest.config.json": { testTimeout: 9123 },
+        "vite.config.ts": "export default { test: { testTimeout: 1 } }",
+      });
+      const modules = path.join(root, "node_modules");
+      fs.mkdirSync(modules);
+      for (const name of fs.readdirSync(path.join(packageRoot, "node_modules"))) {
+        fs.symlinkSync(path.join(packageRoot, "node_modules", name), path.join(modules, name));
+      }
+      fs.symlinkSync(packageRoot, path.join(modules, "vitest-native"));
+
+      const lines: string[] = [];
+      expect(main(["migrate", "--write", "--root", root], (l) => lines.push(l))).toBe(0);
+      const output = lines.join("\n");
+      expect(output).toContain("✓ wrote vitest.config.mts from the analysis above.");
+      expect(output).toContain(
+        "! Vitest now loads vitest.config.mts instead of vite.config.ts: it reads a vite.config.* only when",
+      );
+      const probe = spawnSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "-e",
+          `import { resolveConfig } from 'vitest/node'
+const c = await resolveConfig({ root: process.cwd(), watch: false })
+console.log('RESOLVED ' + JSON.stringify({ file: c.configFile, timeout: c.test.testTimeout }))
+process.exit(0)`,
+        ],
+        { cwd: root, encoding: "utf8", env: { ...process.env, CI: "1" } },
+      );
+      const line = probe.stdout.split("\n").find((l) => l.startsWith("RESOLVED "));
+      expect(line, probe.stdout + probe.stderr).toBeDefined();
+      const resolved = JSON.parse((line as string).slice("RESOLVED ".length));
+      // The file the CLI named is the one Vitest loads, and the vite.config's settings are gone.
+      expect(fs.realpathSync(resolved.file)).toBe(
+        fs.realpathSync(path.join(root, "vitest.config.mts")),
+      );
+      expect(resolved.timeout, output).toBe(9123);
+    },
+    60_000,
+  );
 });

@@ -10,7 +10,12 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { main, unknownFlag } from "../src/cli/index.js";
-import { HOT_RUNTIME_NOTE, runInit, renderInitConfig } from "../src/cli/init.js";
+import {
+  HOT_RUNTIME_NOTE,
+  renderInitConfig,
+  runInit,
+  viteConfigTakeoverNotice,
+} from "../src/cli/init.js";
 import { runDoctor } from "../src/cli/doctor.js";
 import { PEER_REQUIREMENTS } from "../src/peer-requirements.js";
 import { PRESET_MODULES } from "../src/preset-map.js";
@@ -180,6 +185,89 @@ describe("init", () => {
       expect(runInit(root).lines.join("\n")).not.toContain("--force");
       expect(fs.readdirSync(root).filter((f) => f.startsWith("vitest.config"))).toEqual([name]);
     }
+  });
+
+  it("says when the new vitest.config takes over from a vite.config Vitest was reading", () => {
+    const viteConfig = "export default { resolve: { alias: { '@': '/src' } } }";
+    const root = fixture({
+      "package.json": { name: "x" },
+      "tsconfig.json": {},
+      "vite.config.ts": viteConfig,
+    });
+    const result = runInit(root);
+    expect(result.ok).toBe(true);
+    expect(result.wrote).toBe("vitest.config.mts");
+    const output = result.lines.join("\n");
+    expect(output).toContain(
+      "! Vitest now loads vitest.config.mts instead of vite.config.ts: it reads a vite.config.* only when",
+    );
+    expect(output).toContain("import viteConfig from './vite.config'");
+    expect(output).toContain("mergeConfig(viteConfig, defineConfig(");
+    expect(output).toContain("import { defineConfig, mergeConfig } from 'vitest/config'");
+    expect(output).toContain("If vite.config.ts exports a function, call it:");
+    expect(output).toContain("defineConfig((env) => mergeConfig(viteConfig(env), {");
+    expect(result.notices).toEqual([
+      "",
+      ...viteConfigTakeoverNotice("vite.config.ts", "vitest.config.mts"),
+    ]);
+    expect(fs.readFileSync(path.join(root, "vite.config.ts"), "utf8")).toBe(viteConfig);
+
+    // Without a vite.config.*, or when a vitest.config.* already shadowed it, nothing changes hands.
+    expect(runInit(fixture({ "package.json": { name: "x" } })).lines.join("\n")).not.toContain(
+      "Vitest now loads",
+    );
+    const shadowed = fixture({
+      "package.json": { name: "x" },
+      "vite.config.ts": viteConfig,
+      "vitest.config.js": "export default {}",
+    });
+    const replaced = runInit(shadowed, { force: true });
+    expect(replaced.wrote).toBe("vitest.config.js");
+    expect(replaced.notices).toEqual([
+      "  (replaced the existing vitest.config.js, the config Vitest loads)",
+    ]);
+  });
+
+  describe("under Vite+", () => {
+    const vitePlus = {
+      "package.json": { name: "x", devDependencies: { "vite-plus": "1.3.0" } },
+      "node_modules/vite-plus/package.json": { name: "vite-plus", version: "1.3.0" },
+    };
+
+    it("adds to an existing vite.config rather than replacing it", () => {
+      const root = fixture({ ...vitePlus, "vite.config.ts": "export default {}" });
+      const result = runInit(root, { force: true });
+      expect(result.ok).toBe(false);
+      expect(result.lines[0]).toBe(
+        "✗ vite.config.ts already exists. Vite+ keeps tests in the same config, so add",
+      );
+      expect(fs.readFileSync(path.join(root, "vite.config.ts"), "utf8")).toBe("export default {}");
+    });
+
+    it("names the vitest.config Vitest loads when both exist, and replaces that one", () => {
+      const root = fixture({
+        ...vitePlus,
+        "vite.config.ts": "export default {}",
+        "vitest.config.ts": "export default {}",
+      });
+      const refused = runInit(root);
+      expect(refused.ok).toBe(false);
+      expect(refused.lines[0]).toBe(
+        "✗ vitest.config.ts already exists — not overwriting. Re-run with --force to replace it,",
+      );
+      const result = runInit(root, { force: true });
+      expect(result.wrote).toBe("vitest.config.ts");
+      expect(fs.readFileSync(path.join(root, "vitest.config.ts"), "utf8")).toBe(
+        renderInitConfig(false, true),
+      );
+      expect(fs.readFileSync(path.join(root, "vite.config.ts"), "utf8")).toBe("export default {}");
+    });
+
+    it("writes vite.config.ts when there is no config, with no takeover notice", () => {
+      const result = runInit(fixture(vitePlus));
+      expect(result.wrote).toBe("vite.config.ts");
+      expect(result.notices).toEqual([]);
+    });
   });
 
   it("renderInitConfig variants are syntactically importable shapes", () => {
