@@ -97,12 +97,18 @@
         "untranspiled-jsx-lib": "file:./tests-native/fixtures/untranspiled-jsx-lib",
         "vite": "^8.3.5",
         "vitest": "5.0.5",
+        "vn-lib-esm-support": "file:./tests-native/fixtures/vn-lib-esm-support",
+        "vn-lib-jest-support": "file:./tests-native/fixtures/vn-lib-jest-support",
+        "vn-lib-own-mock": "file:./tests-native/fixtures/vn-lib-own-mock",
+        "vn-lib-plain-mock": "file:./tests-native/fixtures/vn-lib-plain-mock",
+        "vn-lib-plain-two-entries": "file:./tests-native/fixtures/vn-lib-plain-two-entries",
+        "vn-lib-two-entries": "file:./tests-native/fixtures/vn-lib-two-entries",
       },
       "peerDependencies": {
         "@babel/core": "*",
         "@react-native/babel-preset": "*",
-        "@testing-library/react-native": ">=12 <15",
-        "react": ">=18",
+        "@testing-library/react-native": ">=13 <15",
+        "react": ">=19",
         "vite": "^8.0.5",
         "vitest": ">=5 <6",
       },
@@ -381,8 +387,6 @@
     "@expo/spawn-async": ["@expo/spawn-async@1.8.0", "", { "dependencies": { "cross-spawn": "^7.0.6" } }, "sha512-eb9xxd/LbuEGSdua4NumCu/McVB9EM+F/JxB9pWgnERw4HQ9XyTNH1KapG6oqLWR8TuRK2LQfzJlmNi94CVobw=="],
 
     "@expo/sudo-prompt": ["@expo/sudo-prompt@9.3.2", "", {}, "sha512-HHQigo3rQWKMDzYDLkubN5WQOYXJJE2eNqIQC2axC2iO3mHdwnIR7FgZVvHWtBwAdzBgAP0ECp8KqS8TiMKvgw=="],
-
-    "@expo/ws-tunnel": ["@expo/ws-tunnel@2.0.1", "", { "peerDependencies": { "ws": "^8.0.0" } }, "sha512-mljsRffbOHzmSimYQbQu9h9NR3alwCCwEEouRGFL4QRTt8dNvsNtKEPa/5jHmtDLDtsh4xXsWKwzjN9BTpeXHQ=="],
 
     "@expo/xcpretty": ["@expo/xcpretty@4.4.7", "", { "dependencies": { "@babel/code-frame": "^7.20.0", "chalk": "^4.1.0", "js-yaml": "^4.1.0" }, "bin": { "excpretty": "build/cli.js" } }, "sha512-EbxYllZ7/ozONVZd425cm4XnolfW+AmSFT5aP7Jdno6oc3WrYQcHz2CO20z/2rwWwYgztmV2PXvYH+BQ8YFjqg=="],
 
@@ -1700,6 +1704,8 @@
 
     "@babel/plugin-transform-runtime/semver": ["semver@6.3.1", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
 
+    "@expo/cli/@expo/ws-tunnel": ["@expo/ws-tunnel@2.0.1", "", { "peerDependencies": { "ws": "^8.0.0" } }, "sha512-mljsRffbOHzmSimYQbQu9h9NR3alwCCwEEouRGFL4QRTt8dNvsNtKEPa/5jHmtDLDtsh4xXsWKwzjN9BTpeXHQ=="],
+
     "@expo/cli/@react-native/asset-utils": ["@react-native/asset-utils@0.88.1", "", {}, "sha512-BLb5FF7NgggGYiCsA7KKkK2qFhn0K+6iGXOI+4Ucd+G7Robzw9Gt4WsWwxLt+Od+G+/hyqfz8ASokyWFZ6VcLw=="],
 
     "@expo/cli/@react-native/dev-middleware": ["@react-native/dev-middleware@0.88.1", "", { "dependencies": { "@isaacs/ttlcache": "^1.4.1", "@react-native/debugger-frontend": "0.88.1", "@react-native/debugger-shell": "0.88.1", "connect": "^3.6.5", "debug": "^4.4.0", "invariant": "^2.2.4", "nullthrows": "^1.1.1", "open": "^8.4.2", "serve-static": "^1.16.2", "ws": "^7.5.10" } }, "sha512-0smOWE3NCdEYUwPiEdiwVXjTdvXcwSejviCM0YZB0Dj6HaQ+uu4hpSrvgERDevr5dvtSaqr8N4TdYZCLXiVgFw=="],
@@ -1745,8 +1751,6 @@
     "@expo/plist/@xmldom/xmldom": ["@xmldom/xmldom@0.8.13", "", {}, "sha512-KRYzxepc14G/CEpEGc3Yn+JKaAeT63smlDr+vjB8jRfgTBBI9wRj/nkQEO+ucV8p8I9bfKLWp37uHgFrbntPvw=="],
 
     "@expo/prebuild-config/@react-native/normalize-colors": ["@react-native/normalize-colors@0.88.1", "", {}, "sha512-2SAKiLyZRf+peBLkhhJWGY5vC26w1Uj9QBgUZvjAnOxjgeEKUGBE5riPS0R7+YoqSrRL0w8ucwZB4M+vvy9HMg=="],
-
-    "@expo/ws-tunnel/ws": ["ws@8.21.0", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g=="],
 
     "@gorhom/portal/nanoid": ["nanoid@3.3.12", "", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-ZB9RH/39qpq5Vu6Y+NmUaFhQR6pp+M2Xt76XBnEwDaGcVAqhlvxrl3B2bKS5D3NH3QR76v3aSrKaF/Kiy7lEtQ=="],
 
@@ -1977,6 +1981,18 @@
     "vitest-native/rn-singleton-lib": ["rn-singleton-lib@file:packages/vitest-native/tests-native/fixtures/rn-singleton-lib", { "dependencies": { "react-native": "*" } }],
 
     "vitest-native/untranspiled-jsx-lib": ["untranspiled-jsx-lib@file:packages/vitest-native/tests-native/fixtures/untranspiled-jsx-lib", {}],
+
+    "vitest-native/vn-lib-esm-support": ["vn-lib-esm-support@file:packages/vitest-native/tests-native/fixtures/vn-lib-esm-support", {}],
+
+    "vitest-native/vn-lib-jest-support": ["vn-lib-jest-support@file:packages/vitest-native/tests-native/fixtures/vn-lib-jest-support", {}],
+
+    "vitest-native/vn-lib-own-mock": ["vn-lib-own-mock@file:packages/vitest-native/tests-native/fixtures/vn-lib-own-mock", { "peerDependencies": { "react-native": "*" } }],
+
+    "vitest-native/vn-lib-plain-mock": ["vn-lib-plain-mock@file:packages/vitest-native/tests-native/fixtures/vn-lib-plain-mock", { "peerDependencies": { "react-native": "*" } }],
+
+    "vitest-native/vn-lib-plain-two-entries": ["vn-lib-plain-two-entries@file:packages/vitest-native/tests-native/fixtures/vn-lib-plain-two-entries", {}],
+
+    "vitest-native/vn-lib-two-entries": ["vn-lib-two-entries@file:packages/vitest-native/tests-native/fixtures/vn-lib-two-entries", { "peerDependencies": { "react-native": "*" } }],
 
     "wrap-ansi/ansi-styles": ["ansi-styles@4.3.0", "", { "dependencies": { "color-convert": "^2.0.1" } }, "sha512-zbB9rCJAT1rbjiVDb2hqKFHNYLxgtk8NURxZ3IZwD3F6NtxbXZQCnnSi1Lkx+IDohdPlFp222wVALIheZJQSEg=="],
 

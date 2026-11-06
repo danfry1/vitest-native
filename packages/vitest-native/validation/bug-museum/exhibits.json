@@ -1075,8 +1075,8 @@
       "class": "presets",
       "title": "Gesture Handler 3's components need hand-written jest.mocks",
       "source": "issue #351 (a user's migration: ~50 s under Jest -> ~8 s)",
-      "fixedBy": "local branch feat/library-jest-scope (Gesture Handler runs as itself; no PR yet)",
-      "fixRef": "feat/library-jest-scope",
+      "fixedBy": "#498 (re-land of #424: Gesture Handler runs as itself with its own Jest setup)",
+      "fixRef": "origin/feat/library-setup-files-b4",
       "bugSignature": "^issue351\\.test\\.tsx: AssertionError: Gesture Handler 3 exports Touchable: expected 'undefined' not to be 'undefined'",
       "status": {
         "main": "FAIL (bug)",
@@ -1091,8 +1091,8 @@
       "class": "presets",
       "title": "A Gesture Handler 3 gesture configured with a shared value crashes",
       "source": "issue #351 (a user's migration: ~50 s under Jest -> ~8 s)",
-      "fixedBy": "local branch fix/issue-351-own-library-mocks (400c240; no PR yet; main has the hand-written preset again since #363 reverted #336)",
-      "fixRef": "fix/issue-351-own-library-mocks",
+      "fixedBy": "#499 (re-land of #429: reanimated's no-op helpers, handlers and shared values corrected)",
+      "fixRef": "origin/fix/reanimated-gaps-b4",
       "bugSignature": "^(issue351\\.test\\.tsx: |unhandled error \\(from issue351\\.test\\.tsx\\): )TypeError: \\S+\\.addListener is not a function",
       "consequences": "^(the JSON report says success: true, but Vitest exited 1|Vitest exited 1, but no file failed and no error was unhandled)$",
       "buggyRef": "400c240^",
@@ -1110,8 +1110,8 @@
       "class": "presets",
       "title": "Reanimated's pure helpers are no-ops under the engine",
       "source": "issue #351 (a user's migration: ~50 s under Jest -> ~8 s)",
-      "fixedBy": "local branch fix/issue-351-own-library-mocks (no PR yet; main has the hand-written preset again since #363 reverted #336)",
-      "fixRef": "fix/issue-351-own-library-mocks",
+      "fixedBy": "#499 (re-land of #429: reanimated's no-op helpers, handlers and shared values corrected)",
+      "fixRef": "origin/fix/reanimated-gaps-b4",
       "bugSignature": "^issue351\\.test\\.tsx: AssertionError: (interpolate computes: expected (undefined|\\+0) to be 50|clamp computes: expected .* to be 3|interpolateColor computes|Reanimated exports isSharedValue: expected 'undefined' to be 'function'|isSharedValue recognises a shared value)",
       "status": {
         "main": "FAIL (bug)",
@@ -1126,8 +1126,8 @@
       "class": "presets",
       "title": "useAnimatedScrollHandler never calls the handler; useScrollOffset is not a shared value",
       "source": "issue #351 (a user's migration: ~50 s under Jest -> ~8 s)",
-      "fixedBy": "local branch fix/issue-351-own-library-mocks (no PR yet; main has the hand-written preset again since #363 reverted #336)",
-      "fixRef": "fix/issue-351-own-library-mocks",
+      "fixedBy": "#499 (re-land of #429: reanimated's no-op helpers, handlers and shared values corrected)",
+      "fixRef": "origin/fix/reanimated-gaps-b4",
       "bugSignature": "^issue351\\.test\\.tsx: (AssertionError: (the scroll handler received the scroll event: expected \\[\\] to deeply equal \\[ 7 \\]|useScrollOffset returns a shared value: expected 'undefined' to be 'function')|TypeError: \\(0 , __vite_ssr_import_\\d+__\\.useScrollOffset\\) is not a function)",
       "status": {
         "main": "FAIL (bug)",
@@ -1347,10 +1347,10 @@
     {
       "id": "res-pnpm-native-ext-peer",
       "class": "transform/resolution",
-      "title": "A library whose pnpm store directory names worklets loses its .native files",
-      "source": "#349 (bisected to #336: expo-router native-stack threw requireNativeViewManager on a pnpm Expo 58 app)",
-      "fixedBy": "#363 (merged: reverts #336, which introduced it); #349 keeps it fixed when #336 relands",
-      "fixRef": "origin/fix/library-resolver-pnpm-store",
+      "title": "A library whose pnpm store directory names reanimated loses its .native files",
+      "source": "#349 (bisected to #336: expo-router native-stack threw requireNativeViewManager on a pnpm Expo 58 app); reshaped to reanimated's resolver, the live risk once #419's library Jest resolvers are in the engine",
+      "fixedBy": "the engine consults a library's own Jest resolver only for that library's files (97183394, in #444); #363 reverted the first form (#336)",
+      "fixRef": "origin/perf/library-registry",
       "requires": {
         "layout": "pnpm"
       },
@@ -1359,12 +1359,12 @@
       ],
       "bugSignature": "^native-ext\\.test\\.ts: AssertionError: expected 'web' to be 'native'",
       "control": {
-        "why": "Without the worklets peer, pnpm's directory name carries no worklets substring.",
+        "why": "Without the reanimated peer, pnpm's directory name carries no reanimated substring.",
         "edits": [
           {
             "file": "vendor/museum-peer-lib/package.json",
-            "find": "\"react-native-worklets\": \"*\"",
-            "replace": "\"museum-no-worklets\": \"*\""
+            "find": "\"react-native-reanimated\": \"*\"",
+            "replace": "\"museum-no-reanimated\": \"*\""
           }
         ]
       },
@@ -1376,7 +1376,8 @@
         "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "NOT PROVEN"
       },
-      "preFixRef": "0f2400e"
+      "preFixRef": "0f2400e",
+      "buggyRef": "0e72c2b3"
     },
     {
       "id": "res-pnpm-reanimated-render",

@@ -1,5 +1,6 @@
 // Patches Node's CJS loader so RN's internal require() chains are Flow-stripped and
 // native-boundary modules are mocked. The companion loader.mjs handles the import() path.
+import { compileSupport, loadSupport } from "./library-jest.mjs";
 import Module from "node:module";
 import { nodeDispatch } from "../node-dispatch.mjs";
 import { CONTEXT_ENV, projectContext } from "../context.mjs";
@@ -9,14 +10,19 @@ import fs from "node:fs";
 import { heldTransform, transformRN, isFlow, needsTransform } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
 import {
+  extensionsFor,
   hasKnownExtension,
   resolvePlatformFile,
   resolveRelativePlatformFile,
+  resolveRelativeWithExtensions,
   resolveDeepPackageFile,
+  resolvePackageMainField,
+  isWholePackageRequest,
 } from "./resolve.mjs";
 import {
   NODE_MODULES_PATH,
   isUtilitySubpath,
+  owningPackageOfFile,
   packageNameOf,
   isPackageEntryFile,
   subpathLeafOf,
@@ -36,6 +42,7 @@ import {
   ownershipShadowFile,
   workerSharedResolver,
 } from "./shared-resolver.mjs";
+import { libraryExtensionsFor } from "./jest-resolvers.mjs";
 
 // Guarded via globalThis, not module scope: under the hot runtime this module
 // can be evaluated twice in one worker (once by the worker entry through Node's
@@ -414,8 +421,16 @@ export function installRequireHooks(
   // globalThis.__vitest_native_preset_require), so the two cannot disagree.
   const NO_PRESET = Symbol("no preset");
   function presetExportsFor(request, parent) {
+    const fromFile = parent?.filename;
     const mocks = globalThis.__vitest_native_preset_mocks;
     if (!mocks) return NO_PRESET;
+    // jest.requireActual of a shadowed package: this one load is the package itself
+    // (jest-compat/node-registry.mjs), as Jest's requireActual gives it.
+    const registry = globalThis.__vitest_native_jest_registry;
+    if (registry !== undefined && registry.presetActual === request) {
+      registry.presetActual = undefined;
+      return NO_PRESET;
+    }
     if (Object.prototype.hasOwnProperty.call(mocks, request)) return mocks[request];
     // Subpath require of a preset package — the real deep entry would load the
     // package's native runtime. Exempt: JSON subpaths (package.json version
@@ -427,8 +442,12 @@ export function installRequireHooks(
     if (reqExt !== "json" && !assetExtSet.has(reqExt) && !isUtilitySubpath(request)) {
       const pkg = packageNameOf(request);
       // Only a subpath whose leaf the mock exports is the mock's (loader.mjs,
-      // shadowsSubpath); any other is the real file, as under Jest's jest.mock(pkg).
-      if (pkg !== request && Object.prototype.hasOwnProperty.call(mocks, pkg)) {
+      // shadowsSubpath); any other is the real file, as under Jest's jest.mock(pkg). A
+      // package's request for one of its own files is the package's business, as a
+      // jest.mock of the package name leaves it alone: reanimated's own mock loads the
+      // real package, which requires react-native-reanimated/scripts/… by name.
+      const fromItself = typeof fromFile === "string" && owningPackageOfFile(fromFile) === pkg;
+      if (pkg !== request && !fromItself && Object.prototype.hasOwnProperty.call(mocks, pkg)) {
         if (presetExportsLeaf(pkg, request)) return presetSubpathExports(mocks, pkg, request);
         if (parent !== undefined && isPackageEntry(pkg, request, parent)) return mocks[pkg];
       }
@@ -560,6 +579,12 @@ export function installRequireHooks(
     misses: 0,
     stale: 0,
   });
+  // Node's in-thread module hooks resolve a require with `{ conditions }` (Node 26 adds
+  // `paths: undefined` to it); any other option that is set (`require.resolve`'s
+  // `paths`) is Node's to answer.
+  const onlyConditions = (options) =>
+    options == null ||
+    !Object.keys(options).some((name) => name !== "conditions" && options[name] !== undefined);
   const resolutionKey = (request, parent, [isMain, options]) => {
     if (typeof request !== "string" || typeof parent?.path !== "string" || isMain) return null;
     // A relative request with an extension, and an absolute one, Node answers from
@@ -568,15 +593,8 @@ export function installRequireHooks(
       return null;
     }
     if (Module.isBuiltin(request)) return null;
-    // Node's in-thread module hooks resolve a require with `{ conditions }` (Node 26
-    // adds `paths: undefined` to it); any other option that is set (`require.resolve`'s
-    // `paths`) is left to Node.
-    let conditions = "";
-    if (options != null) {
-      const set = (name) => options[name] !== undefined;
-      if (Object.keys(options).some((name) => name !== "conditions" && set(name))) return null;
-      if (options.conditions != null) conditions = [...options.conditions].join(",");
-    }
+    if (!onlyConditions(options)) return null;
+    const conditions = options?.conditions != null ? [...options.conditions].join(",") : "";
     return `${parent.path}\0${request}\0${conditions}`;
   };
   // experimental.ownershipModel: bare requests resolve through the resolver Vite and
@@ -689,13 +707,38 @@ export function installRequireHooks(
           request.startsWith(".") &&
           !hasKnownExtension(request, activeSourceExts, assetExtSet)
         ) {
-          resolved = resolveRelativePlatformFile(
+          // A library's own Jest resolver can narrow the extensions for its files
+          // (jest-resolvers.mjs: worklets' and reanimated's JS implementations).
+          const narrowed = libraryExtensionsFor(
+            projectRoot,
             request,
             parent.filename,
+            extensionsFor(platform, activeSourceExts),
+          );
+          resolved = narrowed
+            ? resolveRelativeWithExtensions(request, parent.filename, narrowed)
+            : resolveRelativePlatformFile(request, parent.filename, platform, activeSourceExts);
+          if (resolved) resolved = asNodeResolves(resolved);
+        }
+        // A whole package with a `react-native` field: the file Metro and Vite's import
+        // resolve it to, so an import and a require are one module (resolve.mjs). Only a
+        // file these hooks can load: TypeScript, or a file they compile; a package they do
+        // not compile keeps its `main`, which Node loads as it is.
+        if (
+          !resolved &&
+          parent?.filename &&
+          onlyConditions(rest[1]) &&
+          isWholePackageRequest(request)
+        ) {
+          const entry = resolvePackageMainField(
+            request,
+            path.dirname(parent.filename),
             platform,
             activeSourceExts,
           );
-          if (resolved) resolved = asNodeResolves(resolved);
+          if (entry && (/\.[cm]?tsx?$/.test(entry) || compiles(entry))) {
+            resolved = asNodeResolves(entry);
+          }
         }
         if (!resolved) {
           try {
@@ -756,12 +799,12 @@ export function installRequireHooks(
     // registry compiles without the isFlow test below.
     if (rnPath === null && isExtra(norm)) {
       const held = heldTransform(filename, projectRoot, platform);
-      if (held !== undefined) return mod._compile(held, filename);
+      if (held !== undefined) return compileSupport(mod, held, filename);
     }
     if (rnPath !== null) {
       const src = fs.readFileSync(filename, "utf8");
       if (isFlow(src))
-        return mod._compile(transformRN(filename, src, projectRoot, platform), filename);
+        return compileSupport(mod, transformRN(filename, src, projectRoot, platform), filename);
     } else if (isExtra(norm)) {
       // Selected for compiling — but only compile what Node cannot run as published.
       // `isFlow` is not enough here (TS `import type` and JSX slip past it), and
@@ -769,9 +812,9 @@ export function installRequireHooks(
       // needsTransform: V8 answers the question Node is about to ask.
       const src = fs.readFileSync(filename, "utf8");
       if (needsTransform(filename, src)) {
-        return mod._compile(transformRN(filename, src, projectRoot, platform), filename);
+        return compileSupport(mod, transformRN(filename, src, projectRoot, platform), filename);
       }
-      return origJs(mod, filename);
+      return loadSupport(mod, filename, origJs);
     }
     if (NODE_MODULES_PATH.test(norm)) {
       // A node_modules package we did NOT transform: when Node's compile throws a
@@ -779,12 +822,12 @@ export function installRequireHooks(
       // real fix (add the package to `transform: [...]`) instead of leaving a
       // bare "Unexpected token '<'" — the single most common migration blocker.
       try {
-        return origJs(mod, filename);
+        return loadSupport(mod, filename, origJs);
       } catch (err) {
         throw explainUntransformedSyntaxError(err, filename) ?? err;
       }
     }
-    return origJs(mod, filename);
+    return loadSupport(mod, filename, origJs);
   };
 
   // An `.mjs` file Node's require(esm) loads: the in-thread loader compiles what it must
@@ -815,7 +858,7 @@ export function installRequireHooks(
       if (boundary != null) return mod._compile(boundary, filename);
       // No source: transformRN reads the file only when its compiled output is not
       // already held for this file's size and mtime.
-      return mod._compile(transformRN(filename, undefined, projectRoot, platform), filename);
+      return compileSupport(mod, transformRN(filename, undefined, projectRoot, platform), filename);
     };
   }
   return compiles;

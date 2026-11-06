@@ -34,9 +34,9 @@ const presets = (globalThis as { __vitest_native_preset_mocks?: Record<string, u
   .__vitest_native_preset_mocks!;
 
 describe("Node dispatch precedence, from an installed package", () => {
-  it("runs the steps in one order: per-file mocks, preset, registry", async () => {
+  it("runs the steps in one order: library support, per-file mocks, preset, registry", async () => {
     const { nodeDispatch } = (await import("../src/node-dispatch.mjs")) as any;
-    expect(nodeDispatch().load.names).toEqual(["mocks", "preset", "registry"]);
+    expect(nodeDispatch().load.names).toEqual(["librarySupport", "mocks", "preset", "registry"]);
     // The hot runtime's tracker, when installed, records what every other step settled on.
     const resolveNames: string[] = nodeDispatch().resolve.names;
     expect(resolveNames).toEqual(

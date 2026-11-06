@@ -16,6 +16,12 @@ export interface ResolverInputs {
   aliases?: ResolutionAlias[];
   /** Node's CommonJS conditions in the workers, `react-native` excluded. */
   conditions?: string[];
+  /**
+   * Packages that run as themselves under their own Jest support (the library setup
+   * files): resolved as their Jest oracle resolves them, to `main`, never their
+   * `react-native` field.
+   */
+  ownJestSupport?: string[];
 }
 
 export interface ResolverCounters {

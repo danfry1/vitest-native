@@ -107,6 +107,44 @@ describe("the shared resolver", () => {
     );
   });
 
+  // Decision (d): a library that runs as itself under its own Jest support resolves as its
+  // Jest oracle does, to `main`, on both sides (the Vite side defers to Node there too).
+  it("sends a package with its own Jest support to main, not its react-native field", () => {
+    const root = project({
+      "node_modules/legacy/package.json": JSON.stringify({
+        name: "legacy",
+        main: "./web.js",
+        "react-native": "./native",
+      }),
+      "node_modules/legacy/web.js": "",
+      "node_modules/legacy/native.js": "",
+    });
+    const from = path.join(root, "app.ts");
+    const nodeResolve = (id: string) => createRequire(from).resolve(id);
+    const resolver = createSharedResolver(
+      { ...inputsFor(root), ownJestSupport: ["legacy"] },
+      { realm: "t-own-jest" },
+    );
+    expect(resolver.resolve("legacy", from, nodeResolve)).toBe(
+      path.join(root, "node_modules/legacy/web.js"),
+    );
+    // A subpath is unaffected: the field only ever named the package's root.
+    expect(resolver.resolve("legacy/native", from, nodeResolve)).toBe(
+      path.join(root, "node_modules/legacy/native.js"),
+    );
+  });
+
+  it("tells inputs with a different ownJestSupport apart, and leaves the hash alone without it", () => {
+    const base = { projectRoot: "/p", platform: "ios" };
+    expect(resolverInputsHash({ ...base, ownJestSupport: ["a"] })).not.toBe(
+      resolverInputsHash(base),
+    );
+    expect(resolverInputsHash({ ...base, ownJestSupport: ["b", "a"] })).toBe(
+      resolverInputsHash({ ...base, ownJestSupport: ["a", "b"] }),
+    );
+    expect(resolverInputsHash({ ...base, ownJestSupport: [] })).toBe(resolverInputsHash(base));
+  });
+
   it("reads a package manifest once, however many directories ask", () => {
     const root = project({ ...dual });
     const resolver = createSharedResolver(inputsFor(root), { realm: "t-reads", memo: false });

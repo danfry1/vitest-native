@@ -79,15 +79,21 @@ export function renderInitConfig(jestCompat: boolean, vitePlus = false): string 
     : source;
 }
 
+/**
+ * Vitest's config file names, in the order it looks them up (CONFIG_EXTENSIONS in
+ * vitest/dist/chunks/constants): the first that exists is the one it loads. Vitest
+ * reads a vite.config.* only when there is no vitest.config.*; under Vite+, which
+ * keeps tests in vite.config.*, existingConfig checks that first on purpose.
+ */
+const VITEST_CONFIG_FILES = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"].map(
+  (ext) => `vitest.config${ext}`,
+);
+
+/** The config Vitest would load from `root`, or null when there is none to replace. */
 function existingConfig(root: string, vitePlus: boolean): string | null {
   for (const name of [
     ...(vitePlus ? ["vite.config.ts", "vite.config.mts", "vite.config.js", "vite.config.mjs"] : []),
-    "vitest.config.ts",
-    "vitest.config.mts",
-    "vitest.config.js",
-    "vitest.config.mjs",
-    "vitest.config.cts",
-    "vitest.config.cjs",
+    ...VITEST_CONFIG_FILES,
   ]) {
     if (fs.existsSync(path.join(root, name))) return name;
   }
@@ -118,6 +124,17 @@ export function runInit(root: string, opts: InitOptions = {}): InitResult {
       ok: false,
     };
   }
+  // vitest-native writes ES module configs, and does not rewrite a CommonJS one in place:
+  // a new file beside it would leave a config that looks live but is not loaded.
+  if (existing && /\.c[jt]s$/.test(existing)) {
+    return {
+      lines: [
+        `✗ ${existing} is a CommonJS config. vitest-native writes ES module configs and does not`,
+        `  rewrite a CommonJS one; remove or rename ${existing}, then re-run.`,
+      ],
+      ok: false,
+    };
+  }
   if (existing && !opts.force) {
     return {
       lines: [
@@ -128,18 +145,25 @@ export function runInit(root: string, opts: InitOptions = {}): InitResult {
     };
   }
 
-  // TS projects get a .mts config (types flow through defineConfig); everything
-  // else gets .mjs — both are ESM regardless of the package's "type".
-  const file = vitePlus
-    ? "vite.config.ts"
-    : fs.existsSync(path.join(root, "tsconfig.json"))
-      ? "vitest.config.mts"
-      : "vitest.config.mjs";
+  // --force replaces the file Vitest loads, in place: written beside it under another
+  // name, the new config would sit unread wherever Vitest looks that name up later
+  // (vitest.config.ts before .mts). In a package without "type": "module", Vite bundles
+  // an existing .ts or .js config to CommonJS; the ES module source still loads, with
+  // Vite's warning about ESM syntax in a CommonJS-loaded file, as the old file did.
+  // Otherwise TS projects get a .mts config (types flow through defineConfig) and
+  // everything else .mjs, both ESM regardless of the package's "type".
+  const file =
+    existing ??
+    (vitePlus
+      ? "vite.config.ts"
+      : fs.existsSync(path.join(root, "tsconfig.json"))
+        ? "vitest.config.mts"
+        : "vitest.config.mjs");
   const target = path.join(root, file);
   fs.writeFileSync(target, renderInitConfig(opts.jestCompat ?? false, vitePlus));
 
   lines.push(`✓ wrote ${file}${opts.jestCompat ? " (jest-compat variant)" : ""}`);
-  if (existing && opts.force) lines.push(`  (replaced ${existing === file ? "it" : existing})`);
+  if (existing) lines.push(`  (replaced the existing ${existing}, the config Vitest loads)`);
   lines.push(
     "",
     "Next steps:",

@@ -66,8 +66,10 @@ describe("@gorhom/bottom-sheet under native engine", () => {
         </BottomSheet>
       </BottomSheetModalProvider>,
     );
-    expect(screen.getByTestId("sheet")).toBeTruthy();
+    // bottom-sheet's own mock (mock.js) renders a view's children and nothing of its
+    // own, as under Jest, so the content is there and the view's testID is not.
     expect(screen.getByText("sheet content")).toBeTruthy();
+    expect(screen.queryByTestId("sheet")).toBeNull();
   });
 
   it("the constant enums are shadowed, not undefined", () => {
@@ -94,17 +96,18 @@ describe("react-native-keyboard-controller under native engine", () => {
 });
 
 describe("react-native-worklets under native engine", () => {
-  // Without the preset, importing worklets pulls in its ESM `mock.js` (which
-  // ends with `module.exports = …`) through Node's externalized require and
-  // throws "module is not defined in ES module scope", taking down the file.
-  // The preset shadows the package so direct consumers (e.g. paper's FAB, which
-  // does `import { scheduleOnUI } from 'react-native-worklets'`) load cleanly.
-  it("schedulers run their worklet synchronously on the test thread", () => {
+  // The package runs as itself in its JS implementation, through its own Jest
+  // resolver (native/jest-resolvers.mjs), so direct consumers (e.g. paper's FAB,
+  // which does `import { scheduleOnUI } from 'react-native-worklets'`) load as they
+  // do under Jest.
+  it("schedulers run their worklet on a later tick, as the real package does", async () => {
     const seen: number[] = [];
     scheduleOnUI(() => seen.push(1));
     runOnUI((n: number) => seen.push(n))(2);
     runOnJS((n: number) => seen.push(n))(3);
-    expect(seen).toEqual([1, 2, 3]);
+    expect(seen).toEqual([]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect([...seen].sort()).toEqual([1, 2, 3]);
   });
 
   it("runOnUIAsync resolves with the worklet's result (direct call form)", async () => {
