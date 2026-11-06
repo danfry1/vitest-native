@@ -464,6 +464,16 @@ module.exports = {
         "snapshotSerializers '<rootDir>/jest/reanimatedSnapshotSerializer.js' — Vitest uses",
       );
       expect(more.suggestedConfig).toContain("jestSetupAfterEnv");
+      // A `/*` inside a line comment must not hide code up to a later `*/`.
+      const hidden = paperLike({
+        "jest/jestSetupAfterEnv.js": `${SETUP}// Mocks for everything under src/*\njest.mock('./api');\n/** end of setup */\n`,
+        "jest/reanimatedSnapshotSerializer.js": SERIALIZER.replace(
+          "'jestInlineStyle',",
+          "'jestInlineStyle', // src/*\n  'testID', /** also */",
+        ),
+      });
+      expect(hidden.suggestedConfig).toContain("jestSetupAfterEnv");
+      expect(hidden.presetCovered.join("\n")).not.toContain("snapshotSerializers");
       // A frame-time argument is the project's setting.
       const withArg = paperLike({
         "jest/jestSetupAfterEnv.js": SETUP.replace("setUpTests();", "setUpTests({ fps: 30 });"),

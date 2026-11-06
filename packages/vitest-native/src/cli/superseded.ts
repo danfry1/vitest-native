@@ -29,8 +29,39 @@ const REANIMATED_TEST_PROPS = new Set([
   "jestInlineStyle",
 ]);
 
-function withoutComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+/**
+ * The source without its whole-line comments, or null when a comment marker appears
+ * anywhere else (a trailing comment, `src/*` inside a comment, `//` in a string): a
+ * regex that strips comments across lines can swallow real code between a stray `/*`
+ * and a later `*\/`, and a file that cannot be read exactly is kept.
+ */
+function withoutComments(source: string): string | null {
+  const code: string[] = [];
+  let inBlock = false;
+  for (const raw of source.split("\n")) {
+    const line = raw.trim();
+    if (inBlock) {
+      const end = line.indexOf("*/");
+      if (end === -1) {
+        if (line.includes("/*") || line.includes("//")) return null;
+        continue;
+      }
+      if (end !== line.length - 2) return null;
+      inBlock = false;
+    } else if (line.startsWith("//")) {
+      if (line.includes("/*") || line.includes("*/")) return null;
+    } else if (line.startsWith("/*")) {
+      const end = line.indexOf("*/", 2);
+      if (line.indexOf("/*", 2) !== -1 || line.includes("//")) return null;
+      if (end === -1) inBlock = true;
+      else if (end !== line.length - 2) return null;
+    } else if (line.includes("/*") || line.includes("*/") || line.includes("//")) {
+      return null;
+    } else {
+      code.push(raw);
+    }
+  }
+  return inBlock ? null : code.join("\n");
 }
 
 /**
@@ -39,7 +70,7 @@ function withoutComments(source: string): string {
  */
 export function stripsOnlyReanimatedProps(source: string): boolean {
   const code = withoutComments(source);
-  if (/\brequire\s*\(|^\s*import\b/m.test(code)) return false;
+  if (code === null || /\brequire\s*\(|^\s*import\b/m.test(code)) return false;
   const strings = [...code.matchAll(/(['"`])((?:\\.|(?!\1)[^\\])*)\1/g)].map((m) => m[2]);
   return (
     strings.some((s) => REANIMATED_TEST_PROPS.has(s)) &&
@@ -61,7 +92,9 @@ const SETUP_STATEMENTS = [
  * arguments (a frame-time argument is a setting the project chose).
  */
 export function onlyCallsSetUpTests(source: string): boolean {
-  const statements = withoutComments(source)
+  const code = withoutComments(source);
+  if (code === null) return false;
+  const statements = code
     .split(/[;\n]/)
     .map((s) => s.trim())
     .filter(Boolean);
