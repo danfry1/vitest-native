@@ -96,11 +96,26 @@ function withJestSemantics(mock, original) {
     getMockImplementation,
     mockReset,
   } = mock;
-  mock.mockImplementation = (impl) => mockImplementation.call(mock, asJestImplementation(impl));
-  mock.mockImplementationOnce = (impl) =>
-    mockImplementationOnce.call(mock, asJestImplementation(impl));
-  mock.withImplementation = (impl, callback) =>
-    withImplementation.call(mock, asJestImplementation(impl), callback);
+  // Whether the mock is as a reset leaves it: the resting implementation installed by
+  // mockReset() below and nothing set or called since. See mockReset.
+  let pristine = false;
+  mock.mockImplementation = (impl) => {
+    pristine = false;
+    return mockImplementation.call(mock, asJestImplementation(impl));
+  };
+  mock.mockImplementationOnce = (impl) => {
+    pristine = false;
+    return mockImplementationOnce.call(mock, asJestImplementation(impl));
+  };
+  mock.withImplementation = (impl, callback) => {
+    pristine = false;
+    return withImplementation.call(mock, asJestImplementation(impl), callback);
+  };
+  const { mockName } = mock;
+  mock.mockName = (name) => {
+    pristine = false;
+    return mockName.call(mock, name);
+  };
   mock.getMockImplementation = () => {
     const impl = getMockImplementation.call(mock);
     if (spyDefaults.has(impl)) return undefined;
@@ -110,9 +125,18 @@ function withJestSemantics(mock, original) {
   if (resting !== original) {
     spyDefaults.add(resting);
     mockImplementation.call(mock, resting);
+    pristine = true;
+    // Vitest's resetAllMocks() iterates the set of mocks it marked dirty with for…of, and
+    // mockReset() takes the mock out of it. Installing the resting implementation marks it
+    // dirty again, which appends it to that set, so the same loop visits it again: without
+    // the check below, every visit reset it and appended it once more, and
+    // resetAllMocks() never returned. A mock already as a reset leaves it is left alone,
+    // so the second visit changes nothing and the loop moves on.
     mock.mockReset = () => {
+      if (pristine && mock.mock.calls.length === 0) return mock;
       mockReset.call(mock);
       mockImplementation.call(mock, resting);
+      pristine = true;
       return mock;
     };
   }
