@@ -110,9 +110,27 @@ function withJestSemantics(mock, original) {
   if (resting !== original) {
     spyDefaults.add(resting);
     mockImplementation.call(mock, resting);
+    // Vitest's resetAllMocks() iterates the set of mocks it marked dirty with for…of, and
+    // mockReset() takes the mock out of it. Installing the resting implementation marks it
+    // dirty again, which appends it to that set, so the same loop visits it again: every
+    // visit reset it and appended it once more, and resetAllMocks() never returned.
+    //
+    // A mock whose state is exactly what a reset leaves is left alone, so the second
+    // visit changes nothing and the loop moves on. The state is read from Vitest itself,
+    // not tracked here, so no way of changing the mock can leave it stale: the next
+    // implementation it would run (getMockImplementation() returns a queued once-
+    // implementation first) is the resting one, it has no calls, and its name is the one
+    // the reset left.
+    let nameAfterReset;
+    const asReset = () =>
+      getMockImplementation.call(mock) === resting &&
+      mock.mock.calls.length === 0 &&
+      mock.getMockName() === nameAfterReset;
     mock.mockReset = () => {
+      if (asReset()) return mock;
       mockReset.call(mock);
       mockImplementation.call(mock, resting);
+      nameAfterReset = mock.getMockName();
       return mock;
     };
   }
