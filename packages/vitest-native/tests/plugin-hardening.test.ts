@@ -85,7 +85,7 @@ describe("asset modules (mock engine)", () => {
 describe("Flow-strip transform guard (mock engine)", () => {
   it("still strips genuine Flow sources in react-native ecosystem packages", async () => {
     const plugin = await makePlugin();
-    const result = plugin.transform(
+    const result = plugin.transform.handler(
       `// @flow\ntype Props = { x: number };\nmodule.exports = function f(p: Props) { return p.x; };`,
       "/proj/node_modules/react-native-thing/lib/f.js",
     );
@@ -101,7 +101,7 @@ describe("Flow-strip transform guard (mock engine)", () => {
     // pipeline; now it passes through untouched.
     let result: unknown = "not called";
     expect(() => {
-      result = plugin.transform(
+      result = plugin.transform.handler(
         `const marker = "@flow"; const = broken;`,
         "/proj/node_modules/react-native-thing/lib/broken.js",
       );

@@ -14,7 +14,7 @@ const project = (platform: "ios" | "android", hot: boolean) => ({
   // directory for both.
   extends: false as const,
   root,
-  plugins: [reactNative({ engine: "native", platform, hotRuntime: hot ? "auto" : false })],
+  plugins: [reactNative({ ownership: "error", engine: "native", platform, hotRuntime: hot ? "auto" : false })],
   test: { name: platform, environment: "node", include, env: { VN_EXPECTED_PLATFORM: platform } },
 });
 

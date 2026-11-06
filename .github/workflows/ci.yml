@@ -304,6 +304,12 @@ jobs:
         if: matrix.part != 'suite'
         run: bun run test:native
 
+      - name: Native engine tests (cold-cache background registry build)
+        # Starts real Vitest runs against scratch projects (signals, cancel, CI, a
+        # concurrent cold build), so it takes minutes: one leg per OS, not every leg.
+        if: matrix.part != 'suite' && ((runner.os == 'Linux' && matrix.node-version == '24.12.0') || runner.os != 'Linux')
+        run: bun run test:native:background
+
       - name: Native engine tests (forks pool)
         if: matrix.part != 'suite'
         # When a project configures a VM pool the plugin throws and points at 'threads'

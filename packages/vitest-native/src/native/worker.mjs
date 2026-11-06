@@ -23,8 +23,9 @@ import { captureModuleBaseline, resetEvaluatedModules } from "./module-reset.mjs
 import { registerRntlHooksOnImport } from "./rntl-hooks.mjs";
 import { residentProblems } from "./resident-health.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
+import { installOwnershipLedger } from "./ownership-ledger.mjs";
 import { VitestNativeError } from "../errors.mjs";
-import { markBootContext, requireProjectContext } from "../context.mjs";
+import { activeRegistry, markBootContext, requireProjectContext } from "../context.mjs";
 
 if (isMainThread || !parentPort) {
   throw new VitestNativeError("HOT_WORKER_ENV", "hot worker entry must run in node:worker_threads");
@@ -59,6 +60,9 @@ if (diagnostics) {
 const hotEsmGeneration =
   context.hotEsmGeneration !== false && process.env.VITEST_NATIVE_HOT_ESM_GEN !== "0";
 enableV8CompileCache(projectRoot, { skip: hotEsmGeneration });
+// First, so the resident graph is in the ledger: a later Vite evaluation of a file this
+// worker keeps resident is the dual evaluation that outlives every per-file reset.
+installOwnershipLedger({ projectRoot });
 installGlobals({ projectRoot, platform });
 installKnownNativeModules(projectRoot);
 // The registry must be installed BEFORE the preload below, not just by the setup
@@ -66,8 +70,9 @@ installKnownNativeModules(projectRoot);
 // worker keeps resident, and a preload that bypassed the registry would leave the
 // worker holding a second, separate copy of RN's singletons from the one every
 // test file sees.
-if (context.registry) {
-  installRegistry(context.registry, projectRoot, sourceExts);
+const registryFile = activeRegistry(context);
+if (registryFile) {
+  installRegistry(registryFile, projectRoot, sourceExts, context.libraryRegistry);
 }
 installRequireHooks(
   projectRoot,

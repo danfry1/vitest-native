@@ -35,6 +35,7 @@ import { analyzeJestConfig, extractAllowlistPackages } from "../src/cli/migrate.
 import {
   extensionExclude,
   ignorePatternToGlobs,
+  projectDirectories,
   loadJestPreset,
   parseJestScript,
   translateDiscovery,
@@ -45,6 +46,7 @@ import {
   readBabelConfig,
 } from "../src/cli/babel-config.js";
 import { runDoctor } from "../src/cli/doctor.js";
+import { main } from "../src/cli/index.js";
 import { DEFAULT_ASSET_EXTS, PRESET_MODULES } from "../src/preset-map.js";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -174,6 +176,19 @@ describe("ignore-pattern regexes become exclude globs", () => {
     expect(ignorePatternToGlobs("/e2e/$")).toEqual([]);
   });
 
+  it("converts a $-anchored literal where no directory in the project ends the same way", () => {
+    // tinyglobby prunes a directory an ignore glob matches, so `**/*.d.ts` is exact only
+    // when no directory is named like a .d.ts file.
+    expect(ignorePatternToGlobs("\\.d\\.ts$", ["src", "src/types"])).toEqual(["**/*.d.ts"]);
+    expect(ignorePatternToGlobs("/__tests__/testHelpers\\.tsx$", ["src/__tests__"])).toEqual([
+      "**/__tests__/testHelpers.tsx",
+    ]);
+    expect(ignorePatternToGlobs("<rootDir>/src/setup\\.ts$", ["src"])).toEqual(["src/setup.ts"]);
+    expect(ignorePatternToGlobs("\\.d\\.ts$", ["src/legacy.d.ts"])).toBeNull();
+    // Without the project's directories, nothing is assumed.
+    expect(ignorePatternToGlobs("\\.d\\.ts$")).toBeNull();
+  });
+
   it("agrees with the regex on every generated pattern it converts", () => {
     // Directory names include characters that are literal in a regex escape but
     // syntax in a glob, and the root path itself holds regex metacharacters.
@@ -185,6 +200,7 @@ describe("ignore-pattern regexes become exclude globs", () => {
     ]);
     const root = tree(files);
     const all = vitestCollects(root, ["**/*"], []);
+    const directories = projectDirectories(root);
     const escape = (s: string) =>
       s.replace(/[.*+?^${}()|[\]\\!]/g, (c) => (c === "!" ? c : `\\${c}`));
     const rootPath = "/abs/my.project(1)";
@@ -193,7 +209,7 @@ describe("ignore-pattern regexes become exclude globs", () => {
       for (const prefix of ["", "/", "<rootDir>/", "<rootDir>/src/", "src/.*/"]) {
         for (const suffix of ["", "/", "/.*", ".*", "$", "/$", "\\.test\\.ts$"]) {
           const pattern = `${prefix}${escape(name)}${suffix}`;
-          const globs = ignorePatternToGlobs(pattern);
+          const globs = ignorePatternToGlobs(pattern, directories);
           if (!globs) continue;
           converted++;
           // Jest's side, reading <rootDir> as the directory it names.
@@ -976,5 +992,150 @@ test('import-time mock calls survive', () => { expect(loaded).toHaveBeenCalledTi
       expect(run.status, run.stdout + run.stderr).toBe(0);
     },
     120_000,
+  );
+
+  it.runIf(distExists)(
+    "resolves a literal prefix mapper and skips a $-anchored ignore, as Jest did",
+    () => {
+      const root = fixture({
+        "package.json": { name: "app", type: "module" },
+        "jest.config.json": {
+          moduleNameMapper: { "^~e2e/(.*)$": "<rootDir>/e2e/$1" },
+          testPathIgnorePatterns: ["/node_modules/", "/__tests__/testHelpers\\.test\\.ts$"],
+        },
+        "e2e/helpers/data.ts": "export const value = 42\n",
+        "src/__tests__/uses-alias.test.ts":
+          "import { test, expect } from 'vitest'\nimport { value } from '~e2e/helpers/data'\n" +
+          "test('alias', () => { expect(value).toBe(42) })\n",
+        "src/__tests__/testHelpers.test.ts": "throw new Error('Jest never ran this file')\n",
+        // A bare `~e2e` is not under the mapper's pattern; Jest resolved it as a package.
+        "node_modules/~e2e/package.json": { name: "~e2e", main: "index.js" },
+        "node_modules/~e2e/index.js": "module.exports = { bare: true }\n",
+        "src/__tests__/bare.test.ts":
+          "import { test, expect } from 'vitest'\nimport pkg from '~e2e'\n" +
+          "test('bare', () => { expect(pkg.bare).toBe(true) })\n",
+      });
+      const modules = path.join(root, "node_modules");
+      fs.mkdirSync(modules, { recursive: true });
+      for (const name of fs.readdirSync(path.join(packageRoot, "node_modules"))) {
+        if (fs.existsSync(path.join(modules, name))) continue;
+        fs.symlinkSync(path.join(packageRoot, "node_modules", name), path.join(modules, name));
+      }
+      fs.symlinkSync(packageRoot, path.join(modules, "vitest-native"));
+      const report = analyzeJestConfig(root);
+      expect(report.automatic.join("\n")).toContain(
+        `'/__tests__/testHelpers\\.test\\.ts$' → test.exclude ["**/__tests__/testHelpers.test.ts"]`,
+      );
+      fs.writeFileSync(
+        path.join(root, "vitest.config.mjs"),
+        report.suggestedConfig.replace("reactNative({", "reactNative({ engine: 'mock', "),
+      );
+      const vitestBin = path.join(
+        path.dirname(createRequire(import.meta.url).resolve("vitest/package.json")),
+        "vitest.mjs",
+      );
+      const run = spawnSync(process.execPath, [vitestBin, "run"], {
+        cwd: root,
+        encoding: "utf8",
+        env: { ...process.env, CI: "1" },
+      });
+      expect(run.status, run.stdout + run.stderr).toBe(0);
+      expect(run.stdout).toContain("2 passed");
+    },
+    120_000,
+  );
+
+  it.runIf(distExists)(
+    "--write --force replaces the config Vitest's own lookup loads",
+    () => {
+      const root = fixture({
+        "package.json": { name: "x" },
+        "tsconfig.json": {},
+        "jest.config.json": { testTimeout: 9123 },
+        // Vitest looks up vitest.config.ts before vitest.config.mts.
+        "vitest.config.ts": "export default { test: { testTimeout: 1 } }",
+      });
+      const modules = path.join(root, "node_modules");
+      fs.mkdirSync(modules);
+      for (const name of fs.readdirSync(path.join(packageRoot, "node_modules"))) {
+        fs.symlinkSync(path.join(packageRoot, "node_modules", name), path.join(modules, name));
+      }
+      fs.symlinkSync(packageRoot, path.join(modules, "vitest-native"));
+
+      const lines: string[] = [];
+      expect(main(["migrate", "--write", "--force", "--root", root], (l) => lines.push(l))).toBe(0);
+      expect(lines.join("\n")).toContain("replaced the existing vitest.config.ts");
+      // Vitest's own lookup and load (vitest/node's resolveConfig), in a child process so
+      // the plugin the config loads starts outside this worker.
+      const probe = spawnSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "-e",
+          `import { resolveConfig } from 'vitest/node'
+const c = await resolveConfig({ root: process.cwd(), watch: false })
+console.log('RESOLVED ' + JSON.stringify({ file: c.configFile, timeout: c.test.testTimeout }))
+process.exit(0)`,
+        ],
+        { cwd: root, encoding: "utf8", env: { ...process.env, CI: "1" } },
+      );
+      const line = probe.stdout.split("\n").find((l) => l.startsWith("RESOLVED "));
+      expect(line, probe.stdout + probe.stderr).toBeDefined();
+      const resolved = JSON.parse((line as string).slice("RESOLVED ".length));
+      expect(fs.realpathSync(resolved.file)).toBe(
+        fs.realpathSync(path.join(root, "vitest.config.ts")),
+      );
+      // The loaded config is migrate's: the Jest config's timeout, not the old file's.
+      expect(resolved.timeout, lines.join("\n")).toBe(9123);
+      expect(fs.existsSync(path.join(root, "vitest.config.mts"))).toBe(false);
+    },
+    60_000,
+  );
+
+  it.runIf(distExists)(
+    "--write over a vite.config writes the config Vitest's own lookup loads, and says so",
+    () => {
+      const root = fixture({
+        "package.json": { name: "x" },
+        "tsconfig.json": {},
+        "jest.config.json": { testTimeout: 9123 },
+        "vite.config.ts": "export default { test: { testTimeout: 1 } }",
+      });
+      const modules = path.join(root, "node_modules");
+      fs.mkdirSync(modules);
+      for (const name of fs.readdirSync(path.join(packageRoot, "node_modules"))) {
+        fs.symlinkSync(path.join(packageRoot, "node_modules", name), path.join(modules, name));
+      }
+      fs.symlinkSync(packageRoot, path.join(modules, "vitest-native"));
+
+      const lines: string[] = [];
+      expect(main(["migrate", "--write", "--root", root], (l) => lines.push(l))).toBe(0);
+      const output = lines.join("\n");
+      expect(output).toContain("✓ wrote vitest.config.mts from the analysis above.");
+      expect(output).toContain(
+        "! Vitest now loads vitest.config.mts instead of vite.config.ts: it reads a vite.config.* only when",
+      );
+      const probe = spawnSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "-e",
+          `import { resolveConfig } from 'vitest/node'
+const c = await resolveConfig({ root: process.cwd(), watch: false })
+console.log('RESOLVED ' + JSON.stringify({ file: c.configFile, timeout: c.test.testTimeout }))
+process.exit(0)`,
+        ],
+        { cwd: root, encoding: "utf8", env: { ...process.env, CI: "1" } },
+      );
+      const line = probe.stdout.split("\n").find((l) => l.startsWith("RESOLVED "));
+      expect(line, probe.stdout + probe.stderr).toBeDefined();
+      const resolved = JSON.parse((line as string).slice("RESOLVED ".length));
+      // The file the CLI named is the one Vitest loads, and the vite.config's settings are gone.
+      expect(fs.realpathSync(resolved.file)).toBe(
+        fs.realpathSync(path.join(root, "vitest.config.mts")),
+      );
+      expect(resolved.timeout, output).toBe(9123);
+    },
+    60_000,
   );
 });

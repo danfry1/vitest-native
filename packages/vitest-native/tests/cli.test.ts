@@ -10,7 +10,12 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { main, unknownFlag } from "../src/cli/index.js";
-import { HOT_RUNTIME_NOTE, runInit, renderInitConfig } from "../src/cli/init.js";
+import {
+  HOT_RUNTIME_NOTE,
+  renderInitConfig,
+  runInit,
+  viteConfigTakeoverNotice,
+} from "../src/cli/init.js";
 import { runDoctor } from "../src/cli/doctor.js";
 import { PEER_REQUIREMENTS } from "../src/peer-requirements.js";
 import { PRESET_MODULES } from "../src/preset-map.js";
@@ -150,6 +155,119 @@ describe("init", () => {
     });
     expect(runInit(root).ok).toBe(false);
     expect(runInit(root, { force: true }).ok).toBe(true);
+  });
+
+  it("--force replaces the config Vitest loads, first in Vitest's lookup order, in place", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "tsconfig.json": {},
+      "vitest.config.ts": "export default { test: { name: 'old' } }",
+      "vitest.config.mts": "export default { test: { name: 'other' } }",
+    });
+    const result = runInit(root, { force: true });
+    expect(result.ok).toBe(true);
+    // Vitest looks up vitest.config.ts before .mts, so .ts is the one it loads.
+    expect(result.wrote).toBe("vitest.config.ts");
+    expect(fs.readFileSync(path.join(root, "vitest.config.ts"), "utf8")).toBe(
+      renderInitConfig(false),
+    );
+    expect(fs.readFileSync(path.join(root, "vitest.config.mts"), "utf8")).toContain("'other'");
+    expect(result.lines.join("\n")).toContain("replaced the existing vitest.config.ts");
+  });
+
+  it("--force refuses a CommonJS config instead of writing an ES module one beside it", () => {
+    for (const name of ["vitest.config.cts", "vitest.config.cjs"]) {
+      const root = fixture({ "package.json": { name: "x" }, [name]: "module.exports = {}" });
+      const result = runInit(root, { force: true });
+      expect(result.ok).toBe(false);
+      expect(result.lines.join("\n")).toContain(`${name} is a CommonJS config`);
+      // Without --force too: pointing at --force would only lead to this refusal.
+      expect(runInit(root).lines.join("\n")).not.toContain("--force");
+      expect(fs.readdirSync(root).filter((f) => f.startsWith("vitest.config"))).toEqual([name]);
+    }
+  });
+
+  it("says when the new vitest.config takes over from a vite.config Vitest was reading", () => {
+    const viteConfig = "export default { resolve: { alias: { '@': '/src' } } }";
+    const root = fixture({
+      "package.json": { name: "x" },
+      "tsconfig.json": {},
+      "vite.config.ts": viteConfig,
+    });
+    const result = runInit(root);
+    expect(result.ok).toBe(true);
+    expect(result.wrote).toBe("vitest.config.mts");
+    const output = result.lines.join("\n");
+    expect(output).toContain(
+      "! Vitest now loads vitest.config.mts instead of vite.config.ts: it reads a vite.config.* only when",
+    );
+    expect(output).toContain("import viteConfig from './vite.config'");
+    expect(output).toContain("mergeConfig(viteConfig, defineConfig(");
+    expect(output).toContain("import { defineConfig, mergeConfig } from 'vitest/config'");
+    expect(output).toContain("If vite.config.ts exports a function, call it:");
+    expect(output).toContain("defineConfig((env) => mergeConfig(viteConfig(env), {");
+    expect(result.notices).toEqual([
+      "",
+      ...viteConfigTakeoverNotice("vite.config.ts", "vitest.config.mts"),
+    ]);
+    expect(fs.readFileSync(path.join(root, "vite.config.ts"), "utf8")).toBe(viteConfig);
+
+    // Without a vite.config.*, or when a vitest.config.* already shadowed it, nothing changes hands.
+    expect(runInit(fixture({ "package.json": { name: "x" } })).lines.join("\n")).not.toContain(
+      "Vitest now loads",
+    );
+    const shadowed = fixture({
+      "package.json": { name: "x" },
+      "vite.config.ts": viteConfig,
+      "vitest.config.js": "export default {}",
+    });
+    const replaced = runInit(shadowed, { force: true });
+    expect(replaced.wrote).toBe("vitest.config.js");
+    expect(replaced.notices).toEqual([
+      "  (replaced the existing vitest.config.js, the config Vitest loads)",
+    ]);
+  });
+
+  describe("under Vite+", () => {
+    const vitePlus = {
+      "package.json": { name: "x", devDependencies: { "vite-plus": "1.3.0" } },
+      "node_modules/vite-plus/package.json": { name: "vite-plus", version: "1.3.0" },
+    };
+
+    it("adds to an existing vite.config rather than replacing it", () => {
+      const root = fixture({ ...vitePlus, "vite.config.ts": "export default {}" });
+      const result = runInit(root, { force: true });
+      expect(result.ok).toBe(false);
+      expect(result.lines[0]).toBe(
+        "✗ vite.config.ts already exists. Vite+ keeps tests in the same config, so add",
+      );
+      expect(fs.readFileSync(path.join(root, "vite.config.ts"), "utf8")).toBe("export default {}");
+    });
+
+    it("names the vitest.config Vitest loads when both exist, and replaces that one", () => {
+      const root = fixture({
+        ...vitePlus,
+        "vite.config.ts": "export default {}",
+        "vitest.config.ts": "export default {}",
+      });
+      const refused = runInit(root);
+      expect(refused.ok).toBe(false);
+      expect(refused.lines[0]).toBe(
+        "✗ vitest.config.ts already exists — not overwriting. Re-run with --force to replace it,",
+      );
+      const result = runInit(root, { force: true });
+      expect(result.wrote).toBe("vitest.config.ts");
+      expect(fs.readFileSync(path.join(root, "vitest.config.ts"), "utf8")).toBe(
+        renderInitConfig(false, true),
+      );
+      expect(fs.readFileSync(path.join(root, "vite.config.ts"), "utf8")).toBe("export default {}");
+    });
+
+    it("writes vite.config.ts when there is no config, with no takeover notice", () => {
+      const result = runInit(fixture(vitePlus));
+      expect(result.wrote).toBe("vite.config.ts");
+      expect(result.notices).toEqual([]);
+    });
   });
 
   it("renderInitConfig variants are syntactically importable shapes", () => {
@@ -314,15 +432,55 @@ describe("migrate", () => {
     expect(report.suggestedConfig).toContain("testTimeout: 15000");
     // manual mock covered by preset; unknown key surfaced.
     expect(text).toContain(
-      "__mocks__/react-native-gesture-handler — the auto-detected gestureHandler preset shadows",
+      "__mocks__/react-native-gesture-handler — the native engine runs react-native-gesture-handler with its own Jest setup",
     );
     expect(text).toContain("'someCustomKey' — unrecognized Jest key");
   });
 
+  it("translates any literal prefix mapper and drops keys with no Vitest effect", () => {
+    // Shapes from Rocket.Chat.ReactNative and react-native-paper.
+    const report = analyzeJestConfig(
+      fixture({
+        "package.json": { name: "x" },
+        "jest.config.json": {
+          moduleNameMapper: {
+            "^~e2e/(.*)$": "<rootDir>/e2e/$1",
+            "^~/\\.rnstorybook/(.*)$": "<rootDir>/.rnstorybook/$1",
+            "^@app/(.+)": "./app/$1",
+            // Not a plain prefix: left for a human.
+            "^(.*)/native$": "<rootDir>/$1/web",
+            // A package target is a module request, not a project directory.
+            "^ui/(.*)$": "some-ui-lib/src/$1",
+          },
+          watchPathIgnorePatterns: ["<rootDir>/node_modules"],
+          workerIdleMemoryLimit: "512MB",
+        },
+      }),
+    );
+    const config = report.suggestedConfig;
+    // Anchored as Jest's patterns are: a bare `~e2e` import is not rewritten.
+    expect(config).toContain(
+      `{ find: /^~e2e\\/(.*)$/, replacement: fileURLToPath(new URL("./e2e", import.meta.url)) + "/$1" }`,
+    );
+    expect(config).toContain(
+      `{ find: /^~\\/\\.rnstorybook\\/(.*)$/, replacement: fileURLToPath(new URL("./.rnstorybook", import.meta.url)) + "/$1" }`,
+    );
+    expect(config).toContain(
+      `{ find: /^@app\\/(.+)$/, replacement: fileURLToPath(new URL("./app", import.meta.url)) + "/$1" }`,
+    );
+    const attention = report.attention.join("\n");
+    expect(attention).toContain("moduleNameMapper '^(.*)/native$'");
+    expect(config).not.toContain("some-ui-lib");
+    expect(attention).not.toContain("watchPathIgnorePatterns");
+    expect(attention).not.toContain("workerIdleMemoryLimit");
+    const dropped = report.dropped.join("\n");
+    expect(dropped).toContain("watchPathIgnorePatterns — affects only Jest's watch mode");
+    expect(dropped).toContain("workerIdleMemoryLimit — Vitest recycles workers by memory only");
+  });
+
   it("calls a manual mock covered only where an active preset shadows that module", () => {
     // The claim is read from PRESET_MODULES (held to the presets by
-    // tests/presets.test.ts) and the plugin's detection. gesture-handler's preset is
-    // detected and shadows the module. The expo preset is detected too, but the native
+    // tests/presets.test.ts) and the plugin's detection. The expo preset is detected, but the native
     // engine the generated config uses runs expo-font as itself
     // (NATIVE_ENGINE_RUNS_PACKAGES), so its manual mock stays, as does svg's, whose
     // preset is not detected.
@@ -339,8 +497,10 @@ describe("migrate", () => {
       "__mocks__/react-native-svg.js": "module.exports = {};",
     });
     const covered = analyzeJestConfig(root).presetCovered.join("\n");
+    // gesture-handler runs as itself under the native engine, with its own jestSetup
+    // standing in for its native layer (LIBRARY_SETUP_FILES), so its manual mock goes.
     expect(covered).toContain(
-      "__mocks__/react-native-gesture-handler — the auto-detected gestureHandler preset shadows react-native-gesture-handler",
+      "__mocks__/react-native-gesture-handler — the native engine runs react-native-gesture-handler with its own Jest setup",
     );
     expect(covered).not.toContain("expo-font");
     expect(covered).not.toContain("react-native-svg");
@@ -368,6 +528,56 @@ describe("migrate", () => {
     );
     expect(report.suggestedConfig).not.toContain("react-native-unistyles/mocks");
     expect(report.suggestedConfig).toContain('"some-lib/jest-setup"');
+  });
+
+  it("deletes the Jest setup the native engine runs for a library, however it is written", () => {
+    // gesture-handler's docs give `./node_modules/react-native-gesture-handler/jestSetup.js`;
+    // `<rootDir>/node_modules/...` and the package request are as common. The engine runs
+    // each library's own setup itself (LIBRARY_SETUP_FILES).
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": {
+        preset: "react-native",
+        setupFiles: [
+          "./node_modules/react-native-gesture-handler/jestSetup.js",
+          "<rootDir>/node_modules/@shopify/flash-list/jestSetup.js",
+        ],
+      },
+      "node_modules/react-native-gesture-handler/package.json": {
+        name: "react-native-gesture-handler",
+        version: "3.4.0",
+      },
+      "node_modules/@shopify/flash-list/package.json": {
+        name: "@shopify/flash-list",
+        version: "2.3.3",
+      },
+    });
+    const report = analyzeJestConfig(root);
+    const covered = report.presetCovered.join("\n");
+    expect(covered).toContain(
+      "'./node_modules/react-native-gesture-handler/jestSetup.js' — react-native-gesture-handler's own test setup, which the native engine runs",
+    );
+    expect(covered).toContain(
+      "'<rootDir>/node_modules/@shopify/flash-list/jestSetup.js' — @shopify/flash-list's own test setup, which the native engine runs",
+    );
+    expect(report.suggestedConfig).not.toContain("jestSetup");
+  });
+
+  it("keeps a library's other setup file, which the native engine does not run", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": {
+        preset: "react-native",
+        setupFiles: ["react-native-gesture-handler/lib/extra-setup.js"],
+      },
+      "node_modules/react-native-gesture-handler/package.json": {
+        name: "react-native-gesture-handler",
+        version: "3.4.0",
+      },
+    });
+    const report = analyzeJestConfig(root);
+    expect(report.presetCovered.join("\n")).not.toContain("extra-setup");
+    expect(report.suggestedConfig).toContain("extra-setup");
   });
 
   it("rewrites <rootDir> in setup files instead of emitting it verbatim", () => {
@@ -482,6 +692,104 @@ describe("migrate", () => {
       expect(expoApp("jest-expo/web").attention.join("\n")).toContain(
         "targets web, not a React Native render",
       );
+    });
+  });
+
+  describe("a project-local preset", () => {
+    // jest-expo's preset, trimmed to the keys whose handling differs.
+    const JEST_EXPO = {
+      testEnvironment: "node",
+      setupFiles: ["<rootDir>/node_modules/jest-expo/src/preset/setup.js"],
+      moduleNameMapper: { "^react-native-vector-icons$": "@expo/vector-icons" },
+      transformIgnorePatterns: ["/node_modules/(?!(react-native|expo)/)"],
+      testMatch: ["**/__tests__/**/*.[jt]s?(x)"],
+      haste: { defaultPlatform: "ios", platforms: ["android", "ios", "native"] },
+    };
+    const JEST_EXPO_ANDROID = {
+      ...JEST_EXPO,
+      haste: { defaultPlatform: "android", platforms: ["android", "native"] },
+    };
+    const app = (localPreset: string, jest: Record<string, unknown> = {}) =>
+      analyzeJestConfig(
+        fixture({
+          "package.json": { name: "x", dependencies: { expo: "57.0.0" } },
+          "node_modules/jest-expo/package.json": { name: "jest-expo", version: "57.0.0" },
+          "node_modules/jest-expo/jest-preset.js": `module.exports = ${JSON.stringify(JEST_EXPO)};`,
+          "node_modules/jest-expo/android/jest-preset.js": `module.exports = ${JSON.stringify(JEST_EXPO_ANDROID)};`,
+          "jest.preset.js": localPreset,
+          "jest.config.json": { preset: "./jest.preset.js", ...jest },
+        }),
+      );
+
+    it("is translated as the known preset it spreads", () => {
+      const report = app(`module.exports = { ...require("jest-expo/jest-preset.js") };`);
+      expect(report.automatic.join("\n")).toContain(
+        "preset: './jest.preset.js' (jest-expo's preset, spread) → replaced by the reactNative() plugin.",
+      );
+      expect(report.attention.join("\n")).toContain(
+        "preset: './jest.preset.js' (jest-expo's preset, spread) — under the native engine",
+      );
+      expect(report.attention.join("\n")).not.toContain("unknown preset");
+      // jest-expo's own setup file and mapper are the plugin's job, not carried over.
+      expect(report.suggestedConfig).not.toContain("jest-expo/src/preset/setup.js");
+      expect(report.automatic.join("\n")).not.toContain("also sets");
+      // Its testMatch is still read from the preset.
+      expect(report.suggestedConfig).toContain("include: [");
+    });
+
+    it("carries over what it adds to the known preset, under the project's own", () => {
+      const report = app(
+        `const expo = require("jest-expo/jest-preset.js");
+module.exports = { ...expo, setupFiles: [...expo.setupFiles, "./preset.setup.js"],
+  moduleNameMapper: { ...expo.moduleNameMapper, "^@/(.*)$": "<rootDir>/src/$1" } };`,
+        { setupFiles: ["./jest.setup.js"] },
+      );
+      expect(report.automatic.join("\n")).toContain(
+        "preset: './jest.preset.js' (jest-expo's preset, spread) also sets setupFiles and moduleNameMapper",
+      );
+      // The preset's file runs first, as Jest orders them.
+      expect(report.suggestedConfig).toMatch(/"\.\/preset\.setup\.js",\s*"\.\/jest\.setup\.js"/);
+      expect(report.suggestedConfig).toContain(`"@": fileURLToPath(new URL("./src"`);
+      expect(report.suggestedConfig).not.toContain("jest-expo/src/preset/setup.js");
+    });
+
+    it("drops the known preset's own items wherever the local preset puts its own", () => {
+      const report = app(
+        `const expo = require("jest-expo/jest-preset.js");
+module.exports = { ...expo, setupFiles: ["./first.js", ...expo.setupFiles] };`,
+      );
+      expect(report.automatic.join("\n")).toContain(
+        "preset: './jest.preset.js' (jest-expo's preset, spread) also sets setupFiles",
+      );
+      expect(report.suggestedConfig).toContain(`"./first.js"`);
+      expect(report.suggestedConfig).not.toContain("jest-expo/src/preset/setup.js");
+    });
+
+    it("recognises the platform variant it spreads", () => {
+      const report = app(`module.exports = { ...require("jest-expo/android/jest-preset.js") };`);
+      expect(report.automatic.join("\n")).toContain(
+        "preset: './jest.preset.js' (jest-expo/android's preset, spread) → replaced by the reactNative() plugin with platform: 'android'.",
+      );
+      expect(report.suggestedConfig).toContain("platform: 'android'");
+    });
+
+    it("that spreads no known preset has its settings translated and is flagged", () => {
+      const report = app(
+        `module.exports = { setupFiles: ["./preset.setup.js"], clearMocks: true,
+  moduleNameMapper: { "^@/(.*)$": "<rootDir>/lib/$1" } };`,
+        { moduleNameMapper: { "^@/(.*)$": "<rootDir>/src/$1" } },
+      );
+      expect(report.attention.join("\n")).toContain(
+        "preset: './jest.preset.js' — not a preset vitest-native translates by name",
+      );
+      expect(report.automatic.join("\n")).toContain(
+        "preset: './jest.preset.js' also sets setupFiles, clearMocks and moduleNameMapper",
+      );
+      expect(report.suggestedConfig).toContain(`"./preset.setup.js"`);
+      expect(report.suggestedConfig).toContain("clearMocks: true");
+      // The project's mapper wins over the preset's for the same pattern.
+      expect(report.suggestedConfig).toContain(`new URL("./src"`);
+      expect(report.suggestedConfig).not.toContain(`new URL("./lib"`);
     });
   });
 

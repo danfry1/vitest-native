@@ -5,7 +5,7 @@ import os from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 // @ts-expect-error — runtime .mjs, no types
 import { transformRN } from "../src/native/transform.mjs";
-import { parseDeprecatedReactNativeExports, parseReactNativeExports } from "../src/plugin.js";
+import { parseReactNativeExports } from "../src/plugin.js";
 import { PEER_REQUIREMENTS } from "../src/peer-requirements.js";
 import { validatePeerDependency } from "../src/validate.js";
 import { nativePool } from "../src/native/pool.js";
@@ -1611,6 +1611,24 @@ describe("engine-selection notices", () => {
     err.mockRestore();
   });
 
+  it("the native banner names experimental.nodeMocks when it is on, and when 'resolution' implies it", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const banner = async (options: object) => {
+      resetBanner();
+      err.mockClear();
+      await runPluginConfig(reactNative(options) as any, { root: projectRoot }, SERVE_ENV);
+      return String(err.mock.calls.find((c) => String(c[0]).includes("engine:"))?.[0] ?? "");
+    };
+    expect(await banner({ engine: "native" })).not.toContain("nodeMocks");
+    expect(
+      await banner({ engine: "native", experimental: { ownershipModel: "resolution" } }),
+    ).toMatch(/experimental\.ownershipModel: resolution, experimental\.nodeMocks \(implied\)\)$/);
+    expect(await banner({ engine: "native", experimental: { nodeMocks: true } })).toMatch(
+      /, experimental\.nodeMocks\)$/,
+    );
+    err.mockRestore();
+  });
+
   it("the native banner names the hot runtime when it is selected, and only then", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
     const banner = () =>
@@ -2378,43 +2396,6 @@ describe("parseReactNativeExports", () => {
       "});",
     ].join("\n");
     expect(parseReactNativeExports(source)).toEqual(["View"]);
-  });
-});
-
-describe("parseDeprecatedReactNativeExports", () => {
-  it("finds the members whose getter calls warnOnce in React Native's real index", () => {
-    const source = fs.readFileSync(path.join(RN, "index.js"), "utf8");
-    const deprecated = parseDeprecatedReactNativeExports(source);
-    expect(deprecated).toContain("SafeAreaView");
-    expect(deprecated).toContain("Clipboard");
-    expect(deprecated).not.toContain("View");
-    expect(deprecated).not.toContain("Pressable");
-    const names = parseReactNativeExports(source);
-    for (const name of deprecated) expect(names).toContain(name);
-  });
-
-  it("attributes each warnOnce call to its own member only", () => {
-    const source = [
-      "module.exports = {",
-      "  get Before() {",
-      "    return 1;",
-      "  },",
-      "  /**",
-      "   * @deprecated Old is deprecated.",
-      "   */",
-      "  get Old() {",
-      "    warnOnce('old', 'Old is deprecated.');",
-      "    return 2;",
-      "  },",
-      "  get After() {",
-      "    return 3;",
-      "  },",
-      "} as ReactNativePublicAPI;",
-      "if (__DEV__) {",
-      "  warnOnce('outside', 'not a member');",
-      "}",
-    ].join("\n");
-    expect(parseDeprecatedReactNativeExports(source)).toEqual(["Old"]);
   });
 });
 

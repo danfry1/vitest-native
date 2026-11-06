@@ -16,7 +16,11 @@ function stackThroughReactNative(): string {
 
 describe("native engine: stack frames inside React Native", () => {
   it("name the real React Native file, line and column", () => {
-    expect((globalThis as Record<string, unknown>).__vitest_native_registry_installed).toBe(true);
+    // Both ways of loading React Native: the registry, and file by file (the per-file
+    // lane, vitest.per-file.config.mts, a cold run's first files).
+    expect(
+      (globalThis as Record<string, unknown>).__vitest_native_registry_installed === true,
+    ).toBe(process.env.VITEST_NATIVE_NO_REGISTRY !== "1");
     const stack = stackThroughReactNative();
     expect(stack).toMatch(
       /[\\/]react-native[\\/]Libraries[\\/]vendor[\\/]emitter[\\/]EventEmitter\.js:\d+:\d+\)/,

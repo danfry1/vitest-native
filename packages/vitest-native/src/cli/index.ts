@@ -19,7 +19,7 @@ import {
 } from "./compare-run.js";
 
 /** Each command's flags, besides --root <dir> and --help, which every command takes. */
-const COMMAND_FLAGS: Record<string, string[]> = {
+export const COMMAND_FLAGS: Record<string, string[]> = {
   init: ["--jest-compat", "--force"],
   doctor: [],
   migrate: ["--write", "--force"],
@@ -125,6 +125,7 @@ export function main(
         const target = path.join(root, init.wrote as string);
         fs.writeFileSync(target, report.suggestedConfig);
         log(`✓ wrote ${init.wrote} from the analysis above. Next: ${migrationNextStep(report)}`);
+        for (const line of init.notices ?? []) log(line);
       }
       return report.ok ? 0 : 1;
     }

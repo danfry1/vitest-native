@@ -29,7 +29,6 @@ describe("native ownership policy", () => {
     expect(policy.nodeTransformPackages).toEqual(["explicit-lib", "shared-lib", "ecosystem-lib"]);
     for (const name of policy.nodeTransformPackages) {
       const file = `/repo/app/node_modules/${name}/index.js`;
-      expect(policy.matchesNodeTransformedFile(file)).toBe(true);
       expect(policy.externalPatterns.some((pattern) => pattern.test(file))).toBe(true);
     }
     expect(policy.externalPatterns.some((pattern) => pattern.test("/repo/app/src/index.ts"))).toBe(
@@ -93,6 +92,40 @@ describe("native ownership policy", () => {
       owner: "vitest-default",
       reason: "delegated",
     });
+  });
+
+  // #544: Vitest inlines installed TypeScript (Node cannot run it as published), so a
+  // require (Node) and an import (Vite) of one file loaded it twice. With nodeMocks on,
+  // Node owns it; with it off, Vite's inline is how a vi.mock reaches its imports.
+  it("leaves an installed package's TypeScript source to Node only with nodeMocks on", () => {
+    const withNodeMocks = createNativeOwnershipPolicy({
+      projectRoot: "/repo/app",
+      installedTypeScriptToNode: true,
+    });
+    const installed = [
+      "/repo/app/node_modules/plain-lib/src/a.ts",
+      "/repo/app/node_modules/plain-lib/src/view.tsx",
+      "C:\\repo\\node_modules\\plain-lib\\src\\a.ts",
+    ];
+    for (const file of installed) {
+      expect(withNodeMocks.decideFile(file)).toMatchObject({
+        owner: "node",
+        reason: "installed-typescript",
+      });
+      expect(withNodeMocks.externalPatterns.some((pattern) => pattern.test(file))).toBe(true);
+      // The default (nodeMocks off): Vitest still decides.
+      expect(policy.decideFile(file)).toMatchObject({ owner: "vitest-default" });
+      expect(policy.externalPatterns.some((pattern) => pattern.test(file))).toBe(false);
+    }
+    // Declaration files are never loaded, Node has no handler for `.mts`/`.cts`, and
+    // project TypeScript stays Vite's.
+    for (const file of [
+      "/repo/app/node_modules/plain-lib/index.d.ts",
+      "/repo/app/node_modules/plain-lib/src/a.mts",
+      "/repo/app/src/a.ts",
+    ]) {
+      expect(withNodeMocks.externalPatterns.some((pattern) => pattern.test(file))).toBe(false);
+    }
   });
 
   it("keeps runtime persistence identical across ESM generation and CJS reset", () => {
@@ -380,7 +413,6 @@ describe("worker reconstruction", () => {
       runtimeTransforms: ["@scope/native-lib"],
     });
     const file = "/repo/node_modules/@scope/native-lib/src/index.tsx";
-    expect(policy.matchesNodeTransformedFile(file)).toBe(true);
     expect(policy.decideFile(file)).toMatchObject({
       owner: "node",
       reason: "runtime-transform",

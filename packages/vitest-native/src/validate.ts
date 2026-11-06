@@ -13,7 +13,11 @@ const KNOWN_OPTIONS = [
   "transform",
   "hotRuntime",
   "nativeModules",
+  "registryBuild",
+  "ownership",
+  "experimental",
 ];
+const KNOWN_EXPERIMENTAL_OPTIONS = ["ownershipModel", "nodeMocks"];
 const KNOWN_HOT_RUNTIME_OPTIONS = [
   "mode",
   "recycleAfterFiles",
@@ -45,6 +49,42 @@ function assertNonNegativeInteger(value: unknown, option: string): asserts value
   }
 }
 
+const OWNERSHIP_MODES = ["warn", "error"];
+
+function validateOwnership(value: unknown): void {
+  const invalid = (detail: string) =>
+    new VitestNativeTypeError("INVALID_OPTION", `"ownership" ${detail}`);
+  if (typeof value === "string") {
+    if (!OWNERSHIP_MODES.includes(value)) throw invalid(`must be "warn" or "error".`);
+    return;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw invalid(`must be "warn", "error", or { mode, allow }.`);
+  }
+  const { mode, allow, ...rest } = value as Record<string, unknown>;
+  const unknown = Object.keys(rest);
+  if (unknown.length > 0) throw invalid(`has unknown keys: ${unknown.join(", ")}.`);
+  if (mode !== undefined && !OWNERSHIP_MODES.includes(mode as string)) {
+    throw invalid(`mode must be "warn" or "error".`);
+  }
+  if (allow === undefined) return;
+  // An exemption names one file or directory and why: there is no "ignore all".
+  if (
+    !Array.isArray(allow) ||
+    allow.some(
+      (entry) =>
+        !entry ||
+        typeof entry !== "object" ||
+        typeof entry.path !== "string" ||
+        entry.path.length === 0 ||
+        typeof entry.reason !== "string" ||
+        entry.reason.trim().length === 0,
+    )
+  ) {
+    throw invalid(`allow must be an array of { path, reason } with non-empty strings.`);
+  }
+}
+
 export function validateOptions(options: Record<string, unknown>): void {
   if (
     options.engine !== undefined &&
@@ -65,6 +105,16 @@ export function validateOptions(options: Record<string, unknown>): void {
     throw new VitestNativeTypeError("INVALID_OPTION", `"platform" must be "ios" or "android".`);
   }
   if (
+    options.registryBuild !== undefined &&
+    options.registryBuild !== "background" &&
+    options.registryBuild !== "wait"
+  ) {
+    throw new VitestNativeTypeError(
+      "INVALID_OPTION",
+      `"registryBuild" must be "background" or "wait".`,
+    );
+  }
+  if (
     options.nativeModules !== undefined &&
     options.nativeModules !== "device" &&
     options.nativeModules !== "permissive"
@@ -73,6 +123,48 @@ export function validateOptions(options: Record<string, unknown>): void {
       "INVALID_OPTION",
       `"nativeModules" must be "device" or "permissive".`,
     );
+  }
+  if (options.ownership !== undefined) validateOwnership(options.ownership);
+  if (options.experimental !== undefined) {
+    const experimental = options.experimental;
+    if (experimental === null || Array.isArray(experimental) || typeof experimental !== "object") {
+      throw new VitestNativeTypeError("INVALID_OPTION", `"experimental" must be an object.`);
+    }
+    const entries = experimental as Record<string, unknown>;
+    const unknown = Object.keys(entries).filter((key) => !KNOWN_EXPERIMENTAL_OPTIONS.includes(key));
+    if (unknown.length > 0) {
+      throw new VitestNativeTypeError(
+        "UNKNOWN_OPTION",
+        `Unknown experimental option "${unknown[0]}". Valid options: ` +
+          `${KNOWN_EXPERIMENTAL_OPTIONS.join(", ")}.`,
+      );
+    }
+    if (
+      entries.ownershipModel !== undefined &&
+      entries.ownershipModel !== "resolver" &&
+      entries.ownershipModel !== "resolution"
+    ) {
+      throw new VitestNativeTypeError(
+        "INVALID_OPTION",
+        `"experimental.ownershipModel" must be "resolver" or "resolution".`,
+      );
+    }
+    if (entries.nodeMocks !== undefined && typeof entries.nodeMocks !== "boolean") {
+      throw new VitestNativeTypeError(
+        "INVALID_OPTION",
+        `"experimental.nodeMocks" must be a boolean.`,
+      );
+    }
+    // The require bridge gives Node's require of a Vite-owned file Vite's instance; a
+    // mocked one must then be the test's mock, which nodeMocks serves.
+    if (entries.ownershipModel === "resolution" && entries.nodeMocks === false) {
+      throw new VitestNativeTypeError(
+        "INVALID_OPTION",
+        `"experimental.ownershipModel": "resolution" turns "experimental.nodeMocks" on, ` +
+          `and cannot run with it set to false. Remove "nodeMocks: false", or use ` +
+          `"ownershipModel": "resolver".`,
+      );
+    }
   }
   if (options.diagnostics !== undefined && typeof options.diagnostics !== "boolean") {
     throw new VitestNativeTypeError("INVALID_OPTION", `"diagnostics" must be a boolean.`);

@@ -17,7 +17,13 @@ import {
 } from "../native/ownership.mjs";
 import { createHotMemoryPlan, formatHotMemoryPlan } from "../native/memory.mjs";
 import { HOT_STATE_MANIFEST_ENTRIES } from "../native/state-manifest.mjs";
-import { AUTO_DETECT_PRESETS, PRESET_MODULES, autoDetectedPresetApplies } from "../preset-map.js";
+import {
+  AUTO_DETECT_PRESETS,
+  LIBRARY_SETUP_FILES,
+  PRESET_MODULES,
+  autoDetectedPresetApplies,
+  type PresetName,
+} from "../preset-map.js";
 import { babelRecipe, classifyBabelPlugins, readBabelConfig } from "./babel-config.js";
 import {
   activePresets,
@@ -450,8 +456,12 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
         `  · ${pkg} ${installedMajor(root, pkg)} runs its own test mode under Vitest, so no preset replaces it`,
       );
     } else if (!autoDetectedPresetApplies(preset, decision.engine)) {
+      const setupFile = LIBRARY_SETUP_FILES[preset as PresetName];
       lines.push(
-        `  · ${pkg} runs as itself under the native engine, on its native-module mocks; ` +
+        `  · ${pkg} runs as itself under the native engine, ` +
+          (setupFile
+            ? `with its own Jest setup (${setupFile}); `
+            : `on its native-module mocks; `) +
           `the ${preset} preset applies under the mock engine or with \`presets: { ${preset}: true }\``,
       );
     } else {
@@ -530,6 +540,24 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
     const usage = analyzeConfigUsage(content);
     if (usage.imports && usage.invokes) {
       pass(`${configFile} uses vitest-native.`);
+      // A static read: a flag set through a variable is not seen here, so the run's
+      // banner, which names it, stays the authority.
+      const model = /\bownershipModel\s*:\s*["'](resolver|resolution)["']/.exec(
+        withoutComments(content),
+      )?.[1];
+      if (model) {
+        lines.push(
+          `  · experimental.ownershipModel: '${model}' is on: Vite and Node's loaders ` +
+            "resolve bare imports through one shared resolver (https://danfry1.github.io/vitest-native/guide/plugin-options#experimental).",
+        );
+        if (model === "resolution") {
+          lines.push(
+            "  · 'resolution' turns on experimental.nodeMocks: a vi.mock also reaches the " +
+              "modules Node loads, and a mock Node cannot have synchronously fails as " +
+              "MOCK_NOT_SEEN_BY_NODE.",
+          );
+        }
+      }
     } else if (usage.imports) {
       warn(
         `${configFile} imports vitest-native but never calls reactNative() — ` +

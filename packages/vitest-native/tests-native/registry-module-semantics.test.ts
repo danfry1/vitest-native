@@ -8,7 +8,11 @@ import { Platform } from "react-native";
 // covers the mechanism on a fixture).
 describe("native engine: React Native modules keep Node's semantics", () => {
   it("runs a sloppy React Native module sloppy, as Jest does", () => {
-    expect((globalThis as Record<string, unknown>).__vitest_native_registry_installed).toBe(true);
+    // Both ways of loading React Native: the registry, and file by file (the per-file
+    // lane, vitest.per-file.config.mts, a cold run's first files).
+    expect(
+      (globalThis as Record<string, unknown>).__vitest_native_registry_installed === true,
+    ).toBe(process.env.VITEST_NATIVE_NO_REGISTRY !== "1");
     const frozen = Object.freeze(Object.assign(Object.create(Platform), { __constants: null }));
     expect(() => frozen.constants).not.toThrow();
     expect(frozen.constants).toBeNull();

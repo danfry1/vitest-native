@@ -6,6 +6,7 @@
 // stdout/stderr remain available to arbitrary user/toolchain code without being
 // able to corrupt the protocol.
 import { spawn } from "node:child_process";
+import os from "node:os";
 
 // The protocol channel carries the one answer and is capped strictly. stdout/stderr
 // belong to arbitrary user and toolchain code, which may log freely: only a tail is
@@ -15,8 +16,34 @@ const LOG_TAIL_BYTES = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 120_000;
 const OOM_RE = /heap out of memory|reached heap limit|allocation failed.*heap/i;
 
-function attempt(entryFile, input, heapMb, spawnProcess, timeoutMs, label) {
+// Refused (sandbox, platform) or exited: keep the default priority. Others throw.
+const PRIORITY_REFUSED = new Set(["EACCES", "EPERM", "ESRCH", "ENOSYS"]);
+export function lowerPriority(pid, priority, setPriority = os.setPriority) {
+  try {
+    setPriority(pid, priority);
+    return true;
+  } catch (error) {
+    if (!PRIORITY_REFUSED.has(error?.info?.code)) throw error;
+    return false;
+  }
+}
+
+function attempt(
+  entryFile,
+  input,
+  heapMb,
+  spawnProcess,
+  timeoutMs,
+  label,
+  signal,
+  priority,
+  unref,
+) {
   return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve({ ok: false, oom: false, cancelled: true, error: `${label} was cancelled`, heapMb });
+      return;
+    }
     let child;
     try {
       child = spawnProcess(process.execPath, [`--max-old-space-size=${heapMb}`, entryFile], {
@@ -33,6 +60,23 @@ function attempt(entryFile, input, heapMb, spawnProcess, timeoutMs, label) {
       return;
     }
 
+    // A background helper must not keep this process alive by itself: if everything
+    // else is done, the process exits and its exit hook stops the helper.
+    if (unref) {
+      child.unref?.();
+      for (const stream of child.stdio ?? []) stream?.unref?.();
+    }
+
+    // A background helper yields the CPU to the work it runs beside.
+    if (priority !== undefined && child.pid !== undefined) {
+      try {
+        lowerPriority(child.pid, priority);
+      } catch (error) {
+        child.kill("SIGKILL");
+        throw error;
+      }
+    }
+
     let stdout = "";
     let stderr = "";
     let protocol = "";
@@ -40,12 +84,18 @@ function attempt(entryFile, input, heapMb, spawnProcess, timeoutMs, label) {
     let overflow = false;
     let settled = false;
     let timer;
+    const onAbort = () => {
+      child.kill("SIGKILL");
+      finish({ ok: false, oom: false, cancelled: true, error: `${label} was cancelled`, heapMb });
+    };
     const finish = (result) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
       resolve(result);
     };
+    signal?.addEventListener("abort", onAbort, { once: true });
     const appendProtocol = (current, chunk) => {
       outputBytes += Buffer.byteLength(chunk);
       if (outputBytes > MAX_OUTPUT_BYTES) {
@@ -89,7 +139,7 @@ function attempt(entryFile, input, heapMb, spawnProcess, timeoutMs, label) {
     // A helper may exit before draining input. EPIPE is emitted asynchronously;
     // catching stdin.end() does not catch it. The close event reports the cause.
     child.stdin?.on("error", () => {});
-    child.on("close", (code, signal) => {
+    child.on("close", (code, exitSignal) => {
       if (settled) return;
       const oom = OOM_RE.test(stderr);
       if (overflow) {
@@ -112,7 +162,7 @@ function attempt(entryFile, input, heapMb, spawnProcess, timeoutMs, label) {
           response?.error ||
           stderr.trim().split("\n")[0] ||
           stdout.trim().split("\n")[0] ||
-          `${label} exited ${code ?? `on ${signal ?? "an unknown signal"}`}`,
+          `${label} exited ${code ?? `on ${exitSignal ?? "an unknown signal"}`}`,
       });
     });
     timer = setTimeout(() => {
@@ -149,13 +199,21 @@ export async function runBoundedProcess(
     timeoutMs = DEFAULT_TIMEOUT_MS,
     spawnProcess = spawn,
     label = "helper",
+    // Aborting kills the child and resolves with `cancelled: true`.
+    signal,
+    // os.setPriority value for the child (19 is the lowest priority).
+    priority,
+    // Let this process exit while the child runs (the child's timer is unref'd too).
+    unref = false,
   },
 ) {
-  const first = await attempt(entryFile, input, initialHeapMb, spawnProcess, timeoutMs, label);
+  const run = (heapMb) =>
+    attempt(entryFile, input, heapMb, spawnProcess, timeoutMs, label, signal, priority, unref);
+  const first = await run(initialHeapMb);
   if (first.ok || !first.oom || retryHeapMb <= initialHeapMb) {
     return { ...first, attempts: 1 };
   }
-  const retry = await attempt(entryFile, input, retryHeapMb, spawnProcess, timeoutMs, label);
+  const retry = await run(retryHeapMb);
   return { ...retry, attempts: 2 };
 }
 

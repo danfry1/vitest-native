@@ -6,14 +6,19 @@
 // The museum is red on main by design (open bugs fail as their bug), so the run's own
 // exit code says nothing about a pull request. What a pull request can change is a
 // verdict:
-//   regressed     main PASS, now FAIL; or main FAIL (bug), now FAIL (other): the
-//                 exhibit no longer reaches its bug, so the change broke something first
+//   regressed     main PASS, now FAIL; main FAIL (bug), now FAIL (other): the exhibit
+//                 no longer reaches its bug, so the change broke something first; or
+//                 main FAIL (other), now FAIL (bug): the bug itself shows again
 //   now passes    main FAIL, now PASS: a fix. Record it (run-columns.mjs, status.mjs)
 //   inconclusive  the exhibit's check.mjs reports its precondition unmet on this machine
 //                 (cfg-group-conflict-fallback: hot auto decides by the runner's memory)
 //   skipped       N/A here (an RNTL 13 install this job does not provide)
-// Exits 1 when any exhibit regressed or has no verdict. Writes a Markdown table to
-// GITHUB_STEP_SUMMARY when it is set.
+//   new           no main verdict recorded yet (an exhibit added since the last
+//                 run-columns.mjs/status.mjs): reported, never a failure, so adding an
+//                 exhibit does not turn the check red for every other pull request
+// Exits 1 when any recorded exhibit regressed or has no verdict. Writes a Markdown
+// table to GITHUB_STEP_SUMMARY when it is set. `--exhibits <file>` reads the records
+// from another exhibits.json (tests/bug-museum-compare.test.ts).
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,7 +34,9 @@ if (!file) {
   process.exit(2);
 }
 const { verdicts } = JSON.parse(fs.readFileSync(file, "utf8"));
-const { exhibits } = JSON.parse(fs.readFileSync(path.join(here, "exhibits.json"), "utf8"));
+const { exhibits } = JSON.parse(
+  fs.readFileSync(argument("exhibits") ?? path.join(here, "exhibits.json"), "utf8"),
+);
 
 const cell = (verdict) =>
   verdict.verdict === "FAIL"
@@ -46,6 +53,11 @@ const rows = [];
 for (const exhibit of exhibits) {
   const verdict = verdicts[exhibit.id];
   const recorded = exhibit.status?.main ?? "-";
+  if (exhibit.status?.main === undefined) {
+    const now = verdict ? cell(verdict) : "-";
+    rows.push({ id: exhibit.id, recorded, now, change: "new", detail: "" });
+    continue;
+  }
   if (!verdict) {
     rows.push({ id: exhibit.id, recorded, now: "-", change: "not run" });
     continue;
@@ -57,6 +69,7 @@ for (const exhibit of exhibits) {
   else if (now === "PASS" && recorded !== "PASS") change = "now passes";
   else if (recorded === "PASS" && now !== "PASS") change = "regressed";
   else if (recorded === "FAIL (bug)" && now === "FAIL (other)") change = "regressed";
+  else if (recorded === "FAIL (other)" && now === "FAIL (bug)") change = "regressed";
   else if (now !== recorded) change = "changed";
   const detail =
     now === "N/A" ? verdict.reason : now.startsWith("FAIL") ? verdict.failures?.[0] : "";
@@ -67,7 +80,7 @@ const of = (change) => rows.filter((row) => row.change === change);
 const lines = [
   "## Bug museum (advisory)",
   "",
-  `${rows.length} exhibits: ${of("same").length} as recorded on main, ${of("now passes").length} now pass, ${of("regressed").length} regressed, ${of("changed").length} changed otherwise, ${of("inconclusive").length} inconclusive, ${of("skipped").length} skipped, ${of("not run").length} not run.`,
+  `${rows.length} exhibits: ${of("same").length} as recorded on main, ${of("now passes").length} now pass, ${of("regressed").length} regressed, ${of("changed").length} changed otherwise, ${of("inconclusive").length} inconclusive, ${of("skipped").length} skipped, ${of("not run").length} not run, ${of("new").length} new (no main verdict recorded yet).`,
   "",
 ];
 const listed = rows.filter((row) => row.change !== "same");

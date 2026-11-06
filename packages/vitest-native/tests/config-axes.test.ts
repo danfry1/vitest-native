@@ -606,15 +606,17 @@ describe("the ownershipModel axis", () => {
   };
 
   it("is opt-in: a flag, not a runtime axis, so no CI cell changes", () => {
-    expect(axes.flags.ownershipModel).toEqual(["off", "resolver"]);
+    expect(axes.flags.ownershipModel).toEqual(["off", "resolver", "resolution"]);
     expect(axes.runtime).not.toHaveProperty("ownershipModel");
     expect(ownershipModelArgument(undefined)).toBe("off");
-    expect(() => ownershipModelArgument("resolution")).toThrow(/off, resolver/);
+    expect(ownershipModelArgument("resolution")).toBe("resolution");
+    expect(() => ownershipModelArgument("bridge")).toThrow(/off, resolver, resolution/);
   });
 
   it("applies to the native engine only", () => {
     expect(allowed({ engine: "native", ownershipModel: "resolver" }, axes.constraints)).toBe(true);
     expect(allowed({ engine: "mock", ownershipModel: "resolver" }, axes.constraints)).toBe(false);
+    expect(allowed({ engine: "mock", ownershipModel: "resolution" }, axes.constraints)).toBe(false);
   });
 
   it("known-failing entries may name its values, and only those", () => {
@@ -626,8 +628,9 @@ describe("the ownershipModel axis", () => {
       why: "a reason",
     });
     expect(validateEntries([entry("off")], axes, PROBES)).toEqual([]);
-    expect(validateEntries([entry("resolution")], axes, PROBES)).toEqual([
-      'known-failing.json entry 0 (aliased-sibling-regex): ownershipModel has no value "resolution"',
+    expect(validateEntries([entry("resolution")], axes, PROBES)).toEqual([]);
+    expect(validateEntries([entry("bridge")], axes, PROBES)).toEqual([
+      'known-failing.json entry 0 (aliased-sibling-regex): ownershipModel has no value "bridge"',
     ]);
   });
 

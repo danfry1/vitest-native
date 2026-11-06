@@ -4,7 +4,7 @@
 import { createRequire, registerHooks } from "node:module";
 import * as nativeLoader from "./loader.mjs";
 import path from "node:path";
-import { afterEach, expect, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, test, vi } from "vitest";
 import { installGlobals, installErrorUtils, installExpoRuntime } from "./globals.mjs";
 import { installRequireHooks } from "./hooks.mjs";
 import { installRntlJest } from "./rntl-hooks.mjs";
@@ -14,12 +14,19 @@ import * as presetFactories from "../presets.mjs";
 import { animatedMatchers } from "../matchers.mjs";
 import { serializer as rnSerializer } from "../serializer.mjs";
 import { VitestNativeError } from "../errors.mjs";
-import { CONTEXT_ENV, assertBootContext, requireProjectContext } from "../context.mjs";
+import {
+  CONTEXT_ENV,
+  activeRegistry,
+  assertBootContext,
+  requireProjectContext,
+} from "../context.mjs";
 import { importPresetModule, presetModulePaths } from "../preset-modules.mjs";
 import { installNitroProxy } from "./nitro.mjs";
 import { createExpoNativeModuleResolver } from "./expo-native-modules.mjs";
+import { beginTestFile, installLibraryJest } from "./library-jest.mjs";
 import { cacheRootFor } from "./transform.mjs";
 import { installKnownNativeModules } from "./native-modules.mjs";
+import { OWNERSHIP_META_KEY, installOwnershipLedger } from "./ownership-ledger.mjs";
 import { installRntlAutoCleanup } from "../rntl-support.mjs";
 import { registerVirtualTextHost } from "./rntl-text-host.mjs";
 import { shareProjectModules } from "../jest-compat/node-registry.mjs";
@@ -163,6 +170,44 @@ const nodeTransformPkgs = [...new Set([...transformPkgs, ...Object.keys(presetEx
 // imports react-native, after this setup runs) so its bytecode is cached to disk
 // and reused on the next file/worker/run. Covers the stock (non-hot) path.
 enableV8CompileCache(projectRoot);
+// Before anything else loads through Node: the guard records every evaluation from here
+// on, on both sides (docs/ownership-guard.md). Once per worker; the hot worker installs
+// it at boot instead.
+const ownershipLedger = installOwnershipLedger({ projectRoot });
+// Every dual evaluation this file caused, once its tests are done: one a library
+// swallowed (`try { require(x) } catch {}` turns the error into "x is missing") still
+// fails the file in error mode, and the reporter prints them all at the end of the run
+// whatever the reporter or `silent` setting (ownership-reporter in plugin.ts).
+const ownershipStart = ownershipLedger.conflicts.length;
+// No declared parameters: Vitest 5 parses a hook's first parameter as a fixture
+// pattern and passes the file suite second, Vitest 4 passes it first.
+afterAll(function () {
+  // oxlint-disable-next-line prefer-rest-params -- a rest parameter is parsed as a fixture too
+  const file = [...arguments].find((arg) => arg && typeof arg === "object" && "tasks" in arg);
+  const found = ownershipLedger.conflicts.slice(ownershipStart);
+  if (file && typeof file === "object") {
+    file.meta ??= {};
+    file.meta[OWNERSHIP_META_KEY] = {
+      mode: ownershipLedger.mode,
+      conflicts: found.map(({ file: f, first, second, route, via }) => ({
+        file: f,
+        first,
+        second,
+        route,
+        via,
+      })),
+      allowUsed: [...ownershipLedger.allowUsed],
+    };
+  }
+  if (ownershipLedger.mode === "error" && found.length > 0) {
+    throw new VitestNativeError(
+      "SOURCE_EVALUATED_TWICE",
+      `${found.length} file(s) were evaluated by both Node and Vite during this test file ` +
+        `(ownership: 'error'), including any whose error a try/catch swallowed:\n` +
+        found.map((c) => c.message).join("\n\n"),
+    );
+  }
+});
 installGlobals({ projectRoot, platform });
 // Before React Native loads: its lookups ask the boundary which modules exist.
 installKnownNativeModules(projectRoot);
@@ -258,12 +303,21 @@ if (!globalThis.__vitest_native_loader_registered) {
   });
 }
 // Serve React Native from the precompiled registry when the plugin produced one
-// (see registry.mjs). Installed BEFORE the require hooks so their preset-mock
+// (see registry.mjs), or when the one it is compiling in the background has landed
+// (activeRegistry). Installed BEFORE the require hooks so their preset-mock
 // redirect wraps this one and keeps precedence. Any module the registry cannot
 // serve — a computed require, a package in `transform` — falls through to the
 // hooks below, so this is purely a faster path to the same modules.
-if (runContext.registry) {
-  const installed = installRegistry(runContext.registry, projectRoot, sourceExts);
+// A registry still compiling in the background (activeRegistry) has no library registry
+// yet: runContext.libraryRegistry is set only beside a registry the run started with.
+const registryFile = activeRegistry(runContext);
+if (registryFile) {
+  const installed = installRegistry(
+    registryFile,
+    projectRoot,
+    sourceExts,
+    runContext.libraryRegistry,
+  );
   if (diagnostics) {
     console.log(
       `[vitest-native] (native) precompiled RN registry ${installed ? "installed" : "unavailable; using per-file module loading"}`,
@@ -285,6 +339,23 @@ installErrorUtils(projectRoot);
 // Before any test or user setup file imports RNTL: its fake-timer support reads a
 // `jest` of its own (see rntl-hooks.mjs).
 installRntlJest(vi);
+// Libraries' own test support (their jestSetup and mock files) runs with a `jest` of
+// its own, with Jest's module-registry semantics (library-jest.mjs).
+installLibraryJest(vi, { expect, describe, it, test, beforeEach, afterEach, beforeAll, afterAll });
+// Each test file keeps only what a still-loaded library support module registered,
+// under every pool: the hot runtime and `isolate: false` reuse a worker.
+beginTestFile();
+// The setup files of libraries that run as themselves (LIBRARY_SETUP_FILES in
+// preset-map.ts), ahead of the project's, as a Jest suite lists them. Run afresh for
+// every test file, so each file's mocks are new ones, as under Jest.
+for (const request of runContext.librarySetupFiles ?? []) {
+  const load = createRequire(path.join(projectRoot, "package.json"));
+  // Not installed in this project: nothing to run.
+  const file = resolvedOrNull(load, request);
+  if (file === null) continue;
+  delete load.cache[file];
+  load(request);
+}
 // Through Vitest, so a TypeScript preset module loads. Its export lists already
 // reached the ESM loader from the plugin; a module the plugin did not read would be
 // served by the real package there.
@@ -405,6 +476,17 @@ g.__vitest_native_control = {
   },
 };
 
+// A library's own mock whose module body sets up globals of the test environment
+// (worklets' sets requestAnimationFrame) is built now, as a Jest suite installs it in
+// its setup, and after the control above, which tells it this is the native engine.
+// Built later, inside a test that installed fake timers, it would replace the faked
+// requestAnimationFrame while the faked cancelAnimationFrame stays.
+for (const { pkg, mod } of presetDefs) {
+  if (mod[Symbol.for("vitest-native.preset-built-at-setup")] === true) {
+    void g.__vitest_native_preset_mocks[pkg];
+  }
+}
+
 // --- RNTL built-in matchers (toBeOnTheScreen, toBeDisabled, toHaveStyle, …) ---
 // The mock engine's setup registers these; the native engine must too, or
 // `engine:'native'` users have no jest-native/RNTL matchers (and a jest-compat
@@ -496,3 +578,12 @@ shareProjectModules();
 // AppContainer mounts) to render null, so LogBoxStateSubscription never mounts
 // and never schedules its out-of-act setState. See boundary.mjs + the regression
 // test tests-native/logbox-act.test.tsx.
+
+/** Where `load` resolves `request`, or null when it is not installed. */
+function resolvedOrNull(load, request) {
+  try {
+    return load.resolve(request);
+  } catch {
+    return null;
+  }
+}

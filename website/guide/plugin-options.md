@@ -12,6 +12,7 @@ reactNative({
   transform: [],         // Extra node_modules packages to transform (Flow/TS/JSX), native engine
   hotRuntime: false,     // Per-file isolation (default); 'auto' opts in to the hot runtime
   nativeModules: 'device', // 'device' | 'permissive' — how native module lookups answer, native engine
+  registryBuild: 'background', // 'background' | 'wait' — a cold registry build, native engine
   // presets — omitted on purpose: leaving it out auto-detects your installed
   // libraries. Passing an array uses ONLY that array, so `presets: []` means none.
 })
@@ -171,6 +172,18 @@ reactNative({ hotRuntime: { mode: 'auto', memoryLimit: 2 * 1024 ** 3 } })
 
 The worker count and memory limits come from a plan derived from the host or container's memory. It caps the worker count it picks itself at four; a `maxWorkers` you set is capped only by memory. See [workers and memory](/guide/hot-runtime#workers-and-memory).
 
+## `experimental`
+
+**Type:** `{ nodeMocks?: boolean; ownershipModel?: 'resolver' | 'resolution' }` · **Default:** `{}` · **Engine:** native
+
+Behaviour that is not the default yet. Each setting is decided, made the default or removed, by the date recorded in `src/flags.ts`.
+
+- `ownershipModel: 'resolver'`: Vite and Node resolve every bare import through one shared resolver, so a package loaded by both is one module. Where a package's `exports` has both `import` and `require` builds, both sides load the `require` one.
+- `ownershipModel: 'resolution'`: also routes Node's `require()` of a file Vite loads to Vite's own instance, so the order a test loads files in cannot split a module. It turns `nodeMocks` on.
+- `nodeMocks: true`: a `vi.mock` applies to the modules Node loads too, as `jest.mock` does under Jest. Default `false`; on with `ownershipModel: 'resolution'`, which refuses it set to `false`.
+
+Errors from these settings are listed under [Ownership model](/guide/errors#ownership-model-experimental).
+
 ## `nativeModules`
 
 **Type:** `'device' | 'permissive'` · **Default:** `'device'` · **Engine:** native
@@ -183,6 +196,31 @@ How native module lookups answer.
 ```ts
 reactNative({ nativeModules: 'permissive' })
 ```
+
+## `registryBuild`
+
+**Type:** `'background' | 'wait'` · **Default:** `'background'` · **Engine:** native
+
+What a run does when React Native's precompiled registry is not in the cache yet: on the first run after an install, an upgrade of React Native or vitest-native, a Babel toolchain change, or a cleared `node_modules/.cache/vitest-native`.
+
+- `'background'` *(default)* — the run starts at once while the registry compiles in a low-priority background process. Test files that start before it is ready load React Native file by file, which is slower per file; files that start after it lands use it. When Vitest closes, a build still running gets up to half of `teardownTimeout` to finish, so the next run starts warm; a run that ends cancelled (`--bail`, or Ctrl-C in a terminal) stops it at close instead, while a watch-mode cancel keeps it building for the reruns. The first run can differ from later ones in one visible way: the column numbers in React Native's own stack frames.
+- `'wait'` — compile the registry before the run starts, so every file uses it.
+
+The hot runtime, CI runs and `experimental.ownershipModel` always wait. A run counts as CI when `CI` is set to anything but `false`, or, unless `CI=false`, when one of `CONTINUOUS_INTEGRATION`, `GITHUB_ACTIONS`, `GITLAB_CI`, `BUILDKITE`, `CIRCLECI`, `TF_BUILD`, `JENKINS_URL`, `TEAMCITY_VERSION`, `TRAVIS`, `APPVEYOR`, `CODEBUILD_BUILD_ID` or `BITBUCKET_BUILD_NUMBER` is set.
+
+```ts
+reactNative({ registryBuild: 'wait' })
+```
+
+## `ownership`
+
+**Type:** `'warn' | 'error' | { mode?: 'warn' | 'error'; allow?: { path: string; reason: string }[] }` · **Default:** `'warn'` · **Engine:** native
+
+What happens when one file runs twice in a worker: once loaded by Vite, through your test's imports, and once by Node, through a `require()` or a package Node loads. The two copies don't share state, so a store or cache written through one is not seen by the other. Nothing else reports it.
+
+- `'warn'`: print a warning once per worker for each such file. It names the file, how each side reached it, and the fix.
+- `'error'`: fail the test file with [`SOURCE_EVALUATED_TWICE`](/guide/errors#SOURCE_EVALUATED_TWICE).
+- The object form also takes `allow`: files or directories, resolved against the Vitest root, that may run twice, each with the reason. It is the only exemption; the check cannot be turned off.
 
 ## `metroConfig`
 
