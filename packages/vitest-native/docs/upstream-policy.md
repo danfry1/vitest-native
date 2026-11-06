@@ -1,6 +1,6 @@
-# Upstream policy (proposal)
+# Upstream policy
 
-**Status:** proposed for 0.16. It extends [versioning.md](./versioning.md#upstream-support-ranges) and does not change it. Where the two overlap, versioning.md's rules on which release may move a range are the contract.
+**Status:** adopted 2026-11-06. It extends [versioning.md](./versioning.md#upstream-support-ranges) and does not change it. Where the two overlap, versioning.md's rules on which release may move a range are the contract.
 
 vitest-native sits on Node, Vite, Vitest, React, React Native, Expo and React Native Testing Library, and each moves on its own schedule. This document covers how the package:
 - follows them (bumps);
@@ -87,10 +87,10 @@ Unchanged from versioning.md:
   - workarounds whose expiry test now fails, which get deleted;
   - canary results, and new upstream majors due.
 
-## Follow-ups this implies (CI and code, after the policy is approved)
-1. **Recommended floors:** a `recommended` field in `peer-requirements.ts`, with the startup warning and the doctor entry. Its first entry is Vitest 5.1.0 (#611).
-2. **Upstream workarounds:** `docs/upstream-workarounds.md`, and the need and expiry test pattern.
-3. **Generated tables:** the README and versioning.md requirement tables generated from (or tested against) the single source.
-4. **More latest-supported axes:** add Vite, RNTL and Expo.
-5. **Canary job:** extend compat-check to Vitest beta and next, React Native rc, Expo's next SDK beta and Node's next line, with issues filed on failure.
-6. **Monthly upstream review:** an issue template for it.
+## Follow-ups this implies (CI and code)
+1. **Recommended floors** (with #611): a `recommended` field in `peer-requirements.ts`, with the startup warning and the doctor entry. Its first entry is Vitest 5.1.0 (#611).
+2. **Upstream workarounds** (#614): `docs/upstream-workarounds.md`, and the need and expiry test pattern.
+3. **Generated tables** (#615): the README and versioning.md requirement tables generated from (or tested against) the single source.
+4. **More latest-supported axes** (#616): add Vite, RNTL and Expo.
+5. **Canary job** (#617): extend compat-check to Vitest beta and next, React Native rc, Expo's next SDK beta and Node's next line, with issues filed on failure.
+6. **Monthly upstream review** (#618): an issue template for it.
