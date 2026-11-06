@@ -108,7 +108,7 @@ vitest-native could not precompile the modules of libraries such as Reanimated a
 
 ### `PROJECT_BABEL_COMMONJS` {#PROJECT_BABEL_COMMONJS}
 
-A project file compiled with your Babel config ([`projectBabel`](/guide/plugin-options#projectbabel)) came out as CommonJS, which Vite's module runner cannot run. vitest-native turns off the module transforms it knows, wherever a preset adds them, so a plugin or preset in your config transforms modules some other way. The message names the file and, when it is a plugin or preset vitest-native does not know, that entry. Leave it out of the config for tests, or set `projectBabel: 'never'`. When only such an entry sent the file to Babel, the run does not fail: the file compiles with Oxc, as before, and one warning names the entry.
+A project file compiled with your Babel config ([`projectBabel`](/guide/plugin-options#projectbabel)) came out as CommonJS, which Vite's module runner cannot run. vitest-native turns off the module transforms it knows, wherever a preset adds them, so a plugin or preset in your config transforms modules some other way. The message names the file and, when it is a plugin or preset vitest-native does not know, that entry. Leave it out of the config for tests, or set `projectBabel: 'never'`. The run does not fail when the plugin writing CommonJS is the only thing that sent the file to Babel: the file compiles with Oxc as before, without that plugin, and one warning names it. It fails when the file also needs another plugin or option from the config, because Oxc would drop what that does; the message lists them.
 
 ## Helpers and jest-compat
 

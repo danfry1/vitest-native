@@ -8,9 +8,12 @@
 //                         plugin again on worklet.ts: the result is the same.
 //   rn, expo, wrap        plain React Native and Expo configs, and an app preset wrapping
 //                         React Native's: nothing routes.
-//   wrapdec               an app preset wrapping React Native's and adding decorators:
-//                         only the decorator file routes, as an ES module.
-//   cjs                   an unknown plugin writes CommonJS: Oxc instead, warned once.
+//   wrapdec               an app preset wrapping React Native's and adding decorators and
+//                         loose class properties: only the files with a decorator or a
+//                         class route, as ES modules.
+//   cjs                   an unknown plugin writes CommonJS, and nothing else applies: Oxc
+//                         instead, warned once.
+//   cjslabel              the same beside another unknown plugin the file needs: fails.
 //   cache                 after a warm run, the local plugin changes: the next warm run
 //                         recompiles the file it applies to.
 import { spawnSync } from "node:child_process";
@@ -103,10 +106,10 @@ for (const fixture of ["rn", "expo", "wrap"]) {
 for (const pass of ["cold", "warm"]) {
   const result = run("wrapdec", "native", "wrapdec");
   check(
-    `wrapdec ${pass}: passes${pass === "cold" ? ", routes src/Model.js only" : ""}`,
+    `wrapdec ${pass}: passes${pass === "cold" ? ", routes src/Card.tsx and src/Model.js only" : ""}`,
     result.status === 0 &&
       /Tests\s+2 passed \(2\)/.test(result.output) &&
-      (pass === "warm" || routed(result.output).join(",") === "src/Model.js"),
+      (pass === "warm" || routed(result.output).join(",") === "src/Card.tsx,src/Model.js"),
     result.output,
   );
 }
@@ -120,10 +123,21 @@ check(
     /Tests\s+1 passed \(1\)/.test(cjs.output) &&
     (
       cjs.output.match(
-        /the preset \.\/cjs-preset\.cjs \(adds custom-commonjs\) compiled \S+ to CommonJS/g,
+        /the preset \.\/cjs-preset\.cjs \(adds custom-commonjs\) writes CommonJS/g,
       ) ?? []
     ).length === 1,
   cjs.output,
+);
+
+// A CommonJS writer beside another unknown plugin the file needs: falling back to Oxc
+// would drop the other one, so the run fails by name.
+const cjslabel = run("cjslabel", "native", "cjslabel");
+check(
+  "cjslabel: a CommonJS writer beside a plugin the file needs fails by name",
+  cjslabel.status === 1 &&
+    /PROJECT_BABEL_COMMONJS|writes CommonJS some other way/.test(cjslabel.output) &&
+    /cannot fall back to Oxc/.test(cjslabel.output),
+  cjslabel.output,
 );
 
 // Cache: the local plugin is a file the config requires, not a package.

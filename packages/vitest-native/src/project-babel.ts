@@ -77,10 +77,34 @@ const unknownEntry = (
 
 // Source tests: cheap, and over-matching only costs a Babel compile, never a wrong one.
 const has = (re: RegExp) => (source: string) => re.test(source);
-// Comments taken out first, so a JSDoc tag or a commented-out word does not count. A `//`
-// after a `:` is a URL's, not a comment.
-const withoutComments = (source: string) =>
-  source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+// Comments taken out first, so a JSDoc tag or a commented-out word does not count.
+// Strings and template literals are stepped over whole, so `'./assets/*'` does not open
+// a comment. A regular expression literal is read as code, which can only over-match.
+function withoutComments(source: string): string {
+  let out = "";
+  let i = 0;
+  while (i < source.length) {
+    const c = source[i];
+    const next = source[i + 1];
+    if (c === "/" && next === "/") {
+      const end = source.indexOf("\n", i);
+      i = end === -1 ? source.length : end;
+    } else if (c === "/" && next === "*") {
+      const end = source.indexOf("*/", i + 2);
+      i = end === -1 ? source.length : end + 2;
+      out += " ";
+    } else if (c === "'" || c === '"' || c === "`") {
+      let j = i + 1;
+      while (j < source.length && source[j] !== c) j += source[j] === "\\" ? 2 : 1;
+      out += source.slice(i, j + 1);
+      i = j + 1;
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  return out;
+}
 const inCode = (re: RegExp) => (source: string) => re.test(withoutComments(source));
 // `@name` where an expression or declaration can start, wherever it is on the line
 // (`export default @observer class`, `@ field() name`), not inside a word (an e-mail
@@ -93,10 +117,8 @@ const WORKLET = has(
 );
 const JSX = has(/<[A-Za-z>]/);
 // A class declaration or expression (generic, extending or implementing), not the word
-// in a comment.
-const CLASS = inCode(
-  /\bclass\b(?:\s+[A-Za-z_$][\w$]*)?\s*(?:<[^{]*>)?\s*(?:(?:extends|implements)\b[^{]*)?\{/,
-);
+// in a comment: `class`, an optional name, then `<`, `extends`, `implements` or `{`.
+const CLASS = inCode(/\bclass\b(?:\s+[A-Za-z_$][\w$]*)?\s*(?:<|extends\b|implements\b|\{)/);
 const CONSOLE = has(/\bconsole\s*\./);
 const USES_PROCESS_ENVIRONMENT = has(/\bprocess\.env\b/);
 const UNISTYLES = has(/react-native-unistyles|from\s+['"]react-native['"]/);
@@ -308,6 +330,13 @@ export function classifyProjectBabelEntry(
     return COVERED;
   }
   if (STRIPPED.has(name)) return STRIP;
+  // React Native's preset's own: its Flow parser and Flow enums, for its own source.
+  if (
+    name === "babel-plugin-syntax-hermes-parser" ||
+    name === "babel-plugin-transform-flow-enums"
+  ) {
+    return COVERED;
+  }
   const standard = /^@babel\/plugin-(?:transform|syntax|proposal)-(.+)$/.exec(name);
   if (standard) {
     const feature = standard[1];
@@ -365,6 +394,35 @@ export function projectBabelTrigger(
   const classified = classifyProjectBabelEntry(entry, root, active);
   return classified.kind === "needed" ? classified.reason : null;
 }
+
+// Presets whose plugins count as covered when an app's own preset wraps them.
+const KNOWN_PRESET_PACKAGES = [
+  "@react-native/babel-preset",
+  "metro-react-native-babel-preset",
+  "babel-preset-expo",
+];
+// A plugin those presets define inline has no name: Babel keys it by the preset file's
+// path plus its place (`…/babel-preset/src/index.js.overrides[5]$1`). Keyed by package and
+// place instead, so another copy of the same preset (a monorepo, a nested install) matches.
+const PRESET_INLINE_KEY =
+  /[\\/](@react-native[\\/]babel-preset|metro-react-native-babel-preset|babel-preset-expo)[\\/].*?\.[cm]?js((?:\.overrides\[\d+\])?(?:\$\d+)*)$/;
+/** A resolved plugin's key, the same for every copy of the presets above. */
+export function normalizePluginKey(key: string): string {
+  const inline = PRESET_INLINE_KEY.exec(key);
+  return inline ? `${inline[1].replace(/\\/g, "/")}${inline[2]}` : key;
+}
+// Plugin keys whose package is not `@babel/plugin-<key>`.
+const KEY_PACKAGES: Record<string, string> = {
+  "syntax-hermes-parser": "babel-plugin-syntax-hermes-parser",
+  "transform-flow-enums": "babel-plugin-transform-flow-enums",
+};
+/** The package a resolved plugin key names, for classification. */
+export function pluginNameOfKey(key: string): string {
+  if (KEY_PACKAGES[key]) return KEY_PACKAGES[key];
+  return /^(?:transform|syntax|proposal)-/.test(key) ? `@babel/plugin-${key}` : key;
+}
+const optionsKey = (options: unknown): string =>
+  JSON.stringify(options ?? {}, (_, value) => (typeof value === "function" ? "[function]" : value));
 
 /** A Babel ConfigItem, as much of it as this reads. */
 interface ConfigItem {
@@ -444,7 +502,7 @@ interface Babel {
     code: string,
     options: object,
   ): Promise<{ code?: string | null; map?: unknown } | null>;
-  loadOptions(options: object): { plugins: { key: string }[] } | null;
+  loadOptions(options: object): ({ plugins: { key: string; options?: unknown }[] } & object) | null;
   version?: string;
 }
 
@@ -455,6 +513,8 @@ interface Plan {
     applies: ((source: string) => boolean) | null;
     unknown?: boolean;
     entryKind?: "plugin" | "preset";
+    /** The resolved plugin key of an unknown entry, to name the one that writes CommonJS. */
+    key?: string;
   }[];
   presets: unknown[];
   plugins: unknown[];
@@ -498,9 +558,10 @@ export function createProjectBabel(
   const partialFor = (filename: string) =>
     babel.loadPartialConfig({ filename, cwd: root, root, caller });
 
-  // The plugin keys React Native's and Expo's presets expand to, under this caller: a
-  // preset that expands to no others wraps one of them.
-  const presetKeys = (presets: unknown[]): string[] =>
+  // The plugins React Native's and Expo's presets expand to, under this caller, by key
+  // (normalizePluginKey) with their options: a preset that expands to no others, with the
+  // same options, wraps one of them.
+  const expand = (presets: unknown[]): { key: string; options: unknown }[] =>
     babel
       .loadOptions({
         filename: path.join(root, "index.js"),
@@ -511,24 +572,48 @@ export function createProjectBabel(
         caller,
         presets,
       })
-      ?.plugins.map((plugin) => plugin.key) ?? [];
-  let knownKeys: Set<string> | undefined;
-  const knownPresetKeys = (): Set<string> => {
-    if (knownKeys) return knownKeys;
-    knownKeys = new Set();
+      ?.plugins.map((plugin) => ({
+        key: normalizePluginKey(plugin.key),
+        options: plugin.options,
+      })) ?? [];
+  let knownPlugins: Map<string, string> | undefined;
+  const knownPresetPlugins = (): Map<string, string> => {
+    if (knownPlugins) return knownPlugins;
+    knownPlugins = new Map();
     const req = createRequire(path.join(root, "package.json"));
-    for (const preset of ["@react-native/babel-preset", "babel-preset-expo"]) {
+    for (const preset of KNOWN_PRESET_PACKAGES) {
       if (installedManifest(root, preset) === null) continue;
-      for (const key of presetKeys([req.resolve(preset)])) knownKeys.add(key);
+      for (const plugin of expand([req.resolve(preset)])) {
+        knownPlugins.set(plugin.key, optionsKey(plugin.options));
+      }
     }
-    return knownKeys;
+    return knownPlugins;
   };
-  /** What a preset expands to beyond React Native's and Expo's presets, or null. */
-  const addedByPreset = (item: ConfigItem): string[] | null => {
+  /**
+   * What a preset expands to beyond React Native's and Expo's presets: plugins they do not
+   * add, and plugins they add with other options. Null when neither preset is installed.
+   */
+  const addedByPreset = (item: ConfigItem): { key: string; options: unknown }[] | null => {
     if (!item.value) return null;
-    const known = knownPresetKeys();
+    const known = knownPresetPlugins();
     if (known.size === 0) return null;
-    return presetKeys([[item.value, item.options ?? {}]]).filter((key) => !known.has(key));
+    return expand([[item.value, item.options ?? {}]]).filter(
+      (plugin) => known.get(plugin.key) !== optionsKey(plugin.options),
+    );
+  };
+
+  /** A config plugin's resolved key, as Babel's loaded options carry it. */
+  const keyOfPlugin = (item: ConfigItem): string | undefined => {
+    const plugin = babel.loadOptions({
+      filename: path.join(root, "index.js"),
+      cwd: root,
+      root,
+      babelrc: false,
+      configFile: false,
+      caller,
+      plugins: [item],
+    })?.plugins[0];
+    return plugin ? normalizePluginKey(plugin.key) : undefined;
   };
 
   const plans = new Map<string, Plan>();
@@ -565,19 +650,20 @@ export function createProjectBabel(
         else {
           // What the preset adds beyond React Native's or Expo's, one plugin at a time: a
           // standard one by its package name, anything else as unknown.
-          for (const pluginKey of adds) {
-            const pluginName = /^(?:transform|syntax|proposal)-/.test(pluginKey)
-              ? `@babel/plugin-${pluginKey}`
-              : pluginKey;
+          for (const { key: pluginKey, options: pluginOptions } of adds) {
             const added = classifyProjectBabelEntry(
-              { name: pluginName, kind: "plugin" },
+              { name: pluginNameOfKey(pluginKey), kind: "plugin", options: pluginOptions },
               root,
               options.active,
             );
             if (added.kind !== "needed") continue;
             plan.needs.push(
               added.unknown
-                ? { ...classified, reason: `${classified.reason} (adds ${pluginKey})` }
+                ? {
+                    ...classified,
+                    reason: `${classified.reason} (adds ${pluginKey})`,
+                    key: pluginKey,
+                  }
                 : { ...added, reason: `${added.reason} (from the preset ${name})` },
             );
           }
@@ -604,7 +690,11 @@ export function createProjectBabel(
         options.active,
       );
       if (classified.kind === "strip") continue;
-      if (classified.kind === "needed") plan.needs.push(classified);
+      if (classified.kind === "needed") {
+        plan.needs.push(
+          classified.unknown ? { ...classified, key: keyOfPlugin(item) } : classified,
+        );
+      }
       plan.plugins.push(item);
     }
     if (loaded.assumptions && Object.keys(loaded.assumptions).length > 0) {
@@ -721,45 +811,69 @@ export function createProjectBabel(
         const other = await asking.run(id, () => chain.load(id));
         if (other != null) return other;
       }
-      const result = await babel.transformAsync(code, {
+      // The config resolved to plugins (Babel's loadOptions, which transform takes as is),
+      // with the module transforms taken out wherever a preset adds them: one that wraps
+      // React Native's and does not pass disableImportExportTransform on would otherwise
+      // make CommonJS.
+      const loaded = babel.loadOptions({
         ...partial.options,
         presets: plan.presets,
         plugins: plan.plugins,
         filename: id,
         sourceMaps: true,
         caller,
-        // A module transform a preset adds itself (one that wraps React Native's and does
-        // not pass disableImportExportTransform on) would make CommonJS: its visitors do
-        // nothing here, wherever it comes from.
-        wrapPluginVisitorMethod: (alias: string, _type: string, visit: unknown) =>
-          MODULE_TRANSFORM.test(alias) ? () => {} : visit,
       });
+      if (!loaded) return undefined;
+      const compile = (without?: string) =>
+        babel.transformAsync(code, {
+          ...loaded,
+          plugins: loaded.plugins.filter(
+            (plugin) =>
+              !MODULE_TRANSFORM.test(plugin.key) && normalizePluginKey(plugin.key) !== without,
+          ),
+        });
+      const result = await compile();
       if (!result?.code) return undefined;
       if (COMMONJS_OUTPUT.test(result.code)) {
         const file = path.relative(root, id);
-        // Only entries this does not know sent the file here: Oxc compiled it before, so
-        // it keeps doing that, and the run says once which entry it was.
-        if (matched.length > 0 && matched.every((need) => need.unknown)) {
-          const names = matched.map((need) => need.reason).join(", ");
-          if (!fallbackWarned.has(names)) {
-            fallbackWarned.add(names);
+        // Which plugin writes it: the unknown one whose absence gives an ES module.
+        let emitter: string | undefined;
+        for (const plugin of loaded.plugins) {
+          const key = normalizePluginKey(plugin.key);
+          if (knownPresetPlugins().has(key) || MODULE_TRANSFORM.test(plugin.key)) continue;
+          const without = await compile(key);
+          if (without?.code && !COMMONJS_OUTPUT.test(without.code)) {
+            emitter = key;
+            break;
+          }
+        }
+        // Oxc, as before projectBabel, only when the CommonJS writer is the one thing that
+        // sent the file here: falling back past any other plugin would drop what it does.
+        const emitterNeed = matched.find((need) => need.unknown && need.key === emitter);
+        if (emitter && emitterNeed && matched.length === 1) {
+          if (!fallbackWarned.has(emitter)) {
+            fallbackWarned.add(emitter);
             console.warn(
-              `[vitest-native] projectBabel: ${names} compiled ${file} to CommonJS, which ` +
-                `Vite's module runner cannot run, so files it alone applies to compile with ` +
-                `Oxc. Leave its module transform out for tests, or set projectBabel: 'never'.`,
+              `[vitest-native] projectBabel: ${emitterNeed.reason} writes CommonJS, which ` +
+                `Vite's module runner cannot run, so files only it applies to (${file} first) ` +
+                `compile with Oxc, without it. Leave it out of the config for tests, or set ` +
+                `projectBabel: 'never'.`,
             );
           }
           return undefined;
         }
-        const culprit = matched.find((need) => need.unknown);
-        const what = culprit
-          ? `the ${culprit.entryKind ?? "plugin"} ${culprit.reason.replace(/^the preset /, "")}`
-          : "a plugin or preset in it";
+        const what = emitterNeed
+          ? `the ${emitterNeed.entryKind ?? "plugin"} ${emitterNeed.reason.replace(/^the preset /, "")}`
+          : emitter
+            ? `the plugin ${emitter}`
+            : "a plugin or preset in it";
         throw new VitestNativeError(
           "PROJECT_BABEL_COMMONJS",
           `projectBabel: the project's Babel config compiled ${file} to CommonJS, which Vite's ` +
             `module runner cannot run. vitest-native takes the module transforms it knows out ` +
-            `of this compile; ${what} transforms modules some other way. Leave it out for ` +
+            `of this compile; ${what} writes CommonJS some other way. The file also needs ` +
+            `${matched.map((need) => need.reason).join(", ")}, so it cannot fall back to Oxc ` +
+            `without losing what they do. Leave the CommonJS writer out of the config for ` +
             `tests, or set projectBabel: 'never'.`,
         );
       }

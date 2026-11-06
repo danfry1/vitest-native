@@ -6,6 +6,8 @@ import { babelConfigFingerprint, fsModuleCacheKey } from "../src/fs-module-cache
 import {
   classifyProjectBabelEntry,
   configItemName,
+  normalizePluginKey,
+  pluginNameOfKey,
   hasFlowPragma,
   isProjectSourceFile,
   projectBabelTrigger,
@@ -213,12 +215,19 @@ describe("source tests: the misses review found (#597)", () => {
     expect(decorators("import { API } from '@env';")).toBe(false);
     expect(decorators("fetch('https://x.io/@user')")).toBe(false);
   });
+  it("does not let a string that looks like a comment hide a decorator", () => {
+    expect(
+      decorators("const glob = './assets/*';\nclass A {\n  @field('x') x;\n}\nconst end = '*/';"),
+    ).toBe(true);
+    expect(decorators("const s = '// not a comment';\n@observer class A {}")).toBe(true);
+  });
   it("finds generic and implementing classes, not the word in a comment", () => {
     const loose = (source: string) =>
       appliesTo("@babel/plugin-transform-class-properties", "plugin", { loose: true }, source);
     expect(loose("class A<T> {\n  a = 1;\n}")).toBe(true);
     expect(loose("class A implements B {\n  a = 1;\n}")).toBe(true);
     expect(loose("export default class extends Base {}")).toBe(true);
+    expect(loose("class A<T extends { a: number }> {\n  a = 1;\n}")).toBe(true);
     expect(loose("/* a class here */ const a = 1;")).toBe(false);
   });
   it("finds macro modules in each form", () => {
@@ -257,5 +266,26 @@ describe("source tests: the misses review found (#597)", () => {
     expect(
       appliesTo("@babel/preset-typescript", "preset", { jsxPragma: "h" }, "const a = 1;"),
     ).toBe(false);
+  });
+});
+
+describe("plugin keys from an expanded preset (#597 round 3)", () => {
+  it("matches React Native's inline plugins across copies of the preset", () => {
+    const a = "/app/node_modules/@react-native/babel-preset/src/index.js.overrides[5]$1";
+    const b =
+      "/repo/node_modules/.store/x/node_modules/@react-native/babel-preset/src/index.js.overrides[5]$1";
+    expect(normalizePluginKey(a)).toBe(normalizePluginKey(b));
+    expect(normalizePluginKey(a)).toBe("@react-native/babel-preset.overrides[5]$1");
+    expect(
+      normalizePluginKey("/m/node_modules/metro-react-native-babel-preset/src/configs/main.js$2"),
+    ).toBe("metro-react-native-babel-preset$2");
+    expect(normalizePluginKey("transform-modules-commonjs")).toBe("transform-modules-commonjs");
+    expect(normalizePluginKey("/app/my-preset.cjs$0")).toBe("/app/my-preset.cjs$0");
+  });
+  it("names a key's package, and covers React Native's own Flow plugins", () => {
+    expect(pluginNameOfKey("proposal-decorators")).toBe("@babel/plugin-proposal-decorators");
+    expect(pluginNameOfKey("syntax-hermes-parser")).toBe("babel-plugin-syntax-hermes-parser");
+    expect(trigger(pluginNameOfKey("syntax-hermes-parser"), "plugin")).toBeNull();
+    expect(trigger(pluginNameOfKey("transform-flow-enums"), "plugin")).toBeNull();
   });
 });
