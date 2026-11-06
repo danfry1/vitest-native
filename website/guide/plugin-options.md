@@ -217,7 +217,7 @@ reactNative({ registryBuild: 'wait' })
 
 **Type:** `number | false` · **Default:** `60_000`, or twice the larger of `testTimeout` and `hookTimeout` if that is longer · **Engine:** both
 
-How long a run may go with no test making progress (no test or file starting or finishing) before it fails. The failure names the files and tests that were running. `false` turns it off. It is also off while a debugger is attached (`--inspect`, `--inspect-brk`, or Vitest's `inspect` options), since a test paused at a breakpoint makes no progress either.
+How long a run may go with no test making progress (no test file picked up, started or finished, and no test started or finished) while test files are running, before it fails. The failure names the files and tests that were running. Global setup, coverage and typecheck mode's compiler run happen outside that window and aren't timed. `false` turns it off, and so does a `testTimeout` or `hookTimeout` of `Infinity`. It is also off while a debugger is attached (`--inspect` or `--inspect-brk` for Vitest or its workers, or Vitest's `inspect` options), since a test paused at a breakpoint makes no progress either. With several projects, `false` in any of them turns it off, and otherwise the longest limit applies.
 
 **Why `testTimeout` doesn't cover this.** Vitest's `testTimeout` and `hookTimeout` are timers on the test's own worker. A test stuck in synchronous code, such as a loop that never ends, never gives that worker's event loop a turn, so those timers never fire. The run then waits forever with nothing on screen. Only the worker is stuck: Vitest's main process stays responsive, and `hangTimeout` runs there.
 
