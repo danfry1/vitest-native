@@ -242,16 +242,22 @@ function babelJestCaller(ctx, platform) {
  */
 function insideRoot(ctx, file) {
   if (ctx.rootPrefixes === undefined) {
-    let native = ctx.root;
-    try {
-      native = fs.realpathSync.native(ctx.root);
-    } catch {}
+    const native = nativeRealPath(ctx.root);
     const fold = (p) => (process.platform === "win32" ? p.toLowerCase() : p);
     ctx.foldPath = fold;
     ctx.rootPrefixes = [...new Set([ctx.root, native])].map((root) => fold(root + path.sep));
   }
   const folded = ctx.foldPath(file);
   return ctx.rootPrefixes.some((prefix) => folded.startsWith(prefix));
+}
+
+/** `file`'s long, native real path (no 8.3 names on Windows), or `file` if it has none. */
+function nativeRealPath(file) {
+  try {
+    return fs.realpathSync.native(file);
+  } catch {
+    return file;
+  }
 }
 
 /**
