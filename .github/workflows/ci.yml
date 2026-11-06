@@ -19,6 +19,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+env:
+  # The hang guard's no-progress limit (packages/vitest-native/scripts/ci/hang-reporter.mjs):
+  # a guarded Vitest run with no test or file starting or finishing for this long fails,
+  # naming what was running. The steps' own deadlines (scripts/ci/with-deadline.mjs) cover
+  # what the reporter cannot see.
+  VN_HANG_IDLE_MS: "180000"
+
 jobs:
   # A pull request runs the gate jobs its changed files need: a docs-only change runs
   # none, a test-only change skips the packed cells, and code runs everything. The
@@ -160,7 +167,8 @@ jobs:
         run: bun run build
 
       - name: Test
-        run: bun run test
+        shell: bash
+        run: node packages/vitest-native/scripts/ci/with-deadline.mjs 900 -- bun run test
 
   check:
     # Unique per leg: the back-compat leg differs from another only by RNTL, and GitHub
@@ -284,7 +292,8 @@ jobs:
 
       - name: Test
         if: matrix.part != 'native'
-        run: bun run test
+        shell: bash
+        run: node packages/vitest-native/scripts/ci/with-deadline.mjs 900 -- bun run test
 
       - name: compare end-to-end tests
         # `vitest-native compare`'s end-to-end tests run Vitest for real, seconds per test
@@ -292,7 +301,8 @@ jobs:
         # fast tests of CPU until those timed out, so they run here, after it, on one leg
         # per OS.
         if: ${{ !matrix.rntl && matrix.part != 'native' && matrix.node-version == '22.22.3' }}
-        run: bun run --filter vitest-native test:cli-compare-e2e
+        shell: bash
+        run: node packages/vitest-native/scripts/ci/with-deadline.mjs 300 -- bun run --filter vitest-native test:cli-compare-e2e
 
       - name: Docs checks selection
         # The docs job runs this only on docs-only pull requests, and a change to the
@@ -302,13 +312,18 @@ jobs:
 
       - name: Native engine tests
         if: matrix.part != 'suite'
+        # Each script under its own deadline (scripts/run-scripts.mjs): a hung one fails
+        # with the test files it was running, not at the job's timeout.
+        env:
+          VN_SCRIPT_DEADLINE_MS: "600000"
         run: bun run test:native
 
       - name: Native engine tests (cold-cache background registry build)
         # Starts real Vitest runs against scratch projects (signals, cancel, CI, a
         # concurrent cold build), so it takes minutes: one leg per OS, not every leg.
         if: matrix.part != 'suite' && ((runner.os == 'Linux' && matrix.node-version == '24.12.0') || runner.os != 'Linux')
-        run: bun run test:native:background
+        shell: bash
+        run: node packages/vitest-native/scripts/ci/with-deadline.mjs 300 -- bun run test:native:background
 
       - name: Native engine tests (forks pool)
         if: matrix.part != 'suite'
@@ -317,22 +332,26 @@ jobs:
         # engine's module hooks have to install in a child process just as they do in a
         # worker thread. Cheap (a couple of seconds) for advice the plugin gives in an
         # error message.
-        run: bun run test:native:forks
+        shell: bash
+        run: node packages/vitest-native/scripts/ci/with-deadline.mjs 300 -- bun run test:native:forks
 
       - name: Native engine tests (navigation preset)
         if: matrix.part != 'suite'
-        run: bun run test:native:navigation
+        shell: bash
+        run: node packages/vitest-native/scripts/ci/with-deadline.mjs 180 -- bun run test:native:navigation
 
       - name: Native engine tests (Android)
         if: matrix.part != 'suite'
-        run: bun run test:native:android
+        shell: bash
+        run: node packages/vitest-native/scripts/ci/with-deadline.mjs 180 -- bun run test:native:android
 
       - name: Native engine remediation advice
         if: matrix.part != 'suite'
         # The explainer tells users to add a package to `transform: [...]` when Node
         # cannot parse its source — the most common migration blocker. That advice was
         # only ever asserted as a substring of the error message; this applies it.
-        run: bun run test:native:advice
+        shell: bash
+        run: node packages/vitest-native/scripts/ci/with-deadline.mjs 180 -- bun run test:native:advice
 
       - name: Native engine tests (hot runtime)
         if: matrix.part != 'suite'
@@ -345,29 +364,34 @@ jobs:
         # that only matter on older RNTL, and removing them fails this suite under
         # RNTL 13 while RNTL 14 stays green (see native/module-reset.mjs). The hot
         # runtime was in fact fine on RNTL 13 — nothing was checking.
-        run: bun run test:native:hot
+        shell: bash
+        run: node packages/vitest-native/scripts/ci/with-deadline.mjs 300 -- bun run test:native:hot
 
       - name: Native engine coverage
         # @vitest/coverage-v8 over source Node compiles (a React Native workspace
         # package) must match coverage of the same source loaded by Vite, default and
         # hot, with nothing failing to parse.
         if: ${{ !matrix.rntl }}
-        run: bun run test:native:coverage
+        shell: bash
+        run: node packages/vitest-native/scripts/ci/with-deadline.mjs 300 -- bun run test:native:coverage
 
       - name: Native engine hot-runtime isolation
         if: ${{ !matrix.rntl && matrix.part != 'native' }}
-        run: bun run test:native:hot:isolation
+        shell: bash
+        run: node packages/vitest-native/scripts/ci/with-deadline.mjs 900 -- bun run test:native:hot:isolation
 
       - name: Native engine hot-runtime state-manifest mutations
         # Omits each per-file restore in turn and requires the isolation suite to fail
         # naming it, so a restore that stops being checked is caught. Fourteen suite
         # runs, so one Linux leg on the newest Node line carries it.
         if: runner.os == 'Linux' && matrix.node-version == '26.13.0'
-        run: bun run --filter vitest-native test:native:hot:state-manifest
+        shell: bash
+        run: node packages/vitest-native/scripts/ci/with-deadline.mjs 300 -- bun run --filter vitest-native test:native:hot:state-manifest
 
       - name: Native engine hot-runtime soak and recycling
         if: ${{ !matrix.rntl && matrix.part != 'suite' }}
-        run: bun run test:native:hot:soak
+        shell: bash
+        run: node packages/vitest-native/scripts/ci/with-deadline.mjs 300 -- bun run test:native:hot:soak
 
       - name: Cross-check (mock ≡ real RN) + fidelity report freshness
         # The cross-check is calibrated on the current RNTL (14); a few probes track
