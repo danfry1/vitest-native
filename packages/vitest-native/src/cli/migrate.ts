@@ -298,8 +298,10 @@ export function analyzeJestConfig(root: string): MigrationReport {
   const extraImports: string[] = [];
   const extraPlugins: string[] = [];
   let excludeGlobs: string[] = [];
-  // Jest's `roots`, relative to the project root, when the config sets them.
+  // Jest's `roots`, relative to the project root, and `modulePathIgnorePatterns`, when
+  // the config sets them.
   let jestRoots: string[] | null = null;
+  let jestIgnorePatterns: string[] | null = null;
   let needsUrlImport = false;
   // Options for the reactNative() call, besides `transform`.
   const pluginOptions: string[] = [];
@@ -697,6 +699,11 @@ export function analyzeJestConfig(root: string): MigrationReport {
       const value = take<never>(key);
       if (value !== undefined) discoveryOptions[key] = value;
     }
+    if (Array.isArray(discoveryOptions.modulePathIgnorePatterns)) {
+      jestIgnorePatterns = (discoveryOptions.modulePathIgnorePatterns as unknown[]).filter(
+        (p): p is string => typeof p === "string",
+      );
+    }
     if (Array.isArray(discoveryOptions.roots)) {
       jestRoots = (discoveryOptions.roots as unknown[])
         .filter((r): r is string => typeof r === "string")
@@ -784,22 +791,38 @@ export function analyzeJestConfig(root: string): MigrationReport {
     }
   }
 
-  // Jest's manual mocks of node_modules packages: a file in a root's top-level
-  // __mocks__ applies with no jest.mock() call. jestMockTransform() applies it the same
-  // way (jest-compat/root-mocks.ts) unless the plugin already stands in for the
+  // Jest's manual mocks of node_modules packages: a file in a __mocks__ folder anywhere
+  // under its roots applies with no jest.mock() call. jestMockTransform() applies it the
+  // same way (jest-compat/root-mocks.ts) unless the plugin already stands in for the
   // package: a preset shadows it (PRESET_MODULES, checked against the presets by
   // tests/presets.test.ts), or the library runs with its own Jest setup.
   const mockRoots = jestRoots ?? ["."];
-  for (const mock of findNodeModuleMocks(
+  const ignored = (jestIgnorePatterns ?? []).flatMap((pattern) => {
+    try {
+      return [new RegExp(pattern.replaceAll("<rootDir>", root))];
+    } catch {
+      return [];
+    }
+  });
+  const manualMocks = findNodeModuleMocks(
     mockRoots.map((r) => path.resolve(root, r)),
     root,
-  )) {
-    const shown = path
-      .relative(root, path.join(mock.root, "__mocks__", mock.spec))
-      .split(path.sep)
-      .join("/");
-    const candidate = mock.spec;
+    ignored,
+  );
+  const relative = (file: string) => path.relative(root, file).split(path.sep).join("/");
+  // One line per file: `__mocks__/pkg/index` answers both `pkg/index` and `pkg`.
+  const byFile = new Map<string, string[]>();
+  for (const mock of manualMocks.mocks) {
+    byFile.set(mock.file, [...(byFile.get(mock.file) ?? []), mock.spec]);
+  }
+  for (const [file, specs] of byFile) {
+    const shown = relative(file).replace(/\.[^./]+$/, "");
+    // The package the file is named for: `pkg`, not `pkg/index`.
+    const candidate = specs[specs.length - 1];
     const preset = presetShadowing(candidate);
+    const applied =
+      `${shown} → applied to ${specs.slice().reverse().join(" and ")} in every test by ` +
+      `jestMockTransform(), with no jest.mock() call, as Jest applies it.`;
     if (preset && active.includes(preset)) {
       presetCovered.push(
         `${shown} — the auto-detected ${preset} preset shadows ${candidate}; delete the manual mock.`,
@@ -811,22 +834,33 @@ export function analyzeJestConfig(root: string): MigrationReport {
       );
     } else if (installedTestsItself(root, candidate)) {
       automatic.push(
-        `${shown} → applied to ${candidate} in every test and setup file by jestMockTransform(), ` +
-          `as Jest applies it. ${candidate} ${installedMajor(root, candidate)} also runs its own ` +
-          `test mode under Vitest, which can stand in for this mock.`,
+        `${applied} ${candidate} ${installedMajor(root, candidate)} also runs its own test mode ` +
+          `under Vitest, which can stand in for this mock.`,
       );
     } else {
-      automatic.push(
-        `${shown} → applied to ${candidate} in every test and setup file by jestMockTransform(), ` +
-          `as Jest applies it, with no jest.mock() call.`,
-      );
+      automatic.push(applied);
     }
   }
-  // Roots other than the project root hold mocks Vitest's own lookup does not search.
-  const transformCall =
-    jestRoots && jestRoots.some((r) => r !== ".")
-      ? `jestMockTransform({ roots: [${jestRoots.map((r) => JSON.stringify(r)).join(", ")}] })`
-      : "jestMockTransform()";
+  for (const duplicate of manualMocks.duplicates) {
+    attention.push(
+      `duplicate manual mock ${duplicate.name}: ${duplicate.files.map(relative).join(", ")} — ` +
+        `Jest warns and uses one; jestMockTransform() uses the last listed. Delete the others.`,
+    );
+  }
+  // Jest's roots and ignore patterns decide which __mocks__ files count.
+  const transformOptions = [
+    ...(jestRoots && jestRoots.some((r) => r !== ".")
+      ? [`roots: [${jestRoots.map((r) => JSON.stringify(r)).join(", ")}]`]
+      : []),
+    ...(manualMocks.mocks.length > 0 && jestIgnorePatterns?.length
+      ? [
+          `modulePathIgnorePatterns: [${jestIgnorePatterns.map((p) => JSON.stringify(p)).join(", ")}]`,
+        ]
+      : []),
+  ];
+  const transformCall = transformOptions.length
+    ? `jestMockTransform({ ${transformOptions.join(", ")} })`
+    : "jestMockTransform()";
 
   if (navigationOff) {
     pluginOptions.push(`presets: { navigation: false }`);

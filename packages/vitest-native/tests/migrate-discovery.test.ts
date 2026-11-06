@@ -847,7 +847,7 @@ describe("packages that test themselves (react-native-mmkv 3+)", () => {
     // Jest applied the root mock; jestMockTransform() does too, and says the library's
     // own test mode could replace it.
     expect(report.automatic.join("\n")).toContain(
-      "__mocks__/react-native-mmkv → applied to react-native-mmkv in every test and setup file by jestMockTransform()",
+      "__mocks__/react-native-mmkv → applied to react-native-mmkv in every test by jestMockTransform()",
     );
     expect(report.automatic.join("\n")).toContain(
       "react-native-mmkv 3 also runs its own test mode under Vitest",

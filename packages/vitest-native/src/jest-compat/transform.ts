@@ -1,9 +1,8 @@
 import type { Plugin } from "vite";
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { MagicString } from "magic-string";
-import { findNodeModuleMocks, type RootMock } from "./root-mocks.js";
+import { findNodeModuleMocks, type ManualMocks } from "./root-mocks.js";
 
 // Hoistable jest mock methods (Vitest only hoists these on the vi/vitest object).
 const HOISTABLE = new Set(["mock", "unmock", "doMock", "doUnmock"]);
@@ -124,10 +123,10 @@ interface Project {
   /** reactNative()'s policy under the native engine, else null. */
   ownership: () => Ownership | null;
   /**
-   * Whether reactNative() already stands in for this package: a preset shadows it, or
-   * the library runs with its own Jest setup. False without reactNative().
+   * What already stands in for this package in reactNative(), as a phrase (a preset, or
+   * the library's own Jest setup), or null. Null without reactNative().
    */
-  covers: (spec: string) => boolean;
+  coveredBy: (spec: string) => string | null;
   /** Vitest's `server.deps.inline` and `server.deps.external`. */
   inline: unknown[];
   external: unknown[];
@@ -206,40 +205,58 @@ function isViteOwnedSource(
 export function jestMockTransform(options: JestMockTransformOptions = {}): Plugin {
   let project: Project = {
     ownership: () => null,
-    covers: () => false,
+    coveredBy: () => null,
     inline: [],
     external: [],
   };
-  let viteRoot = "";
-  let rootMocks: RootMock[] = [];
-  // The root mocks each test and setup file starts with, in Jest's form (see prelude).
-  let prelude: string | null = null;
-  const projects: TestFiles[] = [];
-  /** A test file or setup file of this run, which Jest's root mocks apply to. */
-  const isEntry = (file: string) =>
-    !file.startsWith(OWN_DIST) &&
-    projects.some((p) => p.config.setupFiles.includes(file) || p.matchesTestGlob(file));
+  // Jest's manual mocks of node_modules packages, per Vite root: test.projects can share
+  // one instance of this plugin, and each project's mocks are its own.
+  const rootMockModules = new Map<string, RootMockModule>();
+  const projectsByRoot = new Map<string, Project>();
   return {
     name: "vitest-native:jest-mock-hoist",
-    // Vitest's own plugin hook (not in Vite's Plugin type): one call per test project.
-    configureVitest({ project: testProject }: { project: unknown }) {
-      projects.push(testProject as unknown as TestFiles);
+    // Ahead of the project's setup files, a generated module mocks each package that
+    // has a manual mock, as Jest applies one with no jest.mock() call. A setup file's or
+    // test file's own jest.mock(name, factory) or jest.unmock(name) registers later and
+    // wins, as Jest decides an explicit one first (jest-runtime `_explicitShouldMock`).
+    config(userConfig) {
+      if (options.rootMocks === false) return;
+      const test = ((userConfig as { test?: Record<string, unknown> }).test ??= {});
+      const root = path.resolve(
+        (test.root as string | undefined) ?? userConfig.root ?? process.cwd(),
+      );
+      const ignore = (options.modulePathIgnorePatterns ?? []).map(
+        (pattern) => new RegExp(pattern.replaceAll("<rootDir>", root)),
+      );
+      const found = findNodeModuleMocks(
+        (options.roots ?? ["."]).map((r) => path.resolve(root, r)),
+        root,
+        ignore,
+      );
+      if (found.mocks.length === 0 && found.duplicates.length === 0) return;
+      const id = path.join(root, ROOT_MOCKS_FILE);
+      rootMockModules.set(id, { root, ...found });
+      // Vite documents mutating the config here where merging cannot place a value: a
+      // returned setupFiles array would be appended after the project's own.
+      const setupFiles = Array.isArray(test.setupFiles)
+        ? [...(test.setupFiles as string[])]
+        : test.setupFiles
+          ? [test.setupFiles as string]
+          : [];
+      if (setupFiles.includes(id)) return;
+      let compat = -1;
+      setupFiles.forEach((file, index) => {
+        if (JEST_COMPAT_SETUP.test(file)) compat = index;
+      });
+      setupFiles.splice(compat + 1, 0, id);
+      test.setupFiles = setupFiles;
     },
     configResolved(config) {
-      viteRoot = config.root;
-      rootMocks =
-        options.rootMocks === false || !config.root
-          ? []
-          : findNodeModuleMocks(
-              (options.roots ?? [config.root]).map((root) => path.resolve(config.root, root)),
-              config.root,
-            );
-      prelude = null;
       const native = config.plugins.find((plugin) => plugin.name === "vitest-native") as
         | {
             api?: {
               nativeOwnership?: () => Ownership | null;
-              coversPackage?: (spec: string) => boolean;
+              packageCoveredBy?: (spec: string) => string | null;
             };
           }
         | undefined;
@@ -252,10 +269,26 @@ export function jestMockTransform(options: JestMockTransformOptions = {}): Plugi
         Array.isArray(value) ? value : value == null ? [] : [value];
       project = {
         ownership: () => native?.api?.nativeOwnership?.() ?? null,
-        covers: (spec) => native?.api?.coversPackage?.(spec) ?? false,
+        coveredBy: (spec) => native?.api?.packageCoveredBy?.(spec) ?? null,
         inline: list(deps?.inline),
         external: list(deps?.external),
       };
+      if (config.root) projectsByRoot.set(path.resolve(config.root), project);
+    },
+    resolveId(this: { environment?: { config?: { root?: string } } }, id: string) {
+      if (rootMockModules.has(id)) return id;
+      // Vitest hands a setup file under the root to its runner root-relative.
+      if (id !== `/${ROOT_MOCKS_FILE}`) return null;
+      const root = this.environment?.config?.root;
+      const file = root ? path.join(path.resolve(root), ROOT_MOCKS_FILE) : null;
+      return file && rootMockModules.has(file) ? file : null;
+    },
+    load(id: string) {
+      const module = rootMockModules.get(id);
+      if (!module) return null;
+      // Read here, not in config(): reactNative() decides its presets in configResolved.
+      const owner = projectsByRoot.get(module.root) ?? project;
+      return rootMocksSource(module, (spec) => owner.coveredBy(spec));
     },
     // No `enforce` (normal order): this must run AFTER Vite's esbuild strips
     // TS/JSX (so `this.parse`, which is acorn, gets plain JS) but BEFORE Vitest's
@@ -265,29 +298,18 @@ export function jestMockTransform(options: JestMockTransformOptions = {}): Plugi
       if (id.includes("/node_modules/")) return null;
       const file = id.split("?")[0];
       if (!TRANSFORMABLE.test(file)) return null;
-      // Jest's root mocks, as the `jest.mock()` calls this file starts with. Built when
-      // the first file is transformed: reactNative() decides its presets in its own
-      // configResolved, which Vite runs alongside this plugin's.
-      prelude ??= rootMockPrelude(rootMocks, viteRoot, project.covers);
-      const mocks = prelude && isEntry(file) ? prelude : "";
-      const ownCalls = HAS_JEST_MOCK.test(code);
-      if (!mocks && !ownCalls) return null;
-
-      const head = mocks ? adapt(this, mocks, id, project) : null;
-      const body = ownCalls ? adapt(this, code, id, project) : null;
-      const join = (lead: Adapted | null, own: Adapted | null) => {
-        if (!lead?.changed && !own?.changed) return null;
-        const s = own?.s ?? new MagicString(code);
-        // Ahead of the file's own calls, so its jest.mock() or jest.unmock() of the same
-        // package comes later and wins, as a file's own call does under Jest.
-        if (lead?.changed) s.prepend(lead.s.toString());
-        if (lead?.usesSetup || own?.usesSetup) s.prepend(SETUP_ACCESSOR);
-        return { code: s.toString(), map: s.generateMap({ hires: true }) };
+      if (!HAS_JEST_MOCK.test(code)) return null;
+      const owner = rootMockModules.has(file)
+        ? (projectsByRoot.get(rootMockModules.get(file)!.root) ?? project)
+        : project;
+      const finish = (adapted: Adapted | null) => {
+        if (!adapted?.changed) return null;
+        if (adapted.usesSetup) adapted.s.prepend(SETUP_ACCESSOR);
+        return { code: adapted.s.toString(), map: adapted.s.generateMap({ hires: true }) };
       };
       // Synchronous unless a factory's jest.requireActual has to be resolved.
-      return head instanceof Promise || body instanceof Promise
-        ? Promise.all([head, body]).then(([h, b]) => join(h, b))
-        : join(head, body);
+      const adapted = adapt(this, code, id, owner);
+      return adapted instanceof Promise ? adapted.then(finish) : finish(adapted);
     },
   } as Plugin;
 }
@@ -295,44 +317,80 @@ export function jestMockTransform(options: JestMockTransformOptions = {}): Plugi
 /** Options for {@link jestMockTransform}. */
 export interface JestMockTransformOptions {
   /**
-   * Jest's `roots`: the directories whose top-level `__mocks__` folder holds manual
-   * mocks of node_modules packages, which apply to every test and setup file with no
-   * `jest.mock()` call, as under Jest. Relative to the Vite root. Default: the root.
+   * Jest's `roots`, relative to the Vite root: where Jest looks for `__mocks__` folders,
+   * at any depth. A file in one mocks the node_modules package of the same name in
+   * every test, with no `jest.mock()` call, as under Jest. Default: the Vite root.
    */
   roots?: string[];
-  /** `false` applies no root mocks automatically, unlike Jest. Default: `true`. */
+  /** Jest's `modulePathIgnorePatterns`: `__mocks__` files they match do not count. */
+  modulePathIgnorePatterns?: string[];
+  /**
+   * `false` applies no manual mocks of node_modules packages automatically, unlike
+   * Jest; each then needs a `jest.mock('<package>')`. Default: `true`.
+   */
   rootMocks?: boolean;
 }
 
-/** The parts of Vitest's TestProject that say which files are tests and setup files. */
-interface TestFiles {
-  config: { setupFiles: string[] };
-  matchesTestGlob(moduleId: string): boolean;
+/** The generated setup module's file name, in each project's root. */
+const ROOT_MOCKS_FILE = "vitest-native.root-mocks.mjs";
+/** `jestCompatSetup`, as a specifier or a path to the built file. */
+const JEST_COMPAT_SETUP = /(?:^vitest-native\/jest-compat\/setup|[\\/]jest-compat[\\/]setup\.mjs)$/;
+
+interface RootMockModule extends ManualMocks {
+  root: string;
 }
 
-/** This package's own build output, whose setup file is not a project setup file. */
-const OWN_DIST = path.dirname(fileURLToPath(import.meta.url));
+/** Each warning once per process, though every project and run loads the module. */
+const warned = new Set<string>();
+function warnOnce(message: string): void {
+  if (warned.has(message)) return;
+  warned.add(message);
+  console.warn(message);
+}
 
 /**
- * Jest's root mocks as the calls that make them: `jest.mock('<pkg>')` for a mock in the
- * Vite root's own `__mocks__`, which Vitest's factory-less `vi.mock` finds there itself,
- * and a factory loading the file for one in another root, which Vitest would not look
- * in. A package reactNative() already stands in for is left to it (`migrate` says to
- * delete that mock).
+ * The generated setup module: one `jest.mock()` per manual mock, which the transform
+ * then adapts like any other. A mock in the Vite root's own `__mocks__` is factory-less,
+ * which Vitest resolves to that file itself; any other (deeper, another root, or Jest's
+ * `name/index` fallback) gets a factory loading the file, since Vitest looks only there.
+ * A package reactNative() already stands in for is left to it, with a warning.
  */
-function rootMockPrelude(
-  mocks: RootMock[],
-  viteRoot: string,
-  covers: (spec: string) => boolean,
+export function rootMocksSource(
+  module: RootMockModule,
+  coveredBy: (spec: string) => string | null,
 ): string {
-  return mocks
-    .filter((mock) => !covers(mock.spec))
-    .map((mock) =>
-      path.resolve(mock.root) === path.resolve(viteRoot)
+  const shown = (file: string) => path.relative(module.root, file).split(path.sep).join("/");
+  for (const duplicate of module.duplicates) {
+    warnOnce(
+      [
+        `[vitest-native] duplicate manual mock found: ${duplicate.name}`,
+        "  The following files share their name; please delete one of them:",
+        ...duplicate.files.map((file) => `    * ${shown(file)}`),
+        `  jestMockTransform() applies the last one listed, as Jest applies the one it reads last.`,
+      ].join("\n"),
+    );
+  }
+  const topLevel = path.join(module.root, "__mocks__");
+  const calls: string[] = [];
+  for (const mock of module.mocks) {
+    const covered = coveredBy(mock.spec);
+    if (covered) {
+      warnOnce(
+        `[vitest-native] ${shown(mock.file)} is not applied to ${mock.spec}: ${covered} stands ` +
+          `in for it. Delete the manual mock (\`vitest-native migrate\` lists these), or switch ` +
+          `that off to use the mock.`,
+      );
+      continue;
+    }
+    const factoryLess =
+      !mock.viaIndex && path.dirname(path.join(topLevel, mock.spec)) === path.dirname(mock.file);
+    calls.push(
+      factoryLess
         ? `jest.mock(${JSON.stringify(mock.spec)});`
         : `jest.mock(${JSON.stringify(mock.spec)}, () => jest.requireActual(${JSON.stringify(mock.file)}));`,
-    )
-    .join("");
+    );
+  }
+  return `${calls.join("\n")}\nexport {};\n`;
 }
 
 /** A file's jest.* calls, adapted (see rewrite). */

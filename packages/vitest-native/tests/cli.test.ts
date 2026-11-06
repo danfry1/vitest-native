@@ -490,8 +490,8 @@ describe("migrate", () => {
     const automatic = report.automatic.join("\n");
     for (const name of ["moti", "expo-localization"]) {
       expect(automatic).toContain(
-        `__mocks__/${name} → applied to ${name} in every test and setup file by jestMockTransform(), ` +
-          `as Jest applies it, with no jest.mock() call.`,
+        `__mocks__/${name} → applied to ${name} in every test by jestMockTransform(), with no ` +
+          `jest.mock() call, as Jest applies it.`,
       );
     }
     expect(automatic).toContain(
@@ -500,6 +500,43 @@ describe("migrate", () => {
     expect(automatic).not.toContain("__mocks__/fs");
     expect(automatic).not.toContain("not-installed");
     expect(report.suggestedConfig).toContain("jestMockTransform()]");
+  });
+
+  it("finds manual mocks as Jest's haste map does: any depth, name/index, duplicates, ignores", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": {
+        preset: "react-native",
+        modulePathIgnorePatterns: ["<rootDir>/legacy/"],
+      },
+      "node_modules/axios/package.json": { name: "axios", version: "1.0.0" },
+      "node_modules/moti/package.json": { name: "moti", version: "0.30.0" },
+      "node_modules/zustand/package.json": { name: "zustand", version: "5.0.0" },
+      // At any depth, keyed by the path inside __mocks__.
+      "src/api/__mocks__/axios.ts": "export {};",
+      // name/index answers name.
+      "__mocks__/zustand/index.js": "module.exports = {};",
+      // Two files, one name.
+      "__mocks__/moti.ts": "export {};",
+      "src/__mocks__/moti.ts": "export {};",
+      // Ignored by modulePathIgnorePatterns, as Jest's haste map ignores it.
+      "legacy/__mocks__/axios.ts": "export {};",
+    });
+    const report = analyzeJestConfig(root);
+    const automatic = report.automatic.join("\n");
+    expect(automatic).toContain("src/api/__mocks__/axios → applied to axios");
+    expect(automatic).toContain(
+      "__mocks__/zustand/index → applied to zustand and zustand/index in",
+    );
+    expect(automatic).toContain("src/__mocks__/moti → applied to moti");
+    expect(automatic).not.toContain("legacy/__mocks__");
+    expect(report.attention.join("\n")).toContain(
+      "duplicate manual mock moti: __mocks__/moti.ts, src/__mocks__/moti.ts — Jest warns and uses one; " +
+        "jestMockTransform() uses the last listed. Delete the others.",
+    );
+    expect(report.suggestedConfig).toContain(
+      `jestMockTransform({ modulePathIgnorePatterns: ["<rootDir>/legacy/"] })`,
+    );
   });
 
   it("passes Jest's roots to jestMockTransform() for root mocks outside the project root", () => {

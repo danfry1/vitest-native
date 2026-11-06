@@ -21,7 +21,7 @@ export default defineConfig(({ mode }) => {
         engine: "native",
         hotRuntime: mode === "hot" ? { allowUnboundedMemory: true } : false,
       }),
-      jestMockTransform({ roots: [".", "other-root"] }),
+      jestMockTransform({ roots: [".", "other-root", "../root-mocks-outside"] }),
     ],
     resolve: { alias: { ...jestCompatAliases() } },
     test: {

@@ -1953,8 +1953,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // These are populated in configResolved once we know the project root.
   let resolved: ResolvedOptions;
   const presetModules = new Map<string, () => Record<string, any>>();
-  // Libraries that run with their own Jest setup under the native engine (config()).
-  let ownJestSupportPackages: readonly string[] = [];
+  // The preset that shadows each module (configResolved), and the Jest setup files of
+  // the libraries that run as themselves under the native engine (config()).
+  const presetNameByModule = new Map<string, string>();
+  let ownJestSetupFiles: readonly string[] = [];
   // Preset export names discovered by calling factories at config time.
   const presetExportNames = new Map<string, string[]>();
   let assetPattern: RegExp;
@@ -2253,11 +2255,15 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         if (nativeOwnership.decideFile(file).owner !== "node") return null;
         return { root: alignRoot, platform };
       },
-      // For jestMockTransform(): a package this plugin already stands in for, whose
-      // manual mock in a root __mocks__ it leaves alone. A preset shadows it, or the
-      // library runs with its own Jest setup.
-      coversPackage: (spec: string): boolean =>
-        presetModules.has(spec) || ownJestSupportPackages.includes(spec),
+      // For jestMockTransform(): what this plugin already stands in for a package with,
+      // whose manual mock in a __mocks__ folder it then leaves alone, or null. A preset
+      // shadows it, or the library runs with its own Jest setup.
+      packageCoveredBy: (spec: string): string | null => {
+        const preset = presetNameByModule.get(spec);
+        if (preset) return `the ${preset} preset`;
+        const setup = ownJestSetupFiles.find((file) => packageNameOf(file) === spec);
+        return setup ? `its own Jest setup (${setup})` : null;
+      },
     },
 
     // This plugin is `enforce:"pre"` for resolution/transform semantics, but its
@@ -2538,7 +2544,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           // Jest support, so both module systems resolve them as Jest does, to `main`
           // (decision (d)): one file, the one their Jest setup and test utilities load.
           ownJestSupport = librarySetupFiles.map((request) => packageNameOf(request));
-          ownJestSupportPackages = ownJestSupport;
+          ownJestSetupFiles = librarySetupFiles;
           const pending = pendingResolverInputs.get(directoryKey(resolvedRoot));
           if (pending && ownJestSupport.length > 0) pending.ownJestSupport = ownJestSupport;
         }
@@ -3095,6 +3101,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           if (names === null) continue;
           shadows = true;
           presetModules.set(moduleName, presetModule.factory);
+          presetNameByModule.set(moduleName, preset.name);
           presetExportNames.set(moduleName, names);
         }
         // A preset listed by hand that finds none of its packages would shadow nothing,

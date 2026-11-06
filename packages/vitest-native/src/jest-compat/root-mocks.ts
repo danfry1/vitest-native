@@ -1,32 +1,48 @@
 /**
- * Jest's automatic manual mocks for node_modules packages.
+ * Jest's automatic manual mocks for node_modules packages, registered as Jest 29.7
+ * registers them:
  *
- * Jest applies a `__mocks__/<package>` file beside the project's `node_modules` (in
- * each of its `roots`) to that package with no `jest.mock()` call: every `require` of
- * the package in a test, its setup files and the modules they load gets the mock
- * (jestjs.io/docs/manual-mocks#mocking-node-modules). A Node core module is the
- * exception: it needs an explicit `jest.mock()`. Vitest applies such a file only
- * through `vi.mock()`, so a suite that relied on it ran the real package.
+ * - jest-haste-map crawls every root (`roots`, default `<rootDir>`), skipping
+ *   node_modules and `modulePathIgnorePatterns`, and records each file whose path
+ *   contains `/__mocks__/`, at any depth, under the path after the first `/__mocks__/`
+ *   without its extension (getMockName): `src/__mocks__/moti.ts` and
+ *   `__mocks__/moti.js` are both `moti`, `__mocks__/@scope/pkg.js` is `@scope/pkg`.
+ *   A second file with the same name logs "duplicate manual mock found", and the file
+ *   recorded later replaces the earlier one (`mocks.set`).
+ * - jest-runtime's `requireModule` then loads that file for a request of the same
+ *   name, `name` or else `name/index` (ModuleMap.getMockModule), with no `jest.mock()`
+ *   call. A Node core module stays real, and an explicit `jest.mock(name, factory)` or
+ *   `jest.unmock(name)` is decided first (`_explicitShouldMock`).
  *
- * Read from disk on both sides: jestMockTransform() mocks what this finds in each test
- * and setup file, and `vitest-native migrate` lists the same files.
+ * Vitest applies such a file only through `vi.mock()`, so a suite that relied on it ran
+ * the real package. jestMockTransform() mocks what this finds, ahead of the project's
+ * setup files, and `vitest-native migrate` lists the same files.
  */
 import fs from "node:fs";
 import { isBuiltin } from "node:module";
 import path from "node:path";
 
-/** A mock file under a root's `__mocks__`, and the module it stands in for. */
+/** A mock file under a `__mocks__` folder, and the request it stands in for. */
 export interface RootMock {
   /** The module request it mocks: `moti`, `@scope/pkg`, `pkg/sub`. */
   spec: string;
   /** The mock file, absolute. */
   file: string;
-  /** The root whose `__mocks__` holds it. */
-  root: string;
+  /** Whether it applies through Jest's `name/index` fallback (`__mocks__/pkg/index.js`). */
+  viaIndex: boolean;
 }
 
-/** Jest's default moduleFileExtensions that hold code. */
-const MOCK_FILE = /\.(?:[cm]?[jt]sx?)$/;
+/** Two or more files registered under one name; Jest warns and keeps the last. */
+export interface DuplicateMock {
+  name: string;
+  files: string[];
+}
+
+/** Jest's default moduleFileExtensions, less `node` (a binary addon is no mock source). */
+const MOCK_FILE = /\.(?:[cm]?js|jsx|ts|tsx|json)$/;
+const MOCKS_SEGMENT = `${path.sep}__mocks__${path.sep}`;
+/** Never crawled: Jest skips node_modules, and git's own data holds no source. */
+const SKIPPED = new Set(["node_modules", ".git"]);
 
 /** The package a request names: `@scope/pkg` for `@scope/pkg/sub`, `pkg` for `pkg/sub`. */
 export function packageOfRequest(spec: string): string {
@@ -42,35 +58,91 @@ function installed(root: string, pkg: string): boolean {
   }
 }
 
-function mockFiles(dir: string): string[] {
-  let entries: fs.Dirent[];
+function readable(dir: string): fs.Dirent[] {
   try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
+    return fs.readdirSync(dir, { withFileTypes: true });
   } catch {
     return [];
   }
-  return entries.flatMap((entry) => {
+}
+
+/** Every file under `dir` below a `__mocks__` folder, in a fixed (sorted) order. */
+function crawl(dir: string, ignore: RegExp[], out: string[]): void {
+  // A root that does not exist, or a folder that cannot be read, holds no mocks.
+  const entries = readable(dir);
+  entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  for (const entry of entries) {
+    if (SKIPPED.has(entry.name)) continue;
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) return entry.name === "node_modules" ? [] : mockFiles(full);
-    return entry.isFile() && MOCK_FILE.test(entry.name) ? [full] : [];
-  });
+    if (ignore.some((pattern) => pattern.test(full))) continue;
+    if (entry.isDirectory()) crawl(full, ignore, out);
+    else if (entry.isFile() && full.includes(MOCKS_SEGMENT) && MOCK_FILE.test(entry.name)) {
+      out.push(full);
+    }
+  }
+}
+
+/** Jest's getMockName: the path after the first `/__mocks__/`, without its extension. */
+function mockName(file: string): string {
+  const inside = file.split(MOCKS_SEGMENT)[1];
+  return inside
+    .slice(0, inside.length - path.extname(inside).length)
+    .split(path.sep)
+    .join("/");
+}
+
+export interface ManualMocks {
+  /** The node_modules packages and subpaths the mocks stand in for. */
+  mocks: RootMock[];
+  /** Names registered by more than one file. */
+  duplicates: DuplicateMock[];
 }
 
 /**
- * The mock files in each root's top-level `__mocks__` that stand in for an installed
- * package, in `roots` order. A request mocked in two roots keeps the first, as Jest
- * keeps the first it finds (with a "duplicate manual mock found" warning).
+ * The manual mocks Jest would apply to node_modules requests in this project: every
+ * `__mocks__` file under `roots`, by name, kept when the name is not a Node core module
+ * and its package is installed. `ignore` is Jest's `modulePathIgnorePatterns`, tested
+ * against absolute paths as Jest tests them.
  */
-export function findNodeModuleMocks(roots: readonly string[], projectRoot: string): RootMock[] {
-  const found = new Map<string, RootMock>();
+export function findNodeModuleMocks(
+  roots: readonly string[],
+  projectRoot: string,
+  ignore: readonly RegExp[] = [],
+): ManualMocks {
+  const files: string[] = [];
+  const seen = new Set<string>();
   for (const root of roots) {
-    const dir = path.join(root, "__mocks__");
-    for (const file of mockFiles(dir).sort()) {
-      const spec = path.relative(dir, file).replace(MOCK_FILE, "").split(path.sep).join("/");
-      if (found.has(spec) || isBuiltin(spec)) continue;
-      if (!installed(projectRoot, packageOfRequest(spec))) continue;
-      found.set(spec, { spec, file, root });
+    const crawled: string[] = [];
+    crawl(path.resolve(root), [...ignore], crawled);
+    for (const file of crawled) {
+      if (seen.has(file)) continue; // nested roots crawl a file once
+      seen.add(file);
+      files.push(file);
     }
   }
-  return [...found.values()];
+
+  const byName = new Map<string, string>();
+  const collisions = new Map<string, string[]>();
+  for (const file of files) {
+    const name = mockName(file);
+    const earlier = byName.get(name);
+    if (earlier) collisions.set(name, [...(collisions.get(name) ?? [earlier]), file]);
+    byName.set(name, file);
+  }
+
+  const mocks: RootMock[] = [];
+  const add = (spec: string, file: string, viaIndex: boolean) => {
+    if (isBuiltin(spec) || !installed(projectRoot, packageOfRequest(spec))) return;
+    mocks.push({ spec, file, viaIndex });
+  };
+  for (const [name, file] of byName) {
+    add(name, file, false);
+    // getMockModule's fallback: `pkg/index` answers a request for `pkg`.
+    const base = name.endsWith("/index") ? name.slice(0, -"/index".length) : null;
+    if (base && !byName.has(base)) add(base, file, true);
+  }
+  return {
+    mocks,
+    duplicates: [...collisions].map(([name, list]) => ({ name, files: list })),
+  };
 }
