@@ -20,6 +20,9 @@ import { callerFile } from "./caller.mjs";
 import { errorsWithMethodsEquality } from "./error-equality.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import { NODE_MOCKS_STATE_ID, actualExports, config, nodeRegistry } from "./node-registry.mjs";
+import { nodeDispatch } from "../node-dispatch.mjs";
+import { JEST_COMPAT_SHIM_FILES } from "./aliases.mjs";
+import { fileURLToPath } from "node:url";
 
 // The global `require` below resolves from the consumer project root.
 const require = createRequire(path.join(config.projectRoot, "package.json"));
@@ -318,3 +321,28 @@ async function isolateModulesAsync(fn) {
 // test modules have no `require` binding, so provide a global one resolved from the
 // project root. Guarded so it never clobbers an existing CJS `require`.
 if (typeof globalThis.require !== "function") globalThis.require = require;
+
+// A require() of a package jest-compat replaces gets the shim (JEST_COMPAT_SHIM_FILES, files
+// beside this one), as an import does through
+// the same alias. The package itself throws when loaded outside Jest ("Do not import
+// `@jest/globals` outside of the Jest test environment"), so the installed one is never
+// the answer, for a test file, a project module or a library alike; this is unlike the
+// project's other aliases, which apply in Node only where Node finds nothing
+// (native/hooks.mjs).
+const shimFiles = new Map();
+nodeDispatch().load.add(
+  "jestCompatShims",
+  (next) =>
+    function (request, parent, ...rest) {
+      if (typeof request !== "string" || request.startsWith(".") || path.isAbsolute(request)) {
+        return next(request, parent, ...rest);
+      }
+      let file = shimFiles.get(request);
+      if (file === undefined) {
+        const target = JEST_COMPAT_SHIM_FILES[config.expandAlias(request)];
+        file = target ? fileURLToPath(new URL(target, import.meta.url)) : null;
+        shimFiles.set(request, file);
+      }
+      return next(file ?? request, parent, ...rest);
+    },
+);
