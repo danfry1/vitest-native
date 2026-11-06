@@ -13,6 +13,7 @@ reactNative({
   hotRuntime: false,     // Per-file isolation (default); 'auto' opts in to the hot runtime
   nativeModules: 'device', // 'device' | 'permissive' — how native module lookups answer, native engine
   registryBuild: 'background', // 'background' | 'wait' — a cold registry build, native engine
+  hangTimeout: 60000,    // ms with no test progress before the run fails; false turns it off
   // presets — omitted on purpose: leaving it out auto-detects your installed
   // libraries. Passing an array uses ONLY that array, so `presets: []` means none.
 })
@@ -210,6 +211,22 @@ The hot runtime, CI runs and `experimental.ownershipModel` always wait. A run co
 
 ```ts
 reactNative({ registryBuild: 'wait' })
+```
+
+## `hangTimeout`
+
+**Type:** `number | false` · **Default:** `60_000`, or twice the larger of `testTimeout` and `hookTimeout` if that is longer · **Engine:** both
+
+How long a run may go with no test making progress (no test or file starting or finishing) before it fails. The failure names the files and tests that were running. `false` turns it off. It is also off while a debugger is attached (`--inspect`, `--inspect-brk`, or Vitest's `inspect` options), since a test paused at a breakpoint makes no progress either.
+
+**Why `testTimeout` doesn't cover this.** Vitest's `testTimeout` and `hookTimeout` are timers on the test's own worker. A test stuck in synchronous code, such as a loop that never ends, never gives that worker's event loop a turn, so those timers never fire. The run then waits forever with nothing on screen. Only the worker is stuck: Vitest's main process stays responsive, and `hangTimeout` runs there.
+
+When it fires, the whole run stops with exit code 1. A stuck worker can't be stopped on its own, so the other files don't finish.
+
+Raise it if one of your tests legitimately runs longer than the limit while no other test finishes:
+
+```ts
+reactNative({ hangTimeout: 180_000 })
 ```
 
 ## `ownership`
