@@ -39,7 +39,7 @@ export default defineConfig({
 })
 ```
 
-Presets apply under **both** engines, with two exceptions under the native engine. `expo` steps aside: the Expo packages it covers run as themselves, against the engine's Expo runtime, unless `presets: { expo: true }` turns it on. `worklets` steps aside when the installed react-native-worklets (0.9+) ships its Jest resolver, so the real package runs in its JS implementation.
+Presets apply under **both** engines, with one exception under the native engine. `expo` steps aside: the Expo packages it covers run as themselves, against the engine's Expo runtime, unless `presets: { expo: true }` turns it on.
 
 ## Turning a preset off
 
