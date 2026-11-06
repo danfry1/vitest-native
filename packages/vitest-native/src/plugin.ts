@@ -2065,14 +2065,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // Vite and Node must land on the same file for a package, or it exists twice with
   // separate module-level state. Cached: resolveId runs for every import.
   const alignedCache = new Map<string, string | null>();
-  // A bare, extensionless request for a file inside a package (`pkg/sub`, `@s/pkg/sub`),
-  // the only kind platformSubpathFile can change: a quick check before resolving.
-  const mayHavePlatformSubpath = (source: string): boolean => {
-    if (source.startsWith(".") || source.startsWith("\0") || path.isAbsolute(source)) return false;
-    if (source.includes("?") || path.extname(source) !== "") return false;
-    const slashes = source.split("/").length - 1;
-    return source.startsWith("@") ? slashes >= 2 : slashes >= 1;
-  };
+  // An extensionless React Native subpath, the only kind platformSubpathFile changes
+  // here. Another package's `exports` map may send a subpath to an ESM or CommonJS
+  // build by condition, which a platform variant beside it must not replace.
+  const mayHavePlatformSubpath = (source: string): boolean =>
+    source.startsWith("react-native/") && !source.includes("?") && path.extname(source) === "";
   // Extensionless relative imports, shared by both engines (see the comment inside).
   const resolveExtensionless = (source: string, importer?: string): string | undefined => {
     // Extensionless relative imports, resolved as Metro does: platform extensions in

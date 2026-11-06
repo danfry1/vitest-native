@@ -15,7 +15,7 @@ function pkg(name: string, files: string[]): string {
   return dir.split(path.sep).join("/");
 }
 
-describe("platformSubpathFile: a package's extensionless subpath, as Metro resolves it (#573)", () => {
+describe("platformSubpathFile: a package's extensionless subpath, as Jest resolves it (#573)", () => {
   const files = [
     "Libraries/BackHandler.js",
     "Libraries/BackHandler.ios.js",

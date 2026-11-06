@@ -171,6 +171,8 @@ function createState() {
      */
     baseline: new Set(Object.keys(Module._cache)),
     baselineFixed: false,
+    /** Platform files a React Native subpath resolved to (subpathPlatformFile). */
+    platformSubpaths: new Set(),
   };
 
   // Resolve as the require hooks will, so registration and lookup share one key:
@@ -204,10 +206,17 @@ function createState() {
     }
   }
 
-  // A package's extensionless subpath lands on its platform file (#573).
+  // A React Native subpath lands on its platform file (#573). Recorded, so
+  // requireActual loads that file itself (state.require): by the subpath, Node would
+  // load the shim the package's `exports` map names, whose require of the platform
+  // file would come back to the mock.
   const subpathPlatformFile = (request, resolved) => {
+    if (!request.startsWith("react-native/")) return null;
     const hit = platformSubpathFile(request, resolved, config.platform, exts);
-    return hit && canonical(hit);
+    if (!hit) return null;
+    const file = canonical(hit);
+    state.platformSubpaths.add(file);
+    return file;
   };
 
   /**
@@ -389,7 +398,10 @@ function createState() {
     ownershipChannel.jestRequireDepth = (ownershipChannel.jestRequireDepth ?? 0) + 1;
     try {
       const load = createRequire(anchor);
-      if (filename !== null && (isPath || config.expandAlias(spec) !== spec)) {
+      if (
+        filename !== null &&
+        (isPath || config.expandAlias(spec) !== spec || state.platformSubpaths.has(filename))
+      ) {
         return load(filename);
       }
       return load(spec);

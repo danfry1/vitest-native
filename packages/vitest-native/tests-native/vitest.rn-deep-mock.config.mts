@@ -45,7 +45,7 @@ export default defineConfig(({ mode }) => {
         path.resolve(here, "../dist/jest-compat/setup.mjs"),
         path.resolve(here, "rn-deep-mock/setup.js"),
       ],
-      include: ["tests-native/rn-deep-mock/{a,b}-*.test.tsx"],
+      include: ["tests-native/rn-deep-mock/{a,b,c}-*.test.tsx"],
       fileParallelism: false,
       maxWorkers: 1,
       sequence: { shuffle: false, sequencer: ByName },
