@@ -114,12 +114,11 @@ describe("classifyProjectBabelEntry: which entries matter (#579)", () => {
     ).toBe(true);
   });
 
-  it("needs decorators where a line starts with one, not for a JSDoc tag", () => {
+  it("needs decorators where a line starts with one", () => {
     const decorators = "@babel/plugin-proposal-decorators";
     expect(
       appliesTo(decorators, "plugin", { legacy: true }, "class A {\n  @field('x') x;\n}"),
     ).toBe(true);
-    expect(appliesTo(decorators, "plugin", { legacy: true }, "/**\n * @param a\n */")).toBe(false);
   });
 
   it("needs macros, dotenv and unknown plugins where they apply", () => {
@@ -208,12 +207,16 @@ describe("source tests: the misses review found (#597)", () => {
     expect(decorators("class A {\n  @ field() name;\n}")).toBe(true);
     expect(decorators("class A { @field('x') a; @field('y') b; }")).toBe(true);
   });
-  it("does not take a JSDoc tag, an e-mail address or a string for a decorator", () => {
-    expect(decorators("/**\n * @param a\n */\nexport const f = (a) => a;")).toBe(false);
-    expect(decorators("// see @deprecated\nconst a = 1;")).toBe(false);
+  it("does not take an e-mail address, a path or a string for a decorator", () => {
     expect(decorators("const mail = 'a@b.com';")).toBe(false);
     expect(decorators("import { API } from '@env';")).toBe(false);
     expect(decorators("fetch('https://x.io/@user')")).toBe(false);
+  });
+  it("reads comments too: a tag in one only routes the file (an accepted over-match)", () => {
+    expect(decorators("/**\n * @param a\n */\nexport const f = (a) => a;")).toBe(true);
+    expect(decorators("const a = 1; /* end */\n<Text>Don't</Text>;\n@observer class A {}")).toBe(
+      true,
+    );
   });
   it("does not let a string that looks like a comment hide a decorator", () => {
     expect(

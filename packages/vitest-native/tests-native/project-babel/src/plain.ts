@@ -1,5 +1,2 @@
-/**
- * A file the config's plugins have nothing to do in: no decorator, no class.
- * @param a the value (a JSDoc tag, not a decorator)
- */
+// A file the config's plugins have nothing to do in: no decorator, no class.
 export const plain = (a: number): number => a + 1;

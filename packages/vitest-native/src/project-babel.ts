@@ -77,48 +77,22 @@ const unknownEntry = (
 
 // Source tests: cheap, and over-matching only costs a Babel compile, never a wrong one.
 const has = (re: RegExp) => (source: string) => re.test(source);
-// Comments taken out first, so a JSDoc tag or a commented-out word does not count.
-// Strings and template literals are stepped over whole, so `'./assets/*'` does not open
-// a comment. A regular expression literal is read as code, which can only over-match.
-function withoutComments(source: string): string {
-  let out = "";
-  let i = 0;
-  while (i < source.length) {
-    const c = source[i];
-    const next = source[i + 1];
-    if (c === "/" && next === "/") {
-      const end = source.indexOf("\n", i);
-      i = end === -1 ? source.length : end;
-    } else if (c === "/" && next === "*") {
-      const end = source.indexOf("*/", i + 2);
-      i = end === -1 ? source.length : end + 2;
-      out += " ";
-    } else if (c === "'" || c === '"' || c === "`") {
-      let j = i + 1;
-      while (j < source.length && source[j] !== c) j += source[j] === "\\" ? 2 : 1;
-      out += source.slice(i, j + 1);
-      i = j + 1;
-    } else {
-      out += c;
-      i++;
-    }
-  }
-  return out;
-}
-const inCode = (re: RegExp) => (source: string) => re.test(withoutComments(source));
+// Run on the raw source, comments included: a decorator or a class mentioned in a comment
+// routes the file, which only costs a Babel compile. Missing a real one would compile the
+// file without the plugin it needs.
 // `@name` where an expression or declaration can start, wherever it is on the line
 // (`export default @observer class`, `@ field() name`), not inside a word (an e-mail
 // address), a path (`/@user`) or a string (`'@env'`).
-const DECORATOR = inCode(/(?:^|[^\w$@./'"`])@\s*[A-Za-z_$][\w$.]*/m);
+const DECORATOR = has(/(?:^|[^\w$@./'"`])@\s*[A-Za-z_$][\w$.]*/m);
 // A macro module: `x.macro`, `x.macro.js`, `lib/macro`, `lib/macro/index.js`.
 const MACRO_IMPORT = has(/['"][^'"\n]*[./]macro(?:\/index)?(?:\.[cm]?[jt]sx?)?['"]/);
 const WORKLET = has(
   /['"]worklet['"]|\buse(?:Animated\w*|DerivedValue|FrameCallback)\b|\brunOn(?:UI|JS|Runtime)\b|\bscheduleOnUI\b|\bGesture\.\w+\(/,
 );
 const JSX = has(/<[A-Za-z>]/);
-// A class declaration or expression (generic, extending or implementing), not the word
-// in a comment: `class`, an optional name, then `<`, `extends`, `implements` or `{`.
-const CLASS = inCode(/\bclass\b(?:\s+[A-Za-z_$][\w$]*)?\s*(?:<|extends\b|implements\b|\{)/);
+// A class declaration or expression (generic, extending or implementing): `class`, an
+// optional name, then `<`, `extends`, `implements` or `{`.
+const CLASS = has(/\bclass\b(?:\s+[A-Za-z_$][\w$]*)?\s*(?:<|extends\b|implements\b|\{)/);
 const CONSOLE = has(/\bconsole\s*\./);
 const USES_PROCESS_ENVIRONMENT = has(/\bprocess\.env\b/);
 const UNISTYLES = has(/react-native-unistyles|from\s+['"]react-native['"]/);
@@ -518,6 +492,11 @@ interface Plan {
   }[];
   presets: unknown[];
   plugins: unknown[];
+  /**
+   * The unknown plugin found writing CommonJS for this config (by key), once a file
+   * showed it: later files decide from it without compiling again.
+   */
+  commonjsWriter?: string;
 }
 
 export interface ProjectBabel {
@@ -811,6 +790,14 @@ export function createProjectBabel(
         const other = await asking.run(id, () => chain.load(id));
         if (other != null) return other;
       }
+      const file = path.relative(root, id);
+      // This config's CommonJS writer is known and applies to the file: fall back without
+      // compiling when it is the file's only need, else fail as the first file did.
+      const knownWriter = matched.find((need) => need.unknown && need.key === plan.commonjsWriter);
+      if (plan.commonjsWriter && knownWriter) {
+        if (matched.length === 1) return undefined;
+        throw commonjsError(file, plan.commonjsWriter, knownWriter, matched);
+      }
       // The config resolved to plugins (Babel's loadOptions, which transform takes as is),
       // with the module transforms taken out wherever a preset adds them: one that wraps
       // React Native's and does not pass disableImportExportTransform on would otherwise
@@ -835,8 +822,8 @@ export function createProjectBabel(
       const result = await compile();
       if (!result?.code) return undefined;
       if (COMMONJS_OUTPUT.test(result.code)) {
-        const file = path.relative(root, id);
-        // Which plugin writes it: the unknown one whose absence gives an ES module.
+        // Which plugin writes it: the unknown one whose absence gives an ES module. Found
+        // once per config.
         let emitter: string | undefined;
         for (const plugin of loaded.plugins) {
           const key = normalizePluginKey(plugin.key);
@@ -847,9 +834,10 @@ export function createProjectBabel(
             break;
           }
         }
+        const emitterNeed = matched.find((need) => need.unknown && need.key === emitter);
+        if (emitter && emitterNeed) plan.commonjsWriter = emitter;
         // Oxc, as before projectBabel, only when the CommonJS writer is the one thing that
         // sent the file here: falling back past any other plugin would drop what it does.
-        const emitterNeed = matched.find((need) => need.unknown && need.key === emitter);
         if (emitter && emitterNeed && matched.length === 1) {
           if (!fallbackWarned.has(emitter)) {
             fallbackWarned.add(emitter);
@@ -862,24 +850,34 @@ export function createProjectBabel(
           }
           return undefined;
         }
-        const what = emitterNeed
-          ? `the ${emitterNeed.entryKind ?? "plugin"} ${emitterNeed.reason.replace(/^the preset /, "")}`
-          : emitter
-            ? `the plugin ${emitter}`
-            : "a plugin or preset in it";
-        throw new VitestNativeError(
-          "PROJECT_BABEL_COMMONJS",
-          `projectBabel: the project's Babel config compiled ${file} to CommonJS, which Vite's ` +
-            `module runner cannot run. vitest-native takes the module transforms it knows out ` +
-            `of this compile; ${what} writes CommonJS some other way. The file also needs ` +
-            `${matched.map((need) => need.reason).join(", ")}, so it cannot fall back to Oxc ` +
-            `without losing what they do. Leave the CommonJS writer out of the config for ` +
-            `tests, or set projectBabel: 'never'.`,
-        );
+        throw commonjsError(file, emitter, emitterNeed, matched);
       }
       return { code: result.code, map: result.map as Rollup.SourceMapInput };
     },
   };
+}
+
+/** PROJECT_BABEL_COMMONJS for `file`, naming the plugin that writes CommonJS if found. */
+function commonjsError(
+  file: string,
+  emitter: string | undefined,
+  emitterNeed: { reason: string; entryKind?: "plugin" | "preset" } | undefined,
+  matched: { reason: string }[],
+): VitestNativeError {
+  const what = emitterNeed
+    ? `the ${emitterNeed.entryKind ?? "plugin"} ${emitterNeed.reason.replace(/^the preset /, "")}`
+    : emitter
+      ? `the plugin ${emitter}`
+      : "a plugin or preset in it";
+  return new VitestNativeError(
+    "PROJECT_BABEL_COMMONJS",
+    `projectBabel: the project's Babel config compiled ${file} to CommonJS, which Vite's ` +
+      `module runner cannot run. vitest-native takes the module transforms it knows out of ` +
+      `this compile; ${what} writes CommonJS some other way. The file also needs ` +
+      `${matched.map((need) => need.reason).join(", ")}, so it cannot fall back to Oxc ` +
+      `without losing what they do. Leave the CommonJS writer out of the config for tests, ` +
+      `or set projectBabel: 'never'.`,
+  );
 }
 
 /**
