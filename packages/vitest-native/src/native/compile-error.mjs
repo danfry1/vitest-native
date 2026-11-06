@@ -16,14 +16,13 @@
 // is Node's or Vitest's own, so the report named no file at all. This puts the location
 // in the message, mapped back to the source file through the module's sourcemap when
 // there is one, and the source line under it as `frame`, which Vitest prints.
-import fs from "node:fs";
-
 const HEADER = /^(?<file>[^\n]+?):(?<line>\d+)\n(?<code>[^\n]*)\n(?<caret>[ \t]*\^+)[ \t]*\n/;
 
 /**
  * `error` with its compile location in the message and a `frame`, when it is a
  * SyntaxError whose stack starts with Node's location header; otherwise unchanged.
- * `sourceMapFor(file)` returns the compiled module's sourcemap (a v3 object) or null.
+ * `sourceMapFor(file)` returns the compiled module's sourcemap (a v3 object) or null,
+ * and does not throw.
  * Idempotent: an error that already names its location is left as it is.
  */
 export function withCompileLocation(error, sourceMapFor = () => null) {
@@ -35,15 +34,10 @@ export function withCompileLocation(error, sourceMapFor = () => null) {
   let column = caret.indexOf("^"); // 0-based
   let text = code;
   let pointer = caret;
-  let map = null;
-  try {
-    map = sourceMapFor(file);
-  } catch {
-    // No map to read: keep the compiled position.
-  }
+  const map = sourceMapFor(file);
   const original = map ? originalPosition(map, line, column) : null;
   if (original) {
-    const sourceLine = sourceLineOf(map, file, original.line);
+    const sourceLine = sourceLineOf(map, original.line);
     if (sourceLine !== null) {
       line = original.line;
       column = original.column;
@@ -54,28 +48,21 @@ export function withCompileLocation(error, sourceMapFor = () => null) {
   }
   const location = `${file}:${line}:${column + 1}`;
   if (error.message.includes(location)) return error;
-  try {
-    error.message = `${error.message} (${location})`;
-    if (error.frame === undefined) {
-      const gutter = `${line} | `;
-      error.frame = `${gutter}${text}\n${" ".repeat(gutter.length)}${pointer}`;
-    }
-  } catch {
-    // A frozen or exotic error: report it as it is.
+  error.message = `${error.message} (${location})`;
+  if (error.frame === undefined) {
+    const gutter = `${line} | `;
+    error.frame = `${gutter}${text}\n${" ".repeat(gutter.length)}${pointer}`;
   }
   return error;
 }
 
-/** Line `line` (1-based) of the map's single source, from sourcesContent or the file. */
-function sourceLineOf(map, file, line) {
-  let content = Array.isArray(map.sourcesContent) ? map.sourcesContent[0] : null;
-  if (typeof content !== "string") {
-    try {
-      content = fs.readFileSync(file, "utf8");
-    } catch {
-      return null;
-    }
-  }
+/**
+ * Line `line` (1-based) of the map's single source, from its sourcesContent, which Vite's
+ * maps carry; null without it, and the compiled position is kept.
+ */
+function sourceLineOf(map, line) {
+  const content = Array.isArray(map.sourcesContent) ? map.sourcesContent[0] : null;
+  if (typeof content !== "string") return null;
   const lines = content.split(/\r?\n/);
   return line >= 1 && line <= lines.length ? lines[line - 1] : null;
 }

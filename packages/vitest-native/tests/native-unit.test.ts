@@ -1149,7 +1149,7 @@ describe("plugin engine routing", () => {
       run(plugin, config, { isolate: false });
       expect(config.pool).toBe("threads");
       expect(config.isolate).toBe(false);
-      expect(config.runner).toBeUndefined();
+      expect(config.runner).toMatch(/native[\\/]test-runner\.mjs$/);
       expect(config.env.VITEST_NATIVE_MEMORY_PLAN).toBeUndefined();
       expect(err).toHaveBeenCalledWith(expect.stringMatching(/hot runtime off: --no-isolate/));
       err.mockRestore();
@@ -1499,7 +1499,7 @@ describe("plugin engine routing", () => {
         project: self,
       });
       expect(config.isolate).toBe(true);
-      expect(config.runner).toBeUndefined();
+      expect(config.runner).toMatch(/native[\\/]test-runner\.mjs$/);
       expect(err).toHaveBeenCalledWith(
         expect.stringMatching(/hot runtime off: the project 'mock'/),
       );
@@ -1539,7 +1539,9 @@ describe("plugin engine routing", () => {
       for (const config of configs) run(plugin, config, { pool: "forks" });
       // The flag lands in every project; only the revert restores per-file isolation.
       expect(configs.map((c) => c.isolate)).toEqual([true, true]);
-      expect(configs.map((c) => c.runner)).toEqual([undefined, undefined]);
+      for (const config of configs) {
+        expect(config.runner).toMatch(/native[\\/]test-runner\.mjs$/);
+      }
       err.mockRestore();
     });
   });
