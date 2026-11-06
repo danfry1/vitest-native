@@ -72,7 +72,7 @@ A project file Node loads (through `require()` or `jest.requireActual`) is exclu
 
 ### `IMPORT_META_IN_NODE_OWNED` {#IMPORT_META_IN_NODE_OWNED}
 
-A file Node loads compiled to CommonJS uses `import.meta` beyond `url`, `filename` and `dirname`, which CommonJS cannot provide. The message names the file and the property. Move that code into a file your tests import, or avoid the property in it.
+A file Node loads compiled to CommonJS uses `import.meta` beyond `url`, `filename` and `dirname`, which CommonJS cannot provide. The message names the file and the property. If the file is in a package, let Vite load that package: add it to `transform: { exclude: [...] }`, and also to `test.server.deps.inline` when it is published as an ES module (`"type": "module"` or `.mjs`). If it is your own source, import it from the test instead of requiring it, or avoid the property in it.
 
 ### `PRESET_UNAVAILABLE` {#PRESET_UNAVAILABLE}
 

@@ -1,4 +1,5 @@
 import React from "react";
+import { hostComponent } from "../host.js";
 
 export function createTextMock() {
   const Text = React.forwardRef((props: any, ref: any) => {
@@ -6,7 +7,7 @@ export function createTextMock() {
     const isPressable = !disabled && (onPress || onLongPress);
     const resolvedRole = accessibilityRole ?? (isPressable ? "link" : undefined);
 
-    return React.createElement("Text", {
+    return React.createElement(hostComponent("Text"), {
       accessible: true,
       ...rest,
       ...(onPress ? { onPress } : {}),

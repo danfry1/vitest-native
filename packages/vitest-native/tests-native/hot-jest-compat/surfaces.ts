@@ -21,7 +21,10 @@ import { compute } from "./fixtures/automocked";
 import { source } from "./fixtures/dir-mocked";
 import { value } from "./fixtures/runtime-mocked";
 
-declare const jest: typeof vi & { requireActual<T>(id: string): T };
+declare const jest: typeof vi & {
+  requireActual<T>(id: string): T;
+  replaceProperty<T extends object, K extends keyof T>(object: T, key: K, value: T[K]): unknown;
+};
 
 type Mocked =
   | "greeter"
@@ -38,6 +41,12 @@ const LEAK_MARKER = "hot-jest-compat rendered and never unmounted";
 // This module is Vite-owned, so it evaluates once per test file; `process` is not
 // reset between files. The count therefore says how many files this worker has run.
 const FILES_SEEN = Symbol.for("vitest-native.hot-jest-compat.files-seen");
+// An object that outlives every test file in the worker, as a resident package's state
+// does, for jest.replaceProperty to replace a value on.
+const REPLACE_TARGET = Symbol.for("vitest-native.hot-jest-compat.replace-target");
+const replaceTarget = ((process as unknown as Record<symbol, { flag: boolean }>)[
+  REPLACE_TARGET
+] ??= { flag: false });
 const proc = process as unknown as Record<symbol, number>;
 proc[FILES_SEEN] = (proc[FILES_SEEN] ?? 0) + 1;
 
@@ -116,6 +125,9 @@ export function expectCleanExcept(mockedHere: Mocked[]): void {
     undefined,
   );
   expect(process.env.VN_LEAKED_ENV, "process.env mutation").toBe(undefined);
+  expect(replaceTarget.flag, "jest.replaceProperty on an object that outlives the file").toBe(
+    false,
+  );
   if (!mine.has("dir-mocked")) {
     expect(source(), "factory-less jest.mock via __mocks__").toBe("real-dir-mocked");
   }
@@ -169,6 +181,7 @@ export async function polluteEverything(mockedHere: Mocked[]): Promise<void> {
   jest.spyOn(console, "error").mockImplementation(() => {});
   (globalThis as Record<string, unknown>).__vnLeakedJestFn = jest.fn();
   process.env.VN_LEAKED_ENV = "1";
+  jest.replaceProperty(replaceTarget, "flag", true);
   // A short default timeout: the next file's async test fails if it survives.
   jest.setTimeout(5);
   jest.useFakeTimers();

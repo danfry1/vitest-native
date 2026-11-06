@@ -306,6 +306,17 @@ export const BOUNDARY_SOURCES = {
     ${MOCK_NATIVE_COMPONENT}
     module.exports = { __esModule: true, default: (n) => mockNativeComponent(n) };
   `,
+  // The last route to a host component that bypassed the boundary: Text's RCTText,
+  // RCTVirtualText and RCTSelectableText (TextNativeComponent.js). The real shim only
+  // registers a view config and returns the name, so React rendered a bare string host:
+  // React 19 passed it \`ref\` as a prop, which test-renderer's toJSON printed, and a Text
+  // ref was a renderer instance without measure() and the other native methods a View
+  // ref has. Through the boundary class, as View's host is, the ref is an instance with
+  // those methods, and \`ref\` is not among the host's props.
+  "Libraries/Renderer/shims/createReactNativeComponentClass.js": `
+    ${MOCK_NATIVE_COMPONENT}
+    module.exports = { __esModule: true, default: (n) => mockNativeComponent(n) };
+  `,
   "Libraries/Components/View/ViewNativeComponent.js": `
     ${MOCK_NATIVE_COMPONENT}
     module.exports = { __esModule: true, default: mockNativeComponent("RCTView"), __INTERNAL_VIEW_CONFIG: {}, Commands: {} };

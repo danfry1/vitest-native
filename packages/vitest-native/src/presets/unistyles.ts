@@ -1,6 +1,7 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
+import { asHost } from "../mocks/host.js";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { builtInPreset } from "./built-in.js";
@@ -902,7 +903,7 @@ function buildUnistyles(): Record<string, any> {
           ? { contentContainerStyle: flattenStyle(props.contentContainerStyle) }
           : {}),
       };
-      return React.createElement(Component, {
+      return React.createElement(asHost(Component), {
         key: uniPropsKey || mappingsKey,
         ...finalProps,
         ref,

@@ -38,10 +38,10 @@
     "test:native:hot:soak": "bun run --filter vitest-native test:native:hot:soak",
     "test:consumers": "bun run build && bun run --filter vitest-native test:consumers",
     "test:example": "bun run build && bun run --filter '@vitest-native/example' test",
-    "lint": "oxlint --deny-warnings packages/vitest-native/src/ packages/vitest-native/tests/ packages/vitest-native/tests-native/ packages/vitest-native/crosscheck/ packages/vitest-native/consumer-tests/ packages/vitest-native/scripts/",
+    "lint": "oxlint --deny-warnings packages/vitest-native/src/ packages/vitest-native/tests/ packages/vitest-native/tests-native/ packages/vitest-native/crosscheck/ packages/vitest-native/consumer-tests/ packages/vitest-native/scripts/ packages/vitest-native/lint/",
     "lint:deps": "syncpack lint",
-    "format": "oxfmt --write packages/vitest-native/src/ packages/vitest-native/tests/ packages/vitest-native/consumer-tests/ packages/vitest-native/scripts/",
-    "format:check": "oxfmt --check packages/vitest-native/src/ packages/vitest-native/tests/ packages/vitest-native/consumer-tests/ packages/vitest-native/scripts/",
+    "format": "oxfmt --write packages/vitest-native/src/ packages/vitest-native/tests/ packages/vitest-native/consumer-tests/ packages/vitest-native/scripts/ packages/vitest-native/lint/",
+    "format:check": "oxfmt --check packages/vitest-native/src/ packages/vitest-native/tests/ packages/vitest-native/consumer-tests/ packages/vitest-native/scripts/ packages/vitest-native/lint/",
     "typecheck": "bun run --filter vitest-native typecheck",
     "clean": "bun run --filter vitest-native clean",
     "crosscheck": "bun run --filter vitest-native crosscheck",
@@ -62,6 +62,7 @@
     "tsdown": "0.23.4",
     "typescript": "7.0.2",
     "vitepress": "2.0.0-alpha.21",
+    "vitepress-plugin-group-icons": "1.8.1",
     "vitest": "5.0.5"
   }
 }

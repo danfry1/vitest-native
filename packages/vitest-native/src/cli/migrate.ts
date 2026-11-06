@@ -317,6 +317,8 @@ export function analyzeJestConfig(root: string): MigrationReport {
   const extraImports: string[] = [];
   const extraPlugins: string[] = [];
   let excludeGlobs: string[] = [];
+  // The project's directories, walked once and only when something needs them.
+  let directories: string[] | undefined;
   let needsUrlImport = false;
   // Options for the reactNative() call, besides `transform`.
   const pluginOptions: string[] = [];
@@ -746,7 +748,6 @@ export function analyzeJestConfig(root: string): MigrationReport {
       const value = take<never>(key);
       if (value !== undefined) discoveryOptions[key] = value;
     }
-    let directories: string[] | undefined;
     const discovery = translateDiscovery(
       discoveryOptions,
       presetConfig,
@@ -826,7 +827,8 @@ export function analyzeJestConfig(root: string): MigrationReport {
           if (rest.length || !serializers.length) {
             attention.push(
               `snapshotSerializers${rest.length ? ` ${rest.map((r) => `'${r}'`).join(", ")}` : ""} — ` +
-                `Vitest uses expect.addSnapshotSerializer; vitest-native ships one for RN trees.`,
+                `Vitest has no such key: register each with expect.addSnapshotSerializer() in a ` +
+                `setup file. React trees need none: they print as under Jest.`,
             );
           }
         } else if (key === "watchPathIgnorePatterns") {
@@ -873,6 +875,36 @@ export function analyzeJestConfig(root: string): MigrationReport {
         attention.push(`'${key}' — unrecognized Jest key; review manually.`);
       }
     }
+  }
+
+  // Snapshots Jest wrote of React Native components were recorded against the component
+  // stand-ins of React Native's Jest preset: a host named View or Text, with the props as
+  // the component was given them. vitest-native renders React Native's own host
+  // components (RCTView, RCTText) with the props React Native passes them, so those
+  // snapshots differ even where the component renders the same. They are in the same
+  // format, so the diff shows exactly that.
+  const snapshotFiles = (directories ??= projectDirectories(root))
+    .filter((dir) => path.posix.basename(dir) === "__snapshots__")
+    .reduce((count, dir) => {
+      let names: string[] = [];
+      try {
+        names = fs.readdirSync(path.join(root, dir));
+      } catch {
+        names = [];
+      }
+      return count + names.filter((name) => name.endsWith(".snap")).length;
+    }, 0);
+  if (snapshotFiles > 0) {
+    attention.push(
+      `${snapshotFiles} Jest snapshot file${snapshotFiles === 1 ? "" : "s"} (__snapshots__/*.snap) — ` +
+        `most entries need one re-record. Vitest names a snapshot inside a describe ` +
+        `'group > test 1' where Jest wrote 'group test 1', and a snapshot of React Native ` +
+        `components differs: Jest's preset renders stand-ins named View and Text with the props ` +
+        `as given, and vitest-native renders React Native's own host components (RCTView, ` +
+        `RCTText) with the props React Native passes them. Once the rest of the suite passes, ` +
+        `re-record them once with \`vitest -u\` and review the diff. Vitest also rewrites each ` +
+        `file's first line to its own header when it runs it.`,
+    );
   }
 
   // Manual __mocks__ that a preset replaces: only where a preset actually shadows the

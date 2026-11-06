@@ -1,4 +1,5 @@
 import React from "react";
+import { hostComponent } from "../host.js";
 import { vi } from "vitest";
 
 export function createSectionListMock() {
@@ -136,7 +137,7 @@ export function createSectionListMock() {
       );
     }
 
-    return React.createElement("SectionList", { ...rest, ref }, ...children);
+    return React.createElement(hostComponent("SectionList"), { ...rest, ref }, ...children);
   });
   SectionList.displayName = "SectionList";
   return SectionList;

@@ -1,0 +1,9 @@
+{
+  "name": "vn-import-meta-esm",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "peerDependencies": {
+    "react-native": "*"
+  }
+}

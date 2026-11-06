@@ -1,0 +1,6 @@
+[vitest-native] engine: native — real react-native@0.88.0 (platform ios)
+✓ src/Counter.test.tsx > is a button
+✓ src/Counter.test.tsx > starts at zero
+✓ src/Counter.test.tsx > counts a press
+Test Files 1 passed (1)
+Tests 3 passed (3)

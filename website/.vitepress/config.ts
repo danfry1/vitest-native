@@ -1,7 +1,8 @@
 import { defineConfig } from 'vitepress'
+import { groupIconMdPlugin, groupIconVitePlugin } from 'vitepress-plugin-group-icons'
 
 const description =
-  'Run your React Native tests under Vitest against real React Native — the same JS that ships in your app, mocking only the native-module boundary. One plugin, two engines.'
+  "A Vitest plugin for React Native. Your components run React Native's real JavaScript; only the native side is mocked."
 
 export default defineConfig({
   title: 'vitest-native',
@@ -13,7 +14,8 @@ export default defineConfig({
   sitemap: { hostname: 'https://danfry1.github.io/vitest-native/' },
   head: [
     ['link', { rel: 'icon', href: '/vitest-native/favicon.svg', type: 'image/svg+xml' }],
-    ['meta', { name: 'theme-color', content: '#10b3a3' }],
+    ['meta', { name: 'theme-color', content: '#ffffff', media: '(prefers-color-scheme: light)' }],
+    ['meta', { name: 'theme-color', content: '#0a0a0a', media: '(prefers-color-scheme: dark)' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:site_name', content: 'vitest-native' }],
     // A PNG: X, Facebook, LinkedIn and Slack do not render an SVG og:image.
@@ -23,10 +25,22 @@ export default defineConfig({
     ['meta', { property: 'og:image:alt', content: 'vitest-native: Test React Native as it ships.' }],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
     ['meta', { name: 'twitter:image', content: 'https://danfry1.github.io/vitest-native/og-card.png' }],
-    ['meta', { property: 'og:title', content: 'vitest-native — Test React Native with Vitest' }],
-    ['meta', { name: 'twitter:title', content: 'vitest-native — Test React Native with Vitest' }],
+    ['meta', { property: 'og:title', content: 'vitest-native: Test React Native as it ships' }],
+    ['meta', { name: 'twitter:title', content: 'vitest-native: Test React Native as it ships' }],
   ],
+  // Icons on code-group tabs (npm, pnpm, yarn, bun) and file-name labels.
+  markdown: {
+    // Quiet, low-saturation code colours in both themes, so the green accent stays rare.
+    theme: { light: 'vitesse-light', dark: 'vitesse-dark' },
+    config(md) {
+      md.use(groupIconMdPlugin)
+    },
+  },
+  vite: {
+    plugins: [groupIconVitePlugin()],
+  },
   themeConfig: {
+    logo: { light: '/logo.svg', dark: '/logo-dark.svg', alt: '' },
     search: { provider: 'local' },
     socialLinks: [{ icon: 'github', link: 'https://github.com/danfry1/vitest-native' }],
     editLink: {

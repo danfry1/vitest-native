@@ -1,4 +1,5 @@
 import React from "react";
+import { hostComponent } from "../host.js";
 import { vi } from "vitest";
 
 export function createVirtualizedListMock() {
@@ -78,7 +79,7 @@ export function createVirtualizedListMock() {
       );
     }
 
-    return React.createElement("VirtualizedList", { ...rest, ref }, ...children);
+    return React.createElement(hostComponent("VirtualizedList"), { ...rest, ref }, ...children);
   });
   VirtualizedList.displayName = "VirtualizedList";
   return VirtualizedList;
