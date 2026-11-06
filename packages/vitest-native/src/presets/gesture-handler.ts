@@ -1,6 +1,7 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
+import { hostComponent as hostClass, asHost } from "../mocks/host.js";
 import { createPressableMock } from "../mocks/components/Pressable.js";
 import { builtInPreset } from "./built-in.js";
 
@@ -58,24 +59,24 @@ export function gestureHandler(): Preset {
 
           function createGestureHandler(name: string) {
             const Handler = React.forwardRef((props: any, ref: any) =>
-              React.createElement(name, { ...props, ref }, props.children),
+              React.createElement(asHost(name), { ...props, ref }, props.children),
             );
             Handler.displayName = name;
             return Handler;
           }
 
           const GestureHandlerRootView = React.forwardRef((props: any, ref: any) =>
-            React.createElement("GestureHandlerRootView", { ...props, ref }, props.children),
+            React.createElement(hostClass("GestureHandlerRootView"), { ...props, ref }, props.children),
           );
           GestureHandlerRootView.displayName = "GestureHandlerRootView";
 
           const Swipeable = React.forwardRef((props: any, ref: any) =>
-            React.createElement("Swipeable", { ...props, ref }, props.children),
+            React.createElement(hostClass("Swipeable"), { ...props, ref }, props.children),
           );
           Swipeable.displayName = "Swipeable";
 
           const DrawerLayout = React.forwardRef((props: any, ref: any) =>
-            React.createElement("DrawerLayout", { ...props, ref }, props.children),
+            React.createElement(hostClass("DrawerLayout"), { ...props, ref }, props.children),
           );
           DrawerLayout.displayName = "DrawerLayout";
 
@@ -137,7 +138,7 @@ export function gestureHandler(): Preset {
           };
 
           const GestureDetector = React.forwardRef((props: any, ref: any) =>
-            React.createElement("GestureDetector", { ...props, ref }, props.children),
+            React.createElement(hostClass("GestureDetector"), { ...props, ref }, props.children),
           );
           GestureDetector.displayName = "GestureDetector";
 

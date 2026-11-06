@@ -1,6 +1,7 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
+import { hostComponent as hostClass, asHost } from "../mocks/host.js";
 import { builtInPreset } from "./built-in.js";
 
 export function screens(): Preset {
@@ -62,7 +63,7 @@ export function screens(): Preset {
 
           function createScreenComponent(name: string) {
             const Component = React.forwardRef((props: any, ref: any) =>
-              React.createElement(name, { ...props, ref }, props.children),
+              React.createElement(asHost(name), { ...props, ref }, props.children),
             );
             Component.displayName = name;
             return Component;
@@ -93,8 +94,7 @@ export function screens(): Preset {
           // not a host prop on the real Screen either.
           const ScreenStackItem = React.forwardRef(
             ({ headerConfig, children, ...props }: any, ref: any) =>
-              React.createElement(
-                "ScreenStackItem",
+              React.createElement(hostClass("ScreenStackItem"),
                 { ...props, ref },
                 children,
                 React.createElement(ScreenStackHeaderConfig, headerConfig),

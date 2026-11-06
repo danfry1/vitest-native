@@ -1,6 +1,7 @@
 import type { NavigationPresetOptions, Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
+import { hostComponent as hostClass } from "../mocks/host.js";
 import { builtInPreset } from "./built-in.js";
 import { projectContext } from "../context.mjs";
 
@@ -57,8 +58,7 @@ function createMockScreen(
       : typeof children === "function"
         ? children({ route, navigation: nav })
         : children;
-    return React.createElement(
-      "Screen",
+    return React.createElement(hostClass("Screen"),
       { ...rest, ref },
       React.createElement(
         NavContext.Provider,
@@ -216,7 +216,7 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
         ],
         factory: () => {
           const NavigationContainer = React.forwardRef((props: any, ref: any) =>
-            React.createElement("NavigationContainer", { ...props, ref }, props.children),
+            React.createElement(hostClass("NavigationContainer"), { ...props, ref }, props.children),
           );
           NavigationContainer.displayName = "NavigationContainer";
 
@@ -347,7 +347,7 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
           }
 
           const BaseNavigationContainer = React.forwardRef((props: any, ref: any) =>
-            React.createElement("BaseNavigationContainer", { ...props, ref }, props.children),
+            React.createElement(hostClass("BaseNavigationContainer"), { ...props, ref }, props.children),
           );
           (BaseNavigationContainer as any).displayName = "BaseNavigationContainer";
 
@@ -371,11 +371,11 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
               Navigator:
                 Navigator ??
                 React.forwardRef((props: any, ref: any) =>
-                  React.createElement("Navigator", { ...props, ref }, props.children),
+                  React.createElement(hostClass("Navigator"), { ...props, ref }, props.children),
                 ),
               Screen,
               Group: React.forwardRef((props: any, ref: any) =>
-                React.createElement("Group", { ...props, ref }, props.children),
+                React.createElement(hostClass("Group"), { ...props, ref }, props.children),
               ),
             })),
             useNavigationBuilder: vi.fn(() => ({
@@ -463,7 +463,7 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
             useScrollToTop: vi.fn(),
             useLinkTo: vi.fn(() => vi.fn()),
             Link: React.forwardRef((props: any, ref: any) =>
-              React.createElement("Link", { ...props, ref }, props.children),
+              React.createElement(hostClass("Link"), { ...props, ref }, props.children),
             ),
           };
         },
@@ -475,11 +475,11 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
           function createNativeStackNavigator() {
             return {
               Navigator: React.forwardRef((props: any, ref: any) =>
-                React.createElement("NativeStackNavigator", { ...props, ref }, props.children),
+                React.createElement(hostClass("NativeStackNavigator"), { ...props, ref }, props.children),
               ),
               Screen,
               Group: React.forwardRef((props: any, ref: any) =>
-                React.createElement("Group", { ...props, ref }, props.children),
+                React.createElement(hostClass("Group"), { ...props, ref }, props.children),
               ),
             };
           }
@@ -497,11 +497,11 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
           function createBottomTabNavigator() {
             return {
               Navigator: React.forwardRef((props: any, ref: any) =>
-                React.createElement("BottomTabNavigator", { ...props, ref }, props.children),
+                React.createElement(hostClass("BottomTabNavigator"), { ...props, ref }, props.children),
               ),
               Screen,
               Group: React.forwardRef((props: any, ref: any) =>
-                React.createElement("Group", { ...props, ref }, props.children),
+                React.createElement(hostClass("Group"), { ...props, ref }, props.children),
               ),
             };
           }
@@ -519,11 +519,11 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
           function createDrawerNavigator() {
             return {
               Navigator: React.forwardRef((props: any, ref: any) =>
-                React.createElement("DrawerNavigator", { ...props, ref }, props.children),
+                React.createElement(hostClass("DrawerNavigator"), { ...props, ref }, props.children),
               ),
               Screen,
               Group: React.forwardRef((props: any, ref: any) =>
-                React.createElement("Group", { ...props, ref }, props.children),
+                React.createElement(hostClass("Group"), { ...props, ref }, props.children),
               ),
             };
           }
@@ -550,22 +550,22 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
         ],
         factory: () => {
           const Header = React.forwardRef((props: any, ref: any) =>
-            React.createElement("Header", { ...props, ref }, props.children),
+            React.createElement(hostClass("Header"), { ...props, ref }, props.children),
           );
           (Header as any).displayName = "Header";
 
           const HeaderBackground = React.forwardRef((props: any, ref: any) =>
-            React.createElement("HeaderBackground", { ...props, ref }, props.children),
+            React.createElement(hostClass("HeaderBackground"), { ...props, ref }, props.children),
           );
           (HeaderBackground as any).displayName = "HeaderBackground";
 
           const HeaderBackButton = React.forwardRef((props: any, ref: any) =>
-            React.createElement("HeaderBackButton", { ...props, ref }),
+            React.createElement(hostClass("HeaderBackButton"), { ...props, ref }),
           );
           (HeaderBackButton as any).displayName = "HeaderBackButton";
 
           const HeaderTitle = React.forwardRef((props: any, ref: any) =>
-            React.createElement("HeaderTitle", { ...props, ref }, props.children),
+            React.createElement(hostClass("HeaderTitle"), { ...props, ref }, props.children),
           );
           (HeaderTitle as any).displayName = "HeaderTitle";
 
