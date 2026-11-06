@@ -173,66 +173,30 @@ jobs:
 
   compat-report:
     name: File issues for failed checks
-    # The only job that can write issues, and it runs no package code: no checkout, no
-    # install. It reads this run's job results and failed jobs' log tails through the API,
-    # so a compromised release installed by a check above never holds a write token.
+    # The only job that can write issues, and it runs no package code: it checks out one
+    # file of this repository (the report script) and installs nothing. It reads this run's
+    # job results and failed jobs' log tails through the API, so a compromised release
+    # installed by a check above never holds a write token.
     needs: [expo-module-table, check-latest-rn, canary]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       actions: read
+      contents: read
       issues: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts/compat-report.mjs
+          sparse-checkout-cone-mode: false
+
       - name: File or update an issue per failed check
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v7
         env:
           RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         with:
           script: |
-            // Job name (as shown in the run) → issue. Titles match the issues earlier runs
-            // opened, so an open one gets a comment rather than a duplicate.
-            const ISSUES = [
-              {
-                job: /^Expo module tables/,
-                title: () => 'Expo module table differs from the newest jest-expo',
-                text: 'The weekly check found a jest-expo whose table of the native modules differs from the committed one, or a new Expo SDK without a table. The failed run prints the command to regenerate it; review the diff.',
-              },
-              {
-                job: /^Check against current React Native edge/,
-                title: () => 'Compatibility gap detected with latest react-native',
-                text: 'The weekly check against react-native@latest failed. Run `bun run --filter vitest-native check-compat` locally to see export gaps.',
-              },
-              {
-                job: /^Canary \((.+)\)$/,
-                title: (m) => `Canary: the ${m[1]} prerelease fails`,
-                text: "A canary (upstream's next release, ahead of latest) fails the gate.",
-              },
-            ];
-            const repo = { owner: context.repo.owner, repo: context.repo.repo };
-            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
-              ...repo, run_id: context.runId, filter: 'latest',
-            });
-            const open = await github.paginate(github.rest.issues.listForRepo, {
-              ...repo, state: 'open', labels: 'compat-check',
-            });
-            for (const job of jobs.filter((j) => j.conclusion === 'failure')) {
-              const rule = ISSUES.find((r) => r.job.test(job.name));
-              if (!rule) continue;
-              const title = rule.title(rule.job.exec(job.name));
-              let tail;
-              try {
-                const { data } = await github.rest.actions.downloadJobLogsForWorkflowRun({ ...repo, job_id: job.id });
-                // Log text from installed packages is untrusted: shown only inside a fence.
-                tail = String(data).split('\n').slice(-40).join('\n').replace(/`{3,}/g, '~~~');
-              } catch (error) {
-                tail = `(log unavailable: ${error.message})`;
-              }
-              const body = [rule.text, '', `Job: ${job.name}`, `Run: ${process.env.RUN_URL}`, '', '```text', tail, '```'].join('\n');
-              const existing = open.find((issue) => issue.title === title);
-              if (existing) {
-                await github.rest.issues.createComment({ ...repo, issue_number: existing.number, body });
-              } else {
-                await github.rest.issues.create({ ...repo, title, body, labels: ['compat-check'] });
-              }
-            }
+            const { report } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/compat-report.mjs`);
+            await report({ github, context, runUrl: process.env.RUN_URL });
