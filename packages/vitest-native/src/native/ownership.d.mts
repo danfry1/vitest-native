@@ -100,6 +100,21 @@ export declare function isResidentPackageName(name: string): boolean;
 export declare function createNativeOwnershipPolicy(
   options?: NativeOwnershipOptions,
 ): NativeOwnershipPolicy;
+export declare function recordedPackageDirOf(
+  recorded: { root: string; dirs: Record<string, string | null> } | undefined,
+  resolve?: (name: string, fromDir: string) => string | null,
+): (name: string, fromDir: string) => string | null;
+export declare function workerOwnershipPolicy(
+  inputs: {
+    projectRoot: string;
+    projectDirs?: readonly string[];
+    reactNativeRoots?: readonly string[];
+    serverDepsInlineAll?: boolean;
+    runtimeTransforms?: readonly string[];
+  },
+  context?: { packageDirs?: { root: string; dirs: Record<string, string | null> } } | null,
+): NativeOwnershipPolicy;
+export declare function workerOwnershipPolicyBuilds(): number;
 export declare function findNativeOwnershipConflict(
   policy: NativeOwnershipPolicy,
   file: string,

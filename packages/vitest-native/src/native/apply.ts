@@ -99,6 +99,11 @@ export function nativeEngineConfig(
   const nodeTransformed = ownership.nodeTransformPackages;
   const ownershipManifest = ownership.manifest();
   fields.ownership = ownershipManifest as unknown as Record<string, unknown>;
+  // The directories the policy just resolved, so workers do not resolve them again.
+  fields.packageDirs = {
+    root: ownership.projectRoot,
+    dirs: Object.fromEntries(nodeTransformed.map((name) => [name, ownership.packageDirOf(name)])),
+  };
   if (fields.diagnostics) {
     for (const line of formatNativeOwnershipManifest(ownershipManifest)) {
       const report = `[vitest-native] ownership: ${line}`;

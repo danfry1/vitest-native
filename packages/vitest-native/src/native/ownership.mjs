@@ -15,6 +15,7 @@ import {
   containsPath,
   installedPackageDirOf,
   memoizePackageDirOf,
+  packageDirOf as resolvePackageDir,
   packagePatterns,
 } from "./match.mjs";
 
@@ -454,6 +455,89 @@ export function createNativeOwnershipPolicy({
     manifest,
     packageDirOf: (name) => dirOf(name, root),
   });
+}
+
+/**
+ * The package directories the plugin resolved at config time, as a lookup with the same
+ * signature as `packageDirOf`. A recorded answer is used only for the root it was resolved
+ * from; any other question is resolved here once and kept for the life of the lookup.
+ *
+ * Workers rebuild the ownership policy from the same package list the plugin resolved.
+ * Without the recorded answers each worker resolved every package's directory again: a
+ * few resolutions and real-path calls per package, for hundreds of packages, in every new
+ * worker (one per test file under per-file isolation).
+ */
+export function recordedPackageDirOf(recorded, resolve = resolvePackageDir) {
+  const lookup = memoizePackageDirOf(resolve);
+  const root = typeof recorded?.root === "string" ? path.resolve(recorded.root) : null;
+  const dirs =
+    recorded && typeof recorded.dirs === "object" && recorded.dirs !== null ? recorded.dirs : null;
+  return (name, fromDir) => {
+    if (
+      root !== null &&
+      dirs !== null &&
+      Object.hasOwn(dirs, name) &&
+      path.resolve(fromDir) === root
+    ) {
+      const dir = dirs[name];
+      return typeof dir === "string" ? dir : null;
+    }
+    return lookup(name, fromDir);
+  };
+}
+
+const WORKER_POLICIES = Symbol.for("vitest-native.ownership.worker-policies");
+
+/**
+ * This worker thread's ownership policy for `inputs`, built once and shared by everything
+ * in the thread that asks with the same inputs: the ESM loader and the require hooks
+ * (each used to build its own), and every later test file a reused worker runs. The
+ * state lives on globalThis because the two callers can hold different instances of this
+ * module. Package directories come from the project context (recordedPackageDirOf).
+ */
+export function workerOwnershipPolicy(
+  {
+    projectRoot,
+    projectDirs = [],
+    reactNativeRoots = [],
+    serverDepsInlineAll = false,
+    runtimeTransforms = [],
+  },
+  context = projectContext(),
+) {
+  const state = (globalThis[WORKER_POLICIES] ??= {
+    builds: 0,
+    requests: 0,
+    policies: new Map(),
+    dirOf: null,
+  });
+  state.requests++;
+  const key = JSON.stringify([
+    path.resolve(projectRoot),
+    projectDirs,
+    reactNativeRoots,
+    serverDepsInlineAll === true,
+    runtimeTransforms,
+  ]);
+  const cached = state.policies.get(key);
+  if (cached) return cached;
+  state.dirOf ??= recordedPackageDirOf(context?.packageDirs);
+  const policy = createNativeOwnershipPolicy({
+    projectRoot,
+    projectDirs,
+    reactNativeRoots,
+    serverDepsInlineAll: serverDepsInlineAll === true,
+    runtimeTransforms,
+    packageDirOf: state.dirOf,
+  });
+  state.builds++;
+  state.policies.set(key, policy);
+  return policy;
+}
+
+/** How many policies workerOwnershipPolicy has built in this thread. */
+export function workerOwnershipPolicyBuilds() {
+  return globalThis[WORKER_POLICIES]?.builds ?? 0;
 }
 
 /**
