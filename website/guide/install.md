@@ -49,7 +49,7 @@ If anything looks off, `npx vitest-native doctor` checks your versions, engine a
 
 Use the React version your React Native release requires, and a `@react-native/babel-preset` that matches its minor version. Each Node line starts at the release where Node's in-thread module hooks work; on an older Node the plugin stops at startup with `UNSUPPORTED_NODE`.
 
-The default **`engine: 'native'`** needs `@react-native/babel-preset` and `@babel/core` — these already ship with React Native projects. From Expo SDK 56 the engine uses Expo's own preset instead, which `expo` brings with `@babel/core`, so an Expo app needs nothing extra. The plugin uses them to Flow-strip real React Native, the same toolchain RN already uses.
+The default **`engine: 'native'`** needs `@react-native/babel-preset` and `@babel/core` — these already ship with React Native projects. In an Expo app the engine uses Expo's own preset instead, which `expo` brings with `@babel/core`, so an Expo app needs nothing extra. The plugin uses them to Flow-strip real React Native, the same toolchain RN already uses.
 
 The opt-in **`engine: 'mock'`** needs no Babel — it's just Vite.
 

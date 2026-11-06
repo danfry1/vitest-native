@@ -120,7 +120,7 @@ To force a rebuild, delete that `registry` directory; files for earlier configur
 
 ## `@react-native/babel-preset not found — using the mock engine`
 
-You asked for the default (`auto`) engine but the native engine's Babel packages aren't installed, so it fell back to the mock engine. An Expo project from SDK 56 needs nothing extra: the engine uses Expo's preset, and `expo` brings `@babel/core`. Otherwise, to run real React Native, install them:
+You asked for the default (`auto`) engine but the native engine's Babel packages aren't installed, so it fell back to the mock engine. An Expo project needs nothing extra: the engine uses Expo's preset, and `expo` brings `@babel/core`. Otherwise, to run real React Native, install them:
 
 ```bash
 npm i -D @react-native/babel-preset @babel/core
@@ -130,7 +130,7 @@ To silence the notice and stay on mock deliberately, set `reactNative({ engine: 
 
 ## My `babel.config.js` plugin isn't running
 
-Files your tests `import` go through Vite's JSX transformer, not your Babel config, so custom Babel plugins don't apply to them. Vite 6–7 use esbuild and Vite 8 uses Oxc; the plugin configures the automatic JSX runtime for both. Project TypeScript files that Node loads (through `require()` or `jest.requireActual`) are compiled with your Babel config, as babel-jest compiles them; plain `.js` project files Node loads are not compiled. `vitest-native doctor` lists the Babel plugins a run does not apply; one your tests depend on, such as a macro plugin, runs through a Vite plugin that calls Babel ([recipe](/migration/from-jest#babel-plugins-your-jest-run-applied)).
+Files your tests `import` go through Vite's JSX transformer, not your Babel config, so custom Babel plugins don't apply to them. Vite 8 uses Oxc, and the plugin configures it for the automatic JSX runtime. Project TypeScript files that Node loads (through `require()` or `jest.requireActual`) are compiled with your Babel config, as babel-jest compiles them; plain `.js` project files Node loads are not compiled. `vitest-native doctor` lists the Babel plugins a run does not apply; one your tests depend on, such as a macro plugin, runs through a Vite plugin that calls Babel ([recipe](/migration/from-jest#babel-plugins-your-jest-run-applied)).
 
 ## `Worker terminated due to reaching memory limit` / `JS heap out of memory`
 
