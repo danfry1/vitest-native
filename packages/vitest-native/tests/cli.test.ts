@@ -437,6 +437,47 @@ describe("migrate", () => {
     expect(text).toContain("'someCustomKey' — unrecognized Jest key");
   });
 
+  it("translates any literal prefix mapper and drops keys with no Vitest effect", () => {
+    // Shapes from Rocket.Chat.ReactNative and react-native-paper.
+    const report = analyzeJestConfig(
+      fixture({
+        "package.json": { name: "x" },
+        "jest.config.json": {
+          moduleNameMapper: {
+            "^~e2e/(.*)$": "<rootDir>/e2e/$1",
+            "^~/\\.rnstorybook/(.*)$": "<rootDir>/.rnstorybook/$1",
+            "^@app/(.+)": "./app/$1",
+            // Not a plain prefix: left for a human.
+            "^(.*)/native$": "<rootDir>/$1/web",
+            // A package target is a module request, not a project directory.
+            "^ui/(.*)$": "some-ui-lib/src/$1",
+          },
+          watchPathIgnorePatterns: ["<rootDir>/node_modules"],
+          workerIdleMemoryLimit: "512MB",
+        },
+      }),
+    );
+    const config = report.suggestedConfig;
+    // Anchored as Jest's patterns are: a bare `~e2e` import is not rewritten.
+    expect(config).toContain(
+      `{ find: /^~e2e\\/(.*)$/, replacement: fileURLToPath(new URL("./e2e", import.meta.url)) + "/$1" }`,
+    );
+    expect(config).toContain(
+      `{ find: /^~\\/\\.rnstorybook\\/(.*)$/, replacement: fileURLToPath(new URL("./.rnstorybook", import.meta.url)) + "/$1" }`,
+    );
+    expect(config).toContain(
+      `{ find: /^@app\\/(.+)$/, replacement: fileURLToPath(new URL("./app", import.meta.url)) + "/$1" }`,
+    );
+    const attention = report.attention.join("\n");
+    expect(attention).toContain("moduleNameMapper '^(.*)/native$'");
+    expect(config).not.toContain("some-ui-lib");
+    expect(attention).not.toContain("watchPathIgnorePatterns");
+    expect(attention).not.toContain("workerIdleMemoryLimit");
+    const dropped = report.dropped.join("\n");
+    expect(dropped).toContain("watchPathIgnorePatterns — affects only Jest's watch mode");
+    expect(dropped).toContain("workerIdleMemoryLimit — Vitest recycles workers by memory only");
+  });
+
   it("calls a manual mock covered only where an active preset shadows that module", () => {
     // The claim is read from PRESET_MODULES (held to the presets by
     // tests/presets.test.ts) and the plugin's detection. The expo preset is detected, but the native
@@ -651,6 +692,104 @@ describe("migrate", () => {
       expect(expoApp("jest-expo/web").attention.join("\n")).toContain(
         "targets web, not a React Native render",
       );
+    });
+  });
+
+  describe("a project-local preset", () => {
+    // jest-expo's preset, trimmed to the keys whose handling differs.
+    const JEST_EXPO = {
+      testEnvironment: "node",
+      setupFiles: ["<rootDir>/node_modules/jest-expo/src/preset/setup.js"],
+      moduleNameMapper: { "^react-native-vector-icons$": "@expo/vector-icons" },
+      transformIgnorePatterns: ["/node_modules/(?!(react-native|expo)/)"],
+      testMatch: ["**/__tests__/**/*.[jt]s?(x)"],
+      haste: { defaultPlatform: "ios", platforms: ["android", "ios", "native"] },
+    };
+    const JEST_EXPO_ANDROID = {
+      ...JEST_EXPO,
+      haste: { defaultPlatform: "android", platforms: ["android", "native"] },
+    };
+    const app = (localPreset: string, jest: Record<string, unknown> = {}) =>
+      analyzeJestConfig(
+        fixture({
+          "package.json": { name: "x", dependencies: { expo: "57.0.0" } },
+          "node_modules/jest-expo/package.json": { name: "jest-expo", version: "57.0.0" },
+          "node_modules/jest-expo/jest-preset.js": `module.exports = ${JSON.stringify(JEST_EXPO)};`,
+          "node_modules/jest-expo/android/jest-preset.js": `module.exports = ${JSON.stringify(JEST_EXPO_ANDROID)};`,
+          "jest.preset.js": localPreset,
+          "jest.config.json": { preset: "./jest.preset.js", ...jest },
+        }),
+      );
+
+    it("is translated as the known preset it spreads", () => {
+      const report = app(`module.exports = { ...require("jest-expo/jest-preset.js") };`);
+      expect(report.automatic.join("\n")).toContain(
+        "preset: './jest.preset.js' (jest-expo's preset, spread) → replaced by the reactNative() plugin.",
+      );
+      expect(report.attention.join("\n")).toContain(
+        "preset: './jest.preset.js' (jest-expo's preset, spread) — under the native engine",
+      );
+      expect(report.attention.join("\n")).not.toContain("unknown preset");
+      // jest-expo's own setup file and mapper are the plugin's job, not carried over.
+      expect(report.suggestedConfig).not.toContain("jest-expo/src/preset/setup.js");
+      expect(report.automatic.join("\n")).not.toContain("also sets");
+      // Its testMatch is still read from the preset.
+      expect(report.suggestedConfig).toContain("include: [");
+    });
+
+    it("carries over what it adds to the known preset, under the project's own", () => {
+      const report = app(
+        `const expo = require("jest-expo/jest-preset.js");
+module.exports = { ...expo, setupFiles: [...expo.setupFiles, "./preset.setup.js"],
+  moduleNameMapper: { ...expo.moduleNameMapper, "^@/(.*)$": "<rootDir>/src/$1" } };`,
+        { setupFiles: ["./jest.setup.js"] },
+      );
+      expect(report.automatic.join("\n")).toContain(
+        "preset: './jest.preset.js' (jest-expo's preset, spread) also sets setupFiles and moduleNameMapper",
+      );
+      // The preset's file runs first, as Jest orders them.
+      expect(report.suggestedConfig).toMatch(/"\.\/preset\.setup\.js",\s*"\.\/jest\.setup\.js"/);
+      expect(report.suggestedConfig).toContain(`"@": fileURLToPath(new URL("./src"`);
+      expect(report.suggestedConfig).not.toContain("jest-expo/src/preset/setup.js");
+    });
+
+    it("drops the known preset's own items wherever the local preset puts its own", () => {
+      const report = app(
+        `const expo = require("jest-expo/jest-preset.js");
+module.exports = { ...expo, setupFiles: ["./first.js", ...expo.setupFiles] };`,
+      );
+      expect(report.automatic.join("\n")).toContain(
+        "preset: './jest.preset.js' (jest-expo's preset, spread) also sets setupFiles",
+      );
+      expect(report.suggestedConfig).toContain(`"./first.js"`);
+      expect(report.suggestedConfig).not.toContain("jest-expo/src/preset/setup.js");
+    });
+
+    it("recognises the platform variant it spreads", () => {
+      const report = app(`module.exports = { ...require("jest-expo/android/jest-preset.js") };`);
+      expect(report.automatic.join("\n")).toContain(
+        "preset: './jest.preset.js' (jest-expo/android's preset, spread) → replaced by the reactNative() plugin with platform: 'android'.",
+      );
+      expect(report.suggestedConfig).toContain("platform: 'android'");
+    });
+
+    it("that spreads no known preset has its settings translated and is flagged", () => {
+      const report = app(
+        `module.exports = { setupFiles: ["./preset.setup.js"], clearMocks: true,
+  moduleNameMapper: { "^@/(.*)$": "<rootDir>/lib/$1" } };`,
+        { moduleNameMapper: { "^@/(.*)$": "<rootDir>/src/$1" } },
+      );
+      expect(report.attention.join("\n")).toContain(
+        "preset: './jest.preset.js' — not a preset vitest-native translates by name",
+      );
+      expect(report.automatic.join("\n")).toContain(
+        "preset: './jest.preset.js' also sets setupFiles, clearMocks and moduleNameMapper",
+      );
+      expect(report.suggestedConfig).toContain(`"./preset.setup.js"`);
+      expect(report.suggestedConfig).toContain("clearMocks: true");
+      // The project's mapper wins over the preset's for the same pattern.
+      expect(report.suggestedConfig).toContain(`new URL("./src"`);
+      expect(report.suggestedConfig).not.toContain(`new URL("./lib"`);
     });
   });
 

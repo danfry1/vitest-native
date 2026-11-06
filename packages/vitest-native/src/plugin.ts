@@ -608,13 +608,7 @@ interface RegistryOptions {
 
 async function buildRegistryFor(options: RegistryOptions): Promise<BuiltRegistries | null> {
   try {
-    const dir = path.dirname(fileURLToPath(import.meta.url));
-    const module = (await import(
-      pathToFileURL(path.resolve(dir, "native/registry-process.mjs")).href
-    )) as {
-      buildRegistryFor: (o: typeof options) => Promise<BuiltRegistries | null>;
-    };
-    return module.buildRegistryFor(options);
+    return (await loadRegistryProcess()).buildRegistryFor(options);
   } catch (error) {
     try {
       const dir = path.dirname(fileURLToPath(import.meta.url));
@@ -636,6 +630,45 @@ async function buildRegistryFor(options: RegistryOptions): Promise<BuiltRegistri
     return null;
   }
 }
+
+/** The registry-process module, reached as buildRegistryFor explains. */
+async function loadRegistryProcess(): Promise<{
+  buildRegistryFor: (o: RegistryOptions) => Promise<BuiltRegistries | null>;
+  startRegistryBuild: (o: RegistryOptions) => StartedRegistries;
+  settleRegistryBuilds: (budgetMs: number, state: { cancelled: boolean }) => Promise<void>;
+  isCI: () => boolean;
+  registryWaitForced: () => boolean;
+}> {
+  const dir = path.dirname(fileURLToPath(import.meta.url));
+  return import(pathToFileURL(path.resolve(dir, "native/registry-process.mjs")).href);
+}
+
+interface StartedRegistries {
+  registry?: string | null;
+  libraryRegistry?: string | null;
+  pending?: { file: string; since: number };
+  wait?: true;
+}
+
+/**
+ * The warm registries, or the registry this cache miss is compiling in the background
+ * (startRegistryBuild in native/registry-process.mjs), or `wait` when only the library
+ * registry is missing and is built first. None of them when none is available.
+ */
+async function startRegistryFor(options: RegistryOptions): Promise<StartedRegistries> {
+  try {
+    return (await loadRegistryProcess()).startRegistryBuild(options);
+  } catch (error) {
+    console.warn(
+      `[vitest-native] (native) could not precompile the React Native registry ` +
+        `(${(error as Error)?.message ?? error}); using slower per-file module loading.`,
+    );
+    return {};
+  }
+}
+
+/** Vitest instances whose close already settles the background registry builds. */
+const registrySettlers = new WeakSet<object>();
 
 interface ProjectMetroProfile {
   framework: "expo" | "react-native" | "fallback";
@@ -741,6 +774,24 @@ function withProjectContext(
   const ref = writeProjectContext(fields, cacheRootFor(projectRoot));
   writtenContexts.set(ref, fields);
   return { ...env, [CONTEXT_ENV]: ref };
+}
+
+/**
+ * A written context's fields minus the registries', for Vitest's module-cache key.
+ * Whether the registries are warm, compiling or absent changes how workers load React
+ * Native and libraries through Node, never what Vite transforms, so a run that found
+ * the cache cold must not key every module differently from the warm run after it.
+ */
+function registryNeutralContext(ref: string): ProjectContextFields | undefined {
+  const fields = writtenContexts.get(ref);
+  if (!fields) return undefined;
+  const {
+    registry: _registry,
+    registryPending: _pending,
+    libraryRegistry: _library,
+    ...rest
+  } = fields;
+  return rest as ProjectContextFields;
 }
 
 /** The same context with `changes` applied, written as its own file. */
@@ -2003,6 +2054,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // experimental.ownershipModel: the registry options config() knows, built in
   // configureVitest once the resolver inputs are final (by directoryKey).
   const pendingRegistries = new Map<string, RegistryOptions>();
+  // Projects whose registry config() left compiling in the background: only their
+  // Vitest settles background builds when it closes.
+  const backgroundRegistryRoots = new Set<string>();
   // Set by configureProject when it publishes the context asynchronously (above).
   let ownershipReady: Promise<void> | undefined;
   // A root as Vite spells it → its directoryKey: resolveId runs for every import.
@@ -2789,17 +2843,37 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           diagnostics,
           libraryEntries: libraryRegistryEntries(resolvedRoot, fields.presetNames ?? []),
         };
+        const useRegistries = (registries: BuiltRegistries | StartedRegistries | null) => {
+          if (registries?.registry) fields.registry = registries.registry;
+          if (registries?.libraryRegistry) fields.libraryRegistry = registries.libraryRegistry;
+        };
         // experimental.ownershipModel: the registry's walk resolves with the shared
         // resolver, whose inputs are final only in configureVitest (the conditions come
-        // from Vitest's worker arguments). It is built there, before any worker starts.
+        // from Vitest's worker arguments). It is built there, before any worker starts,
+        // and waited for.
+        //
+        // Otherwise, on a cache miss the registry compiles in the background and this run
+        // loads React Native file by file, which is the same React Native; a test file
+        // that starts after the registry lands uses it (startRegistryBuild records why,
+        // and the options rejected). It waits instead under the hot runtime (a hot worker
+        // keeps React Native resident from its first file), on CI (only total time counts
+        // there, and per-file loading costs more than the build on a large suite), and
+        // with `registryBuild: 'wait'` (or its test seam, registryWaitForced).
         if (fields.ownershipModel) {
           pendingRegistries.set(directoryKey(resolvedRoot), registryOptions);
+        } else if (
+          hotMemory !== undefined ||
+          options?.registryBuild === "wait" ||
+          (await loadRegistryProcess().then((rp) => rp.registryWaitForced() || rp.isCI()))
+        ) {
+          useRegistries(await buildRegistryFor(registryOptions));
         } else {
-          const registries = await buildRegistryFor(registryOptions);
-          if (registries) {
-            fields.registry = registries.registry;
-            if (registries.libraryRegistry) fields.libraryRegistry = registries.libraryRegistry;
-          }
+          const started = await startRegistryFor(registryOptions);
+          if (started.wait) useRegistries(await buildRegistryFor(registryOptions));
+          else if (started.pending) {
+            fields.registryPending = started.pending;
+            backgroundRegistryRoots.add(directoryKey(resolvedRoot));
+          } else useRegistries(started);
         }
 
         // Lazy import: pulls in vitest/node, which only exists when running under
@@ -3515,6 +3589,31 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           `Unsupported peer dependencies:\n- ${error}`,
         );
     }
+    if (backgroundRegistryRoots.has(directoryKey(root)) && !registrySettlers.has(vitest)) {
+      registrySettlers.add(vitest);
+      const closable = vitest as {
+        onClose?: (fn: () => Promise<void>) => void;
+        config?: { teardownTimeout?: number; reporters?: unknown[] };
+      };
+      // How the last run ended, from the reporter API: "interrupted" when it was
+      // cancelled (--bail, Ctrl-C in a terminal, a watch-mode key). configureVitest
+      // runs before Vitest creates its reporters, so an inline one joins them.
+      let lastRunReason: string | undefined;
+      closable.config?.reporters?.push({
+        onTestRunEnd(_modules: unknown, _errors: unknown, reason: string) {
+          lastRunReason = reason;
+        },
+      });
+      // Vitest's `teardownTimeout` counts from its exit(), before global teardown and
+      // the pool close that come ahead of this hook, so wait at most half of it: a
+      // close never runs into "close timed out".
+      const budgetMs = (closable.config?.teardownTimeout ?? 10_000) / 2;
+      closable.onClose?.(async () => {
+        await (
+          await loadRegistryProcess()
+        ).settleRegistryBuilds(budgetMs, { cancelled: lastRunReason === "interrupted" });
+      });
+    }
     const cacheKey = cacheKeys.get(root);
     if (cacheKey) defineCacheKeyGenerator?.(() => cacheKey);
     // A project that shares a Vite server without this plugin's test config would
@@ -3799,10 +3898,15 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             fsModuleCacheKey(
               path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."),
               viteRoot,
-              // The ownership guard's mode and exemptions are read by the worker at run
-              // time and never change a transform: kept out of the key, so switching the
-              // mode or `allow` re-transforms nothing.
-              withoutOwnershipGuard(options, (test as { env?: Record<string, string> }).env),
+              // The ownership guard's mode and exemptions, and the registries, are read
+              // by the worker at run time and never change a transform: kept out of the
+              // key, so neither switching the mode or `allow` nor a cold cache
+              // re-transforms anything.
+              withoutOwnershipGuard(
+                options,
+                (test as { env?: Record<string, string> }).env,
+                registryNeutralContext,
+              ),
             ),
           );
         }

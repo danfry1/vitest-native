@@ -25,7 +25,7 @@ import { residentProblems } from "./resident-health.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
 import { installOwnershipLedger } from "./ownership-ledger.mjs";
 import { VitestNativeError } from "../errors.mjs";
-import { markBootContext, requireProjectContext } from "../context.mjs";
+import { activeRegistry, markBootContext, requireProjectContext } from "../context.mjs";
 
 if (isMainThread || !parentPort) {
   throw new VitestNativeError("HOT_WORKER_ENV", "hot worker entry must run in node:worker_threads");
@@ -70,8 +70,9 @@ installKnownNativeModules(projectRoot);
 // worker keeps resident, and a preload that bypassed the registry would leave the
 // worker holding a second, separate copy of RN's singletons from the one every
 // test file sees.
-if (context.registry) {
-  installRegistry(context.registry, projectRoot, sourceExts, context.libraryRegistry);
+const registryFile = activeRegistry(context);
+if (registryFile) {
+  installRegistry(registryFile, projectRoot, sourceExts, context.libraryRegistry);
 }
 installRequireHooks(
   projectRoot,

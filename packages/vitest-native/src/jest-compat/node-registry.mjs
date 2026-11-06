@@ -23,7 +23,7 @@ import {
 } from "../native/resolve.mjs";
 import { resetEvaluatedModules, restoreEvaluatedModules } from "../native/module-reset.mjs";
 import { VitestNativeError } from "../errors.mjs";
-import { projectContext } from "../context.mjs";
+import { activeRegistry, projectContext } from "../context.mjs";
 import { nodeDispatch } from "../node-dispatch.mjs";
 import { jestMockInterop } from "./interop.mjs";
 import { owningPackageOfFile, packageNameOf } from "../native/match.mjs";
@@ -135,7 +135,7 @@ class WatchedMap extends Map {
 function createState() {
   const rootFile = path.join(config.projectRoot, "package.json");
   const rootParent = parentModuleFor(rootFile);
-  const registryFile = context?.registry;
+  const registryFile = activeRegistry(context);
   const realRegistryFile = registryFile ? canonical(registryFile) : null;
   const exts = sourceExts.length > 0 ? sourceExts : undefined;
   const platformFile = (base) => {

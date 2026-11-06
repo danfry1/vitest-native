@@ -13,6 +13,7 @@ const KNOWN_OPTIONS = [
   "transform",
   "hotRuntime",
   "nativeModules",
+  "registryBuild",
   "ownership",
   "experimental",
 ];
@@ -102,6 +103,16 @@ export function validateOptions(options: Record<string, unknown>): void {
     options.platform !== "android"
   ) {
     throw new VitestNativeTypeError("INVALID_OPTION", `"platform" must be "ios" or "android".`);
+  }
+  if (
+    options.registryBuild !== undefined &&
+    options.registryBuild !== "background" &&
+    options.registryBuild !== "wait"
+  ) {
+    throw new VitestNativeTypeError(
+      "INVALID_OPTION",
+      `"registryBuild" must be "background" or "wait".`,
+    );
   }
   if (
     options.nativeModules !== undefined &&
