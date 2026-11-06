@@ -16,7 +16,16 @@ export type DualEvaluationRoute =
   | "node-owned-source"
   | "installed-package"
   | "node-esm"
+  | "installed-typescript"
   | "vite-inline";
+
+/** Where Node's load began: the first file of its chain that Node loaded from outside. */
+export interface DualEvaluationCause {
+  readonly route: DualEvaluationRoute;
+  readonly file: string;
+}
+
+export declare const OWNERSHIP_ROUTES: Record<DualEvaluationRoute, { label: string; fix: string }>;
 
 export interface DualEvaluation {
   readonly code: "SOURCE_EVALUATED_TWICE";
@@ -24,6 +33,7 @@ export interface DualEvaluation {
   readonly first: "node" | "vite";
   readonly second: "node" | "vite";
   readonly route: DualEvaluationRoute;
+  readonly cause: DualEvaluationCause;
   readonly via: NodeEvaluation["via"];
   readonly owner: "vite" | "node" | "vitest-default" | null;
   readonly message: string;
