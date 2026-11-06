@@ -26,12 +26,12 @@ import { HOT_RUNTIME_NOTE } from "./init.js";
 import {
   booleanFlag,
   jestMajor,
-  loadJestPreset,
   parseJestScript,
   translateDiscovery,
   type JestDiscoveryOptions,
   type JestScriptFlags,
 } from "./jest-discovery.js";
+import { resolveJestPreset, withPresetSettings } from "./jest-preset.js";
 import {
   babelRecipe,
   classifyBabelPlugins,
@@ -272,7 +272,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
   const explicitConfig = scriptFlags?.flags.get("config") ?? scriptFlags?.flags.get("c");
   const {
     source,
-    config,
+    config: projectConfig,
     error: configError,
   } = loadJestConfig(root, typeof explicitConfig === "string" ? explicitConfig : undefined);
   const automatic: string[] = [];
@@ -300,7 +300,18 @@ export function analyzeJestConfig(root: string): MigrationReport {
   let needsUrlImport = false;
   // Options for the reactNative() call, besides `transform`.
   const pluginOptions: string[] = [];
-  const jestPreset = typeof config?.preset === "string" ? config.preset : undefined;
+  // The preset's settings sit under the project's, as Jest merges them; a local preset
+  // that spreads a known one is translated as that preset (jest-preset.ts).
+  const resolvedPreset =
+    typeof projectConfig?.preset === "string"
+      ? resolveJestPreset(root, projectConfig.preset)
+      : undefined;
+  const presetKeys = Object.keys(resolvedPreset?.own ?? {});
+  const config: JestConfig | null =
+    projectConfig && resolvedPreset && presetKeys.length
+      ? withPresetSettings(projectConfig, resolvedPreset.own)
+      : projectConfig;
+  const jestPreset = resolvedPreset?.name;
   const fromJestExpo = /^jest-expo(\/(ios|android|universal))?$/.test(jestPreset ?? "");
 
   // jest-expo mocks Expo's native modules but not React Navigation, so its suites
@@ -341,9 +352,11 @@ export function analyzeJestConfig(root: string): MigrationReport {
     };
 
     // preset
-    const preset = take<string>("preset");
+    take("preset");
+    const preset = resolvedPreset?.name;
+    const label = resolvedPreset?.label;
     if (preset === "react-native" || preset === "@react-native/jest-preset") {
-      automatic.push(`preset: '${preset}' → replaced by the reactNative() plugin.`);
+      automatic.push(`preset: ${label} → replaced by the reactNative() plugin.`);
     } else if (
       preset === "jest-expo" ||
       preset === "jest-expo/ios" ||
@@ -352,37 +365,43 @@ export function analyzeJestConfig(root: string): MigrationReport {
       const android = preset === "jest-expo/android";
       if (android) pluginOptions.push(`platform: 'android'`);
       automatic.push(
-        `preset: '${preset}' → replaced by the reactNative() plugin` +
+        `preset: ${label} → replaced by the reactNative() plugin` +
           `${android ? " with platform: 'android'" : ""}.`,
       );
-      attention.push(`preset: '${preset}' — ${expoPresetCoverage()}.`);
+      attention.push(`preset: ${label} — ${expoPresetCoverage()}.`);
     } else if (preset === "jest-expo/universal") {
       attention.push(
-        `preset: 'jest-expo/universal' runs one Jest project per platform. Define a Vitest project for each ` +
+        `preset: ${label} runs one Jest project per platform. Define a Vitest project for each ` +
           `native platform (reactNative({ platform: 'ios' }) and reactNative({ platform: 'android' })); ` +
           `its web and node projects are not React Native renders and stay outside vitest-native.`,
       );
     } else if (preset === "jest-expo/web" || preset === "jest-expo/node") {
       attention.push(
-        `preset: '${preset}' targets ${preset.slice("jest-expo/".length)}, not a React Native render; ` +
+        `preset: ${label} targets ${preset.slice("jest-expo/".length)}, not a React Native render; ` +
           `run these suites without vitest-native.`,
       );
+    } else if (preset && resolvedPreset?.loaded) {
+      attention.push(
+        `preset: ${label} — not a preset vitest-native translates by name; its settings are translated ` +
+          `below as Jest applies them, under this config's own. Review what else it did.`,
+      );
     } else if (preset) {
-      attention.push(`preset: '${preset}' — unknown preset; review what it configured.`);
+      attention.push(`preset: ${label} — unknown preset; review what it configured.`);
+    }
+    if (presetKeys.length) {
+      automatic.push(
+        `preset: ${label} also sets ${list(presetKeys)} → translated below, merged with this config's ` +
+          `own as Jest merges a preset's.`,
+      );
     }
 
     // The preset's own discovery settings (testMatch & co.) sit under the user's.
-    let presetConfig: JestDiscoveryOptions | null = null;
-    if (preset) {
-      const loaded = loadJestPreset(root, preset);
-      if ("config" in loaded) {
-        presetConfig = loaded.config;
-      } else {
-        attention.push(
-          `preset: '${preset}' could not be loaded (${loaded.error}), so its testMatch/testPathIgnorePatterns ` +
-            `could not be read; test.include falls back to Jest's defaults — compare with the preset.`,
-        );
-      }
+    const presetConfig: JestDiscoveryOptions | null = resolvedPreset?.loaded ?? null;
+    if (resolvedPreset && !resolvedPreset.loaded) {
+      attention.push(
+        `preset: ${label} could not be loaded (${resolvedPreset.loadError}), so its testMatch/testPathIgnorePatterns ` +
+          `could not be read; test.include falls back to Jest's defaults — compare with the preset.`,
+      );
     }
 
     // setup files
