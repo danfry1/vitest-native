@@ -207,7 +207,9 @@ export function setupEntryFiles(setupFiles: unknown, projectRoot: string): strin
     // canonicalDir use) and the OS's (`realpathSync.native`), which differ on Windows
     // for 8.3 short names (#399).
     if (fs.existsSync(file)) {
+      // Node's spelling (fs.realpathSync), the one Module._cache and canonicalDir use.
       files.add(fs.realpathSync(file));
+      // The OS's spelling (realpathSync.native), which differs on Windows for 8.3 short names.
       files.add(fs.realpathSync.native(file));
     }
   }

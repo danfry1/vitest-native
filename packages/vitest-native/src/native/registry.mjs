@@ -1144,6 +1144,7 @@ export function installRegistry(
   // `/var/…` tmpdir), so match the registry file by both spellings.
   let registryRealFile = registryFile;
   try {
+    // Node's spelling (fs.realpathSync): the file name Node records for the loaded registry.
     registryRealFile = fs.realpathSync(registryFile);
   } catch {
     // Just loaded, so it exists; an unresolvable path keeps the given spelling.
@@ -1230,6 +1231,7 @@ function linkLibraryRegistry(req, file, rnRegistry) {
   let spellings;
   try {
     registry = req(file)(rnRegistry.ids, rnRegistry.load);
+    // The given and Node's spelling (fs.realpathSync), as Node records a loaded file.
     spellings = new Set([file, fs.realpathSync(file)]);
   } catch (error) {
     warnRegistryUnavailable(`library registry: ${error?.message ?? error}`);

@@ -53,6 +53,7 @@ function canonicalRoot(projectRoot) {
   if (hit) return hit;
   let root;
   try {
+    // Node's spelling (fs.realpathSync): the transform cache's key, so it must stay stable.
     root = fs.realpathSync(projectRoot);
   } catch {
     root = path.resolve(projectRoot);
