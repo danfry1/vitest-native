@@ -115,6 +115,21 @@ export interface ManualMocks {
 }
 
 /**
+ * Jest's `modulePathIgnorePatterns` entry as a regular expression, with `<rootDir>` replaced
+ * by the project root as literal text: a root's own characters (`.`, `+`, Windows' `\`)
+ * are not pattern syntax. Null for a pattern that is not a valid regular expression, which
+ * then ignores nothing.
+ */
+export function ignorePattern(pattern: string, root: string): RegExp | null {
+  const literalRoot = root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  try {
+    return new RegExp(pattern.replaceAll("<rootDir>", literalRoot));
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The manual mocks Jest would apply to node_modules requests in this project: every
  * `__mocks__` file under `roots`, by name, kept when the name is not a Node core module
  * and its package is installed. `ignore` is Jest's `modulePathIgnorePatterns`, tested

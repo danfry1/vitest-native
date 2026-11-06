@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { MagicString } from "magic-string";
-import { findNodeModuleMocks, type ManualMocks } from "./root-mocks.js";
+import { findNodeModuleMocks, ignorePattern, type ManualMocks } from "./root-mocks.js";
 
 // Hoistable jest mock methods (Vitest only hoists these on the vi/vitest object).
 const HOISTABLE = new Set(["mock", "unmock", "doMock", "doUnmock"]);
@@ -226,16 +226,22 @@ export function jestMockTransform(options: JestMockTransformOptions = {}): Plugi
       const root = path.resolve(
         (test.root as string | undefined) ?? userConfig.root ?? process.cwd(),
       );
-      const ignore = (options.modulePathIgnorePatterns ?? []).map(
-        (pattern) => new RegExp(pattern.replaceAll("<rootDir>", root)),
-      );
+      const ignore = (options.modulePathIgnorePatterns ?? []).map((pattern) => {
+        const regex = ignorePattern(pattern, root);
+        if (!regex) {
+          throw new Error(
+            `[vitest-native] jestMockTransform: modulePathIgnorePatterns entry ${JSON.stringify(pattern)} is not a valid regular expression`,
+          );
+        }
+        return regex;
+      });
       const found = findNodeModuleMocks(
         (options.roots ?? ["."]).map((r) => path.resolve(root, r)),
         root,
         ignore,
       );
       if (found.mocks.length === 0 && found.duplicates.length === 0) return;
-      const id = path.join(root, ROOT_MOCKS_FILE);
+      const id = viteId(path.join(root, ROOT_MOCKS_FILE));
       rootMockModules.set(id, { root, ...found });
       // Vite documents mutating the config here where merging cannot place a value: a
       // returned setupFiles array would be appended after the project's own.
@@ -277,11 +283,11 @@ export function jestMockTransform(options: JestMockTransformOptions = {}): Plugi
       if (config.root) projectsByRoot.set(path.resolve(config.root), project);
     },
     resolveId(this: { environment?: { config?: { root?: string } } }, id: string) {
-      if (rootMockModules.has(id)) return id;
+      if (path.isAbsolute(id) && rootMockModules.has(viteId(id))) return viteId(id);
       // Vitest hands a setup file under the root to its runner root-relative.
       if (id !== `/${ROOT_MOCKS_FILE}`) return null;
       const root = this.environment?.config?.root;
-      const file = root ? path.join(path.resolve(root), ROOT_MOCKS_FILE) : null;
+      const file = root ? viteId(path.join(root, ROOT_MOCKS_FILE)) : null;
       return file && rootMockModules.has(file) ? file : null;
     },
     load(id: string) {
@@ -352,6 +358,15 @@ export interface JestMockTransformOptions {
 
 /** The generated setup module's file name, in each project's root. */
 const ROOT_MOCKS_FILE = "vitest-native.root-mocks.mjs";
+
+/**
+ * An absolute file as Vite spells a module id and an import of it: forward slashes, on
+ * Windows too. The generated module is keyed by this spelling, since it exists only as an
+ * id, and a backslash path in an import Vite resolves is not one it finds.
+ */
+function viteId(file: string): string {
+  return path.resolve(file).split(path.sep).join("/");
+}
 /** `jestCompatSetup`, as a specifier or a path to the built file. */
 const JEST_COMPAT_SETUP = /(?:^vitest-native\/jest-compat\/setup|[\\/]jest-compat[\\/]setup\.mjs)$/;
 
@@ -402,7 +417,7 @@ export function rootMocksSource(
     // with Node's registry too, so a require() of the package gets the mock, as an import
     // does. (A factory-less jest.mock reached only Vite's graph, and Vitest's own lookup
     // finds a file only in the root's top-level __mocks__.)
-    calls.push(`jest.mock(${JSON.stringify(mock.spec)}, ${manualMockFactory(mock.file)});`);
+    calls.push(`jest.mock(${jsString(mock.spec)}, ${manualMockFactory(mock.file)});`);
   }
   // The jest-compat setup first, wherever the project loads it (test.setupFiles, or an
   // import in its own setup file): an ES module runs once, so this only orders it ahead of
@@ -411,7 +426,7 @@ export function rootMocksSource(
   // order, so this one runs first.
   return (
     `import { vi } from "vitest";\n` +
-    `await vi.hoisted(async () => {\n  await import(${JSON.stringify(jestCompatSetupFile())});\n});\n` +
+    `await vi.hoisted(async () => {\n  await import(${jsString(viteId(jestCompatSetupFile()))});\n});\n` +
     `${calls.join("\n")}\nexport {};\n`
   );
 }
@@ -435,7 +450,33 @@ function jestCompatSetupFile(): string {
  * it mocks is the real one, as under Jest.
  */
 function manualMockFactory(file: string): string {
-  return `function __vnManualMock() { return jest.requireActual(${JSON.stringify(file)}); }`;
+  return `function __vnManualMock() { return jest.requireActual(${jsString(file)}); }`;
+}
+
+const UNSAFE_IN_CODE: Record<string, string> = {
+  "<": "\\u003C",
+  ">": "\\u003E",
+  "\b": "\\b",
+  "\f": "\\f",
+  "\n": "\\n",
+  "\r": "\\r",
+  "\t": "\\t",
+  "\0": "\\0",
+  "\u2028": "\\u2028",
+  "\u2029": "\\u2029",
+};
+
+/**
+ * `value` as a JavaScript string literal for generated code: JSON's escaping, plus the
+ * characters JSON leaves as they are that could end a script tag or a line in the code
+ * around it. Every string the generated code carries (a module name, a file path) goes
+ * through this, never through concatenation.
+ */
+function jsString(value: string): string {
+  return JSON.stringify(value).replace(
+    /[<>\b\f\n\r\t\0\u2028\u2029]/g,
+    (char) => UNSAFE_IN_CODE[char] ?? char,
+  );
 }
 
 /** A file's jest.* calls, adapted (see rewrite). */
@@ -582,12 +623,13 @@ function rewrite(
     const mockStatement = topLevel.get(node);
     if (manualMock !== null && mockStatement) {
       usesSetup = true;
-      const file = JSON.stringify(manualMock);
+      // The name as written is a string literal; the generated code carries its value.
+      const name = jsString(literal);
       const original = manualMockFactory(manualMock);
-      const viaVite = `async () => (${SETUP}("__vnActualExports")(await vi.importActual(${file})))`;
-      const register = `globalThis.__vnJestMock?.(import.meta.url, ${spec}, ${original}, ${viaVite})`;
+      const viaVite = `async () => (${SETUP}("__vnActualExports")(await vi.importActual(${jsString(viteId(manualMock))})))`;
+      const register = `globalThis.__vnJestMock?.(import.meta.url, ${name}, ${original}, ${viaVite})`;
       s.prependLeft(mockStatement.start, `vi.hoisted(() => ${register});\n`);
-      s.appendLeft(specNode.end, `, () => ${SETUP}("__vnJestMocked")(import.meta.url, ${spec})`);
+      s.appendLeft(specNode.end, `, () => ${SETUP}("__vnJestMocked")(import.meta.url, ${name})`);
       return;
     }
 

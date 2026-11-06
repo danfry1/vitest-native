@@ -22,7 +22,7 @@ import {
 } from "../preset-map.js";
 import { detectEcosystemPackages } from "../native/ecosystem.js";
 import { allows, extractAllowlistPackages, type AllowlistEntry } from "./allowlist.js";
-import { findNodeModuleMocks } from "../jest-compat/root-mocks.js";
+import { findNodeModuleMocks, ignorePattern } from "../jest-compat/root-mocks.js";
 import { HOT_RUNTIME_NOTE } from "./init.js";
 import {
   booleanFlag,
@@ -929,11 +929,8 @@ export function analyzeJestConfig(root: string): MigrationReport {
   // tests/presets.test.ts), or the library runs with its own Jest setup.
   const mockRoots = jestRoots ?? ["."];
   const ignored = (jestIgnorePatterns ?? []).flatMap((pattern) => {
-    try {
-      return [new RegExp(pattern.replaceAll("<rootDir>", root))];
-    } catch {
-      return [];
-    }
+    const regex = ignorePattern(pattern, root);
+    return regex ? [regex] : [];
   });
   const manualMocks = findNodeModuleMocks(
     mockRoots.map((r) => path.resolve(root, r)),
