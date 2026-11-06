@@ -32,6 +32,7 @@ import {
   type JestDiscoveryOptions,
   type JestScriptFlags,
 } from "./jest-discovery.js";
+import { libraryResolver, onlyCallsSetUpTests, stripsOnlyReanimatedProps } from "./superseded.js";
 import {
   babelRecipe,
   classifyBabelPlugins,
@@ -328,6 +329,21 @@ export function analyzeJestConfig(root: string): MigrationReport {
     aliasEntries.push(`${JSON.stringify(key)}: ${value}`);
     return true;
   };
+  // A project file a Jest setting names (`<rootDir>/x`, `./x`, `x`), or null.
+  const projectSource = (file: string): string | null => {
+    if (/^(?:<rootDir>\/|\.\/)?node_modules\//.test(file)) return null;
+    const rel = file.replace(/^<rootDir>\/?/, "");
+    const base = path.resolve(root, rel);
+    for (const candidate of [base, `${base}.js`, `${base}.ts`]) {
+      try {
+        return fs.readFileSync(candidate, "utf8");
+      } catch {
+        // next
+      }
+    }
+    return null;
+  };
+  const reanimatedActive = active.includes("reanimated");
   const absolutePath = (relative: string) => {
     needsUrlImport = true;
     return `fileURLToPath(new URL(${JSON.stringify(relative)}, import.meta.url))`;
@@ -414,6 +430,12 @@ export function analyzeJestConfig(root: string): MigrationReport {
           presetCovered.push(
             `${key}: '${f}' — ${setupPackage}'s own test setup, which the native engine runs ` +
               `before the setup files (${LIBRARY_SETUP_FILES[setupPreset]}); delete.`,
+          );
+        } else if (reanimatedActive && onlyCallsSetUpTests(projectSource(f) ?? "")) {
+          presetCovered.push(
+            `${key}: '${f}' — only calls Reanimated's setUpTests(), whose matchers cannot see the ` +
+              `rendered style here; vitest-native registers toHaveAnimatedStyle and ` +
+              `toHaveAnimatedProps itself; delete.`,
           );
         } else if (/jest-expo/.test(f)) {
           attention.push(`${key}: '${f}' — ${expoPresetCoverage()}.`);
@@ -730,9 +752,25 @@ export function analyzeJestConfig(root: string): MigrationReport {
           );
           testEntries.push(`${vitestKey}: ${JSON.stringify(config[key])}`);
         } else if (key === "snapshotSerializers") {
-          attention.push(
-            `snapshotSerializers — Vitest uses expect.addSnapshotSerializer; vitest-native ships one for RN trees.`,
-          );
+          const serializers = Array.isArray(config[key]) ? (config[key] as unknown[]) : [];
+          const rest: string[] = [];
+          for (const entry of serializers) {
+            const code = typeof entry === "string" ? projectSource(entry) : null;
+            if (reanimatedActive && code !== null && stripsOnlyReanimatedProps(code)) {
+              presetCovered.push(
+                `snapshotSerializers '${entry}' — strips the jest* props Reanimated's real components ` +
+                  `add under Jest; the Reanimated preset's components add none; delete.`,
+              );
+            } else {
+              rest.push(String(entry));
+            }
+          }
+          if (rest.length || !serializers.length) {
+            attention.push(
+              `snapshotSerializers${rest.length ? ` ${rest.map((r) => `'${r}'`).join(", ")}` : ""} — ` +
+                `Vitest uses expect.addSnapshotSerializer; vitest-native ships one for RN trees.`,
+            );
+          }
         } else {
           dropped.push(`${key} — no vitest-native equivalent needed; dropped.`);
         }
@@ -747,6 +785,18 @@ export function analyzeJestConfig(root: string): MigrationReport {
       automatic.push(
         `Jest keeps mock calls between tests unless clearMocks is set → test.clearMocks: false ` +
           `(Vitest 5 clears them before each test by default).`,
+      );
+    }
+
+    // A library's own Jest resolver that the engine applies itself.
+    const resolver = typeof config.resolver === "string" ? config.resolver : undefined;
+    const resolverLibrary = resolver ? libraryResolver(resolver) : null;
+    if (resolverLibrary && (reanimatedActive || active.includes("worklets"))) {
+      handled.add("resolver");
+      presetCovered.push(
+        `resolver: '${resolver}' — ${resolverLibrary}'s own Jest resolver: the native engine applies ` +
+          `Reanimated's and Worklets' resolvers itself where their own mocks run, and their presets ` +
+          `replace the packages elsewhere; delete.`,
       );
     }
 
