@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import "./release-age.mjs";
-import { writeSnippets } from "./doc-snippets.mjs";
+import { HERO_RUN, HERO_TEST, heroRunLines, writeSnippets } from "./doc-snippets.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fixturesRoot = path.join(packageRoot, "consumer-tests");
@@ -241,7 +241,36 @@ function runDocSnippets(tarball) {
   addPackedDependency(fixtureRoot, tarball);
   run("npm", ["install"], fixtureRoot);
   // The fixture's own Vitest, never npx: a missing binary would resolve from the registry.
-  run(process.execPath, [path.join("node_modules", "vitest", "vitest.mjs"), "run"], fixtureRoot);
+  const vitest = path.join("node_modules", "vitest", "vitest.mjs");
+  run(process.execPath, [vitest, "run"], fixtureRoot);
+  checkHeroRun(fixtureRoot, vitest);
+}
+
+// The landing page's hero shows a test and the output of running it. Both come from here:
+// the test is a snippet file, and its output is committed beside it (HERO_RUN). This runs
+// the test alone, as a reader would, and fails when the output the page shows (the engine
+// banner, each test's line, the totals) no longer matches. VN_UPDATE_HERO_RUN=1 rewrites it.
+function checkHeroRun(fixtureRoot, vitest) {
+  const output = runCaptured(
+    process.execPath,
+    [vitest, "run", HERO_TEST, "--reporter=verbose"],
+    fixtureRoot,
+  );
+  const lines = heroRunLines(output);
+  const file = path.join(packageRoot, "../..", HERO_RUN);
+  if (process.env.VN_UPDATE_HERO_RUN === "1") {
+    fs.writeFileSync(file, `${lines.join("\n")}\n`);
+    console.log(`\nhero run: wrote ${HERO_RUN}`);
+    return;
+  }
+  const committed = fs.readFileSync(file, "utf8").trimEnd().split("\n");
+  if (lines.join("\n") !== committed.join("\n")) {
+    throw new Error(
+      `the landing page's run output (${HERO_RUN}) no longer matches a run of ${HERO_TEST}.\n` +
+        `committed:\n  ${committed.join("\n  ")}\nnow:\n  ${lines.join("\n  ")}\n` +
+        "Rerun with VN_UPDATE_HERO_RUN=1 to record the new output, and review the page.",
+    );
+  }
 }
 
 try {

@@ -30,6 +30,8 @@ export default defineConfig({
   ],
   // Icons on code-group tabs (npm, pnpm, yarn, bun) and file-name labels.
   markdown: {
+    // Quiet, low-saturation code colours in both themes, so the green accent stays rare.
+    theme: { light: 'vitesse-light', dark: 'vitesse-dark' },
     config(md) {
       md.use(groupIconMdPlugin)
     },

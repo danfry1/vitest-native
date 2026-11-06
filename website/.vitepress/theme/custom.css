@@ -171,12 +171,12 @@
 @media (min-width: 960px) {
   .VPHome .VPHero.has-image .main {
     max-width: none;
-    width: 55%;
-    flex-shrink: 1;
+    width: 46%;
+    flex-shrink: 0;
   }
   .VPHome .VPHero .image {
     order: 2;
-    margin: 0 0 0 3rem;
+    margin: 0 0 0 2.5rem;
     display: flex;
     align-items: center;
     justify-content: flex-end;
