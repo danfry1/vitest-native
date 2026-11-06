@@ -164,9 +164,9 @@ Compiles your own source with your project's Babel config where a file needs som
 - `'always'`: every project file the config applies to compiles with Babel, as under babel-jest. Slower.
 - `'never'`: Oxc only.
 
-Covered without Babel: React Native's and Expo's presets, `@babel/preset-typescript`, `preset-react`, `preset-flow` and `preset-env`, standard syntax plugins Oxc compiles, `babel-plugin-module-resolver` (its aliases map onto `resolve.alias`), and the worklets plugins, unless Reanimated runs as its own mock. An option that changes what a covered entry outputs, such as `loose`, `assumptions`, a JSX `pragma` or `importSource`, or Flow's `all`, counts as a plugin the files it affects need.
+A preset of your own that wraps React Native's or Expo's (an app preset, `@rnx-kit`'s) counts as theirs; the plugins it adds beyond them are judged one by one, like your own. Covered without Babel: React Native's and Expo's presets, `@babel/preset-typescript`, `preset-react`, `preset-flow` and `preset-env`, standard syntax plugins Oxc compiles, `babel-plugin-module-resolver` (its aliases map onto `resolve.alias`), and the worklets plugins, unless Reanimated runs as its own mock. An option that changes what a covered entry outputs, such as `loose`, `assumptions`, a JSX `pragma` or `importSource`, or Flow's `all`, counts as a plugin the files it affects need.
 
-The output stays an ES module for Vite: module transforms in the config (`@babel/plugin-transform-modules-commonjs`, `babel-plugin-dynamic-import-node`, preset-env's `modules`) and `babel-plugin-istanbul` are left out of this compile.
+The output stays an ES module for Vite: module transforms (`@babel/plugin-transform-modules-commonjs` and the others, `babel-plugin-dynamic-import-node`, preset-env's `modules`) are turned off for this compile, also inside a preset that adds them itself, and `babel-plugin-istanbul` is left out. If a plugin vitest-native does not know still writes CommonJS, the files only it applies to compile with Oxc, and one warning names it.
 
 A Babel plugin in your Vite config (such as a `babel()` entry from `@rolldown/plugin-babel`) still runs its own plugins after this one. A plugin both apply, such as the worklets plugin, finds nothing left to do the second time.
 

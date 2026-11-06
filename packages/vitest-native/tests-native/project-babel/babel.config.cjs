@@ -17,6 +17,8 @@ module.exports = {
     // Listed for Jest's CommonJS runtime, as apps do: projectBabel takes it out, so the
     // output stays an ES module for Vite.
     via("@babel/plugin-transform-modules-commonjs", presetRN),
+    // Reanimated runs as its own mock here, so its hooks need the worklets plugin.
+    require.resolve("react-native-worklets/plugin"),
   ],
   overrides: [{ test: /src[\\/]answer\.ts$/, plugins: ["./plugins/answer.cjs"] }],
 };

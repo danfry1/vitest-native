@@ -3562,7 +3562,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     project,
     defineCacheKeyGenerator,
   }: {
-    defineCacheKeyGenerator?: (generator: (context?: { id?: string }) => string) => void;
+    defineCacheKeyGenerator?: (
+      generator: (context?: { id?: string; sourceCode?: string }) => string,
+    ) => void;
     vitest: {
       version?: string;
       distPath?: string;
@@ -3669,8 +3671,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     // they may inline (projectBabel's cacheKey).
     if (cacheKey) {
       defineCacheKeyGenerator?.(
-        (context?: { id?: string }) =>
-          cacheKey + (context?.id ? (projectBabelFor(root)?.cacheKey(context.id) ?? "") : ""),
+        (context?: { id?: string; sourceCode?: string }) =>
+          cacheKey +
+          (context?.id
+            ? (projectBabelFor(root)?.cacheKey(context.id, context.sourceCode) ?? "")
+            : ""),
       );
     }
     // A project that shares a Vite server without this plugin's test config would

@@ -1,12 +1,16 @@
 // projectBabel (#579): project source that needs the project's Babel config compiles with
 // it, and only that source (tests-native/vitest.project-babel.config.mts). Every case runs
 // with Vitest's transform cache on: cold, then warm on the same cache.
-//   main native|hot|mock  passes; routes Model.js (decorators), flow.js (Flow) and
-//                         answer.ts (a local plugin), and not plain.ts.
+//   main native|hot|mock  passes; routes Model.js (decorators), flow.js (Flow), answer.ts
+//                         (a local plugin) and worklet.ts (worklets), and not plain.ts.
 //   main never            Oxc only: the decorator file fails (the control).
-//   main babel-plugin     a Babel Vite plugin is in the config: the engine still compiles
-//                         what needs the project's config.
-//   rn, expo              plain React Native and Expo configs: nothing routes.
+//   main babel-plugin     Babel Vite plugins are in the config, one running the worklets
+//                         plugin again on worklet.ts: the result is the same.
+//   rn, expo, wrap        plain React Native and Expo configs, and an app preset wrapping
+//                         React Native's: nothing routes.
+//   wrapdec               an app preset wrapping React Native's and adding decorators:
+//                         only the decorator file routes, as an ES module.
+//   cjs                   an unknown plugin writes CommonJS: Oxc instead, warned once.
 //   cache                 after a warm run, the local plugin changes: the next warm run
 //                         recompiles the file it applies to.
 import { spawnSync } from "node:child_process";
@@ -58,20 +62,20 @@ function check(label, ok, output) {
   }
 }
 
-const MAIN_ROUTED = ["src/Model.js", "src/answer.ts", "src/flow.js"].join(",");
+const MAIN_ROUTED = ["src/Model.js", "src/answer.ts", "src/flow.js", "src/worklet.ts"].join(",");
 for (const mode of ["native", "hot", "mock", "babel-plugin"]) {
   const cold = run("main", mode, `main-${mode}`);
   check(
-    `main ${mode} cold: 4 pass, routes ${MAIN_ROUTED} only`,
+    `main ${mode} cold: 5 pass, routes ${MAIN_ROUTED} only`,
     cold.status === 0 &&
-      /Tests\s+4 passed \(4\)/.test(cold.output) &&
+      /Tests\s+5 passed \(5\)/.test(cold.output) &&
       routed(cold.output).join(",") === MAIN_ROUTED,
     cold.output,
   );
   const warm = run("main", mode, `main-${mode}`);
   check(
-    `main ${mode} warm: 4 pass`,
-    warm.status === 0 && /Tests\s+4 passed \(4\)/.test(warm.output),
+    `main ${mode} warm: 5 pass`,
+    warm.status === 0 && /Tests\s+5 passed \(5\)/.test(warm.output),
     warm.output,
   );
 }
@@ -81,7 +85,7 @@ check(
   never.status === 1 && /SyntaxError/.test(never.output),
   never.output,
 );
-for (const fixture of ["rn", "expo"]) {
+for (const fixture of ["rn", "expo", "wrap"]) {
   for (const pass of ["cold", "warm"]) {
     const result = run(fixture, "native", fixture);
     check(
@@ -93,6 +97,34 @@ for (const fixture of ["rn", "expo"]) {
     );
   }
 }
+
+// An app preset wrapping React Native's adds decorators: only the decorator file routes,
+// and React Native's own module transform inside it does not make it CommonJS.
+for (const pass of ["cold", "warm"]) {
+  const result = run("wrapdec", "native", "wrapdec");
+  check(
+    `wrapdec ${pass}: passes${pass === "cold" ? ", routes src/Model.js only" : ""}`,
+    result.status === 0 &&
+      /Tests\s+2 passed \(2\)/.test(result.output) &&
+      (pass === "warm" || routed(result.output).join(",") === "src/Model.js"),
+    result.output,
+  );
+}
+
+// A plugin vitest-native does not know writes CommonJS: Oxc compiles those files instead,
+// and the run says so once, naming the preset.
+const cjs = run("cjs", "native", "cjs");
+check(
+  "cjs: an unknown plugin's CommonJS falls back to Oxc, warned once",
+  cjs.status === 0 &&
+    /Tests\s+1 passed \(1\)/.test(cjs.output) &&
+    (
+      cjs.output.match(
+        /the preset \.\/cjs-preset\.cjs \(adds custom-commonjs\) compiled \S+ to CommonJS/g,
+      ) ?? []
+    ).length === 1,
+  cjs.output,
+);
 
 // Cache: the local plugin is a file the config requires, not a package.
 const plugin = path.join(packageRoot, "tests-native", "project-babel", "plugins", "answer.cjs");

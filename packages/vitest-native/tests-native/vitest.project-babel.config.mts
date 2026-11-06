@@ -5,7 +5,11 @@
 //   main  project-babel/: decorators and class properties for every file, a local plugin
 //         for one file, Flow, and a plain file that must stay on Oxc;
 //   rn    project-babel-rn/: a bare React Native config, which must not route;
-//   expo  project-babel-expo/: an Expo config, which must not route.
+//   expo  project-babel-expo/: an Expo config, which must not route;
+//   wrap  project-babel-wrap/: an app preset wrapping React Native's, which must not route;
+//   cjs   project-babel-cjs/: an app preset adding a plugin that writes CommonJS: Oxc, warned;
+//   wrapdec  project-babel-wrapdec/: an app preset wrapping React Native's and adding
+//         decorators: only the decorator file routes, and stays an ES module.
 // --mode: native, hot, mock; never (Oxc only: the decorator file fails); babel-plugin (a
 // Babel Vite plugin is in the config, as @vitejs/plugin-react's or a babel() entry: the
 // engine still compiles what needs the project's config).
@@ -25,10 +29,33 @@ const FIXTURES: Record<string, string> = {
   main: "project-babel",
   rn: "project-babel-rn",
   expo: "project-babel-expo",
+  wrap: "project-babel-wrap",
+  cjs: "project-babel-cjs",
+  wrapdec: "project-babel-wrapdec",
 };
 
-// Stand-ins for the Babel Vite plugins a migrated app can have.
-const babelVitePlugins: Plugin[] = [{ name: "vite:react-babel" }, { name: "babel" }];
+// The Babel Vite plugins a migrated app can have: @vitejs/plugin-react's name, and a
+// babel() entry that runs the worklets plugin, as #581's wiring does, on the worklet file
+// projectBabel has already compiled with it.
+const babel = require("@babel/core");
+const workletsPlugin = require.resolve("react-native-worklets/plugin");
+const babelVitePlugins: Plugin[] = [
+  { name: "vite:react-babel" },
+  {
+    name: "babel",
+    async transform(code, id) {
+      if (!/[\\/]project-babel[\\/]src[\\/]worklet\.ts$/.test(id)) return undefined;
+      const out = await babel.transformAsync(code, {
+        filename: id,
+        babelrc: false,
+        configFile: false,
+        sourceMaps: true,
+        plugins: [workletsPlugin],
+      });
+      return { code: out.code, map: out.map };
+    },
+  },
+];
 
 // @babel/runtime, which React Native's preset imports helpers from: an app depends on it,
 // this package reaches it through react-native.
@@ -41,7 +68,7 @@ const babelRuntime = path.dirname(
 export default defineConfig(({ mode }) => {
   if (!MODES.includes(mode)) throw new Error(`run with --mode ${MODES.join(", ")} (got '${mode}')`);
   const fixture = FIXTURES[process.env.VN_PROJECT_BABEL_FIXTURE ?? "main"];
-  if (!fixture) throw new Error("VN_PROJECT_BABEL_FIXTURE must be main, rn or expo");
+  if (!fixture) throw new Error("VN_PROJECT_BABEL_FIXTURE must be main, rn, expo, wrap, cjs or wrapdec");
   return {
     root: path.join(here, fixture),
     plugins: [

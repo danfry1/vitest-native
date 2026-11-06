@@ -51,17 +51,13 @@ describe("classifyProjectBabelEntry: which entries matter (#579)", () => {
     expect(trigger("babel-preset-expo", "preset", { jsxImportSource: "nativewind" })).toBe(
       "babel-preset-expo's `jsxImportSource`",
     );
+    // NativeWind compiles every JSX element, with or without className.
     expect(
       appliesTo("babel-preset-expo", "preset", { jsxImportSource: "nativewind" }, "<View />"),
-    ).toBe(false);
-    expect(
-      appliesTo(
-        "babel-preset-expo",
-        "preset",
-        { jsxImportSource: "nativewind" },
-        '<View className="p-2" />',
-      ),
     ).toBe(true);
+    expect(
+      appliesTo("babel-preset-expo", "preset", { jsxImportSource: "nativewind" }, "const a = 1;"),
+    ).toBe(false);
     expect(trigger("@babel/preset-env", "preset", { loose: true })).toBe(
       "@babel/preset-env's `loose` option",
     );
@@ -151,6 +147,15 @@ describe("configItemName", () => {
         "plugin",
       ),
     ).toBe("@babel/plugin-proposal-decorators");
+    expect(
+      configItemName(
+        { file: { request: "/a/node_modules/react-native-worklets/plugin/index.js" } },
+        "plugin",
+      ),
+    ).toBe("react-native-worklets/plugin");
+    expect(
+      configItemName({ file: { request: "/a/node_modules/babel-plugin-x/index.js" } }, "plugin"),
+    ).toBe("babel-plugin-x");
     expect(configItemName({ file: { request: "macros" } }, "plugin")).toBe("babel-plugin-macros");
     expect(configItemName({ file: { request: "./plugins/a.cjs" } }, "plugin")).toBe(
       "./plugins/a.cjs",
@@ -190,5 +195,67 @@ describe("the transform-cache key includes the project's Babel config", () => {
     expect(babelConfigFingerprint(root)).not.toBe(first);
     expect(fsModuleCacheKey(own, root, {})).not.toBe(withConfig);
     fs.rmSync(root, { recursive: true, force: true });
+  });
+});
+
+describe("source tests: the misses review found (#597)", () => {
+  const decorators = (source: string) =>
+    appliesTo("@babel/plugin-proposal-decorators", "plugin", { legacy: true }, source);
+  it("finds decorators anywhere an expression can start", () => {
+    expect(decorators("export default @observer class Store {}")).toBe(true);
+    expect(decorators("class A {\n  @ field() name;\n}")).toBe(true);
+    expect(decorators("class A { @field('x') a; @field('y') b; }")).toBe(true);
+  });
+  it("does not take a JSDoc tag, an e-mail address or a string for a decorator", () => {
+    expect(decorators("/**\n * @param a\n */\nexport const f = (a) => a;")).toBe(false);
+    expect(decorators("// see @deprecated\nconst a = 1;")).toBe(false);
+    expect(decorators("const mail = 'a@b.com';")).toBe(false);
+    expect(decorators("import { API } from '@env';")).toBe(false);
+    expect(decorators("fetch('https://x.io/@user')")).toBe(false);
+  });
+  it("finds generic and implementing classes, not the word in a comment", () => {
+    const loose = (source: string) =>
+      appliesTo("@babel/plugin-transform-class-properties", "plugin", { loose: true }, source);
+    expect(loose("class A<T> {\n  a = 1;\n}")).toBe(true);
+    expect(loose("class A implements B {\n  a = 1;\n}")).toBe(true);
+    expect(loose("export default class extends Base {}")).toBe(true);
+    expect(loose("/* a class here */ const a = 1;")).toBe(false);
+  });
+  it("finds macro modules in each form", () => {
+    const macro = (source: string) => appliesTo("babel-plugin-macros", "plugin", undefined, source);
+    expect(macro("import t from 'x.macro'")).toBe(true);
+    expect(macro("import t from 'x.macro.js'")).toBe(true);
+    expect(macro("import t from 'lib/macro'")).toBe(true);
+    expect(macro("import t from 'lib/macro/index'")).toBe(true);
+    expect(macro("import t from 'macroeconomics'")).toBe(false);
+  });
+  it("classifies the common plugins by what they touch", () => {
+    expect(trigger("@babel/plugin-transform-runtime", "plugin", { helpers: true })).toBeNull();
+    expect(
+      appliesTo("babel-plugin-transform-remove-console", "plugin", undefined, "console.log(1)"),
+    ).toBe(true);
+    expect(appliesTo("babel-plugin-transform-remove-console", "plugin", undefined, "log(1)")).toBe(
+      false,
+    );
+    expect(
+      appliesTo("@tamagui/babel-plugin", "plugin", {}, "import { Stack } from 'tamagui'"),
+    ).toBe(true);
+    expect(
+      appliesTo("@tamagui/babel-plugin", "plugin", {}, "import { View } from 'react-native'"),
+    ).toBe(false);
+    expect(
+      appliesTo(
+        "react-native-paper/babel",
+        "plugin",
+        undefined,
+        "import { Button } from 'react-native-paper'",
+      ),
+    ).toBe(true);
+    expect(appliesTo("@babel/preset-typescript", "preset", { jsxPragma: "h" }, "<View />")).toBe(
+      true,
+    );
+    expect(
+      appliesTo("@babel/preset-typescript", "preset", { jsxPragma: "h" }, "const a = 1;"),
+    ).toBe(false);
   });
 });
