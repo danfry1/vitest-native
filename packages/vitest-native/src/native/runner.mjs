@@ -14,7 +14,6 @@ import { VitestNativeError } from "../errors.mjs";
 import { describeProblems, residentProblems } from "./resident-health.mjs";
 import NativeTestRunner from "./test-runner.mjs";
 
-
 export default class NativeHotRunner extends NativeTestRunner {
   // Fires once per test file, before its setup files and its own modules are
   // imported — the point where Vitest resets the module graph when isolation is on.

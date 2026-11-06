@@ -14,19 +14,34 @@ const config = path.join("tests-native", "vitest.compile-error.config.mts");
 
 let failed = false;
 for (const mode of ["native", "hot", "mock"]) {
-  const result = spawnSync(process.execPath, [vitestEntry, "run", "--config", config, "--mode", mode], {
-    cwd: packageRoot,
-    encoding: "utf8",
-    env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0" },
-  });
+  const result = spawnSync(
+    process.execPath,
+    [vitestEntry, "run", "--config", config, "--mode", mode],
+    {
+      cwd: packageRoot,
+      encoding: "utf8",
+      env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0" },
+    },
+  );
   const output = `${result.stdout}\n${result.stderr}`;
-  const located = /SyntaxError: Invalid or unexpected token \(.*[\\/]compile-error[\\/]Subscription\.js:12:3\)/.test(output);
+  const located =
+    /SyntaxError: Invalid or unexpected token \(.*[\\/]compile-error[\\/]Subscription\.js:12:3\)/.test(
+      output,
+    );
   const framed = /12 \|\s+@field\("name"\) name;\n\s+\^/.test(output);
   const ok = result.status === 1 && located && framed;
-  console.log(`${ok ? "✓" : "✗"} ${mode}: exit ${result.status}, location ${located}, frame ${framed}`);
+  console.log(
+    `${ok ? "✓" : "✗"} ${mode}: exit ${result.status}, location ${located}, frame ${framed}`,
+  );
   if (!ok) {
     failed = true;
-    console.log(output.split("\n").filter((l) => /FAIL|Error|\|/.test(l)).slice(0, 12).join("\n"));
+    console.log(
+      output
+        .split("\n")
+        .filter((l) => /FAIL|Error|\|/.test(l))
+        .slice(0, 12)
+        .join("\n"),
+    );
   }
 }
 if (failed) process.exit(1);

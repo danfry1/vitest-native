@@ -1,4 +1,4 @@
-import MagicString from "magic-string";
+import { MagicString } from "magic-string";
 import { describe, expect, it } from "vitest";
 import { originalPosition, withCompileLocation } from "../src/native/compile-error.mjs";
 
