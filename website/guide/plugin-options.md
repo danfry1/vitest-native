@@ -24,7 +24,7 @@ reactNative({
 
 Which engine to use. See [Choosing an Engine](/guide/engines) for the full breakdown.
 
-- `'auto'` *(default)* — native when a React Native Babel preset (`@react-native/babel-preset`, or Expo's in an Expo app) + `@babel/core` are present, else mock with a one-line notice.
+- `'auto'` *(default)* — native when a React Native Babel preset (`@react-native/babel-preset`, or else Expo's) + `@babel/core` are present, else mock with a one-line notice.
 - `'native'` — force real React Native; mock only the native boundary.
 - `'mock'` — force the fast pure-JS mock.
 

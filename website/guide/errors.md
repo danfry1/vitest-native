@@ -22,7 +22,7 @@ The Node running Vitest is one vitest-native does not support: older than 22.22.
 
 ### `ENGINE_REQUIRES_BABEL` {#ENGINE_REQUIRES_BABEL}
 
-`engine: 'native'` was requested, but `react-native`, a React Native Babel preset (`@react-native/babel-preset`, or Expo's own in an Expo app) or `@babel/core` does not resolve from the project. React Native and Expo apps ship all three; install what the message lists as missing, or use `engine: 'auto'` to fall back to the mock engine. See [Installation](/guide/install).
+`engine: 'native'` was requested, but `react-native`, a React Native Babel preset (`@react-native/babel-preset`, or else Expo's own) or `@babel/core` does not resolve from the project. React Native and Expo apps ship all three; install what the message lists as missing, or use `engine: 'auto'` to fall back to the mock engine. See [Installation](/guide/install).
 
 ### `UNSUPPORTED_PEER` {#UNSUPPORTED_PEER}
 

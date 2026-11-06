@@ -11,7 +11,7 @@
 // names a tracked .md file (by basename, since tests build paths with path.join). A new
 // test that reads a page is picked up without editing anything. Over-matching is cheap
 // (a test that only names README.md also runs), under-matching is the failure mode, so
-// the run also requires the three known readers to be found. Tests that name the site's
+// the run also requires the known readers to be found. Tests that name the site's
 // config under website/.vitepress/ qualify too.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -56,6 +56,7 @@ const KNOWN = [
   "versioning-contract.test.ts",
   "docs-presets-sync.test.ts",
   "documented-config.test.ts",
+  "site-meta.test.ts",
 ];
 const lost = KNOWN.filter((file) => !readers.includes(file));
 if (lost.length > 0) {

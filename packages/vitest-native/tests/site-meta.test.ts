@@ -30,6 +30,14 @@ describe("social card", () => {
     });
   }
 
+  it("is a 1200×630 image, the size the card's meta states", () => {
+    const [image] = metaContent(config, "og:image");
+    const file = fs.readFileSync(path.join(PUBLIC, image.slice(SITE_URL.length)));
+    // A PNG's IHDR chunk holds its width and height at bytes 16 and 20.
+    expect(file.subarray(1, 4).toString("latin1")).toBe("PNG");
+    expect([file.readUInt32BE(16), file.readUInt32BE(20)]).toEqual([1200, 630]);
+  });
+
   it("states the card's size and describes it", () => {
     expect(metaContent(config, "og:image:width")).toEqual(["1200"]);
     expect(metaContent(config, "og:image:height")).toEqual(["630"]);
