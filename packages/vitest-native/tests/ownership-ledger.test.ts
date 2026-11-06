@@ -87,6 +87,17 @@ describe("the ledger", () => {
     expect(warnings[1]).toContain("ownershipModel: 'resolution'");
   });
 
+  it("stops at a parent whose record is no longer live, as under the hot runtime", () => {
+    const A = "/repo/app/src/a.ts";
+    const B = "/repo/app/src/b.ts";
+    // A's record is from an earlier hot generation: not live, so not B's origin.
+    const { ledger } = ledgerWith({ nodeLive: (record) => record.filename !== A });
+    ledger.recordNode(A, { via: "cjs", parent: "/repo/app/src/a.test.ts" });
+    ledger.recordNode(B, { via: "cjs", parent: A });
+    ledger.recordVite(nodeKey(B), B);
+    expect(ledger.conflicts.map((c) => c.cause.file)).toEqual([B]);
+  });
+
   it("does not walk past a parent the policy gives Node, which is the cause itself", () => {
     const LIB = "/repo/packages/feature/src/index.ts";
     const { ledger } = ledgerWith({
@@ -664,6 +675,50 @@ describe("the plugin's side of the guard", () => {
     expect(text).toContain("fix: Vitest's `require`");
     // One line per cause, not per file.
     expect(text.split("\n").length).toBeLessThan(10);
+  });
+
+  it("groups error mode's findings, read from its messages, as warn mode groups them", () => {
+    // One require pulls in three files (the chain the warn-mode grouping test uses).
+    const TEST = "/repo/app/src/provider.test.tsx";
+    const chain = ["/repo/app/src/schema.ts", "/repo/app/src/a.ts", "/repo/app/src/b.ts"];
+    const run = (mode: "warn" | "error") => {
+      const { ledger } = ledgerWith({ mode });
+      ledger.recordNode(chain[2], { via: "cjs", parent: chain[1] });
+      ledger.recordNode(chain[1], { via: "cjs", parent: chain[0] });
+      ledger.recordNode(chain[0], { via: "cjs", parent: TEST });
+      const errors: { message: string }[] = [];
+      for (const file of chain) {
+        try {
+          ledger.recordVite(nodeKey(file), file);
+        } catch (error) {
+          errors.push({ message: (error as Error).message });
+        }
+      }
+      const written: string[] = [];
+      const reporter = new OwnershipSummaryReporter(
+        () => [],
+        (text) => written.push(text),
+      );
+      reporter.onTestRunStart();
+      reporter.onTestModuleEnd(
+        mode === "warn"
+          ? {
+              moduleId: TEST,
+              meta: () => ({
+                vitestNativeOwnership: { mode, conflicts: ledger.conflicts, allowUsed: [] },
+              }),
+            }
+          : { moduleId: TEST, meta: () => ({}), errors: () => errors },
+      );
+      reporter.onTestRunEnd();
+      return written.join("").replace(/\((?:warning|failed)[^\n]*?\), from/, "(mode), from");
+    };
+    const warn = run("warn");
+    expect(warn).toContain("from 1 cause(s)");
+    expect(warn).toMatch(
+      /schema\.ts, loaded by Node through require\(\) in a file Vite evaluated: 3 file\(s\)/,
+    );
+    expect(run("error")).toBe(warn);
   });
 
   it("reports each watch-mode run's findings, not every run's so far", () => {

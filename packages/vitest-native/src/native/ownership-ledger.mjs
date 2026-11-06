@@ -260,7 +260,8 @@ export function createOwnershipLedger({
       const parent = entry.parent;
       if (typeof parent !== "string" || NODE_MODULES_PATH.test(parent)) return entry;
       if (ownerOf(parent)?.owner === "node") return entry;
-      const up = node.get(nodeKey(parent))?.at(-1);
+      // A live copy only: under the hot runtime an earlier generation's record can remain.
+      const up = liveNode(nodeKey(parent));
       if (up === undefined || seen.has(up)) return entry;
       seen.add(up);
       entry = up;

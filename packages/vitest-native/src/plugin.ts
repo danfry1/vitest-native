@@ -1858,12 +1858,17 @@ export class OwnershipSummaryReporter {
           error.message ?? "",
         );
         if (!match) continue;
-        const label = /route\s+-> (.+)/.exec(error.message ?? "")?.[1] ?? "while collecting";
+        // Grouped by the cause, as in warn mode: the origin and its route when the message
+        // names one, else the file and its own route.
+        const origin = /origin\s+-> (.+?), which Node loaded through (.+?), and which loaded/.exec(
+          error.message ?? "",
+        );
+        const label =
+          origin?.[2] ?? /route\s+-> (.+)/.exec(error.message ?? "")?.[1] ?? "while collecting";
         const route =
           Object.entries(OWNERSHIP_ROUTES).find(([, r]) => r.label === label)?.[0] ?? label;
-        const origin = /origin\s+-> (.+?), which Node loaded/.exec(error.message ?? "")?.[1];
         this.mode = "error";
-        this.add(route, origin ?? match[1], match[1], test);
+        this.add(route, origin?.[1] ?? match[1], match[1], test);
       }
       return;
     }
