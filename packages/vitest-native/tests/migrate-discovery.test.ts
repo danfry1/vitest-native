@@ -1008,6 +1008,12 @@ test('import-time mock calls survive', () => { expect(loaded).toHaveBeenCalledTi
           "import { test, expect } from 'vitest'\nimport { value } from '~e2e/helpers/data'\n" +
           "test('alias', () => { expect(value).toBe(42) })\n",
         "src/__tests__/testHelpers.test.ts": "throw new Error('Jest never ran this file')\n",
+        // A bare `~e2e` is not under the mapper's pattern; Jest resolved it as a package.
+        "node_modules/~e2e/package.json": { name: "~e2e", main: "index.js" },
+        "node_modules/~e2e/index.js": "module.exports = { bare: true }\n",
+        "src/__tests__/bare.test.ts":
+          "import { test, expect } from 'vitest'\nimport pkg from '~e2e'\n" +
+          "test('bare', () => { expect(pkg.bare).toBe(true) })\n",
       });
       const modules = path.join(root, "node_modules");
       fs.mkdirSync(modules, { recursive: true });
@@ -1034,7 +1040,7 @@ test('import-time mock calls survive', () => { expect(loaded).toHaveBeenCalledTi
         env: { ...process.env, CI: "1" },
       });
       expect(run.status, run.stdout + run.stderr).toBe(0);
-      expect(run.stdout).toContain("1 passed");
+      expect(run.stdout).toContain("2 passed");
     },
     120_000,
   );

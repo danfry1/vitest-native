@@ -370,11 +370,16 @@ describe("migrate", () => {
       }),
     );
     const config = report.suggestedConfig;
-    expect(config).toContain(`"~e2e": fileURLToPath(new URL("./e2e", import.meta.url))`);
+    // Anchored as Jest's patterns are: a bare `~e2e` import is not rewritten.
     expect(config).toContain(
-      `"~/.rnstorybook": fileURLToPath(new URL("./.rnstorybook", import.meta.url))`,
+      `{ find: /^~e2e\\/(.*)$/, replacement: fileURLToPath(new URL("./e2e", import.meta.url)) + "/$1" }`,
     );
-    expect(config).toContain(`"@app": fileURLToPath(new URL("./app", import.meta.url))`);
+    expect(config).toContain(
+      `{ find: /^~\\/\\.rnstorybook\\/(.*)$/, replacement: fileURLToPath(new URL("./.rnstorybook", import.meta.url)) + "/$1" }`,
+    );
+    expect(config).toContain(
+      `{ find: /^@app\\/(.+)$/, replacement: fileURLToPath(new URL("./app", import.meta.url)) + "/$1" }`,
+    );
     const attention = report.attention.join("\n");
     expect(attention).toContain("moduleNameMapper '^(.*)/native$'");
     expect(config).not.toContain("some-ui-lib");

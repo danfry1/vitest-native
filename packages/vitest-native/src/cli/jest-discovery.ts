@@ -116,7 +116,7 @@ export function loadJestPreset(
  */
 export function ignorePatternToGlobs(
   pattern: string,
-  directories?: readonly string[],
+  directories?: readonly string[] | (() => readonly string[]),
 ): string[] | null {
   let rest = pattern;
   let anchored = false;
@@ -143,7 +143,7 @@ function expansionToGlobs(
   expansion: string,
   anchored: boolean,
   endAnchored: boolean,
-  directories: readonly string[] | undefined,
+  directories: readonly string[] | (() => readonly string[]) | undefined,
 ): string[] | null {
   let s = expansion;
   // Characters picomatch reads as syntax (classes, braces, extglob parens, negation,
@@ -163,7 +163,8 @@ function expansionToGlobs(
   if (endAnchored) {
     if (s.endsWith("/")) return [];
     if (!directories || s.includes(STAR)) return null;
-    if (directories.some((dir) => (anchored ? `/${dir}` === s : `/${dir}`.endsWith(s)))) {
+    const dirs = typeof directories === "function" ? directories() : directories;
+    if (dirs.some((dir) => (anchored ? `/${dir}` === s : `/${dir}`.endsWith(s)))) {
       return null;
     }
     return [anchored ? s.slice(1) : s.startsWith("/") ? `**/${s.slice(1)}` : `**/*${s}`];
@@ -213,7 +214,7 @@ export function translateDiscovery(
   options: JestDiscoveryOptions,
   preset: JestDiscoveryOptions | null,
   major: 29 | 30 | null,
-  directories?: readonly string[],
+  directories?: () => readonly string[],
 ): DiscoveryResult {
   const defaults = JEST_DEFAULTS[major ?? 30];
   const automatic: string[] = [];
@@ -467,7 +468,8 @@ export function booleanFlag(value: string | true | undefined): boolean | undefin
 
 /**
  * The project's directories, root-relative with `/`, as Vitest walks them: outside
- * node_modules and .git (configDefaults.exclude), symlinks not followed.
+ * node_modules and .git (configDefaults.exclude). A symlink to a directory is listed
+ * (tinyglobby follows it) but not walked into.
  */
 export function projectDirectories(root: string): string[] {
   const dirs: string[] = [];
@@ -479,10 +481,18 @@ export function projectDirectories(root: string): string[] {
       return;
     }
     for (const entry of entries) {
-      if (!entry.isDirectory() || entry.name === "node_modules" || entry.name === ".git") continue;
+      if (entry.name === "node_modules" || entry.name === ".git") continue;
       const child = rel ? `${rel}/${entry.name}` : entry.name;
-      dirs.push(child);
-      walk(child);
+      if (entry.isDirectory()) {
+        dirs.push(child);
+        walk(child);
+      } else if (entry.isSymbolicLink()) {
+        try {
+          if (fs.statSync(path.join(root, child)).isDirectory()) dirs.push(child);
+        } catch {
+          // a dangling link
+        }
+      }
     }
   };
   walk("");

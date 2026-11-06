@@ -221,14 +221,17 @@ function exactMapperKey(pattern: string): string | null {
  * alias: the literal prefix (escapes read as literals, as exactMapperKey reads them)
  * and the project-relative target directory, or null.
  */
-function prefixMapper(pattern: string, target: unknown): { key: string; dir: string } | null {
-  const m = /^\^(.+)\/\((?:\.\*|\.\+)\)\$?$/.exec(pattern);
+function prefixMapper(
+  pattern: string,
+  target: unknown,
+): { key: string; dir: string; rest: string } | null {
+  const m = /^\^(.+)\/\((\.\*|\.\+)\)\$?$/.exec(pattern);
   if (!m || typeof target !== "string") return null;
   const expansions = tryExpand(m[1], true);
   if (expansions?.length !== 1 || expansions[0].includes(STAR)) return null;
   const t = /^(<rootDir>|\.)(\/.*)?\/\$1$/.exec(target);
   if (!t || target.indexOf("$") !== target.length - 2) return null;
-  return { key: expansions[0], dir: `.${t[2] ?? ""}` };
+  return { key: expansions[0], dir: `.${t[2] ?? ""}`, rest: m[2] };
 }
 
 /** `pkg` and `/sub` of a bare specifier (scope-aware). */
@@ -461,7 +464,9 @@ export function analyzeJestConfig(root: string): MigrationReport {
         // itself (DEFAULT_ASSET_EXTS, the list plugin.ts uses), and said per extension.
         const assetGroup = /\\\.\(\??:?([a-z0-9|]+)\)\$?$/i.exec(pattern);
         const literal = exactMapperKey(pattern);
+        // `@/`, `~/` and `src/` keep the string alias below: nothing imports them bare.
         const prefix = assetGroup ? null : prefixMapper(pattern, target);
+        const plainPrefix = prefix && !["@", "~", "src"].includes(prefix.key) ? prefix : null;
         if (assetGroup) {
           const exts = assetGroup[1].toLowerCase().split("|");
           const missing = exts.filter((e) => !DEFAULT_ASSET_EXTS.includes(e));
@@ -476,11 +481,18 @@ export function analyzeJestConfig(root: string): MigrationReport {
                 `the extensions the plugin handles by default → reactNative({ assetExts: ${JSON.stringify(missing)} }).`,
             );
           }
-        } else if (prefix) {
-          // Vite resolves string-substituted aliases relative to the IMPORTER, so the
-          // directory is emitted as an absolute path.
-          addAlias(prefix.key, absolutePath(prefix.dir));
-          automatic.push(`moduleNameMapper '${pattern}' → resolve.alias (absolute path).`);
+        } else if (plainPrefix) {
+          // A RegExp `find` anchored as Jest's pattern is: a string key would also take
+          // the bare specifier (`utils` for `^utils/(.*)$`), which Jest leaves to the
+          // package. The directory is absolute: Vite resolves a substituted alias
+          // relative to the importer.
+          const find = `${regexLiteral(plainPrefix.key).slice(0, -2)}\\/(${plainPrefix.rest})$/`;
+          regexAliases.push(
+            `{ find: ${find}, replacement: ${absolutePath(plainPrefix.dir)} + "/$1" }`,
+          );
+          automatic.push(
+            `moduleNameMapper '${pattern}' → resolve.alias { find: ${find} } (absolute path).`,
+          );
         } else if (/^\^?@\/|\^~\/|\^src\//.test(pattern)) {
           const aliasKey = pattern
             .replace(/[\^$]/g, "")
@@ -697,11 +709,13 @@ export function analyzeJestConfig(root: string): MigrationReport {
       const value = take<never>(key);
       if (value !== undefined) discoveryOptions[key] = value;
     }
+    let directories: string[] | undefined;
     const discovery = translateDiscovery(
       discoveryOptions,
       presetConfig,
       jestMajor(root),
-      projectDirectories(root),
+      // Walked only if a `$`-anchored ignore pattern needs it, once.
+      () => (directories ??= projectDirectories(root)),
     );
     if (discovery.include) {
       testEntries.push(`include: [${discovery.include.map((g) => JSON.stringify(g)).join(", ")}]`);
