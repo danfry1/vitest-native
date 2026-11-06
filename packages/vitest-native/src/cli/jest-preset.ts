@@ -53,7 +53,7 @@ const isLocal = (preset: string) =>
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value);
 
-/** What `local` sets beyond `base`: new keys, changed values, appended array items, changed entries. */
+/** What `local` sets beyond `base`: new keys, changed values, array items and entries `base` lacks. */
 function beyond(
   local: Record<string, unknown>,
   base: Record<string, unknown>,
@@ -62,12 +62,9 @@ function beyond(
   for (const [key, value] of Object.entries(local)) {
     const from = base[key];
     if (isDeepStrictEqual(value, from)) continue;
-    if (
-      Array.isArray(value) &&
-      Array.isArray(from) &&
-      isDeepStrictEqual(value.slice(0, from.length), from)
-    ) {
-      own[key] = value.slice(from.length);
+    if (Array.isArray(value) && Array.isArray(from)) {
+      // Prepended, appended or removed: the known preset's own items are its translation's job.
+      own[key] = value.filter((item) => !from.some((f) => isDeepStrictEqual(f, item)));
     } else if (isPlainObject(value) && isPlainObject(from)) {
       own[key] = Object.fromEntries(
         Object.entries(value).filter(([k, v]) => !isDeepStrictEqual(v, from[k])),

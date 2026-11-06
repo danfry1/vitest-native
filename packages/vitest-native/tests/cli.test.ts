@@ -574,6 +574,11 @@ describe("migrate", () => {
       moduleNameMapper: { "^react-native-vector-icons$": "@expo/vector-icons" },
       transformIgnorePatterns: ["/node_modules/(?!(react-native|expo)/)"],
       testMatch: ["**/__tests__/**/*.[jt]s?(x)"],
+      haste: { defaultPlatform: "ios", platforms: ["android", "ios", "native"] },
+    };
+    const JEST_EXPO_ANDROID = {
+      ...JEST_EXPO,
+      haste: { defaultPlatform: "android", platforms: ["android", "native"] },
     };
     const app = (localPreset: string, jest: Record<string, unknown> = {}) =>
       analyzeJestConfig(
@@ -581,6 +586,7 @@ describe("migrate", () => {
           "package.json": { name: "x", dependencies: { expo: "57.0.0" } },
           "node_modules/jest-expo/package.json": { name: "jest-expo", version: "57.0.0" },
           "node_modules/jest-expo/jest-preset.js": `module.exports = ${JSON.stringify(JEST_EXPO)};`,
+          "node_modules/jest-expo/android/jest-preset.js": `module.exports = ${JSON.stringify(JEST_EXPO_ANDROID)};`,
           "jest.preset.js": localPreset,
           "jest.config.json": { preset: "./jest.preset.js", ...jest },
         }),
@@ -616,6 +622,26 @@ module.exports = { ...expo, setupFiles: [...expo.setupFiles, "./preset.setup.js"
       expect(report.suggestedConfig).toMatch(/"\.\/preset\.setup\.js",\s*"\.\/jest\.setup\.js"/);
       expect(report.suggestedConfig).toContain(`"@": fileURLToPath(new URL("./src"`);
       expect(report.suggestedConfig).not.toContain("jest-expo/src/preset/setup.js");
+    });
+
+    it("drops the known preset's own items wherever the local preset puts its own", () => {
+      const report = app(
+        `const expo = require("jest-expo/jest-preset.js");
+module.exports = { ...expo, setupFiles: ["./first.js", ...expo.setupFiles] };`,
+      );
+      expect(report.automatic.join("\n")).toContain(
+        "preset: './jest.preset.js' (jest-expo's preset, spread) also sets setupFiles",
+      );
+      expect(report.suggestedConfig).toContain(`"./first.js"`);
+      expect(report.suggestedConfig).not.toContain("jest-expo/src/preset/setup.js");
+    });
+
+    it("recognises the platform variant it spreads", () => {
+      const report = app(`module.exports = { ...require("jest-expo/android/jest-preset.js") };`);
+      expect(report.automatic.join("\n")).toContain(
+        "preset: './jest.preset.js' (jest-expo/android's preset, spread) → replaced by the reactNative() plugin with platform: 'android'.",
+      );
+      expect(report.suggestedConfig).toContain("platform: 'android'");
     });
 
     it("that spreads no known preset has its settings translated and is flagged", () => {

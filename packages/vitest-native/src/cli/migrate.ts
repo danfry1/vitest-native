@@ -390,8 +390,8 @@ export function analyzeJestConfig(root: string): MigrationReport {
     }
     if (presetKeys.length) {
       automatic.push(
-        `preset: ${label} also sets ${list(presetKeys)} → translated below, merged with this config's ` +
-          `own as Jest merges a preset's.`,
+        `preset: ${label} also sets ${list(presetKeys)} → each is handled below like this config's own ` +
+          `keys, merged with them as Jest merges a preset's.`,
       );
     }
 
