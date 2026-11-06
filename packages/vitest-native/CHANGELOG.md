@@ -1,5 +1,148 @@
 # vitest-native
 
+## 0.15.0
+
+### Upgrading from 0.14
+
+- **Node 22.22.3+, 24.12+ or 26+.** An older Node stops at startup with `UNSUPPORTED_NODE`.
+- **Vitest 5 and Vite 8.** Vitest 4, or Vite 6 or 7, stops at startup with `UNSUPPORTED_PEER`.
+- **React 19, React Native Testing Library 13 or 14, and React Native 0.86+ (Expo SDK 57+) for the
+  native engine.** An older React or React Native stops at startup with `UNSUPPORTED_PEER`.
+- Run `npx vitest-native doctor` to check all of these. Each entry below has the details.
+
+### Minor Changes
+
+- a107e3a: **New `vitest-native compare` runs your suite under your own Jest and under Vitest and lists every test whose result differs.** Use it while both runners are in place: `npx vitest-native compare` names each test that passes under Jest but not under Vitest, grouped by its first error, and exits 0 only when every one of them passes and `vitest run` exits 0. Neither run writes snapshots or changes project files, and `--json <file>` writes a report without stack traces or absolute paths, for attaching to an issue. See the [CLI reference](https://danfry1.github.io/vitest-native/guide/cli#compare).
+- 4271252: **Under the native engine, `react-native-gesture-handler` and `@shopify/flash-list` run as themselves, with the `jestSetup.js` each ships** before the project's setup files, as a Jest suite lists them. No action needed; to keep a preset, set `presets: { gestureHandler: true }` or `{ flashList: true }`.
+
+  - Gesture Handler 3's hook API, builder methods and test helpers work, and a `Pressable` press fires `onPress`.
+  - A `FlashList` renders a window of rows, as under Jest, where the preset rendered every row.
+  - `react-native-gesture-handler/Swipeable` and the other modules Gesture Handler 3 does not ship no longer resolve, as under Jest.
+
+- 4271252: **Under the native engine, a React Native library's own Jest setup and mocks get a `jest` with Jest's semantics.** No action needed; a suite that imports `react-native-gesture-handler/jestSetup` or `react-native-safe-area-context/jest/mock` gets what Jest gave it.
+
+  - Their `jest.mock` reaches every `require` of the module, and `jest.requireActual` and `@jest/globals` work.
+  - Implementations a library installs while building its mocks survive `vi.resetAllMocks()` and `mockReset: true`.
+  - `jest.requireActual` of a package a preset shadows returns the package, as under Jest.
+
+- ebdda39: **Breaking: vitest-native now requires Node 22.22.3+, 24.12+ or 26+, for both engines.** An unsupported Node stops at startup with `UNSUPPORTED_NODE`, naming the release to install; `vitest-native doctor` reports the same.
+
+  Update Node within your major, or move from Node 20, 23 or 25 to a supported line, including CI images and `.nvmrc` or `engines` pins. Remove `VITEST_NATIVE_LOADER_THREAD` from scripts and CI; it no longer has an effect.
+
+  - Under the native engine, a runtime without `module.registerHooks` (Bun) gets `UNSUPPORTED_NODE` too.
+  - The support policy is in `docs/versioning.md`.
+
+- dae3119: **Native engine: a file that Vite and Node both load, with both copies in use, is now reported by name, `SOURCE_EVALUATED_TWICE`, instead of silently existing twice.** No action needed. To fail on it, set `reactNative({ ownership: 'error' })`.
+
+  - The report names the file, how each side loaded it, and the fix. Exempt a deliberate case with `ownership: { allow: [{ path, reason }] }`.
+  - `require()` of a CommonJS project file a test already imported now returns that same `module.exports`.
+  - The warning, its end-of-run summary and `vitest-native doctor` link the [error reference](https://danfry1.github.io/vitest-native/guide/errors#SOURCE_EVALUATED_TWICE).
+
+- 5cad255: **Native engine: a new opt-in flag makes Vite and Node resolve a package to the same file, so one package is one module.** Add `experimental: { ownershipModel: 'resolver' }` to try it. Nothing changes without it.
+
+  - Any package with separate `import` and `require` builds, or a `react-native` field, loads one file on both sides; a JSX or Flow `react-native` field is compiled, as Metro does.
+  - RegExp aliases and tsconfig `paths` also apply to Node's `require`, including `jest.requireActual`. `NODE_PATH` applies to `require` only, as in Node.
+  - Not covered: an alias with a custom resolver or a function replacement. It is refused at startup by name. See [`experimental`](https://danfry1.github.io/vitest-native/guide/plugin-options#experimental).
+
+- 45154cf: **Native engine: `experimental: { ownershipModel: 'resolution' }` gives Node's `require` of a project file the same instance a test's `import` gets, whichever loads it first.** To try it, set the flag; it also turns on `nodeMocks`, and refuses `nodeMocks: false`.
+
+  - A file not yet evaluated is evaluated then. A `require` back into a module from inside its own evaluation gets its exports so far, as in Node and Jest.
+  - Mocks apply to what Node's `require` reaches, as to the test's imports.
+  - What cannot be served fails by name: top-level `await`, a module that throws, one still evaluating when required from elsewhere, or a mock not available synchronously (`MOCK_NOT_SEEN_BY_NODE`).
+
+- 4271252: **Under the native engine, the worklets, safe-area-context, keyboard-controller, bottom-sheet and netinfo presets are each library's own Jest mock**, as a Jest suite installs it. No action needed; snapshots of the presets' own output may change, and the mock engine keeps the hand-written presets.
+
+  - Safe-area insets are zero unless `<SafeAreaProvider initialMetrics>` sets them; `setInsets()` still sets them until `resetAllMocks()`.
+  - Bottom-sheet's views render only their children, and netinfo reports a connected cellular network.
+  - Names a preset served that a mock lacks stay: bottom-sheet's `*_STATUS` enums and footer components, netinfo's `useNetInfoInstance`.
+
+- 4271252: **Reanimated's `interpolate`, `interpolateColor` and `clamp` return real values, and its scroll and event hooks run their handlers.** No action needed; snapshots of interpolated styles may change.
+
+  - Of Reanimated's own mock, only what still answers with a no-op is replaced, so a later Reanimated whose mock does better keeps its own.
+  - Shared values take listeners, so a Gesture Handler 3 gesture configured with a shared value works.
+  - Reanimated 3.17 to 4.6 get the same fixes in the hand-written preset.
+
+- 4271252: **Under the native engine, Reanimated 4.7+ (with Worklets 0.9+) is Reanimated's own test mock**, as a Jest suite installs it with `jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'))`. No action needed; `presets: { reanimated: false }` turns it off, and older versions keep the hand-written preset.
+
+  - The hand-written preset lacked 104 of the mock's names, among them `interpolateColor`, `Keyframe`, `useScrollOffset` and most layout animations.
+  - Worklets is its own test mock too, so a test and Reanimated share one instance; its `runOnJS` and `scheduleOnRN` run a tick later, as under Jest.
+  - A setup file that calls Reanimated's `setUpTests()` keeps `toHaveAnimatedStyle` and `toHaveAnimatedProps` working; keep or delete the call.
+
+- 0a71dff: **Native engine: a cold run now starts at once instead of waiting for React Native's precompiled modules to build.** They compile in a low-priority background process.
+
+  To opt out, set `reactNative({ registryBuild: 'wait' })` to build them before the run, as before.
+
+  - Test files that start before the build lands load React Native file by file, which is slower; column numbers in React Native's stack frames can differ.
+  - CI runs and `hotRuntime` still wait. On close, a running build gets half of `teardownTimeout` to finish.
+  - Not covered: on Windows, a Vitest process killed outright can leave the compiler running for about 130 s.
+
+- 5a7f226: **Breaking: vitest-native now requires React 19 and supports React Native Testing Library 13 or 14, and the native engine requires React Native 0.86+.** An older React or React Native stops at startup with `UNSUPPORTED_PEER`, for example `react-native 0.85.3 is not supported: the native engine supports react-native 0.86–0.88`; `vitest-native doctor` reports the same.
+
+  Upgrade to React Native 0.86 or later (Expo SDK 57 or later) and React 19, and move from React Native Testing Library 12 to 13 or 14.
+
+  - Testing Library 14 makes `render`, `fireEvent` and `act` async: `await render(<App />)`.
+  - The mock engine runs on any React Native.
+  - Testing Library outside 13–14, React Native above 0.88, or an Expo SDK other than 57 and 58, warns rather than fails.
+
+- 25f0147: **Under the native engine, a test file that imports `react-native` now loads only the React Native modules it uses.** No action needed.
+
+  - Each export is read when a test uses it, as under Jest, instead of all at once on import, which loaded React Native's whole module graph.
+  - A change made to an export on the real `react-native` module is now visible through `import { … } from "react-native"` too.
+
+- 2b764f1: **Breaking: vitest-native now requires Vitest 5 and Vite 8.** Vitest 4, or Vite 6 or 7, stops at startup with `UNSUPPORTED_PEER`, naming the supported range; `vitest-native doctor` reports the same.
+
+  Install `vitest@^5` with matching `@vitest/*` packages, and `vite@^8.0.5`.
+
+  - Vitest 5 clears mocks before every test (`clearMocks: true`). A suite that asserts on calls recorded before the test started sets `test.clearMocks: false`.
+  - The plugin turns on Vitest 5's `fsModuleCache` unless the config sets `test.fsModuleCache` or `test.experimental.fsModuleCache`.
+  - Babel plugins your tests need go through `@rolldown/plugin-babel`; `@vitejs/plugin-react` 6 removed its `babel` option.
+
+### Patch Changes
+
+- a107e3a: **`vitest-native init`, `doctor` and `migrate` now refuse a flag they do not take, instead of ignoring it.** A typo such as `migrate --wirte` used to run a dry report without saying so; it now exits 1 with `✗ unknown option --wirte for migrate. Valid: --root, --help, --write, --force.` Check scripts that pass extra flags to these commands. Change any misspelled flag to one the error lists.
+- b388ce5: **`vitest-native doctor` now warns on Node 24.13.0, which can crash a test run at startup with a segmentation fault.** The crash is in V8's garbage collector on a worker thread and is intermittent. Use another Node 24 release, such as 24.14 or later; the troubleshooting guide has the details.
+- 0ed099c: **`ErrorCode` now includes `HOT_RESIDENT_UNUSABLE` and `HOT_FILE_NOT_RUN`, two codes the hot runtime already throws.**
+
+  Code that narrows `error.code` can now name them. No action needed. Every code is described in the new [error-code reference](https://danfry1.github.io/vitest-native/guide/errors).
+
+- 1c2171a: **Under the hot runtime, `@testing-library/react-native/dont-cleanup-after-each` now keeps a file's render in every file, not just the first on a worker.** A file that shares one render across its tests found it unmounted after the first test when it was not the first file its worker ran. Delete any `vi.stubEnv('RNTL_SKIP_AUTO_CLEANUP', 'true')` added as a workaround.
+- ad5d90c: **`init` and `migrate --write` say when the new config takes over from a `vite.config.*`.** Vitest reads a `vite.config.*` only when there is no `vitest.config.*`, so its plugins, `resolve` options and aliases silently stopped applying to tests. The CLI now names the file Vitest loads instead and shows how to extend it with `mergeConfig`. Under Vite+, a project with both files is told about the `vitest.config.*` that Vitest loads.
+
+  To keep the Vite config's plugins and aliases in tests, use `mergeConfig` as the CLI shows.
+
+- 8bef987: **Installs now get `magic-string` 1.4.5 (was 1.4.4), the library the `jest-compat` transform uses to hoist `jest.mock` calls in test files.**
+
+  No action needed.
+
+- 1c3e3a7: **Messages that point at documentation now link the published site.** No action needed.
+
+  - `JEST_API_UNSUPPORTED` links its entry in the error reference, and the message for a package Node cannot run links the page on untranspiled packages.
+  - `vitest-native compare`'s snapshot hints link the snapshots section of the Jest migration guide, in place of a section number the guide no longer has. Its refusals of `--jest-args` and `--vitest-args` link the `compare` reference.
+
+- 834a146: **`init --force` and `migrate --write --force` replace the config Vitest loads.** With an existing `vitest.config.ts`, they wrote `vitest.config.mts` beside it and reported it replaced, but Vitest kept loading the `.ts`, so the config did not change. They now write over the file Vitest picks first, under its own name. A CommonJS `vitest.config.cjs` or `.cts` is refused with a message instead.
+
+  No action needed.
+
+- 3ba30c4: **`vitest-native migrate` translates more of a Jest config, and lists the Reanimated settings vitest-native covers as safe to delete.** No action needed.
+
+  - A local preset such as `./jest.preset.js` is read as Jest applies it: one spreading `jest-expo` translates as `jest-expo`; one spreading no known preset is translated and flagged for review.
+  - A `'^prefix/(.*)$'` mapper becomes a `resolve.alias` for any prefix, and a `$`-anchored `testPathIgnorePatterns` literal a `test.exclude` glob when that skips no directory.
+  - Where the Reanimated preset applies, Reanimated's Jest `resolver`, a serializer that only strips animated props and a setup file that only calls `setUpTests()` are listed as covered.
+
+- 5cad255: **Native engine with `experimental: { nodeMocks: true }`: a `vi.mock` or `jest.mock` reaches modules Node loads, as `jest.mock` does under Jest.** To try it, set the flag.
+
+  - An installed package's `require` or `import` of a mocked module gets the test's mock, the same instance. This covers factories, automocks, `{ spy: true }` and `__mocks__` files.
+  - A mock Node cannot be handed synchronously fails by name, `MOCK_NOT_SEEN_BY_NODE`, instead of loading the real module. Examples are an async factory that has not settled, or a `vi.doMock` not yet applied.
+  - An installed package's TypeScript source loads once when a test both requires and imports it.
+
+- 4271252: **Under the native engine, a package whose `react-native` field and `main` name different files is one module, imported or required.** No action needed.
+
+  - A bare `require` resolves the `react-native` field, as Metro and an `import` do, for a package that depends on React Native or has a TypeScript entry. Before, a library's require and a test's import held separate copies.
+  - `jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'))` works, as under Jest.
+  - Other packages keep `main`, and `require.resolve` with `paths` is unchanged.
+
+- 499f888: **JSX in your project's own `.js` files now compiles, as Metro and babel-jest compile it.** A `jest.setup.js` that renders a provider, a `.js` test, or a `.js` component imported by a test used to fail with `Failed to parse source for import analysis`. Remove any rename to `.jsx` or `oxc.include` override added as a workaround. Files in `node_modules` are unchanged; packages that ship JSX in `.js` still go in [`transform`](https://danfry1.github.io/vitest-native/guide/plugin-options#transform).
+
 ## 0.14.1
 
 ### Patch Changes
@@ -1059,7 +1202,7 @@ Thank you to [@AntSplash360](https://github.com/AntSplash360), [@arvidtorbjoerns
   **RNTL 14 declares `test-renderer` as a non-optional peer** and reconciles through it.
   Installing RNTL 14 without it is easy — npm only warns, and any `--legacy-peer-deps`
   install is silent — and the result is that every `render()` throws `Cannot find module
-'test-renderer'`, naming no file and no package. `doctor` reported no blocking problems
+  'test-renderer'`, naming no file and no package. `doctor` reported no blocking problems
   for exactly that project. It now fails with the install command. RNTL 13 is unaffected
   and is not asked for the package it does not use.
 
@@ -1467,7 +1610,7 @@ Thank you to [@AntSplash360](https://github.com/AntSplash360), [@arvidtorbjoerns
 
   It became reachable when auto-detected React Native packages moved from Vite's graph,
   whose interop enumerates the real object at run time, into Node's. `import { useFoo }
-from 'some-rn-lib'` could then fail with "does not provide an export named", for the
+  from 'some-rn-lib'` could then fail with "does not provide an export named", for the
   hand-written CommonJS libraries auto-detection exists to support.
 
   Transformed packages are now served with the dead `0 && (module.exports = { … })`
@@ -1476,7 +1619,7 @@ from 'some-rn-lib'` could then fail with "does not provide an export named", for
   rather than from requiring the module: the ESM hook runs on the module-loader thread,
   where the CommonJS hooks that compile JSX are not installed, so requiring there fails
   outright. A module whose shape is not statically knowable (`module.exports =
-someValue`) emits no hint and keeps Node's own detection, which is no worse than
+  someValue`) emits no hint and keeps Node's own detection, which is no worse than
   before.
 
   The package budget is re-baselined to ~5% above the measured artifact, which is what
@@ -1527,7 +1670,7 @@ someValue`) emits no hint and keeps Node's own detection, which is no worse than
   React Native's Babel preset carries both `@babel/plugin-transform-flow-strip-types` and
   `babel-plugin-transform-flow-enums`, but in separate `overrides` entries that Babel
   merges into a single pass with strip-types first. It therefore deleted `export enum
-Foo {}` as if it were a type annotation, while leaving the code that referenced `Foo`
+  Foo {}` as if it were a type annotation, while leaving the code that referenced `Foo`
   in place — a module that loaded cleanly and threw `ReferenceError` on a path nothing
   had warned about. In React Native 0.86 this made `VirtualViewMode` and
   `VirtualViewRenderState` undefined when imported from `react-native`.
