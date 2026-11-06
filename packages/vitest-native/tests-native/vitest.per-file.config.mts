@@ -13,7 +13,6 @@ export default mergeConfig(base, {
       "tests-native/registry.test.ts",
       "tests-native/registry-identity.test.ts",
       "tests-native/library-registry.test.tsx",
-      "tests-native/node-dispatch-precedence.test.ts",
     ],
   },
 });
