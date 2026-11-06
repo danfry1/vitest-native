@@ -115,6 +115,17 @@ function decision(owner, format, transform, reset, reasons, evidence) {
  * caller that has already resolved the same packages from the same root passes its
  * own memoized lookup (memoizePackageDirOf) so they are not resolved again.
  */
+/**
+ * TypeScript source in an installed package (not a declaration file): Node's (#544).
+ * Node already compiles it for both a require (hooks.mjs, the `.ts`/`.tsx` handlers) and
+ * an import (loader.mjs, NODE_MODULES_TS, one CommonJS instance), but Vitest inlines a
+ * file Node cannot run as published, so Vite evaluated a second copy for an import.
+ * Externalizing it leaves the one copy Node compiles. The same extensions as Node's
+ * handlers: an `.mts` or `.cts` file has none, and stays Vitest's to decide.
+ */
+const INSTALLED_TYPESCRIPT = /[\\/]node_modules[\\/].*(?<!\.d)\.tsx?$/;
+const isInstalledTypeScript = (file) => INSTALLED_TYPESCRIPT.test(file.replace(/[?#].*$/, ""));
+
 export function createNativeOwnershipPolicy({
   projectRoot = process.cwd(),
   explicitTransforms = [],
@@ -175,6 +186,7 @@ export function createNativeOwnershipPolicy({
   const externalPatterns = [
     REACT_NATIVE_PATH,
     ...reactNativeRootPatterns,
+    INSTALLED_TYPESCRIPT,
     ...nodeTransformPackages.flatMap((name) => packagePatterns(name, root, dirOf)),
   ];
   const matchesNodeTransformedFile = buildPkgMatcher(nodeTransformPackages, root, dirOf);
@@ -298,6 +310,16 @@ export function createNativeOwnershipPolicy({
         runtimeResident
           ? ["serialized worker transform set", "CJS/ESM identity must remain stable"]
           : ["serialized worker transform set"],
+      );
+    }
+    if (isInstalledTypeScript(file)) {
+      return decision(
+        "node",
+        "package",
+        "native-babel",
+        runtimeResident ? "worker-resident" : "per-file",
+        ["installed-typescript"],
+        ["TypeScript source under node_modules, compiled by Node for require and import"],
       );
     }
     if (runtimeResident) {
