@@ -150,7 +150,7 @@ describe("native boundary", () => {
     const src = boundarySourceFor(
       "/x/react-native/Libraries/ReactNative/requireNativeComponent.js",
     );
-    const mod = evalCjs(src!, { "../NativeComponent/NativeComponentRegistry": registry });
+    const mod = evalCjs(src!, { "react-native/Libraries/NativeComponent/NativeComponentRegistry": registry });
     expect(typeof mod.default).toBe("function");
     expect(mod.default("RCTView")).toBe(registry.get("RCTView"));
     expect(registry.get("RCTView")).toBe(registry.get("RCTView"));

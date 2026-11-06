@@ -329,7 +329,7 @@ export const BOUNDARY_SOURCES = {
     exports.setRuntimeConfigProvider = () => {};
   `,
   "Libraries/ReactNative/requireNativeComponent.js": `
-    const { get } = require("../NativeComponent/NativeComponentRegistry");
+    const { get } = require("react-native/Libraries/NativeComponent/NativeComponentRegistry");
     module.exports = { __esModule: true, default: get };
   `,
   // The last route to a host component that bypassed the boundary: Text's RCTText,
@@ -340,11 +340,11 @@ export const BOUNDARY_SOURCES = {
   // ref has. Through the boundary class, as View's host is, the ref is an instance with
   // those methods, and \`ref\` is not among the host's props.
   "Libraries/Renderer/shims/createReactNativeComponentClass.js": `
-    const { get } = require("../../NativeComponent/NativeComponentRegistry");
+    const { get } = require("react-native/Libraries/NativeComponent/NativeComponentRegistry");
     module.exports = { __esModule: true, default: get };
   `,
   "Libraries/Components/View/ViewNativeComponent.js": `
-    const { get } = require("../../NativeComponent/NativeComponentRegistry");
+    const { get } = require("react-native/Libraries/NativeComponent/NativeComponentRegistry");
     module.exports = { __esModule: true, default: get("RCTView"), __INTERNAL_VIEW_CONFIG: {}, Commands: {} };
   `,
   // TextInput: mirror react-native/jest/setup.js, which replaces the real TextInput
