@@ -1,6 +1,6 @@
 # Matchers and Snapshots
 
-vitest-native registers React Native Testing Library's matchers and Vitest equivalents of Reanimated's animated matchers, and React Native trees print in snapshots as under Jest. None of them needs a setup file.
+vitest-native registers React Native Testing Library's matchers and Vitest equivalents of Reanimated's animated matchers, and React Native trees print in Jest's snapshot format. None of them needs a setup file.
 
 ## RNTL matchers
 
@@ -180,7 +180,7 @@ A React Native tree prints the way Jest and Vitest print any React tree: with pr
 </RCTView>
 ```
 
-That is `<View testID="box" style={[{ flex: 1 }, undefined]}><Text>hello</Text></View>` under the native engine (pinned by `tests-native/snapshot-format.test.tsx`).
+That is `<View testID="box" style={[{ flex: 1 }, undefined]}><Text>hello</Text></View>` under the native engine (pinned by `tests-native/snapshot-format.test.tsx`). The `undefined` shows how a value prints, where 0.14 printed `"[undefined]"`.
 
 What a snapshot shows is the tree the engine renders:
 
@@ -190,13 +190,13 @@ What a snapshot shows is the tree the engine renders:
 
 ### Snapshots written under Jest
 
-They are in the same format, and Vitest reads a Jest `.snap` file as it is. Snapshots of plain values pass unchanged.
+Vitest prints React trees in Jest's format and reads a Jest `.snap` file, but most of a React Native suite's Jest snapshots still need one re-record:
 
-A snapshot of React Native components still differs once:
-
-- **Why.** React Native's Jest preset replaces `View`, `Text`, `Image`, `TextInput`, `ScrollView` and a few others with stand-ins. Those render a host named after the component, with the props as given. vitest-native renders React Native's own host components instead.
-- **What to do.** Once the rest of the suite passes, re-record with `vitest -u` and review the diff. `vitest-native migrate` counts the snapshot files this applies to.
+- **Test names.** Vitest names a snapshot inside a `describe` as `group > test 1`, where Jest wrote `group test 1`, so it does not find Jest's entry. Only tests at the top level of a file match by name.
+- **React Native components.** React Native's Jest preset replaces `View`, `Text`, `Image`, `TextInput`, `ScrollView` and a few others with stand-ins that render a host named after the component, with the props as given. vitest-native renders React Native's own hosts instead.
 - **The header line.** When Vitest runs a test file whose snapshots all pass, it rewrites that `.snap` file's first line from Jest's header to its own, even in CI. Commit that change with the migration.
+
+While Jest still runs, give Vitest its own snapshot directory so neither runner rewrites the other's files: see [Keep Jest's and Vitest's snapshots apart](/migration/from-jest#snapshots). Once the rest of the suite passes, re-record with `vitest -u` and review the diff. `vitest-native migrate` counts the snapshot files this applies to.
 
 ::: details Before 0.15
 Snapshots used a format of vitest-native's own: props as one-line JSON, `undefined` as `"[undefined]"`. Snapshots recorded in it need `vitest -u` once. For one release the old format is still available: `expect.addSnapshotSerializer(serializer)` with `serializer` from `vitest-native/serializer`, in a setup file. It is deprecated.

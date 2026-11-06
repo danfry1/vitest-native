@@ -897,11 +897,13 @@ export function analyzeJestConfig(root: string): MigrationReport {
   if (snapshotFiles > 0) {
     attention.push(
       `${snapshotFiles} Jest snapshot file${snapshotFiles === 1 ? "" : "s"} (__snapshots__/*.snap) — ` +
-        `a snapshot of React Native components will differ: Jest's preset renders stand-ins named ` +
-        `View and Text with the props as given, and vitest-native renders React Native's own host ` +
-        `components (RCTView, RCTText) with the props React Native passes them. Once the rest of ` +
-        `the suite passes, re-record them once with \`vitest -u\` and review the diff. Vitest also ` +
-        `rewrites each file's first line to its own header when it runs it.`,
+        `most entries need one re-record. Vitest names a snapshot inside a describe ` +
+        `'group > test 1' where Jest wrote 'group test 1', and a snapshot of React Native ` +
+        `components differs: Jest's preset renders stand-ins named View and Text with the props ` +
+        `as given, and vitest-native renders React Native's own host components (RCTView, ` +
+        `RCTText) with the props React Native passes them. Once the rest of the suite passes, ` +
+        `re-record them once with \`vitest -u\` and review the diff. Vitest also rewrites each ` +
+        `file's first line to its own header when it runs it.`,
     );
   }
 

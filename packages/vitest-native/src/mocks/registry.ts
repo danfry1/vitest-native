@@ -266,7 +266,11 @@ function createVirtualizedSectionListMock() {
         }
       });
     }
-    return React.createElement(hostComponent("VirtualizedSectionList"), { ...rest, ref }, ...children);
+    return React.createElement(
+      hostComponent("VirtualizedSectionList"),
+      { ...rest, ref },
+      ...children,
+    );
   });
   VirtualizedSectionList.displayName = "VirtualizedSectionList";
   return VirtualizedSectionList;

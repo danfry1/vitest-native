@@ -650,7 +650,7 @@ module.exports = {
     });
     const attention = analyzeJestConfig(root).attention.join("\n");
     expect(attention).toContain(
-      "2 Jest snapshot files (__snapshots__/*.snap) — a snapshot of React Native components will differ",
+      "2 Jest snapshot files (__snapshots__/*.snap) — most entries need one re-record. Vitest names a snapshot inside a describe 'group > test 1' where Jest wrote 'group test 1'",
     );
     expect(attention).toContain("re-record them once with `vitest -u` and review the diff");
 
