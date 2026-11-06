@@ -268,7 +268,7 @@ export function createOwnershipLedger({
         : "") +
       outcome +
       `A deliberate case can be exempted with ownership.allow: [{ path, reason }] ` +
-      `(docs/ownership-guard.md).`;
+      `(https://danfry1.github.io/vitest-native/guide/errors#SOURCE_EVALUATED_TWICE).`;
     conflicts.push(
       Object.freeze({
         code: "SOURCE_EVALUATED_TWICE",

@@ -1830,7 +1830,9 @@ export class OwnershipSummaryReporter {
       for (const [file, where] of this.found) {
         lines.push(`  ${file}`, ...[...where].map((w) => `    in ${w}`));
       }
-      lines.push("  See docs/ownership-guard.md.");
+      lines.push(
+        "  See https://danfry1.github.io/vitest-native/guide/errors#SOURCE_EVALUATED_TWICE.",
+      );
     }
     const unused = this.allow().filter((entry) => !this.used.has(entry.path));
     if (unused.length > 0) {
