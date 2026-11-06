@@ -8,7 +8,13 @@ test("require('@jest/globals') gives the jest-compat globals", () => {
     const globals = require("@jest/globals");
     outcome = globals.jest === jest && typeof globals.expect === "function" ? "the shim" : "something else";
   } catch (error) {
-    outcome = `throws: ${String(error.message).split("\n")[0]}`;
+    // A short label: Vitest shortens long strings in an assertion's message.
+    const message = String(error.message);
+    outcome = /Cannot find module/.test(message)
+      ? "not found"
+      : /outside of the Jest test environment/.test(message)
+        ? "the real package"
+        : "throws";
   }
   expect(outcome, "require('@jest/globals')").toBe("the shim");
 });

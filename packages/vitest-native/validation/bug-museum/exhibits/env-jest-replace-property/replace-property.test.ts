@@ -8,7 +8,10 @@ test("a migrated test replaces Platform.OS for one test", () => {
     jest.replaceProperty(Platform, "OS", "android");
     outcome = Platform.OS;
   } catch (error) {
-    outcome = `throws: ${String((error as Error).message).split(".")[0]}`;
+    // A short label: Vitest shortens long strings in an assertion's message.
+    outcome = /has no Vitest equivalent/.test(String((error as Error).message))
+      ? "unsupported"
+      : "throws";
   }
   expect(outcome, "jest.replaceProperty(Platform, 'OS', 'android')").toBe("android");
   jest.restoreAllMocks();

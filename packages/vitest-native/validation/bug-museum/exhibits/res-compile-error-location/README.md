@@ -11,4 +11,4 @@ A project `.js` file with a legacy decorator (WatermelonDB models), which nothin
 
 ## Expected behaviour
 
-The failure names the file and line that did not compile.
+The failure names the file and line that did not compile. The outer test runs `fixture/`, whose test file imports the model at the top, and reads the run's output.

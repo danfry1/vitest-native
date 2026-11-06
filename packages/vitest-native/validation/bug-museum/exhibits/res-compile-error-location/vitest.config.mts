@@ -1,12 +1,6 @@
-// The native engine, plain: no project Babel config compiles the decorator.
 import { defineConfig } from "vitest/config";
-import { reactNative } from "vitest-native";
 
+// The outer project only runs the inner one (fixture/); it needs no plugin.
 export default defineConfig({
-  plugins: [reactNative({ hotRuntime: false })],
-  test: {
-    include: ["*.test.ts"],
-    testTimeout: 10_000,
-    hookTimeout: 10_000,
-  },
+  test: { include: ["outer.test.ts"], testTimeout: 150_000 },
 });
