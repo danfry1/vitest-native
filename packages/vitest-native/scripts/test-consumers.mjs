@@ -229,7 +229,9 @@ function runExpoPnpmSuites(tarball) {
 // (docs/upstream-policy.md). The fixtures pin exact releases; here `expo` follows its SDK
 // (`~58.0.0`) and Expo's own `expo install --fix` aligns the packages that go with it
 // (expo-*, react-native, the router). npm installs nothing published in the last 7 days,
-// as bunfig's minimumReleaseAge does for the repository.
+// as bunfig's minimumReleaseAge does for the repository. Expo's CLI runs offline, so the
+// versions it aligns to are the installed expo release's own list (as old as that
+// release), not its online API's, which names releases younger than the gate allows.
 const EXPO_LATEST = [
   { fixture: "expo", sdk: 58 },
   { fixture: "expo-sdk57", sdk: 57 },
@@ -251,7 +253,7 @@ function runExpoLatest(tarball) {
       process.execPath,
       [path.join("node_modules", "expo", "bin", "cli"), "install", "--fix"],
       fixtureRoot,
-      before,
+      { ...before, EXPO_OFFLINE: "1" },
     );
     const version = (name) =>
       JSON.parse(
