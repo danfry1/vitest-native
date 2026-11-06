@@ -6,5 +6,5 @@
 
 Update Node within your major, or move from Node 20, 23 or 25 to a supported line, including CI images and `.nvmrc` or `engines` pins. Remove `VITEST_NATIVE_LOADER_THREAD` from scripts and CI; it no longer has an effect.
 
-- A runtime without `module.registerHooks` (Bun) gets `UNSUPPORTED_NODE` too.
+- Under the native engine, a runtime without `module.registerHooks` (Bun) gets `UNSUPPORTED_NODE` too.
 - The support policy is in `docs/versioning.md`.
