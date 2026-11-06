@@ -1936,6 +1936,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     {
       pool: unknown;
       userPool: unknown;
+      userRunner: unknown;
       userMaxWorkers: unknown;
       singleWorkerAccepted: boolean;
       // The enforced memory plan and what it was built from, so configureVitest can
@@ -2222,6 +2223,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // Hot-runtime worker entry + runner (shipped verbatim alongside the setup file).
   const nativeWorkerPath = path.resolve(thisDir, "native/worker.mjs");
   const nativeRunnerPath = path.resolve(thisDir, "native/runner.mjs");
+  // Vitest's runner with compile locations on import failures (native/test-runner.mjs),
+  // for both engines, unless the project sets its own runner.
+  const testRunnerPath = path.resolve(thisDir, "native/test-runner.mjs");
+  const userRunnerOf = (config: UserConfig): unknown =>
+    (config as { test?: { runner?: unknown } }).test?.runner;
 
   // Seeded with bare React Native defaults, then replaced project-by-project by
   // the bounded Metro profile loader during config().
@@ -2913,6 +2919,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           hotSelections.set(vitestRootOf(userConfig), {
             pool: hot.pool,
             userPool,
+            userRunner: userRunnerOf(userConfig),
             userMaxWorkers: userTest?.maxWorkers,
             singleWorkerAccepted: hotMemory?.allowUnboundedMemory === true,
             memory:
@@ -2946,6 +2953,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           nativeOwnership,
         );
         nativeConfig.test.env = withProjectContext(fields, env, resolvedRoot);
+        if (!hot && userRunnerOf(userConfig) == null) {
+          (nativeConfig.test as { runner?: string }).runner = testRunnerPath;
+        }
         return asCompatibleViteConfig(nativeConfig);
       }
 
@@ -3021,6 +3031,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         test: {
           setupFiles: [setupFilePath, presetReadyPath],
           env: withProjectContext(fields, env, resolvedRoot),
+          ...(userRunnerOf(userConfig) == null ? { runner: testRunnerPath } : {}),
         },
       });
     },
@@ -3796,7 +3807,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     if (!hotRuntimeAuto) throw hotRuntimeOverridden(reason);
     projectConfig.pool = cli.pool ?? selection.userPool ?? "threads";
     projectConfig.isolate = cli.isolate ?? true;
-    projectConfig.runner = undefined;
+    projectConfig.runner = (selection.userRunner as string | undefined) ?? testRunnerPath;
     // The memory plan may have capped the worker count; give back Vitest's own.
     if (cli.maxWorkers === undefined && !process.env.VITEST_MAX_WORKERS) {
       projectConfig.maxWorkers =
