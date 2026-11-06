@@ -600,6 +600,34 @@ function emit(files, modules, { library = false } = {}) {
 }
 
 /**
+ * Where the registry for these options lives: its file, and the metadata file that is
+ * published last and so marks a complete registry. Computing it never creates a
+ * directory or compiles anything. Throws when the cache key cannot be computed.
+ */
+export function registryLocation({
+  projectRoot,
+  platform = "ios",
+  reactNativeVersion = "0.0.0",
+  assetExts = [],
+  sourceExts = ["js", "jsx", "json", "ts", "tsx"],
+  additionalEntries = [],
+  resolverInputs,
+}) {
+  const key = registryKey({
+    projectRoot,
+    platform,
+    reactNativeVersion,
+    assetExts,
+    sourceExts,
+    additionalEntries,
+    resolverInputs,
+  });
+  const dir = path.join(cacheRootFor(projectRoot), "registry");
+  const registryFile = path.join(dir, `rn-${platform}-${key}.cjs`);
+  return { key, registryFile, metaFile: `${registryFile}.json` };
+}
+
+/**
  * A memoised lookup of the packages a file's package depends on as its own: those in
  * its manifest's `dependencies` and `optionalDependencies` that it does not also name
  * as peers. A peer is shared with the app, so it stays outside the library's graph.
@@ -802,6 +830,9 @@ export function buildRegistry({
   // ordinary callers keep the warning + correctness-preserving fallback contract.
   cacheOnly = false,
   failOnError = false,
+  // registryLocation's result for these options, when the caller already has it, so a
+  // run computes the key (which hashes the boundary mocks' source) once.
+  location,
 }) {
   // See warnRegistryUnavailable: this is the one path that stays quiet, because
   // the user asked for it.
@@ -819,25 +850,26 @@ export function buildRegistry({
     return null;
   }
   let key;
+  let registryFile;
   try {
-    key = registryKey({
-      projectRoot,
-      platform,
-      reactNativeVersion,
-      assetExts,
-      sourceExts,
-      additionalEntries,
-      resolverInputs,
-    });
+    ({ key, registryFile } =
+      location ??
+      registryLocation({
+        projectRoot,
+        platform,
+        reactNativeVersion,
+        assetExts,
+        sourceExts,
+        additionalEntries,
+        resolverInputs,
+      }));
   } catch (error) {
     if (failOnError) throw error;
     warnRegistryUnavailable(error?.message ?? "cache directory unavailable");
     return null;
   }
-  const dir = registryDir(projectRoot, failOnError);
-  if (dir === null) return null;
+  if (registryDir(projectRoot, failOnError) === null) return null;
 
-  const registryFile = path.join(dir, `rn-${platform}-${key}.cjs`);
   const meta = cachedLayer(registryFile, key);
   if (meta !== null) {
     if (diagnostics) {

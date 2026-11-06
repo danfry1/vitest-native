@@ -1,0 +1,12 @@
+{
+  "no-monkey-patching": {
+    "src/jest-compat/jest-object.mjs": {
+      "count": 11,
+      "reason": "jest-compat gives Vitest's mocks Jest's semantics (implementations under `new`, jest-mock's mockReturnValue family). Each wrapper is exercised through vi.resetAllMocks/restoreAllMocks/clearAllMocks in tests/jest-compat*.test.ts."
+    },
+    "src/jest-compat/setup.mjs": {
+      "count": 11,
+      "reason": "jest-compat's setup installs the `jest` global and Jest-only members on `vi`/`expect` for suites migrated from Jest; it runs only when the project adds jestCompatSetup."
+    }
+  }
+}

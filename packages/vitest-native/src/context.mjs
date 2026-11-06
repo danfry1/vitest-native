@@ -37,8 +37,18 @@ const SCHEMA = {
   sourceMaps: { valid: (v) => typeof v === "boolean" },
   hotReleaseGenerations: { valid: (v) => typeof v === "boolean" },
   registry: { valid: absolute },
+  registryPending: {
+    valid: (v) => object(v) && absolute(v.file) && typeof v.since === "number",
+  },
   libraryRegistry: { valid: absolute },
   ownership: { valid: object },
+  packageDirs: {
+    valid: (v) =>
+      object(v) &&
+      absolute(v.root) &&
+      object(v.dirs) &&
+      Object.values(v.dirs).every((dir) => dir === null || absolute(dir)),
+  },
   ownershipGuard: { valid: object },
   projectDirs: { valid: strings },
   requireAliases: {
@@ -48,6 +58,7 @@ const SCHEMA = {
   requireAliasesSkipped: { valid: strings },
   presetNames: { valid: strings },
   nodeMocks: { valid: (v) => v === true },
+  restoreMocks: { valid: (v) => v === true },
   presetConfig: { valid: object },
   presetExports: { valid: object },
   presetModules: { valid: strings },
@@ -227,6 +238,34 @@ export function requireProjectContext(ref = process.env[CONTEXT_ENV]) {
 }
 
 const HANDLE = Symbol.for("vitest-native");
+
+/**
+ * The precompiled React Native registry this realm uses, or null for per-file loading.
+ *
+ * `registry` is a registry the plugin found warm. `registryPending` is one it started
+ * compiling in the background on a cache miss (registry-process.mjs): a realm that
+ * starts after the compiler published it uses it, one that starts before keeps loading
+ * React Native file by file. The metadata file is published last, so a change in its
+ * mtime from `since` means a complete registry is in place; the worker loads it like
+ * any other and falls back to per-file loading if it cannot.
+ *
+ * Decided once per realm and shared by every module instance in it, so the setup file
+ * and the jest-compat registry agree, and a realm that loaded React Native file by file
+ * never switches to the registry's second copy of it partway through.
+ */
+export function activeRegistry(context) {
+  if (!context) return null;
+  if (context.registry) return context.registry;
+  const pending = context.registryPending;
+  if (!pending) return null;
+  const decisions = ((globalThis[HANDLE] ??= {}).registryDecisions ??= new Map());
+  if (decisions.has(pending.file)) return decisions.get(pending.file);
+  const meta = fs.statSync(`${pending.file}.json`, { throwIfNoEntry: false });
+  const file =
+    meta && meta.mtimeMs !== pending.since && fs.existsSync(pending.file) ? pending.file : null;
+  decisions.set(pending.file, file);
+  return file;
+}
 
 /** Hot worker boot: record the project this worker serves. */
 export function markBootContext(ref = process.env[CONTEXT_ENV]) {

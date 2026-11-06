@@ -1,12 +1,12 @@
-// Packed npm consumer for the hot CJS re-export fix: the direct CJS re-export consumer
-// passes under the hot runtime from a packed install.
+// Packed npm consumer + mutation control for the hot CJS re-export fix.
 //
-// It also had a mutation control: omit the reset's CJS lookup drain
-// (`resolutions.drain()` in module-reset.mjs) and expect the consumer to fail. That
-// defect only shows under the threaded loader (`module.register`), which the Node floor
-// removed. Under `module.registerHooks`, on every supported Node, the consumer passes
-// with the drain omitted, so the control could not fail and was removed. Whether the
-// drain is still needed, and a control that fails without it, is #530.
+// The control omits the reset's CJS lookup drain (`resolutions.drain()` in
+// module-reset.mjs) and expects the consumer to fail. The failure it needs is a CommonJS
+// re-export loaded for the first time after a reset (hot-c/hot-d and first-load-fixture):
+// that first load goes through Node's CommonJS translator, whether the loader hooks run
+// in-thread or on the loader thread. Later loads of a module come through the hot
+// runtime's generation facades, which do not reach the stale lookup, so a consumer
+// that only reloads the same module (hot-a/hot-b) passes without the drain.
 // Artifacts/logs stay in the workspace's ignored .tmp for investigation handoff.
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -59,6 +59,7 @@ assert.equal(install.status, 0, install.output);
 for (const [source, name] of [
   ["state-fixture", "consumer-state-fixture"],
   ["runtime-probe", "runtime-probe"],
+  ["first-load-fixture", "consumer-first-load-fixture"],
 ]) {
   const target = path.join(app, "node_modules", name);
   // Targets are exactly the two fixture-owned packages in this new install.
@@ -67,10 +68,29 @@ for (const [source, name] of [
 }
 const positive = run("positive", "npm", ["run", "test:hot"], app);
 assert.equal(positive.status, 0, positive.output);
-assert.match(positive.output, /6 passed/);
+assert.match(positive.output, /8 passed/);
+
+const resetFile = path.join(app, "node_modules/vitest-native/dist/native/module-reset.mjs");
+const source = fs.readFileSync(resetFile, "utf8");
+assert.equal(
+  source.split("resolutions.drain();").length,
+  2,
+  "mutation must hit exactly one cleanup call",
+);
+try {
+  fs.writeFileSync(
+    resetFile,
+    source.replace("resolutions.drain();", "/* mutation: omitted CJS lookup drain */"),
+  );
+  const negative = run("negative", "npm", ["run", "test:hot"], app);
+  assert.notEqual(negative.status, 0, "omitting the drain must fail the first-load consumer");
+  assert.match(negative.output, /hot-[cd]\.test\.tsx/);
+} finally {
+  fs.writeFileSync(resetFile, source);
+}
 
 fs.writeFileSync(
   path.join(dir, "results.json"),
   JSON.stringify({ node: process.version, results }, null, 2),
 );
-console.log(`PASS: packed consumer. Evidence: ${dir}`);
+console.log(`PASS: packed consumer + mutation control. Evidence: ${dir}`);

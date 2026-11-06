@@ -17,12 +17,18 @@ export interface ProjectContextFields {
   sourceMaps?: boolean;
   hotReleaseGenerations?: boolean;
   registry?: string;
+  /** A registry compiling in the background on a cache miss (see activeRegistry). */
+  registryPending?: { file: string; since: number };
   /** The library registry layered on `registry` (registry.mjs, buildLibraryRegistry). */
   libraryRegistry?: string;
   ownership?: Record<string, unknown>;
+  /** Each Node-transformed package's directory, resolved from `root` at config time. */
+  packageDirs?: { root: string; dirs: Record<string, string | null> };
   ownershipGuard?: { mode: "warn" | "error"; allow: { path: string; reason: string }[] };
   projectDirs?: string[];
   requireAliases?: [string, string][];
+  /** The project sets test.restoreMocks: jest-compat restores jest.replaceProperty() before each test. */
+  restoreMocks?: true;
   requireAliasesSkipped?: string[];
   presetNames?: string[];
   /** experimental.nodeMocks: a `vi.mock` applies to the modules Node loads. */
@@ -51,5 +57,8 @@ export declare function writeProjectContext(
 export declare function ensureProjectContext(ref: string, fields: ProjectContextFields): string;
 export declare function projectContext(ref?: string): Readonly<ProjectContextFields> | null;
 export declare function requireProjectContext(ref?: string): Readonly<ProjectContextFields>;
+export declare function activeRegistry(
+  context: Readonly<ProjectContextFields> | null,
+): string | null;
 export declare function markBootContext(ref?: string): void;
 export declare function assertBootContext(ref?: string): void;

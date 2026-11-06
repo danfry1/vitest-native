@@ -6,7 +6,7 @@ The migration guide is on the documentation site:
 Start with `npx vitest-native migrate`, which reads your Jest config and prints a report and a
 suggested config. `migrate --write` saves the config.
 
-Messages from vitest-native link to this file. The page each one means:
+Messages from vitest-native 0.14 and earlier link to this file. The page each one means:
 
 | Message | Where to read |
 |---|---|

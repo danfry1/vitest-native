@@ -3,6 +3,7 @@
  * `@jest/globals` alias + setup wiring against a real jest-coupled suite) lives in
  * the real-app bakeoff; see docs/migrating-from-jest.md.
  */
+import fs from "node:fs";
 import { describe, it, expect, vi } from "vitest";
 import { jestCompatAliases, jestCompatSetup, jestMockTransform } from "../src/jest-compat/index.js";
 import { SETUP_ACCESSOR } from "../src/jest-compat/transform.js";
@@ -650,7 +651,9 @@ describe("jest-compat: unsupported Jest APIs are signposts, not TypeErrors", () 
     const jestGlobal = (globalThis as { jest?: Record<string, (...a: unknown[]) => unknown> })
       .jest!;
     for (const name of ["createMockFromModule", "genMockFromModule", "deepUnmock"]) {
-      expect(() => jestGlobal[name]("x")).toThrow(/no Vitest equivalent.*migrating-from-jest/s);
+      expect(() => jestGlobal[name]("x")).toThrow(
+        /no Vitest equivalent.*errors#JEST_API_UNSUPPORTED/s,
+      );
     }
   });
 
@@ -665,6 +668,23 @@ describe("jest-compat: unsupported Jest APIs are signposts, not TypeErrors", () 
       expect(warnings).toHaveLength(1);
     } finally {
       warn.mockRestore();
+    }
+  });
+});
+
+describe("jest-compat shims for require()", () => {
+  it("has a file for every jestCompatAliases() target, the one its export names", async () => {
+    const { JEST_COMPAT_SHIM_FILES } = await import("../src/jest-compat/aliases.mjs");
+    const manifest = JSON.parse(
+      fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    ) as { exports: Record<string, { import?: string }> };
+    const targets = Object.values(jestCompatAliases());
+    expect(Object.keys(JEST_COMPAT_SHIM_FILES).sort()).toEqual([...targets].sort());
+    for (const target of targets) {
+      const exported = manifest.exports[`./${target.slice("vitest-native/".length)}`]?.import;
+      expect(exported, target).toBe(
+        `./dist/jest-compat/${(JEST_COMPAT_SHIM_FILES as Record<string, string>)[target].slice(2)}`,
+      );
     }
   });
 });

@@ -35,6 +35,7 @@ import { analyzeJestConfig, extractAllowlistPackages } from "../src/cli/migrate.
 import {
   extensionExclude,
   ignorePatternToGlobs,
+  projectDirectories,
   loadJestPreset,
   parseJestScript,
   translateDiscovery,
@@ -175,6 +176,19 @@ describe("ignore-pattern regexes become exclude globs", () => {
     expect(ignorePatternToGlobs("/e2e/$")).toEqual([]);
   });
 
+  it("converts a $-anchored literal where no directory in the project ends the same way", () => {
+    // tinyglobby prunes a directory an ignore glob matches, so `**/*.d.ts` is exact only
+    // when no directory is named like a .d.ts file.
+    expect(ignorePatternToGlobs("\\.d\\.ts$", ["src", "src/types"])).toEqual(["**/*.d.ts"]);
+    expect(ignorePatternToGlobs("/__tests__/testHelpers\\.tsx$", ["src/__tests__"])).toEqual([
+      "**/__tests__/testHelpers.tsx",
+    ]);
+    expect(ignorePatternToGlobs("<rootDir>/src/setup\\.ts$", ["src"])).toEqual(["src/setup.ts"]);
+    expect(ignorePatternToGlobs("\\.d\\.ts$", ["src/legacy.d.ts"])).toBeNull();
+    // Without the project's directories, nothing is assumed.
+    expect(ignorePatternToGlobs("\\.d\\.ts$")).toBeNull();
+  });
+
   it("agrees with the regex on every generated pattern it converts", () => {
     // Directory names include characters that are literal in a regex escape but
     // syntax in a glob, and the root path itself holds regex metacharacters.
@@ -186,6 +200,7 @@ describe("ignore-pattern regexes become exclude globs", () => {
     ]);
     const root = tree(files);
     const all = vitestCollects(root, ["**/*"], []);
+    const directories = projectDirectories(root);
     const escape = (s: string) =>
       s.replace(/[.*+?^${}()|[\]\\!]/g, (c) => (c === "!" ? c : `\\${c}`));
     const rootPath = "/abs/my.project(1)";
@@ -194,7 +209,7 @@ describe("ignore-pattern regexes become exclude globs", () => {
       for (const prefix of ["", "/", "<rootDir>/", "<rootDir>/src/", "src/.*/"]) {
         for (const suffix of ["", "/", "/.*", ".*", "$", "/$", "\\.test\\.ts$"]) {
           const pattern = `${prefix}${escape(name)}${suffix}`;
-          const globs = ignorePatternToGlobs(pattern);
+          const globs = ignorePatternToGlobs(pattern, directories);
           if (!globs) continue;
           converted++;
           // Jest's side, reading <rootDir> as the directory it names.
@@ -575,6 +590,100 @@ describe("a jest-expo app's package.json#jest", () => {
     expect(report.suggestedConfig).toContain(
       `babel({ plugins: ["@lingui/babel-plugin-lingui-macro"] }), jestMockTransform()`,
     );
+  });
+
+  describe("the worklets plugin, where Reanimated runs as its own mock", () => {
+    // The native engine's dependencies, and Reanimated 4.7+ / Worklets 0.9+ as
+    // libraryMockUsable() reads them: each ships jest/resolver.js, and worklets its mock.
+    const nativeReanimated = (resolvers = true): Record<string, string | object> => ({
+      "node_modules/react-native/package.json": { name: "react-native", version: "0.86.0" },
+      "node_modules/@react-native/babel-preset/package.json": {
+        name: "@react-native/babel-preset",
+        version: "0.86.0",
+        main: "index.js",
+      },
+      "node_modules/@react-native/babel-preset/index.js": "module.exports = () => ({});",
+      "node_modules/@babel/core/package.json": {
+        name: "@babel/core",
+        version: "7.29.0",
+        main: "index.js",
+      },
+      "node_modules/@babel/core/index.js": "module.exports = {};",
+      "node_modules/react-native-reanimated/package.json": {
+        name: "react-native-reanimated",
+        version: resolvers ? "4.7.1" : "4.6.0",
+      },
+      "node_modules/react-native-worklets/package.json": {
+        name: "react-native-worklets",
+        version: resolvers ? "0.13.1" : "0.8.0",
+      },
+      "node_modules/react-native-worklets/lib/module/mock.js": "module.exports = {};",
+      ...(resolvers
+        ? {
+            "node_modules/react-native-reanimated/jest/resolver.js": "module.exports = () => {};",
+            "node_modules/react-native-worklets/jest/resolver.js": "module.exports = () => {};",
+          }
+        : {}),
+    });
+    const pluginBabel = {
+      "node_modules/vite/package.json": { name: "vite", version: "8.0.0" },
+      "node_modules/@rolldown/plugin-babel/package.json": {
+        name: "@rolldown/plugin-babel",
+        version: "0.2.4",
+        exports: "./dist/index.mjs",
+      },
+      "node_modules/@rolldown/plugin-babel/dist/index.mjs": "export default () => ({});",
+    };
+
+    it("is required and wired, last as the config lists it", () => {
+      const root = blueskyLike({ ...nativeReanimated(), ...pluginBabel });
+      const classified = classifyBabelPlugins(readBabelConfig(root), root, ["reanimated"]);
+      expect(classified.find((p) => p.name === "react-native-worklets/plugin")?.verdict).toBe(
+        "required",
+      );
+      const report = analyzeJestConfig(root);
+      expect(report.suggestedConfig).toContain(
+        `babel({ plugins: ["@lingui/babel-plugin-lingui-macro", "react-native-worklets/plugin"] })`,
+      );
+      expect(report.automatic.join("\n")).toContain(
+        "react-native-worklets/plugin gives Reanimated's hooks their dependencies",
+      );
+      expect(report.dropped.join("\n")).not.toContain("react-native-worklets/plugin");
+    });
+
+    it("covers react-native-reanimated/plugin and keeps a plugin's options", () => {
+      const root = blueskyLike({
+        ...nativeReanimated(),
+        ...pluginBabel,
+        "babel.config.js": `module.exports = {
+  presets: ['babel-preset-expo'],
+  plugins: [['react-native-reanimated/plugin', { relativeSourceLocation: true }]],
+};`,
+      });
+      const classified = classifyBabelPlugins(readBabelConfig(root), root, ["reanimated"]);
+      expect(classified.map((p) => [p.name, p.verdict])).toEqual([
+        ["react-native-reanimated/plugin", "required"],
+      ]);
+      expect(analyzeJestConfig(root).suggestedConfig).toContain(
+        `babel({ plugins: [["react-native-reanimated/plugin", {"relativeSourceLocation":true}]] })`,
+      );
+    });
+
+    it("is listed with the install recipe when @rolldown/plugin-babel is missing", () => {
+      const report = analyzeJestConfig(blueskyLike(nativeReanimated()));
+      expect(report.suggestedConfig).not.toContain("plugin-babel");
+      expect(report.attention.join("\n")).toContain(
+        "react-native-worklets/plugin gives Reanimated's hooks their dependencies",
+      );
+      expect(report.dropped.join("\n")).not.toContain("react-native-worklets/plugin");
+    });
+
+    it("stays unneeded where the preset's own module serves Reanimated", () => {
+      // Reanimated 4.6 ships no Jest resolver, so the preset's module replaces it.
+      const report = analyzeJestConfig(blueskyLike({ ...nativeReanimated(false), ...pluginBabel }));
+      expect(report.dropped.join("\n")).toContain("react-native-worklets/plugin");
+      expect(report.suggestedConfig).not.toContain("react-native-worklets/plugin");
+    });
   });
 });
 
@@ -980,6 +1089,57 @@ test('import-time mock calls survive', () => { expect(loaded).toHaveBeenCalledTi
         env: { ...process.env, CI: "1" },
       });
       expect(run.status, run.stdout + run.stderr).toBe(0);
+    },
+    120_000,
+  );
+
+  it.runIf(distExists)(
+    "resolves a literal prefix mapper and skips a $-anchored ignore, as Jest did",
+    () => {
+      const root = fixture({
+        "package.json": { name: "app", type: "module" },
+        "jest.config.json": {
+          moduleNameMapper: { "^~e2e/(.*)$": "<rootDir>/e2e/$1" },
+          testPathIgnorePatterns: ["/node_modules/", "/__tests__/testHelpers\\.test\\.ts$"],
+        },
+        "e2e/helpers/data.ts": "export const value = 42\n",
+        "src/__tests__/uses-alias.test.ts":
+          "import { test, expect } from 'vitest'\nimport { value } from '~e2e/helpers/data'\n" +
+          "test('alias', () => { expect(value).toBe(42) })\n",
+        "src/__tests__/testHelpers.test.ts": "throw new Error('Jest never ran this file')\n",
+        // A bare `~e2e` is not under the mapper's pattern; Jest resolved it as a package.
+        "node_modules/~e2e/package.json": { name: "~e2e", main: "index.js" },
+        "node_modules/~e2e/index.js": "module.exports = { bare: true }\n",
+        "src/__tests__/bare.test.ts":
+          "import { test, expect } from 'vitest'\nimport pkg from '~e2e'\n" +
+          "test('bare', () => { expect(pkg.bare).toBe(true) })\n",
+      });
+      const modules = path.join(root, "node_modules");
+      fs.mkdirSync(modules, { recursive: true });
+      for (const name of fs.readdirSync(path.join(packageRoot, "node_modules"))) {
+        if (fs.existsSync(path.join(modules, name))) continue;
+        fs.symlinkSync(path.join(packageRoot, "node_modules", name), path.join(modules, name));
+      }
+      fs.symlinkSync(packageRoot, path.join(modules, "vitest-native"));
+      const report = analyzeJestConfig(root);
+      expect(report.automatic.join("\n")).toContain(
+        `'/__tests__/testHelpers\\.test\\.ts$' → test.exclude ["**/__tests__/testHelpers.test.ts"]`,
+      );
+      fs.writeFileSync(
+        path.join(root, "vitest.config.mjs"),
+        report.suggestedConfig.replace("reactNative({", "reactNative({ engine: 'mock', "),
+      );
+      const vitestBin = path.join(
+        path.dirname(createRequire(import.meta.url).resolve("vitest/package.json")),
+        "vitest.mjs",
+      );
+      const run = spawnSync(process.execPath, [vitestBin, "run"], {
+        cwd: root,
+        encoding: "utf8",
+        env: { ...process.env, CI: "1" },
+      });
+      expect(run.status, run.stdout + run.stderr).toBe(0);
+      expect(run.stdout).toContain("2 passed");
     },
     120_000,
   );

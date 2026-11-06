@@ -39,6 +39,7 @@
  * follows what is under test. The invariant still holds — one owner per run — but the
  * same library is not hosted identically by both kinds of run.
  */
+import path from "node:path";
 import type { PoolRunnerInitializer } from "vitest/node";
 import type { ProjectContextFields } from "../context.mjs";
 import type { NativeOwnershipPolicy } from "./ownership.mjs";
@@ -99,6 +100,17 @@ export function nativeEngineConfig(
   const nodeTransformed = ownership.nodeTransformPackages;
   const ownershipManifest = ownership.manifest();
   fields.ownership = ownershipManifest as unknown as Record<string, unknown>;
+  // The directories the policy just resolved, so workers do not resolve them again. Only
+  // a directory (or "not found"): a preset-shadowed package resolves to the preset's
+  // virtual module here, which a worker resolves for itself, as it always has.
+  fields.packageDirs = {
+    root: ownership.projectRoot,
+    dirs: Object.fromEntries(
+      nodeTransformed
+        .map((name) => [name, ownership.packageDirOf(name)] as const)
+        .filter(([, dir]) => dir === null || path.isAbsolute(dir)),
+    ),
+  };
   if (fields.diagnostics) {
     for (const line of formatNativeOwnershipManifest(ownershipManifest)) {
       const report = `[vitest-native] ownership: ${line}`;

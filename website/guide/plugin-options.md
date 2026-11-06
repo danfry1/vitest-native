@@ -12,6 +12,8 @@ reactNative({
   transform: [],         // Extra node_modules packages to transform (Flow/TS/JSX), native engine
   hotRuntime: false,     // Per-file isolation (default); 'auto' opts in to the hot runtime
   nativeModules: 'device', // 'device' | 'permissive' — how native module lookups answer, native engine
+  registryBuild: 'background', // 'background' | 'wait' — a cold registry build, native engine
+  hangTimeout: 60000,    // fail a stuck run after this many ms with no progress; on by default under the hot runtime
   // presets — omitted on purpose: leaving it out auto-detects your installed
   // libraries. Passing an array uses ONLY that array, so `presets: []` means none.
 })
@@ -23,7 +25,7 @@ reactNative({
 
 Which engine to use. See [Choosing an Engine](/guide/engines) for the full breakdown.
 
-- `'auto'` *(default)* — native when a React Native Babel preset (`@react-native/babel-preset`, or Expo's from SDK 56) + `@babel/core` are present, else mock with a one-line notice.
+- `'auto'` *(default)* — native when a React Native Babel preset (`@react-native/babel-preset`, or else Expo's) + `@babel/core` are present, else mock with a one-line notice.
 - `'native'` — force real React Native; mock only the native boundary.
 - `'mock'` — force the fast pure-JS mock.
 
@@ -194,6 +196,50 @@ How native module lookups answer.
 
 ```ts
 reactNative({ nativeModules: 'permissive' })
+```
+
+## `registryBuild`
+
+**Type:** `'background' | 'wait'` · **Default:** `'background'` · **Engine:** native
+
+What a run does when React Native's precompiled registry is not in the cache yet: on the first run after an install, an upgrade of React Native or vitest-native, a Babel toolchain change, or a cleared `node_modules/.cache/vitest-native`.
+
+- `'background'` *(default)* — the run starts at once while the registry compiles in a low-priority background process. Test files that start before it is ready load React Native file by file, which is slower per file; files that start after it lands use it. When Vitest closes, a build still running gets up to half of `teardownTimeout` to finish, so the next run starts warm; a run that ends cancelled (`--bail`, or Ctrl-C in a terminal) stops it at close instead, while a watch-mode cancel keeps it building for the reruns. The first run can differ from later ones in one visible way: the column numbers in React Native's own stack frames.
+- `'wait'` — compile the registry before the run starts, so every file uses it.
+
+The hot runtime, CI runs and `experimental.ownershipModel` always wait. A run counts as CI when `CI` is set to anything but `false`, or, unless `CI=false`, when one of `CONTINUOUS_INTEGRATION`, `GITHUB_ACTIONS`, `GITLAB_CI`, `BUILDKITE`, `CIRCLECI`, `TF_BUILD`, `JENKINS_URL`, `TEAMCITY_VERSION`, `TRAVIS`, `APPVEYOR`, `CODEBUILD_BUILD_ID` or `BITBUCKET_BUILD_NUMBER` is set.
+
+```ts
+reactNative({ registryBuild: 'wait' })
+```
+
+## `hangTimeout`
+
+**Type:** `number | false` · **Default:** on under the hot runtime, off otherwise · **Engine:** both
+
+Fails a run whose tests have stopped making progress, naming the file and test that were running.
+
+**When it fires.** While test files are running, nothing has made progress (no file picked up, started or finished, and no test started or finished) for `hangTimeout` ms, and every running test is past its own budget. A test's budget is its timeout (from `it(name, fn, ms)`, `{ timeout }`, a `describe` option, `vi.setConfig` or `testTimeout`) plus two hook timeouts and a second. Each retry gets its own budget, so a slow test, or a retried one, isn't cut short. Global setup, coverage, and typecheck mode's compiler run happen outside that window and aren't timed.
+
+**The limit.** The default is 60 s, or twice the larger of `testTimeout` and `hookTimeout` across all projects, if that's longer.
+
+**Turning it on and off.**
+- It's on by default for projects running on the hot runtime. Set a number to turn it on everywhere; set `false` to turn it off.
+- It's also off under any of these:
+  - a `testTimeout` or `hookTimeout` of `Infinity`;
+  - a debugger attached (`--inspect` or `--inspect-brk` for Vitest or its workers, Vitest's `inspect` options, or a debugger attached to the worker running the test);
+  - `false` in any project, when there are several.
+
+**Why `testTimeout` doesn't cover this.** Vitest's `testTimeout` and `hookTimeout` are timers on the test's own worker. A test stuck in synchronous code, such as a loop that never ends, never gives that worker's event loop a turn, so those timers never fire. The run then waits forever with nothing on screen. Only the worker is stuck: Vitest's main process stays responsive, and `hangTimeout` runs there.
+
+**What happens when it fires.**
+- The message names the stuck files and tests. On GitHub Actions it's also an error annotation.
+- Vitest is asked to close, with a 5 s grace period, and then stops with exit code 1. Stuck workers, and processes your global setup started, are stopped with it.
+- `globalTeardown` may not run, and reporters that write files when the run ends (coverage, junit, blob) don't finish.
+- Under Vitest's API (`createVitest`), the host process keeps running: the run is closed, and the exit code is set to 1.
+
+```ts
+reactNative({ hangTimeout: 180_000 })
 ```
 
 ## `ownership`

@@ -11,7 +11,7 @@ reactNative({ engine: 'mock' })    // opt in to the fast pure-JS mock
 reactNative({ engine: 'auto' })    // the default — native when available, else mock (with a one-line notice)
 ```
 
-`reactNative()` with no options resolves to **native** whenever a React Native Babel preset (`@react-native/babel-preset`, or Expo's from SDK 56) and `@babel/core` are present (i.e. any real RN or Expo app), falling back to `mock` only when they're absent.
+`reactNative()` with no options resolves to **native** whenever a React Native Babel preset (`@react-native/babel-preset`, or else Expo's) and `@babel/core` are present (i.e. any real RN or Expo app), falling back to `mock` only when they're absent.
 
 ## `engine: 'native'` — real React Native
 
@@ -23,7 +23,7 @@ Runs **real React Native** JavaScript — the same code that ships in your app �
 - **Integration confidence** — testing how your components actually compose with real RN.
 - **No mock drift** — you're testing RN itself, not a reimplementation of it.
 
-It Flow-strips real React Native through your project's Babel preset — the toolchain RN already uses — so it needs `@react-native/babel-preset` + `@babel/core` (present in every RN app). From Expo SDK 56, whose `babel-preset-expo` no longer depends on the React Native preset, it compiles with Expo's preset (`expo/internal/babel-preset`), as Expo's Metro and jest-expo do.
+It Flow-strips real React Native through your project's Babel preset — the toolchain RN already uses — so it needs `@react-native/babel-preset` + `@babel/core` (present in every RN app). In an Expo app without `@react-native/babel-preset` (`babel-preset-expo` does not depend on it), it compiles with Expo's preset (`expo/internal/babel-preset`), as Expo's Metro and jest-expo do.
 
 ## `engine: 'mock'` — fast pure-JS
 
@@ -44,13 +44,24 @@ The mock engine covers [100% of React Native's stable public API](/api/coverage)
 | What runs | **Real React Native** JS | Fast pure-JS reimplementation |
 | Mocks | Only the native boundary | All of React Native |
 | Fidelity | Highest | High, but a reimplementation |
-| Babel | `@react-native/babel-preset` (or Expo's, SDK 56+) + `@babel/core` | None |
+| Babel | `@react-native/babel-preset` (or else Expo's) + `@babel/core` | None |
 | Best for | Fidelity, integration, accessibility | Pure logic, environment control, determinism |
 | Test API | RNTL, helpers, presets | RNTL, helpers, presets |
 
 Both engines share the same test API. You can mix them across suites in the same project.
 
 The native engine compiles React Native once, on the first run, in a separate short-lived process, and caches the result on disk; later runs reuse it ([where it lives and when it is rebuilt](/guide/troubleshooting#when-react-native-s-precompiled-modules-are-reused-or-rebuilt)). If that compilation fails, the engine loads React Native module by module instead, more slowly, with the same results.
+
+## Testing a library {#testing-a-library}
+
+Which engine a library's own tests use depends on what the library does:
+
+| Your library | Engine | Why |
+|---|---|---|
+| **Renders components**: a UI kit, or anything that renders React Native views | `engine: 'native'` | Its components render through React Native's real `View`, `Text` and the rest, as they will in an app. |
+| **Logic only**: hooks, utilities, state | `engine: 'mock'` | Nothing it does needs React Native's components, and the mock engine needs no Babel. |
+
+The native engine needs `react-native`, `@react-native/babel-preset` and `@babel/core` to resolve from the library, so a component library lists them as dev dependencies; without them the run stops with [`ENGINE_REQUIRES_BABEL`](/guide/errors#ENGINE_REQUIRES_BABEL). The engine can be set per [Vitest project](https://vitest.dev/guide/projects), so a library with both kinds of code can use both.
 
 ## Keeping the mock honest
 

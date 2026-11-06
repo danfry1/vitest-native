@@ -488,6 +488,34 @@ export interface VitestNativeOptions {
   nativeModules?: "device" | "permissive";
 
   /**
+   * `engine: 'native'` only. What a run does when React Native's precompiled registry
+   * is not in the cache yet (first install, an upgrade of React Native or
+   * vitest-native, a Babel toolchain change, a cleared cache).
+   *
+   * - `'background'` *(default)*: the run starts at once and the registry compiles in
+   *   a low-priority background process. Test files that start before it is ready
+   *   load React Native file by file; files that start after use it. When Vitest
+   *   closes, a build still running gets up to half of `teardownTimeout` to finish,
+   *   so the next run starts warm.
+   * - `'wait'`: compile the registry before the run starts, as in earlier versions.
+   *
+   * The hot runtime, CI runs and `experimental.ownershipModel` always wait.
+   */
+  registryBuild?: "background" | "wait";
+
+  /**
+   * Fail the run when no test makes progress for this many milliseconds, naming the files
+   * and tests that were running. Default: 60 000, or twice the larger of `testTimeout` and
+   * `hookTimeout` if that is longer. `false` turns it off. Off while a debugger is attached.
+   *
+   * Vitest's `testTimeout` runs on the test's own worker, so a test stuck in synchronous
+   * code (a loop that never ends) never reaches it, and the run waits forever with nothing
+   * on screen. This watch runs in Vitest's main process, which stays responsive, so it can
+   * still say where the run stopped.
+   */
+  hangTimeout?: number | false;
+
+  /**
    * `engine: 'native'` only. What happens when one file is evaluated by both Node and
    * Vite in a worker. Such a file exists twice, and module state written through one
    * copy is not seen by the other; nothing else reports it.

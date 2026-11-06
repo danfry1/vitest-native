@@ -28,11 +28,13 @@ import {
   booleanFlag,
   jestMajor,
   parseJestScript,
+  projectDirectories,
   translateDiscovery,
   type JestDiscoveryOptions,
   type JestScriptFlags,
 } from "./jest-discovery.js";
 import { resolveJestPreset, withPresetSettings } from "./jest-preset.js";
+import { libraryResolver, onlyCallsSetUpTests, stripsOnlyReanimatedProps } from "./superseded.js";
 import {
   babelRecipe,
   classifyBabelPlugins,
@@ -216,6 +218,24 @@ function exactMapperKey(pattern: string): string | null {
   return expansions?.length === 1 && !expansions[0].includes(STAR) ? expansions[0] : null;
 }
 
+/**
+ * A `^prefix/(.*)$` → `<rootDir>/dir/$1` moduleNameMapper, which is a plain prefix
+ * alias: the literal prefix (escapes read as literals, as exactMapperKey reads them)
+ * and the project-relative target directory, or null.
+ */
+function prefixMapper(
+  pattern: string,
+  target: unknown,
+): { key: string; dir: string; rest: string } | null {
+  const m = /^\^(.+)\/\((\.\*|\.\+)\)\$?$/.exec(pattern);
+  if (!m || typeof target !== "string") return null;
+  const expansions = tryExpand(m[1], true);
+  if (expansions?.length !== 1 || expansions[0].includes(STAR)) return null;
+  const t = /^(<rootDir>|\.)(\/.*)?\/\$1$/.exec(target);
+  if (!t || target.indexOf("$") !== target.length - 2) return null;
+  return { key: expansions[0], dir: `.${t[2] ?? ""}`, rest: m[2] };
+}
+
 /** `pkg` and `/sub` of a bare specifier (scope-aware). */
 function splitSpecifier(specifier: string): { pkg: string; subpath: string } {
   const parts = specifier.split("/");
@@ -302,6 +322,8 @@ export function analyzeJestConfig(root: string): MigrationReport {
   // the config sets them.
   let jestRoots: string[] | null = null;
   let jestIgnorePatterns: string[] | null = null;
+  // The project's directories, walked once and only when something needs them.
+  let directories: string[] | undefined;
   let needsUrlImport = false;
   // Options for the reactNative() call, besides `transform`.
   const pluginOptions: string[] = [];
@@ -344,6 +366,17 @@ export function analyzeJestConfig(root: string): MigrationReport {
     aliasEntries.push(`${JSON.stringify(key)}: ${value}`);
     return true;
   };
+  // A project file a Jest setting names (`<rootDir>/x`, `./x`, `x`), or null.
+  const projectSource = (file: string): string | null => {
+    if (/^(?:<rootDir>\/|\.\/)?node_modules\//.test(file)) return null;
+    const rel = file.replace(/^<rootDir>\/?/, "");
+    const base = path.resolve(root, rel);
+    const found = [base, `${base}.js`, `${base}.ts`].find((candidate) =>
+      fs.statSync(candidate, { throwIfNoEntry: false })?.isFile(),
+    );
+    return found === undefined ? null : fs.readFileSync(found, "utf8");
+  };
+  const reanimatedActive = active.includes("reanimated");
   const absolutePath = (relative: string) => {
     needsUrlImport = true;
     return `fileURLToPath(new URL(${JSON.stringify(relative)}, import.meta.url))`;
@@ -439,6 +472,12 @@ export function analyzeJestConfig(root: string): MigrationReport {
             `${key}: '${f}' — ${setupPackage}'s own test setup, which the native engine runs ` +
               `before the setup files (${LIBRARY_SETUP_FILES[setupPreset]}); delete.`,
           );
+        } else if (reanimatedActive && onlyCallsSetUpTests(projectSource(f) ?? "")) {
+          presetCovered.push(
+            `${key}: '${f}' — only calls Reanimated's setUpTests(), whose matchers cannot see the ` +
+              `rendered style here; vitest-native registers toHaveAnimatedStyle and ` +
+              `toHaveAnimatedProps itself; delete.`,
+          );
         } else if (/jest-expo/.test(f)) {
           attention.push(`${key}: '${f}' — ${expoPresetCoverage()}.`);
         } else if (f.startsWith("<rootDir>")) {
@@ -469,6 +508,9 @@ export function analyzeJestConfig(root: string): MigrationReport {
         // itself (DEFAULT_ASSET_EXTS, the list plugin.ts uses), and said per extension.
         const assetGroup = /\\\.\(\??:?([a-z0-9|]+)\)\$?$/i.exec(pattern);
         const literal = exactMapperKey(pattern);
+        // `@/`, `~/` and `src/` keep the string alias below: nothing imports them bare.
+        const prefix = assetGroup ? null : prefixMapper(pattern, target);
+        const plainPrefix = prefix && !["@", "~", "src"].includes(prefix.key) ? prefix : null;
         if (assetGroup) {
           const exts = assetGroup[1].toLowerCase().split("|");
           const missing = exts.filter((e) => !DEFAULT_ASSET_EXTS.includes(e));
@@ -483,6 +525,18 @@ export function analyzeJestConfig(root: string): MigrationReport {
                 `the extensions the plugin handles by default → reactNative({ assetExts: ${JSON.stringify(missing)} }).`,
             );
           }
+        } else if (plainPrefix) {
+          // A RegExp `find` anchored as Jest's pattern is: a string key would also take
+          // the bare specifier (`utils` for `^utils/(.*)$`), which Jest leaves to the
+          // package. The directory is absolute: Vite resolves a substituted alias
+          // relative to the importer.
+          const find = `${regexLiteral(plainPrefix.key).slice(0, -2)}\\/(${plainPrefix.rest})$/`;
+          regexAliases.push(
+            `{ find: ${find}, replacement: ${absolutePath(plainPrefix.dir)} + "/$1" }`,
+          );
+          automatic.push(
+            `moduleNameMapper '${pattern}' → resolve.alias { find: ${find} } (absolute path).`,
+          );
         } else if (/^\^?@\/|\^~\/|\^src\//.test(pattern)) {
           const aliasKey = pattern
             .replace(/[\^$]/g, "")
@@ -709,7 +763,13 @@ export function analyzeJestConfig(root: string): MigrationReport {
         .filter((r): r is string => typeof r === "string")
         .map((r) => path.posix.normalize(r.replace(/^<rootDir>/, ".")).replace(/\/$/, "") || ".");
     }
-    const discovery = translateDiscovery(discoveryOptions, presetConfig, jestMajor(root));
+    const discovery = translateDiscovery(
+      discoveryOptions,
+      presetConfig,
+      jestMajor(root),
+      // Walked only if a `$`-anchored ignore pattern needs it, once.
+      () => (directories ??= projectDirectories(root)),
+    );
     if (discovery.include) {
       testEntries.push(`include: [${discovery.include.map((g) => JSON.stringify(g)).join(", ")}]`);
     }
@@ -749,6 +809,8 @@ export function analyzeJestConfig(root: string): MigrationReport {
       "globals",
       "snapshotSerializers",
       "reporters",
+      "watchPathIgnorePatterns",
+      "workerIdleMemoryLimit",
     ]) {
       if (config[key] !== undefined) {
         handled.add(key);
@@ -764,8 +826,35 @@ export function analyzeJestConfig(root: string): MigrationReport {
           );
           testEntries.push(`${vitestKey}: ${JSON.stringify(config[key])}`);
         } else if (key === "snapshotSerializers") {
-          attention.push(
-            `snapshotSerializers — Vitest uses expect.addSnapshotSerializer; vitest-native ships one for RN trees.`,
+          const serializers = Array.isArray(config[key]) ? (config[key] as unknown[]) : [];
+          const rest: string[] = [];
+          for (const entry of serializers) {
+            const code = typeof entry === "string" ? projectSource(entry) : null;
+            if (reanimatedActive && code !== null && stripsOnlyReanimatedProps(code)) {
+              presetCovered.push(
+                `snapshotSerializers '${entry}' — strips the jest* props Reanimated's real components ` +
+                  `add under Jest; the Reanimated preset's components add none; delete.`,
+              );
+            } else {
+              rest.push(String(entry));
+            }
+          }
+          if (rest.length || !serializers.length) {
+            attention.push(
+              `snapshotSerializers${rest.length ? ` ${rest.map((r) => `'${r}'`).join(", ")}` : ""} — ` +
+                `Vitest has no such key: register each with expect.addSnapshotSerializer() in a ` +
+                `setup file. React trees need none: they print as under Jest.`,
+            );
+          }
+        } else if (key === "watchPathIgnorePatterns") {
+          dropped.push(
+            `${key} — affects only Jest's watch mode; Vitest's watch mode reruns by the module graph ` +
+              `(tune it with server.watch.ignored if needed); dropped.`,
+          );
+        } else if (key === "workerIdleMemoryLimit") {
+          dropped.push(
+            `${key} — Vitest recycles workers by memory only in its vm pools (test.vmMemoryLimit), ` +
+              `which vitest-native does not use; dropped. Watch memory on the first full run.`,
           );
         } else {
           dropped.push(`${key} — no vitest-native equivalent needed; dropped.`);
@@ -784,11 +873,53 @@ export function analyzeJestConfig(root: string): MigrationReport {
       );
     }
 
+    // A library's own Jest resolver that the engine applies itself.
+    const resolver = typeof config.resolver === "string" ? config.resolver : undefined;
+    const resolverLibrary = resolver ? libraryResolver(resolver) : null;
+    if (resolverLibrary && (reanimatedActive || active.includes("worklets"))) {
+      handled.add("resolver");
+      presetCovered.push(
+        `resolver: '${resolver}' — ${resolverLibrary}'s own Jest resolver: the native engine applies ` +
+          `Reanimated's and Worklets' resolvers itself where their own mocks run, and their presets ` +
+          `replace the packages elsewhere; delete.`,
+      );
+    }
+
     for (const key of Object.keys(config)) {
       if (!handled.has(key)) {
         attention.push(`'${key}' — unrecognized Jest key; review manually.`);
       }
     }
+  }
+
+  // Snapshots Jest wrote of React Native components were recorded against the component
+  // stand-ins of React Native's Jest preset: a host named View or Text, with the props as
+  // the component was given them. vitest-native renders React Native's own host
+  // components (RCTView, RCTText) with the props React Native passes them, so those
+  // snapshots differ even where the component renders the same. They are in the same
+  // format, so the diff shows exactly that.
+  const snapshotFiles = (directories ??= projectDirectories(root))
+    .filter((dir) => path.posix.basename(dir) === "__snapshots__")
+    .reduce((count, dir) => {
+      let names: string[] = [];
+      try {
+        names = fs.readdirSync(path.join(root, dir));
+      } catch {
+        names = [];
+      }
+      return count + names.filter((name) => name.endsWith(".snap")).length;
+    }, 0);
+  if (snapshotFiles > 0) {
+    attention.push(
+      `${snapshotFiles} Jest snapshot file${snapshotFiles === 1 ? "" : "s"} (__snapshots__/*.snap) — ` +
+        `most entries need one re-record. Vitest names a snapshot inside a describe ` +
+        `'group > test 1' where Jest wrote 'group test 1', and a snapshot of React Native ` +
+        `components differs: Jest's preset renders stand-ins named View and Text with the props ` +
+        `as given, and vitest-native renders React Native's own host components (RCTView, ` +
+        `RCTText) with the props React Native passes them. Once the rest of the suite passes, ` +
+        `re-record them once with \`vitest -u\` and review the diff. Vitest also rewrites each ` +
+        `file's first line to its own header when it runs it.`,
+    );
   }
 
   // Jest's manual mocks of node_modules packages: a file in a __mocks__ folder anywhere

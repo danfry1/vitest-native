@@ -118,7 +118,6 @@ describe("members with no equivalent", () => {
     ["genMockFromModule", ["some-module"]],
     ["deepUnmock", ["some-module"]],
     ["unstable_mockModule", ["some-module", () => ({})]],
-    ["replaceProperty", [{}, "key", 1]],
     ["enableAutomock", []],
     ["disableAutomock", []],
     ["autoMockOff", []],
@@ -131,7 +130,7 @@ describe("members with no equivalent", () => {
       expect(() => jestGlobal()[name](...args)).toThrow(
         new RegExp(`jest\\.${name}\\(\\) has no Vitest equivalent`),
       );
-      expect(() => jestGlobal()[name](...args)).toThrow(/migrating-from-jest/);
+      expect(() => jestGlobal()[name](...args)).toThrow(/guide\/errors#JEST_API_UNSUPPORTED/);
     });
   }
 });

@@ -1051,6 +1051,46 @@ probe("hunt-stylesheet-flatten-empty", () => ({
   string: nullish(StyleSheet.flatten("" as never)),
 }));
 
+// --- host refs ---
+// A host ref has the native methods, and `ref` is never a host prop: React 19 passes it
+// as a prop to a host given by its bare name, which then reached toJSON() and snapshots.
+// Real React Native's host is its own native component (a View ref's measure() and
+// focus() come from it); the mock must agree on both.
+probe("host-refs-and-props", async () => {
+  const view = React.createRef<View>();
+  const text = React.createRef<Text>();
+  const input = React.createRef<TextInput>();
+  const methods = (ref: React.RefObject<unknown>) =>
+    ["measure", "measureInWindow", "focus", "setNativeProps"].map(
+      (name) => typeof (ref.current as Record<string, unknown> | null)?.[name],
+    );
+  await render(
+    <View ref={view} testID="root">
+      <Text ref={text}>label</Text>
+      <TextInput ref={input} placeholder="input" />
+      <ScrollView>
+        <Pressable onPress={() => {}}>
+          <Text>press</Text>
+        </Pressable>
+      </ScrollView>
+      <Image source={{ uri: "file:///x.png" }} />
+      <Switch value={false} />
+      <TouchableOpacity onPress={() => {}}>
+        <Text>touch</Text>
+      </TouchableOpacity>
+    </View>,
+  );
+  type Node = { props: Record<string, unknown>; children: (Node | string)[] | null };
+  const withRef: number[] = [0];
+  const walk = (node: Node | string | null) => {
+    if (!node || typeof node === "string") return;
+    if (Object.prototype.hasOwnProperty.call(node.props, "ref")) withRef[0] += 1;
+    for (const child of node.children ?? []) walk(child);
+  };
+  walk(screen.toJSON() as Node);
+  return { view: methods(view), text: methods(text), input: methods(input), hostsWithRef: withRef[0] };
+});
+
 // AppState.currentState and Appearance.getColorScheme() are deliberately NOT probed
 // here. Both were found unobserved by mutation (flipping the mock's values left the
 // corpus green), but neither is a cross-engine invariant: they only have a value

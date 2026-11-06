@@ -88,6 +88,8 @@ describe("option validation", () => {
     expect(() => reactNative({ engine: "device" } as any)).toThrow(/engine/);
     expect(() => reactNative({ nativeModules: "loose" } as any)).toThrow(/nativeModules/);
     expect(() => reactNative({ nativeModules: "permissive" })).not.toThrow();
+    expect(() => reactNative({ registryBuild: "later" } as any)).toThrow(/registryBuild/);
+    expect(() => reactNative({ registryBuild: "wait" })).not.toThrow();
   });
 
   it("rejects malformed hot runtime options", () => {

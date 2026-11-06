@@ -1,4 +1,5 @@
 import React from "react";
+import { hostComponent } from "../host.js";
 
 export function createModalMock() {
   const Modal = React.forwardRef((props: any, ref: any) => {
@@ -9,7 +10,7 @@ export function createModalMock() {
     // Modal children are quirky and RN/RNTL-version-specific, so the cross-check
     // probes Modal by queryability, not toBeVisible.)
     if (!visible) return null;
-    return React.createElement("Modal", { ...rest, visible, ref }, children);
+    return React.createElement(hostComponent("Modal"), { ...rest, visible, ref }, children);
   });
   Modal.displayName = "Modal";
   return Modal;

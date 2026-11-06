@@ -34,15 +34,25 @@ const presets = (globalThis as { __vitest_native_preset_mocks?: Record<string, u
   .__vitest_native_preset_mocks!;
 
 describe("Node dispatch precedence, from an installed package", () => {
-  it("runs the steps in one order: library support, per-file mocks, preset, registry", async () => {
-    const { nodeDispatch } = (await import("../src/node-dispatch.mjs")) as any;
-    expect(nodeDispatch().load.names).toEqual(["librarySupport", "mocks", "preset", "registry"]);
-    // The hot runtime's tracker, when installed, records what every other step settled on.
-    const resolveNames: string[] = nodeDispatch().resolve.names;
-    expect(resolveNames).toEqual(
-      resolveNames.includes("tracker") ? ["tracker", "hooks", "recovery"] : ["hooks", "recovery"],
-    );
-  });
+  // Asserts the registry: the per-file lane (vitest.per-file.config.mts) runs without one.
+  it.skipIf(process.env.VITEST_NATIVE_NO_REGISTRY === "1")(
+    "runs the steps in one order: library support, jest-compat shims, per-file mocks, preset, registry",
+    async () => {
+      const { nodeDispatch } = (await import("../src/node-dispatch.mjs")) as any;
+      expect(nodeDispatch().load.names).toEqual([
+        "librarySupport",
+        "jestCompatShims",
+        "mocks",
+        "preset",
+        "registry",
+      ]);
+      // The hot runtime's tracker, when installed, records what every other step settled on.
+      const resolveNames: string[] = nodeDispatch().resolve.names;
+      expect(resolveNames).toEqual(
+        resolveNames.includes("tracker") ? ["tracker", "hooks", "recovery"] : ["hooks", "recovery"],
+      );
+    },
+  );
 
   it("a per-file jest.mock beats a preset", () => {
     expect(requireFrom("react-native-safe-area-context")).toEqual({ source: "per-file mock" });
@@ -53,10 +63,14 @@ describe("Node dispatch precedence, from an installed package", () => {
     expect(netinfo).toBe(presets["@react-native-community/netinfo"]);
   });
 
-  it("the React Native registry serves react-native, one instance with the test's", () => {
-    const registry = req(projectContext()!.registry as string);
-    expect(requireFrom("react-native").Platform).toBe(registry.Platform);
-  });
+  // Asserts the registry: the per-file lane (vitest.per-file.config.mts) runs without one.
+  it.skipIf(process.env.VITEST_NATIVE_NO_REGISTRY === "1")(
+    "the React Native registry serves react-native, one instance with the test's",
+    () => {
+      const registry = req(projectContext()!.registry as string);
+      expect(requireFrom("react-native").Platform).toBe(registry.Platform);
+    },
+  );
 
   it("a builtin is Node's, past a per-file mock (documented divergence from Jest)", () => {
     // The test's own import of os is the mock (Vite's graph); Node's is the builtin.

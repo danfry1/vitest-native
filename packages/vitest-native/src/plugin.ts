@@ -1,4 +1,4 @@
-import type { Plugin, UserConfig } from "vite";
+import type { Plugin, ResolvedConfig, UserConfig } from "vite";
 import type { PoolRunnerInitializer } from "vitest/node";
 import type { VitestNativeOptions, ResolvedOptions, Preset } from "./types.js";
 import { getConfiguredPlatformExtensions, getPlatformExtensions } from "./resolve.js";
@@ -42,6 +42,8 @@ import {
 import { fsModuleCacheKey, shouldDefaultFsModuleCache } from "./fs-module-cache.js";
 import { knownNativeModulesFor, nativeModuleSpecsFor } from "./native/native-modules.mjs";
 import { JSX_TRANSFORM, nativeEngineConfig } from "./native/apply.js";
+import { isProjectJsFile, loadProjectJsx, projectJsxOptions } from "./project-jsx.js";
+import type { LoadChain } from "./project-jsx.js";
 import { detectEngine } from "./native/detect.js";
 import { aliasReachedPaths, detectEcosystemPackages } from "./native/ecosystem.js";
 import {
@@ -69,6 +71,9 @@ import {
   type ProjectContextFields,
 } from "./context.mjs";
 import { cacheRootFor } from "./native/transform.mjs";
+import { HangWatch, debugging, hangTimeoutFor } from "./hang-watch.mjs";
+import inspector from "node:inspector";
+
 import type { NativeOwnershipPolicy } from "./native/ownership.mjs";
 import {
   createNativeOwnershipPolicy,
@@ -606,13 +611,7 @@ interface RegistryOptions {
 
 async function buildRegistryFor(options: RegistryOptions): Promise<BuiltRegistries | null> {
   try {
-    const dir = path.dirname(fileURLToPath(import.meta.url));
-    const module = (await import(
-      pathToFileURL(path.resolve(dir, "native/registry-process.mjs")).href
-    )) as {
-      buildRegistryFor: (o: typeof options) => Promise<BuiltRegistries | null>;
-    };
-    return module.buildRegistryFor(options);
+    return (await loadRegistryProcess()).buildRegistryFor(options);
   } catch (error) {
     try {
       const dir = path.dirname(fileURLToPath(import.meta.url));
@@ -634,6 +633,45 @@ async function buildRegistryFor(options: RegistryOptions): Promise<BuiltRegistri
     return null;
   }
 }
+
+/** The registry-process module, reached as buildRegistryFor explains. */
+async function loadRegistryProcess(): Promise<{
+  buildRegistryFor: (o: RegistryOptions) => Promise<BuiltRegistries | null>;
+  startRegistryBuild: (o: RegistryOptions) => StartedRegistries;
+  settleRegistryBuilds: (budgetMs: number, state: { cancelled: boolean }) => Promise<void>;
+  isCI: () => boolean;
+  registryWaitForced: () => boolean;
+}> {
+  const dir = path.dirname(fileURLToPath(import.meta.url));
+  return import(pathToFileURL(path.resolve(dir, "native/registry-process.mjs")).href);
+}
+
+interface StartedRegistries {
+  registry?: string | null;
+  libraryRegistry?: string | null;
+  pending?: { file: string; since: number };
+  wait?: true;
+}
+
+/**
+ * The warm registries, or the registry this cache miss is compiling in the background
+ * (startRegistryBuild in native/registry-process.mjs), or `wait` when only the library
+ * registry is missing and is built first. None of them when none is available.
+ */
+async function startRegistryFor(options: RegistryOptions): Promise<StartedRegistries> {
+  try {
+    return (await loadRegistryProcess()).startRegistryBuild(options);
+  } catch (error) {
+    console.warn(
+      `[vitest-native] (native) could not precompile the React Native registry ` +
+        `(${(error as Error)?.message ?? error}); using slower per-file module loading.`,
+    );
+    return {};
+  }
+}
+
+/** Vitest instances whose close already settles the background registry builds. */
+const registrySettlers = new WeakSet<object>();
 
 interface ProjectMetroProfile {
   framework: "expo" | "react-native" | "fallback";
@@ -739,6 +777,24 @@ function withProjectContext(
   const ref = writeProjectContext(fields, cacheRootFor(projectRoot));
   writtenContexts.set(ref, fields);
   return { ...env, [CONTEXT_ENV]: ref };
+}
+
+/**
+ * A written context's fields minus the registries', for Vitest's module-cache key.
+ * Whether the registries are warm, compiling or absent changes how workers load React
+ * Native and libraries through Node, never what Vite transforms, so a run that found
+ * the cache cold must not key every module differently from the warm run after it.
+ */
+function registryNeutralContext(ref: string): ProjectContextFields | undefined {
+  const fields = writtenContexts.get(ref);
+  if (!fields) return undefined;
+  const {
+    registry: _registry,
+    registryPending: _pending,
+    libraryRegistry: _library,
+    ...rest
+  } = fields;
+  return rest as ProjectContextFields;
 }
 
 /** The same context with `changes` applied, written as its own file. */
@@ -1866,6 +1922,16 @@ const ownershipSummaries = new WeakMap<
   { sources: Set<Map<string, { path: string; reason: string }[]>> }
 >();
 
+/** The parts of a resolved Vitest config the hang watch reads (watchForHangs). */
+interface HangWatchConfig {
+  reporters?: unknown[];
+  testTimeout?: number;
+  hookTimeout?: number;
+  inspect?: unknown;
+  inspectBrk?: unknown;
+  execArgv?: readonly string[];
+}
+
 export function reactNative(options?: VitestNativeOptions): Plugin {
   // Before anything else: on an unsupported Node the loader hooks below are unreliable,
   // and the failures they cause look like the project's own bugs.
@@ -1952,6 +2018,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
 
   // These are populated in configResolved once we know the project root.
   let resolved: ResolvedOptions;
+  // The resolved Vite config and its Oxc options for project `.js` files (project-jsx.ts).
+  let viteConfig: ResolvedConfig | undefined;
+  let projectJsx: ReturnType<typeof projectJsxOptions>;
   const presetModules = new Map<string, () => Record<string, any>>();
   // The preset that shadows each module (configResolved), and the Jest setup files of
   // the libraries that run as themselves under the native engine (config()).
@@ -2002,6 +2071,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // experimental.ownershipModel: the registry options config() knows, built in
   // configureVitest once the resolver inputs are final (by directoryKey).
   const pendingRegistries = new Map<string, RegistryOptions>();
+  // Projects whose registry config() left compiling in the background: only their
+  // Vitest settles background builds when it closes.
+  const backgroundRegistryRoots = new Set<string>();
   // Set by configureProject when it publishes the context asynchronously (above).
   let ownershipReady: Promise<void> | undefined;
   // A root as Vite spells it → its directoryKey: resolveId runs for every import.
@@ -2160,6 +2232,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // Native-engine setup file (shipped verbatim as dist/native/setup.mjs; the src
   // tree mirrors that layout so both built and source resolution find it here).
   const nativeSetupPath = path.resolve(thisDir, "native/setup.mjs");
+  const HANG_SETUP = path.resolve(thisDir, "hang-watch-setup.mjs");
   const EXPORT_RECOVERY_ARGV = [
     "--import",
     pathToFileURL(path.resolve(thisDir, "native/export-condition-recovery-preload.mjs")).href,
@@ -2381,6 +2454,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // What workers get: the project context's fields, and `env` for the few
       // variables read back from the config in this process (the memory plan).
       const fields: ProjectContextFields = { platform, diagnostics, projectRoot: resolvedRoot };
+      // jest-compat restores jest.replaceProperty() replacements before each test where the
+      // project sets restoreMocks, as Jest's restoreMocks does: Vitest's own setting restores
+      // only Vitest's mocks (jest-compat/setup.mjs).
+      if ((userConfig as { test?: { restoreMocks?: unknown } }).test?.restoreMocks === true) {
+        fields.restoreMocks = true;
+      }
       const env: Record<string, string> = {};
       // jest.requireActual resolves through Node, which does not apply resolve.alias.
       // Hand the serializable entries to the compat setup so an aliased specifier
@@ -2798,17 +2877,37 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           diagnostics,
           libraryEntries: libraryRegistryEntries(resolvedRoot, fields.presetNames ?? []),
         };
+        const useRegistries = (registries: BuiltRegistries | StartedRegistries | null) => {
+          if (registries?.registry) fields.registry = registries.registry;
+          if (registries?.libraryRegistry) fields.libraryRegistry = registries.libraryRegistry;
+        };
         // experimental.ownershipModel: the registry's walk resolves with the shared
         // resolver, whose inputs are final only in configureVitest (the conditions come
-        // from Vitest's worker arguments). It is built there, before any worker starts.
+        // from Vitest's worker arguments). It is built there, before any worker starts,
+        // and waited for.
+        //
+        // Otherwise, on a cache miss the registry compiles in the background and this run
+        // loads React Native file by file, which is the same React Native; a test file
+        // that starts after the registry lands uses it (startRegistryBuild records why,
+        // and the options rejected). It waits instead under the hot runtime (a hot worker
+        // keeps React Native resident from its first file), on CI (only total time counts
+        // there, and per-file loading costs more than the build on a large suite), and
+        // with `registryBuild: 'wait'` (or its test seam, registryWaitForced).
         if (fields.ownershipModel) {
           pendingRegistries.set(directoryKey(resolvedRoot), registryOptions);
+        } else if (
+          hotMemory !== undefined ||
+          options?.registryBuild === "wait" ||
+          (await loadRegistryProcess().then((rp) => rp.registryWaitForced() || rp.isCI()))
+        ) {
+          useRegistries(await buildRegistryFor(registryOptions));
         } else {
-          const registries = await buildRegistryFor(registryOptions);
-          if (registries) {
-            fields.registry = registries.registry;
-            if (registries.libraryRegistry) fields.libraryRegistry = registries.libraryRegistry;
-          }
+          const started = await startRegistryFor(registryOptions);
+          if (started.wait) useRegistries(await buildRegistryFor(registryOptions));
+          else if (started.pending) {
+            fields.registryPending = started.pending;
+            backgroundRegistryRoots.add(directoryKey(resolvedRoot));
+          } else useRegistries(started);
         }
 
         // Lazy import: pulls in vitest/node, which only exists when running under
@@ -2961,6 +3060,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     },
 
     async configResolved(config) {
+      viteConfig = config;
+      projectJsx = projectJsxOptions(config.oxc);
+
       // load() is synchronous for assets; it needs the module generator in hand.
       assetModules ??= await loadAssetModules();
 
@@ -3222,6 +3324,19 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     },
 
     load(id) {
+      // JSX in a project .js file, as Metro and babel-jest compile it (project-jsx.ts).
+      if (projectJsx && isProjectJsFile(id)) {
+        // Only a dev environment (Vitest's) has a plugin container to ask.
+        const env = this.environment as { pluginContainer?: LoadChain } | undefined;
+        return loadProjectJsx(
+          id,
+          projectJsx,
+          viteConfig,
+          env?.pluginContainer,
+          diagnostics ? console.log : undefined,
+        );
+      }
+
       // The native engine's react-native facade. It re-exports the SAME instance
       // Node's graph holds — `_rn.View` is the very object an externalized library
       // sees — so nothing about React Native's behaviour or identity changes. What
@@ -3509,6 +3624,31 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           `Unsupported peer dependencies:\n- ${error}`,
         );
     }
+    if (backgroundRegistryRoots.has(directoryKey(root)) && !registrySettlers.has(vitest)) {
+      registrySettlers.add(vitest);
+      const closable = vitest as {
+        onClose?: (fn: () => Promise<void>) => void;
+        config?: { teardownTimeout?: number; reporters?: unknown[] };
+      };
+      // How the last run ended, from the reporter API: "interrupted" when it was
+      // cancelled (--bail, Ctrl-C in a terminal, a watch-mode key). configureVitest
+      // runs before Vitest creates its reporters, so an inline one joins them.
+      let lastRunReason: string | undefined;
+      closable.config?.reporters?.push({
+        onTestRunEnd(_modules: unknown, _errors: unknown, reason: string) {
+          lastRunReason = reason;
+        },
+      });
+      // Vitest's `teardownTimeout` counts from its exit(), before global teardown and
+      // the pool close that come ahead of this hook, so wait at most half of it: a
+      // close never runs into "close timed out".
+      const budgetMs = (closable.config?.teardownTimeout ?? 10_000) / 2;
+      closable.onClose?.(async () => {
+        await (
+          await loadRegistryProcess()
+        ).settleRegistryBuilds(budgetMs, { cancelled: lastRunReason === "interrupted" });
+      });
+    }
     const cacheKey = cacheKeys.get(root);
     if (cacheKey) defineCacheKeyGenerator?.(() => cacheKey);
     // A project that shares a Vite server without this plugin's test config would
@@ -3716,6 +3856,62 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     console.error(`[vitest-native] hot runtime off: ${reason}; Vitest's settings apply.`);
   }
 
+  // hangTimeout (src/hang-watch.mjs): a reporter in the main process that fails a run
+  // whose tests stop making progress. Vitest builds its reporters after every
+  // configureVitest hook has returned, so one added here is in the run. One watch per
+  // resolved config (a watch-mode restart resolves a new one), to which each project's
+  // plugin contributes: on by default only where the hot runtime runs, or wherever a
+  // limit is set; `false` turns it off; the limit allows for every project's timeouts.
+  function watchForHangs(
+    context: {
+      vitest: { config?: HangWatchConfig; projects?: readonly { config?: unknown }[] };
+      project?: { config?: unknown };
+    },
+    hotActive: boolean,
+  ) {
+    const config = context.vitest.config;
+    if (!config?.reporters) return;
+    const projectConfig = context.project?.config as
+      | (HangWatchConfig & { setupFiles?: string[] })
+      | undefined;
+    const configs = [
+      config,
+      projectConfig,
+      ...(context.vitest.projects ?? []).map((p) => p.config as HangWatchConfig | undefined),
+    ];
+    const option = options?.hangTimeout;
+    const limit = hangTimeoutFor(typeof option === "number" ? option : undefined, {
+      testTimeout: Math.max(...configs.map((c) => c?.testTimeout ?? 0)),
+      hookTimeout: Math.max(...configs.map((c) => c?.hookTimeout ?? 0)),
+    });
+    const off = option === false || debugging(configs, process.execArgv, inspector.url());
+    const active = typeof option === "number" || hotActive;
+    let watch = config.reporters.find((r): r is HangWatch => r instanceof HangWatch);
+    if (!watch) {
+      const recordsDir = fs.mkdtempSync(path.join(os.tmpdir(), "vitest-native-hang-"));
+      process.once("exit", () => fs.rmSync(recordsDir, { recursive: true, force: true }));
+      watch = new HangWatch({ timeoutMs: null, recordsDir });
+      config.reporters.push(watch);
+    }
+    watch.contribute({ off, active, limit });
+    // The worker side records each test's start (src/hang-watch-setup.mjs), for this
+    // project's workers, only while the watch can fire.
+    if (
+      active &&
+      !off &&
+      projectConfig?.setupFiles &&
+      !projectConfig.setupFiles.includes(HANG_SETUP)
+    ) {
+      // Through Vitest's provide/inject: worker settings never travel as environment.
+      const project = context.project as { provide?: (key: string, value: unknown) => void };
+      project.provide?.("vitestNativeHangWatch", {
+        dir: watch.recordsDir,
+        hookTimeout: projectConfig.hookTimeout ?? 10_000,
+      });
+      projectConfig.setupFiles.unshift(HANG_SETUP);
+    }
+  }
+
   /**
    * Refuse a run in which vitest-native's own `import 'vitest'` would reach a different
    * physical Vitest from the one running (host.ts): through the project's Vite resolver
@@ -3793,10 +3989,15 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             fsModuleCacheKey(
               path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."),
               viteRoot,
-              // The ownership guard's mode and exemptions are read by the worker at run
-              // time and never change a transform: kept out of the key, so switching the
-              // mode or `allow` re-transforms nothing.
-              withoutOwnershipGuard(options, (test as { env?: Record<string, string> }).env),
+              // The ownership guard's mode and exemptions, and the registries, are read
+              // by the worker at run time and never change a transform: kept out of the
+              // key, so neither switching the mode or `allow` nor a cold cache
+              // re-transforms anything.
+              withoutOwnershipGuard(
+                options,
+                (test as { env?: Record<string, string> }).env,
+                registryNeutralContext,
+              ),
             ),
           );
         }
@@ -3822,6 +4023,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     configureVitest(context: Parameters<typeof configureProject>[0]) {
       ownershipReady = undefined;
       configureProject(context);
+      // After configureProject, which settles whether this project runs on the hot runtime.
+      const projectRoot = context.project?.config?.root
+        ? path.resolve(context.project.config.root)
+        : process.cwd();
+      watchForHangs(context, hotSelections.has(projectRoot));
       // Under experimental.ownershipModel, the context is published once the registry
       // is built (configureProject); Vitest awaits this before starting any worker.
       const ready = ownershipReady as Promise<void> | undefined;
