@@ -263,18 +263,16 @@ function runExpoLatest(tarball) {
       fixtureRoot,
       { ...before, EXPO_OFFLINE: "1" },
     );
-    // Expo aligns react but not react-test-renderer, a dev dependency it does not manage;
+    // Expo aligns react but not react-test-renderer, which it does not manage;
     // RNTL refuses a renderer from another React release, and asks for exactly this.
     const reactVersion = JSON.parse(
       fs.readFileSync(path.join(fixtureRoot, "node_modules", "react", "package.json"), "utf8"),
     ).version;
-    if (manifest.devDependencies?.["react-test-renderer"]) {
-      runCaptured(
-        "npm",
-        ["install", "-D", `react-test-renderer@${reactVersion}`],
-        fixtureRoot,
-        before,
-      );
+    // Declared as a dependency or a dev dependency, depending on the fixture.
+    const dev = Boolean(manifest.devDependencies?.["react-test-renderer"]);
+    if (dev || manifest.dependencies?.["react-test-renderer"]) {
+      const spec = `react-test-renderer@${reactVersion}`;
+      runCaptured("npm", ["install", ...(dev ? ["-D"] : []), spec], fixtureRoot, before);
     }
     const version = (name) =>
       JSON.parse(
