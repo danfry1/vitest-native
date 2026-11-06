@@ -71,7 +71,7 @@ const JSX = has(/<[A-Za-z>]/);
 const CLASS = has(
   /\bclass\s+[A-Za-z_$][\w$]*\s*(?:extends\b[^{]*)?\{|\bclass\s*(?:extends\b[^{]*)?\{/,
 );
-const PROCESS_ENV = has(/\bprocess\.env\b/);
+const USES_PROCESS_ENVIRONMENT = has(/\bprocess\.env\b/);
 const UNISTYLES = has(/react-native-unistyles|from\s+['"]react-native['"]/);
 const JS_FILE = (file: string) => /\.[cm]?jsx?$/.test(file);
 const importOf = (moduleName: string) => {
@@ -293,7 +293,7 @@ export function classifyProjectBabelEntry(
     return needed(name, importOf(moduleName));
   }
   if (/^(?:babel-plugin-)?transform-inline-environment-variables$/.test(name)) {
-    return needed(name, PROCESS_ENV);
+    return needed(name, USES_PROCESS_ENVIRONMENT);
   }
   if (name === "react-native-unistyles/plugin") return needed(name, UNISTYLES);
   const [classified] = classifyBabelPlugins(
