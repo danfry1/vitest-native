@@ -1,5 +1,5 @@
-// The next file in the same worker sees the original value: Vitest calls
-// vi.restoreAllMocks() after each file, which jest-compat extends to replaced properties.
+// The next file in the same worker sees the original value: the jest-compat setup restores
+// a replaced property when its file ends, as Jest's next file has fresh modules.
 const target = (process as unknown as Record<symbol, { flag: boolean } | undefined>)[
   Symbol.for("vitest-native.no-isolate.replace-target")
 ];
@@ -9,10 +9,3 @@ test("the previous file's jest.replaceProperty was restored", () => {
   expect(target!.flag).toBe(false);
 });
 
-test("the setup did not wrap vi.restoreAllMocks again for this file", () => {
-  expect(vi.restoreAllMocks).toBe(
-    (process as unknown as Record<symbol, unknown>)[
-      Symbol.for("vitest-native.no-isolate.restore-all-mocks")
-    ],
-  );
-});

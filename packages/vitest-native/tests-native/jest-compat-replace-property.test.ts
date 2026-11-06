@@ -1,8 +1,9 @@
 /**
  * jest.replaceProperty() under jest-compat, as jest-mock 29.7 has it: the value replaced
  * in place, `{ replaceValue, restore }` returned, a second replacement reusing the first,
- * restored by restore(), jest.restoreAllMocks() and the `restoreMocks` setting (which
- * Vitest applies with vi.restoreAllMocks()), with Jest's errors otherwise.
+ * restored by restore() and jest.restoreAllMocks(), with Jest's errors otherwise. The
+ * `restoreMocks` setting and the end of the file: tests-native/jest-compat-restore-mocks
+ * and jest-registry-no-isolate/e*.
  */
 import { Platform } from "react-native";
 import { afterEach, expect, it, vi } from "vitest";
@@ -40,9 +41,31 @@ it("reuses the first replacement, so restoring gives back the original", () => {
   expect(Platform.OS).toBe("ios");
 });
 
-it("is restored by vi.restoreAllMocks(), which Vitest's restoreMocks setting calls", () => {
+it("is not restored by a bare vi.restoreAllMocks(), which is Vitest's own", () => {
   jest.replaceProperty(Platform, "OS", "android");
   vi.restoreAllMocks();
+  expect(Platform.OS).toBe("android");
+  jest.restoreAllMocks();
+  expect(Platform.OS).toBe("ios");
+});
+
+it("records nothing when the assignment fails, so later restores still work", () => {
+  const object = {} as { fixed: number; free: number };
+  Object.defineProperty(object, "fixed", { value: 1, configurable: true, writable: false });
+  object.free = 1;
+  expect(() => jest.replaceProperty(object, "fixed", 2)).toThrow(TypeError);
+  jest.replaceProperty(object, "free", 2);
+  expect(() => jest.restoreAllMocks()).not.toThrow();
+  expect(object.free).toBe(1);
+  expect(object.fixed).toBe(1);
+});
+
+it("restores Vitest's spies too when jest.restoreAllMocks() runs", () => {
+  const target = { method: () => "real" };
+  vi.spyOn(target, "method").mockReturnValue("spied");
+  jest.replaceProperty(Platform, "OS", "android");
+  jest.restoreAllMocks();
+  expect(target.method()).toBe("real");
   expect(Platform.OS).toBe("ios");
 });
 

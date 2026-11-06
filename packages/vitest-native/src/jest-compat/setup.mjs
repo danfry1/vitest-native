@@ -11,7 +11,7 @@
 // this entry) to rewrite top-level jest.mock/unmock/doMock to the hoisted vi.*
 // form at transform time. `jest.fn`, `jest.spyOn`, `jest.requireActual`,
 // `jest.useFakeTimers` work at runtime via the `jest` global installed here.
-import { expect, vi } from "vitest";
+import { afterAll, beforeEach, expect, vi } from "vitest";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { jestMockInterop } from "./interop.mjs";
@@ -19,6 +19,7 @@ import { installJestObject } from "./jest-object.mjs";
 import { callerFile } from "./caller.mjs";
 import { errorsWithMethodsEquality } from "./error-equality.mjs";
 import { VitestNativeError } from "../errors.mjs";
+import { projectContext } from "../context.mjs";
 import { NODE_MOCKS_STATE_ID, actualExports, config, nodeRegistry } from "./node-registry.mjs";
 
 // The global `require` below resolves from the consumer project root.
@@ -199,24 +200,19 @@ if (typeof vi.retryTimes !== "function") {
 
 // `vi`, with Jest's semantics for the mocks `jest.fn`/`jest.spyOn` create (see
 // jest-object.mjs). Everything else, including the members installed above, is `vi`.
-// The module-registry members and replaceProperty are the `jest` object's own, not `vi`'s:
-// `vi.resetModules` keeps Vitest's meaning, and Vitest has neither isolateModules nor
-// replaceProperty to extend.
+// The module-registry members, replaceProperty and restoreAllMocks are the `jest` object's
+// own, not `vi`'s: `vi.resetModules` and `vi.restoreAllMocks` keep Vitest's meaning, and
+// Vitest has neither isolateModules nor replaceProperty to extend.
 // `jest.replaceProperty(object, key, value)`, as jest-mock 29.7's ModuleMocker has it:
 // the same checks and messages, the value assigned in place (the property stays a plain,
 // writable value), and the returned `{ replaceValue, restore }`. A second replacement of
 // the same property reuses the first, so restoring gives back the original. Restored by
-// `restore()`, by `jest.restoreAllMocks()`, and by every `vi.restoreAllMocks()` Vitest makes
-// itself (wrapped below): for the project's `restoreMocks` setting, and after each test
-// file in a reused worker, where Jest's next file would have fresh modules.
-// One registry and one wrapper per `vi`: this setup runs again for every test file, in a
-// worker that may be reused (the hot runtime, `isolate: false`), and wrapping again each
-// time would stack a wrapper per file.
-const REPLACED = Symbol.for("vitest-native.jest-compat.replaced-properties");
-const replacedProperties = (vi[REPLACED] ??= new Set());
-function typeOfValue(value) {
-  return value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
-}
+// `restore()`, by `jest.restoreAllMocks()`, before each test where the project sets
+// `restoreMocks` (as Jest's setting does; Vitest's restores only its own mocks), and when
+// the test file ends, since Jest's next file has fresh modules and a reused worker
+// (`isolate: false`, the hot runtime) keeps them. A bare `vi.restoreAllMocks()` leaves
+// them, as it is Vitest's own.
+const replacedProperties = new Set();
 // jest-mock's own errors, as it throws them: a plain Error with Jest's message, which a
 // suite written for Jest asserts on (Vitest's toThrow with an error instance compares the
 // whole error, name included). The one place this file builds one.
@@ -281,29 +277,36 @@ function replaceProperty(object, propertyKey, value) {
       },
     },
   };
+  // Recorded only once the assignment has worked: a property that is configurable but
+  // not writable throws here, and an entry for it would throw again on every restore.
+  entry.replaced.replaceValue(value);
   replacedProperties.add(entry);
-  return entry.replaced.replaceValue(value);
+  return entry.replaced;
 }
 function restoreReplacedProperties() {
-  for (const entry of replacedProperties) entry.restore();
+  // Cleared first, so one restore that throws does not leave the others to throw again.
+  const entries = [...replacedProperties];
   replacedProperties.clear();
+  for (const entry of entries) entry.restore();
 }
-if (!Object.hasOwn(vi.restoreAllMocks, REPLACED)) {
-  const restoreVitestMocks = vi.restoreAllMocks;
-  vi.restoreAllMocks = Object.assign(
-    function restoreAllMocks(...args) {
-      restoreReplacedProperties();
-      return restoreVitestMocks.apply(this, args);
-    },
-    { [REPLACED]: true },
-  );
+/** `jest.restoreAllMocks()`: replaced properties, then Vitest's mocks, which run regardless. */
+function restoreAllMocks() {
+  try {
+    restoreReplacedProperties();
+  } finally {
+    vi.restoreAllMocks();
+  }
+  return globalThis.jest;
 }
+if (projectContext()?.restoreMocks === true) beforeEach(restoreReplacedProperties);
+afterAll(restoreReplacedProperties);
 
 globalThis.jest = installJestObject(vi, {
   resetModules,
   isolateModules,
   isolateModulesAsync,
   replaceProperty,
+  restoreAllMocks,
 });
 
 // Two identical errors whose class assigns methods as instance fields (zod 3's

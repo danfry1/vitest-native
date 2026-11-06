@@ -2427,6 +2427,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // What workers get: the project context's fields, and `env` for the few
       // variables read back from the config in this process (the memory plan).
       const fields: ProjectContextFields = { platform, diagnostics, projectRoot: resolvedRoot };
+      // jest-compat restores jest.replaceProperty() replacements before each test where the
+      // project sets restoreMocks, as Jest's restoreMocks does: Vitest's own setting restores
+      // only Vitest's mocks (jest-compat/setup.mjs).
+      if ((userConfig as { test?: { restoreMocks?: unknown } }).test?.restoreMocks === true) {
+        fields.restoreMocks = true;
+      }
       const env: Record<string, string> = {};
       // jest.requireActual resolves through Node, which does not apply resolve.alias.
       // Hand the serializable entries to the compat setup so an aliased specifier
