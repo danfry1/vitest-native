@@ -322,20 +322,6 @@ export function isUtilitySubpath(specifier) {
   return pkg !== specifier && specifier.slice(pkg.length + 1).split("/")[0] === "jest";
 }
 
-/**
- * The package `file` belongs to: the one after its last `node_modules/`, so a package
- * nested inside another's node_modules is its own. Null outside node_modules.
- */
-export function owningPackageOfFile(file) {
-  const norm = toPosix(file);
-  const marker = "/node_modules/";
-  const at = norm.lastIndexOf(marker);
-  if (at === -1) return null;
-  const rest = norm.slice(at + marker.length);
-  const pkg = packageNameOf(rest);
-  return pkg === rest ? null : pkg;
-}
-
 // The preset package a RESOLVED file belongs to, when the import that reached it came
 // from outside that package: `{ pkg, subpath }` ("…/node_modules/expo-asset/build/
 // index.js" → { pkg: "expo-asset", subpath: "build/index.js" }), else null.

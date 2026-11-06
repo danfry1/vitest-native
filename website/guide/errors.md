@@ -98,6 +98,10 @@ A library asked Nitro for a native HybridObject, which has no implementation in 
 
 vitest-native's module loader was given a step it does not know. Usually two copies of vitest-native, of different versions, are loaded into the same process; no configuration causes it otherwise. Install one vitest-native version (dedupe it in the workspace), and report it with your config if it persists.
 
+### `LIBRARY_REGISTRY_FAILED` {#LIBRARY_REGISTRY_FAILED}
+
+vitest-native could not precompile the modules of libraries such as Reanimated and Worklets into one file, which makes them load faster. You see it as a warning, `could not precompile the library registry (…); those libraries load file by file, which is slower`, and results are unaffected; the code itself is raised only inside the process that builds the file. The build is retried once any file it read changes. To retry sooner, delete the `registry` folder in vitest-native's cache ([where it lives](/guide/troubleshooting#when-react-native-s-precompiled-modules-are-reused-or-rebuilt)). If the warning keeps coming back, report the reason it names.
+
 ## Helpers and jest-compat
 
 ### `HELPERS_BEFORE_SETUP` {#HELPERS_BEFORE_SETUP}

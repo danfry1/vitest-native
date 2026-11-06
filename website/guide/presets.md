@@ -39,7 +39,7 @@ export default defineConfig({
 })
 ```
 
-Presets apply under **both** engines, with one exception under the native engine. `expo` steps aside: the Expo packages it covers run as themselves, against the engine's Expo runtime, unless `presets: { expo: true }` turns it on.
+Presets apply under **both** engines, with exceptions under the native engine. `expo`, `gestureHandler` and `flashList` step aside: the Expo packages run as themselves against the engine's Expo runtime, and gesture-handler and flash-list run as themselves with their own Jest setup, as a Jest suite lists it. Setting the preset to `true` (for example `presets: { expo: true }`) turns it back on. Several other presets serve their library's own test mock under the native engine; each row says which.
 
 ## Turning a preset off
 
