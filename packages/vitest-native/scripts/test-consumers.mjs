@@ -225,6 +225,46 @@ function runExpoPnpmSuites(tarball) {
   }
 }
 
+// The supported Expo SDKs at their newest patch: the latest-supported axis for Expo
+// (docs/upstream-policy.md). The fixtures pin exact releases; here `expo` follows its SDK
+// (`~58.0.0`) and Expo's own `expo install --fix` aligns the packages that go with it
+// (expo-*, react-native, the router). npm installs nothing published in the last 7 days,
+// as bunfig's minimumReleaseAge does for the repository.
+const EXPO_LATEST = [
+  { fixture: "expo", sdk: 58 },
+  { fixture: "expo-sdk57", sdk: 57 },
+];
+
+function runExpoLatest(tarball) {
+  const before = { npm_config_before: new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString() };
+  for (const { fixture, sdk } of EXPO_LATEST) {
+    const fixtureRoot = path.join(tempRoot, `${fixture}-latest`);
+    fs.cpSync(path.join(fixturesRoot, fixture), fixtureRoot, { recursive: true });
+    const manifestPath = path.join(fixtureRoot, "package.json");
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    manifest.dependencies.expo = `~${sdk}.0.0`;
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    addPackedDependency(fixtureRoot, tarball);
+    runCaptured("npm", ["install"], fixtureRoot, before);
+    // The fixture's own Expo CLI, never npx: a missing binary would resolve from the registry.
+    runCaptured(
+      process.execPath,
+      [path.join("node_modules", "expo", "bin", "cli"), "install", "--fix"],
+      fixtureRoot,
+      before,
+    );
+    const version = (name) =>
+      JSON.parse(
+        fs.readFileSync(path.join(fixtureRoot, "node_modules", name, "package.json"), "utf8"),
+      ).version;
+    console.log(
+      `\n${fixture}: expo ${version("expo")}, react-native ${version("react-native")}, expo-router ${version("expo-router")}`,
+    );
+    run("npm", ["test"], fixtureRoot);
+    run("npm", ["run", "test:router"], fixtureRoot);
+  }
+}
+
 // The README's and the quick start's code, run as written (scripts/doc-snippets.mjs).
 // The app is the Expo SDK 58 template fixture, on RNTL 14, whose async render() is
 // what an unawaited snippet breaks. Its own config and tests are removed first, so the
@@ -285,7 +325,7 @@ try {
   // docs-only pull request that changes a page carrying snippets).
   // Unset runs all of them, as prepublishOnly does.
   const only = process.env.VN_CONSUMERS;
-  const LEGS = ["fixtures", "doc-snippets", "expo-pnpm-suite"];
+  const LEGS = ["fixtures", "doc-snippets", "expo-pnpm-suite", "expo-latest"];
   if (only && !LEGS.includes(only)) {
     throw new Error(`VN_CONSUMERS=${only} is not one of ${LEGS.join(", ")}`);
   }
@@ -443,6 +483,9 @@ try {
   }
   if (runs("doc-snippets")) runDocSnippets(tarball);
   if (runs("expo-pnpm-suite")) runExpoPnpmSuites(tarball);
+  // Only when asked for: it installs the newest Expo patches, so it runs on a schedule
+  // (compat-check.yml), never as part of a pull request's gate.
+  if (only === "expo-latest") runExpoLatest(tarball);
 
   console.log("\nThe packed consumer fixtures passed.");
 } finally {
