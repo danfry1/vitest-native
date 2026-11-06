@@ -9,6 +9,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import { afterAll } from "vitest";
 // @ts-expect-error — runtime .mjs, no types
 import { materialise, museumRoot, packageRoot } from "../../validation/bug-museum/lib/materialise.mjs";
@@ -35,15 +36,22 @@ export function runApp(
   ).exhibits.find((e: { id: string }) => e.id === id) ?? { id };
   const root = materialise(exhibit, { work, build: packageRoot, edits, from });
   const vitest = path.join(fs.realpathSync(path.join(root, "node_modules/vitest")), "vitest.mjs");
-  // The child is its own Vitest run, not a worker of this one.
+  // The child is its own Vitest run, not a worker of this one. Its output is matched as
+  // text, so it prints without colour (CI sets FORCE_COLOR).
   const env = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !key.startsWith("VITEST")),
+    Object.entries(process.env).filter(
+      ([key]) => !key.startsWith("VITEST") && key !== "FORCE_COLOR",
+    ),
   );
   const proc = spawnSync(process.execPath, [vitest, "run"], {
     cwd: root,
-    env: { ...env, NODE_ENV: "test" },
+    env: { ...env, NODE_ENV: "test", NO_COLOR: "1" },
     encoding: "utf8",
     timeout: 120_000,
   });
-  return { status: proc.status, output: `${proc.stdout}\n${proc.stderr}` };
+  // Stripped as well, for any colour a tool prints regardless.
+  return {
+    status: proc.status,
+    output: stripVTControlCharacters(`${proc.stdout}\n${proc.stderr}`),
+  };
 }
