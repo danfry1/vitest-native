@@ -492,8 +492,8 @@ jobs:
 
       - name: Packed CJS reset consumer
         # One packed RN consumer, not another full matrix: the direct CJS re-export
-        # consumer passes under the hot runtime. Its drain mutation control could only
-        # fail under the threaded loader the Node floor removed (#530).
+        # consumer passes under the hot runtime, and fails with the reset's CJS lookup
+        # drain removed (a re-export first loaded after a reset, #530).
         if: matrix.gate == 'hot-runtime'
         run: node packages/vitest-native/validation/module-isolation/run-packed-cjs-reset.mjs
 
