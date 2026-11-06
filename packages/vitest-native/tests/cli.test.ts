@@ -590,6 +590,8 @@ describe("migrate", () => {
     const report = analyzeJestConfig(root);
     expect(report.automatic.join("\n")).toContain("src/__mocks__/moti → applied to moti");
     expect(report.suggestedConfig).toContain(`jestMockTransform({ roots: ["src", "."] })`);
+  });
+
   describe("Reanimated settings vitest-native covers", () => {
     // react-native-paper's files, verbatim.
     const SERIALIZER = `const reanimatedTestProps = new Set([
