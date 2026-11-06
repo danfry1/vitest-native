@@ -2228,6 +2228,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // Native-engine setup file (shipped verbatim as dist/native/setup.mjs; the src
   // tree mirrors that layout so both built and source resolution find it here).
   const nativeSetupPath = path.resolve(thisDir, "native/setup.mjs");
+  const HANG_SETUP = path.resolve(thisDir, "hang-watch-setup.mjs");
   const EXPORT_RECOVERY_ARGV = [
     "--import",
     pathToFileURL(path.resolve(thisDir, "native/export-condition-recovery-preload.mjs")).href,
@@ -3843,36 +3844,52 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // hangTimeout (src/hang-watch.mjs): a reporter in the main process that fails a run
   // whose tests stop making progress. Vitest builds its reporters after every
   // configureVitest hook has returned, so one added here is in the run. One watch per
-  // resolved config (a watch-mode restart resolves a new one); each project's plugin merges
-  // its own limit into it, from that project's timeouts.
-  function watchForHangs(context: {
-    vitest: {
-      config?: HangWatchConfig;
-      projects?: readonly { config?: unknown }[];
-    };
-    project?: { config?: unknown };
-  }) {
+  // resolved config (a watch-mode restart resolves a new one), to which each project's
+  // plugin contributes: on by default only where the hot runtime runs, or wherever a
+  // limit is set; `false` turns it off; the limit allows for every project's timeouts.
+  function watchForHangs(
+    context: {
+      vitest: { config?: HangWatchConfig; projects?: readonly { config?: unknown }[] };
+      project?: { config?: unknown };
+    },
+    hotActive: boolean,
+  ) {
     const config = context.vitest.config;
     if (!config?.reporters) return;
-    const projectConfig = (context.project?.config as HangWatchConfig | undefined) ?? config;
-    const debug = debugging(
-      [
-        config,
-        projectConfig,
-        ...(context.vitest.projects ?? []).map((p) => p.config as HangWatchConfig | undefined),
-      ],
-      process.execArgv,
-      inspector.url(),
-    );
-    const limit = debug
-      ? null
-      : hangTimeoutFor(options?.hangTimeout, {
-          testTimeout: projectConfig.testTimeout,
-          hookTimeout: projectConfig.hookTimeout,
-        });
-    const existing = config.reporters.find((r): r is HangWatch => r instanceof HangWatch);
-    if (existing) existing.merge(limit);
-    else config.reporters.push(new HangWatch({ timeoutMs: limit }));
+    const projectConfig = context.project?.config as
+      | (HangWatchConfig & { setupFiles?: string[] })
+      | undefined;
+    const configs = [
+      config,
+      projectConfig,
+      ...(context.vitest.projects ?? []).map((p) => p.config as HangWatchConfig | undefined),
+    ];
+    const option = options?.hangTimeout;
+    const limit = hangTimeoutFor(typeof option === "number" ? option : undefined, {
+      testTimeout: Math.max(...configs.map((c) => c?.testTimeout ?? 0)),
+      hookTimeout: Math.max(...configs.map((c) => c?.hookTimeout ?? 0)),
+    });
+    const off = option === false || debugging(configs, process.execArgv, inspector.url());
+    const active = typeof option === "number" || hotActive;
+    let watch = config.reporters.find((r): r is HangWatch => r instanceof HangWatch);
+    if (!watch) {
+      const recordsDir = fs.mkdtempSync(path.join(os.tmpdir(), "vitest-native-hang-"));
+      process.once("exit", () => fs.rmSync(recordsDir, { recursive: true, force: true }));
+      watch = new HangWatch({ timeoutMs: null, recordsDir });
+      config.reporters.push(watch);
+    }
+    watch.contribute({ off, active, limit });
+    // The worker side records each test's start (src/hang-watch-setup.mjs), for this
+    // project's workers, only while the watch can fire.
+    if (
+      active &&
+      !off &&
+      projectConfig?.setupFiles &&
+      !projectConfig.setupFiles.includes(HANG_SETUP)
+    ) {
+      process.env.VITEST_NATIVE_HANG_DIR = watch.recordsDir;
+      projectConfig.setupFiles.unshift(HANG_SETUP);
+    }
   }
 
   /**
@@ -3985,8 +4002,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     // asynchronous).
     configureVitest(context: Parameters<typeof configureProject>[0]) {
       ownershipReady = undefined;
-      watchForHangs(context);
       configureProject(context);
+      // After configureProject, which settles whether this project runs on the hot runtime.
+      const projectRoot = context.project?.config?.root
+        ? path.resolve(context.project.config.root)
+        : process.cwd();
+      watchForHangs(context, hotSelections.has(projectRoot));
       // Under experimental.ownershipModel, the context is published once the registry
       // is built (configureProject); Vitest awaits this before starting any worker.
       const ready = ownershipReady as Promise<void> | undefined;

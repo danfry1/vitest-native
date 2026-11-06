@@ -42,7 +42,9 @@ function project(option: string, files: Record<string, string>) {
     files: {
       "vitest.config.mjs":
         `import { reactNative } from ${JSON.stringify(DIST)};\n` +
-        `export default { plugins: [reactNative({ engine: "mock", ${option} })], test: { include: ["*.check.js"], globals: true } };\n`,
+        // hookTimeout 1 s keeps a stuck test's own budget (timeout + 2 hook timeouts + 1 s)
+        // short, so a real hang is caught in seconds here.
+        `export default { plugins: [reactNative({ engine: "mock", ${option} })], test: { include: ["*.check.js"], globals: true, hookTimeout: 1000 } };\n`,
       ...files,
     },
   });
@@ -50,45 +52,74 @@ function project(option: string, files: Record<string, string>) {
   return root;
 }
 
-function vitest(root: string) {
+function vitest(root: string, harnessMs = 60_000) {
   const cli = path.join(fs.realpathSync(path.join(root, "node_modules", "vitest")), "vitest.mjs");
   // The child is its own Vitest run, not a worker of this one.
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([k]) => !k.startsWith("VITEST")),
   );
-  return new Promise<{ code: number | null; output: string; ms: number }>((resolve) => {
-    const started = Date.now();
-    const child = spawn(process.execPath, [cli, "run"], {
-      cwd: root,
-      env: { ...env, NO_COLOR: "1", FORCE_COLOR: "0" },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let output = "";
-    child.stdout.on("data", (chunk) => (output += chunk));
-    child.stderr.on("data", (chunk) => (output += chunk));
-    // A safety net for this test only: never leave a spinning child behind.
-    const kill = setTimeout(() => child.kill("SIGKILL"), 60_000);
-    child.on("close", (code) => {
-      clearTimeout(kill);
-      resolve({ code, output, ms: Date.now() - started });
-    });
-  });
+  return new Promise<{ code: number | null; output: string; ms: number; stopped: boolean }>(
+    (resolve) => {
+      const started = Date.now();
+      const child = spawn(process.execPath, [cli, "run"], {
+        cwd: root,
+        env: { ...env, NO_COLOR: "1", FORCE_COLOR: "0", GITHUB_ACTIONS: "" },
+        stdio: ["ignore", "pipe", "pipe"],
+        // Its own process group, so the harness can stop all of it.
+        detached: process.platform !== "win32",
+      });
+      let output = "";
+      child.stdout.on("data", (chunk) => (output += chunk));
+      child.stderr.on("data", (chunk) => (output += chunk));
+      let stopped = false;
+      const kill = setTimeout(() => {
+        stopped = true;
+        if (process.platform === "win32") child.kill("SIGKILL");
+        else process.kill(-child.pid!, "SIGKILL");
+      }, harnessMs);
+      child.on("close", (code) => {
+        clearTimeout(kill);
+        resolve({ code, output, ms: Date.now() - started, stopped });
+      });
+    },
+  );
 }
 
-it("fails a test stuck in a synchronous loop within hangTimeout, naming it", async () => {
+const SPIN = `import fs from "node:fs";\ntest("spins forever", () => { fs.writeFileSync("worker.pid", String(process.pid)); for (;;) {} });\n`;
+
+it("fails a test stuck in a synchronous loop, naming the test", async () => {
   const root = project("hangTimeout: 3000", {
     "ok.check.js": `test("fine", () => {});\n`,
-    "spin.check.js": `import fs from "node:fs";\ntest("spins forever", () => { fs.writeFileSync("worker.pid", String(process.pid)); for (;;) {} });\n`,
+    "spin.check.js": SPIN,
   });
   const { code, output, ms } = await vitest(root);
   expect(code, output).toBe(1);
   expect(output).toContain("No test made progress for 3 s (hangTimeout)");
-  // The file, always; the test only if the worker reported its start before it stuck.
-  expect(output).toMatch(
-    /Running: \S*spin\.check\.js( › spins forever| \(no test reported as running)/,
-  );
+  // The test's name comes from the worker's synchronous record, not the batched events.
+  expect(output).toMatch(/Running: \S*spin\.check\.js › spins forever/);
   expect(ms).toBeLessThan(45_000);
   await expectWorkerGone(root);
+}, 90_000);
+
+it("lets a test run its own longer timeout", async () => {
+  // No progress for 4 s, past a 1.5 s limit, inside the test's own 6 s.
+  const root = project("hangTimeout: 1500", {
+    "slow.check.js": `test("waits 4 s", () => new Promise((r) => setTimeout(r, 4000)), 6000);\n`,
+  });
+  const { code, output } = await vitest(root);
+  expect(code, output).toBe(0);
+  expect(output).not.toContain("No test made progress");
+}, 90_000);
+
+it("leaves retried timeouts as ordinary test failures", async () => {
+  // Each attempt times out at 0.8 s; four attempts take longer than the 1 s limit.
+  const root = project("hangTimeout: 1000", {
+    "retry.check.js": `test("never settles", () => new Promise(() => {}), { timeout: 800, retry: 3 });\n`,
+  });
+  const { code, output } = await vitest(root);
+  expect(code, output).toBe(1);
+  expect(output).toMatch(/Test timed out in 800ms/);
+  expect(output).not.toContain("No test made progress");
 }, 90_000);
 
 it("leaves a healthy run alone", async () => {
@@ -100,15 +131,12 @@ it("leaves a healthy run alone", async () => {
   expect(output).not.toContain("hangTimeout");
 }, 90_000);
 
-it("is off with hangTimeout: false", async () => {
-  // The same test makes no progress for 4 s: a 1 s limit stops it, false lets it finish.
-  const files = {
-    "quiet.check.js": `test("quiet 4 s", () => new Promise((r) => setTimeout(r, 4000)));\n`,
-  };
-  const limited = await vitest(project("hangTimeout: 1000", files));
-  expect(limited.code, limited.output).toBe(1);
-  expect(limited.output).toContain("No test made progress for 1 s");
-  const off = await vitest(project("hangTimeout: false", files));
-  expect(off.code, off.output).toBe(0);
-  expect(off.output).not.toContain("No test made progress");
+it("is off with false, and by default where the hot runtime is not on", async () => {
+  for (const option of ["hangTimeout: false", ""]) {
+    const root = project(option, { "spin.check.js": SPIN });
+    // Left alone, the stuck run is still going when the harness stops it.
+    const { output, stopped } = await vitest(root, 10_000);
+    expect([option, stopped]).toEqual([option, true]);
+    expect(output).not.toContain("No test made progress");
+  }
 }, 90_000);

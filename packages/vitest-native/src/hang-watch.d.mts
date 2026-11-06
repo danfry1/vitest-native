@@ -13,16 +13,36 @@ export declare function debugging(
   inspectorUrl?: string,
 ): boolean;
 export declare function descendantsOf(pid: number): number[];
+export interface HangTestRecord {
+  file: string | null;
+  test: string;
+  at: number;
+  timeout?: number;
+  hookTimeout?: number;
+  debugger?: boolean;
+}
+export declare function testBudget(record: HangTestRecord): number;
+export declare function readTestRecords(dir: string | undefined): Map<string, HangTestRecord>;
+export declare function runByCli(argv?: readonly string[]): boolean;
 export declare function exitKillingDescendants(code: number): never;
 export declare class HangWatch {
   constructor(options: {
     timeoutMs: number | null;
+    recordsDir?: string;
     exit?: (code: number) => void;
     write?: (text: string) => void;
+    now?: () => number;
+    cli?: boolean;
+    graceMs?: number;
   });
   timeoutMs: number | null;
+  readonly recordsDir: string | undefined;
+  active: boolean;
+  off: boolean;
   readonly running: Map<string, string | null>;
-  merge(timeoutMs: number | null): void;
+  contribute(say?: { off?: boolean; active?: boolean; limit?: number | null }): void;
+  watching(): boolean;
+  onInit(vitest: unknown): void;
   onTestRunStart(): void;
   onTestModuleQueued(testModule: { moduleId: string }): void;
   onTestModuleStart(testModule: { moduleId: string }): void;
@@ -30,5 +50,7 @@ export declare class HangWatch {
   onTestCaseResult(testCase: { module: { moduleId: string }; fullName: string }): void;
   onTestModuleEnd(testModule: { moduleId: string }): void;
   onTestRunEnd(): void;
-  report(): string[];
+  check(): void;
+  report(records?: Map<string, HangTestRecord>): string[];
+  trip(records?: Map<string, HangTestRecord>): Promise<void>;
 }

@@ -19,6 +19,7 @@
 // out: a forked worker (Vitest's default pool) would otherwise spin on after the run.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import path from "node:path";
 
 /** The default no-progress limit when `hangTimeout` is not set. */
 export const DEFAULT_HANG_TIMEOUT = 60_000;
@@ -136,30 +137,87 @@ export function exitKillingDescendants(code) {
   process.exit(code);
 }
 
+/** How long a recorded test may legitimately run: its timeout, plus its hooks and slack. */
+export function testBudget(record) {
+  return (record.timeout ?? 5000) + 2 * (record.hookTimeout ?? 10000) + 1000;
+}
+
+/** The latest record per test file, from the workers' files in `dir` (hang-watch-setup.mjs). */
+export function readTestRecords(dir) {
+  const byFile = new Map();
+  if (!dir) return byFile;
+  let entries = [];
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return byFile; // no worker has recorded a test yet
+  }
+  for (const entry of entries) {
+    let record;
+    try {
+      record = JSON.parse(fs.readFileSync(path.join(dir, entry), "utf8"));
+    } catch {
+      continue; // mid-write, or removed: the next check reads it
+    }
+    if (!record?.file) continue;
+    const seen = byFile.get(record.file);
+    if (!seen || seen.at < record.at) byFile.set(record.file, record);
+  }
+  return byFile;
+}
+
+/** Whether this process is Vitest's own CLI, which may be ended, rather than a host using its API. */
+export function runByCli(argv = process.argv) {
+  return /(^|[\\/])vitest(\.m?js)?$/.test(argv[1] ?? "");
+}
+
 export class HangWatch {
   constructor({
     timeoutMs,
+    recordsDir,
     exit = exitKillingDescendants,
     // Straight to the file descriptor: Vitest's terminal renderer buffers writes to
-    // process.stderr, and the process ends right after this.
+    // process.stderr, and the process may end right after this.
     write = (text) => fs.writeSync(2, text),
+    now = () => Date.now(),
+    cli = runByCli(),
+    graceMs = 5000,
   }) {
-    /** Null: off (a project set `hangTimeout: false`). */
-    this.timeoutMs = timeoutMs;
+    this.timeoutMs = timeoutMs ?? null;
+    this.recordsDir = recordsDir;
+    /** On only if some project turned it on and none turned it off (contribute). */
+    this.active = timeoutMs !== undefined && timeoutMs !== null;
+    this.off = false;
     this.exit = exit;
     this.write = write;
+    this.now = now;
+    this.cli = cli;
+    this.graceMs = graceMs;
     /** Test file → the test running in it, or null if none has reported starting. */
     this.running = new Map();
     this.timer = undefined;
+    this.vitest = undefined;
+  }
+
+  onInit(vitest) {
+    this.vitest = vitest;
   }
 
   /**
-   * Another project's limit for the same run: `false` anywhere turns the watch off,
-   * otherwise the longest limit wins, so no project is cut shorter than it asked.
+   * One project's say for this run, from each project's plugin:
+   * - `off` (`hangTimeout: false`) turns the watch off for the whole run;
+   * - `active` (a limit was set, or the project runs on the hot runtime) turns it on;
+   * - the longest limit wins, so no project is cut shorter than it asked.
    */
-  merge(timeoutMs) {
-    if (this.timeoutMs === null || timeoutMs === null) this.timeoutMs = null;
-    else this.timeoutMs = Math.max(this.timeoutMs, timeoutMs);
+  contribute({ off = false, active = false, limit = null } = {}) {
+    if (off) this.off = true;
+    if (active) this.active = true;
+    if (limit !== null) this.timeoutMs = Math.max(this.timeoutMs ?? 0, limit);
+  }
+
+  /** Whether this run is watched at all. */
+  watching() {
+    return this.active && !this.off && this.timeoutMs !== null;
   }
 
   onTestRunStart() {
@@ -204,9 +262,33 @@ export class HangWatch {
   /** Restart the limit while any file is in flight; otherwise stop watching. */
   progress() {
     this.disarm();
-    if (this.timeoutMs === null || this.running.size === 0) return;
-    this.timer = setTimeout(() => this.trip(), this.timeoutMs);
+    if (!this.watching() || this.running.size === 0) return;
+    this.arm(this.timeoutMs);
+  }
+
+  arm(ms) {
+    this.disarm();
+    this.timer = setTimeout(() => this.check(), ms);
     this.timer.unref?.();
+  }
+
+  /**
+   * The limit passed with no progress. A test still inside its own budget (its timeout,
+   * retries counted per attempt, plus its hooks) or paused in a debugger is waited for,
+   * until that budget runs out; otherwise the run is stuck.
+   */
+  check() {
+    const records = readTestRecords(this.recordsDir);
+    let waitUntil = 0;
+    for (const file of this.running.keys()) {
+      const record = records.get(file);
+      if (!record) continue;
+      if (record.debugger) return this.arm(this.timeoutMs);
+      waitUntil = Math.max(waitUntil, record.at + testBudget(record));
+    }
+    const left = waitUntil - this.now();
+    if (left > 0) return this.arm(left);
+    this.trip(records);
   }
 
   disarm() {
@@ -215,26 +297,46 @@ export class HangWatch {
   }
 
   /** The message: what was running, and what to do. */
-  report() {
+  report(records = new Map()) {
     const seconds = Math.round(this.timeoutMs / 1000);
     const lines = [
-      `[vitest-native] No test made progress for ${seconds} s (hangTimeout). A test or hook is probably stuck in synchronous code, which testTimeout cannot interrupt.`,
+      `[vitest-native] No test made progress for ${seconds} s (hangTimeout), and the running tests are past their own timeouts: a test or hook is stuck in synchronous code, which testTimeout cannot interrupt.`,
     ];
-    for (const [file, test] of this.running) {
+    for (const [file, reported] of this.running) {
+      const test = records.get(file)?.test ?? reported;
       lines.push(
         test
           ? `  Running: ${file} › ${test}`
-          : `  Running: ${file} (no test reported as running: a test whose start was not reported yet, a hook, or the file's imports)`,
+          : `  Running: ${file} (no test had started: the file's imports, collection or a beforeAll hook)`,
       );
     }
     lines.push(
-      "  The run is stopped. If a test legitimately runs this long while no other test finishes, raise reactNative({ hangTimeout }) or set it to false.",
+      "  The run is stopped (global teardown and output reporters such as coverage and junit do not finish). To change the limit, set reactNative({ hangTimeout }); false turns it off.",
     );
     return lines;
   }
 
-  trip() {
-    this.write(`${this.report().join("\n")}\n`);
-    this.exit(1);
+  async trip(records = new Map()) {
+    const lines = this.report(records);
+    this.write(`${lines.join("\n")}\n`);
+    if (process.env.GITHUB_ACTIONS === "true") {
+      const where = [...this.running].map(
+        ([file, t]) =>
+          `${file}${(records.get(file)?.test ?? t) ? ` › ${records.get(file)?.test ?? t}` : ""}`,
+      );
+      this.write(`::error title=hangTimeout::No test progress; stopped. ${where.join("; ")}\n`);
+    }
+    process.exitCode = 1;
+    // Ask Vitest to close first (it stops its workers and runs what teardown it can),
+    // but not for longer than the grace period: a stuck worker can hold close() forever.
+    const closed = this.vitest?.close?.();
+    if (closed) {
+      await Promise.race([
+        closed.catch(() => {}),
+        new Promise((r) => setTimeout(r, this.graceMs).unref?.()),
+      ]);
+    }
+    // A host using Vitest's API keeps its process; only Vitest's own CLI is ended.
+    if (this.cli) this.exit(1);
   }
 }
