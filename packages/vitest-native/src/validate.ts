@@ -121,12 +121,14 @@ export function validateOptions(options: Record<string, unknown>): void {
     !(
       typeof options.hangTimeout === "number" &&
       Number.isFinite(options.hangTimeout) &&
-      options.hangTimeout > 0
+      options.hangTimeout > 0 &&
+      // Node's longest timer: a longer delay fires at once.
+      options.hangTimeout <= 2_147_483_647
     )
   ) {
     throw new VitestNativeTypeError(
       "INVALID_OPTION",
-      `"hangTimeout" must be a positive number of milliseconds, or false.`,
+      `"hangTimeout" must be a positive number of milliseconds (at most 2147483647), or false.`,
     );
   }
   if (

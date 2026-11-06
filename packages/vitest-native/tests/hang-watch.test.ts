@@ -4,7 +4,13 @@
  * debugger, and when turned off. The real hung run is in hang-timeout.e2e.test.ts.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_HANG_TIMEOUT, HangWatch, debugging, hangTimeoutFor } from "../src/hang-watch.mjs";
+import {
+  DEFAULT_HANG_TIMEOUT,
+  HangWatch,
+  MAX_HANG_TIMEOUT,
+  debugging,
+  hangTimeoutFor,
+} from "../src/hang-watch.mjs";
 import { validateOptions } from "../src/validate.js";
 
 const file = (id: string) => ({ moduleId: id });
@@ -33,6 +39,7 @@ describe("HangWatch", () => {
     expect(text).toContain("No test made progress for 1 s (hangTimeout)");
     expect(text).toContain("Running: /app/a.test.tsx › Screen > renders");
     expect(text).toContain("testTimeout cannot interrupt");
+    expect(text).toContain("probably stuck");
   });
 
   it("restarts the limit on every test and file", () => {
@@ -43,6 +50,41 @@ describe("HangWatch", () => {
       w.onTestModuleStart(file(`/app/${i}.test.ts`));
       w.onTestModuleEnd(file(`/app/${i}.test.ts`));
     }
+    expect(exit).not.toHaveBeenCalled();
+  });
+
+  it("does not watch while no file is in flight (global setup, coverage, typecheck)", () => {
+    const { w, exit } = watch();
+    w.onTestRunStart();
+    vi.advanceTimersByTime(10_000); // global setup, or the compiler in typecheck mode
+    w.onTestModuleQueued(file("/app/a.test.ts"));
+    w.onTestModuleEnd(file("/app/a.test.ts"));
+    vi.advanceTimersByTime(10_000); // coverage after the last file
+    expect(exit).not.toHaveBeenCalled();
+  });
+
+  it("names a file stuck in its imports, from when a worker takes it", () => {
+    const { w, exit, write } = watch();
+    w.onTestRunStart();
+    w.onTestModuleQueued(file("/app/stuck-import.test.ts"));
+    vi.advanceTimersByTime(1000);
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(write.mock.calls.join("")).toContain(
+      "Running: /app/stuck-import.test.ts (no test reported",
+    );
+  });
+
+  it("merges projects: false anywhere turns it off, otherwise the longest limit", () => {
+    const longest = new HangWatch({ timeoutMs: 1000 });
+    longest.merge(5000);
+    expect(longest.timeoutMs).toBe(5000);
+    longest.merge(null);
+    expect(longest.timeoutMs).toBeNull();
+    const { w, exit } = watch(1000);
+    w.merge(null);
+    w.onTestRunStart();
+    w.onTestModuleQueued(file("/app/a.test.ts"));
+    vi.advanceTimersByTime(60_000);
     expect(exit).not.toHaveBeenCalled();
   });
 
@@ -65,6 +107,13 @@ describe("hangTimeoutFor", () => {
     expect(hangTimeoutFor(undefined, { testTimeout: 120_000, hookTimeout: 10_000 })).toBe(240_000);
   });
 
+  it("is off when the limit is not a finite timer delay (testTimeout: Infinity)", () => {
+    expect(hangTimeoutFor(undefined, { testTimeout: Number.POSITIVE_INFINITY })).toBeNull();
+    expect(hangTimeoutFor(undefined, { hookTimeout: MAX_HANG_TIMEOUT })).toBeNull();
+    expect(hangTimeoutFor(MAX_HANG_TIMEOUT + 1)).toBeNull();
+    expect(hangTimeoutFor(MAX_HANG_TIMEOUT)).toBe(MAX_HANG_TIMEOUT);
+  });
+
   it("uses a set value as given, and false turns it off", () => {
     expect(hangTimeoutFor(5000, { testTimeout: 120_000 })).toBe(5000);
     expect(hangTimeoutFor(false)).toBeNull();
@@ -72,13 +121,15 @@ describe("hangTimeoutFor", () => {
 });
 
 describe("debugging", () => {
-  it("is on with Vitest's inspect options, an --inspect flag or an attached inspector", () => {
-    expect(debugging({ inspect: true }, [])).toBe(true);
-    expect(debugging({ inspectBrk: "9229" }, [])).toBe(true);
-    expect(debugging({}, ["--inspect=0.0.0.0:9229"])).toBe(true);
-    expect(debugging({}, ["--inspect-brk"])).toBe(true);
-    expect(debugging({}, [], "ws://127.0.0.1:9229/x")).toBe(true);
-    expect(debugging({}, ["--max-old-space-size=4096"])).toBe(false);
+  it("is on with Vitest's inspect options, workers' or this process's --inspect, or an open inspector", () => {
+    expect(debugging([{ inspect: true }], [])).toBe(true);
+    expect(debugging([{}, { inspectBrk: "9229" }], [])).toBe(true);
+    expect(debugging([{ execArgv: ["--inspect-brk=9230"] }], [])).toBe(true);
+    expect(debugging([undefined, {}], ["--inspect=0.0.0.0:9229"])).toBe(true);
+    expect(debugging([], [], "ws://127.0.0.1:9229/x")).toBe(true);
+    expect(debugging([{ execArgv: ["--max-old-space-size=4096"] }], ["--enable-source-maps"])).toBe(
+      false,
+    );
   });
 });
 
@@ -86,7 +137,7 @@ describe("the hangTimeout option", () => {
   it("accepts a positive number or false, and nothing else", () => {
     expect(() => validateOptions({ hangTimeout: 30_000 })).not.toThrow();
     expect(() => validateOptions({ hangTimeout: false })).not.toThrow();
-    for (const bad of [0, -1, Number.POSITIVE_INFINITY, "60s", true]) {
+    for (const bad of [0, -1, Number.POSITIVE_INFINITY, MAX_HANG_TIMEOUT + 1, "60s", true]) {
       expect(() => validateOptions({ hangTimeout: bad } as never)).toThrow(/hangTimeout/);
     }
   });

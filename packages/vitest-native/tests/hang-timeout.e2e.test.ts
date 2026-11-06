@@ -32,8 +32,9 @@ async function expectWorkerGone(root: string) {
     }
   };
   for (let i = 0; i < 30 && alive(); i++) await new Promise((r) => setTimeout(r, 100));
-  if (alive()) process.kill(pid, "SIGKILL"); // never leave it spinning, even on failure
-  expect(alive()).toBe(false);
+  const survived = alive();
+  if (survived) process.kill(pid, "SIGKILL"); // never leave it spinning, even on failure
+  expect(survived).toBe(false);
 }
 
 function project(option: string, files: Record<string, string>) {
