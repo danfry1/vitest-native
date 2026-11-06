@@ -334,14 +334,10 @@ export function analyzeJestConfig(root: string): MigrationReport {
     if (/^(?:<rootDir>\/|\.\/)?node_modules\//.test(file)) return null;
     const rel = file.replace(/^<rootDir>\/?/, "");
     const base = path.resolve(root, rel);
-    for (const candidate of [base, `${base}.js`, `${base}.ts`]) {
-      try {
-        return fs.readFileSync(candidate, "utf8");
-      } catch {
-        // next
-      }
-    }
-    return null;
+    const file = [base, `${base}.js`, `${base}.ts`].find((candidate) =>
+      fs.statSync(candidate, { throwIfNoEntry: false })?.isFile(),
+    );
+    return file === undefined ? null : fs.readFileSync(file, "utf8");
   };
   const reanimatedActive = active.includes("reanimated");
   const absolutePath = (relative: string) => {
