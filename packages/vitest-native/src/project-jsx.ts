@@ -19,7 +19,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { transformWithOxc } from "vite";
-import type { ResolvedConfig } from "vite";
+import type { ResolvedConfig, Rollup } from "vite";
 
 type OxcOptions = NonNullable<Parameters<typeof transformWithOxc>[2]>;
 
@@ -43,25 +43,49 @@ const NODE_MODULES = /[\\/]node_modules[\\/]/;
 // which only costs a transform that changes nothing.
 const MAY_HAVE_JSX = /<[A-Za-z_$>]/;
 
-/** Whether `id` is a project `.js` file this transform compiles. */
+/**
+ * Whether `id` is a project `.js` file this compiles: the plain file, outside
+ * `node_modules`. An id with a query is a different module made from the file (`?raw` is
+ * its text, `?url` its URL), so it is left to the plugin that serves that query.
+ */
 export function isProjectJsFile(id: string): boolean {
-  const file = id.split("?", 1)[0];
-  return file.endsWith(".js") && path.isAbsolute(file) && !NODE_MODULES.test(file);
+  return id.endsWith(".js") && !id.includes("?") && path.isAbsolute(id) && !NODE_MODULES.test(id);
 }
+
+/** A dev environment's plugin container (Vite's DevEnvironment), as much as this needs. */
+export type LoadChain = { load(id: string): Promise<Rollup.LoadResult> } | undefined;
+
+// Ids this module is asking the rest of the load chain about (see loadProjectJsx).
+const asking = new Set<string>();
 
 /**
  * A project `.js` file compiled as JSX, or undefined to leave it to Vite: not a project
  * `.js` file, no possible JSX, or Oxc turned off.
+ *
+ * Another plugin that loads the file keeps it: the chain is asked first (this hook
+ * answers nothing while it asks), and what a plugin returns is served as it returned it.
+ * The plugin's load hook runs early because the plugin is `enforce: "pre"`; asking first
+ * keeps that from taking a file away from a project's own plugin.
  */
 export async function loadProjectJsx(
   id: string,
   options: OxcOptions | undefined,
   config: ResolvedConfig | undefined,
-): Promise<{ code: string; map: Awaited<ReturnType<typeof transformWithOxc>>["map"] } | undefined> {
-  if (!options || !isProjectJsFile(id)) return undefined;
-  const file = id.split("?", 1)[0];
-  const code = await fs.promises.readFile(file, "utf8");
+  chain: LoadChain,
+): Promise<Rollup.LoadResult> {
+  if (!options || !isProjectJsFile(id) || asking.has(id)) return undefined;
+  if (chain) {
+    asking.add(id);
+    let other: Rollup.LoadResult;
+    try {
+      other = await chain.load(id);
+    } finally {
+      asking.delete(id);
+    }
+    if (other != null) return other;
+  }
+  const code = await fs.promises.readFile(id, "utf8");
   if (!MAY_HAVE_JSX.test(code)) return undefined;
-  const result = await transformWithOxc(code, file, options, undefined, config);
+  const result = await transformWithOxc(code, id, options, undefined, config);
   return { code: result.code, map: result.map };
 }

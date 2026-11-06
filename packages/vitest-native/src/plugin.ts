@@ -43,6 +43,7 @@ import { fsModuleCacheKey, shouldDefaultFsModuleCache } from "./fs-module-cache.
 import { knownNativeModulesFor, nativeModuleSpecsFor } from "./native/native-modules.mjs";
 import { JSX_TRANSFORM, nativeEngineConfig } from "./native/apply.js";
 import { isProjectJsFile, loadProjectJsx, projectJsxOptions } from "./project-jsx.js";
+import type { LoadChain } from "./project-jsx.js";
 import { detectEngine } from "./native/detect.js";
 import { aliasReachedPaths, detectEcosystemPackages } from "./native/ecosystem.js";
 import {
@@ -3215,7 +3216,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
 
     load(id) {
       // JSX in a project .js file, as Metro and babel-jest compile it (project-jsx.ts).
-      if (projectJsx && isProjectJsFile(id)) return loadProjectJsx(id, projectJsx, viteConfig);
+      if (projectJsx && isProjectJsFile(id)) {
+        // Only a dev environment (Vitest's) has a plugin container to ask.
+        const env = this.environment as { pluginContainer?: LoadChain } | undefined;
+        return loadProjectJsx(id, projectJsx, viteConfig, env?.pluginContainer);
+      }
 
       // The native engine's react-native facade. It re-exports the SAME instance
       // Node's graph holds — `_rn.View` is the very object an externalized library
