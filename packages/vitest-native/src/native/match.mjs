@@ -287,7 +287,7 @@ export function buildPkgMatcher(pkgs, projectRoot, dirOf = packageDirOf) {
         if (anchors.has(norm.slice(0, at))) return true;
       }
     }
-    return others.length > 0 && others.some((re) => re.test(norm));
+    return others.some((re) => re.test(norm));
   };
 }
 
