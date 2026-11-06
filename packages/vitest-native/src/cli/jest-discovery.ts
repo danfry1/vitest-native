@@ -473,25 +473,31 @@ export function booleanFlag(value: string | true | undefined): boolean | undefin
  */
 export function projectDirectories(root: string): string[] {
   const dirs: string[] = [];
-  const walk = (rel: string) => {
-    let entries: fs.Dirent[];
+  // An unreadable directory (permissions) holds nothing Vitest could collect either.
+  const entries = (rel: string): fs.Dirent[] => {
     try {
-      entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true });
+      return fs.readdirSync(path.join(root, rel), { withFileTypes: true });
     } catch {
-      return;
+      return [];
     }
-    for (const entry of entries) {
+  };
+  // A dangling or looping link is no directory.
+  const linksToDirectory = (file: string): boolean => {
+    try {
+      return fs.statSync(file).isDirectory();
+    } catch {
+      return false;
+    }
+  };
+  const walk = (rel: string) => {
+    for (const entry of entries(rel)) {
       if (entry.name === "node_modules" || entry.name === ".git") continue;
       const child = rel ? `${rel}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
         dirs.push(child);
         walk(child);
-      } else if (entry.isSymbolicLink()) {
-        try {
-          if (fs.statSync(path.join(root, child)).isDirectory()) dirs.push(child);
-        } catch {
-          // a dangling link
-        }
+      } else if (entry.isSymbolicLink() && linksToDirectory(path.join(root, child))) {
+        dirs.push(child);
       }
     }
   };
