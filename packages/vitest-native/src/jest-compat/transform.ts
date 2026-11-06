@@ -74,8 +74,10 @@ function walk(node: any, fn: (n: any) => boolean | void): void {
 //
 // A plain `require('<spec>')` in the factory's own body is the same load as Jest gives
 // it (its module registry, which serves a mock where one is registered), and moves the
-// same way: `__vnFactoryRequire` returns the registered mock if there is one, else Vite's
-// actual module in the shape `require` gives. Left synchronous: a require of the module
+// same way: `__vnFactoryRequire` returns the registered jest.mock factory's value if there
+// is one, else the module as `import()` loads it, in the shape `require` gives. An import,
+// not `vi.importActual`, so every other Vitest mock applies too: a factory-less mock's
+// `__mocks__` file, an automock. Left synchronous: a require of the module
 // the factory itself mocks (awaiting its own result would never settle; the registry
 // reports the cycle instead), and every `require` in a file that binds the name itself.
 //
@@ -346,7 +348,7 @@ function rewrite(
       text += code.slice(at, call.start);
       text +=
         kind === "require"
-          ? `(await ${SETUP}("__vnFactoryRequire")(import.meta.url, ${spec}, () => vi.importActual(${spec})))`
+          ? `(await ${SETUP}("__vnFactoryRequire")(import.meta.url, ${spec}, () => import(${spec})))`
           : `(${SETUP}("__vnActualExports")(await vi.importActual(${spec})))`;
       at = call.end;
     }

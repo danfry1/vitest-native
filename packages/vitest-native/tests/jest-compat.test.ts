@@ -84,7 +84,7 @@ describe("jest-compat: jestMockTransform (hoist + CJS interop)", () => {
 
   describe("a factory's require of project source", () => {
     const viaVite = (spec: string) =>
-      `(await __vn_jest_compat__("__vnFactoryRequire")(import.meta.url, ${spec}, () => vi.importActual(${spec})))`;
+      `(await __vn_jest_compat__("__vnFactoryRequire")(import.meta.url, ${spec}, () => import(${spec})))`;
 
     it("loads through Vite in the async variant, mock-aware as Jest's registry is", async () => {
       const factory = "() => { const { defaults } = require('@/schema'); return { defaults }; }";

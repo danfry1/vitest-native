@@ -370,10 +370,11 @@ if (typeof globalThis.__vnInteropMock !== "function") globalThis.__vnInteropMock
   // A factory's `jest.requireActual` of project source that jestMockTransform moved to
   // `vi.importActual` (transform.ts) gets its result in the shape requireActual gives.
   globalThis.__vnActualExports = actualExports;
-  // A factory's own `require` of project source, moved to Vite the same way: the mock
-  // registered for that file if there is one, as Jest's registry serves it, else the
-  // actual module in the shape `require` gives. `load` is the factory's own
-  // `vi.importActual` call, so the specifier resolves from the test file.
+  // A factory's own `require` of project source, moved to Vite the same way: the value of
+  // the jest.mock factory registered for that file if there is one, as Jest's registry
+  // serves it, else the module as the factory's own `import()` loads it (`load`, so the
+  // specifier resolves from the test file and Vitest's other mocks apply), in the shape
+  // `require` gives.
   globalThis.__vnFactoryRequire = async (from, spec, load) => {
     const filename = registry.resolveFrom(spec, from);
     const entry =
