@@ -213,6 +213,9 @@ if (typeof vi.retryTimes !== "function") {
 // (`isolate: false`, the hot runtime) keeps them. A bare `vi.restoreAllMocks()` leaves
 // them, as it is Vitest's own.
 const replacedProperties = new Set();
+function typeOfValue(value) {
+  return value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+}
 // jest-mock's own errors, as it throws them: a plain Error with Jest's message, which a
 // suite written for Jest asserts on (Vitest's toThrow with an error instance compares the
 // whole error, name included). The one place this file builds one.
