@@ -8,8 +8,9 @@ name: Native engine — Vitest × RN matrix
 #  • React Native (rows). The engine runs REAL RN JS and mocks only the ~7-module
 #    native boundary, so it is sensitive to RN-version drift (the boundary has
 #    broken before on SectionList / RendererProxy changes between minors).
-#    Supported range (verified): RN 0.81–0.88. 0.80 and earlier fail host-component
-#    detection and are below the floor; latest is canaried in compat-check.yml.
+#    Supported range: RN 0.86–0.88 (0.86 is Expo SDK 57's; docs/versioning.md). Below
+#    it the native engine stops with UNSUPPORTED_PEER; latest is canaried in
+#    compat-check.yml.
 #    The rows and columns are defined once, in .github/rn-matrix.json. Keep the
 #    newest row in sync with the lockfile RN version — the fidelity page derives its
 #    published claim from that file (scripts/fidelity-report.mjs), so a stale matrix
@@ -19,18 +20,16 @@ name: Native engine — Vitest × RN matrix
 #    (vitest-community/vitest-react-native) — and the hot runtime rides Vitest's
 #    @experimental internals (vitest/worker, ThreadsPoolWorker, poolRunner), the
 #    most churn-prone surface we depend on. Every column is blocking — `RN matrix
-#    verdict` below is a required check — because the declared peer range (>=4 <6)
+#    verdict` below is a required check — because the declared peer range (>=5 <6)
 #    promises every one of them: the lockfile version and the newest Vitest 5
-#    release on every row, and the newest Vitest 4.x on the RN range's two ends —
-#    it varies the RUNNER, and the RN axis is already covered fourteen ways by the
-#    other columns.
+#    release on every row.
 #
 # Every cell runs the native suite STOCK and HOT, plus the mock-vs-real-RN
 # cross-check — the full real-RN gate against that (Vitest, RN) pair.
 #
 # RNTL is the third dependency but is pinned to the lockfile version (14) here, not
-# matrixed — the supported peer range (>=12 <15) is proven by the RNTL 12 and 13
-# back-compat legs in ci.yml.
+# matrixed — the supported peer range (>=13 <15) is proven by the RNTL 13
+# back-compat leg in ci.yml.
 
 on:
   push:
@@ -102,8 +101,7 @@ jobs:
     strategy:
       # Report every cell independently rather than stopping at the first failure.
       fail-fast: false
-      # .github/rn-matrix.json: React Native rows × Vitest columns, plus the Vitest 4
-      # floor against the oldest and newest supported React Native.
+      # .github/rn-matrix.json: React Native rows × Vitest columns.
       matrix: ${{ fromJSON(needs.classify.outputs.matrix) }}
 
     steps:
@@ -117,7 +115,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22.13.0'
+          node-version: '22.22.3'
 
       # Package-download cache: bun still verifies against the frozen lockfile,
       # it just skips re-downloading unchanged tarballs.
@@ -132,7 +130,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       # The install-age gate (bunfig.toml minimumReleaseAge) is respected here too:
-      # we deliberately stay >=7 days behind. RN 0.81-0.85 are long past that.
+      # we deliberately stay >=7 days behind. The supported rows are long past that.
       - name: Pin react-native + babel-preset to ${{ matrix.rn }}
         env:
           RN_VERSION: ${{ matrix.rn }}
@@ -154,17 +152,11 @@ jobs:
       - name: Pin Vitest to the newest supported 5.x release
         if: matrix.vitest == 'latest-supported'
         # Bump the coverage provider in lockstep — a mismatched @vitest/coverage-v8
-        # vs vitest fails to load (provider 4.1.x + runtime 4.0.x has bitten us).
+        # vs vitest fails to load (a provider and runtime from different releases has
+        # bitten us).
         # bunfig's minimumReleaseAge still applies: the newest 5.x at least a week old.
         run: |
           bun add -d "vitest@^5" "@vitest/coverage-v8@^5" --cwd packages/vitest-native
-
-      - name: Pin Vitest to the newest 4.x release
-        if: matrix.vitest == 'v4'
-        # The supported range is >=4 <6 and the lockfile tracks 5.x, so the 4.x floor
-        # is exercised explicitly.
-        run: |
-          bun add -d "vitest@^4" "@vitest/coverage-v8@^4" --cwd packages/vitest-native
 
       - name: Resolved versions
         run: |

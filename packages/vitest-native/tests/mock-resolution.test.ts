@@ -11,7 +11,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 async function mockEnginePlugin() {
   const plugin = reactNative({ engine: "mock" }) as unknown as {
     configResolved: (c: { root: string }) => Promise<void>;
-    transform: (code: string, id: string) => unknown;
+    transform: { order: string; handler: (code: string, id: string) => unknown };
   };
   await runPluginConfig(plugin as never);
   await plugin.configResolved({ root: process.cwd() });
@@ -46,7 +46,7 @@ describe("mock engine: Flow-strip targeting", () => {
 
   it("strips real react-native ecosystem packages, scoped or not", async () => {
     const plugin = await mockEnginePlugin();
-    const strips = (id: string) => plugin.transform(flowish, id) !== undefined;
+    const strips = (id: string) => plugin.transform.handler(flowish, id) !== undefined;
     expect(strips("/p/node_modules/react-native-svg/lib/x.js")).toBe(true);
     // A package whose SCOPE is @react-native*.
     expect(strips("/p/node_modules/@react-native-community/slider/js/x.js")).toBe(true);
@@ -62,11 +62,14 @@ describe("mock engine: Flow-strip targeting", () => {
     // A project directory that happens to contain the words — common enough
     // (react-native-app, my-react-native) — used to make every dependency match.
     expect(
-      plugin.transform(flowish, "/Users/dev/react-native-app/node_modules/lodash/index.js"),
+      plugin.transform.handler(flowish, "/Users/dev/react-native-app/node_modules/lodash/index.js"),
     ).toBe(undefined);
     // A package whose name contains but does not start with the prefix.
     expect(
-      plugin.transform(flowish, "/p/node_modules/eslint-plugin-react-native/lib/rules/x.js"),
+      plugin.transform.handler(
+        flowish,
+        "/p/node_modules/eslint-plugin-react-native/lib/rules/x.js",
+      ),
     ).toBe(undefined);
   });
 });

@@ -17,19 +17,29 @@ export interface ProjectContextFields {
   sourceMaps?: boolean;
   hotReleaseGenerations?: boolean;
   registry?: string;
+  /** The library registry layered on `registry` (registry.mjs, buildLibraryRegistry). */
+  libraryRegistry?: string;
   ownership?: Record<string, unknown>;
+  ownershipGuard?: { mode: "warn" | "error"; allow: { path: string; reason: string }[] };
   projectDirs?: string[];
   requireAliases?: [string, string][];
   requireAliasesSkipped?: string[];
   presetNames?: string[];
+  /** experimental.nodeMocks: a `vi.mock` applies to the modules Node loads. */
+  nodeMocks?: true;
   presetConfig?: Record<string, Record<string, unknown>>;
   presetExports?: Record<string, string[] | null>;
   presetModules?: string[];
   presetDisabled?: string[];
+  librarySetupFiles?: string[];
   mocks?: unknown;
   knownNativeModules?: string[];
   nativeModuleSpecs?: Record<string, string[]>;
   nativeModules?: "permissive";
+  /** experimental.ownershipModel (ADR-0004/0005): absent unless the project opts in. */
+  ownershipModel?: "resolver" | "resolution";
+  resolverInputs?: import("./native/shared-resolver.mjs").ResolverInputs;
+  resolverInputsHash?: string;
   /** The supported Expo SDKs, `[minimum, maximum]` (checkLoadedExpoSdk). */
   expoSdks?: [number, number];
 }

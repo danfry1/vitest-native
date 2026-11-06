@@ -24,6 +24,8 @@ export default defineConfig({
     // `ecosystem-probe/**` installs popular third-party packages into its own
     // project and runs from the packed tarball on a schedule; those packages are
     // not installed here, so globbing it into this suite fails to resolve them.
+    // `tests/**/*.e2e.test.ts` run Vitest itself per test; they have their own config
+    // (vitest.e2e.config.ts, `test:cli-compare-e2e`).
     exclude: [
       ...configDefaults.exclude,
       "tests-native/**",
@@ -32,6 +34,7 @@ export default defineConfig({
       "consumer-tests/**",
       "validation/**",
       "ecosystem-probe/**",
+      "tests/**/*.e2e.test.ts",
     ],
   },
 });

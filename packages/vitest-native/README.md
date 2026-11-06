@@ -103,21 +103,21 @@ through the jest-compat layer. See [migrating from Jest](https://danfry1.github.
 
 | | Supported |
 |---|---|
-| Node.js | 22.13+ on Node 22, or 24.3+ |
-| Vitest | 4.x or 5.x |
-| Vite | ^6.4.2, ^7.3.2 or ^8.0.5 |
-| React | 18 or later |
-| React Native | 0.81–0.88 |
+| Node.js | 22.22.3+ on Node 22, 24.12+ on Node 24, or 26+ |
+| Vitest | 5.x |
+| Vite | ^8.0.5 |
+| React | 19 or later |
+| React Native | 0.86–0.88 |
 | Expo SDK | 57 and 58 |
-| React Native Testing Library | 12.x, 13.x or 14.x (optional) |
+| React Native Testing Library | 13.x or 14.x (optional) |
 
 Use the React version your React Native release requires, and a `@react-native/babel-preset`
-that matches its minor version. Node 24.0–24.2 are excluded because `jest.mock` does not reach
-modules Node loads there.
+that matches its minor version. Each Node line starts at the release where Node's in-thread
+module hooks work; on an older Node the plugin stops at startup with `UNSUPPORTED_NODE`.
 
 ## Learn more
 
-- [Choosing an engine](https://danfry1.github.io/vitest-native/guide/engines) and the [hot runtime](https://danfry1.github.io/vitest-native/guide/engines#hot-runtime)
+- [Choosing an engine](https://danfry1.github.io/vitest-native/guide/engines) and the [hot runtime](https://danfry1.github.io/vitest-native/guide/hot-runtime)
 - [Third-party presets](https://danfry1.github.io/vitest-native/guide/presets) (Reanimated, Gesture Handler, Navigation, …)
 - [Expo](https://danfry1.github.io/vitest-native/guide/expo) · [Plugin options](https://danfry1.github.io/vitest-native/guide/plugin-options) · [Test helpers](https://danfry1.github.io/vitest-native/guide/helpers)
 - [Coverage](https://danfry1.github.io/vitest-native/guide/coverage) · [CLI](https://danfry1.github.io/vitest-native/guide/cli) · [Troubleshooting](https://danfry1.github.io/vitest-native/guide/troubleshooting)
@@ -129,7 +129,7 @@ Beta. What is covered by semver, what is experimental and what 1.0 will mean are
 [versioning and stability](https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/docs/versioning.md).
 vitest-native is the maintained successor to
 [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native),
-rebuilt for Vitest 4 and 5; see [migrating from it](https://danfry1.github.io/vitest-native/migration/from-vitest-react-native).
+rebuilt for Vitest 5; see [migrating from it](https://danfry1.github.io/vitest-native/migration/from-vitest-react-native).
 
 ## Contributing
 

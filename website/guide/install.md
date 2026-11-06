@@ -39,22 +39,22 @@ If anything looks off, `npx vitest-native doctor` checks your versions, engine a
 
 | | Supported |
 |---|---|
-| Node.js | 22.13+ on Node 22, or 24.3+ |
-| Vitest | 4.x or 5.x |
-| Vite | ^6.4.2, ^7.3.2 or ^8.0.5 |
-| React | 18 or later |
-| React Native | 0.81–0.88 |
+| Node.js | 22.22.3+ on Node 22, 24.12+ on Node 24, or 26+ |
+| Vitest | 5.x |
+| Vite | ^8.0.5 |
+| React | 19 or later |
+| React Native | 0.86–0.88 |
 | Expo SDK | 57 and 58 |
-| React Native Testing Library | 12.x, 13.x or 14.x (optional) |
+| React Native Testing Library | 13.x or 14.x (optional) |
 
-Use the React version your React Native release requires, and a `@react-native/babel-preset` that matches its minor version. Node 24.0–24.2 are excluded because `jest.mock` does not reach modules Node loads there.
+Use the React version your React Native release requires, and a `@react-native/babel-preset` that matches its minor version. Each Node line starts at the release where Node's in-thread module hooks work; on an older Node the plugin stops at startup with `UNSUPPORTED_NODE`.
 
 The default **`engine: 'native'`** needs `@react-native/babel-preset` and `@babel/core` — these already ship with React Native projects. From Expo SDK 56 the engine uses Expo's own preset instead, which `expo` brings with `@babel/core`, so an Expo app needs nothing extra. The plugin uses them to Flow-strip real React Native, the same toolchain RN already uses.
 
 The opt-in **`engine: 'mock'`** needs no Babel — it's just Vite.
 
 ::: tip Optional peer: RNTL
-[`@testing-library/react-native`](https://callstack.github.io/react-native-testing-library/) (RNTL 12–14) is an optional peer dependency. If it's installed, the plugin configures it automatically — you don't set `hostComponentNames` yourself. RNTL 14 uses async rendering APIs.
+[`@testing-library/react-native`](https://callstack.github.io/react-native-testing-library/) (RNTL 13–14) is an optional peer dependency. If it's installed, the plugin configures it automatically — you don't set `hostComponentNames` yourself. RNTL 14 uses async rendering APIs.
 :::
 
 Next: [Quick Start](/guide/quick-start) walks through writing and running your first test.

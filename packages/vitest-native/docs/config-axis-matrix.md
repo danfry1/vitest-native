@@ -17,7 +17,6 @@ Workflow: `.github/workflows/config-axis-matrix.yml`. Unit tests for the machine
 | `jest` global  | jest-compat on, off            | `findBy*` under `vi.useFakeTimers()` timed out without a global `jest` (→ #342)                                                                                                                   |
 | RNTL           | 12, 13, 14                     | nested `<Text>` unqueryable on 12/13 under native (→ #341); a recoverable React error exited 1 on 12/13 (→ #343)                                                                              |
 | Engine         | native, mock                   | string/regex aliases into workspace source: two store instances, "Cannot find module", `import.meta` SyntaxError (→ #344); ESM default import of `__esModule` CommonJS (→ #339)                |
-| Vitest         | 4, 5                           | under hot, Vitest 4.1 replays another file's factory for an automock (→ #338)                                                                                                                     |
 | Hot runtime    | off, on                        | the same (→ #338), and per-file state in general: a `jest.mock` of a React Native module to `null` lost the next file from every reporter (→ #350)                                                       |
 | Install layout | hoisted (npm), isolated (pnpm) | `navigation: false` fails in isolated installs: transitive deps not compiled (→ #348); a library whose pnpm store directory names worklets loses its `.native` files, reanimated included (→ #349) |
 | jest-compat    | off, on                        | partial-mock store split by import order (→ #345); fake-timer options dropped (→ #340); Error equality (→ #346)                                                                             |
@@ -43,16 +42,16 @@ fails the run instead of reading as unsupported. Ownership track A1 moves the ax
 
 | Cell            | Where                                                                                   | Notes                                                                      |
 | --------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| RNTL 12 / 13    | `ci.yml` back-compat legs (ubuntu, Node 22.13)                                          | native + hot suites, but every native config there sets `globals: true`    |
-| Vitest 4        | RN matrix `v4` column (RN 0.81, 0.88); `packed` cell "Vitest semantics, Vitest 4 floor" | native + hot on RNTL 14 only; the semantics gate has no RNTL               |
-| Hot on          | `ci.yml` every leg; RN matrix every cell                                                | `globals: true`, RNTL 14 (12/13 in `ci.yml`)                               |
+| RNTL 13         | `ci.yml` back-compat leg (ubuntu, Node 22.22.3)                                         | native + hot suites, but every native config there sets `globals: true`    |
+| Hot on          | `ci.yml` every leg; RN matrix every cell                                                | `globals: true`, RNTL 14 (13 in `ci.yml`)                                  |
 | Isolated layout | `consumer-tests/monorepo-pnpm` (packed, pnpm)                                           | native, RNTL 14, `globals` off — but no RNTL cleanup, timer or alias probe |
 | Mock engine     | `bun run test` (globals off), `consumer-tests/mock-rntl14`                              | RNTL 14 only on the packed side                                            |
-| jest-compat     | `consumer-tests/bare`, `tests-native/vitest.hot-jest-compat.config.mts`                 | `globals: true`; RNTL 12 (bare)                                            |
+| jest-compat     | `consumer-tests/bare`, `tests-native/vitest.hot-jest-compat.config.mts`                 | `globals: true`; RNTL 13 (bare)                                            |
 
 So each axis was covered somewhere, but almost never two at a time. Those defects mostly need
 two: globals off × any RNTL test that renders twice, RNTL 12/13 × native,
-Vitest 4 × hot, isolated × a preset switched off.
+isolated × a preset switched off. (Vitest 4 × hot was another; Vitest 4 and RNTL 12 are no
+longer supported.)
 
 ## Design
 
@@ -156,7 +155,7 @@ with jest-compat on.
 **Not required, yet.** `Config-axis verdict` reports on every pull request but is not in
 branch protection (required contexts stay `CI verdict`, `RN matrix verdict`, `Analyze`,
 `CodeQL`). The plan is to make it required once it is calibrated. That means the first full
-CI runs on Vitest 4 and real npm and pnpm installs have confirmed or corrected every entry and
+CI runs on real npm and pnpm installs have confirmed or corrected every entry and
 signature, and a few weeks of scheduled runs have stayed green except for real changes. Making
 it required is the maintainer's decision.
 
@@ -180,7 +179,7 @@ longer jobs finish sooner overall. A job takes about 3.5 min, under the Windows 
   need React Navigation and react-native-screens in the workspace. Adding them to the isolated
   cells is the next probe to write.
 - **Real npm and pnpm installs were not run locally** (local verification may not install).
-  Every cell ran locally on Vitest 5 and on a Vitest 4.1.11 copy linked with `--link-deps`, with
+  Every cell ran locally on Vitest 5 linked with `--link-deps`, with
   RNTL 12.9, 13.3 and 14.1, in both a linked (hoisted-shaped) layout and the pnpm-shaped store.
   The isolated-layout entries (#349) were observed in that pnpm-shaped store, not in a pnpm
   install. Expect the first CI run to calibrate a few entries and signatures.
@@ -217,7 +216,6 @@ runtime and jest-compat? The two split the work this way, so neither repeats the
 | esm-default-interop                                        | res-esm-default-interop                                                       |
 | jest-fake-timer-options                                    | env-jest-fake-timer-options                                                   |
 | jest-error-equality                                        | env-jest-error-equality                                                       |
-| hot-automock                                               | pfs-hot-automock-vitest4                                                      |
 | hot-rn-module-mock                                         | pfs-hot-dropped-file                                                          |
 | native-ext-peer, reanimated-render                         | res-pnpm-native-ext-peer, res-pnpm-reanimated-render                          |
 | preset-banner                                              | pre-banner-names-presets                                                      |
@@ -235,10 +233,6 @@ node validation/config-axes/run.mjs --cell "$CELL" --link-deps node_modules --rn
 
 With `"layout":"isolated"` the packages pnpm names after their peers (`axis-peer-lib`,
 reanimated) are copied into a pnpm-shaped store directory, so the #349 class shows locally.
-Vitest 4: link a node_modules that has it, and a vitest-native copy (`package.json` and
-`dist/`) placed where it resolves that Vitest, not this package's Vitest 5. Otherwise the hot
-runtime refuses the mix (`HOT_RUNTIME_UNAVAILABLE`):
-`--link-deps <v4 node_modules> --vitest-native <v4 node_modules>/.vn-copy`.
 `--keep` keeps the materialised workspace, `--only a,b` limits the probes, and `AXIS_DEBUG=1`
 prints each run's output. Without `--link-deps` the harness installs from the registry, as CI
 does.

@@ -23,6 +23,7 @@ import { captureModuleBaseline, resetEvaluatedModules } from "./module-reset.mjs
 import { registerRntlHooksOnImport } from "./rntl-hooks.mjs";
 import { residentProblems } from "./resident-health.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
+import { installOwnershipLedger } from "./ownership-ledger.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import { markBootContext, requireProjectContext } from "../context.mjs";
 
@@ -59,6 +60,9 @@ if (diagnostics) {
 const hotEsmGeneration =
   context.hotEsmGeneration !== false && process.env.VITEST_NATIVE_HOT_ESM_GEN !== "0";
 enableV8CompileCache(projectRoot, { skip: hotEsmGeneration });
+// First, so the resident graph is in the ledger: a later Vite evaluation of a file this
+// worker keeps resident is the dual evaluation that outlives every per-file reset.
+installOwnershipLedger({ projectRoot });
 installGlobals({ projectRoot, platform });
 installKnownNativeModules(projectRoot);
 // The registry must be installed BEFORE the preload below, not just by the setup
@@ -67,7 +71,7 @@ installKnownNativeModules(projectRoot);
 // worker holding a second, separate copy of RN's singletons from the one every
 // test file sees.
 if (context.registry) {
-  installRegistry(context.registry, projectRoot, sourceExts);
+  installRegistry(context.registry, projectRoot, sourceExts, context.libraryRegistry);
 }
 installRequireHooks(
   projectRoot,
@@ -185,7 +189,7 @@ let moduleRunner = null;
  * resolved on the next import. `mocker.reset()` clears the registries but not that
  * queue, so a `vi.doMock` issued after a file's last import was resolved during the
  * NEXT file's first import and mocked it there. Per-file isolation never sees this —
- * the worker, and its queue, go away. The queue is internal (Vitest 4 and 5 both keep
+ * the worker, and its queue, go away. The queue is internal (Vitest 5 keeps
  * it as `static pendingIds` on BareModuleMocker); if it moves, this is a no-op and
  * tests-native/hot-jest-compat fails by name on the runtime-mock surface.
  */

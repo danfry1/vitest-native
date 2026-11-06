@@ -1,26 +1,50 @@
 # Migrating from Jest
 
-**Honest expectation first:** this is **not a turnkey drop-in.** Real React Native Jest suites couple to Jest at several levels (the `jest` global, `@jest/globals`, `jest.mock('react-native')`, `@react-native/jest-preset`, jest-native matchers, recorded snapshots). The [`vitest-native/jest-compat`](/guide/jest-compat) layer clears the *API coupling* mechanically; the rest is a small, well-defined per-suite cleanup.
+A Jest suite for React Native is coupled to Jest in a few ways:
 
-This guide is informed by migration runs against production apps, but support claims come from
-minimal package-owned tests. External apps include custom Jest setup and migration shims, so their
-pass counts are observations rather than capability verdicts. See the
-[validation model](/guide/validation-model).
+- the `jest` global and `@jest/globals`;
+- top-level `jest.mock`;
+- manual mocks of native libraries;
+- the Jest config;
+- recorded snapshots.
 
-::: tip Recommended path: adopt incrementally
-Point vitest-native at *new* tests (zero migration cost, better DX, real-RN fidelity when you want it) while your existing Jest suite keeps running on Jest. Migrate older tests as you touch them, rather than all at once.
+`vitest-native migrate` writes a config that handles most of it, and the [jest-compat layer](/guide/jest-compat) lets test files keep their `jest.*` calls. Most suites still need a short round of fixes on the first run. This page covers that round, and how to run both runners until you remove Jest.
+
+::: tip Adopt incrementally if you prefer
+You don't have to move everything at once. Write new tests for Vitest while the existing suite keeps running on Jest, and move older tests as you touch them. [Running Jest and Vitest side by side](#side-by-side) covers both ways.
 :::
 
-## 1. The jest-compat layer (clears API coupling)
+## The recipe
+
+1. **Install** Vitest, Vite and vitest-native, and upgrade React Native Testing Library to a supported release (see [Requirements](/guide/install)):
+
+   ```bash
+   npm install -D vitest vite vitest-native
+   ```
+
+2. **Read the migration report.** `migrate` reads your Jest config and prints what it maps, what it drops, which manual mocks the [presets](/guide/presets) replace, and what needs a decision from you. It ends with a suggested config:
+
+   ```bash
+   npx vitest-native migrate
+   ```
+
+3. **Write the config** with `npx vitest-native migrate --write`. It refuses to overwrite an existing config unless you add `--force`. It never edits test files.
+4. **Give Vitest its own snapshot directory** before the first run, so it cannot rewrite Jest's `.snap` files. See [snapshots](#snapshots).
+5. **Run it** with `npx vitest run`, and work through the failures with the [first-run checklist](#first-run).
+6. **Compare with Jest.** `npx vitest-native compare` runs your Jest and then your Vitest, and lists every test that passes under Jest and not under Vitest. See [side by side](#side-by-side).
+7. **Remove Jest** once `compare` finds no differences. See [Removing Jest](#removing-jest).
+
+## What the config contains
+
+`migrate --write` writes a Vitest config (`vitest.config.mts` in a TypeScript project) along these lines, with your setup files, aliases and options added:
 
 ```ts
-// vitest.config.mts
 import { defineConfig } from 'vitest/config'
 import { reactNative } from 'vitest-native'
 import { jestCompatAliases, jestCompatSetup, jestMockTransform } from 'vitest-native/jest-compat'
 
 export default defineConfig({
-  plugins: [reactNative({ engine: 'native' }), jestMockTransform()], // or engine: 'mock'
+  plugins: [reactNative(), jestMockTransform()],
   resolve: {
     dedupe: ['react', 'react-test-renderer', 'react-is'],
     alias: { ...jestCompatAliases() },
@@ -28,48 +52,95 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    clearMocks: false,
     setupFiles: [jestCompatSetup],
   },
 })
 ```
 
-What each piece clears:
-
-| Piece | Clears |
+| Piece | What it does |
 |---|---|
-| `jestCompatSetup` (a setup file) | Installs a `jest` global backed by Vitest's `vi`, plus the sync `jest.requireActual` / `jest.requireMock` that Vitest only ships as the async `vi.importActual`. |
-| `jestMockTransform()` (a plugin) | Rewrites top-level `jest.mock(...)` to a **hoisted** `vi.mock(...)` so it actually applies — see [Top-level jest.mock](#top-level-jest-mock). The single biggest mechanical blocker, automated. |
-| `jestCompatAliases()` → `@jest/globals` | Redirects `@jest/globals` (imported by **@testing-library/react-native < 12**) to a shim re-exporting Vitest's globals. |
-| `jestCompatAliases()` → `@testing-library/jest-native/extend-expect` | No-ops it — vitest-native already registers the jest-native matchers (`toHaveStyle`, `toBeVisible`, …). |
+| `jestCompatSetup` | Installs a `jest` global backed by Vitest's `vi`, with a sync `jest.requireActual` and `jest.requireMock`. |
+| `jestMockTransform()` | Hoists top-level `jest.mock(...)` calls, so existing calls apply unchanged. See [top-level jest.mock](#top-level-jest-mock). |
+| `jestCompatAliases()` | Points `@jest/globals` at Vitest's globals (React Native Testing Library below 12 imports it), and makes `@testing-library/jest-native/extend-expect` a no-op (its matchers are already registered). |
+| `clearMocks: false` | Keeps Jest's default. Vitest clears mock calls before every test unless told not to. `migrate` writes your Jest value instead when your config sets one. |
 
-After this, `jest.fn`, `jest.spyOn`, `jest.useFakeTimers`, `jest.requireActual`, and top-level `jest.mock` / `jest.unmock` / `jest.doMock` calls all work unchanged. See the [jest-compat reference](/guide/jest-compat) for details.
+The [jest-compat reference](/guide/jest-compat) covers each piece. `migrate` also carries over:
 
-## 2. Per-suite cleanup still required
+- `setupFilesAfterEnv` as `setupFiles`;
+- `moduleNameMapper` path aliases as `resolve.alias`;
+- `testTimeout`;
+- the timeouts and worker flags your `test` script passes to Jest.
 
-These are the things the compat layer **cannot** do for you. Each is small and mechanical.
+It also sets `include` to the files Jest runs, so both runners run the same tests.
+
+## What to expect on the first run {#first-run}
+
+Check failures in this order. The first items are config fixes, each of which can clear many tests at once. The later ones are fixes to individual tests.
+
+1. **The migration report's "Needs your attention" items.** Read them before anything else: a regex module mapper, fake-timer config, and keys `migrate` does not know are left for you.
+2. **A parse error in a package.** A package that ships untranspiled JSX or Flow and does not declare `react-native` needs a [`transform`](#drop-jest-preset-and-transform-config) entry. The error names the package.
+3. **A Babel plugin your tests depended on**, usually a macro plugin. The report lists these; see [Babel plugins](#babel-plugins-your-jest-run-applied).
+4. **Un-awaited rendering.** React Native Testing Library 14 makes `render`, `fireEvent` and `act` async. A test written for an earlier release needs `await` on them; see RNTL's migration guide.
+5. **Snapshots.** Every snapshot test fails or records anew until Vitest has its own snapshots. See [snapshots](#snapshots).
+6. **A partial `jest.mock` that Jest never evaluated.** With `babel-preset-expo`'s `lazyImports` (or another lazy-import setting), Jest loads an imported package only when the code first uses it. vitest-native loads every import when the file loads. So a partial mock that was missing a member was harmless under Jest when no test reached it, and now fails. For example, a `jest.mock('expo-modules-core', …)` without `requireOptionalNativeModule` fails as soon as the module that calls it loads. `migrate` names the lazy-import setting when your Babel config has one. Fix the mock: spread `jest.requireActual(...)` into it, or add the missing member.
+7. **Mock calls cleared between tests.** A test that asserts on calls made while modules loaded needs `clearMocks: false`, which `migrate` sets. If you wrote the config by hand, add it.
+8. **Fake timers.** Jest's `fakeTimers` config is not read. See [fake timers](/guide/jest-compat#fake-timers) for where its options go.
+9. **Assertions on Jest's React Native mocks**: host names such as `'View'`, `View.prototype` spies, raw `source` shapes, and `jest.mock` inside `describe`. See [Known limits](#known-limits).
+
+## Running Jest and Vitest side by side {#side-by-side}
+
+Both runners can run in one project until you're ready to drop Jest.
+
+- **Which files.** `migrate` sets `include` to Jest's test files, so Vitest runs the whole suite. To move tests a few at a time instead, give the moved ones a name of their own and set Vitest's `include` to it. Then add a regex for the same name to Jest's `testPathIgnorePatterns`, such as `'\\.vitest\\.test\\.'`:
+
+  ```ts
+  test: { include: ['src/**/*.vitest.test.{ts,tsx}'] }
+  ```
+
+- **Scripts.** Keep `test` running Jest and add a script for Vitest, for example `"test:vitest": "vitest run"`. Run `vitest` without `run` to get watch mode.
+- **Snapshots.** Give each runner its own directory (see [snapshots](#snapshots)). Record Vitest's locally, then commit them.
+- **CI.** Run both commands as separate steps. With `CI` set, Vitest records no new snapshots, as with `jest --ci`, so a test with no recorded Vitest snapshot fails there.
+- **Differences.** `npx vitest-native compare` runs your own Jest, then your own Vitest, and lists each test that passes under Jest and not under Vitest, grouped by its first error. It writes no snapshots and changes no project files. It exits 0 only when every test that passes under Jest also passes under Vitest, and `vitest run` exits 0. A run in which no test passes under Jest proves nothing, so it exits 2. `--json <file>` writes a report to attach to an issue, with stack traces, code frames and absolute paths removed. The [CLI page](/guide/cli#compare) lists its options.
+
+## Removing Jest
+
+When `compare` exits 0 and you no longer want the Jest run:
+
+1. Point the `test` script at `vitest run`, and remove the Jest step from CI.
+2. Remove the Jest packages your project lists: `jest`, the Jest preset (`jest-expo` or `@react-native/jest-preset`), `babel-jest`, Jest reporters, and the Jest config (`jest.config.*` or `package.json#jest`).
+3. Delete Jest's snapshots, as [snapshots](#snapshots) describes.
+4. TypeScript: with `globals: true`, add Vitest's global types to the `tsconfig.json` that covers your tests:
+
+   ```json
+   { "compilerOptions": { "types": ["vitest/globals"] } }
+   ```
+
+   vitest-native does not declare a type for the `jest` global. Before you remove `@types/jest`, change `jest.*` calls in TypeScript tests to `vi.*`. They keep working at runtime either way. The same goes for files that `import { jest } from '@jest/globals'`: the alias works at runtime, but TypeScript still looks for the Jest package.
+
+## Fixes the config does not make
 
 ### Top-level jest.mock
 
-Vitest only **hoists** mock calls made on the `vi` / `vitest` identifier. A top-level `jest.mock('react-native', factory)` would otherwise run *after* imports and silently not apply.
-
-**`jestMockTransform()` (section 1) handles this for you** — it rewrites top-level `jest.mock` / `jest.unmock` / `jest.doMock` / `jest.doUnmock` to the hoisted `vi.*` form, and runs each `mock`/`doMock` factory's return through **Jest's CommonJS interop** so the two most common Jest manual-mock shapes resolve the way they do under Jest:
+Vitest hoists only mock calls made on `vi`. Left alone, a top-level `jest.mock('react-native', factory)` would run after the imports and not apply. `jestMockTransform()` rewrites top-level `jest.mock`, `jest.unmock`, `jest.doMock` and `jest.doUnmock` to the hoisted `vi` form, so you can leave the calls as they are. It also gives each factory's return value Jest's CommonJS meaning, so the two common manual-mock shapes import as they did under Jest:
 
 ```ts
-jest.mock('./Icon', () => () => null)         // function factory → usable as `import Icon from`
-jest.mock('./api', () => ({ get: vi.fn() }))  // named-only → `import api from` gets the object
+jest.mock('./Icon', () => () => null)         // a function: `import Icon from './Icon'` gets it
+jest.mock('./api', () => ({ get: vi.fn() }))  // named members only: `import api from './api'` gets the object
 ```
 
-(Jest treats a factory return as `module.exports`; Vitest treats it as an ES namespace. The wrapper bridges that. A factory already returning an ES shape — `__esModule` or an explicit `default` — is left as-is.) So you can leave existing `jest.mock(...)` calls unchanged. It keys on the literal `jest.mock` member form, not `jest` aliased to another local name.
-
-…and in most cases you can **delete** third-party native-lib mocks entirely — see below.
-
-### Upgrade RNTL to 12–14 (recommended)
-
-The `@jest/globals` alias unblocks RNTL < 12, but **upgrading to `@testing-library/react-native@^12` is the cleaner fix** (12 dropped the `@jest/globals` dependency). vitest-native supports RNTL 12–14. RNTL 14 makes rendering APIs async, so await `render` and other APIs as described in its migration guide.
+A factory that already returns an ES module shape (`__esModule`, or an explicit `default`) is left as it is. The transform matches the literal `jest.mock` form, not `jest` assigned to another name.
 
 ### Delete third-party native-lib mocks
 
-You do **not** need `jest.mock('react-native-reanimated', …)`, safe-area's `jest/mock`, gesture-handler's jestSetup, etc. vitest-native **auto-detects** installed third-party libraries and shadows their native runtimes with built-in [presets](/guide/presets), under **both** engines. Just have the package installed; delete the manual mock. (Reanimated, Gesture Handler, Safe Area, Navigation, Screens and AsyncStorage are covered out of the box; the [full list](/guide/presets#available-presets) names every package. Expo modules need no mock either: under the native engine they run their own JavaScript, as under jest-expo, and the `expo` preset applies only under the mock engine, or when you turn it on with `presets: { expo: true }` or list it in a `presets` array.)
+Most manual mocks of native libraries can go: `jest.mock('react-native-reanimated', …)`, safe-area's `jest/mock`, gesture-handler's `jestSetup` and similar. vitest-native detects installed libraries and replaces their native side with a [preset](/guide/presets), under both engines; the [full list](/guide/presets#available-presets) names every package. `migrate` lists the mocks and setup lines the presets cover.
+
+Some libraries run as themselves instead:
+
+- **Expo modules**, under the native engine, run their own JavaScript, as under jest-expo. The `expo` preset applies only under the mock engine, or when you turn it on with `presets: { expo: true }`.
+- **react-native-mmkv 3 and later** switches to its own in-memory storage when it detects Vitest, so its preset steps aside under both engines.
+
+A mock you wrote for your own app's modules stays.
 
 ### Keep Jest's and Vitest's snapshots apart {#snapshots}
 
@@ -111,23 +182,15 @@ Prefer explicit queries (`getByText`, `getByTestId`, `getByRole`) over large sna
 
 ### Drop jest-preset and transform config
 
-Drop `@react-native/jest-preset` and `transform` / `transformIgnorePatterns` — those are Jest/Metro config. vitest-native handles RN + third-party transformation itself (`engine: 'native'` transforms real RN in Node's loader hooks; the mock engine virtualizes RN). For *run-real pure-JS* third-party libs under the native engine, use the plugin's [`transform`](/guide/plugin-options#transform) allowlist instead of `transformIgnorePatterns`.
+`@react-native/jest-preset`, `transform` and `transformIgnorePatterns` are Jest config, and `migrate` drops them. vitest-native compiles React Native itself. It also compiles packages that declare `react-native` as a dependency or peer dependency, and the packages they use.
 
-The one case that needs a manual `transform` entry: a library that ships **untranspiled JSX in `.js` files** (its `package.json` `"react-native"`/`"module"` field points at `src/`, relying on Metro to transform it). Under the native engine such a lib is external to the Vite graph, and you'll see:
-
-```
-Failed to parse source for import analysis because the content contains invalid JS
-syntax. If you are using JSX, make sure to name the file with the .jsx or .tsx extension.
-  File: node_modules/<lib>/src/Something.js
-```
-
-The error names the offending file — add that package to `transform` so vitest-native transforms it:
+A package that ships untranspiled JSX or Flow in `.js` files, and does not declare `react-native`, needs an entry in the plugin's [`transform`](/guide/plugin-options#transform) option. This replaces listing it in `transformIgnorePatterns`. `migrate` adds one for each package your allowlist names that Node cannot parse. Otherwise the run fails with a parse error that names the file:
 
 ```ts
-reactNative({ engine: 'native', transform: ['<lib>'] })
+reactNative({ transform: ['<package>'] })
 ```
 
-This is the direct replacement for having listed the lib in `transformIgnorePatterns` under Jest. Most React Native libraries don't need it: packages that declare `react-native` are detected and compiled automatically. See [untranspiled packages](/guide/mocking#packages-that-ship-untranspiled-source), and [what `vi.mock` reaches](/guide/mocking#what-vi-mock-reaches) for mocking a library.
+See [untranspiled packages](/guide/mocking#packages-that-ship-untranspiled-source), and [what `vi.mock` reaches](/guide/mocking#what-vi-mock-reaches) for mocking a library.
 
 ### Babel plugins your Jest run applied
 
@@ -141,11 +204,9 @@ Under Jest, babel-jest ran your `babel.config.js` on every file. Under the nativ
 | `babel-plugin-react-compiler` | Not needed: it only adds memoization, and components render the same without it. |
 | anything else | Listed for you to judge — check whether a test depends on what it does. |
 
-Required plugins run through a Vite plugin that calls Babel. Which one depends on the Vite major:
+Required plugins run through a Vite plugin that calls Babel:
 
-::: code-group
-
-```ts [Vite 8]
+```ts
 // npm i -D @rolldown/plugin-babel @babel/core
 import babel from '@rolldown/plugin-babel'
 
@@ -158,32 +219,17 @@ export default defineConfig({
 })
 ```
 
-```ts [Vite 7 and earlier]
-// npm i -D @vitejs/plugin-react @babel/core
-import react from '@vitejs/plugin-react'
+Vite 8's `@vitejs/plugin-react` (v6) no longer runs Babel and points to [`@rolldown/plugin-babel`](https://www.npmjs.com/package/@rolldown/plugin-babel) for it. List only the plugins your tests need. It does not load `babel.config.js`, so the full Metro preset is not applied twice. When `@rolldown/plugin-babel` and `@babel/core` are installed, `migrate --write` adds the `babel()` entry itself.
 
-export default defineConfig({
-  plugins: [
-    reactNative(),
-    react({ babel: { plugins: ['@lingui/babel-plugin-lingui-macro'] } }),
-    jestMockTransform(),
-  ],
-})
-```
+### Other Jest config options
 
-:::
+- **Test environment.** A suite on `jsdom` keeps it as `test.environment: 'jsdom'` (`'happy-dom'` works too). React Native renders there alongside the DOM, with either engine.
+- **Timeouts.** `jest.setTimeout(ms)` sets the timeout for the rest of the file, as in Jest.
+- **Fake timers.** Jest's `fakeTimers` config is not read. Pass its options to `jest.useFakeTimers(...)` in a `beforeEach`, or set them in Vitest's names under `test.fakeTimers`. A `jest.useFakeTimers(options)` at the top level of a setup file loses its options once RNTL loads. See [fake timers](/guide/jest-compat#fake-timers).
+- **Resetting mocks.** Jest's `resetMocks` is `test.mockReset` in Vitest. A `resetMocks` key in a Vitest config is ignored.
+- **Config types.** `vitest/config` does not export `UserConfig`. A config or shared helper that imports it fails to typecheck; import `ViteUserConfig` instead.
 
-Vite 8's `@vitejs/plugin-react` (v6) no longer runs Babel and points to [`@rolldown/plugin-babel`](https://www.npmjs.com/package/@rolldown/plugin-babel) for it; on Vite 7 and earlier, `@vitejs/plugin-react`'s `babel` option is the way to add plugins. List only the plugins your tests need. Neither plugin loads `babel.config.js`, so the full Metro preset is not applied twice. When Vite 8, `@rolldown/plugin-babel` and `@babel/core` are installed, `migrate --write` adds the `babel()` entry itself.
-
-### Move jest config options to Vitest
-
-`jest.config.js` keys (`setupFilesAfterEnv`, `moduleNameMapper`, `testEnvironment`, etc.) move to the Vitest config: `setupFiles`, `resolve.alias`, `test.environment: 'node'`. A suite on `testEnvironment: 'jsdom'` keeps it as `test.environment: 'jsdom'` (`'happy-dom'` works too): React Native renders there alongside the DOM, with either engine and with or without the hot runtime. `jest.setTimeout(ms)` sets the timeout for the rest of the file, as in Jest (the shim maps it onto `vi.setConfig({ testTimeout })`). Jest's `fakeTimers` config is not read: pass its options to `jest.useFakeTimers(...)` in a `beforeEach`, which translates them, or set them in Vitest's names under `test.fakeTimers` (see [Fake timers](/guide/jest-compat#fake-timers)). A `jest.useFakeTimers(options)` at the top level of a setup file loses its options once RNTL loads.
-
-Mock clearing defaults differ. Jest leaves mock calls in place between tests unless `clearMocks` is set; Vitest 5 clears them before every test by default (Vitest 4 does not). A suite asserting on calls a mocked dependency received while modules loaded fails only after migrating, so set `test.clearMocks: false` unless the Jest config set it. Jest's `resetMocks` is `test.mockReset` in Vitest; a `resetMocks` key in a Vitest config is ignored. `vitest-native migrate` writes all of these.
-
-Typing the config: `vitest/config` does not export `UserConfig` (on Vitest 4 or 5), so a config or shared helper that imports it from there fails to typecheck; import `ViteUserConfig` from `vitest/config` instead.
-
-## 3. Known limits — assertions coupled to Jest's mocks
+## Known limits: assertions on Jest's mocks {#known-limits}
 
 A minority of tests assert on **Jest's React Native mock internals** rather than on rendered behavior. The native engine runs *real* React Native, so these can't be reproduced without re-mocking RN internally (which would defeat the point). They're worth recognizing up front so you can rewrite or skip them rather than chase them. In our own runs these were concentrated in **component libraries** (which test RN internals directly); ordinary app suites hit few or none.
 
@@ -200,16 +246,3 @@ The `jest.requireActual('react-native')` clone-and-override pattern (`const RN =
 ::: tip Coming from jest-expo
 `migrate` translates the jest-expo presets, and expo-router's own testing library runs as written. See [Expo](/guide/expo).
 :::
-
-## 4. Suggested migration recipe
-
-1. Add the jest-compat config (section 1). Upgrade RNTL to a supported 12–14 release.
-2. Delete manual third-party native-lib mocks and `@react-native/jest-preset`.
-3. Convert any **top-level** `jest.mock(...)` to `vi.mock(...)`; leave runtime `jest.*` as-is (or rely on `jestMockTransform()`).
-4. Add any JSX-in-`.js` third-party libs to `transform` as their parse errors surface (section 2).
-5. Point Vitest's snapshots at their own directory and record them with one local `vitest run` (see [Keep Jest's and Vitest's snapshots apart](#snapshots)), then run `vitest run` again to confirm green.
-6. Triage remaining failures — a missing query update, a suite-specific mock, or a known Jest-mock-coupled assertion (section 3).
-
-## 5. What "done" looks like
-
-A migrated suite runs under Vitest with: the jest-compat aliases + setup, RNTL 12–14, no manual third-party native mocks, top-level mocks converted, and snapshots recorded by Vitest. You get Vitest's speed/watch/UI while keeping `engine: 'native'` real-RN fidelity (or `engine: 'mock'` for the fast path). The compat layer is intentionally small — it removes the mechanical Jest coupling so the only work left is the genuinely suite-specific bits.

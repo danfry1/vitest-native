@@ -130,6 +130,12 @@ describe("package source", () => {
   const EXEMPT = path.join(SRC, "jest-compat");
   const SETTER =
     /\.mock(?:ReturnValue|ReturnThis|Implementation|ResolvedValue|RejectedValue)(?:Once)?\(/;
+  // Setters a reset is meant to undo, by file and the call as written.
+  const RESET_UNDOES = [
+    // setInsets() over safe-area-context's own mock: its insets hold until
+    // resetAllMocks() returns `useSafeAreaInsets` to the mock's implementation.
+    { file: "helpers.ts", call: "hook.mockImplementation(" },
+  ];
 
   function sourceFiles(dir: string): string[] {
     return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -148,6 +154,12 @@ describe("package source", () => {
         .split("\n")
         .map((line, i) => ({ line, at: `${path.relative(SRC, file)}:${i + 1}` }))
         .filter(({ line }) => SETTER.test(line) && !/^\s*(?:\/\/|\*)/.test(line))
+        .filter(
+          ({ line }) =>
+            !RESET_UNDOES.some(
+              (allowed) => path.relative(SRC, file) === allowed.file && line.includes(allowed.call),
+            ),
+        )
         .map(({ at }) => at),
     );
     expect(offending, "use vi.fn(impl), which a reset keeps").toEqual([]);

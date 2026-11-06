@@ -9,7 +9,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { main } from "../src/cli/index.js";
+import { main, unknownFlag } from "../src/cli/index.js";
 import { HOT_RUNTIME_NOTE, runInit, renderInitConfig } from "../src/cli/init.js";
 import { runDoctor } from "../src/cli/doctor.js";
 import { PEER_REQUIREMENTS } from "../src/peer-requirements.js";
@@ -67,6 +67,36 @@ describe("cli dispatch", () => {
     expect(main(["--help"], capture().log)).toBe(0);
   });
 
+  it("refuses a flag the command does not take, naming it and the valid ones", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": { preset: "react-native" },
+    });
+    for (const [args, unknown] of [
+      [["migrate", "--wirte"], "--wirte"],
+      [["init", "--frce"], "--frce"],
+      [["doctor", "--verbose"], "--verbose"],
+      [["compare", "--stirct"], "--stirct"],
+      [["migrate", "--write=yes", "-u"], "-u"],
+    ] as const) {
+      const io = capture();
+      expect(main([...args, "--root", root], io.log), args.join(" ")).toBe(1);
+      expect(io.text()).toContain(
+        `✗ unknown option ${unknown} for ${args[0]}. Valid: --root, --help`,
+      );
+    }
+    // Nothing was written by the refused migrate --wirte.
+    expect(fs.existsSync(path.join(root, "vitest.config.mjs"))).toBe(false);
+    // The valid ones are listed, and a valued flag's value may itself start with "--".
+    const io = capture();
+    main(["compare", "--stirct", "--root", root], io.log);
+    expect(io.text()).toContain("--strict");
+    expect(unknownFlag("compare", ["--jest-args", "--runInBand", "--strict"])).toBeNull();
+    expect(unknownFlag("compare", ["--jest-args=--ci", "--top", "3"])).toBeNull();
+    expect(unknownFlag("migrate", ["--root", "--weird-dir-name", "--write"])).toBeNull();
+    expect(unknownFlag("migrate", ["--write", "--frce"])).toBe("--frce");
+  });
+
   it("refuses to run outside a package root", () => {
     const empty = fs.mkdtempSync(path.join(os.tmpdir(), "vn-cli-empty-"));
     const io = capture();
@@ -122,6 +152,36 @@ describe("init", () => {
     expect(runInit(root, { force: true }).ok).toBe(true);
   });
 
+  it("--force replaces the config Vitest loads, first in Vitest's lookup order, in place", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "tsconfig.json": {},
+      "vitest.config.ts": "export default { test: { name: 'old' } }",
+      "vitest.config.mts": "export default { test: { name: 'other' } }",
+    });
+    const result = runInit(root, { force: true });
+    expect(result.ok).toBe(true);
+    // Vitest looks up vitest.config.ts before .mts, so .ts is the one it loads.
+    expect(result.wrote).toBe("vitest.config.ts");
+    expect(fs.readFileSync(path.join(root, "vitest.config.ts"), "utf8")).toBe(
+      renderInitConfig(false),
+    );
+    expect(fs.readFileSync(path.join(root, "vitest.config.mts"), "utf8")).toContain("'other'");
+    expect(result.lines.join("\n")).toContain("replaced the existing vitest.config.ts");
+  });
+
+  it("--force refuses a CommonJS config instead of writing an ES module one beside it", () => {
+    for (const name of ["vitest.config.cts", "vitest.config.cjs"]) {
+      const root = fixture({ "package.json": { name: "x" }, [name]: "module.exports = {}" });
+      const result = runInit(root, { force: true });
+      expect(result.ok).toBe(false);
+      expect(result.lines.join("\n")).toContain(`${name} is a CommonJS config`);
+      // Without --force too: pointing at --force would only lead to this refusal.
+      expect(runInit(root).lines.join("\n")).not.toContain("--force");
+      expect(fs.readdirSync(root).filter((f) => f.startsWith("vitest.config"))).toEqual([name]);
+    }
+  });
+
   it("renderInitConfig variants are syntactically importable shapes", () => {
     for (const variant of [renderInitConfig(false), renderInitConfig(true)]) {
       expect(variant).toContain("export default defineConfig({");
@@ -136,21 +196,6 @@ describe("doctor", () => {
     const result = runDoctor(root);
     expect(result.ok).toBe(false);
     expect(result.lines.join("\n")).toContain("vitest");
-  });
-
-  it("flags RNTL 14 on a Node below 22.13", () => {
-    const root = fixture({
-      "package.json": { name: "x" },
-      "node_modules/@testing-library/react-native/package.json": {
-        name: "@testing-library/react-native",
-        version: "14.0.0",
-        main: "index.js",
-      },
-      "node_modules/@testing-library/react-native/index.js": "module.exports = {};",
-    });
-    const result = runDoctor(root, "22.12.0");
-    expect(result.lines.join("\n")).toContain("requires Node >= 22.13");
-    expect(result.ok).toBe(false);
   });
 
   it("points an Expo project at what works, not at a removed caveat", () => {
@@ -299,15 +344,14 @@ describe("migrate", () => {
     expect(report.suggestedConfig).toContain("testTimeout: 15000");
     // manual mock covered by preset; unknown key surfaced.
     expect(text).toContain(
-      "__mocks__/react-native-gesture-handler — the auto-detected gestureHandler preset shadows",
+      "__mocks__/react-native-gesture-handler — the native engine runs react-native-gesture-handler with its own Jest setup",
     );
     expect(text).toContain("'someCustomKey' — unrecognized Jest key");
   });
 
   it("calls a manual mock covered only where an active preset shadows that module", () => {
     // The claim is read from PRESET_MODULES (held to the presets by
-    // tests/presets.test.ts) and the plugin's detection. gesture-handler's preset is
-    // detected and shadows the module. The expo preset is detected too, but the native
+    // tests/presets.test.ts) and the plugin's detection. The expo preset is detected, but the native
     // engine the generated config uses runs expo-font as itself
     // (NATIVE_ENGINE_RUNS_PACKAGES), so its manual mock stays, as does svg's, whose
     // preset is not detected.
@@ -324,8 +368,10 @@ describe("migrate", () => {
       "__mocks__/react-native-svg.js": "module.exports = {};",
     });
     const covered = analyzeJestConfig(root).presetCovered.join("\n");
+    // gesture-handler runs as itself under the native engine, with its own jestSetup
+    // standing in for its native layer (LIBRARY_SETUP_FILES), so its manual mock goes.
     expect(covered).toContain(
-      "__mocks__/react-native-gesture-handler — the auto-detected gestureHandler preset shadows react-native-gesture-handler",
+      "__mocks__/react-native-gesture-handler — the native engine runs react-native-gesture-handler with its own Jest setup",
     );
     expect(covered).not.toContain("expo-font");
     expect(covered).not.toContain("react-native-svg");
@@ -353,6 +399,56 @@ describe("migrate", () => {
     );
     expect(report.suggestedConfig).not.toContain("react-native-unistyles/mocks");
     expect(report.suggestedConfig).toContain('"some-lib/jest-setup"');
+  });
+
+  it("deletes the Jest setup the native engine runs for a library, however it is written", () => {
+    // gesture-handler's docs give `./node_modules/react-native-gesture-handler/jestSetup.js`;
+    // `<rootDir>/node_modules/...` and the package request are as common. The engine runs
+    // each library's own setup itself (LIBRARY_SETUP_FILES).
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": {
+        preset: "react-native",
+        setupFiles: [
+          "./node_modules/react-native-gesture-handler/jestSetup.js",
+          "<rootDir>/node_modules/@shopify/flash-list/jestSetup.js",
+        ],
+      },
+      "node_modules/react-native-gesture-handler/package.json": {
+        name: "react-native-gesture-handler",
+        version: "3.4.0",
+      },
+      "node_modules/@shopify/flash-list/package.json": {
+        name: "@shopify/flash-list",
+        version: "2.3.3",
+      },
+    });
+    const report = analyzeJestConfig(root);
+    const covered = report.presetCovered.join("\n");
+    expect(covered).toContain(
+      "'./node_modules/react-native-gesture-handler/jestSetup.js' — react-native-gesture-handler's own test setup, which the native engine runs",
+    );
+    expect(covered).toContain(
+      "'<rootDir>/node_modules/@shopify/flash-list/jestSetup.js' — @shopify/flash-list's own test setup, which the native engine runs",
+    );
+    expect(report.suggestedConfig).not.toContain("jestSetup");
+  });
+
+  it("keeps a library's other setup file, which the native engine does not run", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": {
+        preset: "react-native",
+        setupFiles: ["react-native-gesture-handler/lib/extra-setup.js"],
+      },
+      "node_modules/react-native-gesture-handler/package.json": {
+        name: "react-native-gesture-handler",
+        version: "3.4.0",
+      },
+    });
+    const report = analyzeJestConfig(root);
+    expect(report.presetCovered.join("\n")).not.toContain("extra-setup");
+    expect(report.suggestedConfig).toContain("extra-setup");
   });
 
   it("rewrites <rootDir> in setup files instead of emitting it verbatim", () => {

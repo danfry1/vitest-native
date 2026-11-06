@@ -8,7 +8,6 @@
     "apps/*"
   ],
   "overrides": {
-    "esbuild": "0.28.1",
     "shell-quote": "1.8.4",
     "vite": "8.3.5",
     "react-native-skia-android": "file:./scripts/native-binary-stub",
@@ -21,7 +20,7 @@
     "react-native-webgpu-dawn": "file:./scripts/native-binary-stub"
   },
   "engines": {
-    "node": ">=22.13.0 <23 || >=24.3.0"
+    "node": ">=22.22.3 <23 || >=24.12.0 <25 || >=26.0.0"
   },
   "scripts": {
     "build": "bun run --filter vitest-native build",
@@ -59,7 +58,7 @@
     "oxfmt": "0.75.0",
     "oxlint": "1.90.0",
     "syncpack": "15.3.3",
-    "tsdown": "0.23.3",
+    "tsdown": "0.23.4",
     "typescript": "7.0.2",
     "vitepress": "2.0.0-alpha.21",
     "vitest": "5.0.5"

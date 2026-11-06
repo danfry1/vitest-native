@@ -7,7 +7,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [
-    reactNative({
+    reactNative({ ownership: "error",
       engine: "native",
       hotRuntime: {
         allowUnboundedMemory: true,

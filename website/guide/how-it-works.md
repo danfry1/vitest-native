@@ -41,9 +41,7 @@ You do **not** add anything to `setupFiles` yourself, and you do **not** manuall
 
 ## 4. Transform cache
 
-On Vitest 5 the plugin turns on Vitest's persistent transform cache (`fsModuleCache`), so warm runs reuse compiled modules from disk the way Jest reuses its transform cache. Vitest keys each entry on the module's source, the config file and its own version; the plugin adds its own version, its resolved options and a digest of the project's lockfile, so upgrading vitest-native or any dependency invalidates the cache. Set `test.fsModuleCache: false` to turn it off. The cache lives in `node_modules`, so a clean install clears it too.
-
-On Vitest 4 the plugin leaves the cache off, so every run transforms every imported module again: about half a second per thousand imported modules on one benchmark. From Vitest 4.0.11 you can turn it on yourself with `test.experimental.fsModuleCache: true`, and the plugin's cache key applies to it as well; the top-level `test.fsModuleCache` is the Vitest 5 spelling and has no effect on 4. Before turning it on, read [this troubleshooting entry](/guide/troubleshooting#cannot-find-module-keeps-failing-after-the-missing-file-exists) on a Vitest bug ([vitest-dev/vitest#11789](https://github.com/vitest-dev/vitest/issues/11789)). Upgrading to Vitest 5 turns the cache on with no config. `vitest-native doctor` notes this on Vitest 4.
+The plugin turns on Vitest's persistent transform cache (`fsModuleCache`), so warm runs reuse compiled modules from disk the way Jest reuses its transform cache. Vitest keys each entry on the module's source, the config file and its own version; the plugin adds its own version, its resolved options and a digest of the project's lockfile, so upgrading vitest-native or any dependency invalidates the cache. Set `test.fsModuleCache: false` to turn it off. The cache lives in `node_modules`, so a clean install clears it too.
 
 ## The native engine, specifically
 
@@ -83,7 +81,7 @@ Package entries resolve the way Metro resolves them: the `react-native` export c
 
 ### Loader hooks run in-thread
 
-Externalized packages loaded with `import` pass through vitest-native's Node loader hooks (preset redirects, platform extensions, on-the-fly compilation). On Node 22.22.3+ on Node 22, 24.12+ on Node 24, and Node 26 on, these are installed with `module.registerHooks()` and run synchronously on each test worker's own thread. Other Node versions use `module.register()` (earlier releases with `registerHooks` fail with it in-thread: expo-router's navigation elements do not load, and the hot runtime's module reset misbehaves), which runs the hooks on a separate loader thread, so every resolve and load waits on a cross-thread request. Measured on a 104-file production suite, that wait was 18% of worker CPU time. `VITEST_NATIVE_LOADER_THREAD=1` forces the threaded hooks, for comparing the two.
+Externalized packages loaded with `import` pass through vitest-native's Node loader hooks (preset redirects, platform extensions, on-the-fly compilation). They are installed with `module.registerHooks()` and run synchronously on each test worker's own thread, beside the require hooks. That is why the supported Node versions start at 22.22.3 and 24.12: earlier releases that have `registerHooks` fail with it (expo-router's navigation elements do not load, and the hot runtime's module reset misbehaves), and the only alternative, `module.register()`, runs the hooks on a separate thread where every resolve and load waits on a cross-thread request (18% of worker CPU time on a 104-file production suite).
 
 ### A consequence worth knowing
 

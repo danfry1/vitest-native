@@ -1,0 +1,11 @@
+{
+  "name": "vn-reanimated-fallback-fixture",
+  "private": true,
+  "devDependencies": {
+    "@testing-library/react-native": "*",
+    "react": "*",
+    "react-native": "*",
+    "react-native-gesture-handler": "*",
+    "react-native-reanimated": "*"
+  }
+}

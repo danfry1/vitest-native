@@ -17,11 +17,7 @@ import {
   Gesture,
   State,
 } from "react-native-gesture-handler";
-import {
-  SafeAreaProvider,
-  SafeAreaView,
-  useSafeAreaInsets,
-} from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { NavigationContainer, useNavigation } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
@@ -51,7 +47,9 @@ describe("react-native-safe-area-context under native engine", () => {
     return <Text>top:{insets.top}</Text>;
   }
 
-  it("SafeAreaProvider/SafeAreaView render and useSafeAreaInsets returns mock insets", async () => {
+  // The library's own Jest mock (jest/mock): zero insets on a 320x640 frame, unless the
+  // provider is given metrics, as its testing guide sets them up.
+  it("SafeAreaProvider/SafeAreaView render and useSafeAreaInsets returns the mock's insets", async () => {
     await render(
       <SafeAreaProvider>
         <SafeAreaView testID="sa-view">
@@ -60,6 +58,20 @@ describe("react-native-safe-area-context under native engine", () => {
       </SafeAreaProvider>,
     );
     expect(screen.getByTestId("sa-view")).toBeTruthy();
+    expect(screen.getByText("top:0")).toBeTruthy();
+  });
+
+  it("reads the metrics a test gives SafeAreaProvider", async () => {
+    await render(
+      <SafeAreaProvider
+        initialMetrics={{
+          frame: { x: 0, y: 0, width: 390, height: 844 },
+          insets: { top: 47, right: 0, bottom: 34, left: 0 },
+        }}
+      >
+        <ShowInsets />
+      </SafeAreaProvider>,
+    );
     expect(screen.getByText("top:47")).toBeTruthy();
   });
 });

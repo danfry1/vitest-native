@@ -14,6 +14,7 @@ import { defineConfig } from "vitest/config";
 import { reactNative } from "../dist/index.mjs";
 import { jestMockTransform } from "../dist/jest-compat.mjs";
 import { NATIVE_SUITE_SETUP_FILES } from "./support/setup-files.mjs";
+import { NATIVE_SUITE_OWNERSHIP } from "./support/ownership-allow.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -22,12 +23,18 @@ export default defineConfig({
   // (NATIVE_ENGINE_RUNS_PACKAGES), is turned on, so this suite runs Expo's packages
   // as the preset serves them; the packed Expo consumers run the real packages.
   plugins: [
-    reactNative({ engine: "native", hotRuntime: false, presets: { expo: true } }),
+    reactNative({
+      engine: "native",
+      hotRuntime: false,
+      presets: { expo: true },
+      ownership: NATIVE_SUITE_OWNERSHIP,
+    }),
     jestMockTransform(),
   ],
   // The tsconfig-paths-style alias requireactual-alias.test.tsx exercises.
   resolve: { alias: { "@vn-app": path.resolve(here, "fixtures/alias-app") } },
   test: {
+    globalSetup: [path.resolve(here, "support/dispatch-fixtures.global.ts")],
     globals: true,
     environment: "node",
     pool: "forks",

@@ -16,7 +16,7 @@ npm rm vitest-react-native @vitejs/plugin-react
 npm i -D vitest-native @react-native/babel-preset @babel/core
 ```
 
-Keep your existing `vitest`, `vite`, `react`, `react-native`, and `@testing-library/react-native`. Requirements: **Vitest 4.x or 5.x, Vite ^6.4.2, ^7.3.2, or ^8.0.5, the React version required by your RN release, React Native 0.81–0.88 (validated in CI), and RNTL 12–14.** RNTL 14 uses async rendering APIs. vitest-native supports Node 22.13+ on Node 22, or 24.3+.
+Keep your existing `vitest`, `vite`, `react`, `react-native`, and `@testing-library/react-native`. Requirements: **Vitest 5.x, Vite ^8.0.5, the React version required by your RN release, React Native 0.86–0.88, and RNTL 13–14.** RNTL 14 uses async rendering APIs. vitest-native supports Node 22.22.3+ on Node 22, 24.12+ on Node 24, or 26+.
 
 ## 2. Update vitest.config
 
@@ -68,7 +68,7 @@ Your existing tests render against real React Native exactly as before.
 
 - **Native is the zero-config default**, but a fast [**mock engine**](/guide/engines) is one option away — `reactNative({ engine: 'mock' })` — for pure-logic and environment-control tests. A CI-gated cross-check keeps the mock behaviorally honest against real RN.
 - [**Presets**](/guide/presets) auto-shadow common native libraries (Reanimated, Gesture Handler, Safe Area, Navigation, …) the way `jest` mocks them — no per-lib wiring.
-- A [**hot runtime**](/guide/engines#hot-runtime), opt-in where the run can be bounded (`hotRuntime: 'auto'`), keeps RN warm across files while resetting app/test modules and common process-wide pollution between files. It uses Vitest's custom worker APIs and has [known differences](/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files) from per-file isolation; the default, `hotRuntime: false`, gives each file a fresh worker.
+- A [**hot runtime**](/guide/hot-runtime), opt-in where the run can be bounded (`hotRuntime: 'auto'`), keeps RN warm across files while resetting app/test modules and common process-wide pollution between files. It uses Vitest's custom worker APIs and has [known differences](/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files) from per-file isolation; the default, `hotRuntime: false`, gives each file a fresh worker.
 
 ## Gotchas (the margins)
 

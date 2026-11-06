@@ -6,10 +6,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   cjsConditionsWithout,
-  exportTarget,
   recoverMissingReactNativeTarget,
   // @ts-expect-error — runtime .mjs, no types
 } from "../src/native/export-condition-recovery.mjs";
+import { exportTarget } from "../src/native/shared-resolver.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PRELOAD = path.join(HERE, "../src/native/export-condition-recovery-preload.mjs");
@@ -123,15 +123,8 @@ describe("recoverMissingReactNativeTarget", () => {
   it("uses the target Node would pick without react-native when that one is missing", () => {
     const { dir } = fakePackage(false);
     const expected = path.join(dir, "dist/cjs/node/index.js");
-    // Node 22.22 and 24 report the package directory; Node 20.19 and 22.13 its manifest.
+    // Node reports the package directory on every supported release.
     expect(recoverMissingReactNativeTarget("lru-like", notFound(dir), conditions)).toBe(expected);
-    expect(
-      recoverMissingReactNativeTarget(
-        "lru-like",
-        notFound(path.join(dir, "package.json")),
-        conditions,
-      ),
-    ).toBe(expected);
   });
 
   it("handles scoped packages and subpath requests", () => {

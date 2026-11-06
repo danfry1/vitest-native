@@ -105,7 +105,7 @@ describe("troubleshooting.md: when the precompiled modules are rebuilt", () => {
     expect(section).toMatch(/Metro config.*`assetExts` option/);
     // The file check covers the packages React Native loads, not only its own files.
     expect(section).toMatch(/those they load from other packages such as `react`/);
-    expect(registry).toMatch(/for \(const target of externals\)/);
+    expect(registry).toMatch(/for \(const target of \[\.\.\.externals, \.\.\.pinned\]\)/);
     expect(section).toMatch(/size and modification time/);
     expect(registry).toMatch(/st\.size !== size \|\| st\.mtimeMs !== mtimeMs/);
   });

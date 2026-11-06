@@ -339,3 +339,35 @@ describe("the ESM loader takes diagnostics from the context", () => {
     expect(source(false)).toContain("if (!_hit && false)");
   });
 });
+
+describe("experimental.nodeMocks", () => {
+  const warnings = async (engine: "mock" | "native") => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await runPluginConfig(reactNative({ engine, experimental: { nodeMocks: true } }) as any, {
+      root: process.cwd(),
+    });
+    return warn.mock.calls.map(([m]) => String(m)).filter((m) => m.includes("nodeMocks"));
+  };
+
+  it("says it is ignored under the mock engine", async () => {
+    expect(await warnings("mock")).toEqual([expect.stringMatching(/engine:'native' only/)]);
+  });
+
+  it("is quiet under the native engine", async () => {
+    expect(await warnings("native")).toEqual([]);
+  });
+
+  it("is on in the worker context under ownershipModel 'resolution', and only as asked otherwise", async () => {
+    const fieldsFor = async (experimental: object) => {
+      const out = await runPluginConfig(reactNative({ engine: "native", experimental }) as any, {
+        root: process.cwd(),
+      });
+      const ref = out.test.env[CONTEXT_ENV];
+      return JSON.parse(fs.readFileSync(fileOf(ref), "utf8")).fields;
+    };
+    expect((await fieldsFor({ ownershipModel: "resolution" })).nodeMocks).toBe(true);
+    expect((await fieldsFor({ ownershipModel: "resolver" })).nodeMocks).toBeUndefined();
+    expect((await fieldsFor({})).nodeMocks).toBeUndefined();
+    expect((await fieldsFor({ nodeMocks: true })).nodeMocks).toBe(true);
+  });
+});

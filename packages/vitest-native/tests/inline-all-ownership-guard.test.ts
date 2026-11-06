@@ -52,7 +52,7 @@ describe("native ownership guard", () => {
     await runPluginConfig(plugin, { root });
     const nodeOwned = createRequire(import.meta.url).resolve("rn-singleton-lib");
 
-    expect(() => plugin.transform?.("export const x = 1", nodeOwned)).toThrow(
+    expect(() => plugin.transform?.handler?.("export const x = 1", nodeOwned)).toThrow(
       /Vite attempted to transform.*assigns.*to Node.*second module instance/s,
     );
   });

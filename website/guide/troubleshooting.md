@@ -1,5 +1,7 @@
 # Troubleshooting
 
+An error that starts with `[vitest-native]` has a code; the [error-code reference](/guide/errors) lists each one with its common causes.
+
 ## "helpers were called before setup ran"
 
 This means the plugin isn't configured. Ensure `reactNative()` is in your `vitest.config.ts` `plugins` array.
@@ -72,12 +74,13 @@ Known differences from per-file isolation under the hot runtime:
 - **An `act()` scope left open stays open for the worker.** A test that times out while awaiting `act()`, or starts an async `act()` without awaiting it, leaves React's scope open, and later renders on that worker would never commit. With two or more workers the hot runtime replaces that worker after the file, and the timed-out test names the open scope. With one worker it cannot: the next file waits up to `testTimeout` for the scope to close, and if it does not, the remaining files fail with `this worker cannot run this file`, naming the file that left it open.
 - **Fake timers active when React first loads stay captured by React's scheduler**, so a later file's timer-driven updates never render, and that file fails at its test timeout. This happens when a setup file imports React and then enables fake timers, or when a test file enables fake timers before React is first loaded.
 - **RNTL reinstalls fake timers only in the first file that loads it.** When RNTL loads while fake timers are on, it switches to real timers and back to capture the real ones. That reinstalls Vitest's fake timers with the project's `fakeTimers` config, and drops per-call options, the system time and pending fake timers. Under per-file isolation this happens in every file, as under Jest. Under the hot runtime RNTL stays loaded, so it happens only in the first file, and a setup file's `vi.setSystemTime()` or per-call options survive in later files.
+- **An environment variable a module sets when it is imported is set only in the first file on a worker that imports it.** The hot runtime restores `process.env` between files, but the module stays loaded and does not run again in later files. RNTL's `@testing-library/react-native/dont-cleanup-after-each` is handled: from 0.14.2 it takes effect in every file that imports it, directly or through a shared helper. For another module, set the variable in each file that needs it, with `vi.stubEnv('NAME', 'value')` at the top of the file.
 
 If the failure goes away with `hotRuntime: false`, keep that setting for the project. If it is not one of the cases above, please [open an issue](https://github.com/danfry1/vitest-native/issues) with the library involved. Setting `test.isolate` explicitly in your Vitest config also keeps Vitest's own isolation.
 
 ## "Cannot find module" keeps failing after the missing file exists
 
-On Vitest 5 the plugin turns on Vitest's persistent transform cache, `fsModuleCache` (see [how it works](/guide/how-it-works#_4-transform-cache)); on Vitest 4 it is on only if the config sets `test.experimental.fsModuleCache: true`. Vitest 5.0.5 can keep a test file's transform from a run where one of its imports did not resolve, and reuse it after the import target exists. The error names a root-relative path, such as `'/lib/components'` for `import '../../lib/components'`, and it persists across runs.
+The plugin turns on Vitest's persistent transform cache, `fsModuleCache` (see [how it works](/guide/how-it-works#_4-transform-cache)). Vitest 5.0.5 can keep a test file's transform from a run where one of its imports did not resolve, and reuse it after the import target exists. The error names a root-relative path, such as `'/lib/components'` for `import '../../lib/components'`, and it persists across runs.
 
 It happens when all of these hold:
 
@@ -86,9 +89,7 @@ It happens when all of these hold:
 - the importing file is in a subdirectory of the root, such as `src/`;
 - one run happened while the target was missing, for example before the other package was built.
 
-This is a Vitest bug, tracked in [vitest-dev/vitest#11789](https://github.com/vitest-dev/vitest/issues/11789). It is reproduced on Vitest 5.0.5; Vitest 4's experimental cache is likely affected too, but that is unverified. To recover, clear Vitest's cache with `vitest --clearCache`, or delete `node_modules/.vitest-cache` at the workspace root (or the directory set in `test.fsModuleCachePath`). To avoid it, build the other package before the first test run, or set `test.fsModuleCache: false` for that project.
-
-On Vitest 4 the same steps apply with the experimental names: the cache directory is `node_modules/.experimental-vitest-cache` (or `test.experimental.fsModuleCachePath`), and `test.experimental.fsModuleCache: false` turns the cache off.
+This is a Vitest bug, tracked in [vitest-dev/vitest#11789](https://github.com/vitest-dev/vitest/issues/11789). It is reproduced on Vitest 5.0.5. To recover, clear Vitest's cache with `vitest --clearCache`, or delete `node_modules/.vitest-cache` at the workspace root (or the directory set in `test.fsModuleCachePath`). To avoid it, build the other package before the first test run, or set `test.fsModuleCache: false` for that project.
 
 ## `CONTEXT_INVALID` at startup
 
@@ -117,10 +118,6 @@ A run reuses it when all of these are unchanged, and rebuilds it otherwise:
 
 To force a rebuild, delete that `registry` directory; files for earlier configurations stay there until you do. To run without the precompiled file (each module is then loaded on its own, more slowly, with the same results), set `VITEST_NATIVE_NO_REGISTRY=1`.
 
-## `npm error Cannot read properties of null (reading 'edgesOut')` during install
-
-npm 10 (the version bundled with Node 22) crashes while resolving Vite 8.2+'s optional peer chain when the project pins Vitest 4, because that chain resolves to the latest Vitest (5.x). This is an npm bug, fixed in npm 11 ([vitest#11245](https://github.com/vitest-dev/vitest/issues/11245)). Upgrade npm (`npm install --global npm@11`), or use pnpm, Yarn or Bun.
-
 ## `@react-native/babel-preset not found — using the mock engine`
 
 You asked for the default (`auto`) engine but the native engine's Babel packages aren't installed, so it fell back to the mock engine. An Expo project from SDK 56 needs nothing extra: the engine uses Expo's preset, and `expo` brings `@babel/core`. Otherwise, to run real React Native, install them:
@@ -137,7 +134,7 @@ Files your tests `import` go through Vite's JSX transformer, not your Babel conf
 
 ## `Worker terminated due to reaching memory limit` / `JS heap out of memory`
 
-Every test file that renders real React Native loads a full renderer. Under the default per-file isolation each file starts in a fresh worker, so heap does not accumulate across files. Under the hot runtime (`hotRuntime: 'auto'`), workers are reused and recycled on a memory budget; set your own heap threshold with `hotRuntime: { mode: 'auto', memoryLimit }` (bytes; see [worker recycling](/guide/engines#worker-recycling)).
+Every test file that renders real React Native loads a full renderer. Under the default per-file isolation each file starts in a fresh worker, so heap does not accumulate across files. Under the hot runtime (`hotRuntime: 'auto'`), workers are reused and recycled on a memory budget; set your own heap threshold with `hotRuntime: { mode: 'auto', memoryLimit }` (bytes; see [worker recycling](/guide/hot-runtime#workers-and-memory)).
 
 ## `Vitest caught N unhandled errors` in error-boundary tests
 
@@ -156,6 +153,10 @@ vi.mock('@react-navigation/native', async (importOriginal) => ({
 ```
 
 For one-off overrides, [`extendPresetMock`](/guide/helpers#extendpresetmock-pkg-overrides) is lighter.
+
+## Node 24.13.0: segmentation fault at startup
+
+On Node 24.13.0, a run can stop at startup with `Segmentation fault` (exit code 139) after Vitest prints `RUN` and before any test reports. It is an intermittent crash inside V8's garbage collector on a worker thread; no vitest-native code appears in the crashing native frames. In our measurements it happened in 2 of 135 cold runs with the hot runtime on Node 24.13.0, and in none of our runs on 24.12, 24.14, 24.16 or 24.18 (50 to 100 runs each, too few to prove any single one of them free of it). Use another Node 24 release, such as 24.14 or later. `vitest-native doctor` warns when it runs on 24.13.0.
 
 ## Still stuck?
 

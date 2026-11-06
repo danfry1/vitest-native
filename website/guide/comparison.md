@@ -31,14 +31,14 @@ So the difference is **where the boundary sits**, not "real vs mocked." vitest-n
 
 ## Speed: not the reason to switch
 
-By default each test file gets a fresh worker (`hotRuntime: false`). The opt-in hot runtime (`hotRuntime: 'auto'`) reuses workers across test files instead; whether that is faster than Jest, or than per-file isolation, depends on the suite, so measure it on yours. [Choosing the hot runtime](/guide/engines#choosing-the-hot-runtime) covers the trade-off. Choose vitest-native for the **fidelity option and DX**.
+By default each test file gets a fresh worker (`hotRuntime: false`). The opt-in hot runtime (`hotRuntime: 'auto'`) reuses workers across test files instead; whether that is faster than Jest, or than per-file isolation, depends on the suite, so measure it on yours. [Choosing the hot runtime](/guide/hot-runtime) covers the trade-off. Choose vitest-native for the **fidelity option and DX**.
 
 ## At a glance
 
 |  | vitest-native | Jest + `@react-native/jest-preset` |
 |---|---|---|
 | Mock boundary | Native boundary only (real component JS), or full mock — your choice | Core components + native boundary mocked |
-| Runner | Vitest 4.x / 5.x | Jest |
+| Runner | Vitest 5.x | Jest |
 | Config | One plugin, zero setup | jest-preset + transformIgnorePatterns |
 | Watch / UI | Vitest watch + UI | Jest watch |
 | ESM | Native | Via transforms |
@@ -47,7 +47,7 @@ By default each test file gets a fresh worker (`hotRuntime: false`). The opt-in 
 
 ## The cross-check
 
-The mock engine is a reimplementation of React Native, so it could in principle drift from real RN behavior. vitest-native guards against that with a **CI-gated behavioral cross-check**: a corpus of probes runs the same assertions against both the mock engine and real RN across React Native 0.81–0.88, and divergences fail CI. It's reproducible — clone the repo and run `bun run crosscheck`. The full corpus and its current pass count are published in the [Fidelity Report](/guide/fidelity).
+The mock engine is a reimplementation of React Native, so it could in principle drift from real RN behavior. vitest-native guards against that with a **CI-gated behavioral cross-check**: a corpus of probes runs the same assertions against both the mock engine and real RN across React Native 0.86–0.88, and divergences fail CI. It's reproducible — clone the repo and run `bun run crosscheck`. The full corpus and its current pass count are published in the [Fidelity Report](/guide/fidelity).
 
 This is the trust mechanism for the mock — and it has already caught and fixed real mock bugs (for example, an `Animated.Text` host-name mismatch that broke `queryByText`, and `Animated.Value`-in-style not resolving for `toHaveStyle`). The native engine doesn't need this — it *is* real RN.
 

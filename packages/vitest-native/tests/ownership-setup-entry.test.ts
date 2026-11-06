@@ -115,7 +115,12 @@ describe.each([
       root: app,
       test: { setupFiles: ["../kit/vitest.setup.ts"] },
     });
-    const transform = (file: string) => plugin.transform?.call({} as never, "export {};", file);
+    const transform = (file: string) =>
+      (plugin.transform as { handler: (code: string, id: string) => unknown }).handler.call(
+        {},
+        "export {};",
+        file,
+      );
     expect(() => transform(setup)).not.toThrow();
     expect(() => transform(path.join(kit, "src/index.ts"))).toThrow(
       /MODULE_OWNER_CONFLICT|assigns/,
@@ -144,7 +149,12 @@ describe.each([
       root: app,
       test: { setupFiles: ["../kit/vitest.setup.ts"] },
     });
-    const transform = (file: string) => plugin.transform?.call({} as never, "export {};", file);
+    const transform = (file: string) =>
+      (plugin.transform as { handler: (code: string, id: string) => unknown }).handler.call(
+        {},
+        "export {};",
+        file,
+      );
     expect(() => transform(setup)).not.toThrow();
     expect(() => transform(path.join(kit, "src/index.ts"))).not.toThrow();
   });

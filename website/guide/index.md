@@ -4,7 +4,7 @@ vitest-native runs your React Native tests under [Vitest](https://vitest.dev), a
 
 It works the same for bare React Native and [Expo](/guide/expo) apps — including expo-router's own testing library, and a `migrate` command that translates a `jest-expo` setup.
 
-It is the maintained successor to [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native) — same core idea (externalize React Native, run its real JS under Node), rebuilt for Vitest 4 and 5.
+It is the maintained successor to [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native) — same core idea (externalize React Native, run its real JS under Node), rebuilt for Vitest 5.
 
 ## The idea
 
@@ -38,7 +38,7 @@ Migrating a large, deeply Jest-coupled suite *wholesale* is possible but **not t
 - **TypeScript first** — full type safety across the entire API.
 
 ::: tip Beta
-A CI-gated behavioral cross-check runs the same assertions under the mock engine and real React Native across React Native 0.81–0.88, failing the build on any divergence. Some APIs may still shift before 1.0.
+A CI-gated behavioral cross-check runs the same assertions under the mock engine and real React Native across React Native 0.86–0.88, failing the build on any divergence. Some APIs may still shift before 1.0.
 :::
 
 Next: [Installation](/guide/install) → [Quick Start](/guide/quick-start).

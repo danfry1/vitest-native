@@ -42,6 +42,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       reactNative({
         engine: engineMode === "mock-noiso" ? "mock" : "native",
+        ...(engineMode === "mock-noiso" ? {} : { ownership: "error" as const }),
         hotRuntime: engineMode === "hot" ? { allowUnboundedMemory: true } : false,
       }),
     ],

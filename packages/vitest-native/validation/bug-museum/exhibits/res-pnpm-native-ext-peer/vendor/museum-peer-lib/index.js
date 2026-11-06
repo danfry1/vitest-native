@@ -1,1 +1,1 @@
-exports.platform = require("./platform");
+exports.platform = require("./util");

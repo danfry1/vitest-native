@@ -24,7 +24,7 @@ and deep paths are not supported even when they happen to resolve.
 | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `vitest-native`                                                           | `reactNative`, `presets`, `disabledPresetNames`                                                                        |
 | `vitest-native/helpers`                                                   | `setPlatform`, `setDimensions`, `setColorScheme`, `setInsets`, `mockNativeModule`, `extendPresetMock`, `resetAllMocks` |
-| `vitest-native/presets`                                                   | the 19 preset factories, by name                                                                                        |
+| `vitest-native/presets`                                                   | the 19 preset factories, by name                                                                                       |
 | `vitest-native/matchers`                                                  | `toHaveAnimatedStyle`, `toHaveAnimatedProps`, `animatedMatchers`                                                       |
 | `vitest-native/serializer`                                                | `serializer`                                                                                                           |
 | `vitest-native/jest-compat`                                               | `jestMockTransform`, `jestCompatAliases`, `jestCompatSetup`                                                            |
@@ -39,11 +39,12 @@ every subpath is loaded by specifier under both `require` and `import` in
 ### Plugin options
 
 The keys accepted by the plugin function are `engine`, `platform`, `presets`, `mocks`,
-`diagnostics`, `assetExts`, `metroConfig`, `transform`, `hotRuntime`, `nativeModules`. Their accepted types and their
+`diagnostics`, `assetExts`, `metroConfig`, `transform`, `hotRuntime`, `nativeModules`, `ownership`, `experimental`. Their accepted types and their
 defaults are covered. An unknown key is rejected at configuration time, so adding a key is a minor
 and removing or renaming one is a major.
 
-`hotRuntime` and `metroConfig` are exceptions — see [Experimental](#experimental).
+`hotRuntime`, `metroConfig` and everything under `experimental` are exceptions — see
+[Experimental](#experimental).
 
 ### Preset authoring
 
@@ -94,10 +95,12 @@ Changing any of these is a patch or minor, and never requires a major.
 Experimental surfaces are excluded from the contract at every version, including after 1.0. They
 are documented, tested, and gated in CI — they are simply not stable, and they say so.
 
-| Surface | Why |
-| --- | --- |
-| `hotRuntime` and its options | Built on Vitest's experimental custom-pool API, which can change between Vitest minors. The default is `false` (per-file isolation); `'auto'` opts in, and falls back to per-file isolation whenever the run cannot be bounded. |
-| `metroConfig` and its options | Opt-in declarative Metro profile ingestion. Framework loading, custom resolvers and the version matrix remain under investigation. Off by default. |
+| Surface                       | Why                                                                                                                                                                                                                                        |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `hotRuntime` and its options  | Built on Vitest's experimental custom-pool API, which can change between Vitest minors. The default is `false` (per-file isolation); `'auto'` opts in, and falls back to per-file isolation whenever the run cannot be bounded.            |
+| `metroConfig` and its options | Opt-in declarative Metro profile ingestion. Framework loading, custom resolvers and the version matrix remain under investigation. Off by default.                                                                                         |
+| `experimental.nodeMocks`      | Opt-in: a `vi.mock` applies to the modules Node loads too, as a `jest.mock` factory does under Jest. Each entry under `experimental` has a decision date in `src/flags.ts`, by which it becomes the default or is removed. Off by default. |
+| `experimental.ownershipModel` | Opt-in shared resolution across Vite and Node's loaders (see [ownership model](ownership-model.md)). Each entry under `experimental` has a decision date in `src/flags.ts`, by which it becomes the default or is removed. Off by default. |
 
 A surface leaves this list by being promoted in a minor, and can change or be removed in a minor
 while it is on it.
@@ -114,7 +117,33 @@ handled explicitly:
   release notes. The package does not promise to outlive its own dependencies.
 - **Dropping a version upstream still supports** is a **major**.
 - **Raising the Node floor** is a **minor** when the versions dropped are end-of-life, and a
-  **major** otherwise.
+  **major** otherwise. Raising it to a later patch or minor **within a Node line that stays
+  supported** is a **minor**: upstream ships fixes only in a line's newest release, and an
+  update within the same major is all it asks of a project.
+
+### Support policy
+
+What the package supports, and the rule for moving each range. The aim is a small, current set
+that the engine can support without version-specific workarounds; a project on an older release
+is asked to update rather than the engine carrying a second code path for it.
+
+| Upstream | Supported | Rule |
+| --- | --- | --- |
+| Node | 22.22.3+ on Node 22, 24.12+ on Node 24, 26+ | Each line from the release where Node's in-thread module hooks (`module.registerHooks`) carry the engine. End-of-life lines (20, 23, 25) are not supported. Lines from 26 on are admitted, and are added to CI as they ship. |
+| Vitest | 5.x | The current major only. A new major is added once it passes the full gate, and the previous one is dropped in the next breaking release. |
+| Vite | 8.x, from 8.0.5 | The major Vitest's current release is built on. 8.0.5 is a security floor. |
+| React Native | 0.86–0.88 (native engine) | The releases the CI matrix runs (`.github/rn-matrix.json`); 0.86 is Expo SDK 57's. A new release is added as it ships; the oldest is dropped in a breaking release. |
+| Expo SDK | 57 and 58 | The SDKs CI installs as packed apps. |
+| React Native Testing Library | 13.x and 14.x | The current and previous major. |
+| React | 19 | The version React Native's supported releases use. |
+
+On an unsupported Node the plugin stops at startup with `UNSUPPORTED_NODE`, for both engines, and
+`vitest-native doctor` reports the same. Below a supported line's floor (22.x before 22.22.3, 24.x
+before 24.12) an update within that major is enough; on another line the message names the
+supported ones. A Vitest or Vite outside its range, a React older than 19, and under the native engine a
+React Native older than 0.86, stop the plugin at startup with `UNSUPPORTED_PEER`, naming the
+supported range and the version found. A React Native newer than the range, an Expo SDK outside
+its range and an RNTL outside its range are warnings.
 
 The currently supported ranges are in [Requirements](../README.md#requirements) and the blocking
 matrix in [`release-readiness.md`](./release-readiness.md#blocking-compatibility-matrix). Those are

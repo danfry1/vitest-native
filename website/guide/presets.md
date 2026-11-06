@@ -5,7 +5,7 @@ Most React Native apps depend on native libraries — Reanimated, Gesture Handle
 The engine banner at the start of a run names the presets that run applies, and the project's own preset modules as the config names them:
 
 ```
-[vitest-native] engine: native — real react-native@0.81.5 · mocked: gestureHandler, safeAreaContext, navigation, screens (platform ios, hot runtime)
+[vitest-native] engine: native — real react-native@0.88.0 · mocked: gestureHandler, safeAreaContext, navigation, screens (platform ios, hot runtime)
 ```
 
 ## Auto-detection
@@ -39,7 +39,7 @@ export default defineConfig({
 })
 ```
 
-Presets apply under **both** engines, with two exceptions under the native engine. `expo` steps aside: the Expo packages it covers run as themselves, against the engine's Expo runtime, unless `presets: { expo: true }` turns it on. `worklets` steps aside when the installed react-native-worklets (0.9+) ships its Jest resolver, so the real package runs in its JS implementation.
+Presets apply under **both** engines, with exceptions under the native engine. `expo`, `gestureHandler` and `flashList` step aside: the Expo packages run as themselves against the engine's Expo runtime, and gesture-handler and flash-list run as themselves with their own Jest setup, as a Jest suite lists it. Setting the preset to `true` (for example `presets: { expo: true }`) turns it back on. Several other presets serve their library's own test mock under the native engine; each row says which.
 
 ## Turning a preset off
 
@@ -53,23 +53,23 @@ reactNative({ presets: { navigation: false } })
 
 | Preset | Library | What's mocked |
 |--------|---------|---------------|
-| `presets.reanimated()` | `react-native-reanimated` | `useSharedValue`, `useAnimatedStyle`, `withTiming`, `withSpring`, `withDelay`, `withSequence`, `withRepeat`, layout animations (`FadeIn`, `FadeOut`, `SlideInRight`), `Easing`, `interpolate`, `createAnimatedComponent` |
-| `presets.worklets()` | `react-native-worklets` | `runOnJS`, `runOnUI`, `scheduleOnRN`, `scheduleOnUI`, `createWorkletRuntime`, … run synchronously on the JS thread |
-| `presets.gestureHandler()` | `react-native-gesture-handler` | `GestureHandlerRootView`, gesture handlers (Pan, Tap, LongPress, Pinch, Rotation, Fling), `Gesture` API (v2), `GestureDetector`, `Swipeable`, touchable wrappers, state constants |
-| `presets.safeAreaContext()` | `react-native-safe-area-context` | `SafeAreaProvider`, `SafeAreaView`, `useSafeAreaInsets`, `useSafeAreaFrame`, `initialWindowMetrics`, `withSafeAreaInsets` |
+| `presets.reanimated()` | `react-native-reanimated` | Native engine with Reanimated 4.7+: Reanimated's own test mock (`react-native-reanimated/mock`), its whole API for the installed version, over the real package in its JS implementation, as a Jest suite gets it. Where that mock answers with a no-op, and only while it does, the preset runs Reanimated's own `interpolate`, `interpolateColor` and `clamp`, a `useAnimatedScrollHandler` / `useComposedEventHandler` that call their handlers (scroll, drag and momentum events of `Animated.ScrollView` and `Animated.FlatList`), `useScrollOffset` / `useScrollViewOffset` that return a shared value, and shared values with listeners (`addListener` / `removeListener`, which Gesture Handler 3 uses). Mock engine, or an older Reanimated: `useSharedValue`, `useAnimatedStyle`, `withTiming`, `withSpring`, `withDelay`, `withSequence`, `withRepeat`, layout animations (`FadeIn`, `FadeOut`, `SlideInRight`), `Easing`, Reanimated's own `interpolate`, `interpolateColor` and `clamp` (under the mock engine `interpolateColor` throws, and before Reanimated 4.5 so does `clamp`, while `interpolate` returns its first output value), `isSharedValue`, the same scroll hooks, `createAnimatedComponent` |
+| `presets.worklets()` | `react-native-worklets` | Native engine: Worklets' own test mock (`lib/module/mock.js`), as a Jest suite installs it, so `runOnJS`, `runOnUI`, `scheduleOnRN` and `scheduleOnUI` behave as under Jest. Mock engine, or a Worklets without that mock: they run synchronously on the JS thread |
+| `presets.gestureHandler()` | `react-native-gesture-handler` | Native engine: none needed, the real package runs with its own `jestSetup.js` mocking its native module and host components, as a Jest suite lists it (gesture-handler 3's hook API, the whole builder API). Mock engine: `GestureHandlerRootView`, gesture handlers (Pan, Tap, LongPress, Pinch, Rotation, Fling), `Gesture` API (v2), `GestureDetector`, `Swipeable`, touchable wrappers, state constants |
+| `presets.safeAreaContext()` | `react-native-safe-area-context` | Native engine: safe-area-context's own test mock (`jest/mock`), as a Jest suite installs it: zero insets on a 320x640 frame unless `<SafeAreaProvider initialMetrics>` gives metrics, with `useSafeAreaInsets`/`useSafeAreaFrame` as mock functions. Mock engine: `SafeAreaProvider`, `SafeAreaView`, `useSafeAreaInsets`, `useSafeAreaFrame`, `initialWindowMetrics`, `withSafeAreaInsets` |
 | `presets.navigation()` | `@react-navigation/native`, `@react-navigation/native-stack`, `@react-navigation/bottom-tabs`, `@react-navigation/drawer`, `@react-navigation/elements` | `NavigationContainer`, `useNavigation`, `useRoute`, `useFocusEffect`, `useIsFocused`, `CommonActions`, `StackActions`, `TabActions`, `DrawerActions`, navigators |
 | `presets.screens()` | `react-native-screens` | `enableScreens`, `Screen`, `ScreenContainer`, `ScreenStack` |
 | `presets.asyncStorage()` | `@react-native-async-storage/async-storage` | in-memory store (`getItem`/`setItem`/`multiGet`/`mergeItem`/…) |
 | `presets.expo()` | `expo-constants`, `expo-font`, `expo-asset`, `expo-splash-screen`, `expo-linking`, `expo-status-bar` | constants, fonts, assets, splash screen, linking, status bar |
 | `presets.deviceInfo()` | `react-native-device-info` | string/bool/number getters with sync + async variants |
 | `presets.mmkv()` | `react-native-mmkv` | in-memory `MMKV` + `useMMKV*` hooks, for mmkv 2 only: the library tests itself from v3 (its own in-memory backend under Vitest), so the preset steps aside |
-| `presets.netInfo()` | `@react-native-community/netinfo` | connected-wifi state, `fetch`/`refresh`/`addEventListener`/`useNetInfo`, state-type enums |
+| `presets.netInfo()` | `@react-native-community/netinfo` | Native engine: netinfo's own test mock (`jest/netinfo-mock.js`), as a Jest suite installs it: a connected cellular network. Mock engine: connected-wifi state, `fetch`/`refresh`/`addEventListener`/`useNetInfo`, state-type enums |
 | `presets.svg()` | `react-native-svg` | `Svg`, `Path`, `Circle`, `Rect`, `G`, … as host components |
 | `presets.webview()` | `react-native-webview` | `WebView` (default + named) host component |
 | `presets.vectorIcons()` | `@react-native-vector-icons/common` | `createIconSet` and the dynamic font loader shared by the v10+ scoped icon sets (not the legacy unscoped `react-native-vector-icons`) |
-| `presets.flashList()` | `@shopify/flash-list` | `FlashList` rendering its data through `renderItem`, the ref surface, v2 recycler hooks |
-| `presets.bottomSheet()` | `@gorhom/bottom-sheet` | `BottomSheet`, `BottomSheetModal` + provider, sheet views, scroll/list variants, `BottomSheetTextInput`, backdrop, footer |
-| `presets.keyboardController()` | `react-native-keyboard-controller` | `KeyboardProvider`, `KeyboardAvoidingView`, `KeyboardAwareScrollView`, `KeyboardStickyView`, `KeyboardToolbar`; the imperative `KeyboardController` is inert |
+| `presets.flashList()` | `@shopify/flash-list` | Native engine: none needed, the real list runs with its own `jestSetup.js` measuring its layout, as a Jest suite lists it. Mock engine: `FlashList` rendering its data through `renderItem`, the ref surface, v2 recycler hooks |
+| `presets.bottomSheet()` | `@gorhom/bottom-sheet` | Native engine: bottom-sheet's own test mock (`@gorhom/bottom-sheet/mock`), as a Jest suite installs it. Mock engine: `BottomSheet`, `BottomSheetModal` + provider, sheet views, scroll/list variants, `BottomSheetTextInput`, backdrop, footer |
+| `presets.keyboardController()` | `react-native-keyboard-controller` | Native engine: keyboard-controller's own test mock (`react-native-keyboard-controller/jest`), as a Jest suite installs it. Mock engine: `KeyboardProvider`, `KeyboardAvoidingView`, `KeyboardAwareScrollView`, `KeyboardStickyView`, `KeyboardToolbar`; the imperative `KeyboardController` is inert |
 | `presets.unistyles()` | `react-native-unistyles`, `react-native-unistyles/reanimated` | Unistyles 3: `StyleSheet.configure`/`create` with themes, variants and compound variants, `useUnistyles`, `withUnistyles`, `UnistylesRuntime` theme switching, `mq` with `Display`/`Hide`; matches the library's own Jest mock and follows its source where that mock does less |
 | `presets.skia()` | `react-native-skia`, `@shopify/react-native-skia` | Skia's own test mock (`Mock(CanvasKit)`) over CanvasKit, Skia compiled to WebAssembly: the `Skia` API computes with real Skia, `Canvas` and its drawing render as Views; plus Skia's Reanimated helpers (`usePathValue`, `useTexture`, …) and a `matchFont` that returns a font |
 
