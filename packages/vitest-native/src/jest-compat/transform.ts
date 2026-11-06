@@ -311,12 +311,13 @@ export function jestMockTransform(options: JestMockTransformOptions = {}): Plugi
         : project;
       // The manual mocks of the project this file belongs to (the longest root containing
       // it), for a factory-less jest.mock(name) in it: Jest gives that call the manual mock.
+      // Compared in Vite's spelling, which is the file's: on Windows the root's is not.
       let module: RootMockModule | undefined;
+      const spelled = path.isAbsolute(file) ? viteId(file) : file;
       for (const candidate of rootMockModules.values()) {
+        const root = viteId(candidate.root);
         if (
-          (file === candidate.root ||
-            file.startsWith(candidate.root + path.sep) ||
-            file.startsWith(candidate.root + "/")) &&
+          (spelled === root || spelled.startsWith(root.endsWith("/") ? root : `${root}/`)) &&
           (!module || candidate.root.length > module.root.length)
         ) {
           module = candidate;
