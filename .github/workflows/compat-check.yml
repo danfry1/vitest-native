@@ -154,3 +154,100 @@ jobs:
                 labels: ['compat-check'],
               });
             }
+
+  canary:
+    name: Canary (${{ matrix.channel }})
+    runs-on: ubuntu-latest
+    # Upstream's next releases, before they ship (docs/upstream-policy.md): the newest of
+    # each package's `next`/`beta`/`rc` channels ahead of `latest`
+    # (.github/scripts/canary-version.mjs). A channel with nothing ahead is skipped. Like the
+    # edge job above, this installs releases younger than the seven-day gate, in this job
+    # only; the pull-request gates stay pinned.
+    permissions:
+      contents: read
+      issues: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - channel: vitest
+            node: 22.22.3
+          - channel: react-native
+            node: 22.22.3
+          - channel: node-current
+            node: current
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Pick and install the prerelease
+        id: pick
+        env:
+          CHANNEL: ${{ matrix.channel }}
+        run: |
+          case "$CHANNEL" in
+            vitest)
+              v=$(node .github/scripts/canary-version.mjs vitest)
+              if [ -z "$v" ]; then echo "No Vitest prerelease ahead of latest."; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+              vite=$(node .github/scripts/canary-version.mjs vite); vite=${vite:-latest}
+              # A next major is refused at startup by design; this job asks whether it would work.
+              node .github/scripts/raise-peer-ceiling.mjs vitest "$v"
+              [ "$vite" != latest ] && node .github/scripts/raise-peer-ceiling.mjs vite "$vite"
+              bun add -d "vitest@$v" "@vitest/coverage-v8@$v" "vite@$vite" --minimum-release-age=0 --cwd packages/vitest-native
+              ;;
+            react-native)
+              v=$(node .github/scripts/canary-version.mjs react-native)
+              if [ -z "$v" ]; then echo "No React Native prerelease ahead of latest."; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+              bun add -d "react-native@$v" "@react-native/babel-preset@$v" metro-resolver@latest --minimum-release-age=0 --cwd packages/vitest-native
+              ;;
+            node-current)
+              echo "Node $(node -v), the current release line."
+              ;;
+          esac
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        if: steps.pick.outputs.skip != 'true'
+        run: bun run build
+
+      - name: Unit tests
+        if: steps.pick.outputs.skip != 'true'
+        run: bun run test
+
+      - name: Native engine tests
+        if: steps.pick.outputs.skip != 'true'
+        run: bun run test:native
+
+      - name: Native hot-runtime tests
+        if: steps.pick.outputs.skip != 'true'
+        run: bun run test:native:hot
+
+      - name: Create issue on failure
+        if: failure()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v7
+        env:
+          CHANNEL: ${{ matrix.channel }}
+          RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        with:
+          script: |
+            const title = `Canary: the ${process.env.CHANNEL} prerelease fails`;
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'compat-check',
+            });
+            if (!issues.some((issue) => issue.title === title)) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body: `The ${process.env.CHANNEL} canary (upstream's next release, ahead of latest) fails the gate.\n\nRun: ${process.env.RUN_URL}`,
+                labels: ['compat-check'],
+              });
+            }
