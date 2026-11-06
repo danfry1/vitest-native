@@ -4,10 +4,28 @@
  * held the CI job until its own timeout and printed nothing about where.
  */
 import { spawn } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { scratchProject } from "./support/compare-helpers.js";
+
+/** The stuck worker wrote its pid before spinning; after the run it must be gone. */
+async function expectWorkerGone(root: string) {
+  const pid = Number(fs.readFileSync(path.join(root, "worker.pid"), "utf8"));
+  expect(pid).toBeGreaterThan(0);
+  const alive = () => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  for (let i = 0; i < 30 && alive(); i++) await new Promise((r) => setTimeout(r, 100));
+  if (alive()) process.kill(pid, "SIGKILL"); // never leave it spinning, even on failure
+  expect(alive()).toBe(false);
+}
 
 const scripts = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "ci");
 
@@ -34,7 +52,7 @@ describe("hang guard", () => {
       files: {
         "vitest.config.mjs": CONFIG,
         "ok.check.js": `test("fine", () => {});\n`,
-        "spin.check.js": `test("spins forever", () => { for (;;) {} });\n`,
+        "spin.check.js": `import fs from "node:fs";\ntest("spins forever", () => { fs.writeFileSync("worker.pid", String(process.pid)); for (;;) {} });\n`,
       },
     });
     const { code, output, ms } = await run(
@@ -50,13 +68,14 @@ describe("hang guard", () => {
     );
     expect(output).not.toMatch(/Running: \S*ok\.check\.js/);
     expect(ms).toBeLessThan(60_000);
+    await expectWorkerGone(root);
   }, 90_000);
 
   it("fails a hook stuck in a loop after its tests passed", async () => {
     const root = scratchProject({
       files: {
         "vitest.config.mjs": CONFIG,
-        "hook.check.js": `test("passes", () => {});\nafterAll(() => { for (;;) {} });\n`,
+        "hook.check.js": `import fs from "node:fs";\ntest("passes", () => {});\nafterAll(() => { fs.writeFileSync("worker.pid", String(process.pid)); for (;;) {} });\n`,
       },
     });
     const { code, output } = await run(
@@ -66,6 +85,7 @@ describe("hang guard", () => {
     );
     expect(code).toBe(1);
     expect(output).toMatch(/Running: \S*hook\.check\.js \(no test reported as running/);
+    await expectWorkerGone(root);
   }, 90_000);
 
   it("stops a run whose main process is stuck, at the step's deadline", async () => {

@@ -16,6 +16,7 @@
 //
 // Added by scripts/ci/vitest.mjs when VN_HANG_GUARD=1.
 import fs from "node:fs";
+import { exitKillingDescendants } from "./kill-tree.mjs";
 
 const DEFAULT_IDLE_MS = 5 * 60_000;
 
@@ -23,7 +24,7 @@ export default class HangReporter {
   constructor({
     idleMs = Number(process.env.VN_HANG_IDLE_MS) || DEFAULT_IDLE_MS,
     log = process.env.VN_PROGRESS_LOG,
-    exit = (code) => process.exit(code),
+    exit = exitKillingDescendants,
   } = {}) {
     this.idleMs = idleMs;
     this.log = log;
@@ -111,7 +112,8 @@ export default class HangReporter {
     const github = process.env.GITHUB_ACTIONS === "true";
     for (const line of lines) process.stderr.write(`${github ? "::error::" : "✗ "}${line}\n`);
     // A stuck worker cannot be closed politely: Vitest would wait for it. Exiting ends
-    // its threads; a forked worker is left to the deadline's process-group kill.
+    // its threads, and a forked worker (Vitest's default pool) is killed with the rest of
+    // this process's descendants, or it would spin on after the run has failed.
     this.exit(1);
   }
 }
