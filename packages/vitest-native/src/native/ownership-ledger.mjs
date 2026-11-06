@@ -66,6 +66,8 @@ const NOT_THE_MODULE = /[?&](?:raw|url|inline|worker|sharedworker)\b/;
 const realDirs = new Map();
 function realpathOr(file, fallback) {
   try {
+    // The OS's spelling (realpathSync.native), as Vite's ids are: viteMarkerFor keys Vite's
+    // side by it.
     return fs.realpathSync.native(file);
   } catch {
     return fallback;

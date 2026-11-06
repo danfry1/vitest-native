@@ -177,6 +177,7 @@ function readManifest(dir) {
 
 function realPath(dir) {
   try {
+    // The OS's spelling (realpathSync.native), on both sides of owningPackage's comparison.
     return fs.realpathSync.native(dir);
   } catch {
     return path.resolve(dir);

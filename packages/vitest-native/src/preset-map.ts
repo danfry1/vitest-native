@@ -196,6 +196,8 @@ export function libraryMockDir(mock: LibraryMock, root: string): string | null {
     for (let at = path.resolve(root); ; at = path.dirname(at)) {
       const candidate = path.join(at, "node_modules", mock.pkg);
       if (fs.existsSync(path.join(candidate, "package.json"))) {
+        // Node's spelling (fs.realpathSync): the directory require() loads the preset's
+        // package from.
         const real = fs.realpathSync(candidate);
         const available =
           mock.available ??
