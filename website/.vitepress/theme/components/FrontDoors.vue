@@ -4,8 +4,9 @@ import { ref } from 'vue'
 
 // Where to start, by where the reader is today. Every card reads the same way: an icon and
 // a title, one line on what it gets you, the code that starts it, and a link on one shared
-// baseline. The link covers the card, so the whole card opens it; the copy buttons sit
-// above that cover, so a command can be copied without leaving the page.
+// baseline. The three are equals: same width, no ranking. The link covers the card, so
+// the whole card opens it; the copy buttons sit above that cover, so a command can be
+// copied without leaving the page.
 
 const copied = ref<string | null>(null)
 
@@ -28,9 +29,13 @@ async function copy(text: string, event: MouseEvent) {
   }
 }
 
-const steps = [
+const jestSteps = [
   { label: 'Compare', note: 'see what differs on your suite', command: 'npx vitest-native compare' },
   { label: 'Migrate', note: 'write the Vitest config', command: 'npx vitest-native migrate --write' },
+]
+const newSteps = [
+  { label: 'Set up', note: 'write the Vitest config', command: 'npx vitest-native init' },
+  { label: 'Run', note: 'in watch mode', command: 'npx vitest' },
 ]
 const choices = [
   { label: 'Renders components', engine: "engine: 'native'" },
@@ -42,8 +47,8 @@ const choices = [
   <section class="front-doors" aria-labelledby="front-doors-title">
     <h2 id="front-doors-title">Where to start</h2>
     <div class="doors">
-      <!-- On Jest today: a two-step flow. -->
-      <article class="door door-jest">
+      <!-- On Jest today: compare, then migrate. -->
+      <article class="door">
         <header class="head">
           <span class="icon" aria-hidden="true">
             <svg viewBox="0 0 24 24">
@@ -51,18 +56,22 @@ const choices = [
             </svg>
           </span>
           <h3 class="title">I'm on Jest today</h3>
-          <span class="tag">Start here</span>
         </header>
         <p class="promise">Find out what changes on your own suite before you switch anything.</p>
         <ol class="steps">
-          <li v-for="(step, index) in steps" :key="step.label" class="step">
+          <li v-for="(step, index) in jestSteps" :key="step.label" class="step">
             <span class="num" aria-hidden="true">{{ index + 1 }}</span>
             <div class="step-body">
               <span class="step-label">{{ step.label }} <span class="step-note">· {{ step.note }}</span></span>
               <div class="codeline">
-                <code>{{ step.command }}</code>
-                <button type="button" class="copy" :aria-label="`Copy ${step.command}`" @click="copy(step.command, $event)">
-                  {{ copied === step.command ? 'Copied' : 'Copy' }}
+                <code
+                  ><template v-for="(word, w) in step.command.split(' ')" :key="w"
+                    ><span class="word">{{ word }}</span>{{ w < step.command.split(' ').length - 1 ? ' ' : '' }}</template
+                  ></code
+                >
+                <button type="button" class="copy" :aria-label="`Copy ${step.command}`" :title="copied === step.command ? 'Copied' : 'Copy'" @click="copy(step.command, $event)">
+                  <svg v-if="copied === step.command" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 5 5L20 7" /></svg>
+                  <svg v-else viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
                 </button>
               </div>
             </div>
@@ -71,7 +80,7 @@ const choices = [
         <a class="cta" :href="withBase('/migration/from-jest')">Migrate from Jest<span class="arrow" aria-hidden="true">→</span></a>
       </article>
 
-      <!-- New project. -->
+      <!-- New project: set up, then run. -->
       <article class="door">
         <header class="head">
           <span class="icon" aria-hidden="true">
@@ -82,13 +91,26 @@ const choices = [
           </span>
           <h3 class="title">New project</h3>
         </header>
-        <p class="promise">One command writes the config, for bare React Native or Expo.</p>
-        <div class="codeline">
-          <code>npx vitest-native init</code>
-          <button type="button" class="copy" aria-label="Copy npx vitest-native init" @click="copy('npx vitest-native init', $event)">
-            {{ copied === 'npx vitest-native init' ? 'Copied' : 'Copy' }}
-          </button>
-        </div>
+        <p class="promise">Set up a bare React Native or Expo app and run your first test.</p>
+        <ol class="steps">
+          <li v-for="(step, index) in newSteps" :key="step.label" class="step">
+            <span class="num" aria-hidden="true">{{ index + 1 }}</span>
+            <div class="step-body">
+              <span class="step-label">{{ step.label }} <span class="step-note">· {{ step.note }}</span></span>
+              <div class="codeline">
+                <code
+                  ><template v-for="(word, w) in step.command.split(' ')" :key="w"
+                    ><span class="word">{{ word }}</span>{{ w < step.command.split(' ').length - 1 ? ' ' : '' }}</template
+                  ></code
+                >
+                <button type="button" class="copy" :aria-label="`Copy ${step.command}`" :title="copied === step.command ? 'Copied' : 'Copy'" @click="copy(step.command, $event)">
+                  <svg v-if="copied === step.command" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 5 5L20 7" /></svg>
+                  <svg v-else viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
+                </button>
+              </div>
+            </div>
+          </li>
+        </ol>
         <a class="cta" :href="withBase('/guide/install')">Start a project<span class="arrow" aria-hidden="true">→</span></a>
       </article>
 
@@ -110,6 +132,7 @@ const choices = [
             <dd><code>{{ choice.engine }}</code></dd>
           </div>
         </dl>
+        <p class="aside">Either way, the same tests and the same Testing Library API.</p>
         <a class="cta" :href="withBase('/guide/engines#testing-a-library')">Choose an engine<span class="arrow" aria-hidden="true">→</span></a>
       </article>
     </div>
@@ -129,19 +152,11 @@ const choices = [
 }
 .doors {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
   align-items: stretch;
 }
 @media (max-width: 960px) {
-  .doors {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  }
-  .door-jest {
-    grid-column: 1 / -1;
-  }
-}
-@media (max-width: 640px) {
   .doors {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -206,16 +221,6 @@ const choices = [
   line-height: 1.3;
   color: var(--vp-c-text-1);
 }
-.tag {
-  margin-left: auto;
-  font-size: 12px;
-  font-weight: 500;
-  padding: 2px 9px;
-  border: 1px solid var(--vp-c-divider);
-  border-radius: 999px;
-  color: var(--vp-c-text-2);
-  white-space: nowrap;
-}
 .promise {
   margin: 0;
   font-size: 14px;
@@ -248,25 +253,32 @@ const choices = [
   min-width: 0;
   font-family: var(--vp-font-family-mono);
   font-size: 12.5px;
+  line-height: 1.6;
   color: var(--vp-c-text-1);
-  white-space: nowrap;
-  overflow-x: auto;
+  /* A long command wraps between words, never inside one, rather than scrolling. */
+  white-space: normal;
 }
-@media (max-width: 640px) {
-  /* On a phone a long command wraps between words rather than scrolling out of view. */
-  .codeline code {
-    white-space: normal;
-    overflow-x: visible;
-  }
+.word {
+  white-space: nowrap;
 }
 .copy {
   flex: none;
-  font-size: 11.5px;
-  font-weight: 500;
-  padding: 2px 8px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
   border-radius: 6px;
   color: var(--vp-c-text-2);
   border: 1px solid transparent;
+}
+.copy svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .copy:hover {
   color: var(--vp-c-text-1);
@@ -359,6 +371,13 @@ const choices = [
   font-size: 12.5px;
   color: var(--vp-c-text-1);
   white-space: nowrap;
+}
+
+.aside {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--vp-c-text-2);
 }
 
 /* The link: one baseline row at the foot of every card. */
