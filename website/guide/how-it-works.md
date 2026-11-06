@@ -1,6 +1,6 @@
 # How It Works
 
-Everything in a test runs as it ships down to React Native's native side, which is the only part mocked. Switch views to compare it with Jest's React Native preset and with the mock engine:
+Under the native engine, React Native runs as it ships down to its native side, which is mocked, along with libraries' native code. Here it is beside Jest's React Native preset and the mock engine:
 
 <BoundaryDiagram />
 

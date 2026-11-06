@@ -5,7 +5,7 @@ titleTemplate: false
 hero:
   name: A Vitest plugin for React Native and Expo
   text: Test React Native as it ships.
-  tagline: Your components run React Native's real JavaScript, and only the native side is mocked.
+  tagline: Your components run React Native's real JavaScript, and only its native side is mocked.
   actions:
     - theme: brand
       text: Get started

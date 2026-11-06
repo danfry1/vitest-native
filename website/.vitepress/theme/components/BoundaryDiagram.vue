@@ -18,11 +18,6 @@ const columns = [
 
 const rows: { name: string; examples: string; cells: Cell[] }[] = [
   {
-    name: 'Your test',
-    examples: 'Testing Library',
-    cells: [{ state: 'real' }, { state: 'real' }, { state: 'real' }],
-  },
-  {
     name: 'Your components',
     examples: 'the code you ship',
     cells: [{ state: 'real' }, { state: 'real' }, { state: 'real' }],
@@ -38,6 +33,11 @@ const rows: { name: string; examples: string; cells: Cell[] }[] = [
     cells: [{ state: 'real', mark: '3' }, { state: 'real' }, { state: 'reimplemented' }],
   },
   {
+    name: 'Libraries with native code',
+    examples: 'Reanimated, Gesture Handler',
+    cells: [{ state: 'mocked', mark: '4' }, { state: 'mocked', mark: '4' }, { state: 'mocked', mark: '4' }],
+  },
+  {
     name: 'Native side',
     examples: 'native modules, host components',
     cells: [{ state: 'mocked' }, { state: 'mocked' }, { state: 'reimplemented' }],
@@ -45,9 +45,10 @@ const rows: { name: string; examples: string; cells: Cell[] }[] = [
 ]
 
 const notes = [
-  { mark: '1', text: 'View, Text, ScrollView, TextInput, Image and Modal render as flat stand-ins named after the component.' },
+  { mark: '1', text: 'View, Text, ScrollView, TextInput, Image, Modal and a few others render as flat stand-ins named after the component.' },
   { mark: '2', text: 'Except TextInput, a passthrough as in Jest’s preset, so onChangeText fires once per keystroke.' },
-  { mark: '3', text: 'Except useColorScheme, Vibration, Linking, AppState and Clipboard, which are mocked.' },
+  { mark: '3', text: 'Except a few APIs, such as useColorScheme, Vibration, Linking, AppState and Clipboard, which are mocked.' },
+  { mark: '4', text: 'Each runs as its own Jest mock or setup, or as a preset. Under Jest you add these yourself; vitest-native applies them to the libraries it finds installed.' },
 ]
 
 const LABEL: Record<State, string> = {
@@ -66,8 +67,14 @@ const boundaryRow = columns.map((_, c) => rows.findIndex((row) => row.cells[c].s
     <div class="grid" role="table" aria-label="What runs, by setup">
       <div class="row head" role="row">
         <span class="corner" role="columnheader"><span class="sr-only">Layer</span></span>
-        <span v-for="col in columns" :key="col.id" :class="['col-head', col.id]" role="columnheader"
-          ><span class="long">{{ col.name }}</span><span class="short" aria-hidden="true">{{ col.short }}</span></span
+        <span
+          v-for="col in columns"
+          :key="col.id"
+          :class="['col-head', col.id]"
+          role="columnheader"
+          :aria-label="col.name"
+          ><span class="long" aria-hidden="true">{{ col.name }}</span
+          ><span class="short" aria-hidden="true">{{ col.short }}</span></span
         >
       </div>
 
@@ -82,7 +89,13 @@ const boundaryRow = columns.map((_, c) => rows.findIndex((row) => row.cells[c].s
           :class="['cell', cell.state, { 'below-line': boundaryRow[c] === r }]"
           role="cell"
         >
-          <span class="cell-label">{{ LABEL[cell.state] }}<sup v-if="cell.mark">{{ cell.mark }}</sup></span>
+          <span v-if="boundaryRow[c] === r" class="sr-only">Mock boundary above. </span>
+          <span class="cell-label"
+            >{{ LABEL[cell.state]
+            }}<a v-if="cell.mark" class="mark" :href="`#boundary-note-${cell.mark}`" :aria-label="`note ${cell.mark}`"
+              ><sup>{{ cell.mark }}</sup></a
+            ></span
+          >
         </span>
       </div>
 
@@ -105,13 +118,13 @@ const boundaryRow = columns.map((_, c) => rows.findIndex((row) => row.cells[c].s
         <li><span class="swatch line" aria-hidden="true"></span>mock boundary</li>
       </ul>
       <ol class="notes">
-        <li v-for="note in notes" :key="note.mark"><sup>{{ note.mark }}</sup> {{ note.text }}</li>
+        <li v-for="note in notes" :id="`boundary-note-${note.mark}`" :key="note.mark"><sup>{{ note.mark }}</sup> {{ note.text }}</li>
       </ol>
-      <p id="boundary-caption" class="caption">
-        Each column is one way to run the same test. vitest-native's native engine draws the line lowest:
-        only the native side is mocked.
+      <figcaption id="boundary-caption" class="caption">
+        Each column is one way to run the same test. For React Native itself, the native engine draws the
+        line lowest: only its native side is mocked.
         <a :href="withBase('/guide/comparison#where-the-mock-boundary-sits')">The details</a>
-      </p>
+      </figcaption>
     </div>
   </figure>
 </template>
@@ -212,6 +225,17 @@ const boundaryRow = columns.map((_, c) => rows.findIndex((row) => row.cells[c].s
 sup {
   font-size: 9.5px;
   margin-left: 1px;
+}
+.mark {
+  color: inherit;
+  text-decoration: none;
+  position: relative;
+  z-index: 1;
+}
+.mark:focus-visible {
+  outline: 2px solid var(--vp-c-brand-1);
+  outline-offset: 1px;
+  border-radius: 3px;
 }
 
 /* The boundary: a dashed rule above the first layer that is not the real thing. */
@@ -338,7 +362,11 @@ sup {
     padding: 6px 2px 0;
   }
   .corner {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
   }
   .cell-label {
     font-size: 10.5px;
