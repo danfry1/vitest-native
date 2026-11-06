@@ -89,6 +89,23 @@ describe("toHaveAnimatedProps", () => {
   });
 });
 
+// Reanimated's real AnimatedComponent adds these under Jest, and projects strip them with
+// a snapshot serializer; migrate reports such a serializer as deletable (cli/superseded.ts).
+it("the reanimated preset's components add none of Reanimated's Jest-only props", async () => {
+  const AnimatedView = rea.createAnimatedComponent(View);
+  function Box() {
+    const opacity = rea.useSharedValue(1);
+    const style = rea.useAnimatedStyle(() => ({ opacity: opacity.value }));
+    const animatedProps = rea.useAnimatedProps(() => ({ accessibilityValue: 1 }));
+    return <AnimatedView testID="animated" style={style} animatedProps={animatedProps} />;
+  }
+  await render(<Box />);
+  const props = screen.getByTestId("animated").props;
+  for (const prop of ["jestAnimatedProps", "jestAnimatedStyle", "jestInlineStyle"]) {
+    expect(props).not.toHaveProperty(prop);
+  }
+});
+
 describe("non-element receivers", () => {
   // These THROW rather than failing softly. A `{ pass: false }` result is inverted by
   // `.not`, so `expect(null).not.toHaveAnimatedStyle({ opacity: 1 })` used to pass —

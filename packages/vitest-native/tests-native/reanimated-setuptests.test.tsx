@@ -11,8 +11,7 @@ import { render, screen } from "@testing-library/react-native";
 import Animated, * as Reanimated from "react-native-reanimated";
 import { describe, expect, it } from "vitest";
 
-const setUpTests = (Reanimated as unknown as { setUpTests: (config?: object) => void })
-  .setUpTests;
+const setUpTests = (Reanimated as unknown as { setUpTests: (config?: object) => void }).setUpTests;
 
 function Box() {
   const opacity = Reanimated.useSharedValue(0.5);
@@ -34,6 +33,16 @@ describe("Reanimated's setUpTests() under its own mock", () => {
     expect(screen.getByTestId("box")).toHaveAnimatedProps({ testID: "box" });
     setUpTests({ fps: 120 });
     expect(screen.getByTestId("box")).toHaveAnimatedStyle({ opacity: 0.5, width: 10 });
+  });
+
+  // Reanimated's real AnimatedComponent adds these under Jest, and projects strip them
+  // with a snapshot serializer; migrate reports such a serializer as deletable.
+  it("renders none of Reanimated's Jest-only props", async () => {
+    await render(<Box />);
+    const props = screen.getByTestId("box").props;
+    for (const prop of ["jestAnimatedProps", "jestAnimatedStyle", "jestInlineStyle"]) {
+      expect(props).not.toHaveProperty(prop);
+    }
   });
 
   it("leaves the global expect as it was", () => {

@@ -506,6 +506,140 @@ describe("migrate", () => {
     expect(covered).not.toContain("react-native-svg");
   });
 
+  describe("Reanimated settings vitest-native covers", () => {
+    // react-native-paper's files, verbatim.
+    const SERIALIZER = `const reanimatedTestProps = new Set([
+  'jestAnimatedProps',
+  'jestAnimatedStyle',
+  'jestInlineStyle',
+]);
+
+module.exports = {
+  test(value) {
+    return (
+      value !== null &&
+      typeof value === 'object' &&
+      value.props !== null &&
+      typeof value.props === 'object' &&
+      Object.keys(value.props).some((prop) => reanimatedTestProps.has(prop))
+    );
+  },
+  print(value, serialize) {
+    return serialize({
+      ...value,
+      props: Object.fromEntries(
+        Object.entries(value.props).filter(
+          ([prop]) => !reanimatedTestProps.has(prop)
+        )
+      ),
+    });
+  },
+};
+`;
+    const SETUP = `import { setUpTests } from 'react-native-reanimated';\n\nsetUpTests();\n`;
+    const paperLike = (files: Record<string, string | object> = {}, installed = true) =>
+      analyzeJestConfig(
+        fixture({
+          "package.json": { name: "x" },
+          "jest.config.json": {
+            preset: "react-native",
+            resolver: "react-native-reanimated/jest/resolver",
+            snapshotSerializers: ["<rootDir>/jest/reanimatedSnapshotSerializer.js"],
+            setupFilesAfterEnv: ["<rootDir>/jest/jestSetupAfterEnv.js", "./jest.setup.js"],
+          },
+          "jest/reanimatedSnapshotSerializer.js": SERIALIZER,
+          "jest/jestSetupAfterEnv.js": SETUP,
+          "jest.setup.js": "",
+          ...(installed
+            ? {
+                "node_modules/react-native-reanimated/package.json": {
+                  name: "react-native-reanimated",
+                  version: "4.7.1",
+                },
+              }
+            : {}),
+          ...files,
+        }),
+      );
+
+    it("lists the resolver, serializer and setUpTests() file as covered and leaves them out", () => {
+      const report = paperLike();
+      const covered = report.presetCovered.join("\n");
+      expect(covered).toContain("resolver: 'react-native-reanimated/jest/resolver' — ");
+      expect(covered).toContain(
+        "snapshotSerializers '<rootDir>/jest/reanimatedSnapshotSerializer.js' — strips the jest* props",
+      );
+      expect(covered).toContain(
+        "setupFilesAfterEnv: '<rootDir>/jest/jestSetupAfterEnv.js' — only calls Reanimated's setUpTests()",
+      );
+      const flagged = report.attention.join("\n");
+      expect(flagged).not.toContain("resolver");
+      expect(flagged).not.toContain("snapshotSerializers");
+      expect(report.suggestedConfig).not.toContain("jestSetupAfterEnv");
+      expect(report.suggestedConfig).toContain(`"./jest.setup.js"`);
+    });
+
+    it("keeps files that do more, and everything when Reanimated is not installed", () => {
+      const more = paperLike({
+        "jest/reanimatedSnapshotSerializer.js": SERIALIZER.replace(
+          "'jestInlineStyle',",
+          "'jestInlineStyle',\n  'testID',",
+        ),
+        "jest/jestSetupAfterEnv.js": `${SETUP}jest.mock('./src/api');\n`,
+      });
+      expect(more.presetCovered.join("\n")).not.toContain("snapshotSerializers");
+      expect(more.presetCovered.join("\n")).not.toContain("setUpTests");
+      expect(more.attention.join("\n")).toContain(
+        "snapshotSerializers '<rootDir>/jest/reanimatedSnapshotSerializer.js' — Vitest uses",
+      );
+      expect(more.suggestedConfig).toContain("jestSetupAfterEnv");
+      // A `/*` inside a line comment must not hide code up to a later `*/`.
+      const hidden = paperLike({
+        "jest/jestSetupAfterEnv.js": `${SETUP}// Mocks for everything under src/*\njest.mock('./api');\n/** end of setup */\n`,
+        "jest/reanimatedSnapshotSerializer.js": SERIALIZER.replace(
+          "'jestInlineStyle',",
+          "'jestInlineStyle', // src/*\n  'testID', /** also */",
+        ),
+      });
+      expect(hidden.suggestedConfig).toContain("jestSetupAfterEnv");
+      expect(hidden.presetCovered.join("\n")).not.toContain("snapshotSerializers");
+      // A frame-time argument is the project's setting.
+      const withArg = paperLike({
+        "jest/jestSetupAfterEnv.js": SETUP.replace("setUpTests();", "setUpTests({ fps: 30 });"),
+      });
+      expect(withArg.suggestedConfig).toContain("jestSetupAfterEnv");
+
+      const without = paperLike({}, false);
+      expect(without.presetCovered.join("\n")).not.toMatch(/resolver|setUpTests|strips/);
+      expect(without.attention.join("\n")).toContain("'resolver' — unrecognized Jest key");
+    });
+
+    it("recognises the other written forms", () => {
+      for (const setup of [
+        `require('react-native-reanimated').setUpTests();`,
+        `'use strict';\n// Reanimated's matchers\nconst { setUpTests } = require("react-native-reanimated");\nsetUpTests()`,
+      ]) {
+        const report = paperLike({ "jest/jestSetupAfterEnv.js": setup });
+        expect(report.suggestedConfig, setup).not.toContain("jestSetupAfterEnv");
+      }
+      const worklets = analyzeJestConfig(
+        fixture({
+          "package.json": { name: "x" },
+          "jest.config.json": {
+            resolver: "<rootDir>/node_modules/react-native-worklets/jest/resolver.js",
+          },
+          "node_modules/react-native-reanimated/package.json": {
+            name: "react-native-reanimated",
+            version: "4.7.1",
+          },
+        }),
+      );
+      expect(worklets.presetCovered.join("\n")).toContain(
+        "react-native-worklets's own Jest resolver",
+      );
+    });
+  });
+
   it("deletes a library's own test setup that a detected preset replaces", () => {
     // Unistyles documents `setupFiles: ['react-native-unistyles/mocks']` for Jest. Carried
     // across, its jest.mock() calls (under the jest-compat shim) replaced the preset:
