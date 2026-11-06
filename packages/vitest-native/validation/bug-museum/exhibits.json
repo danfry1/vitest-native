@@ -1827,6 +1827,41 @@
         "measuredOn": "0a95f6294f3e247e9875a51afcb89ac6a87a7c90",
         "proof": "NOT PROVEN"
       }
+    },
+    {
+      "id": "env-jest-replace-property",
+      "class": "env-contract",
+      "title": "jest.replaceProperty() throws under jest-compat",
+      "source": "react-native-paper trial (#575)",
+      "fixedBy": "#588 (merged)",
+      "bugSignature": "^replace-property\\.test\\.ts: AssertionError: jest\\.replaceProperty\\(Platform, 'OS', 'android'\\): expected 'throws: jest\\.replaceProperty\\(\\) has no Vitest equivalent' to be 'android'",
+      "preFixRef": "23275f88^"
+    },
+    {
+      "id": "env-jest-require-globals",
+      "class": "env-contract",
+      "title": "require('@jest/globals') reaches the real package",
+      "source": "react-native-paper trial (#577)",
+      "fixedBy": "#587",
+      "bugSignature": "^require-globals\\.test\\.js: AssertionError: require\\('@jest/globals'\\): expected 'throws: Cannot find module '@jest/globals'"
+    },
+    {
+      "id": "env-host-ref-prop",
+      "class": "env-contract",
+      "title": "Host nodes carry a ref prop, which snapshots print",
+      "source": "react-native-paper trial (#578)",
+      "fixedBy": "#585 (merged)",
+      "bugSignature": "^host-ref\\.test\\.tsx: AssertionError: hosts that carry a ref prop: expected \\[ 'RCTText'.*\\] to deeply equal \\[\\]",
+      "preFixRef": "e5173880^"
+    },
+    {
+      "id": "res-project-js-jsx",
+      "class": "transform/resolution",
+      "title": "JSX in a project's own .js files does not compile",
+      "source": "react-native-paper and Rocket.Chat trials (#561)",
+      "fixedBy": "#564 (merged)",
+      "bugSignature": "^jsx-js\\.test\\.tsx: AssertionError: a project \\.js file with JSX: expected 'throws: ",
+      "preFixRef": "499f8886^"
     }
   ]
 }
