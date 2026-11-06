@@ -125,8 +125,7 @@ export function main(
         const target = path.join(root, init.wrote as string);
         fs.writeFileSync(target, report.suggestedConfig);
         log(`✓ wrote ${init.wrote} from the analysis above. Next: ${migrationNextStep(report)}`);
-        const replaced = init.lines.find((l) => l.trim().startsWith("(replaced"));
-        if (replaced) log(replaced);
+        for (const line of init.notices ?? []) log(line);
       }
       return report.ok ? 0 : 1;
     }

@@ -26,12 +26,13 @@ import { HOT_RUNTIME_NOTE } from "./init.js";
 import {
   booleanFlag,
   jestMajor,
-  loadJestPreset,
   parseJestScript,
+  projectDirectories,
   translateDiscovery,
   type JestDiscoveryOptions,
   type JestScriptFlags,
 } from "./jest-discovery.js";
+import { resolveJestPreset, withPresetSettings } from "./jest-preset.js";
 import { libraryResolver, onlyCallsSetUpTests, stripsOnlyReanimatedProps } from "./superseded.js";
 import {
   babelRecipe,
@@ -216,6 +217,24 @@ function exactMapperKey(pattern: string): string | null {
   return expansions?.length === 1 && !expansions[0].includes(STAR) ? expansions[0] : null;
 }
 
+/**
+ * A `^prefix/(.*)$` → `<rootDir>/dir/$1` moduleNameMapper, which is a plain prefix
+ * alias: the literal prefix (escapes read as literals, as exactMapperKey reads them)
+ * and the project-relative target directory, or null.
+ */
+function prefixMapper(
+  pattern: string,
+  target: unknown,
+): { key: string; dir: string; rest: string } | null {
+  const m = /^\^(.+)\/\((\.\*|\.\+)\)\$?$/.exec(pattern);
+  if (!m || typeof target !== "string") return null;
+  const expansions = tryExpand(m[1], true);
+  if (expansions?.length !== 1 || expansions[0].includes(STAR)) return null;
+  const t = /^(<rootDir>|\.)(\/.*)?\/\$1$/.exec(target);
+  if (!t || target.indexOf("$") !== target.length - 2) return null;
+  return { key: expansions[0], dir: `.${t[2] ?? ""}`, rest: m[2] };
+}
+
 /** `pkg` and `/sub` of a bare specifier (scope-aware). */
 function splitSpecifier(specifier: string): { pkg: string; subpath: string } {
   const parts = specifier.split("/");
@@ -273,7 +292,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
   const explicitConfig = scriptFlags?.flags.get("config") ?? scriptFlags?.flags.get("c");
   const {
     source,
-    config,
+    config: projectConfig,
     error: configError,
   } = loadJestConfig(root, typeof explicitConfig === "string" ? explicitConfig : undefined);
   const automatic: string[] = [];
@@ -301,7 +320,18 @@ export function analyzeJestConfig(root: string): MigrationReport {
   let needsUrlImport = false;
   // Options for the reactNative() call, besides `transform`.
   const pluginOptions: string[] = [];
-  const jestPreset = typeof config?.preset === "string" ? config.preset : undefined;
+  // The preset's settings sit under the project's, as Jest merges them; a local preset
+  // that spreads a known one is translated as that preset (jest-preset.ts).
+  const resolvedPreset =
+    typeof projectConfig?.preset === "string"
+      ? resolveJestPreset(root, projectConfig.preset)
+      : undefined;
+  const presetKeys = Object.keys(resolvedPreset?.own ?? {});
+  const config: JestConfig | null =
+    projectConfig && resolvedPreset && presetKeys.length
+      ? withPresetSettings(projectConfig, resolvedPreset.own)
+      : projectConfig;
+  const jestPreset = resolvedPreset?.name;
   const fromJestExpo = /^jest-expo(\/(ios|android|universal))?$/.test(jestPreset ?? "");
 
   // jest-expo mocks Expo's native modules but not React Navigation, so its suites
@@ -353,9 +383,11 @@ export function analyzeJestConfig(root: string): MigrationReport {
     };
 
     // preset
-    const preset = take<string>("preset");
+    take("preset");
+    const preset = resolvedPreset?.name;
+    const label = resolvedPreset?.label;
     if (preset === "react-native" || preset === "@react-native/jest-preset") {
-      automatic.push(`preset: '${preset}' → replaced by the reactNative() plugin.`);
+      automatic.push(`preset: ${label} → replaced by the reactNative() plugin.`);
     } else if (
       preset === "jest-expo" ||
       preset === "jest-expo/ios" ||
@@ -364,37 +396,43 @@ export function analyzeJestConfig(root: string): MigrationReport {
       const android = preset === "jest-expo/android";
       if (android) pluginOptions.push(`platform: 'android'`);
       automatic.push(
-        `preset: '${preset}' → replaced by the reactNative() plugin` +
+        `preset: ${label} → replaced by the reactNative() plugin` +
           `${android ? " with platform: 'android'" : ""}.`,
       );
-      attention.push(`preset: '${preset}' — ${expoPresetCoverage()}.`);
+      attention.push(`preset: ${label} — ${expoPresetCoverage()}.`);
     } else if (preset === "jest-expo/universal") {
       attention.push(
-        `preset: 'jest-expo/universal' runs one Jest project per platform. Define a Vitest project for each ` +
+        `preset: ${label} runs one Jest project per platform. Define a Vitest project for each ` +
           `native platform (reactNative({ platform: 'ios' }) and reactNative({ platform: 'android' })); ` +
           `its web and node projects are not React Native renders and stay outside vitest-native.`,
       );
     } else if (preset === "jest-expo/web" || preset === "jest-expo/node") {
       attention.push(
-        `preset: '${preset}' targets ${preset.slice("jest-expo/".length)}, not a React Native render; ` +
+        `preset: ${label} targets ${preset.slice("jest-expo/".length)}, not a React Native render; ` +
           `run these suites without vitest-native.`,
       );
+    } else if (preset && resolvedPreset?.loaded) {
+      attention.push(
+        `preset: ${label} — not a preset vitest-native translates by name; its settings are translated ` +
+          `below as Jest applies them, under this config's own. Review what else it did.`,
+      );
     } else if (preset) {
-      attention.push(`preset: '${preset}' — unknown preset; review what it configured.`);
+      attention.push(`preset: ${label} — unknown preset; review what it configured.`);
+    }
+    if (presetKeys.length) {
+      automatic.push(
+        `preset: ${label} also sets ${list(presetKeys)} → each is handled below like this config's own ` +
+          `keys, merged with them as Jest merges a preset's.`,
+      );
     }
 
     // The preset's own discovery settings (testMatch & co.) sit under the user's.
-    let presetConfig: JestDiscoveryOptions | null = null;
-    if (preset) {
-      const loaded = loadJestPreset(root, preset);
-      if ("config" in loaded) {
-        presetConfig = loaded.config;
-      } else {
-        attention.push(
-          `preset: '${preset}' could not be loaded (${loaded.error}), so its testMatch/testPathIgnorePatterns ` +
-            `could not be read; test.include falls back to Jest's defaults — compare with the preset.`,
-        );
-      }
+    const presetConfig: JestDiscoveryOptions | null = resolvedPreset?.loaded ?? null;
+    if (resolvedPreset && !resolvedPreset.loaded) {
+      attention.push(
+        `preset: ${label} could not be loaded (${resolvedPreset.loadError}), so its testMatch/testPathIgnorePatterns ` +
+          `could not be read; test.include falls back to Jest's defaults — compare with the preset.`,
+      );
     }
 
     // setup files
@@ -463,6 +501,9 @@ export function analyzeJestConfig(root: string): MigrationReport {
         // itself (DEFAULT_ASSET_EXTS, the list plugin.ts uses), and said per extension.
         const assetGroup = /\\\.\(\??:?([a-z0-9|]+)\)\$?$/i.exec(pattern);
         const literal = exactMapperKey(pattern);
+        // `@/`, `~/` and `src/` keep the string alias below: nothing imports them bare.
+        const prefix = assetGroup ? null : prefixMapper(pattern, target);
+        const plainPrefix = prefix && !["@", "~", "src"].includes(prefix.key) ? prefix : null;
         if (assetGroup) {
           const exts = assetGroup[1].toLowerCase().split("|");
           const missing = exts.filter((e) => !DEFAULT_ASSET_EXTS.includes(e));
@@ -477,6 +518,18 @@ export function analyzeJestConfig(root: string): MigrationReport {
                 `the extensions the plugin handles by default → reactNative({ assetExts: ${JSON.stringify(missing)} }).`,
             );
           }
+        } else if (plainPrefix) {
+          // A RegExp `find` anchored as Jest's pattern is: a string key would also take
+          // the bare specifier (`utils` for `^utils/(.*)$`), which Jest leaves to the
+          // package. The directory is absolute: Vite resolves a substituted alias
+          // relative to the importer.
+          const find = `${regexLiteral(plainPrefix.key).slice(0, -2)}\\/(${plainPrefix.rest})$/`;
+          regexAliases.push(
+            `{ find: ${find}, replacement: ${absolutePath(plainPrefix.dir)} + "/$1" }`,
+          );
+          automatic.push(
+            `moduleNameMapper '${pattern}' → resolve.alias { find: ${find} } (absolute path).`,
+          );
         } else if (/^\^?@\/|\^~\/|\^src\//.test(pattern)) {
           const aliasKey = pattern
             .replace(/[\^$]/g, "")
@@ -693,7 +746,14 @@ export function analyzeJestConfig(root: string): MigrationReport {
       const value = take<never>(key);
       if (value !== undefined) discoveryOptions[key] = value;
     }
-    const discovery = translateDiscovery(discoveryOptions, presetConfig, jestMajor(root));
+    let directories: string[] | undefined;
+    const discovery = translateDiscovery(
+      discoveryOptions,
+      presetConfig,
+      jestMajor(root),
+      // Walked only if a `$`-anchored ignore pattern needs it, once.
+      () => (directories ??= projectDirectories(root)),
+    );
     if (discovery.include) {
       testEntries.push(`include: [${discovery.include.map((g) => JSON.stringify(g)).join(", ")}]`);
     }
@@ -733,6 +793,8 @@ export function analyzeJestConfig(root: string): MigrationReport {
       "globals",
       "snapshotSerializers",
       "reporters",
+      "watchPathIgnorePatterns",
+      "workerIdleMemoryLimit",
     ]) {
       if (config[key] !== undefined) {
         handled.add(key);
@@ -767,6 +829,16 @@ export function analyzeJestConfig(root: string): MigrationReport {
                 `Vitest uses expect.addSnapshotSerializer; vitest-native ships one for RN trees.`,
             );
           }
+        } else if (key === "watchPathIgnorePatterns") {
+          dropped.push(
+            `${key} — affects only Jest's watch mode; Vitest's watch mode reruns by the module graph ` +
+              `(tune it with server.watch.ignored if needed); dropped.`,
+          );
+        } else if (key === "workerIdleMemoryLimit") {
+          dropped.push(
+            `${key} — Vitest recycles workers by memory only in its vm pools (test.vmMemoryLimit), ` +
+              `which vitest-native does not use; dropped. Watch memory on the first full run.`,
+          );
         } else {
           dropped.push(`${key} — no vitest-native equivalent needed; dropped.`);
         }
