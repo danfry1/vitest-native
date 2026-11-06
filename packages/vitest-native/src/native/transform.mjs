@@ -235,13 +235,33 @@ function babelJestCaller(ctx, platform) {
 }
 
 /**
+ * Whether `file` is under the project root, in either spelling of the root. On Windows,
+ * `ctx.root` (fs.realpathSync) keeps an 8.3 short name such as `RUNNER~1` that the
+ * path was given with, while a file can arrive by its long name (Vite's ids come from
+ * the native realpath), and drive letters and names compare without case.
+ */
+function insideRoot(ctx, file) {
+  if (ctx.rootPrefixes === undefined) {
+    let native = ctx.root;
+    try {
+      native = fs.realpathSync.native(ctx.root);
+    } catch {}
+    const fold = (p) => (process.platform === "win32" ? p.toLowerCase() : p);
+    ctx.foldPath = fold;
+    ctx.rootPrefixes = [...new Set([ctx.root, native])].map((root) => fold(root + path.sep));
+  }
+  const folded = ctx.foldPath(file);
+  return ctx.rootPrefixes.some((prefix) => folded.startsWith(prefix));
+}
+
+/**
  * The project's Babel options for `file`, or null when the React Native preset applies.
  * Called once per file version and platform: transformRN's in-memory cache answers
  * repeats. Measured on bluesky-social/social-app's Expo config: about 0.1 ms per file
  * (p95 0.3 ms), after a first call that loads the config's presets and plugins.
  */
 function projectBabelOptions(ctx, file, platform) {
-  if (!file.startsWith(ctx.root + path.sep) || NODE_MODULES.test(file)) return null;
+  if (NODE_MODULES.test(file) || !insideRoot(ctx, file)) return null;
   let partial;
   try {
     partial = callToolchain({
