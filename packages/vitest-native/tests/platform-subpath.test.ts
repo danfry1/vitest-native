@@ -26,17 +26,47 @@ describe("platformSubpathFile: a package's extensionless subpath, as Jest resolv
     const dir = pkg("react-native", files);
     const shim = `${dir}/Libraries/BackHandler.js`;
     expect(platformSubpathFile("react-native/Libraries/BackHandler", shim, "ios")).toBe(
-      path.normalize(`${dir}/Libraries/BackHandler.ios.js`),
+      `${dir}/Libraries/BackHandler.ios.js`,
     );
     expect(platformSubpathFile("react-native/Libraries/BackHandler", shim, "android")).toBe(
-      path.normalize(`${dir}/Libraries/BackHandler.android.js`),
+      `${dir}/Libraries/BackHandler.android.js`,
     );
+  });
+
+  it("answers in the spelling it was given: Vite's forward slashes, or Node's own", () => {
+    const dir = pkg("react-native", files);
+    // Vite's id spelling (resolveId's caller): forward slashes on every platform.
+    expect(
+      platformSubpathFile(
+        "react-native/Libraries/BackHandler",
+        `${dir}/Libraries/BackHandler.js`,
+        "ios",
+      ),
+    ).toBe(`${dir}/Libraries/BackHandler.ios.js`);
+    // Node's spelling (jest-compat's caller): the platform's separator, backslashes on Windows.
+    const native = dir.split("/").join(path.sep);
+    expect(
+      platformSubpathFile(
+        "react-native/Libraries/BackHandler",
+        path.join(native, "Libraries", "BackHandler.js"),
+        "ios",
+      ),
+    ).toBe(path.join(native, "Libraries", "BackHandler.ios.js"));
+    // Backslashes in, backslashes out, on any platform (the Windows spelling).
+    const back = (p: string) => p.replaceAll("/", "\\");
+    expect(
+      platformSubpathFile(
+        "react-native/Libraries/BackHandler",
+        back(`${dir}/Libraries/BackHandler.js`),
+        "ios",
+      ),
+    ).toBe(back(`${dir}/Libraries/BackHandler.ios.js`));
   });
 
   it("works for scoped packages and directory indexes", () => {
     const dir = pkg("@scope/lib", ["sub/index.js", "sub/index.ios.js"]);
     expect(platformSubpathFile("@scope/lib/sub", `${dir}/sub/index.js`, "ios")).toBe(
-      path.normalize(`${dir}/sub/index.ios.js`),
+      `${dir}/sub/index.ios.js`,
     );
   });
 
