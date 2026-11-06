@@ -100,7 +100,7 @@ vitest-native's module loader was given a step it does not know. Usually two cop
 
 ### `SOURCE_EVALUATED_TWICE` {#SOURCE_EVALUATED_TWICE}
 
-One file was evaluated by both Node and Vite in the same worker, so it exists twice, and module state written through one copy is not seen by the other. The message names the file, the module system that owns it, which side evaluated it first and second, the route that reached it, and the fix for that route. With [`ownership`](/guide/plugin-options#ownership) at its default, `'warn'`, it is reported once per worker; with `'error'` it fails the test file. A deliberate case can be exempted with `ownership.allow: [{ path, reason }]`.
+One file ran twice in the same worker: Vite loaded it for the test's imports, and Node loaded it through a `require()`. The two copies don't share state, so a store or cache written through one is not seen by the other. The message names the file, which side loaded it first, how the second load reached it, and the fix for that case. With [`ownership`](/guide/plugin-options#ownership) at its default, `'warn'`, it is a warning, printed once per worker. With `'error'` it fails the test file. To accept a file that runs twice on purpose, list it in `ownership.allow: [{ path, reason }]`. An installed package's TypeScript source that a test both requires and imports runs twice with no fix you can apply yet; that case is tracked in [#544](https://github.com/danfry1/vitest-native/issues/544).
 
 ## Helpers and jest-compat
 
