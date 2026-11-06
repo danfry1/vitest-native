@@ -1953,6 +1953,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // These are populated in configResolved once we know the project root.
   let resolved: ResolvedOptions;
   const presetModules = new Map<string, () => Record<string, any>>();
+  // Libraries that run with their own Jest setup under the native engine (config()).
+  let ownJestSupportPackages: readonly string[] = [];
   // Preset export names discovered by calling factories at config time.
   const presetExportNames = new Map<string, string[]>();
   let assetPattern: RegExp;
@@ -2251,6 +2253,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         if (nativeOwnership.decideFile(file).owner !== "node") return null;
         return { root: alignRoot, platform };
       },
+      // For jestMockTransform(): a package this plugin already stands in for, whose
+      // manual mock in a root __mocks__ it leaves alone. A preset shadows it, or the
+      // library runs with its own Jest setup.
+      coversPackage: (spec: string): boolean =>
+        presetModules.has(spec) || ownJestSupportPackages.includes(spec),
     },
 
     // This plugin is `enforce:"pre"` for resolution/transform semantics, but its
@@ -2531,6 +2538,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           // Jest support, so both module systems resolve them as Jest does, to `main`
           // (decision (d)): one file, the one their Jest setup and test utilities load.
           ownJestSupport = librarySetupFiles.map((request) => packageNameOf(request));
+          ownJestSupportPackages = ownJestSupport;
           const pending = pendingResolverInputs.get(directoryKey(resolvedRoot));
           if (pending && ownJestSupport.length > 0) pending.ownJestSupport = ownJestSupport;
         }

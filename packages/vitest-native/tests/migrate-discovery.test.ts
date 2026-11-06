@@ -844,8 +844,13 @@ describe("packages that test themselves (react-native-mmkv 3+)", () => {
     const report = analyzeJestConfig(mmkvApp("3.1.0"));
     const all = [...report.presetCovered, ...report.automatic, ...report.attention].join("\n");
     expect(all).not.toContain("mmkv preset");
-    expect(report.attention.join("\n")).toContain(
-      "__mocks__/react-native-mmkv — react-native-mmkv 3 runs its own test mode under Vitest",
+    // Jest applied the root mock; jestMockTransform() does too, and says the library's
+    // own test mode could replace it.
+    expect(report.automatic.join("\n")).toContain(
+      "__mocks__/react-native-mmkv → applied to react-native-mmkv in every test and setup file by jestMockTransform()",
+    );
+    expect(report.automatic.join("\n")).toContain(
+      "react-native-mmkv 3 also runs its own test mode under Vitest",
     );
     // With the preset inactive, the engine detects it like any RN package.
     expect(report.automatic.join("\n")).toContain(

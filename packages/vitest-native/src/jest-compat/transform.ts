@@ -1,7 +1,9 @@
 import type { Plugin } from "vite";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { MagicString } from "magic-string";
+import { findNodeModuleMocks, type RootMock } from "./root-mocks.js";
 
 // Hoistable jest mock methods (Vitest only hoists these on the vi/vitest object).
 const HOISTABLE = new Set(["mock", "unmock", "doMock", "doUnmock"]);
@@ -121,6 +123,11 @@ interface Ownership {
 interface Project {
   /** reactNative()'s policy under the native engine, else null. */
   ownership: () => Ownership | null;
+  /**
+   * Whether reactNative() already stands in for this package: a preset shadows it, or
+   * the library runs with its own Jest setup. False without reactNative().
+   */
+  covers: (spec: string) => boolean;
   /** Vitest's `server.deps.inline` and `server.deps.external`. */
   inline: unknown[];
   external: unknown[];
@@ -196,13 +203,45 @@ function isViteOwnedSource(
  *
  * Opt-in: add after `reactNative()`; pair with `jestCompatSetup` + `globals: true`.
  */
-export function jestMockTransform(): Plugin {
-  let project: Project = { ownership: () => null, inline: [], external: [] };
+export function jestMockTransform(options: JestMockTransformOptions = {}): Plugin {
+  let project: Project = {
+    ownership: () => null,
+    covers: () => false,
+    inline: [],
+    external: [],
+  };
+  let viteRoot = "";
+  let rootMocks: RootMock[] = [];
+  // The root mocks each test and setup file starts with, in Jest's form (see prelude).
+  let prelude: string | null = null;
+  const projects: TestFiles[] = [];
+  /** A test file or setup file of this run, which Jest's root mocks apply to. */
+  const isEntry = (file: string) =>
+    !file.startsWith(OWN_DIST) &&
+    projects.some((p) => p.config.setupFiles.includes(file) || p.matchesTestGlob(file));
   return {
     name: "vitest-native:jest-mock-hoist",
+    // Vitest's own plugin hook (not in Vite's Plugin type): one call per test project.
+    configureVitest({ project: testProject }: { project: unknown }) {
+      projects.push(testProject as unknown as TestFiles);
+    },
     configResolved(config) {
+      viteRoot = config.root;
+      rootMocks =
+        options.rootMocks === false || !config.root
+          ? []
+          : findNodeModuleMocks(
+              (options.roots ?? [config.root]).map((root) => path.resolve(config.root, root)),
+              config.root,
+            );
+      prelude = null;
       const native = config.plugins.find((plugin) => plugin.name === "vitest-native") as
-        | { api?: { nativeOwnership?: () => Ownership | null } }
+        | {
+            api?: {
+              nativeOwnership?: () => Ownership | null;
+              coversPackage?: (spec: string) => boolean;
+            };
+          }
         | undefined;
       const deps = (
         config as unknown as {
@@ -213,6 +252,7 @@ export function jestMockTransform(): Plugin {
         Array.isArray(value) ? value : value == null ? [] : [value];
       project = {
         ownership: () => native?.api?.nativeOwnership?.() ?? null,
+        covers: (spec) => native?.api?.coversPackage?.(spec) ?? false,
         inline: list(deps?.inline),
         external: list(deps?.external),
       };
@@ -225,46 +265,124 @@ export function jestMockTransform(): Plugin {
       if (id.includes("/node_modules/")) return null;
       const file = id.split("?")[0];
       if (!TRANSFORMABLE.test(file)) return null;
-      if (!HAS_JEST_MOCK.test(code)) return null;
+      // Jest's root mocks, as the `jest.mock()` calls this file starts with. Built when
+      // the first file is transformed: reactNative() decides its presets in its own
+      // configResolved, which Vite runs alongside this plugin's.
+      prelude ??= rootMockPrelude(rootMocks, viteRoot, project.covers);
+      const mocks = prelude && isEntry(file) ? prelude : "";
+      const ownCalls = HAS_JEST_MOCK.test(code);
+      if (!mocks && !ownCalls) return null;
 
-      let ast: any;
-      try {
-        ast = this.parse(code);
-      } catch {
-        return null; // let the normal pipeline surface the syntax error
-      }
-
-      // The factories' own `jest.requireActual` calls, which may move to Vite. Resolving
-      // them is asynchronous, so a file without any is transformed synchronously.
-      const candidates = new Map<any, { node: any; spec: string }[]>();
-      walk(ast, (node) => {
-        const factory = mockFactoryOf(node);
-        if (!factory || factory.generator) return;
-        const calls = ownRequireActualCalls(factory);
-        if (calls.length > 0) candidates.set(factory, calls);
-      });
-      if (candidates.size === 0) return rewrite(code, ast, new Map());
-
-      const specs = new Set([...candidates.values()].flat().map((call) => call.spec));
-      return Promise.all(
-        [...specs].map(async (spec) => {
-          try {
-            return [spec, isViteOwnedSource(await this.resolve(spec, id), project)] as const;
-          } catch {
-            return [spec, false] as const; // unresolvable: leave it to requireActual's error
-          }
-        }),
-      ).then((resolved) => {
-        const owned = new Set(resolved.filter(([, yes]) => yes).map(([spec]) => spec));
-        const toAsync = new Map<any, any[]>();
-        for (const [factory, calls] of candidates) {
-          const moved = calls.filter((call) => owned.has(call.spec)).map((call) => call.node);
-          if (moved.length > 0) toAsync.set(factory, moved);
-        }
-        return rewrite(code, ast, toAsync);
-      });
+      const head = mocks ? adapt(this, mocks, id, project) : null;
+      const body = ownCalls ? adapt(this, code, id, project) : null;
+      const join = (lead: Adapted | null, own: Adapted | null) => {
+        if (!lead?.changed && !own?.changed) return null;
+        const s = own?.s ?? new MagicString(code);
+        // Ahead of the file's own calls, so its jest.mock() or jest.unmock() of the same
+        // package comes later and wins, as a file's own call does under Jest.
+        if (lead?.changed) s.prepend(lead.s.toString());
+        if (lead?.usesSetup || own?.usesSetup) s.prepend(SETUP_ACCESSOR);
+        return { code: s.toString(), map: s.generateMap({ hires: true }) };
+      };
+      // Synchronous unless a factory's jest.requireActual has to be resolved.
+      return head instanceof Promise || body instanceof Promise
+        ? Promise.all([head, body]).then(([h, b]) => join(h, b))
+        : join(head, body);
     },
-  };
+  } as Plugin;
+}
+
+/** Options for {@link jestMockTransform}. */
+export interface JestMockTransformOptions {
+  /**
+   * Jest's `roots`: the directories whose top-level `__mocks__` folder holds manual
+   * mocks of node_modules packages, which apply to every test and setup file with no
+   * `jest.mock()` call, as under Jest. Relative to the Vite root. Default: the root.
+   */
+  roots?: string[];
+  /** `false` applies no root mocks automatically, unlike Jest. Default: `true`. */
+  rootMocks?: boolean;
+}
+
+/** The parts of Vitest's TestProject that say which files are tests and setup files. */
+interface TestFiles {
+  config: { setupFiles: string[] };
+  matchesTestGlob(moduleId: string): boolean;
+}
+
+/** This package's own build output, whose setup file is not a project setup file. */
+const OWN_DIST = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Jest's root mocks as the calls that make them: `jest.mock('<pkg>')` for a mock in the
+ * Vite root's own `__mocks__`, which Vitest's factory-less `vi.mock` finds there itself,
+ * and a factory loading the file for one in another root, which Vitest would not look
+ * in. A package reactNative() already stands in for is left to it (`migrate` says to
+ * delete that mock).
+ */
+function rootMockPrelude(
+  mocks: RootMock[],
+  viteRoot: string,
+  covers: (spec: string) => boolean,
+): string {
+  return mocks
+    .filter((mock) => !covers(mock.spec))
+    .map((mock) =>
+      path.resolve(mock.root) === path.resolve(viteRoot)
+        ? `jest.mock(${JSON.stringify(mock.spec)});`
+        : `jest.mock(${JSON.stringify(mock.spec)}, () => jest.requireActual(${JSON.stringify(mock.file)}));`,
+    )
+    .join("");
+}
+
+/** A file's jest.* calls, adapted (see rewrite). */
+interface Adapted {
+  s: MagicString;
+  changed: boolean;
+  usesSetup: boolean;
+}
+
+function adapt(
+  ctx: { parse(code: string): any; resolve(spec: string, importer: string): Promise<any> },
+  code: string,
+  id: string,
+  project: Project,
+): Adapted | null | Promise<Adapted | null> {
+  let ast: any;
+  try {
+    ast = ctx.parse(code);
+  } catch {
+    return null; // let the normal pipeline surface the syntax error
+  }
+
+  // The factories' own `jest.requireActual` calls, which may move to Vite.
+  const candidates = new Map<any, { node: any; spec: string }[]>();
+  walk(ast, (node) => {
+    const factory = mockFactoryOf(node);
+    if (!factory || factory.generator) return;
+    const calls = ownRequireActualCalls(factory);
+    if (calls.length > 0) candidates.set(factory, calls);
+  });
+  if (candidates.size === 0) return rewrite(code, ast, new Map());
+
+  const specs = new Set([...candidates.values()].flat().map((call) => call.spec));
+  return Promise.all(
+    [...specs].map(async (spec) => {
+      try {
+        return [spec, isViteOwnedSource(await ctx.resolve(spec, id), project)] as const;
+      } catch {
+        return [spec, false] as const; // unresolvable: leave it to requireActual's error
+      }
+    }),
+  ).then((resolved) => {
+    const owned = new Set(resolved.filter(([, yes]) => yes).map(([spec]) => spec));
+    const toAsync = new Map<any, any[]>();
+    for (const [factory, calls] of candidates) {
+      const moved = calls.filter((call) => owned.has(call.spec)).map((call) => call.node);
+      if (moved.length > 0) toAsync.set(factory, moved);
+    }
+    return rewrite(code, ast, toAsync);
+  });
 }
 
 /** The factory of a `jest.mock`/`jest.doMock` call with an inline function factory. */
@@ -286,7 +404,7 @@ function mockFactoryOf(node: any): any {
  * The transform itself. `toAsync` maps a factory to the `jest.requireActual` calls that
  * load through Vite instead (see "`jest.requireActual` of project source" above).
  */
-function rewrite(code: string, ast: any, toAsync: Map<any, any[]>) {
+function rewrite(code: string, ast: any, toAsync: Map<any, any[]>): Adapted {
   const s = new MagicString(code);
   let changed = false;
   // Statements at the top level, where a registration can be hoisted beside them.
@@ -382,7 +500,5 @@ function rewrite(code: string, ast: any, toAsync: Map<any, any[]>) {
     }
   });
 
-  if (!changed) return null;
-  if (usesSetup) s.prepend(SETUP_ACCESSOR);
-  return { code: s.toString(), map: s.generateMap({ hires: true }) };
+  return { s, changed, usesSetup };
 }

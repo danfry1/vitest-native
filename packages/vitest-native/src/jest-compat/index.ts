@@ -30,7 +30,7 @@
  * ```
  */
 
-export { jestMockTransform } from "./transform.js";
+export { jestMockTransform, type JestMockTransformOptions } from "./transform.js";
 
 /**
  * Setup-file specifier: gives the suite a `jest` global backed by Vitest's `vi`, with the

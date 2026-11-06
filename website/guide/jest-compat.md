@@ -40,7 +40,17 @@ export default defineConfig({
 | `new` on a `jest.fn(() => ({ ... }))` | returns the implementation's object, as in Jest — Vitest's own `vi.fn` requires a `function` or `class` implementation for `new`, and `jest.fn` does not |
 | `import { jest } from '@jest/globals'` | resolves to the `vi`-backed `jest` (aliased) |
 | top-level `jest.mock('m', factory)` | hoisted + applied, with Jest's factory interop |
+| `__mocks__/<package>` beside `node_modules` | applied with no `jest.mock()` call — see [Manual mocks of `node_modules` packages](#manual-mocks-of-node-modules-packages) |
 | `describe` / `it` / `expect` / `beforeEach` | same names, available as globals |
+
+## Manual mocks of `node_modules` packages
+
+Jest applies a file in the project root's `__mocks__` folder to the `node_modules` package of the same name, with no `jest.mock()` call: `__mocks__/moti.ts` replaces `moti`, `__mocks__/@scope/pkg.js` replaces `@scope/pkg`. `jestMockTransform()` does the same. Every test file and setup file starts with a `jest.mock('<package>')` for each such file, so a file's own `jest.mock` or `jest.unmock` of the package still wins.
+
+- Jest's `roots` decide which `__mocks__` folders count. Pass them as `jestMockTransform({ roots: ['src'] })`, relative to the Vite root; the default is the root. `migrate` carries them over.
+- A mock of a Node core module (`fs`, `path`) still needs an explicit `jest.mock()`, as in Jest.
+- A package that `reactNative()` already stands in for keeps that: a preset shadows it, or the library runs with its own Jest setup. `migrate` says to delete those mocks.
+- `jestMockTransform({ rootMocks: false })` turns this off.
 
 ## Fake timers
 

@@ -465,6 +465,55 @@ describe("migrate", () => {
     expect(covered).not.toContain("react-native-svg");
   });
 
+  it("lists each root mock of a node_modules package that jestMockTransform() applies", () => {
+    // obytes' shape: __mocks__/moti.ts and expo-localization.ts, which Jest applies with
+    // no jest.mock() call. A builtin and an uninstalled package are not node_modules mocks.
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": { preset: "react-native" },
+      "node_modules/moti/package.json": { name: "moti", version: "0.30.0" },
+      "node_modules/expo-localization/package.json": {
+        name: "expo-localization",
+        version: "17.0.0",
+      },
+      "node_modules/react-native-mmkv/package.json": {
+        name: "react-native-mmkv",
+        version: "3.2.0",
+      },
+      "__mocks__/moti.ts": "export {};",
+      "__mocks__/expo-localization.ts": "export {};",
+      "__mocks__/react-native-mmkv.ts": "export {};",
+      "__mocks__/fs.js": "module.exports = {};",
+      "__mocks__/not-installed.js": "module.exports = {};",
+    });
+    const report = analyzeJestConfig(root);
+    const automatic = report.automatic.join("\n");
+    for (const name of ["moti", "expo-localization"]) {
+      expect(automatic).toContain(
+        `__mocks__/${name} → applied to ${name} in every test and setup file by jestMockTransform(), ` +
+          `as Jest applies it, with no jest.mock() call.`,
+      );
+    }
+    expect(automatic).toContain(
+      "react-native-mmkv 3 also runs its own test mode under Vitest, which can stand in for this mock.",
+    );
+    expect(automatic).not.toContain("__mocks__/fs");
+    expect(automatic).not.toContain("not-installed");
+    expect(report.suggestedConfig).toContain("jestMockTransform()]");
+  });
+
+  it("passes Jest's roots to jestMockTransform() for root mocks outside the project root", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": { preset: "react-native", roots: ["<rootDir>/src", "<rootDir>/"] },
+      "node_modules/moti/package.json": { name: "moti", version: "0.30.0" },
+      "src/__mocks__/moti.ts": "export {};",
+    });
+    const report = analyzeJestConfig(root);
+    expect(report.automatic.join("\n")).toContain("src/__mocks__/moti → applied to moti");
+    expect(report.suggestedConfig).toContain(`jestMockTransform({ roots: ["src", "."] })`);
+  });
+
   it("deletes a library's own test setup that a detected preset replaces", () => {
     // Unistyles documents `setupFiles: ['react-native-unistyles/mocks']` for Jest. Carried
     // across, its jest.mock() calls (under the jest-compat shim) replaced the preset:
