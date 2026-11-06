@@ -1,5 +1,9 @@
 # How It Works
 
+Under the native engine, React Native runs as it ships down to its native side, which is mocked, along with libraries' native code. Here it is beside Jest's React Native preset and the mock engine:
+
+<BoundaryDiagram />
+
 The `reactNative()` plugin does three things automatically, so you don't write any setup yourself.
 
 ## 1. Module resolution
