@@ -145,24 +145,23 @@ export function testBudget(record) {
 /** The latest record per test file, from the workers' files in `dir` (hang-watch-setup.mjs). */
 export function readTestRecords(dir) {
   const byFile = new Map();
-  if (!dir) return byFile;
-  let entries = [];
-  try {
-    entries = fs.readdirSync(dir);
-  } catch {
-    return byFile; // no worker has recorded a test yet
-  }
-  for (const entry of entries) {
+  // Created by the main process before any worker starts (plugin.ts, watchForHangs).
+  if (!dir || !fs.existsSync(dir)) return byFile;
+  /** Records caught mid-write: the next check reads them whole. */
+  const unreadable = [];
+  for (const entry of fs.readdirSync(dir)) {
     let record;
     try {
       record = JSON.parse(fs.readFileSync(path.join(dir, entry), "utf8"));
-    } catch {
-      continue; // mid-write, or removed: the next check reads it
+    } catch (error) {
+      unreadable.push({ entry, error });
+      continue;
     }
     if (!record?.file) continue;
     const seen = byFile.get(record.file);
     if (!seen || seen.at < record.at) byFile.set(record.file, record);
   }
+  byFile.unreadable = unreadable;
   return byFile;
 }
 
@@ -332,7 +331,9 @@ export class HangWatch {
     const closed = this.vitest?.close?.();
     if (closed) {
       await Promise.race([
-        closed.catch(() => {}),
+        closed.catch((error) =>
+          this.write(`[vitest-native] closing Vitest after the hang failed: ${error}\n`),
+        ),
         new Promise((r) => setTimeout(r, this.graceMs).unref?.()),
       ]);
     }

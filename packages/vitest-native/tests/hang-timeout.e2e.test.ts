@@ -114,7 +114,7 @@ it("lets a test run its own longer timeout", async () => {
 it("leaves retried timeouts as ordinary test failures", async () => {
   // Each attempt times out at 0.8 s; four attempts take longer than the 1 s limit.
   const root = project("hangTimeout: 1000", {
-    "retry.check.js": `test("never settles", () => new Promise(() => {}), { timeout: 800, retry: 3 });\n`,
+    "retry.check.js": `test("never settles", { timeout: 800, retry: 3 }, () => new Promise(() => {}));\n`,
   });
   const { code, output } = await vitest(root);
   expect(code, output).toBe(1);

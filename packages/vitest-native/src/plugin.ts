@@ -3887,7 +3887,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       projectConfig?.setupFiles &&
       !projectConfig.setupFiles.includes(HANG_SETUP)
     ) {
-      process.env.VITEST_NATIVE_HANG_DIR = watch.recordsDir;
+      // Through Vitest's provide/inject: worker settings never travel as environment.
+      const project = context.project as { provide?: (key: string, value: unknown) => void };
+      project.provide?.("vitestNativeHangWatch", {
+        dir: watch.recordsDir,
+        hookTimeout: projectConfig.hookTimeout ?? 10_000,
+      });
       projectConfig.setupFiles.unshift(HANG_SETUP);
     }
   }

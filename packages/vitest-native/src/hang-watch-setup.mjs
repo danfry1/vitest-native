@@ -10,15 +10,15 @@
 // or `{ timeout }` option, or `vi.setConfig({ testTimeout })`), and the hook timeout for
 // the hooks around it. Each retry runs this hook again, so each attempt gets its own record.
 //
-// Added to the run's setup files by the plugin only while the watch is on, and inert
-// without VITEST_NATIVE_HANG_DIR.
+// Added to the run's setup files by the plugin only while the watch is on; the records
+// directory and the hook timeout come from the plugin through Vitest's provide/inject.
 import fs from "node:fs";
 import inspector from "node:inspector";
 import path from "node:path";
 import { threadId } from "node:worker_threads";
-import { beforeEach } from "vitest";
+import { beforeEach, inject } from "vitest";
 
-const dir = process.env.VITEST_NATIVE_HANG_DIR;
+const watch = inject("vitestNativeHangWatch");
 
 /** "outer > inner > test", as Vitest's reporters name a test. */
 function fullName(task) {
@@ -30,11 +30,10 @@ function fullName(task) {
   return names.join(" > ");
 }
 
-if (dir) {
-  const file = path.join(dir, `${process.pid}-${threadId}.json`);
+if (watch?.dir) {
+  const file = path.join(watch.dir, `${process.pid}-${threadId}.json`);
   beforeEach((context) => {
     const task = context.task;
-    const config = globalThis.__vitest_worker__?.config ?? {};
     try {
       fs.writeFileSync(
         file,
@@ -42,8 +41,9 @@ if (dir) {
           file: task.file?.filepath ?? null,
           test: fullName(task),
           at: Date.now(),
-          timeout: task.timeout ?? config.testTimeout ?? 5000,
-          hookTimeout: config.hookTimeout ?? 10000,
+          // The runner resolves it at collection: the test's own, its describe's, or testTimeout.
+          timeout: task.timeout ?? 5000,
+          hookTimeout: watch.hookTimeout,
           debugger: Boolean(inspector.url()),
         }),
       );

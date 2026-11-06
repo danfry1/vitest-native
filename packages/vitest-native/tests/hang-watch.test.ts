@@ -25,13 +25,13 @@ const test = (id: string, name: string) => ({ module: file(id), fullName: name }
 
 afterEach(() => vi.useRealTimers());
 
-function watch(timeoutMs = 1000, recordsDir?: string) {
+function watch(timeoutMs = 1000, dir?: string) {
   vi.useFakeTimers();
   const exit = vi.fn();
   const write = vi.fn();
   const w = new HangWatch({
     timeoutMs,
-    recordsDir,
+    recordsDir: dir,
     exit,
     write,
     cli: true,
