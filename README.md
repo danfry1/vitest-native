@@ -1,6 +1,7 @@
 # vitest-native
 
 [![npm](https://img.shields.io/npm/v/vitest-native)](https://www.npmjs.com/package/vitest-native)
+[![npm downloads](https://img.shields.io/npm/dm/vitest-native)](https://npmcharts.com/compare/vitest-native?interval=30)
 [![RN fidelity](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdanfry1%2Fvitest-native%2Fmain%2Fpackages%2Fvitest-native%2Fcrosscheck%2Ffidelity-badge.json)](https://danfry1.github.io/vitest-native/guide/fidelity)
 [![license](https://img.shields.io/npm/l/vitest-native)](https://github.com/danfry1/vitest-native/blob/main/LICENSE)
 
