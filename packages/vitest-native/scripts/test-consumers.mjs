@@ -228,8 +228,8 @@ function runExpoPnpmSuites(tarball) {
 // The supported Expo SDKs at their newest patch: the latest-supported axis for Expo
 // (docs/upstream-policy.md). The fixtures pin exact releases; here `expo` follows its SDK
 // (`~58.0.0`) and Expo's own `expo install --fix` aligns the packages that go with it
-// (expo-*, react-native, the router). npm installs nothing published in the last 7 days,
-// as bunfig's minimumReleaseAge does for the repository. Expo's CLI runs offline, so the
+// (expo-*, react-native, the router). Every install keeps the repository's release
+// cooldown (scripts/release-age.mjs, imported above). Expo's CLI runs offline, so the
 // versions it aligns to are the installed expo release's own list (as old as that
 // release), not its online API's, which names releases younger than the gate allows.
 const EXPO_LATEST = [
@@ -238,7 +238,6 @@ const EXPO_LATEST = [
 ];
 
 function runExpoLatest(tarball) {
-  const before = { npm_config_before: new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString() };
   for (const { fixture, sdk } of EXPO_LATEST) {
     const fixtureRoot = path.join(tempRoot, `${fixture}-latest`);
     fs.cpSync(path.join(fixturesRoot, fixture), fixtureRoot, { recursive: true });
@@ -255,13 +254,13 @@ function runExpoLatest(tarball) {
     manifest.dependencies.expo = `~${sdk}.0.0`;
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
     addPackedDependency(fixtureRoot, tarball);
-    runCaptured("npm", ["install"], fixtureRoot, before);
+    runCaptured("npm", ["install"], fixtureRoot);
     // The fixture's own Expo CLI, never npx: a missing binary would resolve from the registry.
     runCaptured(
       process.execPath,
       [path.join("node_modules", "expo", "bin", "cli"), "install", "--fix"],
       fixtureRoot,
-      { ...before, EXPO_OFFLINE: "1" },
+      { EXPO_OFFLINE: "1" },
     );
     // Expo aligns react but not react-test-renderer, which it does not manage;
     // RNTL refuses a renderer from another React release, and asks for exactly this.
@@ -272,7 +271,7 @@ function runExpoLatest(tarball) {
     const dev = Boolean(manifest.devDependencies?.["react-test-renderer"]);
     if (dev || manifest.dependencies?.["react-test-renderer"]) {
       const spec = `react-test-renderer@${reactVersion}`;
-      runCaptured("npm", ["install", ...(dev ? ["-D"] : []), spec], fixtureRoot, before);
+      runCaptured("npm", ["install", ...(dev ? ["-D"] : []), spec], fixtureRoot);
     }
     const version = (name) =>
       JSON.parse(
