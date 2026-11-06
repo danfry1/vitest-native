@@ -651,6 +651,24 @@ describe("a jest-expo app's package.json#jest", () => {
       expect(report.dropped.join("\n")).not.toContain("react-native-worklets/plugin");
     });
 
+    it("covers react-native-reanimated/plugin and keeps a plugin's options", () => {
+      const root = blueskyLike({
+        ...nativeReanimated(),
+        ...pluginBabel,
+        "babel.config.js": `module.exports = {
+  presets: ['babel-preset-expo'],
+  plugins: [['react-native-reanimated/plugin', { relativeSourceLocation: true }]],
+};`,
+      });
+      const classified = classifyBabelPlugins(readBabelConfig(root), root, ["reanimated"]);
+      expect(classified.map((p) => [p.name, p.verdict])).toEqual([
+        ["react-native-reanimated/plugin", "required"],
+      ]);
+      expect(analyzeJestConfig(root).suggestedConfig).toContain(
+        `babel({ plugins: [["react-native-reanimated/plugin", {"relativeSourceLocation":true}]] })`,
+      );
+    });
+
     it("is listed with the install recipe when @rolldown/plugin-babel is missing", () => {
       const report = analyzeJestConfig(blueskyLike(nativeReanimated()));
       expect(report.suggestedConfig).not.toContain("plugin-babel");
