@@ -207,12 +207,23 @@ export function wrapForOwnership(installed, root, model) {
 /**
  * Materialise `exhibit` (an exhibits.json entry) under `work`. Returns the app root.
  * `build` is the vitest-native package directory under test; `ownershipModel` other than
- * "off" wraps the installed copy (wrapForOwnership).
+ * "off" wraps the installed copy (wrapForOwnership). `from` is the app directory to copy,
+ * for a test's own fixture laid out as an exhibit; by default, the exhibit's.
  */
-export function materialise(exhibit, { work, build, deps = build, edits = [], ownershipModel = "off" }) {
+export function materialise(
+  exhibit,
+  {
+    work,
+    build,
+    deps = build,
+    edits = [],
+    ownershipModel = "off",
+    from = path.join(museumRoot, "exhibits", exhibit.id),
+  },
+) {
   const root = path.join(work, exhibit.id);
   fs.rmSync(root, { recursive: true, force: true });
-  fs.cpSync(path.join(museumRoot, "exhibits", exhibit.id), root, { recursive: true });
+  fs.cpSync(from, root, { recursive: true });
   // A control's edits (run.mjs --control), before anything is installed from vendor/.
   for (const edit of edits) {
     const file = path.join(root, edit.file);
