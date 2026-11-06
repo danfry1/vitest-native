@@ -4,7 +4,7 @@
 // on stdout. No diagnostic logging is allowed here: stdout is a protocol, while a
 // compiler failure is returned structurally for the parent to report once.
 import fs from "node:fs";
-import { buildRegistry } from "./registry.mjs";
+import { buildLibraryRegistry, buildRegistry } from "./registry.mjs";
 import { compileOnThisThread } from "./transform.mjs";
 
 // No test code runs in this process, so Babel runs on its one thread (transform.mjs,
@@ -34,9 +34,26 @@ try {
       count = JSON.parse(fs.readFileSync(`${registryFile}.json`, "utf8")).count ?? null;
     } catch {}
   }
+  // The library registry is layered on React Native's and built in the same child,
+  // after it. Its failure is reported apart, so it never costs React Native's.
+  let libraryRegistryFile = null;
+  let libraryError;
+  if (registryFile && (options.libraryEntries?.length ?? 0) > 0) {
+    try {
+      libraryRegistryFile = buildLibraryRegistry({
+        ...options,
+        diagnostics: false,
+        failOnError: true,
+      });
+    } catch (error) {
+      libraryError = messageOf(error);
+    }
+  }
   respond({
     ok: registryFile !== null,
     registryFile,
+    libraryRegistryFile,
+    libraryError,
     count,
     durationMs: Math.round(performance.now() - started),
     heapUsed: process.memoryUsage().heapUsed,

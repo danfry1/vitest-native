@@ -1,13 +1,14 @@
 # CLI
 
-vitest-native ships a small CLI for the three moments where a config file and
-docs page aren't enough: starting out, checking an environment, and migrating
-from Jest.
+vitest-native ships a small CLI for the moments where a config file and docs
+page aren't enough: starting out, checking an environment, and migrating from
+Jest.
 
 ```bash
 npx vitest-native init          # write a ready-to-run vitest config
 npx vitest-native doctor        # diagnose peers, engine, presets, RNTL/Node
 npx vitest-native migrate       # analyze your jest config → migration report
+npx vitest-native compare       # run the suite under Jest and Vitest, list the differences
 ```
 
 All commands accept `--root <dir>` (default: the current directory). A flag the command
@@ -17,7 +18,9 @@ instead of quietly doing something else.
 ## `init`
 
 Writes `vitest.config.mts` (or `.mjs` in JS-only projects) with the
-zero-config plugin. Refuses to overwrite an existing config unless `--force`.
+zero-config plugin. Refuses to overwrite an existing config unless `--force`, which
+replaces the config file Vitest loads, under its own name (a CommonJS
+`vitest.config.cjs` or `.cts` is refused instead).
 
 ```bash
 npx vitest-native init                 # plain config
@@ -75,7 +78,8 @@ Reads your Jest configuration (`package.json#jest`, or the first
 - **Dropped** — Jest keys with no vitest-native equivalent needed.
 
 It ends with a complete suggested config. Dry-run by default; `--write` saves
-it (guarded like `init`). It never edits test files — top-level `jest.mock`
+it, and refuses to overwrite an existing config unless `--force` (which replaces
+it as `init --force` does). It never edits test files — top-level `jest.mock`
 calls are handled at runtime by
 [`jestMockTransform()`](/guide/jest-compat).
 
@@ -84,3 +88,26 @@ loads them through ts-node instead, so a config that relies on it (an extensionl
 relative import, an `enum`, a path alias) can't be loaded, and neither can a config that
 uses top-level `await` or exports a function. The report then names the file and Node's
 reason, instead of guessing.
+
+## `compare`
+
+Runs your project's own Jest, then its own Vitest, and lists every test that passes under Jest and not under Vitest, grouped by its first error. Use it while both runners are in place; see [running Jest and Vitest side by side](/migration/from-jest#side-by-side).
+
+```bash
+npx vitest-native compare
+npx vitest-native compare --json compare.json   # a report to attach to an issue
+```
+
+Neither run writes snapshots, and compare fails if a run changes a file in the project. With no Vitest config yet, it uses the config `migrate` would write, without saving it. It exits 0 when every test that passes under Jest also passes under Vitest and `vitest run` exits 0, and 1 when not. It exits 2 when a runner could not run, when the project changed, or when no test passed under Jest, and 130 when interrupted.
+
+| Flag | Does |
+|---|---|
+| `--jest-args "<args>"`, `--vitest-args "<args>"` | Pass extra arguments to one runner. Only filters, timeouts and switches that cannot write files are accepted. |
+| `--vitest-config <file>` | Use this Vitest config. |
+| `--jest-results <file>` | Read a Jest `--json` report, such as one from CI, instead of running Jest. |
+| `--jest-root <dir>` | The directory that report was made in. Found from the report when omitted. |
+| `--json <file>` | Write a report of test names, results and error messages, with stack traces, code frames and absolute paths removed. Read it before you attach it to an issue: a message still contains whatever a test put in it. |
+| `--top <n>` | How many error groups and files to list (default 10). |
+| `--timeout <seconds>` | The time limit for each runner (default 1800). |
+| `--show-output` | Stream both runners' output. |
+| `--strict` | Confirm a parametrised test whose title Vitest printed as `%p` only by its title, never by its row position. |

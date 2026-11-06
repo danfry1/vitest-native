@@ -21,6 +21,8 @@ import { VitestNativeTypeError } from "./errors.mjs";
 
 /** `Module._load` steps, outermost first: the precedence of a CommonJS require. */
 export const LOAD_STEPS = Object.freeze({
+  /** A library's own test support: its `@jest/globals` (native/library-jest.mjs). */
+  librarySupport: 5,
   /** jest-compat's per-file `jest.mock` registry (jest-compat/node-registry.mjs). */
   mocks: 10,
   /** A preset's module shadowing a package (native/hooks.mjs). */

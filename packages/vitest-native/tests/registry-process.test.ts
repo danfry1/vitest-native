@@ -57,7 +57,18 @@ describe("bounded registry compiler process", () => {
       throw new Error("warm cache launched the compiler");
     });
 
-    expect(result).toBe(registryFile);
+    expect(result).toEqual({ registry: registryFile, libraryRegistry: null });
+
+    // A library entry that does not resolve keeps React Native's warm registry, and
+    // launches nothing: a build would fail the same way.
+    const withLibrary = await buildRegistryFor(
+      { ...options, libraryEntries: ["not-installed-library"] },
+      async () => {
+        compilerCalls++;
+        throw new Error("an unresolvable library entry launched the compiler");
+      },
+    );
+    expect(withLibrary).toEqual({ registry: registryFile, libraryRegistry: null });
     expect(compilerCalls).toBe(0);
   });
 

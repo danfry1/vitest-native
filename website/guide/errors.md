@@ -102,6 +102,10 @@ vitest-native's module loader was given a step it does not know. Usually two cop
 
 One file ran twice in the same worker: Vite loaded it for the test's imports, and Node loaded it through a `require()`. The two copies don't share state, so a store or cache written through one is not seen by the other. The message names the file, which side loaded it first, how the second load reached it, and the fix for that case. With [`ownership`](/guide/plugin-options#ownership) at its default, `'warn'`, it is a warning, printed once per worker. With `'error'` it fails the test file. To accept a file that runs twice on purpose, list it in `ownership.allow: [{ path, reason }]`. An installed package's TypeScript source that a test both requires and imports runs twice with no fix you can apply yet; that case is tracked in [#544](https://github.com/danfry1/vitest-native/issues/544).
 
+### `LIBRARY_REGISTRY_FAILED` {#LIBRARY_REGISTRY_FAILED}
+
+vitest-native could not precompile the modules of libraries such as Reanimated and Worklets into one file, which makes them load faster. You see it as a warning, `could not precompile the library registry (…); those libraries load file by file, which is slower`, and results are unaffected; the code itself is raised only inside the process that builds the file. The build is retried once any file it read changes. To retry sooner, delete the `registry` folder in vitest-native's cache ([where it lives](/guide/troubleshooting#when-react-native-s-precompiled-modules-are-reused-or-rebuilt)). If the warning keeps coming back, report the reason it names.
+
 ## Helpers and jest-compat
 
 ### `HELPERS_BEFORE_SETUP` {#HELPERS_BEFORE_SETUP}

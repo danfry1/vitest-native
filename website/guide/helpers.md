@@ -44,7 +44,7 @@ setColorScheme('dark')
 
 ## `setInsets(insets)`
 
-Override the safe-area insets reported by the auto-detected `react-native-safe-area-context` preset (`useSafeAreaInsets`, `SafeAreaProvider`). No-op when the preset isn't active.
+Override the safe-area insets reported by the auto-detected `react-native-safe-area-context` preset. Under the mock engine they reach `useSafeAreaInsets`, the insets context and `initialWindowMetrics`. Under the native engine the preset is the library's own Jest mock, and `setInsets` reaches `useSafeAreaInsets` only; to give every consumer (`SafeAreaInsetsContext`, `withSafeAreaInsets`) the same insets there, render under `<SafeAreaProvider initialMetrics={...}>`, as the library's testing guide does. No-op when the preset isn't active; undone by `resetAllMocks()`.
 
 ```ts
 setInsets({ top: 59, bottom: 34, left: 0, right: 0 })
