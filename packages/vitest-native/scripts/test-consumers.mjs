@@ -242,6 +242,14 @@ function runExpoLatest(tarball) {
   for (const { fixture, sdk } of EXPO_LATEST) {
     const fixtureRoot = path.join(tempRoot, `${fixture}-latest`);
     fs.cpSync(path.join(fixturesRoot, fixture), fixtureRoot, { recursive: true });
+    if (fixture === "expo-sdk57") {
+      // As in the fixtures leg: the runtime-surface reader the SDK 57 test checks.
+      fs.mkdirSync(path.join(fixtureRoot, "src", "lib"), { recursive: true });
+      fs.copyFileSync(
+        path.join(packageRoot, "tests", "support", "expo-runtime-surface.ts"),
+        path.join(fixtureRoot, "src", "lib", "expo-runtime-surface.ts"),
+      );
+    }
     const manifestPath = path.join(fixtureRoot, "package.json");
     const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
     manifest.dependencies.expo = `~${sdk}.0.0`;
@@ -255,6 +263,19 @@ function runExpoLatest(tarball) {
       fixtureRoot,
       { ...before, EXPO_OFFLINE: "1" },
     );
+    // Expo aligns react but not react-test-renderer, a dev dependency it does not manage;
+    // RNTL refuses a renderer from another React release, and asks for exactly this.
+    const reactVersion = JSON.parse(
+      fs.readFileSync(path.join(fixtureRoot, "node_modules", "react", "package.json"), "utf8"),
+    ).version;
+    if (manifest.devDependencies?.["react-test-renderer"]) {
+      runCaptured(
+        "npm",
+        ["install", "-D", `react-test-renderer@${reactVersion}`],
+        fixtureRoot,
+        before,
+      );
+    }
     const version = (name) =>
       JSON.parse(
         fs.readFileSync(path.join(fixtureRoot, "node_modules", name, "package.json"), "utf8"),
