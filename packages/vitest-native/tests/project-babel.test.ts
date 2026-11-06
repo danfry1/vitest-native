@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { babelConfigFingerprint, fsModuleCacheKey } from "../src/fs-module-cache.js";
 import {
+  classifyProjectBabelEntry,
   configItemName,
   hasFlowPragma,
   isProjectSourceFile,
@@ -11,43 +12,130 @@ import {
 } from "../src/project-babel.js";
 
 const ROOT = "/app";
+const classify = (name: string, kind: "plugin" | "preset", options?: unknown) =>
+  classifyProjectBabelEntry({ name, kind, options }, ROOT, []);
 const trigger = (name: string, kind: "plugin" | "preset", options?: unknown) =>
   projectBabelTrigger({ name, kind, options }, ROOT, []);
+/** Whether a needed entry applies to `source` (an entry with no test applies to all). */
+const appliesTo = (name: string, kind: "plugin" | "preset", options: unknown, source: string) => {
+  const c = classify(name, kind, options);
+  return c.kind === "needed" && (c.applies === null || c.applies(source));
+};
 
-describe("projectBabelTrigger: what needs the project's Babel config (#579)", () => {
-  it("covers React Native's and Expo's presets, and standard ones, with harmless options", () => {
-    expect(trigger("@react-native/babel-preset", "preset")).toBeNull();
+describe("classifyProjectBabelEntry: which entries matter (#579)", () => {
+  it("covers the React Native and Expo presets with the options that change nothing", () => {
     expect(
-      trigger("@react-native/babel-preset", "preset", { enableBabelRuntime: false }),
+      trigger("@react-native/babel-preset", "preset", {
+        unstable_transformProfile: "hermes-stable",
+        dev: true,
+      }),
     ).toBeNull();
-    expect(trigger("babel-preset-expo", "preset", { reanimated: false })).toBeNull();
+    expect(
+      trigger("babel-preset-expo", "preset", {
+        jsxRuntime: "automatic",
+        lazyImports: true,
+        "react-compiler": {},
+      }),
+    ).toBeNull();
+    expect(
+      trigger("@babel/preset-env", "preset", {
+        include: ["x"],
+        exclude: ["y"],
+        modules: "commonjs",
+      }),
+    ).toBeNull();
     expect(trigger("@babel/preset-typescript", "preset")).toBeNull();
   });
 
-  it("triggers on a preset option that changes the output, and on an unknown preset", () => {
+  it("needs a preset option that changes the output, and an unknown preset everywhere", () => {
     expect(trigger("babel-preset-expo", "preset", { jsxImportSource: "nativewind" })).toBe(
-      "babel-preset-expo's `jsxImportSource` option",
+      "babel-preset-expo's `jsxImportSource`",
     );
+    expect(
+      appliesTo("babel-preset-expo", "preset", { jsxImportSource: "nativewind" }, "<View />"),
+    ).toBe(false);
+    expect(
+      appliesTo(
+        "babel-preset-expo",
+        "preset",
+        { jsxImportSource: "nativewind" },
+        '<View className="p-2" />',
+      ),
+    ).toBe(true);
     expect(trigger("@babel/preset-env", "preset", { loose: true })).toBe(
       "@babel/preset-env's `loose` option",
     );
-    expect(trigger("nativewind/babel", "preset")).toBe("the preset nativewind/babel");
+    expect(appliesTo("some-preset", "preset", undefined, "anything")).toBe(true);
   });
 
-  it("covers standard syntax plugins, but not decorators or semantic options", () => {
+  it("takes out the module transforms and coverage instrumentation", () => {
+    expect(classify("@babel/plugin-transform-modules-commonjs", "plugin")).toEqual({
+      kind: "strip",
+    });
+    expect(classify("babel-plugin-dynamic-import-node", "plugin")).toEqual({ kind: "strip" });
+    expect(classify("babel-plugin-istanbul", "plugin")).toEqual({ kind: "strip" });
+  });
+
+  it("covers syntax Oxc compiles, and needs syntax it does not parse only where it appears", () => {
     expect(trigger("@babel/plugin-transform-export-namespace-from", "plugin")).toBeNull();
-    expect(trigger("@babel/plugin-proposal-decorators", "plugin", { legacy: true })).toBe(
-      "@babel/plugin-proposal-decorators",
+    expect(trigger("@babel/plugin-transform-class-properties", "plugin")).toBeNull();
+    expect(appliesTo("@babel/plugin-proposal-pipeline-operator", "plugin", {}, "a |> f")).toBe(
+      true,
     );
-    expect(trigger("@babel/plugin-transform-class-properties", "plugin", { loose: true })).toBe(
-      "@babel/plugin-transform-class-properties's `loose` option",
+    expect(appliesTo("@babel/plugin-proposal-pipeline-operator", "plugin", {}, "a | b")).toBe(
+      false,
     );
+    expect(
+      appliesTo("@babel/plugin-proposal-export-default-from", "plugin", {}, "export v from 'm';"),
+    ).toBe(true);
   });
 
-  it("triggers on macros and unknown plugins (fail-safe), not on module-resolver", () => {
-    expect(trigger("babel-plugin-macros", "plugin")).toBe("babel-plugin-macros");
-    expect(trigger("module:react-native-dotenv", "plugin")).toBe("module:react-native-dotenv");
-    expect(trigger("./babel/custom.js", "plugin")).toBe("./babel/custom.js");
+  it("needs semantic options only where they matter", () => {
+    const loose = { loose: true };
+    expect(
+      appliesTo("@babel/plugin-transform-class-properties", "plugin", loose, "export class A {}"),
+    ).toBe(true);
+    expect(
+      appliesTo(
+        "@babel/plugin-transform-class-properties",
+        "plugin",
+        loose,
+        "/** no class here */",
+      ),
+    ).toBe(false);
+    expect(
+      appliesTo("@babel/plugin-transform-react-jsx", "plugin", { pragma: "h" }, "<View />"),
+    ).toBe(true);
+    expect(
+      appliesTo(
+        "@babel/plugin-transform-flow-strip-types",
+        "plugin",
+        { all: true },
+        "let a: number",
+      ),
+    ).toBe(true);
+  });
+
+  it("needs decorators where a line starts with one, not for a JSDoc tag", () => {
+    const decorators = "@babel/plugin-proposal-decorators";
+    expect(
+      appliesTo(decorators, "plugin", { legacy: true }, "class A {\n  @field('x') x;\n}"),
+    ).toBe(true);
+    expect(appliesTo(decorators, "plugin", { legacy: true }, "/**\n * @param a\n */")).toBe(false);
+  });
+
+  it("needs macros, dotenv and unknown plugins where they apply", () => {
+    expect(
+      appliesTo("babel-plugin-macros", "plugin", undefined, "import t from 'ts-macro.macro'"),
+    ).toBe(true);
+    expect(appliesTo("babel-plugin-macros", "plugin", undefined, "import t from 'x'")).toBe(false);
+    expect(
+      appliesTo("module:react-native-dotenv", "plugin", undefined, "import { API } from '@env'"),
+    ).toBe(true);
+    expect(
+      appliesTo("module:react-native-dotenv", "plugin", { moduleName: "@cfg" }, "from '@env'"),
+    ).toBe(false);
+    expect(appliesTo("./babel/custom.js", "plugin", undefined, "anything")).toBe(true);
     expect(trigger("babel-plugin-module-resolver", "plugin")).toBeNull();
   });
 });

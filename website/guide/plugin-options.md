@@ -149,20 +149,28 @@ A listed package's own dependencies are compiled too, as an auto-detected packag
 
 **Type:** `'auto' | 'always' | 'never'` · **Default:** `'auto'` · **Engine:** both
 
-Compiles your own source with your project's Babel config where that config does something Vite's Oxc transform does not, as Metro and babel-jest compile it. Packages in `node_modules` are not affected.
+Compiles your own source with your project's Babel config where a file needs something Vite's Oxc transform does not do, as Metro and babel-jest compile it. Packages in `node_modules` are not affected.
 
-- `'auto'`: a project file compiles with Babel when the config Babel loads for it has a plugin, preset or option outside what Oxc and vitest-native already cover. Examples: legacy decorators (`@babel/plugin-proposal-decorators`), macros, `react-native-dotenv`, a custom plugin, a `loose` option, or a preset's `jsxImportSource`. A plugin vitest-native does not know counts as outside. A file with an `@flow` pragma compiles with Babel too. Every other file keeps Oxc. Startup names what caused it:
+- `'auto'`: your config decides which of its plugins matter, and each file's source decides whether it needs one. A file compiles with Babel only then; every other file keeps Oxc.
+  - Examples: a file with a decorator, with legacy decorators configured (`@babel/plugin-proposal-decorators`); a macro import; an `@env` import with `react-native-dotenv`; a worklet, when Reanimated runs as its own mock; a `className` with NativeWind; a file with an `@flow` pragma.
+  - A plugin vitest-native does not know applies to every file the config covers.
+  - Startup names what caused it:
 
-  ```
-  [vitest-native] projectBabel: project source that needs it compiles with the project's Babel config, for @babel/plugin-proposal-decorators.
-  ```
+    ```
+    [vitest-native] projectBabel: project source that needs it compiles with the project's Babel config, for @babel/plugin-proposal-decorators.
+    ```
 
+    With `diagnostics: true`, each file that compiles with Babel is named, with the reason.
 - `'always'`: every project file the config applies to compiles with Babel, as under babel-jest. Slower.
 - `'never'`: Oxc only.
 
-Covered without Babel: React Native's and Expo's presets, `@babel/preset-typescript`, `preset-react`, `preset-flow` and `preset-env`, standard `@babel/plugin-transform-*` and `-syntax-*` plugins, `babel-plugin-module-resolver` (its aliases map onto `resolve.alias`), and the worklets plugins, except when Reanimated runs as its own mock, which needs them.
+Covered without Babel: React Native's and Expo's presets, `@babel/preset-typescript`, `preset-react`, `preset-flow` and `preset-env`, standard syntax plugins Oxc compiles, `babel-plugin-module-resolver` (its aliases map onto `resolve.alias`), and the worklets plugins, unless Reanimated runs as its own mock. An option that changes what a covered entry outputs, such as `loose`, `assumptions`, a JSX `pragma` or `importSource`, or Flow's `all`, counts as a plugin the files it affects need.
 
-A Babel plugin already in your Vite config (such as `@rolldown/plugin-babel`) compiles that source itself, so `projectBabel` steps aside and says so. Editing the root `babel.config.*` or `.babelrc` invalidates Vitest's transform cache. A `.babelrc` in a subdirectory does not; run with `--clearCache` after changing one.
+The output stays an ES module for Vite: module transforms in the config (`@babel/plugin-transform-modules-commonjs`, `babel-plugin-dynamic-import-node`, preset-env's `modules`) and `babel-plugin-istanbul` are left out of this compile.
+
+A Babel plugin in your Vite config (such as a `babel()` entry from `@rolldown/plugin-babel`) still runs its own plugins after this one. A plugin both apply, such as the worklets plugin, finds nothing left to do the second time.
+
+Vitest's transform cache is keyed on what your config loads for each file: the plugins' versions and options, a local plugin's file, `BABEL_ENV` and `NODE_ENV`, your `.env` files when a dotenv plugin is configured, and the environment when an inline-environment plugin is. A file your config itself `require`s for other reasons is not; run with `--clearCache` after changing one.
 
 ## `hotRuntime`
 

@@ -14,6 +14,7 @@
 // resolving versions — pure waste when every file is served from disk. App source asks
 // it for its cache key, since only Babel can say which project configuration applies
 // (projectBabelOptions).
+import { projectBabelCaller } from "./babel-caller.mjs";
 import nodeModule, { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -216,22 +217,9 @@ function ctxFor(projectRoot) {
 // as does app source in a project with no Babel config of its own.
 const NODE_MODULES = /[\\/]node_modules[\\/]/;
 
-/** The caller babel-jest passes (build/index.js:196-237), or jest-expo's for Expo. */
+/** The caller for Node's require of project source: CommonJS out (babel-caller.mjs). */
 function babelJestCaller(ctx, platform) {
-  const flags = {
-    // Jest's defaults for a CommonJS module without --experimental-vm-modules
-    // (jest-runtime 29.7, build/index.js:173-179).
-    supportsDynamicImport: false,
-    supportsExportNamespaceFrom: false,
-    supportsStaticESM: false,
-    supportsTopLevelAwait: false,
-  };
-  // jest-expo's platform presets configure babel-jest with a Metro caller carrying the
-  // platform (jest-expo 57, config/getPlatformPreset.js:48-66), which babel-preset-expo
-  // reads to inline Platform.OS and process.env.EXPO_OS (build/common.js, getPlatform).
-  // The engine runs one platform, so a project with Expo gets that preset's caller.
-  if (ctx.hasExpo) return { name: "metro", bundler: "metro", platform, ...flags };
-  return { name: "babel-jest", ...flags };
+  return projectBabelCaller({ hasExpo: ctx.hasExpo, platform, esm: false });
 }
 
 /**

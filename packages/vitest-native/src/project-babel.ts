@@ -2,21 +2,31 @@
  * The project's own Babel config for project source Vite compiles (`projectBabel`, #579).
  *
  * Metro and babel-jest compile every project file with the project's Babel config. Vite
- * compiles it with Oxc, which covers TypeScript, JSX and standard syntax but not what a
- * plugin adds: legacy decorators (WatermelonDB models), macros, `react-native-dotenv`'s
- * `@env`, a custom plugin. A file whose config needs such a plugin compiles with Babel
- * instead, with that config, as under Jest. Every other file keeps Oxc.
+ * compiles it with Oxc, which covers TypeScript, JSX, Flow-free standard syntax and the
+ * React Native presets' own transforms, but not what a plugin adds: legacy decorators
+ * (WatermelonDB models), macros, `react-native-dotenv`'s `@env`, worklets when Reanimated
+ * runs as its own mock, a custom plugin.
  *
- * `projectBabelTrigger` is the one rule: the engine routes on it, and `doctor` and
- * `migrate` report from it. An entry it does not know triggers routing (fail-safe).
+ * The config decides WHICH of its entries matter (classifyProjectBabelEntry); a cheap
+ * test of each file's source decides WHETHER the file needs one. Only a file that does
+ * compiles with Babel, with the project's config and its module transforms taken out so
+ * the output stays an ES module for Vite. An entry this does not know applies to every
+ * file, and is named at startup.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import type { Rollup } from "vite";
-import { classifyBabelPlugins, normalizeBabelName } from "./babel-plugins.js";
+import {
+  classifyBabelPlugins,
+  normalizeBabelName,
+  reanimatedRunsItsOwnMock,
+} from "./babel-plugins.js";
 import { installedManifest } from "./installed-manifest.js";
+import { projectBabelCaller } from "./native/babel-caller.mjs";
+import { VitestNativeError } from "./errors.mjs";
 import type { PresetName } from "./preset-map.js";
 
 export type ProjectBabelMode = "auto" | "always" | "never";
@@ -29,92 +39,292 @@ export interface ProjectBabelEntry {
   options?: unknown;
 }
 
-// Presets whose transforms Oxc and the engine already cover, and the option keys that
-// change nothing Oxc's output depends on. Any other option (`jsxImportSource`,
-// `lazyImports`, `loose`) can change what code means, so it triggers routing.
-const COVERED_PRESETS = new Map<string, ReadonlySet<string>>([
-  [
-    "@react-native/babel-preset",
-    new Set([
-      "disableImportExportTransform",
-      "enableBabelRuntime",
-      "unstable_transformProfile",
-      "disableStaticViewConfigsCodegen",
-      "dev",
-      "withDevTools",
-    ]),
-  ],
-  [
-    "metro-react-native-babel-preset",
-    new Set(["disableImportExportTransform", "enableBabelRuntime"]),
-  ],
-  [
-    "babel-preset-expo",
-    new Set([
-      "disableImportExportTransform",
-      "enableBabelRuntime",
-      "unstable_transformProfile",
-      "reanimated",
-      "worklets",
-      "web",
-      "native",
-    ]),
-  ],
-  [
-    "@babel/preset-typescript",
-    new Set(["allowDeclareFields", "onlyRemoveTypeImports", "isTSX", "allExtensions"]),
-  ],
-  ["@babel/preset-react", new Set(["runtime", "development"])],
-  ["@babel/preset-flow", new Set()],
-  ["@babel/preset-env", new Set(["targets", "modules", "useBuiltIns", "corejs", "bugfixes"])],
-]);
+/**
+ * What an entry means for project source under Vite:
+ * - `covered`: Oxc and the engine already do it;
+ * - `strip`: it would make the output CommonJS or instrument it, so it is taken out;
+ * - `needed`: a file compiles with Babel when `applies(source)` holds; `applies` null
+ *   means every file (an entry this does not know).
+ */
+export type ProjectBabelClassification =
+  | { kind: "covered" }
+  | { kind: "strip" }
+  | { kind: "needed"; reason: string; applies: ((source: string) => boolean) | null };
 
-// Standard syntax plugins Oxc compiles (or Node runs) the same way. Decorators are the
-// exception: their legacy semantics are Babel's own (see docs/579-project-babel.md).
-const STANDARD_PLUGIN = /^@babel\/plugin-(?:transform|syntax|proposal)-/;
-const NOT_STANDARD = /decorators/;
-// Options that change what a standard plugin's output means.
-const SEMANTIC_OPTIONS = ["loose", "spec", "assumptions"];
+const COVERED = { kind: "covered" } as const;
+const STRIP = { kind: "strip" } as const;
+const needed = (
+  reason: string,
+  applies: ((source: string) => boolean) | null,
+): ProjectBabelClassification => ({ kind: "needed", reason, applies });
 
-const hasSemanticOption = (options: unknown): string | null => {
-  if (!options || typeof options !== "object") return null;
-  return SEMANTIC_OPTIONS.find((key) => (options as Record<string, unknown>)[key]) ?? null;
+// Source tests: cheap, and over-matching only costs a Babel compile, never a wrong one.
+const has = (re: RegExp) => (source: string) => re.test(source);
+const DECORATOR = has(/^[ \t]*@[A-Za-z_$][\w$.]*/m);
+const MACRO_IMPORT = has(/['"][^'"\n]*[./]macro['"]/);
+const WORKLET = has(
+  /['"]worklet['"]|\buse(?:Animated\w*|DerivedValue|FrameCallback)\b|\brunOn(?:UI|JS|Runtime)\b|\bscheduleOnUI\b|\bGesture\.\w+\(/,
+);
+const CLASS_NAME = has(/\bclassName\s*=/);
+const JSX = has(/<[A-Za-z>]/);
+// A class declaration or expression, not the word in a comment.
+const CLASS = has(
+  /\bclass\s+[A-Za-z_$][\w$]*\s*(?:extends\b[^{]*)?\{|\bclass\s*(?:extends\b[^{]*)?\{/,
+);
+const PROCESS_ENV = has(/\bprocess\.env\b/);
+const UNISTYLES = has(/react-native-unistyles|from\s+['"]react-native['"]/);
+const JS_FILE = (file: string) => /\.[cm]?jsx?$/.test(file);
+const importOf = (moduleName: string) => {
+  const quoted = moduleName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return has(new RegExp(`['"]${quoted}['"]`));
 };
 
+// React Native's and Expo's presets: Oxc and the engine already cover them. These option
+// keys leave that true; another key can change the output and makes the preset needed.
+const RN_PRESET_OPTIONS = new Set([
+  "disableImportExportTransform",
+  "enableBabelRuntime",
+  "unstable_transformProfile",
+  "disableStaticViewConfigsCodegen",
+  "dev",
+  "withDevTools",
+  "lazyImportExportTransform",
+]);
+const EXPO_PRESET_OPTIONS = new Set([
+  ...RN_PRESET_OPTIONS,
+  "jsxRuntime",
+  "lazyImports",
+  "react-compiler",
+  "reanimated",
+  "worklets",
+  "minifyTypeofWindow",
+  "decorators",
+  "web",
+  "native",
+]);
+const PRESET_OPTIONS = new Map<string, ReadonlySet<string>>([
+  ["@react-native/babel-preset", RN_PRESET_OPTIONS],
+  ["metro-react-native-babel-preset", RN_PRESET_OPTIONS],
+  ["babel-preset-expo", EXPO_PRESET_OPTIONS],
+  [
+    "@babel/preset-typescript",
+    new Set([
+      "allowDeclareFields",
+      "onlyRemoveTypeImports",
+      "isTSX",
+      "allExtensions",
+      "optimizeConstEnums",
+      "rewriteImportExtensions",
+    ]),
+  ],
+  ["@babel/preset-react", new Set(["runtime", "development", "useBuiltIns", "useSpread"])],
+  ["@babel/preset-flow", new Set()],
+  [
+    "@babel/preset-env",
+    new Set([
+      "targets",
+      "modules",
+      "useBuiltIns",
+      "corejs",
+      "bugfixes",
+      "include",
+      "exclude",
+      "shippedProposals",
+      "debug",
+      "browserslistEnv",
+      "ignoreBrowserslistConfig",
+    ]),
+  ],
+]);
+
+// Standard syntax Oxc parses and compiles (or Node runs as written): these plugins are
+// covered. A plugin for syntax Oxc does not parse is needed where its token appears.
+const OXC_SYNTAX = new Set([
+  "class-properties",
+  "private-methods",
+  "private-property-in-object",
+  "class-static-block",
+  "optional-chaining",
+  "nullish-coalescing-operator",
+  "logical-assignment-operators",
+  "numeric-separator",
+  "object-rest-spread",
+  "optional-catch-binding",
+  "async-generator-functions",
+  "async-to-generator",
+  "export-namespace-from",
+  "arrow-functions",
+  "block-scoping",
+  "block-scoped-functions",
+  "classes",
+  "computed-properties",
+  "destructuring",
+  "duplicate-keys",
+  "for-of",
+  "function-name",
+  "literals",
+  "member-expression-literals",
+  "parameters",
+  "property-literals",
+  "shorthand-properties",
+  "spread",
+  "sticky-regex",
+  "template-literals",
+  "typeof-symbol",
+  "unicode-escapes",
+  "unicode-regex",
+  "unicode-property-regex",
+  "dotall-regex",
+  "named-capturing-groups-regex",
+  "exponentiation-operator",
+  "regenerator",
+  "json-strings",
+  "new-target",
+  "object-super",
+  "reserved-words",
+  "react-jsx",
+  "react-jsx-development",
+  "react-display-name",
+  "react-jsx-self",
+  "react-jsx-source",
+  "react-pure-annotations",
+  "typescript",
+  "flow-strip-types",
+  "dynamic-import",
+  "jsx",
+  "flow",
+  "top-level-await",
+  "import-meta",
+  "class-static-block",
+  "import-attributes",
+]);
+const UNPARSED_SYNTAX: Record<string, (source: string) => boolean> = {
+  "pipeline-operator": has(/\|>/),
+  "do-expressions": has(/\bdo\s*\{/),
+  "function-bind": has(/::/),
+  "export-default-from": has(/\bexport\s+[A-Za-z_$][\w$]*\s*(?:,|\s+from\b)/),
+  "throw-expressions": has(/[=(,:?]\s*throw\b/),
+  "partial-application": has(/\?\s*[,)]/),
+};
+// Options that change what a covered plugin's output means.
+const SEMANTIC_OPTIONS = [
+  "loose",
+  "spec",
+  "assumptions",
+  "pragma",
+  "pragmaFrag",
+  "importSource",
+  "all",
+  "jsxPragma",
+];
+// Taken out: module transforms make CommonJS, which Vite's module runner does not take;
+// coverage instrumentation is Vitest's own provider's job.
+const STRIPPED = new Set([
+  "@babel/plugin-transform-modules-commonjs",
+  "@babel/plugin-transform-modules-amd",
+  "@babel/plugin-transform-modules-umd",
+  "@babel/plugin-transform-modules-systemjs",
+  "babel-plugin-dynamic-import-node",
+  "babel-plugin-transform-import-meta",
+  "babel-plugin-istanbul",
+]);
+
+const optionKeys = (options: unknown): string[] =>
+  options && typeof options === "object" ? Object.keys(options) : [];
+const semanticOption = (options: unknown): string | undefined =>
+  optionKeys(options).find((key) => SEMANTIC_OPTIONS.includes(key));
+
 /**
- * Why `entry` needs the project's Babel config to compile project source, or null when
- * Oxc and the engine already do what it does. `active` is the run's active presets, for
- * the worklets plugins: they are needed exactly when Reanimated runs as its own mock.
+ * What `entry` means for project source under Vite. `active` is the run's active
+ * presets: the worklets plugins are needed exactly when Reanimated runs as its own mock.
  */
-export function projectBabelTrigger(
+export function classifyProjectBabelEntry(
   entry: ProjectBabelEntry,
   root: string,
   active: readonly PresetName[],
-): string | null {
+): ProjectBabelClassification {
+  const { name, options } = entry;
   if (entry.kind === "preset") {
-    const allowed = COVERED_PRESETS.get(entry.name);
-    if (!allowed) return `the preset ${entry.name}`;
-    const options =
-      entry.options && typeof entry.options === "object" ? Object.keys(entry.options) : [];
-    const changes = options.find((key) => !allowed.has(key));
-    return changes ? `${entry.name}'s \`${changes}\` option` : null;
+    if (name === "nativewind/babel") return needed(name, CLASS_NAME);
+    const allowed = PRESET_OPTIONS.get(name);
+    if (!allowed) return needed(`the preset ${name}`, null);
+    const opts = (options ?? {}) as Record<string, unknown>;
+    if (name === "@babel/preset-flow" && opts.all) {
+      return needed(`${name}'s \`all\` option`, null);
+    }
+    if (opts.jsxImportSource !== undefined) {
+      return needed(
+        `${name}'s \`jsxImportSource\``,
+        opts.jsxImportSource === "nativewind" ? CLASS_NAME : JSX,
+      );
+    }
+    const changes = optionKeys(options).find((key) => !allowed.has(key));
+    if (changes) return needed(`${name}'s \`${changes}\` option`, null);
+    // babel-preset-expo adds the worklets plugin itself unless told not to.
+    if (
+      name === "babel-preset-expo" &&
+      opts.worklets !== false &&
+      opts.reanimated !== false &&
+      reanimatedRunsItsOwnMock(root, active)
+    ) {
+      return needed("babel-preset-expo's worklets plugin", WORKLET);
+    }
+    return COVERED;
   }
-  if (STANDARD_PLUGIN.test(entry.name) && !NOT_STANDARD.test(entry.name)) {
-    const semantic = hasSemanticOption(entry.options);
-    return semantic ? `${entry.name}'s \`${semantic}\` option` : null;
+  if (STRIPPED.has(name)) return STRIP;
+  const standard = /^@babel\/plugin-(?:transform|syntax|proposal)-(.+)$/.exec(name);
+  if (standard) {
+    const feature = standard[1];
+    if (feature === "decorators") return needed(name, DECORATOR);
+    const unparsed = UNPARSED_SYNTAX[feature];
+    if (unparsed) return needed(name, unparsed);
+    if (!OXC_SYNTAX.has(feature)) return needed(name, null);
+    const semantic = semanticOption(options);
+    if (!semantic) return COVERED;
+    const reason = `${name}'s \`${semantic}\` option`;
+    if (feature === "class-properties" || feature === "private-methods")
+      return needed(reason, CLASS);
+    if (feature.startsWith("react-jsx")) return needed(reason, JSX);
+    if (feature === "flow-strip-types") return needed(reason, (source) => /:\s*\w/.test(source));
+    return needed(reason, null);
   }
+  if (name === "react-native-dotenv" || name === "module:react-native-dotenv") {
+    const moduleName = (options as { moduleName?: string } | undefined)?.moduleName ?? "@env";
+    return needed(name, importOf(moduleName));
+  }
+  if (/^(?:babel-plugin-)?transform-inline-environment-variables$/.test(name)) {
+    return needed(name, PROCESS_ENV);
+  }
+  if (name === "react-native-unistyles/plugin") return needed(name, UNISTYLES);
   const [classified] = classifyBabelPlugins(
     {
       source: null,
       evaluated: true,
       presets: [],
       lazyImports: [],
-      plugins: [{ written: entry.name, name: entry.name, options: entry.options }],
+      plugins: [{ written: name, name, options }],
     },
     root,
     active,
   );
-  return classified.verdict === "unneeded" || classified.verdict === "alias" ? null : entry.name;
+  if (classified.verdict === "unneeded" || classified.verdict === "alias") return COVERED;
+  if (/^react-native-(?:worklets|reanimated)\/plugin$/.test(name)) return needed(name, WORKLET);
+  if (classified.verdict === "required") return needed(name, MACRO_IMPORT);
+  return needed(name, null);
+}
+
+/**
+ * Why the engine applies `entry` to project source (to the files that need it), or null
+ * when Oxc and the engine already do what it does or it is taken out. `doctor` and
+ * `migrate` report from this.
+ */
+export function projectBabelTrigger(
+  entry: ProjectBabelEntry,
+  root: string,
+  active: readonly PresetName[],
+): string | null {
+  const classified = classifyProjectBabelEntry(entry, root, active);
+  return classified.kind === "needed" ? classified.reason : null;
 }
 
 /** A Babel ConfigItem, as much of it as this reads. */
@@ -165,111 +375,190 @@ export type LoadChain = { load(id: string): Promise<Rollup.LoadResult> } | undef
 // See project-jsx.ts: the chain is asked first, and this answers nothing to its own ask.
 const asking = new AsyncLocalStorage<string>();
 
-// Babel's caller for a file Vite compiles: ES modules stay ES modules (Expo's and
-// preset-env's module transforms read it).
-const CALLER = {
-  name: "vitest-native",
-  supportsStaticESM: true,
-  supportsDynamicImport: true,
-  supportsTopLevelAwait: true,
-  supportsExportNamespaceFrom: true,
-};
-
-// React Native's preset turns ES modules into CommonJS unless told not to; it does not
-// read the caller.
-const RN_PRESETS = new Set(["@react-native/babel-preset", "metro-react-native-babel-preset"]);
+// React Native's and Expo's presets turn ES modules into CommonJS unless told not to.
+const ESM_PRESETS = new Set([
+  "@react-native/babel-preset",
+  "metro-react-native-babel-preset",
+  "babel-preset-expo",
+]);
+// Output Vite's module runner cannot take, from a plugin the router did not take out.
+const COMMONJS_OUTPUT =
+  /Object\.defineProperty\(exports,\s*["']__esModule["']|^\s*module\.exports\s*=/m;
 
 interface Babel {
   loadPartialConfig(options: object): {
     options: { plugins?: ConfigItem[]; presets?: ConfigItem[]; assumptions?: object };
     hasFilesystemConfig(): boolean;
-    config?: string;
-    babelrc?: string;
   } | null;
   transformAsync(
     code: string,
     options: object,
   ): Promise<{ code?: string | null; map?: unknown } | null>;
+  version?: string;
+}
+
+/** One distinct set of loaded plugins and presets, classified once. */
+interface Plan {
+  needs: { reason: string; applies: ((source: string) => boolean) | null }[];
+  presets: unknown[];
+  plugins: unknown[];
 }
 
 export interface ProjectBabel {
-  /**
-   * What triggers compiling with the project's Babel config for a file at the project
-   * root, announced at startup: a cached transform never reaches `load`.
-   */
+  /** Names the entries that apply at the project root, once, at startup. */
   announceRoot(): void;
+  /** What a file's compiled output depends on beyond its own source (for the cache key). */
+  cacheKey(id: string): string;
   /** A project source file compiled with the project's Babel config, or undefined. */
   load(id: string, chain: LoadChain): Promise<Rollup.LoadResult>;
 }
 
 /**
  * The project's Babel route, or null when it has no `@babel/core` or the mode is `never`.
- * `active` is the run's active presets.
+ * `active` is the run's active presets; `hasExpo` and `platform` choose the caller, the
+ * same one Node's require of project source uses (native/babel-caller.mjs).
  */
 export function createProjectBabel(
   root: string,
   mode: ProjectBabelMode,
-  active: readonly PresetName[],
+  options: {
+    active: readonly PresetName[];
+    hasExpo: boolean;
+    platform: string;
+    /** Called for each file compiled with Babel (the `diagnostics` log). */
+    onCompile?: (file: string, reasons: string[]) => void;
+  },
   announce: (reasons: string[]) => void = () => {},
 ): ProjectBabel | null {
   if (mode === "never") return null;
   // The project's own @babel/core, as babel-jest uses it; none, nothing to compile with.
   if (installedManifest(root, "@babel/core") === null) return null;
   const babel = createRequire(path.join(root, "package.json"))("@babel/core") as Babel;
-
+  const caller = projectBabelCaller({
+    hasExpo: options.hasExpo,
+    platform: options.platform,
+    esm: true,
+  });
   const partialFor = (filename: string) =>
-    babel.loadPartialConfig({ filename, cwd: root, root, caller: CALLER });
+    babel.loadPartialConfig({ filename, cwd: root, root, caller });
 
-  // Reasons per distinct set of loaded plugins and presets: most files share one.
-  const reasonsByKey = new Map<string, string[]>();
-  const reasonsOf = (options: {
+  const plans = new Map<string, Plan>();
+  const planOf = (loaded: {
     plugins?: ConfigItem[];
     presets?: ConfigItem[];
     assumptions?: object;
-  }): string[] => {
-    const entries: ProjectBabelEntry[] = [
-      ...(options.presets ?? []).map((item) => ({
-        name: configItemName(item, "preset"),
-        kind: "preset" as const,
-        options: item.options,
-      })),
-      ...(options.plugins ?? []).map((item) => ({
-        name: configItemName(item, "plugin"),
-        kind: "plugin" as const,
-        options: item.options,
-      })),
-    ];
-    const key = JSON.stringify([entries, options.assumptions ?? {}], (_, value) =>
-      typeof value === "function" ? "[function]" : value,
+  }): Plan => {
+    const presets = loaded.presets ?? [];
+    const plugins = loaded.plugins ?? [];
+    const key = JSON.stringify(
+      [
+        presets.map((p) => [configItemName(p, "preset"), p.options]),
+        plugins.map((p) => [configItemName(p, "plugin"), p.options]),
+        loaded.assumptions ?? {},
+      ],
+      (_, value) => (typeof value === "function" ? "[function]" : value),
     );
-    let reasons = reasonsByKey.get(key);
-    if (!reasons) {
-      reasons = entries
-        .map((entry) => projectBabelTrigger(entry, root, active))
-        .filter((reason): reason is string => reason !== null);
-      if (options.assumptions && Object.keys(options.assumptions).length > 0) {
-        reasons.push("the config's `assumptions`");
+    let plan = plans.get(key);
+    if (plan) return plan;
+    plan = { needs: [], presets: [], plugins: [] };
+    for (const item of presets) {
+      const name = configItemName(item, "preset");
+      const classified = classifyProjectBabelEntry(
+        { name, kind: "preset", options: item.options },
+        root,
+        options.active,
+      );
+      if (classified.kind === "needed") plan.needs.push(classified);
+      // ES modules out: the RN and Expo presets keep them when told to, preset-env when
+      // its module transform is off.
+      if (ESM_PRESETS.has(name) && item.value) {
+        plan.presets.push([
+          item.value,
+          { ...(item.options as object), disableImportExportTransform: true },
+        ]);
+      } else if (name === "@babel/preset-env" && item.value) {
+        plan.presets.push([item.value, { ...(item.options as object), modules: false }]);
+      } else {
+        plan.presets.push(item);
       }
-      reasonsByKey.set(key, reasons);
     }
-    return reasons;
+    for (const item of plugins) {
+      const name = configItemName(item, "plugin");
+      const classified = classifyProjectBabelEntry(
+        { name, kind: "plugin", options: item.options },
+        root,
+        options.active,
+      );
+      if (classified.kind === "strip") continue;
+      if (classified.kind === "needed") plan.needs.push(classified);
+      plan.plugins.push(item);
+    }
+    if (loaded.assumptions && Object.keys(loaded.assumptions).length > 0) {
+      plan.needs.push({ reason: "the config's `assumptions`", applies: null });
+    }
+    plans.set(key, plan);
+    return plan;
   };
 
   const announced = new Set<string>();
-  // Only files in the project: a project-wide Babel config applies to any file Babel is
-  // asked about, including a linked workspace package's and vitest-native's own.
-  const rootPrefix = root.split(path.sep).join("/").replace(/\/?$/, "/");
   const announceOnce = (reasons: string[]) => {
     const fresh = reasons.filter((reason) => !announced.has(reason));
     if (fresh.length === 0) return;
     for (const reason of fresh) announced.add(reason);
     announce(fresh);
   };
+  // Only files in the project: a project-wide Babel config applies to any file Babel is
+  // asked about, including a linked workspace package's and vitest-native's own.
+  const rootPrefix = root.split(path.sep).join("/").replace(/\/?$/, "/");
+  const versions = new Map<string, string>();
+  const versionOf = (item: ConfigItem): string => {
+    const file = item.file?.resolved;
+    if (!file) return "inline";
+    let version = versions.get(file);
+    if (version === undefined) {
+      const name = configItemName(item, "plugin");
+      const manifest = NODE_MODULES.test(file) ? installedManifest(root, name) : null;
+      version =
+        typeof manifest?.version === "string"
+          ? manifest.version
+          : fs.existsSync(file)
+            ? crypto.createHash("sha1").update(fs.readFileSync(file)).digest("hex")
+            : "missing";
+      versions.set(file, version);
+    }
+    return version;
+  };
+
   return {
     announceRoot() {
       const partial = partialFor(path.join(root, "index.js"));
       if (!partial?.hasFilesystemConfig()) return;
-      announceOnce(mode === "always" ? ["projectBabel: 'always'"] : reasonsOf(partial.options));
+      const plan = planOf(partial.options);
+      announceOnce(
+        mode === "always" ? ["projectBabel: 'always'"] : plan.needs.map((n) => n.reason),
+      );
+    },
+
+    cacheKey(id) {
+      if (!isProjectSourceFile(id) || !id.startsWith(rootPrefix)) return "";
+      const partial = partialFor(id);
+      if (!partial?.hasFilesystemConfig()) return "";
+      const items = [...(partial.options.presets ?? []), ...(partial.options.plugins ?? [])];
+      const reasons = planOf(partial.options)
+        .needs.map((need) => need.reason)
+        .join("|");
+      return JSON.stringify(
+        [
+          babel.version,
+          items.map((item) => [configItemName(item, "plugin"), versionOf(item), item.options]),
+          process.env.BABEL_ENV ?? "",
+          process.env.NODE_ENV ?? "",
+          // What a dotenv or inline-environment plugin can bake into the output.
+          /dotenv/.test(reasons) ? envFilesHash(root) : "",
+          /inline-environment/.test(reasons) ? JSON.stringify(process.env) : "",
+        ],
+        (_, value) => (typeof value === "function" ? "[function]" : value),
+      );
     },
 
     async load(id, chain) {
@@ -278,30 +567,55 @@ export function createProjectBabel(
       const partial = partialFor(id);
       // Babel ignores the file (`ignore`/`only`), or no project config applies to it.
       if (!partial?.hasFilesystemConfig()) return undefined;
+      const plan = planOf(partial.options);
+      // Read once: the source tests and the compile use the same text.
       const code = await fs.promises.readFile(id, "utf8");
-      let reasons = mode === "always" ? ["projectBabel: 'always'"] : reasonsOf(partial.options);
+      const reasons =
+        mode === "always"
+          ? ["projectBabel: 'always'"]
+          : plan.needs
+              .filter((need) => need.applies === null || need.applies(code))
+              .map((need) => need.reason);
       // Flow, which React Native's preset strips and Oxc cannot parse.
-      if (reasons.length === 0 && hasFlowPragma(code)) reasons = ["Flow syntax"];
+      if (reasons.length === 0 && JS_FILE(id) && hasFlowPragma(code)) reasons.push("Flow syntax");
       if (reasons.length === 0) return undefined;
       announceOnce(reasons);
+      options.onCompile?.(path.relative(root, id), reasons);
       if (chain) {
         const other = await asking.run(id, () => chain.load(id));
         if (other != null) return other;
       }
-      const presets = (partial.options.presets ?? []).map((item) =>
-        RN_PRESETS.has(configItemName(item, "preset")) && item.value
-          ? [item.value, { ...(item.options as object), disableImportExportTransform: true }]
-          : item,
-      );
       const result = await babel.transformAsync(code, {
         ...partial.options,
-        presets,
+        presets: plan.presets,
+        plugins: plan.plugins,
         filename: id,
         sourceMaps: true,
-        caller: CALLER,
+        caller,
       });
       if (!result?.code) return undefined;
+      if (COMMONJS_OUTPUT.test(result.code)) {
+        throw new VitestNativeError(
+          "PROJECT_BABEL_COMMONJS",
+          `projectBabel: the project's Babel config compiled ${path.relative(root, id)} to ` +
+            `CommonJS, which Vite's module runner cannot run. A plugin in it transforms modules; ` +
+            `vitest-native takes out the known module transforms, so this one is a custom or ` +
+            `unknown plugin. Remove it for tests, or set projectBabel: 'never'.`,
+        );
+      }
       return { code: result.code, map: result.map as Rollup.SourceMapInput };
     },
   };
+}
+
+/** A digest of the project's `.env*` files, which a dotenv plugin inlines. */
+function envFilesHash(root: string): string {
+  const hash = crypto.createHash("sha1");
+  for (const name of fs
+    .readdirSync(root)
+    .filter((f) => f.startsWith(".env"))
+    .sort()) {
+    hash.update(name).update(fs.readFileSync(path.join(root, name)));
+  }
+  return hash.digest("hex");
 }

@@ -106,6 +106,10 @@ One file ran twice in the same worker: Vite loaded it for the test's imports, an
 
 vitest-native could not precompile the modules of libraries such as Reanimated and Worklets into one file, which makes them load faster. You see it as a warning, `could not precompile the library registry (…); those libraries load file by file, which is slower`, and results are unaffected; the code itself is raised only inside the process that builds the file. The build is retried once any file it read changes. To retry sooner, delete the `registry` folder in vitest-native's cache ([where it lives](/guide/troubleshooting#when-react-native-s-precompiled-modules-are-reused-or-rebuilt)). If the warning keeps coming back, report the reason it names.
 
+### `PROJECT_BABEL_COMMONJS` {#PROJECT_BABEL_COMMONJS}
+
+A project file compiled with your Babel config ([`projectBabel`](/guide/plugin-options#projectbabel)) came out as CommonJS, which Vite's module runner cannot run. vitest-native takes the known module transforms out of the config for this compile, so a custom or unknown plugin in it transforms modules. The message names the file. Leave that plugin out of the config for tests, or set `projectBabel: 'never'`.
+
 ## Helpers and jest-compat
 
 ### `HELPERS_BEFORE_SETUP` {#HELPERS_BEFORE_SETUP}

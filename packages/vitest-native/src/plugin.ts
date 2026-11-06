@@ -44,6 +44,7 @@ import { knownNativeModulesFor, nativeModuleSpecsFor } from "./native/native-mod
 import { JSX_TRANSFORM, nativeEngineConfig } from "./native/apply.js";
 import { isProjectJsFile, loadProjectJsx, projectJsxOptions } from "./project-jsx.js";
 import { createProjectBabel, isProjectSourceFile } from "./project-babel.js";
+import { installedManifest } from "./installed-manifest.js";
 import type { ProjectBabel } from "./project-babel.js";
 import type { LoadChain } from "./project-jsx.js";
 import { detectEngine } from "./native/detect.js";
@@ -2010,8 +2011,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // The resolved Vite config and its Oxc options for project `.js` files (project-jsx.ts).
   let viteConfig: ResolvedConfig | undefined;
   let projectJsx: ReturnType<typeof projectJsxOptions>;
-  // The project's Babel config for project source that needs it (project-babel.ts).
-  let projectBabel: ProjectBabel | null = null;
+  // The project's Babel route per project root (project-babel.ts).
+  const projectBabels = new Map<string, ProjectBabel>();
+  const projectBabelFor = (root: string | undefined): ProjectBabel | undefined =>
+    root === undefined ? undefined : projectBabels.get(root);
   const presetModules = new Map<string, () => Record<string, any>>();
   // Preset export names discovered by calling factories at config time.
   const presetExportNames = new Map<string, string[]>();
@@ -3197,35 +3200,34 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       }
       presetExportsByRoot.set(vitestRootOf(config), exportsByModule);
 
-      // projectBabel: the project's Babel config for project source that needs a plugin
-      // Oxc does not cover. A Babel Vite plugin already in the config compiles that
-      // source itself, so this defers to it rather than compile twice.
-      const babelMode = options?.projectBabel ?? "auto";
-      const babelPlugin = (config.plugins ?? []).find(
-        (plugin) => /babel/i.test(plugin?.name ?? "") && !plugin.name.startsWith("vitest-native"),
+      // projectBabel: the project's Babel config for the project source that needs a
+      // plugin Oxc does not cover (project-babel.ts). A Babel Vite plugin in the config
+      // (a babel() entry) runs its own plugin list on the output, which repeats an
+      // entry the engine already applied without effect, so this does not step aside.
+      const babelRoute = createProjectBabel(
+        config.root,
+        options?.projectBabel ?? "auto",
+        {
+          active: resolved.presets.map((preset) => preset.name as PresetName),
+          hasExpo: installedManifest(config.root, "expo") !== null,
+          platform: resolved.platform,
+          onCompile: diagnostics
+            ? (file, reasons) =>
+                console.log(`[vitest-native] projectBabel: ${file} (${reasons.join(", ")})`)
+            : undefined,
+        },
+        // Once per reason: at startup for the project root, then the first time a file
+        // compiles for a reason the root does not have (`overrides`, Flow).
+        (reasons) =>
+          console.log(
+            `[vitest-native] projectBabel: project source that needs it compiles with the ` +
+              `project's Babel config, for ${reasons.join(", ")}. ` +
+              `Set projectBabel: 'never' to compile it with Oxc only.`,
+          ),
       );
-      projectBabel = null;
-      if (babelMode !== "never" && babelPlugin) {
-        console.log(
-          `[vitest-native] projectBabel: the ${babelPlugin.name} plugin compiles project ` +
-            `source with Babel here, so the project's Babel config is left to it.`,
-        );
-      } else {
-        // Once per reason, the first time a file compiles for it (`overrides` can add a
-        // plugin for one directory only).
-        projectBabel = createProjectBabel(
-          config.root,
-          babelMode,
-          resolved.presets.map((preset) => preset.name as PresetName),
-          (reasons) =>
-            console.log(
-              `[vitest-native] projectBabel: project source that needs it compiles with the ` +
-                `project's Babel config, for ${reasons.join(", ")}. ` +
-                `Set projectBabel: 'never' to compile it with Oxc only.`,
-            ),
-        );
-        projectBabel?.announceRoot();
-      }
+      if (babelRoute) projectBabels.set(config.root, babelRoute);
+      else projectBabels.delete(config.root);
+      babelRoute?.announceRoot();
 
       // Read the facade's export list from React Native's own index.
       if (engine === "native") {
@@ -3337,6 +3339,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         ?.pluginContainer;
       const jsx = () =>
         loadProjectJsx(id, projectJsx, viteConfig, chain, diagnostics ? console.log : undefined);
+      const projectBabel = projectBabelFor(
+        (this.environment as { config?: { root?: string } } | undefined)?.config?.root,
+      );
       if (projectBabel && isProjectSourceFile(id)) {
         return projectBabel
           .load(id, chain)
@@ -3557,7 +3562,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     project,
     defineCacheKeyGenerator,
   }: {
-    defineCacheKeyGenerator?: (generator: () => string) => void;
+    defineCacheKeyGenerator?: (generator: (context?: { id?: string }) => string) => void;
     vitest: {
       version?: string;
       distPath?: string;
@@ -3659,7 +3664,15 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       });
     }
     const cacheKey = cacheKeys.get(root);
-    if (cacheKey) defineCacheKeyGenerator?.(() => cacheKey);
+    // A project file compiled with the project's Babel config also depends on what that
+    // config loads for it: its plugins' versions and options, and the environment
+    // they may inline (projectBabel's cacheKey).
+    if (cacheKey) {
+      defineCacheKeyGenerator?.(
+        (context?: { id?: string }) =>
+          cacheKey + (context?.id ? (projectBabelFor(root)?.cacheKey(context.id) ?? "") : ""),
+      );
+    }
     // A project that shares a Vite server without this plugin's test config would
     // run without React Native's setup; say so instead of failing per file.
     const setupFile = contributedSetup.get(root);

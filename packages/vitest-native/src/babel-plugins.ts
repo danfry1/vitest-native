@@ -68,7 +68,7 @@ interface KnownPlugin {
  * That mock runs Reanimated's real hooks, which need the worklets Babel plugin; only the
  * preset's own module (the mock engine, or an older Reanimated) makes the plugin unneeded.
  */
-function reanimatedRunsItsOwnMock(root: string, active: readonly PresetName[]): boolean {
+export function reanimatedRunsItsOwnMock(root: string, active: readonly PresetName[]): boolean {
   return (
     active.includes("reanimated") &&
     detectEngine("auto", root).engine === "native" &&
