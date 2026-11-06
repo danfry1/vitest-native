@@ -19,7 +19,7 @@ import {
 } from "./compare-run.js";
 
 /** Each command's flags, besides --root <dir> and --help, which every command takes. */
-const COMMAND_FLAGS: Record<string, string[]> = {
+export const COMMAND_FLAGS: Record<string, string[]> = {
   init: ["--jest-compat", "--force"],
   doctor: [],
   migrate: ["--write", "--force"],

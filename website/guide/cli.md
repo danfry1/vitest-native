@@ -95,7 +95,7 @@ npx vitest-native compare
 npx vitest-native compare --json compare.json   # a report to attach to an issue
 ```
 
-Neither run writes snapshots, and compare fails if a run changes a file in the project. With no Vitest config yet, it uses the config `migrate` would write, without saving it. It exits 0 when every test that passes under Jest also passes under Vitest and `vitest run` exits 0, 1 when not, and 2 when a runner could not run or the project changed.
+Neither run writes snapshots, and compare fails if a run changes a file in the project. With no Vitest config yet, it uses the config `migrate` would write, without saving it. It exits 0 when every test that passes under Jest also passes under Vitest and `vitest run` exits 0, and 1 when not. It exits 2 when a runner could not run, when the project changed, or when no test passed under Jest, and 130 when interrupted.
 
 | Flag | Does |
 |---|---|
