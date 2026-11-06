@@ -19,8 +19,8 @@
      Code inside a link stays green (--vp-code-link-color). */
   --vp-code-color: var(--vp-c-text-1);
 
-  /* Forest: links and inline code (brand-1), hover (brand-2), and the badges that use
-     brand-3. Buttons do not use it. */
+  /* Forest, for links (brand-1), their hover (brand-2) and active states: the current
+     sidebar item, the selected tab, a search match. Buttons, tips and badges do not use it. */
   --vp-c-brand-1: #17784a;
   --vp-c-brand-2: #115c39;
   --vp-c-brand-3: #17784a;
@@ -50,9 +50,19 @@
   --vp-home-hero-name-background: none;
   --vp-home-hero-image-background-image: none;
 
+  /* Tips and tip badges are neutral; a link inside one is still green. */
   --vp-custom-block-tip-border: transparent;
-  --vp-custom-block-tip-bg: var(--vp-c-brand-soft);
-  --vp-custom-block-tip-code-bg: rgba(23, 120, 74, 0.05);
+  --vp-custom-block-tip-bg: var(--vp-c-bg-soft);
+  --vp-custom-block-tip-code-bg: var(--vp-c-bg);
+  --vp-badge-tip-bg: var(--vp-c-default-soft);
+  --vp-badge-tip-text: var(--vp-c-text-1);
+
+  /* VitePress's greys are blue-tinted; these are neutral. */
+  --vp-c-gray-1: #dedede;
+  --vp-c-gray-2: #e8e8e8;
+  --vp-c-gray-3: #f0f0f0;
+  --vp-c-gray-soft: rgba(0, 0, 0, 0.05);
+  --vp-c-border: #d4d4d4;
 }
 
 .dark {
@@ -80,7 +90,11 @@
   --vp-button-brand-active-bg: #bdbdbd;
   --vp-button-brand-active-text: #0a0a0a;
 
-  --vp-custom-block-tip-code-bg: rgba(76, 211, 138, 0.06);
+  --vp-c-gray-1: #555555;
+  --vp-c-gray-2: #444444;
+  --vp-c-gray-3: #333333;
+  --vp-c-gray-soft: rgba(255, 255, 255, 0.07);
+  --vp-c-border: #3a3a3a;
 
   --vp-c-default-soft: rgba(255, 255, 255, 0.07);
   --vp-button-alt-bg: #1f1f1f;

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { nodeVersions, supportItems } from "../../../website/.vitepress/support.ts";
+import { nodeVersions, peerVersions, supportItems } from "../../../website/.vitepress/support.ts";
 import { SUPPORTED_NODE } from "../src/node-range";
 
 // The landing page's supported-versions line is read from the startup checks at build
@@ -19,6 +19,14 @@ describe("the landing page's supported versions", () => {
     expect(nodeVersions(SUPPORTED_NODE).split(/, | or /)).toHaveLength(
       SUPPORTED_NODE.split("||").length,
     );
+  });
+
+  it("states a peer's range from its floor and ceiling", () => {
+    expect(peerVersions({ minimum: "5.0.0", maximumMajor: 6 })).toBe("5");
+    expect(peerVersions({ minimum: "8.0.5", maximumMajor: 9 })).toBe("^8.0.5");
+    expect(peerVersions({ minimum: "13.0.0", maximumMajor: 15 })).toBe("13–14");
+    expect(peerVersions({ minimum: "19.0.0" })).toBe("19+");
+    expect(peerVersions({ minimum: "19.1.0" })).toBe("19.1.0+");
   });
 
   it("names React Native, Expo, Vitest and Node", () => {

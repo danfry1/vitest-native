@@ -26,15 +26,22 @@ export function nodeVersions(range: string = SUPPORTED_NODE): string {
     : floors[0]
 }
 
+/**
+ * A peer's supported versions: `5` for exactly one major from its `.0.0`, `^8.0.5` when the
+ * floor is inside the major, `5–6` for several majors, and `19+` with no ceiling.
+ */
+export function peerVersions(peer: { minimum: string; maximumMajor?: number }): string {
+  const [major, minor = '0', patch = '0'] = peer.minimum.split('.')
+  if (peer.maximumMajor === undefined) return `${minor === '0' && patch === '0' ? major : peer.minimum}+`
+  const floorInsideMajor = minor !== '0' || patch !== '0'
+  if (peer.maximumMajor === Number(major) + 1) return floorInsideMajor ? `^${peer.minimum}` : major
+  return `${floorInsideMajor ? peer.minimum : major}–${peer.maximumMajor - 1}`
+}
+
 function majorOf(name: string): string {
   const peer = PEER_REQUIREMENTS.find((entry) => entry.name === name)
   if (!peer) throw new Error(`no peer requirement for ${name}`)
-  const major = peer.minimum.split('.')[0]
-  // A ceiling one above the floor means exactly that major is supported.
-  if (peer.maximumMajor !== undefined && peer.maximumMajor !== Number(major) + 1) {
-    return `${major}–${peer.maximumMajor - 1}`
-  }
-  return major
+  return peerVersions(peer)
 }
 
 export function supportItems(): SupportItem[] {

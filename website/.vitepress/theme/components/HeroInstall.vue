@@ -3,11 +3,13 @@ import { computed, onMounted, ref } from 'vue'
 
 // The install command in the hero, for each package manager. The reader's choice is a
 // convenience kept in localStorage; the page works the same without it.
+// The same packages the install page installs, so the landing page's first test runs.
+const PACKAGES = 'vitest vite vitest-native @testing-library/react-native'
 const managers = [
-  { id: 'npm', command: 'npm i -D vitest vite vitest-native' },
-  { id: 'pnpm', command: 'pnpm add -D vitest vite vitest-native' },
-  { id: 'yarn', command: 'yarn add -D vitest vite vitest-native' },
-  { id: 'bun', command: 'bun add -d vitest vite vitest-native' },
+  { id: 'npm', command: `npm i -D ${PACKAGES}` },
+  { id: 'pnpm', command: `pnpm add -D ${PACKAGES}` },
+  { id: 'yarn', command: `yarn add -D ${PACKAGES}` },
+  { id: 'bun', command: `bun add -d ${PACKAGES}` },
 ] as const
 type Manager = (typeof managers)[number]['id']
 const STORAGE_KEY = 'vitest-native:package-manager'
@@ -37,12 +39,18 @@ function select(id: Manager) {
   }
 }
 
-// Arrow keys move between tabs, as in a WAI-ARIA tablist.
+// Arrow keys, Home and End move between tabs, as in a WAI-ARIA tablist.
 function onKey(event: KeyboardEvent, index: number) {
-  const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
-  if (!step) return
+  const last = managers.length - 1
+  const targets: Record<string, number> = {
+    ArrowRight: index === last ? 0 : index + 1,
+    ArrowLeft: index === 0 ? last : index - 1,
+    Home: 0,
+    End: last,
+  }
+  const next = targets[event.key]
+  if (next === undefined) return
   event.preventDefault()
-  const next = (index + step + managers.length) % managers.length
   select(managers[next].id)
   tabEls.value[next]?.focus()
 }
@@ -144,9 +152,11 @@ async function copy() {
   min-width: 0;
   font-family: var(--vp-font-family-mono);
   font-size: 14px;
+  line-height: 1.6;
   color: var(--vp-c-text-1);
-  overflow-x: auto;
-  white-space: nowrap;
+  /* Wraps rather than scrolls, so nothing is out of reach of the keyboard. */
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .prompt {
   color: var(--vp-c-text-3);
