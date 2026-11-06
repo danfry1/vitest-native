@@ -200,11 +200,11 @@ reactNative({ nativeModules: 'permissive' })
 
 **Type:** `'warn' | 'error' | { mode?: 'warn' | 'error'; allow?: { path: string; reason: string }[] }` · **Default:** `'warn'` · **Engine:** native
 
-What happens when one file is evaluated by both Node and Vite in a worker. Such a file exists twice, and module state written through one copy is not seen by the other; nothing else reports it.
+What happens when one file runs twice in a worker: once loaded by Vite, through your test's imports, and once by Node, through a `require()` or a package Node loads. The two copies don't share state, so a store or cache written through one is not seen by the other. Nothing else reports it.
 
-- `'warn'`: report each such file once per worker, naming both sides, the route and the fix.
-- `'error'`: throw [`SOURCE_EVALUATED_TWICE`](/guide/errors#SOURCE_EVALUATED_TWICE) at the second evaluation and fail the test file.
-- The object form adds `allow`, the only exemption: a file or directory (resolved against the Vitest root) and the reason it is deliberate. Detection cannot be turned off.
+- `'warn'`: print a warning once per worker for each such file. It names the file, how each side reached it, and the fix.
+- `'error'`: fail the test file with [`SOURCE_EVALUATED_TWICE`](/guide/errors#SOURCE_EVALUATED_TWICE).
+- The object form also takes `allow`: files or directories, resolved against the Vitest root, that may run twice, each with the reason. It is the only exemption; the check cannot be turned off.
 
 ## `metroConfig`
 

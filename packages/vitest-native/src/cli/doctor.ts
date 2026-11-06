@@ -548,7 +548,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
       if (model) {
         lines.push(
           `  · experimental.ownershipModel: '${model}' is on: Vite and Node's loaders ` +
-            "resolve bare imports through one shared resolver (docs/ownership-model.md).",
+            "resolve bare imports through one shared resolver (https://danfry1.github.io/vitest-native/guide/plugin-options#experimental).",
         );
         if (model === "resolution") {
           lines.push(

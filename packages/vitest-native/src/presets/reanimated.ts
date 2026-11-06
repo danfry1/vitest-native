@@ -229,6 +229,27 @@ export function mockCorrections(
   for (const name of ["useScrollOffset", "useScrollViewOffset"]) {
     if (notASharedValue(mock[name])) fixed[name] = offsets;
   }
+  // Reanimated's setUpTests() registers its own toHaveAnimatedStyle and
+  // toHaveAnimatedProps on the global `expect` (or on Jest's `expect` package when there
+  // is none). Theirs read props only Reanimated's real components set, which this mock's
+  // components do not, so after the call every animated-style assertion failed. The engine
+  // registers working equivalents itself. setUpTests() still runs, for the frame time it
+  // sets for advanceAnimationByFrame, but against an `expect` whose extend does nothing.
+  if (typeof mock.setUpTests === "function") {
+    const own = mock.setUpTests as Fn;
+    fixed.setUpTests = (...args: unknown[]) => {
+      const global = globalThis as Record<string, unknown>;
+      const had = Object.prototype.hasOwnProperty.call(global, "expect");
+      const previous = global.expect;
+      global.expect = { extend() {} };
+      try {
+        return own(...args);
+      } finally {
+        if (had) global.expect = previous;
+        else delete global.expect;
+      }
+    };
+  }
   const defaults: Record<string, any> = { ...mock.default, ...fixHelpers(mock.default) };
   // The scroll views pass a handler's drag and momentum handlers on (withScrollEvents).
   if (scrollFixed) {
