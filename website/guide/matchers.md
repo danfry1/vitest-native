@@ -4,7 +4,7 @@ vitest-native registers React Native Testing Library's matchers and Vitest equiv
 
 ## RNTL matchers
 
-When supported `@testing-library/react-native` 12–14 is installed, `vitest-native`
+When a supported `@testing-library/react-native` (13 or 14) is installed, `vitest-native`
 auto-registers its custom matchers across each major's export layout. No manual
 `extend(matchers)` call or setup file is needed.
 
