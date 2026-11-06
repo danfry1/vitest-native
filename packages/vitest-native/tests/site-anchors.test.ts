@@ -11,7 +11,13 @@ import { describe, expect, it } from "vitest";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const SITE = path.join(repoRoot, "website");
 const SITE_URL = "https://danfry1.github.io/vitest-native";
-const READMES = ["README.md", "packages/vitest-native/README.md"];
+// Pages outside the site that link it by absolute URL: both READMEs, and the packaged
+// migration pointer that vitest-native's own messages link to.
+const READMES = [
+  "README.md",
+  "packages/vitest-native/README.md",
+  "packages/vitest-native/docs/migrating-from-jest.md",
+];
 
 function pages(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {

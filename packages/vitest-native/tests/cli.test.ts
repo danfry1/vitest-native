@@ -152,6 +152,36 @@ describe("init", () => {
     expect(runInit(root, { force: true }).ok).toBe(true);
   });
 
+  it("--force replaces the config Vitest loads, first in Vitest's lookup order, in place", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "tsconfig.json": {},
+      "vitest.config.ts": "export default { test: { name: 'old' } }",
+      "vitest.config.mts": "export default { test: { name: 'other' } }",
+    });
+    const result = runInit(root, { force: true });
+    expect(result.ok).toBe(true);
+    // Vitest looks up vitest.config.ts before .mts, so .ts is the one it loads.
+    expect(result.wrote).toBe("vitest.config.ts");
+    expect(fs.readFileSync(path.join(root, "vitest.config.ts"), "utf8")).toBe(
+      renderInitConfig(false),
+    );
+    expect(fs.readFileSync(path.join(root, "vitest.config.mts"), "utf8")).toContain("'other'");
+    expect(result.lines.join("\n")).toContain("replaced the existing vitest.config.ts");
+  });
+
+  it("--force refuses a CommonJS config instead of writing an ES module one beside it", () => {
+    for (const name of ["vitest.config.cts", "vitest.config.cjs"]) {
+      const root = fixture({ "package.json": { name: "x" }, [name]: "module.exports = {}" });
+      const result = runInit(root, { force: true });
+      expect(result.ok).toBe(false);
+      expect(result.lines.join("\n")).toContain(`${name} is a CommonJS config`);
+      // Without --force too: pointing at --force would only lead to this refusal.
+      expect(runInit(root).lines.join("\n")).not.toContain("--force");
+      expect(fs.readdirSync(root).filter((f) => f.startsWith("vitest.config"))).toEqual([name]);
+    }
+  });
+
   it("renderInitConfig variants are syntactically importable shapes", () => {
     for (const variant of [renderInitConfig(false), renderInitConfig(true)]) {
       expect(variant).toContain("export default defineConfig({");

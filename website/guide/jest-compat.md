@@ -66,6 +66,7 @@ Jest keeps one module registry per test file, so a `jest.mock(spec, factory)` ap
 | `require('#/x')` in a test, with `jest.mock('#/x', factory)` | returns the mock — the same object `jest.requireMock('#/x')` returns |
 | `jest.mock('a', () => jest.requireActual('a/index.web'))` while `jest.mock('#/storage', …)` | the module `requireActual` loads gets the mocked `#/storage`: only the requested module is unmocked, as in Jest |
 | `jest.requireActual('#/x')` of a mocked module | the real module; everything else still gets the mock |
+| `jest.mock('#/x', () => ({ ...jest.requireActual('#/x'), y: jest.fn() }))` of your own source | the real members load through Vite, so they share module state (a store, a cache) with the code the test imports. A `requireActual` inside a function the factory returns, or a `require()` of the module that runs before any import, still loads a separate copy through Node |
 | `const { Sentry } = jest.requireMock('#/sentry')` | the registered mock, the same objects the file's imports see |
 | `jest.mock('react-native/Libraries/AppState/AppState', factory)` | applies to React Native's own `require` of that module, so `import { AppState } from 'react-native'` and `require('react-native').AppState` see the mock |
 | `jest.mock('virtual', factory, { virtual: true })` | `require('virtual')` returns the mock |
