@@ -18,7 +18,9 @@ instead of quietly doing something else.
 ## `init`
 
 Writes `vitest.config.mts` (or `.mjs` in JS-only projects) with the
-zero-config plugin. Refuses to overwrite an existing config unless `--force`.
+zero-config plugin. Refuses to overwrite an existing config unless `--force`, which
+replaces the config file Vitest loads, under its own name (a CommonJS
+`vitest.config.cjs` or `.cts` is refused instead).
 
 ```bash
 npx vitest-native init                 # plain config
@@ -76,7 +78,8 @@ Reads your Jest configuration (`package.json#jest`, or the first
 - **Dropped** — Jest keys with no vitest-native equivalent needed.
 
 It ends with a complete suggested config. Dry-run by default; `--write` saves
-it, and refuses to overwrite an existing config unless `--force`. It never edits test files — top-level `jest.mock`
+it, and refuses to overwrite an existing config unless `--force` (which replaces
+it as `init --force` does). It never edits test files — top-level `jest.mock`
 calls are handled at runtime by
 [`jestMockTransform()`](/guide/jest-compat).
 
