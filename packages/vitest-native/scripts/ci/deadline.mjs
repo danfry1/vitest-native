@@ -43,7 +43,9 @@ export function describeRunning(running) {
   if (running.size === 0)
     return ["No test file was running (setup, collection, or not a Vitest step)."];
   return [...running].map(([file, test]) =>
-    test ? `Running: ${file} (test "${test}")` : `Running: ${file} (between tests)`,
+    test
+      ? `Running: ${file} (test "${test}")`
+      : `Running: ${file} (no test reported as running: a test whose start was not reported yet, a hook, or the file's imports)`,
   );
 }
 

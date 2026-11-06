@@ -44,7 +44,11 @@ describe("hang guard", () => {
     );
     expect(code).toBe(1);
     expect(output).toMatch(/No test progress for 0\.1 min/);
-    expect(output).toContain(`spin.check.js (test "spins forever")`);
+    // The file, always; the test only if the worker reported its start before it stuck.
+    expect(output).toMatch(
+      /Running: \S*spin\.check\.js \((test "spins forever"|no test reported as running)/,
+    );
+    expect(output).not.toMatch(/Running: \S*ok\.check\.js/);
     expect(ms).toBeLessThan(60_000);
   }, 90_000);
 
@@ -61,7 +65,7 @@ describe("hang guard", () => {
       root,
     );
     expect(code).toBe(1);
-    expect(output).toMatch(/hook\.check\.js \(between tests/);
+    expect(output).toMatch(/Running: \S*hook\.check\.js \(no test reported as running/);
   }, 90_000);
 
   it("stops a run whose main process is stuck, at the step's deadline", async () => {

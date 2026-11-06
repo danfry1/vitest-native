@@ -103,7 +103,9 @@ describe("progress log", () => {
       '{"event":"file-st', // cut short by the kill
     ]);
     expect([...runningFromLog(log)]).toEqual([["b", null]]);
-    expect(describeRunning(runningFromLog(log))).toEqual(["Running: b (between tests)"]);
+    expect(describeRunning(runningFromLog(log))).toEqual([
+      "Running: b (no test reported as running: a test whose start was not reported yet, a hook, or the file's imports)",
+    ]);
   });
 
   it("reads a missing log as nothing running", () => {

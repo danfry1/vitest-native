@@ -82,7 +82,11 @@ export default class HangReporter {
     }
   }
 
-  /** The lines naming what is still running. */
+  /**
+   * The lines naming what is still running. A worker reports a test's start in batches,
+   * asynchronously, so a worker stuck in synchronous code may never report the test it is
+   * in: then only the file is known.
+   */
   report() {
     const minutes = (this.idleMs / 60_000).toFixed(1).replace(/\.0$/, "");
     const lines = [`No test progress for ${minutes} min.`];
@@ -95,7 +99,7 @@ export default class HangReporter {
       lines.push(
         test
           ? `Running: ${file} (test "${test}")`
-          : `Running: ${file} (between tests: a hook, the file's imports, or setup)`,
+          : `Running: ${file} (no test reported as running: a test whose start was not reported yet, a hook, or the file's imports)`,
       );
     }
     return lines;
