@@ -109,11 +109,15 @@ export function loadJestPreset(
  * against root-relative paths. So `<rootDir>/x` anchors at the root, anything else may
  * start mid-segment (`bskylink/.*` also ignores `notbskylink/`, hence `**\/*`), `/.*\/`
  * spans whole segments (`*\/**`), a trailing `/`, `/.*` or `.*` leaves the rest free,
- * a pattern ending mid-segment covers a file and a directory, and `$` is left for a human.
+ * a pattern ending mid-segment covers a file and a directory, and a `$`-anchored literal
+ * (`\\.d\\.ts$`) becomes one file glob only when `directories` shows it prunes no directory.
  * Jest substitutes `<rootDir>` unescaped; it is read here as the directory it names.
  * A match starting above the root has no relative form and is not attempted.
  */
-export function ignorePatternToGlobs(pattern: string): string[] | null {
+export function ignorePatternToGlobs(
+  pattern: string,
+  directories?: readonly string[],
+): string[] | null {
   let rest = pattern;
   let anchored = false;
   if (rest.startsWith("<rootDir>")) {
@@ -128,7 +132,7 @@ export function ignorePatternToGlobs(pattern: string): string[] | null {
   if (!expansions) return null;
   const globs: string[] = [];
   for (const expansion of expansions) {
-    const converted = expansionToGlobs(expansion, anchored, endAnchored);
+    const converted = expansionToGlobs(expansion, anchored, endAnchored, directories);
     if (!converted) return null;
     globs.push(...converted);
   }
@@ -139,6 +143,7 @@ function expansionToGlobs(
   expansion: string,
   anchored: boolean,
   endAnchored: boolean,
+  directories: readonly string[] | undefined,
 ): string[] | null {
   let s = expansion;
   // Characters picomatch reads as syntax (classes, braces, extglob parens, negation,
@@ -150,10 +155,19 @@ function expansionToGlobs(
   }
   if (!anchored) s = s.replace(new RegExp(`^${STAR}+`), "");
   if (s === "" || (anchored && s.startsWith(`/${STAR}`))) return null;
-  // A file path never ends in `/`, so `x/$` excludes nothing. Any other `$` cannot be
-  // said as an exclude glob: tinyglobby prunes a DIRECTORY an ignore glob matches,
-  // so `**/*.snap` would also drop everything inside a directory named `x.snap`.
-  if (endAnchored) return s.endsWith("/") ? [] : null;
+  // A file path never ends in `/`, so `x/$` excludes nothing. Any other `$` names a
+  // path's end, which a glob says exactly for files; but tinyglobby also prunes a
+  // DIRECTORY an ignore glob matches, so `**/*.snap` would drop everything inside a
+  // directory named `x.snap`. The glob is exact when no directory in the project ends
+  // that way (`directories`: root-relative, outside node_modules and .git).
+  if (endAnchored) {
+    if (s.endsWith("/")) return [];
+    if (!directories || s.includes(STAR)) return null;
+    if (directories.some((dir) => (anchored ? `/${dir}` === s : `/${dir}`.endsWith(s)))) {
+      return null;
+    }
+    return [anchored ? s.slice(1) : s.startsWith("/") ? `**/${s.slice(1)}` : `**/*${s}`];
+  }
   const parts = s.split(`/${STAR}/`);
   if (parts.some((part) => part.includes(STAR) || part === "")) return null;
   let glob = parts.join("/*/**/");
@@ -199,6 +213,7 @@ export function translateDiscovery(
   options: JestDiscoveryOptions,
   preset: JestDiscoveryOptions | null,
   major: 29 | 30 | null,
+  directories?: readonly string[],
 ): DiscoveryResult {
   const defaults = JEST_DEFAULTS[major ?? 30];
   const automatic: string[] = [];
@@ -306,7 +321,7 @@ export function translateDiscovery(
     for (const pattern of patterns) {
       // Jest's default; configDefaults.exclude (spread first) has `**/node_modules/**`.
       if (pattern === "/node_modules/") continue;
-      const globs = ignorePatternToGlobs(pattern);
+      const globs = ignorePatternToGlobs(pattern, directories);
       if (globs) {
         exclude.push(...globs);
         automatic.push(`${key} '${pattern}' → test.exclude ${JSON.stringify(globs)}.${extra}`);
@@ -448,4 +463,28 @@ export function booleanFlag(value: string | true | undefined): boolean | undefin
   if (value === true || value === "true") return true;
   if (value === "false") return false;
   return undefined;
+}
+
+/**
+ * The project's directories, root-relative with `/`, as Vitest walks them: outside
+ * node_modules and .git (configDefaults.exclude), symlinks not followed.
+ */
+export function projectDirectories(root: string): string[] {
+  const dirs: string[] = [];
+  const walk = (rel: string) => {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name === "node_modules" || entry.name === ".git") continue;
+      const child = rel ? `${rel}/${entry.name}` : entry.name;
+      dirs.push(child);
+      walk(child);
+    }
+  };
+  walk("");
+  return dirs;
 }

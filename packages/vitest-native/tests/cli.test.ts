@@ -349,6 +349,42 @@ describe("migrate", () => {
     expect(text).toContain("'someCustomKey' — unrecognized Jest key");
   });
 
+  it("translates any literal prefix mapper and drops keys with no Vitest effect", () => {
+    // Shapes from Rocket.Chat.ReactNative and react-native-paper.
+    const report = analyzeJestConfig(
+      fixture({
+        "package.json": { name: "x" },
+        "jest.config.json": {
+          moduleNameMapper: {
+            "^~e2e/(.*)$": "<rootDir>/e2e/$1",
+            "^~/\\.rnstorybook/(.*)$": "<rootDir>/.rnstorybook/$1",
+            "^@app/(.+)": "./app/$1",
+            // Not a plain prefix: left for a human.
+            "^(.*)/native$": "<rootDir>/$1/web",
+            // A package target is a module request, not a project directory.
+            "^ui/(.*)$": "some-ui-lib/src/$1",
+          },
+          watchPathIgnorePatterns: ["<rootDir>/node_modules"],
+          workerIdleMemoryLimit: "512MB",
+        },
+      }),
+    );
+    const config = report.suggestedConfig;
+    expect(config).toContain(`"~e2e": fileURLToPath(new URL("./e2e", import.meta.url))`);
+    expect(config).toContain(
+      `"~/.rnstorybook": fileURLToPath(new URL("./.rnstorybook", import.meta.url))`,
+    );
+    expect(config).toContain(`"@app": fileURLToPath(new URL("./app", import.meta.url))`);
+    const attention = report.attention.join("\n");
+    expect(attention).toContain("moduleNameMapper '^(.*)/native$'");
+    expect(config).not.toContain("some-ui-lib");
+    expect(attention).not.toContain("watchPathIgnorePatterns");
+    expect(attention).not.toContain("workerIdleMemoryLimit");
+    const dropped = report.dropped.join("\n");
+    expect(dropped).toContain("watchPathIgnorePatterns — affects only Jest's watch mode");
+    expect(dropped).toContain("workerIdleMemoryLimit — Vitest recycles workers by memory only");
+  });
+
   it("calls a manual mock covered only where an active preset shadows that module", () => {
     // The claim is read from PRESET_MODULES (held to the presets by
     // tests/presets.test.ts) and the plugin's detection. The expo preset is detected, but the native

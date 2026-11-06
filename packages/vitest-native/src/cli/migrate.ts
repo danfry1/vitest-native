@@ -28,6 +28,7 @@ import {
   jestMajor,
   loadJestPreset,
   parseJestScript,
+  projectDirectories,
   translateDiscovery,
   type JestDiscoveryOptions,
   type JestScriptFlags,
@@ -213,6 +214,21 @@ function exactMapperKey(pattern: string): string | null {
   const m = /^\^(.+)\$$/.exec(pattern);
   const expansions = m ? tryExpand(m[1], true) : null;
   return expansions?.length === 1 && !expansions[0].includes(STAR) ? expansions[0] : null;
+}
+
+/**
+ * A `^prefix/(.*)$` → `<rootDir>/dir/$1` moduleNameMapper, which is a plain prefix
+ * alias: the literal prefix (escapes read as literals, as exactMapperKey reads them)
+ * and the project-relative target directory, or null.
+ */
+function prefixMapper(pattern: string, target: unknown): { key: string; dir: string } | null {
+  const m = /^\^(.+)\/\((?:\.\*|\.\+)\)\$?$/.exec(pattern);
+  if (!m || typeof target !== "string") return null;
+  const expansions = tryExpand(m[1], true);
+  if (expansions?.length !== 1 || expansions[0].includes(STAR)) return null;
+  const t = /^(<rootDir>|\.)(\/.*)?\/\$1$/.exec(target);
+  if (!t || target.indexOf("$") !== target.length - 2) return null;
+  return { key: expansions[0], dir: `.${t[2] ?? ""}` };
 }
 
 /** `pkg` and `/sub` of a bare specifier (scope-aware). */
@@ -445,6 +461,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
         // itself (DEFAULT_ASSET_EXTS, the list plugin.ts uses), and said per extension.
         const assetGroup = /\\\.\(\??:?([a-z0-9|]+)\)\$?$/i.exec(pattern);
         const literal = exactMapperKey(pattern);
+        const prefix = assetGroup ? null : prefixMapper(pattern, target);
         if (assetGroup) {
           const exts = assetGroup[1].toLowerCase().split("|");
           const missing = exts.filter((e) => !DEFAULT_ASSET_EXTS.includes(e));
@@ -459,6 +476,11 @@ export function analyzeJestConfig(root: string): MigrationReport {
                 `the extensions the plugin handles by default → reactNative({ assetExts: ${JSON.stringify(missing)} }).`,
             );
           }
+        } else if (prefix) {
+          // Vite resolves string-substituted aliases relative to the IMPORTER, so the
+          // directory is emitted as an absolute path.
+          addAlias(prefix.key, absolutePath(prefix.dir));
+          automatic.push(`moduleNameMapper '${pattern}' → resolve.alias (absolute path).`);
         } else if (/^\^?@\/|\^~\/|\^src\//.test(pattern)) {
           const aliasKey = pattern
             .replace(/[\^$]/g, "")
@@ -675,7 +697,12 @@ export function analyzeJestConfig(root: string): MigrationReport {
       const value = take<never>(key);
       if (value !== undefined) discoveryOptions[key] = value;
     }
-    const discovery = translateDiscovery(discoveryOptions, presetConfig, jestMajor(root));
+    const discovery = translateDiscovery(
+      discoveryOptions,
+      presetConfig,
+      jestMajor(root),
+      projectDirectories(root),
+    );
     if (discovery.include) {
       testEntries.push(`include: [${discovery.include.map((g) => JSON.stringify(g)).join(", ")}]`);
     }
@@ -715,6 +742,8 @@ export function analyzeJestConfig(root: string): MigrationReport {
       "globals",
       "snapshotSerializers",
       "reporters",
+      "watchPathIgnorePatterns",
+      "workerIdleMemoryLimit",
     ]) {
       if (config[key] !== undefined) {
         handled.add(key);
@@ -732,6 +761,16 @@ export function analyzeJestConfig(root: string): MigrationReport {
         } else if (key === "snapshotSerializers") {
           attention.push(
             `snapshotSerializers — Vitest uses expect.addSnapshotSerializer; vitest-native ships one for RN trees.`,
+          );
+        } else if (key === "watchPathIgnorePatterns") {
+          dropped.push(
+            `${key} — affects only Jest's watch mode; Vitest's watch mode reruns by the module graph ` +
+              `(tune it with server.watch.ignored if needed); dropped.`,
+          );
+        } else if (key === "workerIdleMemoryLimit") {
+          dropped.push(
+            `${key} — Vitest recycles workers by memory only in its vm pools (test.vmMemoryLimit), ` +
+              `which vitest-native does not use; dropped. Watch memory on the first full run.`,
           );
         } else {
           dropped.push(`${key} — no vitest-native equivalent needed; dropped.`);
