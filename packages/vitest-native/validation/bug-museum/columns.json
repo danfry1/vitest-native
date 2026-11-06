@@ -1,11 +1,11 @@
 {
   "main": {
-    "ref": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
-    "sha": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d"
+    "ref": "origin/main",
+    "sha": "42712528339c3a95ce40000dff65a03010cdd261"
   },
   "refs": {
     "origin/fix/source-aliased-workspace-ownership": "643913e8d1686ec8d141d7e3675c0470ecda793e",
-    "origin/feat/fail-closed-ownership": "beb11f2853818463cf44fbb1539b5f0abec9d78c",
+    "origin/feat/fail-closed-ownership": "e73e618d7935bd217b571414cee4fb98392936b6",
     "origin/fix/require-actual-single-graph": "494ba2c6a03e932467079a1c84d10d0c65e56abe",
     "origin/fix/recoverable-errors-and-expo-os": "e1e4ebd76e25d513d3c13d0d47a67f8a6ad022d1",
     "origin/fix/jest-compat-error-equality": "1523987070dd12c1a539544bbbd67110d08974bf",
@@ -42,6 +42,17 @@
     "1ce2f5de^": "a45c3ed8fc253bc975939f15cadd4362a3778f94",
     "74f1bf01^": "10e8beae1cdf44a105c9b5cdbb20394c62dd8717",
     "64ac3833^": "84341b73ef61d328c58d2d739e9d196dd2000c2b",
-    "origin/fix/hot-rule7-esm-residency": "cbbbb5917cff3bb93fdbece49fb8ae8475beb75d"
+    "origin/fix/hot-rule7-esm-residency": "8fec37141d3cad17509a924045b4b0f69620cca9",
+    "origin/feat/import-meta-node-compile": "f9be13fa1b855b949ae4f5e4bc79fbaa40175780",
+    "origin/fix/hot-act-scope-retire": "012dc32c7180e93f6182bafdace43bb57d447565",
+    "origin/feat/library-setup-files-b4": "838f67d404991de2a4e3efe6355a4b3ed95a5d06",
+    "origin/fix/reanimated-gaps-b4": "4f60c6f4c93f2c72468015c503179c055d872a8d",
+    "origin/perf/library-registry": "01c33dc083cb1127b96fdb960f28c686f759fe5e",
+    "fix/regex-alias-closure-seed": "07cb4104b5d6d716a98932cd36cbf8b8b50e1e7b",
+    "0e72c2b3": "0e72c2b3339d6e60112e89573783aeb0359c3347",
+    "5cad2557^": "a107e3a73b665f99c05d4f4e8b419a8b2c88a2c1",
+    "42712528^": "834a14678598ae17d484734cbf6d9ad2b7207f38",
+    "6defadb3^": "271c149a19c5eaa8e0c6728d762f322552319c04",
+    "b9c9c5d4^": "9c0bc2762c9546a15c12c11f33b7c552746c3e1f"
   }
 }
