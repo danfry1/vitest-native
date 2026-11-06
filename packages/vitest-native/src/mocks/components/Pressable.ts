@@ -1,4 +1,5 @@
 import React from "react";
+import { hostComponent } from "../host.js";
 import { buildPressableHostProps } from "./pressableHost.js";
 
 // Unlike the Touchable* family, Pressable resolves `style` and `children` as
@@ -29,7 +30,7 @@ export function createPressableMock() {
       },
       ref,
     );
-    return React.createElement("Pressable", hostProps, resolvedChildren);
+    return React.createElement(hostComponent("Pressable"), hostProps, resolvedChildren);
   });
   Pressable.displayName = "Pressable";
   return Pressable;

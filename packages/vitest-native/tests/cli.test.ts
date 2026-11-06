@@ -590,7 +590,7 @@ module.exports = {
       expect(more.presetCovered.join("\n")).not.toContain("snapshotSerializers");
       expect(more.presetCovered.join("\n")).not.toContain("setUpTests");
       expect(more.attention.join("\n")).toContain(
-        "snapshotSerializers '<rootDir>/jest/reanimatedSnapshotSerializer.js' — Vitest uses",
+        "snapshotSerializers '<rootDir>/jest/reanimatedSnapshotSerializer.js' — Vitest has no such key",
       );
       expect(more.suggestedConfig).toContain("jestSetupAfterEnv");
       // A `/*` inside a line comment must not hide code up to a later `*/`.
@@ -638,6 +638,27 @@ module.exports = {
         "react-native-worklets's own Jest resolver",
       );
     });
+  });
+
+  it("says how many Jest snapshot files need one re-record, and why", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": { preset: "react-native" },
+      "src/__tests__/__snapshots__/a.test.tsx.snap": "// Jest Snapshot v1\n",
+      "src/components/__snapshots__/b.test.tsx.snap": "// Jest Snapshot v1\n",
+      "node_modules/lib/__snapshots__/c.test.js.snap": "// not the project's\n",
+    });
+    const attention = analyzeJestConfig(root).attention.join("\n");
+    expect(attention).toContain(
+      "2 Jest snapshot files (__snapshots__/*.snap) — most entries need one re-record. Vitest names a snapshot inside a describe 'group > test 1' where Jest wrote 'group test 1'",
+    );
+    expect(attention).toContain("re-record them once with `vitest -u` and review the diff");
+
+    const none = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": { preset: "react-native" },
+    });
+    expect(analyzeJestConfig(none).attention.join("\n")).not.toContain("Jest snapshot file");
   });
 
   it("deletes a library's own test setup that a detected preset replaces", () => {

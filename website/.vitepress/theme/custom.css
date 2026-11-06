@@ -1,38 +1,191 @@
 /* ──────────────────────────────────────────────────────────────
-   vitest-native theme — refined VitePress.
-   A teal/cyan accent that bridges Vitest's yellow-green and React
-   Native's cyan, with the hero name running across that gradient.
+   vitest-native theme: neutral greys, black and white buttons, and one
+   green (Forest) for links and active states only. No gradients.
+   tests/site-contrast.test.ts holds every text and surface pair to WCAG AA.
    ────────────────────────────────────────────────────────────── */
 
 :root {
-  /* Teal accent; the dark shade reads on white for links/inline code. */
-  --vp-c-brand-1: #0d8276;
-  --vp-c-brand-2: #10b3a3;
-  --vp-c-brand-3: #10b3a3;
-  --vp-c-brand-soft: rgba(16, 179, 163, 0.14);
+  --vp-c-bg: #ffffff;
+  --vp-c-bg-alt: #f5f5f5;
+  --vp-c-bg-soft: #f5f5f5;
+  --vp-c-bg-elv: #ffffff;
+  --vp-c-divider: #e5e5e5;
+  --vp-c-gutter: #e5e5e5;
+  --vp-c-text-1: #0a0a0a;
+  --vp-c-text-2: #525252;
+  --vp-c-text-3: #6b6b6b;
+  --vp-code-bg: #f4f4f4;
+  /* Inline code in the text colour: the green is kept for links and active states.
+     Code inside a link stays green (--vp-code-link-color). */
+  --vp-code-color: var(--vp-c-text-1);
 
-  --vp-home-hero-name-color: transparent;
-  --vp-home-hero-name-background: linear-gradient(120deg, #10b3a3 10%, #3bc9db 50%, #c9a800);
+  /* Forest, for links (brand-1), their hover (brand-2) and active states: the current
+     sidebar item, the selected tab, a search match. Buttons, tips and badges do not use it. */
+  --vp-c-brand-1: #17784a;
+  --vp-c-brand-2: #115c39;
+  --vp-c-brand-3: #17784a;
+  --vp-c-brand-soft: rgba(23, 120, 74, 0.07);
 
-  --vp-home-hero-image-background-image: linear-gradient(120deg, rgba(16, 179, 163, 0.5), rgba(252, 199, 43, 0.45));
-  --vp-home-hero-image-filter: blur(48px);
+  /* Primary buttons are black on white. */
+  --vp-button-brand-bg: #0a0a0a;
+  --vp-button-brand-text: #ffffff;
+  --vp-button-brand-hover-bg: #262626;
+  --vp-button-brand-hover-text: #ffffff;
+  --vp-button-brand-active-bg: #404040;
+  --vp-button-brand-active-text: #ffffff;
 
+  /* Neutral soft surfaces and secondary buttons: VitePress's own default-soft is a
+     blue-grey. */
+  --vp-c-default-soft: rgba(0, 0, 0, 0.05);
+  --vp-button-alt-bg: #f0f0f0;
+  --vp-button-alt-text: #0a0a0a;
+  --vp-button-alt-border: transparent;
+  --vp-button-alt-hover-bg: #e5e5e5;
+  --vp-button-alt-hover-text: #0a0a0a;
+  --vp-button-alt-active-bg: #d9d9d9;
+  --vp-button-alt-active-text: #0a0a0a;
+
+  /* The hero's name is a quiet label above the headline, not a gradient. */
+  --vp-home-hero-name-color: var(--vp-c-text-2);
+  --vp-home-hero-name-background: none;
+  --vp-home-hero-image-background-image: none;
+
+  /* Tips and tip badges are neutral; a link inside one is still green. */
   --vp-custom-block-tip-border: transparent;
-  --vp-custom-block-tip-bg: var(--vp-c-brand-soft);
-  --vp-custom-block-tip-code-bg: rgba(16, 179, 163, 0.08);
+  --vp-custom-block-tip-bg: var(--vp-c-bg-soft);
+  --vp-custom-block-tip-code-bg: var(--vp-c-bg);
+  --vp-badge-tip-bg: var(--vp-c-default-soft);
+  --vp-badge-tip-text: var(--vp-c-text-1);
+
+  /* VitePress's greys are blue-tinted; these are neutral. */
+  --vp-c-gray-1: #dedede;
+  --vp-c-gray-2: #e8e8e8;
+  --vp-c-gray-3: #f0f0f0;
+  --vp-c-gray-soft: rgba(0, 0, 0, 0.05);
+  --vp-c-border: #d4d4d4;
 }
 
 .dark {
-  --vp-c-bg: #0c1a1a;
-  --vp-c-bg-alt: #081312;
-  --vp-c-bg-soft: #122625;
-  --vp-c-bg-elv: #122625;
-  /* Brighter teal/cyan for contrast on the dark background. */
-  --vp-c-brand-1: #4ed8c8;
-  --vp-c-brand-2: #10b3a3;
-  --vp-c-brand-3: #10b3a3;
-  --vp-c-brand-soft: rgba(16, 179, 163, 0.18);
-  --vp-home-hero-name-background: linear-gradient(120deg, #4ed8c8 10%, #fcc72b 90%);
+  --vp-c-bg: #0a0a0a;
+  --vp-c-bg-alt: #141414;
+  --vp-c-bg-soft: #141414;
+  --vp-c-bg-elv: #171717;
+  --vp-c-divider: #262626;
+  --vp-c-gutter: #000000;
+  --vp-c-text-1: #ededed;
+  --vp-c-text-2: #a3a3a3;
+  --vp-c-text-3: #8f8f8f;
+  --vp-code-bg: #171717;
+
+  --vp-c-brand-1: #4cd38a;
+  --vp-c-brand-2: #86e3b0;
+  --vp-c-brand-3: #4cd38a;
+  --vp-c-brand-soft: rgba(76, 211, 138, 0.1);
+
+  /* Primary buttons are white on black. */
+  --vp-button-brand-bg: #ededed;
+  --vp-button-brand-text: #0a0a0a;
+  --vp-button-brand-hover-bg: #d4d4d4;
+  --vp-button-brand-hover-text: #0a0a0a;
+  --vp-button-brand-active-bg: #bdbdbd;
+  --vp-button-brand-active-text: #0a0a0a;
+
+  --vp-c-gray-1: #555555;
+  --vp-c-gray-2: #444444;
+  --vp-c-gray-3: #333333;
+  --vp-c-gray-soft: rgba(255, 255, 255, 0.07);
+  --vp-c-border: #3a3a3a;
+
+  --vp-c-default-soft: rgba(255, 255, 255, 0.07);
+  --vp-button-alt-bg: #1f1f1f;
+  --vp-button-alt-text: #ededed;
+  --vp-button-alt-hover-bg: #2a2a2a;
+  --vp-button-alt-hover-text: #ededed;
+  --vp-button-alt-active-bg: #333333;
+  --vp-button-alt-active-text: #ededed;
+}
+
+/* Hero ---------------------------------------------------------- */
+.VPHero .heading .name {
+  font-family: var(--vp-font-family-mono);
+  font-size: 15px !important;
+  line-height: 1.6 !important;
+  font-weight: 500;
+  letter-spacing: 0;
+  margin-bottom: 8px;
+}
+.VPHero .text {
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+.VPHero .tagline {
+  text-wrap: pretty;
+}
+
+/* Home layout -------------------------------------------------- */
+/* The nav, the hero and the home content share one width and one edge. VitePress gives
+   the nav a wider box (86rem) and less padding (2rem) than the hero and home content
+   (72rem inside 3–4rem), so on a wide screen the nav ran past the hero on both sides.
+   Only pages without a sidebar (the home page) change; doc pages keep VitePress's nav. */
+@media (min-width: 768px) {
+  .VPNavBar:not(.has-sidebar) .wrapper {
+    padding: 0 3rem;
+  }
+}
+@media (min-width: 960px) {
+  .VPNavBar:not(.has-sidebar) .wrapper {
+    padding: 0 4rem;
+  }
+  .VPNavBar:not(.has-sidebar) .container {
+    max-width: 72rem;
+  }
+}
+
+/* The hero's second column holds the boundary diagram. Below 960px it stacks under the
+   text, left-aligned; VitePress would put the image first and centre everything. */
+.VPHome .VPHero.has-image .container {
+  text-align: start;
+}
+.VPHome .VPHero.has-image .name,
+.VPHome .VPHero.has-image .text,
+.VPHome .VPHero.has-image .tagline {
+  margin-inline: 0;
+}
+.VPHome .VPHero.has-image .actions {
+  justify-content: flex-start;
+}
+.VPHome .VPHero .image {
+  order: 3;
+  margin: 2.5rem 0 0;
+}
+.VPHome .VPHero .image-container {
+  width: 100%;
+  height: auto;
+  margin: 0;
+  transform: none;
+  display: block;
+}
+.VPHome .VPHero .image-bg {
+  display: none;
+}
+@media (min-width: 960px) {
+  .VPHome .VPHero.has-image .main {
+    max-width: none;
+    width: 46%;
+    flex-shrink: 0;
+  }
+  .VPHome .VPHero .image {
+    order: 2;
+    margin: 0 0 0 2.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    min-width: 0;
+  }
+  .VPHome .VPHero .image-container {
+    display: flex;
+    justify-content: flex-end;
+  }
 }
 
 /* Typography ---------------------------------------------------- */
@@ -46,10 +199,14 @@
   padding-top: 1.5rem;
 }
 
-/* Reference tables read better with a touch more breathing room. */
-.vp-doc table {
-  display: table;
-  width: 100%;
+/* Reference tables read better at full width. Only on wide screens: below that,
+   VitePress's own `display: block` lets a wide table scroll inside itself instead of
+   widening the page. */
+@media (min-width: 768px) {
+  .vp-doc table {
+    display: table;
+    width: 100%;
+  }
 }
 
 .vp-doc th {

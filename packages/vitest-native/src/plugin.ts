@@ -71,6 +71,9 @@ import {
   type ProjectContextFields,
 } from "./context.mjs";
 import { cacheRootFor } from "./native/transform.mjs";
+import { HangWatch, debugging, hangTimeoutFor } from "./hang-watch.mjs";
+import inspector from "node:inspector";
+
 import type { NativeOwnershipPolicy } from "./native/ownership.mjs";
 import {
   createNativeOwnershipPolicy,
@@ -1919,6 +1922,16 @@ const ownershipSummaries = new WeakMap<
   { sources: Set<Map<string, { path: string; reason: string }[]>> }
 >();
 
+/** The parts of a resolved Vitest config the hang watch reads (watchForHangs). */
+interface HangWatchConfig {
+  reporters?: unknown[];
+  testTimeout?: number;
+  hookTimeout?: number;
+  inspect?: unknown;
+  inspectBrk?: unknown;
+  execArgv?: readonly string[];
+}
+
 export function reactNative(options?: VitestNativeOptions): Plugin {
   // Before anything else: on an unsupported Node the loader hooks below are unreliable,
   // and the failures they cause look like the project's own bugs.
@@ -2216,6 +2229,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // Native-engine setup file (shipped verbatim as dist/native/setup.mjs; the src
   // tree mirrors that layout so both built and source resolution find it here).
   const nativeSetupPath = path.resolve(thisDir, "native/setup.mjs");
+  const HANG_SETUP = path.resolve(thisDir, "hang-watch-setup.mjs");
   const EXPORT_RECOVERY_ARGV = [
     "--import",
     pathToFileURL(path.resolve(thisDir, "native/export-condition-recovery-preload.mjs")).href,
@@ -2433,6 +2447,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // What workers get: the project context's fields, and `env` for the few
       // variables read back from the config in this process (the memory plan).
       const fields: ProjectContextFields = { platform, diagnostics, projectRoot: resolvedRoot };
+      // jest-compat restores jest.replaceProperty() replacements before each test where the
+      // project sets restoreMocks, as Jest's restoreMocks does: Vitest's own setting restores
+      // only Vitest's mocks (jest-compat/setup.mjs).
+      if ((userConfig as { test?: { restoreMocks?: unknown } }).test?.restoreMocks === true) {
+        fields.restoreMocks = true;
+      }
       const env: Record<string, string> = {};
       // jest.requireActual resolves through Node, which does not apply resolve.alias.
       // Hand the serializable entries to the compat setup so an aliased specifier
@@ -3832,6 +3852,62 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     console.error(`[vitest-native] hot runtime off: ${reason}; Vitest's settings apply.`);
   }
 
+  // hangTimeout (src/hang-watch.mjs): a reporter in the main process that fails a run
+  // whose tests stop making progress. Vitest builds its reporters after every
+  // configureVitest hook has returned, so one added here is in the run. One watch per
+  // resolved config (a watch-mode restart resolves a new one), to which each project's
+  // plugin contributes: on by default only where the hot runtime runs, or wherever a
+  // limit is set; `false` turns it off; the limit allows for every project's timeouts.
+  function watchForHangs(
+    context: {
+      vitest: { config?: HangWatchConfig; projects?: readonly { config?: unknown }[] };
+      project?: { config?: unknown };
+    },
+    hotActive: boolean,
+  ) {
+    const config = context.vitest.config;
+    if (!config?.reporters) return;
+    const projectConfig = context.project?.config as
+      | (HangWatchConfig & { setupFiles?: string[] })
+      | undefined;
+    const configs = [
+      config,
+      projectConfig,
+      ...(context.vitest.projects ?? []).map((p) => p.config as HangWatchConfig | undefined),
+    ];
+    const option = options?.hangTimeout;
+    const limit = hangTimeoutFor(typeof option === "number" ? option : undefined, {
+      testTimeout: Math.max(...configs.map((c) => c?.testTimeout ?? 0)),
+      hookTimeout: Math.max(...configs.map((c) => c?.hookTimeout ?? 0)),
+    });
+    const off = option === false || debugging(configs, process.execArgv, inspector.url());
+    const active = typeof option === "number" || hotActive;
+    let watch = config.reporters.find((r): r is HangWatch => r instanceof HangWatch);
+    if (!watch) {
+      const recordsDir = fs.mkdtempSync(path.join(os.tmpdir(), "vitest-native-hang-"));
+      process.once("exit", () => fs.rmSync(recordsDir, { recursive: true, force: true }));
+      watch = new HangWatch({ timeoutMs: null, recordsDir });
+      config.reporters.push(watch);
+    }
+    watch.contribute({ off, active, limit });
+    // The worker side records each test's start (src/hang-watch-setup.mjs), for this
+    // project's workers, only while the watch can fire.
+    if (
+      active &&
+      !off &&
+      projectConfig?.setupFiles &&
+      !projectConfig.setupFiles.includes(HANG_SETUP)
+    ) {
+      // Through Vitest's provide/inject: worker settings never travel as environment.
+      const project = context.project as { provide?: (key: string, value: unknown) => void };
+      project.provide?.("vitestNativeHangWatch", {
+        dir: watch.recordsDir,
+        hookTimeout: projectConfig.hookTimeout ?? 10_000,
+      });
+      projectConfig.setupFiles.unshift(HANG_SETUP);
+    }
+  }
+
   /**
    * Refuse a run in which vitest-native's own `import 'vitest'` would reach a different
    * physical Vitest from the one running (host.ts): through the project's Vite resolver
@@ -3943,6 +4019,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     configureVitest(context: Parameters<typeof configureProject>[0]) {
       ownershipReady = undefined;
       configureProject(context);
+      // After configureProject, which settles whether this project runs on the hot runtime.
+      const projectRoot = context.project?.config?.root
+        ? path.resolve(context.project.config.root)
+        : process.cwd();
+      watchForHangs(context, hotSelections.has(projectRoot));
       // Under experimental.ownershipModel, the context is published once the registry
       // is built (configureProject); Vitest awaits this before starting any worker.
       const ready = ownershipReady as Promise<void> | undefined;
