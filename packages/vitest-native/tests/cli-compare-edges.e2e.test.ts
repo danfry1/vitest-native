@@ -50,7 +50,12 @@ describe("compare: the verdict includes `vitest run`'s exit code", () => {
       files: {
         "vitest.config.mjs": `export default { test: { globals: true, include: ["**/*.check.js"], globalSetup: ["./gs.mjs"] } };\n`,
         "gs.mjs": `export default () => () => { throw new Error("globalTeardown failed"); };\n`,
-        "src/exit.check.js": `test("b", () => {});\nafterAll(() => { setTimeout(() => process.exit(0), 0); });\n`,
+        // The hook waits past the exit timer, so the worker is still running when it fires.
+        "src/exit.check.js":
+          `test("b", () => {});\n` +
+          `afterAll(async () => {\n` +
+          `  setTimeout(() => process.exit(0), 0);\n` +
+          `  await new Promise((r) => setTimeout(r, 20));\n});\n`,
       },
     });
     const jest = jestReport(root, { "src/exit.check.js": [{ title: "b" }] });
