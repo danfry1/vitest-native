@@ -10,7 +10,11 @@
 // the files and tests that were running, and ends the process with exit code 1.
 //
 // A stuck worker cannot be stopped politely (Vitest would wait for it), so v1 fails the
-// whole run rather than only that file.
+// whole run rather than only that file, killing this process's descendants on the way
+// out: a forked worker (Vitest's default pool) would otherwise spin on after the run.
+
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 
 /** The default no-progress limit when `hangTimeout` is not set. */
 export const DEFAULT_HANG_TIMEOUT = 60_000;
@@ -36,10 +40,68 @@ export function debugging(config = {}, execArgv = process.execArgv, inspectorUrl
   return Boolean(inspectorUrl);
 }
 
+/** Every live descendant of `pid` (children first found, deepest last). */
+export function descendantsOf(pid) {
+  const children = (parent) => {
+    const out = spawnSync("pgrep", ["-P", String(parent)], { encoding: "utf8" });
+    if (!out.error && (out.status === 0 || out.status === 1)) {
+      return out.stdout.split("\n").filter(Boolean).map(Number);
+    }
+    // No pgrep: read parent ids from /proc (Linux).
+    try {
+      return fs
+        .readdirSync("/proc")
+        .filter((d) => /^\d+$/.test(d))
+        .filter((d) => {
+          try {
+            const stat = fs.readFileSync(`/proc/${d}/stat`, "utf8");
+            return Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]) === parent;
+          } catch {
+            return false;
+          }
+        })
+        .map(Number);
+    } catch {
+      return [];
+    }
+  };
+  const found = [];
+  const queue = [pid];
+  while (queue.length > 0) {
+    for (const child of children(queue.shift())) {
+      found.push(child);
+      queue.push(child);
+    }
+  }
+  return found;
+}
+
+/**
+ * Stop every process this one started, then exit with `code`. A forked test worker stuck
+ * in a loop does not end with its parent: left alone it spins forever.
+ */
+export function exitKillingDescendants(code) {
+  if (process.platform === "win32") {
+    // Ends this process too, with its whole tree.
+    process.exitCode = code;
+    spawnSync("taskkill", ["/F", "/T", "/PID", String(process.pid)], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+  } else {
+    for (const pid of descendantsOf(process.pid)) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {}
+    }
+  }
+  process.exit(code);
+}
+
 export class HangWatch {
   constructor({
     timeoutMs,
-    exit = (code) => process.exit(code),
+    exit = exitKillingDescendants,
     write = (s) => process.stderr.write(s),
   }) {
     this.timeoutMs = timeoutMs;

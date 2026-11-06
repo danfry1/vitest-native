@@ -19,6 +19,23 @@ const requireHere = createRequire(path.join(PACKAGE, "package.json"));
 // The plugin requires React (a peer dependency); the scratch project gets this repo's.
 const REACT = path.dirname(requireHere.resolve("react/package.json"));
 
+/** The stuck worker wrote its pid before spinning; after the run it must be gone. */
+async function expectWorkerGone(root: string) {
+  const pid = Number(fs.readFileSync(path.join(root, "worker.pid"), "utf8"));
+  expect(pid).toBeGreaterThan(0);
+  const alive = () => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  for (let i = 0; i < 30 && alive(); i++) await new Promise((r) => setTimeout(r, 100));
+  if (alive()) process.kill(pid, "SIGKILL"); // never leave it spinning, even on failure
+  expect(alive()).toBe(false);
+}
+
 function project(option: string, files: Record<string, string>) {
   const root = scratchProject({
     files: {
@@ -60,7 +77,7 @@ function vitest(root: string) {
 it("fails a test stuck in a synchronous loop within hangTimeout, naming it", async () => {
   const root = project("hangTimeout: 3000", {
     "ok.check.js": `test("fine", () => {});\n`,
-    "spin.check.js": `test("spins forever", () => { for (;;) {} });\n`,
+    "spin.check.js": `import fs from "node:fs";\ntest("spins forever", () => { fs.writeFileSync("worker.pid", String(process.pid)); for (;;) {} });\n`,
   });
   const { code, output, ms } = await vitest(root);
   expect(code, output).toBe(1);
@@ -70,6 +87,7 @@ it("fails a test stuck in a synchronous loop within hangTimeout, naming it", asy
     /Running: \S*spin\.check\.js( › spins forever| \(no test reported as running)/,
   );
   expect(ms).toBeLessThan(45_000);
+  await expectWorkerGone(root);
 }, 90_000);
 
 it("leaves a healthy run alone", async () => {
