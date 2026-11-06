@@ -10,6 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { stripVTControlCharacters } from "node:util";
+import "../../scripts/release-age.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(here, "../..");
@@ -94,7 +95,7 @@ try {
           "resident-singleton": "file:./resident-singleton",
           "test-renderer": "^1.2.0",
           vite: "8.2.0",
-          vitest: "4.1.10",
+          vitest: "5.0.5",
           "vitest-native": `file:./${packed}`,
         },
       },
@@ -161,6 +162,12 @@ export default defineConfig({
     `${tempRoot}:/work`,
     "--workdir",
     "/work",
+    // The container does not inherit this process's environment: pass the release
+    // cooldown (scripts/release-age.mjs) through by name.
+    "--env",
+    "npm_config_before",
+    "--env",
+    "npm_config_minimum_release_age",
     image,
     "npm",
     "install",

@@ -34,6 +34,8 @@ const SCHEMA = {
   assetExts: { valid: strings },
   hotPreserveGlobals: { valid: strings },
   hotEsmGeneration: { valid: (v) => typeof v === "boolean" },
+  sourceMaps: { valid: (v) => typeof v === "boolean" },
+  hotReleaseGenerations: { valid: (v) => typeof v === "boolean" },
   registry: { valid: absolute },
   libraryRegistry: { valid: absolute },
   ownership: { valid: object },
@@ -44,6 +46,7 @@ const SCHEMA = {
   },
   requireAliasesSkipped: { valid: strings },
   presetNames: { valid: strings },
+  nodeMocks: { valid: (v) => v === true },
   presetConfig: { valid: object },
   presetExports: { valid: object },
   presetModules: { valid: strings },
@@ -53,6 +56,13 @@ const SCHEMA = {
   knownNativeModules: { valid: strings },
   nativeModuleSpecs: { valid: object },
   nativeModules: { valid: (v) => v === "permissive" },
+  // experimental.ownershipModel (ADR-0004/0005): absent unless the project opts in.
+  ownershipModel: { valid: (v) => v === "resolver" || v === "resolution" },
+  resolverInputs: { valid: object },
+  resolverInputsHash: { valid: (v) => typeof v === "string" },
+  expoSdks: {
+    valid: (v) => Array.isArray(v) && v.length === 2 && v.every((n) => Number.isInteger(n)),
+  },
 };
 
 function invalid(reason, field, detail, dir) {

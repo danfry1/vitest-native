@@ -1,8 +1,8 @@
 {
   "$comment": "The configuration axes the config-axis matrix varies. See docs/config-axis-matrix.md. Install axes change what is in node_modules (one CI job each); runtime axes are AXIS_* variables read by fixture/apps/app/vitest.config.mts (several runs per job).",
   "install": {
-    "vitest": ["4", "5"],
-    "rntl": ["12", "13", "14"],
+    "vitest": ["5"],
+    "rntl": ["13", "14"],
     "layout": ["hoisted", "isolated"]
   },
   "runtime": {
@@ -11,7 +11,29 @@
     "hot": ["off", "on"],
     "jestCompat": ["off", "on"]
   },
+  "flags": {
+    "$comment": "Behaviour flags a run can opt into with run.mjs --ownership <value> (ownership.mjs); not part of any CI cell yet, so every scheduled run keeps the flag off. Every run is judged with the value it ran under, so a known-failing entry may name one in `when`. A build that does not read the flag records 'flag not supported by this build' instead of verdicts. Track A's resolver PR (A1) moves ownershipModel into `runtime`.",
+    "ownershipModel": ["off", "resolver", "resolution"]
+  },
   "constraints": [
+    {
+      "$comment": "experimental.ownershipModel changes how the native engine resolves for Node and Vite; the mock engine has no Node side.",
+      "if": {
+        "ownershipModel": "resolver"
+      },
+      "then": {
+        "engine": "native"
+      }
+    },
+    {
+      "$comment": "'resolution' is 'resolver' plus the require bridge: native engine only, likewise.",
+      "if": {
+        "ownershipModel": "resolution"
+      },
+      "then": {
+        "engine": "native"
+      }
+    },
     {
       "$comment": "The hot runtime is a native-engine pool; under the mock engine the option does nothing.",
       "if": {
@@ -34,11 +56,9 @@
   "versions": {
     "$comment": "npm ranges installed for each install-axis value. 'lockfile' means the version packages/vitest-native/package.json pins, so the newest cell is the one every other gate runs.",
     "vitest": {
-      "4": "^4",
       "5": "lockfile"
     },
     "rntl": {
-      "12": "^12",
       "13": "^13",
       "14": "lockfile"
     },
@@ -64,7 +84,7 @@
         "jestCompat": "off"
       },
       "resolve": ["engine", "hot"],
-      "excludes": ["hot-automock", "hot-rn-module-mock"]
+      "excludes": ["hot-rn-module-mock"]
     },
     {
       "$comment": "The hot runtime with more than one worker, as real suites run it. The hot pairs need both files in one worker, so they are excluded here.",
@@ -82,7 +102,7 @@
         "hot": "on",
         "jestCompat": "off"
       },
-      "excludes": ["hot-automock", "hot-rn-module-mock"]
+      "excludes": ["hot-rn-module-mock"]
     }
   ]
 }

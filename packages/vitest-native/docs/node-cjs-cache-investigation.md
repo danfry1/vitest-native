@@ -322,6 +322,11 @@ installed artifact: the negative run fails at the CJS re-export contract. The
 original installed file is restored in `finally`. Logs and results are retained
 under the workspace's ignored `.tmp/packed-cjs-reset-zfYa9C` for this run.
 
+Later (2026-11-05): the negative run fails only under the threaded loader
+(`module.register`). Under `module.registerHooks` (Node 22.22.3+ and 24.12+), the
+consumer passes with the drain removed. The Node floor removed the threaded loader, so
+the script now runs the positive half only. Whether the drain is still needed is #530.
+
 ```sh
 bun run build
 node validation/module-isolation/run-packed-cjs-reset.mjs

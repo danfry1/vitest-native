@@ -12,7 +12,7 @@ import {
 } from 'vitest-native/helpers'
 ```
 
-All helpers work under both engines, with one exception: `setPlatform` is mock-engine-only (see below).
+All helpers work under both engines, with two exceptions: `setPlatform` and the Keyboard and AppState simulation methods are mock-engine-only (see below).
 
 ## `setPlatform(os)`
 
@@ -73,7 +73,7 @@ extendPresetMock('expo-constants', {
 
 ## `resetAllMocks()`
 
-Reset everything back to defaults — iOS, 390×844, light mode — and clear all spies. Call it in an `afterEach` to keep tests isolated:
+Reset plugin-controlled state and clear all spies. Under the mock engine that restores the mock's defaults (iOS, 390×844, light mode). Under the native engine it restores the configured platform's initial dimensions and colour scheme. Both engines reset active preset stores and undo `mockNativeModule` and `extendPresetMock` calls. Call it in an `afterEach` to keep tests isolated:
 
 ```ts
 import { afterEach } from 'vitest'
@@ -82,9 +82,13 @@ import { resetAllMocks } from 'vitest-native/helpers'
 afterEach(() => resetAllMocks())
 ```
 
-This also resets the Keyboard and AppState helper state described below.
+Under the mock engine this also resets the Keyboard and AppState state described below.
 
 ## Keyboard & AppState helpers
+
+::: warning Mock engine only
+These methods exist on the mock engine's `Keyboard` and `AppState`. Under the native engine those are React Native's real modules, which have no `_show`, `_hide` or `_setState`.
+:::
 
 The Keyboard and AppState mocks include internal helpers for simulating state changes, useful for testing listeners:
 

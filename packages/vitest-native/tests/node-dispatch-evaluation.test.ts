@@ -143,7 +143,7 @@ describe("nodeDispatch().onNodeEvaluation", () => {
       nodeDispatch().onNodeEvaluation((e) => heard.push(rel(e.filename)));
       let error = null;
       try { req("./b.cjs"); } catch (e) { error = e.message; }
-      return { error, heard, cached: Module._cache[dir + "/b.cjs"] !== undefined };
+      return { error, heard, cached: Module._cache[req.resolve("./b.cjs")] !== undefined };
     `);
     expect(out).toEqual({ error: "first listener", heard: ["b.cjs"], cached: true });
   });

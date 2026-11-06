@@ -97,10 +97,7 @@ function expectedCells() {
       fs.readFileSync(path.join(repoRoot, ".github", "rn-matrix.json"), "utf8"),
     );
     if (!matrix.rn?.length || !matrix.vitest?.length) return null;
-    const cells = new Set(matrix.rn.flatMap((rn) => matrix.vitest.map((f) => `${rn}-${f}`)));
-    // `include` entries add cells outside the cross product.
-    for (const extra of matrix.include ?? []) cells.add(`${extra.rn}-${extra.vitest}`);
-    return cells;
+    return new Set(matrix.rn.flatMap((rn) => matrix.vitest.map((f) => `${rn}-${f}`)));
   } catch {
     return null;
   }

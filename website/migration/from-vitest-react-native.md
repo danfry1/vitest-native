@@ -16,7 +16,7 @@ npm rm vitest-react-native @vitejs/plugin-react
 npm i -D vitest-native @react-native/babel-preset @babel/core
 ```
 
-Keep your existing `vitest`, `vite`, `react`, `react-native`, and `@testing-library/react-native`. Requirements: **Vitest 4.x or 5.x, Vite ^6.4.2, ^7.3.2, or ^8.0.5, the React version required by your RN release, React Native 0.81–0.88 (validated in CI), and RNTL 12–14.** RNTL 14 uses async rendering APIs. vitest-native supports Node 22.22.3+ on Node 22, 24.12+ on Node 24, or 26+.
+Keep your existing `vitest`, `vite`, `react`, `react-native`, and `@testing-library/react-native`. Requirements: **Vitest 5.x, Vite ^8.0.5, the React version required by your RN release, React Native 0.86–0.88, and RNTL 13–14.** RNTL 14 uses async rendering APIs. vitest-native supports Node 22.22.3+ on Node 22, 24.12+ on Node 24, or 26+.
 
 ## 2. Update vitest.config
 
@@ -68,13 +68,13 @@ Your existing tests render against real React Native exactly as before.
 
 - **Native is the zero-config default**, but a fast [**mock engine**](/guide/engines) is one option away — `reactNative({ engine: 'mock' })` — for pure-logic and environment-control tests. A CI-gated cross-check keeps the mock behaviorally honest against real RN.
 - [**Presets**](/guide/presets) auto-shadow common native libraries (Reanimated, Gesture Handler, Safe Area, Navigation, …) the way `jest` mocks them — no per-lib wiring.
-- A [**hot runtime**](/guide/engines#hot-runtime), opt-in where the run can be bounded (`hotRuntime: 'auto'`), keeps RN warm across files while resetting app/test modules and common process-wide pollution between files. It uses Vitest's custom worker APIs and has [known differences](/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files) from per-file isolation; the default, `hotRuntime: false`, gives each file a fresh worker.
+- A [**hot runtime**](/guide/hot-runtime), opt-in where the run can be bounded (`hotRuntime: 'auto'`), keeps RN warm across files while resetting app/test modules and common process-wide pollution between files. It uses Vitest's custom worker APIs and has [known differences](/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files) from per-file isolation; the default, `hotRuntime: false`, gives each file a fresh worker.
 
 ## Gotchas (the margins)
 
 These are inherent to running RN externalized to Node — they applied to the original plugin too:
 
-- **`vi.mock` of an externalized RN-side library may not intercept.** Libraries that load through Node (not your Vite source graph) bypass Vitest's mocker. Prefer a [preset](/guide/presets) (if one exists) or mock at the boundary. Your *own* modules mock normally.
-- **Custom Babel plugins don't run.** Transforms go through Vite/esbuild, not your `babel.config.js`. Flow/TS stripping for RN and allow-listed packages is handled by the require hook; use the [`transform`](/guide/plugin-options#transform) allowlist for extra pure-JS packages that ship untranspiled source.
+- **`vi.mock` replaces what your test and app code import, not what a library `require`s.** A library's own import of a mocked package gets the real one. See [what `vi.mock` reaches](/guide/mocking#what-vi-mock-reaches).
+- **Files your tests `import` don't go through your `babel.config.js`.** They go through Vite's transform. Packages that ship untranspiled source are mostly detected and compiled automatically; see [untranspiled packages](/guide/mocking#packages-that-ship-untranspiled-source).
 
 If something that worked under the old plugin doesn't here, [open an issue](https://github.com/danfry1/vitest-native/issues) — parity with `vitest-react-native` is a goal, and the cross-check corpus is how we prove it.

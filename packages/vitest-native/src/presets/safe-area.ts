@@ -27,6 +27,7 @@ export function safeAreaContext(): Preset {
           "SafeAreaView",
           "SafeAreaInsetsContext",
           "SafeAreaFrameContext",
+          "SafeAreaCornerAdaptedInsetsContext",
           "useSafeAreaInsets",
           "useSafeAreaFrame",
           "withSafeAreaInsets",
@@ -51,9 +52,21 @@ export function safeAreaContext(): Preset {
             insets: state.insets,
           };
 
-          const SafeAreaProvider = React.forwardRef((props: any, ref: any) =>
-            React.createElement("SafeAreaProvider", { ...props, ref }, props.children),
-          );
+          // `initialMetrics` reaches the hooks through context, as in the library's mock.
+          const SafeAreaProvider = React.forwardRef((props: any, ref: any) => {
+            const host = React.createElement("SafeAreaProvider", { ...props, ref }, props.children);
+            const metrics = props.initialMetrics;
+            if (!metrics) return host;
+            return React.createElement(
+              SafeAreaFrameContext.Provider,
+              { value: metrics.frame ?? state.frame },
+              React.createElement(
+                SafeAreaInsetsContext.Provider,
+                { value: metrics.insets ?? state.insets },
+                host,
+              ),
+            );
+          });
           SafeAreaProvider.displayName = "SafeAreaProvider";
 
           const SafeAreaView = React.forwardRef((props: any, ref: any) =>
@@ -63,13 +76,28 @@ export function safeAreaContext(): Preset {
 
           const SafeAreaInsetsContext = React.createContext(state.insets);
           const SafeAreaFrameContext = React.createContext(state.frame);
+          // 5.11+: insets enlarged where the display's rounded corners reach past
+          // the safe area, keyed by axis. Without a test's own provider,
+          // useSafeAreaInsets({ cornerAdaptation }) answers the regular insets,
+          // as the library's own Jest mock does.
+          const SafeAreaCornerAdaptedInsetsContext = React.createContext(null);
 
-          function useSafeAreaInsets() {
-            return state.insets;
+          // Read from context, as the library's own Jest mock's hooks are: a test's
+          // own SafeAreaInsetsContext.Provider value wins, and the default is the
+          // state setInsets() updates.
+          function useSafeAreaInsets(options?: { cornerAdaptation?: "vertical" | "horizontal" }) {
+            // A provider given `null` falls back, as the library's mock does.
+            const insets = React.useContext(SafeAreaInsetsContext) ?? state.insets;
+            const corner = React.useContext(SafeAreaCornerAdaptedInsetsContext) as Record<
+              string,
+              typeof insets
+            > | null;
+            const axis = options?.cornerAdaptation;
+            return (axis != null ? corner?.[axis] : undefined) ?? insets;
           }
 
           function useSafeAreaFrame() {
-            return state.frame;
+            return React.useContext(SafeAreaFrameContext) ?? state.frame;
           }
 
           function withSafeAreaInsets(WrappedComponent: any) {
@@ -77,7 +105,7 @@ export function safeAreaContext(): Preset {
               React.createElement(WrappedComponent, {
                 ...props,
                 ref,
-                insets: state.insets,
+                insets: useSafeAreaInsets(),
               }),
             );
             WithSafeAreaInsets.displayName = `withSafeAreaInsets(${WrappedComponent.displayName || WrappedComponent.name || "Component"})`;
@@ -90,6 +118,7 @@ export function safeAreaContext(): Preset {
             SafeAreaView,
             SafeAreaInsetsContext,
             SafeAreaFrameContext,
+            SafeAreaCornerAdaptedInsetsContext,
             useSafeAreaInsets,
             useSafeAreaFrame,
             withSafeAreaInsets,

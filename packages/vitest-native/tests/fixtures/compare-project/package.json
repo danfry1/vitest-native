@@ -1,0 +1,13 @@
+{
+  "name": "compare-fixture",
+  "private": true,
+  "jest": {
+    "testMatch": [
+      "**/*.check.js"
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "/src/vitest-only\\.check\\.js$"
+    ]
+  }
+}

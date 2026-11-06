@@ -11,7 +11,7 @@
 //   jest.mock('x', () => ({ Api: jest.fn().mockImplementation(() => ({ fetch })) }))
 //   new Api()   // → { fetch }
 //
-// Vitest 4+ constructs the implementation itself (`Reflect.construct(impl, args,
+// Vitest constructs the implementation itself (`Reflect.construct(impl, args,
 // new.target)` in @vitest/spy), so an arrow implementation throws `… is not a
 // constructor`, and `mockReturnValue`/`mockResolvedValue` throw a dedicated error
 // under `new`. That is a deliberate Vitest design, so `vi.fn` is left exactly as it
@@ -167,9 +167,8 @@ function originalOf(object, key, accessType) {
 //   never fakes them unless asked, because Node and Vitest's runner use them
 //   internally ("Do not mock timers internally used by node by default", Vitest's
 //   FakeTimers.useFakeTimers). This keeps Vitest's choice.
-// - `doNotFake` becomes an explicit `toFake`. Vitest 5 also accepts `toNotFake`, but
-//   Vitest 4 always passes its own `toFake` to sinon, whose bundled version has no
-//   `toNotFake` at all, so only `toFake` means the same on every supported major.
+// - `doNotFake` becomes an explicit `toFake`: the list of every fakeable API minus the
+//   ones named.
 // - `legacyFakeTimers: true` has no Vitest counterpart (Jest's legacy timers are
 //   jest.fn mocks). It is approximated with modern timers over the functions legacy
 //   timers replace, leaving Date real as they do, and warns once that assertions on

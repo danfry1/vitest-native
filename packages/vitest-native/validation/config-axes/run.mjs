@@ -16,6 +16,11 @@
 //
 //   --keep          keep the materialised workspace and print its path
 //   --only a,b      run only these probes (investigation; the verdict still applies)
+//   --ownership off|resolver
+//                   the ownershipModel axis (axes.json `flags`, ownership.mjs): every
+//                   native-engine run sets experimental.ownershipModel and is judged with
+//                   it. Default "off", as every CI cell runs. A build that does not read
+//                   the flag records "flag not supported by this build" and exits 0.
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -25,7 +30,10 @@ import { activeProbes, observes, PROBES } from "./probes.mjs";
 import { account } from "./accounting.mjs";
 import { INSTALL_TIMEOUT_MS, must, PNPM, sh } from "./sh.mjs";
 import { judge, readKnownFailing, validateEntries } from "./verdict.mjs";
-import { cellName, readAxes } from "./cells.mjs";
+import { allowed, cellName, readAxes } from "./cells.mjs";
+import { ownershipModelArgument, ownershipSupport } from "./ownership.mjs";
+import { isExpoPackage } from "./local-install.mjs";
+import "../../scripts/release-age.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(here, "../..");
@@ -63,7 +71,7 @@ function versionsFor(cell, axes) {
     // pnpm names their dependants' store directories after them.
     "react-native-reanimated": pinned("react-native-reanimated"),
     "react-native-worklets": pinned("react-native-worklets"),
-    // RNTL 12 and 13 render through react-test-renderer, and RNTL 14 through
+    // RNTL 13 renders through react-test-renderer, and RNTL 14 through
     // test-renderer: both are peer dependencies the user installs.
     "react-test-renderer": pinned("react-test-renderer"),
     "test-renderer": pinned("test-renderer"),
@@ -140,8 +148,7 @@ function materialise(cell, axes) {
     },
   });
 
-  // The repository's release cooldown (bunfig minimumReleaseAge): stay a week behind.
-  const before = new Date(Date.now() - 7 * 24 * 3600 * 1000);
+  // The release cooldown reaches npm and pnpm through process.env (release-age.mjs).
   const env = {
     ...process.env,
     npm_config_audit: "false",
@@ -151,7 +158,7 @@ function materialise(cell, axes) {
   if (isolated) {
     fs.writeFileSync(
       path.join(root, "pnpm-workspace.yaml"),
-      `packages:\n  - apps/*\n  - packages/*\n# A week, in minutes: the repository's release cooldown.\nminimumReleaseAge: 10080\n`,
+      `packages:\n  - apps/*\n  - packages/*\n`,
     );
     must(
       sh("npx", ["--yes", PNPM, "install", "--no-frozen-lockfile"], root, env, INSTALL_TIMEOUT_MS),
@@ -159,13 +166,7 @@ function materialise(cell, axes) {
     );
   } else {
     must(
-      sh(
-        "npm",
-        ["install", `--before=${before.toISOString()}`, "--legacy-peer-deps"],
-        root,
-        env,
-        INSTALL_TIMEOUT_MS,
-      ),
+      sh("npm", ["install", "--legacy-peer-deps"], root, env, INSTALL_TIMEOUT_MS),
       "npm install",
     );
   }
@@ -257,7 +258,8 @@ function linkLocal(root, app, source, isolated) {
       ? fs.readdirSync(path.join(source, entry)).map((n) => `${entry}/${n}`)
       : [entry]) {
       const to = path.join(modules, name);
-      if (fs.existsSync(to)) continue;
+      // The fixture declares no expo, so a registry install (CI) has none.
+      if (fs.existsSync(to) || isExpoPackage(name)) continue;
       fs.mkdirSync(path.dirname(to), { recursive: true });
       fs.symlinkSync(fs.realpathSync(path.join(source, name)), to);
     }
@@ -283,7 +285,7 @@ function linkLocal(root, app, source, isolated) {
 
 // --- run ----------------------------------------------------------------------------
 
-function vitestRun(app, run, files, outputFile, accountingFile) {
+function vitestRun(app, run, files, outputFile, accountingFile, ownershipMarker) {
   const env = { ...process.env, CI: "1" };
   // The harness may itself run under Vitest or with loader flags; none of it may reach
   // the child.
@@ -297,6 +299,8 @@ function vitestRun(app, run, files, outputFile, accountingFile) {
   env.AXIS_GLOBALS = settings.globals;
   env.AXIS_HOT = settings.hot;
   env.AXIS_JEST_COMPAT = settings.jestCompat;
+  env.AXIS_OWNERSHIP_MODEL = run.ownershipModel ?? "off";
+  env.AXIS_OWNERSHIP_MARKER = ownershipMarker;
   if (settings.workers) env.AXIS_WORKERS = settings.workers;
   env.AXIS_ACCOUNTING_FILE = accountingFile;
   // pnpm links Vitest into the app; npm hoists it to the workspace root.
@@ -331,8 +335,16 @@ function vitestRun(app, run, files, outputFile, accountingFile) {
 function runFiles(app, run, files, base) {
   const report = `${base}.json`;
   const accounting = `${base}.accounting.json`;
-  const proc = vitestRun(app, run, files, report, accounting);
-  return { proc, ...account(proc, files, report, accounting) };
+  const marker = `${base}.ownership`;
+  const proc = vitestRun(app, run, files, report, accounting, marker);
+  const accounted = account(proc, files, report, accounting);
+  // The axis is evidence only where the flag reached the plugin: the fixture's config
+  // writes the marker when it passes experimental.ownershipModel to reactNative().
+  if (run.ownershipModel && run.ownershipModel !== "off" && !fs.existsSync(marker))
+    accounted.problems.push(
+      `experimental.ownershipModel: ${run.ownershipModel} never reached reactNative()`,
+    );
+  return { proc, ...accounted };
 }
 
 /** A probe's result from its files' results: every failure line, not just the first. */
@@ -363,6 +375,16 @@ function resolvedAxes(output) {
   return engine ? { engine, hot } : null;
 }
 
+const requestedOwnership = ownershipModelArgument(argument("ownership"));
+
+/** The ownershipModel a run of `cell` uses: the requested one, where it is allowed. */
+function ownershipModel(cell, run) {
+  if (requestedOwnership === "off") return "off";
+  const { runs: _runs, ...install } = cell;
+  const row = { ...install, ...run, ownershipModel: requestedOwnership };
+  return allowed(row, readAxes().constraints) ? requestedOwnership : "off";
+}
+
 function runCell(cell, root, entries) {
   const app = path.join(root, "apps/app");
   const only = argument("only")?.split(",");
@@ -391,7 +413,11 @@ function runCell(cell, root, entries) {
       run = { ...planned };
       for (const axis of planned.resolve) run[axis] = resolved[axis];
     }
-    const full = { ...cell, ...run };
+    // --ownership: the flag where its constraints allow it (the native engine). A run
+    // left at "off" carries no ownershipModel key, so its label reads as it always has.
+    const model = ownershipModel(cell, run);
+    if (model !== "off") run = { ...run, ownershipModel: model };
+    const full = { ...cell, ...run, ownershipModel: model };
     for (const key of ["runs", ...RUN_KEYS]) delete full[key];
     const axesLabel = Object.entries(run)
       .filter(([key]) => !RUN_KEYS.includes(key))
@@ -496,6 +522,13 @@ if (!cellArg) {
 }
 const cell = JSON.parse(cellArg);
 const root = materialise(cell, axes);
+// A build without the flag would ignore it: record that instead of measuring "off" twice.
+const support = ownershipSupport(path.join(root, "apps/app"), requestedOwnership);
+if (!support.supported) {
+  console.log(`\n${cellName(cell)}: experimental.ownershipModel: ${support.reason}`);
+  if (!flag("keep")) fs.rmSync(root, { recursive: true, force: true });
+  process.exit(0);
+}
 let verdicts;
 try {
   verdicts = runCell(cell, root, entries);

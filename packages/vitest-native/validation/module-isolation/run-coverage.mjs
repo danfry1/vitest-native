@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import "../../scripts/release-age.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(here, "../..");
@@ -65,12 +66,12 @@ try {
         dependencies: {
           "@babel/core": "^7.29.7",
           "@react-native/babel-preset": "0.87.0",
-          "@vitest/coverage-istanbul": "4.1.10",
-          "@vitest/coverage-v8": "4.1.10",
+          "@vitest/coverage-istanbul": "5.0.5",
+          "@vitest/coverage-v8": "5.0.5",
           react: "19.2.8",
           "react-native": "0.87.0",
           vite: "8.0.16",
-          vitest: "4.1.10",
+          vitest: "5.0.5",
           "vitest-native": `file:${nativeTarball}`,
         },
       },

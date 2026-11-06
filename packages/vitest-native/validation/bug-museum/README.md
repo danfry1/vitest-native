@@ -29,7 +29,6 @@ lib/lines.mjs          a run's failure lines (file: message, no titles)
 lib/build-info.mjs     the SHA a build directory was built from, checked by content hash
 lib/hash.mjs           content hashes of a build (package.json + dist/) and of an exhibit
 lib/materialise.mjs    builds an exhibit's workspace from this repository's install
-lib/vitest4.mjs        assembles Vitest 4.1.11 from bun's cache for the exhibits that need it
 ```
 
 ## Running
@@ -41,6 +40,7 @@ node validation/bug-museum/run.mjs --only pfs-hot-use-id,env-expo-os
 node validation/bug-museum/run.mjs --class ownership
 node validation/bug-museum/run.mjs --build ../other-checkout/packages/vitest-native
 node validation/bug-museum/run.mjs --control    # each exhibit with its bug's precondition removed
+node validation/bug-museum/run.mjs --ownership resolver   # with experimental.ownershipModel: 'resolver'
 MUSEUM_DEBUG=1 node validation/bug-museum/run.mjs --only <id>   # Vitest's own output too
 ```
 
@@ -48,6 +48,19 @@ Each exhibit prints `PASS`, `FAIL (the bug)`, `FAIL (unexpected)` or `N/A` with 
 reason. The process exits 1 when any exhibit fails, and also when any is N/A (an exhibit
 that could not run is not evidence) unless `--allow-na` is given. On today's main the suite
 is red by design: STATUS.md lists what is expected to fail until each fix lands.
+
+### The `ownershipModel` axis
+
+`--ownership resolver` runs every exhibit with `experimental.ownershipModel: 'resolver'`
+(ownership track A, ADR-0004/0005), so a build can be judged in both flag states. The
+installed copy of vitest-native gets a main entry that re-exports the build's and adds the
+option to every `reactNative()` call; no exhibit is edited, and the build is not touched.
+An exhibit whose `reactNative()` never saw the option fails, so a run cannot pass with the
+flag silently off. Before running anything, `../config-axes/ownership.mjs` asks the build
+whether it reads the flag: it must accept the value and reject an invalid one by name. A
+build that does not (main before #370) records every exhibit N/A, "flag not supported by
+this build", and exits 0. Verdicts carry `ownershipModel`, and `status.mjs` refuses them:
+STATUS.md records the flag off. The default (`off`) leaves the option unset, as before.
 
 A run passes only when three witnesses agree (the config-axis matrix's
 `../config-axes/accounting.mjs` and its accounting reporter): Vitest exited 0, the JSON
@@ -84,14 +97,19 @@ read `FAIL (unexpected)`, including the regression guards that pass on main.
 Nothing is installed. Each exhibit is copied to a fresh directory whose `node_modules`
 links this package's installed dependencies (bun's isolated store), copies vitest-native
 from the build under test (`package.json` + `dist`, as an install would), copies the
-exhibit's `vendor/*` packages and links its workspace members. Install axes this
+exhibit's `vendor/*` packages and links its workspace members. Expo's packages, which
+this package installs for its own Expo tests, are linked only into an exhibit whose
+`package.json` declares `expo`: every other exhibit is a bare React Native project, so a
+build from before #432 fails it as its own bug and not on Expo's runtime. Install axes this
 repository lacks are assembled from local copies (`requires` in exhibits.json):
 
-- `rntl: 12 | 13`: copied from a bun store that has them (default
+- `rntl: 13`: copied from a bun store that has it (default
   `~/dev/vitest-react-native/node_modules/.bun`, override `VN_MUSEUM_RNTL_STORE`);
-- `vitest: 4`: Vitest 4.1.11 and its `@vitest/*` packages from bun's global cache;
 - `layout: pnpm`: the `pnpmShaped` packages moved into a pnpm-shaped store directory
   named after their peers (`.pnpm/<name>@<v>_<peer>@<v>/node_modules/<name>`).
+
+`installedCopies` (`{ "<path in the exhibit>": "<package>" }`) puts a real copy of an
+installed package inside the exhibit, as a monorepo app with its own copy of React has.
 
 When a local copy is missing the exhibit is `N/A: requires-CI`, and the run exits 1
 unless `--allow-na` is given.
@@ -106,7 +124,7 @@ or one that fails as its bug fails some other way. An exhibit that now passes is
 to be recorded with `run-columns.mjs` and `status.mjs`.
 
 The check is advisory, not required; the workflow's header says when it becomes one. It
-skips the exhibits that need RNTL 12 or 13 or Vitest 4 (N/A there), and reports
+skips the exhibits that need RNTL 13 (N/A there), and reports
 `cfg-group-conflict-fallback` as inconclusive when hot auto picks per-file isolation on
 the runner.
 

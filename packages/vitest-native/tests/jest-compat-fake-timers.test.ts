@@ -97,7 +97,7 @@ describe("toVitestFakeTimersConfig", () => {
 /**
  * The `FakeMethod` union of the @sinonjs/fake-timers that the installed Vitest bundles,
  * read from the JSDoc typedef in its dist chunk, or undefined when the bundle carries
- * no typedef. Vitest 5 keeps it; Vitest 4.1's bundle strips it.
+ * no typedef.
  */
 function bundledFakeMethods(dist: string): string[] | undefined {
   const files = readdirSync(dist, { recursive: true, encoding: "utf8" }).filter((f) =>
@@ -113,21 +113,14 @@ function bundledFakeMethods(dist: string): string[] | undefined {
 
 const require = createRequire(import.meta.url);
 const vitestPkg = require.resolve("vitest/package.json");
-const vitestMajor = Number(
-  (JSON.parse(readFileSync(vitestPkg, "utf8")) as { version: string }).version.split(".")[0],
-);
 const fakeMethods = bundledFakeMethods(path.join(path.dirname(vitestPkg), "dist"));
 
 describe("FAKEABLE_TIMER_APIS", () => {
   // A name missing from FAKEABLE_TIMER_APIS would stay real under any `doNotFake`,
   // where Vitest's default would have faked it. Extra names are harmless: Vitest
-  // installs with `ignoreMissingTimers: true`. Vitest 4's bundle has no typedef to
-  // read, so the check runs on Vitest 5 and later only, where a missing typedef fails.
-  it.skipIf(fakeMethods === undefined && vitestMajor < 5)(
-    "covers every FakeMethod of the bundled @sinonjs/fake-timers (Vitest 5+: Vitest 4 bundles no FakeMethod typedef to read)",
-    () => {
-      expect(fakeMethods, "FakeMethod typedef not found in vitest/dist").toBeDefined();
-      expect(fakeMethods!.filter((api) => !FAKEABLE_TIMER_APIS.includes(api))).toEqual([]);
-    },
-  );
+  // installs with `ignoreMissingTimers: true`. A missing typedef fails.
+  it("covers every FakeMethod of the bundled @sinonjs/fake-timers", () => {
+    expect(fakeMethods, "FakeMethod typedef not found in vitest/dist").toBeDefined();
+    expect(fakeMethods!.filter((api) => !FAKEABLE_TIMER_APIS.includes(api))).toEqual([]);
+  });
 });

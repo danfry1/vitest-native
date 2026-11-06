@@ -13,12 +13,13 @@
 // Watch mode runs as a scripted scenario: edit a test, break it, fix it, and edit a
 // source module two tests share.
 //
-//   node validation/vitest-semantics/run.mjs        (VN_SEMANTICS_VITEST=4.1.11 for the floor)
+//   node validation/vitest-semantics/run.mjs        (VN_SEMANTICS_VITEST=<5.x> to pick a release)
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import "../../scripts/release-age.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(here, "../..");
@@ -98,9 +99,7 @@ function setUp() {
     "npm",
     [
       "install",
-      // The repository's release cooldown (bunfig minimumReleaseAge): a version published
-      // minutes ago can 404 while the registry propagates it, and is unvetted anyway.
-      `--before=${new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString()}`,
+      // The release cooldown reaches npm through process.env (scripts/release-age.mjs).
       "--ignore-scripts",
       "--no-audit",
       "--no-fund",
@@ -191,20 +190,13 @@ test("the configured environment is the one in effect", () => {
 });
 `,
   );
-  // A benchmark over real React Native. Vitest 5 made `bench` a test-context fixture
-  // run in a dedicated `bench` project; Vitest 4 exports it from `vitest` directly.
+  // A benchmark over real React Native: Vitest 5's `bench` is a test-context fixture
+  // run in a dedicated `bench` project.
   const benchBody = `StyleSheet.flatten([{ a: 1 }, { b: Platform.OS }]);`;
   const modeLine = `if (process.env.VN_MODE_FILE) fs.appendFileSync(process.env.VN_MODE_FILE, (typeof globalThis.__vitest_native_hot_reset === "function" ? "hot" : "isolated") + "\\n");`;
   write(
     "bench/flatten.bench.mjs",
-    vitestVersion.startsWith("4.")
-      ? `import fs from "node:fs";
-import { bench } from "vitest";
-import { Platform, StyleSheet } from "react-native";
-${modeLine}
-bench("StyleSheet.flatten", () => { ${benchBody} }, { iterations: 50, time: 20 });
-`
-      : `import fs from "node:fs";
+    `import fs from "node:fs";
 import { expect, test } from "vitest";
 import { Platform, StyleSheet } from "react-native";
 ${modeLine}
@@ -335,7 +327,7 @@ function runScenario({
   test = {},
   args = [],
   env = {},
-  // Vitest 4's `bench` command has its own reporters and rejects `--reporter=json`.
+  // The `bench` command has its own reporters and rejects `--reporter=json`.
   jsonReport = true,
   before = () => {},
   after = () => {},
@@ -743,24 +735,19 @@ try {
       (r) => r.status === 0 && r.passed === all.total + 1,
     ],
     [
-      // The report lands in each major's default place: `.vitest/` on Vitest 5 (the
-      // reporter's `outputDir`), `html/` on Vitest 4.
+      // The report lands in `.vitest/`, the reporter's `outputDir`.
       "--reporter=html writes the UI report",
       {
         args: ["--reporter=html"],
         before: () => {
-          for (const dir of [".vitest", "html"]) {
-            fs.rmSync(path.join(root, dir), { recursive: true, force: true });
-          }
+          fs.rmSync(path.join(root, ".vitest"), { recursive: true, force: true });
         },
       },
       HOT,
-      (r) =>
-        r.status === 0 &&
-        [".vitest", "html"].some((dir) => fs.existsSync(path.join(root, dir, "index.html"))),
+      (r) => r.status === 0 && fs.existsSync(path.join(root, ".vitest", "index.html")),
     ],
     [
-      // Benchmarks run on one worker on both majors, so 'auto' keeps Vitest's isolation
+      // Benchmarks run on one worker, so 'auto' keeps Vitest's isolation
       // ("hot runtime off: maxWorkers is 1").
       "vitest bench over real React Native",
       {
@@ -828,9 +815,9 @@ syncBuiltinESMExports();
 `,
           ),
       },
-      // Whether the counts differ is Vitest's to decide: Vitest 4 and 5.0.1 give a
-      // project without its own count the root's, so 'auto' stays hot; later 5.0
-      // releases (5.0.5 measured) resolve each project's and conflict. Either way
+      // Whether the counts differ is Vitest's to decide: 5.0.1 gives a project without
+      // its own count the root's, so 'auto' stays hot; later 5.0 releases (5.0.5
+      // measured) resolve each project's and conflict. Either way
       // the run must pass, and a fallback must say so.
       ["isolated", HOT],
       (r) =>

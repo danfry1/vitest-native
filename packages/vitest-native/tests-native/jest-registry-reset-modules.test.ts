@@ -89,12 +89,9 @@ describe("jest.resetModules with require()", () => {
   });
 });
 
-// Vitest 4.1 fetches a module mocked with a factory as a placeholder node that
-// remembers the factory, and its `cachedRequest` replays that factory whenever the
-// module has any mock, so a factoryless `vi.doMock` after it got the old factory. The
-// reset invalidates such nodes (module-reset.mjs), and the module is then looked up
-// under the current mocks, as Vitest 5 does. Without a reset, Vitest 4.1 still
-// replays the factory: that is its own behaviour. Only Vitest 4.1 can fail this.
+// A module mocked with a factory is fetched as a placeholder node that remembers the
+// factory. After the reset, a factoryless `vi.doMock` must get an automock, looked up
+// under the current mocks, not the earlier factory.
 describe("jest.resetModules with vi.doMock", () => {
   it("a factoryless vi.doMock after the reset automocks a module an earlier factory mocked", async () => {
     vi.doMock("./fixtures/alias-app/registry/counter", () => ({ increment: () => -1 }));

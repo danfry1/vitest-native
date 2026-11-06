@@ -4,20 +4,12 @@
 // Babel, its presets and its plugins load as published, and nothing the test files
 // install on their own thread's globals can reach them.
 //
-// Only node:worker_threads is imported statically. The caller is blocked until it is
-// answered, so this thread says when it ends before anything that could fail to load
-// (Babel's side, babel-toolchain.mjs, is imported below). A thread V8 stops for running
-// out of heap runs no exit handler at all; the caller's deadline covers that.
+// The thread starts from transform.mjs's TOOLCHAIN_BOOTSTRAP, which says when the thread
+// ends, and reports this file failing to load, before this file runs. A thread V8 stops
+// for running out of heap runs no exit handler at all; the caller's deadline covers that.
 import { workerData } from "node:worker_threads";
 
 const { port, signal, compileCache } = workerData;
-
-// signal[1] = 1: this thread has ended. signal[0] = 2 wakes a caller waiting on it.
-process.on("exit", () => {
-  Atomics.store(signal, 1, 1);
-  Atomics.store(signal, 0, 2);
-  Atomics.notify(signal, 0);
-});
 
 // Node's compile cache, on here exactly when it is on in the thread that started this
 // one (compile-cache.mjs decides), so Babel's modules load from it as they did there.
@@ -31,17 +23,19 @@ if (compileCache) {
 
 const { handleToolchainRequest } = await import("./babel-toolchain.mjs");
 
-function answer(message) {
-  port.postMessage(message);
-  Atomics.store(signal, 0, 1);
+// Each answer carries its request's id, posted first and then stored to the signal:
+// the caller reads only the answer whose id it is waiting for (transform.mjs).
+function answer(id, message) {
+  port.postMessage({ id, ...message });
+  Atomics.store(signal, 0, id);
   Atomics.notify(signal, 0);
 }
 
-port.on("message", (request) => {
+port.on("message", ({ id, request }) => {
   try {
-    answer({ ok: handleToolchainRequest(request) });
+    answer(id, { ok: handleToolchainRequest(request) });
   } catch (err) {
-    answer({
+    answer(id, {
       error: {
         name: err?.name ?? "Error",
         message: err?.message ?? String(err),

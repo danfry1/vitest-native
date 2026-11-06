@@ -1,17 +1,16 @@
 {
   "main": {
-    "ref": "origin/main",
-    "sha": "3a37af1242d48497dc0037b9603e0e6430b5c64b"
+    "ref": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+    "sha": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d"
   },
   "refs": {
     "origin/fix/source-aliased-workspace-ownership": "643913e8d1686ec8d141d7e3675c0470ecda793e",
-    "origin/feat/fail-closed-ownership": "d715bba5ae9fe07f7644df7a39f0fcb87c39135a",
+    "origin/feat/fail-closed-ownership": "beb11f2853818463cf44fbb1539b5f0abec9d78c",
     "origin/fix/require-actual-single-graph": "494ba2c6a03e932467079a1c84d10d0c65e56abe",
     "origin/fix/recoverable-errors-and-expo-os": "e1e4ebd76e25d513d3c13d0d47a67f8a6ad022d1",
     "origin/fix/jest-compat-error-equality": "1523987070dd12c1a539544bbbd67110d08974bf",
     "origin/fix/jest-compat-fake-timer-options": "801f1e7426d8606f8ad32a1cdc1bf1f07222ca37",
     "origin/fix/rntl-cleanup-and-fake-timers": "42daf3e25b0335c40cd4c0cf9775d95843164926",
-    "origin/fix/hot-vitest4-mock-meta": "51ee2df407ad09ccfd16671ad77a4a7faa0e0025",
     "origin/fix/hot-dropped-test-file": "83c54a68cd662fcdcf64fed349ea5880ccf74fe8",
     "perf/library-mock-resolution-cache": "f36b3ba6e82036ee8544f5db6b9a4c6986c82907",
     "feat/library-jest-scope": "bff6658233aeb01bf48c031891ab661b79b340a3",
@@ -28,22 +27,21 @@
     "origin/fix/mock-stylesheet-compose": "3511c87dc3ab1cb326e91a4d019f51f7f93954a8",
     "a5592d2^": "85829f93c9dcb0d0e176a98fb68e6c17f5c94f0b",
     "0f2400e": "0f2400e22dad7fa62582b25995d8e5de1022c7fd",
-    "fix/expo-runtime-follows-ownership": "784c0b341dab6cb3e26555ba0e6eb852cd0dcd7e",
-    "fix/permissive-expo-dev-launcher": "d7eb06ac124bbfe58751800c07377c743da203a4",
-    "origin/feat/library-setup-files-b4": "838f67d404991de2a4e3efe6355a4b3ed95a5d06",
-    "origin/fix/reanimated-gaps-b4": "4f60c6f4c93f2c72468015c503179c055d872a8d",
-    "origin/perf/library-registry": "01c33dc083cb1127b96fdb960f28c686f759fe5e",
     "fix/registry-module-strictness": "5fe0357ac5bf1c80ff9018b1418ee21a258f3aa5",
     "fix/closure-walk-reached-packages": "35bed58c40e0a69af629d5b5932ec5cd82741afd",
     "fix/babel-reentry-winter": "0b21147c1fd70b760c28a0b2c0daff0309552a7b",
-    "origin/fix/workspace-package-ownership": "2837f145b4421d100a9fe11e3359d5d0b4443142",
-    "fix/closure-seed-reached-packages": "ce416b35836c9d3dc3885730024e3c354c61ef8b",
-    "64b47ec8": "64b47ec821ad400b9f16e7637e10a017ff52f8c0",
-    "9bcad2ae": "9bcad2ae48e592726eaa257339cae0293320a3f0",
-    "0e72c2b3": "0e72c2b3339d6e60112e89573783aeb0359c3347",
-    "ddd8beb": "ddd8beb61753e3d70ff8016bf03c23827f8a67bb",
-    "5f819d66^": "4bda491cf7c33604be0190c481d37e884a64a284",
-    "c50112c2^": "1d3fd76ea7ea0c1d2d24886880c6acbb51ecd703",
-    "4bda491c^": "88bf3755e1337b895b0723945a831d6499f0e60a"
+    "64b47ec": "64b47ec821ad400b9f16e7637e10a017ff52f8c0",
+    "9bcad2a": "9bcad2ae48e592726eaa257339cae0293320a3f0",
+    "5f819d6^": "4bda491cf7c33604be0190c481d37e884a64a284",
+    "c50112c^": "1d3fd76ea7ea0c1d2d24886880c6acbb51ecd703",
+    "4bda491^": "88bf3755e1337b895b0723945a831d6499f0e60a",
+    "97615f3^": "d87ad4ec0929f5fd94533bae2a44ccf281d52c56",
+    "43139a6^": "5f819d66bf8a55d8bfb9bed60392e389965ebe96",
+    "c4f31b0^": "5bd33529dccfde005bd65ed61bc97e5798926100",
+    "858e0c76^": "dff02302cbd918a275b6fb4de9f84d869b9e6bcf",
+    "1ce2f5de^": "a45c3ed8fc253bc975939f15cadd4362a3778f94",
+    "74f1bf01^": "10e8beae1cdf44a105c9b5cdbb20394c62dd8717",
+    "64ac3833^": "84341b73ef61d328c58d2d739e9d196dd2000c2b",
+    "origin/fix/hot-rule7-esm-residency": "cbbbb5917cff3bb93fdbece49fb8ae8475beb75d"
   }
 }

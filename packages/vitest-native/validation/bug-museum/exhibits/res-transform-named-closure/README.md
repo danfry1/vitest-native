@@ -2,7 +2,7 @@
 
 - **Class:** transform/resolution
 - **Source:** react-native-flash-message named in `transform: [...]` (as projects written before detection list it): its dependency react-native-iphone-screen-helper read `Platform.OS` from undefined
-- **Fixed by:** open (`fix/closure-walk-reached-packages`)
+- **Fixed by:** #388 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

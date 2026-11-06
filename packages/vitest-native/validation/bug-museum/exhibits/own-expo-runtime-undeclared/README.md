@@ -2,7 +2,7 @@
 
 - **Class:** ownership
 - **Source:** the repository's own bug museum, once its install had `expo` 58 for another package's tests: 46 exhibits that do not declare expo failed with "Cannot find module '…/expo/build/winter/runtime'"
-- **Fixed by:** open (`fix/expo-runtime-follows-ownership`)
+- **Fixed by:** #432 (merged)
 - **Needs:** nothing beyond this repository's install (`vendor/` holds expo 58's layout)
 
 ## The bug

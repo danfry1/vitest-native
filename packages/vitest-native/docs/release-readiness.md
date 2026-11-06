@@ -19,15 +19,14 @@ semver, which are experimental, and how the peer ranges below are allowed to mov
 
 ## Blocking compatibility matrix
 
-- Node 22.22.3 (the floor) on Linux with RNTL 12, 13 and 14, and on macOS and Windows; Node 24 and
+- Node 22.22.3 (the floor) on Linux with RNTL 13 and 14, and on macOS and Windows; Node 24 and
   Node 26 on Linux.
-- Patched Vite lines ^6.4.2, ^7.3.2, and ^8.0.5 through packed consumers.
-- Vitest 5 (the lockfile release and the newest 5.x) against React Native 0.81–0.88, and the newest
-  Vitest 4.x against the oldest and newest of that range.
-- React Native 0.81–0.88 in the full native matrix (`.github/workflows/native-rn-matrix.yml`, the
+- Vite 8 (from the patched 8.0.5) through packed consumers.
+- Vitest 5 (the lockfile release and the newest 5.x) against React Native 0.86–0.88.
+- React Native 0.86–0.88 in the full native matrix (`.github/workflows/native-rn-matrix.yml`, the
   source the published fidelity range is generated from).
 - React Native 0.86 in a pinned packed Android consumer.
-- React Native Testing Library 12, 13, and 14.
+- React Native Testing Library 13 and 14.
 - Expo SDK 58 and SDK 57, a hoisted npm-workspace monorepo, and a pnpm-workspace monorepo.
 - jest-expo parity: the same probes under jest-expo and vitest-native in one Expo SDK 58 app, agreeing
   except for listed differences.
@@ -44,7 +43,7 @@ versions are rejected rather than allowed to fail later inside private runner in
 5. End-to-end memory-triggered worker recycling.
 6. Hot runtime against the default engine: file-for-file parity over a generated app-shaped corpus,
    and identical V8 and Istanbul coverage attribution.
-7. Vitest semantics under the defaults, on Vitest 5 and the Vitest 4 floor: config and CLI flags,
+7. Vitest semantics under the defaults: config and CLI flags,
    projects, watch mode, the jsdom and happy-dom environments, `--typecheck`, `vitest bench` and the
    HTML (UI) reporter run as Vitest documents them, with cross-file isolation.
 8. Mock-versus-real-RN behavioral cross-check.
@@ -60,7 +59,7 @@ Two checks are required on `main`: `CI verdict` (`ci.yml`) and `RN matrix verdic
 and fails if any failed or was cancelled, so adding a matrix leg never needs a branch-protection
 change.
 
-- **Docs-only pull requests** skip the gates by a job condition (`.github/scripts/classify-change.sh`).
+- **Pull requests run the gates their changes need**, by a job condition (`.github/scripts/classify-change.mjs`); docs-only ones run none.
   GitHub reports a job skipped by a condition as successful, but leaves the checks of a workflow
   skipped by a `paths` filter pending, which would block a required check.
 - **Merge-queue ready, not enabled.** The workflows that produce the required checks also run on

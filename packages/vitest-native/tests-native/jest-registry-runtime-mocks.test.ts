@@ -4,7 +4,7 @@
  * mock)`, `doMock` is `setMock` with the factory, and `unmock`/`dontMock` set
  * `_explicitShouldMock` to false for the module.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 declare const jest: {
   mock(path: string, factory: () => unknown): void;
@@ -45,5 +45,13 @@ describe("runtime mock members and require()", () => {
     expect(require(STORAGE)).toBe(exports);
     jest.dontMock(STORAGE);
     expect(require(STORAGE).device.get("k")).toBe("real-storage:k");
+  });
+
+  it("jest.dontMock after a vi.doMock leaves require the real module", () => {
+    // A module no jest.* call in this file has touched.
+    const COUNTER = "./fixtures/alias-app/registry/counter";
+    vi.doMock(COUNTER, () => ({ increment: () => "vi-mocked" }));
+    jest.dontMock(COUNTER);
+    expect(require(COUNTER).increment()).not.toBe("vi-mocked");
   });
 });

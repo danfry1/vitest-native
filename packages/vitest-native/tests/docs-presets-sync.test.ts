@@ -9,9 +9,10 @@ import { AUTO_DETECT_PRESETS, SELF_TESTING_FROM_MAJOR } from "../src/preset-map.
 // site listed 11 of 17 presets, and the package README mapped vectorIcons to the
 // legacy package it deliberately does not cover. Every table is now checked against
 // the preset factories themselves, so a preset change that leaves a table behind fails
-// here rather than reaching users.
+// here rather than reaching users. The READMEs link to the site's table instead of
+// carrying their own (tests/readme-sync.test.ts).
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
-const TABLES = ["website/guide/presets.md", "README.md", "packages/vitest-native/README.md"];
+const TABLES = ["website/guide/presets.md"];
 
 type Row = { name: string; packages: string[]; text: string };
 
