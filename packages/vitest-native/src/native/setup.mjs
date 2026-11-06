@@ -189,11 +189,12 @@ afterAll(function () {
     file.meta ??= {};
     file.meta[OWNERSHIP_META_KEY] = {
       mode: ownershipLedger.mode,
-      conflicts: found.map(({ file: f, first, second, route, via }) => ({
+      conflicts: found.map(({ file: f, first, second, route, cause, via }) => ({
         file: f,
         first,
         second,
         route,
+        cause,
         via,
       })),
       allowUsed: [...ownershipLedger.allowUsed],

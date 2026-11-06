@@ -55,6 +55,54 @@ describe("the ledger", () => {
     ]);
   });
 
+  it("groups the files one require pulled in under that require, printed once", () => {
+    // A jest.mock factory's require of schema.ts, which imports two more files: Node
+    // loads all three, then Vite evaluates each.
+    const { ledger, warnings } = ledgerWith();
+    const TEST = "/repo/app/src/provider.test.tsx";
+    const SCHEMA = "/repo/app/src/schema.ts";
+    const A = "/repo/app/src/a.ts";
+    const B = "/repo/app/src/b.ts";
+    ledger.recordNode(B, { via: "cjs", parent: A });
+    ledger.recordNode(A, { via: "cjs", parent: SCHEMA });
+    ledger.recordNode(SCHEMA, { via: "cjs", parent: TEST });
+    for (const file of [SCHEMA, A, B]) ledger.recordVite(nodeKey(file), file);
+    expect(ledger.conflicts.map((c) => [c.route, c.cause])).toEqual([
+      ["require-from-vite", { route: "require-from-vite", file: SCHEMA }],
+      ["node-owned-source", { route: "require-from-vite", file: SCHEMA }],
+      ["node-owned-source", { route: "require-from-vite", file: SCHEMA }],
+    ]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("Other files with the same origin are not printed here");
+    // A pulled-in file's warning names the origin and the origin's fix.
+    ledger.recordNode("/repo/app/src/c.ts", { via: "cjs", parent: "/repo/app/src/d.ts" });
+    ledger.recordNode("/repo/app/src/d.ts", { via: "cjs", parent: TEST });
+    ledger.recordVite(nodeKey("/repo/app/src/c.ts"), "/repo/app/src/c.ts");
+    expect(warnings).toHaveLength(2);
+    expect(warnings[1]).toContain("route        -> an import from source Node evaluated");
+    expect(warnings[1]).toContain(
+      "origin       -> /repo/app/src/d.ts, which Node loaded through require()",
+    );
+    expect(warnings[1]).toContain("await vi.importActual(...)");
+    expect(warnings[1]).toContain("ownershipModel: 'resolution'");
+  });
+
+  it("does not walk past a parent the policy gives Node, which is the cause itself", () => {
+    const LIB = "/repo/packages/feature/src/index.ts";
+    const { ledger } = ledgerWith({
+      ownerOf: (file: string) =>
+        file.startsWith("/repo/packages/feature/")
+          ? { owner: "node", reason: "react-native-package" }
+          : { owner: "vite", reason: "project-source" },
+    });
+    ledger.recordNode(LIB, { via: "cjs", parent: "/repo/app/src/store.test.ts" });
+    ledger.recordNode(FILE, { via: "cjs", parent: LIB });
+    ledger.recordVite(nodeKey(FILE), FILE);
+    expect(ledger.conflicts.map((c) => [c.route, c.cause])).toEqual([
+      ["node-owned-source", { route: "node-owned-source", file: FILE }],
+    ]);
+  });
+
   it("reports Vite then Node, and classifies the route from the requiring parent", () => {
     const { ledger } = ledgerWith();
     ledger.recordNode("/repo/packages/feature/src/index.ts", { via: "cjs" });
@@ -550,8 +598,9 @@ describe("the plugin's side of the guard", () => {
     const text = written.join("");
     expect(text).toContain("1 file(s) were evaluated by both");
     expect(text).toContain("failed: ownership 'error'");
-    expect(text).toContain("/repo/src/store.ts");
-    expect(text).toMatch(/in .*a\.test\.ts \(an import from source Node evaluated\)/);
+    expect(text).toMatch(
+      /repo\/src\/store\.ts, loaded by Node through an import from source Node evaluated: 1 file\(s\), in .*a\.test\.ts/,
+    );
   });
 
   it("adds one summary per Vitest run, whatever the number of reactNative() calls", async () => {
@@ -571,6 +620,51 @@ describe("the plugin's side of the guard", () => {
     }
     expect(vitest.reporters.filter((r) => r instanceof OwnershipSummaryReporter)).toHaveLength(1);
   }, 60_000);
+
+  it("prints one line per cause, with its file count and test files", () => {
+    const written: string[] = [];
+    const reporter = new OwnershipSummaryReporter(
+      () => [],
+      (text) => written.push(text),
+    );
+    const cause = { route: "require-from-vite", file: "/repo/src/schema.ts" };
+    const testFile = (name: string, files: string[]) => ({
+      moduleId: `/repo/src/${name}`,
+      meta: () => ({
+        vitestNativeOwnership: {
+          mode: "warn",
+          conflicts: files.map((file) => ({
+            file,
+            second: "vite",
+            route: "node-owned-source",
+            cause,
+          })),
+          allowUsed: [],
+        },
+      }),
+    });
+    const many = [
+      "/repo/src/schema.ts",
+      ...Array.from({ length: 656 }, (_, i) => `/repo/src/m${i}.ts`),
+    ];
+    reporter.onTestRunStart();
+    for (const name of ["a.test.tsx", "b.test.tsx", "c.test.tsx", "d.test.tsx"]) {
+      reporter.onTestModuleEnd(testFile(name, many));
+    }
+    reporter.onTestModuleEnd(testFile("e.test.tsx", []));
+    reporter.onTestRunEnd();
+    const text = written.join("");
+    expect(text).toContain("657 file(s) were evaluated by both Node and Vite");
+    expect(text).toContain("from 1 cause(s):");
+    expect(text).toMatch(
+      /repo\/src\/schema\.ts, loaded by Node through require\(\) in a file Vite evaluated: 657 file\(s\), in .*a\.test\.tsx, .*b\.test\.tsx, .*c\.test\.tsx, \+1 more/,
+    );
+    // The origin is one of the files, so no other file is singled out.
+    expect(text).not.toContain("first:");
+    expect(text).toContain("fix: Vitest's `require`");
+    // One line per cause, not per file.
+    expect(text.split("\n").length).toBeLessThan(10);
+  });
 
   it("reports each watch-mode run's findings, not every run's so far", () => {
     const written: string[] = [];

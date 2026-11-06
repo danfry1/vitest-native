@@ -57,7 +57,7 @@ type AssetModules = typeof import("./native/assets.mjs");
 import type { HotMemoryPlan } from "./native/memory.mjs";
 import type { NativePoolOptions } from "./native/pool.js";
 import { workerVitestMismatch } from "./native/worker-vitest.js";
-import { OWNERSHIP_META_KEY, viteMarkerFor } from "./native/ownership-ledger.mjs";
+import { OWNERSHIP_META_KEY, OWNERSHIP_ROUTES, viteMarkerFor } from "./native/ownership-ledger.mjs";
 import {
   assertHostResolvesRunningVitest,
   assertHotWorkerLoadsRunningVitest,
@@ -1801,7 +1801,12 @@ export function ownershipGuardConfig(
  * `ownership.allow` entries that exempted nothing during the run.
  */
 export class OwnershipSummaryReporter {
-  private readonly found = new Map<string, Set<string>>();
+  // One entry per cause (where Node's load began, and how): the files it put in both
+  // module graphs and the test files it happened in.
+  private readonly found = new Map<
+    string,
+    { route: string; origin: string; files: Set<string>; tests: Set<string> }
+  >();
   private readonly used = new Set<string>();
   private mode = "warn";
   constructor(
@@ -1814,17 +1819,31 @@ export class OwnershipSummaryReporter {
     this.used.clear();
     this.mode = "warn";
   }
+  private add(route: string, origin: string, file: string, test: string): void {
+    const key = `${route}\0${origin}`;
+    let cause = this.found.get(key);
+    if (cause === undefined) {
+      cause = { route, origin, files: new Set(), tests: new Set() };
+      this.found.set(key, cause);
+    }
+    cause.files.add(file);
+    cause.tests.add(test);
+  }
   onTestModuleEnd(testModule: {
     moduleId: string;
     meta(): Record<string, unknown>;
     errors?(): readonly { message?: string }[];
   }): void {
-    const where = (route: string) =>
-      `${path.relative(process.cwd(), testModule.moduleId)} (${route})`;
+    const test = path.relative(process.cwd(), testModule.moduleId);
     const data = testModule.meta()?.[OWNERSHIP_META_KEY] as
       | {
           mode: string;
-          conflicts: { file: string; second: string; route: string }[];
+          conflicts: {
+            file: string;
+            second: string;
+            route: string;
+            cause?: { route: string; file: string };
+          }[];
           allowUsed: string[];
         }
       | undefined;
@@ -1835,32 +1854,45 @@ export class OwnershipSummaryReporter {
         const match = /\[vitest-native\] (.+?) was evaluated by both Node and Vite/.exec(
           error.message ?? "",
         );
-        const route = /route\s+-> (.+)/.exec(error.message ?? "")?.[1] ?? "while collecting";
         if (!match) continue;
+        const label = /route\s+-> (.+)/.exec(error.message ?? "")?.[1] ?? "while collecting";
+        const route =
+          Object.entries(OWNERSHIP_ROUTES).find(([, r]) => r.label === label)?.[0] ?? label;
+        const origin = /origin\s+-> (.+?), which Node loaded/.exec(error.message ?? "")?.[1];
         this.mode = "error";
-        const at = this.found.get(match[1]) ?? new Set<string>();
-        at.add(where(route));
-        this.found.set(match[1], at);
+        this.add(route, origin ?? match[1], match[1], test);
       }
       return;
     }
     if (data.mode === "error") this.mode = "error";
     for (const used of data.allowUsed) this.used.add(used);
     for (const conflict of data.conflicts) {
-      const at = this.found.get(conflict.file) ?? new Set<string>();
-      at.add(where(conflict.route));
-      this.found.set(conflict.file, at);
+      const cause = conflict.cause ?? { route: conflict.route, file: conflict.file };
+      this.add(cause.route, cause.file, conflict.file, test);
     }
   }
   onTestRunEnd(): void {
     const lines: string[] = [];
     if (this.found.size > 0) {
+      const files = new Set([...this.found.values()].flatMap((cause) => [...cause.files]));
+      const rel = (file: string) => path.relative(process.cwd(), file) || file;
+      const some = (items: Set<string>) =>
+        [...items].slice(0, 3).join(", ") + (items.size > 3 ? `, +${items.size - 3} more` : "");
       lines.push(
-        `[vitest-native] ownership: ${this.found.size} file(s) were evaluated by both Node ` +
-          `and Vite (${this.mode === "error" ? "failed: ownership 'error'" : "warning; reactNative({ ownership: 'error' }) fails on it"}):`,
+        `[vitest-native] ownership: ${files.size} file(s) were evaluated by both Node ` +
+          `and Vite (${this.mode === "error" ? "failed: ownership 'error'" : "warning; reactNative({ ownership: 'error' }) fails on it"}), ` +
+          `from ${this.found.size} cause(s):`,
       );
-      for (const [file, where] of this.found) {
-        lines.push(`  ${file}`, ...[...where].map((w) => `    in ${w}`));
+      for (const cause of this.found.values()) {
+        const known = OWNERSHIP_ROUTES[cause.route as keyof typeof OWNERSHIP_ROUTES];
+        const first = [...cause.files][0];
+        lines.push(
+          `  ${rel(cause.origin)}, loaded by Node through ${known?.label ?? cause.route}: ` +
+            `${cause.files.size} file(s), in ${some(cause.tests)}`,
+          // A file of the cause's when its origin is not itself one of them.
+          ...(cause.files.has(cause.origin) ? [] : [`    first: ${rel(first)}`]),
+          ...(known ? [`    fix: ${known.fix}`] : []),
+        );
       }
       lines.push(
         "  See https://danfry1.github.io/vitest-native/guide/errors#SOURCE_EVALUATED_TWICE.",
