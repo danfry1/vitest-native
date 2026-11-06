@@ -83,7 +83,8 @@ function pageFor(route: string): string | null {
   return fs.existsSync(file) ? file : null;
 }
 
-type Link = { from: string; target: string; anchor: string };
+// `anchor` is null for a link to a page with no fragment: only the page must exist.
+type Link = { from: string; target: string; anchor: string | null };
 
 const SOURCE = path.join(repoRoot, "packages/vitest-native/src");
 
@@ -97,15 +98,16 @@ function sourceFiles(dir: string): string[] {
 
 /**
  * The site links the package's own messages and doc comments carry: an error's "See …",
- * a CLI hint. They are plain URLs in strings, not Markdown links.
+ * a CLI hint. They are plain URLs in strings, not Markdown links, each in one literal: a
+ * URL split across a `+` is not found.
  */
 function sourceLinks(): Link[] {
-  const pattern = new RegExp(`${SITE_URL.replace(/[.]/g, "\\.")}(/[\\w/-]*)#([\\w-]+)`, "g");
+  const pattern = new RegExp(`${SITE_URL.replace(/[.]/g, "\\.")}(/[\\w/-]*)(?:#([\\w-]+))?`, "g");
   return sourceFiles(SOURCE).flatMap((file) =>
     [...fs.readFileSync(file, "utf8").matchAll(pattern)].map(([, target, anchor]) => ({
       from: path.relative(repoRoot, file),
       target,
-      anchor,
+      anchor: anchor ?? null,
     })),
   );
 }
@@ -149,17 +151,27 @@ describe("site anchors", () => {
   });
 
   it("links the site, not the repository's docs/ folder, from the package's messages", () => {
-    const repoDocs = sourceFiles(SOURCE).filter((file) =>
-      fs.readFileSync(file, "utf8").includes("github.com/danfry1/vitest-native/blob/"),
+    // Comment lines may cite docs/ for maintainers; a message, hint or warning may not:
+    // most of docs/ is not in the package, and the site is what users read.
+    const repoDocs = sourceFiles(SOURCE).flatMap((file) =>
+      fs
+        .readFileSync(file, "utf8")
+        .split("\n")
+        .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+        .filter((line) => /\/blob\/main\/packages|\bdocs\/[\w-]+\.md/.test(line))
+        .map((line) => `${path.relative(repoRoot, file)}: ${line.trim()}`),
     );
-    expect(repoDocs.map((file) => path.relative(repoRoot, file))).toEqual([]);
+    expect(repoDocs).toEqual([]);
   });
 
   it("resolves every site link with a fragment to a heading", () => {
     const broken = all.filter(({ target, anchor }) => {
       const page = path.isAbsolute(target) && target.startsWith(SITE) ? target : pageFor(target);
-      return page === null || !anchors(page).has(decodeURIComponent(anchor));
+      if (page === null) return true;
+      return anchor !== null && !anchors(page).has(decodeURIComponent(anchor));
     });
-    expect(broken.map(({ from, target, anchor }) => `${from} → ${target}#${anchor}`)).toEqual([]);
+    expect(
+      broken.map(({ from, target, anchor }) => `${from} → ${target}${anchor ? `#${anchor}` : ""}`),
+    ).toEqual([]);
   });
 });

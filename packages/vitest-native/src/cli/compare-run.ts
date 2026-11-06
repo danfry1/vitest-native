@@ -253,7 +253,8 @@ export function parseCompareArgs(argv: string[]): Omit<CompareOptions, "log"> | 
     return {
       error:
         `--vitest-args may not contain ${refusedVitest}: compare passes only arguments that cannot write ` +
-        `snapshots or replace its reports or config (name a config with --vitest-config).`,
+        `snapshots or replace its reports or config (name a config with --vitest-config; see ` +
+        `https://danfry1.github.io/vitest-native/guide/cli#compare).`,
     };
   }
   const top = Number(values.get("top") ?? 10);
