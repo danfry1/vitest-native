@@ -16,8 +16,9 @@ export function createScrollViewMock() {
     React.useImperativeHandle(ref, () => instanceMethods);
 
     return React.createElement(
+      // The ref is the handle above; the host takes none.
       "RCTScrollView",
-      { ...rest, ref },
+      rest,
       refreshControl,
       React.createElement("View", null, children),
     );

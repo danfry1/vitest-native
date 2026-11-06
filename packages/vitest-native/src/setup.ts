@@ -8,7 +8,7 @@
  * 4. Auto-detects and installs preset mocks
  * 5. Configures @testing-library/react-native host component names
  * 6. Auto-registers RNTL matchers
- * 7. Registers snapshot serializer
+ * 7. Leaves snapshots to Vitest's own printer (see below)
  *
  * Options are received through the project context, which the plugin's config() hook
  * writes and names in test.env. This is necessary because the plugin runs in Vite's main
@@ -26,7 +26,6 @@ import type { Preset } from "./types.js";
 import { importPresetModule, presetModulePaths } from "./preset-modules.mjs";
 import { installRendererReportError } from "./report-error.mjs";
 import { AUTO_DETECT_PRESETS, presetForInstalled } from "./preset-map.js";
-import { serializer as rnSerializer } from "./serializer.js";
 import { animatedMatchers } from "./matchers/animated.js";
 import { installRntlAutoCleanup, installRntlLoadTracking } from "./rntl-support.mjs";
 import { projectContext, type ProjectContextFields } from "./context.mjs";
@@ -333,9 +332,11 @@ if (diagnostics) {
   );
 }
 
-// --- 8. Register snapshot serializer for readable RN component output ---
-
-vitestExpect.addSnapshotSerializer(rnSerializer);
+// --- 8. Snapshots ---
+// No serializer of our own: a React tree prints with pretty-format's ReactTestComponent
+// plugin, which Vitest registers, so a snapshot reads as Jest and Vitest write it and a
+// Jest-written snapshot of the same tree passes. (`vitest-native/serializer` keeps the
+// earlier format for one release; it is deprecated.)
 
 // --- 9. Cleanup ---
 
