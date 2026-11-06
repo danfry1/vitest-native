@@ -65,6 +65,8 @@ export default defineConfig(({ mode }) => {
       exclude: [
         "tests-native/android.test.ts",
         "tests-native/navigation-params.test.tsx",
+        // Spawns its own Vitest runs, for minutes: its own step (vitest.background.config.mts).
+        "tests-native/registry-background.test.ts",
         // Asserts the flag is off: it runs in the default suite.
         "tests-native/ownership-off.test.ts",
         // Needs diagnostics: it runs in --mode shadow.

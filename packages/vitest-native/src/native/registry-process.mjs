@@ -355,10 +355,16 @@ export async function buildRegistryFor(options, compiler = compileRegistryInChil
 
     // A background build of the same entry is already running in this process (another
     // project in the run, or a config reload): wait for it instead of compiling twice.
+    // It was started for its own project's library entries, so read the cache for these
+    // options afterwards, and compile what is still missing.
     const joined = inFlight.get(location.registryFile);
     if (joined) {
-      const registries = await joined.done;
-      if (registries) return registries;
+      await joined.done;
+      const after = cachedRegistries(options, location);
+      if (after.complete) {
+        if (after.libraryError) _warnRegistryUnavailable(after.libraryError);
+        return { registry: after.registry, libraryRegistry: after.libraryRegistry };
+      }
     }
 
     const result = await compiler(COMPILER_FILE(), compilerInput(options));

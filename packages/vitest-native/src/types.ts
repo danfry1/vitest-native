@@ -499,7 +499,7 @@ export interface VitestNativeOptions {
    *   so the next run starts warm.
    * - `'wait'`: compile the registry before the run starts, as in earlier versions.
    *
-   * The hot runtime and CI runs always wait.
+   * The hot runtime, CI runs and `experimental.ownershipModel` always wait.
    */
   registryBuild?: "background" | "wait";
 

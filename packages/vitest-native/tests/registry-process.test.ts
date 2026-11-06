@@ -284,6 +284,53 @@ describe("background registry build", () => {
     expect(compiles).toBe(0);
   });
 
+  it("compiles after joining a background build that did not build this caller's library registry", async () => {
+    const options = coldOptions("joined-library");
+    const library = path.join(options.projectRoot, "node_modules", "vn-joined-library");
+    fs.mkdirSync(library);
+    fs.writeFileSync(
+      path.join(library, "package.json"),
+      JSON.stringify({ name: "vn-joined-library" }),
+    );
+    fs.writeFileSync(path.join(library, "index.js"), "module.exports = 1;\n");
+    const held = heldCompiler();
+    // Started for a project without library entries.
+    startRegistryBuild(options, held.compiler);
+    let compiles = 0;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const waiting = buildRegistryFor(
+        { ...options, libraryEntries: ["vn-joined-library"] },
+        async () => {
+          compiles++;
+          return { ok: false, error: "no compiler in this test" };
+        },
+      );
+      const key = registryKey(options) as string;
+      const registryDir = path.join(
+        options.projectRoot,
+        "node_modules",
+        ".cache",
+        "vitest-native",
+        "registry",
+      );
+      fs.mkdirSync(registryDir, { recursive: true });
+      const registryFile = path.join(registryDir, `rn-ios-${key}.cjs`);
+      fs.writeFileSync(registryFile, "module.exports = {};\n");
+      const manifestFile = path.join(options.projectRoot, "package.json");
+      const stat = fs.statSync(manifestFile);
+      fs.writeFileSync(
+        `${registryFile}.json`,
+        JSON.stringify({ key, count: 1, manifest: [[manifestFile, stat.mtimeMs, stat.size]] }),
+      );
+      held.finish();
+      expect(await waiting).toEqual({ registry: registryFile, libraryRegistry: null });
+      expect(compiles).toBe(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("returns a warm hit without compiling, and asks to wait when only the library registry is missing", () => {
     const options = coldOptions("warm-library");
     const key = registryKey(options) as string;
