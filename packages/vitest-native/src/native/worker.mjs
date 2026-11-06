@@ -16,11 +16,12 @@ import { isMainThread, parentPort, threadId } from "node:worker_threads";
 import { init, runBaseTests, setupEnvironment } from "vitest/worker";
 import { installGlobals, installErrorUtils } from "./globals.mjs";
 import { installKnownNativeModules } from "./native-modules.mjs";
-import { installRequireHooks } from "./hooks.mjs";
+import { installRequireHooks, resetExpoSdkWarnings, verifyExpoSdkWarningsReset } from "./hooks.mjs";
 import { installHotReset } from "./reset.mjs";
 import { installRegistry } from "./registry.mjs";
 import { captureModuleBaseline, resetEvaluatedModules } from "./module-reset.mjs";
 import { registerRntlHooksOnImport } from "./rntl-hooks.mjs";
+import { residentProblems } from "./resident-health.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
 import { installOwnershipLedger } from "./ownership-ledger.mjs";
 import { VitestNativeError } from "../errors.mjs";
@@ -123,17 +124,32 @@ const { hotReset, bless, registerState, stateEntries } = installHotReset({
   preserveGlobals,
 });
 globalThis.__vitest_native_register_state = registerState;
+// A later file loading an unsupported Expo copy is warned again (hooks.mjs).
+registerState({
+  id: "expo.sdk-warnings",
+  capture: () => null,
+  restore: resetExpoSdkWarnings,
+  verify: verifyExpoSdkWarningsReset,
+});
 globalThis.__vitest_native_state_entries = stateEntries;
 globalThis.__vitest_native_hot_reset = () => {
   globalThis.__vitest_native_registry_reset?.();
   // Advance the ESM generation so externalized packages a test file `import`s are
-  // re-evaluated instead of served from Node's uninvalidatable ESM registry.
-  if (globalThis.__vitest_native_hot_generation) {
-    globalThis.__vitest_native_hot_generation.value++;
+  // re-evaluated instead of served from Node's uninvalidatable ESM registry, and let go
+  // of the generations no file uses any more (releaseGenerations in loader.mjs).
+  const hot = globalThis.__vitest_native_hot_generation;
+  let released = 0;
+  if (hot) {
+    const generation = Atomics.add(hot.counter, 0, 1) + 1;
+    released = hot.release?.(generation) ?? 0;
   }
   const dropped = resetModules();
   hotReset();
-  if (diagnostics) console.log(`[vitest-native] hot reset: dropped ${dropped} modules`);
+  if (diagnostics) {
+    console.log(
+      `[vitest-native] hot reset: dropped ${dropped} modules, released ${released} module generations`,
+    );
+  }
 };
 globalThis.__vitest_native_hot_bless = bless;
 
@@ -173,7 +189,7 @@ let moduleRunner = null;
  * resolved on the next import. `mocker.reset()` clears the registries but not that
  * queue, so a `vi.doMock` issued after a file's last import was resolved during the
  * NEXT file's first import and mocked it there. Per-file isolation never sees this —
- * the worker, and its queue, go away. The queue is internal (Vitest 4 and 5 both keep
+ * the worker, and its queue, go away. The queue is internal (Vitest 5 keeps
  * it as `static pendingIds` on BareModuleMocker); if it moves, this is a no-op and
  * tests-native/hot-jest-compat fails by name on the runtime-mock surface.
  */
@@ -273,9 +289,31 @@ async function reportLostFiles(method, state, traces, lost, cause) {
   }
 }
 
+// --- Resident health rides the task's response ---
+//
+// Vitest's worker answers every task with one testfileFinished message, the one that
+// carries heap usage to the pool. Resident state the per-file reset cannot restore
+// (resident-health.mjs) is added to it under RESIDENT_PROBLEMS_KEY, and the
+// pool's canReuse retires a worker that reported any, before it is given another task.
+const RESIDENT_PROBLEMS_KEY = "vitestNativeResidentProblems";
+
+function withResidentHealth(msg) {
+  if (msg?.type !== "testfileFinished" || msg.__vitest_worker_response__ !== true) return msg;
+  let problems;
+  try {
+    problems = residentProblems(projectRoot);
+  } catch (error) {
+    // The response must still go out, or the task never finishes. A check that cannot
+    // read the resident state is a reason not to reuse the worker.
+    problems = [{ id: "resident-health", message: `the resident health check threw: ${error}` }];
+  }
+  if (problems.length === 0) return msg;
+  return { ...msg, [RESIDENT_PROBLEMS_KEY]: problems };
+}
+
 init({
   // oxlint-disable-next-line unicorn/require-post-message-target-origin -- worker_threads MessagePort, not window
-  post: (msg) => parentPort.postMessage(msg),
+  post: (msg) => parentPort.postMessage(withResidentHealth(msg)),
   on: (callback) => parentPort.on("message", callback),
   off: (callback) => parentPort.off("message", callback),
   teardown: () => parentPort.removeAllListeners("message"),

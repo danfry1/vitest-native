@@ -8,11 +8,9 @@ modules are mocked, the way `jest-expo` runs them.
 ## Path aliases
 
 Expo resolves the `paths` in `tsconfig.json` by default, so the SDK 57 template imports its own
-components as `@/components/…`. vitest-native does the same in an Expo project: on Vite 8 it turns
-on Vite's `resolve.tsconfigPaths`. Setting `resolve.tsconfigPaths` yourself takes precedence, and
-`experiments.tsconfigPaths: false` in `app.json` turns it off, as it does for Metro. Vite 6 and 7
-cannot resolve tsconfig paths; the plugin says so once, and upgrading to Vite 8 or adding the
-`vite-tsconfig-paths` plugin resolves them.
+components as `@/components/…`. vitest-native does the same in an Expo project: it turns on
+Vite's `resolve.tsconfigPaths`. Setting `resolve.tsconfigPaths` yourself takes precedence, and
+`experiments.tsconfigPaths: false` in `app.json` turns it off, as it does for Metro.
 
 ## Coming from jest-expo
 
@@ -59,7 +57,7 @@ test('navigates between file-based routes', async () => {
 ```
 
 From SDK 58 the library is written for RNTL 14, where `renderRouter` and `testRouter`'s navigation
-return promises, so they are awaited as above. On SDK 57 and earlier (RNTL 13) they are synchronous.
+return promises, so they are awaited as above. On SDK 57 (RNTL 13) they are synchronous.
 
 The library is written for Jest — it calls `jest.useFakeTimers` and `jest.mock` itself — so it needs
 the [jest-compat layer](/guide/jest-compat), which a migrated configuration already includes:
@@ -79,9 +77,8 @@ export default defineConfig({
 })
 ```
 
-From SDK 57, expo-router bundles its own React Navigation, which runs for real. Before SDK 57 it
-used the installed `@react-navigation/*` packages; there, add `presets: { navigation: false }` so the
-router's navigators are real rather than the navigation preset's mocks.
+expo-router (SDK 57 and 58) bundles its own React Navigation, which runs for real; the navigation
+preset, keyed on the `@react-navigation/*` packages, does not apply to it.
 
 ## Expo's runtime globals, `fetch` and MSW
 
@@ -143,9 +140,18 @@ for with `presets: { expo: true }`, for a suite that relies on its values while 
 
 vitest-native supports Expo SDK 57 and 58, the SDKs CI installs as packed apps. Earlier SDKs are
 not supported: the plugin and `vitest-native doctor` warn about one, and tests that load Expo
-modules can fail on it, so upgrade to SDK 57 or 58. This is about the Expo SDK only. An older
-SDK's React Native can still be inside the supported React Native range (SDK 54 pairs with 0.81),
-and a bare React Native app on that version is supported.
+modules can fail on it, so upgrade to SDK 57 or 58. Their React Native releases (0.86 and 0.88)
+are also the floor and ceiling of the supported React Native range.
+
+The plugin and doctor read the `expo` that resolves from the project. A package can load Expo
+modules without one: a library that uses an Expo module reached through another dependency, or a
+module that depends on `expo-modules-core` alone. Under the native engine, the test worker checks
+the `expo-modules-core` or `expo` a test actually loads and names an unsupported one with its
+version and path. From SDK 55, `expo-modules-core` carries its SDK's number (55.0.x); an older one
+is reported as SDK 54 or older. The warning appears with the first test in each test file that
+loads the copy, so it shows when that test fails; each worker reads the copy's version once. A
+copy that is installed but never loaded is not reported, nor is an `expo` a package peers only
+optionally.
 
 Expo SDKs trail React Native. Pin `react-native` to the version your SDK supports rather than the
 newest release.

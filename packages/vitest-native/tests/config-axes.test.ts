@@ -14,7 +14,9 @@ import { describe, expect, it } from "vitest";
 import {
   allowed,
   cartesian,
+  CELLS_PER_JOB,
   cellsFor,
+  jobsFor,
   readAxes,
   scopeFor,
 } from "../validation/config-axes/cells.mjs";
@@ -115,6 +117,16 @@ describe("cells", () => {
           ).toBe(true);
         }
       }
+    }
+  });
+
+  it("CI jobs run every cell of each scope exactly once, at most CELLS_PER_JOB a job", () => {
+    for (const scope of ["pairwise", "full"]) {
+      const cells = cellsFor(axes, scope);
+      const jobs: unknown[][] = jobsFor(cells);
+      expect(jobs.every((job) => job.length >= 1 && job.length <= CELLS_PER_JOB)).toBe(true);
+      expect(jobs.flat()).toEqual(cells);
+      expect(jobs.length).toBe(Math.ceil(cells.length / CELLS_PER_JOB));
     }
   });
 
@@ -560,7 +572,6 @@ describe("probe catalog", () => {
       ["esm-default-interop", { engine: "mock", hot: "off" }],
       ["rntl-nested-text", { engine: "mock", hot: "off" }],
       ["recoverable-error", { rntl: "14" }],
-      ["hot-automock", { vitest: "5", engine: "native", hot: "on" }],
     ] as [string, Row][]) {
       expect(canRun(byId(id), row(where)), id).toBe(true);
       expect(applies(byId(id), row(where)), id).toBe(false);
@@ -595,15 +606,17 @@ describe("the ownershipModel axis", () => {
   };
 
   it("is opt-in: a flag, not a runtime axis, so no CI cell changes", () => {
-    expect(axes.flags.ownershipModel).toEqual(["off", "resolver"]);
+    expect(axes.flags.ownershipModel).toEqual(["off", "resolver", "resolution"]);
     expect(axes.runtime).not.toHaveProperty("ownershipModel");
     expect(ownershipModelArgument(undefined)).toBe("off");
-    expect(() => ownershipModelArgument("resolution")).toThrow(/off, resolver/);
+    expect(ownershipModelArgument("resolution")).toBe("resolution");
+    expect(() => ownershipModelArgument("bridge")).toThrow(/off, resolver, resolution/);
   });
 
   it("applies to the native engine only", () => {
     expect(allowed({ engine: "native", ownershipModel: "resolver" }, axes.constraints)).toBe(true);
     expect(allowed({ engine: "mock", ownershipModel: "resolver" }, axes.constraints)).toBe(false);
+    expect(allowed({ engine: "mock", ownershipModel: "resolution" }, axes.constraints)).toBe(false);
   });
 
   it("known-failing entries may name its values, and only those", () => {
@@ -615,8 +628,9 @@ describe("the ownershipModel axis", () => {
       why: "a reason",
     });
     expect(validateEntries([entry("off")], axes, PROBES)).toEqual([]);
-    expect(validateEntries([entry("resolution")], axes, PROBES)).toEqual([
-      'known-failing.json entry 0 (aliased-sibling-regex): ownershipModel has no value "resolution"',
+    expect(validateEntries([entry("resolution")], axes, PROBES)).toEqual([]);
+    expect(validateEntries([entry("bridge")], axes, PROBES)).toEqual([
+      'known-failing.json entry 0 (aliased-sibling-regex): ownershipModel has no value "bridge"',
     ]);
   });
 

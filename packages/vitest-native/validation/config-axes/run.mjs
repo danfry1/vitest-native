@@ -33,6 +33,7 @@ import { judge, readKnownFailing, validateEntries } from "./verdict.mjs";
 import { allowed, cellName, readAxes } from "./cells.mjs";
 import { ownershipModelArgument, ownershipSupport } from "./ownership.mjs";
 import { isExpoPackage } from "./local-install.mjs";
+import "../../scripts/release-age.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(here, "../..");
@@ -70,7 +71,7 @@ function versionsFor(cell, axes) {
     // pnpm names their dependants' store directories after them.
     "react-native-reanimated": pinned("react-native-reanimated"),
     "react-native-worklets": pinned("react-native-worklets"),
-    // RNTL 12 and 13 render through react-test-renderer, and RNTL 14 through
+    // RNTL 13 renders through react-test-renderer, and RNTL 14 through
     // test-renderer: both are peer dependencies the user installs.
     "react-test-renderer": pinned("react-test-renderer"),
     "test-renderer": pinned("test-renderer"),
@@ -147,8 +148,7 @@ function materialise(cell, axes) {
     },
   });
 
-  // The repository's release cooldown (bunfig minimumReleaseAge): stay a week behind.
-  const before = new Date(Date.now() - 7 * 24 * 3600 * 1000);
+  // The release cooldown reaches npm and pnpm through process.env (release-age.mjs).
   const env = {
     ...process.env,
     npm_config_audit: "false",
@@ -158,7 +158,7 @@ function materialise(cell, axes) {
   if (isolated) {
     fs.writeFileSync(
       path.join(root, "pnpm-workspace.yaml"),
-      `packages:\n  - apps/*\n  - packages/*\n# A week, in minutes: the repository's release cooldown.\nminimumReleaseAge: 10080\n`,
+      `packages:\n  - apps/*\n  - packages/*\n`,
     );
     must(
       sh("npx", ["--yes", PNPM, "install", "--no-frozen-lockfile"], root, env, INSTALL_TIMEOUT_MS),
@@ -166,13 +166,7 @@ function materialise(cell, axes) {
     );
   } else {
     must(
-      sh(
-        "npm",
-        ["install", `--before=${before.toISOString()}`, "--legacy-peer-deps"],
-        root,
-        env,
-        INSTALL_TIMEOUT_MS,
-      ),
+      sh("npm", ["install", "--legacy-peer-deps"], root, env, INSTALL_TIMEOUT_MS),
       "npm install",
     );
   }

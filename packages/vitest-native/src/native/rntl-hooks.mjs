@@ -1,5 +1,5 @@
 // The RNTL adapter: what React Native Testing Library needs from its environment
-// and does not get under Vitest, for each supported major (12, 13, 14). Two parts:
+// and does not get under Vitest, for each supported major (13, 14). Two parts:
 //   1. per-file hooks under the hot runtime (registerRntlHooksOnImport);
 //   2. a `jest` for RNTL's fake-timer support (installRntlJest).
 //
@@ -33,13 +33,13 @@
 // second time in that one file — harmless, as cleanup is idempotent and the act
 // environment pair restores in order.
 //
-// runExternalModule is Vitest's module-evaluator method in Vitest 4 and 5; if it goes
+// runExternalModule is Vitest's module-evaluator method in Vitest 5; if it goes
 // away, nothing is wrapped and tests-native/hot-jest-compat fails on the RNTL surface.
 import fs from "node:fs";
 import Module from "node:module";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
-import { noteRntlEntryImported, RNTL_ENTRY } from "../rntl-support.mjs";
+import { noteRntlEntryImported, RNTL_DONT_CLEANUP, RNTL_ENTRY } from "../rntl-support.mjs";
 
 const WRAPPED = Symbol.for("vitest-native.rntl-hooks");
 
@@ -50,7 +50,10 @@ function entryFile(id) {
   } catch {
     return null;
   }
-  return RNTL_ENTRY.test(file) ? file : null;
+  // RNTL's entry, or its dont-cleanup-after-each module: a resident copy of either is run
+  // again when a file imports it, as under per-file isolation, so the entry registers its
+  // hooks and the opt-out sets RNTL_SKIP_AUTO_CLEANUP for this file too (#527).
+  return RNTL_ENTRY.test(file) || RNTL_DONT_CLEANUP.test(file) ? file : null;
 }
 
 // The key Node's module cache holds `file` under, if it is cached.
@@ -96,7 +99,7 @@ export function registerRntlHooksOnImport(evaluator) {
 // --- 2. RNTL's fake-timer `jest` ---
 //
 // RNTL drives fake timers only through a free `jest` identifier. Every supported major
-// (12.9, 13.3, 14.x) reads it in these three files, which its entry loads:
+// (13.3, 14.x) reads it in these three files, which its entry loads:
 //
 //   helpers/timers.js          `typeof jest`, then `setTimeout._isMockFunction` (legacy)
 //                              or `setTimeout.clock` + `jest.getRealSystemTime()`

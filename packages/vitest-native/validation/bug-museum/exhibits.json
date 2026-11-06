@@ -66,8 +66,8 @@
       "class": "ownership",
       "title": "Aliased workspace source using import.meta is a SyntaxError",
       "source": "migration testing (2026-10)",
-      "fixedBy": "#344 (draft)",
-      "fixRef": "origin/fix/source-aliased-workspace-ownership",
+      "fixedBy": "#453 (draft)",
+      "fixRef": "origin/feat/import-meta-node-compile",
       "links": {
         "@m/feature": "packages/feature"
       },
@@ -293,6 +293,80 @@
       "preFixRef": "a5592d2^"
     },
     {
+      "id": "own-alias-renamed",
+      "class": "ownership",
+      "title": "A workspace library aliased to source under another name loads twice",
+      "source": "#344 (monorepo-source-ownership.test.ts, the renamed case)",
+      "fixedBy": "#371 (merged; guard for #344's renamed-alias case)",
+      "links": {
+        "@m/feature": "packages/feature",
+        "@m/validator": "packages/validator"
+      },
+      "bugSignature": "^split\\.test\\.ts: AssertionError: expected null to be 'written by the test'",
+      "control": {
+        "why": "The library no longer peers on react-native, so the engine does not detect it and Vite owns it: the bug's precondition is gone.",
+        "edits": [
+          {
+            "file": "packages/feature/package.json",
+            "find": "\"react-native\": \"*\"",
+            "replace": "\"museum-control-no-react-native\": \"*\""
+          }
+        ]
+      },
+      "preFixRef": "a5592d2^",
+      "status": {
+        "main": "PASS",
+        "control": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "proof": "landed proven"
+      }
+    },
+    {
+      "id": "own-alias-node-require",
+      "class": "ownership",
+      "title": "An installed package requiring a source-aliased workspace library by name gets its built copy",
+      "source": "#344 (monorepo-source-ownership.test.ts, the required case)",
+      "fixedBy": "#454 (ownershipModel resolver; open)",
+      "links": {
+        "@m/feature": "packages/feature",
+        "@m/validator": "packages/validator"
+      },
+      "bugSignature": "^node-require\\.test\\.ts: AssertionError: museum-requires-feature reads the store the test wrote: expected 'built copy' to be 'written by the test'",
+      "control": {
+        "why": "museum-requires-feature no longer peers on react-native, imports the library instead of requiring it, and is inlined (server.deps.inline), so Vite owns it and its import of @m/feature goes through Vite's alias to the source: the bug's precondition, a Node-owned consumer, is gone. (Vite does not process the require() of an inlined CommonJS file, so the import is part of the control.)",
+        "edits": [
+          {
+            "file": "vendor/museum-requires-feature/package.json",
+            "find": "\"peerDependencies\": {\n    \"react-native\": \"*\"\n  }",
+            "replace": "\"peerDependencies\": {\n    \"museum-control-no-react-native\": \"*\"\n  }"
+          },
+          {
+            "file": "vendor/museum-requires-feature/package.json",
+            "find": "\"main\": \"index.js\",",
+            "replace": "\"type\": \"module\",\n  \"main\": \"index.js\","
+          },
+          {
+            "file": "vendor/museum-requires-feature/index.js",
+            "find": "exports.viaNode = () => require(\"@m/feature\").readStore();",
+            "replace": "import { readStore } from \"@m/feature\";\nexport const viaNode = () => readStore();"
+          },
+          {
+            "file": "vitest.config.mts",
+            "find": "    include: [\"*.test.{ts,tsx}\"],",
+            "replace": "    include: [\"*.test.{ts,tsx}\"],\n    server: { deps: { inline: [\"museum-requires-feature\"] } },"
+          }
+        ]
+      },
+      "status": {
+        "main": "FAIL (bug)",
+        "control": "PASS",
+        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
+        "mainSignature": "node-require.test.ts: AssertionError: museum-requires-feature reads the store the test wrote: expected 'built copy' to be 'written by the test' // Object.is equality",
+        "proof": "open (control passes)"
+      }
+    },
+    {
       "id": "own-jest-require-imported-cjs",
       "class": "ownership",
       "title": "require() of a CommonJS project file the test imported compiles a second copy",
@@ -429,6 +503,43 @@
         "mainSignature": "require-first.test.ts: AssertionError: one store instance, whichever side loaded it first: expected null to be 'written by the test' // Object.is equality",
         "proof": "open (control passes)"
       }
+    },
+    {
+      "id": "own-bridge-shapes",
+      "class": "ownership",
+      "title": "Node-owned code requires project source before the test imports it: the shapes",
+      "source": "ownership track A3 (the require bridge) and its review's adversarial shapes",
+      "fixedBy": "open (ownership track A3, under experimental.ownershipModel: 'resolution')",
+      "links": {
+        "@m/feature": "packages/feature",
+        "@m/validator": "packages/validator",
+        "packages/validator/src/nested/node_modules/dup": "packages/dup-nested"
+      },
+      "bugSignature": "^(cjs-import-first|legacy)\\.test\\.ts: AssertionError: one module\\.exports: |^(require-first|reset)\\.test\\.ts: AssertionError: one store(?: after the reset)?: |^(in-flight|mock-pending|failed)\\.test\\.ts: AssertionError: expected function to throw an error, but it didn't|^dep-mock\\.test\\.ts: AssertionError: the mock's label: |^builtin-mock\\.test\\.ts: AssertionError: the mocked builtin: |^mock-direct\\.test\\.ts: AssertionError: the require gets the mock: |^cycle\\.test\\.ts: AssertionError: one cyc-a: |^node-(cycle|loop)\\.test\\.ts: TypeError: \\(0 , _feature\\.require(Back|LoopY)\\) is not a function|^node-deep\\.test\\.ts: AssertionError: the exports so far, two hops deep: |^in-flight-importer\\.test\\.ts: AssertionError: refused from outside the evaluation: |^failed\\.test\\.ts: AssertionError: expected Error: boom-original to match object |^(top-level-await|for-await)\\.test\\.ts: AssertionError: expected error to match asymmetric matcher"
+    },
+    {
+      "id": "own-bridge-coverage",
+      "class": "ownership",
+      "title": "Coverage of project source Node requires before the test imports it",
+      "source": "ownership track A3, decision condition 5 (coverage of a bridged module)",
+      "fixedBy": "open (ownership track A3, under experimental.ownershipModel: 'resolution')",
+      "links": {
+        "@m/feature": "packages/feature",
+        "@m/validator": "packages/validator"
+      },
+      "bugSignature": "^coverage\\.test\\.ts: AssertionError: expected \\[Function pick\\] to be \\[Function pick\\]|^check\\.mjs: no coverage report was written"
+    },
+    {
+      "id": "own-bridge-counts",
+      "class": "ownership",
+      "title": "The require bridge's cost on a monorepo-shaped graph",
+      "source": "ownership track A3, decision condition 8 (counts on an S1 shape)",
+      "fixedBy": "open (ownership track A3, under experimental.ownershipModel: 'resolution')",
+      "links": {
+        "@m/feature": "packages/feature",
+        "@m/validator": "packages/validator"
+      },
+      "bugSignature": "^node-first\\.test\\.ts: AssertionError: expected \\{\\} to match object \\{ threadStarts: 1"
     },
     {
       "id": "own-hot-rule7-esm-residency",
@@ -778,35 +889,6 @@
       "preFixRef": "0f2400e"
     },
     {
-      "id": "pfs-hot-automock-vitest4",
-      "class": "per-file-state",
-      "title": "Under hot on Vitest 4.1, an automock replays another file's factory",
-      "source": "migration testing (2026-10)",
-      "fixedBy": "#338 (merged)",
-      "requires": {
-        "vitest": "4"
-      },
-      "bugSignature": "^[ab]\\.test\\.ts: AssertionError: (an automock for the module this file automocks: expected false to be true|this file's own factory: expected .* to be 'factory-[ab]')",
-      "control": {
-        "why": "The stock runtime (hotRuntime: false) gives every file a fresh module graph, as Jest does: the leak's precondition is gone.",
-        "edits": [
-          {
-            "file": "vitest.config.mts",
-            "find": "hotRuntime: { allowUnboundedMemory: true }",
-            "replace": "hotRuntime: false"
-          }
-        ]
-      },
-      "status": {
-        "main": "PASS",
-        "control": "PASS",
-        "preFix": "FAIL (bug)",
-        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
-        "proof": "landed proven"
-      },
-      "preFixRef": "0f2400e"
-    },
-    {
       "id": "pfs-hot-dropped-file",
       "class": "per-file-state",
       "title": "Under hot, a jest.mock of an RN module to null loses the next file",
@@ -895,11 +977,30 @@
       }
     },
     {
+      "id": "pfs-hot-act-scope-timeout",
+      "class": "per-file-state",
+      "title": "Under hot, a test that times out inside act() fails every later file on its worker",
+      "source": "#449",
+      "fixedBy": "#449's fix (draft)",
+      "fixRef": "origin/fix/hot-act-scope-retire",
+      "bugSignature": "^b0\\d\\.test\\.tsx: Error: Unable to find an element with text: hello",
+      "control": {
+        "why": "The stock runtime (hotRuntime: false) gives every file a fresh React, as Jest does: the leak's precondition is gone.",
+        "edits": [
+          {
+            "file": "vitest.config.mts",
+            "find": "hotRuntime: { allowUnboundedMemory: true }",
+            "replace": "hotRuntime: false"
+          }
+        ]
+      }
+    },
+    {
       "id": "pfs-hot-unawaited-act",
       "class": "per-file-state",
       "title": "Under hot, an un-awaited act in one file poisons the next file",
       "source": "v1 hot-runtime cross-file leaks (2026-10-28 M0 gates)",
-      "fixedBy": "open (the v2 per-file world)",
+      "fixedBy": "#452: fails by name, the accepted outcome with one worker",
       "bugSignature": "^b\\.test\\.tsx: AssertionError: this file's render committed a tree: expected null not to be null",
       "control": {
         "why": "The stock runtime (hotRuntime: false) gives every file a fresh module graph, as Jest does: the leak's precondition is gone.",
@@ -1094,46 +1195,6 @@
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
-    },
-    {
-      "id": "pre-rntl12-nested-text",
-      "class": "presets",
-      "title": "Nested Text is not queryable on RNTL 12",
-      "source": "migration testing (2026-10)",
-      "fixedBy": "#341 (merged)",
-      "requires": {
-        "rntl": "12"
-      },
-      "bugSignature": "^nested-text\\.test\\.tsx: Error: Unable to find an element with text: inner",
-      "status": {
-        "main": "PASS",
-        "preFix": "FAIL (bug)",
-        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
-        "proof": "landed proven"
-      },
-      "preFixRef": "0f2400e"
-    },
-    {
-      "id": "pre-rntl12-nested-text-role",
-      "class": "presets",
-      "title": "A nested Text link is not findable by role on RNTL 12",
-      "source": "#341 adversarial review",
-      "fixedBy": "open (#341 documents it as out of scope)",
-      "requires": {
-        "rntl": "12"
-      },
-      "bugSignature": "^role\\.test\\.tsx: Error: Unable to find an element with role: link, name: docs",
-      "control": {
-        "why": "On RNTL 14 (this repository's) the same query finds the link.",
-        "requires": {}
-      },
-      "status": {
-        "main": "FAIL (bug)",
-        "control": "PASS",
-        "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
-        "mainSignature": "role.test.tsx: Error: Unable to find an element with role: link, name: docs",
-        "proof": "open (control passes)"
-      }
     },
     {
       "id": "pre-rntl13-nested-text",
@@ -1382,6 +1443,24 @@
         "proof": "landed proven"
       },
       "preFixRef": "43139a6^"
+    },
+    {
+      "id": "res-undeclared-required-peer",
+      "class": "transform/resolution",
+      "title": "A required React Native peer that nothing declares is not compiled",
+      "source": "#296 and #508: an Expo app declares expo-router but not expo-linking, its required peer, which pnpm installs itself (\"Cannot require() ES Module …/expo-linking/build/Linking.js because it is not yet fully loaded\"; \"Cannot find module …/Linking.types\", #506)",
+      "fixedBy": "open (#508)",
+      "bugSignature": "^peer\\.test\\.ts: (Error: )?(Cannot find module '[^']*museum-linking/build/Linking\\.types'|Cannot require\\(\\) ES Module [^ ]*museum-linking)",
+      "control": {
+        "why": "Declaring museum-linking in the project makes it a candidate, detected on its own manifest, which removes the precondition.",
+        "edits": [
+          {
+            "file": "package.json",
+            "find": "\"museum-router\": \"6.0.0\"",
+            "replace": "\"museum-router\": \"6.0.0\",\n    \"museum-linking\": \"8.0.0\""
+          }
+        ]
+      }
     },
     {
       "id": "res-transform-named-closure",
@@ -1696,6 +1775,25 @@
         "preFix": "FAIL (bug)",
         "measuredOn": "3510819de38279db2db90da3bcc7dcaa6d1ecd5d",
         "proof": "landed proven"
+      }
+    },
+    {
+      "id": "res-regex-alias-member-closure",
+      "class": "transform/resolution",
+      "title": "A workspace library's dependencies are not compiled for a package that imports it through a RegExp alias",
+      "source": "a monorepo package importing a sibling workspace library's source through a resolve.alias whose find is a RegExp, without declaring it (\"Cannot find module '…/expo-asset/build/Asset.fx'\")",
+      "fixedBy": "open (fix/regex-alias-closure-seed)",
+      "fixRef": "fix/regex-alias-closure-seed",
+      "bugSignature": "^closure\\.test\\.ts: (Error: )?Cannot find module '[^']*museum-expo-asset/build/Asset\\.fx'",
+      "control": {
+        "why": "Declaring museum-image in the project itself makes it a seed of the walk, which removes the precondition.",
+        "edits": [
+          {
+            "file": "package.json",
+            "find": "\"dependencies\": {}",
+            "replace": "\"dependencies\": {\n    \"museum-image\": \"1.0.0\"\n  }"
+          }
+        ]
       }
     }
   ]

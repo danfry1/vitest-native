@@ -1,6 +1,7 @@
 import { defineConfig, type UserConfig } from "tsdown";
 import fs from "node:fs";
 import path from "node:path";
+import { VERBATIM_DIRS, isVerbatimRuntimeFile } from "./scripts/verbatim-runtime.mjs";
 
 const shared = {
   dts: true,
@@ -20,25 +21,35 @@ const shared = {
       // The project context ships verbatim (copied below) and every bundle imports
       // that one file: one module instance per realm, and no inlined copies.
       /[\\/]src[\\/]context\.mjs$/,
+      // The shared resolver too: the plugin and Node's loaders run the same file.
+      /[\\/]src[\\/]native[\\/]shared-resolver\.mjs$/,
     ],
   },
 } satisfies UserConfig;
 
-// The matcher declarations augment the "vitest" module. Under Vitest 4 that
-// augmentation only merges when the declaration file itself references vitest, and
-// declaration bundling drops both an unused type import and a `reference types`
-// directive from the source — so add the directive to the emitted file.
-function referenceVitest(file: string): void {
-  const target = path.resolve("dist", file);
-  if (!fs.existsSync(target)) return;
-  const text = fs.readFileSync(target, "utf8");
-  const directive = '/// <reference types="vitest" />';
-  if (!text.startsWith(directive)) fs.writeFileSync(target, `${directive}\n${text}`);
-}
+// Every runtime .mjs the ESM build ships verbatim (copied by build:done below): the
+// top-level ones, native/ and jest-compat/. The bundles import those files rather than
+// inline a copy of them, so a process that loads both a bundle and the shipped runtime
+// (the plugin's process loads the registry and Metro profile modules from dist/native)
+// holds one instance of each module, with one set of caches. The pattern lists exactly
+// the .mjs files isVerbatimRuntimeFile copies, so what ships verbatim and what the
+// bundles leave external cannot drift apart. The CommonJS build keeps its copy, because
+// a require() of these ESM files would need require(esm) from every consumer.
+const SEP = "[\\\\/]";
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const VERBATIM_RUNTIME = new RegExp(
+  `${SEP}src${SEP}(?:${VERBATIM_DIRS.flatMap((sub) =>
+    fs
+      .readdirSync(path.resolve("src", sub))
+      .filter((f) => f.endsWith(".mjs") && isVerbatimRuntimeFile(sub, f))
+      .map((f) => [sub, f].filter(Boolean).map(escapeRegExp).join(SEP)),
+  ).join("|")})$`,
+);
 
 export default defineConfig([
   {
     ...shared,
+    deps: { neverBundle: [...shared.deps.neverBundle, VERBATIM_RUNTIME] },
     entry: {
       index: "src/index.ts",
       helpers: "src/helpers.ts",
@@ -55,26 +66,17 @@ export default defineConfig([
       // runtime (native: via module.registerHooks; jest-compat: as setup file / alias
       // targets resolved by Vite), so they must ship verbatim rather than bundled.
       "build:done": () => {
-        referenceVitest("matchers.d.mts");
-        // Top-level runtime .mjs (errors.mjs) ships verbatim too: the shipped runtimes
-        // below import it by relative path, and the tests load those same files from src,
-        // so it must resolve in both trees as one module rather than a bundled copy.
-        for (const f of fs.readdirSync(path.resolve("src"))) {
-          if (f.endsWith(".mjs") || f.endsWith(".d.mts")) {
-            fs.copyFileSync(path.resolve("src", f), path.resolve("dist", f));
-          }
-        }
-        for (const sub of ["native", "jest-compat"]) {
+        // The runtime .mjs files and their hand-written .d.mts stubs ship verbatim
+        // (scripts/verbatim-runtime.mjs, which check:size reads too). That includes the
+        // top-level ones (errors.mjs): the shipped runtimes import them by relative path,
+        // and the tests load those same files from src, so each must resolve in both
+        // trees as one module rather than a bundled copy.
+        for (const sub of VERBATIM_DIRS) {
           const srcDir = path.resolve("src", sub);
           const outDir = path.resolve("dist", sub);
           fs.mkdirSync(outDir, { recursive: true });
           for (const f of fs.readdirSync(srcDir)) {
-            // The memory planner is a config/doctor build-time module and is already
-            // emitted as an internal code-split chunk. It is not loaded verbatim by
-            // Node's hooks, so copying it again would publish two unreachable files.
-            if (sub === "native" && (f === "memory.mjs" || f === "memory.d.mts")) continue;
-            // Ship runtime .mjs verbatim, plus hand-written .d.mts type stubs for them.
-            if (f.endsWith(".mjs") || f.endsWith(".d.mts")) {
+            if (isVerbatimRuntimeFile(sub, f)) {
               fs.copyFileSync(path.join(srcDir, f), path.join(outDir, f));
             }
           }
@@ -97,8 +99,5 @@ export default defineConfig([
       "jest-compat": "src/jest-compat/index.ts",
     },
     format: "cjs",
-    hooks: {
-      "build:done": () => referenceVitest("matchers.d.cts"),
-    },
   },
 ]);

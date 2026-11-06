@@ -2,6 +2,8 @@
 // config: any alias Node cannot be given turns every missing bare specifier's
 // jest.requireActual error into REQUIRE_ACTUAL_ALIAS_UNSUPPORTED (node-registry.mjs),
 // which the shared suite asserts against (jest-registry-require-mock.test.ts).
+// `--mode ownership` runs the same files with experimental.ownershipModel, plus the
+// requireActual that only the flag's single alias record can answer.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
@@ -10,8 +12,16 @@ import { jestMockTransform } from "../dist/jest-compat.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-export default defineConfig({
-  plugins: [reactNative({ ownership: "error", engine: "native", hotRuntime: false }), jestMockTransform()],
+export default defineConfig(({ mode }) => ({
+  plugins: [
+    reactNative({
+      ownership: "error",
+      engine: "native",
+      hotRuntime: false,
+      ...(mode === "ownership" ? { experimental: { ownershipModel: "resolver" as const } } : {}),
+    }),
+    jestMockTransform(),
+  ],
   resolve: {
     alias: [
       {
@@ -29,5 +39,6 @@ export default defineConfig({
     // Relative: an absolute include is a glob that matches nothing on Windows (see
     // vitest.advice.config.mts).
     include: ["tests-native/regex-alias/*.test.ts"],
+    exclude: mode === "ownership" ? [] : ["tests-native/regex-alias/*.ownership.test.ts"],
   },
-});
+}));

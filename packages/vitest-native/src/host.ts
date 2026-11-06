@@ -14,11 +14,8 @@ import { VitestNativeError } from "./errors.mjs";
 /**
  * The version of the Vite running this config.
  *
- * Vite 7 and later state it on every hook's context (`this.meta.viteVersion`). Vite 6
- * does not, so there the version is the `version` export of the `vite` module that this
- * package resolves. That fallback is a lookup by name: it is right when this package and
- * the running Vite resolve the same copy, and under a wrapper whose `vite` module
- * reports the Vite it bundles, but nothing checks that they do.
+ * Vite states it on every hook's context (`this.meta.viteVersion`). Null without a
+ * hook context; callers then fall back to the package found by name.
  */
 export async function runningViteVersion(context: unknown): Promise<string | null> {
   return (await runningVite(context))?.version ?? null;
@@ -29,20 +26,7 @@ export async function runningVite(
   context: unknown,
 ): Promise<{ version: string; source: string } | null> {
   const fromHost = (context as { meta?: { viteVersion?: unknown } } | undefined)?.meta?.viteVersion;
-  if (typeof fromHost === "string") return { version: fromHost, source: "the running Vite" };
-  try {
-    const vite = (await import("vite")) as { version?: unknown };
-    if (typeof vite.version !== "string") return null;
-    let at = "";
-    try {
-      at = ` at ${path.dirname(createRequire(import.meta.url).resolve("vite/package.json"))}`;
-    } catch {
-      // The module loaded, so the version stands without a location.
-    }
-    return { version: vite.version, source: `the vite module${at}` };
-  } catch {
-    return null;
-  }
+  return typeof fromHost === "string" ? { version: fromHost, source: "the running Vite" } : null;
 }
 
 /**

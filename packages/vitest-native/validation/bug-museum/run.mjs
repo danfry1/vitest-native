@@ -48,7 +48,6 @@ import {
 } from "./lib/materialise.mjs";
 import { ownershipModelArgument, ownershipSupport } from "../config-axes/ownership.mjs";
 import { classify, validateSignature } from "./lib/verdict.mjs";
-import { prepareVitest4 } from "./lib/vitest4.mjs";
 
 const argument = (name) => {
   const index = process.argv.indexOf(`--${name}`);
@@ -115,13 +114,11 @@ function childEnv(exhibit, accountingFile) {
 }
 
 /** Why the exhibit cannot run here, or null. */
-function notApplicable(exhibit, context) {
+function notApplicable(exhibit) {
   const requires = exhibit.requires ?? {};
   if (exhibit.na) return exhibit.na;
   if (requires.rntl && !findRntl(requires.rntl))
     return `requires-CI: no local RNTL ${requires.rntl} store (set VN_MUSEUM_RNTL_STORE)`;
-  if (requires.vitest === "4" && !context.vitest4)
-    return `requires-CI: Vitest 4 unavailable (${context.vitest4Reason})`;
   return null;
 }
 
@@ -131,7 +128,7 @@ function runExhibit(original, context) {
     context.control && original.control?.requires
       ? { ...original, requires: original.control.requires }
       : original;
-  const na = notApplicable(exhibit, context);
+  const na = notApplicable(exhibit);
   if (na) return { verdict: "N/A", reason: na };
   if (context.control && !exhibit.control) return { verdict: "N/A", reason: "no control defined" };
   // The control removes the bug's precondition (exhibits.json `control`): a passing
@@ -238,20 +235,23 @@ function main() {
     ? path.resolve(argument("work"))
     : fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-bug-museum-")));
   fs.mkdirSync(work, { recursive: true });
+  // Exhibits link the build's own installed packages (lib/materialise.mjs): a build from
+  // build-ref.mjs has its ref's install, so an older ref is judged against what it
+  // declared. A packed tarball (CI's --build) has none: it is tested against this
+  // checkout's install, the same ref's. status.mjs accepts only build-ref builds, whose
+  // verdicts record their own install.
+  const deps = fs.existsSync(path.join(build, "node_modules")) ? build : packageRoot;
+  const depsProvenance = buildInfo(deps);
   const context = {
     work: fs.realpathSync(work),
     build,
+    deps,
     keep: flag("keep"),
     control: flag("control"),
     ownershipModel: ownershipModelArgument(argument("ownership")),
   };
   // A build without the flag would ignore it: say so instead of measuring "off" twice.
   const support = ownershipSupport(build, context.ownershipModel);
-  if (selected.some((e) => e.requires?.vitest === "4")) {
-    const prepared = prepareVitest4(path.join(context.work, ".vitest4"));
-    context.vitest4 = prepared.dir;
-    context.vitest4Reason = prepared.reason;
-  }
 
   const verdicts = {};
   for (const exhibit of selected) {
@@ -270,6 +270,8 @@ function main() {
     verdicts[exhibit.id] = {
       ...verdict,
       build: provenance,
+      // Whose installed packages the exhibit ran against (the build's own: see above).
+      deps: { sha: depsProvenance.sha },
       exhibit: exhibitHash(museumRoot, exhibit),
       ...(context.ownershipModel === "off" ? {} : { ownershipModel: context.ownershipModel }),
     };

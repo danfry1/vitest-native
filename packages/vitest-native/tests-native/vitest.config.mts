@@ -26,7 +26,10 @@ export default defineConfig({
   resolve: { alias: { "@vn-app": path.resolve(here, "fixtures/alias-app") } },
   test: {
     // A temporary root per run, removed afterwards (see the file).
-    globalSetup: [path.resolve(here, "../tests/support/temp-root.global.ts")],
+    globalSetup: [
+      path.resolve(here, "../tests/support/temp-root.global.ts"),
+      path.resolve(here, "support/dispatch-fixtures.global.ts"),
+    ],
     globals: true,
     environment: "node",
     setupFiles: NATIVE_SUITE_SETUP_FILES,

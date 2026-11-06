@@ -14,11 +14,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expandAlias } from "./aliases.mjs";
+import { expandResolutionAlias } from "../native/shared-resolver.mjs";
 import { resolvePlatformFile, resolveRelativePlatformFile } from "../native/resolve.mjs";
 import { resetEvaluatedModules, restoreEvaluatedModules } from "../native/module-reset.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import { projectContext } from "../context.mjs";
 import { nodeDispatch } from "../node-dispatch.mjs";
+import { jestMockInterop } from "./interop.mjs";
+import { owningPackageOfFile, packageNameOf } from "../native/match.mjs";
 
 const STATE = "__vitest_native_jest_registry";
 /** The manifest id under which the hot runtime clears the registry per file. */
@@ -31,18 +34,34 @@ const UNRESETTABLE = /\.node$/;
 // modules, while Node's loader gives the parsed object or the asset stub itself.
 const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
 const NONE = Symbol("vitest-native.jest-registry.none");
+// `requireActual`'s one load: the real module, past every mock (lookup).
+const BYPASSED = Symbol("vitest-native.jest-registry.bypassed");
 
 const context = projectContext();
 // The ownership guard's channel on the engine's dispatcher (native/ownership-ledger.mjs).
 const ownershipChannel = nodeDispatch().channel("ownership");
 
 /** Configuration the plugin hands the worker, shared with the compat setup. */
+// Under experimental.ownershipModel the project's aliases have one record, the shared
+// resolver's (every string and RegExp alias, and tsconfig `paths`, in Vite's order), and
+// the plugin writes no second one.
+const resolverAliases =
+  context?.ownershipModel === "resolver" || context?.ownershipModel === "resolution"
+    ? (context.resolverInputs?.aliases ?? [])
+    : null;
+const requireAliases = context?.requireAliases ?? [];
+
 export const config = {
   projectRoot: context?.projectRoot ?? process.cwd(),
   platform: context?.platform === "android" ? "android" : "ios",
-  // The project's string-to-string `resolve.alias` entries (and tsconfig `paths` when
-  // Vite resolves them), which Node knows nothing of.
-  aliases: context?.requireAliases ?? [],
+  /** `specifier` with the project's alias applied, which Node knows nothing of. */
+  expandAlias:
+    resolverAliases === null
+      ? // The string-to-string `resolve.alias` entries (and tsconfig `paths` when Vite
+        // resolves them).
+        (specifier) => expandAlias(specifier, requireAliases)
+      : (specifier) => expandResolutionAlias(specifier, resolverAliases),
+  // Under the flag none: an alias Node cannot apply is refused when the plugin loads.
   skippedAliases: context?.requireAliasesSkipped ?? [],
 };
 const sourceExts = context?.sourceExts ?? [];
@@ -125,7 +144,7 @@ function createState() {
     } catch {
       // fall through
     }
-    const expanded = isPath ? request : expandAlias(request, config.aliases);
+    const expanded = isPath ? request : config.expandAlias(request);
     if (expanded === request) return null;
     if (path.isAbsolute(expanded) && !path.extname(expanded)) {
       const hit = platformFile(expanded);
@@ -250,7 +269,7 @@ function createState() {
       // in turn is mocked as usual. A virtual mock has no real module, so Node's
       // loader reports it missing, as Jest does.
       state.bypass = null;
-      return undefined;
+      return BYPASSED;
     }
     return filename !== null ? state.entries.get(filename) : state.unresolved.get(request);
   };
@@ -267,17 +286,29 @@ function createState() {
       pending: null,
       evaluating: false,
     };
-    if (filename !== null) state.entries.set(filename, entry);
-    else state.unresolved.set(spec, entry);
+    if (filename !== null) {
+      state.entries.set(filename, entry);
+      state.decided.add(canonical(filename));
+    } else state.unresolved.set(spec, entry);
     // The hoisted `vi.mock` factory looks its entry up by where it was written.
     state.byCall.set(`${from}\0${spec}`, entry);
     return entry;
   };
   state.byCall = new Map();
+  /**
+   * The files a jest.* call registered or unregistered in this test file. Jest-compat
+   * applies each to Node's require at once, and also queues it with Vitest for the
+   * test's next import; that queued vi.doMock/vi.doUnmock is jest-compat's own, already
+   * applied here, so it is no pending mock for Node (assertNoPendingMockOf).
+   */
+  state.decided = new Set();
 
   state.unregister = (from, spec) => {
     const filename = state.resolveFrom(spec, from);
-    if (filename !== null) state.entries.delete(filename);
+    if (filename !== null) {
+      state.entries.delete(filename);
+      state.decided.add(canonical(filename));
+    }
     state.unresolved.delete(spec);
   };
 
@@ -295,7 +326,7 @@ function createState() {
     ownershipChannel.jestRequireDepth = (ownershipChannel.jestRequireDepth ?? 0) + 1;
     try {
       const load = createRequire(anchor);
-      if (filename !== null && (isPath || expandAlias(spec, config.aliases) !== spec)) {
+      if (filename !== null && (isPath || config.expandAlias(spec) !== spec)) {
         return load(filename);
       }
       return load(spec);
@@ -402,6 +433,7 @@ function createState() {
     state.entries.clear();
     state.unresolved.clear();
     state.byCall.clear();
+    state.decided.clear();
     state.bypass = null;
     state.isolation = null;
   };
@@ -471,6 +503,33 @@ function viteInstanceOf(filename) {
     return requireFacade(ns);
   }
   return NONE;
+}
+
+const bridging = context?.ownershipModel === "resolution";
+let bridge = null;
+let loadingBridge = false;
+/**
+ * The require bridge's answer for `filename` (native/bridge.mjs), loaded on first use so
+ * a worker that never needs it loads nothing: an ES namespace through the same facade as
+ * viteInstanceOf, CommonJS as its module.exports, or NONE for a file Vite does not own or
+ * loads through Node (externalized).
+ */
+function bridgedInstanceOf(filename, parent) {
+  if (!SOURCE_FILE.test(filename)) return NONE;
+  if (bridge === null) {
+    // Loading the bridge is itself a require through this interceptor: it is never bridged.
+    if (loadingBridge) return NONE;
+    loadingBridge = true;
+    try {
+      bridge = createRequire(import.meta.url)("../native/bridge.mjs");
+    } finally {
+      loadingBridge = false;
+    }
+  }
+  if (!bridge.isViteOwned(filename)) return NONE;
+  const value = bridge.requireViteOwned(filename, parent);
+  if (value === undefined) return NONE;
+  return Object.prototype.toString.call(value) === "[object Module]" ? requireFacade(value) : value;
 }
 
 /**
@@ -566,6 +625,321 @@ function requireFacade(ns) {
   return facade;
 }
 
+// experimental.nodeMocks (docs: node-mocks-design.md in the planning repository, rules
+// R1-R10): a `vi.mock` applies to the modules Node loads, as a jest.mock factory does
+// (#322). Vitest keeps the file's mocks in its mocker's registry, keyed by the file Vite
+// resolved. A request is served one when the file Node resolves for that requester is
+// that file. Off unless the project opts in: it changes what an installed package's own
+// require returns.
+const nodeMocks = context?.nodeMocks === true;
+
+// R1: only a module's own require is served a Vitest mock. A load with no parent module
+// is Node's: its ESM loader evaluating CommonJS an import reached, which is how Vitest
+// loads a mocked module's original (importOriginal, vi.importActual, an automock) by
+// its URL. That decision for Node's ESM imports is made in loader.mjs's resolve hook.
+const madeByVitest = (parentFile) => typeof parentFile !== "string";
+const pendingCount = () => globalThis.__vitest_mocker__?.constructor?.pendingIds?.length ?? 0;
+
+/** A mock entry's file: its Vite id as a path, without a query, or null for a virtual id. */
+function mockedFileOf(entry) {
+  if (typeof entry?.id !== "string") return null;
+  let file = entry.id.startsWith("/@fs/") ? entry.id.slice(4) : entry.id;
+  const query = file.indexOf("?");
+  if (query !== -1) file = file.slice(0, query);
+  // A virtual id (the engine's react-native facade for `vi.mock('react-native')`) is
+  // Vite's alone: its factory's importOriginal() reaches React Native through Node's
+  // require of the package, so it is not served to Node.
+  return path.isAbsolute(file) ? canonical(file) : null;
+}
+
+/** The directory of the package `file` belongs to, or null outside node_modules. */
+function packageDirOf(file) {
+  const pkg = owningPackageOfFile(file);
+  if (pkg !== null) {
+    const norm = file.replace(/\\/g, "/");
+    const at = norm.lastIndexOf("/node_modules/") + "/node_modules/".length;
+    return norm.slice(0, at + pkg.length);
+  }
+  return nearestNamedPackage(file)?.dir ?? null;
+}
+
+/** The name in the nearest package.json above `file` that names a package, or null. */
+function packageNameAt(file) {
+  return nearestNamedPackage(file)?.name ?? null;
+}
+
+/**
+ * A workspace package (a link to source, at its real path): the nearest package.json
+ * that names a package, as `{ dir, name }`.
+ */
+function nearestNamedPackage(file) {
+  for (let dir = path.dirname(file); ; dir = path.dirname(dir)) {
+    let name;
+    if (packageDirs.has(dir)) name = packageDirs.get(dir);
+    else {
+      try {
+        name = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")).name ?? null;
+      } catch {
+        name = null; // No manifest here, or an unreadable one: look further up.
+      }
+      packageDirs.set(dir, name);
+    }
+    if (typeof name === "string") return { dir: dir.replace(/\\/g, "/"), name };
+    if (path.dirname(dir) === dir) return null;
+  }
+}
+const packageDirs = new Map();
+/** Test seam: the package directory a mock's file and a request's file are compared by. */
+export const _packageDirOf = packageDirOf;
+
+/**
+ * The current file's Vitest mocks, indexed by the file each mocks, or null when there
+ * are none. R6: rebuilt whenever the registry, or any entry in it, is another object
+ * (a re-mock or an unmock and a mock change entries without changing their count).
+ */
+function vitestMocks() {
+  const registry = globalThis.__vitest_mocker__?.getMockerRegistry?.();
+  const byId = registry?.registryById;
+  if (!(byId instanceof Map) || byId.size === 0) return null;
+  const held = vitestMocks.held;
+  if (held !== undefined && held.registry === registry && held.entries.length === byId.size) {
+    let same = true;
+    let i = 0;
+    for (const entry of byId.values()) {
+      if (held.entries[i++] !== entry) {
+        same = false;
+        break;
+      }
+    }
+    if (same) return held.index;
+  }
+  const entries = [...byId.values()];
+  const index = { byFile: new Map(), packages: new Set(), projectFiles: false };
+  for (const entry of entries) {
+    const file = mockedFileOf(entry);
+    if (file === null) continue;
+    index.byFile.set(file, entry);
+    const pkg = owningPackageOfFile(file);
+    if (pkg !== null) index.packages.add(pkg);
+    else {
+      index.projectFiles = true;
+      // A workspace package, mocked at its real path, is still reached by its name
+      // through a node_modules link.
+      const name = packageNameAt(file);
+      if (name !== null) index.packages.add(name);
+    }
+  }
+  vitestMocks.held = { registry, entries, index: index.byFile.size === 0 ? null : index };
+  return vitestMocks.held.index;
+}
+
+/** Whether Vitest's registry holds any mock: one Map read, for the registry's side channel. */
+const vitestHasMocks = () =>
+  (globalThis.__vitest_mocker__?.getMockerRegistry?.()?.registryById?.size ?? 0) > 0;
+
+/**
+ * Whether `request` from `parent` can reach a mocked file at all, without resolving it:
+ * a package name, an absolute path or a relative request into a mocked package, or into project files
+ * when one is mocked. R10: an unrelated request costs this.
+ */
+function mayReachMock(index, request, parent) {
+  if (isBare(request)) return index.packages.has(packageNameOf(request)) || index.projectFiles;
+  // An absolute path names its file, so its package is known without resolving it, as
+  // React Native's precompiled registry's requires of its helpers are; a relative one
+  // stays in its requester's package.
+  const pkg = path.isAbsolute(request)
+    ? packageOfPath(request)
+    : typeof parent?.filename === "string"
+      ? owningPackageOfFile(parent.filename)
+      : null;
+  return pkg === null ? index.projectFiles : index.packages.has(pkg);
+}
+
+/** The path a `file:` URL names, or the URL itself when it names none Node accepts. */
+function fileOfUrl(url) {
+  try {
+    return fileURLToPath(url);
+  } catch {
+    return url;
+  }
+}
+
+/** The package under the last `node_modules/` of a path, its own directory included. */
+function packageOfPath(file) {
+  const norm = file.replace(/\\/g, "/").replace(/\/+$/, "");
+  const at = norm.lastIndexOf("/node_modules/");
+  return at === -1 ? null : packageNameOf(norm.slice(at + "/node_modules/".length));
+}
+
+/**
+ * The Vitest mock for the file Node resolved for this requester, or undefined (R5: by
+ * resolved file only). A package name that resolves to a different file of the package
+ * a mock is in, which happens when Vite and Node pick different entry files, fails by
+ * name: the mock might be meant, and serving either module would be a guess.
+ */
+function vitestMockFor(index, request, parent, filename) {
+  if (filename === null) return undefined;
+  const entry = index.byFile.get(canonical(filename));
+  if (entry !== undefined || !isBare(request)) return entry;
+  const dir = packageDirOf(filename);
+  if (dir === null) return undefined;
+  for (const [file, mocked] of index.byFile) {
+    if (packageDirOf(file) === dir && mocked.raw === request) {
+      throw mockNotSeenByNode(
+        request,
+        parent,
+        `Vite resolves it to ${file} and Node to ${filename}, so the mock cannot be matched`,
+      );
+    }
+  }
+  return undefined;
+}
+
+/**
+ * R3: the module a Vitest mock is, the instance the test's own import gets: a factory's
+ * result (Vitest caches it on the entry), an automock's mocked exports, or the module
+ * a `__mocks__` redirect evaluated. R9: one that cannot be had synchronously fails by name.
+ */
+const FACTORY_NOT_SETTLED =
+  "its factory is async and has not settled; import the module in the test first";
+/** Manual-mock entries whose factory returned a promise that has not settled. */
+const settlingFactories = new WeakSet();
+
+/**
+ * Whether Vitest is building this mock now: running its factory (its id is on the mock
+ * context's callstack until the factory settles), or loading an automock's original.
+ * Vitest sets the `mock:` node's `mockedExports` to an empty object before that load and
+ * fills it, synchronously, after; a node `jest.resetModules()` reset keeps its filled
+ * object. A request for the file meanwhile comes from inside the build, the original's
+ * own graph, and is the real module, as Vitest's own load of the original is.
+ */
+function vitestMockBuilding(entry) {
+  const mockId = `mock:${entry.id}`;
+  if (globalThis.__vitest_mocker__?.getMockContext?.()?.callstack?.includes?.(mockId)) {
+    return true;
+  }
+  if (entry.type !== "automock" && entry.type !== "autospy") return false;
+  const node = worker()?.evaluatedModules?.getModuleById?.(mockId);
+  return (
+    node?.mockedExports != null &&
+    node.evaluated !== true &&
+    Object.keys(node.mockedExports).length === 0
+  );
+}
+
+function vitestMockValue(entry, request, parent) {
+  const value = vitestMockModule(entry, request, parent);
+  return value === NONE ? NONE : requireFacade(value);
+}
+
+/**
+ * The module a Vitest mock is, as the test's own import gets it (the factory's result, an
+ * automock's mocked exports, the module a redirect evaluated), or NONE while Vitest is
+ * building it. R9: one that cannot be had synchronously fails by name.
+ */
+function vitestMockModule(entry, request, parent) {
+  if (vitestMockBuilding(entry)) return NONE;
+  if (entry.type === "manual") {
+    // Vitest caches a factory's settled result only, and wraps every factory in a
+    // synchronous arrow, so whether one is async is known only by calling it. It is
+    // called once: while its promise is pending, a require fails by name without calling
+    // it again; once it settles, Vitest's own handler has cached the result, which the
+    // test's import and every later require share.
+    if (entry.cache === undefined && settlingFactories.has(entry)) {
+      throw mockNotSeenByNode(request, parent, FACTORY_NOT_SETTLED);
+    }
+    const value = entry.resolve();
+    if (typeof value?.then !== "function") return value;
+    settlingFactories.add(entry);
+    value.then(
+      () => settlingFactories.delete(entry),
+      () => settlingFactories.delete(entry),
+    );
+    throw mockNotSeenByNode(request, parent, FACTORY_NOT_SETTLED);
+  }
+  const modules = worker()?.evaluatedModules;
+  if (entry.type === "automock" || entry.type === "autospy") {
+    const node = modules?.getModuleById?.(`mock:${entry.id}`);
+    if (node?.mockedExports != null) return node.mockedExports;
+  } else if (entry.type === "redirect" && typeof entry.redirect === "string") {
+    const node =
+      modules?.getModuleByUrl?.(entry.redirect) ?? modules?.getModuleById?.(entry.redirect);
+    // Evaluated in this file: the hot runtime resets an earlier file's node in place.
+    if (node?.evaluated === true) return node.exports;
+  }
+  throw mockNotSeenByNode(
+    request,
+    parent,
+    `Vitest builds this ${entry.type} module when the test imports it, which it has not yet`,
+  );
+}
+
+/**
+ * R7: a `vi.doMock` Vitest has queued but not registered (it registers queued mocks on
+ * the test's next import) of the file this requester resolved. Matched per requester:
+ * the pending specifier is resolved from where it was written.
+ *
+ * Returns true when the file is unmocked for Node already: a jest.* call decided it
+ * (state.decided), jest-compat holds no mock for it, and the last queued action for it
+ * is an unmock (`jest.dontMock`/`doUnmock`'s own). Vitest's registry still holds the
+ * mock that unmock replaces until the next import, so the caller serves the real module,
+ * as Jest does from the call on, instead of that stale mock.
+ */
+function assertNoPendingMockOf(state, filename, request, parent) {
+  const pending = globalThis.__vitest_mocker__?.constructor?.pendingIds;
+  if (!Array.isArray(pending) || pending.length === 0 || filename === null) return false;
+  const target = canonical(filename);
+  const decided = state.decided.has(target);
+  let last;
+  for (const queued of pending) {
+    if (
+      (queued?.action !== "mock" && queued?.action !== "unmock") ||
+      typeof queued.id !== "string"
+    ) {
+      continue;
+    }
+    const resolved = state.resolveFrom(queued.id, queued.importer);
+    if (resolved === null || canonical(resolved) !== target) continue;
+    if (!decided) {
+      throw mockNotSeenByNode(
+        request,
+        parent,
+        `it was ${queued.action}ed after the test's last import, and Vitest applies that on the next one`,
+      );
+    }
+    last = queued.action;
+  }
+  // A jest.* call decided this file for Node already: its queued action is applied here.
+  return last === "unmock" && !state.entries.has(target);
+}
+
+const marks = new WeakMap();
+let lastMark = 0;
+/** A number unique to `entry` (a mock registration) for the life of the worker. */
+function markOf(entry) {
+  let mark = marks.get(entry);
+  if (mark === undefined) marks.set(entry, (mark = ++lastMark));
+  return mark;
+}
+
+function mockNotSeenByNode(request, parent, reason) {
+  const from = typeof parent?.filename === "string" ? parent.filename : "Node";
+  const error = new VitestNativeError(
+    "MOCK_NOT_SEEN_BY_NODE",
+    `the vi.mock of '${request}' cannot be served to ${from}'s require: ${reason}. ` +
+      `Import the mocked module in the test before the code that requires it, or give ` +
+      `the mock a synchronous factory.`,
+  );
+  // Also said out loud, once: a package that probes an optional dependency with
+  // `try { require(x) } catch {}` would otherwise turn this into "not installed".
+  if (!reportedNotSeen.has(error.message)) {
+    reportedNotSeen.add(error.message);
+    console.warn(error.message);
+  }
+  return error;
+}
+const reportedNotSeen = new Set();
+
 function installLoadHook(state) {
   // The outermost load step (LOAD_STEPS): a per-file mock beats a preset and the registry.
   nodeDispatch().load.add(
@@ -579,8 +953,25 @@ function installLoadHook(state) {
           typeof parent?.filename === "string" &&
           !NODE_MODULES.test(parent.filename) &&
           state.isResettable(parent.filename);
-        if ((!fromProject && state.isEmpty()) || Module.isBuiltin(request)) {
+        if (Module.isBuiltin(request)) return next(request, parent, ...rest);
+        const viMocks = nodeMocks && !madeByVitest(parent?.filename) ? vitestMocks() : null;
+        const pendingMocks = nodeMocks && !madeByVitest(parent?.filename) && pendingCount() > 0;
+        if (!fromProject && state.isEmpty() && viMocks === null && !pendingMocks) {
           return next(request, parent, ...rest);
+        }
+        // A jest.mock (this registry) is matched first, then a vi.mock (Vitest's). R8:
+        // jest.requireActual's own load is never a vi.mock either; it takes the path
+        // below, whose lookup gives it the real module.
+        const actualLoad =
+          state.bypass !== null &&
+          state.bypass === (state.resolve(request, parent) ?? `\0${request}`);
+        if (state.isEmpty() && !actualLoad && (viMocks !== null || pendingMocks)) {
+          const served = serveVitestMock(viMocks, pendingMocks, request, parent, () =>
+            state.resolve(request, parent),
+          );
+          if (served !== NONE) return served;
+          // R10: a request no mock matched is Node's, as it was with no mocks at all.
+          if (!fromProject) return next(request, parent, ...rest);
         }
         // With no mocks, only a project file can be served from Vite. For a bare specifier,
         // Node's own answer decides: a file under node_modules goes to Node's loader as is;
@@ -596,7 +987,14 @@ function installLoadHook(state) {
         }
         const filename = state.resolve(request, parent);
         const entry = state.lookup(filename, request);
-        if (entry !== undefined) return state.valueOf(entry);
+        // R8: requireActual's load is the real module, past a vi.mock too; it may still
+        // share Vite's instance of a project file below, as before.
+        const bypassed = entry === BYPASSED;
+        if (entry !== undefined && !bypassed) return state.valueOf(entry);
+        if (!bypassed && !state.isEmpty() && (viMocks !== null || pendingMocks)) {
+          const served = serveVitestMock(viMocks, pendingMocks, request, parent, () => filename);
+          if (served !== NONE) return served;
+        }
         // A module Node already holds stays the one `require` returns: switching a later
         // require to Vite's copy would change its identity mid-file.
         if (
@@ -606,6 +1004,15 @@ function installLoadHook(state) {
           !NODE_MODULES.test(filename) &&
           Module._cache[filename] === undefined
         ) {
+          // experimental.ownershipModel 'resolution': a file Vite owns is Vite's instance in
+          // either load order, evaluated now if Vite has not (native/bridge.mjs). Nothing is
+          // put in Module._cache: the next require asks Vite's map again, as this one did. It
+          // answers first: it also refuses a module Vite holds that it must not serve (one
+          // whose evaluation threw, or one still being evaluated).
+          if (bridging) {
+            const bridged = bridgedInstanceOf(filename, parent);
+            if (bridged !== NONE) return bridged;
+          }
           const shared = viteInstanceOf(filename);
           if (shared !== NONE) return shared;
         }
@@ -619,11 +1026,131 @@ function installLoadHook(state) {
   // AppState')`, so the registry asks here first. Undefined unless a mock exists.
   Object.defineProperty(globalThis, "__vitest_native_node_mock_for", {
     configurable: true,
-    get: () => (state.entries.size === 0 ? undefined : nodeMockForRegistry),
+    get: () =>
+      state.entries.size === 0 && (!nodeMocks || (!vitestHasMocks() && pendingCount() === 0))
+        ? undefined
+        : nodeMockForRegistry,
   });
   function nodeMockForRegistry(filename) {
     const entry = state.lookup(canonical(filename), filename);
-    return entry === undefined ? NONE : state.valueOf(entry);
+    if (entry === BYPASSED) return NONE;
+    if (entry !== undefined) return state.valueOf(entry);
+    if (!nodeMocks) return NONE;
+    if (pendingCount() > 0 && assertNoPendingMockOf(state, filename, filename, null)) return NONE;
+    const mocked = vitestMocks()?.byFile.get(canonical(filename));
+    return mocked === undefined ? NONE : vitestMockValue(mocked, filename, null);
   }
   nodeMockForRegistry.NONE = NONE;
+
+  // The mock seam of the require bridge (experimental.ownershipModel 'resolution',
+  // native/bridge.mjs), which evaluates a Vite-owned module synchronously in Vite's place:
+  // each import it makes asks here first, so a mocked dependency is the instance Vitest's
+  // own import of it gets (ADR-0007 decision 4; the A3 readiness condition 1).
+  const mocks = nodeDispatch().channel("mocks");
+  mocks.NONE = NONE;
+  /**
+   * The id Vitest's registry keys a module by, from the forms the bridge holds it in: an
+   * absolute path (a fetch result's id, an external's target), a `file:` URL (an external's
+   * target on Windows), or Vite's `/@fs/` URL for a file outside the root.
+   */
+  const viteIdOf = (id) => {
+    if (typeof id !== "string") return id;
+    if (id.startsWith("file:")) return fileOfUrl(id).replace(/\\/g, "/");
+    if (id.startsWith("/@fs/")) {
+      const rest = id.slice("/@fs".length);
+      return /^\/[A-Za-z]:\//.test(rest) ? rest.slice(1) : rest;
+    }
+    return path.isAbsolute(id) ? id.replace(/\\/g, "/") : id;
+  };
+  /** Whether Node's own `require` and `import` are served Vitest's mocks (nodeMocks). */
+  mocks.servesNode = nodeMocks;
+  /**
+   * The mock for an import of `id` (Vite's id for it: its file, or a virtual id) made by
+   * the module at `importerFile`, as the test's own import of it gets it; NONE when none
+   * applies; or a `MOCK_NOT_SEEN_BY_NODE` failure naming the importer when one applies
+   * but cannot be had synchronously (an async factory that has not settled, an automock
+   * or `__mocks__` module Vitest has not built, a `vi.doMock`/`vi.doUnmock` of the file
+   * not applied yet). A Vite module's imports are Vite's, so this holds with nodeMocks
+   * off too. A jest.mock is matched first, and jest.requireActual's module stays actual,
+   * as for Node's require.
+   */
+  /**
+   * A jest.mock as an import gets it, not as `require` does: Vitest's `mock:<id>` module
+   * once the test has imported it (jestMockTransform's factory hands Vitest the value
+   * through Jest's CommonJS interop, setup.mjs), else that interop of the settled value,
+   * so `import X from` reads the whole module of a factory returning a function or
+   * named exports only. A factory that has not settled fails by name.
+   */
+  const jestMockForImport = (entry, id, parent) => {
+    const imported = worker()?.evaluatedModules?.getModuleById?.(`mock:${id}`)?.exports;
+    if (imported != null) return imported;
+    // The bridge evaluates synchronously, so it takes the factory as Node's require does
+    // (valueOf): jestMockTransform's original, synchronous one, whose jest.requireActual
+    // is synchronous, as under Jest. The value is memoized, so Vite's import of the module
+    // later gets the same object. Only a factory the author wrote async, or one Vite has
+    // already started, has no synchronous value yet.
+    const value = entry.has ? entry.value : (entry.pending ?? state.valueOf(entry));
+    if (Object.prototype.toString.call(value) === "[object Promise]") {
+      throw mockNotSeenByNode(id, parent, FACTORY_NOT_SETTLED);
+    }
+    return jestMockInterop(value);
+  };
+  mocks.forImport = (rawId, importerFile) => {
+    const parent = { filename: importerFile };
+    const id = viteIdOf(rawId);
+    const bare = typeof id === "string" ? id.replace(/[?#].*$/, "") : null;
+    const file = bare !== null && path.isAbsolute(bare) ? bare : null;
+    if (file !== null) {
+      const entry = state.lookup(canonical(file), file);
+      if (entry === BYPASSED) return NONE;
+      if (entry !== undefined) return jestMockForImport(entry, id, parent);
+      if (pendingCount() > 0 && assertNoPendingMockOf(state, file, id, parent)) return NONE;
+    }
+    const byId = globalThis.__vitest_mocker__?.getMockerRegistry?.()?.registryById;
+    // Keyed by Vite's id, as Vitest's registry is: the bridge has the id Vite resolved.
+    const entry = byId instanceof Map ? byId.get(id) : undefined;
+    if (entry === undefined) return NONE;
+    // Vitest's import of a factory mock gets the module it keeps at `mock:<id>` (a proxy
+    // that names a missing export); once the test has imported it, that one.
+    const imported = worker()?.evaluatedModules?.getModuleById?.(`mock:${entry.id}`)?.exports;
+    if (entry.type === "manual" && imported != null && !vitestMockBuilding(entry)) return imported;
+    return vitestMockModule(entry, id, parent);
+  };
+
+  // experimental.nodeMocks, for Node's ESM loader (loader.mjs), which decides at resolve,
+  // where the importer is known (R1), and gives a mocked import its own URL (R2).
+  /** Whether `request` from `parentFile` can reach a mock at all, without resolving it. */
+  nodeMockForRegistry.mayReach = (request, parentFile) => {
+    if (!nodeMocks) return false;
+    if (request.startsWith("file:")) request = fileOfUrl(request);
+    if (state.entries.size > 0 || pendingCount() > 0) return true;
+    const index = vitestMocks();
+    return index !== null && mayReachMock(index, request, { filename: parentFile });
+  };
+  /**
+   * A mark for the mock that applies to `file`, as `request` from `parentFile` resolved
+   * it, or null: the same mark for the same registration, a new one for each new one.
+   */
+  nodeMockForRegistry.markFor = (file, request, parentFile) => {
+    if (!nodeMocks) return null;
+    const parent = { filename: parentFile };
+    const jestEntry = state.entries.get(canonical(file));
+    if (jestEntry !== undefined) return markOf(jestEntry);
+    if (pendingCount() > 0 && assertNoPendingMockOf(state, file, request, parent)) return null;
+    const index = vitestMocks();
+    const entry = index === null ? undefined : vitestMockFor(index, request, parent, file);
+    // A mark is a cache entry for good: none for a mock Vitest is still building.
+    return entry === undefined || vitestMockBuilding(entry) ? null : markOf(entry);
+  };
+
+  // A Vitest mock for this request, or NONE: the pending check (R7) and the match (R5).
+  function serveVitestMock(index, pending, request, parent, resolve) {
+    const reachable = index !== null && mayReachMock(index, request, parent);
+    if (!reachable && !pending) return NONE;
+    const filename = resolve();
+    if (pending && assertNoPendingMockOf(state, filename, request, parent)) return NONE;
+    if (!reachable) return NONE;
+    const entry = vitestMockFor(index, request, parent, filename);
+    return entry === undefined ? NONE : vitestMockValue(entry, request, parent);
+  }
 }

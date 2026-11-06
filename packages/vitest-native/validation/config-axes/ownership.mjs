@@ -16,7 +16,7 @@
 // or throws for the requested value, is broken: ownershipSupport() throws and the run fails.
 import { spawnSync } from "node:child_process";
 
-export const OWNERSHIP_MODELS = ["off", "resolver"];
+export const OWNERSHIP_MODELS = ["off", "resolver", "resolution"];
 export const UNSUPPORTED = "flag not supported by this build";
 
 /** The --ownership value, validated. Absent: "off". */

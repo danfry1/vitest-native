@@ -24,8 +24,12 @@ import {
   transformCacheDir,
   ESM_INTEROP_RUNTIME,
 } from "../src/native/transform.mjs";
+import { COLD_TRANSFORM_BUDGET_MS, warmTransform } from "./support/warm-transform.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+// Each test file starts its own Babel worker; none of its tests should pay that start.
+beforeAll(() => warmTransform(transformRN, projectRoot), COLD_TRANSFORM_BUDGET_MS);
 // Compiled output requires @babel/runtime helpers, which resolve beside the preset.
 const presetRequire = createRequire(
   createRequire(path.join(projectRoot, "package.json")).resolve("@react-native/babel-preset"),

@@ -28,6 +28,7 @@ export default defineConfig({
   // The tsconfig-paths-style alias requireactual-alias.test.tsx exercises.
   resolve: { alias: { "@vn-app": path.resolve(here, "fixtures/alias-app") } },
   test: {
+    globalSetup: [path.resolve(here, "support/dispatch-fixtures.global.ts")],
     globals: true,
     environment: "node",
     setupFiles: NATIVE_SUITE_SETUP_FILES,

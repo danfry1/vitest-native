@@ -248,7 +248,11 @@ function installLoaderHooks(data) {
         `24.12.0 or later on Node 24, or Node 26 and later.`,
     );
   }
-  nativeLoader.initialize(data);
+  nativeLoader.initialize({
+    ...data,
+    inThread: true,
+    hotGeneration: globalThis.__vitest_native_hot_generation,
+  });
   const fromRequire = nativeLoader.isRequireContext;
   registerHooks({
     resolve: (specifier, context, nextResolve) =>
@@ -274,7 +278,11 @@ if (!globalThis.__vitest_native_loader_registered) {
     runContext.hotEsmGeneration !== false &&
     process.env.VITEST_NATIVE_HOT_ESM_GEN !== "0"
   ) {
-    globalThis.__vitest_native_hot_generation = { value: 1 };
+    // The hot-generation channel: the counter, and what the in-thread loader adds to
+    // it for its generation facades (loader.mjs initialize).
+    const counter = new Int32Array(new SharedArrayBuffer(4));
+    counter[0] = 1;
+    globalThis.__vitest_native_hot_generation = { counter };
   }
   installLoaderHooks({
     projectRoot,
@@ -285,7 +293,7 @@ if (!globalThis.__vitest_native_loader_registered) {
     assetExts,
     sourceExts: runContext.sourceExts,
     context: process.env[CONTEXT_ENV],
-    hotGeneration: globalThis.__vitest_native_hot_generation,
+    hotGenerationBuffer: globalThis.__vitest_native_hot_generation?.counter.buffer,
   });
 }
 // Serve React Native from the precompiled registry when the plugin produced one
@@ -476,15 +484,13 @@ try {
 // --- RNTL: register RCTVirtualText as a text host ---
 // Real RN renders a NESTED <Text> as the host "RCTVirtualText", which RNTL's text
 // hosts omit. On RNTL 14 that makes a nested <Text> throw "Text strings must be
-// rendered within a <Text> component"; on RNTL 12 and 13 the inner text is not a
-// text element, so getByText cannot find it. rntl-text-host.mjs explains both and
-// patches whichever shape the installed RNTL has (dist/ is 14, build/ is 12 and 13).
+// rendered within a <Text> component"; on RNTL 13 the inner text is not a text
+// element, so getByText cannot find it. rntl-text-host.mjs explains both and patches
+// whichever shape the installed RNTL has (dist/ is 14, build/ is 13).
 //
 // Requiring the module here adds no evaluation-order hazard (see the hot-reset
-// block): on 13 and 14 it is a leaf, and on 12, where it requires react-native,
-// RNTL's config and render-act, the RNTL matchers loaded just above already
-// required it and react-native is loaded by now, so this is a cache hit. `req` is
-// the project-root require the matchers use, so both patch the same RNTL copy.
+// block): on 13 and 14 it is a leaf. `req` is the project-root require the matchers
+// use, so both patch the same RNTL copy.
 try {
   let registered = null;
   let lastError;

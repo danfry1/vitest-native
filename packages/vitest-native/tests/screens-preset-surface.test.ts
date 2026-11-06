@@ -107,7 +107,7 @@ describe("screens preset surface", () => {
     expect(screen.getByTestId("header-right-button")).toBeTruthy();
     expect(screen.getByTestId("content")).toBeTruthy();
 
-    // Read the host tree: RNTL 12 and 13 return composite instances from queries,
+    // Read the host tree: RNTL 13 returns composite instances from queries,
     // whose children are elements, where RNTL 14 returns host nodes.
     type HostNode = { type: string; props: Record<string, unknown>; children?: unknown[] };
     const findHost = (node: unknown, testID: string): HostNode | undefined => {

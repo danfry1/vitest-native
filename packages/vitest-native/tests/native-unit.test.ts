@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach } 
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 // @ts-expect-error — runtime .mjs, no types
 import { transformRN } from "../src/native/transform.mjs";
 import { parseDeprecatedReactNativeExports, parseReactNativeExports } from "../src/plugin.js";
@@ -11,6 +11,7 @@ import { validatePeerDependency } from "../src/validate.js";
 import { nativePool } from "../src/native/pool.js";
 import { createRequire } from "node:module";
 import { runPluginConfig } from "./plugin-config.js";
+import { COLD_TRANSFORM_BUDGET_MS, warmTransform } from "./support/warm-transform.js";
 
 // Anchor all resolution to THIS test file's location (cwd-independent — vitest's
 // process.cwd() varies with where it was launched). Walk up from here looking for
@@ -36,6 +37,10 @@ const RN = path.dirname(fs.realpathSync(findUp("node_modules/react-native/packag
 const projectRoot = path.dirname(findUp("package.json", HERE));
 
 describe("transformRN", () => {
+  // The RN source files below are usually served from the disk cache, so whichever test
+  // first reached Babel paid the worker's cold start and could time out.
+  beforeAll(() => warmTransform(transformRN, projectRoot), COLD_TRANSFORM_BUDGET_MS);
+
   it("lowers RN 0.84 Flow component syntax to runnable JS", () => {
     const file = path.join(RN, "Libraries/Components/View/View.js");
     const src = fs.readFileSync(file, "utf8");
@@ -658,6 +663,62 @@ describe("native preset redirect (ESM loader)", () => {
     expect(loaded.source).toContain('export const State = _m["State"];');
   });
 
+  it("passes a subpath whose leaf the mock does not export to the real resolver", async () => {
+    // As jest.mock(pkg) leaves subpaths alone under Jest: the root mock is another
+    // module's exports.
+    await nativeLoader.initialize({
+      projectRoot,
+      transformPkgs: [],
+      presetExports: { "react-native-gesture-handler": ["Swipeable", "State"] },
+      assetExts: ["png", "ttf"],
+    });
+    const sentinel = { url: "file:///real/ReanimatedSwipeable.js", shortCircuit: true };
+    const result = nativeLoader.resolveSync(
+      "react-native-gesture-handler/ReanimatedSwipeable",
+      { parentURL: undefined },
+      () => sentinel,
+    );
+    expect(result).toBe(sentinel);
+  });
+
+  it("by resolved file: the package's entry is the mock, any other file is real", async () => {
+    const pkgDir = path.join(projectRoot, "node_modules", "react-native-safe-area-context");
+    const manifest = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf8"));
+    await nativeLoader.initialize({
+      projectRoot,
+      transformPkgs: [],
+      presetExports: { "react-native-safe-area-context": ["SafeAreaView"] },
+      assetExts: [],
+    });
+    const parentURL = pathToFileURL(path.join(projectRoot, "src", "index.ts")).href;
+    const entry = pathToFileURL(path.join(pkgDir, manifest.main)).href;
+    const fromEntry = nativeLoader.resolveSync(entry, { parentURL }, () => {
+      throw new Error("the entry is the mock");
+    });
+    expect(fromEntry.url).toContain("react-native-safe-area-context");
+    expect(fromEntry.url).not.toMatch(/^file:/);
+    const deep = pathToFileURL(path.join(pkgDir, "lib/commonjs/SafeAreaContext.js")).href;
+    const sentinel = { url: deep, shortCircuit: true };
+    expect(nativeLoader.resolveSync(deep, { parentURL }, () => sentinel)).toBe(sentinel);
+  });
+
+  it("a subpath Node resolves to the package's entry is the root mock", async () => {
+    const pkgDir = path.join(projectRoot, "node_modules", "react-native-safe-area-context");
+    await nativeLoader.initialize({
+      projectRoot,
+      transformPkgs: [],
+      presetExports: { "react-native-safe-area-context": ["SafeAreaView"] },
+      assetExts: [],
+    });
+    const parentURL = pathToFileURL(path.join(projectRoot, "src", "index.ts")).href;
+    const result = nativeLoader.resolveSync(
+      "react-native-safe-area-context/src",
+      { parentURL },
+      () => ({ url: pathToFileURL(path.join(pkgDir, "src", "index.tsx")).href }),
+    );
+    expect(result.url).toBe("vitest-native-preset:react-native-safe-area-context");
+  });
+
   it("passes preset package.json and asset subpaths through to the real resolver", async () => {
     // package.json falls through (and gets the JSON import attribute injected).
     const jsonResult = nativeLoader.resolveSync(
@@ -774,20 +835,6 @@ describe("plugin engine routing", () => {
     const cfg = await runPluginConfig(plugin, { root: projectRoot }, SERVE_ENV);
     expect(cfg.oxc).toEqual({ jsx: { runtime: "automatic" } });
     expect(cfg.esbuild).toBeUndefined();
-  });
-
-  it("uses the legacy esbuild JSX configuration for Vite 6 and 7", async () => {
-    // The version is the running Vite's, as its hook context states it (src/host.ts),
-    // not the version of a package named `vite` under the project root.
-    const plugin = reactNative({ engine: "mock" }) as any;
-    const handler = plugin.config.handler ?? plugin.config;
-    const cfg = await handler.call(
-      { meta: { viteVersion: "7.3.2" } },
-      { root: projectRoot },
-      SERVE_ENV,
-    );
-    expect(cfg.esbuild).toEqual({ jsx: "automatic" });
-    expect(cfg.oxc).toBeUndefined();
   });
 
   it("explicit native sets RN external + a native setup file, and does NOT virtualize react-native", async () => {
@@ -1084,10 +1131,9 @@ describe("plugin engine routing", () => {
     }
     const quiet = () => vi.spyOn(console, "error").mockImplementation(() => {});
     // Vitest applies CLI flags to the resolved config and also keeps them on their own.
-    const run = (plugin: any, config: any, cli: Record<string, unknown>, v5 = false) => {
+    const run = (plugin: any, config: any, cli: Record<string, unknown>) => {
       Object.assign(config, cli);
-      const vitest = v5 ? { config: { cliOptions: cli } } : { _cliOptions: cli };
-      plugin.configureVitest({ vitest, project: { config } });
+      plugin.configureVitest({ vitest: { config: { cliOptions: cli } }, project: { config } });
     };
 
     it("keeps hot when nothing overrode it", async () => {
@@ -1097,16 +1143,14 @@ describe("plugin engine routing", () => {
       expect(config.isolate).toBe(false);
     });
 
-    it("reads Vitest 5's config.cliOptions as well as Vitest 4's _cliOptions", async () => {
+    it("reads the CLI flags from config.cliOptions", async () => {
       const err = quiet();
-      for (const v5 of [false, true]) {
-        const { plugin, config } = await hotProject("auto");
-        run(plugin, config, { isolate: false }, v5);
-        expect(config.pool, `v5=${v5}`).toBe("threads");
-        expect(config.isolate).toBe(false);
-        expect(config.runner).toBeUndefined();
-        expect(config.env.VITEST_NATIVE_MEMORY_PLAN).toBeUndefined();
-      }
+      const { plugin, config } = await hotProject("auto");
+      run(plugin, config, { isolate: false });
+      expect(config.pool).toBe("threads");
+      expect(config.isolate).toBe(false);
+      expect(config.runner).toBeUndefined();
+      expect(config.env.VITEST_NATIVE_MEMORY_PLAN).toBeUndefined();
       expect(err).toHaveBeenCalledWith(expect.stringMatching(/hot runtime off: --no-isolate/));
       err.mockRestore();
     });
@@ -1150,7 +1194,7 @@ describe("plugin engine routing", () => {
       const config = { root: hotRoot, pool: "vmThreads" };
       expect(() =>
         mock.configureVitest({
-          vitest: { _cliOptions: { pool: "vmThreads" } },
+          vitest: { config: { cliOptions: { pool: "vmThreads" } } },
           project: { config },
         }),
       ).not.toThrow();
@@ -1192,8 +1236,11 @@ describe("plugin engine routing", () => {
       plugin.configureVitest({
         // A root this plugin did not plan: another directory than the project's.
         vitest: {
-          _cliOptions: { pool: "forks" },
-          config: { root: path.join(hotRoot, ".."), maxWorkers: 7 },
+          config: {
+            cliOptions: { pool: "forks" },
+            root: path.join(hotRoot, ".."),
+            maxWorkers: 7,
+          },
         },
         project: { config },
       });
@@ -1213,8 +1260,11 @@ describe("plugin engine routing", () => {
       Object.assign(config, { pool: "forks" });
       plugin.configureVitest({
         vitest: {
-          _cliOptions: { pool: "forks" },
-          config: { root: hotRoot, maxWorkers: cfg.test.maxWorkers },
+          config: {
+            cliOptions: { pool: "forks" },
+            root: hotRoot,
+            maxWorkers: cfg.test.maxWorkers,
+          },
         },
         project: { config },
       });
@@ -1284,7 +1334,7 @@ describe("plugin engine routing", () => {
           host(2 * GIB);
           // VITEST_MAX_WORKERS reaches the resolved config with no CLI flag at all.
           config.maxWorkers = 8;
-          plugin.configureVitest({ vitest: { _cliOptions: {} }, project: { config } });
+          plugin.configureVitest({ vitest: { config: { cliOptions: {} } }, project: { config } });
           expect(config.isolate, String(hotRuntime)).toBe(false);
           expect(config.maxWorkers).toBe(4);
           expect(envPlan(config)).toMatchObject({ requestedWorkers: 8, maxWorkers: 4 });
@@ -1315,7 +1365,10 @@ describe("plugin engine routing", () => {
         expect(capped).toMatchObject({ maxWorkers: 4 });
         expect(warn).not.toHaveBeenCalledWith(expect.stringMatching(/capped maxWorkers/));
         const config = { root: hotRoot, ...capped.cfg.test };
-        capped.plugin.configureVitest({ vitest: { _cliOptions: {} }, project: { config } });
+        capped.plugin.configureVitest({
+          vitest: { config: { cliOptions: {} } },
+          project: { config },
+        });
         expect(config.isolate).toBe(false);
         expect(warn).toHaveBeenCalledWith(
           expect.stringMatching(/capped maxWorkers from 8 to 4 for the host memory budget/),
@@ -1337,7 +1390,7 @@ describe("plugin engine routing", () => {
         const self = { name: "native", config };
         const other = { name: "plain", config: { maxWorkers: 8 } };
         plugin.configureVitest({
-          vitest: { _cliOptions: {}, config: { maxWorkers: 8 }, projects: [self, other] },
+          vitest: { config: { cliOptions: {}, maxWorkers: 8 }, projects: [self, other] },
           project: self,
         });
         expect(config.isolate).toBe(true);
@@ -1442,7 +1495,7 @@ describe("plugin engine routing", () => {
       // A plain project beside it: Vitest would resolve its worker count to 9 on 10 CPUs.
       const other = { name: "mock", config: { maxWorkers: config.maxWorkers + 5 } };
       plugin.configureVitest({
-        vitest: { _cliOptions: {}, config: {}, projects: [self, other] },
+        vitest: { config: { cliOptions: {} }, projects: [self, other] },
         project: self,
       });
       expect(config.isolate).toBe(true);
@@ -1455,7 +1508,7 @@ describe("plugin engine routing", () => {
       const explicitSelf = { name: "native", config: explicit.config };
       expect(() =>
         explicit.plugin.configureVitest({
-          vitest: { _cliOptions: {}, config: {}, projects: [explicitSelf, other] },
+          vitest: { config: { cliOptions: {} }, projects: [explicitSelf, other] },
           project: explicitSelf,
         }),
       ).toThrow(/HOT_RUNTIME_OVERRIDDEN|sequence.groupOrder/);
@@ -1465,7 +1518,7 @@ describe("plugin engine routing", () => {
       separate.config.sequence = { groupOrder: 1 };
       const separateSelf = { name: "native", config: separate.config };
       separate.plugin.configureVitest({
-        vitest: { _cliOptions: {}, config: {}, projects: [separateSelf, other] },
+        vitest: { config: { cliOptions: {} }, projects: [separateSelf, other] },
         project: separateSelf,
       });
       expect(separate.config.isolate).toBe(false);
@@ -1555,6 +1608,24 @@ describe("engine-selection notices", () => {
     expect(banners).toHaveLength(1);
     expect(String(banners[0][0])).toContain("engine: native — real react-native");
     log.mockRestore();
+    err.mockRestore();
+  });
+
+  it("the native banner names experimental.nodeMocks when it is on, and when 'resolution' implies it", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const banner = async (options: object) => {
+      resetBanner();
+      err.mockClear();
+      await runPluginConfig(reactNative(options) as any, { root: projectRoot }, SERVE_ENV);
+      return String(err.mock.calls.find((c) => String(c[0]).includes("engine:"))?.[0] ?? "");
+    };
+    expect(await banner({ engine: "native" })).not.toContain("nodeMocks");
+    expect(
+      await banner({ engine: "native", experimental: { ownershipModel: "resolution" } }),
+    ).toMatch(/experimental\.ownershipModel: resolution, experimental\.nodeMocks \(implied\)\)$/);
+    expect(await banner({ engine: "native", experimental: { nodeMocks: true } })).toMatch(
+      /, experimental\.nodeMocks\)$/,
+    );
     err.mockRestore();
   });
 
@@ -2241,6 +2312,14 @@ describe("plugin subpath resolution (mock engine)", () => {
     expect(code).toContain("export const State = _m['State'];");
   });
 
+  it("keeps serving the mock for a subpath whose leaf the mock does not export", async () => {
+    // The mock engine has no real package to load.
+    const plugin = await makePlugin();
+    expect(plugin.resolveId("react-native-gesture-handler/ReanimatedSwipeable", undefined)).toBe(
+      "\0virtual:preset:react-native-gesture-handler/ReanimatedSwipeable",
+    );
+  });
+
   it("does not redirect preset package.json, asset, or utility subpaths", async () => {
     const plugin = await makePlugin();
     expect(plugin.resolveId("react-native-gesture-handler/package.json", undefined)).toBe(
@@ -2466,13 +2545,13 @@ describe("hot pool: Vitest version guard", () => {
 describe("peer requirements", () => {
   const vitestReq = PEER_REQUIREMENTS.find((r) => r.name === "vitest")!;
 
-  it("accepts Vitest 4 and 5, and rejects 6", () => {
+  it("accepts Vitest 5, and rejects 4 and 6", () => {
     // The manifest's peer range and this table are the same promise stated twice;
     // a check that only asserted the table would let them drift apart.
     const manifest = JSON.parse(fs.readFileSync(path.join(HERE, "..", "package.json"), "utf8")) as {
       peerDependencies: Record<string, string>;
     };
-    expect(manifest.peerDependencies.vitest).toBe(">=4 <6");
+    expect(manifest.peerDependencies.vitest).toBe(">=5 <6");
     expect(vitestReq.maximumMajor).toBe(6);
   });
 
@@ -2495,9 +2574,8 @@ describe("peer requirements", () => {
     };
     expect(check("5.0.0-beta.6")).toBe(null);
     expect(check("5.0.0")).toBe(null);
-    expect(check("4.1.8")).toBe(null);
-    expect(check("6.0.0")).toMatch(/supports vitest >= 4\.0\.0 and < 6/);
-    expect(check("3.2.7")).toMatch(/requires vitest >= 4\.0\.0/);
+    expect(check("6.0.0")).toMatch(/supports vitest >= 5\.0\.0 and < 6/);
+    expect(check("4.1.8")).toMatch(/requires vitest >= 5\.0\.0 and < 6, but found 4\.1\.8/);
   });
 });
 

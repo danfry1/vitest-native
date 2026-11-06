@@ -10,7 +10,9 @@ npx vitest-native doctor        # diagnose peers, engine, presets, RNTL/Node
 npx vitest-native migrate       # analyze your jest config → migration report
 ```
 
-All commands accept `--root <dir>` (default: the current directory).
+All commands accept `--root <dir>` (default: the current directory). A flag the command
+does not take is refused with the valid ones listed, so a typo such as `--wirte` stops the run
+instead of quietly doing something else.
 
 ## `init`
 
@@ -22,10 +24,11 @@ npx vitest-native init                 # plain config
 npx vitest-native init --jest-compat   # + jest-compat layer, for migrated suites
 ```
 
-The `--jest-compat` variant is byte-for-byte the config block the
+The `--jest-compat` variant writes the same pieces the
 [Jest migration guide](/migration/from-jest) documents: `jestMockTransform()`
-after `reactNative()`, `globals: true`, the `@jest/globals` alias, and the
-jest-compat setup file.
+beside `reactNative()`, `globals: true`, the `@jest/globals` alias, and the
+jest-compat setup file. It leaves the engine on its default (`auto`), where the
+guide's example names `engine: 'native'`.
 
 ## `doctor`
 
@@ -43,15 +46,13 @@ Read-only environment diagnosis:
   loads `babel.config.js` / `.babelrc.js` the way Babel would (with
   `NODE_ENV=test`); ESM and TypeScript configs are only scanned as text.
 - Whether a vitest config exists and uses vitest-native.
-- On Vitest 4, a note that the persistent transform cache is off (see
-  [how it works](/guide/how-it-works#_4-transform-cache)). Advisory only.
 
 Exits non-zero when it finds a blocking problem, so it can gate CI setup jobs.
 
 ## `migrate`
 
-Reads your Jest configuration (`package.json#jest` or
-`jest.config.{js,cjs,json}`) and reports, key by key:
+Reads your Jest configuration (`package.json#jest`, or the first
+`jest.config.{js,ts,mjs,mts,cjs,cts,json}` in Jest's own order) and reports, key by key:
 
 - **Mapped automatically** — keys the suggested config absorbs
   (`setupFilesAfterEnv` → `setupFiles`, path aliases → `resolve.alias`,
@@ -78,5 +79,8 @@ it (guarded like `init`). It never edits test files — top-level `jest.mock`
 calls are handled at runtime by
 [`jestMockTransform()`](/guide/jest-compat).
 
-`jest.config.ts` / `.mjs` and function-form configs can't be loaded
-automatically; the report says so instead of guessing.
+TypeScript configs load through Node's own type stripping (Node 22.18 or later). Jest
+loads them through ts-node instead, so a config that relies on it (an extensionless
+relative import, an `enum`, a path alias) can't be loaded, and neither can a config that
+uses top-level `await` or exports a function. The report then names the file and Node's
+reason, instead of guessing.

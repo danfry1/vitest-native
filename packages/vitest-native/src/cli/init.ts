@@ -12,8 +12,9 @@ import { usesVitePlus } from "../host.js";
  * reading only the CLI output would not otherwise learn it exists or what it costs.
  */
 export const HOT_RUNTIME_NOTE = [
-  "Hot runtime: off by default. `hotRuntime: 'auto'` reuses workers between test files, which",
-  "usually makes large native-engine suites faster. It has known differences from per-file isolation:",
+  "Hot runtime: off by default. `hotRuntime: 'auto'` reuses workers across test files instead of",
+  "starting a fresh one per file. Whether that is faster depends on the suite, so measure it on yours.",
+  "It has known differences from per-file isolation:",
   "  https://danfry1.github.io/vitest-native/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files",
 ];
 

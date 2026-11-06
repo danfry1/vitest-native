@@ -77,11 +77,9 @@ function runVitest(label, configName) {
   const startedAt = performance.now();
   // Run FROM the package root, which is also the `root` the generated config sets.
   // The two used to disagree — cwd was the generated directory — and the include
-  // globs are written relative to the package root, so they only matched because
-  // Vitest 4 resolved them against the configured `root`. Vitest 5.0.0-beta.7
-  // resolves them against the working directory instead, which made every generated
-  // file invisible: "No test files found", on a floating `vitest@beta` leg, with no
-  // change on our side. Keeping cwd and root the same is correct under both.
+  // globs are written relative to the package root, and Vitest 5 resolves them against
+  // the working directory: with cwd elsewhere every generated file was invisible ("No
+  // test files found"). Keeping cwd and root the same keeps them found.
   const result = spawnSync(
     process.execPath,
     [vitestEntry, "run", "--config", path.join(generatedName, configName)],

@@ -6,10 +6,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   cjsConditionsWithout,
-  exportTarget,
   recoverMissingReactNativeTarget,
   // @ts-expect-error — runtime .mjs, no types
 } from "../src/native/export-condition-recovery.mjs";
+import { exportTarget } from "../src/native/shared-resolver.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PRELOAD = path.join(HERE, "../src/native/export-condition-recovery-preload.mjs");

@@ -1,19 +1,29 @@
 /**
- * vitest-native/jest-compat — helpers for running an existing Jest-based RN test
- * suite under Vitest. This clears the *Jest-API coupling* (the `jest` global,
- * `@jest/globals`, jest-native's extend-expect). It does NOT do a full migration
- * on its own — see the migration guide for the per-suite cleanup still required
- * (top-level `jest.mock` → `vi.mock`, RNTL ≥ 12, third-party presets).
+ * vitest-native/jest-compat — runs an existing Jest-based React Native suite under Vitest
+ * with its Jest API calls left as they are. Three pieces, used together:
+ *
+ * - `jestCompatSetup` (a setup file): a `jest` global backed by Vitest's `vi`, with the
+ *   synchronous `jest.requireActual` and `jest.requireMock` Vitest only has as the async
+ *   `vi.importActual`.
+ * - `jestMockTransform()` (a plugin): rewrites a top-level `jest.mock(...)` to a hoisted
+ *   `vi.mock(...)`, so it applies before the imports, as Jest's does, and registers it
+ *   for Node's `require` of the module too.
+ * - `jestCompatAliases()` (`resolve.alias`): `@jest/globals` for RNTL < 12, and
+ *   jest-native's `extend-expect` as a no-op.
+ *
+ * What stays a per-suite change (see docs/migrating-from-jest.md): upgrading
+ * `@testing-library/react-native` to 12–14, and deleting the mocks of third-party native
+ * libraries, which vitest-native's presets cover.
  *
  * @example
  * ```ts
  * // vitest.config.mts
  * import { defineConfig } from "vitest/config";
  * import { reactNative } from "vitest-native";
- * import { jestCompatAliases, jestCompatSetup } from "vitest-native/jest-compat";
+ * import { jestCompatAliases, jestCompatSetup, jestMockTransform } from "vitest-native/jest-compat";
  *
  * export default defineConfig({
- *   plugins: [reactNative({ engine: "native" })],
+ *   plugins: [reactNative({ engine: "native" }), jestMockTransform()],
  *   resolve: { alias: jestCompatAliases() },
  *   test: { globals: true, setupFiles: [jestCompatSetup] },
  * });
@@ -22,7 +32,10 @@
 
 export { jestMockTransform } from "./transform.js";
 
-/** Setup-file specifier: gives the suite a `jest` global backed by Vitest's `vi`. */
+/**
+ * Setup-file specifier: gives the suite a `jest` global backed by Vitest's `vi`, with the
+ * synchronous `jest.requireActual` and `jest.requireMock`.
+ */
 export const jestCompatSetup = "vitest-native/jest-compat/setup";
 
 /**

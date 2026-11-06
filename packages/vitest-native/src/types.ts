@@ -247,6 +247,14 @@ export interface NavigationPresetOptions {
   defaultRouteParams?: Record<string, unknown>;
 }
 
+/** The `hotRuntime` object form's recycling options, shared by both of its modes. */
+export interface HotRuntimeRecycleOptions {
+  recycleAfterFiles?: number;
+  memoryLimit?: number;
+  preserveGlobals?: string[];
+  esmGeneration?: boolean;
+}
+
 export interface VitestNativeOptions {
   /** Target platform. Default: 'ios' */
   platform?: "ios" | "android";
@@ -328,10 +336,12 @@ export interface VitestNativeOptions {
   /**
    * `engine: 'native'` only. Names of additional node_modules packages whose
    * source the native engine should transform (Flow/TS/JSX stripped) as it
-   * loads them. By default only `react-native` / `@react-native` are
-   * transformed; third-party RN libraries that ship untranspiled source
-   * (e.g. `react-native-reanimated`, `react-native-safe-area-context`) need to
-   * be listed here, analogous to Jest's `transformIgnorePatterns` allowlist.
+   * loads them. Packages the project depends on that declare `react-native` as
+   * a dependency or peer dependency, and their runtime dependencies, are
+   * detected and transformed without being listed; list a package here when it
+   * ships untranspiled source but is not detected, as you would add it to
+   * Jest's `transformIgnorePatterns` allowlist. A listed package's own
+   * dependencies are transformed too.
    *
    * The object form adds `exclude`, which names packages the engine must NEVER
    * transform, whatever else would have selected them — auto-detection, a detected
@@ -349,18 +359,52 @@ export interface VitestNativeOptions {
    *
    * @example
    * ```ts
-   * reactNative({ engine: 'native', transform: ['react-native-reanimated'] })
+   * reactNative({ engine: 'native', transform: ['some-untranspiled-lib'] })
    *
    * reactNative({
    *   engine: 'native',
    *   transform: {
-   *     include: ['react-native-reanimated'],
+   *     include: ['some-untranspiled-lib'],
    *     exclude: ['some-build-tool'], // never hand this to the Babel preset
    *   },
    * })
    * ```
    */
   transform?: string[] | { include?: string[]; exclude?: string[] };
+
+  /**
+   * `engine: 'native'` only. Behaviour changes that are not the default yet. Each is
+   * decided (made the default, or removed) by the date in `src/flags.ts`.
+   */
+  experimental?: {
+    /**
+     * `engine: 'native'` only. A `vi.mock` applies to the modules Node loads too, as a
+     * `jest.mock` does under Jest: an installed package's own `require` or `import` of
+     * the mocked module gets the test's mocked module, the same instance (#322). That
+     * holds for a factory, an automock, `{ spy: true }` and a `__mocks__` file. What
+     * Node cannot be served fails by name, `MOCK_NOT_SEEN_BY_NODE`, instead of loading
+     * the real module: an async factory that has not settled, an automock or `__mocks__`
+     * file the test has not imported yet, a `vi.doMock` or `vi.doUnmock` not applied
+     * yet, and a package Vite and Node resolve to different files. A module Node
+     * already loaded keeps what it required, as under Jest without
+     * `jest.resetModules()`, and an ES module reads each export of the mock once, when
+     * it loads (a getter on a factory's result is not a live binding there). Default:
+     * `false`, and on with `ownershipModel: 'resolution'`, which refuses it set to
+     * `false`.
+     */
+    nodeMocks?: boolean;
+    /**
+     * `'resolver'`: Vite, Node's CommonJS loader and its ESM loader resolve every bare
+     * request through one shared resolver, from one set of inputs, so a package loaded
+     * by both module systems is one module. Where a package's `exports` map has both
+     * `import` and `require` builds, both sides load the `require` one. Native engine
+     * only. `'resolution'` adds the bridge: Node's \`require\` of a file Vite owns gets
+     * Vite's own instance, evaluated then if Vite has not yet, so the order a test loads
+     * files in cannot split a module. `'resolution'` turns `nodeMocks` on: a mocked module
+     * the bridge or Node reaches is the test's mock. See docs/ownership-model.md.
+     */
+    ownershipModel?: "resolver" | "resolution";
+  };
 
   /**
    * `engine: 'native'` only. Built on Vitest's experimental custom-pool API.
@@ -407,6 +451,13 @@ export interface VitestNativeOptions {
    * explicit custom pool; otherwise the run keeps per-file isolation and prints the
    * reason for falling back.
    *
+   * - `mode: 'auto'` in the object form selects the same way, with the object's
+   *   recycling options applied when the hot runtime runs:
+   *   `{ mode: 'auto', memoryLimit: 2 * 1024 ** 3 }`. Without `mode`, the object
+   *   form requires the hot runtime, as `true` does. Cannot be combined with
+   *   `allowUnboundedMemory: true`. Worker count and process-RSS limits still come
+   *   from the memory plan; `memoryLimit: 0` turns the heap threshold off.
+   *
    * Default: `false`, as in 0.13.0: each file runs in a fresh worker, with React
    * Native reloaded per file. The hot runtime has known differences from per-file
    * isolation, listed in the troubleshooting guide.
@@ -414,13 +465,8 @@ export interface VitestNativeOptions {
   hotRuntime?:
     | boolean
     | "auto"
-    | {
-        recycleAfterFiles?: number;
-        memoryLimit?: number;
-        allowUnboundedMemory?: boolean;
-        preserveGlobals?: string[];
-        esmGeneration?: boolean;
-      };
+    | (HotRuntimeRecycleOptions & { mode?: undefined; allowUnboundedMemory?: boolean })
+    | (HotRuntimeRecycleOptions & { mode: "auto"; allowUnboundedMemory?: false });
 
   /**
    * `engine: 'native'` only. How native module lookups answer.
