@@ -96,26 +96,11 @@ function withJestSemantics(mock, original) {
     getMockImplementation,
     mockReset,
   } = mock;
-  // Whether the mock is as a reset leaves it: the resting implementation installed by
-  // mockReset() below and nothing set or called since. See mockReset.
-  let pristine = false;
-  mock.mockImplementation = (impl) => {
-    pristine = false;
-    return mockImplementation.call(mock, asJestImplementation(impl));
-  };
-  mock.mockImplementationOnce = (impl) => {
-    pristine = false;
-    return mockImplementationOnce.call(mock, asJestImplementation(impl));
-  };
-  mock.withImplementation = (impl, callback) => {
-    pristine = false;
-    return withImplementation.call(mock, asJestImplementation(impl), callback);
-  };
-  const { mockName } = mock;
-  mock.mockName = (name) => {
-    pristine = false;
-    return mockName.call(mock, name);
-  };
+  mock.mockImplementation = (impl) => mockImplementation.call(mock, asJestImplementation(impl));
+  mock.mockImplementationOnce = (impl) =>
+    mockImplementationOnce.call(mock, asJestImplementation(impl));
+  mock.withImplementation = (impl, callback) =>
+    withImplementation.call(mock, asJestImplementation(impl), callback);
   mock.getMockImplementation = () => {
     const impl = getMockImplementation.call(mock);
     if (spyDefaults.has(impl)) return undefined;
@@ -125,18 +110,27 @@ function withJestSemantics(mock, original) {
   if (resting !== original) {
     spyDefaults.add(resting);
     mockImplementation.call(mock, resting);
-    pristine = true;
     // Vitest's resetAllMocks() iterates the set of mocks it marked dirty with for…of, and
     // mockReset() takes the mock out of it. Installing the resting implementation marks it
-    // dirty again, which appends it to that set, so the same loop visits it again: without
-    // the check below, every visit reset it and appended it once more, and
-    // resetAllMocks() never returned. A mock already as a reset leaves it is left alone,
-    // so the second visit changes nothing and the loop moves on.
+    // dirty again, which appends it to that set, so the same loop visits it again: every
+    // visit reset it and appended it once more, and resetAllMocks() never returned.
+    //
+    // A mock whose state is exactly what a reset leaves is left alone, so the second
+    // visit changes nothing and the loop moves on. The state is read from Vitest itself,
+    // not tracked here, so no way of changing the mock can leave it stale: the next
+    // implementation it would run (getMockImplementation() returns a queued once-
+    // implementation first) is the resting one, it has no calls, and its name is the one
+    // the reset left.
+    let nameAfterReset;
+    const asReset = () =>
+      getMockImplementation.call(mock) === resting &&
+      mock.mock.calls.length === 0 &&
+      mock.getMockName() === nameAfterReset;
     mock.mockReset = () => {
-      if (pristine && mock.mock.calls.length === 0) return mock;
+      if (asReset()) return mock;
       mockReset.call(mock);
       mockImplementation.call(mock, resting);
-      pristine = true;
+      nameAfterReset = mock.getMockName();
       return mock;
     };
   }

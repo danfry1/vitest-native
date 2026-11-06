@@ -39,8 +39,29 @@ it("resetAllMocks() returns, spies fall back to their originals, and keep Jest's
     const arrow = jest.spyOn(mod, "arrow");
     resetAllMocks();
     clearAllMocks();
+    // A value set after a reset is reset by the next one, with no call in between: the
+    // check that ends the loop reads the mock's state, so it cannot keep a stale
+    // "already reset".
+    const quiet = { none: () => undefined };
+    const none = jest.spyOn(quiet, "none");
+    resetAllMocks();
+    none.mockReturnValue(1);
+    const set = none.getMockImplementation()();
+    resetAllMocks();
+    const value = quiet.none();
+    none.mockReturnValueOnce(2);
+    resetAllMocks();
+    const once = quiet.none();
+    none.mockReturnThis();
+    resetAllMocks();
+    const self = quiet.none();
+    none.mockName("named");
+    resetAllMocks();
+    const name = none.getMockName();
     console.log(JSON.stringify({
       mocked, afterReset, callsAfterReset, afterJestReset, twice, constructed: new arrow(),
+      afterMockReturnValue: { set, value: value ?? "undefined", once: once ?? "undefined", self: self ?? "undefined" },
+      nameReset: name !== "named",
     }));
   `;
   const run = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
@@ -56,5 +77,7 @@ it("resetAllMocks() returns, spies fall back to their originals, and keep Jest's
     afterJestReset: 4,
     twice: 4,
     constructed: { made: "arrow" },
+    afterMockReturnValue: { set: 1, value: "undefined", once: "undefined", self: "undefined" },
+    nameReset: true,
   });
 });
