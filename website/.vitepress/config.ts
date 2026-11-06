@@ -14,7 +14,8 @@ export default defineConfig({
   sitemap: { hostname: 'https://danfry1.github.io/vitest-native/' },
   head: [
     ['link', { rel: 'icon', href: '/vitest-native/favicon.svg', type: 'image/svg+xml' }],
-    ['meta', { name: 'theme-color', content: '#10b3a3' }],
+    ['meta', { name: 'theme-color', content: '#ffffff', media: '(prefers-color-scheme: light)' }],
+    ['meta', { name: 'theme-color', content: '#0a0a0a', media: '(prefers-color-scheme: dark)' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:site_name', content: 'vitest-native' }],
     // A PNG: X, Facebook, LinkedIn and Slack do not render an SVG og:image.
@@ -37,6 +38,7 @@ export default defineConfig({
     plugins: [groupIconVitePlugin()],
   },
   themeConfig: {
+    logo: { light: '/logo.svg', dark: '/logo-dark.svg', alt: '' },
     search: { provider: 'local' },
     socialLinks: [{ icon: 'github', link: 'https://github.com/danfry1/vitest-native' }],
     editLink: {
