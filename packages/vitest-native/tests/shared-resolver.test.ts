@@ -457,29 +457,37 @@ describe("the Vite side under the flag", () => {
       plugin.resolveId.call({ environment: { config: { root } } }, "dual-nope-not-installed");
   };
 
-  it("finds the project's resolver under another spelling of its root", async () => {
-    // Another spelling of the same directory: a junction, or on Windows a change of case.
-    // On Windows CI no package resolved from a junction to the package (bun's relative
-    // node_modules links, reached through it, likely resolve against the junction's path).
-    let link: string;
-    if (process.platform === "win32") {
-      link = process
-        .cwd()
-        .replace(/[a-z]/i, (c) => (c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase()));
-    } else {
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-resolver-spelling-"));
-      roots.push(dir);
-      link = path.join(dir, "link");
-      fs.symlinkSync(process.cwd(), link, "junction");
-    }
-    const resolve = await configured(link);
-    const calls = () => resolverCounters()?.vite?.calls ?? 0;
-    const before = calls();
-    expect(() => resolve(process.cwd())).not.toThrow();
-    expect(() => resolve(link)).not.toThrow();
-    // The project's own resolver answered both, not "no resolver, flag off in Vite".
-    expect(calls()).toBe(before + 2);
-  });
+  it(
+    "finds the project's resolver under another spelling of its root",
+    async () => {
+      // Another spelling of the same directory: a junction, or on Windows a change of case.
+      // On Windows CI no package resolved from a junction to the package (bun's relative
+      // node_modules links, reached through it, likely resolve against the junction's path).
+      let link: string;
+      if (process.platform === "win32") {
+        link = process
+          .cwd()
+          .replace(/[a-z]/i, (c) => (c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase()));
+      } else {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-resolver-spelling-"));
+        roots.push(dir);
+        link = path.join(dir, "link");
+        fs.symlinkSync(process.cwd(), link, "junction");
+      }
+      const resolve = await configured(link);
+      const calls = () => resolverCounters()?.vite?.calls ?? 0;
+      const before = calls();
+      expect(() => resolve(process.cwd())).not.toThrow();
+      expect(() => resolve(link)).not.toThrow();
+      // The project's own resolver answered both, not "no resolver, flag off in Vite".
+      expect(calls()).toBe(before + 2);
+    },
+    // Under the flag, configureVitest waits for the precompiled React Native registry. The
+    // first build of a cold Windows CI run compiles React Native's graph in the bounded
+    // compiler child and takes longer than the 5 s default there (it is bounded at 120 s,
+    // registry-process.mjs). Not a hang: the run continues once the child returns.
+    120_000,
+  );
 
   it("forgets what Vite held when a watched file is added or removed", async () => {
     const plugin = reactNative({
