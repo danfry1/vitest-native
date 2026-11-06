@@ -146,6 +146,19 @@ export default { plugins: [reactNative()] };`;
     expect(report).toContain("only mentioned in a comment");
   });
 
+  it("says 'resolution' turns nodeMocks on, and only for 'resolution'", () => {
+    const withModel = (model: string) =>
+      configLines(
+        project({
+          "vitest.config.ts": `import { reactNative } from "vitest-native";
+export default { plugins: [reactNative({ experimental: { ownershipModel: "${model}" } })] };`,
+        }),
+      );
+    expect(withModel("resolution")).toContain("'resolution' turns on experimental.nodeMocks");
+    expect(withModel("resolver")).toContain("ownershipModel: 'resolver' is on");
+    expect(withModel("resolver")).not.toContain("nodeMocks");
+  });
+
   it("still reports a missing config", () => {
     expect(configLines(project({}))).toContain("no vitest.config.* found");
   });

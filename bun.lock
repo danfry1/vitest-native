@@ -61,6 +61,10 @@
         "@types/node": "25.9.9",
         "@types/react": "19.3.0",
         "@vitest/coverage-v8": "5.0.5",
+        "dispatch-cycle-lib": "file:./tests-native/fixtures/dispatch-cycle-lib",
+        "dispatch-redirect-lib": "file:./tests-native/fixtures/dispatch-redirect-lib",
+        "dispatch-split-lib": "file:./tests-native/fixtures/dispatch-split-lib",
+        "dispatch-target-lib": "file:./tests-native/fixtures/dispatch-target-lib",
         "expo": "58.0.21",
         "expo-constants": "58.0.14",
         "expo-status-bar": "58.0.4",
@@ -1941,6 +1945,14 @@
     "tsdown/cac": ["cac@7.1.0", "", {}, "sha512-LMDU/U2yA4IPIY8KT0NsNPWEYZvAMkbgyspxJ6btJaYV+WMDOHAZCmB0lsTObiHaRS1V/ztKAl7+TSkTqXyeoA=="],
 
     "vite/rolldown": ["rolldown@1.2.14", "", { "dependencies": { "@oxc-project/types": "=0.154.0", "@rolldown/pluginutils": "^1.0.0" }, "optionalDependencies": { "@rolldown/binding-android-arm-eabi": "1.2.14", "@rolldown/binding-android-arm64": "1.2.14", "@rolldown/binding-darwin-arm64": "1.2.14", "@rolldown/binding-darwin-x64": "1.2.14", "@rolldown/binding-freebsd-x64": "1.2.14", "@rolldown/binding-linux-arm-gnueabihf": "1.2.14", "@rolldown/binding-linux-arm64-gnu": "1.2.14", "@rolldown/binding-linux-arm64-musl": "1.2.14", "@rolldown/binding-linux-ppc64-gnu": "1.2.14", "@rolldown/binding-linux-s390x-gnu": "1.2.14", "@rolldown/binding-linux-x64-gnu": "1.2.14", "@rolldown/binding-linux-x64-musl": "1.2.14", "@rolldown/binding-openharmony-arm64": "1.2.14", "@rolldown/binding-win32-arm64-msvc": "1.2.14", "@rolldown/binding-win32-x64-msvc": "1.2.14" }, "bin": { "rolldown": "./bin/cli.mjs" } }, "sha512-eTBTTqMR6uHKLgcUqpJP8ntzDI6V4LYA8negAMBEI7gkgVvOdrx6VsvS2Ym+83KhOPdLCHWJu0w7UQFJZhHKNw=="],
+
+    "vitest-native/dispatch-cycle-lib": ["dispatch-cycle-lib@file:packages/vitest-native/tests-native/fixtures/dispatch-cycle-lib", {}],
+
+    "vitest-native/dispatch-redirect-lib": ["dispatch-redirect-lib@file:packages/vitest-native/tests-native/fixtures/dispatch-redirect-lib", {}],
+
+    "vitest-native/dispatch-split-lib": ["dispatch-split-lib@file:packages/vitest-native/tests-native/fixtures/dispatch-split-lib", {}],
+
+    "vitest-native/dispatch-target-lib": ["dispatch-target-lib@file:packages/vitest-native/tests-native/fixtures/dispatch-target-lib", {}],
 
     "vitest-native/ext-platform-lib": ["ext-platform-lib@file:packages/vitest-native/tests-native/fixtures/ext-platform-lib", {}],
 

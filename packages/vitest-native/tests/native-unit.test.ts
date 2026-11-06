@@ -1611,6 +1611,24 @@ describe("engine-selection notices", () => {
     err.mockRestore();
   });
 
+  it("the native banner names experimental.nodeMocks when it is on, and when 'resolution' implies it", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const banner = async (options: object) => {
+      resetBanner();
+      err.mockClear();
+      await runPluginConfig(reactNative(options) as any, { root: projectRoot }, SERVE_ENV);
+      return String(err.mock.calls.find((c) => String(c[0]).includes("engine:"))?.[0] ?? "");
+    };
+    expect(await banner({ engine: "native" })).not.toContain("nodeMocks");
+    expect(
+      await banner({ engine: "native", experimental: { ownershipModel: "resolution" } }),
+    ).toMatch(/experimental\.ownershipModel: resolution, experimental\.nodeMocks \(implied\)\)$/);
+    expect(await banner({ engine: "native", experimental: { nodeMocks: true } })).toMatch(
+      /, experimental\.nodeMocks\)$/,
+    );
+    err.mockRestore();
+  });
+
   it("the native banner names the hot runtime when it is selected, and only then", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
     const banner = () =>

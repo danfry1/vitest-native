@@ -25,7 +25,6 @@
 // The registry is an optimization, never a semantic: anything it cannot serve falls
 // through to the per-file hooks in hooks.mjs / loader.mjs, and a failed build leaves
 // the engine running exactly as it did before.
-import Module from "node:module";
 import { createRequire } from "node:module";
 import path from "node:path";
 import fs from "node:fs";
@@ -38,6 +37,9 @@ import { resolveTransformPreset } from "./babel-preset.mjs";
 import { assetRegistryPathFor, nativeAssetModuleSource } from "./assets.mjs";
 import { resolveRelativePlatformFile, resolveDeepPackageFile } from "./resolve.mjs";
 import { createNativeOwnershipPolicy } from "./ownership.mjs";
+import { nodeDispatch } from "../node-dispatch.mjs";
+import { createSharedResolver, resolverInputsHash } from "./shared-resolver.mjs";
+import { VitestNativeError } from "../errors.mjs";
 
 /**
  * Losing the registry is a silent performance cliff, not a correctness problem:
@@ -146,10 +148,19 @@ function sourceFor(file, { projectRoot, platform, reactNativeVersion, assetExtSe
  * resolution the hooks apply inside node_modules (`./Foo` → `Foo.ios.js`).
  * Returns an absolute path, or null when the target cannot be resolved.
  */
-function resolveTarget(request, fromFile, platform, sourceExts) {
+function resolveTarget(request, fromFile, platform, sourceExts, sharedResolver = null) {
   if (request.startsWith(".") && !path.extname(request)) {
     const hit = resolveRelativePlatformFile(request, fromFile, platform, sourceExts);
     if (hit) return hit;
+  }
+  // experimental.ownershipModel: a bare request is answered by the resolver every realm
+  // uses, here, once, at build time, so the registry bakes in the file Node's require
+  // hook would answer and costs no resolution when a worker runs it.
+  if (sharedResolver !== null && !request.startsWith(".") && !path.isAbsolute(request)) {
+    const shared = sharedResolver.resolve(request, fromFile, (id) =>
+      createRequire(fromFile).resolve(id),
+    );
+    if (shared) return shared;
   }
   try {
     return createRequire(fromFile).resolve(request);
@@ -222,6 +233,7 @@ export function registryKeyInputs({
   assetExts = [],
   sourceExts = ["js", "jsx", "json", "ts", "tsx"],
   additionalEntries = [],
+  resolverInputs,
 }) {
   const req = createRequire(path.join(projectRoot, "package.json"));
   const version = (name) => {
@@ -290,6 +302,16 @@ export function registryKeyInputs({
     ...sourceExts.map((extension) => `source:${extension}`),
     ...canonicalAssetExtensions(assetExts).map((extension) => `asset:${extension}`),
     ...canonicalAdditionalEntries(additionalEntries).map((entry) => `entry:${entry}`),
+    // experimental.ownershipModel: the walk resolves bare requests with the shared
+    // resolver (resolveTarget), so the baked paths depend on every input it resolves
+    // from. Absent with the flag off, so the key, and the cache, are unchanged for
+    // every other project.
+    // The project root is left out: the walk resolves every request from the React
+    // Native file that asks, never from the root, so projects that share the other
+    // inputs share one registry, as they do with the flag off.
+    ...(resolverInputs
+      ? [`resolver:${resolverInputsHash({ ...resolverInputs, projectRoot: "" })}`]
+      : []),
     boundaries.digest("hex"),
   ];
 }
@@ -456,6 +478,8 @@ export function buildRegistry({
   sourceExts = ["js", "jsx", "json", "ts", "tsx"],
   diagnostics = false,
   additionalEntries = [],
+  // experimental.ownershipModel: the project context's resolver inputs, or undefined.
+  resolverInputs,
   // Internal orchestration controls. `cacheOnly` lets the long-lived Vite process
   // perform the cheap key/manifest check without ever loading Babel or compiling
   // RN. `failOnError` lets the bounded compiler child return a structured failure;
@@ -488,6 +512,7 @@ export function buildRegistry({
       assetExts,
       sourceExts,
       additionalEntries,
+      resolverInputs,
     });
     dir = path.join(cacheRootFor(projectRoot), "registry");
     fs.mkdirSync(dir, { recursive: true });
@@ -526,6 +551,12 @@ export function buildRegistry({
     sourceExts,
     ownership,
   };
+  const sharedResolver = resolverInputs
+    ? // Node's CommonJS resolution, NODE_PATH included: the registry answers require.
+      createSharedResolver(resolverInputs, { realm: "registry", globalFolders: true })
+    : null;
+  // The counters are per realm and process; this build's errors are those counted after.
+  const errorsBeforeWalk = sharedResolver?.counters.fallbacks.error ?? 0;
   const modules = new Map();
   const manifest = [];
   // Targets the registry does NOT inline but DOES bake in as pre-resolved absolute
@@ -560,7 +591,7 @@ export function buildRegistry({
         for (const match of code.matchAll(REQUIRE_RE)) {
           const request = match[2];
           if (request in deps) continue;
-          const target = resolveTarget(request, file, platform, sourceExts);
+          const target = resolveTarget(request, file, platform, sourceExts, sharedResolver);
           // Only React Native's own graph is inlined. Everything else — react,
           // invariant, JSON manifests, native addons — stays a normal Node require
           // at a pre-resolved absolute path, so those modules keep their usual
@@ -601,6 +632,17 @@ export function buildRegistry({
       }
     }
 
+    // A resolver error during the walk would bake Node's answer in silently, where the
+    // workers' resolver would answer otherwise: fail the build by name instead (the
+    // caller reports it and falls back to per-file loading).
+    const walkErrors = sharedResolver?.counters.fallbacks.error ?? 0;
+    if (walkErrors > errorsBeforeWalk) {
+      throw new VitestNativeError(
+        "RESOLVER_ERROR",
+        `experimental.ownershipModel: the shared resolver failed while the registry was ` +
+          `built: ${sharedResolver.counters.errors.join("; ")}`,
+      );
+    }
     const files = [...modules.keys()];
     const code = emit(files, modules);
     // Write via a unique temp file then rename: several workers may race here on a
@@ -681,53 +723,57 @@ export function installRegistry(
   }
   const idOf = new Map(registry.ids.map((f, i) => [f, i]));
   const entryId = idOf.get(registry.entry);
-  const origLoad = Module._load;
-  Module._load = function (request, parent, ...rest) {
-    if (request === "react-native") return registry.load(entryId);
-    // An absolute path lands here when something re-enters through Node's loader
-    // with an already-resolved file — most importantly the ESM loader's
-    // `react-native/index.js` facade, which requires the real index by path.
-    const direct = idOf.get(request);
-    if (direct !== undefined) return registry.load(direct);
-    // Deep imports of RN internals (`react-native/Libraries/…`) and of the
-    // @react-native/* packages inlined alongside it must resolve to the SAME
-    // instances the entry graph uses, or RN's singletons would exist twice.
-    if (request.startsWith("react-native/") || request.startsWith("@react-native/")) {
-      // The registry's own code requires with the registry FILE as parent, and that
-      // file lives in a cache directory that may be outside the project (tmpdir when
-      // the project has no writable node_modules). Resolve those from the project.
-      const fromProject =
-        !parent?.filename ||
-        parent.filename === registryFile ||
-        parent.filename === registryRealFile;
-      const resolver = fromProject ? req : createRequire(parent.filename);
-      const platform = projectContext()?.platform === "android" ? "android" : "ios";
-      let resolved;
-      try {
-        resolved = resolver.resolve(request);
-      } catch {
-        // RN 0.87's exports map refuses the deep self-references its preset
-        // emits; resolve by path (Metro's behavior) so the file still lands on
-        // the registry's instance instead of loading a twin outside it.
-        resolved =
-          (fromProject
-            ? null
-            : resolveDeepPackageFile(
-                request,
-                path.dirname(parent.filename),
-                platform,
-                sourceExts,
-              )) ?? resolveDeepPackageFile(request, projectRoot, platform, sourceExts);
-      }
-      const id = resolved === null ? undefined : idOf.get(resolved);
-      if (id !== undefined) return registry.load(id);
-      // Resolved by path but not in the registry: forward the PATH — reloading
-      // the bare specifier would just hit the exports map again.
-      if (resolved !== null && path.isAbsolute(resolved)) {
-        return origLoad.call(this, resolved, parent, ...rest);
-      }
-    }
-    return origLoad.call(this, request, parent, ...rest);
-  };
+  // Beneath a per-file mock and a preset, above Node (LOAD_STEPS).
+  nodeDispatch().load.add(
+    "registry",
+    (next) =>
+      function (request, parent, ...rest) {
+        if (request === "react-native") return registry.load(entryId);
+        // An absolute path lands here when something re-enters through Node's loader
+        // with an already-resolved file — most importantly the ESM loader's
+        // `react-native/index.js` facade, which requires the real index by path.
+        const direct = idOf.get(request);
+        if (direct !== undefined) return registry.load(direct);
+        // Deep imports of RN internals (`react-native/Libraries/…`) and of the
+        // @react-native/* packages inlined alongside it must resolve to the SAME
+        // instances the entry graph uses, or RN's singletons would exist twice.
+        if (request.startsWith("react-native/") || request.startsWith("@react-native/")) {
+          // The registry's own code requires with the registry FILE as parent, and that
+          // file lives in a cache directory that may be outside the project (tmpdir when
+          // the project has no writable node_modules). Resolve those from the project.
+          const fromProject =
+            !parent?.filename ||
+            parent.filename === registryFile ||
+            parent.filename === registryRealFile;
+          const resolver = fromProject ? req : createRequire(parent.filename);
+          const platform = projectContext()?.platform === "android" ? "android" : "ios";
+          let resolved;
+          try {
+            resolved = resolver.resolve(request);
+          } catch {
+            // RN 0.87's exports map refuses the deep self-references its preset
+            // emits; resolve by path (Metro's behavior) so the file still lands on
+            // the registry's instance instead of loading a twin outside it.
+            resolved =
+              (fromProject
+                ? null
+                : resolveDeepPackageFile(
+                    request,
+                    path.dirname(parent.filename),
+                    platform,
+                    sourceExts,
+                  )) ?? resolveDeepPackageFile(request, projectRoot, platform, sourceExts);
+          }
+          const id = resolved === null ? undefined : idOf.get(resolved);
+          if (id !== undefined) return registry.load(id);
+          // Resolved by path but not in the registry: forward the PATH — reloading
+          // the bare specifier would just hit the exports map again.
+          if (resolved !== null && path.isAbsolute(resolved)) {
+            return next(resolved, parent, ...rest);
+          }
+        }
+        return next(request, parent, ...rest);
+      },
+  );
   return true;
 }

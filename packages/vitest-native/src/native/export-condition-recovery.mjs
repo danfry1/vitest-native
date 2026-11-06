@@ -25,8 +25,9 @@
 // CommonJS `require` only, which is how Vitest loads jsdom. An ESM `import` under the
 // same condition is resolved by Node's ESM loader and is not recovered here.
 import fs from "node:fs";
-import Module from "node:module";
 import path from "node:path";
+import { nodeDispatch } from "../node-dispatch.mjs";
+import { exportTarget } from "./shared-resolver.mjs";
 
 const RN = "react-native";
 
@@ -52,83 +53,6 @@ export function cjsConditionsWithout(
     if (value && value !== excluded && !conditions.includes(value)) conditions.push(value);
   }
   return conditions;
-}
-
-// Node's resolvePackageTarget, for already-valid string targets: `undefined` means no
-// condition matched (keep looking), `null` means the subpath is excluded. In a
-// condition object the first matching key decides, even when its value is null; in an
-// array a null entry falls through to the next.
-function matchTarget(target, conditions) {
-  if (typeof target === "string") return target;
-  if (Array.isArray(target)) {
-    let excluded = false;
-    for (const entry of target) {
-      const match = matchTarget(entry, conditions);
-      if (typeof match === "string") return match;
-      if (match === null) excluded = true;
-    }
-    return excluded || target.length === 0 ? null : undefined;
-  }
-  if (target !== null && typeof target === "object") {
-    for (const [key, value] of Object.entries(target)) {
-      if (key === "default" || conditions.includes(key)) {
-        const match = matchTarget(value, conditions);
-        if (match !== undefined) return match;
-      }
-    }
-    return undefined;
-  }
-  return null;
-}
-
-// Node's patternKeyCompare: the longer base (up to and including `*`) wins, then the
-// longer key. Negative when `a` ranks first.
-function patternKeyCompare(a, b) {
-  const aStar = a.indexOf("*");
-  const bStar = b.indexOf("*");
-  const baseA = aStar === -1 ? a.length : aStar + 1;
-  const baseB = bStar === -1 ? b.length : bStar + 1;
-  if (baseA !== baseB) return baseB - baseA;
-  if (aStar === -1) return 1;
-  if (bStar === -1) return -1;
-  return b.length - a.length;
-}
-
-/**
- * The relative target a package's `exports` gives `subpath` ("." or "./x") under
- * `conditions`, or null when it gives none. Follows Node's PACKAGE_EXPORTS_RESOLVE:
- * the sugar forms, exact subpaths, and single-`*` patterns ranked by patternKeyCompare.
- */
-export function exportTarget(exportsField, subpath, conditions) {
-  if (exportsField === undefined || exportsField === null) return null;
-  const map =
-    typeof exportsField === "string" ||
-    Array.isArray(exportsField) ||
-    !Object.keys(exportsField).some((key) => key.startsWith("."))
-      ? { ".": exportsField }
-      : exportsField;
-  if (Object.hasOwn(map, subpath) && !subpath.includes("*")) {
-    return matchTarget(map[subpath], conditions) ?? null;
-  }
-  let bestKey = "";
-  let bestMatch;
-  for (const key of Object.keys(map)) {
-    const star = key.indexOf("*");
-    if (star === -1 || key.lastIndexOf("*") !== star) continue;
-    const trailer = key.slice(star + 1);
-    if (
-      subpath.startsWith(key.slice(0, star)) &&
-      subpath.length >= key.length &&
-      subpath.endsWith(trailer) &&
-      patternKeyCompare(bestKey, key) > 0
-    ) {
-      bestKey = key;
-      bestMatch = subpath.slice(star, subpath.length - trailer.length);
-    }
-  }
-  if (bestMatch === undefined) return null;
-  const target = matchTarget(map[bestKey], conditions);
-  return typeof target === "string" ? target.replaceAll("*", bestMatch) : null;
 }
 
 function packageName(request) {
@@ -172,22 +96,21 @@ export function recoverMissingReactNativeTarget(
   return fileExists(file) ? file : null;
 }
 
-const INSTALLED = Symbol.for("vitest-native.export-condition-recovery");
-
 export function installExportConditionRecovery() {
-  // Marked on the process, not the function: later patches of _resolveFilename
-  // (native/hooks.mjs, module-reset.mjs) wrap this one.
-  if (globalThis[INSTALLED]) return;
-  globalThis[INSTALLED] = true;
+  // The innermost resolve step (node-dispatch.mjs), right above Node: it acts only on
+  // Node's own failure.
   const conditions = cjsConditionsWithout(RN);
-  const original = Module._resolveFilename;
-  Module._resolveFilename = function (request, parent, ...rest) {
-    try {
-      return original.call(this, request, parent, ...rest);
-    } catch (error) {
-      const file = recoverMissingReactNativeTarget(request, error, conditions);
-      if (file === null) throw error;
-      return file;
-    }
-  };
+  nodeDispatch().resolve.add(
+    "recovery",
+    (next) =>
+      function (request, parent, ...rest) {
+        try {
+          return next(request, parent, ...rest);
+        } catch (error) {
+          const file = recoverMissingReactNativeTarget(request, error, conditions);
+          if (file === null) throw error;
+          return file;
+        }
+      },
+  );
 }

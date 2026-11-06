@@ -1,7 +1,8 @@
 // Patches Node's CJS loader so RN's internal require() chains are Flow-stripped and
 // native-boundary modules are mocked. The companion loader.mjs handles the import() path.
 import Module from "node:module";
-import { projectContext } from "../context.mjs";
+import { nodeDispatch } from "../node-dispatch.mjs";
+import { CONTEXT_ENV, projectContext } from "../context.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import path from "node:path";
 import fs from "node:fs";
@@ -29,6 +30,12 @@ import { explainUntransformedSyntaxError } from "./explain.mjs";
 import { nativeAssetModuleSource } from "./assets.mjs";
 import { expandAlias } from "../jest-compat/aliases.mjs";
 import { noteIfRntlEntryLoaded } from "../rntl-support.mjs";
+import { cjsConditionsWithout } from "./export-condition-recovery.mjs";
+import {
+  ownershipResolverInputs,
+  ownershipShadowFile,
+  workerSharedResolver,
+} from "./shared-resolver.mjs";
 
 // Guarded via globalThis, not module scope: under the hot runtime this module
 // can be evaluated twice in one worker (once by the worker entry through Node's
@@ -433,19 +440,23 @@ export function installRequireHooks(
     return shadowed === NO_PRESET ? Module._load(file, null, false) : shadowed;
   };
 
-  const origLoad = Module._load;
-  Module._load = function (request, parent, ...rest) {
-    const shadowed = presetExportsFor(request, parent ?? null);
-    if (shadowed !== NO_PRESET) return shadowed;
-    const exports = origLoad.call(this, request, parent, ...rest);
-    // Every require of RNTL's main entry, cached or not, tells the setup file's
-    // auto-cleanup that this test file loaded it (see noteIfRntlEntryLoaded). Vite's
-    // evaluator reports the file's own imports (rntl-hooks.mjs); this sees the entry
-    // reached through a package Node loads, such as a shared test-utils that
-    // re-exports RNTL.
-    noteIfRntlEntryLoaded(exports);
-    return exports;
-  };
+  // A preset beats the registry and Node, and yields to a per-file mock (LOAD_STEPS).
+  nodeDispatch().load.add(
+    "preset",
+    (next) =>
+      function (request, parent, ...rest) {
+        const shadowed = presetExportsFor(request, parent ?? null);
+        if (shadowed !== NO_PRESET) return shadowed;
+        const exports = next(request, parent, ...rest);
+        // Every require of RNTL's main entry, cached or not, tells the setup file's
+        // auto-cleanup that this test file loaded it (see noteIfRntlEntryLoaded). Vite's
+        // evaluator reports the file's own imports (rntl-hooks.mjs); this sees the entry
+        // reached through a package Node loads, such as a shared test-utils that
+        // re-exports RNTL.
+        noteIfRntlEntryLoaded(exports);
+        return exports;
+      },
+  );
 
   let requireAliases;
   const resolveAliasedRequest = (request, parent, resolveTarget) => {
@@ -568,84 +579,168 @@ export function installRequireHooks(
     }
     return `${parent.path}\0${request}\0${conditions}`;
   };
-  const origResolve = Module._resolveFilename;
-  Module._resolveFilename = function (request, parent, ...rest) {
-    let resolved;
-    const key = resolutionKey(request, parent, rest);
-    if (key !== null) {
-      const held = resolutions.get(key);
-      // A bare request's hit costs one stat: a file removed since (a nested copy
-      // uninstalled, a fixture a test deleted) is resolved again, as Node would, instead
-      // of failing to load. A relative one is answered as the platform resolution's own
-      // cache would answer it (resolve.mjs), which does not look at the disk again.
-      if (
-        held !== undefined &&
-        (request.startsWith(".") || fs.statSync(held, { throwIfNoEntry: false })?.isFile())
-      ) {
-        resolutionStats.hits++;
-        resolved = held;
-      } else {
-        if (held !== undefined) {
-          resolutionStats.stale++;
-          resolutions.delete(key);
+  // experimental.ownershipModel: bare requests resolve through the resolver Vite and
+  // the ESM loader use, built from the context's record, which this realm first checks
+  // against the conditions Node applies here. Never built with the flag off. The memo
+  // above holds its answers, so it keeps none of its own.
+  const ownershipContext = projectContext();
+  const sharedInputs = ownershipResolverInputs(
+    ownershipContext,
+    "CommonJS hooks",
+    cjsConditionsWithout("react-native"),
+  );
+  // The resolution shadow, under diagnostics only: it resolves each distinct request a
+  // second time, the old way, to record where the answers differ.
+  const shadowFile =
+    sharedInputs !== null && ownershipContext.diagnostics === true
+      ? ownershipShadowFile(process.env[CONTEXT_ENV], ownershipContext.resolverInputsHash)
+      : null;
+  const sharedResolver =
+    sharedInputs === null
+      ? null
+      : workerSharedResolver(sharedInputs, "cjs", { shadowFile, globalFolders: true });
+  // A caller passing other conditions than this realm's (none does but a direct
+  // `Module._resolveFilename` call) gets Node's own answer for them.
+  const recordConditions = new Set(ownershipContext?.resolverInputs?.conditions ?? []);
+  const conditionsMatchRecord = (conditions) =>
+    conditions == null ||
+    (() => {
+      const asked = new Set([...conditions].filter((c) => c !== "react-native"));
+      return (
+        asked.size === recordConditions.size && [...asked].every((c) => recordConditions.has(c))
+      );
+    })();
+  const onlyDefaultOptions = (options, parent) =>
+    options == null ||
+    Object.keys(options).every(
+      (name) =>
+        name === "conditions" ||
+        (name === "paths" && options.paths === undefined) ||
+        (name === "paths" &&
+          Array.isArray(options.paths) &&
+          Array.isArray(parent?.paths) &&
+          options.paths.length === parent.paths.length &&
+          options.paths.every((entry, i) => entry === parent.paths[i])),
+    );
+  nodeDispatch().resolve.add(
+    "hooks",
+    (next) =>
+      function (request, parent, ...rest) {
+        let resolved;
+        const key = resolutionKey(request, parent, rest);
+        if (key !== null) {
+          const held = resolutions.get(key);
+          // A bare request's hit costs one stat: a file removed since (a nested copy
+          // uninstalled, a fixture a test deleted) is resolved again, as Node would, instead
+          // of failing to load. A relative one is answered as the platform resolution's own
+          // cache would answer it (resolve.mjs), which does not look at the disk again.
+          if (
+            held !== undefined &&
+            (request.startsWith(".") || fs.statSync(held, { throwIfNoEntry: false })?.isFile())
+          ) {
+            resolutionStats.hits++;
+            resolved = held;
+          } else {
+            if (held !== undefined) {
+              resolutionStats.stale++;
+              resolutions.delete(key);
+              // The shared resolver held the same answer: resolve it afresh there too.
+              sharedResolver?.forget(request, parent?.filename);
+            }
+            resolutionStats.misses++;
+          }
         }
-        resolutionStats.misses++;
-      }
-    }
-    // Relative, extensionless: Metro's platform order for every parent, app source
-    // included (`./PlatformInfo` → `index.native.ts` before `index.ts`).
-    if (
-      !resolved &&
-      parent?.filename &&
-      request.startsWith(".") &&
-      !hasKnownExtension(request, activeSourceExts, assetExtSet)
-    ) {
-      resolved = resolveRelativePlatformFile(request, parent.filename, platform, activeSourceExts);
-      if (resolved) resolved = asNodeResolves(resolved);
-    }
-    if (!resolved) {
-      try {
-        resolved = origResolve.call(this, request, parent, ...rest);
-      } catch (err) {
-        // The project's aliases (resolve.alias string entries, and tsconfig `paths` when
-        // Vite resolves them for imports): a `require('#/lib/x')` in a test reaches here,
-        // not Vite. Only for requests from project files — packages never see the
-        // project's aliases, under Vite or Metro — and only once Node has failed, so no
-        // resolution that worked before can change.
-        const aliased = resolveAliasedRequest(request, parent, (target) =>
-          origResolve.call(this, target, parent, ...rest),
-        );
-        // RN 0.87's exports map rejects the deep self-references its own Babel
-        // preset emits (`react-native/src/private/…`); Metro resolves them via the
-        // `react-native-legacy-deep-imports` condition. Mirror Metro by path.
-        // From the requiring file first, as Metro does; then from the project, for a
-        // parent outside the project's tree — the precompiled registry's cache file
-        // when the cache had to fall back to tmpdir.
-        const fromDir = parent?.filename ? path.dirname(parent.filename) : projectRoot;
-        const deep =
-          aliased ??
-          resolveDeepPackageFile(request, fromDir, platform, activeSourceExts) ??
-          (fromDir === projectRoot
-            ? null
-            : resolveDeepPackageFile(request, projectRoot, platform, activeSourceExts));
-        if (deep === null) throw err;
-        resolved = asNodeResolves(deep);
-      }
-    }
-    if (key !== null) resolutions.set(key, resolved);
-    // Diagnostics only. The comparison sees Node's resolution and the package
-    // manifest, never Vite's module graph, so it cannot tell a package both graphs
-    // load from one only Node ever requires — and the ecosystem is full of the
-    // latter (Babel's source-map packages, RNTL's own test-renderer). Reported as
-    // noise on every test file (#201); kept as an opt-in diagnostic for the silent
-    // duplicate-instance failure it was written to surface.
-    if (projectContext()?.diagnostics === true) {
-      checkResolverAgreement(request, resolved);
-    }
-    // Every successful resolution (including platform hits) crosses this boundary.
-    checkProjectSourceResolvedByNode(resolved, parent, projectDirs(), ownership);
-    return resolved;
-  };
+        // After the memo, so a held answer whose file is gone is resolved afresh here too.
+        // `require.resolve(x, { paths })` and the main module are Node's to answer. Not
+        // tied to the memo's key: Node 26's module hooks pass a plain require an options
+        // object with `paths: undefined` beside its conditions, which is no
+        // `require.resolve` option, so this realm still answers it.
+        if (
+          !resolved &&
+          sharedResolver !== null &&
+          typeof request === "string" &&
+          !request.startsWith(".") &&
+          rest[0] !== true &&
+          onlyDefaultOptions(rest[1], parent) &&
+          conditionsMatchRecord(rest[1]?.conditions)
+        ) {
+          resolved =
+            sharedResolver.resolve(request, parent?.filename, (target) =>
+              next(target, parent, ...rest),
+            ) ?? undefined;
+          if (resolved !== undefined && shadowFile !== null) {
+            // The shadow: what Node alone would have answered, once per distinct request
+            // (the memo holds the answer after this). Node failing where the resolver
+            // answers (a regex alias) is a delta too.
+            let previous;
+            try {
+              previous = next(request, parent, ...rest);
+            } catch (error) {
+              previous = `unresolved (${error?.code ?? error})`;
+            }
+            sharedResolver.shadow(request, parent?.filename, resolved, previous);
+          }
+        }
+        // Relative, extensionless: Metro's platform order for every parent, app source
+        // included (`./PlatformInfo` → `index.native.ts` before `index.ts`).
+        if (
+          !resolved &&
+          parent?.filename &&
+          request.startsWith(".") &&
+          !hasKnownExtension(request, activeSourceExts, assetExtSet)
+        ) {
+          resolved = resolveRelativePlatformFile(
+            request,
+            parent.filename,
+            platform,
+            activeSourceExts,
+          );
+          if (resolved) resolved = asNodeResolves(resolved);
+        }
+        if (!resolved) {
+          try {
+            resolved = next(request, parent, ...rest);
+          } catch (err) {
+            // The project's aliases (resolve.alias string entries, and tsconfig `paths` when
+            // Vite resolves them for imports): a `require('#/lib/x')` in a test reaches here,
+            // not Vite. Only for requests from project files — packages never see the
+            // project's aliases, under Vite or Metro — and only once Node has failed, so no
+            // resolution that worked before can change.
+            const aliased = resolveAliasedRequest(request, parent, (target) =>
+              next(target, parent, ...rest),
+            );
+            // RN 0.87's exports map rejects the deep self-references its own Babel
+            // preset emits (`react-native/src/private/…`); Metro resolves them via the
+            // `react-native-legacy-deep-imports` condition. Mirror Metro by path.
+            // From the requiring file first, as Metro does; then from the project, for a
+            // parent outside the project's tree — the precompiled registry's cache file
+            // when the cache had to fall back to tmpdir.
+            const fromDir = parent?.filename ? path.dirname(parent.filename) : projectRoot;
+            const deep =
+              aliased ??
+              resolveDeepPackageFile(request, fromDir, platform, activeSourceExts) ??
+              (fromDir === projectRoot
+                ? null
+                : resolveDeepPackageFile(request, projectRoot, platform, activeSourceExts));
+            if (deep === null) throw err;
+            resolved = asNodeResolves(deep);
+          }
+        }
+        if (key !== null) resolutions.set(key, resolved);
+        // Diagnostics only. The comparison sees Node's resolution and the package
+        // manifest, never Vite's module graph, so it cannot tell a package both graphs
+        // load from one only Node ever requires — and the ecosystem is full of the
+        // latter (Babel's source-map packages, RNTL's own test-renderer). Reported as
+        // noise on every test file (#201); kept as an opt-in diagnostic for the silent
+        // duplicate-instance failure it was written to surface.
+        if (projectContext()?.diagnostics === true) {
+          checkResolverAgreement(request, resolved);
+        }
+        // Every successful resolution (including platform hits) crosses this boundary.
+        checkProjectSourceResolvedByNode(resolved, parent, projectDirs(), ownership);
+        return resolved;
+      },
+  );
 
   const origJs = Module._extensions[".js"];
   const expoSdks = projectContext()?.expoSdks;

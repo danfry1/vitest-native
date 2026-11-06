@@ -171,6 +171,18 @@ reactNative({ hotRuntime: { mode: 'auto', memoryLimit: 2 * 1024 ** 3 } })
 
 The worker count and memory limits come from a plan derived from the host or container's memory. It caps the worker count it picks itself at four; a `maxWorkers` you set is capped only by memory. See [workers and memory](/guide/hot-runtime#workers-and-memory).
 
+## `experimental`
+
+**Type:** `{ nodeMocks?: boolean; ownershipModel?: 'resolver' | 'resolution' }` · **Default:** `{}` · **Engine:** native
+
+Behaviour that is not the default yet. Each setting is decided, made the default or removed, by the date recorded in `src/flags.ts`.
+
+- `ownershipModel: 'resolver'`: Vite and Node resolve every bare import through one shared resolver, so a package loaded by both is one module. Where a package's `exports` has both `import` and `require` builds, both sides load the `require` one.
+- `ownershipModel: 'resolution'`: also routes Node's `require()` of a file Vite loads to Vite's own instance, so the order a test loads files in cannot split a module. It turns `nodeMocks` on.
+- `nodeMocks: true`: a `vi.mock` applies to the modules Node loads too, as `jest.mock` does under Jest. Default `false`; on with `ownershipModel: 'resolution'`, which refuses it set to `false`.
+
+Errors from these settings are listed under [Ownership model](/guide/errors#ownership-model-experimental).
+
 ## `nativeModules`
 
 **Type:** `'device' | 'permissive'` · **Default:** `'device'` · **Engine:** native

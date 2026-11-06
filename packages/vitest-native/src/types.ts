@@ -373,6 +373,40 @@ export interface VitestNativeOptions {
   transform?: string[] | { include?: string[]; exclude?: string[] };
 
   /**
+   * `engine: 'native'` only. Behaviour changes that are not the default yet. Each is
+   * decided (made the default, or removed) by the date in `src/flags.ts`.
+   */
+  experimental?: {
+    /**
+     * `engine: 'native'` only. A `vi.mock` applies to the modules Node loads too, as a
+     * `jest.mock` does under Jest: an installed package's own `require` or `import` of
+     * the mocked module gets the test's mocked module, the same instance (#322). That
+     * holds for a factory, an automock, `{ spy: true }` and a `__mocks__` file. What
+     * Node cannot be served fails by name, `MOCK_NOT_SEEN_BY_NODE`, instead of loading
+     * the real module: an async factory that has not settled, an automock or `__mocks__`
+     * file the test has not imported yet, a `vi.doMock` or `vi.doUnmock` not applied
+     * yet, and a package Vite and Node resolve to different files. A module Node
+     * already loaded keeps what it required, as under Jest without
+     * `jest.resetModules()`, and an ES module reads each export of the mock once, when
+     * it loads (a getter on a factory's result is not a live binding there). Default:
+     * `false`, and on with `ownershipModel: 'resolution'`, which refuses it set to
+     * `false`.
+     */
+    nodeMocks?: boolean;
+    /**
+     * `'resolver'`: Vite, Node's CommonJS loader and its ESM loader resolve every bare
+     * request through one shared resolver, from one set of inputs, so a package loaded
+     * by both module systems is one module. Where a package's `exports` map has both
+     * `import` and `require` builds, both sides load the `require` one. Native engine
+     * only. `'resolution'` adds the bridge: Node's \`require\` of a file Vite owns gets
+     * Vite's own instance, evaluated then if Vite has not yet, so the order a test loads
+     * files in cannot split a module. `'resolution'` turns `nodeMocks` on: a mocked module
+     * the bridge or Node reaches is the test's mock. See docs/ownership-model.md.
+     */
+    ownershipModel?: "resolver" | "resolution";
+  };
+
+  /**
    * `engine: 'native'` only. Built on Vitest's experimental custom-pool API.
    * Run tests in persistent
    * RN-hot workers: React Native's module graph loads once per worker and
