@@ -18,6 +18,7 @@ import { expandResolutionAlias } from "../native/shared-resolver.mjs";
 import {
   isWholePackageRequest,
   resolvePackageMainField,
+  platformSubpathFile,
   resolvePlatformFile,
   resolveRelativePlatformFile,
 } from "../native/resolve.mjs";
@@ -184,8 +185,9 @@ function createState() {
     }
     try {
       const resolved = Module._resolveFilename(request, parent, false);
+      if (Module.isBuiltin(resolved)) return null;
       // The hooks' fallbacks return the path as found, not the real path.
-      return Module.isBuiltin(resolved) ? null : canonical(resolved);
+      return subpathPlatformFile(request, resolved) ?? canonical(resolved);
     } catch {
       // fall through
     }
@@ -201,6 +203,12 @@ function createState() {
       return null;
     }
   }
+
+  // A package's extensionless subpath lands on its platform file (#573).
+  const subpathPlatformFile = (request, resolved) => {
+    const hit = platformSubpathFile(request, resolved, config.platform, exts);
+    return hit && canonical(hit);
+  };
 
   /**
    * How often the load hook asked `state.resolve`, how often that resolved afresh rather

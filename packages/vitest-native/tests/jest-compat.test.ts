@@ -39,6 +39,22 @@ describe("jest-compat: jestMockTransform (hoist + CJS interop)", () => {
   };
   const hoistRe = /\b(?:vi|vitest)\s*\.\s*(?:mock|unmock|hoisted|doMock|doUnmock)\s*\(/;
 
+  it("turns a jest.mock / jest.unmock inside a function into vi.doMock / vi.doUnmock (#573)", () => {
+    const out = run(
+      [
+        "const setup = () => {",
+        "  jest.mock('./a', () => ({ a: 1 }));",
+        "  jest.unmock('./b');",
+        "};",
+        "jest.mock('./c', () => ({ c: 1 }));",
+      ].join("\n"),
+    ).code;
+    expect(out).toMatch(/vi\.doMock\('\.\/a'/);
+    expect(out).toMatch(/vi\.doUnmock\(/);
+    expect(out).toMatch(/vi\.mock\('\.\/c'/);
+    expect(out).not.toMatch(/vi\.mock\('\.\/a'/);
+  });
+
   it("rewrites the jest object of hoistable calls to vi, unregistering unmocks", () => {
     const out = run(["jest.unmock('x');", "jest.doUnmock('z');"].join("\n"));
     expect(out).not.toBeNull();

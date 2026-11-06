@@ -183,6 +183,29 @@ export function resolvePlatformFile(absBase, platform = "ios", sourceExts = METR
 }
 
 /**
+ * The platform variant of a package's extensionless subpath, given the file a resolver
+ * found for it, or null to keep that file. `react-native/Libraries/Utilities/BackHandler`
+ * resolves through React Native's `exports` map ("./Libraries/*": "./Libraries/*.js")
+ * to BackHandler.js, a shim that re-exports `./BackHandler` so deep imports keep their
+ * platform file. React Native's own index requires BackHandler.ios.js, and Jest's React
+ * Native preset resolves the subpath to it, so `jest.mock`/`vi.mock` of the subpath
+ * replaces the module `react-native` exports (#573). Only when the file found is the
+ * one the subpath names (`<sub>.<ext>` or `<sub>/index.<ext>` in the package), so an
+ * `exports` target elsewhere is kept.
+ */
+export function platformSubpathFile(request, resolved, platform, sourceExts) {
+  if (request.startsWith(".") || path.isAbsolute(request) || path.extname(request)) return null;
+  const name = packageNameOf(request);
+  if (request.length <= name.length + 1) return null;
+  const file = resolved.replace(/\\/g, "/");
+  const stem = file.slice(0, file.length - path.extname(file).length);
+  const tail = `/${request}`;
+  if (!stem.endsWith(tail) && !stem.endsWith(`${tail}/index`)) return null;
+  const hit = resolvePlatformFile(stem, platform, sourceExts);
+  return hit !== null && hit.replace(/\\/g, "/") !== file ? hit : null;
+}
+
+/**
  * `resolvePlatformFile` for a relative, extensionless request as written in `fromFile`.
  * `path.resolve` drops a trailing separator, and with it the request's meaning: Node
  * and Metro both resolve `./lib/` to the directory, never to a sibling `lib.ts`.
