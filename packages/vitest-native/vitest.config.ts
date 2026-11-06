@@ -11,7 +11,10 @@ export default defineConfig({
     globalSetup: ["./tests/support/temp-root.global.ts", "./tests/support/registry-warm.global.ts"],
     // Records whether presets finished preparing before user setup files run
     // (skia-preset.test.tsx).
-    setupFiles: ["./tests/support/preset-readiness.setup.ts"],
+    setupFiles: [
+      "./tests/support/registry-wait.setup.ts",
+      "./tests/support/preset-readiness.setup.ts",
+    ],
     // The native-engine suite (tests-native/) runs under its own config via
     // `test:native`; never run it under the default mock engine. `.tmp-spike*`
     // are scratch spikes that ship with their own setup. `crosscheck/**` runs only
