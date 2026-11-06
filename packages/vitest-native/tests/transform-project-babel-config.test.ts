@@ -94,17 +94,26 @@ describe("the project's Babel config", () => {
   const realRoot = fs.realpathSync.native(os.tmpdir());
   const otherCase = realRoot.replace(/[a-z]/, (c) => c.toUpperCase());
   const caseInsensitive = otherCase !== realRoot && fs.existsSync(otherCase);
-  it.runIf(caseInsensitive)("applies to app source when the root is spelled differently", () => {
+  it.runIf(caseInsensitive).each([
+    ["the root", "root"],
+    ["the file", "file"],
+  ])("applies to app source when %s is spelled differently", (_, spelledOtherwise) => {
     const root = fs.realpathSync.native(makeRoot());
     try {
       const app = path.join(root, "src", "app.ts");
       fs.mkdirSync(path.dirname(app));
-      fs.writeFileSync(app, "module.exports = 2;\n");
-      const spelled = root.replace(realRoot, otherCase);
-      expect(fs.realpathSync(spelled)).not.toBe(root);
-      expect(transformRN(app, fs.readFileSync(app, "utf8"), spelled)).toContain(
-        'var __VN_STAMP = "project-config:babel-jest"',
+      // A .babelrc beside the file: Babel finds it only from a root spelled as the file is.
+      fs.writeFileSync(
+        path.join(root, "src", ".babelrc.js"),
+        `module.exports = { plugins: [{ visitor: { NumericLiteral(p) { p.node.value = 3; } } }] };`,
       );
+      fs.writeFileSync(app, "module.exports = 2;\n");
+      const other = (p: string) => p.replace(realRoot, otherCase);
+      expect(fs.realpathSync(other(root))).not.toBe(root);
+      const [given, file] = spelledOtherwise === "root" ? [other(root), app] : [root, other(app)];
+      const out = transformRN(file, fs.readFileSync(file, "utf8"), given);
+      expect(out).toContain('var __VN_STAMP = "project-config:babel-jest"');
+      expect(out).toContain("module.exports = 3");
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

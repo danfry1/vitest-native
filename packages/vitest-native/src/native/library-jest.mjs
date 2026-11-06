@@ -41,6 +41,7 @@ import { createJestObject } from "../jest-compat/jest-object.mjs";
 import { nodeRegistry } from "../jest-compat/node-registry.mjs";
 import { nodeDispatch } from "../node-dispatch.mjs";
 import { projectContext } from "../context.mjs";
+import { rootSpellingOf, rootSpellings } from "./root-spelling.mjs";
 
 const SUPPORT_LEAVES = new Set(["jestSetup", "mock"]);
 const MENTIONS_JEST = /\bjest\b/;
@@ -64,17 +65,7 @@ const owners = (lib.owners ??= []);
 const jestByFile = (lib.jestByFile ??= new Map());
 /** Each directory's package, by its nearest named package.json (workspace links too). */
 const packageByFile = (lib.packageByFile ??= new Map());
-// In the native real-path spelling, as packageRootOf's directories (from Vite's and
-// Node's file names) are: the root as given can be a Windows 8.3 short name.
-const projectRoot = nativeRealPath(path.resolve(projectContext()?.projectRoot ?? process.cwd()));
-
-function nativeRealPath(dir) {
-  try {
-    return fs.realpathSync.native(dir);
-  } catch {
-    return dir;
-  }
-}
+const projectRoot = path.resolve(projectContext()?.projectRoot ?? process.cwd());
 
 /**
  * The package `file` belongs to and its directory: the nearest package.json that names
@@ -123,7 +114,12 @@ function supportPackageOfFile(file) {
   if (root === null) return null;
   // The project's own `jest/setup.js` or `src/api/mock.ts` is not a library's support:
   // giving it a library's `jest` would make its mocks outlive a reset.
-  if (root.dir === projectRoot || projectRoot.startsWith(root.dir + path.sep)) return null;
+  // The package is the project root or contains it, in any spelling of the root
+  // (root-spelling.mjs): the directory comes from a file name, which may be spelled
+  // otherwise than the root.
+  if (rootSpellings(projectRoot).some((spelling) => rootSpellingOf(root.dir, spelling) !== null)) {
+    return null;
+  }
   const rest = path.relative(root.dir, file).split(path.sep).join("/");
   const leaf = path.posix.basename(rest).replace(/\.[cm]?[jt]sx?$/, "");
   return SUPPORT_LEAVES.has(leaf) || rest.split("/")[0] === "jest" ? root.name : null;

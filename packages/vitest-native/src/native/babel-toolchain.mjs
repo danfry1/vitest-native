@@ -22,8 +22,9 @@ function babelFor(root) {
 function loadPartial(request) {
   return babelFor(request.root).loadPartialConfig({
     filename: request.file,
-    cwd: request.root,
-    root: request.root,
+    // Spelled as the file is (root-spelling.mjs), so Babel finds the .babelrc files above it.
+    cwd: request.babelRoot ?? request.root,
+    root: request.babelRoot ?? request.root,
     caller: request.caller,
   });
 }

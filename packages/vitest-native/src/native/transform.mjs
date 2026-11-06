@@ -23,6 +23,7 @@ import crypto from "node:crypto";
 import vm from "node:vm";
 import { MessageChannel, receiveMessageOnPort, SHARE_ENV, Worker } from "node:worker_threads";
 import { decorateTransformError } from "./explain.mjs";
+import { relativeToRoot, rootSpellingOf } from "./root-spelling.mjs";
 import {
   handleToolchainRequest,
   IMPORT_META_LOWERING,
@@ -51,12 +52,9 @@ const canonicalRoots = new Map();
 function canonicalRoot(projectRoot) {
   const hit = canonicalRoots.get(projectRoot);
   if (hit) return hit;
-  // The native spelling, which Vite's ids use: the JS realpath keeps a Windows 8.3 short
-  // name (RUNNER~1) and the letter case the root was given in, so files Vite resolved
-  // were not "under" it (projectBabelOptions).
   let root;
   try {
-    root = fs.realpathSync.native(projectRoot);
+    root = fs.realpathSync(projectRoot);
   } catch {
     root = path.resolve(projectRoot);
   }
@@ -237,15 +235,6 @@ function babelJestCaller(ctx, platform) {
   return { name: "babel-jest", ...flags };
 }
 
-/** `file`'s long, native real path (no 8.3 names on Windows), or `file` if it has none. */
-function nativeRealPath(file) {
-  try {
-    return fs.realpathSync.native(file);
-  } catch {
-    return file;
-  }
-}
-
 /**
  * The project's Babel options for `file`, or null when the React Native preset applies.
  * Called once per file version and platform: transformRN's in-memory cache answers
@@ -254,18 +243,16 @@ function nativeRealPath(file) {
  */
 function projectBabelOptions(ctx, file, platform) {
   if (NODE_MODULES.test(file)) return null;
-  // Compared in the root's native spelling, whichever spelling the file arrived in.
-  if (
-    !file.startsWith(ctx.root + path.sep) &&
-    !nativeRealPath(file).startsWith(ctx.root + path.sep)
-  ) {
-    return null;
-  }
+  // In whichever spelling of the root the file is under (root-spelling.mjs), which is
+  // also the one Babel gets as its root, so it finds the .babelrc files above the file.
+  const babelRoot = rootSpellingOf(ctx.root, file);
+  if (babelRoot === null || babelRoot === file) return null;
   let partial;
   try {
     partial = callToolchain({
       kind: "config",
       root: ctx.root,
+      babelRoot,
       file,
       caller: babelJestCaller(ctx, platform),
     });
@@ -278,7 +265,7 @@ function projectBabelOptions(ctx, file, platform) {
     // compiles that way.
     throw new VitestNativeError(
       "BABEL_IGNORES_FILE",
-      `Babel ignores ${path.relative(ctx.root, file).split(path.sep).join("/")}: the ` +
+      `Babel ignores ${relativeToRoot(ctx.root, file).split(path.sep).join("/")}: the ` +
         `project's Babel config excludes it through \`ignore\` or \`only\`, so it cannot ` +
         `be compiled for Node's require(). babel-jest fails the same way under Jest. ` +
         `Remove it from the config's \`ignore\`, or add it to \`only\`.`,
@@ -286,6 +273,7 @@ function projectBabelOptions(ctx, file, platform) {
   }
   if (partial.kind === "none") return null;
   return {
+    babelRoot,
     // babel-jest keys its cache on the loaded options (getCacheKeyFromConfig,
     // build/index.js:135-165): a function config's output can depend on the
     // environment or the caller, which no file's bytes show. The config files' own
@@ -966,6 +954,7 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
         ? {
             kind: "transform",
             root: ctx.root,
+            babelRoot: projectConfig.babelRoot,
             file,
             src,
             project: true,
