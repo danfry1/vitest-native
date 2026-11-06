@@ -38,8 +38,9 @@ export default defineConfig({
 |---|---|
 | `jest.fn()`, `jest.spyOn()`, `jest.useFakeTimers()` | work as-is (the global `jest` is `vi`, and its mocks are `vi` mocks); `jest.useFakeTimers(options)` takes Jest's options — see [Fake timers](#fake-timers) |
 | `new` on a `jest.fn(() => ({ ... }))` | returns the implementation's object, as in Jest — Vitest's own `vi.fn` requires a `function` or `class` implementation for `new`, and `jest.fn` does not |
-| `import { jest } from '@jest/globals'` | resolves to the `vi`-backed `jest` (aliased) |
+| `import { jest } from '@jest/globals'` or `require('@jest/globals')` | resolves to the `vi`-backed `jest` (aliased), the same module either way, also when the real `@jest/globals` is installed |
 | top-level `jest.mock('m', factory)` | hoisted + applied, with Jest's factory interop |
+| `jest.replaceProperty(Platform, 'OS', 'android')` | replaced in place and restored by the handle's `restore()`, `jest.restoreAllMocks()`, the `restoreMocks` setting, or the end of the test file, with Jest's errors. A bare `vi.restoreAllMocks()` leaves it: that is Vitest's own |
 | `describe` / `it` / `expect` / `beforeEach` | same names, available as globals |
 
 ## Fake timers

@@ -20,6 +20,7 @@ import {
   importSpecifier,
   jestRandomizeFlag,
   parseCompareArgs,
+  outputLines,
   vitestOutputReader,
   treeState,
   unreadablePaths,
@@ -156,6 +157,29 @@ describe("compare: the verdict includes `vitest run`'s exit code", () => {
       "Unhandled Rejection: Error: boom",
       "Uncaught Exception: Error: process.exit unexpectedly called",
       "error during close: Error: teardown",
+    ]);
+  });
+
+  it("reads an error whose header the pipes split and interleave with the other stream", () => {
+    const reader = vitestOutputReader((s) => s);
+    const lines = outputLines(reader.onLine);
+    const header = Buffer.from("⎯⎯⎯⎯ Uncaught Exception ⎯⎯⎯⎯\n");
+    // Split inside the three-byte "⎯" next to the label, with stdout output landing before
+    // the rest of the line, and again between the header and its message.
+    lines.push("stderr", header.subarray(0, 10));
+    lines.push("stdout", Buffer.from(" Test Files  1 passed (1)\n      Tests  "));
+    lines.push("stderr", header.subarray(10, 16));
+    lines.push("stdout", Buffer.from("1 passed (1)\n"));
+    lines.push("stderr", header.subarray(16));
+    lines.push("stdout", Buffer.from("   Start at  15:09:21\n"));
+    lines.push(
+      "stderr",
+      Buffer.from('Error: process.exit unexpectedly called with "0"\nerror during close Error: x'),
+    );
+    lines.flush();
+    expect(reader.errors).toEqual([
+      'Uncaught Exception: Error: process.exit unexpectedly called with "0"',
+      "error during close: Error: x",
     ]);
   });
 });

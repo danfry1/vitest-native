@@ -118,7 +118,6 @@ describe("members with no equivalent", () => {
     ["genMockFromModule", ["some-module"]],
     ["deepUnmock", ["some-module"]],
     ["unstable_mockModule", ["some-module", () => ({})]],
-    ["replaceProperty", [{}, "key", 1]],
     ["enableAutomock", []],
     ["disableAutomock", []],
     ["autoMockOff", []],

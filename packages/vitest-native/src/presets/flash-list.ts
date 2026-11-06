@@ -1,5 +1,6 @@
 import type { Preset } from "../types.js";
 import React from "react";
+import { hostComponent as hostClass } from "../mocks/host.js";
 import { builtInPreset } from "./built-in.js";
 
 // @shopify/flash-list (v2) is a FlatList-replacement backed by a native recycler
@@ -86,7 +87,11 @@ export function flashList(): Preset {
           const FlashList = createFlashList("FlashList");
 
           const LayoutCommitObserver = React.forwardRef((props: any, ref: any) =>
-            React.createElement("LayoutCommitObserver", { ...props, ref }, props.children),
+            React.createElement(
+              hostClass("LayoutCommitObserver"),
+              { ...props, ref },
+              props.children,
+            ),
           );
           LayoutCommitObserver.displayName = "LayoutCommitObserver";
 

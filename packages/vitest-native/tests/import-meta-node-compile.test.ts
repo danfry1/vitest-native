@@ -213,9 +213,34 @@ describe("any other property fails by name", () => {
     expect(err.message).toContain(`${what} in ${shown}:${at} has no value here`);
     expect(err.message).toContain(`let Vite load '@m/fails-${name}'`);
     expect(err.message).toContain("`transform: { exclude: [...] }`");
+    // TypeScript is a file Node cannot run, so Vitest inlines it once it is excluded.
+    expect(err.message).not.toContain("server: { deps");
     // Babel's own prefix and the generic "could not parse" hint are not repeated.
     expect(err.message).not.toContain("could not parse");
     expect(err.message.match(/\[vitest-native\]/g)).toHaveLength(1);
+  });
+
+  // Vitest externalizes a file Node can run as published (isValidNodeImport), so for
+  // these, `transform.exclude` alone leaves the package to Node, uncompiled; inlining it
+  // hands it to Vite (tests-native/import-meta-exclude.test.ts runs both).
+  it.each([
+    ["a `.js` file of a `type: module` package", "esm-js", { type: "module" }, "index.js", true],
+    ["an `.mjs` file", "esm-mjs", {}, "index.mjs", true],
+    ["ES module syntax in a `.js` file of a CommonJS package", "cjs-js", {}, "index.js", false],
+  ])("%s", (_, pkg, manifest, entry, inlined) => {
+    const name = `@m/goal-${pkg}`;
+    write(`goal-${pkg}/package.json`, JSON.stringify({ name, ...manifest }));
+    const file = write(`goal-${pkg}/${entry}`, "export const mode = import.meta.env.MODE;\n");
+    const { message } = failure(file);
+    expect(message).toContain(`let Vite load '${name}'`);
+    expect(message).toContain("`transform: { exclude: [...] }`");
+    if (inlined) {
+      expect(message).toContain(
+        "and to `test: { server: { deps: { inline: [...] } } }`, since Node otherwise runs it",
+      );
+    } else {
+      expect(message).not.toContain("server: { deps");
+    }
   });
 
   it("names the project's own source, which a require reached, with its own fix", () => {

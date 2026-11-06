@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- The boundary: two layers that run for real, a dashed line, and the native side as an outline. -->
+  <rect x="6" y="6" width="52" height="13" rx="3" fill="#4cd38a"/>
+  <rect x="6" y="23" width="52" height="13" rx="3" fill="#4cd38a" opacity="0.62"/>
+  <line x1="4" y1="42" x2="60" y2="42" stroke="#ededed" stroke-width="2.5" stroke-dasharray="4 3.5" stroke-linecap="round"/>
+  <rect x="7.5" y="47.5" width="49" height="10" rx="2.5" stroke="#ededed" stroke-width="3"/>
+</svg>

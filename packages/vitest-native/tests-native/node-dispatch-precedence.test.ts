@@ -36,10 +36,16 @@ const presets = (globalThis as { __vitest_native_preset_mocks?: Record<string, u
 describe("Node dispatch precedence, from an installed package", () => {
   // Asserts the registry: the per-file lane (vitest.per-file.config.mts) runs without one.
   it.skipIf(process.env.VITEST_NATIVE_NO_REGISTRY === "1")(
-    "runs the steps in one order: library support, per-file mocks, preset, registry",
+    "runs the steps in one order: library support, jest-compat shims, per-file mocks, preset, registry",
     async () => {
       const { nodeDispatch } = (await import("../src/node-dispatch.mjs")) as any;
-      expect(nodeDispatch().load.names).toEqual(["librarySupport", "mocks", "preset", "registry"]);
+      expect(nodeDispatch().load.names).toEqual([
+        "librarySupport",
+        "jestCompatShims",
+        "mocks",
+        "preset",
+        "registry",
+      ]);
       // The hot runtime's tracker, when installed, records what every other step settled on.
       const resolveNames: string[] = nodeDispatch().resolve.names;
       expect(resolveNames).toEqual(

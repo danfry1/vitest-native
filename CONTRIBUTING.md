@@ -31,6 +31,62 @@ bun run test
    takes a patch changeset naming the bump. An internal refactor takes `bunx changeset --empty`.
 5. Open a pull request
 
+## Practices
+
+Each rule below comes from a bug or a lost CI round. The workflows that repeat are written up
+as skills in `.claude/skills/`, which Claude Code loads by name and which read as checklists for
+anyone:
+
+| Skill | When |
+|---|---|
+| `fix-a-bug` | Reproducing and fixing a bug so it cannot ship again |
+| `land-a-stack` | Merging a PR or a stack of PRs into main |
+| `perf-measurement` | Measuring speed or resource use |
+| `docs-claims` | Changing user-facing docs or site copy |
+| `changeset-style` | Writing or reviewing changesets |
+| `release-rc` | Cutting a release candidate or a release |
+
+**Evidence**
+- A test is evidence only if it fails without the fix. Revert the fix and watch each new test
+  go red before calling it covered.
+- A test that loops over cases counts the cases it actually checked and asserts a floor on
+  that count; a test that renders 300 trees can assert nothing about 294 of them.
+- Run the gates as the package's scripts from `packages/vitest-native`. Run from the
+  repository root, a formatter can match no files and pass.
+- Never act on one timing sample (see `perf-measurement`).
+
+**Installs and tools**
+- In a new worktree, run `bun install --frozen-lockfile` first. Running `bunx` or `npx` before
+  it fetches the latest release of a tool from the registry and runs it.
+- After moving fixtures around, check `bun.lock` for temporary `file:` paths before committing.
+
+**Code**
+- Compare paths in one spelling. `fs.realpathSync` keeps the spelling a path was given in (a
+  Windows short name such as `RUNNER~1`, the case it was typed in); `fs.realpathSync.native`
+  returns the long name and the on-disk case. Say in a comment which one a call needs. A
+  differently cased root on a case-insensitive disk reproduces the mismatch on macOS.
+- Do not reassign members of objects this package does not own (`vi`, `expect`, React
+  Native's exports). Add the member to our own object instead, and read state from its owner
+  rather than mirroring it in a flag. Where an override cannot be avoided, install it once per
+  object and test it under a reused worker and through `vi.resetAllMocks()`.
+- Read a child process's stdout and stderr separately, each with its own `StringDecoder` and
+  line buffer. A shared buffer, or `chunk.toString()`, splits lines and multi-byte characters.
+- Compute state that is fixed for a run once, in the plugin, and pass it to workers. A cache
+  created inside per-file setup is rebuilt for every file.
+
+**Files**
+- A CommonJS file inside a `"type": "module"` package uses `.cjs`.
+- Never commit reporter or coverage output, such as the file `--reporter=json` writes or a
+  coverage report. Check `git status` after a debugging run.
+- Guard every `rm -rf` in a script: `rm -rf "${dir:?}"`, and refuse a target outside the
+  scratch directory.
+
+**Long runs**
+- Run one heavy suite at a time. To check for another, match the process, not text that your
+  own shell also contains: `pgrep -fl 'node .*vitest(\.mjs)? run'`. To queue behind a run,
+  wait on its PID.
+- Keep the machine awake for long runs. A sleeping laptop stalls a run and looks like a hang.
+
 ## Writing a changeset
 
 A changeset becomes the release notes. People skim it to decide whether an upgrade affects them;

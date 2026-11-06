@@ -1,43 +1,35 @@
 ---
 layout: home
-title: vitest-native — Test React Native with Vitest
+title: vitest-native — Test React Native as it ships
 titleTemplate: false
 hero:
-  name: vitest-native
-  text: Test React Native with Vitest.
-  tagline: Run your tests against real React Native — the same JavaScript that ships in your app — mocking only the native-module boundary. One plugin, two engines, zero config.
-  image:
-    src: /favicon.svg
-    alt: vitest-native
+  name: A Vitest plugin for React Native and Expo
+  text: Test React Native as it ships.
+  tagline: Your components run React Native's real JavaScript, and only its native side is mocked.
   actions:
     - theme: brand
-      text: Get Started
-      link: /guide/
+      text: Get started
+      link: /guide/install
     - theme: alt
-      text: Quick Start
-      link: /guide/quick-start
-    - theme: alt
-      text: GitHub
-      link: https://github.com/danfry1/vitest-native
-features:
-  - title: Real React Native by default
-    details: The native engine runs RN's real JavaScript and mocks only the thin native boundary — native modules and the host-component registry, not the View/Text component JS. Jest's preset mocks more, so the native engine has higher fidelity for accessibility, RN-API behavior, and integration, with no mock drift.
-  - title: A fast mock engine, one flag away
-    details: engine "mock" is a zero-dependency pure-JS reimplementation of React Native. Reach for it when you want maximum determinism and no RN at all — pure-logic suites, environment control.
-  - title: Zero config
-    details: One plugin auto-injects setup files, configures @testing-library/react-native, stubs assets, and resolves platform-specific files. No manual setupFiles, no jest-preset, no transformIgnorePatterns.
-  - title: Presets for the ecosystem
-    details: Native-runtime libraries such as Reanimated, Gesture Handler, Safe Area and Navigation are auto-detected and shadowed under both engines, and libraries with their own test mode run as themselves. See the preset list for exactly what is covered.
-  - title: One runner across your codebase
-    details: Already using Vitest for web or server code? Get Vitest's watch mode, UI, and native ESM tooling for your React Native tests too. One runner, one config language.
-  - title: Adopt incrementally
-    details: Point vitest-native at new tests while your existing Jest suite keeps running. A jest-compat layer clears the mechanical Jest-API coupling so you can migrate older tests as you touch them.
+      text: On Jest today?
+      link: /migration/from-jest
 ---
 
-## Zero config to first test
+<FrontDoors />
 
-```ts
-// vitest.config.ts
+## What runs in your tests
+
+Jest's React Native preset also runs React Native's JavaScript, but it swaps the core components for stand-ins. vitest-native mocks a layer lower, so `View`, `Text` and `ScrollView` run as they ship.
+
+<BoundaryDiagram />
+
+A second engine, `engine: 'mock'`, runs without React Native at all, for pure-logic suites. [Choosing an engine →](/guide/engines)
+
+## A first test
+
+`npx vitest-native init` writes the config, or add the plugin yourself:
+
+```ts [vitest.config.ts]
 import { defineConfig } from 'vitest/config'
 import { reactNative } from 'vitest-native'
 
@@ -46,54 +38,31 @@ export default defineConfig({
 })
 ```
 
-```tsx
-// MyComponent.test.tsx
-import { describe, it, expect } from 'vitest'
+```tsx [Greeting.test.tsx]
+import { expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react-native'
-import { MyComponent } from './MyComponent'
+import { Greeting } from './Greeting'
 
-describe('MyComponent', () => {
-  it('renders correctly', async () => {
-    await render(<MyComponent title="Hello" />)
-    expect(screen.getByText('Hello')).toBeTruthy()
-  })
+it('renders the name', async () => {
+  await render(<Greeting name="Ada" />)
+  expect(screen.getByText('Hello, Ada!')).toBeTruthy()
 })
 ```
 
-`reactNative()` with no options resolves to the **native engine** — real React Native JS, mocking only the native boundary — whenever your project's Babel preset is present (i.e. any real RN app). No further setup.
+Run it with `npx vitest`. The plugin sets up React Native Testing Library, assets and platform files, so there is no `setupFiles`, Jest preset or `transformIgnorePatterns` to write. [Quick start →](/guide/quick-start)
 
-## Two engines, one plugin
+## How it's checked
 
-vitest-native lets you **choose the fidelity each suite needs** — real React Native, or a fast mock — from one plugin:
+- **Against real React Native.** The same probes run under the mock engine and under real React Native on every supported release, and any difference fails CI. [Fidelity report →](/guide/fidelity)
+- **Against known bugs.** Each bug in the project's [bug museum](https://github.com/danfry1/vitest-native/tree/main/packages/vitest-native/validation/bug-museum) is a runnable reproduction that fails on a build that has the bug.
+- **Against your own suite.** `npx vitest-native compare` runs your Jest and your Vitest, and lists every test that passes under Jest and not under Vitest. [compare →](/guide/cli#compare)
 
-|  | `engine: 'native'` *(default)* | `engine: 'mock'` |
-|---|---|---|
-| What runs | **Real React Native** JS | Fast pure-JS reimplementation |
-| Mocks | Only the native boundary | All of React Native |
-| Best for | Fidelity, integration, accessibility, avoiding mock drift | Pure-logic suites, environment control, max determinism |
-| Babel | Needs `@react-native/babel-preset` | None — just Vite |
+Pinned public apps are run too, as observations rather than evidence of capability. [Validation model →](/guide/validation-model)
 
-Both engines share the same test API (RNTL, the helpers, the presets). A CI-gated [cross-check](/guide/comparison) keeps the mock behaviorally honest against real RN.
+## When to consider alternatives
 
-## How it compares to Jest
+- **Your Jest suite is fast and you're happy with it.** vitest-native is not mainly a speed play. The reasons to switch are what runs in your tests and Vitest's tooling. [Comparison →](/guide/comparison)
+- **A large, Jest-coupled suite moves in steps, not at once.** `compare` shows how far there is to go, and both runners can run side by side. [Migrating from Jest →](/migration/from-jest)
+- **It's pre-1.0.** Some options may still change before 1.0.
 
-Jest with `@react-native/jest-preset` is the React Native standard and works well. Reach for vitest-native when you value:
-
-- **Higher-fidelity option** — Jest's RN preset and vitest-native both run real RN JS and mock the native side, but Jest mocks more (it swaps RN's core components and a few APIs for passthrough stand-ins). vitest-native's `engine: 'native'` mocks only the deeper native boundary, so your tests run RN's *real* component JS — or drop to a fast full mock when you don't need that. [How the boundaries differ →](/guide/comparison#where-the-mock-boundary-sits)
-- **DX** — Vitest's watch mode, UI, and native ESM tooling.
-- **Unification** — one runner if you also test web or server code with Vitest.
-
-It is **not** primarily a speed play — choose it for the fidelity option and DX. [Read the full comparison →](/guide/comparison)
-
-## How it's verified
-
-The reproducible guarantee is a **CI-gated behavioral cross-check**: a corpus of probes runs the same assertions under the mock engine **and** real React Native across React Native 0.86–0.88, and any divergence fails the build. Anyone can run it (`bun run crosscheck`), and the full corpus with its current pass count is published in the [Fidelity Report](/guide/fidelity). On top of that, the full CI gate runs lint, typecheck, build, and the mock + native + hot suites across an OS × Node matrix.
-
-Pinned public apps are also run as **external integration observations**. They are useful tripwires,
-but their custom migration config, dependency changes, snapshots, and Jest-era shims mean their
-pass counts do not define vitest-native capability or fidelity. A change is reduced into a minimal
-package-owned test before it is classified. See the [validation model](/guide/validation-model).
-
-> **Beta.** Some APIs may still shift before 1.0. Maintained successor to [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native) — same core idea, rebuilt for Vitest 5.
-
-[Get started →](/guide/)
+Maintained successor to [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native).
