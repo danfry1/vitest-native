@@ -58,7 +58,8 @@ function createMockScreen(
       : typeof children === "function"
         ? children({ route, navigation: nav })
         : children;
-    return React.createElement(hostClass("Screen"),
+    return React.createElement(
+      hostClass("Screen"),
       { ...rest, ref },
       React.createElement(
         NavContext.Provider,
@@ -216,7 +217,11 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
         ],
         factory: () => {
           const NavigationContainer = React.forwardRef((props: any, ref: any) =>
-            React.createElement(hostClass("NavigationContainer"), { ...props, ref }, props.children),
+            React.createElement(
+              hostClass("NavigationContainer"),
+              { ...props, ref },
+              props.children,
+            ),
           );
           NavigationContainer.displayName = "NavigationContainer";
 
@@ -347,7 +352,11 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
           }
 
           const BaseNavigationContainer = React.forwardRef((props: any, ref: any) =>
-            React.createElement(hostClass("BaseNavigationContainer"), { ...props, ref }, props.children),
+            React.createElement(
+              hostClass("BaseNavigationContainer"),
+              { ...props, ref },
+              props.children,
+            ),
           );
           (BaseNavigationContainer as any).displayName = "BaseNavigationContainer";
 
@@ -475,7 +484,11 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
           function createNativeStackNavigator() {
             return {
               Navigator: React.forwardRef((props: any, ref: any) =>
-                React.createElement(hostClass("NativeStackNavigator"), { ...props, ref }, props.children),
+                React.createElement(
+                  hostClass("NativeStackNavigator"),
+                  { ...props, ref },
+                  props.children,
+                ),
               ),
               Screen,
               Group: React.forwardRef((props: any, ref: any) =>
@@ -497,7 +510,11 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
           function createBottomTabNavigator() {
             return {
               Navigator: React.forwardRef((props: any, ref: any) =>
-                React.createElement(hostClass("BottomTabNavigator"), { ...props, ref }, props.children),
+                React.createElement(
+                  hostClass("BottomTabNavigator"),
+                  { ...props, ref },
+                  props.children,
+                ),
               ),
               Screen,
               Group: React.forwardRef((props: any, ref: any) =>
@@ -519,7 +536,11 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
           function createDrawerNavigator() {
             return {
               Navigator: React.forwardRef((props: any, ref: any) =>
-                React.createElement(hostClass("DrawerNavigator"), { ...props, ref }, props.children),
+                React.createElement(
+                  hostClass("DrawerNavigator"),
+                  { ...props, ref },
+                  props.children,
+                ),
               ),
               Screen,
               Group: React.forwardRef((props: any, ref: any) =>

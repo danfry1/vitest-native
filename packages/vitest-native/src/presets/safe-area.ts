@@ -55,7 +55,11 @@ export function safeAreaContext(): Preset {
 
           // `initialMetrics` reaches the hooks through context, as in the library's mock.
           const SafeAreaProvider = React.forwardRef((props: any, ref: any) => {
-            const host = React.createElement(hostClass("SafeAreaProvider"), { ...props, ref }, props.children);
+            const host = React.createElement(
+              hostClass("SafeAreaProvider"),
+              { ...props, ref },
+              props.children,
+            );
             const metrics = props.initialMetrics;
             if (!metrics) return host;
             return React.createElement(

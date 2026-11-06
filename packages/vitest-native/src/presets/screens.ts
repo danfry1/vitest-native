@@ -94,7 +94,8 @@ export function screens(): Preset {
           // not a host prop on the real Screen either.
           const ScreenStackItem = React.forwardRef(
             ({ headerConfig, children, ...props }: any, ref: any) =>
-              React.createElement(hostClass("ScreenStackItem"),
+              React.createElement(
+                hostClass("ScreenStackItem"),
                 { ...props, ref },
                 children,
                 React.createElement(ScreenStackHeaderConfig, headerConfig),

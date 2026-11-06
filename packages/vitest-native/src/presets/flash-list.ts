@@ -87,7 +87,11 @@ export function flashList(): Preset {
           const FlashList = createFlashList("FlashList");
 
           const LayoutCommitObserver = React.forwardRef((props: any, ref: any) =>
-            React.createElement(hostClass("LayoutCommitObserver"), { ...props, ref }, props.children),
+            React.createElement(
+              hostClass("LayoutCommitObserver"),
+              { ...props, ref },
+              props.children,
+            ),
           );
           LayoutCommitObserver.displayName = "LayoutCommitObserver";
 

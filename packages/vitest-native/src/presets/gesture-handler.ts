@@ -66,7 +66,11 @@ export function gestureHandler(): Preset {
           }
 
           const GestureHandlerRootView = React.forwardRef((props: any, ref: any) =>
-            React.createElement(hostClass("GestureHandlerRootView"), { ...props, ref }, props.children),
+            React.createElement(
+              hostClass("GestureHandlerRootView"),
+              { ...props, ref },
+              props.children,
+            ),
           );
           GestureHandlerRootView.displayName = "GestureHandlerRootView";
 
